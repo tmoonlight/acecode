@@ -7,11 +7,18 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <algorithm>
+#include <sstream>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <io.h>
 #include <direct.h>
+#include <imm.h>
+#pragma comment(lib, "Imm32.lib")
 #else
 #include <unistd.h>
 #endif
@@ -19,6 +26,9 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#ifdef _WIN32
+#include <ftxui/screen/string.hpp>
+#endif
 
 #include "version.hpp"
 #include "config/config.hpp"
@@ -54,6 +64,214 @@ static void reset_cursor() {
     // DECTCEM: show cursor (ESC [ ? 25 h)
     std::cout << "\033[?25h" << std::flush;
 }
+
+#ifdef _WIN32
+static int max_int(int a, int b) {
+    return a > b ? a : b;
+}
+
+static std::string ptr_to_hex(const void* ptr) {
+    std::ostringstream oss;
+    oss << "0x" << std::hex << reinterpret_cast<uintptr_t>(ptr);
+    return oss.str();
+}
+
+static std::string dword_to_hex(DWORD value) {
+    std::ostringstream oss;
+    oss << "0x" << std::hex << value;
+    return oss.str();
+}
+
+static int clamp_int(int value, int low, int high) {
+    if (value < low) {
+        return low;
+    }
+    if (value > high) {
+        return high;
+    }
+    return value;
+}
+
+static int display_width_utf8(const std::string& text) {
+    return max_int(0, ftxui::string_width(text));
+}
+
+static HWND get_ime_target_window(HWND fallback_hwnd) {
+    HWND target = GetForegroundWindow();
+    if (!target) {
+        LOG_DEBUG("IME: GetForegroundWindow returned null, fallback=" + ptr_to_hex(fallback_hwnd));
+        return fallback_hwnd;
+    }
+
+    LOG_DEBUG("IME: foreground window=" + ptr_to_hex(target));
+
+    GUITHREADINFO gui_thread_info{};
+    gui_thread_info.cbSize = sizeof(gui_thread_info);
+
+    DWORD thread_id = GetWindowThreadProcessId(target, nullptr);
+    if (thread_id != 0 && GetGUIThreadInfo(thread_id, &gui_thread_info) && gui_thread_info.hwndFocus) {
+        LOG_DEBUG("IME: GUI thread focus window=" + ptr_to_hex(gui_thread_info.hwndFocus) +
+                  ", active=" + ptr_to_hex(gui_thread_info.hwndActive) +
+                  ", capture=" + ptr_to_hex(gui_thread_info.hwndCapture));
+        return gui_thread_info.hwndFocus;
+    }
+
+    LOG_DEBUG("IME: GetGUIThreadInfo unavailable, thread_id=" + std::to_string(thread_id) +
+              ", last_error=" + dword_to_hex(GetLastError()) +
+              ", using foreground window");
+
+    return target;
+}
+
+static void update_ime_composition_window(const std::string& input_text,
+                                          bool show_bottom_bar,
+                                          bool confirm_pending,
+                                          const std::string& confirm_tool_name) {
+    HWND hwnd = GetConsoleWindow();
+    if (!hwnd) {
+        LOG_WARN("IME: GetConsoleWindow returned null");
+        return;
+    }
+
+    HANDLE hconsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hconsole == INVALID_HANDLE_VALUE) {
+        LOG_WARN("IME: GetStdHandle(STD_OUTPUT_HANDLE) failed, last_error=" + dword_to_hex(GetLastError()));
+        return;
+    }
+
+    CONSOLE_SCREEN_BUFFER_INFO csbi{};
+    if (!GetConsoleScreenBufferInfo(hconsole, &csbi)) {
+        LOG_WARN("IME: GetConsoleScreenBufferInfo failed, last_error=" + dword_to_hex(GetLastError()));
+        return;
+    }
+
+    const int visible_cols = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    const int visible_rows = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+    if (visible_cols <= 0 || visible_rows <= 0) {
+        LOG_WARN("IME: invalid visible size, cols=" + std::to_string(visible_cols) +
+                 ", rows=" + std::to_string(visible_rows));
+        return;
+    }
+
+    // GetClientRect(GetConsoleWindow()) 在 Windows Terminal / VS 集成终端 / ConPTY 下
+    // 经常拿到的是一个伪控制台窗口，client rect 可能恒为 0。
+    // 这里优先使用控制台字体尺寸来计算单元格像素大小，不依赖 client rect。
+    int cell_width = 0;
+    int cell_height = 0;
+
+    CONSOLE_FONT_INFOEX cfi{};
+    cfi.cbSize = sizeof(cfi);
+    if (GetCurrentConsoleFontEx(hconsole, FALSE, &cfi)) {
+        cell_width = max_int(1, static_cast<int>(cfi.dwFontSize.X));
+        cell_height = max_int(1, static_cast<int>(cfi.dwFontSize.Y));
+        LOG_DEBUG("IME: font metrics width=" + std::to_string(cell_width) +
+                  ", height=" + std::to_string(cell_height));
+    } else {
+        RECT client{};
+        if (!GetClientRect(hwnd, &client)) {
+            LOG_WARN("IME: GetCurrentConsoleFontEx and GetClientRect both failed, font_error=" +
+                     dword_to_hex(GetLastError()));
+            return;
+        }
+
+        const int client_width = client.right - client.left;
+        const int client_height = client.bottom - client.top;
+        if (client_width <= 0 || client_height <= 0) {
+            LOG_WARN("IME: invalid client size, width=" + std::to_string(client_width) +
+                     ", height=" + std::to_string(client_height));
+            return;
+        }
+
+        cell_width = max_int(1, client_width / visible_cols);
+        cell_height = max_int(1, client_height / visible_rows);
+        LOG_DEBUG("IME: fallback client metrics width=" + std::to_string(cell_width) +
+                  ", height=" + std::to_string(cell_height));
+    }
+
+    const int border_padding = 2;
+    const int prefix_width = confirm_pending
+        ? display_width_utf8(" [" + confirm_tool_name + "] ") + display_width_utf8("Allow? (y/n): ")
+        : display_width_utf8(" > ");
+    const int available_cols = max_int(1, visible_cols - border_padding - prefix_width);
+
+    const int input_width = display_width_utf8(input_text);
+    const int wrapped_col = input_width % available_cols;
+    const int wrapped_row = input_width / available_cols;
+
+    const int prompt_bottom_row = max_int(0, visible_rows - 2 - (show_bottom_bar ? 1 : 0));
+    const int caret_col = clamp_int(1 + prefix_width + wrapped_col, 0, visible_cols - 1);
+    const int caret_row = clamp_int(prompt_bottom_row + wrapped_row, 0, visible_rows - 1);
+
+    LOG_DEBUG("IME: input='" + log_truncate(input_text, 120) +
+              "', confirm_pending=" + std::string(confirm_pending ? "true" : "false") +
+              ", show_bottom_bar=" + std::string(show_bottom_bar ? "true" : "false") +
+              ", console_hwnd=" + ptr_to_hex(hwnd) +
+              ", visible_cols=" + std::to_string(visible_cols) +
+              ", visible_rows=" + std::to_string(visible_rows) +
+              ", prefix_width=" + std::to_string(prefix_width) +
+              ", available_cols=" + std::to_string(available_cols) +
+              ", input_width=" + std::to_string(input_width) +
+              ", wrapped_col=" + std::to_string(wrapped_col) +
+              ", wrapped_row=" + std::to_string(wrapped_row) +
+              ", caret_col=" + std::to_string(caret_col) +
+              ", caret_row=" + std::to_string(caret_row) +
+              ", pixel_x=" + std::to_string(caret_col * cell_width) +
+              ", pixel_y=" + std::to_string(caret_row * cell_height));
+
+    COMPOSITIONFORM composition{};
+    composition.dwStyle = CFS_FORCE_POSITION;
+    composition.ptCurrentPos.x = caret_col * cell_width;
+    composition.ptCurrentPos.y = caret_row * cell_height;
+
+    CANDIDATEFORM candidate{};
+    candidate.dwIndex = 0;
+    candidate.dwStyle = CFS_CANDIDATEPOS;
+    candidate.ptCurrentPos.x = composition.ptCurrentPos.x;
+    candidate.ptCurrentPos.y = composition.ptCurrentPos.y + cell_height;
+
+    HWND ime_target = get_ime_target_window(hwnd);
+    HIMC himc = ImmGetContext(ime_target);
+    if (himc) {
+        const BOOL composition_ok = ImmSetCompositionWindow(himc, &composition);
+        const DWORD composition_error = GetLastError();
+        const BOOL candidate_ok = ImmSetCandidateWindow(himc, &candidate);
+        const DWORD candidate_error = GetLastError();
+        LOG_DEBUG("IME: ImmGetContext success, target=" + ptr_to_hex(ime_target) +
+                  ", himc=" + ptr_to_hex(himc) +
+                  ", ImmSetCompositionWindow=" + std::to_string(composition_ok) +
+                  ", comp_error=" + dword_to_hex(composition_error) +
+                  ", ImmSetCandidateWindow=" + std::to_string(candidate_ok) +
+                  ", cand_error=" + dword_to_hex(candidate_error));
+        ImmReleaseContext(ime_target, himc);
+        return;
+    }
+
+    LOG_WARN("IME: ImmGetContext returned null, target=" + ptr_to_hex(ime_target) +
+             ", last_error=" + dword_to_hex(GetLastError()));
+
+    HWND default_ime_window = ImmGetDefaultIMEWnd(ime_target);
+    if (!default_ime_window) {
+        LOG_WARN("IME: ImmGetDefaultIMEWnd returned null for target=" + ptr_to_hex(ime_target));
+        return;
+    }
+
+    const LRESULT composition_result = SendMessage(default_ime_window,
+                                                   WM_IME_CONTROL,
+                                                   IMC_SETCOMPOSITIONWINDOW,
+                                                   reinterpret_cast<LPARAM>(&composition));
+    const DWORD composition_send_error = GetLastError();
+    const LRESULT candidate_result = SendMessage(default_ime_window,
+                                                 WM_IME_CONTROL,
+                                                 IMC_SETCANDIDATEPOS,
+                                                 reinterpret_cast<LPARAM>(&candidate));
+    const DWORD candidate_send_error = GetLastError();
+    LOG_DEBUG("IME: default IME window=" + ptr_to_hex(default_ime_window) +
+              ", SendMessage(comp)=" + std::to_string(static_cast<long long>(composition_result)) +
+              ", comp_error=" + dword_to_hex(composition_send_error) +
+              ", SendMessage(cand)=" + std::to_string(static_cast<long long>(candidate_result)) +
+              ", cand_error=" + dword_to_hex(candidate_send_error));
+}
+#endif
 
 // ---- Shared TUI state ----
 struct TuiState {
@@ -163,7 +381,7 @@ int main() {
     Box chat_box;
 
     auto screen = ScreenInteractive::TerminalOutput();
-    screen.TrackMouse(true);
+    screen.TrackMouse(false);
     screen.ForceHandleCtrlC(false);
 
     auto clamp_chat_focus = [&]() {
@@ -359,15 +577,35 @@ int main() {
     });
 
     // ---- Input handling ----
-    // Custom input component using paragraph() for auto-wrapping at terminal edge
-    auto input_renderer = Renderer([&] {
+    // Custom input component using paragraph-like flexbox for auto-wrapping.
+    // Uses FTXUI's focusCursorBlock so the terminal cursor tracks the caret,
+    // which lets the terminal emulator position the IME composition window.
+    // NOTE: Renderer must take (bool) to be Focusable. This ensures
+    // component_active=true on the element, so the input's cursor always
+    // wins focus priority over message_view's | focus (which has
+    // component_active=false and cursor_shape=Hidden).
+    auto input_renderer = Renderer([&](bool) {
         std::string display_text = state.input_text;
         if (display_text.empty()) {
-            return paragraph("Type your prompt here...") | dim | color(Color::GrayDark);
+            return hbox({
+                text(" ") | focusCursorBar,
+                text("Type your prompt here...") | dim | color(Color::GrayDark),
+            });
         }
-        // Append block cursor
-        display_text += "\xE2\x96\x88"; // █
-        return paragraph(display_text) | focus;
+        // Build paragraph-like flexbox with FTXUI cursor at end
+        Elements words;
+        std::istringstream ss(display_text);
+        std::string word;
+        while (std::getline(ss, word, ' ')) {
+            words.push_back(text(word));
+        }
+        if (!words.empty()) {
+            words.back() = hbox({words.back(), text(" ") | focusCursorBlock});
+        } else {
+            words.push_back(text(" ") | focusCursorBlock);
+        }
+        static const auto config = FlexboxConfig().SetGap(1, 0);
+        return flexbox(std::move(words), config);
     });
 
     // Wrap with CatchEvent to handle all keyboard input
@@ -702,6 +940,12 @@ int main() {
                 filler(),
             });
         }
+
+        // IME composition window positioning is handled by FTXUI's cursor
+        // system (focusCursorBlock) which emits ANSI sequences to place the
+        // terminal cursor at the caret. Windows Terminal/ConPTY uses this
+        // to position the IME window. The Win32 IME APIs (ImmSetComposition
+        // Window) don't work under ConPTY.
 
         return vbox({
             header,

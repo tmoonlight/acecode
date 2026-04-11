@@ -1,5 +1,6 @@
 #include "bash_tool.hpp"
 #include "utils/logger.hpp"
+#include "utils/encoding.hpp"
 #include <nlohmann/json.hpp>
 #include <string>
 #include <chrono>
@@ -135,6 +136,7 @@ static ToolResult execute_bash(const std::string& arguments_json) {
                 output = "[Output truncated, showing last 100KB]\n" +
                     output.substr(output.size() - MAX_OUTPUT_SIZE);
             }
+            output = ensure_utf8(output);
             return ToolResult{output + "\n[Error] Command timed out after " +
                 std::to_string(timeout_ms / 1000) + " seconds.", false};
         }
@@ -228,6 +230,7 @@ static ToolResult execute_bash(const std::string& arguments_json) {
             output = "[Output truncated, showing last 100KB]\n" +
                 output.substr(output.size() - MAX_OUTPUT_SIZE);
         }
+        output = ensure_utf8(output);
         return ToolResult{output + "\n[Error] Command timed out after " +
             std::to_string(timeout_ms / 1000) + " seconds.", false};
     }
@@ -242,6 +245,9 @@ static ToolResult execute_bash(const std::string& arguments_json) {
     if (output.empty()) {
         output = "(no output)";
     }
+
+    // Ensure output is valid UTF-8 (Windows cmd outputs in system codepage like GBK)
+    output = ensure_utf8(output);
 
     return ToolResult{output, exit_code == 0};
 }

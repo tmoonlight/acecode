@@ -1,5 +1,6 @@
 #include "tool_executor.hpp"
 #include "utils/logger.hpp"
+#include "utils/encoding.hpp"
 #include <sstream>
 
 namespace acecode {
@@ -47,7 +48,7 @@ std::string ToolExecutor::generate_tools_prompt() const {
 ChatMessage ToolExecutor::format_tool_result(const std::string& tool_call_id, const ToolResult& result) {
     ChatMessage msg;
     msg.role = "tool";
-    msg.content = result.output;
+    msg.content = ensure_utf8(result.output);
     msg.tool_call_id = tool_call_id;
     return msg;
 }
