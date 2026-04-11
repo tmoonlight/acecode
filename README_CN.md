@@ -11,6 +11,7 @@
 
 基于 C++17 的终端 AI 编程助手。通过 [FTXUI](https://github.com/ArthurSonzogni/FTXUI) 提供交互式 TUI 界面，支持 OpenAI 兼容 API 和 GitHub Copilot 的tool-use。
 
+![ACE Code](https://2017studio.oss-cn-beijing.aliyuncs.com/acecode.jpg)
 ## 特性
 
 - **交互式 TUI** -- 基于 FTXUI 的终端界面，支持流式响应、输入历史和鼠标操作
