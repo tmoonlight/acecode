@@ -276,7 +276,7 @@ ToolImpl create_bash_tool() {
         {"required", nlohmann::json::array({"command"})}
     });
 
-    return ToolImpl{def, execute_bash};
+    return ToolImpl{def, execute_bash, /*is_read_only=*/false};
 }
 
 } // namespace acecode

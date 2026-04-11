@@ -95,7 +95,7 @@ ToolImpl create_file_write_tool() {
         {"required", nlohmann::json::array({"file_path", "content"})}
     });
 
-    return ToolImpl{def, execute_file_write};
+    return ToolImpl{def, execute_file_write, /*is_read_only=*/false};
 }
 
 } // namespace acecode

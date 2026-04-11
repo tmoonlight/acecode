@@ -105,7 +105,7 @@ ToolImpl create_file_read_tool() {
         {"required", nlohmann::json::array({"file_path"})}
     });
 
-    return ToolImpl{def, execute_file_read};
+    return ToolImpl{def, execute_file_read, /*is_read_only=*/true};
 }
 
 } // namespace acecode

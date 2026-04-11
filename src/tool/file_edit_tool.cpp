@@ -121,7 +121,7 @@ ToolImpl create_file_edit_tool() {
         {"required", nlohmann::json::array({"file_path", "old_string", "new_string"})}
     });
 
-    return ToolImpl{def, execute_file_edit};
+    return ToolImpl{def, execute_file_edit, /*is_read_only=*/false};
 }
 
 } // namespace acecode

@@ -19,6 +19,7 @@ struct ToolResult {
 struct ToolImpl {
     ToolDef definition;
     std::function<ToolResult(const std::string& arguments_json)> execute;
+    bool is_read_only = false; // Read-only tools are auto-approved without user confirmation
 };
 
 class ToolExecutor {
@@ -33,6 +34,9 @@ public:
 
     // Check if a tool is registered
     bool has_tool(const std::string& name) const;
+
+    // Check if a tool is read-only (auto-approved)
+    bool is_read_only(const std::string& name) const;
 
     // Generate a formatted description of all registered tools for system prompt
     std::string generate_tools_prompt() const;

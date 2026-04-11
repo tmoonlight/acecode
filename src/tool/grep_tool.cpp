@@ -153,7 +153,7 @@ ToolImpl create_grep_tool() {
         {"required", nlohmann::json::array({"pattern"})}
     });
 
-    return ToolImpl{def, execute_grep};
+    return ToolImpl{def, execute_grep, /*is_read_only=*/true};
 }
 
 } // namespace acecode

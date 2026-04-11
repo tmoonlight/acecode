@@ -3,15 +3,20 @@
 #include "utils/logger.hpp"
 #include <nlohmann/json.hpp>
 #include <mutex>
+#include <future>
+#include <algorithm>
+#include <thread>
 
 namespace acecode {
 
 AgentLoop::AgentLoop(LlmProvider& provider, ToolExecutor& tools, AgentCallbacks callbacks,
-                     const std::string& cwd)
+                     const std::string& cwd, PermissionManager& permissions)
     : provider_(provider)
     , tools_(tools)
     , callbacks_(std::move(callbacks))
     , cwd_(cwd)
+    , permissions_(permissions)
+    , path_validator_(cwd, permissions.is_dangerous())
 {
 }
 
@@ -136,47 +141,207 @@ void AgentLoop::submit(const std::string& user_message) {
         // Record the assistant message with tool_calls in the history
         messages_.push_back(ToolExecutor::format_assistant_tool_calls(accumulated));
 
-        // Execute each tool call individually, reporting result after each
+        // Partition tool calls into read-only (parallelizable) and write (serial) groups
         LOG_INFO("Processing " + std::to_string(accumulated.tool_calls.size()) + " tool calls");
-        for (const auto& tc : accumulated.tool_calls) {
+
+        struct ToolCallEntry {
+            size_t original_index;
+            const ToolCall* tc;
+            bool is_read_only;
+        };
+
+        std::vector<ToolCallEntry> read_entries, write_entries;
+        for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
+            const auto& tc = accumulated.tool_calls[i];
+            bool ro = tools_.is_read_only(tc.function_name);
+            ToolCallEntry entry{i, &tc, ro};
+            if (ro) {
+                read_entries.push_back(entry);
+            } else {
+                write_entries.push_back(entry);
+            }
+        }
+
+        LOG_INFO("Partitioned: " + std::to_string(read_entries.size()) + " read-only, " +
+                 std::to_string(write_entries.size()) + " write");
+
+        // Results array indexed by original position
+        std::vector<ToolResult> results(accumulated.tool_calls.size());
+        std::vector<bool> result_ready(accumulated.tool_calls.size(), false);
+
+        // Helper: extract context from a tool call
+        auto extract_context = [](const ToolCall& tc, std::string& ctx_path, std::string& ctx_command) {
+            try {
+                auto args_json = nlohmann::json::parse(tc.function_arguments);
+                if (args_json.contains("file_path") && args_json["file_path"].is_string()) {
+                    ctx_path = args_json["file_path"].get<std::string>();
+                } else if (args_json.contains("path") && args_json["path"].is_string()) {
+                    ctx_path = args_json["path"].get<std::string>();
+                } else if (args_json.contains("pattern") && args_json["pattern"].is_string()) {
+                    ctx_path = args_json["pattern"].get<std::string>();
+                }
+                if (args_json.contains("command") && args_json["command"].is_string()) {
+                    ctx_command = args_json["command"].get<std::string>();
+                }
+            } catch (...) {}
+        };
+
+        // Helper: execute a single tool (for both parallel and serial use)
+        auto execute_single_tool = [this](const std::string& tool_name,
+                                          const std::string& tool_args,
+                                          const std::string& ctx_path) -> ToolResult {
+            // Path safety validation (for file tools, not bash)
+            if (!ctx_path.empty() && tool_name != "bash") {
+                std::string path_error = path_validator_.validate(ctx_path);
+                if (!path_error.empty()) {
+                    LOG_WARN("Path validation failed: " + path_error);
+                    return ToolResult{"[Error] " + path_error, false};
+                }
+            }
+
+            // Execute the tool
+            if (tools_.has_tool(tool_name)) {
+                LOG_DEBUG("Executing tool: " + tool_name);
+                try {
+                    ToolResult result = tools_.execute(tool_name, tool_args);
+                    LOG_INFO("Tool result: success=" + std::string(result.success ? "true" : "false") +
+                             " output=" + log_truncate(result.output, 300));
+                    return result;
+                } catch (const std::exception& e) {
+                    LOG_ERROR("Tool execution error: " + std::string(e.what()));
+                    return ToolResult{"[Error] Tool execution failed: " + std::string(e.what()), false};
+                }
+            } else {
+                LOG_WARN("Unknown tool: " + tool_name);
+                return ToolResult{"Unknown tool: " + tool_name, false};
+            }
+        };
+
+        // Phase 1: Execute read-only tools in parallel
+        if (!read_entries.empty() && !abort_requested_) {
+            // Notify TUI about all read-only tool calls
+            for (const auto& entry : read_entries) {
+                if (callbacks_.on_message) {
+                    callbacks_.on_message("tool_call",
+                        "[Tool: " + entry.tc->function_name + "] " + entry.tc->function_arguments, true);
+                }
+            }
+
+            unsigned int max_concurrency = std::min(
+                static_cast<unsigned int>(4),
+                std::max(static_cast<unsigned int>(1), std::thread::hardware_concurrency()));
+
+            LOG_DEBUG("Parallel execution with max_concurrency=" + std::to_string(max_concurrency));
+
+            // Launch async tasks in batches respecting concurrency limit
+            size_t i = 0;
+            while (i < read_entries.size() && !abort_requested_) {
+                size_t batch_end = std::min(i + max_concurrency, read_entries.size());
+                std::vector<std::future<ToolResult>> futures;
+
+                for (size_t j = i; j < batch_end; ++j) {
+                    const auto& entry = read_entries[j];
+                    std::string t_name = entry.tc->function_name;
+                    std::string t_args = entry.tc->function_arguments;
+                    std::string t_path;
+                    std::string t_cmd;
+                    extract_context(*entry.tc, t_path, t_cmd);
+                    futures.push_back(std::async(std::launch::async,
+                        [&execute_single_tool, t_name, t_args, t_path]() {
+                            return execute_single_tool(t_name, t_args, t_path);
+                        }));
+                }
+
+                for (size_t j = 0; j < futures.size(); ++j) {
+                    size_t idx = read_entries[i + j].original_index;
+                    try {
+                        results[idx] = futures[j].get();
+                    } catch (const std::exception& e) {
+                        results[idx] = ToolResult{"[Error] " + std::string(e.what()), false};
+                    }
+                    result_ready[idx] = true;
+
+                    // Report result to TUI
+                    if (callbacks_.on_message) {
+                        callbacks_.on_message("tool_result", results[idx].output, true);
+                    }
+                }
+
+                i = batch_end;
+            }
+        }
+
+        // Phase 2: Execute write tools sequentially (with permission checks)
+        for (const auto& entry : write_entries) {
             if (abort_requested_) break;
 
-            LOG_INFO("Tool call: " + tc.function_name + " id=" + tc.id + " args=" + log_truncate(tc.function_arguments, 300));
-            // Notify TUI about the tool call
+            const auto& tc = *entry.tc;
+            LOG_INFO("Tool call (write): " + tc.function_name + " id=" + tc.id);
+
             if (callbacks_.on_message) {
                 callbacks_.on_message("tool_call",
                     "[Tool: " + tc.function_name + "] " + tc.function_arguments, true);
             }
 
-            // Ask for user confirmation
-            if (callbacks_.on_tool_confirm) {
-                bool approved = callbacks_.on_tool_confirm(tc.function_name, tc.function_arguments);
-                if (!approved) {
-                    ToolResult denied_result{"[User denied tool execution]", false};
-                    messages_.push_back(ToolExecutor::format_tool_result(tc.id, denied_result));
+            std::string ctx_path, ctx_command;
+            extract_context(tc, ctx_path, ctx_command);
+
+            bool auto_allow = permissions_.should_auto_allow(tc.function_name, false, ctx_path, ctx_command);
+
+            // Path safety validation
+            if (!ctx_path.empty() && tc.function_name != "bash") {
+                std::string path_error = path_validator_.validate(ctx_path);
+                if (!path_error.empty()) {
+                    LOG_WARN("Path validation failed: " + path_error);
+                    results[entry.original_index] = ToolResult{"[Error] " + path_error, false};
+                    result_ready[entry.original_index] = true;
+                    if (callbacks_.on_message) {
+                        callbacks_.on_message("tool_result", results[entry.original_index].output, true);
+                    }
+                    continue;
+                }
+
+                // Dangerous path: force confirmation even in Yolo mode (unless -dangerous)
+                if (path_validator_.is_dangerous_path(ctx_path) && auto_allow && !permissions_.is_dangerous()) {
+                    LOG_INFO("Dangerous path detected, forcing confirmation: " + ctx_path);
+                    auto_allow = false;
+                }
+            }
+
+            if (!auto_allow && callbacks_.on_tool_confirm) {
+                PermissionResult perm = callbacks_.on_tool_confirm(tc.function_name, tc.function_arguments);
+                if (perm == PermissionResult::Deny) {
+                    results[entry.original_index] = ToolResult{"[User denied tool execution]", false};
+                    result_ready[entry.original_index] = true;
                     if (callbacks_.on_message) {
                         callbacks_.on_message("tool_result", "[User denied tool execution]", true);
                     }
                     continue;
                 }
+                if (perm == PermissionResult::AlwaysAllow) {
+                    permissions_.add_session_allow(tc.function_name);
+                }
             }
 
-            // Execute the tool
-            ToolResult result;
-            if (tools_.has_tool(tc.function_name)) {
-                LOG_DEBUG("Executing tool: " + tc.function_name);
-                result = tools_.execute(tc.function_name, tc.function_arguments);
-                LOG_INFO("Tool result: success=" + std::string(result.success ? "true" : "false") + " output=" + log_truncate(result.output, 300));
-            } else {
-                LOG_WARN("Unknown tool: " + tc.function_name);
-                result = ToolResult{"Unknown tool: " + tc.function_name, false};
-            }
-
-            // Record tool result in conversation and notify TUI immediately
-            messages_.push_back(ToolExecutor::format_tool_result(tc.id, result));
+            std::string exec_path, exec_cmd;
+            extract_context(tc, exec_path, exec_cmd);
+            results[entry.original_index] = execute_single_tool(tc.function_name, tc.function_arguments, exec_path);
+            result_ready[entry.original_index] = true;
 
             if (callbacks_.on_message) {
-                callbacks_.on_message("tool_result", result.output, true);
+                callbacks_.on_message("tool_result", results[entry.original_index].output, true);
+            }
+        }
+
+        // Phase 3: Record all results in original order
+        for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
+            const auto& tc = accumulated.tool_calls[i];
+            if (result_ready[i]) {
+                messages_.push_back(ToolExecutor::format_tool_result(tc.id, results[i]));
+            } else {
+                // Tool was skipped (abort)
+                messages_.push_back(ToolExecutor::format_tool_result(tc.id,
+                    ToolResult{"[Interrupted]", false}));
             }
         }
 

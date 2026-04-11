@@ -182,7 +182,7 @@ ToolImpl create_glob_tool() {
         {"required", nlohmann::json::array({"pattern"})}
     });
 
-    return ToolImpl{def, execute_glob};
+    return ToolImpl{def, execute_glob, /*is_read_only=*/true};
 }
 
 } // namespace acecode

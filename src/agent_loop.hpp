@@ -2,6 +2,8 @@
 
 #include "provider/llm_provider.hpp"
 #include "tool/tool_executor.hpp"
+#include "permissions.hpp"
+#include "utils/path_validator.hpp"
 
 #include <vector>
 #include <string>
@@ -20,8 +22,8 @@ struct AgentCallbacks {
     std::function<void(bool busy)> on_busy_changed;
 
     // Called to request user confirmation for a tool call.
-    // Returns true if user approves, false if denied.
-    std::function<bool(const std::string& tool_name, const std::string& arguments)> on_tool_confirm;
+    // Returns: Allow, Deny, or AlwaysAllow
+    std::function<PermissionResult(const std::string& tool_name, const std::string& arguments)> on_tool_confirm;
 
     // Called for each streaming delta token (real-time TUI update)
     std::function<void(const std::string& token)> on_delta;
@@ -30,7 +32,7 @@ struct AgentCallbacks {
 class AgentLoop {
 public:
     AgentLoop(LlmProvider& provider, ToolExecutor& tools, AgentCallbacks callbacks,
-              const std::string& cwd);
+              const std::string& cwd, PermissionManager& permissions);
 
     void set_callbacks(AgentCallbacks cb);
 
@@ -53,6 +55,8 @@ private:
     std::vector<ChatMessage> messages_;
     std::atomic<bool> abort_requested_{false};
     std::string cwd_;
+    PermissionManager& permissions_;
+    PathValidator path_validator_;
 };
 
 } // namespace acecode

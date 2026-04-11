@@ -34,6 +34,11 @@ bool ToolExecutor::has_tool(const std::string& name) const {
     return tools_.find(name) != tools_.end();
 }
 
+bool ToolExecutor::is_read_only(const std::string& name) const {
+    auto it = tools_.find(name);
+    return it != tools_.end() && it->second.is_read_only;
+}
+
 std::string ToolExecutor::generate_tools_prompt() const {
     std::ostringstream oss;
     for (const auto& [name, impl] : tools_) {

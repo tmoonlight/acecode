@@ -42,6 +42,7 @@
 #include "tool/grep_tool.hpp"
 #include "tool/glob_tool.hpp"
 #include "utils/logger.hpp"
+#include "permissions.hpp"
 #include "agent_loop.hpp"
 
 using namespace ftxui;
@@ -190,7 +191,7 @@ static void update_ime_composition_window(const std::string& input_text,
 
     const int border_padding = 2;
     const int prefix_width = confirm_pending
-        ? display_width_utf8(" [" + confirm_tool_name + "] ") + display_width_utf8("Allow? (y/n): ")
+        ? display_width_utf8(" [" + confirm_tool_name + "] ") + display_width_utf8("yes / always / no: ")
         : display_width_utf8(" > ");
     const int available_cols = max_int(1, visible_cols - border_padding - prefix_width);
 
@@ -298,7 +299,7 @@ struct TuiState {
     bool confirm_pending = false;
     std::string confirm_tool_name;
     std::string confirm_tool_args;
-    bool confirm_result = false;
+    PermissionResult confirm_result = PermissionResult::Deny;
     std::condition_variable confirm_cv;
 
     int chat_focus_index = -1;
@@ -309,7 +310,7 @@ struct TuiState {
     std::mutex mu;
 };
 
-int main() {
+int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
@@ -318,6 +319,15 @@ int main() {
     // Without this, a malicious exe placed in cwd could hijack system commands.
     SetEnvironmentVariableA("NoDefaultCurrentDirectoryInExePath", "1");
 #endif
+
+    // ---- Parse CLI arguments ----
+    bool dangerous_mode = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg(argv[i]);
+        if (arg == "-dangerous" || arg == "--dangerous") {
+            dangerous_mode = true;
+        }
+    }
 
     // ---- Ensure cursor is restored on exit ----
     std::atexit(reset_cursor);
@@ -375,6 +385,12 @@ int main() {
     // Version and working directory strings for TUI header
     std::string version_str = "acecode v" ACECODE_VERSION;
     std::string cwd_display = working_dir;
+
+    // If dangerous mode, show startup warning
+    if (dangerous_mode) {
+        state.conversation.push_back({"system",
+            "[DANGEROUS MODE] All permission checks are bypassed. Use with caution!", false});
+    }
 
     // Animation tick for Thinking... indicator
     std::atomic<int> anim_tick{0};
@@ -516,7 +532,7 @@ int main() {
         state.is_waiting = busy;
         screen.PostEvent(Event::Custom);
     };
-    callbacks.on_tool_confirm = [&](const std::string& tool_name, const std::string& args) -> bool {
+    callbacks.on_tool_confirm = [&](const std::string& tool_name, const std::string& args) -> PermissionResult {
         {
             std::lock_guard<std::mutex> lk(state.mu);
             state.confirm_pending = true;
@@ -525,7 +541,7 @@ int main() {
         }
         screen.PostEvent(Event::Custom);
 
-        // Block the agent thread until the user presses y/n in the TUI
+        // Block the agent thread until the user responds in the TUI
         std::unique_lock<std::mutex> lk(state.mu);
         state.confirm_cv.wait(lk, [&] { return !state.confirm_pending; });
         return state.confirm_result;
@@ -543,7 +559,20 @@ int main() {
         screen.PostEvent(Event::Custom);
     };
 
-    AgentLoop agent_loop(*provider, tools, callbacks, working_dir);
+    PermissionManager permissions;
+    if (dangerous_mode) {
+        permissions.set_dangerous(true);
+        permissions.set_mode(PermissionMode::Yolo);
+    }
+
+    // Register built-in safety rules (deny writes to sensitive files/dirs)
+    permissions.add_rule({"file_write", "*.env", "", RuleAction::Deny, 100});
+    permissions.add_rule({"file_edit", "*.env", "", RuleAction::Deny, 100});
+    permissions.add_rule({"file_write", ".git/**", "", RuleAction::Deny, 100});
+    permissions.add_rule({"file_edit", ".git/**", "", RuleAction::Deny, 100});
+    permissions.add_rule({"bash", "", "rm -rf /", RuleAction::Deny, 100});
+
+    AgentLoop agent_loop(*provider, tools, callbacks, working_dir, permissions);
 
     // Now that agent_loop exists, update on_busy_changed to drain pending queue
     callbacks.on_busy_changed = [&](bool busy) {
@@ -640,12 +669,17 @@ int main() {
         if (event == Event::Return) {
             std::lock_guard<std::mutex> lk(state.mu);
 
-            // Handle tool confirmation y/n
+            // Handle tool confirmation: y=allow, a=always allow, n/other=deny
             if (state.confirm_pending) {
                 std::string answer = state.input_text;
                 state.input_text.clear();
-                bool approved = (!answer.empty() && (answer[0] == 'y' || answer[0] == 'Y'));
-                state.confirm_result = approved;
+                if (!answer.empty() && (answer[0] == 'y' || answer[0] == 'Y')) {
+                    state.confirm_result = PermissionResult::Allow;
+                } else if (!answer.empty() && (answer[0] == 'a' || answer[0] == 'A')) {
+                    state.confirm_result = PermissionResult::AlwaysAllow;
+                } else {
+                    state.confirm_result = PermissionResult::Deny;
+                }
                 state.confirm_pending = false;
                 state.confirm_cv.notify_one();
                 return true;
@@ -711,10 +745,31 @@ int main() {
         }
         if (event == Event::Escape) {
             std::lock_guard<std::mutex> lk(state.mu);
+            if (state.confirm_pending) {
+                // Escape during confirm → deny
+                state.input_text.clear();
+                state.confirm_result = PermissionResult::Deny;
+                state.confirm_pending = false;
+                state.confirm_cv.notify_one();
+                return true;
+            }
             if (state.is_waiting) {
                 agent_loop.cancel();
                 return true;
             }
+        }
+        // Ctrl+P: cycle permission mode
+        if (event == Event::Special(std::string(1, '\x10'))) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (!state.is_waiting && !state.confirm_pending) {
+                auto new_mode = permissions.cycle_mode();
+                state.conversation.push_back({"system",
+                    std::string("Permission mode: ") + PermissionManager::mode_name(new_mode) +
+                    " - " + PermissionManager::mode_description(new_mode), false});
+                clamp_chat_focus();
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
         }
         if (event.is_mouse()) {
             std::lock_guard<std::mutex> lk(state.mu);
@@ -918,7 +973,12 @@ int main() {
         if (state.confirm_pending) {
             prompt_line = hbox({
                 text(" [" + state.confirm_tool_name + "] ") | bold | color(Color::Magenta),
-                text("Allow? (y/n): ") | color(Color::MagentaLight),
+                text("y") | bold | color(Color::Green),
+                text("es / ") | color(Color::MagentaLight),
+                text("a") | bold | color(Color::Cyan),
+                text("lways / ") | color(Color::MagentaLight),
+                text("n") | bold | color(Color::Red),
+                text("o: ") | color(Color::MagentaLight),
                 input_with_esc->Render(),
             });
         } else {
@@ -933,11 +993,25 @@ int main() {
         }
 
         // -- Bottom status bar --
-        Element bottom_bar = text("");
-        if (state.is_waiting) {
+        std::string perm_mode_str = std::string("mode: ") + PermissionManager::mode_name(permissions.mode());
+        Element bottom_bar;
+        if (dangerous_mode) {
+            bottom_bar = hbox({
+                text("  [DANGEROUS MODE]") | bold | color(Color::Red),
+                filler(),
+                text(perm_mode_str + "  ") | dim | color(Color::GrayDark),
+            });
+        } else if (state.is_waiting) {
             bottom_bar = hbox({
                 text("  esc to interrupt") | dim | color(Color::GrayDark),
                 filler(),
+                text(perm_mode_str + "  ") | dim | color(Color::GrayDark),
+            });
+        } else {
+            bottom_bar = hbox({
+                text("  ctrl+p: cycle permission mode") | dim | color(Color::GrayDark),
+                filler(),
+                text(perm_mode_str + "  ") | dim | color(Color::GrayDark),
             });
         }
 
