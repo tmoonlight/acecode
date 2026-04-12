@@ -1,6 +1,7 @@
 #include "openai_provider.hpp"
 #include "utils/logger.hpp"
 #include <cpr/cpr.h>
+#include <cpr/ssl_options.h>
 #include <stdexcept>
 #include <sstream>
 #include <map>
@@ -21,6 +22,7 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
     body["model"] = model_;
     if (stream) {
         body["stream"] = true;
+        body["stream_options"] = {{"include_usage", true}};
     }
 
     // Build messages array
@@ -115,6 +117,7 @@ ChatResponse OpenAiCompatProvider::chat(
         cpr::Url{url},
         headers,
         cpr::Body{body.dump()},
+        cpr::Ssl(cpr::ssl::NoRevoke{true}),
         cpr::Timeout{120000} // 2 minutes timeout for LLM responses
     );
 
@@ -134,7 +137,16 @@ ChatResponse OpenAiCompatProvider::chat(
 
     try {
         nlohmann::json response_json = nlohmann::json::parse(r.text);
-        return parse_response(response_json);
+        auto resp = parse_response(response_json);
+        // Parse usage from non-streaming response
+        if (response_json.contains("usage") && response_json["usage"].is_object()) {
+            const auto& u = response_json["usage"];
+            resp.usage.prompt_tokens = u.value("prompt_tokens", 0);
+            resp.usage.completion_tokens = u.value("completion_tokens", 0);
+            resp.usage.total_tokens = u.value("total_tokens", 0);
+            resp.usage.has_data = true;
+        }
+        return resp;
     } catch (const nlohmann::json::parse_error& e) {
         ChatResponse resp;
         resp.content = "[Error] Failed to parse response JSON: " + std::string(e.what());
@@ -173,12 +185,12 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         headers[k] = v;
     }
 
-    auto write_cb = cpr::WriteCallback{[&](const std::string& data, intptr_t) -> bool {
+    auto write_cb = cpr::WriteCallback{[&](const std::string_view data, intptr_t) -> bool {
         if (abort_flag && abort_flag->load()) {
             return false; // cancel request
         }
 
-        sse_buffer += data;
+        sse_buffer += std::string(data);
 
         // Process complete SSE events (separated by \n\n)
         size_t pos;
@@ -219,6 +231,14 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
                 }
                 pending_tools.clear();
 
+                // Emit usage event if we collected any
+                if (accumulated.usage.has_data) {
+                    StreamEvent usage_evt;
+                    usage_evt.type = StreamEventType::Usage;
+                    usage_evt.usage = accumulated.usage;
+                    callback(usage_evt);
+                }
+
                 StreamEvent done_evt;
                 done_evt.type = StreamEventType::Done;
                 callback(done_evt);
@@ -227,6 +247,16 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
 
             try {
                 auto j = nlohmann::json::parse(event_data);
+
+                // Parse usage from SSE chunk (typically in the final chunk)
+                if (j.contains("usage") && j["usage"].is_object()) {
+                    const auto& u = j["usage"];
+                    accumulated.usage.prompt_tokens = u.value("prompt_tokens", 0);
+                    accumulated.usage.completion_tokens = u.value("completion_tokens", 0);
+                    accumulated.usage.total_tokens = u.value("total_tokens", 0);
+                    accumulated.usage.has_data = true;
+                }
+
                 if (!j.contains("choices") || j["choices"].empty()) continue;
 
                 const auto& choice = j["choices"][0];
@@ -297,6 +327,7 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         cpr::Url{url},
         headers,
         cpr::Body{body.dump()},
+        cpr::Ssl(cpr::ssl::NoRevoke{true}),
         cpr::Timeout{180000},
         write_cb
     );

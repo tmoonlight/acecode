@@ -1,6 +1,7 @@
 #include "copilot_provider.hpp"
 #include "utils/logger.hpp"
 #include <cpr/cpr.h>
+#include <cpr/ssl_options.h>
 #include <ctime>
 #include <map>
 
@@ -98,6 +99,7 @@ ChatResponse CopilotProvider::chat(
         cpr::Url{COPILOT_CHAT_URL},
         headers,
         cpr::Body{body.dump()},
+        cpr::Ssl(cpr::ssl::NoRevoke{true}),
         cpr::Timeout{120000}
     );
 
@@ -117,6 +119,7 @@ ChatResponse CopilotProvider::chat(
                 cpr::Url{COPILOT_CHAT_URL},
                 headers,
                 cpr::Body{body.dump()},
+                cpr::Ssl(cpr::ssl::NoRevoke{true}),
                 cpr::Timeout{120000}
             );
         }

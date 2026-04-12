@@ -25,10 +25,18 @@ struct ToolCall {
     std::string function_arguments; // raw JSON string
 };
 
+struct TokenUsage {
+    int prompt_tokens = 0;
+    int completion_tokens = 0;
+    int total_tokens = 0;
+    bool has_data = false; // true if server returned usage info
+};
+
 struct ChatResponse {
     std::string content;               // text reply (empty if tool_calls present)
     std::vector<ToolCall> tool_calls;  // empty if pure text reply
     std::string finish_reason;         // "stop", "tool_calls", etc.
+    TokenUsage usage;
 
     bool has_tool_calls() const { return !tool_calls.empty(); }
 };
@@ -40,13 +48,14 @@ struct ToolDef {
 };
 
 // Streaming event types for chat_stream()
-enum class StreamEventType { Delta, ToolCall, Done, Error };
+enum class StreamEventType { Delta, ToolCall, Done, Error, Usage };
 
 struct StreamEvent {
     StreamEventType type;
     std::string content;        // Delta: token fragment
     ToolCall tool_call;         // ToolCall: complete tool call
     std::string error;          // Error: description
+    TokenUsage usage;           // Usage: token counts from server
 };
 
 using StreamCallback = std::function<void(const StreamEvent&)>;
@@ -70,6 +79,9 @@ public:
 
     virtual std::string name() const = 0;
     virtual bool is_authenticated() = 0;
+
+    virtual std::string model() const = 0;
+    virtual void set_model(const std::string& m) = 0;
 
     virtual bool authenticate() { return true; }
 };

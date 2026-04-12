@@ -1,6 +1,7 @@
 #include "agent_loop.hpp"
 #include "prompt/system_prompt.hpp"
 #include "utils/logger.hpp"
+#include "commands/compact.hpp"
 #include <nlohmann/json.hpp>
 #include <mutex>
 #include <future>
@@ -60,6 +61,14 @@ void AgentLoop::submit(const std::string& user_message) {
             break;
         }
 
+        // Auto-compact check: if estimated tokens exceed 80% of context window
+        if (should_auto_compact(messages_, context_window_)) {
+            LOG_INFO("Auto-compact triggered: estimated tokens exceed 80% of context window (" + std::to_string(context_window_) + ")");
+            if (callbacks_.on_auto_compact) {
+                callbacks_.on_auto_compact();
+            }
+        }
+
         // Build system prompt each turn (dynamic: includes current tools and CWD)
         std::string system_prompt = build_system_prompt(tools_, cwd_);
         LOG_DEBUG("System prompt length: " + std::to_string(system_prompt.size()));
@@ -95,6 +104,11 @@ void AgentLoop::submit(const std::string& user_message) {
                 }
                 break;
             case StreamEventType::Done:
+                break;
+            case StreamEventType::Usage:
+                if (callbacks_.on_usage) {
+                    callbacks_.on_usage(evt.usage);
+                }
                 break;
             case StreamEventType::Error:
                 if (callbacks_.on_message) {

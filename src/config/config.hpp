@@ -19,6 +19,7 @@ struct AppConfig {
     std::string provider = "copilot"; // "copilot" or "openai"
     OpenAiConfig openai;
     CopilotConfig copilot;
+    int context_window = 128000; // model context window size in tokens
 };
 
 // Load config from ~/.acecode/config.json, with env var overrides.

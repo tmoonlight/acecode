@@ -1,0 +1,48 @@
+#pragma once
+
+#include "../tui_state.hpp"
+#include "../agent_loop.hpp"
+#include "../provider/llm_provider.hpp"
+#include "../config/config.hpp"
+#include "../utils/token_tracker.hpp"
+
+#include <string>
+#include <map>
+#include <vector>
+#include <functional>
+
+namespace acecode {
+
+struct CommandContext {
+    TuiState& state;
+    AgentLoop& agent_loop;
+    LlmProvider& provider;
+    AppConfig& config;
+    TokenTracker& token_tracker;
+    PermissionManager& permissions;
+    int context_window;
+    std::function<void()> request_exit;
+};
+
+struct SlashCommand {
+    std::string name;
+    std::string description;
+    std::function<void(CommandContext& ctx, const std::string& args)> execute;
+};
+
+class CommandRegistry {
+public:
+    void register_command(const SlashCommand& cmd);
+
+    // Dispatch a slash command string (e.g., "/help" or "/model gpt-4").
+    // Returns true if a command was found and executed, false if unknown.
+    bool dispatch(const std::string& input, CommandContext& ctx);
+
+    // Get all registered commands (for /help)
+    const std::map<std::string, SlashCommand>& commands() const { return commands_; }
+
+private:
+    std::map<std::string, SlashCommand> commands_;
+};
+
+} // namespace acecode

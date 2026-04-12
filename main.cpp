@@ -45,6 +45,9 @@
 #include "permissions.hpp"
 #include "agent_loop.hpp"
 #include "commands/configure.hpp"
+#include "commands/command_registry.hpp"
+#include "commands/builtin_commands.hpp"
+#include "utils/token_tracker.hpp"
 
 using namespace ftxui;
 using namespace acecode;
@@ -276,40 +279,9 @@ static void update_ime_composition_window(const std::string& input_text,
 #endif
 
 // ---- Shared TUI state ----
-struct TuiState {
-    struct Message {
-        std::string role;
-        std::string content;
-        bool is_tool = false;
-    };
-
-    std::vector<Message> conversation;
-    std::string input_text;
-    bool is_waiting = false;
-    std::string status_line; // for auth/provider status
-
-    // Input history for up/down navigation
-    std::vector<std::string> input_history;
-    int history_index = -1; // -1 = not browsing history
-    std::string saved_input; // saved current input when entering history
-
-    // Pending message queue
-    std::vector<std::string> pending_queue;
-
-    // Tool confirmation state
-    bool confirm_pending = false;
-    std::string confirm_tool_name;
-    std::string confirm_tool_args;
-    PermissionResult confirm_result = PermissionResult::Deny;
-    std::condition_variable confirm_cv;
-
-    int chat_focus_index = -1;
-    bool chat_follow_tail = true;
-    bool ctrl_c_armed = false;
-    std::chrono::steady_clock::time_point last_ctrl_c_time{};
-
-    std::mutex mu;
-};
+// TuiState is defined in src/tui_state.hpp
+#include "tui_state.hpp"
+using acecode::TuiState;
 
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
@@ -522,6 +494,9 @@ int main(int argc, char* argv[]) {
         auth_done = true;
     }
 
+    // ---- Token tracking ----
+    TokenTracker token_tracker;
+
     // ---- Agent callbacks ----
     AgentCallbacks callbacks;
     callbacks.on_message = [&](const std::string& role, const std::string& content, bool is_tool) {
@@ -568,6 +543,19 @@ int main(int argc, char* argv[]) {
         clamp_chat_focus();
         screen.PostEvent(Event::Custom);
     };
+    callbacks.on_usage = [&](const TokenUsage& usage) {
+        token_tracker.record(usage);
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.token_status = token_tracker.format_status(config.context_window);
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_auto_compact = [&]() -> bool {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.conversation.push_back({"system", "[Auto-compact] Context approaching limit, compacting...", false});
+        clamp_chat_focus();
+        screen.PostEvent(Event::Custom);
+        return true; // allow auto-compact to proceed
+    };
 
     PermissionManager permissions;
     if (dangerous_mode) {
@@ -583,6 +571,11 @@ int main(int argc, char* argv[]) {
     permissions.add_rule({"bash", "", "rm -rf /", RuleAction::Deny, 100});
 
     AgentLoop agent_loop(*provider, tools, callbacks, working_dir, permissions);
+    agent_loop.set_context_window(config.context_window);
+
+    // Slash command registry
+    CommandRegistry cmd_registry;
+    register_builtin_commands(cmd_registry);
 
     // Now that agent_loop exists, update on_busy_changed to drain pending queue
     callbacks.on_busy_changed = [&](bool busy) {
@@ -704,6 +697,22 @@ int main(int argc, char* argv[]) {
             // Record history
             state.input_history.push_back(prompt);
             state.history_index = -1;
+
+            // Slash command interception
+            if (!prompt.empty() && prompt[0] == '/') {
+                CommandContext cmd_ctx{
+                    state, agent_loop, *provider, config, token_tracker,
+                    permissions, config.context_window,
+                    [&screen]() { screen.Exit(); }
+                };
+                bool handled = cmd_registry.dispatch(prompt, cmd_ctx);
+                if (handled) {
+                    clamp_chat_focus();
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                // If not a known command, fall through to send as normal prompt
+            }
 
             if (state.is_waiting) {
                 state.pending_queue.push_back(prompt);
@@ -1004,23 +1013,29 @@ int main(int argc, char* argv[]) {
 
         // -- Bottom status bar --
         std::string perm_mode_str = std::string("mode: ") + PermissionManager::mode_name(permissions.mode());
+        Element token_el = state.token_status.empty()
+            ? text("")
+            : text("  " + state.token_status + "  ") | dim | color(Color::CyanLight);
         Element bottom_bar;
         if (dangerous_mode) {
             bottom_bar = hbox({
                 text("  [DANGEROUS MODE]") | bold | color(Color::Red),
                 filler(),
+                token_el,
                 text(perm_mode_str + "  ") | dim | color(Color::GrayDark),
             });
         } else if (state.is_waiting) {
             bottom_bar = hbox({
                 text("  esc to interrupt") | dim | color(Color::GrayDark),
                 filler(),
+                token_el,
                 text(perm_mode_str + "  ") | dim | color(Color::GrayDark),
             });
         } else {
             bottom_bar = hbox({
                 text("  ctrl+p: cycle permission mode") | dim | color(Color::GrayDark),
                 filler(),
+                token_el,
                 text(perm_mode_str + "  ") | dim | color(Color::GrayDark),
             });
         }

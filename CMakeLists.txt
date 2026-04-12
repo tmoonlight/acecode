@@ -21,25 +21,35 @@ find_package(cpr CONFIG REQUIRED)
 find_package(ftxui CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
-add_executable(acecode 
-    main.cpp
-    src/config/config.cpp
-    src/provider/openai_provider.cpp
-    src/provider/copilot_provider.cpp
-    src/provider/provider_factory.cpp
-    src/auth/github_auth.cpp
-    src/tool/tool_executor.cpp
-    src/tool/bash_tool.cpp
-    src/tool/file_read_tool.cpp
-    src/tool/file_write_tool.cpp
-    src/tool/file_edit_tool.cpp
-    src/tool/grep_tool.cpp
-    src/tool/glob_tool.cpp
-    src/tool/diff_utils.cpp
-    src/tool/mtime_tracker.cpp
-    src/prompt/system_prompt.cpp
-    src/agent_loop.cpp
-    src/commands/configure.cpp
+file(GLOB_RECURSE ACECODE_SOURCE_FILES CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/src/*.cpp
+)
+
+file(GLOB_RECURSE ACECODE_HEADER_FILES CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/src/*.hpp
+    ${CMAKE_SOURCE_DIR}/src/*.h
+)
+
+set(ACECODE_PROJECT_FILES
+    ${CMAKE_SOURCE_DIR}/main.cpp
+    ${ACECODE_SOURCE_FILES}
+    ${ACECODE_HEADER_FILES}
+    ${CMAKE_SOURCE_DIR}/src/version.hpp.in
+    ${CMAKE_BINARY_DIR}/generated/version.hpp
+)
+
+add_executable(acecode)
+target_sources(acecode PRIVATE ${ACECODE_PROJECT_FILES})
+
+source_group(TREE ${CMAKE_SOURCE_DIR} FILES
+    ${CMAKE_SOURCE_DIR}/main.cpp
+    ${ACECODE_SOURCE_FILES}
+    ${ACECODE_HEADER_FILES}
+    ${CMAKE_SOURCE_DIR}/src/version.hpp.in
+)
+
+source_group("generated" FILES
+    ${CMAKE_BINARY_DIR}/generated/version.hpp
 )
 
 target_include_directories(acecode PRIVATE 

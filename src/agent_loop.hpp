@@ -4,6 +4,7 @@
 #include "tool/tool_executor.hpp"
 #include "permissions.hpp"
 #include "utils/path_validator.hpp"
+#include "utils/token_tracker.hpp"
 
 #include <vector>
 #include <string>
@@ -27,6 +28,13 @@ struct AgentCallbacks {
 
     // Called for each streaming delta token (real-time TUI update)
     std::function<void(const std::string& token)> on_delta;
+
+    // Called when token usage data is received from the provider
+    std::function<void(const TokenUsage& usage)> on_usage;
+
+    // Called when auto-compact is needed (estimated tokens exceed threshold)
+    // Returns true if compaction was performed successfully
+    std::function<bool()> on_auto_compact;
 };
 
 class AgentLoop {
@@ -46,7 +54,13 @@ public:
     // Legacy cancel alias
     void cancel() { abort(); }
 
+    // Clear all messages (for /clear command)
+    void clear_messages() { messages_.clear(); }
+
     const std::vector<ChatMessage>& messages() const { return messages_; }
+    std::vector<ChatMessage>& messages_mut() { return messages_; }
+
+    void set_context_window(int cw) { context_window_ = cw; }
 
 private:
     LlmProvider& provider_;
@@ -57,6 +71,7 @@ private:
     std::string cwd_;
     PermissionManager& permissions_;
     PathValidator path_validator_;
+    int context_window_ = 128000;
 };
 
 } // namespace acecode

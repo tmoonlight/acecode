@@ -25,6 +25,8 @@ public:
 
     std::string name() const override { return "openai"; }
     bool is_authenticated() override { return true; }
+    std::string model() const override { return model_; }
+    void set_model(const std::string& m) override { model_ = m; }
 
 protected:
     // Build the request JSON body (reusable by CopilotProvider)

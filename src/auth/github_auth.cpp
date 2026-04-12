@@ -2,6 +2,7 @@
 #include "../config/config.hpp"
 
 #include <cpr/cpr.h>
+#include <cpr/ssl_options.h>
 #include <nlohmann/json.hpp>
 
 #include <fstream>
@@ -28,11 +29,15 @@ DeviceCodeResponse request_device_code() {
         cpr::Body{nlohmann::json({
             {"client_id", GITHUB_CLIENT_ID},
             {"scope", "read:user"}
-        }).dump()}
+        }).dump()},
+        cpr::Ssl(cpr::ssl::NoRevoke{true}),
+        cpr::Timeout{30000}
     );
 
     DeviceCodeResponse result;
     if (r.status_code != 200) {
+        std::cerr << "[auth] Device code request failed: HTTP " << r.status_code
+                  << ", error: " << r.error.message << std::endl;
         return result;
     }
 
@@ -79,7 +84,9 @@ std::string poll_for_access_token(
                 {"client_id", GITHUB_CLIENT_ID},
                 {"device_code", device_code},
                 {"grant_type", "urn:ietf:params:oauth:grant-type:device_code"}
-            }).dump()}
+            }).dump()},
+            cpr::Ssl(cpr::ssl::NoRevoke{true}),
+            cpr::Timeout{30000}
         );
 
         if (r.status_code != 200) {
@@ -122,7 +129,9 @@ CopilotToken exchange_copilot_token(const std::string& github_token) {
             {"Authorization", "token " + github_token},
             {"Accept", "application/json"},
             {"User-Agent", "acecode/0.1.0"}
-        }
+        },
+        cpr::Ssl(cpr::ssl::NoRevoke{true}),
+        cpr::Timeout{30000}
     );
 
     CopilotToken result;

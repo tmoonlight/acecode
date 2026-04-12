@@ -1,0 +1,19 @@
+{
+  "name": "ftxui",
+  "version-semver": "6.1.9",
+  "port-version": 1,
+  "description": "C++ Functional Terminal User Interface (shaohaozhi286 fork)",
+  "homepage": "https://github.com/shaohaozhi286/FTXUI",
+  "license": "MIT",
+  "supports": "!uwp",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}

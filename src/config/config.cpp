@@ -79,6 +79,9 @@ AppConfig load_config() {
                 if (cj.contains("model") && cj["model"].is_string())
                     cfg.copilot.model = cj["model"].get<std::string>();
             }
+            if (j.contains("context_window") && j["context_window"].is_number_integer()) {
+                cfg.context_window = j["context_window"].get<int>();
+            }
         } catch (const nlohmann::json::parse_error& e) {
             std::cerr << "[config] Warning: Failed to parse config.json: " << e.what() << std::endl;
         }
@@ -119,6 +122,7 @@ void save_config(const AppConfig& cfg) {
     j["openai"]["api_key"] = cfg.openai.api_key;
     j["openai"]["model"] = cfg.openai.model;
     j["copilot"]["model"] = cfg.copilot.model;
+    j["context_window"] = cfg.context_window;
 
     std::ofstream ofs(config_path);
     if (ofs.is_open()) {
