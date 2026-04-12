@@ -20,6 +20,7 @@ struct AppConfig {
     OpenAiConfig openai;
     CopilotConfig copilot;
     int context_window = 128000; // model context window size in tokens
+    int max_sessions = 50;       // max saved sessions per project
 };
 
 // Load config from ~/.acecode/config.json, with env var overrides.

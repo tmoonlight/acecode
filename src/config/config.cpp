@@ -82,6 +82,9 @@ AppConfig load_config() {
             if (j.contains("context_window") && j["context_window"].is_number_integer()) {
                 cfg.context_window = j["context_window"].get<int>();
             }
+            if (j.contains("max_sessions") && j["max_sessions"].is_number_integer()) {
+                cfg.max_sessions = j["max_sessions"].get<int>();
+            }
         } catch (const nlohmann::json::parse_error& e) {
             std::cerr << "[config] Warning: Failed to parse config.json: " << e.what() << std::endl;
         }
@@ -123,6 +126,7 @@ void save_config(const AppConfig& cfg) {
     j["openai"]["model"] = cfg.openai.model;
     j["copilot"]["model"] = cfg.copilot.model;
     j["context_window"] = cfg.context_window;
+    j["max_sessions"] = cfg.max_sessions;
 
     std::ofstream ofs(config_path);
     if (ofs.is_open()) {

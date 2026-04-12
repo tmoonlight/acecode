@@ -5,6 +5,7 @@
 #include "permissions.hpp"
 #include "utils/path_validator.hpp"
 #include "utils/token_tracker.hpp"
+#include "session/session_manager.hpp"
 
 #include <vector>
 #include <string>
@@ -57,10 +58,15 @@ public:
     // Clear all messages (for /clear command)
     void clear_messages() { messages_.clear(); }
 
+    // Push a message (for session restore)
+    void push_message(const ChatMessage& msg) { messages_.push_back(msg); }
+
     const std::vector<ChatMessage>& messages() const { return messages_; }
     std::vector<ChatMessage>& messages_mut() { return messages_; }
 
     void set_context_window(int cw) { context_window_ = cw; }
+
+    void set_session_manager(SessionManager* sm) { session_manager_ = sm; }
 
 private:
     LlmProvider& provider_;
@@ -72,6 +78,7 @@ private:
     PermissionManager& permissions_;
     PathValidator path_validator_;
     int context_window_ = 128000;
+    SessionManager* session_manager_ = nullptr;
 };
 
 } // namespace acecode
