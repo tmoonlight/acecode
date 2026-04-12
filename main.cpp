@@ -26,6 +26,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/terminal.hpp>
 #ifdef _WIN32
 #include <ftxui/screen/string.hpp>
 #endif
@@ -48,6 +49,8 @@
 #include "commands/command_registry.hpp"
 #include "commands/builtin_commands.hpp"
 #include "utils/token_tracker.hpp"
+#include "markdown/markdown_formatter.hpp"
+#include "session/session_manager.hpp"
 
 using namespace ftxui;
 using namespace acecode;
@@ -69,6 +72,36 @@ static void reset_cursor() {
     // DECTCEM: show cursor (ESC [ ? 25 h)
     std::cout << "\033[?25h" << std::flush;
 }
+
+// ---- Session finalization on exit ----
+static SessionManager* g_session_manager = nullptr;
+
+static void finalize_session_atexit() {
+    if (g_session_manager) {
+        g_session_manager->finalize();
+        auto sid = g_session_manager->current_session_id();
+        if (!sid.empty()) {
+            std::cerr << "\nacecode: session " << sid
+                      << " saved. Resume with: acecode --resume " << sid << std::endl;
+        }
+    }
+}
+
+#ifdef _WIN32
+static BOOL WINAPI console_ctrl_handler(DWORD ctrl_type) {
+    if (ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_CLOSE_EVENT ||
+        ctrl_type == CTRL_BREAK_EVENT) {
+        finalize_session_atexit();
+    }
+    return FALSE; // Let default handler proceed
+}
+#else
+#include <csignal>
+static void signal_handler(int /*sig*/) {
+    finalize_session_atexit();
+    _exit(1);
+}
+#endif
 
 #ifdef _WIN32
 static int max_int(int a, int b) {
@@ -296,12 +329,20 @@ int main(int argc, char* argv[]) {
     // ---- Parse CLI arguments ----
     bool dangerous_mode = false;
     bool run_configure_cmd = false;
+    bool resume_latest = false;
+    std::string resume_session_id;
     for (int i = 1; i < argc; ++i) {
         std::string arg(argv[i]);
         if (arg == "-dangerous" || arg == "--dangerous") {
             dangerous_mode = true;
         } else if (arg == "configure") {
             run_configure_cmd = true;
+        } else if (arg == "--resume") {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                resume_session_id = argv[++i];
+            } else {
+                resume_latest = true;
+            }
         }
     }
 
@@ -573,6 +614,44 @@ int main(int argc, char* argv[]) {
     AgentLoop agent_loop(*provider, tools, callbacks, working_dir, permissions);
     agent_loop.set_context_window(config.context_window);
 
+    // ---- Session manager ----
+    SessionManager session_manager;
+    session_manager.start_session(working_dir, provider->name(), provider->model());
+    agent_loop.set_session_manager(&session_manager);
+
+    // Register session finalization for clean shutdown
+    g_session_manager = &session_manager;
+    std::atexit(finalize_session_atexit);
+#ifdef _WIN32
+    SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+#else
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+#endif
+
+    // ---- Handle --resume ----
+    if (resume_latest || !resume_session_id.empty()) {
+        std::string target_id = resume_session_id;
+        if (resume_latest) {
+            auto sessions = session_manager.list_sessions();
+            if (!sessions.empty()) {
+                target_id = sessions.front().id;
+            }
+        }
+        if (!target_id.empty()) {
+            auto messages = session_manager.resume_session(target_id);
+            for (const auto& msg : messages) {
+                agent_loop.push_message(msg);
+                bool is_tool = (msg.role == "tool");
+                state.conversation.push_back({msg.role, msg.content, is_tool});
+            }
+            state.conversation.push_back({"system",
+                "Resumed session " + target_id + " (" + std::to_string(messages.size()) + " messages)", false});
+        } else {
+            state.conversation.push_back({"system", "No previous sessions found to resume.", false});
+        }
+    }
+
     // Slash command registry
     CommandRegistry cmd_registry;
     register_builtin_commands(cmd_registry);
@@ -672,6 +751,23 @@ int main(int argc, char* argv[]) {
         if (event == Event::Return) {
             std::lock_guard<std::mutex> lk(state.mu);
 
+            // Handle resume picker: Enter confirms selection
+            if (state.resume_picker_active) {
+                if (state.resume_selected >= 0 &&
+                    state.resume_selected < static_cast<int>(state.resume_items.size())) {
+                    auto sid = state.resume_items[state.resume_selected].id;
+                    auto cb = state.resume_callback;
+                    state.resume_picker_active = false;
+                    state.resume_items.clear();
+                    state.resume_callback = nullptr;
+                    state.input_text.clear();
+                    if (cb) cb(sid);
+                    clamp_chat_focus();
+                }
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+
             // Handle tool confirmation: y=allow, a=always allow, n/other=deny
             if (state.confirm_pending) {
                 std::string answer = state.input_text;
@@ -703,7 +799,8 @@ int main(int argc, char* argv[]) {
                 CommandContext cmd_ctx{
                     state, agent_loop, *provider, config, token_tracker,
                     permissions, config.context_window,
-                    [&screen]() { screen.Exit(); }
+                    [&screen]() { screen.Exit(); },
+                    &session_manager
                 };
                 bool handled = cmd_registry.dispatch(prompt, cmd_ctx);
                 if (handled) {
@@ -764,6 +861,18 @@ int main(int argc, char* argv[]) {
         }
         if (event == Event::Escape) {
             std::lock_guard<std::mutex> lk(state.mu);
+            // Escape during resume picker → cancel
+            if (state.resume_picker_active) {
+                state.resume_picker_active = false;
+                state.resume_items.clear();
+                state.resume_callback = nullptr;
+                state.input_text.clear();
+                state.conversation.push_back({"system", "Resume cancelled.", false});
+                state.chat_follow_tail = true;
+                clamp_chat_focus();
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
             if (state.confirm_pending) {
                 // Escape during confirm → deny
                 state.input_text.clear();
@@ -812,6 +921,10 @@ int main(int argc, char* argv[]) {
         }
         if (event == Event::ArrowUp) {
             std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) {
+                if (state.resume_selected > 0) state.resume_selected--;
+                return true;
+            }
             if (state.input_history.empty()) return true;
             if (state.history_index == -1) {
                 state.saved_input = state.input_text;
@@ -824,6 +937,11 @@ int main(int argc, char* argv[]) {
         }
         if (event == Event::ArrowDown) {
             std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) {
+                if (state.resume_selected < static_cast<int>(state.resume_items.size()) - 1)
+                    state.resume_selected++;
+                return true;
+            }
             if (state.history_index == -1) return true;
             if (state.history_index < (int)state.input_history.size() - 1) {
                 state.history_index++;
@@ -850,6 +968,25 @@ int main(int argc, char* argv[]) {
         // Printable character input
         if (event.is_character()) {
             std::lock_guard<std::mutex> lk(state.mu);
+            // During resume picker, digit keys select directly
+            if (state.resume_picker_active) {
+                std::string ch = event.character();
+                if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
+                    int idx = ch[0] - '1';
+                    if (idx < static_cast<int>(state.resume_items.size())) {
+                        auto sid = state.resume_items[idx].id;
+                        auto cb = state.resume_callback;
+                        state.resume_picker_active = false;
+                        state.resume_items.clear();
+                        state.resume_callback = nullptr;
+                        state.input_text.clear();
+                        if (cb) cb(sid);
+                        clamp_chat_focus();
+                        screen.PostEvent(Event::Custom);
+                    }
+                }
+                return true;
+            }
             state.input_text += event.character();
             // Reset history browsing on new input
             state.history_index = -1;
@@ -899,9 +1036,22 @@ int main(int argc, char* argv[]) {
                 }
                 message_elements.push_back(line | focus_decorator);
             } else if (msg.role == "assistant") {
+                // Render with Markdown formatting
+                Element md_content;
+                try {
+                    acecode::markdown::FormatOptions md_opts;
+                    md_opts.terminal_width = ftxui::Terminal::Size().dimx - 6;
+                    md_opts.syntax_highlight = true;
+                    md_opts.hyperlinks = true;
+                    md_opts.strip_xml = true;
+                    md_content = acecode::markdown::format_markdown(msg.content, md_opts);
+                } catch (...) {
+                    // Fallback: raw paragraph if markdown parsing fails
+                    md_content = paragraph(msg.content) | color(Color::GreenLight);
+                }
                 auto line = hbox({
                     text(" * ") | bold | color(Color::Green),
-                    paragraph(msg.content) | color(Color::GreenLight),
+                    md_content | flex,
                 });
                 if (focused_message) {
                     line = line | focus;
@@ -989,6 +1139,27 @@ int main(int argc, char* argv[]) {
 
         // -- Prompt line --
         Element prompt_line;
+        // Resume picker overlay above the prompt
+        Element resume_picker_element = text("");
+        if (state.resume_picker_active && !state.resume_items.empty()) {
+            Elements picker_rows;
+            picker_rows.push_back(
+                text(" Resume a session (Up/Down to select, Enter to confirm, Esc to cancel, or type 1-9):")
+                | bold | color(Color::Cyan));
+            picker_rows.push_back(text(""));
+            for (int i = 0; i < static_cast<int>(state.resume_items.size()); ++i) {
+                bool selected = (i == state.resume_selected);
+                auto row = text("  " + state.resume_items[i].display);
+                if (selected) {
+                    row = row | bold | color(Color::White) | bgcolor(Color::RGB(0, 80, 120));
+                } else {
+                    row = row | color(Color::GrayLight);
+                }
+                picker_rows.push_back(row);
+            }
+            picker_rows.push_back(text(""));
+            resume_picker_element = vbox(std::move(picker_rows)) | border | color(Color::Cyan);
+        }
         if (state.confirm_pending) {
             prompt_line = hbox({
                 text(" [" + state.confirm_tool_name + "] ") | bold | color(Color::Magenta),
@@ -1050,6 +1221,7 @@ int main(int argc, char* argv[]) {
             header,
             separatorHeavy() | color(Color::GrayDark),
             message_view,
+            resume_picker_element,
             thinking_element,
             separatorLight() | color(Color::GrayDark),
             prompt_line,
@@ -1066,6 +1238,18 @@ int main(int argc, char* argv[]) {
 
     if (auth_thread.joinable()) {
         auth_thread.join();
+    }
+
+    // Finalize session before exit
+    session_manager.finalize();
+    session_manager.cleanup_old_sessions(config.max_sessions);
+
+    // Print session ID so user knows how to resume
+    auto exit_sid = session_manager.current_session_id();
+    g_session_manager = nullptr;
+    if (!exit_sid.empty()) {
+        std::cerr << "\nacecode: session " << exit_sid
+                  << " saved. Resume with: acecode --resume " << exit_sid << std::endl;
     }
 
     return 0;

@@ -39,6 +39,7 @@ void AgentLoop::submit(const std::string& user_message) {
     user_msg.role = "user";
     user_msg.content = user_message;
     messages_.push_back(user_msg);
+    if (session_manager_) session_manager_->on_message(user_msg);
 
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(true);
@@ -144,6 +145,7 @@ void AgentLoop::submit(const std::string& user_message) {
             assistant_msg.role = "assistant";
             assistant_msg.content = accumulated.content;
             messages_.push_back(assistant_msg);
+            if (session_manager_) session_manager_->on_message(assistant_msg);
 
             if (callbacks_.on_message) {
                 callbacks_.on_message("assistant", accumulated.content, false);
@@ -153,7 +155,9 @@ void AgentLoop::submit(const std::string& user_message) {
 
         // Assistant wants to call tools
         // Record the assistant message with tool_calls in the history
-        messages_.push_back(ToolExecutor::format_assistant_tool_calls(accumulated));
+        auto tc_msg = ToolExecutor::format_assistant_tool_calls(accumulated);
+        messages_.push_back(tc_msg);
+        if (session_manager_) session_manager_->on_message(tc_msg);
 
         // Partition tool calls into read-only (parallelizable) and write (serial) groups
         LOG_INFO("Processing " + std::to_string(accumulated.tool_calls.size()) + " tool calls");
@@ -350,13 +354,16 @@ void AgentLoop::submit(const std::string& user_message) {
         // Phase 3: Record all results in original order
         for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
             const auto& tc = accumulated.tool_calls[i];
+            ChatMessage tool_msg;
             if (result_ready[i]) {
-                messages_.push_back(ToolExecutor::format_tool_result(tc.id, results[i]));
+                tool_msg = ToolExecutor::format_tool_result(tc.id, results[i]);
             } else {
                 // Tool was skipped (abort)
-                messages_.push_back(ToolExecutor::format_tool_result(tc.id,
-                    ToolResult{"[Interrupted]", false}));
+                tool_msg = ToolExecutor::format_tool_result(tc.id,
+                    ToolResult{"[Interrupted]", false});
             }
+            messages_.push_back(tool_msg);
+            if (session_manager_) session_manager_->on_message(tool_msg);
         }
 
         // Loop back to call the provider again with the tool results

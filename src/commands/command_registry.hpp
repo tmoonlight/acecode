@@ -5,6 +5,7 @@
 #include "../provider/llm_provider.hpp"
 #include "../config/config.hpp"
 #include "../utils/token_tracker.hpp"
+#include "../session/session_manager.hpp"
 
 #include <string>
 #include <map>
@@ -22,6 +23,7 @@ struct CommandContext {
     PermissionManager& permissions;
     int context_window;
     std::function<void()> request_exit;
+    SessionManager* session_manager = nullptr;
 };
 
 struct SlashCommand {

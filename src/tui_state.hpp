@@ -7,6 +7,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
+#include <functional>
 
 namespace acecode {
 
@@ -37,6 +38,16 @@ struct TuiState {
     std::string confirm_tool_args;
     PermissionResult confirm_result = PermissionResult::Deny;
     std::condition_variable confirm_cv;
+
+    // Resume session picker state
+    struct ResumeItem {
+        std::string id;
+        std::string display; // formatted display line
+    };
+    bool resume_picker_active = false;
+    std::vector<ResumeItem> resume_items;
+    int resume_selected = 0; // currently highlighted index
+    std::function<void(const std::string& session_id)> resume_callback;
 
     int chat_focus_index = -1;
     bool chat_follow_tail = true;
