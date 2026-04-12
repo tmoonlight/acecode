@@ -50,5 +50,7 @@ vcpkg_installed/
 *.swp
 *.swo
 *~
-.github
+.github/*
+!.github/workflows/
+!.github/workflows/package.yml
 openspec
