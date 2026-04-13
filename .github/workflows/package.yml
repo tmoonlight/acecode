@@ -47,9 +47,6 @@ jobs:
             executable: acecode
             archive_extension: tar.gz
 
-    env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,19 +59,10 @@ jobs:
         with:
           arch: ${{ matrix.msvc_arch }}
 
-      - name: Bootstrap vcpkg (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-
-      - name: Bootstrap vcpkg (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
-          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: ${{ github.workspace }}/vcpkg
 
       - name: Install dependencies (Unix)
         if: runner.os != 'Windows'
