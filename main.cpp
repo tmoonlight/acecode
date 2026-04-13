@@ -423,7 +423,7 @@ int main(int argc, char* argv[]) {
     screen.TrackMouse(false);
     screen.ForceHandleCtrlC(false);
 
-    auto clamp_chat_focus = [&]() {
+    auto clamp_chat_focus = [&state]() {
         if (state.conversation.empty()) {
             state.chat_focus_index = -1;
             state.chat_follow_tail = true;
@@ -447,7 +447,7 @@ int main(int argc, char* argv[]) {
         }
     };
 
-    auto scroll_chat = [&](int delta) -> bool {
+    auto scroll_chat = [&state](int delta) -> bool {
         if (state.conversation.empty()) {
             return false;
         }
@@ -485,7 +485,7 @@ int main(int argc, char* argv[]) {
             }
             screen.PostEvent(Event::Custom);
 
-            auth_thread = std::thread([&] {
+            auth_thread = std::thread([copilot, &state, &screen, &auth_done, &config] {
                 // Try silent auth first (saved token)
                 if (copilot->try_silent_auth()) {
                     {
@@ -507,7 +507,7 @@ int main(int argc, char* argv[]) {
                 }
                 screen.PostEvent(Event::Custom);
 
-                copilot->run_device_flow([&](const std::string& status) {
+                copilot->run_device_flow([&state, &screen](const std::string& status) {
                     std::lock_guard<std::mutex> lk(state.mu);
                     state.status_line = status;
                     screen.PostEvent(Event::Custom);
@@ -541,7 +541,7 @@ int main(int argc, char* argv[]) {
     // ---- Agent callbacks ----
     std::atomic<bool> agent_aborting{false};  // shared abort flag for confirm_cv
     AgentCallbacks callbacks;
-    callbacks.on_message = [&](const std::string& role, const std::string& content, bool is_tool) {
+    callbacks.on_message = [&state, &clamp_chat_focus, &screen](const std::string& role, const std::string& content, bool is_tool) {
         std::lock_guard<std::mutex> lk(state.mu);
         if (!is_tool && role == "assistant" &&
             !state.conversation.empty() &&
@@ -554,12 +554,12 @@ int main(int argc, char* argv[]) {
         clamp_chat_focus();
         screen.PostEvent(Event::Custom);
     };
-    callbacks.on_busy_changed = [&](bool busy) {
+    callbacks.on_busy_changed = [&state, &screen](bool busy) {
         std::lock_guard<std::mutex> lk(state.mu);
         state.is_waiting = busy;
         screen.PostEvent(Event::Custom);
     };
-    callbacks.on_tool_confirm = [&](const std::string& tool_name, const std::string& args) -> PermissionResult {
+    callbacks.on_tool_confirm = [&state, &screen, &agent_aborting](const std::string& tool_name, const std::string& args) -> PermissionResult {
         {
             std::lock_guard<std::mutex> lk(state.mu);
             state.confirm_pending = true;
@@ -570,13 +570,13 @@ int main(int argc, char* argv[]) {
 
         // Block the agent thread until the user responds in the TUI (or abort)
         std::unique_lock<std::mutex> lk(state.mu);
-        state.confirm_cv.wait(lk, [&] {
+        state.confirm_cv.wait(lk, [&state, &agent_aborting] {
             return !state.confirm_pending || agent_aborting.load();
         });
         if (agent_aborting.load()) return PermissionResult::Deny;
         return state.confirm_result;
     };
-    callbacks.on_delta = [&](const std::string& token) {
+    callbacks.on_delta = [&state, &clamp_chat_focus, &screen](const std::string& token) {
         std::lock_guard<std::mutex> lk(state.mu);
         // Find or create the streaming assistant message
         if (state.conversation.empty() ||
@@ -588,13 +588,13 @@ int main(int argc, char* argv[]) {
         clamp_chat_focus();
         screen.PostEvent(Event::Custom);
     };
-    callbacks.on_usage = [&](const TokenUsage& usage) {
+    callbacks.on_usage = [&token_tracker, &state, &config, &screen](const TokenUsage& usage) {
         token_tracker.record(usage);
         std::lock_guard<std::mutex> lk(state.mu);
         state.token_status = token_tracker.format_status(config.context_window);
         screen.PostEvent(Event::Custom);
     };
-    callbacks.on_auto_compact = [&]() -> bool {
+    callbacks.on_auto_compact = [&state, &clamp_chat_focus, &screen]() -> bool {
         std::lock_guard<std::mutex> lk(state.mu);
         state.conversation.push_back({"system", "[Auto-compact] Context approaching limit, compacting...", false});
         clamp_chat_focus();
@@ -661,7 +661,7 @@ int main(int argc, char* argv[]) {
     register_builtin_commands(cmd_registry);
 
     // Now that agent_loop exists, update on_busy_changed to drain pending queue
-    callbacks.on_busy_changed = [&](bool busy) {
+    callbacks.on_busy_changed = [&state, &clamp_chat_focus, &agent_loop, &screen](bool busy) {
         std::lock_guard<std::mutex> lk(state.mu);
         state.is_waiting = busy;
         if (!busy && !state.pending_queue.empty()) {
@@ -679,7 +679,7 @@ int main(int argc, char* argv[]) {
 
     // ---- Animation ticker thread ----
     std::atomic<bool> running{true};
-    std::thread anim_thread([&] {
+    std::thread anim_thread([&running, &anim_tick, &state, &screen] {
         while (running) {
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
             anim_tick++;
@@ -697,7 +697,7 @@ int main(int argc, char* argv[]) {
     // component_active=true on the element, so the input's cursor always
     // wins focus priority over message_view's | focus (which has
     // component_active=false and cursor_shape=Hidden).
-    auto input_renderer = Renderer([&](bool) {
+    auto input_renderer = Renderer([&state](bool) {
         std::string display_text = state.input_text;
         if (display_text.empty()) {
             return hbox({
@@ -722,7 +722,7 @@ int main(int argc, char* argv[]) {
     });
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &auth_done, &cmd_registry, &agent_loop, &provider, &config, &token_tracker, &permissions, &session_manager, &scroll_chat](Event event) {
         if (event == Event::CtrlC) {
             constexpr auto kCtrlCExitWindow = std::chrono::milliseconds(1200);
 
@@ -995,7 +995,7 @@ int main(int argc, char* argv[]) {
         return false;
     });
 
-    auto renderer = Renderer(input_with_esc, [&] {
+    auto renderer = Renderer(input_with_esc, [&state, &version_str, &cwd_display, &chat_box, &anim_tick, &input_with_esc, &permissions, dangerous_mode] {
         std::lock_guard<std::mutex> lk(state.mu);
 
         // -- Logo --
