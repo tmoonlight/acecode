@@ -539,6 +539,7 @@ int main(int argc, char* argv[]) {
     TokenTracker token_tracker;
 
     // ---- Agent callbacks ----
+    std::atomic<bool> agent_aborting{false};  // shared abort flag for confirm_cv
     AgentCallbacks callbacks;
     callbacks.on_message = [&](const std::string& role, const std::string& content, bool is_tool) {
         std::lock_guard<std::mutex> lk(state.mu);
@@ -567,9 +568,12 @@ int main(int argc, char* argv[]) {
         }
         screen.PostEvent(Event::Custom);
 
-        // Block the agent thread until the user responds in the TUI
+        // Block the agent thread until the user responds in the TUI (or abort)
         std::unique_lock<std::mutex> lk(state.mu);
-        state.confirm_cv.wait(lk, [&] { return !state.confirm_pending; });
+        state.confirm_cv.wait(lk, [&] {
+            return !state.confirm_pending || agent_aborting.load();
+        });
+        if (agent_aborting.load()) return PermissionResult::Deny;
         return state.confirm_result;
     };
     callbacks.on_delta = [&](const std::string& token) {
@@ -667,9 +671,7 @@ int main(int argc, char* argv[]) {
             state.chat_follow_tail = true;
             clamp_chat_focus();
             state.is_waiting = true;
-            std::thread([&agent_loop, next_prompt]() {
-                agent_loop.submit(next_prompt);
-            }).detach();
+            agent_loop.submit(next_prompt);
         }
         screen.PostEvent(Event::Custom);
     };
@@ -821,9 +823,7 @@ int main(int argc, char* argv[]) {
                 state.chat_follow_tail = true;
                 clamp_chat_focus();
                 state.is_waiting = true;
-                std::thread([&agent_loop, prompt]() {
-                    agent_loop.submit(prompt);
-                }).detach();
+                agent_loop.submit(prompt);
             }
             return true;
         }
@@ -1232,6 +1232,20 @@ int main(int argc, char* argv[]) {
     screen.Loop(renderer);
 
     running = false;
+
+    // Graceful shutdown: abort agent, unblock confirm_cv, then join worker
+    agent_aborting = true;
+    agent_loop.abort();
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (state.confirm_pending) {
+            state.confirm_pending = false;
+            state.confirm_result = PermissionResult::Deny;
+            state.confirm_cv.notify_one();
+        }
+    }
+    agent_loop.shutdown();
+
     if (anim_thread.joinable()) {
         anim_thread.join();
     }

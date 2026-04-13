@@ -62,41 +62,8 @@ jobs:
         with:
           arch: ${{ matrix.msvc_arch }}
 
-      - name: Bootstrap vcpkg (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-
-      - name: Bootstrap vcpkg (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
-          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
-
-      - name: Install dependencies (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          "$VCPKG_ROOT/vcpkg" install \
-            cpr \
-            nlohmann-json \
-            ftxui \
-            --triplet "${{ matrix.triplet }}" \
-            --overlay-ports="$GITHUB_WORKSPACE/ports"
-
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & "$env:VCPKG_ROOT\vcpkg.exe" install `
-            cpr `
-            nlohmann-json `
-            ftxui `
-            --triplet "${{ matrix.triplet }}" `
-            "--overlay-ports=$env:GITHUB_WORKSPACE\ports"
+      - name: Run vcpkg
+        uses: lukka/run-vcpkg@v11
 
       - name: Configure
         shell: bash
@@ -104,8 +71,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
-            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/ports"
+            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}"
 
       - name: Build
         shell: bash
