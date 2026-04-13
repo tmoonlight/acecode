@@ -51,7 +51,7 @@ void AgentLoop::worker_main() {
         std::string task;
         {
             std::unique_lock<std::mutex> lk(queue_mu_);
-            queue_cv_.wait(lk, [&] {
+            queue_cv_.wait(lk, [this] {
                 return !task_queue_.empty() || shutdown_requested_;
             });
             if (shutdown_requested_) return;
@@ -128,7 +128,7 @@ void AgentLoop::run_agent(const std::string& user_message) {
         accumulated.finish_reason = "stop";
         std::mutex resp_mu;
 
-        auto stream_callback = [&](const StreamEvent& evt) {
+        auto stream_callback = [&accumulated, &resp_mu, this](const StreamEvent& evt) {
             switch (evt.type) {
             case StreamEventType::Delta:
                 {
