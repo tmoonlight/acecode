@@ -19,17 +19,58 @@ AgentLoop::AgentLoop(LlmProvider& provider, ToolExecutor& tools, AgentCallbacks 
     , permissions_(permissions)
     , path_validator_(cwd, permissions.is_dangerous())
 {
+    worker_thread_ = std::thread(&AgentLoop::worker_main, this);
+}
+
+AgentLoop::~AgentLoop() {
+    shutdown();
 }
 
 void AgentLoop::abort() {
     abort_requested_ = true;
 }
 
+void AgentLoop::shutdown() {
+    {
+        std::lock_guard<std::mutex> lk(queue_mu_);
+        shutdown_requested_ = true;
+    }
+    abort_requested_ = true;
+    queue_cv_.notify_one();
+    if (worker_thread_.joinable()) {
+        worker_thread_.join();
+    }
+}
+
 void AgentLoop::set_callbacks(AgentCallbacks cb) {
     callbacks_ = std::move(cb);
 }
 
+void AgentLoop::worker_main() {
+    while (true) {
+        std::string task;
+        {
+            std::unique_lock<std::mutex> lk(queue_mu_);
+            queue_cv_.wait(lk, [&] {
+                return !task_queue_.empty() || shutdown_requested_;
+            });
+            if (shutdown_requested_) return;
+            task = std::move(task_queue_.front());
+            task_queue_.pop();
+        }
+        run_agent(task);
+    }
+}
+
 void AgentLoop::submit(const std::string& user_message) {
+    {
+        std::lock_guard<std::mutex> lk(queue_mu_);
+        task_queue_.push(user_message);
+    }
+    queue_cv_.notify_one();
+}
+
+void AgentLoop::run_agent(const std::string& user_message) {
     abort_requested_ = false;
 
     LOG_INFO("=== submit() user_message: " + log_truncate(user_message, 200));

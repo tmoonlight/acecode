@@ -12,6 +12,9 @@
 #include <functional>
 #include <mutex>
 #include <atomic>
+#include <thread>
+#include <condition_variable>
+#include <queue>
 
 namespace acecode {
 
@@ -42,15 +45,22 @@ class AgentLoop {
 public:
     AgentLoop(LlmProvider& provider, ToolExecutor& tools, AgentCallbacks callbacks,
               const std::string& cwd, PermissionManager& permissions);
+    ~AgentLoop();
 
     void set_callbacks(AgentCallbacks cb);
 
-    // Submit a user message and run the agent loop until a final text response.
-    // This runs synchronously and should be called from a background thread.
+    // Submit a user message. Non-blocking: enqueues the message and returns immediately.
+    // The internal worker thread will process it.
     void submit(const std::string& user_message);
 
     // Abort the current inference. Safe to call from any thread.
     void abort();
+
+    // Signal the worker thread to exit and wait for it to finish.
+    void shutdown();
+
+    // Returns true if abort has been requested. Useful for confirm callbacks.
+    bool is_aborting() const { return abort_requested_.load(); }
 
     // Legacy cancel alias
     void cancel() { abort(); }
@@ -69,6 +79,9 @@ public:
     void set_session_manager(SessionManager* sm) { session_manager_ = sm; }
 
 private:
+    void worker_main();
+    void run_agent(const std::string& user_message);
+
     LlmProvider& provider_;
     ToolExecutor& tools_;
     AgentCallbacks callbacks_;
@@ -79,6 +92,13 @@ private:
     PathValidator path_validator_;
     int context_window_ = 128000;
     SessionManager* session_manager_ = nullptr;
+
+    // Worker thread and task queue
+    std::thread worker_thread_;
+    std::mutex queue_mu_;
+    std::condition_variable queue_cv_;
+    std::queue<std::string> task_queue_;
+    bool shutdown_requested_ = false;
 };
 
 } // namespace acecode
