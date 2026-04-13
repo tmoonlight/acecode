@@ -47,9 +47,6 @@ jobs:
             executable: acecode
             archive_extension: tar.gz
 
-    env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
