@@ -722,7 +722,7 @@ int main(int argc, char* argv[]) {
     });
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &auth_done, &cmd_registry, &agent_loop, &provider, &config, &token_tracker, &permissions, &session_manager, &scroll_chat](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &auth_done, &cmd_registry, &agent_loop, &provider, &config, &token_tracker, &permissions, &session_manager, &scroll_chat, &chat_box](Event event) {
         if (event == Event::CtrlC) {
             constexpr auto kCtrlCExitWindow = std::chrono::milliseconds(1200);
 

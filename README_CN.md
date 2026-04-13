@@ -63,6 +63,7 @@ cmake --build build --config Release
 - `x64-linux`
 - `arm64-linux`
 - `x64-windows`
+- `x64-windows-static`（如果要使用 MSVC 的 MT/MTd 静态运行库，Windows 下应选这个）
 - `x64-osx`
 - `arm64-osx`
 

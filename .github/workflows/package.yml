@@ -21,12 +21,12 @@ jobs:
       matrix:
         include:
           - id: linux-x64
-            os: ubuntu-24.04
+            os: ubuntu-22.04
             triplet: x64-linux
             executable: acecode
             archive_extension: tar.gz
           - id: linux-arm64
-            os: ubuntu-24.04-arm
+            os: ubuntu-22.04-arm
             triplet: arm64-linux
             executable: acecode
             archive_extension: tar.gz

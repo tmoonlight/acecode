@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Keep MSVC runtime mode consistent with vcpkg dependencies. If the user
+# didn't specify a triplet explicitly, default Windows builds to the static
+# triplet so dependencies are built with MT/MTd as well.
+if(CMAKE_HOST_WIN32 AND DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg" AND NOT DEFINED VCPKG_TARGET_TRIPLET)
+    set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet" FORCE)
+endif()
+
 project(acecode VERSION 0.1.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -8,7 +16,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     add_compile_options(/utf-8 /Zi)
-    add_link_options(/DEBUG /OPT:REF /OPT:ICF)
+    add_link_options(
+        /DEBUG
+        "$<$<NOT:$<CONFIG:Debug>>:/OPT:REF>"
+        "$<$<NOT:$<CONFIG:Debug>>:/OPT:ICF>"
+    )
 endif()
 
 # Generate version header from CMake project version
