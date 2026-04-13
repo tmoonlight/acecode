@@ -4,9 +4,11 @@ project(acecode VERSION 0.1.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Force UTF-8 source and execution charset on MSVC
+# MSVC: static runtime (MT/MTd), UTF-8, PDB in Release
 if(MSVC)
-    add_compile_options(/utf-8)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_compile_options(/utf-8 /Zi)
+    add_link_options(/DEBUG /OPT:REF /OPT:ICF)
 endif()
 
 # Generate version header from CMake project version

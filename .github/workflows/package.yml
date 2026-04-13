@@ -32,7 +32,7 @@ jobs:
             archive_extension: tar.gz
           - id: windows-x64
             os: windows-2022
-            triplet: x64-windows
+            triplet: x64-windows-static
             executable: acecode.exe
             archive_extension: zip
             msvc_arch: amd64
@@ -123,7 +123,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: acecode-${{ matrix.id }}-pdb
-          path: build/acecode.pdb
+          path: build/**/acecode.pdb
           if-no-files-found: warn
 
       - name: Upload debug symbols (Linux)
