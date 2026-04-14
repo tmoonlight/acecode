@@ -4,6 +4,55 @@
 #include <filesystem>
 #include <algorithm>
 
+namespace {
+
+size_t utf8_safe_prefix_length(const std::string& text, size_t max_bytes) {
+    const size_t limit = std::min(max_bytes, text.size());
+    size_t i = 0;
+    size_t last_valid = 0;
+
+    while (i < limit) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        size_t seq_len = 0;
+
+        if ((c & 0x80u) == 0) {
+            seq_len = 1;
+        } else if ((c & 0xE0u) == 0xC0u) {
+            seq_len = 2;
+        } else if ((c & 0xF0u) == 0xE0u) {
+            seq_len = 3;
+        } else if ((c & 0xF8u) == 0xF0u) {
+            seq_len = 4;
+        } else {
+            break;
+        }
+
+        if (i + seq_len > limit || i + seq_len > text.size()) {
+            break;
+        }
+
+        bool valid = true;
+        for (size_t j = 1; j < seq_len; ++j) {
+            const unsigned char continuation = static_cast<unsigned char>(text[i + j]);
+            if ((continuation & 0xC0u) != 0x80u) {
+                valid = false;
+                break;
+            }
+        }
+
+        if (!valid) {
+            break;
+        }
+
+        i += seq_len;
+        last_valid = i;
+    }
+
+    return last_valid;
+}
+
+} // namespace
+
 namespace fs = std::filesystem;
 
 namespace acecode {
@@ -182,15 +231,27 @@ void SessionManager::update_meta() {
 }
 
 std::string SessionManager::extract_summary(const std::string& content) const {
-    // Take first 80 chars of the user message
-    if (content.size() <= 80) return content;
+    constexpr size_t max_summary_bytes = 80;
+    constexpr size_t min_word_break_bytes = 60;
 
-    // Find a reasonable break point (space) near 80 chars
-    size_t cut = 80;
-    while (cut > 60 && content[cut] != ' ') {
+    if (content.size() <= max_summary_bytes) return content;
+
+    const size_t safe_limit = utf8_safe_prefix_length(content, max_summary_bytes);
+    if (safe_limit == 0) {
+        return "...";
+    }
+
+    size_t cut = safe_limit;
+    while (cut > min_word_break_bytes && content[cut - 1] != ' ') {
         --cut;
     }
-    if (cut <= 60) cut = 80; // No space found, just cut at 80
+    if (cut <= min_word_break_bytes) {
+        cut = safe_limit;
+    }
+
+    while (cut > 0 && content[cut - 1] == ' ') {
+        --cut;
+    }
 
     return content.substr(0, cut) + "...";
 }

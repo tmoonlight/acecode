@@ -8,7 +8,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <algorithm>
+#include <array>
 #include <sstream>
+#include <string_view>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -26,10 +28,8 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
-#include <ftxui/screen/terminal.hpp>
-#ifdef _WIN32
 #include <ftxui/screen/string.hpp>
-#endif
+#include <ftxui/screen/terminal.hpp>
 
 #include "version.hpp"
 #include "config/config.hpp"
@@ -55,6 +55,142 @@
 
 using namespace ftxui;
 using namespace acecode;
+
+namespace {
+
+bool is_space_glyph(const std::string& glyph) {
+    return glyph == " " || glyph == "\t";
+}
+
+bool is_narrow_glyph(const std::string& glyph) {
+    return ftxui::string_width(glyph) == 1;
+}
+
+bool is_opening_cjk_punctuation(const std::string& glyph) {
+    static constexpr std::array<std::string_view, 8> kOpening = {
+        "（", "《", "「", "【", "‘", "“", "〈", "『"
+    };
+    for (const auto& candidate : kOpening) {
+        if (glyph == candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_closing_cjk_punctuation(const std::string& glyph) {
+    static constexpr std::array<std::string_view, 15> kClosing = {
+        "，", "。", "！", "？", "；", "：", "、", "）",
+        "》", "」", "】", "’", "”", "〉", "』"
+    };
+    for (const auto& candidate : kClosing) {
+        if (glyph == candidate) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void flush_ascii_run(std::string* ascii_run,
+                     std::string* pending_prefix,
+                     std::vector<std::string>* output) {
+    if (ascii_run->empty()) {
+        return;
+    }
+
+    std::string token = std::move(*ascii_run);
+    ascii_run->clear();
+    if (!pending_prefix->empty()) {
+        token = std::move(*pending_prefix) + token;
+        pending_prefix->clear();
+    }
+    output->push_back(std::move(token));
+}
+
+std::vector<std::string> tokenize_wrapped_input(const std::string& text) {
+    std::vector<std::string> tokens;
+    std::string ascii_run;
+    std::string pending_prefix;
+
+    for (const auto& glyph : ftxui::Utf8ToGlyphs(text)) {
+        if (glyph.empty()) {
+            continue;
+        }
+
+        if (is_space_glyph(glyph)) {
+            flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
+            if (!tokens.empty()) {
+                tokens.back() += " ";
+            }
+            continue;
+        }
+
+        if (is_opening_cjk_punctuation(glyph)) {
+            flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
+            pending_prefix += glyph;
+            continue;
+        }
+
+        if (is_closing_cjk_punctuation(glyph)) {
+            flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
+            if (!tokens.empty()) {
+                tokens.back() += glyph;
+            } else if (!pending_prefix.empty()) {
+                pending_prefix += glyph;
+            } else {
+                tokens.push_back(glyph);
+            }
+            continue;
+        }
+
+        if (is_narrow_glyph(glyph)) {
+            ascii_run += glyph;
+            continue;
+        }
+
+        flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
+        std::string token = glyph;
+        if (!pending_prefix.empty()) {
+            token = std::move(pending_prefix) + token;
+            pending_prefix.clear();
+        }
+        tokens.push_back(std::move(token));
+    }
+
+    flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
+    if (!pending_prefix.empty()) {
+        if (!tokens.empty()) {
+            tokens.back() += pending_prefix;
+        } else {
+            tokens.push_back(std::move(pending_prefix));
+        }
+    }
+
+    return tokens;
+}
+
+Element render_wrapped_input_text(const std::string& input_value) {
+    auto tokens = tokenize_wrapped_input(input_value);
+    if (tokens.empty()) {
+        return ftxui::text(" ") | focusCursorBlock;
+    }
+
+    Elements parts;
+    parts.reserve(tokens.size());
+    for (size_t index = 0; index + 1 < tokens.size(); ++index) {
+        parts.push_back(ftxui::text(std::move(tokens[index])));
+    }
+
+    parts.push_back(hbox({
+        ftxui::text(std::move(tokens.back())),
+        ftxui::text(" ") | focusCursorBlock,
+    }));
+
+    static const auto config = FlexboxConfig().SetGap(0, 0);
+    return flexbox(std::move(parts), config);
+}
+
+}  // namespace
 
 // ---- Get current working directory ----
 static std::string get_cwd() {
@@ -713,20 +849,7 @@ int main(int argc, char* argv[]) {
                 text("Type your prompt here...") | dim | color(Color::GrayDark),
             });
         }
-        // Build paragraph-like flexbox with FTXUI cursor at end
-        Elements words;
-        std::istringstream ss(display_text);
-        std::string word;
-        while (std::getline(ss, word, ' ')) {
-            words.push_back(text(word));
-        }
-        if (!words.empty()) {
-            words.back() = hbox({words.back(), text(" ") | focusCursorBlock});
-        } else {
-            words.push_back(text(" ") | focusCursorBlock);
-        }
-        static const auto config = FlexboxConfig().SetGap(1, 0);
-        return flexbox(std::move(words), config);
+        return render_wrapped_input_text(display_text);
     });
 
     // Wrap with CatchEvent to handle all keyboard input
