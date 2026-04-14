@@ -35,6 +35,7 @@
 #include "config/config.hpp"
 #include "provider/provider_factory.hpp"
 #include "provider/copilot_provider.hpp"
+#include "provider/model_context_resolver.hpp"
 #include "tool/tool_executor.hpp"
 #include "tool/bash_tool.hpp"
 #include "tool/file_read_tool.hpp"
@@ -390,6 +391,12 @@ int main(int argc, char* argv[]) {
 
     // ---- Create provider ----
     auto provider = create_provider(config);
+    config.context_window = resolve_model_context_window(
+        config,
+        provider->name(),
+        provider->model(),
+        config.context_window
+    );
 
     // ---- Setup tools ----
     ToolExecutor tools;
@@ -537,6 +544,7 @@ int main(int argc, char* argv[]) {
 
     // ---- Token tracking ----
     TokenTracker token_tracker;
+    state.token_status = token_tracker.format_status(config.context_window);
 
     // ---- Agent callbacks ----
     std::atomic<bool> agent_aborting{false};  // shared abort flag for confirm_cv
@@ -800,7 +808,7 @@ int main(int argc, char* argv[]) {
             if (!prompt.empty() && prompt[0] == '/') {
                 CommandContext cmd_ctx{
                     state, agent_loop, *provider, config, token_tracker,
-                    permissions, config.context_window,
+                    permissions,
                     [&screen]() { screen.Exit(); },
                     &session_manager
                 };

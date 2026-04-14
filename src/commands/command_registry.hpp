@@ -21,7 +21,6 @@ struct CommandContext {
     AppConfig& config;
     TokenTracker& token_tracker;
     PermissionManager& permissions;
-    int context_window;
     std::function<void()> request_exit;
     SessionManager* session_manager = nullptr;
 };

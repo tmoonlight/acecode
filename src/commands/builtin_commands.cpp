@@ -1,5 +1,6 @@
 #include "builtin_commands.hpp"
 #include "compact.hpp"
+#include "../provider/model_context_resolver.hpp"
 #include <sstream>
 #include <iomanip>
 
@@ -38,6 +39,14 @@ static void cmd_model(CommandContext& ctx, const std::string& args) {
         ctx.state.conversation.push_back({"system", info, false});
     } else {
         ctx.provider.set_model(args);
+        ctx.config.context_window = resolve_model_context_window(
+            ctx.config,
+            ctx.provider.name(),
+            ctx.provider.model(),
+            ctx.config.context_window
+        );
+        ctx.agent_loop.set_context_window(ctx.config.context_window);
+        ctx.state.token_status = ctx.token_tracker.format_status(ctx.config.context_window);
         ctx.state.status_line = "[" + ctx.provider.name() + "] model: " + args;
         ctx.state.conversation.push_back({"system", "Model switched to: " + args, false});
     }
@@ -49,7 +58,7 @@ static void cmd_config(CommandContext& ctx, const std::string& /*args*/) {
     oss << "Current configuration:\n"
         << "  provider:       " << ctx.config.provider << "\n"
         << "  model:          " << ctx.provider.model() << "\n"
-        << "  context_window: " << ctx.context_window << "\n"
+        << "  context_window: " << ctx.config.context_window << "\n"
         << "  permission:     " << PermissionManager::mode_name(ctx.permissions.mode());
     if (ctx.config.provider == "openai") {
         oss << "\n  base_url:       " << ctx.config.openai.base_url;
