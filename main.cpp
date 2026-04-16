@@ -11,6 +11,7 @@
 #include <array>
 #include <sstream>
 #include <string_view>
+#include <random>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -49,6 +50,8 @@
 #include "commands/configure.hpp"
 #include "commands/command_registry.hpp"
 #include "commands/builtin_commands.hpp"
+#include "commands/compact.hpp"
+#include "commands/micro_compact.hpp"
 #include "utils/token_tracker.hpp"
 #include "markdown/markdown_formatter.hpp"
 #include "session/session_manager.hpp"
@@ -57,6 +60,53 @@ using namespace ftxui;
 using namespace acecode;
 
 namespace {
+
+static const std::string EN_THINKING_PHRASES[50] = {
+    "Analyzing", "Pondering", "Investigating", "Synthesizing", "Reviewing",
+    "Processing", "Compiling", "Evaluating", "Formulating", "Brainstorming",
+    "Searching", "Deciphering", "Gathering", "Debugging", "Inspecting",
+    "Generating", "Organizing", "Mapping", "Exploring", "Tracing",
+    "Validating", "Considering", "Reflecting", "Simulating", "Calculating",
+    "Abstracting", "Diving", "Looking", "Troubleshooting", "Crafting",
+    "Polishing", "Assembling", "Connecting", "Building", "Parsing",
+    "Extracting", "Tuning", "Optimizing", "Designing", "Theorizing",
+    "Hypothesizing", "Seeking", "Interpreting", "Measuring", "Weighing",
+    "Reading", "Preparing", "Reasoning", "Constructing", "Finalizing"
+};
+
+static const std::string ZH_THINKING_PHRASES[50] = {
+    "分析中", "思考中", "研究中", "探索中", "综合中",
+    "审查中", "处理中", "编译中", "评估中", "规划中",
+    "构思中", "搜索中", "解码中", "收集中", "调试中",
+    "检查中", "生成中", "组织中", "映射中", "推理中",
+    "验证中", "考虑中", "反思中", "模拟中", "计算中",
+    "抽象中", "深挖中", "寻找中", "排查中", "打磨中",
+    "完善中", "组装中", "连接中", "构建中", "解析中",
+    "提取中", "微调中", "优化中", "设计中", "推论中",
+    "假设中", "路线中", "解读中", "测量中", "权衡中",
+    "阅读中", "准备中", "追溯中", "构造中", "总结中"
+};
+
+static bool is_user_chinese(const acecode::TuiState& state) {
+    if (state.conversation.empty()) return false;
+    for (auto it = state.conversation.rbegin(); it != state.conversation.rend(); ++it) {
+        if (it->role == "user") {
+            for (unsigned char c : it->content) {
+                if (c >= 0xE0) return true;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+static std::string get_random_thinking_phrase(bool is_zh) {
+    static thread_local std::random_device rd;
+    static thread_local std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 49);
+    return is_zh ? ZH_THINKING_PHRASES[dis(gen)] : EN_THINKING_PHRASES[dis(gen)];
+}
+
 
 bool is_space_glyph(const std::string& glyph) {
     return glyph == " " || glyph == "\t";
@@ -623,6 +673,7 @@ int main(int argc, char* argv[]) {
         if (copilot && !copilot->is_authenticated()) {
             {
                 std::lock_guard<std::mutex> lk(state.mu);
+                state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
                 state.is_waiting = true;
                 state.conversation.push_back({"system", "Authenticating with GitHub Copilot...", false});
             }
@@ -700,6 +751,9 @@ int main(int argc, char* argv[]) {
     };
     callbacks.on_busy_changed = [&state, &screen](bool busy) {
         std::lock_guard<std::mutex> lk(state.mu);
+        if (busy && !state.is_waiting) {
+            state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
+        }
         state.is_waiting = busy;
         screen.PostEvent(Event::Custom);
     };
@@ -743,7 +797,7 @@ int main(int argc, char* argv[]) {
         state.conversation.push_back({"system", "[Auto-compact] Context approaching limit, compacting...", false});
         clamp_chat_focus();
         screen.PostEvent(Event::Custom);
-        return true; // allow auto-compact to proceed
+        return false;
     };
 
     PermissionManager permissions;
@@ -761,6 +815,87 @@ int main(int argc, char* argv[]) {
 
     AgentLoop agent_loop(*provider, tools, callbacks, working_dir, permissions);
     agent_loop.set_context_window(config.context_window);
+
+    // Auto-compact tracking state for circuit breaker
+    AutoCompactTrackingState compact_tracking;
+
+    callbacks.on_auto_compact = [&state, &clamp_chat_focus, &screen, &agent_loop, &provider,
+                                  &compact_tracking, &config]() -> bool {
+        // Circuit breaker: stop after consecutive failures
+        if (compact_tracking.consecutive_failures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES) {
+            LOG_WARN("Auto-compact circuit breaker tripped (" +
+                     std::to_string(compact_tracking.consecutive_failures) + " consecutive failures)");
+            return false;
+        }
+
+        compact_tracking.turn_counter++;
+
+        // Phase 1: Try micro-compact first
+        {
+            auto [boundary_start, boundary_count] = get_messages_after_compact_boundary(agent_loop.messages());
+            auto& msgs = agent_loop.messages_mut();
+            int pre_tokens = estimate_message_tokens(
+                std::vector<ChatMessage>(msgs.begin() + boundary_start, msgs.end()));
+
+            auto micro_result = run_micro_compact(msgs, boundary_start);
+            if (micro_result.performed) {
+                // Insert microcompact boundary marker
+                auto mc_boundary = create_microcompact_boundary_message(
+                    pre_tokens, micro_result.estimated_tokens_saved, micro_result.cleared_tool_call_ids);
+                msgs.push_back(mc_boundary);
+
+                {
+                    std::lock_guard<std::mutex> lk(state.mu);
+                    std::ostringstream oss;
+                    oss << "[Micro-compact] Cleared " << micro_result.tool_results_cleared
+                        << " old tool results, saved ~"
+                        << TokenTracker::format_tokens(micro_result.estimated_tokens_saved) << " tokens";
+                    state.conversation.push_back({"system", oss.str(), false});
+                    clamp_chat_focus();
+                }
+                screen.PostEvent(Event::Custom);
+
+                // Check if micro-compact was sufficient
+                if (!should_auto_compact(agent_loop.messages(), config.context_window)) {
+                    return true;
+                }
+            }
+        }
+
+        // Phase 2: Full compact
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.conversation.push_back({"system", "[Auto-compact] Context approaching limit, compacting...", false});
+            clamp_chat_focus();
+        }
+        screen.PostEvent(Event::Custom);
+
+        auto result = compact_context(*provider, agent_loop, state, 4, true);
+
+        if (result.performed) {
+            compact_tracking.consecutive_failures = 0;
+            compact_tracking.compacted = true;
+        } else {
+            compact_tracking.consecutive_failures++;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (!result.performed) {
+                state.conversation.push_back({"system", "[Auto-compact] " + result.error, false});
+            } else {
+                std::ostringstream oss;
+                oss << "[Auto-compact] Compacted " << result.messages_compressed
+                    << " messages, saved ~"
+                    << TokenTracker::format_tokens(result.estimated_tokens_saved) << " tokens";
+                state.conversation.push_back({"system", oss.str(), false});
+            }
+            clamp_chat_focus();
+        }
+        screen.PostEvent(Event::Custom);
+        return result.performed;
+    };
+    agent_loop.set_callbacks(callbacks);
 
     // ---- Session manager ----
     SessionManager session_manager;
@@ -807,6 +942,9 @@ int main(int argc, char* argv[]) {
     // Now that agent_loop exists, update on_busy_changed to drain pending queue
     callbacks.on_busy_changed = [&state, &clamp_chat_focus, &agent_loop, &screen](bool busy) {
         std::lock_guard<std::mutex> lk(state.mu);
+        if (busy && !state.is_waiting) {
+            state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
+        }
         state.is_waiting = busy;
         if (!busy && !state.pending_queue.empty()) {
             std::string next_prompt = state.pending_queue.front();
@@ -814,6 +952,7 @@ int main(int argc, char* argv[]) {
             state.conversation.push_back({"user", next_prompt, false});
             state.chat_follow_tail = true;
             clamp_chat_focus();
+            state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
             state.is_waiting = true;
             agent_loop.submit(next_prompt);
         }
@@ -855,6 +994,19 @@ int main(int argc, char* argv[]) {
     // Wrap with CatchEvent to handle all keyboard input
     auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &auth_done, &cmd_registry, &agent_loop, &provider, &config, &token_tracker, &permissions, &session_manager, &scroll_chat, &chat_box](Event event) {
         if (event == Event::CtrlC) {
+            // If compaction is in progress, Ctrl+C cancels it instead of exiting
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                if (state.is_compacting) {
+                    state.compact_abort_requested.store(true);
+                    state.conversation.push_back({"system", "Cancelling compaction...", false});
+                    state.chat_follow_tail = true;
+                    clamp_chat_focus();
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+            }
+
             constexpr auto kCtrlCExitWindow = std::chrono::milliseconds(1200);
 
             bool should_exit = false;
@@ -882,7 +1034,7 @@ int main(int argc, char* argv[]) {
 
         // Enter → submit message
         if (event == Event::Return) {
-            std::lock_guard<std::mutex> lk(state.mu);
+            std::unique_lock<std::mutex> lk(state.mu);
 
             // Handle resume picker: Enter confirms selection
             if (state.resume_picker_active) {
@@ -920,6 +1072,9 @@ int main(int argc, char* argv[]) {
             if (state.input_text.empty()) return true;
             if (!auth_done) return true;
 
+            // Block message submission during compaction
+            if (state.is_compacting) return true;
+
             std::string prompt = state.input_text;
             state.input_text.clear();
 
@@ -933,14 +1088,18 @@ int main(int argc, char* argv[]) {
                     state, agent_loop, *provider, config, token_tracker,
                     permissions,
                     [&screen]() { screen.Exit(); },
-                    &session_manager
+                    &session_manager,
+                    [&screen]() { screen.PostEvent(Event::Custom); }
                 };
+                lk.unlock();
                 bool handled = cmd_registry.dispatch(prompt, cmd_ctx);
                 if (handled) {
+                    lk.lock();
                     clamp_chat_focus();
                     screen.PostEvent(Event::Custom);
                     return true;
                 }
+                lk.lock();
                 // If not a known command, fall through to send as normal prompt
             }
 
@@ -953,6 +1112,7 @@ int main(int argc, char* argv[]) {
                 state.conversation.push_back({"user", prompt, false});
                 state.chat_follow_tail = true;
                 clamp_chat_focus();
+                state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
                 state.is_waiting = true;
                 agent_loop.submit(prompt);
             }
@@ -1235,11 +1395,25 @@ int main(int argc, char* argv[]) {
         if (state.is_waiting) {
             int tick = anim_tick.load();
             int dot_count = (tick % 3) + 1; // 1, 2, 3 dots cycling
-            int wave_pos = tick % 8;         // position of bright wave
 
-            std::string base = "Thinking";
+            std::string base = state.current_thinking_phrase;
+            std::vector<std::string> utf8_chars;
+            for (size_t i = 0; i < base.size();) {
+                unsigned char c = base[i];
+                size_t len = 1;
+                if ((c & 0xE0) == 0xC0) len = 2;
+                else if ((c & 0xF0) == 0xE0) len = 3;
+                else if ((c & 0xF8) == 0xF0) len = 4;
+                if (i + len > base.size()) len = base.size() - i;
+                utf8_chars.push_back(base.substr(i, len));
+                i += len;
+            }
+
+            int total_chars = static_cast<int>(utf8_chars.size());
+            int wave_pos = tick % (total_chars > 0 ? total_chars + 2 : 8);
+
             Elements chars;
-            for (int i = 0; i < (int)base.size(); i++) {
+            for (int i = 0; i < total_chars; i++) {
                 int dist = (i - wave_pos);
                 if (dist < 0) dist = -dist;
                 Color c;
@@ -1251,7 +1425,7 @@ int main(int argc, char* argv[]) {
                     c = Color::RGB(120, 120, 40);
                 else
                     c = Color::GrayDark;
-                chars.push_back(text(std::string(1, base[i])) | color(c));
+                chars.push_back(text(utf8_chars[i]) | color(c));
             }
 
             // Dots also animate
@@ -1376,6 +1550,12 @@ int main(int argc, char* argv[]) {
         }
     }
     agent_loop.shutdown();
+
+    // Abort and join any in-progress compact thread
+    state.compact_abort_requested.store(true);
+    if (state.compact_thread.joinable()) {
+        state.compact_thread.join();
+    }
 
     if (anim_thread.joinable()) {
         anim_thread.join();

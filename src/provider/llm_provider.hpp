@@ -17,6 +17,14 @@ struct ChatMessage {
 
     // For tool result messages
     std::string tool_call_id;
+
+    // Metadata fields for compact pipeline
+    std::string uuid;                    // unique identifier (for boundary tracking)
+    std::string subtype;                 // "compact_boundary" | "microcompact_boundary" | ""
+    std::string timestamp;               // ISO 8601 timestamp
+    bool is_meta = false;                // meta-message (boundary etc.), not sent to API
+    bool is_compact_summary = false;     // marks this message as a compact summary
+    nlohmann::json metadata;             // extended metadata (compact stats etc.)
 };
 
 struct ToolCall {

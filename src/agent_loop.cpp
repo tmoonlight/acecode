@@ -103,9 +103,9 @@ void AgentLoop::run_agent(const std::string& user_message) {
             break;
         }
 
-        // Auto-compact check: if estimated tokens exceed 80% of context window
+        // Auto-compact check: if estimated tokens exceed threshold
         if (should_auto_compact(messages_, context_window_)) {
-            LOG_INFO("Auto-compact triggered: estimated tokens exceed 80% of context window (" + std::to_string(context_window_) + ")");
+            LOG_INFO("Auto-compact triggered: estimated tokens exceed threshold (context_window=" + std::to_string(context_window_) + ")");
             if (callbacks_.on_auto_compact) {
                 callbacks_.on_auto_compact();
             }
@@ -115,13 +115,14 @@ void AgentLoop::run_agent(const std::string& user_message) {
         std::string system_prompt = build_system_prompt(tools_, cwd_);
         LOG_DEBUG("System prompt length: " + std::to_string(system_prompt.size()));
 
-        // Prepare messages with system prompt at front
+        // Prepare messages with system prompt at front, filtering out meta messages
+        auto api_messages = normalize_messages_for_api(messages_);
         std::vector<ChatMessage> messages_with_system;
         ChatMessage sys_msg;
         sys_msg.role = "system";
         sys_msg.content = system_prompt;
         messages_with_system.push_back(sys_msg);
-        messages_with_system.insert(messages_with_system.end(), messages_.begin(), messages_.end());
+        messages_with_system.insert(messages_with_system.end(), api_messages.begin(), api_messages.end());
 
         // Use streaming API
         ChatResponse accumulated;
@@ -177,6 +178,25 @@ void AgentLoop::run_agent(const std::string& user_message) {
                 callbacks_.on_message("system", "[Interrupted]", false);
             }
             break;
+        }
+
+        if (!accumulated.usage.has_data && callbacks_.on_usage &&
+            (!accumulated.content.empty() || !accumulated.tool_calls.empty())) {
+            TokenUsage estimated_usage;
+            estimated_usage.prompt_tokens = estimate_message_tokens(messages_with_system);
+
+            ChatMessage estimated_response;
+            if (accumulated.has_tool_calls()) {
+                estimated_response = ToolExecutor::format_assistant_tool_calls(accumulated);
+            } else {
+                estimated_response.role = "assistant";
+                estimated_response.content = accumulated.content;
+            }
+
+            estimated_usage.completion_tokens = estimate_message_tokens({estimated_response});
+            estimated_usage.total_tokens = estimated_usage.prompt_tokens + estimated_usage.completion_tokens;
+            estimated_usage.has_data = false;
+            callbacks_.on_usage(estimated_usage);
         }
 
         if (!accumulated.has_tool_calls()) {

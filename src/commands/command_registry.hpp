@@ -23,6 +23,7 @@ struct CommandContext {
     PermissionManager& permissions;
     std::function<void()> request_exit;
     SessionManager* session_manager = nullptr;
+    std::function<void()> post_event;  // post a TUI refresh event from any thread
 };
 
 struct SlashCommand {
