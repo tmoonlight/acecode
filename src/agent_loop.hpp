@@ -74,6 +74,8 @@ public:
     const std::vector<ChatMessage>& messages() const { return messages_; }
     std::vector<ChatMessage>& messages_mut() { return messages_; }
 
+    const std::string& cwd() const { return cwd_; }
+
     void set_context_window(int cw) { context_window_ = cw; }
 
     void set_session_manager(SessionManager* sm) { session_manager_ = sm; }

@@ -55,3 +55,5 @@ vcpkg_installed/
 !.github/workflows/package.yml
 openspec
 acecode.log
+.agent
+.claude

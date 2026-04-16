@@ -19,6 +19,26 @@ std::string serialize_message(const ChatMessage& msg) {
         j["tool_call_id"] = msg.tool_call_id;
     }
 
+    // Compact pipeline metadata fields (omit when default)
+    if (!msg.uuid.empty()) {
+        j["uuid"] = msg.uuid;
+    }
+    if (!msg.subtype.empty()) {
+        j["subtype"] = msg.subtype;
+    }
+    if (!msg.timestamp.empty()) {
+        j["timestamp"] = msg.timestamp;
+    }
+    if (msg.is_meta) {
+        j["is_meta"] = true;
+    }
+    if (msg.is_compact_summary) {
+        j["is_compact_summary"] = true;
+    }
+    if (!msg.metadata.is_null() && !msg.metadata.empty()) {
+        j["metadata"] = msg.metadata;
+    }
+
     // dump(-1) produces compact single-line JSON with no extra whitespace
     return j.dump(-1);
 }
@@ -41,6 +61,26 @@ ChatMessage deserialize_message(const std::string& line) {
 
     if (j.contains("tool_call_id") && j["tool_call_id"].is_string()) {
         msg.tool_call_id = j["tool_call_id"].get<std::string>();
+    }
+
+    // Compact pipeline metadata fields (graceful defaults for legacy JSONL)
+    if (j.contains("uuid") && j["uuid"].is_string()) {
+        msg.uuid = j["uuid"].get<std::string>();
+    }
+    if (j.contains("subtype") && j["subtype"].is_string()) {
+        msg.subtype = j["subtype"].get<std::string>();
+    }
+    if (j.contains("timestamp") && j["timestamp"].is_string()) {
+        msg.timestamp = j["timestamp"].get<std::string>();
+    }
+    if (j.contains("is_meta") && j["is_meta"].is_boolean()) {
+        msg.is_meta = j["is_meta"].get<bool>();
+    }
+    if (j.contains("is_compact_summary") && j["is_compact_summary"].is_boolean()) {
+        msg.is_compact_summary = j["is_compact_summary"].get<bool>();
+    }
+    if (j.contains("metadata") && j["metadata"].is_object()) {
+        msg.metadata = j["metadata"];
     }
 
     return msg;

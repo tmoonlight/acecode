@@ -8,6 +8,8 @@
 #include <condition_variable>
 #include <chrono>
 #include <functional>
+#include <atomic>
+#include <thread>
 
 namespace acecode {
 
@@ -21,6 +23,7 @@ struct TuiState {
     std::vector<Message> conversation;
     std::string input_text;
     bool is_waiting = false;
+    std::string current_thinking_phrase = "Thinking";
     std::string status_line; // for auth/provider status
     std::string token_status; // for token usage display
 
@@ -53,6 +56,11 @@ struct TuiState {
     bool chat_follow_tail = true;
     bool ctrl_c_armed = false;
     std::chrono::steady_clock::time_point last_ctrl_c_time{};
+
+    // Async compact state
+    bool is_compacting = false;                       // protected by mu
+    std::atomic<bool> compact_abort_requested{false};  // cross-thread abort signal
+    std::thread compact_thread;                        // background compaction thread
 
     std::mutex mu;
 };

@@ -1,12 +1,15 @@
 #include "builtin_commands.hpp"
 #include "compact.hpp"
 #include "../provider/model_context_resolver.hpp"
+#include <mutex>
 #include <sstream>
 #include <iomanip>
+#include <thread>
 
 namespace acecode {
 
 static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
+    std::lock_guard<std::mutex> lk(ctx.state.mu);
     std::ostringstream oss;
     oss << "Available commands:\n"
         << "  /help     - Show this help message\n"
@@ -22,6 +25,7 @@ static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
 }
 
 static void cmd_clear(CommandContext& ctx, const std::string& /*args*/) {
+    std::lock_guard<std::mutex> lk(ctx.state.mu);
     ctx.state.conversation.clear();
     ctx.agent_loop.clear_messages();
     ctx.token_tracker.reset();
@@ -34,6 +38,7 @@ static void cmd_clear(CommandContext& ctx, const std::string& /*args*/) {
 }
 
 static void cmd_model(CommandContext& ctx, const std::string& args) {
+    std::lock_guard<std::mutex> lk(ctx.state.mu);
     if (args.empty()) {
         std::string info = "[" + ctx.provider.name() + "] model: " + ctx.provider.model();
         ctx.state.conversation.push_back({"system", info, false});
@@ -54,6 +59,7 @@ static void cmd_model(CommandContext& ctx, const std::string& args) {
 }
 
 static void cmd_config(CommandContext& ctx, const std::string& /*args*/) {
+    std::lock_guard<std::mutex> lk(ctx.state.mu);
     std::ostringstream oss;
     oss << "Current configuration:\n"
         << "  provider:       " << ctx.config.provider << "\n"
@@ -68,6 +74,7 @@ static void cmd_config(CommandContext& ctx, const std::string& /*args*/) {
 }
 
 static void cmd_cost(CommandContext& ctx, const std::string& /*args*/) {
+    std::lock_guard<std::mutex> lk(ctx.state.mu);
     std::ostringstream oss;
     oss << "Session token usage:\n"
         << "  prompt:     " << TokenTracker::format_tokens(ctx.token_tracker.prompt_tokens()) << "\n"
@@ -81,19 +88,53 @@ static void cmd_cost(CommandContext& ctx, const std::string& /*args*/) {
 }
 
 static void cmd_compact(CommandContext& ctx, const std::string& /*args*/) {
-    ctx.state.conversation.push_back({"system", "Compacting conversation...", false});
-    ctx.state.chat_follow_tail = true;
+    {
+        std::lock_guard<std::mutex> lk(ctx.state.mu);
 
-    auto result = compact_context(ctx.provider, ctx.agent_loop, ctx.state);
-    if (!result.performed) {
-        ctx.state.conversation.push_back({"system", result.error, false});
-    } else {
-        std::ostringstream oss;
-        oss << "Compacted " << result.messages_compressed << " messages, saved ~"
-            << TokenTracker::format_tokens(result.estimated_tokens_saved) << " tokens";
-        ctx.state.conversation.push_back({"system", oss.str(), false});
+        // Reject if already compacting
+        if (ctx.state.is_compacting) {
+            ctx.state.conversation.push_back({"system", "Compaction already in progress.", false});
+            ctx.state.chat_follow_tail = true;
+            return;
+        }
+
+        ctx.state.is_compacting = true;
+        ctx.state.compact_abort_requested.store(false);
+        ctx.state.conversation.push_back({"system", "Compacting conversation...", false});
+        ctx.state.chat_follow_tail = true;
     }
-    ctx.state.chat_follow_tail = true;
+
+    // Join any previous compact thread before launching a new one
+    if (ctx.state.compact_thread.joinable()) {
+        ctx.state.compact_thread.join();
+    }
+
+    // Capture references for the background thread
+    auto& provider   = ctx.provider;
+    auto& agent_loop = ctx.agent_loop;
+    auto& state      = ctx.state;
+    auto post_event  = ctx.post_event;
+
+    ctx.state.compact_thread = std::thread([&provider, &agent_loop, &state, post_event]() {
+        auto result = compact_context(provider, agent_loop, state, 4, false,
+                                      &state.compact_abort_requested);
+
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (!result.performed) {
+                state.conversation.push_back({"system", result.error, false});
+            } else {
+                std::ostringstream oss;
+                oss << "Compacted " << result.messages_compressed << " messages, saved ~"
+                    << TokenTracker::format_tokens(result.estimated_tokens_saved) << " tokens";
+                state.conversation.push_back({"system", oss.str(), false});
+            }
+            state.is_compacting = false;
+            state.chat_follow_tail = true;
+        }
+
+        if (post_event) post_event();
+    });
 }
 
 static void cmd_exit(CommandContext& ctx, const std::string& /*args*/) {
@@ -104,6 +145,7 @@ static void cmd_exit(CommandContext& ctx, const std::string& /*args*/) {
 
 static void do_resume_session(CommandContext& ctx, const std::string& session_id,
                               const std::vector<SessionMeta>& sessions) {
+    // Caller must hold ctx.state.mu
     // Find the meta for this session
     const SessionMeta* target = nullptr;
     for (const auto& s : sessions) {
@@ -130,6 +172,7 @@ static void do_resume_session(CommandContext& ctx, const std::string& session_id
 }
 
 static void cmd_resume(CommandContext& ctx, const std::string& args) {
+    std::lock_guard<std::mutex> lk(ctx.state.mu);
     if (!ctx.session_manager) {
         ctx.state.conversation.push_back({"system", "Session persistence is not available.", false});
         ctx.state.chat_follow_tail = true;
