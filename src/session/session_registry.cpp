@@ -2,6 +2,7 @@
 
 #include "session_rewind.hpp"
 #include "session_storage.hpp"
+#include "../provider/copilot_provider.hpp"
 #include "../provider/model_context_resolver.hpp"
 #include "../provider/model_resolver.hpp"
 #include "../provider/provider_factory.hpp"
@@ -88,6 +89,29 @@ ResolvedSessionModel resolve_from_profile(const AppConfig& cfg,
     ResolvedSessionModel resolved;
     resolved.state = state_from_profile(cfg, profile);
     resolved.provider = create_provider_from_entry(profile);
+    LOG_INFO("[registry] resolve_from_profile name='" + profile.name +
+             "' provider='" + profile.provider + "' model='" + profile.model + "'");
+    // Copilot provider 持有 github_token_ + copilot_token_ 两层鉴权状态,
+    // create_provider_from_entry 只是构造空实例 — 必须显式 silent_auth 加载磁盘
+    // 上的 github_token,否则首次 chat() 直接报 "Copilot session token unavailable"。
+    // 比对 provider name 兼容 ModelProfile 中 provider 字段为空 / 大小写差异的场景:
+    // 优先用实际 provider 实例的 name() (来自 LlmProvider::name() override),
+    // 这一定是 "copilot" 当且仅当工厂确实构造了 CopilotProvider。
+    if (resolved.provider) {
+        const std::string actual_name = resolved.provider->name();
+        if (actual_name == "copilot") {
+            if (auto copilot = std::dynamic_pointer_cast<CopilotProvider>(resolved.provider)) {
+                LOG_INFO("[registry] running silent_auth for new Copilot provider instance");
+                if (!copilot->try_silent_auth()) {
+                    LOG_WARN("[registry] Copilot silent_auth failed for new session provider "
+                             "(model='" + profile.model + "'); user will see "
+                             "'session token unavailable' until re-authentication");
+                } else {
+                    LOG_INFO("[registry] Copilot silent_auth OK for new session provider");
+                }
+            }
+        }
+    }
     return resolved;
 }
 

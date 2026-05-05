@@ -1,6 +1,7 @@
 // provider_swap 实现。见 design.md D4。
 #include "provider_swap.hpp"
 
+#include "copilot_provider.hpp"
 #include "openai_provider.hpp"
 #include "provider_factory.hpp"
 #include "model_context_resolver.hpp"
@@ -28,6 +29,19 @@ void swap_provider_if_needed(std::shared_ptr<LlmProvider>& handle,
             // 跨 provider —— 销毁旧实例(引用计数归零后),新建。worker 线程拿
             // 的旧 shared_ptr 仍能跑完当前 turn(design D4 风险缓解)。
             handle = create_provider_from_entry(entry);
+            // 切到 Copilot 时,新实例的 github_token_ 需要从磁盘加载;否则首次
+            // chat() 报 "Copilot session token unavailable"。
+            // 用 provider->name() 判定(一定是字面 "copilot"),而非 entry.provider —
+            // 后者可能为空/大小写不同,但 create_provider_from_entry 只要不是 "openai"
+            // 就默认造 Copilot,所以 entry.provider 字段不可靠。
+            if (handle && handle->name() == "copilot") {
+                if (auto copilot = std::dynamic_pointer_cast<CopilotProvider>(handle)) {
+                    if (!copilot->try_silent_auth()) {
+                        LOG_WARN("[provider_swap] Copilot silent_auth failed after swap "
+                                 "(model='" + entry.model + "')");
+                    }
+                }
+            }
         }
     }
 
