@@ -12,11 +12,12 @@ const MAX_ROWS = 8;
 const LINE_HEIGHT = 20; // 与 leading-[20px] 对齐
 
 export const InputBar = forwardRef(function InputBar({
-  disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, history = [],
+  disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, history = [], variant = 'default',
 }, ref) {
   const [value, setValue] = useState('');
   const [histPtr, setHistPtr] = useState(-1);
   const ta = useRef(null);
+  const isHero = variant === 'hero';
 
   useImperativeHandle(ref, () => ({
     focus: () => ta.current?.focus(),
@@ -27,10 +28,10 @@ export const InputBar = forwardRef(function InputBar({
     const el = ta.current;
     if (!el) return;
     el.style.height = 'auto';
-    const h = Math.min(el.scrollHeight, LINE_HEIGHT * MAX_ROWS + 16);
+    const h = Math.min(el.scrollHeight, LINE_HEIGHT * MAX_ROWS + (isHero ? 28 : 16));
     el.style.height = h + 'px';
   };
-  useEffect(autosize, [value]);
+  useEffect(autosize, [isHero, value]);
 
   const submit = () => {
     const v = value.trim();
@@ -75,8 +76,13 @@ export const InputBar = forwardRef(function InputBar({
   const hasText = actionState.hasText;
 
   return (
-    <div className="border-t border-border px-2.5 py-2 bg-surface shrink-0">
-      <div className="relative bg-surface border-[1.5px] border-border rounded-xl focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15 transition">
+    <div className={clsx(
+      isHero ? 'ace-inputbar-hero' : 'border-t border-border px-2.5 py-2 bg-surface shrink-0',
+    )}>
+      <div className={clsx(
+        'relative bg-surface border-[1.5px] border-border focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15 transition',
+        isHero ? 'ace-inputbar-hero-card rounded-2xl' : 'rounded-xl',
+      )}>
         <textarea
           ref={ta}
           rows={1}
@@ -85,10 +91,13 @@ export const InputBar = forwardRef(function InputBar({
           onKeyDown={onKey}
           disabled={disabled}
           placeholder={placeholder}
-          className="w-full resize-none bg-transparent border-0 outline-none px-3 py-2 pr-12 text-[13px] leading-[20px] font-sans text-fg placeholder:text-fg-mute disabled:opacity-50"
-          style={{ height: LINE_HEIGHT + 16 }}
+          className={clsx(
+            'w-full resize-none bg-transparent border-0 outline-none leading-[20px] font-sans text-fg placeholder:text-fg-mute disabled:opacity-50',
+            isHero ? 'px-4 py-3 pr-14 text-[14px]' : 'px-3 py-2 pr-12 text-[13px]',
+          )}
+          style={{ height: LINE_HEIGHT + (isHero ? 28 : 16) }}
         />
-        <div className="absolute right-1.5 bottom-1.5 flex items-center gap-1">
+        <div className={clsx("absolute flex items-center gap-1", isHero ? "right-2.5 bottom-2.5" : "right-1.5 bottom-1")}>
           {busy && (
             <button
               type="button"
@@ -134,7 +143,7 @@ export const InputBar = forwardRef(function InputBar({
           )}
         </div>
       </div>
-      <div className="mt-1 px-1 text-[10px] text-fg-mute flex justify-between">
+      <div className={clsx('mt-1 px-1 text-[10px] text-fg-mute flex justify-between', isHero && 'px-3')}>
         <span>{actionState.helperText}</span>
         {value.startsWith('/') && (
           <span className="text-accent">/ 命令模式</span>

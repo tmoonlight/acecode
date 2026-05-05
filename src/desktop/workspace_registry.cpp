@@ -161,6 +161,18 @@ WorkspaceMeta WorkspaceRegistry::register_new(const std::string& projects_dir,
         if (it != entries_.end()) return it->second; // 已注册:返回已有 meta
     }
 
+    if (auto existing = read_workspace_json(projects_dir, hash)) {
+        existing->cwd = existing->cwd.empty() ? cwd : existing->cwd;
+        if (existing->name.empty()) existing->name = default_workspace_name(existing->cwd);
+        existing->desktop_visible = true;
+        if (!write_workspace_json(projects_dir, *existing)) {
+            LOG_WARN("[workspace_registry] register_new restore write failed for cwd=" + cwd);
+        }
+        std::lock_guard<std::mutex> lk(mu_);
+        entries_[hash] = *existing;
+        return *existing;
+    }
+
     WorkspaceMeta m;
     m.hash = hash;
     m.cwd = cwd;
@@ -217,6 +229,34 @@ bool WorkspaceRegistry::set_name(const std::string& projects_dir,
     auto it = entries_.find(hash);
     if (it == entries_.end()) return false; // 极端竞态:写盘期间被 scan 清空
     it->second = updated;
+    return true;
+}
+
+bool WorkspaceRegistry::hide(const std::string& projects_dir, const std::string& hash) {
+    if (hash.empty()) return false;
+
+    WorkspaceMeta updated;
+    bool found = false;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(hash);
+        if (it != entries_.end()) {
+            updated = it->second;
+            found = true;
+        }
+    }
+
+    if (!found) {
+        auto existing = read_workspace_json(projects_dir, hash);
+        if (!existing) return false;
+        updated = *existing;
+    }
+
+    updated.desktop_visible = false;
+    if (!write_workspace_json(projects_dir, updated)) return false;
+
+    std::lock_guard<std::mutex> lk(mu_);
+    entries_.erase(hash);
     return true;
 }
 

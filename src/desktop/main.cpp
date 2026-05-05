@@ -749,6 +749,37 @@ int main(int, char**) {
         }
     });
 
+    // bridge: removeWorkspace (hide from Desktop list; does not delete data)
+    host.bind("aceDesktop_removeWorkspace", [&](const std::string& req) -> std::string {
+        try {
+            auto arr = nlohmann::json::parse(req);
+            if (!arr.is_array() || arr.empty() || !arr[0].is_string()) {
+                return nlohmann::json{{"error", "expect [hash]"}}.dump();
+            }
+            std::string h = arr[0].get<std::string>();
+            bool was_active = false;
+            {
+                std::lock_guard<std::mutex> lk(active_mu);
+                was_active = (active_hash_dynamic == h);
+            }
+
+            bool ok = registry.hide(proj_dir, h);
+            if (!ok) return nlohmann::json{{"error", "remove failed"}}.dump();
+
+            std::string next_active;
+            if (was_active) {
+                auto remaining = registry.list();
+                if (!remaining.empty()) next_active = remaining.front().hash;
+                std::lock_guard<std::mutex> lk(active_mu);
+                active_hash_dynamic = next_active;
+            }
+
+            return nlohmann::json{{"ok", true}, {"active_workspace_hash", next_active}}.dump();
+        } catch (const std::exception& e) {
+            return nlohmann::json{{"error", std::string("parse: ") + e.what()}}.dump();
+        }
+    });
+
     // bridge: addWorkspace (folder picker)
     host.bind("aceDesktop_addWorkspace", [&](const std::string& /*req*/) -> std::string {
         auto picked = pick_folder(host.native_window());

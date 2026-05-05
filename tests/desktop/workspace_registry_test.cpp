@@ -283,6 +283,63 @@ TEST(WorkspaceRegistry, RegisterNewImportsExistingTuiSessionsWithoutRewritingThe
     EXPECT_EQ(visible[0].hash, hash);
 }
 
+// 场景: hide 只把 desktop_visible 写 false + 从 list 移除,不删除目录 / session 文件。
+TEST(WorkspaceRegistry, HidePersistsHiddenMarkerWithoutDeletingData) {
+    TmpProjectsDir tmp;
+    const std::string cwd = "/home/u/hide-me";
+    WorkspaceRegistry r;
+    auto m = r.register_new(tmp.path(), cwd);
+
+    const auto project_dir = fs::path(tmp.path()) / m.hash;
+    acecode::SessionMeta meta;
+    meta.id = "20260505-010203-hide";
+    meta.cwd = cwd;
+    meta.created_at = "2026-05-05T01:02:03Z";
+    meta.updated_at = meta.created_at;
+    const auto meta_path = project_dir / (meta.id + ".meta.json");
+    acecode::SessionStorage::write_meta(meta_path.string(), meta);
+
+    EXPECT_TRUE(r.hide(tmp.path(), m.hash));
+    EXPECT_TRUE(r.list().empty());
+    EXPECT_TRUE(fs::exists(project_dir));
+    EXPECT_TRUE(fs::exists(meta_path));
+
+    std::ifstream ifs((project_dir / "workspace.json").string());
+    auto j = nlohmann::json::parse(ifs);
+    ASSERT_TRUE(j.contains("desktop_visible"));
+    EXPECT_FALSE(j["desktop_visible"].get<bool>());
+
+    WorkspaceRegistry r2;
+    r2.scan(tmp.path());
+    EXPECT_TRUE(r2.list().empty());
+}
+
+// 场景: 用户重新添加同一个隐藏 workspace 时,保留原 name 并恢复可见 marker。
+TEST(WorkspaceRegistry, RegisterNewRestoresHiddenWorkspacePreservingName) {
+    TmpProjectsDir tmp;
+    const std::string cwd = "/home/u/restore-me";
+    const std::string hash = compute_cwd_hash(cwd);
+    seed_workspace_json(tmp.path(), hash, cwd, "custom-restore-name", false);
+
+    WorkspaceRegistry r;
+    auto m = r.register_new(tmp.path(), cwd);
+    EXPECT_EQ(m.hash, hash);
+    EXPECT_EQ(m.name, "custom-restore-name");
+    EXPECT_TRUE(m.desktop_visible);
+
+    std::ifstream ifs((fs::path(tmp.path()) / hash / "workspace.json").string());
+    auto j = nlohmann::json::parse(ifs);
+    EXPECT_TRUE(j["desktop_visible"].get<bool>());
+    EXPECT_EQ(j["name"].get<std::string>(), "custom-restore-name");
+
+    WorkspaceRegistry r2;
+    r2.scan(tmp.path());
+    auto visible = r2.list();
+    ASSERT_EQ(visible.size(), 1u);
+    EXPECT_EQ(visible[0].hash, hash);
+    EXPECT_EQ(visible[0].name, "custom-restore-name");
+}
+
 TEST(WorkspaceRegistry, WorkspaceHashMatchesCwd) {
     const std::string cwd = "/home/u/hash-me";
     EXPECT_TRUE(workspace_hash_matches_cwd(compute_cwd_hash(cwd), cwd));

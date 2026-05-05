@@ -201,6 +201,87 @@ body {
   box-shadow: 0 0 4px color-mix(in oklab, var(--ace-accent) 35%, transparent);
 }
 
+/* Codex-style new task home */
+.ace-home-panel {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 28px 54px;
+}
+.ace-home-content {
+  width: min(100%, 660px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.ace-home-logo {
+  align-self: center;
+  margin-bottom: 4px;
+}
+.ace-home-title {
+  margin: 0 0 16px;
+  text-align: center;
+  color: var(--ace-fg);
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.25;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+.ace-inputbar-hero {
+  width: 100%;
+}
+.ace-inputbar-hero-card {
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.08);
+}
+[data-theme="dark"] .ace-inputbar-hero-card {
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
+}
+.ace-home-project-row {
+  align-self: flex-start;
+  max-width: 100%;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--ace-border-soft);
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--ace-surface) 78%, transparent);
+  color: var(--ace-fg-2);
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+.ace-home-project-row:hover {
+  background: color-mix(in oklab, var(--ace-surface-hi) 60%, var(--ace-surface));
+  border-color: color-mix(in oklab, var(--ace-border) 80%, var(--ace-accent) 20%);
+}
+.ace-home-project-select {
+  min-width: 0;
+  max-width: min(360px, 56vw);
+  color: var(--ace-fg);
+  font-weight: 500;
+}
+.ace-home-hints {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ace-home-hint-card {
+  text-align: left;
+  border: 1px solid var(--ace-border-soft);
+  border-radius: 10px;
+  background: var(--ace-surface);
+  padding: 12px;
+}
+@media (max-width: 640px) {
+  .ace-home-hints {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 代码块 / inline code (在 markdown 渲染里用 .ace-md class 套作用域) */
 .ace-md pre {
   background: var(--ace-code-bg);
@@ -248,14 +329,6 @@ body {
   cursor: pointer;
   opacity: 0.7;
   transition: opacity .15s ease, background-color .15s ease, border-color .15s ease, color .15s ease;
-}
-.ace-code-copy-btn:empty::before {
-  content: "";
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-  box-shadow: -3px -3px 0 -1px var(--ace-surface), -3px -3px 0 0 currentColor;
 }
 .ace-copyable-code:hover .ace-code-copy-btn,
 .ace-code-copy-btn:focus-visible {

@@ -35,6 +35,10 @@ function hasDesktopBridge() {
   return typeof window.aceDesktop_listWorkspaces === 'function';
 }
 
+function hasDesktopRemoveWorkspace() {
+  return typeof window.aceDesktop_removeWorkspace === 'function';
+}
+
 function parseDesktopResult(value) {
   // webview/webview 会把 native binding 返回的 JSON value 先解析成 JS 值；
   // 但开发调试 shim 可能仍返回原始字符串。两种形态都兼容。
@@ -103,7 +107,7 @@ function SessionRow({ s, active, pinned = false, onSelect, onTogglePin }) {
   );
 }
 
-function WorkspaceGroup({ ws, expanded, onToggle, sessions, activeId, onSelect, onRename, onActivate, onNewSession, onTogglePin }) {
+function WorkspaceGroup({ ws, expanded, onToggle, sessions, activeId, onSelect, onRename, onActivate, onNewSession, onRemove, onTogglePin }) {
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(ws.name);
   const hasUnread = workspaceHasUnread(sessions);
@@ -164,9 +168,17 @@ function WorkspaceGroup({ ws, expanded, onToggle, sessions, activeId, onSelect, 
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-          className="text-[11px] text-fg-mute hover:text-fg opacity-0 group-hover:opacity-100 transition px-1"
+          className="w-5 h-5 rounded text-fg-mute hover:text-fg hover:bg-surface-hi opacity-0 group-hover:opacity-100 flex items-center justify-center shrink-0 transition"
           title="重命名"
         ><VsIcon name="edit" size={12} /></button>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRemove(ws); }}
+            className="w-5 h-5 rounded text-fg-mute hover:text-danger hover:bg-danger-bg opacity-0 group-hover:opacity-100 flex items-center justify-center shrink-0 transition"
+            title="从桌面项目列表移除"
+          ><VsIcon name="close" size={12} /></button>
+        )}
       </div>
       {expanded && (
         <div className="my-1">
@@ -300,7 +312,10 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
                           daemon_state: 'running', active: true }];
       }
 
-      const chosen = preferredHash || workspaceArr.find((w) => w.active)?.hash || workspaceArr[0]?.hash || '';
+      const availableHashes = new Set(workspaceArr.map((w) => w.hash).filter(Boolean));
+      const chosen = (preferredHash && availableHashes.has(preferredHash))
+        ? preferredHash
+        : (workspaceArr.find((w) => w.active)?.hash || workspaceArr[0]?.hash || '');
       const withActive = workspaceArr.map((w) => ({ ...w, active: w.hash === chosen }));
       const expandedHashes = new Set(expandedRef.current);
       if (chosen) expandedHashes.add(chosen);
@@ -493,6 +508,46 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
     await refresh(hash);
   };
 
+  const removeWorkspace = async (ws) => {
+    if (!ws?.hash) return;
+    if (!hasDesktopRemoveWorkspace()) {
+      toast({ kind: 'info', text: '需在 desktop shell 中使用' });
+      return;
+    }
+    const ok = window.confirm(
+      `从桌面项目列表移除“${ws.name || ws.hash}”？\n\n不会删除项目文件、会话或 .acecode 数据。之后可通过“添加项目”重新显示。`,
+    );
+    if (!ok) return;
+
+    try {
+      const r = parseDesktopResult(await window.aceDesktop_removeWorkspace(ws.hash));
+      if (!r?.ok) throw new Error(r?.error || 'remove failed');
+
+      const remaining = workspaces.filter((w) => w.hash !== ws.hash);
+      const nextHash = r.active_workspace_hash
+        || ((ws.active || activeWorkspaceHash === ws.hash) ? (remaining[0]?.hash || '') : activeWorkspaceHash);
+
+      setWorkspaces(remaining.map((w) => ({ ...w, active: w.hash === nextHash })));
+      setSessions((prev) => prev.filter((s) => (s.workspace_hash || s.workspaceHash || '') !== ws.hash));
+      setPinnedMap((prev) => {
+        const next = new Map(prev);
+        next.delete(ws.hash);
+        return next;
+      });
+      updateExpanded((prev) => {
+        const next = new Set(prev);
+        next.delete(ws.hash);
+        if (nextHash) next.add(nextHash);
+        return next;
+      });
+      setActiveWorkspaceHash(nextHash);
+      toast({ kind: 'ok', text: '已从桌面项目列表移除' });
+      await refresh(nextHash);
+    } catch (e) {
+      toast({ kind: 'err', text: '移除项目失败:' + (e.message || '') });
+    }
+  };
+
   const createSessionInWorkspace = async (ws) => {
     if (!ws?.hash) return;
     try {
@@ -628,6 +683,7 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
                   onRename={onRename}
                   onActivate={onActivate}
                   onNewSession={createSessionInWorkspace}
+                  onRemove={hasDesktopRemoveWorkspace() ? removeWorkspace : undefined}
                   onTogglePin={togglePinnedSession}
                 />
               );

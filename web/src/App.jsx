@@ -22,15 +22,6 @@ import { SettingsPage } from './components/SettingsPage.jsx';
 import { DesktopContextMenu } from './components/DesktopContextMenu.jsx';
 import { Toaster, toast } from './components/Toast.jsx';
 
-function newSessionRefFrom(ref, sessionId) {
-  const next = { sessionId };
-  if (!ref || typeof ref !== 'object') return next;
-  for (const key of ['workspaceHash', 'contextId', 'port', 'token', 'cwd']) {
-    if (ref[key] != null) next[key] = ref[key];
-  }
-  return next;
-}
-
 const SINGLE_LAYOUT_STORAGE_KEY = 'acecode.singleLayoutWidths.v1';
 const DEFAULT_SINGLE_LAYOUT = { sidebar: 200, sidePanel: 280 };
 const MIN_SIDEBAR_WIDTH = 160;
@@ -58,6 +49,23 @@ function validateUiPrefs(v) {
     && ALLOWED_VIEWS.has(v.view)
     && typeof v.sidePanelCollapsed === 'boolean'
     && (v.sidebarCollapsed == null || typeof v.sidebarCollapsed === 'boolean');
+}
+
+function homeRefFromWorkspace(workspace, fallbackRef, health) {
+  const source = workspace && typeof workspace === 'object' ? workspace : {};
+  const fallback = fallbackRef && typeof fallbackRef === 'object' ? fallbackRef : {};
+  const workspaceHash = source.workspaceHash || source.workspace_hash || source.hash || fallback.workspaceHash || fallback.workspace_hash || '';
+  const cwd = source.cwd || fallback.cwd || health?.cwd || '';
+  const next = { home: true };
+  if (workspaceHash) next.workspaceHash = workspaceHash;
+  if (cwd) next.cwd = cwd;
+  if (source.name || source.workspaceName) next.workspaceName = source.name || source.workspaceName;
+  else if (fallback.workspaceName) next.workspaceName = fallback.workspaceName;
+  for (const key of ['contextId', 'port', 'token']) {
+    if (source[key] != null) next[key] = source[key];
+    else if (fallback[key] != null) next[key] = fallback[key];
+  }
+  return next;
 }
 
 export function App() {
@@ -144,19 +152,11 @@ export function App() {
     if (view !== 'single') switchView('single');
   }, [setUiPrefs, switchView, view]);
 
-  const createNewSession = useCallback(async () => {
-    try {
-      const r = activeRef?.workspaceHash
-        ? await api.createWorkspaceSession(activeRef.workspaceHash, {})
-        : await api.createSession({});
-      const id = r && (r.session_id || r.id);
-      if (!id) return;
-      setActiveRef({ ...newSessionRefFrom(activeRef, id), workspaceHash: r.workspace_hash || activeRef?.workspaceHash, cwd: r.cwd || activeRef?.cwd });
-      if (view !== 'single') switchView('single');
-    } catch (e) {
-      toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
-    }
-  }, [activeRef, switchView, view]);
+  const openHomeForWorkspace = useCallback((workspace = null) => {
+    setActiveRef(homeRefFromWorkspace(workspace, activeRef, health));
+    setExpanded(null);
+    if (view !== 'single') switchView('single');
+  }, [activeRef, health, switchView, view]);
 
   const setSidebarWidth = useCallback((nextWidth, shellWidth = 0) => {
     const sidePanelVisible = !!(activeRef?.sessionId || activeRef?.id) && !sidePanelCollapsed;
@@ -264,7 +264,7 @@ export function App() {
         view={view}
         onViewChange={switchView}
         onSettings={() => setShowSettings(true)}
-        onNewSession={createNewSession}
+        onNewSession={() => openHomeForWorkspace()}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={toggleProjectSidebar}
       />
@@ -276,6 +276,7 @@ export function App() {
           width={singleLayout.sidebar}
           onOpenSkills={() => setShowSkills(true)}
           onOpenMcp={() => setShowMcp(true)}
+          onOpenHome={openHomeForWorkspace}
         />
         {view === 'single' && !projectSidebarCollapsed && (
           <div
@@ -311,7 +312,7 @@ export function App() {
             />
           )}
           {view === 'grid4' && <Grid4View activeRef={activeRef} onExpand={setExpanded} />}
-          {view === 'grid9' && <Grid9View activeRef={activeRef} onExpand={setExpanded} />}
+          {view === 'grid9' && <Grid9View activeRef={activeRef} onExpand={setExpanded} onOpenHome={openHomeForWorkspace} />}
         </div>
 
         {expanded && (

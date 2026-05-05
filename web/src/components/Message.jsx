@@ -33,7 +33,7 @@ function HoverActions({ messageId, getCopyText, onFork }) {
   return (
     <div className="ace-msg-actions flex gap-0.5">
       <button type="button" onClick={handleCopy} title="复制">
-        <VsIcon name="copy" size={17} />
+        <VsIcon name="copy" size={14} />
       </button>
       <button
         type="button"
@@ -41,7 +41,7 @@ function HoverActions({ messageId, getCopyText, onFork }) {
         disabled={!messageId}
         title={messageId ? '分叉到新会话' : '此消息不可分叉(无 ID)'}
       >
-        <VsIcon name="fork" size={17} />
+        <VsIcon name="fork" size={14} />
       </button>
     </div>
   );

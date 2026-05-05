@@ -56,6 +56,10 @@ public:
     // name 空、hash 未知、写盘失败均返回 false 并保持内存 cache 不变。
     bool set_name(const std::string& projects_dir, const std::string& hash, const std::string& name);
 
+    // 从 Desktop 项目列表隐藏 workspace:把 workspace.json 的 desktop_visible 写为 false,
+    // 并从内存可见 cache 移除。不会删除 hash 目录、session 文件或用户项目文件。
+    bool hide(const std::string& projects_dir, const std::string& hash);
+
     // 测试 hook:让单测注入空 registry(scan 一个临时目录),不必涉及共享状态。
 
 private:

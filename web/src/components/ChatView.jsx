@@ -5,7 +5,7 @@
 //   { kind: 'msg' | 'tool' | 'task_complete', id, role?, content?, ts?, streaming?, tool? }
 // 工具事件用 toolBlocks 单独的 Map 存进度态,完成时 tool 卡片切到 summary。
 //
-// 没有 sessionId 时显示欢迎屏(空态:logo + 新建按钮 + slash 命令提示)。
+// 没有 sessionId 时显示 Codex 风格新任务主页(首条消息提交时才创建 session)。
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createApi } from '../lib/api.js';
@@ -64,10 +64,62 @@ function normalizeSessionRef(sessionRef, sessionId) {
 function newSessionRefFrom(ref, sessionId) {
   const next = { sessionId };
   if (!ref || typeof ref !== 'object') return next;
-  for (const key of ['workspaceHash', 'contextId', 'port', 'token', 'cwd']) {
+  for (const key of ['workspaceHash', 'workspaceName', 'contextId', 'port', 'token', 'cwd']) {
     if (ref[key] != null) next[key] = ref[key];
   }
   return next;
+}
+
+function hasDesktopBridge() {
+  return typeof window.aceDesktop_listWorkspaces === 'function';
+}
+
+function parseDesktopResult(value) {
+  if (value == null) return value;
+  if (typeof value !== 'string') return value;
+  const text = value.trim();
+  if (!text || text === 'null') return null;
+  return JSON.parse(text);
+}
+
+function pathBaseName(path = '') {
+  const normalized = String(path || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!normalized) return '';
+  return normalized.split('/').filter(Boolean).pop() || normalized;
+}
+
+function normalizeWorkspaceOption(workspace, fallbackIndex = 0) {
+  if (!workspace || typeof workspace !== 'object') return null;
+  const hash = workspace.hash || workspace.workspaceHash || workspace.workspace_hash || '';
+  const cwd = workspace.cwd || '';
+  const name = workspace.name || workspace.workspaceName || pathBaseName(cwd) || hash || `项目 ${fallbackIndex + 1}`;
+  return {
+    hash,
+    cwd,
+    name,
+    active: !!workspace.active,
+    contextId: workspace.contextId || workspace.context_id || 'default',
+    port: workspace.port,
+    token: workspace.token,
+  };
+}
+
+function fallbackWorkspaceOption(ref, health) {
+  const hash = ref?.workspaceHash || ref?.workspace_hash || '';
+  const cwd = ref?.cwd || health?.cwd || '';
+  return {
+    hash: hash || '__local__',
+    cwd,
+    name: ref?.workspaceName || ref?.name || pathBaseName(cwd) || '当前项目',
+    active: true,
+    contextId: ref?.contextId || 'default',
+    port: ref?.port,
+    token: ref?.token,
+  };
+}
+
+function isRealWorkspaceHash(hash) {
+  return !!hash && hash !== '__local__';
 }
 
 export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onPermissionRequest, onQuestionRequest, questionRequest, onQuestionResolve, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, sidePanelCollapsed = false, onToggleSidePanel }) {
@@ -88,6 +140,10 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onP
   });
   const { items, busy, turns, title, status: transcriptStatus, streamingId, applyEvent, setTitle: setTranscriptTitle } = transcript;
   const [history,  setHistory]  = useState([]);
+  const [homeWorkspaces, setHomeWorkspaces] = useState([]);
+  const [homeWorkspaceHash, setHomeWorkspaceHash] = useState('');
+  const [homeSubmitting, setHomeSubmitting] = useState(false);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const layoutRef = useRef(null);
@@ -100,6 +156,12 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onP
   const itemsRef = useRef(renderedItems);
   const stickyRafRef = useRef(0);
   const [stickyUserContext, setStickyUserContext] = useState(null);
+
+  const selectedHomeWorkspace = useMemo(() => {
+    return homeWorkspaces.find((w) => w.hash === homeWorkspaceHash)
+      || homeWorkspaces[0]
+      || fallbackWorkspaceOption(ref, health);
+  }, [health, homeWorkspaceHash, homeWorkspaces, ref]);
 
   useEffect(() => { sidRef.current = sid; }, [sid]);
   useEffect(() => { queueStateRef.current = queueState; }, [queueState]);
@@ -222,35 +284,61 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onP
     };
   }, [sid, scheduleStickyMeasure]);
 
+  useEffect(() => {
+    if (sid) return undefined;
+    let cancelled = false;
+
+    const load = async () => {
+      let options = [];
+      try {
+        const list = await api.listWorkspaces();
+        options = Array.isArray(list)
+          ? list.map((w, i) => normalizeWorkspaceOption(w, i)).filter(Boolean)
+          : [];
+      } catch {
+        options = [];
+      }
+
+      if (options.length === 0 && hasDesktopBridge()) {
+        try {
+          const list = parseDesktopResult(await window.aceDesktop_listWorkspaces());
+          options = Array.isArray(list)
+            ? list.map((w, i) => normalizeWorkspaceOption(w, i)).filter(Boolean)
+            : [];
+        } catch {
+          options = [];
+        }
+      }
+
+      const fallback = fallbackWorkspaceOption(ref, health);
+      if (options.length === 0 || (isRealWorkspaceHash(fallback.hash) && !options.some((w) => w.hash === fallback.hash))) {
+        options = [fallback, ...options];
+      }
+      if (options.length === 0) options = [fallback];
+
+      if (cancelled) return;
+      setHomeWorkspaces(options);
+      setHomeWorkspaceHash((prev) => {
+        if (ref?.workspaceHash && options.some((w) => w.hash === ref.workspaceHash)) return ref.workspaceHash;
+        if (prev && options.some((w) => w.hash === prev)) return prev;
+        return options.find((w) => w.active)?.hash || options[0]?.hash || '';
+      });
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [api, health, ref, sid]);
+
   // 拉 history(per-cwd)
   useEffect(() => {
-    const cwd = ref?.cwd || health?.cwd || '';
+    const cwd = sid
+      ? (ref?.cwd || health?.cwd || '')
+      : (selectedHomeWorkspace?.cwd || ref?.cwd || health?.cwd || '');
     if (!cwd) return;
     api.getHistory(cwd, 200)
       .then((r) => setHistory(Array.isArray(r) ? r : []))
       .catch(() => {});
-  }, [health, api, ref?.cwd]);
-
-  // 监听 desktop "新对话" 事件
-  useEffect(() => {
-    const handler = async () => {
-      try {
-        const r = ref?.workspaceHash
-          ? await api.createWorkspaceSession(ref.workspaceHash, {})
-          : await api.createSession({});
-        const id = r && (r.session_id || r.id);
-        if (id) onSessionPromoted?.({
-          ...newSessionRefFrom(ref, id),
-          workspaceHash: r.workspace_hash || ref?.workspaceHash,
-          cwd: r.cwd || ref?.cwd,
-        });
-      } catch (e) {
-        toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
-      }
-    };
-    window.addEventListener('ace:new-session', handler);
-    return () => window.removeEventListener('ace:new-session', handler);
-  }, [api, onSessionPromoted, ref]);
+  }, [api, health?.cwd, ref?.cwd, selectedHomeWorkspace?.cwd, sid]);
 
   const recordInputHistory = useCallback((text) => {
     api.appendHistory(text).catch(() => {});
@@ -275,20 +363,29 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onP
   const submit = useCallback((text) => {
     if (!sid) {
       // 自动新建会话并让 daemon 直接接管首条消息。
-      const create = ref?.workspaceHash
-        ? api.createWorkspaceSession(ref.workspaceHash, { initial_user_message: text, auto_start: true })
+      const trimmed = String(text || '').trim();
+      if (!trimmed || homeSubmitting) return;
+      const target = selectedHomeWorkspace || fallbackWorkspaceOption(ref, health);
+      const targetHash = target?.hash || '';
+      const create = isRealWorkspaceHash(targetHash)
+        ? api.createWorkspaceSession(targetHash, { initial_user_message: text, auto_start: true })
         : api.createSession({ initial_user_message: text, auto_start: true });
+      setHomeSubmitting(true);
       create.then((r) => {
         const id = r && (r.session_id || r.id);
         if (id) {
           const next = newSessionRefFrom(ref, id);
-          next.workspaceHash = r.workspace_hash || ref?.workspaceHash;
-          next.cwd = r.cwd || ref?.cwd;
+          if (r.workspace_hash || isRealWorkspaceHash(targetHash)) {
+            next.workspaceHash = r.workspace_hash || targetHash;
+          }
+          next.workspaceName = target?.name || ref?.workspaceName;
+          next.cwd = r.cwd || target?.cwd || ref?.cwd;
           next.title = text;
           onSessionPromoted?.(next);
           recordInputHistory(text);
         }
-      }).catch((e) => toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') }));
+      }).catch((e) => toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') }))
+        .finally(() => setHomeSubmitting(false));
       return;
     }
     if (busy) {
@@ -302,7 +399,7 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onP
     recordInputHistory(text);
     if (!ref?.title) setTranscriptTitle(text);
     applyEvent({ type: 'busy_changed', payload: { busy: true } }, { emitEffects: false });
-  }, [sid, busy, api, ref, onSessionPromoted, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle]);
+  }, [sid, busy, api, ref, health, homeSubmitting, selectedHomeWorkspace, onSessionPromoted, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle]);
 
   const drainQueuedInput = useCallback(() => {
     const targetSid = sidRef.current;
@@ -453,51 +550,93 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onP
 
   // 空态:没选会话
   if (!sid) {
+    const homeProjectName = selectedHomeWorkspace?.name || '当前项目';
+    const homeHints = [
+      { icon: 'edit', title: '编辑代码', desc: '让 Agent 帮你重构、修 bug、加测试' },
+      { icon: 'searchSparkle', title: '探索代码库', desc: '问“这个函数在哪里被调用”' },
+      { icon: 'run', title: '运行命令', desc: 'bash / npm / git 等 Agent 会逐步确认' },
+      { icon: 'lightbulb', title: '使用 Skills', desc: '预定义工作流，从侧边栏开启' },
+    ];
     return (
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col bg-bg">
         <div className="h-9 px-3 flex items-center bg-surface border-b border-border shrink-0">
           <span className="text-fg-mute text-[12px]">未选择会话</span>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-          <img src="/acecode-logo.png" alt="ACECode" width="64" height="64" className="mb-4 select-none" draggable="false" />
-          <h2 className="text-lg font-semibold mb-2">开始一个新对话</h2>
-          <p className="text-fg-2 text-sm max-w-md leading-relaxed mb-6">
-            ACECode 是终端 AI 编码代理 — 让 Agent 帮你读写文件、执行命令、调用工具。
-            从下方输入开始,或点 / 查看可用命令。
-          </p>
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('ace:new-session'))}
-            className="px-4 h-9 rounded-md bg-accent text-white text-sm font-medium hover:opacity-90 transition inline-flex items-center gap-1.5"
-          >
-            <VsIcon name="add" size={14} mono={false} className="ace-icon-on-accent" />
-            <span>新建会话</span>
-          </button>
-          <div className="mt-8 grid grid-cols-2 gap-3 max-w-lg w-full">
-            {[
-              { icon: 'edit', title: '编辑代码', desc: '让 Agent 帮你重构、修 bug、加测试' },
-              { icon: 'searchSparkle', title: '探索代码库', desc: '问"这个函数在哪里被调用"' },
-              { icon: 'run', title: '运行命令', desc: 'bash / npm / git 等,Agent 会逐步确认' },
-              { icon: 'lightbulb', title: '使用 Skills', desc: '预定义工作流,从侧边栏开启' },
-            ].map((c, i) => (
-              <div key={i} className="text-left bg-surface border border-border-soft rounded-lg p-3">
-                <VsIcon name={c.icon} size={22} className="mb-1" />
-                <div className="text-[13px] font-semibold mb-0.5">{c.title}</div>
-                <div className="text-[11px] text-fg-mute leading-relaxed">{c.desc}</div>
-              </div>
-            ))}
+        <div className="ace-home-panel flex-1">
+          <div className="ace-home-content">
+            <img src="/acecode-logo.png" alt="ACECode" width="64" height="64" className="ace-home-logo select-none" draggable="false" />
+            <h1 className="ace-home-title">我们该在 {homeProjectName} 中做什么？</h1>
+            <InputBar
+              ref={inputRef}
+              variant="hero"
+              history={history}
+              onSubmit={submit}
+              disabled={!!questionForView || homeSubmitting}
+              placeholder="向 ACECode 描述任务，或输入 / 命令..."
+            />
+            <div className="relative mr-auto ml-0">
+              <button
+                type="button"
+                className="ace-home-project-row group"
+                onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                title={selectedHomeWorkspace?.cwd || homeProjectName}
+              >
+                <VsIcon name="folder" size={15} />
+                <span className="text-fg-mute">项目</span>
+                <span className="ace-home-project-select truncate">
+                  {homeWorkspaces.find(w => w.hash === homeWorkspaceHash)?.name || selectedHomeWorkspace?.name || '当前项目'}
+                </span>
+                <VsIcon name="expandDown" size={14} className="opacity-50 group-hover:opacity-100 transition-opacity -ml-[2px]" />
+                {homeSubmitting && <span className="ace-spinner w-3 h-3 ml-1" />}
+              </button>
+
+              {projectDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setProjectDropdownOpen(false)}
+                  />
+                  <div className="absolute top-full left-0 mt-1.5 w-[280px] max-h-[40vh] overflow-y-auto bg-surface border border-border ace-shadow rounded-xl z-50 py-1.5 ace-scrollbar">
+                    <div className="px-3 pb-1 mb-1 text-[11px] font-semibold text-fg-mute border-b border-border/50 uppercase tracking-wider">
+                      工作区
+                    </div>
+                    {homeWorkspaces.map((w) => (
+                      <button
+                        key={w.hash || w.cwd || w.name}
+                        type="button"
+                        className={clsx(
+                          "w-full text-left px-3 py-1.5 text-[13px] flex flex-col gap-[2px] transition-colors",
+                          w.hash === homeWorkspaceHash ? "bg-accent/10 text-accent font-medium" : "text-fg hover:bg-surface-hi"
+                        )}
+                        onClick={() => {
+                          setHomeWorkspaceHash(w.hash);
+                          setProjectDropdownOpen(false);
+                        }}
+                      >
+                        <div className="truncate leading-tight">{w.name}</div>
+                        <div className={clsx("text-[10.5px] truncate leading-tight", w.hash === homeWorkspaceHash ? "text-accent/60" : "text-fg-mute/70")} title={w.cwd}>
+                          {w.cwd.replace(/\\/g, '/')}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="ace-home-hints">
+              {homeHints.map((c) => (
+                <div key={c.title} className="ace-home-hint-card">
+                  <VsIcon name={c.icon} size={22} className="mb-1" />
+                  <div className="text-[13px] font-semibold mb-0.5">{c.title}</div>
+                  <div className="text-[11px] text-fg-mute leading-relaxed">{c.desc}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
         {questionForView && (
           <QuestionPicker request={questionForView} onResolve={resolveQuestion} />
         )}
-        <InputBar
-          ref={inputRef}
-          history={history}
-          onSubmit={submit}
-          disabled={!!questionForView}
-          placeholder="输入消息开始新会话…"
-        />
         <StatusBar model="—" turns={0} branch={health?.branch || ''} />
       </div>
     );
