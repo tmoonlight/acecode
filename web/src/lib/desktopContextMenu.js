@@ -12,7 +12,7 @@ export const DESKTOP_CONTEXT_ACTIONS = Object.freeze({
 export const OPEN_IN_EXPLORER_TARGET_SELECTOR = '[data-desktop-open-in-explorer-path]';
 export const SESSION_PIN_TARGET_SELECTOR = '[data-desktop-session-id]';
 export const SESSION_PIN_TOGGLE_EVENT = 'acecode:session-pin-toggle';
-export const CONTEXT_MENU_REOPEN_DELAY_MS = 1;
+export const CONTEXT_MENU_REOPEN_DELAY_MS = 10;
 
 export function contextMenuOpenDelay({ hasVisibleMenu = false, hasPendingMenu = false } = {}) {
   return hasVisibleMenu || hasPendingMenu ? CONTEXT_MENU_REOPEN_DELAY_MS : 0;

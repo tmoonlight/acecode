@@ -46,16 +46,9 @@ function parseDesktopResult(value) {
 }
 
 function attentionMeta(state) {
-  if (state === 'in_progress') return { label: '进行中', dot: 'bg-accent shadow-[0_0_4px_var(--ace-accent)]', text: 'text-accent' };
-  if (state === 'unread') return { label: '未读', dot: 'bg-ok shadow-[0_0_4px_var(--ace-ok)]', text: 'text-ok' };
-  return { label: '已读', dot: 'bg-fg-mute/45', text: 'text-fg-mute' };
-}
-
-function daemonHealthMeta(state) {
-  if (state === 'failed') return { label: '失败', className: 'border-danger/40 text-danger bg-danger/10' };
-  if (state === 'starting' || state === 'waiting') return { label: '启动', className: 'border-warn/40 text-warn bg-warn/10' };
-  if (state === 'running') return { label: '运行', className: 'border-border text-fg-mute bg-surface-hi' };
-  return { label: '停止', className: 'border-border text-fg-mute bg-surface' };
+  if (state === 'in_progress') return { label: '进行中', dot: '' };
+  if (state === 'unread') return { label: '未读', dot: 'bg-ok shadow-[0_0_4px_var(--ace-ok)]' };
+  return { label: '已读', dot: 'bg-fg-mute/45' };
 }
 
 function SessionRow({ s, active, pinned = false, onSelect, onTogglePin }) {
@@ -98,9 +91,12 @@ function SessionRow({ s, active, pinned = false, onSelect, onTogglePin }) {
         onClick={(e) => { e.preventDefault(); onSelect(s); }}
         className="flex flex-1 items-center gap-2 min-w-0 py-[5px] bg-transparent text-left cursor-pointer"
       >
-        <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', meta.dot)} title={meta.label} />
+        {attention === 'in_progress' ? (
+          <span className="ace-session-loading shrink-0" title={meta.label} aria-label={meta.label} />
+        ) : (
+          <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', meta.dot)} title={meta.label} />
+        )}
         <span className="flex-1 truncate">{sessionDisplayTitle(s, s.name || s.id)}</span>
-        <span className={clsx('text-[10px] shrink-0', meta.text)}>{meta.label}</span>
         <span className="text-[10px] text-fg-mute shrink-0">{relativeTime(s.updated_at || s.created_at)}</span>
       </button>
     </div>
@@ -111,7 +107,6 @@ function WorkspaceGroup({ ws, expanded, onToggle, sessions, activeId, onSelect, 
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(ws.name);
   const hasUnread = workspaceHasUnread(sessions);
-  const daemon = daemonHealthMeta(ws.daemon_state || 'stopped');
 
   useEffect(() => {
     if (!editing) setDraft(ws.name);
@@ -166,10 +161,6 @@ function WorkspaceGroup({ ws, expanded, onToggle, sessions, activeId, onSelect, 
           title="新增会话"
         ><VsIcon name="editWindow" size={13} /></button>
         {hasUnread && <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-ok shadow-[0_0_4px_var(--ace-ok)]" title="有未读会话" />}
-        <span
-          className={clsx('px-1.5 py-px rounded border text-[9px] leading-none shrink-0', daemon.className)}
-          title={`daemon: ${ws.daemon_state || 'stopped'}`}
-        >{daemon.label}</span>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setEditing(true); }}

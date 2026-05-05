@@ -73,6 +73,19 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         case WM_SIZE:
             resize_webview_widget(hwnd);
             break;
+        case WM_DPICHANGED:
+            if (lparam) {
+                const auto* suggested = reinterpret_cast<const RECT*>(lparam);
+                ::SetWindowPos(hwnd,
+                               nullptr,
+                               suggested->left,
+                               suggested->top,
+                               suggested->right - suggested->left,
+                               suggested->bottom - suggested->top,
+                               SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            resize_webview_widget(hwnd);
+            return 0;
         case WM_CLOSE:
             ::DestroyWindow(hwnd);
             return 0;

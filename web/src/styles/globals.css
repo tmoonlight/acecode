@@ -190,6 +190,16 @@ body {
   animation: ace-spin .8s linear infinite;
   vertical-align: -0.125em;
 }
+.ace-session-loading {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid color-mix(in oklab, var(--ace-accent) 24%, transparent);
+  border-top-color: var(--ace-accent);
+  border-radius: 9999px;
+  animation: ace-spin .75s linear infinite;
+  box-shadow: 0 0 4px color-mix(in oklab, var(--ace-accent) 35%, transparent);
+}
 
 /* 代码块 / inline code (在 markdown 渲染里用 .ace-md class 套作用域) */
 .ace-md pre {
