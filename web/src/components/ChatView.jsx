@@ -43,6 +43,7 @@ import {
   selectedModelName,
 } from '../lib/sessionModel.js';
 import { VsIcon } from './Icon.jsx';
+import { commandWorkspaceHashForInput } from '../lib/slashCommandWorkspace.js';
 
 function isEditableElement(el) {
   if (!el || el === document.body || el === document.documentElement) return false;
@@ -131,7 +132,7 @@ function isRealWorkspaceHash(hash) {
   return !!hash && hash !== '__local__';
 }
 
-export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onPermissionRequest, onQuestionRequest, questionRequest, onQuestionResolve, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, sidePanelCollapsed = false, onToggleSidePanel }) {
+export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWorkspaceChange, health, onPermissionRequest, onQuestionRequest, questionRequest, onQuestionResolve, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, sidePanelCollapsed = false, onToggleSidePanel }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const sidRef = useRef(sid);
@@ -213,6 +214,16 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, health, onP
       || homeWorkspaces[0]
       || fallbackWorkspaceOption(ref, health);
   }, [health, homeWorkspaceHash, homeWorkspaces, ref]);
+
+  const commandWorkspaceHash = useMemo(() => commandWorkspaceHashForInput({
+    activeRef: ref,
+    selectedHomeWorkspace,
+    hasSession: !!sid,
+  }), [ref, selectedHomeWorkspace, sid]);
+
+  useEffect(() => {
+    onCommandWorkspaceChange?.(commandWorkspaceHash);
+  }, [commandWorkspaceHash, onCommandWorkspaceChange]);
 
   useEffect(() => { sidRef.current = sid; }, [sid]);
   useEffect(() => { queueStateRef.current = queueState; }, [queueState]);

@@ -77,6 +77,7 @@ export function App() {
   const [health,    setHealth]    = useState(null);
 
   const [activeRef,    setActiveRef]    = useState(null);
+  const [commandWorkspaceHash, setCommandWorkspaceHash] = useState('');
   const [transition,   setTransition]   = useState(false);
   const [expanded,     setExpanded]     = useState(null);
   const [showSkills,   setShowSkills]   = useState(false);
@@ -370,7 +371,7 @@ export function App() {
   };
 
   return (
-    <SlashCommandsProvider workspaceHash={activeRef?.workspaceHash || ''}>
+    <SlashCommandsProvider workspaceHash={commandWorkspaceHash}>
     <div className="h-full w-full flex flex-col bg-bg text-fg font-sans">
       <TopBar
         view={view}
@@ -414,6 +415,7 @@ export function App() {
             <ChatView
               sessionRef={activeRef}
               onSessionPromoted={setActiveRef}
+              onCommandWorkspaceChange={setCommandWorkspaceHash}
               health={health}
               showSidePanel
               sidePanelWidth={singleLayout.sidePanel}
