@@ -55,7 +55,18 @@ public:
     bool start_window_drag();
     bool minimize_window();
     bool toggle_maximize_window();
+    // 关闭请求(× / Alt+F4 / aceDesktop_closeWindow)。会先派发到
+    // close_request_handler;handler 返回 true 表示已消化(典型如"隐藏到托盘"),
+    // 返回 false / 未注册 → 走原 DestroyWindow 退出路径。
     bool close_window();
+
+    // 注册"关窗请求"拦截 handler。回调返回 true → 不 DestroyWindow,留住进程。
+    // 见 openspec/changes/enhance-desktop-tray-menu(close_to_tray)。
+    void set_close_request_handler(std::function<bool()> handler);
+
+    // 真正退出请求 — 绕过 close_request_handler 直接 DestroyWindow + PostQuitMessage。
+    // 用于托盘 "退出" 菜单等需要无条件退出的入口。
+    void request_quit();
 
     // 注册同步 binding。fn 接到的是 JSON array 字符串(JS 端调时传的实参打包),
     // 返回的字符串必须是合法 JSON value(对象/数组/字符串字面/数字/null)。

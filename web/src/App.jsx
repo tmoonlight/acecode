@@ -270,6 +270,18 @@ export function App() {
     if (view !== 'single') switchView('single');
   }, [activeRef, health, switchView, view]);
 
+  // 暴露 aceDesktop_createNewSession 给 desktop 壳的托盘 "新建会话" 菜单调用。
+  // 设计:openspec/changes/enhance-desktop-tray-menu。
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    window.aceDesktop_createNewSession = () => {
+      try { openHomeForWorkspace(); } catch (e) { /* swallow */ }
+    };
+    return () => {
+      if (window.aceDesktop_createNewSession) delete window.aceDesktop_createNewSession;
+    };
+  }, [openHomeForWorkspace]);
+
   const setSidebarWidth = useCallback((nextWidth, shellWidth = 0) => {
     const sidePanelVisible = !!(activeRef?.sessionId || activeRef?.id) && !sidePanelCollapsed;
     setSingleLayout((prev) => {

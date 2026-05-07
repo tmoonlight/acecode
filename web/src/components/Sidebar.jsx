@@ -19,6 +19,7 @@ import {
   unpinSessionId,
 } from '../lib/pinnedSessions.js';
 import { sessionDisplayTitle } from '../lib/sessionTitle.js';
+import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
 import {
   applyStatusSnapshot,
   applyStatusUpdate,
@@ -380,6 +381,24 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
     const t = setInterval(() => refresh().catch(() => {}), 5000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  // 把 active workspace 的 sessions / pinned ids / workspaceName 推到桌面 tray 菜单。
+  // pushTrayMenu 内部 100ms debounce + 无 bridge 时 no-op。
+  // 设计:openspec/changes/enhance-desktop-tray-menu。
+  useEffect(() => {
+    const activeWs = workspaces.find((w) => w.hash === activeWorkspaceHash);
+    const activeSessions = activeWorkspaceHash
+      ? sessions.filter((s) => (s.workspace_hash || s.workspaceHash) === activeWorkspaceHash)
+      : [];
+    const pinnedIds = activeWorkspaceHash
+      ? normalizePinnedIds(pinnedByWorkspace.get(activeWorkspaceHash) || [])
+      : [];
+    pushTrayMenu({
+      sessions: activeSessions,
+      pinnedSessionIds: pinnedIds,
+      workspaceName: activeWs?.name || '',
+    });
+  }, [sessions, pinnedByWorkspace, activeWorkspaceHash, workspaces]);
 
   useEffect(() => {
     const handler = (e) => {

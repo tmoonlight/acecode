@@ -1,8 +1,11 @@
 #include "web_host.hpp"
 
+#include "web_host_close_policy.hpp"
 #include "window_chrome.hpp"
 
 #include "../utils/logger.hpp"
+
+#include <functional>
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -30,6 +33,16 @@ namespace {
 
 constexpr wchar_t kHostWindowClassName[] = L"ACECodeDesktopHostWindow";
 constexpr int kFramelessDragHeightDip = 44;
+
+// WM_USER 区私有消息:绕过 close_request_handler 直接走 DestroyWindow。
+// 选 0x10 偏移留出 0..0xF 给未来扩展;远离 webview/Common Controls 常用的
+// WM_USER..WM_USER+0x100 区段。
+constexpr UINT kRequestQuitMsg = WM_USER + 0x10;
+
+// 全局 close_request_handler — 只在主线程上写,WndProc 在主线程上读。
+// 用 std::function 包装避免裸函数指针;mutex 不需要,因为 WndProc 与 setter
+// 共享同一线程(webview2 message pump 线程 = 主线程)。
+std::function<bool()> g_close_handler;
 
 int dpi_scale(int value, UINT dpi) {
     return static_cast<int>((static_cast<long long>(value) * static_cast<long long>(dpi)) / 96);
@@ -169,12 +182,22 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             resize_webview_widget(hwnd);
             return 0;
         case WM_CLOSE:
+            // close handler 返回 true 表示已消化(隐藏到托盘),不要 DestroyWindow。
+            // 派发逻辑提取到 web_host_close_policy.hpp 的纯函数,unit test 共用。
+            if (dispatch_wm_close(g_close_handler) == CloseDispatch::ConsumedByHandler) {
+                return 0;
+            }
             ::DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
             ::PostQuitMessage(0);
             return 0;
         default:
+            if (msg == kRequestQuitMsg) {
+                // 来自 WebHost::request_quit 的真正退出信号 — 绕过 close handler。
+                ::DestroyWindow(hwnd);
+                return 0;
+            }
             break;
     }
     return ::DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -423,6 +446,20 @@ bool WebHost::close_window() {
     return ::PostMessageW(hwnd, WM_CLOSE, 0, 0) != FALSE;
 #else
     return false;
+#endif
+}
+void WebHost::set_close_request_handler(std::function<bool()> handler) {
+#ifdef _WIN32
+    g_close_handler = std::move(handler);
+#else
+    (void)handler;
+#endif
+}
+void WebHost::request_quit() {
+#ifdef _WIN32
+    HWND hwnd = impl_->hwnd();
+    if (!hwnd || !::IsWindow(hwnd)) return;
+    ::PostMessageW(hwnd, kRequestQuitMsg, 0, 0);
 #endif
 }
 void WebHost::bind(const std::string& name, SyncHandler fn) {

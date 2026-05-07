@@ -18,3 +18,4 @@ import './useGlobalShortcut.test.js';
 import './slashCommands.test.js';
 import './slashCommandWorkspace.test.js';
 import './desktopNotify.test.js';
+import './desktopTrayMenu.test.js';

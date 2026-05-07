@@ -199,7 +199,8 @@ handler 实现在 `src/web/handlers/{fork,models,history,skills,files}_handler.{
 - `pick_active.{hpp,cpp}` — 启动选 active workspace 的纯函数:`state.json::last_active_workspace_hash` → process cwd 的 hash → registry 第一项 → 空。
 - `folder_picker_win.cpp` — `IFileOpenDialog` + `FOS_PICKFOLDERS`,COM STA。
 - `web_host.{hpp,cpp}` — webview 包装,暴露 `bind/eval/init_script/native_window`,debug=true 默认开 F12 DevTools。
-- `tray_icon_win.{hpp,cpp}` / `notifications_win.{hpp,cpp}` — 系统托盘 + OS 气泡通知。tray 注册 hidden message-only window,WndProc 接 `Shell_NotifyIcon` 回调消息(`NIN_BALLOONUSERCLICK` / `WM_RBUTTONUP` 等);通知用 `Shell_NotifyIconW(NIM_MODIFY, NIF_INFO)` piggyback 在同一图标上。`init_tray_icon` → `init_notifications(tray_hwnd)`,顺序不能反。V1 仅气泡,V2 计划接 WinRT ToastNotificationManager(需 AUMID + 开始菜单 .lnk + cppwinrt)。
+- `tray_icon_win.{hpp,cpp}` / `notifications_win.{hpp,cpp}` / `tray_menu_layout.hpp` — 系统托盘 + OS 气泡通知。tray 注册 hidden message-only window,WndProc 接 `Shell_NotifyIcon` 回调消息(`NIN_BALLOONUSERCLICK` / `WM_LBUTTONUP` / `WM_LBUTTONDBLCLK` / `WM_RBUTTONUP`);通知用 `Shell_NotifyIconW(NIM_MODIFY, NIF_INFO)` piggyback 在同一图标上。`init_tray_icon` → `init_notifications(tray_hwnd)`,顺序不能反。V1 仅气泡,V2 计划接 WinRT ToastNotificationManager(需 AUMID + 开始菜单 .lnk + cppwinrt)。托盘图标走 `LoadImageW(IMAGE_ICON, SM_CXSMICON, SM_CYSMICON)` 直接挑 .ico 内 16×16 frame(`enhance-desktop-tray-menu`)。右键菜单走 Codex 风格(Pinned / Recent + More 子菜单 / 新建会话 / 打开 ACECode / 退出),layout 由 `tray_menu_layout.hpp::compute_menu_layout(payload)` 纯函数算 ID 编码 — 1..49 固定项 / 100..199 pinned / 200..299 recent 顶层 / 300..399 More 子菜单。
+- 关窗(× / Alt+F4 / `aceDesktop_closeWindow`)默认隐藏到托盘(`config.desktop.close_to_tray`,默认 true);设为 false 回到旧的关窗即退出。真正退出走托盘 "退出" 菜单 → `WebHost::request_quit()` 派 `WM_USER+0x10` 绕过 close_request_handler;`web_host_close_policy.hpp` 的 `dispatch_wm_close` / `dispatch_request_quit` 是纯函数,unit test 可覆盖派发不变量。
 - `main.cpp::wWinMain` — 串起所有,quit 时写 `last_active_workspace_hash` + `pool.stop_all()` + `shutdown_notifications()` + `shutdown_tray_icon()`。
 
 JS↔C++ bridge(同进程,webview `bind`,无 HTTP):
@@ -209,6 +210,8 @@ JS↔C++ bridge(同进程,webview `bind`,无 HTTP):
 - `aceDesktop_addWorkspace()` → `{hash, cwd, name}` 或 `null`(取消)
 - `aceDesktop_notify({id, workspace_hash, session_id, title, body})` → `{ok}` — 投递 OS 系统通知(`add-desktop-attention-notifications`),前端在 `sessionTranscript.js` 命中 `question_request` / busy→idle+回合有 assistant 输出 时调用;前端 `lib/desktopNotify.js::shouldSuppress` 已根据 `health.notifications` cfg + `document.hasFocus()` + 当前 active session 做抑制规则,native 端不二次过滤。
 - `aceDesktop_focusSession({workspace_hash, session_id})` → `{ok}` — 把窗口拉前 + 切 session。toast 点击在 native click_handler 里走相同路径(`SetForegroundWindow + ShowWindow(SW_RESTORE)` + `webview.eval` 调 `window.aceDesktop_focusSessionFromBridge` / `window.aceDesktop_activateAndOpenSession`,后两个由 `App.jsx` mount 时注册到 window)。
+- `aceDesktop_setTrayMenu({workspace_name, pinned[], recent[]})` → `{ok}` — 前端推送 active workspace 的会话清单给 native 缓存,native 在右键托盘时渲染 Codex 风格菜单。前端 `lib/desktopTrayMenu.js::pushTrayMenu` 100ms debounce 入口,Sidebar.jsx 在 sessions / pinned / workspaceName 变化时调用;`activateWorkspace` bridge 内 navigate 之前 native 主动 `clear_tray_menu_payload()` 防残留。无 bridge 时 no-op(浏览器直连模式)。
+- `window.aceDesktop_createNewSession()` — App.jsx 注册的全局函数(非 bind),托盘菜单"新建会话"通过 `host.eval()` 调用,等价于 TopBar 的 onNewSession 路径。
 
 桌面通知抑制规则(`config.desktop.notifications`,默认四个 bool 均 true):`enabled` 总开关 / `on_question` AskUserQuestion 触发 / `on_completion` 回合完成触发 / `suppress_when_focused` 当前 session 已可见且窗口聚焦时跳过(避免对正盯屏的用户重复打扰)。配置经 `/api/health` 透传给前端(`health.notifications`),`lib/desktopNotify.js::maybeNotify` 一站式构造 payload + 抑制 + 投递。**多 workspace v1 限制**:webview 只连 active workspace 的 daemon,后台 workspace 的事件感知不到;v2 future work。
 
