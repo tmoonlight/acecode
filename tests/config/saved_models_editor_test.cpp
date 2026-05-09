@@ -171,3 +171,77 @@ TEST(SavedModelsEditor, RemoveRejectsNotFound) {
     auto cfg = make_cfg_with_one_default();
     EXPECT_EQ(remove_saved_model(cfg, "ghost"), SavedModelEditError::NOT_FOUND);
 }
+
+// 场景:update 改名时新名已被占用 → NAME_TAKEN,cfg 不变。
+// 触发:用户编辑面板里把 A 重命名为 B,但 B 早就存在。
+TEST(SavedModelsEditor, UpdateRejectsRenameToTakenName) {
+    auto cfg = make_cfg_with_one_default();
+    add_saved_model(cfg, good_openai_draft("local-lm"));
+    add_saved_model(cfg, good_openai_draft("other-lm"));
+    auto before_size = cfg.saved_models.size();
+
+    SavedModelDraft d = good_openai_draft("other-lm");
+    EXPECT_EQ(update_saved_model(cfg, "local-lm", d), SavedModelEditError::NAME_TAKEN);
+    EXPECT_EQ(cfg.saved_models.size(), before_size);
+    // local-lm 与 other-lm 都还在
+    EXPECT_EQ(cfg.saved_models[1].name, "local-lm");
+    EXPECT_EQ(cfg.saved_models[2].name, "other-lm");
+}
+
+// 场景:update 改名(非 default 条目)→ OK,旧 name 被新 name 替换,
+// 字段可同时改。
+TEST(SavedModelsEditor, UpdateRenamesNonDefaultEntry) {
+    auto cfg = make_cfg_with_one_default();
+    add_saved_model(cfg, good_openai_draft("local-lm"));
+
+    SavedModelDraft d = good_openai_draft("local-lm-v2");
+    d.api_key = "sk-renamed";
+    EXPECT_EQ(update_saved_model(cfg, "local-lm", d), SavedModelEditError::OK);
+
+    // 旧 name 不在了,新 name 在,api_key 也跟着改了。
+    bool found_old = false, found_new = false;
+    for (const auto& e : cfg.saved_models) {
+        if (e.name == "local-lm") found_old = true;
+        if (e.name == "local-lm-v2") {
+            found_new = true;
+            EXPECT_EQ(e.api_key, "sk-renamed");
+        }
+    }
+    EXPECT_FALSE(found_old);
+    EXPECT_TRUE(found_new);
+}
+
+// 场景:add 在每条拒绝分支上都不改 cfg.saved_models — 这是 spec 的回滚保证,
+// 任一分支偷偷写就会把坏数据漏到 cfg.json。覆盖六条剩余的拒绝分支
+// (INVALID_NAME 已由 AddRejectsEmptyName 覆盖)。
+TEST(SavedModelsEditor, AddLeavesCfgUnchangedOnAllRejections) {
+    auto cfg = make_cfg_with_one_default();
+    auto baseline_size = cfg.saved_models.size();
+
+    auto try_reject = [&](SavedModelDraft d, SavedModelEditError expected) {
+        EXPECT_EQ(add_saved_model(cfg, d), expected);
+        EXPECT_EQ(cfg.saved_models.size(), baseline_size);
+    };
+
+    auto reserved = good_openai_draft("(taken)");
+    try_reject(reserved, SavedModelEditError::RESERVED_NAME);
+
+    auto taken = good_openai_draft("copilot-fast");
+    try_reject(taken, SavedModelEditError::NAME_TAKEN);
+
+    auto bad_provider = good_openai_draft();
+    bad_provider.provider = "anthropic";
+    try_reject(bad_provider, SavedModelEditError::UNKNOWN_PROVIDER);
+
+    auto no_model = good_openai_draft();
+    no_model.model = "";
+    try_reject(no_model, SavedModelEditError::MISSING_MODEL);
+
+    auto no_url = good_openai_draft();
+    no_url.base_url = "";
+    try_reject(no_url, SavedModelEditError::MISSING_BASE_URL);
+
+    auto no_key = good_openai_draft();
+    no_key.api_key = "";
+    try_reject(no_key, SavedModelEditError::INVALID_API_KEY);
+}
