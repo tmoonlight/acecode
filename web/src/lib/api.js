@@ -7,9 +7,16 @@ import { getToken } from './auth.js';
 
 export class ApiError extends Error {
   constructor(status, body) {
-    super(`HTTP ${status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+    // 后端 4xx/5xx 通常返回 {error: "<CODE>", message: "<human msg>"}。
+    // 把 error 抽出到 .code,把 message 抽出到 .message,前端可走 errors.js 做 i18n;
+    // 拿不到结构化字段时退到原 JSON.stringify(body) 兜底,保留旧行为。
+    const code = body && typeof body === 'object' ? body.error : undefined;
+    const friendly = body && typeof body === 'object' ? body.message : undefined;
+    const text = friendly || (typeof body === 'string' ? body : JSON.stringify(body));
+    super(`HTTP ${status}: ${text}`);
     this.status = status;
     this.body   = body;
+    this.code   = code || undefined;
   }
 }
 
