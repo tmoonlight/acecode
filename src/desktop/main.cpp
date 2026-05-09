@@ -599,6 +599,24 @@ int main(int, char**) {
     host.bind("aceDesktop_startWindowDrag", [&](const std::string& /*req*/) -> std::string {
         return nlohmann::json{{"ok", host.start_window_drag()}}.dump();
     });
+    // 前端在窗口 4 边的不可见 strip 上 mousedown 时调用,内部 SendMessage 进入
+    // 原生 resize 循环。direction 见 parse_resize_direction;非法/最大化/平台
+    // 不支持(macOS/Linux 当前 stub)→ ok:false 但不抛错,前端静默吞掉。
+    host.bind("aceDesktop_startWindowResize", [&](const std::string& req) -> std::string {
+        std::string direction;
+        try {
+            auto arr = nlohmann::json::parse(req);
+            if (arr.is_array() && !arr.empty() && arr[0].is_string()) {
+                direction = arr[0].get<std::string>();
+            }
+        } catch (...) {
+            // 非法 JSON 也走下面的 ok:false 分支
+        }
+        if (direction.empty()) {
+            return nlohmann::json{{"ok", false}, {"error", "expect [direction]"}}.dump();
+        }
+        return nlohmann::json{{"ok", host.start_window_resize(direction)}}.dump();
+    });
     host.bind("aceDesktop_minimizeWindow", [&](const std::string& /*req*/) -> std::string {
         return nlohmann::json{{"ok", host.minimize_window()}}.dump();
     });

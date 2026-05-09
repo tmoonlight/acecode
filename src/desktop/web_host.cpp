@@ -439,6 +439,34 @@ bool WebHost::start_window_drag() {
     return false;
 #endif
 }
+bool WebHost::start_window_resize(const std::string& direction) {
+#ifdef _WIN32
+    HWND hwnd = impl_->hwnd();
+    if (!hwnd || !::IsWindow(hwnd)) return false;
+    // 最大化窗口走 native resize 会被 Windows 解读为"拖出还原",体验诡异;
+    // 直接拒绝,前端 strip 在最大化时也不应渲染。
+    if (::IsZoomed(hwnd)) return false;
+    auto area = parse_resize_direction(direction);
+    if (!area) return false;
+    const int ht = win32_hit_test_value(*area);
+    // Caption / Client 不是 resize 命中,parse_resize_direction 已经过滤掉,
+    // 这里二次保险:任何不是 resize 边/角的值都不发消息。
+    switch (ht) {
+        case HTLEFT: case HTRIGHT: case HTTOP: case HTBOTTOM:
+        case HTTOPLEFT: case HTTOPRIGHT:
+        case HTBOTTOMLEFT: case HTBOTTOMRIGHT:
+            break;
+        default:
+            return false;
+    }
+    ::ReleaseCapture();
+    ::SendMessageW(hwnd, WM_NCLBUTTONDOWN, ht, 0);
+    return true;
+#else
+    (void)direction;
+    return false;
+#endif
+}
 bool WebHost::minimize_window() {
 #ifdef _WIN32
     HWND hwnd = impl_->hwnd();

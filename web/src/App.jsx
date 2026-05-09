@@ -25,6 +25,7 @@ import { SettingsPage } from './components/SettingsPage.jsx';
 import { DesktopContextMenu } from './components/DesktopContextMenu.jsx';
 import { Toaster, toast } from './components/Toast.jsx';
 import { SlashCommandsProvider } from './components/SlashCommandsContext.jsx';
+import { FramelessResizeHandles } from './components/FramelessResizeHandles.jsx';
 
 const SINGLE_LAYOUT_STORAGE_KEY = 'acecode.singleLayoutWidths.v1';
 const LEGACY_DEFAULT_SINGLE_LAYOUT = { sidebar: 200, sidePanel: 280 };
@@ -389,6 +390,7 @@ export function App() {
         <div className="h-full flex items-center justify-center text-fg-mute text-sm">
           <span className="ace-spinner mr-2" /> 连接 daemon…
         </div>
+        <FramelessResizeHandles />
         <DesktopContextMenu />
         <Toaster />
       </>
@@ -398,6 +400,7 @@ export function App() {
     return (
       <>
         <TokenPrompt onSubmit={onSubmitToken} />
+        <FramelessResizeHandles />
         <DesktopContextMenu />
         <Toaster />
       </>
@@ -499,6 +502,7 @@ export function App() {
           />
         )}
       </div>
+      <FramelessResizeHandles />
       <DesktopContextMenu />
       <Toaster />
     </div>
