@@ -11,13 +11,36 @@ import { ModelManager } from './ModelManager.jsx';
 
 const NAV = ['常规', '外观', '配置', '个性化', 'MCP 服务器', '模型', '环境', '项目指令', '已归档对话', '使用情况'];
 
+// 与 TopBar 同款 frameless 拖动:非按钮等交互元素 + 左键 → 触发 native 拖动;
+// 双击切最大化。在 frameless 模式下 SettingsPage 全屏覆盖 TopBar,自身 header
+// 必须接管,否则用户无法拖窗口。
+function isFramelessDesktop() {
+  return typeof window !== 'undefined'
+    && window.__ACECODE_FRAMELESS_WINDOW__ === true
+    && typeof window.aceDesktop_startWindowDrag === 'function';
+}
+function isInteractiveTarget(target) {
+  return !!target?.closest?.('button,a,input,textarea,select,[role="button"],[data-ace-no-window-drag="true"]');
+}
+
 export function SettingsPage({ onClose, health }) {
   const { theme, set: setTheme } = useTheme();
   const [activeNav, setActiveNav] = useState(0);
   const [show, setShow] = useState(false);
+  const framelessDesktop = isFramelessDesktop();
 
   useEffect(() => { requestAnimationFrame(() => setShow(true)); }, []);
   const close = () => { setShow(false); setTimeout(onClose, 240); };
+
+  const onHeaderMouseDown = (event) => {
+    if (!framelessDesktop || event.button !== 0 || isInteractiveTarget(event.target)) return;
+    event.preventDefault();
+    if (event.detail >= 2 && typeof window.aceDesktop_toggleMaximizeWindow === 'function') {
+      window.aceDesktop_toggleMaximizeWindow();
+      return;
+    }
+    window.aceDesktop_startWindowDrag();
+  };
 
   return (
     <div
@@ -26,7 +49,13 @@ export function SettingsPage({ onClose, health }) {
         show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
       )}
     >
-      <div className="h-11 px-4 flex items-center bg-surface border-b border-border shrink-0">
+      <div
+        className={clsx(
+          'h-11 px-4 flex items-center bg-surface border-b border-border shrink-0',
+          framelessDesktop && 'ace-desktop-frameless-topbar',
+        )}
+        onMouseDown={onHeaderMouseDown}
+      >
         <button
           type="button"
           onClick={close}
@@ -72,7 +101,10 @@ export function SettingsPage({ onClose, health }) {
 }
 
 function SectionGeneral({ health }) {
-  const [perms, setPerms] = useState([true, false, false]);
+  // 权限模式三选一,任何时刻只有一档生效。Toggle 仅作视觉指示;onChange 忽略
+  // 关闭事件(关掉当前档没有语义),点击非选中行的 toggle / 整行任意位置都把
+  // 选中切到该行。
+  const [permIndex, setPermIndex] = useState(0);
   const [maxTurns, setMaxTurns] = useState(50);
   return (
     <>
@@ -85,12 +117,20 @@ function SectionGeneral({ health }) {
         { name: '自动接受编辑',   desc: '文件编辑自动通过,bash/网络命令仍需确认' },
         { name: '完全访问 (Yolo)', desc: '所有工具调用跳过确认,适合受信任的工作流' },
       ].map((p, i) => (
-        <div key={i} className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
+        <div
+          key={i}
+          role="radio"
+          aria-checked={permIndex === i}
+          tabIndex={0}
+          onClick={() => setPermIndex(i)}
+          onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPermIndex(i); } }}
+          className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 cursor-pointer hover:bg-surface-hi transition"
+        >
           <div>
             <div className="text-[13px] font-medium">{p.name}</div>
             <div className="text-[11px] text-fg-mute mt-0.5">{p.desc}</div>
           </div>
-          <Toggle on={perms[i]} onChange={(v) => setPerms((arr) => arr.map((x, j) => j === i ? v : x))} />
+          <Toggle on={permIndex === i} onChange={(v) => { if (v) setPermIndex(i); }} />
         </div>
       ))}
 
