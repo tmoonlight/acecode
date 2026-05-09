@@ -175,7 +175,8 @@ SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-pane
 | `tool_start` / `tool_update` / `tool_end` payload 字段扩充 | `display_override`(`ToolExecutor::build_tool_call_preview`) / `is_task_complete` / `tail_lines:[5 lines]` / `current_partial` / `total_lines` / `total_bytes` / `elapsed_seconds` / `summary{icon,verb,object,metrics}` / `success` / `output`(失败前 N 行) / `hunks[]`(file_edit/file_write 的 diff,前端走 diff2html 渲染) — 实现:`src/web/tool_event_payload.{hpp,cpp}` 把序列化收口 |
 | `message` payload(WS + REST `GET /api/sessions/:id/messages`) 扩 `id` 字段 | user 消息走持久化 UUID(`ensure_user_message_identity`);assistant/system/tool 走 lazy `sha1(role + " " + content + " " + timestamp)` 小写 hex(实现:`src/web/message_payload.{hpp,cpp}` + `src/utils/sha1.hpp`)。前端用这个 id 做 fork |
 | `POST /api/sessions/:id/fork` body `{at_message_id, title?}` → `{session_id, title, forked_from, fork_message_id}` | 把 source session 截止到 at_message_id(含此条)的前缀复制到新 session;源不动;新 session 不自动启 turn。命名 `分叉<N>:<原标题>`(N=同源 sibling+1,原标题截 50 codepoint)。继承 cwd/provider/model,**不**继承 file_checkpoints。实现:`src/web/handlers/fork_handler.{hpp,cpp}`(纯函数 compute_fork_title + find_message_index_by_id) + `SessionManager::fork_session_to_new_id` |
-| `GET /api/models` / `POST /api/sessions/:id/model` | 模型下拉:`saved_models` + 合成 `(legacy)` 行;v1 切的是 daemon 全局 provider(所有 session 共享一个),由 `swap_provider_if_needed` 实施 |
+| `GET /api/models` / `POST /api/sessions/:id/model` | 模型下拉:`saved_models` + 合成 `(legacy)` 行;每个 session 自带独立 `ProviderSlot`,切换走 `apply_model_to_session`(`src/provider/apply_model_to_session.{hpp,cpp}`)— TUI 与 daemon 共用同一份 helper |
+| `POST` `/api/models` body `SavedModelDraft` / `PUT /api/models/<name>` / `DELETE /api/models/<name>` / `POST /api/config/default-model` body `{name}` | saved_models 增删改 + 默认设置。失败时 cfg 内存与磁盘保持原子(handler 持快照,save_config 抛异常即回滚)。响应永不携带 api_key 字段 |
 | `GET /api/history?cwd=&max=` / `POST /api/history` | per-cwd 输入历史,与 TUI 共享同一份 `<cwd_hash>/input_history.jsonl`,经 `InputHistoryStore::append` atomic rename |
 | `PUT /api/skills/:name` body `{enabled}` / `GET /api/skills/:name/body` | 启停切换 + 查看 SKILL.md;PUT 写 `cfg.skills.disabled` 数组并 `save_config` + `SkillRegistry::reload` |
 | `GET /api/files?cwd=&path=&show_hidden=` → `[{name,path,kind,size?,modified_ms?}]` | SidePanel 文件 tab 的 lazy 文件树。`cwd` 必须 ∈ `{deps.cwd}` 白名单;`path` 走 `weakly_canonical(cwd/path)` + prefix 检查防越权。硬编码 noise 黑名单(.git/node_modules/dist/build/__pycache__/.venv/venv/target/.next/.cache)始终过滤。隐藏文件(dot 开头)默认过滤,`show_hidden=1` 透出 |
@@ -344,7 +345,7 @@ At startup and on every `--resume` / `/resume`, `src/provider/model_resolver.cpp
 
 All-empty falls back to `synth_legacy_entry(cfg)` named `(legacy)`. The picker always shows it.
 
-`LlmProvider` is a `shared_ptr` under `provider_mu`; `AgentLoop` gets a `ProviderAccessor` lambda that snapshots the pointer at turn start, so an in-flight `chat_stream` can never dangle when the main thread swaps providers. `provider_swap.cpp::swap_provider_if_needed` reuses same-provider instances (`set_model` + `OpenAiCompatProvider::reconfigure`); cross-provider calls `create_provider_from_entry` and recomputes the context window via `resolve_model_context_window`.
+`LlmProvider` 由 `SessionEntry::ProviderSlot`(`shared_ptr<LlmProvider>` + `mutex`)持有。TUI 单 session 在 `main.cpp` 持一个进程级 `ProviderSlot`;daemon 每个 SessionEntry 自带独立 slot。`AgentLoop` 通过 `ProviderAccessor` lambda 在 turn 开始时拿 shared_ptr 快照,在 swap 后旧实例由快照保活到 turn 结束。切换统一走 `src/provider/apply_model_to_session.cpp`(纯逻辑,进 `acecode_testable` 单测)— 该 helper 总是 `create_provider_from_entry` 重建实例,Copilot 路径附 `try_silent_auth` 静默登录(失败仅写 `result.warning`,不抛),非致命的 meta 写盘失败同样降级为 warning。daemon 的 `SessionRegistry::switch_model` 与 TUI 的 `/model` 命令都调它。
 
 ### `/model` command
 
