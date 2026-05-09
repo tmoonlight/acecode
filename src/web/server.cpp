@@ -1908,6 +1908,22 @@ struct WebServer::Impl {
             auto draft = parse_model_draft(body, err);
             if (!draft) return json_err(400, "BAD_REQUEST", err);
 
+            // patch 语义:body 没显式带 api_key / base_url 时,从 existing 条目
+            // 注入旧值再走校验。这样前端编辑表单不必每次让用户重输 api_key
+            // (api_key 字段本身从不在 GET 响应里返回 — 前端没办法回填真值)。
+            // 也覆盖 base_url 以防偶发未提交;model/provider/name 显式必填,
+            // 不参与 patch。
+            if (body.is_object()) {
+                const ModelProfile* existing = nullptr;
+                for (const auto& e : deps.app_config->saved_models) {
+                    if (e.name == url_name) { existing = &e; break; }
+                }
+                if (existing) {
+                    if (!body.contains("api_key")) draft->api_key = existing->api_key;
+                    if (!body.contains("base_url")) draft->base_url = existing->base_url;
+                }
+            }
+
             auto snapshot = deps.app_config->saved_models;
             auto rc = update_saved_model(*deps.app_config, url_name, *draft);
             if (rc != SavedModelEditError::OK) {

@@ -1,9 +1,11 @@
 // web/src/components/ModelManager.jsx
 // 左侧 saved_models 列表(默认带星);右侧编辑表单。增 / 改 / 删 / 设默认。
 //
-// 已知限制:OpenAI 类编辑时 api_key 必须重新填(后端 update_saved_model 走
-// validate_draft_basic,空 api_key 直接 INVALID_API_KEY)。后端补 patch 语义
-// (空字段保留旧值)前,前端这里只能给出"必填"的 placeholder。
+// api_key 编辑策略(配合 PUT /api/models/:name 的 patch 语义):
+//   - 编辑模式打开时 api_key 字段预填 mask "••••••••"(纯视觉占位,不是真值)
+//   - 用户聚焦后清空字段,等待输入;blur 时若没改回到 mask
+//   - 提交时若 apiKeyTouched=false → payload 删 api_key,后端从 existing 注入
+//   - apiKeyTouched=true → 发用户输入的新值(可能为空,后端会按校验拒绝)
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { toast } from './Toast.jsx';
@@ -14,12 +16,14 @@ const EMPTY_DRAFT = {
   name: '', provider: 'openai', model: '',
   base_url: '', api_key: '',
 };
+const API_KEY_MASK = '••••••••';
 
 export function ModelManager({ apiClient = api }) {
   const [models, setModels] = useState([]);
   const [defaultName, setDefaultName] = useState('');
   const [editingName, setEditingName] = useState(null);
   const [draft, setDraft] = useState(EMPTY_DRAFT);
+  const [apiKeyTouched, setApiKeyTouched] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const refresh = async () => {
@@ -44,30 +48,64 @@ export function ModelManager({ apiClient = api }) {
       // (legacy) 行不可编辑 — 退回新增态。
       setEditingName(null);
       setDraft(EMPTY_DRAFT);
+      setApiKeyTouched(true);
       return;
     }
     setEditingName(m.name);
+    setApiKeyTouched(false);
     setDraft({
       name: m.name,
       provider: m.provider,
       model: m.model,
       base_url: m.base_url || '',
-      api_key: '', // 后端列表不返回 api_key(安全考虑),用户编辑 OpenAI 类时需重新填
+      api_key: API_KEY_MASK, // 视觉 mask;真值不在 GET 响应里返,后端走 patch
     });
   };
 
-  const startNew = () => { setEditingName(null); setDraft(EMPTY_DRAFT); };
+  const startNew = () => {
+    setEditingName(null);
+    setDraft(EMPTY_DRAFT);
+    setApiKeyTouched(true); // 新增模式 api_key 必填,直接进 touched 状态
+  };
+
+  const onApiKeyFocus = () => {
+    if (editingName && !apiKeyTouched) {
+      // 进入编辑:清空 mask 让用户能直接输入新 key,但还没真的算 touched —
+      // 用户 blur 而没输入就恢复 mask。
+      setDraft((d) => ({ ...d, api_key: '' }));
+    }
+  };
+  const onApiKeyChange = (e) => {
+    setDraft((d) => ({ ...d, api_key: e.target.value }));
+    setApiKeyTouched(true);
+  };
+  const onApiKeyBlur = () => {
+    if (editingName && !apiKeyTouched) {
+      setDraft((d) => ({ ...d, api_key: API_KEY_MASK }));
+    }
+  };
 
   const submit = async () => {
-    const v = validateModelDraft(draft);
+    // 编辑模式 + 没改 api_key:client-side 校验跳过它(后端 PUT 会从 existing 注入)。
+    const skipApiKey = !!editingName && !apiKeyTouched;
+    const draftForValidate = skipApiKey
+      ? { ...draft, api_key: '__patch__' }  // 占位让 validateModelDraft 通过 openai 必填检查
+      : draft;
+    const v = validateModelDraft(draftForValidate);
     if (!v.ok) { toast({ kind: 'err', text: lookupErrorMessage(v.code) }); return; }
     setBusy(true);
     try {
-      if (editingName) await apiClient.updateModel(editingName, draft);
-      else             await apiClient.addModel(draft);
+      if (editingName) {
+        const payload = { ...draft };
+        if (skipApiKey) delete payload.api_key; // 后端 patch:缺字段保留旧值
+        await apiClient.updateModel(editingName, payload);
+      } else {
+        await apiClient.addModel(draft);
+      }
       toast({ kind: 'ok', text: editingName ? '已更新' : '已新增' });
       setEditingName(null);
       setDraft(EMPTY_DRAFT);
+      setApiKeyTouched(true);
       await refresh();
     } catch (err) {
       toast({ kind: 'err', text: lookupErrorMessage(err && err.code, err && err.message) });
@@ -79,7 +117,7 @@ export function ModelManager({ apiClient = api }) {
     try {
       await apiClient.removeModel(name);
       toast({ kind: 'ok', text: '已删除 ' + name });
-      if (editingName === name) { setEditingName(null); setDraft(EMPTY_DRAFT); }
+      if (editingName === name) { setEditingName(null); setDraft(EMPTY_DRAFT); setApiKeyTouched(true); }
       await refresh();
     } catch (err) {
       toast({ kind: 'err', text: lookupErrorMessage(err && err.code, err && err.message) });
@@ -178,8 +216,10 @@ export function ModelManager({ apiClient = api }) {
               <input
                 type="password"
                 value={draft.api_key}
-                placeholder={editingName ? '修改 api_key(必填)' : ''}
-                onChange={(e) => setDraft({ ...draft, api_key: e.target.value })}
+                placeholder={editingName ? '聚焦后输入新 api_key,留空则保留旧值' : ''}
+                onFocus={onApiKeyFocus}
+                onChange={onApiKeyChange}
+                onBlur={onApiKeyBlur}
               />
             </Field>
           </>
