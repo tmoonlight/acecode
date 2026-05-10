@@ -343,6 +343,26 @@ SessionRegistry::current_model_state(const std::string& id) const {
     return it->second->model_state;
 }
 
+std::optional<PermissionMode>
+SessionRegistry::permission_mode(const std::string& id) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = entries_.find(id);
+    if (it == entries_.end() || !it->second || !it->second->perm) return std::nullopt;
+    return it->second->perm->mode();
+}
+
+bool SessionRegistry::set_permission_mode(const std::string& id, PermissionMode mode) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = entries_.find(id);
+    if (it == entries_.end() || !it->second || !it->second->perm) return false;
+    it->second->perm->set_mode(mode);
+    it->second->perm->clear_session_allows();
+    if (mode == PermissionMode::Yolo && it->second->prompter) {
+        it->second->prompter->resolve_all(PermissionDecisionChoice::Allow);
+    }
+    return true;
+}
+
 bool SessionRegistry::switch_model(const std::string& id,
                                    const ModelProfile& profile,
                                    SessionModelState* out,

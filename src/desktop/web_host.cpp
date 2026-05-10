@@ -48,6 +48,13 @@ constexpr UINT kRequestQuitMsg = WM_USER + 0x10;
 // 共享同一线程(webview2 message pump 线程 = 主线程)。
 std::function<bool()> g_close_handler;
 
+// 窗口最大化/还原状态变化 handler。同样 main thread only。WndProc 在 WM_SIZE
+// 时检测 IsZoomed 与 g_last_known_maximized 是否不同,变化时触发并同步缓存。
+// 缓存初始 false,WM_SIZE 第一次到达时若为 maximized 会被推送一次,frontend
+// 也照样会通过 aceDesktop_isWindowMaximized 拿初始态;两者最终一致。
+std::function<void(bool)> g_window_state_handler;
+bool g_last_known_maximized = false;
+
 // 单例联动:第二次启动 acecode-desktop 会向已有 host window 派 focus msg,
 // 让我们把窗口拉前 + 显示。同名 RegisterWindowMessageW 在两端拿到一致 UINT,
 // 见 single_instance_win.cpp 头注。第一次访问时 lazily register,缓存到 static。
@@ -179,6 +186,13 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             return frameless_hit_test(hwnd, lparam);
         case WM_SIZE:
             resize_webview_widget(hwnd);
+            if (g_window_state_handler) {
+                const bool maximized = ::IsZoomed(hwnd) != FALSE;
+                if (maximized != g_last_known_maximized) {
+                    g_last_known_maximized = maximized;
+                    g_window_state_handler(maximized);
+                }
+            }
             break;
         case WM_DPICHANGED:
             if (lparam) {
@@ -512,6 +526,22 @@ bool WebHost::toggle_maximize_window() {
     return true;
 #else
     return false;
+#endif
+}
+bool WebHost::is_window_maximized() const {
+#ifdef _WIN32
+    HWND hwnd = impl_->hwnd();
+    if (!hwnd || !::IsWindow(hwnd)) return false;
+    return ::IsZoomed(hwnd) != FALSE;
+#else
+    return false;
+#endif
+}
+void WebHost::set_window_state_change_handler(WindowStateHandler handler) {
+#ifdef _WIN32
+    g_window_state_handler = std::move(handler);
+#else
+    (void)handler;
 #endif
 }
 bool WebHost::close_window() {

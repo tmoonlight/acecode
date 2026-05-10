@@ -34,6 +34,7 @@ using acecode::LocalSessionClient;
 using acecode::PermissionDecision;
 using acecode::PermissionDecisionChoice;
 using acecode::PermissionManager;
+using acecode::PermissionMode;
 using acecode::AppConfig;
 using acecode::ModelProfile;
 using acecode::SessionEntry;
@@ -134,6 +135,44 @@ TEST(SessionRegistry, DestroyRemovesEntry) {
     EXPECT_NE(fx.registry.lookup(id), nullptr);
     fx.registry.destroy(id);
     EXPECT_EQ(fx.registry.lookup(id), nullptr);
+}
+
+// 场景: Web UI 切换 Yolo 必须作用于当前 active session 的 PermissionManager,
+// 否则状态栏显示 Yolo 但 AgentLoop 仍会继续弹确认。
+TEST(SessionRegistry, SetPermissionModeIsSessionScoped) {
+    TestFixture fx;
+    auto a = fx.registry.create(SessionOptions{});
+    auto b = fx.registry.create(SessionOptions{});
+
+    ASSERT_TRUE(fx.registry.permission_mode(a).has_value());
+    EXPECT_EQ(*fx.registry.permission_mode(a), PermissionMode::Default);
+    ASSERT_TRUE(fx.registry.set_permission_mode(a, PermissionMode::Yolo));
+    EXPECT_EQ(*fx.registry.permission_mode(a), PermissionMode::Yolo);
+    EXPECT_EQ(*fx.registry.permission_mode(b), PermissionMode::Default);
+
+    auto* entry = fx.registry.lookup(a);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->perm, nullptr);
+    EXPECT_TRUE(entry->perm->should_auto_allow("bash", false));
+
+    fx.registry.destroy(a);
+    fx.registry.destroy(b);
+}
+
+// 场景: 切换权限模式会清掉此前"本次会话允许"的 sticky allow,避免
+// 从 Yolo / AcceptEdits 切回 Default 后仍沿用旧的免确认记录。
+TEST(SessionRegistry, SetPermissionModeClearsSessionAllows) {
+    TestFixture fx;
+    auto id = fx.registry.create(SessionOptions{});
+    auto* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+    entry->perm->add_session_allow("bash");
+    ASSERT_TRUE(entry->perm->has_session_allow("bash"));
+
+    ASSERT_TRUE(fx.registry.set_permission_mode(id, PermissionMode::AcceptEdits));
+    EXPECT_FALSE(entry->perm->has_session_allow("bash"));
+
+    fx.registry.destroy(id);
 }
 
 // 场景: list_active 必须列出所有当前内存活跃 session,destroy 后从列表消失。

@@ -307,6 +307,14 @@ export function App() {
     }
   }, [activeRef, health, switchView, view]);
 
+  const handlePermissionModeChanged = useCallback(({ sessionId, mode }) => {
+    if (mode !== 'yolo' || !sessionId) return;
+    setPermReqs((prev) => prev.filter((req) => {
+      const reqSid = req?.session_id || activeRef?.sessionId || activeRef?.id || '';
+      return reqSid !== sessionId;
+    }));
+  }, [activeRef?.id, activeRef?.sessionId]);
+
   // 暴露 aceDesktop_createNewSession 给 desktop 壳的托盘 "新建会话" 菜单调用。
   // 设计:openspec/changes/enhance-desktop-tray-menu。
   useEffect(() => {
@@ -477,6 +485,7 @@ export function App() {
               onToggleSidePanelMaximized={toggleSidePanelMaximized}
               questionRequest={visibleQuestionReq}
               onQuestionResolve={resolveVisibleQuestion}
+              onPermissionModeChanged={handlePermissionModeChanged}
             />
           )}
           {view === 'grid4' && <Grid4View activeRef={activeRef} onExpand={setExpanded} />}
@@ -488,7 +497,14 @@ export function App() {
         )}
         {showSkills   && <SkillsPanel  onClose={() => setShowSkills(false)} />}
         {showMcp      && <MCPPanel     onClose={() => setShowMcp(false)} />}
-        {showSettings && <SettingsPage onClose={() => setShowSettings(false)} health={health} />}
+        {showSettings && (
+          <SettingsPage
+            onClose={() => setShowSettings(false)}
+            health={health}
+            activeSessionId={activeId}
+            onPermissionModeChanged={handlePermissionModeChanged}
+          />
+        )}
         <SearchPalette
           open={searchOpen}
           onClose={() => setSearchOpen(false)}

@@ -119,6 +119,11 @@ public:
                       SessionModelState* out = nullptr,
                       std::string* error = nullptr);
 
+    // Current active session permission mode. These are intentionally
+    // session-scoped so Web UI changes do not affect unrelated sessions.
+    std::optional<PermissionMode> permission_mode(const std::string& id) const;
+    bool set_permission_mode(const std::string& id, PermissionMode mode);
+
     // Resolve persisted metadata to displayable model state without activating
     // the session. Used by web endpoints for inactive disk sessions.
     std::optional<SessionModelState> model_state_from_meta(const SessionMeta& meta) const;

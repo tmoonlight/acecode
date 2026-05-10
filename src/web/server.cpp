@@ -23,6 +23,7 @@
 #include "handlers/fork_handler.hpp"
 #include "handlers/history_handler.hpp"
 #include "handlers/models_handler.hpp"
+#include "handlers/permission_mode_handler.hpp"
 #include "handlers/pinned_sessions_handler.hpp"
 #include "handlers/commands_handler.hpp"
 #include "handlers/skill_command_expander.hpp"
@@ -1320,6 +1321,10 @@ struct WebServer::Impl {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/sessions/<string>/permissions").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/sessions/<string>/resume").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
@@ -1540,6 +1545,70 @@ struct WebServer::Impl {
 
             crow::response r(202);
             r.body = R"({"queued":true})";
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
+        // GET /api/sessions/:id/permissions: current active session permission mode.
+        CROW_ROUTE(app, "/api/sessions/<string>/permissions").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.session_registry) {
+                crow::response r(503);
+                r.body = R"({"error":"session registry unavailable"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            auto mode = deps.session_registry->permission_mode(id);
+            if (!mode.has_value()) {
+                crow::response r(404);
+                r.body = R"({"error":"unknown session"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            crow::response r(permission_mode_to_json(*mode).dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
+        // PUT /api/sessions/:id/permissions body {mode}: switch current session only.
+        CROW_ROUTE(app, "/api/sessions/<string>/permissions").methods(crow::HTTPMethod::PUT)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.session_registry) {
+                crow::response r(503);
+                r.body = R"({"error":"session registry unavailable"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            std::string mode_name;
+            try {
+                auto j = json::parse(req.body);
+                if (j.contains("mode") && j["mode"].is_string()) {
+                    mode_name = j["mode"].get<std::string>();
+                }
+            } catch (const std::exception& e) {
+                crow::response r(400);
+                r.body = json{{"error", std::string("bad json: ") + e.what()}}.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            auto mode = parse_permission_mode_name(mode_name);
+            if (!mode.has_value()) {
+                crow::response r(400);
+                r.body = R"({"error":"invalid permission mode"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            if (!deps.session_registry->set_permission_mode(id, *mode)) {
+                crow::response r(404);
+                r.body = R"({"error":"unknown session"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            crow::response r(permission_mode_to_json(*mode).dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });

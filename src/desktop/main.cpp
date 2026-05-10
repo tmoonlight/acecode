@@ -656,8 +656,24 @@ int main(int, char**) {
     host.bind("aceDesktop_toggleMaximizeWindow", [&](const std::string& /*req*/) -> std::string {
         return nlohmann::json{{"ok", host.toggle_maximize_window()}}.dump();
     });
+    // 前端 TopBar 在 mount 时调一次拿初始最大化态;后续靠下方 set_window_state_change_handler
+    // 推送的 aceDesktop_onMaximizeStateChanged 回调实时更新图标(矩形 ↔ 双层方框)。
+    host.bind("aceDesktop_isWindowMaximized", [&](const std::string& /*req*/) -> std::string {
+        return nlohmann::json{{"maximized", host.is_window_maximized()}}.dump();
+    });
     host.bind("aceDesktop_closeWindow", [&](const std::string& /*req*/) -> std::string {
         return nlohmann::json{{"ok", host.close_window()}}.dump();
+    });
+
+    // WM_SIZE 时如果最大化状态变化(被 web_host.cpp 内部 g_last_known_maximized 去重过),
+    // eval 一段 JS 调前端 window.aceDesktop_onMaximizeStateChanged(bool),让 TopBar 切换
+    // 图标。前端没注册回调时静默吞,避免 webview 异常 ts 上报。
+    host.set_window_state_change_handler([&host](bool maximized) {
+        const std::string js = std::string(
+            "(function(){try{if(window.aceDesktop_onMaximizeStateChanged){"
+            "window.aceDesktop_onMaximizeStateChanged(") + (maximized ? "true" : "false") +
+            ");}}catch(e){}})();";
+        host.eval(js);
     });
 
     // 系统通知 bridge — 前端 sessionTranscript.js 在 question_request / 回合完成时调用。

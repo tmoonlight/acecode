@@ -796,7 +796,9 @@ void AgentLoop::run_agent_with_display(const std::string& user_message,
                             LOG_WARN("Path validation failed: " + path_error);
                             return ToolResult{"[Error] " + path_error, false};
                         }
-                        if (path_validator_.is_dangerous_path(ctx_path) && auto_allow && !permissions_.is_dangerous()) {
+                        if (path_validator_.is_dangerous_path(ctx_path) && auto_allow &&
+                            !permissions_.is_dangerous() &&
+                            permissions_.mode() != PermissionMode::Yolo) {
                             LOG_INFO("Dangerous path detected, forcing confirmation: " + ctx_path);
                             auto_allow = false;
                         }

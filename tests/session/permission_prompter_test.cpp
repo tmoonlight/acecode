@@ -146,3 +146,36 @@ TEST(AsyncPrompter, NotifyUnknownRequestIdIsNoOp) {
     EXPECT_NO_THROW(prompter.notify_decision("nonexistent-id",
                                               PermissionDecisionChoice::Allow));
 }
+
+// 场景: 用户在权限弹窗已经出现时切换到 Yolo,daemon 会批量 Allow 所有
+// pending prompt,worker 不应继续卡在旧确认框上。
+TEST(AsyncPrompter, ResolveAllAllowsPendingPrompt) {
+    EventDispatcher d;
+    AsyncPrompter prompter(d, 5s);
+
+    ResponderState state;
+    auto sub = d.subscribe([&](const SessionEvent& e) {
+        if (e.kind != SessionEventKind::PermissionRequest) return;
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.request_id = e.payload.value("request_id", std::string{});
+        state.got = true;
+        state.cv.notify_all();
+    });
+
+    std::atomic<PermissionResult> result{PermissionResult::Deny};
+    std::thread worker([&] {
+        result = prompter.prompt("bash", "{}", nullptr);
+    });
+
+    {
+        std::unique_lock<std::mutex> lk(state.mu);
+        state.cv.wait_for(lk, 2s, [&] { return state.got; });
+    }
+    ASSERT_TRUE(state.got);
+
+    prompter.resolve_all(PermissionDecisionChoice::Allow);
+
+    worker.join();
+    EXPECT_EQ(result.load(), PermissionResult::Allow);
+    d.unsubscribe(sub);
+}

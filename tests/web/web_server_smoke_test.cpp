@@ -295,6 +295,51 @@ TEST(WebServerHttp, CreateSessionThenListShowsActive) {
     EXPECT_EQ(occurrences, 1) << "active 与 disk meta 必须合并为同一条";
 }
 
+// 场景: Web 状态栏/设置页切换权限模式走真实 daemon API,必须立即更新
+// 当前 active session 的 PermissionManager,否则 Yolo 仍会继续弹确认。
+TEST(WebServerHttp, SessionPermissionModeEndpointUpdatesActiveSession) {
+    WebServerFixture fx;
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}},
+                          cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201) << post.text;
+    auto sid = json::parse(post.text)["session_id"].get<std::string>();
+
+    auto get_initial = cpr::Get(cpr::Url{fx.url("/api/sessions/" + sid + "/permissions")});
+    ASSERT_EQ(get_initial.status_code, 200) << get_initial.text;
+    EXPECT_EQ(json::parse(get_initial.text)["mode"], "default");
+
+    auto put = cpr::Put(cpr::Url{fx.url("/api/sessions/" + sid + "/permissions")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{R"({"mode":"yolo"})"});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    EXPECT_EQ(json::parse(put.text)["mode"], "yolo");
+
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->perm, nullptr);
+    EXPECT_EQ(entry->perm->mode(), acecode::PermissionMode::Yolo);
+    EXPECT_TRUE(entry->perm->should_auto_allow("bash", false));
+}
+
+// 场景: 权限模式端点应拒绝未知 mode,避免前端 typo 把 daemon 状态改坏。
+TEST(WebServerHttp, SessionPermissionModeRejectsInvalidMode) {
+    WebServerFixture fx;
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}},
+                          cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201) << post.text;
+    auto sid = json::parse(post.text)["session_id"].get<std::string>();
+
+    auto put = cpr::Put(cpr::Url{fx.url("/api/sessions/" + sid + "/permissions")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{R"({"mode":"always"})"});
+    EXPECT_EQ(put.status_code, 400) << put.text;
+    auto mode = fx.registry->permission_mode(sid);
+    ASSERT_TRUE(mode.has_value());
+    EXPECT_EQ(*mode, acecode::PermissionMode::Default);
+}
+
 // 场景: 共享 daemon 暴露 workspace registry,每个 workspace 有独立 session
 // lifecycle endpoint。创建/列表响应必须携带 workspace_hash/cwd。
 TEST(WebServerHttp, WorkspaceScopedSessionLifecycle) {

@@ -6,6 +6,7 @@
 #include <mutex>
 #include <algorithm>
 #include <cstring>
+#include <atomic>
 
 namespace acecode {
 
@@ -38,12 +39,12 @@ enum class PermissionResult {
 // Manages tool permission decisions
 class PermissionManager {
 public:
-    void set_mode(PermissionMode mode) { mode_ = mode; }
-    PermissionMode mode() const { return mode_; }
+    void set_mode(PermissionMode mode) { mode_.store(mode, std::memory_order_relaxed); }
+    PermissionMode mode() const { return mode_.load(std::memory_order_relaxed); }
 
     // Enable/disable dangerous mode (bypasses ALL checks including path safety)
-    void set_dangerous(bool enabled) { dangerous_mode_ = enabled; }
-    bool is_dangerous() const { return dangerous_mode_; }
+    void set_dangerous(bool enabled) { dangerous_mode_.store(enabled, std::memory_order_relaxed); }
+    bool is_dangerous() const { return dangerous_mode_.load(std::memory_order_relaxed); }
 
     // Add a permission rule
     void add_rule(const PermissionRule& rule) {
@@ -57,7 +58,7 @@ public:
                            const std::string& path = "",
                            const std::string& command = "") const {
         // Dangerous mode: everything is auto-allowed unconditionally
-        if (dangerous_mode_) return true;
+                if (dangerous_mode_.load(std::memory_order_relaxed)) return true;
 
         // Check rules (priority-ordered, first match wins)
         {
@@ -79,7 +80,7 @@ public:
         }
 
         // Yolo mode: everything is auto-allowed
-        if (mode_ == PermissionMode::Yolo) return true;
+        if (mode_.load(std::memory_order_relaxed) == PermissionMode::Yolo) return true;
 
         // Read-only tools are always auto-allowed
         if (is_read_only) return true;
@@ -104,7 +105,7 @@ public:
         }
 
         // AcceptEdits mode: auto-allow file tools (but not bash)
-        if (mode_ == PermissionMode::AcceptEdits) {
+        if (mode_.load(std::memory_order_relaxed) == PermissionMode::AcceptEdits) {
             if (tool_name == "file_write" || tool_name == "file_edit") {
                 return true;
             }
@@ -133,13 +134,15 @@ public:
 
     // Cycle to next permission mode
     PermissionMode cycle_mode() {
-        switch (mode_) {
-            case PermissionMode::Default:     mode_ = PermissionMode::AcceptEdits; break;
-            case PermissionMode::AcceptEdits: mode_ = PermissionMode::Yolo; break;
-            case PermissionMode::Yolo:        mode_ = PermissionMode::Default; break;
+        PermissionMode next = PermissionMode::Default;
+        switch (mode_.load(std::memory_order_relaxed)) {
+            case PermissionMode::Default:     next = PermissionMode::AcceptEdits; break;
+            case PermissionMode::AcceptEdits: next = PermissionMode::Yolo; break;
+            case PermissionMode::Yolo:        next = PermissionMode::Default; break;
         }
+        mode_.store(next, std::memory_order_relaxed);
         clear_session_allows();
-        return mode_;
+        return next;
     }
 
     static const char* mode_name(PermissionMode m) {
@@ -239,8 +242,8 @@ private:
         return true;
     }
 
-    PermissionMode mode_ = PermissionMode::Default;
-    bool dangerous_mode_ = false;
+    std::atomic<PermissionMode> mode_{PermissionMode::Default};
+    std::atomic<bool> dangerous_mode_{false};
     mutable std::mutex mu_;
     std::set<std::string> session_allowed_;
     std::vector<PermissionRule> rules_;

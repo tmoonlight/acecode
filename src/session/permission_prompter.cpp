@@ -2,6 +2,8 @@
 
 #include "../utils/uuid.hpp"
 
+#include <vector>
+
 namespace acecode {
 
 std::string AsyncPrompter::make_request_id() {
@@ -83,6 +85,28 @@ void AsyncPrompter::notify_decision(const std::string& request_id,
         p->responded = true;
     }
     p->cv.notify_all();
+}
+
+void AsyncPrompter::resolve_all(PermissionDecisionChoice choice) {
+    std::vector<std::shared_ptr<Pending>> pending;
+    {
+        std::lock_guard<std::mutex> lk(pending_mu_);
+        pending.reserve(pending_.size());
+        for (const auto& item : pending_) {
+            pending.push_back(item.second);
+        }
+    }
+
+    for (const auto& p : pending) {
+        if (!p) continue;
+        {
+            std::lock_guard<std::mutex> lk(p->mu);
+            if (p->responded) continue;
+            p->choice = choice;
+            p->responded = true;
+        }
+        p->cv.notify_all();
+    }
 }
 
 } // namespace acecode

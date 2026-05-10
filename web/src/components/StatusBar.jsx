@@ -1,19 +1,11 @@
 // 底部 22px 状态栏:权限模式下拉 + 模型 tag + 轮次 + 分支(占位)
-//
-// 权限模式只是 UI 状态,实际权限决策仍在 daemon 端;切换会通过 (TODO) 一个
-// future API 同步,v1 仅本地反映。
 
 import { useEffect, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
+import { PERMISSION_MODES, normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
 import { optionLabel } from '../lib/sessionModel.js';
 import { VsIcon } from './Icon.jsx';
 import { TokenBudgetRing } from './TokenBudgetRing.jsx';
-
-const MODES = [
-  { id: 'default',     label: '默认',          hint: '写/执行操作前确认',                  color: 'ok'     },
-  { id: 'acceptEdits', label: '自动接受编辑',   hint: '文件编辑自动通过,命令仍确认',        color: 'warn'   },
-  { id: 'yolo',        label: 'Yolo',         hint: '跳过所有确认',                       color: 'danger' },
-];
 
 export function StatusBar({
   model = '—',
@@ -24,10 +16,17 @@ export function StatusBar({
   modelSwitching = false,
   onModelChange,
   tokenBudget = null,
+  permissionMode = 'default',
+  permissionSwitching = false,
+  onPermissionModeChange,
 }) {
-  const [mode, setMode] = useState('default');
+  const [localMode, setLocalMode] = useState(normalizePermissionMode(permissionMode));
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+
+  useEffect(() => {
+    setLocalMode(normalizePermissionMode(permissionMode));
+  }, [permissionMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -36,8 +35,15 @@ export function StatusBar({
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
-  const cur = MODES.find((m) => m.id === mode) || MODES[0];
+  const mode = normalizePermissionMode(onPermissionModeChange ? permissionMode : localMode);
+  const cur = permissionModeOption(mode);
   const dotCls = cur.color === 'ok' ? 'bg-ok' : cur.color === 'warn' ? 'bg-warn' : 'bg-danger';
+  const selectPermissionMode = (nextMode) => {
+    const normalized = normalizePermissionMode(nextMode);
+    if (onPermissionModeChange) onPermissionModeChange(normalized);
+    else setLocalMode(normalized);
+    setOpen(false);
+  };
   const modelControl = onModelChange && modelOptions.length > 0 ? (
     <select
       value={selectedModelName || ''}
@@ -64,6 +70,7 @@ export function StatusBar({
           type="button"
           onClick={() => setOpen((o) => !o)}
           title={cur.hint}
+          disabled={permissionSwitching}
           className="flex items-center gap-1 px-1.5 py-px rounded hover:bg-surface-hi text-fg-mute transition"
         >
           <span className={clsx('w-1.5 h-1.5 rounded-full', dotCls)} />
@@ -72,17 +79,19 @@ export function StatusBar({
         </button>
         {open && (
           <div className="absolute bottom-full left-0 mb-1 bg-surface border border-border rounded-md ace-shadow-lg p-1 min-w-[220px] z-50">
-            {MODES.map((m) => {
+            {PERMISSION_MODES.map((m) => {
               const active = m.id === mode;
               const c = m.color === 'ok' ? 'bg-ok' : m.color === 'warn' ? 'bg-warn' : 'bg-danger';
               return (
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => { setMode(m.id); setOpen(false); }}
+                  disabled={permissionSwitching}
+                  onClick={() => selectPermissionMode(m.id)}
                   className={clsx(
                     'w-full text-left px-2.5 py-1.5 rounded transition flex flex-col gap-0.5',
                     active ? 'bg-accent-bg' : 'hover:bg-surface-hi',
+                    permissionSwitching && 'opacity-60 cursor-wait',
                   )}
                 >
                   <span className="flex items-center gap-1.5">

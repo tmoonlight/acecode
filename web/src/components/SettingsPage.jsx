@@ -4,10 +4,13 @@
 
 import { useEffect, useState } from 'react';
 import { useTheme } from '../theme.jsx';
+import { api } from '../lib/api.js';
 import { Toggle } from './Modal.jsx';
 import { clsx } from '../lib/format.js';
+import { normalizePermissionMode } from '../lib/permissionMode.js';
 import { VsIcon } from './Icon.jsx';
 import { ModelManager } from './ModelManager.jsx';
+import { toast } from './Toast.jsx';
 import {
   WindowControls,
   isInteractiveTarget,
@@ -16,7 +19,7 @@ import {
 
 const NAV = ['常规', '外观', '配置', '个性化', 'MCP 服务器', '模型', '环境', '项目指令', '已归档对话', '使用情况'];
 
-export function SettingsPage({ onClose, health }) {
+export function SettingsPage({ onClose, health, activeSessionId = '', onPermissionModeChanged }) {
   const { theme, set: setTheme } = useTheme();
   const [activeNav, setActiveNav] = useState(0);
   const [show, setShow] = useState(false);
@@ -79,7 +82,13 @@ export function SettingsPage({ onClose, health }) {
           ))}
         </nav>
         <div className="flex-1 overflow-y-auto px-12 py-6">
-          {activeNav === 0 && <SectionGeneral health={health} />}
+          {activeNav === 0 && (
+            <SectionGeneral
+              health={health}
+              activeSessionId={activeSessionId}
+              onPermissionModeChanged={onPermissionModeChanged}
+            />
+          )}
           {activeNav === 1 && <SectionAppearance theme={theme} setTheme={setTheme} />}
           {activeNav === 5 && (
             <>
@@ -99,37 +108,81 @@ export function SettingsPage({ onClose, health }) {
   );
 }
 
-function SectionGeneral({ health }) {
+function SectionGeneral({ health, activeSessionId = '', onPermissionModeChanged }) {
   // 权限模式三选一,任何时刻只有一档生效。Toggle 仅作视觉指示;onChange 忽略
   // 关闭事件(关掉当前档没有语义),点击非选中行的 toggle / 整行任意位置都把
-  // 选中切到该行。
-  const [permIndex, setPermIndex] = useState(0);
+  // 选中切到该行。这里同步当前 active session 的 daemon 状态。
+  const [permMode, setPermMode] = useState('default');
+  const [permBusy, setPermBusy] = useState(false);
   const [maxTurns, setMaxTurns] = useState(50);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      setPermMode('default');
+      setPermBusy(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setPermBusy(false);
+    api.getSessionPermissionMode(activeSessionId)
+      .then((state) => {
+        if (!cancelled) setPermMode(normalizePermissionMode(state?.mode));
+      })
+      .catch(() => {
+        if (!cancelled) setPermMode('default');
+      });
+    return () => { cancelled = true; };
+  }, [activeSessionId]);
+
+  const switchPermissionMode = async (mode) => {
+    const nextMode = normalizePermissionMode(mode);
+    const previousMode = normalizePermissionMode(permMode);
+    if (!activeSessionId || permBusy || nextMode === previousMode) return;
+    setPermMode(nextMode);
+    setPermBusy(true);
+    try {
+      const state = await api.setSessionPermissionMode(activeSessionId, nextMode);
+      const confirmedMode = normalizePermissionMode(state?.mode || nextMode);
+      setPermMode(confirmedMode);
+      onPermissionModeChanged?.({ sessionId: activeSessionId, mode: confirmedMode });
+      toast({ kind: 'ok', text: '权限模式已更新' });
+    } catch (e) {
+      setPermMode(previousMode);
+      toast({ kind: 'err', text: '权限模式更新失败:' + (e?.message || '') });
+    } finally {
+      setPermBusy(false);
+    }
+  };
   return (
     <>
       <h2 className="text-xl font-bold mb-5">常规</h2>
 
       <div className="text-[14px] font-semibold mb-1">权限模式</div>
-      <p className="text-[12px] text-fg-mute mb-3">控制 Agent 调用工具时的确认行为</p>
+      <p className="text-[12px] text-fg-mute mb-3">
+        {activeSessionId ? '控制当前会话调用工具时的确认行为' : '请先打开一个会话后再切换权限模式'}
+      </p>
       {[
-        { name: '默认',         desc: '可读取并编辑工作区中的文件;写/执行操作前会请求确认' },
-        { name: '自动接受编辑',   desc: '文件编辑自动通过,bash/网络命令仍需确认' },
-        { name: '完全访问 (Yolo)', desc: '所有工具调用跳过确认,适合受信任的工作流' },
+        { id: 'default',      name: '默认',         desc: '可读取并编辑工作区中的文件;写/执行操作前会请求确认' },
+        { id: 'accept-edits', name: '自动接受编辑',   desc: '文件编辑自动通过,bash/网络命令仍需确认' },
+        { id: 'yolo',         name: '完全访问 (Yolo)', desc: '所有工具调用跳过确认,适合受信任的工作流' },
       ].map((p, i) => (
         <div
           key={i}
           role="radio"
-          aria-checked={permIndex === i}
-          tabIndex={0}
-          onClick={() => setPermIndex(i)}
-          onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPermIndex(i); } }}
-          className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 cursor-pointer hover:bg-surface-hi transition"
+          aria-checked={permMode === p.id}
+          tabIndex={activeSessionId ? 0 : -1}
+          onClick={() => switchPermissionMode(p.id)}
+          onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); switchPermissionMode(p.id); } }}
+          className={clsx(
+            'flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 transition',
+            activeSessionId ? 'cursor-pointer hover:bg-surface-hi' : 'opacity-60 cursor-not-allowed',
+          )}
         >
           <div>
             <div className="text-[13px] font-medium">{p.name}</div>
             <div className="text-[11px] text-fg-mute mt-0.5">{p.desc}</div>
           </div>
-          <Toggle on={permIndex === i} onChange={(v) => { if (v) setPermIndex(i); }} />
+          <Toggle on={permMode === p.id} onChange={(v) => { if (v) switchPermissionMode(p.id); }} />
         </div>
       ))}
 

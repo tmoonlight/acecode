@@ -140,6 +140,32 @@ Fetch session content. Two modes by `since`:
 If the requested seq predates the ring-buffer start, you'll get an empty list
 and should re-fetch with `since=0`.
 
+### `GET /api/sessions/:id/permissions`
+
+Return the active session's permission mode. This is session-scoped; changing
+one session does not affect other active sessions.
+
+**Response 200**:
+```json
+{ "mode": "default", "description": "Prompt for write/exec tools" }
+```
+
+### `PUT /api/sessions/:id/permissions`
+
+Switch the active session's permission mode. Valid `mode` values are
+`default`, `accept-edits`, and `yolo`. Switching to `yolo` also resolves any
+already-open permission prompt for that session with `allow`.
+
+**Request body**:
+```json
+{ "mode": "yolo" }
+```
+
+**Response 200**:
+```json
+{ "mode": "yolo", "description": "Auto-allow everything (dangerous!)" }
+```
+
 ### `GET /api/skills`
 
 List skills the daemon registered at startup.

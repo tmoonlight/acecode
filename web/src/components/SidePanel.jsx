@@ -60,7 +60,7 @@ function escapeHtml(s) {
 // effect 竞争(loadDir('') 守卫读到旧 treeCache 直接 bail,父级 setTreeCache(new Map())
 // 又跑得更晚把刚拉的根清掉)在这个数据结构下不复存在。
 function FileTree({ api, cwd, treeCache, setTreeCache, expandedDirs, setExpandedDirs,
-                    selectedPath, onPickFile }) {
+                    selectedPath, onPickFile, refreshToken }) {
   const [loading, setLoading] = useState(new Set()); // path 集合,正在请求中
   const [errors, setErrors]   = useState(new Map()); // path → 错误文案
 
@@ -85,7 +85,7 @@ function FileTree({ api, cwd, treeCache, setTreeCache, expandedDirs, setExpanded
     if (!cwd) return;
     loadDir('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd]);
+  }, [cwd, refreshToken]);
 
   const toggleDir = useCallback((path) => {
     setExpandedDirs(prev => {
@@ -184,7 +184,7 @@ function ChangesList({ messages, groups, summary }) {
 // ────────────────────────────────────────────────────────────
 // 预览 tab — 文件原文 + hljs 高亮
 // ────────────────────────────────────────────────────────────
-function PreviewPanel({ api, cwd, path, wrapPreview, onToggleWrapPreview }) {
+function PreviewPanel({ api, cwd, path, wrapPreview, onToggleWrapPreview, refreshToken }) {
   const [state, setState] = useState({ status: 'idle', text: '', error: null, lang: '', size: 0 });
 
   useEffect(() => {
@@ -218,7 +218,7 @@ function PreviewPanel({ api, cwd, path, wrapPreview, onToggleWrapPreview }) {
       setState({ status: 'error', text: '', error: msg, lang: '', size: extraSize });
     });
     return () => { cancelled = true; };
-  }, [api, cwd, path]);
+  }, [api, cwd, path, refreshToken]);
 
   if (!path) {
     return <div className="ace-empty-state">未选中文件,请在「文件」tab 中点击一个文件</div>;
@@ -291,6 +291,7 @@ export function SidePanel({
   messages,
   changeGroups = null,
   changeSummary = null,
+  fileRefreshKey = '',
   reviewRequest = 0,
   width = 280,
   collapsed = false,
@@ -308,6 +309,7 @@ export function SidePanel({
 
   const [activeTab,    setActiveTab]    = useState('files');
   const [selectedPath, setSelectedPath] = useState(null);
+  const [fileRefreshToken, setFileRefreshToken] = useState(0);
 
   // 按 cwd 隔离的文件树缓存:cwd → Map<path, entries[]>。每个 cwd 一份独立缓存,
   // 切 cwd 时新 cwd 自动 .get() 取不到,FileTree 守卫不会误命中旧数据,也不需要
@@ -339,6 +341,35 @@ export function SidePanel({
       return n;
     });
   }, [cwdKey]);
+
+  const refreshFileTree = useCallback(() => {
+    if (!cwdKey) return;
+    setTreeCacheByCwd(prev => {
+      if (!prev.has(cwdKey)) return prev;
+      const n = new Map(prev);
+      n.delete(cwdKey);
+      return n;
+    });
+    setExpandedDirsByCwd(prev => {
+      if (!prev.has(cwdKey)) return prev;
+      const n = new Map(prev);
+      n.delete(cwdKey);
+      return n;
+    });
+    setFileRefreshToken(prev => prev + 1);
+  }, [cwdKey]);
+
+  const lastFileRefreshKey = useRef('');
+  useEffect(() => {
+    const nextKey = String(fileRefreshKey || '');
+    if (!nextKey) {
+      lastFileRefreshKey.current = nextKey;
+      return;
+    }
+    if (nextKey === lastFileRefreshKey.current) return;
+    lastFileRefreshKey.current = nextKey;
+    refreshFileTree();
+  }, [fileRefreshKey, refreshFileTree]);
 
   // cwd 变时 tab 回到「文件」,清选中文件(预览 tab 会自动空)。**不**清 treeCache,
   // 自然按 cwd-key 隔离即可。
@@ -377,12 +408,26 @@ export function SidePanel({
               role="tab"
               aria-selected={activeTab === t.key}
               className="ace-side-tab"
-              onClick={() => setActiveTab(t.key)}
+              onClick={() => {
+                if (activeTab === t.key && t.key === 'files') refreshFileTree();
+                setActiveTab(t.key);
+              }}
             >
               {t.label}
             </button>
           ))}
         </div>
+        {(activeTab === 'files' || activeTab === 'preview') && (
+          <button
+            type="button"
+            onClick={refreshFileTree}
+            className="ace-side-panel-refresh-btn"
+            title="刷新文件列表和预览"
+            aria-label="刷新文件列表和预览"
+          >
+            刷新
+          </button>
+        )}
         {/* 最大化按钮放在收起按钮的左侧。最大化时聊天区已隐藏,继续允许"收起"
             会让整个区域变空,所以最大化态下隐藏收起按钮。 */}
         {onToggleMaximize && (
@@ -422,6 +467,7 @@ export function SidePanel({
             setExpandedDirs={setExpandedDirs}
             selectedPath={selectedPath}
             onPickFile={onPickFile}
+            refreshToken={fileRefreshToken}
           />
         )}
         {activeTab === 'changes' && (
@@ -438,6 +484,7 @@ export function SidePanel({
             path={selectedPath}
             wrapPreview={wrapPreview}
             onToggleWrapPreview={toggleWrapPreview}
+            refreshToken={fileRefreshToken}
           />
         )}
       </div>

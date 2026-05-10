@@ -51,8 +51,10 @@ import {
   normalizeModelState,
   selectedModelName,
 } from '../lib/sessionModel.js';
+import { normalizePermissionMode } from '../lib/permissionMode.js';
 import { VsIcon } from './Icon.jsx';
 import { commandWorkspaceHashForInput } from '../lib/slashCommandWorkspace.js';
+import { fileTreeRefreshKeyFromItems } from '../lib/fileTreeRefresh.js';
 
 function isEditableElement(el) {
   if (!el || el === document.body || el === document.documentElement) return false;
@@ -185,7 +187,7 @@ function isRealWorkspaceHash(hash) {
   return !!hash && hash !== '__local__';
 }
 
-export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWorkspaceChange, health, onPermissionRequest, onQuestionRequest, questionRequest, onQuestionResolve, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, sidePanelCollapsed = false, onToggleSidePanel, sidePanelMaximized = false, onToggleSidePanelMaximized }) {
+export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWorkspaceChange, health, onPermissionRequest, onQuestionRequest, questionRequest, onQuestionResolve, onPermissionModeChanged, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, sidePanelCollapsed = false, onToggleSidePanel, sidePanelMaximized = false, onToggleSidePanelMaximized }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const sidRef = useRef(sid);
@@ -247,6 +249,8 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
   const [modelState, setModelState] = useState(null);
   const [pendingModelName, setPendingModelName] = useState('');
   const [modelSwitching, setModelSwitching] = useState(false);
+  const [permissionMode, setPermissionMode] = useState('default');
+  const [permissionSwitching, setPermissionSwitching] = useState(false);
   const [reviewRequest, setReviewRequest] = useState(0);
   const [dismissedDockSignature, setDismissedDockSignature] = useState('');
   const [revertingChangeKeys, setRevertingChangeKeys] = useState(() => new Set());
@@ -323,6 +327,24 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
 
     return () => { cancelled = true; };
   }, [api, ref?.context_window, ref?.model, ref?.model_is_legacy, ref?.model_name, ref?.model_preset, ref?.provider, ref?.workspaceHash, sid]);
+
+  useEffect(() => {
+    if (!sid) {
+      setPermissionMode('default');
+      setPermissionSwitching(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setPermissionSwitching(false);
+    api.getSessionPermissionMode(sid)
+      .then((state) => {
+        if (!cancelled) setPermissionMode(normalizePermissionMode(state?.mode));
+      })
+      .catch(() => {
+        if (!cancelled) setPermissionMode('default');
+      });
+    return () => { cancelled = true; };
+  }, [api, sid]);
 
   const updateQueueState = useCallback((updater) => {
     const base = queueStateRef.current;
@@ -632,6 +654,26 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
     }
   }, [api, modelState, modelSwitching, sid]);
 
+  const switchPermissionMode = useCallback(async (mode) => {
+    const nextMode = normalizePermissionMode(mode);
+    const previousMode = normalizePermissionMode(permissionMode);
+    if (!sid || nextMode === previousMode || permissionSwitching) return;
+    setPermissionMode(nextMode);
+    setPermissionSwitching(true);
+    try {
+      const state = await api.setSessionPermissionMode(sid, nextMode);
+      const confirmedMode = normalizePermissionMode(state?.mode || nextMode);
+      setPermissionMode(confirmedMode);
+      onPermissionModeChanged?.({ sessionId: sid, mode: confirmedMode });
+      toast({ kind: 'ok', text: '权限模式已切换为 ' + (confirmedMode === 'yolo' ? 'Yolo' : confirmedMode === 'accept-edits' ? '自动接受编辑' : '默认') });
+    } catch (e) {
+      setPermissionMode(previousMode);
+      toast({ kind: 'err', text: '权限模式切换失败:' + (e?.message || '') });
+    } finally {
+      setPermissionSwitching(false);
+    }
+  }, [api, onPermissionModeChanged, permissionMode, permissionSwitching, sid]);
+
   const startSidePanelResize = useCallback((event) => {
     if (!showSidePanel || !sid || !onSidePanelResize) return;
     if (event.button != null && event.button !== 0) return;
@@ -723,6 +765,7 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
   const changeGroups = useMemo(() => aggregateHunksFromMessages(changeMessages), [changeMessages]);
   const changeSummary = useMemo(() => summarizeChangeGroups(changeGroups), [changeGroups]);
   const changeSignature = useMemo(() => changeGroupsSignature(changeGroups), [changeGroups]);
+  const fileTreeRefreshKey = useMemo(() => fileTreeRefreshKeyFromItems(items), [items]);
   const turnChangeSets = useMemo(() => collectTurnChangeSetsFromItems(items), [items]);
   const changeSetByAfterItemId = useMemo(() => {
     const map = new Map();
@@ -1016,6 +1059,9 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
         modelSwitching={modelSwitching}
         onModelChange={switchSessionModel}
         tokenBudget={tokenBudget}
+        permissionMode={permissionMode}
+        permissionSwitching={permissionSwitching}
+        onPermissionModeChange={switchPermissionMode}
       />
       </div>
       {sidePanelMounted && (
@@ -1052,6 +1098,7 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
               messages={changeMessages}
               changeGroups={changeGroups}
               changeSummary={changeSummary}
+              fileRefreshKey={fileTreeRefreshKey}
               reviewRequest={reviewRequest}
               width={sidePanelWidth}
               collapsed={sidePanelCollapsed}

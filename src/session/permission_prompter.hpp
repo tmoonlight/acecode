@@ -80,6 +80,11 @@ public:
     // 未知 request_id = no-op(可能已超时被 GC)。
     void notify_decision(const std::string& request_id, PermissionDecisionChoice choice);
 
+    // Resolve every pending prompt with the same choice. Used when a session
+    // switches to Yolo while a permission modal is already open; the worker
+    // should not stay blocked after the user asked to skip confirmations.
+    void resolve_all(PermissionDecisionChoice choice);
+
 private:
     static std::string make_request_id();
 

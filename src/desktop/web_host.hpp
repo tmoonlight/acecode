@@ -62,6 +62,17 @@ public:
     bool start_window_resize(const std::string& direction);
     bool minimize_window();
     bool toggle_maximize_window();
+    // 当前窗口是否处于最大化状态(IsZoomed)。非 Windows 平台始终返回 false。
+    // 前端 TopBar 在 mount 时调一次拿初始态,之后靠 set_window_state_change_handler
+    // 推送的变更事件维护。
+    bool is_window_maximized() const;
+
+    // 注册"窗口最大化/还原状态变化" handler。WM_SIZE 时检测 IsZoomed 与上次缓存
+    // 是否不同,不同才触发 — SIZE_MINIMIZED → SIZE_RESTORED 之类的中间过渡不会
+    // 重复抛事件。非 Windows 平台为 stub。
+    using WindowStateHandler = std::function<void(bool maximized)>;
+    void set_window_state_change_handler(WindowStateHandler handler);
+
     // 关闭请求(× / Alt+F4 / aceDesktop_closeWindow)。会先派发到
     // close_request_handler;handler 返回 true 表示已消化(典型如"隐藏到托盘"),
     // 返回 false / 未注册 → 走原 DestroyWindow 退出路径。

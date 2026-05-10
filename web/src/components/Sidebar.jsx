@@ -221,7 +221,7 @@ function WorkspaceGroup({ ws, expanded, onToggle, sessions, activeId, onSelect, 
   );
 }
 
-export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkills, onOpenMcp }) {
+export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkills, onOpenMcp, onOpenHome }) {
   const [pane,        setPane]        = useState('sessions'); // 'sessions' | 'skills' | 'mcp'
   const [workspaces,  setWorkspaces]  = useState([]);
   const [sessions,    setSessions]    = useState([]);
@@ -475,7 +475,10 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
   const onActivate = async (ws) => {
     setActiveWorkspaceHash(ws.hash);
     updateExpanded((prev) => new Set(prev).add(ws.hash));
-    if (!hasDesktopBridge()) return;
+    if (!hasDesktopBridge()) {
+      onOpenHome?.(ws);
+      return;
+    }
     try {
       const r = parseDesktopResult(await window.aceDesktop_activateWorkspace(ws.hash));
       if (r.error) { toast({ kind: 'err', text: '切换失败:' + r.error }); return; }
@@ -483,6 +486,7 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
       if (r.port && Number(r.port) !== currentPort) {
         location.href = `http://127.0.0.1:${r.port}/?token=${encodeURIComponent(r.token)}`;
       } else {
+        onOpenHome?.({ ...ws, port: r.port || ws.port, token: r.token || ws.token });
         refresh(ws.hash).catch(() => {});
       }
     } catch (e) { toast({ kind: 'err', text: '切换异常:' + (e.message || '') }); }

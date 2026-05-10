@@ -100,6 +100,8 @@ export function createApi(base = null) {
       return request('GET', `/api/sessions/${encodeURIComponent(sid)}/model${qs}`, undefined, base);
     },
     switchModel:      (sid, name)    => request('POST',   `/api/sessions/${encodeURIComponent(sid)}/model`, {name}, base),
+    getSessionPermissionMode: (sid)  => request('GET',    `/api/sessions/${encodeURIComponent(sid)}/permissions`, undefined, base),
+    setSessionPermissionMode: (sid, mode) => request('PUT', `/api/sessions/${encodeURIComponent(sid)}/permissions`, {mode}, base),
     addModel:         (draft)        => request('POST',   '/api/models', draft, base),
     updateModel:      (name, draft)  => request('PUT',    `/api/models/${encodeURIComponent(name)}`, draft, base),
     removeModel:      (name)         => request('DELETE', `/api/models/${encodeURIComponent(name)}`, undefined, base),
