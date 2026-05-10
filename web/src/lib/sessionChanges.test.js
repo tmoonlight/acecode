@@ -112,6 +112,28 @@ run('change signatures 对同一组变更保持稳定', () => {
   assert.equal(changeSetSignature({ userMessageId: 'u1', groups }), `u1::${first}`);
 });
 
+run('change signatures 区分同位置同数量但内容不同的变更', () => {
+  const first = changeGroupsSignature(aggregateHunksFromMessages([
+    { file: 'a.js', additions: 1, deletions: 1, hunks: [{
+      old_start: 1,
+      old_count: 1,
+      new_start: 1,
+      new_count: 1,
+      lines: [{ kind: 'removed', text: 'old' }, { kind: 'added', text: 'new-a' }],
+    }] },
+  ]));
+  const second = changeGroupsSignature(aggregateHunksFromMessages([
+    { file: 'a.js', additions: 1, deletions: 1, hunks: [{
+      old_start: 1,
+      old_count: 1,
+      new_start: 1,
+      new_count: 1,
+      lines: [{ kind: 'removed', text: 'old' }, { kind: 'added', text: 'new-b' }],
+    }] },
+  ]));
+  assert.notEqual(second, first);
+});
+
 run('summarizeChangeGroups 汇总文件数和加删行', () => {
   const groups = aggregateHunksFromMessages([
     { hunks: [

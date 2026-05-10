@@ -89,8 +89,8 @@ std::vector<fs::path> walk_cwd_chain(const fs::path& cwd, int max_depth) {
     }
 
     std::error_code ec;
-    fs::path abs = fs::weakly_canonical(cwd, ec);
-    if (ec || abs.empty()) abs = cwd;
+    fs::path abs = fs::absolute(cwd, ec).lexically_normal();
+    if (ec || abs.empty()) abs = fs::path(cwd).lexically_normal();
 
     std::set<fs::path> visited;
     std::vector<fs::path> descending;

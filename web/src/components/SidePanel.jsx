@@ -425,7 +425,7 @@ export function SidePanel({
             title="刷新文件列表和预览"
             aria-label="刷新文件列表和预览"
           >
-            刷新
+            <VsIcon name="running" size={14} />
           </button>
         )}
         {/* 最大化按钮放在收起按钮的左侧。最大化时聊天区已隐藏,继续允许"收起"

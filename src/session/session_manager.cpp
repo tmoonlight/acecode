@@ -228,11 +228,11 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
 
     message_count_ = static_cast<int>(messages.size());
 
-    // 把已有消息的快照写入新文件(否则 resume 后新文件只含 resume 之后追加的消息,
-    // 下次再 resume 看到的是个截断版)。原文件保持只读不动。
-    for (const auto& m : messages) {
-        SessionStorage::append_message(jsonl_path_, m);
-    }
+    // 把已有消息的快照写入当前进程文件(否则 resume 后新文件只含 resume 之后追加的消息,
+    // 下次再 resume 看到的是个截断版)。这里必须是 truncate + 单 stream 重写:
+    // 1) 避免每条消息 open/flush/close 的 O(N) 文件句柄开销;
+    // 2) 当 chosen 正好就是当前 pid 文件时,避免把历史追加到自己尾部导致翻倍。
+    SessionStorage::write_messages(jsonl_path_, messages);
     // 立即写一份 meta,免得 update_meta 等到第 5 条才落盘。
     update_meta();
 

@@ -72,6 +72,20 @@ void SessionStorage::append_message(const std::string& session_path, const ChatM
     }
 }
 
+void SessionStorage::write_messages(const std::string& session_path,
+                                    const std::vector<ChatMessage>& messages) {
+    std::error_code ec;
+    fs::create_directories(fs::path(session_path).parent_path(), ec);
+
+    std::ofstream ofs(session_path, std::ios::out | std::ios::trunc);
+    if (!ofs.is_open()) return;
+
+    for (const auto& msg : messages) {
+        ofs << serialize_message(msg) << '\n';
+    }
+    ofs.flush();
+}
+
 std::vector<ChatMessage> SessionStorage::load_messages(const std::string& session_path) {
     std::vector<ChatMessage> messages;
     std::ifstream ifs(session_path);

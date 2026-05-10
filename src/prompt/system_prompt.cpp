@@ -31,6 +31,34 @@ static std::string get_default_shell() {
 #endif
 }
 
+// Windows 上 bash_tool 实际通过 `cmd.exe /c` 执行命令,但 LLM 训练语料里
+// POSIX 例子压倒性多,光在 # Environment 标 "Shell: cmd.exe" 不足以压住肌肉
+// 记忆 — 用户实测 `mkdir -p testfolder1` 会建出 `-p` 和 `testfolder1` 两个目录。
+// 这里枚举高频 cmd.exe vs POSIX 分歧让 LLM 写出正确语法。POSIX 平台返回空串。
+static std::string get_shell_guidance() {
+#ifdef _WIN32
+    return "# Shell Command Guidance (Windows)\n\n"
+           "The `bash` tool runs commands through `cmd.exe /c`, NOT through a POSIX shell. "
+           "Use Windows-native syntax. Common traps:\n\n"
+           "- `mkdir foo\\bar\\baz` already creates parent directories — DO NOT pass `-p`. "
+           "`mkdir -p foo` will create TWO directories: `-p` and `foo`.\n"
+           "- Remove: `rd /s /q DIR` for directories, `del /q FILE` for files. There is no `rm -rf`.\n"
+           "- Copy: `copy SRC DST`, or `xcopy /e /i SRC DST` for directories. There is no `cp -r`.\n"
+           "- Rename/move: `move` or `ren`. There is no `mv`.\n"
+           "- Variables: `%VAR%` (not `$VAR`). Set with `set VAR=value` (not `export`).\n"
+           "- Quoting: use double quotes for arguments containing spaces; cmd.exe does NOT strip "
+           "single quotes — they become literal characters.\n"
+           "- No heredocs. To write multi-line content, prefer the `file_write` tool.\n"
+           "- Sequencing: `&&` (run if previous succeeded) and `||` (run if previous failed) work. "
+           "Use `&` for unconditional sequencing (not `;`).\n"
+           "- Lookups: `where X` (not `which`), `dir` (not `ls`), `type` (not `cat`).\n"
+           "- For complex scripts, prefer dropping a `.bat` or `.ps1` via `file_write` and "
+           "running that, rather than fighting cmd.exe's quoting in a one-liner.\n\n";
+#else
+    return "";
+#endif
+}
+
 // Generate tool descriptions from registered ToolDefs. Built-in tools and
 // external MCP tools are shown in separate sections so the LLM can reason
 // about their origin (and, in future, their permission level).
@@ -124,6 +152,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "- OS: " << get_os_name() << "\n"
         << "- CWD: " << cwd << "\n"
         << "- Shell: " << get_default_shell() << "\n\n";
+
+    oss << get_shell_guidance();
 
     oss << "# User Shell Mode\n\n"
         << "- The user can run shell commands themselves by typing `!<cmd>` in the prompt. "

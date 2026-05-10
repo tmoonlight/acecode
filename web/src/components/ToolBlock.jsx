@@ -10,6 +10,7 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { clsx, formatBytes, formatElapsed } from '../lib/format.js';
 import { hunksToUnifiedDiff } from '../lib/diff.js';
+import { compactOneLinePreview } from '../lib/compactMessagePreview.js';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
 import * as Diff2Html from 'diff2html';
@@ -17,7 +18,7 @@ import * as Diff2Html from 'diff2html';
 function MetricList({ metrics }) {
   if (!metrics || !metrics.length) return null;
   return (
-    <span className="text-fg-mute">
+    <span className="text-fg-mute shrink-0 whitespace-nowrap tabular-nums">
       {metrics.map((m, i) => (
         <span key={i}>
           {' · '}
@@ -60,6 +61,10 @@ export const ToolBlock = memo(function ToolBlock({ entry }) {
   const liveElapsed = !isDone && startedAtMs
     ? Math.max(Number(elapsed) || 0, Math.max(0, (nowMs - startedAtMs) / 1000))
     : (Number(elapsed) || 0);
+  const outputPreview = useMemo(
+    () => compactOneLinePreview(output || currentPartial || tailLines.join('\n') || title || displayOverride || tool),
+    [currentPartial, displayOverride, output, tailLines, title, tool],
+  );
 
   // diff2html 渲染:先把 hunks 转 unified diff,再交给 diff2html。空 hunks 时
   // 不构造,避免每次 render 浪费。
@@ -101,23 +106,20 @@ export const ToolBlock = memo(function ToolBlock({ entry }) {
       >
         <button
           type="button"
-          className="w-full text-left flex items-center gap-1.5 px-2.5 py-[5px] cursor-pointer"
+          className="w-full min-w-0 overflow-hidden text-left flex items-center gap-1.5 px-2.5 py-[5px] cursor-pointer whitespace-nowrap"
+          title={expanded ? '收起' : '展开'}
+          aria-label={expanded ? '收起' : '展开'}
           onClick={() => setExpanded((v) => !v)}
         >
-          <ToolSummaryIcon icon={summary.icon} ok={ok} />
-          <span className="font-medium">{summary.verb || ''}</span>
-          {summary.object && <span className="text-fg-2 truncate">· {summary.object}</span>}
+          <ToolSummaryIcon icon={summary.icon} ok={ok} className="shrink-0" />
+          <span className="font-medium shrink-0">{summary.verb || ''}</span>
+          {summary.object && <span className="text-fg-2 flex-1 min-w-0 truncate">· {summary.object}</span>}
           <MetricList metrics={summary.metrics} />
-          <span className="ml-auto text-[10px] opacity-60 flex items-center gap-1">
-            {expanded ? '收起' : '展开'}
-            <VsIcon name={expanded ? 'glyphUp' : 'glyphDown'} size={9} />
+          {!ok && output && <span className="text-fg-mute min-w-0 truncate">· {outputPreview}</span>}
+          <span className="ml-auto opacity-60 flex items-center shrink-0">
+            <VsIcon name={expanded ? 'expandUp' : 'expandDown'} size={12} />
           </span>
         </button>
-        {!ok && output && !expanded && (
-          <div className="px-3 pb-1.5 text-fg-mute text-[11px] font-mono whitespace-pre-wrap break-all">
-            {output.split('\n').slice(0, 3).join('\n')}
-          </div>
-        )}
         {expanded && (
           <div className="px-3 pb-2 pt-1">
             {tool === 'bash' && displayOverride && (
@@ -147,15 +149,30 @@ export const ToolBlock = memo(function ToolBlock({ entry }) {
     return (
       <div
         className={clsx(
-          'rounded-md font-mono text-[12px] my-0.5 px-2.5 py-1.5',
+          'rounded-md font-mono text-[12px] my-0.5 transition',
           ok ? 'bg-ok-bg border border-ok-border text-ok' : 'bg-danger-bg border border-danger/30 text-danger',
         )}
       >
-        <div className="font-medium truncate">{title}</div>
-        {output && (
-          <CopyableCodeFrame text={output} className="mt-1">
-            <pre className="m-0 text-[11px] text-fg-2 whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto" data-code-copy-source="true">{output}</pre>
-          </CopyableCodeFrame>
+        <button
+          type="button"
+          className="w-full min-w-0 overflow-hidden text-left flex items-center gap-1.5 px-2.5 py-[5px] cursor-pointer whitespace-nowrap"
+          title={outputPreview || (expanded ? '收起' : '展开')}
+          aria-label={expanded ? '收起' : '展开'}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <VsIcon name={ok ? 'ok' : 'warning'} size={13} mono={false} className="shrink-0" />
+          <span className="font-medium flex-1 min-w-0 truncate">{title || tool || '工具完成'}</span>
+          {output && <span className="text-fg-mute min-w-0 truncate">· {outputPreview}</span>}
+          <span className="ml-auto opacity-60 flex items-center shrink-0">
+            <VsIcon name={expanded ? 'expandUp' : 'expandDown'} size={12} />
+          </span>
+        </button>
+        {expanded && output && (
+          <div className="px-3 pb-2 pt-1">
+            <CopyableCodeFrame text={output}>
+              <pre className="m-0 text-[11px] text-fg-2 whitespace-pre-wrap break-all max-h-[280px] overflow-y-auto" data-code-copy-source="true">{output}</pre>
+            </CopyableCodeFrame>
+          </div>
         )}
       </div>
     );
@@ -164,26 +181,37 @@ export const ToolBlock = memo(function ToolBlock({ entry }) {
   // 进度模式
   const hidden = Math.max(0, totalLines - tailLines.length);
   return (
-    <div className="rounded-md border border-border bg-surface my-0.5 px-2.5 py-1.5 font-mono text-[11px]">
-      <div className="flex items-center gap-2 text-fg">
-        <span className="ace-spinner w-3 h-3" />
-        <span className="font-semibold truncate">{title}</span>
-      </div>
-      <div className="text-fg-mute text-[10px] mt-0.5 flex gap-3">
-        <span>{totalLines} 行</span>
-        <span>{formatBytes(totalBytes)}</span>
-        <span>{formatElapsed(liveElapsed)}</span>
-      </div>
-      {hidden > 0 && (
-        <div className="text-fg-mute text-[10px] mt-1">... +{hidden} 行已折叠</div>
-      )}
-      {tailLines.length > 0 && (
-        <CopyableCodeFrame text={tailLines.join('\n')} className="mt-1">
-          <pre className="m-0 text-fg-2 whitespace-pre-wrap break-all max-h-[100px] overflow-hidden" data-code-copy-source="true">{tailLines.join('\n')}</pre>
-        </CopyableCodeFrame>
-      )}
-      {currentPartial && (
-        <div className="text-fg-mute opacity-70 truncate">{currentPartial}</div>
+    <div className="rounded-md border border-border bg-surface my-0.5 font-mono text-[11px] overflow-hidden">
+      <button
+        type="button"
+        className="w-full min-w-0 overflow-hidden px-2.5 py-1.5 flex items-center gap-2 text-left text-fg hover:bg-surface-hi transition whitespace-nowrap"
+        title={outputPreview || (expanded ? '收起' : '展开')}
+        aria-label={expanded ? '收起' : '展开'}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="ace-spinner w-3 h-3 shrink-0" />
+        <span className="font-semibold flex-1 min-w-0 truncate">{title}</span>
+        <span className="text-fg-mute text-[10px] shrink-0">{totalLines} 行</span>
+        <span className="text-fg-mute text-[10px] shrink-0">{formatBytes(totalBytes)}</span>
+        <span className="text-fg-mute text-[10px] shrink-0">{formatElapsed(liveElapsed)}</span>
+        <span className="ml-auto opacity-60 flex items-center shrink-0">
+          <VsIcon name={expanded ? 'expandUp' : 'expandDown'} size={12} />
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-2.5 pb-1.5">
+          {hidden > 0 && (
+            <div className="text-fg-mute text-[10px] mt-1">... +{hidden} 行已折叠</div>
+          )}
+          {tailLines.length > 0 && (
+            <CopyableCodeFrame text={tailLines.join('\n')} className="mt-1">
+              <pre className="m-0 text-fg-2 whitespace-pre-wrap break-all max-h-[100px] overflow-hidden" data-code-copy-source="true">{tailLines.join('\n')}</pre>
+            </CopyableCodeFrame>
+          )}
+          {currentPartial && (
+            <div className="text-fg-mute opacity-70 truncate">{currentPartial}</div>
+          )}
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-// Sidebar(200px):workspace 分组 → session list,底部 Skills/MCP tab。
+// Sidebar(200px):workspace 分组 → session list。
 //
 // 数据源:
 //   - 优先走共享 daemon 的 /api/workspaces + workspace-scoped sessions。
@@ -221,8 +221,7 @@ function WorkspaceGroup({ ws, expanded, onToggle, sessions, activeId, onSelect, 
   );
 }
 
-export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkills, onOpenMcp, onOpenHome }) {
-  const [pane,        setPane]        = useState('sessions'); // 'sessions' | 'skills' | 'mcp'
+export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenHome }) {
   const [workspaces,  setWorkspaces]  = useState([]);
   const [sessions,    setSessions]    = useState([]);
   const [statusBySession, setStatusBySession] = useState(() => new Map());
@@ -696,7 +695,7 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
       style={collapsed ? undefined : { width, minWidth: width }}
     >
       <div className="flex-1 flex flex-col min-h-0">
-        <div className={clsx('flex-1 flex flex-col min-h-0', pane !== 'sessions' && 'hidden')}>
+        <div className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center justify-between px-2 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-fg-mute">
             <span>项目</span>
             <button
@@ -748,46 +747,6 @@ export function Sidebar({ activeId, onSelect, collapsed, width = 200, onOpenSkil
             })}
           </div>
         </div>
-
-        <div className={clsx('flex-1 overflow-y-auto', pane !== 'skills' && 'hidden')}>
-          {/* SkillsPanel 是右侧滑出面板,左侧 tab 不内嵌列表 — 点击直接打开 */}
-          <button
-            type="button"
-            onClick={onOpenSkills}
-            className="m-2 w-[calc(100%-1rem)] py-2 rounded-md border border-dashed border-border text-fg-mute hover:text-accent hover:border-accent text-xs transition"
-          >
-            打开 Skills 面板
-          </button>
-        </div>
-        <div className={clsx('flex-1 overflow-y-auto', pane !== 'mcp' && 'hidden')}>
-          <button
-            type="button"
-            onClick={onOpenMcp}
-            className="m-2 w-[calc(100%-1rem)] py-2 rounded-md border border-dashed border-border text-fg-mute hover:text-accent hover:border-accent text-xs transition"
-          >
-            打开 MCP 面板
-          </button>
-        </div>
-      </div>
-      <div className="border-t border-border px-2.5 py-2 flex gap-1 items-center">
-        {[
-          { key: 'sessions', label: '会话', icon: 'document' },
-          { key: 'skills',   label: 'Skills', icon: 'extension' },
-          { key: 'mcp',      label: 'MCP', icon: 'mcp' },
-        ].map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setPane(t.key)}
-            className={clsx(
-              'flex-1 py-[5px] text-[11px] rounded transition flex items-center justify-center gap-1',
-              pane === t.key ? 'text-accent' : 'text-fg-mute hover:text-fg hover:bg-surface-hi',
-            )}
-          >
-            <VsIcon name={t.icon} size={18} />
-            {t.label}
-          </button>
-        ))}
       </div>
     </aside>
   );

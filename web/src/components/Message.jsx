@@ -8,7 +8,8 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { renderMarkdown } from '../lib/markdown.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
-import { relativeTime, clsx } from '../lib/format.js';
+import { relativeTime } from '../lib/format.js';
+import { buildCompactMessagePreview } from '../lib/compactMessagePreview.js';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -65,7 +66,7 @@ function UserBubble({ content, ts, messageId, onFork }) {
   );
 }
 
-function AssistantBubble({ content, ts, streaming, messageId, onFork }) {
+function AssistantBubble({ content, ts, streaming, messageId, onFork, continuation }) {
   const html = { __html: renderMarkdown(content || '') };
   const handleMarkdownClick = useCallback(async (event) => {
     const text = codeTextFromCopyButtonTarget(event.target);
@@ -79,13 +80,21 @@ function AssistantBubble({ content, ts, streaming, messageId, onFork }) {
       toast({ kind: 'err', text: '复制失败:' + (e?.message || '') });
     }
   }, []);
+  // continuation = true: 同一个 assistant run 中的非首条, 不重复显示头像 + ACECode 名牌,
+  // 用一个等宽空白占位让正文与首条对齐(头像宽 6 + gap-2 = 总 32px, 与 flex gap 一致)。
   return (
     <div className="flex gap-2 max-w-[88%] group relative">
-      <div className="w-6 h-6 rounded-full bg-ok text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-[2px]">A</div>
+      {continuation ? (
+        <div className="w-6 shrink-0" aria-hidden="true" />
+      ) : (
+        <div className="w-6 h-6 rounded-full bg-ok text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-[2px]">A</div>
+      )}
       <div className="flex-1 min-w-0 flex flex-col gap-1">
-        <div className="text-[12px] font-semibold text-fg flex items-center gap-1.5">
-          ACECode
-        </div>
+        {!continuation && (
+          <div className="text-[12px] font-semibold text-fg flex items-center gap-1.5">
+            ACECode
+          </div>
+        )}
         <div
           className="ace-md text-[13px] text-fg leading-[1.6] py-0.5"
           onClick={handleMarkdownClick}
@@ -106,73 +115,47 @@ function AssistantBubble({ content, ts, streaming, messageId, onFork }) {
   );
 }
 
-const SYSTEM_COLLAPSE_LINES = 6;
-const SYSTEM_COLLAPSE_CHARS = 900;
-
-function buildSystemPreview(content) {
-  const text = String(content || '');
-  const lines = text.split('\n');
-  const byLines = lines.length > SYSTEM_COLLAPSE_LINES;
-  const byChars = text.length > SYSTEM_COLLAPSE_CHARS;
-  if (!byLines && !byChars) {
-    return { text, preview: text, collapsible: false, hiddenLines: 0 };
-  }
-
-  let preview = byLines
-    ? lines.slice(0, SYSTEM_COLLAPSE_LINES).join('\n')
-    : text.slice(0, SYSTEM_COLLAPSE_CHARS);
-  if (preview.length > SYSTEM_COLLAPSE_CHARS) {
-    preview = preview.slice(0, SYSTEM_COLLAPSE_CHARS);
-  }
-  return {
-    text,
-    preview: `${preview.trimEnd()}\n...`,
-    collapsible: true,
-    hiddenLines: Math.max(0, lines.length - SYSTEM_COLLAPSE_LINES),
-  };
-}
-
 function SystemRow({ role, content }) {
   const [expanded, setExpanded] = useState(false);
-  const { text, preview, collapsible, hiddenLines } = useMemo(
-    () => buildSystemPreview(content),
-    [content],
+  const { label, text, preview, lineCount, charCount } = useMemo(
+    () => buildCompactMessagePreview({ role, content }),
+    [role, content],
   );
-  const label = role === 'tool' ? '工具信息' : '系统信息';
-  const shownText = expanded || !collapsible ? text : preview;
 
   return (
     <div className="self-stretch bg-surface-alt border border-dashed border-border rounded-md text-[12px] text-fg-2 overflow-hidden">
-      {collapsible && (
-        <button
-          type="button"
-          className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-fg-mute hover:text-fg hover:bg-surface-hi transition"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          <span className="font-medium">{label}</span>
-          <span className="text-[10px] flex-1 truncate">
-            {expanded ? '已展开' : hiddenLines > 0 ? `已折叠 ${hiddenLines} 行` : '已折叠长内容'}
-          </span>
-          <span className="text-[10px] flex items-center gap-1">
-            {expanded ? '收起' : '展开'}
-            <VsIcon name={expanded ? 'glyphUp' : 'glyphDown'} size={9} />
-          </span>
-        </button>
+      <button
+        type="button"
+        className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-fg-mute hover:text-fg hover:bg-surface-hi transition"
+        title={preview}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="font-medium shrink-0">{label}</span>
+        <span className="text-[10px] flex-1 truncate font-mono">{preview}</span>
+        <span className="text-[10px] shrink-0 opacity-70">
+          {lineCount > 1 ? `${lineCount} 行` : `${charCount} 字符`}
+        </span>
+        <span className="text-[10px] shrink-0 flex items-center gap-1">
+          {expanded ? '收起' : '展开'}
+          <VsIcon name={expanded ? 'glyphUp' : 'glyphDown'} size={9} />
+        </span>
+      </button>
+      {expanded && (
+        <CopyableCodeFrame text={text} className="ace-system-copy-frame">
+          <div
+            className="px-3 pb-2 pt-1 whitespace-pre-wrap break-words"
+            data-code-copy-source="true"
+          >
+            {text}
+          </div>
+        </CopyableCodeFrame>
       )}
-      <CopyableCodeFrame text={text} className="ace-system-copy-frame">
-        <div
-          className={clsx('px-3 whitespace-pre-wrap break-words', collapsible ? 'pb-2 pt-1' : 'py-1.5')}
-          data-code-copy-source="true"
-        >
-          {shownText}
-        </div>
-      </CopyableCodeFrame>
     </div>
   );
 }
 
 export const Message = memo(function Message({
-  role, content, ts, streaming, messageId, metadata, onFork,
+  role, content, ts, streaming, messageId, metadata, onFork, continuation,
 }) {
   if (role === 'user') {
     // expand-webui-skill-commands:daemon 把 /<skill> args 在送给 LLM 前展开为
@@ -188,7 +171,8 @@ export const Message = memo(function Message({
   }
   if (role === 'assistant') {
     return <AssistantBubble content={content} ts={ts} streaming={streaming}
-                             messageId={messageId} onFork={onFork} />;
+                             messageId={messageId} onFork={onFork}
+                             continuation={continuation} />;
   }
   return <SystemRow role={role} content={content} />;
 });

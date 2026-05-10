@@ -154,6 +154,24 @@ function previewText(content) {
   return String(content || '').replace(/\s+/g, ' ').trim().slice(0, 80);
 }
 
+function hashString(value) {
+  const text = String(value || '');
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function hunkLinesSignature(hunk) {
+  if (!Array.isArray(hunk?.lines)) return '';
+  return hashString(hunk.lines.map((line) => [
+    line?.kind || '',
+    line?.text ?? '',
+  ].join('\u0000')).join('\u0001'));
+}
+
 function hunkSignature(hunk) {
   if (!hunk || typeof hunk !== 'object') return '';
   return [
@@ -163,6 +181,7 @@ function hunkSignature(hunk) {
     hunk.new_start ?? '',
     hunk.new_count ?? '',
     Array.isArray(hunk.lines) ? hunk.lines.length : 0,
+    hunkLinesSignature(hunk),
   ].join(':');
 }
 

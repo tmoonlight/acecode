@@ -167,6 +167,39 @@ TEST_F(SystemPromptTest, TaskCompletionProtocolAppears) {
               std::string::npos);
 }
 
+// 场景:Windows 平台 build prompt 必须注入 "# Shell Command Guidance (Windows)" 段。
+// 回归测试:用户在 acecode 里让 LLM 跑 `mkdir -p testfolder1`,因为 bash_tool
+// 在 Windows 上走 cmd.exe /c,cmd.exe 的 mkdir 不认 -p,把 -p 当成第二个目录名,
+// 结果创建出 "-p/" 和 "testfolder1/" 两个目录(claudecodehaha 没这问题是因为它
+// 强制走 git-bash)。方案 C:不换 shell,改提示词把高频 cmd.exe vs POSIX 分歧
+// 写进 system prompt。这里特意 assert "mkdir -p" 反例本身,防止有人把 guidance
+// 段瘦身时把这条最关键的反例删掉。
+TEST_F(SystemPromptTest, WindowsShellGuidanceInjected) {
+#ifdef _WIN32
+    acecode::ToolExecutor tools;
+    std::string out = acecode::build_system_prompt(tools, temp_home.string());
+    EXPECT_NE(out.find("# Shell Command Guidance (Windows)"), std::string::npos);
+    EXPECT_NE(out.find("mkdir -p"), std::string::npos);
+    EXPECT_NE(out.find("rd /s /q"), std::string::npos);
+    EXPECT_NE(out.find("%VAR%"), std::string::npos);
+#else
+    GTEST_SKIP() << "Windows-only guidance";
+#endif
+}
+
+// 场景:POSIX 平台(Linux/macOS)build prompt 时,Windows-only 段必须不出现,
+// 避免污染普通用户的 prompt 浪费 token + 误导 LLM。
+TEST_F(SystemPromptTest, PosixPromptStaysCleanOfWindowsGuidance) {
+#ifndef _WIN32
+    acecode::ToolExecutor tools;
+    std::string out = acecode::build_system_prompt(tools, temp_home.string());
+    EXPECT_EQ(out.find("# Shell Command Guidance (Windows)"), std::string::npos);
+    EXPECT_EQ(out.find("cmd.exe"), std::string::npos);
+#else
+    GTEST_SKIP() << "POSIX-only assertion";
+#endif
+}
+
 // 场景:acecode 以软件工程为主能力,但不应把"非代码"当作拒绝理由
 TEST_F(SystemPromptTest, GeneralNonCodeRequestsAreAllowed) {
     acecode::ToolExecutor tools;

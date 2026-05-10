@@ -14,13 +14,8 @@ import { TopBar } from './components/TopBar.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchPalette } from './components/SearchPalette.jsx';
-import { Grid4View } from './components/Grid4View.jsx';
-import { Grid9View } from './components/Grid9View.jsx';
-import { ExpandedOverlay } from './components/ExpandedOverlay.jsx';
 import { TokenPrompt } from './components/TokenPrompt.jsx';
 import { PermissionModal } from './components/PermissionModal.jsx';
-import { SkillsPanel } from './components/SkillsPanel.jsx';
-import { MCPPanel } from './components/MCPPanel.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
 import { DesktopContextMenu } from './components/DesktopContextMenu.jsx';
 import { Toaster, toast } from './components/Toast.jsx';
@@ -89,10 +84,6 @@ export function App() {
 
   const [activeRef,    setActiveRef]    = useState(null);
   const [commandWorkspaceHash, setCommandWorkspaceHash] = useState('');
-  const [transition,   setTransition]   = useState(false);
-  const [expanded,     setExpanded]     = useState(null);
-  const [showSkills,   setShowSkills]   = useState(false);
-  const [showMcp,      setShowMcp]      = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [permReqs,     setPermReqs]     = useState([]);
   const [questionReqs, setQuestionReqs] = useState([]);
@@ -101,7 +92,8 @@ export function App() {
     SINGLE_LAYOUT_STORAGE_KEY, DEFAULT_SINGLE_LAYOUT, validateLayoutWidths);
   const [uiPrefs, setUiPrefs] = usePreference(
     UI_PREFS_STORAGE_KEY, DEFAULT_UI_PREFS, validateUiPrefs);
-  const view = uiPrefs.view;
+  // grid4/grid9 入口暂时隐藏:主界面固定单会话,避免旧 localStorage 把用户卡在未完善视图。
+  const view = 'single';
   const sidePanelCollapsed = uiPrefs.sidePanelCollapsed;
   const sidePanelMaximized = !!uiPrefs.sidePanelMaximized;
   const projectSidebarCollapsed = !!uiPrefs.sidebarCollapsed;
@@ -255,16 +247,6 @@ export function App() {
     await probe();
   }, [probe]);
 
-  const switchView = useCallback((next) => {
-    if (next === view) return;
-    setTransition(true);
-    setTimeout(() => {
-      setUiPrefs({ view: next });
-      setExpanded(null);
-      setTimeout(() => setTransition(false), 220);
-    }, 140);
-  }, [view, setUiPrefs]);
-
   const toggleSidePanel = useCallback(() => {
     setUiPrefs((prev) => ({ ...prev, sidePanelCollapsed: !prev.sidePanelCollapsed }));
   }, [setUiPrefs]);
@@ -285,27 +267,22 @@ export function App() {
   const toggleProjectSidebar = useCallback(() => {
     setUiPrefs((prev) => ({
       ...prev,
-      sidebarCollapsed: view === 'single' ? !prev.sidebarCollapsed : false,
+      sidebarCollapsed: !prev.sidebarCollapsed,
     }));
-    if (view !== 'single') switchView('single');
-  }, [setUiPrefs, switchView, view]);
+  }, [setUiPrefs]);
 
   const openHomeForWorkspace = useCallback((workspace = null) => {
     setActiveRef(homeRefFromWorkspace(workspace, activeRef, health));
-    setExpanded(null);
-    if (view !== 'single') switchView('single');
-  }, [activeRef, health, switchView, view]);
+  }, [activeRef, health]);
 
   const createDesktopTraySession = useCallback(async () => {
     try {
       const next = await createNewSessionForActiveWorkspace(api, activeRef, health);
       setActiveRef(next);
-      setExpanded(null);
-      if (view !== 'single') switchView('single');
     } catch (e) {
       toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
     }
-  }, [activeRef, health, switchView, view]);
+  }, [activeRef, health]);
 
   const handlePermissionModeChanged = useCallback(({ sessionId, mode }) => {
     if (mode !== 'yolo' || !sessionId) return;
@@ -433,8 +410,6 @@ export function App() {
     <SlashCommandsProvider workspaceHash={commandWorkspaceHash}>
     <div className="h-full w-full flex flex-col bg-bg text-fg font-sans">
       <TopBar
-        view={view}
-        onViewChange={switchView}
         onSettings={() => setShowSettings(true)}
         onNewSession={() => openHomeForWorkspace()}
         onOpenSearch={() => setSearchOpen(true)}
@@ -447,8 +422,6 @@ export function App() {
           onSelect={setActiveRef}
           collapsed={sidebarCollapsed}
           width={singleLayout.sidebar}
-          onOpenSkills={() => setShowSkills(true)}
-          onOpenMcp={() => setShowMcp(true)}
           onOpenHome={openHomeForWorkspace}
         />
         {view === 'single' && !projectSidebarCollapsed && (
@@ -467,7 +440,7 @@ export function App() {
         <div
           className={[
             'flex-1 flex overflow-hidden transition-all duration-200',
-            transition ? 'opacity-0 scale-[.985]' : 'opacity-100 scale-100',
+            'opacity-100 scale-100',
           ].join(' ')}
         >
           {view === 'single' && (
@@ -488,15 +461,7 @@ export function App() {
               onPermissionModeChanged={handlePermissionModeChanged}
             />
           )}
-          {view === 'grid4' && <Grid4View activeRef={activeRef} onExpand={setExpanded} />}
-          {view === 'grid9' && <Grid9View activeRef={activeRef} onExpand={setExpanded} onOpenHome={openHomeForWorkspace} />}
         </div>
-
-        {expanded && (
-          <ExpandedOverlay session={expanded} onClose={() => setExpanded(null)} />
-        )}
-        {showSkills   && <SkillsPanel  onClose={() => setShowSkills(false)} />}
-        {showMcp      && <MCPPanel     onClose={() => setShowMcp(false)} />}
         {showSettings && (
           <SettingsPage
             onClose={() => setShowSettings(false)}

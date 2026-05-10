@@ -1,7 +1,6 @@
-// TopBar:logo + 快捷工具(项目栏收缩/新对话/搜索/···) + 中央 single/grid4/grid9 pill + 主题切换 + 设置
+// TopBar:logo + 快捷工具(项目栏收缩/新对话/搜索/···) + 主题切换 + 设置
 //
-// 设计稿方向 C 的中央 pill 直接接在这里;占位按钮(搜索/···)留 hover 反馈但 onClick
-// 暂为 toast 提醒"待开发",避免点了"无反应"。
+// 占位按钮(搜索/···)留 hover 反馈但 onClick 暂为 toast 提醒"待开发",避免点了"无反应"。
 
 import { useTheme } from '../theme.jsx';
 import { toast } from './Toast.jsx';
@@ -13,12 +12,6 @@ import {
   isInteractiveTarget,
   useFramelessWindowState,
 } from './WindowControls.jsx';
-
-const VIEWS = [
-  { key: 'single', label: '单会话' },
-  { key: 'grid4',  label: '4宫格' },
-  { key: 'grid9',  label: '9宫格' },
-];
 
 function QuickBtn({ title, onClick, children }) {
   return (
@@ -33,7 +26,7 @@ function QuickBtn({ title, onClick, children }) {
   );
 }
 
-export function TopBar({ view, onViewChange, onSettings, onNewSession, onOpenSearch, sidebarCollapsed = false, onToggleSidebar }) {
+export function TopBar({ onSettings, onNewSession, onOpenSearch, sidebarCollapsed = false, onToggleSidebar }) {
   const { theme, toggle } = useTheme();
   const { framelessDesktop, isMaximized } = useFramelessWindowState();
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
@@ -78,25 +71,6 @@ export function TopBar({ view, onViewChange, onSettings, onNewSession, onOpenSea
       <QuickBtn title="更多" onClick={() => toast({ kind: 'info', text: '更多工具待补充' })}>
         <VsIcon name="ellipsis" size={14} />
       </QuickBtn>
-
-      {/* 中央 pill */}
-      <div className="absolute left-1/2 -translate-x-1/2 flex bg-surface-hi rounded-full p-[3px]">
-        {VIEWS.map((v) => (
-          <button
-            key={v.key}
-            type="button"
-            onClick={() => onViewChange(v.key)}
-            className={clsx(
-              'px-4 py-[3px] rounded-full text-[12px] font-normal transition-all',
-              view === v.key
-                ? 'bg-surface text-accent font-semibold ace-shadow'
-                : 'text-fg-mute hover:text-fg-2',
-            )}
-          >
-            {v.label}
-          </button>
-        ))}
-      </div>
 
       <div className="ml-auto flex items-center gap-1">
         <QuickBtn title={theme === 'dark' ? '切到浅色' : '切到深色'} onClick={toggle}>

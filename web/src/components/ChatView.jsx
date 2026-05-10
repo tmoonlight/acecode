@@ -42,6 +42,7 @@ import {
 } from '../lib/chatInputQueue.js';
 import { findStickyUserContext, sameStickyUserContext } from '../lib/stickyUserContext.js';
 import { useSessionTranscript } from '../lib/sessionTranscript.js';
+import { usePreference } from '../lib/usePreference.js';
 import { maybeNotify } from '../lib/desktopNotify.js';
 import { normalizeTokenBudget } from '../lib/tokenBudget.js';
 import {
@@ -55,6 +56,14 @@ import { normalizePermissionMode } from '../lib/permissionMode.js';
 import { VsIcon } from './Icon.jsx';
 import { commandWorkspaceHashForInput } from '../lib/slashCommandWorkspace.js';
 import { fileTreeRefreshKeyFromItems } from '../lib/fileTreeRefresh.js';
+import { buildAssistantRunDirectives } from '../lib/assistantRunDirectives.js';
+import {
+  CHANGE_DOCK_DISMISSALS_STORAGE_KEY,
+  dismissChangeDockSignature,
+  dismissedDockSignatureFor,
+  dockDismissalKey,
+  validateDockDismissals,
+} from '../lib/changeDockDismissal.js';
 
 function isEditableElement(el) {
   if (!el || el === document.body || el === document.documentElement) return false;
@@ -252,7 +261,11 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
   const [permissionMode, setPermissionMode] = useState('default');
   const [permissionSwitching, setPermissionSwitching] = useState(false);
   const [reviewRequest, setReviewRequest] = useState(0);
-  const [dismissedDockSignature, setDismissedDockSignature] = useState('');
+  const [dismissedDockSignatures, setDismissedDockSignatures] = usePreference(
+    CHANGE_DOCK_DISMISSALS_STORAGE_KEY,
+    {},
+    validateDockDismissals,
+  );
   const [revertingChangeKeys, setRevertingChangeKeys] = useState(() => new Set());
   const [restoredChangeKeys, setRestoredChangeKeys] = useState(() => new Set());
   const scrollRef = useRef(null);
@@ -266,6 +279,12 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
   // transcript 只渲染后端真实落库的消息,避免把"草稿/未发送"和"已发送"混在一起。
   const visibleQueuedItems = useMemo(() => buildQueuedMessageItems(queueState, sid), [queueState, sid]);
   const renderedItems = useMemo(() => items, [items]);
+  // 决定每条 assistant 消息是否需要显示头像 + ACECode 名牌:同一 run 中只首条显示,
+  // 空内容(且非 streaming)直接隐藏整行。详见 lib/assistantRunDirectives.js。
+  const assistantRunDirectives = useMemo(
+    () => buildAssistantRunDirectives(renderedItems),
+    [renderedItems],
+  );
   const hasActiveTool = useMemo(() => renderedItems.some((item) => item.kind === 'tool' && !item.tool?.isDone), [renderedItems]);
   const itemsRef = useRef(renderedItems);
   const stickyRafRef = useRef(0);
@@ -765,6 +784,14 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
   const changeGroups = useMemo(() => aggregateHunksFromMessages(changeMessages), [changeMessages]);
   const changeSummary = useMemo(() => summarizeChangeGroups(changeGroups), [changeGroups]);
   const changeSignature = useMemo(() => changeGroupsSignature(changeGroups), [changeGroups]);
+  const changeDockDismissalKey = useMemo(
+    () => dockDismissalKey(ref, sid),
+    [ref?.workspaceHash, sid],
+  );
+  const dismissedDockSignature = useMemo(
+    () => dismissedDockSignatureFor(dismissedDockSignatures, changeDockDismissalKey),
+    [changeDockDismissalKey, dismissedDockSignatures],
+  );
   const fileTreeRefreshKey = useMemo(() => fileTreeRefreshKeyFromItems(items), [items]);
   const turnChangeSets = useMemo(() => collectTurnChangeSetsFromItems(items), [items]);
   const changeSetByAfterItemId = useMemo(() => {
@@ -781,7 +808,6 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
     && dismissedDockSignature !== changeSignature;
 
   useEffect(() => {
-    setDismissedDockSignature('');
     setRevertingChangeKeys(new Set());
     setRestoredChangeKeys(new Set());
   }, [sid]);
@@ -797,8 +823,13 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
   }, [onSidePanelResize, onToggleSidePanel, showSidePanel, sid, sidePanelCollapsed, sidePanelWidth]);
 
   const dismissChangeDock = useCallback(() => {
-    setDismissedDockSignature(changeSignature || '');
-  }, [changeSignature]);
+    if (!changeDockDismissalKey || !changeSignature) return;
+    setDismissedDockSignatures((prev) => dismissChangeDockSignature(
+      prev,
+      changeDockDismissalKey,
+      changeSignature,
+    ));
+  }, [changeDockDismissalKey, changeSignature, setDismissedDockSignatures]);
 
   const restoreChangeSet = useCallback(async (changeSet) => {
     if (!sid || !changeSet?.userMessageId) {
@@ -981,6 +1012,26 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
         >
           {renderedItems.map((it) => {
             const changeSet = changeSetByAfterItemId.get(it.id);
+            const directive = it.kind === 'msg' && it.role === 'assistant'
+              ? assistantRunDirectives.get(it.id)
+              : undefined;
+            // 空内容 + 非 streaming 的 assistant 行整体隐藏(只剩 changeSet 卡片);
+            // afterItemId 永远落在 user/tool 行上,不会丢 change card 锚点。
+            if (directive?.hide) {
+              return changeSet ? (
+                <ChangeConversationCard
+                  key={it.id}
+                  groups={changeSet.groups}
+                  summary={changeSet.summary}
+                  title={changeSet.title}
+                  onReview={openReviewPanel}
+                  onRevert={changeSet.userMessageId ? () => restoreChangeSet(changeSet) : undefined}
+                  reverting={revertingChangeKeys.has(changeSet.key)}
+                  restored={restoredChangeKeys.has(changeSet.key)}
+                />
+              ) : null;
+            }
+            const continuation = directive ? directive.showHeader === false : false;
             return (
               <Fragment key={it.id}>
                 <div
@@ -990,6 +1041,7 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
                   data-chat-kind={it.kind || ''}
                   data-chat-role={it.kind === 'msg' ? (it.role || '') : (it.kind || '')}
                   data-chat-user-message={it.kind === 'msg' && it.role === 'user' ? 'true' : undefined}
+                  data-chat-assistant-continuation={continuation ? 'true' : undefined}
                 >
                   {it.kind === 'tool' ? (
                     <ToolBlock entry={it.tool} />
@@ -1000,6 +1052,7 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
                       messageId={it.messageId}
                       metadata={it.metadata}
                       onFork={forkAndSwitch}
+                      continuation={continuation}
                     />
                   )}
                 </div>

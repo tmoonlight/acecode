@@ -12,6 +12,7 @@ const ICONS = {
   ellipsis: 'Ellipsis',
   expandDown: 'ExpandDown',
   expandRight: 'ExpandRight',
+  expandUp: 'ExpandUp',
   extension: 'Extension',
   file: 'Document',
   folder: 'FolderClosed',

@@ -60,8 +60,8 @@ std::vector<std::string> get_project_dirs_up_to_home(const std::string& cwd) {
     if (cwd.empty()) return dirs;
 
     std::error_code ec;
-    fs::path abs = fs::weakly_canonical(fs::path(cwd), ec);
-    if (ec || abs.empty()) abs = fs::path(cwd);
+    fs::path abs = fs::absolute(fs::path(cwd), ec).lexically_normal();
+    if (ec || abs.empty()) abs = fs::path(cwd).lexically_normal();
 
     fs::path home_path;
 #ifdef _WIN32
@@ -71,8 +71,8 @@ std::vector<std::string> get_project_dirs_up_to_home(const std::string& cwd) {
 #endif
     if (home_env && *home_env) {
         std::error_code hec;
-        home_path = fs::weakly_canonical(fs::path(home_env), hec);
-        if (hec) home_path = fs::path(home_env);
+        home_path = fs::absolute(fs::path(home_env), hec).lexically_normal();
+        if (hec) home_path = fs::path(home_env).lexically_normal();
     }
 
     // Walk up from cwd; stop at/above HOME (the user-global root is added

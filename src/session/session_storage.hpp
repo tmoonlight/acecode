@@ -40,6 +40,10 @@ public:
     // Append a single ChatMessage as one JSONL line to a session file.
     static void append_message(const std::string& session_path, const ChatMessage& msg);
 
+    // Rewrite a session JSONL file with all messages using one stream.
+    static void write_messages(const std::string& session_path,
+                               const std::vector<ChatMessage>& messages);
+
     // Load all messages from a JSONL session file.
     // Skips unparseable trailing lines (crash protection).
     static std::vector<ChatMessage> load_messages(const std::string& session_path);
