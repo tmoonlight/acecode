@@ -55,9 +55,9 @@ struct WebServerDeps {
     acecode::desktop::WorkspaceRegistry* workspace_registry = nullptr;
     // 非 const:PUT /api/skills/:name 要写 cfg.skills.disabled 后调 set_disabled + reload。
     SkillRegistry*             skill_registry = nullptr;
-    // Legacy daemon-global provider handle. Current web session model switching
-    // is session-scoped through SessionRegistry; keep this for older routes /
-    // fixtures that still inspect daemon provider state.
+    // Daemon-global provider handle retained for routes/fixtures that inspect
+    // process-level provider state. Current web session model switching is
+    // session-scoped through SessionRegistry.
     std::shared_ptr<LlmProvider>* provider = nullptr;
     std::mutex*                    provider_mu = nullptr;
     bool                       dangerous = false;

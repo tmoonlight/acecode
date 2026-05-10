@@ -39,9 +39,8 @@ SessionModelState state_from_profile(const AppConfig& cfg,
     state.name = profile.name;
     state.provider = profile.provider;
     state.model = profile.model;
-    state.context_window = resolve_model_context_window(
+    state.context_window = resolve_model_context_window_nonblocking(
         context_cfg, profile.provider, profile.model, cfg.context_window);
-    state.is_legacy = profile.name == "(legacy)";
     return state;
 }
 

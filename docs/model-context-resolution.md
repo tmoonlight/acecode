@@ -48,6 +48,8 @@ Current resolution strategy:
 3. For generic OpenAI-compatible endpoints, try the endpoint `/models` metadata as fallback
 4. If no trustworthy metadata is found, keep the configured fallback value
 
+Session-facing paths use a non-blocking variant of this resolver. When create/resume/model-switch code cannot find a cached or local `models.dev` value, it returns the configured fallback immediately and warms endpoint `/models` metadata in the background for future calls. This keeps small Web sessions from waiting on remote model metadata before the UI can switch sessions.
+
 ## Why models.dev Is Preferred For Copilot
 
 For this specific problem, `models.dev` is used as the authoritative provider-aware source because it exposes the model context expected for the provider variant instead of just the raw endpoint limit.
@@ -64,12 +66,15 @@ The resolved value is applied at runtime in two places:
 
 1. App startup
 2. `/model <name>` switching
+3. Web session create/resume model state
 
 Whenever the model changes, acecode now refreshes:
 
 - `config.context_window`
 - `AgentLoop` context limit
 - token status display
+
+For Web session create/resume, the first reported `context_window` may be the configured fallback if remote metadata is not cached yet; later session-facing resolutions reuse the process-local cache after a background probe succeeds.
 
 ## Important Rule
 

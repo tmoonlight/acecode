@@ -341,8 +341,6 @@ struct WebServer::Impl {
         o["model_name"]    = !s.model_name.empty() ? s.model_name : (m ? m->model_preset : "");
         o["model_preset"]  = o["model_name"];
         o["context_window"] = s.context_window;
-        o["model_is_legacy"] = s.model_is_legacy ||
-                               o.value("model_name", std::string{}) == "(legacy)";
         o["message_count"] = s.message_count > 0 ? s.message_count : (m ? m->message_count : 0);
         append_attention_fields(o, s.id, o.value("workspace_hash", std::string{}),
                                 o.value("cwd", std::string{}), s.busy);
@@ -364,7 +362,6 @@ struct WebServer::Impl {
         o["model"]          = m.model;
         o["model_name"]     = m.model_preset;
         o["model_preset"]   = m.model_preset;
-        o["model_is_legacy"] = m.model_preset == "(legacy)";
         o["message_count"]  = m.message_count;
         append_attention_fields(o, m.id, workspace_hash, m.cwd, false);
         return o;
@@ -1810,7 +1807,7 @@ struct WebServer::Impl {
             return cors_preflight(req);
         });
 
-        // GET /api/models: 返回 saved_models + 合成 (legacy) 行
+        // GET /api/models: 返回 saved_models
         CROW_ROUTE(app, "/api/models").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -2067,7 +2064,7 @@ struct WebServer::Impl {
         });
 
         // POST /api/config/default-model body {name}: 设置 cfg.default_model_name。
-        // name 必须存在于 saved_models 或为 "(legacy)"。
+        // name 必须存在于 saved_models。
         CROW_ROUTE(app, "/api/config/default-model").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -2090,12 +2087,9 @@ struct WebServer::Impl {
             }
             std::string name = body["name"].get<std::string>();
 
-            // name 必须存在(saved_models 或 (legacy))
-            bool found = (name == "(legacy)");
-            if (!found) {
-                for (const auto& e : deps.app_config->saved_models) {
-                    if (e.name == name) { found = true; break; }
-                }
+            bool found = false;
+            for (const auto& e : deps.app_config->saved_models) {
+                if (e.name == name) { found = true; break; }
             }
             if (!found) return json_err(404, "NOT_FOUND", "no such model name");
 

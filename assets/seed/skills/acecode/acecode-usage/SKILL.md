@@ -158,7 +158,7 @@ After editing MCP config, restart ACECode (TUI) or `PUT /api/mcp` followed by `d
 
 ## Troubleshooting
 
-- **Models picker shows `(legacy)`** — `saved_models` is empty or `default_model_name` doesn't match; falls back to top-level `provider` / `openai.*` / `copilot.*` block.
+- **Models picker is empty** — configure at least one `saved_models` entry; normal model selection no longer synthesizes a fallback from top-level provider fields.
 - **`(session:<id>)` ad-hoc entry on resume** — resumed session's `provider`+`model` tuple isn't in `saved_models`; the entry borrows from `cfg.openai`. Add a matching entry to silence the warning.
 - **Banner stacks / viewport drifts on Windows** — legacy conhost or ConEmu/Cmder; pass `-alt-screen` once or set `tui.alt_screen_mode = "always"`.
 - **Proxy shows `[INSECURE]`** — `network.proxy_insecure_skip_verify = true`. Prefer `network.proxy_ca_bundle` (PEM path) when trusting Fiddler/Charles roots.

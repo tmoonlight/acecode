@@ -73,7 +73,7 @@ struct SessionOptions {
     std::string cwd;
     std::string workspace_hash;
 
-    // 可选 model override(对应 saved_models.name 或 "(legacy)")。
+    // 可选 model override(对应 saved_models.name)。
     // 留空 = 用 daemon 启动时的 default。
     std::string model_name;
 
@@ -88,13 +88,12 @@ struct SessionOptions {
 // ----- Current session model state -----
 
 struct SessionModelState {
-    // Selected saved_models entry name, "(legacy)", or an ad-hoc "(session:...)"
+    // Selected saved_models entry name, or an ad-hoc "(session:...)"
     // name when a resumed session no longer matches a configured preset.
     std::string name;
     std::string provider;
     std::string model;
     int         context_window = 0;
-    bool        is_legacy = false;
 };
 
 // ----- Session 元数据(给 list_sessions 用) -----
@@ -106,11 +105,10 @@ struct SessionInfo {
     std::string created_at;       // ISO 8601
     std::string updated_at;
     std::string summary;          // 最后一条 user 消息的截断
-    std::string model_name;       // saved_models name / "(legacy)" / ad-hoc
+    std::string model_name;       // saved_models name / ad-hoc
     std::string provider;
     std::string model;
     int         context_window = 0;
-    bool        model_is_legacy = false;
     std::string title;
     int         message_count = 0;
     bool        active = false;   // 是否在 SessionRegistry 内存活

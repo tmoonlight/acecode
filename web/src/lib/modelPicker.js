@@ -16,7 +16,6 @@ export function buildOptionsWithOrphan(currentName, list) {
       name: currentName,
       provider: '?',
       model: '?',
-      is_legacy: false,
       orphan: true,
       label: `${currentName} (已被改名/删除)`,
     });

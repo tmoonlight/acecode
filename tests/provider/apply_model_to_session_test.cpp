@@ -26,7 +26,7 @@ using acecode::SessionEntry;
 
 namespace {
 
-// 构造一个 copilot legacy cfg。create_provider_from_entry 对 copilot 不需要
+// 构造一个 copilot cfg。create_provider_from_entry 对 copilot 不需要
 // 网络访问,适合做单测的 happy path。
 AppConfig make_copilot_cfg() {
     AppConfig cfg;
@@ -86,28 +86,10 @@ TEST(ApplyModelToSession, SwapsProviderAndPopulatesState) {
     EXPECT_EQ(result.state.provider, "copilot");
     EXPECT_EQ(result.state.model, "gpt-4o-mini");
     EXPECT_GT(result.state.context_window, 0);
-    EXPECT_FALSE(result.state.is_legacy);
     {
         std::lock_guard<std::mutex> lk(slot.mu);
         ASSERT_TRUE(slot.provider);
         EXPECT_EQ(slot.provider->name(), "copilot");
         EXPECT_EQ(slot.provider->model(), "gpt-4o-mini");
     }
-}
-
-// 场景:profile 是 (legacy) 合成 → state.is_legacy = true。回归:UI 层依赖
-// is_legacy 标记禁用编辑入口。
-TEST(ApplyModelToSession, MarksLegacyState) {
-    auto cfg = make_copilot_cfg();
-    SessionEntry::ProviderSlot slot;
-    ModelProfile legacy;
-    legacy.name = "(legacy)";
-    legacy.provider = "copilot";
-    legacy.model = "gpt-4o";
-    ApplyModelDeps deps;
-    deps.cfg = &cfg;
-    deps.provider_slot = &slot;
-
-    auto result = apply_model_to_session(legacy, deps);
-    EXPECT_TRUE(result.state.is_legacy);
 }

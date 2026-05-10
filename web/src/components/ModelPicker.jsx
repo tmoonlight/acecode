@@ -56,7 +56,7 @@ export function ModelPicker({ sessionId, currentName = '', apiClient = api }) {
       {options.length === 0 && <option value="">—</option>}
       {options.map((m) => (
         <option key={m.name} value={m.name} disabled={m.orphan}>
-          {m.label || (m.name + (m.is_legacy ? ' (legacy)' : ''))}
+          {m.label || m.name}
         </option>
       ))}
     </select>

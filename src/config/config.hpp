@@ -222,9 +222,9 @@ struct AppConfig {
     DesktopConfig desktop;                       // desktop shell 配置(系统通知等)
 
     // --- model profiles (openspec/changes/model-profiles) ---
-    // 用户维护的命名模型列表。为空时 legacy 字段作为兜底 entry "(legacy)"。
+    // 用户维护的命名模型列表。
     std::vector<ModelProfile> saved_models;
-    // 指向 saved_models 中一个 entry 的 name;空字符串 = 未设定 = 走 legacy 兜底。
+    // 指向 saved_models 中一个 entry 的 name;空字符串 = 未设定。
     std::string default_model_name;
 };
 

@@ -339,13 +339,12 @@ export function ChatView({ sessionRef, sessionId, onSessionPromoted, onCommandWo
             provider: ref?.provider || '',
             model: ref?.model || '',
             context_window: ref?.context_window || 0,
-            is_legacy: ref?.model_is_legacy,
           }));
         }
       });
 
     return () => { cancelled = true; };
-  }, [api, ref?.context_window, ref?.model, ref?.model_is_legacy, ref?.model_name, ref?.model_preset, ref?.provider, ref?.workspaceHash, sid]);
+  }, [api, ref?.context_window, ref?.model, ref?.model_name, ref?.model_preset, ref?.provider, ref?.workspaceHash, sid]);
 
   useEffect(() => {
     if (!sid) {

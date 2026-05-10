@@ -28,6 +28,44 @@ static std::string mask_key(const std::string& key) {
     return "****";
 }
 
+static std::string configured_saved_model_name(const AppConfig& cfg) {
+    if (cfg.provider == "copilot") return "copilot";
+    if (cfg.openai.models_dev_provider_id.has_value() &&
+        !cfg.openai.models_dev_provider_id->empty()) {
+        return *cfg.openai.models_dev_provider_id;
+    }
+    return "openai";
+}
+
+static ModelProfile configured_profile_from_current_fields(const AppConfig& cfg) {
+    ModelProfile profile;
+    profile.name = configured_saved_model_name(cfg);
+    if (cfg.provider == "openai") {
+        profile.provider = "openai";
+        profile.base_url = cfg.openai.base_url;
+        profile.api_key = cfg.openai.api_key;
+        profile.model = cfg.openai.model;
+        profile.models_dev_provider_id = cfg.openai.models_dev_provider_id;
+    } else {
+        profile.provider = "copilot";
+        profile.model = cfg.copilot.model;
+    }
+    return profile;
+}
+
+static void upsert_configured_saved_model(AppConfig& cfg) {
+    ModelProfile profile = configured_profile_from_current_fields(cfg);
+    for (auto& existing : cfg.saved_models) {
+        if (existing.name == profile.name) {
+            existing = profile;
+            cfg.default_model_name = profile.name;
+            return;
+        }
+    }
+    cfg.saved_models.push_back(profile);
+    cfg.default_model_name = profile.name;
+}
+
 static void configure_copilot(AppConfig& cfg) {
     std::cout << "\n--- Copilot Configuration ---\n" << std::endl;
 
@@ -289,6 +327,8 @@ int run_configure(const AppConfig& current_config) {
         break;
     }
 
+    upsert_configured_saved_model(cfg);
+
     // Configuration summary
     std::cout << "\n--- Configuration Summary ---" << std::endl;
     std::cout << "  Source:   " << format_source_line(cfg) << std::endl;
@@ -304,6 +344,7 @@ int run_configure(const AppConfig& current_config) {
                       << *cfg.openai.models_dev_provider_id << std::endl;
         }
     }
+    std::cout << "  Saved model: " << cfg.default_model_name << std::endl;
     std::cout << std::endl;
 
     if (read_confirm("Save configuration?", true)) {

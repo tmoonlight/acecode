@@ -4,19 +4,6 @@
 
 namespace acecode {
 
-std::unique_ptr<LlmProvider> create_provider(const AppConfig& config) {
-    if (config.provider == "openai") {
-        return std::make_unique<OpenAiCompatProvider>(
-            config.openai.base_url,
-            config.openai.api_key,
-            config.openai.model
-        );
-    } else {
-        // Default to copilot
-        return std::make_unique<CopilotProvider>(config.copilot.model);
-    }
-}
-
 std::shared_ptr<LlmProvider> create_provider_from_entry(const ModelProfile& entry) {
     if (entry.provider == "openai") {
         return std::make_shared<OpenAiCompatProvider>(

@@ -61,7 +61,7 @@ TEST(SavedModelsEditor, AddRejectsEmptyName) {
     EXPECT_EQ(cfg.saved_models.size(), before);
 }
 
-// 场景:add 名字以 ( 开头 → RESERVED_NAME。前缀 ( 给 (legacy)/(session:...) 留。
+// 场景:add 名字以 ( 开头 → RESERVED_NAME。前缀 ( 给 (session:...) 留。
 TEST(SavedModelsEditor, AddRejectsReservedNamePrefix) {
     auto cfg = make_cfg_with_one_default();
     auto d = good_openai_draft("(my-fav)");

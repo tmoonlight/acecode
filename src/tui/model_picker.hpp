@@ -20,15 +20,13 @@ namespace acecode {
 // picker 中的一行。is_current 命中当前 effective entry 时为 true,
 // main.cpp 渲染时该行前缀 "*"。
 struct ModelPickerOption {
-    std::string name;        // saved_models name 或合成的 "(legacy)"
+    std::string name;        // saved_models name
     std::string provider;
     std::string model;
     bool        is_current = false;
 };
 
-// 构造选项列表:cfg.saved_models 顺序保留,如果其中没有 "(legacy)" 则在
-// 末尾追加一条合成 legacy entry(`synth_legacy_entry(cfg)`)。current_name
-// 命中的行 is_current=true。空 saved_models 也合法 —— 只返回单条 legacy。
+// 构造选项列表:cfg.saved_models 顺序保留,current_name 命中的行 is_current=true。
 std::vector<ModelPickerOption> build_model_picker_options(
     const AppConfig& cfg, const std::string& current_name);
 

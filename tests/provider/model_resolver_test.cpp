@@ -1,5 +1,5 @@
-// 覆盖 src/provider/model_resolver.{hpp,cpp} 的纯函数 resolve_effective_model
-// 与 synth_legacy_entry。对应 openspec/changes/model-profiles 的任务 7.8-7.14。
+// 覆盖 src/provider/model_resolver.{hpp,cpp} 的纯函数 resolve_effective_model。
+// 对应 openspec/changes/model-profiles 的任务 7.8-7.14。
 // 文件头与每个 TEST 都加中文注释,遵循 feedback_unit_test_chinese_comments 约定。
 
 #include <gtest/gtest.h>
@@ -8,18 +8,17 @@
 #include "config/config.hpp"
 #include "session/session_storage.hpp"
 
+#include <stdexcept>
+
 using namespace acecode;
 
 namespace {
 
-// 构造一个最小可用 AppConfig:legacy 是 copilot,saved_models 含两个 entry。
+// 构造一个最小可用 AppConfig:saved_models 含两个 entry。
 AppConfig make_cfg(const std::string& default_name = "") {
     AppConfig cfg;
-    cfg.provider = "copilot";  // legacy 默认
-    cfg.copilot.model = "gpt-4o-legacy";
     cfg.openai.base_url = "http://legacy.local/v1";
     cfg.openai.api_key = "legacy-key";
-    cfg.openai.model = "legacy-openai-model";
 
     ModelProfile a;
     a.name = "alpha";
@@ -72,21 +71,17 @@ TEST(ModelResolverTest, ResumeMetaWinsOverCwdAndDefault) {
     EXPECT_EQ(got.name, "beta");
 }
 
-// 7.12 — saved_models 空 + default 空 → 返回 (legacy) 兜底 entry,
-// provider/model 应来自 legacy 字段。
-TEST(ModelResolverTest, EmptyConfigFallsBackToLegacy) {
-    AppConfig cfg;  // 全部 default,saved_models 为空
-    cfg.provider = "copilot";
-    cfg.copilot.model = "legacy-cop";
+// 7.12 — saved_models 空 + default 空 → 无可用模型,抛出明确错误。
+TEST(ModelResolverTest, EmptyConfigThrows) {
+    AppConfig cfg;
 
-    ModelProfile got = resolve_effective_model(cfg, std::nullopt, std::nullopt);
-    EXPECT_EQ(got.name, "(legacy)");
-    EXPECT_EQ(got.provider, "copilot");
-    EXPECT_EQ(got.model, "legacy-cop");
+    EXPECT_THROW(
+        (void)resolve_effective_model(cfg, std::nullopt, std::nullopt),
+        std::runtime_error);
 }
 
 // 7.13 — cwd override 指向已删 entry(saved_models 中不存在该 name)→
-// resolver 不抛,降级到 default,然后到 legacy。
+// resolver 不抛,降级到 default。
 TEST(ModelResolverTest, MissingCwdOverrideFallsBack) {
     AppConfig cfg = make_cfg("alpha");
     auto override_name = std::optional<std::string>{"deleted-entry"};
@@ -94,14 +89,14 @@ TEST(ModelResolverTest, MissingCwdOverrideFallsBack) {
     EXPECT_EQ(got.name, "alpha");  // 应降级到 default
 }
 
-// 7.14 — resume meta 不匹配 saved_models 也不匹配 legacy → 构造 ad-hoc entry,
+// 7.14 — resume meta 不匹配 saved_models → 构造 ad-hoc entry,
 // name 以 "(session:" 开头,字段从 meta + cfg.openai 借。
 TEST(ModelResolverTest, UnmatchedResumeBuildsAdHocEntry) {
     AppConfig cfg = make_cfg("alpha");
     SessionMeta meta;
     meta.id = "9f2a1c3d-deadbeef";
     meta.provider = "openai";
-    meta.model = "ghost-model";  // saved_models 与 legacy 都没有
+    meta.model = "ghost-model";  // saved_models 没有
     ModelProfile got = resolve_effective_model(cfg, std::nullopt, std::optional{meta});
     EXPECT_EQ(got.name.rfind("(session:", 0), 0u);
     EXPECT_EQ(got.provider, "openai");
@@ -111,29 +106,9 @@ TEST(ModelResolverTest, UnmatchedResumeBuildsAdHocEntry) {
     EXPECT_EQ(got.api_key, cfg.openai.api_key);
 }
 
-// 额外 — synth_legacy_entry 对 openai legacy 提取所有字段。
-TEST(ModelResolverTest, SynthLegacyEntryOpenaiCarriesAllFields) {
-    AppConfig cfg;
-    cfg.provider = "openai";
-    cfg.openai.base_url = "http://oai.local/v1";
-    cfg.openai.api_key = "sk-x";
-    cfg.openai.model = "my-model";
-    cfg.openai.models_dev_provider_id = "openrouter";
-
-    ModelProfile got = synth_legacy_entry(cfg);
-    EXPECT_EQ(got.name, "(legacy)");
-    EXPECT_EQ(got.provider, "openai");
-    EXPECT_EQ(got.base_url, "http://oai.local/v1");
-    EXPECT_EQ(got.api_key, "sk-x");
-    EXPECT_EQ(got.model, "my-model");
-    ASSERT_TRUE(got.models_dev_provider_id.has_value());
-    EXPECT_EQ(*got.models_dev_provider_id, "openrouter");
-}
-
-// 额外 — chosen_name == "(legacy)" 时 resolver 直接走 synth_legacy_entry。
-TEST(ModelResolverTest, ExplicitLegacyChosenName) {
-    AppConfig cfg = make_cfg("");  // default 空
-    auto override_name = std::optional<std::string>{"(legacy)"};
-    ModelProfile got = resolve_effective_model(cfg, override_name, std::nullopt);
-    EXPECT_EQ(got.name, "(legacy)");
+// 额外 — default_model_name 为空但 saved_models 非空 → 取第一条 saved model。
+TEST(ModelResolverTest, EmptyDefaultUsesFirstSavedModel) {
+    AppConfig cfg = make_cfg("");
+    ModelProfile got = resolve_effective_model(cfg, std::nullopt, std::nullopt);
+    EXPECT_EQ(got.name, "alpha");
 }

@@ -104,7 +104,7 @@ bool validate_saved_models(const std::vector<ModelProfile>& entries,
             std::ostringstream oss;
             oss << "saved_models[" << i << "] name '" << e.name
                 << "' uses reserved prefix '(' (reserved for ACECode-synthesized "
-                   "names like \"(legacy)\" / \"(session:...)\")";
+                   "names like \"(session:...)\")";
             err = oss.str();
             return false;
         }

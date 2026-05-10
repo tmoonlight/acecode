@@ -99,8 +99,8 @@ TEST(SavedModelsTest, DefaultNameNotInListFails) {
     EXPECT_NE(err.find("ghost"), std::string::npos) << err;
 }
 
-// 7.7 — 空 saved_models + 空 default → 校验通过(纯空配置合法,等价于完全
-// 不设 model profiles,运行时走 legacy 兜底)。
+// 7.7 — 空 saved_models + 空 default → 校验通过(纯空配置合法,运行入口在
+// 需要模型时自行报错)。
 TEST(SavedModelsTest, EmptyConfigurationPasses) {
     std::vector<ModelProfile> entries;
     std::string err;

@@ -47,7 +47,6 @@ const ModelProfile* find_profile_by_name(const AppConfig& cfg,
 std::optional<ModelProfile> explicit_profile(const AppConfig& cfg,
                                              const std::string& name) {
     if (name.empty()) return std::nullopt;
-    if (name == "(legacy)") return synth_legacy_entry(cfg);
     if (const auto* entry = find_profile_by_name(cfg, name)) return *entry;
     return std::nullopt;
 }
@@ -74,9 +73,8 @@ SessionModelState state_from_profile(const AppConfig& cfg,
     state.name = profile.name;
     state.provider = profile.provider;
     state.model = profile.model;
-    state.context_window = resolve_model_context_window(
+    state.context_window = resolve_model_context_window_nonblocking(
         context_cfg, profile.provider, profile.model, cfg.context_window);
-    state.is_legacy = profile.name == "(legacy)";
     return state;
 }
 
@@ -127,7 +125,7 @@ ResolvedSessionModel resolve_session_model(const SessionRegistryDeps& deps,
                 profile = *explicit_match;
             } else {
                 LOG_WARN("[registry] requested model preset '" + opts.model_name +
-                         "' not found; falling back to default/legacy");
+                         "' not found; falling back to default saved model");
                 profile = resolve_effective_model(*deps.config, std::nullopt, std::nullopt);
             }
         } else if (resumed_meta) {
@@ -146,7 +144,6 @@ ResolvedSessionModel resolve_session_model(const SessionRegistryDeps& deps,
     resolved.state.provider = provider;
     resolved.state.model = model;
     resolved.state.context_window = 0;
-    resolved.state.is_legacy = opts.model_name == "(legacy)";
     return resolved;
 }
 
@@ -482,7 +479,6 @@ std::vector<SessionInfo> SessionRegistry::list_active() const {
         info.model = entry->model;
         info.model_name = entry->model_state.name;
         info.context_window = entry->model_state.context_window;
-        info.model_is_legacy = entry->model_state.is_legacy;
         out.push_back(std::move(info));
     }
     return out;

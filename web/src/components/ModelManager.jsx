@@ -45,13 +45,6 @@ export function ModelManager({ apiClient = api }) {
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   const onSelect = (m) => {
-    if (m.is_legacy) {
-      // (legacy) 行不可编辑 — 退回新增态。
-      setEditingName(null);
-      setDraft(EMPTY_DRAFT);
-      setApiKeyTouched(true);
-      return;
-    }
     setEditingName(m.name);
     setApiKeyTouched(false);
     setDraft({
@@ -149,17 +142,15 @@ export function ModelManager({ apiClient = api }) {
             return (
               <div
                 key={m.name}
-                role={m.is_legacy ? undefined : 'button'}
-                tabIndex={m.is_legacy ? -1 : 0}
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelect(m)}
                 onKeyDown={(e) => {
-                  if (m.is_legacy) return;
                   if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onSelect(m); }
                 }}
                 className={clsx(
                   'flex items-center justify-between px-3.5 py-2.5 rounded-md border transition',
-                  m.is_legacy ? 'bg-surface border-border opacity-70 cursor-default'
-                              : 'bg-surface cursor-pointer hover:bg-surface-hi',
+                  'bg-surface cursor-pointer hover:bg-surface-hi',
                   active ? 'border-accent border-2 bg-accent-bg' : 'border-border',
                 )}
               >
@@ -167,34 +158,31 @@ export function ModelManager({ apiClient = api }) {
                   <div className="flex items-center gap-1.5">
                     {isDefault && <span className="text-accent text-[12px]" aria-label="默认">★</span>}
                     <span className="text-[13px] font-medium truncate">{m.name}</span>
-                    {m.is_legacy && <span className="text-[11px] text-fg-mute">(legacy)</span>}
                   </div>
                   <div className="text-[11px] text-fg-mute mt-0.5 truncate">
                     {m.provider} · {m.model}
                   </div>
                 </div>
-                {!m.is_legacy && (
-                  <span className="flex gap-1 shrink-0 ml-2">
-                    {!isDefault && (
-                      <button
-                        type="button"
-                        className="px-1.5 py-0.5 text-[11px] text-fg-mute hover:text-accent hover:underline"
-                        onClick={(e) => { e.stopPropagation(); setDefault(m.name); }}
-                        disabled={busy}
-                      >
-                        设为默认
-                      </button>
-                    )}
+                <span className="flex gap-1 shrink-0 ml-2">
+                  {!isDefault && (
                     <button
                       type="button"
-                      className="px-1.5 py-0.5 text-[11px] text-danger hover:underline"
-                      onClick={(e) => { e.stopPropagation(); removeOne(m.name); }}
+                      className="px-1.5 py-0.5 text-[11px] text-fg-mute hover:text-accent hover:underline"
+                      onClick={(e) => { e.stopPropagation(); setDefault(m.name); }}
                       disabled={busy}
                     >
-                      删
+                      设为默认
                     </button>
-                  </span>
-                )}
+                  )}
+                  <button
+                    type="button"
+                    className="px-1.5 py-0.5 text-[11px] text-danger hover:underline"
+                    onClick={(e) => { e.stopPropagation(); removeOne(m.name); }}
+                    disabled={busy}
+                  >
+                    删
+                  </button>
+                </span>
               </div>
             );
           })}

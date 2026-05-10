@@ -5,7 +5,6 @@ export function normalizeModelState(raw) {
     provider: String(raw.provider || ''),
     model: String(raw.model || ''),
     contextWindow: Number(raw.context_window || raw.contextWindow || 0) || 0,
-    isLegacy: !!(raw.is_legacy || raw.model_is_legacy),
   };
 }
 

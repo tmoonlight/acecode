@@ -465,7 +465,7 @@ AppConfig load_config() {
                 // silently ignored — see align-loop-with-hermes.
             }
             // --- model profiles (openspec/changes/model-profiles) ---
-            // 缺失视为未设 —— load_config 继续成功,运行时走 legacy 兜底 entry。
+            // 缺失视为未设 —— 具体运行入口在需要模型时自行报错。
             if (j.contains("saved_models")) {
                 std::string err;
                 auto parsed = parse_saved_models(j["saved_models"], err);

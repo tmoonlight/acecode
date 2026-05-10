@@ -11,7 +11,7 @@ namespace acecode {
 
 // 一个命名模型条目。自包含 —— 一个 entry 就够 create_provider_from_entry 构造
 // 出一个可用 provider 实例。name 保留前缀 `"("` 给 ACECode 合成的特殊 name
-// (例如 `(legacy)` / `(session:XXXX)`);user-defined name MUST NOT 以 `(` 开头。
+// (例如 `(session:XXXX)`);user-defined name MUST NOT 以 `(` 开头。
 struct ModelProfile {
     std::string name;
     std::string provider;  // "openai" | "copilot"

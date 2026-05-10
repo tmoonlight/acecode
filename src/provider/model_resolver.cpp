@@ -3,6 +3,8 @@
 
 #include "../utils/logger.hpp"
 
+#include <stdexcept>
+
 namespace acecode {
 
 namespace {
@@ -51,22 +53,6 @@ ModelProfile build_ad_hoc_entry(const AppConfig& cfg, const SessionMeta& meta) {
 
 } // namespace
 
-ModelProfile synth_legacy_entry(const AppConfig& cfg) {
-    ModelProfile e;
-    e.name = "(legacy)";
-    e.provider = cfg.provider;
-    if (cfg.provider == "openai") {
-        e.base_url = cfg.openai.base_url;
-        e.api_key = cfg.openai.api_key;
-        e.model = cfg.openai.model;
-        e.models_dev_provider_id = cfg.openai.models_dev_provider_id;
-    } else {
-        // copilot(或未知 provider,按 copilot 走)
-        e.model = cfg.copilot.model;
-    }
-    return e;
-}
-
 ModelProfile resolve_effective_model(const AppConfig& cfg,
                                    const std::optional<std::string>& cwd_override_name,
                                    const std::optional<SessionMeta>& resumed_meta) {
@@ -76,13 +62,12 @@ ModelProfile resolve_effective_model(const AppConfig& cfg,
     // 第 2 层:cwd override(非空字符串才算设了 override)
     if (cwd_override_name.has_value() && !cwd_override_name->empty()) {
         // 确认 override name 指向的 entry 存在;不存在时记 warning 并走第 1 层。
-        if (find_by_name(cfg.saved_models, *cwd_override_name) != nullptr ||
-            *cwd_override_name == "(legacy)") {
+        if (find_by_name(cfg.saved_models, *cwd_override_name) != nullptr) {
             chosen_name = *cwd_override_name;
         } else {
             LOG_WARN("[model_resolver] cwd override points to missing entry '" +
                      *cwd_override_name + "' (from model_override.json); "
-                     "falling back to default/legacy");
+                     "falling back to default saved model");
         }
     }
 
@@ -92,9 +77,6 @@ ModelProfile resolve_effective_model(const AppConfig& cfg,
         !resumed_meta->provider.empty() &&
         !resumed_meta->model.empty()) {
         if (!resumed_meta->model_preset.empty()) {
-            if (resumed_meta->model_preset == "(legacy)") {
-                return synth_legacy_entry(cfg);
-            }
             const ModelProfile* by_meta_name = find_by_name(
                 cfg.saved_models, resumed_meta->model_preset);
             if (by_meta_name != nullptr) {
@@ -108,24 +90,16 @@ ModelProfile resolve_effective_model(const AppConfig& cfg,
         if (matched != nullptr) {
             return *matched;
         }
-        // 未匹配:看看 legacy entry 能不能兜住(老用户 session 记录的
-        // provider/model 正好就是 legacy 字段本身)。
-        ModelProfile legacy = synth_legacy_entry(cfg);
-        if (legacy.provider == resumed_meta->provider &&
-            legacy.model == resumed_meta->model) {
-            return legacy;
-        }
-        // 仍未命中 —— ad-hoc 兜底(spec: name 以 "(session:" 开头,触发系统提示)。
+        // 未命中 —— ad-hoc 兜底(spec: name 以 "(session:" 开头,触发系统提示)。
         return build_ad_hoc_entry(cfg, *resumed_meta);
     }
 
-    // 第 4 层:按 chosen_name 查 saved_models;命中返回,否则 legacy。
-    if (chosen_name == "(legacy)") {
-        return synth_legacy_entry(cfg);
-    }
+    // 第 4 层:按 chosen_name 查 saved_models;没配置 default 时取 saved_models 首项。
     const ModelProfile* by_name = find_by_name(cfg.saved_models, chosen_name);
     if (by_name != nullptr) return *by_name;
-    return synth_legacy_entry(cfg);
+    if (!cfg.saved_models.empty()) return cfg.saved_models.front();
+
+    throw std::runtime_error("no saved model configured");
 }
 
 } // namespace acecode

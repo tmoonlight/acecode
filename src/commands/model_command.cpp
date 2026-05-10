@@ -6,7 +6,6 @@
 #include "../provider/apply_model_to_session.hpp"
 #include "../provider/cwd_model_override.hpp"
 #include "../provider/model_context_resolver.hpp"
-#include "../provider/model_resolver.hpp"
 #include "../tui/model_picker.hpp"
 
 #include <cctype>
@@ -20,11 +19,9 @@ namespace acecode {
 
 namespace {
 
-// 在 saved_models 中按 name 找;失败时如果 name == "(legacy)" 返回 legacy
-// entry。其它情况返回 nullopt。调用方负责报"未知 name"错误。
+// 在 saved_models 中按 name 找;失败时返回 nullopt。调用方负责报"未知 name"错误。
 std::optional<ModelProfile> lookup_entry_by_name(const AppConfig& cfg,
                                                  const std::string& name) {
-    if (name == "(legacy)") return synth_legacy_entry(cfg);
     for (const auto& e : cfg.saved_models) {
         if (e.name == name) return e;
     }
@@ -58,17 +55,17 @@ void report_unknown_name(CommandContext& ctx, const std::string& name) {
     ctx.state.chat_follow_tail = true;
 }
 
-// 当前 effective entry —— 用 name 与 saved_models 匹配;命中 saved_models 则
-// 复用,否则合成 legacy entry。仅用于 picker 高亮当前选中行。
+// 当前 effective entry —— 用 provider/model 与 saved_models 匹配。
+// 仅用于 picker 高亮当前选中行。
 std::string current_effective_name(CommandContext& ctx) {
     auto provider_snap = ctx.provider_slot ? ctx.provider_slot->provider : nullptr;
-    if (!provider_snap) return "(legacy)";
+    if (!provider_snap) return "";
     std::string pname = provider_snap->name();
     std::string pmodel = provider_snap->model();
     for (const auto& e : ctx.config.saved_models) {
         if (e.provider == pname && e.model == pmodel) return e.name;
     }
-    return "(legacy)";
+    return "";
 }
 
 // 简单 trim helper —— args 里可能有多余空格。
@@ -133,14 +130,10 @@ void render_model_picker(CommandContext& ctx) {
     // 不再加锁,直接读写 state)。
     auto callback = [state_ptr, config_ptr, provider_slot, sm, al, &token_tracker](
                         const std::string& name) {
-        // 找 entry —— "(legacy)" 走 synth,否则在 saved_models 里查。
+        // 找 entry。
         std::optional<ModelProfile> entry;
-        if (name == "(legacy)") {
-            entry = synth_legacy_entry(*config_ptr);
-        } else {
-            for (const auto& e : config_ptr->saved_models) {
-                if (e.name == name) { entry = e; break; }
-            }
+        for (const auto& e : config_ptr->saved_models) {
+            if (e.name == name) { entry = e; break; }
         }
         if (!entry.has_value()) {
             state_ptr->conversation.push_back(
@@ -321,12 +314,9 @@ void cmd_model_set_default(CommandContext& ctx, const ParsedModelSub& p) {
         announce_editor_result(ctx, SavedModelEditError::INVALID_NAME, "");
         return;
     }
-    // "(legacy)" 是合法的 default(承认 legacy 配置链优先)。
-    bool found = (p.name == "(legacy)");
-    if (!found) {
-        for (const auto& e : ctx.config.saved_models) {
-            if (e.name == p.name) { found = true; break; }
-        }
+    bool found = false;
+    for (const auto& e : ctx.config.saved_models) {
+        if (e.name == p.name) { found = true; break; }
     }
     if (!found) {
         announce_editor_result(ctx, SavedModelEditError::NOT_FOUND, "");

@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include "config/saved_models.hpp"
 #include "permissions.hpp"
 #include "desktop/workspace_registry.hpp"
 #include "provider/cwd_model_override.hpp"
@@ -79,6 +80,11 @@ struct WebServerFixture {
         web_cfg.port = port;
         cfg.web = web_cfg;
         cfg.daemon = daemon_cfg;
+        acecode::ModelProfile default_model;
+        default_model.name = "fixture-copilot";
+        default_model.provider = "copilot";
+        default_model.model = "gpt-4o";
+        cfg.saved_models.push_back(default_model);
 
         // PUT /api/mcp 走 save_config 落盘 — 必须指向临时目录,否则
         // 会覆盖真实的 ~/.acecode/config.json(历史 bug,曾把测试用的
@@ -915,7 +921,7 @@ TEST(WebServerHttp, CreateSessionWithBadJsonReturns400) {
 // 映射,这里补 route-level wiring:鉴权 + 落盘 + JSON 形态。配置文件指向
 // fixture 的 tmp_dir,绝不会污染真实 ~/.acecode/config.json。
 
-// 场景:POST /api/models 成功 → 200 + body 含 name/provider/model/is_legacy=false,
+// 场景:POST /api/models 成功 → 200 + body 含 name/provider/model,
 // 关键安全契约:**响应里永远不能出现 api_key**(profile_to_safe_json 已剥离)。
 TEST(WebServerHttp, PostModelsCreatesSavedEntryWithoutApiKey) {
     WebServerFixture fx;
@@ -934,14 +940,13 @@ TEST(WebServerHttp, PostModelsCreatesSavedEntryWithoutApiKey) {
     EXPECT_EQ(j["name"], "smoke-openai");
     EXPECT_EQ(j["provider"], "openai");
     EXPECT_EQ(j["model"], "llama-3");
-    EXPECT_EQ(j["is_legacy"], false);
     EXPECT_EQ(j["base_url"], "http://localhost:1234/v1");
     EXPECT_FALSE(j.contains("api_key")) << "api_key 必须从响应中剥离";
 
-    // 落盘后 cfg 内存应已含此条目
-    ASSERT_EQ(fx.cfg.saved_models.size(), 1u);
-    EXPECT_EQ(fx.cfg.saved_models[0].name, "smoke-openai");
-    EXPECT_EQ(fx.cfg.saved_models[0].api_key, "sk-secret-do-not-leak");
+    // 落盘后 cfg 内存应已追加此条目
+    ASSERT_EQ(fx.cfg.saved_models.size(), 2u);
+    EXPECT_EQ(fx.cfg.saved_models.back().name, "smoke-openai");
+    EXPECT_EQ(fx.cfg.saved_models.back().api_key, "sk-secret-do-not-leak");
 }
 
 // 场景:POST /api/models 重名 → 409 NAME_TAKEN(saved_models_editor 校验)。
@@ -965,11 +970,11 @@ TEST(WebServerHttp, PostModelsDuplicateNameRejectedWith409) {
     auto j = json::parse(second.text);
     EXPECT_EQ(j["error"], "NAME_TAKEN");
     // cfg 不应出现两条同 name 条目
-    EXPECT_EQ(fx.cfg.saved_models.size(), 1u);
+    EXPECT_EQ(fx.cfg.saved_models.size(), 2u);
 }
 
-// 场景:POST /api/config/default-model body name 既不在 saved_models 也不是
-// "(legacy)" → 404 NOT_FOUND;cfg.default_model_name 不变。
+// 场景:POST /api/config/default-model body name 不在 saved_models
+// → 404 NOT_FOUND;cfg.default_model_name 不变。
 // 回归表现:用户在 picker 里随便输入一个名字也能被 set 成 default,然后
 // 启动时 model_resolver 解析失败。
 TEST(WebServerHttp, PostDefaultModelUnknownNameReturns404) {

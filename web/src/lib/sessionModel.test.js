@@ -30,15 +30,14 @@ run('session switch refresh can display a different selected model', () => {
   assert.equal(modelDisplayLabel(b), 'gpt-5.4');
 });
 
-run('model options dedupe by preset name and keep legacy selectable', () => {
+run('model options dedupe by preset name', () => {
   const options = normalizeModelOptions([
     { name: 'fast', provider: 'copilot', model: 'gpt-5' },
     { name: 'fast', provider: 'copilot', model: 'gpt-5' },
-    { name: '(legacy)', provider: 'copilot', model: 'gpt-4o', is_legacy: true },
+    { name: 'slow', provider: 'copilot', model: 'gpt-4o' },
   ]);
   assert.equal(options.length, 2);
-  assert.equal(options[1].name, '(legacy)');
-  assert.equal(options[1].isLegacy, true);
+  assert.equal(options[1].name, 'slow');
   assert.equal(optionLabel(options[0]), 'fast (copilot/gpt-5)');
 });
 

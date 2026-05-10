@@ -308,7 +308,6 @@ TEST(SessionRegistry, CreateUsesExplicitSessionModelState) {
     EXPECT_EQ(state->name, "fast");
     EXPECT_EQ(state->provider, "copilot");
     EXPECT_EQ(state->model, "fast-model");
-    EXPECT_FALSE(state->is_legacy);
 
     auto active = registry.list_active();
     ASSERT_EQ(active.size(), 1u);

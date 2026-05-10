@@ -10,13 +10,21 @@
 
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace acecode {
 namespace {
+
+std::mutex g_context_cache_mu;
+std::map<std::string, int> g_context_cache;
+std::set<std::string> g_context_probe_in_flight;
 
 std::string to_lower_copy(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
@@ -247,29 +255,136 @@ std::string detect_models_dev_provider(const AppConfig& config, const std::strin
     return "";
 }
 
+std::string context_cache_key(const AppConfig& config,
+                              const std::string& provider_name,
+                              const std::string& model) {
+    const std::string normalized_provider = to_lower_copy(
+        provider_name.empty() ? config.provider : provider_name);
+    std::string base_url;
+    std::string provider_hint;
+    if (normalized_provider == "openai") {
+        base_url = to_lower_copy(trim_trailing_slash(config.openai.base_url));
+        if (config.openai.models_dev_provider_id.has_value()) {
+            provider_hint = to_lower_copy(*config.openai.models_dev_provider_id);
+        }
+    }
+    return normalized_provider + "\n" + to_lower_copy(model) + "\n" +
+           base_url + "\n" + provider_hint;
+}
+
+int cached_context(const std::string& key) {
+    std::lock_guard<std::mutex> lk(g_context_cache_mu);
+    auto it = g_context_cache.find(key);
+    return it == g_context_cache.end() ? 0 : it->second;
+}
+
+void remember_context(const std::string& key, int context) {
+    if (context <= 0) return;
+    std::lock_guard<std::mutex> lk(g_context_cache_mu);
+    g_context_cache[key] = context;
+}
+
+int cached_or_local_context(const AppConfig& config,
+                            const std::string& provider_name,
+                            const std::string& model) {
+    const std::string key = context_cache_key(config, provider_name, model);
+    if (int context = cached_context(key); context > 0) {
+        return context;
+    }
+
+    const std::string models_dev_provider = detect_models_dev_provider(config, provider_name);
+    if (!models_dev_provider.empty()) {
+        int context = lookup_models_dev_context(models_dev_provider, model);
+        if (context > 0) {
+            remember_context(key, context);
+            return context;
+        }
+    }
+
+    return 0;
+}
+
+bool mark_probe_in_flight(const std::string& key) {
+    std::lock_guard<std::mutex> lk(g_context_cache_mu);
+    if (g_context_cache.find(key) != g_context_cache.end()) return false;
+    return g_context_probe_in_flight.insert(key).second;
+}
+
+void clear_probe_in_flight(const std::string& key) {
+    std::lock_guard<std::mutex> lk(g_context_cache_mu);
+    g_context_probe_in_flight.erase(key);
+}
+
+void warm_context_async(AppConfig config,
+                        std::string provider_name,
+                        std::string model) {
+    const std::string normalized_provider = to_lower_copy(
+        provider_name.empty() ? config.provider : provider_name);
+    if (normalized_provider != "openai" || config.openai.base_url.empty() || model.empty()) {
+        return;
+    }
+
+    const std::string key = context_cache_key(config, provider_name, model);
+    if (!mark_probe_in_flight(key)) return;
+
+    std::thread([config = std::move(config),
+                 provider_name = std::move(provider_name),
+                 model = std::move(model),
+                 key]() mutable {
+        try {
+            int context = fetch_models_endpoint_context(config.openai.base_url,
+                                                       config.openai.api_key,
+                                                       model);
+            if (context > 0) {
+                remember_context(key, context);
+            }
+        } catch (const std::exception& ex) {
+            LOG_WARN(std::string("Background model context probe failed: ") + ex.what());
+        } catch (...) {
+            LOG_WARN("Background model context probe failed with unknown error");
+        }
+        clear_probe_in_flight(key);
+    }).detach();
+}
+
 } // namespace
 
 int resolve_model_context_window(const AppConfig& config,
                                  const std::string& provider_name,
                                  const std::string& model,
                                  int fallback_context_window) {
-    const std::string models_dev_provider = detect_models_dev_provider(config, provider_name);
-    if (!models_dev_provider.empty()) {
-        int context = lookup_models_dev_context(models_dev_provider, model);
-        if (context > 0) {
-            return context;
-        }
+    const std::string key = context_cache_key(config, provider_name, model);
+    if (int context = cached_or_local_context(config, provider_name, model); context > 0) {
+        return context;
     }
 
     const std::string normalized_provider = to_lower_copy(provider_name.empty() ? config.provider : provider_name);
     if (normalized_provider == "openai") {
         int context = fetch_models_endpoint_context(config.openai.base_url, config.openai.api_key, model);
         if (context > 0) {
+            remember_context(key, context);
             return context;
         }
     }
 
     return fallback_context_window;
+}
+
+int resolve_model_context_window_nonblocking(const AppConfig& config,
+                                             const std::string& provider_name,
+                                             const std::string& model,
+                                             int fallback_context_window) {
+    if (int context = cached_or_local_context(config, provider_name, model); context > 0) {
+        return context;
+    }
+    warm_context_async(config, provider_name, model);
+    return fallback_context_window;
+}
+
+void reset_model_context_window_cache_for_test() {
+    std::lock_guard<std::mutex> lk(g_context_cache_mu);
+    g_context_cache.clear();
+    g_context_probe_in_flight.clear();
 }
 
 } // namespace acecode

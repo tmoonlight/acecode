@@ -13,4 +13,18 @@ int resolve_model_context_window(
     int fallback_context_window
 );
 
+// Session-facing variant: never waits for remote `/models` endpoint metadata.
+// It returns cached/local models.dev context when available, otherwise returns
+// fallback_context_window immediately and warms endpoint metadata in the
+// background for future calls.
+int resolve_model_context_window_nonblocking(
+    const AppConfig& config,
+    const std::string& provider_name,
+    const std::string& model,
+    int fallback_context_window
+);
+
+// Test helper for process-local cache/in-flight state.
+void reset_model_context_window_cache_for_test();
+
 } // namespace acecode
