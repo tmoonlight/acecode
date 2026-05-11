@@ -54,36 +54,39 @@ public:
     // Read session metadata from a .meta.json file.
     static SessionMeta read_meta(const std::string& meta_path);
 
-    // List all sessions in a project directory, sorted by updated_at descending.
-    // 同一 session_id 在磁盘上可能存在多个 pid 后缀文件（daemon + TUI 并发场景）；
-    // 此函数按 id 去重，每个 id 只返回 mtime 最新那份对应的 SessionMeta。
+    // List canonical sessions in a project directory, sorted by updated_at descending.
+    // PID-suffixed files are incompatible old data and are ignored.
     static std::vector<SessionMeta> list_sessions(const std::string& project_dir);
 
-    // 一份 session 文件的候选记录，用于 resume 时做"多 pid 文件取最新"决策。
+    // Canonical session file record used by resume/web history paths.
     struct SessionFileCandidate {
         std::string jsonl_path;
         std::string meta_path;
-        int pid = 0;            // 0 = 旧格式无 pid 后缀
-        std::int64_t mtime = 0; // file_clock::now epoch seconds，用于排序
+        int pid = 0;            // Always 0 for canonical files.
+        std::int64_t mtime = 0; // file_clock tick count, used for sorting if needed.
     };
 
-    // 在 project_dir 下查找所有匹配 `<session_id>(-<pid>)?.jsonl` 的文件。
-    // 返回结果按 mtime 降序（最近的在前）。空表示该 id 在磁盘上不存在。
+    // Find the canonical `<session_id>.jsonl` file in project_dir.
+    // PID-suffixed files are incompatible old data and are not returned.
     static std::vector<SessionFileCandidate> find_session_files(
         const std::string& project_dir, const std::string& session_id);
 
+    // Detect incompatible old `<session-id>-<pid>.jsonl` or `.meta.json` data.
+    // If session_id is empty, checks whether any such old data exists in project_dir.
+    static bool has_incompatible_pid_session_files(
+        const std::string& project_dir, const std::string& session_id = "");
+
     // Get the JSONL file path for a session.
-    // pid == -1（默认）→ 自动用本进程 pid，结果 `<dir>/<id>-<pid>.jsonl`
-    // pid == 0          → 旧格式，无 pid 后缀，结果 `<dir>/<id>.jsonl`（兼容读取用）
-    // pid >  0          → 显式指定，结果 `<dir>/<id>-<pid>.jsonl`
+    // Default and pid <= 0 return canonical `<dir>/<id>.jsonl`.
+    // pid > 0 returns an old PID-suffixed path for tests/diagnostics only.
     static std::string session_path(const std::string& project_dir,
                                     const std::string& session_id,
-                                    int pid = -1);
+                                    int pid = 0);
 
-    // Get the meta file path for a session. pid 语义同 session_path。
+    // Get the meta file path for a session. pid semantics match session_path.
     static std::string meta_path(const std::string& project_dir,
                                  const std::string& session_id,
-                                 int pid = -1);
+                                 int pid = 0);
 
     // Get current time as ISO 8601 string (UTC)
     static std::string now_iso8601();

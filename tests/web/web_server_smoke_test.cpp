@@ -625,6 +625,12 @@ TEST(WebServerHttp, HiddenWorkspaceRejectedUntilRegisteredThenListsExistingSessi
 TEST(WebServerHttp, WorkspaceCreateUsesWorkspaceCwdModelOverride) {
     WebServerFixture fx;
 
+    acecode::ModelProfile workspace_model;
+    workspace_model.name = "workspace-model";
+    workspace_model.provider = "copilot";
+    workspace_model.model = "workspace-model";
+    fx.cfg.saved_models.push_back(workspace_model);
+
     auto other_cwd_path = fx.tmp_dir / "model-override-cwd";
     std::filesystem::create_directories(other_cwd_path);
     const std::string other_cwd = other_cwd_path.string();

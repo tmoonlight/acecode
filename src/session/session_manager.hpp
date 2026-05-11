@@ -2,6 +2,7 @@
 
 #include "file_checkpoint_store.hpp"
 #include "session_storage.hpp"
+#include "session_writer_lease.hpp"
 #include "../provider/llm_provider.hpp"
 
 #include <string>
@@ -18,7 +19,8 @@ public:
                        const std::string& provider,
                        const std::string& model,
                        const std::string& preset_session_id = "",
-                       const std::string& model_preset = "");
+                       const std::string& model_preset = "",
+                       const std::string& surface = "tui");
 
     // Called for each message produced during conversation.
     // Appends to JSONL and periodically updates metadata.
@@ -50,6 +52,16 @@ public:
     // the persisted provider/model to the runtime LlmProvider before the
     // session is re-activated. (openspec model-profiles task 6.1.)
     SessionMeta load_session_meta(const std::string& session_id) const;
+
+    // True when the current project has a canonical transcript for session_id.
+    bool has_session_file(const std::string& session_id) const;
+
+    // True when the current project contains incompatible old PID-suffixed
+    // session data. Empty session_id checks for any old data in the project.
+    bool has_incompatible_session_data(const std::string& session_id = "") const;
+
+    // Last recoverable session error, such as a writer lease conflict.
+    std::string last_error() const;
 
     // After main.cpp swaps the provider, call this so subsequent meta updates
     // record the new provider/model name. Pure setter; thread-safe.
@@ -104,14 +116,18 @@ public:
     std::string current_title() const;
 
 private:
-    void ensure_created();  // Lazy creation of session files on first message
+    bool ensure_created();  // Lazy creation of session files on first message
     void update_meta();     // Write current metadata to disk
     std::string extract_summary(const std::string& content) const;
+    bool acquire_writer_lease_locked();
+    void refresh_writer_lease_locked();
+    void release_writer_lease_locked();
 
     std::string cwd_;
     std::string provider_name_;
     std::string model_name_;
     std::string model_preset_;
+    std::string surface_ = "tui";
     std::string project_dir_;
     std::string session_id_;
     std::string jsonl_path_;
@@ -125,6 +141,8 @@ private:
     std::string last_user_summary_;
     std::string created_at_;
     std::string pending_title_;
+    std::string last_error_;
+    bool writer_lease_active_ = false;
     FileCheckpointStore checkpoint_store_;
 
     mutable std::mutex mu_;

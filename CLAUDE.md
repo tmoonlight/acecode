@@ -32,7 +32,11 @@ Core tools are registered for both TUI and daemon paths: `bash`, `file_read`, `f
 
 ## Sessions And Persistence
 
-[src/session/](src/session) persists canonical conversation messages as JSONL with metadata sidecars. Runtime-only display fields are not serialized. Resume paths rebuild TUI pseudo-rows, tool previews, summaries, and diffs from persisted messages and metadata.
+[src/session/](src/session) persists canonical conversation messages as one `<session-id>.jsonl` file with one `<session-id>.meta.json` sidecar per session. Runtime-only display fields are not serialized. Resume paths adopt the canonical JSONL directly and rebuild TUI pseudo-rows, tool previews, summaries, and diffs from persisted messages and metadata; they must not copy history into PID-suffixed files.
+
+Old `<session-id>-<pid>.jsonl` / `<session-id>-<pid>.meta.json` files are unsupported experimental data. The project has not shipped a compatibility guarantee for them; if detected, tell users to delete the old project session data under `~/.acecode/projects` instead of migrating it.
+
+Canonical shared transcripts are protected by a lightweight writer lease under the project session directory. TUI and daemon session activation acquire the lease, refresh it after writes, and release it on session end/finalize. Stale leases are recoverable when the owner PID is dead or the heartbeat timestamp is old.
 
 Rewind support uses per-user-turn checkpoints. `SessionManager::track_file_write_before` is the hook file-mutating tools call so `/rewind` can restore file state.
 

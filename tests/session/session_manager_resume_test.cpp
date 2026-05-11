@@ -46,8 +46,8 @@ ChatMessage message(const std::string& role, const std::string& content) {
 
 } // namespace
 
-TEST(SessionManagerResume, ResumeSamePidDoesNotDuplicateJsonl) {
-    auto cwd = make_temp_cwd("same_pid");
+TEST(SessionManagerResume, RepeatedResumeDoesNotDuplicateCanonicalJsonl) {
+    auto cwd = make_temp_cwd("canonical");
     auto project_dir = SessionStorage::get_project_dir(cwd.string());
     fs::remove_all(project_dir);
 
@@ -65,12 +65,38 @@ TEST(SessionManagerResume, ResumeSamePidDoesNotDuplicateJsonl) {
     auto resumed_once = sm.resume_session(session_id);
     ASSERT_EQ(resumed_once.size(), 2u);
     EXPECT_EQ(count_non_empty_lines(jsonl_path), 2u)
-        << "resume 当前 pid 文件时不能把历史追加到自己尾部";
+        << "resume canonical 文件时不能把历史追加到自己尾部";
 
     auto resumed_twice = sm.resume_session(session_id);
     ASSERT_EQ(resumed_twice.size(), 2u);
     EXPECT_EQ(count_non_empty_lines(jsonl_path), 2u)
         << "重复 resume 同一 session 不应让 jsonl 行数翻倍";
+
+    fs::remove_all(project_dir);
+    fs::remove_all(cwd);
+}
+
+TEST(SessionManagerResume, PidOnlyOldDataIsRejectedAndDoesNotCreateCanonical) {
+    auto cwd = make_temp_cwd("old_pid_only");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    fs::remove_all(project_dir);
+    fs::create_directories(project_dir);
+
+    const std::string session_id = "20260426-100000-abcd";
+    {
+        std::ofstream ofs(SessionStorage::session_path(project_dir, session_id, 1234));
+        ofs << "{\"role\":\"user\",\"content\":\"old\"}\n";
+    }
+
+    SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model");
+
+    EXPECT_FALSE(sm.has_session_file(session_id));
+    EXPECT_TRUE(sm.has_incompatible_session_data(session_id));
+    auto messages = sm.resume_session(session_id);
+    EXPECT_TRUE(messages.empty());
+    EXPECT_FALSE(fs::exists(SessionStorage::session_path(project_dir, session_id)))
+        << "rejecting old PID data must not synthesize a canonical transcript";
 
     fs::remove_all(project_dir);
     fs::remove_all(cwd);

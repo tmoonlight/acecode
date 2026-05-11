@@ -5,7 +5,7 @@
 //
 // 每个 session 是一个 SessionEntry,内部持有:
 //   - AgentLoop(独立 worker thread)
-//   - SessionManager(独立 jsonl + meta,带本进程 pid 后缀)
+//   - SessionManager(独立 in-memory state; persisted as canonical jsonl + meta)
 //   - PermissionManager(独立 session_allowed_,mode/rules 从全局复制)
 //   - AsyncPrompter(注入到 AgentLoop)
 //
@@ -89,13 +89,12 @@ public:
     SessionRegistry& operator=(const SessionRegistry&) = delete;
 
     // 创建新 session。返回的 id 会预分配给 SessionManager,所以后续首次落盘
-    // 使用同一个 `<session-id>-<pid>.jsonl`,不会出现 registry id 与磁盘 id
+    // 使用同一个 canonical `<session-id>.jsonl`,不会出现 registry id 与磁盘 id
     // 分裂。
     std::string create(const SessionOptions& opts);
 
     // 从磁盘历史恢复 session 到 daemon 内存 registry。若 id 已 active,直接
-    // 返回 true;若磁盘没有该 id,返回 false。同一 daemon 不允许同 id 双上下文,
-    // Desktop 多上下文由多个 daemon + 不同 pid 隔离。
+    // 返回 true;若磁盘没有该 id,返回 false。同一 daemon 不允许同 id 双上下文。
     bool resume(const std::string& id, const SessionOptions& opts = {});
 
     // 找一个 entry。返回 nullptr 表示不存在。返回 raw 指针由调用者立刻使用,

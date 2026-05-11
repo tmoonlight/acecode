@@ -1,7 +1,7 @@
 #include "session_storage.hpp"
 #include "session_serializer.hpp"
 #include "../config/config.hpp"
-#include "../daemon/platform.hpp"
+#include "../utils/atomic_file.hpp"
 #include "../utils/cwd_hash.hpp"
 
 #include <nlohmann/json.hpp>
@@ -15,7 +15,8 @@
 #include <iomanip>
 #include <functional>
 #include <regex>
-#include <unordered_map>
+#include <mutex>
+#include <iterator>
 
 namespace fs = std::filesystem;
 
@@ -64,12 +65,19 @@ std::string SessionStorage::get_project_dir(const std::string& cwd) {
 }
 
 void SessionStorage::append_message(const std::string& session_path, const ChatMessage& msg) {
-    std::string line = serialize_message(msg);
-    std::ofstream ofs(session_path, std::ios::app);
-    if (ofs.is_open()) {
-        ofs << line << '\n';
-        ofs.flush();
-    }
+    std::string record = serialize_message(msg);
+    record.push_back('\n');
+
+    static std::mutex append_mu;
+    std::lock_guard<std::mutex> lk(append_mu);
+
+    std::error_code ec;
+    fs::create_directories(fs::path(session_path).parent_path(), ec);
+
+    std::ofstream ofs(session_path, std::ios::binary | std::ios::app);
+    if (!ofs.is_open()) return;
+    ofs.write(record.data(), static_cast<std::streamsize>(record.size()));
+    ofs.flush();
 }
 
 void SessionStorage::write_messages(const std::string& session_path,
@@ -77,27 +85,37 @@ void SessionStorage::write_messages(const std::string& session_path,
     std::error_code ec;
     fs::create_directories(fs::path(session_path).parent_path(), ec);
 
-    std::ofstream ofs(session_path, std::ios::out | std::ios::trunc);
-    if (!ofs.is_open()) return;
-
+    std::string content;
     for (const auto& msg : messages) {
-        ofs << serialize_message(msg) << '\n';
+        content += serialize_message(msg);
+        content.push_back('\n');
     }
-    ofs.flush();
+    atomic_write_file(session_path, content);
 }
 
 std::vector<ChatMessage> SessionStorage::load_messages(const std::string& session_path) {
     std::vector<ChatMessage> messages;
-    std::ifstream ifs(session_path);
+    std::ifstream ifs(session_path, std::ios::binary);
     if (!ifs.is_open()) return messages;
 
-    std::string line;
-    while (std::getline(ifs, line)) {
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    size_t start = 0;
+    while (start < content.size()) {
+        const size_t nl = content.find('\n', start);
+        if (nl == std::string::npos) {
+            break; // trailing partial record
+        }
+        std::string line = content.substr(start, nl - start);
+        start = nl + 1;
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         if (line.empty()) continue;
         try {
             messages.push_back(deserialize_message(line));
         } catch (...) {
-            // Skip unparseable lines (crash protection for truncated last line)
+            // Skip malformed complete lines.
         }
     }
     return messages;
@@ -127,10 +145,9 @@ void SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
         j["fork_message_id"] = meta.fork_message_id;
     }
 
-    std::ofstream ofs(meta_path);
-    if (ofs.is_open()) {
-        ofs << j.dump(2) << '\n';
-    }
+    std::error_code ec;
+    fs::create_directories(fs::path(meta_path).parent_path(), ec);
+    atomic_write_file(meta_path, j.dump(2) + '\n');
 }
 
 SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
@@ -158,19 +175,29 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
     return meta;
 }
 
-// 文件名匹配:
+// Canonical filename match:
 //   group 1 = session_id (YYYYMMDD-HHMMSS-XXXX)
-//   group 3 = pid (纯数字,可选;不存在表示旧格式)
-// XXXX 是 4 个 hex 字符,可能含 a-f,所以 id 内部不会被误识别为 pid 段。
 static const std::regex& session_filename_regex() {
     static const std::regex re(
-        R"(^(\d{8}-\d{6}-[0-9a-f]{4})(-(\d+))?\.jsonl$)");
+        R"(^(\d{8}-\d{6}-[0-9a-f]{4})\.jsonl$)");
     return re;
 }
 
 static const std::regex& meta_filename_regex() {
     static const std::regex re(
-        R"(^(\d{8}-\d{6}-[0-9a-f]{4})(-(\d+))?\.meta\.json$)");
+        R"(^(\d{8}-\d{6}-[0-9a-f]{4})\.meta\.json$)");
+    return re;
+}
+
+static const std::regex& pid_session_filename_regex() {
+    static const std::regex re(
+        R"(^(\d{8}-\d{6}-[0-9a-f]{4})-(\d+)\.jsonl$)");
+    return re;
+}
+
+static const std::regex& pid_meta_filename_regex() {
+    static const std::regex re(
+        R"(^(\d{8}-\d{6}-[0-9a-f]{4})-(\d+)\.meta\.json$)");
     return re;
 }
 
@@ -216,11 +243,10 @@ bool is_visible_history_message(const ChatMessage& msg) {
 
 void enrich_meta_from_messages(const std::string& project_dir,
                                const std::string& session_id,
-                               int pid,
                                SessionMeta& meta) {
     if (meta.message_count > 0 && !meta.summary.empty()) return;
 
-    const auto path = SessionStorage::session_path(project_dir, session_id, pid);
+    const auto path = SessionStorage::session_path(project_dir, session_id);
     auto messages = SessionStorage::load_messages(path);
     if (messages.empty()) return;
 
@@ -243,31 +269,45 @@ std::vector<SessionStorage::SessionFileCandidate>
 SessionStorage::find_session_files(const std::string& project_dir,
                                     const std::string& session_id) {
     std::vector<SessionFileCandidate> result;
-    if (!fs::exists(project_dir) || !fs::is_directory(project_dir)) {
+    if (session_id.empty() || !fs::exists(project_dir) || !fs::is_directory(project_dir)) {
         return result;
     }
 
-    const auto& re = session_filename_regex();
+    const fs::path jsonl = SessionStorage::session_path(project_dir, session_id);
+    std::error_code ec;
+    if (!fs::is_regular_file(jsonl, ec)) {
+        return result;
+    }
+
+    SessionFileCandidate c;
+    c.jsonl_path = jsonl.string();
+    c.meta_path = SessionStorage::meta_path(project_dir, session_id);
+    c.pid = 0;
+    c.mtime = file_mtime_epoch(jsonl);
+    result.push_back(std::move(c));
+    return result;
+}
+
+bool SessionStorage::has_incompatible_pid_session_files(
+    const std::string& project_dir, const std::string& session_id) {
+    if (!fs::exists(project_dir) || !fs::is_directory(project_dir)) {
+        return false;
+    }
+
+    const auto& jsonl_re = pid_session_filename_regex();
+    const auto& meta_re = pid_meta_filename_regex();
     for (const auto& entry : fs::directory_iterator(project_dir)) {
         if (!entry.is_regular_file()) continue;
         std::string fname = entry.path().filename().string();
         std::smatch m;
-        if (!std::regex_match(fname, m, re)) continue;
-        if (m[1].str() != session_id) continue;
-
-        SessionFileCandidate c;
-        c.jsonl_path = entry.path().string();
-        c.pid = m[3].matched ? std::stoi(m[3].str()) : 0;
-        c.meta_path = SessionStorage::meta_path(project_dir, session_id, c.pid);
-        c.mtime = file_mtime_epoch(entry.path());
-        result.push_back(std::move(c));
+        if (std::regex_match(fname, m, jsonl_re) ||
+            std::regex_match(fname, m, meta_re)) {
+            if (session_id.empty() || m[1].str() == session_id) {
+                return true;
+            }
+        }
     }
-
-    std::sort(result.begin(), result.end(),
-        [](const SessionFileCandidate& a, const SessionFileCandidate& b) {
-            return a.mtime > b.mtime;
-        });
-    return result;
+    return false;
 }
 
 std::vector<SessionMeta> SessionStorage::list_sessions(const std::string& project_dir) {
@@ -276,14 +316,6 @@ std::vector<SessionMeta> SessionStorage::list_sessions(const std::string& projec
         return sessions;
     }
 
-    // 同一 session_id 可能有多份 pid 后缀的 meta(daemon + TUI 各跑一份)。
-    // 按 id 分组,每个 id 只保留 mtime 最新那份。
-    struct Entry {
-        SessionMeta meta;
-        std::int64_t mtime = 0;
-    };
-    std::unordered_map<std::string, Entry> by_id;
-
     const auto& re = meta_filename_regex();
     for (const auto& entry : fs::directory_iterator(project_dir)) {
         if (!entry.is_regular_file()) continue;
@@ -291,21 +323,12 @@ std::vector<SessionMeta> SessionStorage::list_sessions(const std::string& projec
         std::smatch m;
         if (!std::regex_match(fname, m, re)) continue;
         std::string id = m[1].str();
-        int pid = m[3].matched ? std::stoi(m[3].str()) : 0;
 
         SessionMeta meta = read_meta(entry.path().string());
         if (meta.id.empty()) continue;
-        enrich_meta_from_messages(project_dir, id, pid, meta);
-        std::int64_t mtime = file_mtime_epoch(entry.path());
-
-        auto it = by_id.find(id);
-        if (it == by_id.end() || mtime > it->second.mtime) {
-            by_id[id] = Entry{std::move(meta), mtime};
-        }
+        enrich_meta_from_messages(project_dir, id, meta);
+        sessions.push_back(std::move(meta));
     }
-
-    sessions.reserve(by_id.size());
-    for (auto& [_, e] : by_id) sessions.push_back(std::move(e.meta));
 
     std::sort(sessions.begin(), sessions.end(),
         [](const SessionMeta& a, const SessionMeta& b) {
@@ -314,14 +337,10 @@ std::vector<SessionMeta> SessionStorage::list_sessions(const std::string& projec
     return sessions;
 }
 
-static std::string make_path_with_pid(const std::string& project_dir,
-                                       const std::string& session_id,
-                                       const std::string& suffix,
-                                       int pid) {
-    if (pid < 0) {
-        // 默认: 用本进程 pid
-        pid = static_cast<int>(acecode::daemon::current_pid());
-    }
+static std::string make_session_path(const std::string& project_dir,
+                                     const std::string& session_id,
+                                     const std::string& suffix,
+                                     int pid) {
     std::string fname = session_id;
     if (pid > 0) {
         fname += '-';
@@ -334,13 +353,13 @@ static std::string make_path_with_pid(const std::string& project_dir,
 std::string SessionStorage::session_path(const std::string& project_dir,
                                           const std::string& session_id,
                                           int pid) {
-    return make_path_with_pid(project_dir, session_id, ".jsonl", pid);
+    return make_session_path(project_dir, session_id, ".jsonl", pid);
 }
 
 std::string SessionStorage::meta_path(const std::string& project_dir,
                                        const std::string& session_id,
                                        int pid) {
-    return make_path_with_pid(project_dir, session_id, ".meta.json", pid);
+    return make_session_path(project_dir, session_id, ".meta.json", pid);
 }
 
 std::string SessionStorage::now_iso8601() {

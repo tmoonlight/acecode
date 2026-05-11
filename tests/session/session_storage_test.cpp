@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using acecode::SessionMeta;
@@ -147,7 +148,7 @@ TEST(SessionStorage, WriteMetaDoesNotSerializeDesktopVisible) {
 }
 
 // 场景:早期/异常退出的 meta 可能还停在 message_count=0 且 summary 空,
-// 但 jsonl 已经有用户消息。list_sessions 需要从 jsonl 补齐,否则 Web 左侧
+// 但 canonical jsonl 已经有用户消息。list_sessions 需要从 jsonl 补齐,否则 Web 左侧
 // 会把说过话的会话显示成裸 session id。
 TEST(SessionStorage, ListSessionsBackfillsSummaryAndCountFromJsonl) {
     auto dir = make_unique_tmp_dir("backfill");
@@ -161,22 +162,73 @@ TEST(SessionStorage, ListSessionsBackfillsSummaryAndCountFromJsonl) {
     meta.provider = "copilot";
     meta.model = "claude";
     meta.message_count = 0;
-    SessionStorage::write_meta(SessionStorage::meta_path(dir.string(), sid, 123), meta);
+    SessionStorage::write_meta(SessionStorage::meta_path(dir.string(), sid), meta);
 
     acecode::ChatMessage user;
     user.role = "user";
     user.content = "帮我看一下 websocket 错误";
-    SessionStorage::append_message(SessionStorage::session_path(dir.string(), sid, 123), user);
+    SessionStorage::append_message(SessionStorage::session_path(dir.string(), sid), user);
 
     acecode::ChatMessage assistant;
     assistant.role = "assistant";
-    SessionStorage::append_message(SessionStorage::session_path(dir.string(), sid, 123), assistant);
+    SessionStorage::append_message(SessionStorage::session_path(dir.string(), sid), assistant);
 
     auto sessions = SessionStorage::list_sessions(dir.string());
     ASSERT_EQ(sessions.size(), 1u);
     EXPECT_EQ(sessions[0].id, sid);
     EXPECT_EQ(sessions[0].summary, user.content);
     EXPECT_EQ(sessions[0].message_count, 1);
+}
+
+// 场景:JSONL 可能因为异常退出留下坏行或未以换行结尾的半行。
+// load_messages 只能返回完整、可解析的记录,不能抛异常。
+TEST(SessionStorage, LoadMessagesSkipsMalformedAndTrailingPartialLines) {
+    auto dir = make_unique_tmp_dir("safe-read");
+    const std::string sid = "20260502-101144-61ab";
+    const auto path = SessionStorage::session_path(dir.string(), sid);
+
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "完整消息";
+    SessionStorage::append_message(path, user);
+
+    {
+        std::ofstream ofs(path, std::ios::app | std::ios::binary);
+        ofs << "not-json\n";
+        ofs << "{\"role\":\"assistant\",\"content\":\"partial\"}";
+    }
+
+    std::vector<acecode::ChatMessage> out;
+    ASSERT_NO_THROW(out = SessionStorage::load_messages(path));
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "user");
+    EXPECT_EQ(out[0].content, "完整消息");
+}
+
+// 场景:meta 写入要能替换已经存在的文件。Windows 上 rename 不覆盖目标,
+// 因此 write_meta 必须走真正的 replace 语义,否则第二次写会静默保留旧 meta。
+TEST(SessionStorage, WriteMetaAtomicallyReplacesExistingFile) {
+    auto dir = make_unique_tmp_dir("atomic-meta");
+    auto meta_path = (dir / "20260419-120000-abcd.meta.json").string();
+
+    SessionMeta first;
+    first.id = "20260419-120000-abcd";
+    first.cwd = dir.string();
+    first.updated_at = "2026-04-19T12:00:00Z";
+    first.summary = "first";
+    SessionStorage::write_meta(meta_path, first);
+
+    SessionMeta second = first;
+    second.updated_at = "2026-04-19T12:05:00Z";
+    second.summary = "second";
+    second.message_count = 2;
+    SessionStorage::write_meta(meta_path, second);
+
+    auto out = SessionStorage::read_meta(meta_path);
+    EXPECT_EQ(out.id, first.id);
+    EXPECT_EQ(out.updated_at, second.updated_at);
+    EXPECT_EQ(out.summary, "second");
+    EXPECT_EQ(out.message_count, 2);
 }
 
 // 场景:同一 cwd 多次调用必须返回完全一致的 16 字符 hex,不同 cwd 必须

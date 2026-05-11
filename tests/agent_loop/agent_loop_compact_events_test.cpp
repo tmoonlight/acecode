@@ -55,13 +55,6 @@ TEST(AgentLoopCompactEvents, QueuedCompactEmitsTranscriptReplacement) {
     bool done = false;
 
     acecode::AgentCallbacks cb;
-    cb.on_busy_changed = [&](bool busy) {
-        if (!busy) {
-            std::lock_guard<std::mutex> lk(mu);
-            done = true;
-            cv.notify_all();
-        }
-    };
 
     acecode::AgentLoop loop(
         [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
@@ -74,6 +67,10 @@ TEST(AgentLoopCompactEvents, QueuedCompactEmitsTranscriptReplacement) {
     auto sub = loop.events().subscribe([&](const acecode::SessionEvent& evt) {
         std::lock_guard<std::mutex> lk(mu);
         events.push_back(evt);
+        if (evt.kind == acecode::SessionEventKind::Done) {
+            done = true;
+            cv.notify_all();
+        }
     });
 
     loop.push_message(loop_msg("user", std::string(900, 'a'), "u-old"));
@@ -89,9 +86,15 @@ TEST(AgentLoopCompactEvents, QueuedCompactEmitsTranscriptReplacement) {
         ASSERT_TRUE(cv.wait_for(lk, 5s, [&] { return done; }));
     }
 
+    std::vector<acecode::SessionEvent> snapshot;
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        snapshot = events;
+    }
+
     bool saw_replace = false;
     bool saw_completion = false;
-    for (const auto& evt : events) {
+    for (const auto& evt : snapshot) {
         if (evt.kind == acecode::SessionEventKind::TranscriptReplace) {
             saw_replace = true;
             ASSERT_TRUE(evt.payload.contains("messages"));

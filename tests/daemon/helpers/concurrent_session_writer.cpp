@@ -1,6 +1,6 @@
 // 测试辅助 binary: 在子进程里调用 SessionManager 写一条消息后退出。
-// 用于 tests/daemon/concurrent_session_test.cpp 里 std::system() 起两份子进程
-// 验证 daemon + TUI 同 cwd 不撞文件(对应 openspec add-web-daemon 任务 13.7)。
+// 用于 tests/daemon/concurrent_session_e2e_test.cpp 里 std::system() 起两份子进程
+// 验证同 cwd 下不同 session 都写 canonical transcript。
 //
 // 设计上**故意**不放进 acecode_unit_tests:
 //   - 它是独立 main(),不是 GoogleTest 用例

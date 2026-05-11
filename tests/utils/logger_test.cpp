@@ -92,6 +92,9 @@ TEST_F(LoggerRotationTest, SingleFileModeIncludesThreadIdAfterTimestamp) {
     std::istringstream lines(read_file(log_path));
     std::string line;
     ASSERT_TRUE(std::getline(lines, line));
+    if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+    }
 
     const std::regex expected(
         R"(^[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} \[tid=[^\]]+\] INF \[logger_test\.cpp:[0-9]+\] thread-id-format-line$)");

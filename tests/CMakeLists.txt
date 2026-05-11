@@ -21,7 +21,7 @@ target_include_directories(acecode_unit_tests PRIVATE
 )
 
 # 测试辅助 binary: 用于 SessionConcurrencyE2E 测试 std::system 起两个子进程
-# 验证 daemon + TUI 同 cwd 不撞 session 文件(任务 13.7)。独立 main(),不参与
+# 验证同 cwd 下多 session 写 canonical 文件。独立 main(),不参与
 # gtest_discover_tests。链 acecode_testable 拿 SessionManager,不需要 ftxui。
 add_executable(concurrent_session_writer
     ${CMAKE_CURRENT_SOURCE_DIR}/daemon/helpers/concurrent_session_writer.cpp

@@ -1743,12 +1743,13 @@ static int run_interactive_app(const CliOptions& cli,
                 resumed_title = sessions.front().title;
             }
         } else if (!target_id.empty()) {
-            // 通过 SessionManager 走多 pid 候选挑最新的 meta(daemon + TUI 并发场景),
-            // 避免按本进程 pid 拼路径而读不到别的进程或老格式留下的文件。
+            // 通过 SessionManager 读取 canonical meta,避免在 TUI 启动路径里
+            // 直接拼存储路径。
             auto meta = session_manager.load_session_meta(target_id);
             resumed_title = meta.title;
         }
         if (!target_id.empty()) {
+            const bool canonical_exists = session_manager.has_session_file(target_id);
             // 把 session meta 喂给 resolver,让 resume 真正还原 provider+model。
             // resolve_effective_model 会优先用 (meta.provider, meta.model) 从
             // saved_models 找匹配 entry;找不到则构造 ad-hoc entry,name 以
@@ -1779,15 +1780,30 @@ static int run_interactive_app(const CliOptions& cli,
             }
 
             auto messages = session_manager.resume_session(target_id);
-            acecode::append_resumed_session_messages(messages, state, agent_loop, tools);
-            state.conversation.push_back({"system",
-                "Resumed session " + target_id + " (" + std::to_string(messages.size()) + " messages)", false});
-            if (!resumed_title.empty()) {
-                set_terminal_title(resumed_title);
-                state.current_session_title = resumed_title;
+            const std::string resume_error = session_manager.last_error();
+            if (!resume_error.empty()) {
+                state.conversation.push_back({"system", resume_error, false});
+            } else if (!canonical_exists && session_manager.has_incompatible_session_data(target_id)) {
+                state.conversation.push_back({"system",
+                    "Session " + target_id + " uses an old PID-suffixed data format that is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session.", false});
+            } else if (!canonical_exists) {
+                state.conversation.push_back({"system", "Session " + target_id + " not found.", false});
+            } else {
+                acecode::append_resumed_session_messages(messages, state, agent_loop, tools);
+                state.conversation.push_back({"system",
+                    "Resumed session " + target_id + " (" + std::to_string(messages.size()) + " messages)", false});
+                if (!resumed_title.empty()) {
+                    set_terminal_title(resumed_title);
+                    state.current_session_title = resumed_title;
+                }
             }
         } else {
-            state.conversation.push_back({"system", "No previous sessions found to resume.", false});
+            if (session_manager.has_incompatible_session_data()) {
+                state.conversation.push_back({"system",
+                    "No canonical sessions found. Old PID-suffixed session data in this project is no longer supported; delete the old project session data under ~/.acecode/projects and start a new session.", false});
+            } else {
+                state.conversation.push_back({"system", "No previous sessions found to resume.", false});
+            }
         }
     }
 

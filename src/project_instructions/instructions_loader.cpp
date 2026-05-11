@@ -3,6 +3,7 @@
 #include "../utils/logger.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -69,6 +70,31 @@ fs::path pick_file_in_dir(const fs::path& dir,
     return {};
 }
 
+fs::path canonicalish_path(const fs::path& path) {
+    std::error_code ec;
+    fs::path out = fs::weakly_canonical(path, ec);
+    if (!ec && !out.empty()) return out.lexically_normal();
+
+    out = fs::absolute(path, ec);
+    if (!ec && !out.empty()) return out.lexically_normal();
+
+    return path.lexically_normal();
+}
+
+std::string comparable_path_key(const fs::path& path) {
+    std::string key = canonicalish_path(path).generic_string();
+#ifdef _WIN32
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+#endif
+    return key;
+}
+
+bool same_path_for_boundary(const fs::path& a, const fs::path& b) {
+    return comparable_path_key(a) == comparable_path_key(b);
+}
+
 // Build the ordered directory chain from HOME-boundary down to cwd. The
 // resulting vector starts with the outermost ancestor and ends with cwd so
 // merged output reads outer→inner. Stops at HOME (HOME itself excluded because
@@ -83,27 +109,24 @@ std::vector<fs::path> walk_cwd_chain(const fs::path& cwd, int max_depth) {
     const char* home_env = std::getenv("HOME");
 #endif
     if (home_env && *home_env) {
-        std::error_code ec;
-        home_path = fs::weakly_canonical(fs::path(home_env), ec);
-        if (ec) home_path = fs::path(home_env);
+        home_path = canonicalish_path(fs::path(home_env));
     }
 
-    std::error_code ec;
-    fs::path abs = fs::absolute(cwd, ec).lexically_normal();
-    if (ec || abs.empty()) abs = fs::path(cwd).lexically_normal();
+    fs::path abs = canonicalish_path(cwd);
 
-    std::set<fs::path> visited;
+    std::set<std::string> visited;
     std::vector<fs::path> descending;
     fs::path cur = abs;
     int depth = 0;
     while (depth < max_depth) {
-        if (!home_path.empty() && cur == home_path) break;
-        if (visited.count(cur)) break; // symlink loop guard
-        visited.insert(cur);
+        if (!home_path.empty() && same_path_for_boundary(cur, home_path)) break;
+        std::string key = comparable_path_key(cur);
+        if (visited.count(key)) break; // symlink loop guard
+        visited.insert(std::move(key));
         descending.push_back(cur);
         fs::path parent = cur.parent_path();
         if (parent == cur) break;
-        cur = parent;
+        cur = canonicalish_path(parent);
         ++depth;
     }
     // descending is innermost-first; reverse so outer-most ancestor comes first.

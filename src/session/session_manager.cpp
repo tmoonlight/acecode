@@ -67,12 +67,15 @@ void SessionManager::start_session(const std::string& cwd,
                                    const std::string& provider,
                                    const std::string& model,
                                    const std::string& preset_session_id,
-                                   const std::string& model_preset) {
+                                   const std::string& model_preset,
+                                   const std::string& surface) {
     std::lock_guard<std::mutex> lk(mu_);
+    release_writer_lease_locked();
     cwd_ = cwd;
     provider_name_ = provider;
     model_name_ = model;
     model_preset_ = model_preset;
+    surface_ = surface.empty() ? "unknown" : surface;
     project_dir_ = SessionStorage::get_project_dir(cwd);
     session_id_ = preset_session_id;
     jsonl_path_.clear();
@@ -84,14 +87,17 @@ void SessionManager::start_session(const std::string& cwd,
     last_user_summary_.clear();
     created_at_.clear();
     pending_title_.clear();
+    last_error_.clear();
+    writer_lease_active_ = false;
     checkpoint_store_.reset();
     checkpoint_store_.set_session(project_dir_, session_id_);
 }
 
-void SessionManager::ensure_created() {
+bool SessionManager::ensure_created() {
     // Must be called under lock
-    if (created_) return;
-    if (!started_) return;
+    if (created_) return true;
+    if (!started_) return false;
+    last_error_.clear();
 
     // Create project directory if needed
     if (!fs::exists(project_dir_)) {
@@ -104,9 +110,16 @@ void SessionManager::ensure_created() {
     jsonl_path_ = SessionStorage::session_path(project_dir_, session_id_);
     meta_path_str_ = SessionStorage::meta_path(project_dir_, session_id_);
     created_at_ = SessionStorage::now_iso8601();
+    checkpoint_store_.set_session(project_dir_, session_id_);
+
+    if (!acquire_writer_lease_locked()) {
+        jsonl_path_.clear();
+        meta_path_str_.clear();
+        return false;
+    }
+
     created_ = true;
     finalized_ = false;
-    checkpoint_store_.set_session(project_dir_, session_id_);
 
     // Write initial metadata
     SessionMeta meta;
@@ -120,13 +133,14 @@ void SessionManager::ensure_created() {
     meta.model_preset = model_preset_;
     meta.title = pending_title_;
     SessionStorage::write_meta(meta_path_str_, meta);
+    return true;
 }
 
 void SessionManager::on_message(const ChatMessage& msg) {
     std::lock_guard<std::mutex> lk(mu_);
     if (!started_) return;
 
-    ensure_created();
+    if (!ensure_created()) return;
 
     // Append message to JSONL
     SessionStorage::append_message(jsonl_path_, msg);
@@ -144,7 +158,7 @@ bool SessionManager::replace_active_messages(const std::vector<ChatMessage>& mes
     std::lock_guard<std::mutex> lk(mu_);
     if (!started_) return false;
 
-    ensure_created();
+    if (!ensure_created()) return false;
     if (!created_) return false;
 
     std::set<std::string> retained_user_uuids;
@@ -190,7 +204,7 @@ bool SessionManager::replace_active_messages(const std::vector<ChatMessage>& mes
 void SessionManager::begin_user_turn_checkpoint(const std::string& user_message_uuid) {
     std::lock_guard<std::mutex> lk(mu_);
     if (!started_ || user_message_uuid.empty()) return;
-    ensure_created();
+    if (!ensure_created()) return;
 
     FileCheckpointSnapshot snapshot = checkpoint_store_.make_snapshot(user_message_uuid);
     SessionStorage::append_message(jsonl_path_, FileCheckpointStore::encode_snapshot_message(snapshot));
@@ -201,7 +215,7 @@ void SessionManager::begin_user_turn_checkpoint(const std::string& user_message_
 void SessionManager::track_file_write_before(const std::string& file_path) {
     std::lock_guard<std::mutex> lk(mu_);
     if (!started_ || file_path.empty()) return;
-    ensure_created();
+    if (!ensure_created()) return;
 
     auto snapshot = checkpoint_store_.track_before_write(file_path);
     if (!snapshot.has_value()) return;
@@ -232,40 +246,45 @@ void SessionManager::finalize() {
     if (!created_ || finalized_) return;
     finalized_ = true;
     update_meta();
+    release_writer_lease_locked();
 }
 
 std::vector<ChatMessage> SessionManager::resume_session(const std::string& session_id) {
     std::lock_guard<std::mutex> lk(mu_);
+    last_error_.clear();
 
-    // 同一 session_id 在磁盘上可能存在多份候选(daemon 一份、TUI 一份、旧无 pid 一份)。
-    // v1 策略: 默认选 mtime 最近的一份;若有多份候选,记日志便于事后追溯。
-    // TODO: TUI 候选选择 UI(spec 8.3 的"列候选+让用户选")暂留 HTTP 默认行为兜底。
-    auto candidates = SessionStorage::find_session_files(project_dir_, session_id);
-    if (candidates.empty()) {
+    const auto jsonl_path = SessionStorage::session_path(project_dir_, session_id);
+    const auto meta_path = SessionStorage::meta_path(project_dir_, session_id);
+    if (!fs::exists(jsonl_path)) {
+        if (SessionStorage::has_incompatible_pid_session_files(project_dir_, session_id)) {
+            LOG_WARN("[session] resume " + session_id +
+                     " ignored incompatible PID-suffixed old data; delete old project session data under " +
+                     project_dir_ + " and start a new session");
+        }
         return {};
     }
-    if (candidates.size() > 1) {
-        std::ostringstream oss;
-        oss << "[session] resume " << session_id << " found "
-            << candidates.size() << " candidates, picking newest by mtime: "
-            << fs::path(candidates.front().jsonl_path).filename().string();
-        LOG_INFO(oss.str());
-    }
-    const auto& chosen = candidates.front();
-    auto messages = SessionStorage::load_messages(chosen.jsonl_path);
+    auto messages = SessionStorage::load_messages(jsonl_path);
 
-    // 关键: resume 后续追加 MUST 写到带本进程 pid 的新文件,不修改原文件。
-    // 即使 chosen.pid 与本进程相同,也走 default(-1)以保持单一职责。
+    // Resume adopts the canonical transcript directly. It must not copy history
+    // into a new PID-suffixed file or rewrite the shared transcript.
+    if (writer_lease_active_ && session_id_ != session_id) {
+        release_writer_lease_locked();
+    }
     session_id_ = session_id;
-    jsonl_path_ = SessionStorage::session_path(project_dir_, session_id);
-    meta_path_str_ = SessionStorage::meta_path(project_dir_, session_id);
+    jsonl_path_ = jsonl_path;
+    meta_path_str_ = meta_path;
+    if (!acquire_writer_lease_locked()) {
+        created_ = false;
+        finalized_ = false;
+        return {};
+    }
     created_ = true;
     finalized_ = false;
     checkpoint_store_.load_from_messages(project_dir_, session_id_, messages);
 
-    // 从原 meta 恢复历史信息(title / summary / created_at)
-    if (fs::exists(chosen.meta_path)) {
-        auto meta = SessionStorage::read_meta(chosen.meta_path);
+    // Restore persisted display/model metadata when present.
+    if (fs::exists(meta_path_str_)) {
+        auto meta = SessionStorage::read_meta(meta_path_str_);
         created_at_ = meta.created_at;
         last_user_summary_ = meta.summary;
         pending_title_ = meta.title;
@@ -273,15 +292,11 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
             model_preset_ = meta.model_preset;
         }
     }
+    if (created_at_.empty()) {
+        created_at_ = SessionStorage::now_iso8601();
+    }
 
     message_count_ = static_cast<int>(messages.size());
-
-    // 把已有消息的快照写入当前进程文件(否则 resume 后新文件只含 resume 之后追加的消息,
-    // 下次再 resume 看到的是个截断版)。这里必须是 truncate + 单 stream 重写:
-    // 1) 避免每条消息 open/flush/close 的 O(N) 文件句柄开销;
-    // 2) 当 chosen 正好就是当前 pid 文件时,避免把历史追加到自己尾部导致翻倍。
-    SessionStorage::write_messages(jsonl_path_, messages);
-    // 立即写一份 meta,免得 update_meta 等到第 5 条才落盘。
     update_meta();
 
     return messages;
@@ -290,12 +305,33 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
 SessionMeta SessionManager::load_session_meta(const std::string& session_id) const {
     std::lock_guard<std::mutex> lk(mu_);
     if (project_dir_.empty()) return {};
-    // 多 pid 候选: 取 mtime 最新那份的 meta。
-    auto candidates = SessionStorage::find_session_files(project_dir_, session_id);
-    if (candidates.empty()) return {};
-    const auto& chosen = candidates.front();
-    if (!fs::exists(chosen.meta_path)) return {};
-    return SessionStorage::read_meta(chosen.meta_path);
+    const auto meta_path = SessionStorage::meta_path(project_dir_, session_id);
+    if (!fs::exists(meta_path)) {
+        if (SessionStorage::has_incompatible_pid_session_files(project_dir_, session_id)) {
+            LOG_WARN("[session] meta for " + session_id +
+                     " not loaded: incompatible PID-suffixed old data is unsupported");
+        }
+        return {};
+    }
+    return SessionStorage::read_meta(meta_path);
+}
+
+bool SessionManager::has_session_file(const std::string& session_id) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (project_dir_.empty() || session_id.empty()) return false;
+    const auto candidates = SessionStorage::find_session_files(project_dir_, session_id);
+    return !candidates.empty();
+}
+
+bool SessionManager::has_incompatible_session_data(const std::string& session_id) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (project_dir_.empty()) return false;
+    return SessionStorage::has_incompatible_pid_session_files(project_dir_, session_id);
+}
+
+std::string SessionManager::last_error() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return last_error_;
 }
 
 void SessionManager::set_active_provider(const std::string& provider,
@@ -320,6 +356,7 @@ void SessionManager::end_current_session() {
     if (created_ && !finalized_) {
         update_meta();
     }
+    release_writer_lease_locked();
     // Reset so next on_message triggers a new session
     session_id_.clear();
     jsonl_path_.clear();
@@ -330,6 +367,7 @@ void SessionManager::end_current_session() {
     last_user_summary_.clear();
     created_at_.clear();
     pending_title_.clear();
+    last_error_.clear();
     checkpoint_store_.reset();
     checkpoint_store_.set_session(project_dir_, "");
     // Keep started_=true, cwd_, provider_name_, model_name_, project_dir_
@@ -338,7 +376,7 @@ void SessionManager::end_current_session() {
 std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& retained_prefix) {
     std::lock_guard<std::mutex> lk(mu_);
     if (!started_) return {};
-    ensure_created();
+    if (!ensure_created()) return {};
 
     std::set<std::string> retained_user_uuids;
     for (const auto& msg : retained_prefix) {
@@ -350,14 +388,21 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
     const std::string new_session_id = SessionStorage::generate_session_id();
     auto checkpoint_meta = checkpoint_store_.fork_to_session(new_session_id, retained_user_uuids);
 
+    release_writer_lease_locked();
+
     session_id_ = new_session_id;
     jsonl_path_ = SessionStorage::session_path(project_dir_, session_id_);
     meta_path_str_ = SessionStorage::meta_path(project_dir_, session_id_);
     created_at_ = SessionStorage::now_iso8601();
-    created_ = true;
+    created_ = false;
     finalized_ = false;
     message_count_ = 0;
     last_user_summary_.clear();
+
+    if (!acquire_writer_lease_locked()) {
+        return {};
+    }
+    created_ = true;
 
     for (auto it = retained_prefix.rbegin(); it != retained_prefix.rend(); ++it) {
         if (it->role == "user" && !it->content.empty()) {
@@ -452,17 +497,14 @@ void SessionManager::cleanup_old_sessions(int max_sessions) {
     auto sessions = SessionStorage::list_sessions(project_dir_);
     if (static_cast<int>(sessions.size()) <= max_sessions) return;
 
-    // Sessions are sorted newest-first; remove from the tail.
-    // 同一 session_id 在磁盘上可能有多份 pid 后缀文件(daemon + TUI),
-    // 一律全部清理 + 配对的 meta。
+    // Sessions are sorted newest-first; remove canonical files from the tail.
+    // PID-suffixed files are incompatible old data and are not counted here.
     for (size_t i = static_cast<size_t>(max_sessions); i < sessions.size(); ++i) {
         const std::string& id = sessions[i].id;
-        auto candidates = SessionStorage::find_session_files(project_dir_, id);
         std::error_code ec;
-        for (const auto& c : candidates) {
-            fs::remove(c.jsonl_path, ec);
-            fs::remove(c.meta_path, ec);
-        }
+        fs::remove(SessionStorage::session_path(project_dir_, id), ec);
+        fs::remove(SessionStorage::meta_path(project_dir_, id), ec);
+        SessionWriterLease::remove(project_dir_, id);
         FileCheckpointStore::remove_session_backups(project_dir_, id);
     }
 }
@@ -499,6 +541,7 @@ void SessionManager::update_meta() {
     meta.model_preset = model_preset_;
     meta.title = pending_title_;
     SessionStorage::write_meta(meta_path_str_, meta);
+    refresh_writer_lease_locked();
 }
 
 void SessionManager::set_session_title(std::string title) {
@@ -512,6 +555,47 @@ void SessionManager::set_session_title(std::string title) {
 std::string SessionManager::current_title() const {
     std::lock_guard<std::mutex> lk(mu_);
     return pending_title_;
+}
+
+bool SessionManager::acquire_writer_lease_locked() {
+    if (project_dir_.empty() || session_id_.empty()) return true;
+
+    auto result = SessionWriterLease::acquire(project_dir_, session_id_, cwd_, surface_);
+    if (result.status == SessionWriterLeaseResult::Status::Acquired) {
+        writer_lease_active_ = true;
+        if (result.stale_recovered) {
+            LOG_INFO("[session] recovered stale writer lease for " + session_id_);
+        }
+        return true;
+    }
+
+    writer_lease_active_ = false;
+    if (result.status == SessionWriterLeaseResult::Status::Conflict) {
+        last_error_ = "Session " + session_id_ + " is already active in another ACECode process (pid " +
+                      std::to_string(result.owner.pid) + ", surface " + result.owner.surface + ").";
+        LOG_WARN("[session] writer lease conflict for " + session_id_ +
+                 " owner_pid=" + std::to_string(result.owner.pid) +
+                 " owner_surface=" + result.owner.surface);
+    } else {
+        last_error_ = "Failed to acquire writer lease for session " + session_id_ +
+                      (result.error.empty() ? "." : ": " + result.error);
+        LOG_WARN("[session] " + last_error_);
+    }
+    return false;
+}
+
+void SessionManager::refresh_writer_lease_locked() {
+    if (!writer_lease_active_ || project_dir_.empty() || session_id_.empty()) return;
+    if (!SessionWriterLease::refresh(project_dir_, session_id_)) {
+        writer_lease_active_ = false;
+        LOG_WARN("[session] failed to refresh writer lease for " + session_id_);
+    }
+}
+
+void SessionManager::release_writer_lease_locked() {
+    if (!writer_lease_active_ || project_dir_.empty() || session_id_.empty()) return;
+    SessionWriterLease::release(project_dir_, session_id_);
+    writer_lease_active_ = false;
 }
 
 std::string SessionManager::extract_summary(const std::string& content) const {

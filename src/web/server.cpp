@@ -15,6 +15,8 @@
 #include "../session/session_rewind.hpp"
 #include "../session/session_serializer.hpp"
 #include "../session/session_storage.hpp"
+#include "../session/session_writer_lease.hpp"
+#include "../daemon/platform.hpp"
 #include "../skills/skill_registry.hpp"
 #include "../skills/skill_metadata.hpp"
 #include "../utils/logger.hpp"
@@ -901,7 +903,34 @@ struct WebServer::Impl {
             SessionOptions opts;
             opts.cwd = ws->cwd;
             opts.workspace_hash = ws->hash;
+            auto project_dir = SessionStorage::get_project_dir(ws->cwd);
+            if (auto lease = SessionWriterLease::read(project_dir, id)) {
+                const bool other_pid = lease->pid != 0 && lease->pid != daemon::current_pid();
+                const auto age_ms = SessionWriterLease::now_ms() - lease->updated_at_ms;
+                const bool fresh = lease->updated_at_ms > 0 &&
+                                   age_ms >= 0 &&
+                                   age_ms <= SessionWriterLease::kDefaultStaleMs;
+                if (other_pid && fresh && daemon::is_pid_alive(lease->pid)) {
+                    crow::response r(409);
+                    r.body = json{
+                        {"error", "session already active"},
+                        {"pid", lease->pid},
+                        {"surface", lease->surface}
+                    }.dump();
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+            }
             if (!deps.session_client->resume_session(id, opts)) {
+                if (SessionStorage::has_incompatible_pid_session_files(project_dir, id)) {
+                    crow::response r(409);
+                    r.body = json{
+                        {"error", "old session data incompatible"},
+                        {"message", "PID-suffixed session data is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session."}
+                    }.dump();
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
                 crow::response r(404);
                 r.body = R"({"error":"session not found"})";
                 r.add_header("Content-Type", "application/json");
@@ -1388,7 +1417,34 @@ struct WebServer::Impl {
             SessionOptions opts;
             opts.cwd = ws.cwd;
             opts.workspace_hash = ws.hash;
+            auto project_dir = SessionStorage::get_project_dir(ws.cwd);
+            if (auto lease = SessionWriterLease::read(project_dir, id)) {
+                const bool other_pid = lease->pid != 0 && lease->pid != daemon::current_pid();
+                const auto age_ms = SessionWriterLease::now_ms() - lease->updated_at_ms;
+                const bool fresh = lease->updated_at_ms > 0 &&
+                                   age_ms >= 0 &&
+                                   age_ms <= SessionWriterLease::kDefaultStaleMs;
+                if (other_pid && fresh && daemon::is_pid_alive(lease->pid)) {
+                    crow::response r(409);
+                    r.body = json{
+                        {"error", "session already active"},
+                        {"pid", lease->pid},
+                        {"surface", lease->surface}
+                    }.dump();
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+            }
             if (!deps.session_client->resume_session(id, opts)) {
+                if (SessionStorage::has_incompatible_pid_session_files(project_dir, id)) {
+                    crow::response r(409);
+                    r.body = json{
+                        {"error", "old session data incompatible"},
+                        {"message", "PID-suffixed session data is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session."}
+                    }.dump();
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
                 crow::response r(404);
                 r.body = R"({"error":"session not found"})";
                 r.add_header("Content-Type", "application/json");

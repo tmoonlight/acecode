@@ -606,15 +606,26 @@ static void do_resume_session(CommandContext& ctx, const std::string& session_id
         }
     }
 
+    const bool canonical_exists = ctx.session_manager->has_session_file(session_id);
     auto messages = ctx.session_manager->resume_session(session_id);
+    const std::string resume_error = ctx.session_manager->last_error();
     ctx.agent_loop.clear_messages();
     ctx.state.conversation.clear();
-    ToolExecutor fallback_tools;
-    const ToolExecutor& replay_tools = ctx.tools ? *ctx.tools : fallback_tools;
-    append_resumed_session_messages(messages, ctx.state, ctx.agent_loop, replay_tools);
-    std::ostringstream oss;
-    oss << "Resumed session " << session_id << " (" << messages.size() << " messages)";
-    ctx.state.conversation.push_back({"system", oss.str(), false});
+    if (!resume_error.empty()) {
+        ctx.state.conversation.push_back({"system", resume_error, false});
+    } else if (!canonical_exists && ctx.session_manager->has_incompatible_session_data(session_id)) {
+        ctx.state.conversation.push_back({"system",
+            "Session " + session_id + " uses an old PID-suffixed data format that is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session.", false});
+    } else if (!canonical_exists) {
+        ctx.state.conversation.push_back({"system", "Session " + session_id + " not found.", false});
+    } else {
+        ToolExecutor fallback_tools;
+        const ToolExecutor& replay_tools = ctx.tools ? *ctx.tools : fallback_tools;
+        append_resumed_session_messages(messages, ctx.state, ctx.agent_loop, replay_tools);
+        std::ostringstream oss;
+        oss << "Resumed session " << session_id << " (" << messages.size() << " messages)";
+        ctx.state.conversation.push_back({"system", oss.str(), false});
+    }
     ctx.state.chat_follow_tail = true;
 
     if (target && !target->title.empty()) {
@@ -635,7 +646,12 @@ static void cmd_resume(CommandContext& ctx, const std::string& args) {
 
     auto sessions = ctx.session_manager->list_sessions();
     if (sessions.empty()) {
-        ctx.state.conversation.push_back({"system", "No previous sessions found for this project.", false});
+        if (ctx.session_manager->has_incompatible_session_data()) {
+            ctx.state.conversation.push_back({"system",
+                "No canonical sessions found for this project. Old PID-suffixed session data is no longer supported; delete the old project session data under ~/.acecode/projects and start a new session.", false});
+        } else {
+            ctx.state.conversation.push_back({"system", "No previous sessions found for this project.", false});
+        }
         ctx.state.chat_follow_tail = true;
         return;
     }
@@ -719,15 +735,26 @@ static void cmd_resume(CommandContext& ctx, const std::string& args) {
             }
         }
 
+        const bool canonical_exists = sm->has_session_file(sid);
         auto messages = sm->resume_session(sid);
+        const std::string resume_error = sm->last_error();
         al->clear_messages();
         state.conversation.clear();
-        ToolExecutor fallback_tools;
-        const ToolExecutor& replay_tools = tools ? *tools : fallback_tools;
-        append_resumed_session_messages(messages, state, *al, replay_tools);
-        std::ostringstream oss;
-        oss << "Resumed session " << sid << " (" << messages.size() << " messages)";
-        state.conversation.push_back({"system", oss.str(), false});
+        if (!resume_error.empty()) {
+            state.conversation.push_back({"system", resume_error, false});
+        } else if (!canonical_exists && sm->has_incompatible_session_data(sid)) {
+            state.conversation.push_back({"system",
+                "Session " + sid + " uses an old PID-suffixed data format that is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session.", false});
+        } else if (!canonical_exists) {
+            state.conversation.push_back({"system", "Session " + sid + " not found.", false});
+        } else {
+            ToolExecutor fallback_tools;
+            const ToolExecutor& replay_tools = tools ? *tools : fallback_tools;
+            append_resumed_session_messages(messages, state, *al, replay_tools);
+            std::ostringstream oss;
+            oss << "Resumed session " << sid << " (" << messages.size() << " messages)";
+            state.conversation.push_back({"system", oss.str(), false});
+        }
         state.chat_follow_tail = true;
 
         std::string restored_title;

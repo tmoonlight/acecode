@@ -31,6 +31,12 @@ inline bool atomic_write_file(const std::string& path,
     fs::path tmp = target;
     tmp += ".tmp";
 
+    std::error_code ec;
+    if (!target.parent_path().empty()) {
+        fs::create_directories(target.parent_path(), ec);
+        if (ec) return false;
+    }
+
     {
         std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
         if (!ofs.is_open()) return false;
@@ -81,11 +87,16 @@ inline bool atomic_write_file(const std::string& path,
 #endif
     }
 
-    std::error_code ec;
     fs::rename(tmp, target, ec);
     if (ec) {
-        // rename across devices, or other failure: try copy+remove fallback,
-        // then bubble up failure. Keep tmp present so caller can inspect.
+#ifdef _WIN32
+    if (::MoveFileExW(tmp.wstring().c_str(),
+              target.wstring().c_str(),
+              MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            return true;
+        }
+#endif
+        // Rename failed. Keep tmp present so caller can inspect.
         return false;
     }
     return true;

@@ -5,6 +5,7 @@
 #include "../commands/init_command.hpp"
 #include "../provider/apply_model_to_session.hpp"
 #include "../provider/copilot_provider.hpp"
+#include "../provider/cwd_model_override.hpp"
 #include "../provider/model_context_resolver.hpp"
 #include "../provider/model_resolver.hpp"
 #include "../provider/provider_factory.hpp"
@@ -121,6 +122,10 @@ ResolvedSessionModel resolve_session_model(const SessionRegistryDeps& deps,
                                            const SessionMeta* resumed_meta) {
     if (deps.config) {
         ModelProfile profile;
+        std::optional<std::string> cwd_override;
+        if (!opts.cwd.empty()) {
+            cwd_override = load_cwd_model_override(opts.cwd);
+        }
         if (!opts.model_name.empty()) {
             auto explicit_match = explicit_profile(*deps.config, opts.model_name);
             if (explicit_match.has_value()) {
@@ -132,9 +137,9 @@ ResolvedSessionModel resolve_session_model(const SessionRegistryDeps& deps,
             }
         } else if (resumed_meta) {
             profile = resolve_effective_model(
-                *deps.config, std::nullopt, std::optional<SessionMeta>{*resumed_meta});
+                *deps.config, cwd_override, std::optional<SessionMeta>{*resumed_meta});
         } else {
-            profile = resolve_effective_model(*deps.config, std::nullopt, std::nullopt);
+            profile = resolve_effective_model(*deps.config, cwd_override, std::nullopt);
         }
         return resolve_from_profile(*deps.config, profile);
     }
@@ -209,7 +214,8 @@ SessionRegistry::make_entry_locked(const std::string& id,
                              entry->model_state.provider,
                              entry->model_state.model,
                              id,
-                             entry->model_state.name);
+                             entry->model_state.name,
+                             "daemon");
 
     // PermissionManager: 复制 mode + dangerous flag,rules 由调用方在初始化
     // template_permissions 时设好。session_allowed_ 不复制,各 session 独立。
@@ -309,10 +315,14 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
 
     SessionManager meta_reader;
     auto [provider, model] = current_provider_model(deps_, "");
-    meta_reader.start_session(resolved.cwd, provider, model);
+    meta_reader.start_session(resolved.cwd, provider, model, "", "", "daemon");
     SessionMeta meta = meta_reader.load_session_meta(id);
 
     if (meta.id.empty()) {
+        if (meta_reader.has_incompatible_session_data(id)) {
+            LOG_WARN("[registry] resume " + id +
+                     " rejected incompatible PID-suffixed old data; delete old project session data under ~/.acecode/projects");
+        }
         return false;
     }
 
@@ -321,6 +331,10 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
     entry_opts.workspace_hash = resolved.workspace_hash;
     auto entry = make_entry_locked(id, entry_opts, &meta);
     auto messages = entry->sm->resume_session(id);
+    if (!entry->sm->last_error().empty()) {
+        LOG_WARN("[registry] resume " + id + " failed: " + entry->sm->last_error());
+        return false;
+    }
     restore_loop_history(*entry, messages);
 
     entries_.emplace(id, std::move(entry));
