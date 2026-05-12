@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "tool/tool_executor.hpp"
+#include "utils/encoding.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -29,6 +30,22 @@ TEST(ToolCallPreview, BashLongCommandTruncated) {
     EXPECT_LE(preview.size(), static_cast<size_t>(6 + 60));
 }
 
+// 场景 2b: bash 工具,超长 UTF-8 命令包含中文时,截断必须落在码点边界上,
+// 否则 display_override 会变成非法 UTF-8,后续写 JSONL 时触发 nlohmann::json
+// 的 invalid UTF-8 异常。
+TEST(ToolCallPreview, BashLongUtf8CommandTruncatedOnCodepointBoundary) {
+    std::string long_cmd;
+    for (int i = 0; i < 21; ++i) long_cmd += "中"; // 63 bytes
+
+    nlohmann::json args = {{"command", long_cmd}};
+    auto preview = ToolExecutor::build_tool_call_preview("bash", args.dump());
+
+    std::string expected_cmd;
+    for (int i = 0; i < 19; ++i) expected_cmd += "中"; // 57 bytes
+    EXPECT_EQ(preview, "bash  " + expected_cmd + "...");
+    EXPECT_TRUE(acecode::is_valid_utf8(preview));
+}
+
 // 场景 3: file_read 工具,短路径 → 原样显示。
 TEST(ToolCallPreview, FileReadShortPath) {
     nlohmann::json args = {{"file_path", "src/main.cpp"}};
@@ -50,6 +67,26 @@ TEST(ToolCallPreview, FileEditLongPathTailKept) {
     EXPECT_EQ(preview.substr(0, 11), "file_edit  ");
     EXPECT_NE(preview.find("final_filename.cpp"), std::string::npos);
     EXPECT_NE(preview.find("..."), std::string::npos);
+}
+
+// 场景 4b: file_* 工具的路径尾部保留式截断遇到中文目录名时,同样必须保持
+// UTF-8 有效,否则 tool_call 预览或摘要字段会在落盘时崩溃。
+TEST(ToolCallPreview, FileEditLongUtf8PathRemainsValidUtf8) {
+    std::string long_path;
+    for (int i = 0; i < 20; ++i) long_path += "目录";
+    long_path += "/最终文件.cpp";
+
+    nlohmann::json args = {
+        {"file_path", long_path},
+        {"old_string", "x"},
+        {"new_string", "y"}
+    };
+    auto preview = ToolExecutor::build_tool_call_preview("file_edit", args.dump());
+
+    EXPECT_EQ(preview.substr(0, 11), "file_edit  ");
+    EXPECT_NE(preview.find("最终文件.cpp"), std::string::npos);
+    EXPECT_NE(preview.find("..."), std::string::npos);
+    EXPECT_TRUE(acecode::is_valid_utf8(preview));
 }
 
 // 场景 5: 未知工具 → 返回空字符串,TUI fallback 到 legacy 渲染。

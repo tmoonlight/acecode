@@ -568,7 +568,7 @@ void AgentLoop::run_agent_with_display(const std::string& user_message,
             if (!exec_cmd.empty()) cmd_preview = exec_cmd;
             else if (!exec_path.empty()) cmd_preview = exec_path;
             else cmd_preview = tc.function_name;
-            if (cmd_preview.size() > 60) cmd_preview = cmd_preview.substr(0, 57) + "...";
+            cmd_preview = truncate_utf8_prefix(cmd_preview, 60);
 
             std::string display_override =
                 ToolExecutor::build_tool_call_preview(tc.function_name, tc.function_arguments);
@@ -1006,7 +1006,7 @@ void AgentLoop::run_shell(const std::string& command) {
     if (tools_.has_tool("bash")) {
         // Same progress plumbing as the agent-driven bash path.
         std::string cmd_preview = command;
-        if (cmd_preview.size() > 60) cmd_preview = cmd_preview.substr(0, 57) + "...";
+        cmd_preview = truncate_utf8_prefix(cmd_preview, 60);
 
         struct ProgressState {
             std::string current_line;

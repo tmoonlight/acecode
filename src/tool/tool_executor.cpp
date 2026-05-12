@@ -87,7 +87,7 @@ std::string ToolExecutor::build_tool_call_preview(const std::string& tool_name,
         if (tool_name == "bash") {
             if (j.contains("command") && j["command"].is_string()) {
                 std::string cmd = j["command"].get<std::string>();
-                if (cmd.size() > 60) cmd = cmd.substr(0, 57) + "...";
+                cmd = truncate_utf8_prefix(cmd, 60);
                 return tool_name + "  " + cmd;
             }
         } else if (tool_name == "file_read" || tool_name == "file_write" ||
@@ -95,7 +95,7 @@ std::string ToolExecutor::build_tool_call_preview(const std::string& tool_name,
             if (j.contains("file_path") && j["file_path"].is_string()) {
                 std::string p = j["file_path"].get<std::string>();
                 // Tail-truncate long paths so the filename stays visible.
-                if (p.size() > 40) p = "..." + p.substr(p.size() - 37);
+                p = truncate_utf8_suffix(p, 40);
                 return tool_name + "  " + p;
             }
         }

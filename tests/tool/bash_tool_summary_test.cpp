@@ -12,9 +12,11 @@
 
 #include "tool/bash_tool.hpp"
 #include "tool/tool_executor.hpp"
+#include "utils/encoding.hpp"
 
 #include <nlohmann/json.hpp>
 #include <chrono>
+#include <filesystem>
 #include <string>
 
 using acecode::create_bash_tool;
@@ -75,6 +77,26 @@ TEST(BashToolSummary, FailedExitCodeAppearsInMetrics) {
     EXPECT_EQ(get_metric(*r.summary, "exit"), "2");
 }
 
+// 场景 2b: summary.object 对超长中文命令做预览时,必须按 UTF-8 码点边界
+// 截断;否则 session JSONL 持久化该摘要字段时会触发 invalid UTF-8。
+TEST(BashToolSummary, Utf8CommandPreviewRemainsValidUtf8) {
+    ToolImpl tool = create_bash_tool();
+
+    std::string long_cmd;
+    for (int i = 0; i < 21; ++i) long_cmd += "中"; // 63 bytes
+
+    nlohmann::json args = {{"command", long_cmd}};
+    ToolContext ctx;
+    ToolResult r = tool.execute(args.dump(), ctx);
+
+    ASSERT_TRUE(r.summary.has_value());
+    std::string expected_preview;
+    for (int i = 0; i < 19; ++i) expected_preview += "中";
+    expected_preview += "...";
+    EXPECT_EQ(r.summary->object, expected_preview);
+    EXPECT_TRUE(acecode::is_valid_utf8(r.summary->object));
+}
+
 #ifdef _WIN32
 // 场景 3 (Windows only,回归测试,2026-05-08 由 agent-browser 触发):
 //
@@ -118,6 +140,36 @@ TEST(BashToolWinPipeDrain, ReturnsPromptlyWhenGrandchildHoldsPipe) {
     EXPECT_TRUE(r.success);
     // 父 cmd 在 echo done 后 exit;输出里应该看到 "done"。
     EXPECT_NE(r.output.find("done"), std::string::npos);
+}
+
+// 场景 4 (Windows only,中文路径回归): bash_tool 必须能在 UTF-8 的 cwd 中执行
+// Windows 命令并创建中文目录。修复前 CreateProcessA/窄字节 cwd 会把中文路径
+// 交给 ANSI API,导致找不到工作目录或创建出的目录名乱码。
+TEST(BashToolWinUnicodePath, CanCreateChineseDirectoryInUnicodeCwd) {
+    ToolImpl tool = create_bash_tool();
+
+    namespace fs = std::filesystem;
+    const auto unique = std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const fs::path root = fs::temp_directory_path() /
+        fs::path(acecode::utf8_to_wide("acecode-中文-cwd-" + unique));
+    const fs::path child = root / fs::path(L"新建目录");
+    fs::create_directories(root);
+
+    nlohmann::json args = {
+        {"command", "mkdir \"新建目录\" && if exist \"新建目录\" (echo ok) else (echo miss & exit 1)"},
+        {"cwd", acecode::wide_to_utf8(root.wstring())},
+        {"timeout_ms", 30000},
+    };
+    ToolContext ctx;
+    ToolResult r = tool.execute(args.dump(), ctx);
+
+    EXPECT_TRUE(r.success) << r.output;
+    EXPECT_TRUE(fs::is_directory(child));
+    EXPECT_NE(r.output.find("ok"), std::string::npos);
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
 }
 #endif
 

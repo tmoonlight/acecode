@@ -81,9 +81,7 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
                             bool was_aborted, bool was_timed_out) {
         ToolSummary s;
         s.verb = "Ran";
-        std::string preview = cmd;
-        if (preview.size() > 60) preview = preview.substr(0, 57) + "...";
-        s.object = preview;
+        s.object = truncate_utf8_prefix(cmd, 60);
         s.metrics.emplace_back("time", format_duration_compact(duration_ms));
         s.metrics.emplace_back("bytes", format_bytes_compact(total_bytes_out));
         if (!is_success && exit_code != 0) {
@@ -100,7 +98,15 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
              " timeout=" + std::to_string(timeout_ms) +
              " stdin_inputs=" + std::to_string(stdin_inputs.size()));
 
-    if (!cwd.empty() && !std::filesystem::is_directory(cwd)) {
+#ifdef _WIN32
+    std::filesystem::path cwd_path = cwd.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::path(utf8_to_wide(cwd));
+#else
+    std::filesystem::path cwd_path = cwd;
+#endif
+
+    if (!cwd.empty() && !std::filesystem::is_directory(cwd_path)) {
         ToolResult r{"[Error] Working directory does not exist: " + cwd, false};
         r.summary = make_summary(command, 0, 0, -1, false, false, false, false);
         return r;
@@ -147,7 +153,7 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
     }
     SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOA si = {};
+    STARTUPINFOW si = {};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = hWritePipe;
@@ -155,12 +161,19 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
 
     PROCESS_INFORMATION pi = {};
 
-    std::string full_cmd = "cmd.exe /c " + command;
-    const char* cwd_ptr = cwd.empty() ? nullptr : cwd.c_str();
+    std::wstring full_cmd = L"cmd.exe /c " + utf8_to_wide(command);
+    std::vector<wchar_t> full_cmd_buffer(full_cmd.begin(), full_cmd.end());
+    full_cmd_buffer.push_back(L'\0');
 
-    BOOL ok = CreateProcessA(
+    std::wstring wide_cwd;
+    if (!cwd.empty()) {
+        wide_cwd = utf8_to_wide(cwd);
+    }
+    const wchar_t* cwd_ptr = wide_cwd.empty() ? nullptr : wide_cwd.c_str();
+
+    BOOL ok = CreateProcessW(
         nullptr,
-        const_cast<char*>(full_cmd.c_str()),
+        full_cmd_buffer.data(),
         nullptr, nullptr, TRUE,
         CREATE_NO_WINDOW,
         nullptr,

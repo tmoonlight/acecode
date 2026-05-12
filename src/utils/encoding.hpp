@@ -97,6 +97,36 @@ inline std::string wide_to_utf8(const std::wstring& wide) {
 }
 #endif
 
+inline std::string truncate_utf8_prefix(const std::string& src,
+                                        size_t max_bytes,
+                                        const std::string& suffix = "...") {
+    if (src.size() <= max_bytes) return src;
+    if (max_bytes <= suffix.size()) return suffix.substr(0, max_bytes);
+
+    size_t cut = max_bytes - suffix.size();
+    while (cut > 0) {
+        unsigned char b = static_cast<unsigned char>(src[cut]);
+        if ((b & 0xC0) != 0x80) break;
+        --cut;
+    }
+    return src.substr(0, cut) + suffix;
+}
+
+inline std::string truncate_utf8_suffix(const std::string& src,
+                                        size_t max_bytes,
+                                        const std::string& prefix = "...") {
+    if (src.size() <= max_bytes) return src;
+    if (max_bytes <= prefix.size()) return prefix.substr(0, max_bytes);
+
+    size_t start = src.size() - (max_bytes - prefix.size());
+    while (start < src.size()) {
+        unsigned char b = static_cast<unsigned char>(src[start]);
+        if ((b & 0xC0) != 0x80) break;
+        ++start;
+    }
+    return prefix + src.substr(start);
+}
+
 // Ensure a string is valid UTF-8. On Windows, tries codepage conversion first.
 // Falls back to replacing invalid bytes with '?'.
 inline std::string ensure_utf8(const std::string& src) {
