@@ -2,7 +2,24 @@
 
 #include "../utils/logger.hpp"
 
+#include <filesystem>
+#include <fstream>
+
 namespace acecode::desktop {
+
+namespace {
+
+// 读 run_dir 下的单个文本文件，去除尾部换行。失败返回空字符串。
+std::string read_run_file(const std::string& dir, const char* fname) {
+    namespace fs = std::filesystem;
+    std::ifstream f(fs::path(dir) / fname, std::ios::binary);
+    if (!f.is_open()) return "";
+    std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+    return s;
+}
+
+} // namespace
 
 DaemonPool::~DaemonPool() {
     // 不主动 stop_all — 让调用方控制(quit 时显式调,析构时机可能在异常路径上)。
@@ -104,6 +121,29 @@ ActivateResult DaemonPool::activate(const ActivateRequest& req,
         } else {
             ok = slot->sup->wait_until_ready(port, wait_timeout);
             if (!ok) err = "wait_until_ready timed out / daemon exited early";
+        }
+    }
+
+    // POSIX/macOS: daemon 没有类似 Windows Job Object 的父死子死机制。
+    // 若 desktop 上次正常退出但 daemon 以孤儿进程形式继续运行,下次 spawn
+    // 新 daemon 时会因"already running"而立刻退出。
+    // 处理:spawn 失败后检查 run_dir 内的 port/token 文件,若原有 daemon 仍
+    // 在监听则直接复用(adopt),跳过重新 spawn。
+    if (!ok && !req.run_dir.empty()) {
+        std::string rport_s = read_run_file(req.run_dir, "daemon.port");
+        std::string rtoken   = read_run_file(req.run_dir, "token");
+        if (!rport_s.empty() && !rtoken.empty()) {
+            try {
+                int rport = std::stoi(rport_s);
+                if (probe_loopback_port(rport)) {
+                    port  = rport;
+                    token = rtoken;
+                    ok    = true;
+                    err.clear();
+                    LOG_INFO("[daemon_pool] reclaimed existing daemon at port=" +
+                             rport_s + " for hash=" + req.hash);
+                }
+            } catch (...) {}
         }
     }
 

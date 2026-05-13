@@ -75,6 +75,10 @@ private:
     Impl* impl_;
 };
 
+// 工具: 对 loopback:port 做一次 TCP connect 探测。端口可连接返回 true。
+// 用于在不持有 DaemonSupervisor 的情况下探测外部已有 daemon 是否存活。
+bool probe_loopback_port(int port);
+
 // 工具: 选一个 loopback 空闲端口。失败返回 0。用 ::bind(:0) + getsockname
 // 拿系统分配的端口,然后立刻关闭 socket。
 // 注意: TOCTOU — 拿到端口和 daemon bind 之间窗口期里端口可能被别人抢,

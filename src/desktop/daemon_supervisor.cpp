@@ -579,4 +579,8 @@ std::string make_auth_token() {
     return acecode::generate_auth_token();
 }
 
+bool probe_loopback_port(int port) {
+    return tcp_probe(port);
+}
+
 } // namespace acecode::desktop
