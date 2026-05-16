@@ -759,6 +759,28 @@ static std::string clipboard_paste_status_message(
     }
 }
 
+static std::string clipboard_copy_status_message(
+    acecode::ClipboardTextWriteResult::Status status) {
+    using Status = acecode::ClipboardTextWriteResult::Status;
+    switch (status) {
+        case Status::TooLarge:
+            return "Clipboard text too large (max " +
+                   std::to_string(acecode::kMaxClipboardTextBytes / (1024 * 1024)) +
+                   " MB)";
+        case Status::Unavailable:
+#ifdef _WIN32
+            return "Clipboard copy unavailable";
+#elif defined(__APPLE__)
+            return "Clipboard copy unavailable (pbcopy failed)";
+#else
+            return "Clipboard copy unavailable (install wl-clipboard, xclip, or xsel)";
+#endif
+        case Status::Success:
+        default:
+            return "";
+    }
+}
+
 struct CliOptions {
     bool dangerous_mode = false;
     bool run_configure_cmd = false;
@@ -3074,38 +3096,37 @@ static int run_interactive_app(const CliOptions& cli,
             auto& mouse = event.mouse();
 
             // mouse-selection-copy / clipboard-paste: right-click copies the
-            // current FTXUI selection via OSC 52. With no selection, terminal
-            // mouse tracking prevents the host context menu on many Linux
-            // terminals, so use the click as an explicit clipboard paste.
+            // current FTXUI selection to the system clipboard. With no
+            // selection, terminal mouse tracking prevents the host context menu
+            // on many Linux terminals, so use the click as an explicit
+            // clipboard paste.
             if (mouse.button == Mouse::Right && mouse.motion == Mouse::Pressed) {
                 std::string sel = screen.GetSelection();
                 if (sel.empty()) {
                     return paste_system_clipboard_text();
                 }
                 auto clipboard_write = acecode::write_system_clipboard_text(sel);
-                bool copied = static_cast<bool>(clipboard_write);
-                const char* copy_method = "system clipboard";
-                if (!copied &&
+                std::string status_msg;
+                if (clipboard_write) {
+                    status_msg = "Copied " + std::to_string(sel.size()) +
+                                 " bytes to clipboard";
+                    LOG_INFO("Copied " + std::to_string(sel.size()) +
+                             " bytes to clipboard via system clipboard");
+                } else if (
                     clipboard_write.status != ClipboardTextWriteResult::Status::TooLarge) {
                     std::string seq = "\x1b]52;c;" + base64_encode(sel) + "\x1b\\";
                     std::fwrite(seq.data(), 1, seq.size(), stdout);
                     std::fflush(stdout);
-                    copied = true;
-                    copy_method = "OSC 52";
+                    status_msg = "Sent OSC 52 copy request";
+                    LOG_INFO("Sent OSC 52 copy request for " +
+                             std::to_string(sel.size()) + " bytes");
+                } else {
+                    status_msg = clipboard_copy_status_message(clipboard_write.status);
+                    LOG_WARN(status_msg);
                 }
-                LOG_INFO("Copied " + std::to_string(sel.size()) +
-                         " bytes to clipboard via " + copy_method);
                 {
                     std::lock_guard<std::mutex> lk(state.mu);
-                    std::string msg;
-                    if (copied) {
-                        // sel.size() is a byte count, not a codepoint count.
-                        msg = "Copied " + std::to_string(sel.size()) +
-                              " bytes to clipboard";
-                    } else {
-                        msg = "Clipboard copy failed";
-                    }
-                    set_transient_status_line_locked(state, msg);
+                    set_transient_status_line_locked(state, status_msg);
                 }
                 screen.PostEvent(Event::Custom);
                 return true;
