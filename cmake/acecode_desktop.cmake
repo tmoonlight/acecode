@@ -80,6 +80,13 @@ target_link_libraries(acecode-desktop PRIVATE
     ftxui::component
 )
 
+if(NOT APPLE)
+    # Flat development/package layouts expect the daemon binary beside the
+    # desktop shell. Make `cmake --build --target acecode-desktop` produce both
+    # executables on Windows and Linux.
+    add_dependencies(acecode-desktop acecode)
+endif()
+
 # ole32 / shell32: folder_picker_win.cpp 用 IFileOpenDialog 的 COM 路径需要它们。
 # folder_picker_win.cpp 在 acecode_testable 里,所以这里不必单独 link;但为了让
 # acecode_unit_tests 也能链通,再在 acecode_testable 一侧添加(见根 CMakeLists)。

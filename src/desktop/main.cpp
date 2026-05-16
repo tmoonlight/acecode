@@ -61,6 +61,10 @@
 #ifdef __APPLE__
 #  include <mach-o/dyld.h>
 #endif
+#if !defined(_WIN32) && !defined(__APPLE__)
+#  include <limits.h>
+#  include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -132,6 +136,21 @@ bool desktop_webapp_requested(int argc, char** argv) {
 }
 
 std::string desktop_exe_dir() {
+    std::vector<char> buf(static_cast<size_t>(PATH_MAX) + 1);
+    ssize_t n = ::readlink("/proc/self/exe", buf.data(), buf.size() - 1);
+    if (n > 0) {
+        buf[static_cast<size_t>(n)] = '\0';
+        fs::path exe(buf.data());
+        std::error_code ec;
+        fs::path resolved = fs::weakly_canonical(exe, ec);
+        if (ec) {
+            ec.clear();
+            resolved = fs::absolute(exe, ec);
+            if (ec) resolved = exe;
+        }
+        return acecode::path_to_utf8(resolved.parent_path());
+    }
+
     std::error_code ec;
     auto p = fs::current_path(ec);
     if (ec) return "";

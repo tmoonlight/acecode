@@ -103,7 +103,9 @@ cmake -S . -B build -G Ninja \
 cmake --build build --target acecode-desktop
 ```
 
-On macOS, this target produces `build/ACECode.app`. On Windows, it produces `acecode-desktop.exe`.
+On Linux, install the WebKitGTK development package before configuring the desktop target, for example `sudo apt install libwebkit2gtk-4.1-dev` on Ubuntu 24.04. At runtime the system WebKitGTK library is required, for example `libwebkit2gtk-4.1-0` on Ubuntu.
+
+On macOS, this target produces `build/ACECode.app`. On Windows and Linux, it produces a flat layout with `acecode-desktop` and the colocated `acecode` daemon executable in the build directory.
 
 ### Windows Notes
 
@@ -173,7 +175,7 @@ Service mode uses the platform service data directory rather than the normal use
 
 ### Desktop Shell
 
-The optional `acecode-desktop` target wraps the web UI in a native desktop shell. It can track multiple workspaces through a shared daemon process. Build it with `-DACECODE_BUILD_DESKTOP=ON`; see [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md) for the current model.
+The optional `acecode-desktop` target wraps the web UI in a native desktop shell. It can track multiple workspaces through a shared daemon process. Build it with `-DACECODE_BUILD_DESKTOP=ON`; on Linux it uses WebKitGTK through `webview/webview`. See [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md) for the current model.
 
 ## TUI Usage
 
