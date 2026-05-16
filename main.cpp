@@ -27,6 +27,7 @@
 #include <imm.h>
 #pragma comment(lib, "Imm32.lib")
 #else
+#include <termios.h>
 #include <unistd.h>
 #endif
 
@@ -451,6 +452,41 @@ static void reset_cursor() {
     // DECTCEM: show cursor (ESC [ ? 25 h)
     write_terminal_control_sequence("\033[?25h");
 }
+
+static void flush_terminal_input_buffer() {
+#ifdef _WIN32
+    auto stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
+    if (stdin_handle == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    FlushConsoleInputBuffer(stdin_handle);
+#else
+    if (isatty(STDIN_FILENO)) {
+        tcflush(STDIN_FILENO, TCIFLUSH);
+    }
+#endif
+}
+
+#ifndef ACECODE_TUI_INPUT_TRACE
+#define ACECODE_TUI_INPUT_TRACE 0
+#endif
+
+#if ACECODE_TUI_INPUT_TRACE
+static std::string box_for_log(const Box& box) {
+    return "[" + std::to_string(box.x_min) + "," +
+           std::to_string(box.y_min) + "]-[" +
+           std::to_string(box.x_max) + "," +
+           std::to_string(box.y_max) + "]";
+}
+
+static std::string event_for_log(const Event& event) {
+    if (event.is_character()) {
+        return "Event::Character(bytes=" +
+               std::to_string(event.character().size()) + ")";
+    }
+    return event.DebugString();
+}
+#endif
 
 // ---- Session finalization on exit ----
 static SessionManager* g_session_manager = nullptr;
@@ -1234,9 +1270,11 @@ static void run_tui_loop(ftxui::ScreenInteractive& screen,
     // the paste accumulator in the CatchEvent body intercepts them before
     // normal Return / character handlers run — preventing pasted newlines
     // from accidentally submitting partial prompts.
+    flush_terminal_input_buffer();
     write_terminal_control_sequence(acecode::tui::kBracketedPasteEnableSeq);
     screen.Loop(renderer);
     write_terminal_control_sequence(acecode::tui::kBracketedPasteDisableSeq);
+    flush_terminal_input_buffer();
 }
 
 static void shutdown_after_tui_loop(TuiState& state,
@@ -2121,6 +2159,33 @@ static int run_interactive_app(const CliOptions& cli,
 
     // Wrap with CatchEvent to handle all keyboard input
     auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &message_line_counts, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text](Event event) {
+#if ACECODE_TUI_INPUT_TRACE
+        if (event != Event::Custom &&
+            !event.is_cursor_position() &&
+            !event.is_cursor_shape()) {
+            std::string state_snapshot;
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                state_snapshot =
+                    " ask=" + std::string(state.ask_pending ? "1" : "0") +
+                    " confirm=" + std::string(state.confirm_pending ? "1" : "0") +
+                    " exit_confirm=" + std::string(state.exit_confirm_pending ? "1" : "0") +
+                    " resume=" + std::string(state.resume_picker_active ? "1" : "0") +
+                    " model=" + std::string(state.model_picker_open ? "1" : "0") +
+                    " waiting=" + std::string(state.is_waiting ? "1" : "0") +
+                    " tool=" + std::string(state.tool_running ? "1" : "0") +
+                    " focus=" + std::to_string(state.chat_focus_index) +
+                    " line_offset=" + std::to_string(state.chat_line_offset) +
+                    " follow_tail=" + std::string(state.chat_follow_tail ? "1" : "0");
+            }
+            LOG_DEBUG("[input] received " + event_for_log(event) +
+                      " chat_box=" + box_for_log(chat_box) +
+                      " scrollbar_box=" + box_for_log(scrollbar_box) +
+                      " ask_scrollbar_box=" + box_for_log(ask_scrollbar_box) +
+                      state_snapshot);
+        }
+#endif
+
         // drag-autoscroll: 事件线程入口处消费 anim_thread 攒下的 selection 偏移
         // 补偿. 所有对 FTXUI selection_data_ 的写都发生在这条路径上, 跟
         // HandleSelection 串行 — 避免跨线程数据竞争. 不 return, 让事件继续正常处理.
@@ -2295,14 +2360,52 @@ static int run_interactive_app(const CliOptions& cli,
                 if (event.is_mouse()) {
                     auto& mouse = event.mouse();
                     constexpr int WHEEL_LINES = 3;
+#if ACECODE_TUI_INPUT_TRACE
+                    LOG_DEBUG("[input] ask overlay mouse path " +
+                              event_for_log(event) +
+                              " ask_scroll_offset=" +
+                              std::to_string(state.ask_scroll_offset) +
+                              " ask_rows=" +
+                              std::to_string(state.ask_scroll_total_rows) +
+                              "/" +
+                              std::to_string(state.ask_scroll_visible_rows) +
+                              " ask_scrollbar=" +
+                              box_for_log(ask_scrollbar_box));
+#endif
                     if (mouse.button == Mouse::WheelUp) {
-                        if (scroll_ask_by_lines(-WHEEL_LINES)) {
+#if ACECODE_TUI_INPUT_TRACE
+                        const int before = state.ask_scroll_offset;
+#endif
+                        const bool changed = scroll_ask_by_lines(-WHEEL_LINES);
+#if ACECODE_TUI_INPUT_TRACE
+                        LOG_DEBUG("[input] ask wheel up delta=-" +
+                                  std::to_string(WHEEL_LINES) +
+                                  " before=" + std::to_string(before) +
+                                  " after=" +
+                                  std::to_string(state.ask_scroll_offset) +
+                                  " changed=" +
+                                  std::string(changed ? "1" : "0"));
+#endif
+                        if (changed) {
                             screen.PostEvent(Event::Custom);
                         }
                         return true;
                     }
                     if (mouse.button == Mouse::WheelDown) {
-                        if (scroll_ask_by_lines(WHEEL_LINES)) {
+#if ACECODE_TUI_INPUT_TRACE
+                        const int before = state.ask_scroll_offset;
+#endif
+                        const bool changed = scroll_ask_by_lines(WHEEL_LINES);
+#if ACECODE_TUI_INPUT_TRACE
+                        LOG_DEBUG("[input] ask wheel down delta=" +
+                                  std::to_string(WHEEL_LINES) +
+                                  " before=" + std::to_string(before) +
+                                  " after=" +
+                                  std::to_string(state.ask_scroll_offset) +
+                                  " changed=" +
+                                  std::string(changed ? "1" : "0"));
+#endif
+                        if (changed) {
                             screen.PostEvent(Event::Custom);
                         }
                         return true;
@@ -2985,7 +3088,7 @@ static int run_interactive_app(const CliOptions& cli,
         }
         if (event == Event::PageUp) {
             std::lock_guard<std::mutex> lk(state.mu);
-            // /page-step on 开关:把 PgUp 当作单行滚动,等同 Alt+↑.
+            // page_keys_single_line 默认开启:把 PgUp 当作单行滚动,等同 Alt+↑.
             // 适用于吞掉 Alt+方向键序列的终端 (老 conhost / Cmder / 部分 SSH 客户端).
             int step = config.tui.page_keys_single_line
                 ? 1
@@ -3262,20 +3365,78 @@ static int run_interactive_app(const CliOptions& cli,
             }
 
             std::lock_guard<std::mutex> lk(state.mu);
-            if (!chat_box.Contain(mouse.x, mouse.y)) {
+            const bool is_wheel_event = mouse.button == Mouse::WheelUp ||
+                                        mouse.button == Mouse::WheelDown;
+            const bool chat_mouse_target = acecode::tui::is_chat_mouse_target(
+                mouse.x, mouse.y, chat_box.x_min, chat_box.y_min,
+                chat_box.x_max, chat_box.y_max, is_wheel_event);
+            if (!chat_mouse_target) {
+#if ACECODE_TUI_INPUT_TRACE
+                if (is_wheel_event) {
+                    LOG_DEBUG("[input] chat wheel ignored outside chat_box " +
+                              event_for_log(event) +
+                              " chat_box=" + box_for_log(chat_box));
+                }
+#endif
                 return false;
             }
+#if ACECODE_TUI_INPUT_TRACE
+            if (is_wheel_event && !chat_box.Contain(mouse.x, mouse.y)) {
+                LOG_DEBUG("[input] chat wheel accepted above chat_box for "
+                          "terminal origin mismatch " +
+                          event_for_log(event) +
+                          " chat_box=" + box_for_log(chat_box));
+            }
+#endif
 
             // 鼠标滚轮按行滚动 (3 行/notch, Win 默认值), 长消息不再被一格掠过。
             constexpr int WHEEL_LINES = 3;
             if (mouse.button == Mouse::WheelUp) {
-                if (scroll_chat_by_lines(-WHEEL_LINES) != 0) {
+#if ACECODE_TUI_INPUT_TRACE
+                const int before_focus = state.chat_focus_index;
+                const int before_offset = state.chat_line_offset;
+                const bool before_tail = state.chat_follow_tail;
+#endif
+                const int actual = scroll_chat_by_lines(-WHEEL_LINES);
+#if ACECODE_TUI_INPUT_TRACE
+                LOG_DEBUG("[input] chat wheel up delta=-" +
+                          std::to_string(WHEEL_LINES) +
+                          " actual=" + std::to_string(actual) +
+                          " focus=" + std::to_string(before_focus) +
+                          "->" + std::to_string(state.chat_focus_index) +
+                          " offset=" + std::to_string(before_offset) +
+                          "->" + std::to_string(state.chat_line_offset) +
+                          " follow_tail=" +
+                          std::string(before_tail ? "1" : "0") +
+                          "->" +
+                          std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+                if (actual != 0) {
                     screen.PostEvent(Event::Custom);
                 }
                 return true;
             }
             if (mouse.button == Mouse::WheelDown) {
-                if (scroll_chat_by_lines(WHEEL_LINES) != 0) {
+#if ACECODE_TUI_INPUT_TRACE
+                const int before_focus = state.chat_focus_index;
+                const int before_offset = state.chat_line_offset;
+                const bool before_tail = state.chat_follow_tail;
+#endif
+                const int actual = scroll_chat_by_lines(WHEEL_LINES);
+#if ACECODE_TUI_INPUT_TRACE
+                LOG_DEBUG("[input] chat wheel down delta=" +
+                          std::to_string(WHEEL_LINES) +
+                          " actual=" + std::to_string(actual) +
+                          " focus=" + std::to_string(before_focus) +
+                          "->" + std::to_string(state.chat_focus_index) +
+                          " offset=" + std::to_string(before_offset) +
+                          "->" + std::to_string(state.chat_line_offset) +
+                          " follow_tail=" +
+                          std::string(before_tail ? "1" : "0") +
+                          "->" +
+                          std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+                if (actual != 0) {
                     screen.PostEvent(Event::Custom);
                 }
                 return true;

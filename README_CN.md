@@ -200,7 +200,7 @@ acecode service uninstall
 | `/proxy` | 查看、刷新或覆盖 LLM/API 请求使用的 HTTP 代理。 |
 | `/websearch` | 查看或切换联网搜索 backend。 |
 | `/title` | 设置或显示终端标题。 |
-| `/page-step` | 切换单行 PgUp/PgDn 滚动。 |
+| `/page-step` | 在默认单行 PgUp/PgDn 和按页滚动之间切换。 |
 | `/models` | 检查内置 models.dev registry。 |
 | `/exit` | 退出 ACECode。 |
 

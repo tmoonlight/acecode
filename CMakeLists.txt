@@ -9,6 +9,8 @@ endif()
 
 project(acecode VERSION 0.1.6 LANGUAGES C CXX)
 
+option(ACECODE_TUI_INPUT_TRACE "Enable verbose TUI input event trace logging." OFF)
+
 # CTest integration: defines BUILD_TESTING (default ON). Release packaging can
 # disable it with -DBUILD_TESTING=OFF to skip the test binary and the gtest
 # lookup that `tests/` performs.
@@ -227,6 +229,9 @@ target_link_libraries(acecode PRIVATE
     ftxui::screen
     ftxui::dom
     ftxui::component
+)
+target_compile_definitions(acecode PRIVATE
+    $<$<BOOL:${ACECODE_TUI_INPUT_TRACE}>:ACECODE_TUI_INPUT_TRACE=1>
 )
 
 source_group(TREE ${CMAKE_SOURCE_DIR} FILES

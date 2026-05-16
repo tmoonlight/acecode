@@ -62,4 +62,27 @@ inline int chat_bottom_anchor_top_padding_rows(
     return viewport_rows - transcript_rows;
 }
 
+inline bool is_chat_mouse_target(int mouse_x,
+                                 int mouse_y,
+                                 int chat_x_min,
+                                 int chat_y_min,
+                                 int chat_x_max,
+                                 int chat_y_max,
+                                 bool is_wheel_event) {
+    if (chat_x_min > chat_x_max || chat_y_min > chat_y_max) {
+        return false;
+    }
+    if (mouse_x < chat_x_min || mouse_x > chat_x_max) {
+        return false;
+    }
+    if (mouse_y >= chat_y_min && mouse_y <= chat_y_max) {
+        return true;
+    }
+
+    // FTXUI TerminalOutput mode can briefly subtract a stale frame origin when
+    // reusing the same terminal. Wheel events then arrive above the chat box
+    // even though the pointer is over the chat transcript.
+    return is_wheel_event && mouse_y < chat_y_min;
+}
+
 } // namespace acecode::tui

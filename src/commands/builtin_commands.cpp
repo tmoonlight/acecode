@@ -490,7 +490,7 @@ static std::string trim(const std::string& s) {
 
 // /page-step: 切换 PgUp / PgDn 是否按单行滚动. 兜底给吞 Alt+方向键的终端.
 //   /page-step              — 显示当前状态
-//   /page-step on|single    — 改为单行
+//   /page-step on|single    — 改为单行(默认)
 //   /page-step off|page     — 恢复按视口整页
 //   /page-step toggle       — 翻转
 // 改动会持久化写回 config.json (tui.page_keys_single_line).
@@ -506,14 +506,14 @@ static void cmd_page_step(CommandContext& ctx, const std::string& args) {
 
     if (a.empty()) {
         // 仅显示状态.
-    } else if (a == "on" || a == "single" || a == "line") {
+    } else if (a == "on" || a == "single" || a == "line" || a == "default") {
         desired = true;
-    } else if (a == "off" || a == "page" || a == "default") {
+    } else if (a == "off" || a == "page") {
         desired = false;
     } else if (a == "toggle") {
         desired = !flag;
     } else {
-        err = "Usage: /page-step [on|off|toggle]";
+        err = "Usage: /page-step [on|single|off|page|toggle]";
     }
 
     std::lock_guard<std::mutex> lk(ctx.state.mu);

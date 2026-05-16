@@ -200,7 +200,7 @@ The optional `acecode-desktop` target wraps the web UI in a native desktop shell
 | `/proxy` | Show, refresh, or override the HTTP proxy for LLM/API requests. |
 | `/websearch` | Show or switch the web-search backend. |
 | `/title` | Set or show the terminal title. |
-| `/page-step` | Toggle single-line PgUp/PgDn scrolling. |
+| `/page-step` | Toggle PgUp/PgDn between default single-line and page scrolling. |
 | `/models` | Inspect the bundled models.dev registry. |
 | `/exit` | Exit ACECode. |
 

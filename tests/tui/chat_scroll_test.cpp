@@ -16,6 +16,7 @@ using acecode::tui::chat_bottom_anchor_top_padding_rows;
 using acecode::tui::chat_transcript_display_rows;
 using acecode::tui::clamp_chat_line_offset;
 using acecode::tui::is_chat_tail_position;
+using acecode::tui::is_chat_mouse_target;
 using ftxui::Element;
 using ftxui::Elements;
 using ftxui::Render;
@@ -147,4 +148,20 @@ TEST(ChatScroll, EmptyOverlayPlaceholdersDoNotReserveRows) {
               "        \r\n"
               "        \r\n"
               "input   ");
+}
+
+TEST(ChatScroll, WheelAboveChatIsAcceptedForTerminalOriginMismatch) {
+    EXPECT_TRUE(is_chat_mouse_target(50, 2, 1, 5, 118, 25, true));
+}
+
+TEST(ChatScroll, NonWheelAboveChatIsRejected) {
+    EXPECT_FALSE(is_chat_mouse_target(50, 2, 1, 5, 118, 25, false));
+}
+
+TEST(ChatScroll, WheelBelowChatIsRejected) {
+    EXPECT_FALSE(is_chat_mouse_target(50, 26, 1, 5, 118, 25, true));
+}
+
+TEST(ChatScroll, DegenerateChatBoxIsRejected) {
+    EXPECT_FALSE(is_chat_mouse_target(50, 2, 1, 5, 118, 4, true));
 }
