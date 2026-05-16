@@ -554,9 +554,9 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         progress_cb
     );
 
-    const bool aborted_by_callback = (r.error.code == cpr::ErrorCode::ABORTED_BY_CALLBACK);
-    if ((abort_flag && abort_flag->load()) || aborted_by_callback) {
-        if (aborted_by_callback && accumulated.content.empty() && pending_tools.empty()) {
+    const bool user_aborted = abort_flag && abort_flag->load();
+    if (user_aborted) {
+        if (accumulated.content.empty() && pending_tools.empty()) {
             LOG_WARN("SSE request aborted by user (no-data phase or progress callback)");
         } else {
             LOG_WARN("SSE request aborted by user");
