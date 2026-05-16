@@ -103,7 +103,9 @@ cmake -S . -B build -G Ninja \
 cmake --build build --target acecode-desktop
 ```
 
-在 macOS 上，这个 target 会产出 `build/ACECode.app`；在 Windows 上会产出 `acecode-desktop.exe`。
+Linux 构建桌面 target 前需要安装 WebKitGTK 开发包，例如 Ubuntu 24.04 上的 `sudo apt install libwebkit2gtk-4.1-dev`。运行时也需要系统 WebKitGTK 库，例如 Ubuntu 上的 `libwebkit2gtk-4.1-0`。
+
+在 macOS 上，这个 target 会产出 `build/ACECode.app`；在 Windows 和 Linux 上会产出 flat layout，`acecode-desktop` 与配套的 `acecode` daemon 可执行文件位于同一个 build 目录。
 
 ### Windows 注意事项
 
@@ -173,7 +175,7 @@ acecode service uninstall
 
 ### 桌面壳
 
-可选的 `acecode-desktop` target 会把 Web UI 包装为原生桌面壳。它可以通过共享 daemon 进程跟踪多个 workspace。构建时传入 `-DACECODE_BUILD_DESKTOP=ON`；当前模型见 [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md)。
+可选的 `acecode-desktop` target 会把 Web UI 包装为原生桌面壳。它可以通过共享 daemon 进程跟踪多个 workspace。构建时传入 `-DACECODE_BUILD_DESKTOP=ON`；Linux 上通过 `webview/webview` 使用 WebKitGTK。当前模型见 [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md)。
 
 ## TUI 使用
 
@@ -239,6 +241,7 @@ MCP servers 可以在运行时添加更多工具。
 | `network` | 系统/手动代理、代理探测和 TLS 选项。 |
 | `web_search` | 联网搜索工具开关和 backend 选择。 |
 | `tui.alt_screen_mode` | 终端渲染模式。 |
+| `tui.mouse_tracking` | 是否启用 TUI 鼠标捕获；设为 `false` 可让终端显示原生右键菜单。 |
 | `desktop.notifications` | 桌面壳通知行为。 |
 | `mcp_servers` | Stdio、SSE 或 Streamable HTTP MCP server 定义。 |
 
