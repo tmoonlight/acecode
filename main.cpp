@@ -449,6 +449,18 @@ static void write_terminal_control_sequence(std::string_view seq) {
 #endif
 }
 
+static void set_ftxui_full_repaint_mode(bool enabled) {
+#ifdef _WIN32
+    _putenv_s("ACECODE_FTXUI_FULL_REPAINT", enabled ? "1" : "0");
+#else
+    if (enabled) {
+        setenv("ACECODE_FTXUI_FULL_REPAINT", "1", 1);
+    } else {
+        unsetenv("ACECODE_FTXUI_FULL_REPAINT");
+    }
+#endif
+}
+
 // ---- Reset terminal cursor visibility on exit ----
 static void reset_cursor() {
     // DECTCEM: show cursor (ESC [ ? 25 h)
@@ -1522,6 +1534,12 @@ static int run_interactive_app(const CliOptions& cli,
         config.tui.alt_screen_mode = "always";
     }
     auto render_mode = acecode::tui::decide_render_mode(config.tui, term_caps);
+    const bool conhost_compat_layout =
+        acecode::should_use_conhost_compat_layout(term_caps);
+    set_ftxui_full_repaint_mode(conhost_compat_layout);
+    if (conhost_compat_layout) {
+        render_mode = acecode::tui::ScreenRenderMode::AltScreen;
+    }
 
     maybe_add_legacy_terminal_hint(state, config, term_caps, render_mode,
                                    force_alt_screen);
@@ -2041,7 +2059,7 @@ static int run_interactive_app(const CliOptions& cli,
 
     // ---- Animation ticker thread ----
     std::atomic<bool> running{true};
-    std::thread anim_thread([&running, &anim_tick, &state, &screen, &scroll_chat_by_lines] {
+    std::thread anim_thread([&running, &anim_tick, &state, &screen, &scroll_chat_by_lines, conhost_compat_layout] {
         while (running) {
             // drag-autoscroll: 拖动到边界期间提速到 50ms 唤醒, 其他时间保持 300ms.
             // 每次唤醒前读最新 phase, 避免拖动开始后还得等一个完整的 300ms.
@@ -2051,7 +2069,9 @@ static int run_interactive_app(const CliOptions& cli,
                 fast_tick = (state.drag_phase == drag_scroll::Phase::ScrollingUp ||
                              state.drag_phase == drag_scroll::Phase::ScrollingDown);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(fast_tick ? 50 : 300));
+            const int idle_tick_ms = conhost_compat_layout ? 1000 : 300;
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(fast_tick ? 50 : idle_tick_ms));
             anim_tick++;
             // mouse-selection-copy: clear the "Copied N bytes" confirmation
             // ~2 s after the copy fired. Run before the post-event gate so we
@@ -3990,8 +4010,19 @@ static int run_interactive_app(const CliOptions& cli,
         return false;
     });
 
-    auto renderer = Renderer(input_with_esc, [&state, &screen, &version_str, &cwd_display, &chat_box, &scrollbar_box, &ask_scrollbar_box, &message_boxes, &message_layout_boxes, &message_line_counts, &message_line_count_width, &anim_tick, &input_with_esc, &permissions, dangerous_mode, &clamp_chat_focus, &chat_viewport_rows] {
+    auto renderer = Renderer(input_with_esc, [&state, &screen, &version_str, &cwd_display, &chat_box, &scrollbar_box, &ask_scrollbar_box, &message_boxes, &message_layout_boxes, &message_line_counts, &message_line_count_width, &anim_tick, &input_with_esc, &permissions, dangerous_mode, conhost_compat_layout, &clamp_chat_focus, &chat_viewport_rows] {
         std::lock_guard<std::mutex> lk(state.mu);
+        auto compat_horizontal_line = [] {
+            const int cols = Terminal::Size().dimx;
+            const int safe_cols = std::max(1, cols > 4 ? cols - 4 : cols);
+            const std::string glyph = "\xE2\x94\x80";
+            std::string line;
+            line.reserve(glyph.size() * static_cast<size_t>(safe_cols));
+            for (int i = 0; i < safe_cols; ++i) {
+                line += glyph;
+            }
+            return text(line);
+        };
 
         // drag-autoscroll: 把上一帧布局分配的未裁剪 box 高度同步到行数表,
         // 供 scroll_chat_by_lines 做按行滚动. 普通 ftxui::reflect 会在 Render
@@ -4064,24 +4095,33 @@ static int run_interactive_app(const CliOptions& cli,
         message_boxes.assign(n_msgs, Box{});
         message_layout_boxes.assign(n_msgs, Box{});
 
-        // -- Logo --
-        auto logo = vbox({
-            text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
-            text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
-            text("\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2"),
-        }) | color(Color::Cyan) | bold;
-
-        auto header = hbox({
-            text("    "),
-            logo,
-            filler(),
-            vbox({
+        Element header;
+        if (conhost_compat_layout) {
+            header = vbox({
                 text(version_str) | color(Color::GrayLight) | dim,
                 text(state.status_line) | color(Color::White),
                 text(cwd_display) | color(Color::CyanLight) | dim,
-            }),
-            text("  "),
-        }) | bgcolor(Color::RGB(0, 30, 45));
+            }) | bgcolor(Color::RGB(0, 30, 45));
+        } else {
+            // -- Logo --
+            auto logo = vbox({
+                text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
+                text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
+                text("\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2"),
+            }) | color(Color::Cyan) | bold;
+
+            header = hbox({
+                text("    "),
+                logo,
+                filler(),
+                vbox({
+                    text(version_str) | color(Color::GrayLight) | dim,
+                    text(state.status_line) | color(Color::White),
+                    text(cwd_display) | color(Color::CyanLight) | dim,
+                }),
+                text("  "),
+            }) | bgcolor(Color::RGB(0, 30, 45));
+        }
 
         // -- Messages --
         // Bottom-anchor short transcripts while following the tail. FTXUI's
@@ -4402,7 +4442,8 @@ static int run_interactive_app(const CliOptions& cli,
         auto message_view = acecode::tui::thick_vscroll_bar(
                                 std::move(message_body),
                                 /*width=*/3,
-                                scrollbar_box)
+                                scrollbar_box,
+                                conhost_compat_layout)
             | yframe | reflect(chat_box) | flex
             // mouse-selection-copy: visual feedback for drag-selection. The
             // decorator lives on the message_view so selection can span
@@ -4415,9 +4456,9 @@ static int run_interactive_app(const CliOptions& cli,
         // element instead of the thinking animation (the tool is the more
         // specific "in-progress" signal).
         Element thinking_element = emptyElement();
-        if (state.tool_running) {
+        if (!conhost_compat_layout && state.tool_running) {
             thinking_element = render_tool_progress(state);
-        } else if (state.is_waiting) {
+        } else if (!conhost_compat_layout && state.is_waiting) {
             int tick = anim_tick.load();
             int dot_count = (tick % 3) + 1; // 1, 2, 3 dots cycling
 
@@ -4645,7 +4686,8 @@ static int run_interactive_app(const CliOptions& cli,
             model_picker_element = vbox(std::move(picker_rows)) | border | color(Color::Cyan);
         }
 
-        Element slash_dropdown_element = render_slash_dropdown(state);
+        Element slash_dropdown_element =
+            render_slash_dropdown(state, conhost_compat_layout);
 
         // AskUserQuestion overlay —— 和 confirm_pending 互斥,在渲染层面
         // 显式让 ask 优先(事件层在 confirm 分支之前也已经拦截,这里只是
@@ -4740,7 +4782,9 @@ static int run_interactive_app(const CliOptions& cli,
             for (int i = 0; i < visible; ++i) {
                 const bool in_thumb =
                     overflow && i >= thumb_start && i < thumb_start + thumb_size;
-                auto bar = text(in_thumb ? " \xE2\x94\x83 " : "   ");
+                auto bar = text(in_thumb
+                    ? (conhost_compat_layout ? " | " : " \xE2\x94\x83 ")
+                    : "   ");
                 bar_rows.push_back(bar | color(in_thumb ? Color::Cyan : Color::GrayDark));
             }
 
@@ -4748,7 +4792,15 @@ static int run_interactive_app(const CliOptions& cli,
                 vbox(std::move(rows)) | flex,
                 vbox(std::move(bar_rows)) | reflect(ask_scrollbar_box),
             });
-            ask_overlay_element = body | border | color(Color::Cyan);
+            if (conhost_compat_layout) {
+                ask_overlay_element = vbox({
+                    compat_horizontal_line(),
+                    body,
+                    compat_horizontal_line(),
+                }) | color(Color::Cyan);
+            } else {
+                ask_overlay_element = body | border | color(Color::Cyan);
+            }
         }
 
         // Tool confirmation overlay —— 取代旧的单行 "y/a/n" 提示。
@@ -4873,7 +4925,52 @@ static int run_interactive_app(const CliOptions& cli,
         Element tool_timer_el = render_tool_timer_chip(state);
         Element thinking_timer_el = render_thinking_timer_chip(state);
         Element bottom_bar;
-        if (dangerous_mode) {
+        if (conhost_compat_layout) {
+            auto elapsed_secs = [](std::chrono::steady_clock::time_point start) -> long long {
+                if (start.time_since_epoch().count() == 0) return 0;
+                return static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - start).count());
+            };
+
+            Elements status_parts;
+            if (dangerous_mode) {
+                status_parts.push_back(
+                    text("  [DANGEROUS MODE]  ") | bold | color(Color::Red));
+            } else if (state.is_waiting || state.tool_running) {
+                status_parts.push_back(
+                    text("  esc / ctrl+c to interrupt  ") | dim |
+                    color(Color::GrayDark));
+            } else {
+                status_parts.push_back(
+                    text("  ctrl+p: cycle permission mode  ") | dim |
+                    color(Color::GrayDark));
+            }
+            if (state.tool_running) {
+                const long secs = elapsed_secs(state.tool_progress.start_time);
+                status_parts.push_back(
+                    text("Tool: " + state.tool_progress.tool_name + " " +
+                         std::to_string(secs) + "s  ") |
+                    bold | color(Color::Yellow));
+            } else if (state.is_waiting) {
+                const long secs = elapsed_secs(state.thinking_start_time);
+                std::string wait = "Thinking " + std::to_string(secs) + "s";
+                if (state.last_completion_tokens_authoritative > 0) {
+                    wait += " " +
+                        std::to_string(state.last_completion_tokens_authoritative) +
+                        " tok";
+                } else if (state.streaming_output_chars >= 4) {
+                    wait += " ~" +
+                        std::to_string(state.streaming_output_chars / 4) +
+                        " tok";
+                }
+                wait += "  ";
+                status_parts.push_back(text(wait) | bold | color(Color::Yellow));
+            }
+            status_parts.push_back(goal_el);
+            status_parts.push_back(token_el);
+            status_parts.push_back(text(perm_mode_str) | dim | color(Color::GrayDark));
+            bottom_bar = hbox(std::move(status_parts));
+        } else if (dangerous_mode) {
             bottom_bar = hbox({
                 text("  [DANGEROUS MODE]") | bold | color(Color::Red),
                 filler(),
@@ -4914,9 +5011,16 @@ static int run_interactive_app(const CliOptions& cli,
             ? Color::Red
             : Color::GrayLight;
 
-        return vbox({
+        Element header_separator = conhost_compat_layout
+            ? compat_horizontal_line()
+            : separatorHeavy();
+        Element prompt_separator = conhost_compat_layout
+            ? compat_horizontal_line()
+            : separatorLight();
+
+        Element root = vbox({
             header,
-            separatorHeavy() | color(Color::GrayDark),
+            header_separator | color(Color::GrayDark),
             message_view,
             resume_picker_element,
             rewind_picker_element,
@@ -4925,10 +5029,20 @@ static int run_interactive_app(const CliOptions& cli,
             confirm_overlay_element,
             slash_dropdown_element,
             thinking_element,
-            separatorLight() | color(Color::GrayDark),
+            prompt_separator | color(Color::GrayDark),
             prompt_line,
             bottom_bar,
-        }) | borderRounded | color(outer_border_color);
+        });
+
+        if (conhost_compat_layout) {
+            return vbox({
+                compat_horizontal_line() | color(outer_border_color),
+                root | flex,
+                compat_horizontal_line() | color(outer_border_color),
+            }) | flex;
+        }
+
+        return root | borderRounded | color(outer_border_color);
     });
 
     run_tui_loop(screen, renderer);

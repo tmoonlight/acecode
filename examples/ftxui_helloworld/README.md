@@ -23,6 +23,10 @@ Run:
 Press `q` or `Esc` to exit.
 
 At startup, the demo prints `CONHOST: YES` or `CONHOST: NO` before entering the
-TUI. On Windows Console Host (`conhost.exe`), it also warns that some Windows 10
-conhost setups render FTXUI output poorly. Windows Terminal is recommended for
-this demo.
+TUI. After you press Enter, it plays a centered 3D `A` startup animation for
+three rotations before creating the FTXUI screen. On Windows, `WT_SESSION` is
+treated as Windows Terminal, a visible `ConsoleWindowClass` window is treated as
+Windows Console Host (`conhost.exe`), and hidden pseudoconsole windows that
+support virtual terminal output are treated as not conhost. When conhost is
+detected, the demo also warns that some Windows 10 conhost setups render FTXUI
+output poorly.
