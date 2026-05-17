@@ -1513,7 +1513,8 @@ static int run_interactive_app(const CliOptions& cli,
     std::vector<int> message_line_counts;
     int message_line_count_width = 0;
 
-    // 终端能力探测 + render mode 决策(add-legacy-terminal-fallback)。
+    // 终端能力探测 + render mode 决策。默认 auto 走 Fullscreen,让 TUI
+    // 启动时直接撑满终端;config "never" 可回到 TerminalOutput。
     // CLI --alt-screen / -alt-screen 把 effective alt_screen_mode 临时强制为
     // "always",优先级高于 config.json,只影响本次启动,不写回。
     auto term_caps = acecode::detect_terminal_capabilities();

@@ -130,10 +130,7 @@ struct AgentLoopConfig {
 // 序列下产生的画面跳动 —— 详细背景见
 // openspec/changes/add-legacy-terminal-fallback/。
 //
-//   "auto"   = 默认。根据 detect_terminal_capabilities() 的结果决定:
-//              检测到 Windows Terminal → TerminalOutput;
-//              检测到 Cmder/ConEmu 或 legacy conhost → AltScreen;
-//              其它 / POSIX → TerminalOutput(等价历史行为)。
+//   "auto"   = 默认。走 alt-screen,让 TUI 启动时直接撑满终端。
 //   "always" = 始终走 alt-screen(\033[?1049h)。
 //   "never"  = 始终走 TerminalOutput。
 //

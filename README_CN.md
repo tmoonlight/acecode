@@ -140,7 +140,7 @@ TUI 启动后，输入需求并回车：
 ./acecode --resume            # 恢复当前项目最近一次会话
 ./acecode --resume <id>       # 恢复指定会话
 ./acecode configure           # 运行配置向导
-./acecode --alt-screen        # 本次启动强制使用 alternate screen 渲染
+./acecode --alt-screen        # 本次启动强制使用全屏 alternate screen 渲染
 ./acecode --dangerous         # 跳过权限确认；只应在沙盒中使用
 ```
 
@@ -240,7 +240,7 @@ MCP servers 可以在运行时添加更多工具。
 | `daemon`, `web` | Daemon 心跳、服务、bind、port 和静态资源设置。 |
 | `network` | 系统/手动代理、代理探测和 TLS 选项。 |
 | `web_search` | 联网搜索工具开关和 backend 选择。 |
-| `tui.alt_screen_mode` | 终端渲染模式。 |
+| `tui.alt_screen_mode` | 终端渲染模式；`auto` 默认全屏，`never` 恢复 terminal-output 模式。 |
 | `desktop.notifications` | 桌面壳通知行为。 |
 | `mcp_servers` | Stdio、SSE 或 Streamable HTTP MCP server 定义。 |
 

@@ -1,6 +1,6 @@
 // 覆盖 src/config/config.{hpp,cpp} 中 tui 段的解析与默认值,以
 // add-legacy-terminal-fallback 引入的 schema 为基线:
-//   - TuiConfig::alt_screen_mode 默认 "auto"
+//   - TuiConfig::alt_screen_mode 默认 "auto"(渲染决策层将其解释为全屏)
 //   - TuiConfig::page_keys_single_line 默认 true
 //   - tui 段缺失 → 默认值,不报错
 //   - 合法值("auto" / "always" / "never")原样接受

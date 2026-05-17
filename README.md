@@ -140,7 +140,7 @@ Read-only tools normally run automatically. File writes, edits, and shell comman
 ./acecode --resume            # Resume the latest session for this project
 ./acecode --resume <id>       # Resume a specific session
 ./acecode configure           # Run the setup wizard
-./acecode --alt-screen        # Force alternate-screen rendering for this launch
+./acecode --alt-screen        # Force fullscreen alternate-screen rendering for this launch
 ./acecode --dangerous         # Skip permission prompts; use only in a sandbox
 ```
 
@@ -240,7 +240,7 @@ Important config areas:
 | `daemon`, `web` | Daemon heartbeat, service, bind, port, and static asset settings. |
 | `network` | System/manual proxy behavior, proxy probing, and TLS options. |
 | `web_search` | Web-search tool enablement and backend choice. |
-| `tui.alt_screen_mode` | Terminal rendering mode. |
+| `tui.alt_screen_mode` | Terminal rendering mode; `auto` starts fullscreen, `never` restores terminal-output mode. |
 | `desktop.notifications` | Desktop shell notification behavior. |
 | `mcp_servers` | Stdio, SSE, or Streamable HTTP MCP server definitions. |
 
