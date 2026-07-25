@@ -147,6 +147,7 @@
 #include "tui/text_style.hpp"
 #include "tui/theme_palette.hpp"
 #include "tui/tui_helpers.hpp"
+#include "tui/vertical_scroll.hpp"
 #include "utils/terminal_theme_detect.hpp"
 #include "tui/subagent_host.hpp"
 #include "tool/spawn_subagent_tool.hpp"
@@ -3244,6 +3245,9 @@ struct TuiRendererContext {
     Box& scrollbar_box;
     Box& ask_scrollbar_box;
     Box& ask_overlay_box;
+    Box& sidebar_content_box;
+    Box& sidebar_viewport_box;
+    Box& sidebar_scrollbar_box;
     std::vector<Box>& message_boxes;
     std::vector<Box>& path_reference_boxes;
     std::vector<Box>& message_layout_boxes;
@@ -3272,6 +3276,9 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& scrollbar_box = ctx.scrollbar_box;
     auto& ask_scrollbar_box = ctx.ask_scrollbar_box;
     auto& ask_overlay_box = ctx.ask_overlay_box;
+    auto& sidebar_content_box = ctx.sidebar_content_box;
+    auto& sidebar_viewport_box = ctx.sidebar_viewport_box;
+    auto& sidebar_scrollbar_box = ctx.sidebar_scrollbar_box;
     auto& message_boxes = ctx.message_boxes;
     auto& path_reference_boxes = ctx.path_reference_boxes;
     auto& message_layout_boxes = ctx.message_layout_boxes;
@@ -3308,6 +3315,14 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     const bool show_regular_sidebar =
         !conhost_compat_layout &&
         terminal_width > kRegularSidebarThresholdCols;
+    if (!show_regular_sidebar) {
+        sidebar_content_box = Box{1, 0, 1, 0};
+        sidebar_viewport_box = Box{1, 0, 1, 0};
+        sidebar_scrollbar_box = Box{1, 0, 1, 0};
+        state.sidebar_scroll_top_row = 0;
+        state.sidebar_scrollbar_dragging = false;
+        state.sidebar_scrollbar_grab_offset_2x = 0;
+    }
     const bool hide_regular_sidebar_banner =
         show_regular_sidebar && !state.conversation.empty();
 
@@ -4649,7 +4664,10 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             version_str,
             cwd_display,
             kRegularSidebarWidthCols,
-            anim_tick.load());
+            anim_tick.load(),
+            sidebar_content_box,
+            sidebar_viewport_box,
+            sidebar_scrollbar_box);
         return hbox({
             main_root | flex,
             separator() | color(outer_border_color),
@@ -4753,6 +4771,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // It must not share hit-testing state with the chat transcript scrollbar.
     Box ask_scrollbar_box;
     Box ask_overlay_box;
+    // Ctrl+O expanded sidebar owns an independent document, viewport, and
+    // scrollbar track. These boxes are refreshed by the sidebar renderer and
+    // consumed only by sidebar mouse routing.
+    Box sidebar_content_box;
+    Box sidebar_viewport_box;
+    Box sidebar_scrollbar_box;
 
     // drag-autoscroll: 每帧渲染时由 reflect 回填每条消息的屏幕 box,
     // 下一帧 (事件线程 / anim_thread) 读这里算每条消息的行数,供
@@ -6035,7 +6059,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         };
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &path_reference_boxes, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text](Event event) {
 #if ACECODE_TUI_INPUT_TRACE
         if (event != Event::Custom &&
             !event.is_cursor_position() &&
@@ -7551,6 +7575,47 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
 
+            auto reflected_box_rows = [](const Box& box) {
+                return box.IsEmpty() ? 0 : box.y_max - box.y_min + 1;
+            };
+
+            // Ctrl+O expanded sidebar: its scrollbar has priority over the chat
+            // scrollbar and drag-selection state. The panel is non-selectable,
+            // so consuming the press does not suppress a valid text selection.
+            if (mouse.button == Mouse::Left && mouse.motion == Mouse::Pressed &&
+                sidebar_scrollbar_box.Contain(mouse.x, mouse.y)) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                const int content_rows =
+                    reflected_box_rows(sidebar_content_box);
+                const int viewport_rows =
+                    reflected_box_rows(sidebar_viewport_box);
+                if (state.transcript_expanded &&
+                    acecode::tui::vertical_max_scroll_top_row(
+                        content_rows, viewport_rows) > 0) {
+                    const int track_height =
+                        reflected_box_rows(sidebar_scrollbar_box);
+                    const auto geometry =
+                        acecode::tui::vertical_scrollbar_thumb_geometry(
+                            sidebar_scrollbar_box.y_min,
+                            track_height,
+                            content_rows,
+                            viewport_rows,
+                            state.sidebar_scroll_top_row);
+                    state.sidebar_scrollbar_dragging = true;
+                    state.sidebar_scrollbar_grab_offset_2x =
+                        acecode::tui::vertical_scrollbar_grab_offset_2x(
+                            mouse.y, geometry);
+                    state.sidebar_scroll_top_row =
+                        acecode::tui::vertical_scrollbar_y_to_top_row_with_grab(
+                            mouse.y,
+                            sidebar_scrollbar_box.y_min,
+                            geometry,
+                            state.sidebar_scrollbar_grab_offset_2x);
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+            }
+
             // draggable-thick-scrollbar: 左键 Pressed 落在滚动条列时,优先
             // 进入"拖滚动条"分支,跳过下面的 drag-select 启动。两态互斥 ——
             // 一次按下不会同时开始选区拖拽和滚动条拖拽。
@@ -7703,10 +7768,42 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.drag_scrollbar_grab_offset_2x = 0;
                 }
             }
+            if (mouse.motion == Mouse::Released) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                if (state.sidebar_scrollbar_dragging) {
+                    state.sidebar_scrollbar_dragging = false;
+                    state.sidebar_scrollbar_grab_offset_2x = 0;
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+            }
             // 终端在拖动期间发 Moved 事件, button 字段通常是 None 而不是 Left.
             // 我们靠自己维护的 drag_left_pressed 判断是否处于拖动中.
             if (mouse.motion == Mouse::Moved) {
                 std::lock_guard<std::mutex> lk(state.mu);
+                if (state.sidebar_scrollbar_dragging) {
+                    const int content_rows =
+                        reflected_box_rows(sidebar_content_box);
+                    const int viewport_rows =
+                        reflected_box_rows(sidebar_viewport_box);
+                    const int track_height =
+                        reflected_box_rows(sidebar_scrollbar_box);
+                    const auto geometry =
+                        acecode::tui::vertical_scrollbar_thumb_geometry(
+                            sidebar_scrollbar_box.y_min,
+                            track_height,
+                            content_rows,
+                            viewport_rows,
+                            state.sidebar_scroll_top_row);
+                    state.sidebar_scroll_top_row =
+                        acecode::tui::vertical_scrollbar_y_to_top_row_with_grab(
+                            mouse.y,
+                            sidebar_scrollbar_box.y_min,
+                            geometry,
+                            state.sidebar_scrollbar_grab_offset_2x);
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
                 // draggable-thick-scrollbar: 滚动条拖拽优先级高于 drag-select
                 // —— 两态互斥,Pressed 分支保证只可能进一态。直接 early return,
                 // 不让下面的 drag-autoscroll 分类运行,避免拖滚动条时选区被误激活。
@@ -7808,6 +7905,29 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             std::lock_guard<std::mutex> lk(state.mu);
             const bool is_wheel_event = mouse.button == Mouse::WheelUp ||
                                         mouse.button == Mouse::WheelDown;
+            constexpr int WHEEL_LINES = 3;
+            const bool sidebar_mouse_target =
+                state.transcript_expanded &&
+                !sidebar_viewport_box.IsEmpty() &&
+                sidebar_viewport_box.Contain(mouse.x, mouse.y);
+            if (is_wheel_event && sidebar_mouse_target) {
+                const int content_rows =
+                    reflected_box_rows(sidebar_content_box);
+                const int viewport_rows =
+                    reflected_box_rows(sidebar_viewport_box);
+                const int delta =
+                    mouse.button == Mouse::WheelUp
+                        ? -WHEEL_LINES
+                        : WHEEL_LINES;
+                const int before = state.sidebar_scroll_top_row;
+                state.sidebar_scroll_top_row =
+                    acecode::tui::vertical_scroll_top_row_by_lines(
+                        before, delta, content_rows, viewport_rows);
+                if (state.sidebar_scroll_top_row != before) {
+                    screen.PostEvent(Event::Custom);
+                }
+                return true;
+            }
             const bool chat_mouse_target = acecode::tui::is_chat_mouse_target(
                 mouse.x, mouse.y, chat_box.x_min, chat_box.y_min,
                 chat_box.x_max, chat_box.y_max, is_wheel_event);
@@ -7831,7 +7951,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 #endif
 
             // 鼠标滚轮按行滚动 (3 行/notch, Win 默认值), 长消息不再被一格掠过。
-            constexpr int WHEEL_LINES = 3;
             if (mouse.button == Mouse::WheelUp) {
                 sync_chat_line_counts_from_layout();
 #if ACECODE_TUI_INPUT_TRACE
@@ -8031,6 +8150,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (event == Event::Special(std::string(1, '\x0F'))) {
             std::lock_guard<std::mutex> lk(state.mu);
             state.transcript_expanded = !state.transcript_expanded;
+            state.sidebar_scroll_top_row = 0;
+            state.sidebar_scrollbar_dragging = false;
+            state.sidebar_scrollbar_grab_offset_2x = 0;
             screen.PostEvent(Event::Custom);
             return true;
         }
@@ -8225,6 +8347,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         scrollbar_box,
         ask_scrollbar_box,
         ask_overlay_box,
+        sidebar_content_box,
+        sidebar_viewport_box,
+        sidebar_scrollbar_box,
         message_boxes,
         path_reference_boxes,
         message_layout_boxes,

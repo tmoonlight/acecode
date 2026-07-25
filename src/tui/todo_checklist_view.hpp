@@ -99,7 +99,8 @@ inline bool todo_checklist_uses_sidebar(bool regular_sidebar_visible) {
 
 inline ftxui::Element render_todo_checklist_block(
     const std::vector<TodoItem>& todos,
-    int available_width) {
+    int available_width,
+    std::size_t max_visible = kTodoChecklistMaxVisibleItems) {
     using namespace ftxui;
     if (todos.empty()) {
         return emptyElement();
@@ -110,7 +111,9 @@ inline ftxui::Element render_todo_checklist_block(
     const int content_width = std::max(
         1, available_width - visual_width(marker_prefix));
     Elements rows;
-    for (const auto& item : todo_checklist_rows(todos, content_width)) {
+    const auto presentations =
+        todo_checklist_rows(todos, content_width, max_visible);
+    for (const auto& item : presentations) {
         Element marker = text(item.marker + " ");
         Elements content_lines;
         content_lines.reserve(item.content_lines.size());
@@ -138,9 +141,9 @@ inline ftxui::Element render_todo_checklist_block(
         rows.push_back(std::move(row));
     }
 
-    if (todos.size() > kTodoChecklistMaxVisibleItems) {
+    if (todos.size() > presentations.size()) {
         rows.push_back(
-            text("+" + std::to_string(todos.size() - kTodoChecklistMaxVisibleItems) +
+            text("+" + std::to_string(todos.size() - presentations.size()) +
                  " more") |
             readable_secondary());
     }

@@ -4,6 +4,8 @@
 #include <utility>
 #include <vector>
 
+#include "tui/vertical_scroll.hpp"
+
 namespace acecode::tui {
 
 inline int chat_line_count_at(const std::vector<int>& line_counts, int index) {
@@ -155,17 +157,11 @@ inline std::pair<int, int> chat_focus_from_display_row(
 
 inline int chat_frame_focus_y_for_scroll_top(int scroll_top_row,
                                              int viewport_rows) {
-    const int top = std::max(0, scroll_top_row);
-    const int external_dim = std::max(0, viewport_rows - 1);
-    return top + external_dim / 2;
+    return vertical_frame_focus_y_for_scroll_top(
+        scroll_top_row, viewport_rows);
 }
 
-struct ChatScrollbarThumbGeometry {
-    int max_top_row = 0;
-    int scroll_range_2x = 0;
-    int thumb_size_2x = 0;
-    int thumb_top_2x = 0;
-};
+using ChatScrollbarThumbGeometry = VerticalScrollbarThumbGeometry;
 
 inline ChatScrollbarThumbGeometry chat_scrollbar_thumb_geometry(
     int track_y_min,
@@ -175,61 +171,18 @@ inline ChatScrollbarThumbGeometry chat_scrollbar_thumb_geometry(
     int viewport_rows,
     int scroll_top_row,
     const std::vector<int>& spacer_rows_after) {
-    ChatScrollbarThumbGeometry out;
-    out.thumb_top_2x = 2 * track_y_min;
-
-    const int track_2x = std::max(0, 2 * track_height);
-    if (track_2x <= 0) {
-        return out;
-    }
-
     const int content_rows =
         chat_transcript_display_rows(
             line_counts, message_count, spacer_rows_after);
-    out.max_top_row =
-        chat_max_scroll_top_row(
-            line_counts, message_count, viewport_rows, spacer_rows_after);
-    if (content_rows <= 0 || out.max_top_row <= 0) {
-        out.thumb_size_2x = track_2x;
-        return out;
-    }
-
-    const int min_thumb_2x = std::min(6, track_2x);
-    int thumb_size = static_cast<int>(
-        static_cast<long long>(2 * track_height) * track_height /
-        content_rows);
-    thumb_size = std::max(thumb_size, min_thumb_2x);
-    thumb_size = std::min(thumb_size, track_2x);
-    out.thumb_size_2x = thumb_size;
-    out.scroll_range_2x = track_2x - thumb_size;
-
-    const int clamped_top = clamp_chat_scroll_top_row(
-        scroll_top_row, line_counts, message_count, viewport_rows,
-        spacer_rows_after);
-    if (out.scroll_range_2x > 0) {
-        out.thumb_top_2x += static_cast<int>(
-            static_cast<long long>(out.scroll_range_2x) * clamped_top /
-            out.max_top_row);
-    }
-    return out;
+    return vertical_scrollbar_thumb_geometry(
+        track_y_min, track_height, content_rows, viewport_rows,
+        scroll_top_row);
 }
 
 inline int chat_scrollbar_grab_offset_2x(
     int mouse_y,
     const ChatScrollbarThumbGeometry& geometry) {
-    if (geometry.scroll_range_2x <= 0 || geometry.thumb_size_2x <= 0) {
-        return 0;
-    }
-
-    const int mouse_2x = 2 * mouse_y;
-    if (mouse_2x >= geometry.thumb_top_2x &&
-        mouse_2x <= geometry.thumb_top_2x + geometry.thumb_size_2x) {
-        return std::clamp(mouse_2x - geometry.thumb_top_2x,
-                          0, geometry.thumb_size_2x);
-    }
-
-    // Clicking the track outside the thumb centers the thumb on the pointer.
-    return geometry.thumb_size_2x / 2;
+    return vertical_scrollbar_grab_offset_2x(mouse_y, geometry);
 }
 
 inline int chat_scrollbar_y_to_top_row_with_grab(
@@ -237,18 +190,8 @@ inline int chat_scrollbar_y_to_top_row_with_grab(
     int track_y_min,
     const ChatScrollbarThumbGeometry& geometry,
     int grab_offset_2x) {
-    if (geometry.max_top_row <= 0 || geometry.scroll_range_2x <= 0) {
-        return 0;
-    }
-
-    int thumb_top_rel_2x =
-        2 * mouse_y - grab_offset_2x - 2 * track_y_min;
-    thumb_top_rel_2x =
-        std::clamp(thumb_top_rel_2x, 0, geometry.scroll_range_2x);
-
-    return static_cast<int>(
-        static_cast<long long>(thumb_top_rel_2x) * geometry.max_top_row /
-        geometry.scroll_range_2x);
+    return vertical_scrollbar_y_to_top_row_with_grab(
+        mouse_y, track_y_min, geometry, grab_offset_2x);
 }
 
 inline int chat_scrollbar_y_to_top_row(
@@ -259,17 +202,11 @@ inline int chat_scrollbar_y_to_top_row(
     int message_count,
     int viewport_rows,
     const std::vector<int>& spacer_rows_after) {
-    const int max_top =
-        chat_max_scroll_top_row(
-            line_counts, message_count, viewport_rows, spacer_rows_after);
-    if (max_top <= 0 || track_height <= 1) {
-        return 0;
-    }
-
-    int rel = mouse_y - track_y_min;
-    rel = std::clamp(rel, 0, track_height - 1);
-    return static_cast<int>(
-        static_cast<long long>(rel) * max_top / (track_height - 1));
+    const int content_rows =
+        chat_transcript_display_rows(
+            line_counts, message_count, spacer_rows_after);
+    return vertical_scrollbar_y_to_top_row(
+        mouse_y, track_y_min, track_height, content_rows, viewport_rows);
 }
 
 inline int chat_bottom_anchor_top_padding_rows(

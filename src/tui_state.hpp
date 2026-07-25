@@ -85,6 +85,11 @@ struct TuiState {
     // 展开为全文视图且 tool_call 显示参数,false 回到摘要/折叠并隐藏参数。
     // 与逐行的 Message::expanded(Ctrl+E)取或。运行期状态,不落盘。
     bool transcript_expanded = false;
+    // Ctrl+O 展开右栏使用独立的行滚动状态。它不参与 session 持久化,
+    // 也不复用 chat_scroll_top_row,避免右栏滚动改变对话焦点。
+    int sidebar_scroll_top_row = 0;
+    bool sidebar_scrollbar_dragging = false;
+    int sidebar_scrollbar_grab_offset_2x = 0;
     std::string input_text;
     // Caret byte offset within input_text. Kept UTF-8-aligned by the event
     // handler (advance/retreat skips continuation bytes, insert/erase clamp

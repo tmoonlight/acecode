@@ -242,9 +242,9 @@ foreach(_f IN LISTS
     list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES ${_f})
 endforeach()
 
-# Most TUI files stay out of acecode_testable. These focused helpers have no
-# renderer state and are used by main.cpp plus unit tests, so compile them once
-# in acecode_testable and remove them from the TUI-only source group.
+# Most TUI files stay out of acecode_testable. These focused helpers and shared
+# sidebar renderer are used by main.cpp plus unit tests, so compile them once in
+# acecode_testable and remove them from the TUI-only source group.
 set(ACECODE_TESTABLE_TUI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/markdown/markdown_formatter.cpp
     ${CMAKE_SOURCE_DIR}/src/markdown/markdown_lexer.cpp
@@ -265,10 +265,12 @@ set(ACECODE_TESTABLE_TUI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/tui/sidebar_model.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/subagent_host.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/theme_palette.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/thick_vscroll_bar.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/thinking_animation.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/thinking_heartbeat.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/tool_result_fold.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/tool_row_format.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/tui_helpers.cpp
 )
 list(APPEND ACECODE_TESTABLE_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
 list(REMOVE_ITEM ACECODE_TUI_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})

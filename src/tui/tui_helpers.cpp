@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <iterator>
 #include <random>
 #include <string>
 #include <string_view>
@@ -23,7 +24,10 @@
 #include "tui/sidebar_model.hpp"
 #include "tui/non_selectable.hpp"
 #include "tui/pending_attachment_selection.hpp"
+#include "tui/thick_vscroll_bar.hpp"
 #include "tui/todo_checklist_view.hpp"
+#include "tui/unclipped_reflect.hpp"
+#include "tui/vertical_scroll.hpp"
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"
 
@@ -391,7 +395,8 @@ void set_mcp_sidebar_servers_locked(
 static Element render_mcp_sidebar_section(
     const std::vector<TuiState::McpSidebarServer>& servers,
     int content_width,
-    int anim_tick) {
+    int anim_tick,
+    std::size_t max_servers) {
     if (servers.empty()) {
         return emptyElement();
     }
@@ -399,11 +404,10 @@ static Element render_mcp_sidebar_section(
     Elements rows;
     rows.push_back(text("MCP") | bold | color(theme().ui.text_primary));
 
-    constexpr std::size_t kMaxServers = 8;
     std::size_t shown_servers = 0;
 
     for (const auto& server : servers) {
-        if (shown_servers >= kMaxServers) {
+        if (shown_servers >= max_servers) {
             break;
         }
         ++shown_servers;
@@ -643,12 +647,22 @@ static std::vector<std::string> sidebar_title_lines(
     return lines;
 }
 
-Element render_regular_sidebar(const TuiState& state,
+Element render_regular_sidebar(TuiState& state,
                                const std::string& version_str,
                                const std::string& cwd_display,
                                int sidebar_width,
-                               int anim_tick) {
-    const int content_width = std::max(1, sidebar_width - 2);
+                               int anim_tick,
+                               Box& content_box,
+                               Box& viewport_box,
+                               Box& scrollbar_box) {
+    constexpr std::size_t kMaxCompactMcpServers = 8;
+    constexpr std::size_t kMaxCompactSidebarFiles = 10;
+    constexpr int kExpandedScrollbarWidth = 2;
+    const bool expanded = state.transcript_expanded;
+    const int horizontal_chrome =
+        expanded ? 1 + kExpandedScrollbarWidth : 2;
+    const int content_width =
+        std::max(1, sidebar_width - horizontal_chrome);
     Elements top_rows;
     for (const auto& line : sidebar_title_lines(first_user_message_title(state),
                                                 content_width)) {
@@ -656,7 +670,9 @@ Element render_regular_sidebar(const TuiState& state,
     }
 
     Element mcp_section = render_mcp_sidebar_section(
-        state.mcp_sidebar_servers, content_width, anim_tick);
+        state.mcp_sidebar_servers, content_width, anim_tick,
+        expanded ? state.mcp_sidebar_servers.size()
+                 : kMaxCompactMcpServers);
     if (!state.mcp_sidebar_servers.empty()) {
         top_rows.push_back(text(""));
         top_rows.push_back(std::move(mcp_section));
@@ -687,9 +703,9 @@ Element render_regular_sidebar(const TuiState& state,
     top_rows.push_back(sidebar_section_header(
         "Files Changed", static_cast<int>(file_changes.size())));
 
-    constexpr std::size_t kMaxSidebarFiles = 10;
     const std::size_t shown_files =
-        std::min(kMaxSidebarFiles, file_changes.size());
+        expanded ? file_changes.size()
+                 : std::min(kMaxCompactSidebarFiles, file_changes.size());
     for (std::size_t i = 0; i < shown_files; ++i) {
         top_rows.push_back(
             render_sidebar_change_row(file_changes[i], content_width));
@@ -704,7 +720,10 @@ Element render_regular_sidebar(const TuiState& state,
     Elements bottom_rows;
     if (!state.todos.empty()) {
         bottom_rows.push_back(
-            render_todo_checklist_block(state.todos, content_width));
+            render_todo_checklist_block(
+                state.todos, content_width,
+                expanded ? state.todos.size()
+                         : kTodoChecklistMaxVisibleItems));
         bottom_rows.push_back(text(""));
     }
     const bool show_bash_task =
@@ -765,16 +784,60 @@ Element render_regular_sidebar(const TuiState& state,
     }
 
     const bool is_light = theme().name == "light";
+    const Color sidebar_background =
+        is_light ? Color::RGB(240, 240, 242) : Color::RGB(18, 18, 20);
+    if (!expanded) {
+        content_box = Box{1, 0, 1, 0};
+        viewport_box = Box{1, 0, 1, 0};
+        scrollbar_box = Box{1, 0, 1, 0};
+        Element sidebar = hbox({
+            text(" "),
+            vbox({
+                vbox(std::move(top_rows)),
+                filler(),
+                vbox(std::move(bottom_rows)),
+            }) | flex,
+            text(" "),
+        }) | size(WIDTH, EQUAL, sidebar_width) |
+           bgcolor(sidebar_background);
+        return non_selectable(std::move(sidebar));
+    }
+
+    top_rows.insert(
+        top_rows.end(),
+        std::make_move_iterator(bottom_rows.begin()),
+        std::make_move_iterator(bottom_rows.end()));
+
+    const int previous_content_rows =
+        content_box.IsEmpty() ? 0 : content_box.y_max - content_box.y_min + 1;
+    const int previous_viewport_rows =
+        viewport_box.IsEmpty()
+            ? 0
+            : viewport_box.y_max - viewport_box.y_min + 1;
+    state.sidebar_scroll_top_row = clamp_vertical_scroll_top_row(
+        state.sidebar_scroll_top_row,
+        previous_content_rows,
+        previous_viewport_rows);
+    const int frame_focus_y = vertical_frame_focus_y_for_scroll_top(
+        state.sidebar_scroll_top_row, previous_viewport_rows);
+
+    Element document =
+        vbox(std::move(top_rows)) |
+        reflect_unclipped(content_box) |
+        focusPosition(0, frame_focus_y);
+    Element scrolling_document =
+        thick_vscroll_bar(
+            std::move(document),
+            kExpandedScrollbarWidth,
+            scrollbar_box) |
+        yframe |
+        flex;
     Element sidebar = hbox({
         text(" "),
-        vbox({
-            vbox(std::move(top_rows)),
-            filler(),
-            vbox(std::move(bottom_rows)),
-        }) | flex,
-        text(" "),
+        std::move(scrolling_document),
     }) | size(WIDTH, EQUAL, sidebar_width) |
-       bgcolor(is_light ? Color::RGB(240, 240, 242) : Color::RGB(18, 18, 20));
+       reflect(viewport_box) |
+       bgcolor(sidebar_background);
     return non_selectable(std::move(sidebar));
 }
 

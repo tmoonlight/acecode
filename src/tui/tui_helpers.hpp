@@ -10,6 +10,7 @@
 #include <cstddef>
 
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/box.hpp>
 #include <ftxui/screen/string.hpp>
 
 #include "tui_state.hpp"
@@ -37,10 +38,14 @@ std::string repeat_utf8_glyph(const char* glyph, int count);
 // ---- Sidebar rendering ----
 // Single composition entry point for the regular TUI sidebar. Keep sections
 // here so main.cpp cannot drift from shared sidebar behavior.
-ftxui::Element render_regular_sidebar(const TuiState& state,
+ftxui::Element render_regular_sidebar(TuiState& state,
                                       const std::string& version_str,
                                       const std::string& cwd_display,
-                                      int sidebar_width, int anim_tick);
+                                      int sidebar_width,
+                                      int anim_tick,
+                                      ftxui::Box& content_box,
+                                      ftxui::Box& viewport_box,
+                                      ftxui::Box& scrollbar_box);
 ftxui::Element render_pending_queue_block(const TuiState& state, int available_width);
 ftxui::Element render_pending_attachment_block(const TuiState& state, int available_width);
 
