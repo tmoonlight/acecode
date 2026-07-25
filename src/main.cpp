@@ -146,6 +146,8 @@
 #include "tui/tool_row_presentation.hpp"
 #include "tui/text_style.hpp"
 #include "tui/theme_palette.hpp"
+#include "tui/settings/management_center.hpp"
+#include "tui/settings/settings_center.hpp"
 #include "tui/tui_helpers.hpp"
 #include "tui/vertical_scroll.hpp"
 #include "utils/terminal_theme_detect.hpp"
@@ -6057,9 +6059,16 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         [&state, &screen](const Event& event) {
             return ::handle_pending_attachment_focus_event(state, screen, event);
         };
+    // Assigned after the chat input component is built, when the sibling
+    // Settings and Capability Management roots exist. Slash-command dispatch
+    // captures these stable function objects by reference.
+    std::function<bool(const std::string&, std::string&)>
+        open_settings_surface;
+    std::function<bool(const std::string&, std::string&)>
+        open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
 #if ACECODE_TUI_INPUT_TRACE
         if (event != Event::Custom &&
             !event.is_cursor_position() &&
@@ -7202,7 +7211,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                             ++cached;
                         }
                         cached = std::max(cached, write_result.count);
-                    }
+                    },
+                    open_settings_surface,
+                    open_management_surface
                 };
                 const size_t before_command_messages =
                     state.conversation.size();
@@ -8367,11 +8378,133 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         chat_viewport_rows,
         sync_chat_line_counts_from_layout,
     };
-    auto renderer = Renderer(input_with_esc, [&renderer_ctx] {
+    auto chat_renderer = Renderer(input_with_esc, [&renderer_ctx] {
         return render_tui_frame(renderer_ctx);
     });
 
-    run_tui_loop(screen, renderer);
+    int root_surface_index =
+        static_cast<int>(acecode::tui::settings::RootSurface::Chat);
+    auto close_full_screen_surface =
+        [&root_surface_index, &input_with_esc, &screen]() {
+            root_surface_index =
+                static_cast<int>(
+                    acecode::tui::settings::RootSurface::Chat);
+            input_with_esc->TakeFocus();
+            screen.PostEvent(Event::Custom);
+        };
+
+    acecode::tui::settings::SettingsCenter settings_center({
+        &config,
+        working_dir,
+        ACECODE_VERSION,
+        {},
+        close_full_screen_surface,
+        [&screen]() { screen.PostEvent(Event::Custom); },
+        [&screen](std::function<void()> task) {
+            screen.Post(std::move(task));
+        },
+        [&subagent_host](const std::string& model_name) {
+            return subagent_host.registry()
+                .model_profile_used_by_busy_session(model_name);
+        },
+        [&session_manager, &agent_loop, &subagent_host](
+            const std::string& session_id) {
+            if (session_manager.current_session_id() == session_id) {
+                return agent_loop.is_busy();
+            }
+            auto entry = subagent_host.registry().acquire(session_id);
+            return entry && entry->loop && entry->loop->is_busy();
+        },
+    });
+
+    acecode::tui::settings::ManagementCenter management_center({
+        &config,
+        &skill_registry,
+        &cmd_registry,
+        &mcp_manager,
+        &tools,
+        &hook_manager,
+        working_dir,
+        close_full_screen_surface,
+        [&screen]() { screen.PostEvent(Event::Custom); },
+        [&screen](std::function<void()> task) {
+            screen.Post(std::move(task));
+        },
+    });
+
+    auto foreground_surface_available = [&state](std::string& error) {
+        std::lock_guard<std::mutex> lock(state.mu);
+        if (state.ask_pending || state.confirm_pending) {
+            error =
+                "Answer the active question or permission request before "
+                "opening a full-screen settings view.";
+            return false;
+        }
+        if (state.is_waiting || state.tool_running || state.is_compacting) {
+            error =
+                "Settings can be opened when the foreground turn is idle. "
+                "Background tasks may continue running.";
+            return false;
+        }
+        return true;
+    };
+
+    open_settings_surface =
+        [&settings_center, &root_surface_index, &screen,
+         &foreground_surface_available](
+            const std::string& tab_slug, std::string& error) {
+            if (!foreground_surface_available(error)) return false;
+            if (tab_slug.empty()) {
+                settings_center.open();
+            } else {
+                auto tab =
+                    acecode::tui::settings::parse_settings_tab(tab_slug);
+                if (!tab.has_value()) {
+                    error =
+                        "Unknown /config page '" + tab_slug +
+                        "'. Use general, appearance, configuration, "
+                        "personalization, models, usage, archived, or about.";
+                    return false;
+                }
+                settings_center.open(*tab);
+            }
+            root_surface_index =
+                static_cast<int>(
+                    acecode::tui::settings::RootSurface::Settings);
+            settings_center.component()->TakeFocus();
+            screen.PostEvent(Event::Custom);
+            return true;
+        };
+    open_management_surface =
+        [&management_center, &root_surface_index, &screen,
+         &foreground_surface_available](
+            const std::string& tab_slug, std::string& error) {
+            if (!foreground_surface_available(error)) return false;
+            auto tab =
+                acecode::tui::settings::parse_management_tab(tab_slug);
+            if (!tab.has_value()) {
+                error =
+                    "Unknown capability page '" + tab_slug +
+                    "'. Use skills, mcp, connectors, tools, or hooks.";
+                return false;
+            }
+            management_center.open(*tab);
+            root_surface_index =
+                static_cast<int>(
+                    acecode::tui::settings::RootSurface::Management);
+            management_center.component()->TakeFocus();
+            screen.PostEvent(Event::Custom);
+            return true;
+        };
+
+    auto root_surface = Container::Tab(
+        {
+            chat_renderer,
+            settings_center.component(),
+            management_center.component(),
+        },
+        &root_surface_index);
+    run_tui_loop(screen, root_surface);
     // 先停 model-pool 轮询线程:它的回调按引用捕获 provider_slot/config/agent_loop,
     // 必须在这些局部变量析构前 join。g_active_screen 此时已被 run_tui_loop 清空,
     // 回调不会再 Post 到屏幕。stop() 幂等,未 start 也安全。

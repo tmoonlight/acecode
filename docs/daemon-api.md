@@ -1581,6 +1581,18 @@ stored preference. Invalid values return HTTP `400` with
 `error:"INVALID_UI_LOCALE"`; a persistence failure restores the previous
 in-memory value and returns HTTP `500` with `error:"PERSIST_FAILED"`.
 
+### Shared settings write semantics
+
+Saved-model/default-model writes and the custom-instructions,
+default-permission, desktop-notification, and upgrade routes share the same
+typed mutation path as the TUI settings center. A write acquires the process
+and interprocess config lock, reloads the latest canonical `config.json`,
+patches only the requested field or domain, validates it, and atomically
+replaces the file. This prevents a concurrent TUI/Desktop/daemon write to an
+unrelated setting from being overwritten. Validation or replacement failure
+leaves the previous canonical file and caller-confirmed in-memory state intact.
+Mutation diagnostics redact credential-bearing model fields and headers.
+
 ### `GET /api/config/custom-instructions`
 
 Returns:

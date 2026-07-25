@@ -1,5 +1,6 @@
 // routes_models.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
+#include "../../config/settings_mutations.hpp"
 
 namespace acecode::web {
 
@@ -294,26 +295,33 @@ void WebServer::Impl::register_models() {
             if (!draft) return json_err(400, "BAD_REQUEST", err);
 
             std::lock_guard<std::mutex> config_lock(app_config_mu);
-            auto rc = add_saved_model(*deps.app_config, *draft);
-            if (rc != SavedModelEditError::OK) {
-                return json_err(http_status_for_edit_error(rc),
-                                to_string(rc),
-                                "saved_models add rejected");
-            }
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->saved_models.pop_back();  // 回滚
-                return json_err(500, "PERSIST_FAILED", e.what());
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            const auto result = add_saved_model_setting(*draft, options);
+            if (!result.ok) {
+                const bool validation =
+                    result.error_kind == SettingsMutationErrorKind::Validation;
+                const bool conflict = result.error_code == "NAME_TAKEN";
+                return json_err(
+                    conflict ? 409 : (validation ? 400 : 500),
+                    validation
+                        ? (result.error_code.empty()
+                            ? "MODEL_VALIDATION"
+                            : result.error_code.c_str())
+                        : "PERSIST_FAILED",
+                    result.error);
             }
 
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            r.body = profile_to_safe_json(deps.app_config->saved_models.back()).dump();
+            const auto added = std::find_if(
+                deps.app_config->saved_models.begin(),
+                deps.app_config->saved_models.end(),
+                [&](const ModelProfile& profile) {
+                    return profile.name == draft->name;
+                });
+            r.body = profile_to_safe_json(*added).dump();
             return with_cors(req, std::move(r));
         });
 
@@ -367,24 +375,26 @@ void WebServer::Impl::register_models() {
                 }
             }
 
-            auto snapshot = deps.app_config->saved_models;
-            auto default_snapshot = deps.app_config->default_model_name;
-            auto rc = update_saved_model(*deps.app_config, url_name, *draft);
-            if (rc != SavedModelEditError::OK) {
-                return json_err(http_status_for_edit_error(rc),
-                                to_string(rc),
-                                "saved_models update rejected");
-            }
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->saved_models = std::move(snapshot);
-                deps.app_config->default_model_name = std::move(default_snapshot);
-                return json_err(500, "PERSIST_FAILED", e.what());
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            const auto result = update_saved_model_setting(
+                url_name,
+                *draft,
+                options);
+            if (!result.ok) {
+                const bool validation =
+                    result.error_kind == SettingsMutationErrorKind::Validation;
+                const bool conflict = result.error_code == "NAME_TAKEN";
+                const bool not_found = result.error_code == "NOT_FOUND";
+                return json_err(
+                    conflict ? 409 : (not_found ? 404 : (validation ? 400 : 500)),
+                    validation
+                        ? (result.error_code.empty()
+                            ? "MODEL_VALIDATION"
+                            : result.error_code.c_str())
+                        : "PERSIST_FAILED",
+                    result.error);
             }
 
             // 找到刚改完的条目(name 可能与 url_name 不同)
@@ -422,32 +432,33 @@ void WebServer::Impl::register_models() {
                 return with_cors(req, std::move(r));
             };
 
-            if (deps.session_registry &&
-                deps.session_registry->model_profile_used_by_busy_session(url_name)) {
-                return json_err(409,
-                                "MODEL_IN_USE",
-                                "model is used by a busy active session");
-            }
-
             std::lock_guard<std::mutex> config_lock(app_config_mu);
-            auto snapshot = deps.app_config->saved_models;
-            auto default_snapshot = deps.app_config->default_model_name;
-            auto rc = remove_saved_model(*deps.app_config, url_name);
-            if (rc != SavedModelEditError::OK) {
-                return json_err(http_status_for_edit_error(rc),
-                                to_string(rc),
-                                "saved_models remove rejected");
-            }
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->saved_models = std::move(snapshot);
-                deps.app_config->default_model_name = std::move(default_snapshot);
-                return json_err(500, "PERSIST_FAILED", e.what());
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            const auto result = remove_saved_model_setting(
+                url_name,
+                [this](const std::string& name) {
+                    return deps.session_registry &&
+                        deps.session_registry
+                            ->model_profile_used_by_busy_session(name);
+                },
+                options);
+            if (!result.ok) {
+                const bool validation =
+                    result.error_kind == SettingsMutationErrorKind::Validation;
+                const bool busy = result.error_code == "MODEL_IN_USE";
+                const bool not_found = result.error_code == "NOT_FOUND";
+                return json_err(
+                    busy ? 409 : (not_found ? 404 : (validation ? 400 : 500)),
+                    busy
+                        ? "MODEL_IN_USE"
+                        : (validation
+                            ? (result.error_code.empty()
+                                ? "MODEL_VALIDATION"
+                                : result.error_code.c_str())
+                            : "PERSIST_FAILED"),
+                    result.error);
             }
 
             crow::response r(200);
@@ -481,23 +492,17 @@ void WebServer::Impl::register_models() {
             std::string name = body["name"].get<std::string>();
 
             std::lock_guard<std::mutex> config_lock(app_config_mu);
-            bool found = false;
-            for (const auto& e : deps.app_config->saved_models) {
-                if (e.name == name) { found = true; break; }
-            }
-            if (!found) return json_err(404, "NOT_FOUND", "no such model name");
-
-            std::string before = deps.app_config->default_model_name;
-            deps.app_config->default_model_name = name;
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->default_model_name = before;
-                return json_err(500, "PERSIST_FAILED", e.what());
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            const auto result = set_default_model_setting(name, options);
+            if (!result.ok) {
+                const bool not_found =
+                    result.error_kind == SettingsMutationErrorKind::Validation;
+                return json_err(
+                    not_found ? 404 : 500,
+                    not_found ? "NOT_FOUND" : "PERSIST_FAILED",
+                    result.error);
             }
 
             crow::response r(200);

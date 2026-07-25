@@ -706,7 +706,7 @@ static void cmd_clear(CommandContext& ctx, const std::string& /*args*/) {
     ctx.state.chat_follow_tail = true;
 }
 
-static void cmd_config(CommandContext& ctx, const std::string& /*args*/) {
+static void show_config_summary(CommandContext& ctx) {
     // 从 slot 拿 shared_ptr 副本,保活引用不被并发 swap 拽走。
     auto provider_snap = ctx.provider_slot ? ctx.provider_slot->provider : nullptr;
     std::lock_guard<std::mutex> lk(ctx.state.mu);
@@ -721,6 +721,32 @@ static void cmd_config(CommandContext& ctx, const std::string& /*args*/) {
     }
     ctx.state.conversation.push_back({"system", oss.str(), false});
     ctx.state.chat_follow_tail = true;
+}
+
+static void cmd_config(CommandContext& ctx, const std::string& raw_args) {
+    const std::string args = trim_ascii_command(raw_args);
+    if (args == "show") {
+        show_config_summary(ctx);
+        return;
+    }
+    if (!ctx.open_settings_surface) {
+        if (args.empty()) {
+            show_config_summary(ctx);
+        } else {
+            std::lock_guard<std::mutex> lk(ctx.state.mu);
+            emit_system_message_locked(
+                ctx.state,
+                "/config settings UI is only available in an interactive TUI.");
+        }
+        return;
+    }
+    std::string error;
+    if (!ctx.open_settings_surface(args, error)) {
+        std::lock_guard<std::mutex> lk(ctx.state.mu);
+        emit_system_message_locked(
+            ctx.state,
+            error.empty() ? "Could not open settings." : std::move(error));
+    }
 }
 
 static void cmd_tokens(CommandContext& ctx, const std::string& /*args*/) {
@@ -775,6 +801,16 @@ static std::string mcp_known_servers(const McpManager& mgr) {
 }
 
 static void cmd_mcp(CommandContext& ctx, const std::string& args) {
+    const std::string normalized_args = trim_ascii_command(args);
+    if (normalized_args.empty() && ctx.open_management_surface) {
+        std::string error;
+        if (!ctx.open_management_surface("mcp", error)) {
+            mcp_push(
+                ctx,
+                error.empty() ? "Could not open MCP management." : error);
+        }
+        return;
+    }
     if (!ctx.mcp_manager || !ctx.tools) {
         mcp_push(ctx, "MCP manager is not available in this session.");
         return;
@@ -783,7 +819,7 @@ static void cmd_mcp(CommandContext& ctx, const std::string& args) {
     ToolExecutor& tools = *ctx.tools;
 
     // Parse: first token is subcommand, remainder is name.
-    std::string trimmed = args;
+    std::string trimmed = normalized_args;
     while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front()))) {
         trimmed.erase(trimmed.begin());
     }
@@ -831,7 +867,7 @@ static void cmd_mcp(CommandContext& ctx, const std::string& args) {
     if (sub == "help") {
         std::ostringstream oss;
         oss << "/mcp usage:\n"
-            << "  /mcp                    - List servers and status\n"
+            << "  /mcp                    - Open MCP management in the TUI\n"
             << "  /mcp list               - List tools grouped by server\n"
             << "  /mcp enable <name>      - Connect a disabled or failed server\n"
             << "  /mcp disable <name>     - Stop a server and unregister its tools\n"
@@ -1119,6 +1155,17 @@ static void cmd_exit(CommandContext& ctx, const std::string& /*args*/) {
 }
 
 static void cmd_skills(CommandContext& ctx, const std::string& args) {
+    const std::string normalized_args = trim_ascii_command(args);
+    if (normalized_args.empty() && ctx.open_management_surface) {
+        std::string error;
+        if (!ctx.open_management_surface("skills", error)) {
+            std::lock_guard<std::mutex> lk(ctx.state.mu);
+            emit_system_message_locked(
+                ctx.state,
+                error.empty() ? "Could not open skill management." : error);
+        }
+        return;
+    }
     if (!ctx.skills) {
         std::lock_guard<std::mutex> lk(ctx.state.mu);
         ctx.state.conversation.push_back({"system",
@@ -1128,7 +1175,7 @@ static void cmd_skills(CommandContext& ctx, const std::string& args) {
     }
 
     // Trim args.
-    std::string trimmed = args;
+    std::string trimmed = normalized_args;
     while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front()))) {
         trimmed.erase(trimmed.begin());
     }
@@ -1146,8 +1193,8 @@ static void cmd_skills(CommandContext& ctx, const std::string& args) {
         std::lock_guard<std::mutex> lk(ctx.state.mu);
         std::ostringstream oss;
         oss << "/skills usage:\n"
-            << "  /skills              - List installed skills\n"
-            << "  /skills list         - Same as /skills\n"
+            << "  /skills              - Open skill management in the TUI\n"
+            << "  /skills list         - List installed skills as text\n"
             << "  /skills reload       - Rescan skill directories and refresh commands\n"
             << "  /skills help         - Show this help\n"
             << "\n"
@@ -1209,6 +1256,36 @@ static void cmd_skills(CommandContext& ctx, const std::string& args) {
     }
     ctx.state.conversation.push_back({"system", oss.str(), false});
     ctx.state.chat_follow_tail = true;
+}
+
+static void cmd_management_surface(CommandContext& ctx,
+                                   const std::string& tab,
+                                   const std::string& raw_args) {
+    const std::string args = trim_ascii_command(raw_args);
+    if (!args.empty()) {
+        std::lock_guard<std::mutex> lk(ctx.state.mu);
+        emit_system_message_locked(
+            ctx.state,
+            "Usage: /" + tab);
+        return;
+    }
+    if (!ctx.open_management_surface) {
+        std::lock_guard<std::mutex> lk(ctx.state.mu);
+        emit_system_message_locked(
+            ctx.state,
+            "/" + tab +
+                " management is only available in an interactive TUI.");
+        return;
+    }
+    std::string error;
+    if (!ctx.open_management_surface(tab, error)) {
+        std::lock_guard<std::mutex> lk(ctx.state.mu);
+        emit_system_message_locked(
+            ctx.state,
+            error.empty()
+                ? "Could not open " + tab + " management."
+                : std::move(error));
+    }
 }
 
 static void do_resume_session(CommandContext& ctx, const std::string& session_id,
@@ -1858,7 +1935,7 @@ void register_builtin_commands(CommandRegistry& registry) {
     registry.register_command({"new", "Alias for /clear", cmd_clear});
     register_model_command(registry);
     registry.register_command({"mode", "Show or switch permission mode", cmd_mode});
-    registry.register_command({"config", "Show current configuration", cmd_config});
+    registry.register_command({"config", "Open settings (/config show for text summary)", cmd_config});
     registry.register_command({"tokens", "Show session token usage", cmd_tokens});
     register_goal_command(registry);
     registry.register_command({"plan", "Enter plan mode or start planning a described task", cmd_plan});
@@ -1882,8 +1959,29 @@ void register_builtin_commands(CommandRegistry& registry) {
     registry.register_command({"rewind", "Rewind to a previous user turn", cmd_rewind});
     registry.register_command({"checkpoint", "Alias for /rewind", cmd_rewind});
     registry.register_command({"fork", "Fork from a previous user turn", cmd_fork});
-    registry.register_command({"mcp", "Manage MCP servers", cmd_mcp});
-    registry.register_command({"skills", "List, invoke, or reload installed skills", cmd_skills});
+    registry.register_command({"mcp", "Open MCP management or run an MCP subcommand", cmd_mcp});
+    registry.register_command({"skills", "Open skill management or run a skill subcommand", cmd_skills});
+    registry.register_command({
+        "connectors",
+        "Open connector management",
+        [](CommandContext& ctx, const std::string& args) {
+            cmd_management_surface(ctx, "connectors", args);
+        },
+    });
+    registry.register_command({
+        "tools",
+        "Open tool management",
+        [](CommandContext& ctx, const std::string& args) {
+            cmd_management_surface(ctx, "tools", args);
+        },
+    });
+    registry.register_command({
+        "hooks",
+        "Open hook management",
+        [](CommandContext& ctx, const std::string& args) {
+            cmd_management_surface(ctx, "hooks", args);
+        },
+    });
     register_memory_command(registry);
     register_init_command(registry);
     register_history_command(registry);

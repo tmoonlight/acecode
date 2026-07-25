@@ -139,7 +139,18 @@ void refresh_slash_dropdown(TuiState& state, const CommandRegistry& reg) {
     }
 
     int new_selected = 0;
-    if (!prev_selected_name.empty()) {
+    const auto exact_match = std::find_if(
+        state.slash_dropdown_items.begin(),
+        state.slash_dropdown_items.end(),
+        [&query](const auto& item) { return item.name == query; });
+    if (exact_match != state.slash_dropdown_items.end()) {
+        // A fully typed built-in must win over a previously-highlighted fuzzy
+        // match. Otherwise `/skills` can remain pinned to `skill-creator`
+        // merely because that skill's description also contains "skills".
+        new_selected = static_cast<int>(
+            std::distance(
+                state.slash_dropdown_items.begin(), exact_match));
+    } else if (!prev_selected_name.empty()) {
         for (int i = 0; i < static_cast<int>(state.slash_dropdown_items.size()); ++i) {
             if (state.slash_dropdown_items[i].name == prev_selected_name) {
                 new_selected = i;

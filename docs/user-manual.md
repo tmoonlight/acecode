@@ -241,22 +241,42 @@ Desktop 文件树中也可以右键文件夹并选择“加入输入上下文”
 | `/model <name>` | 切换到指定 `saved_models` 条目,仅本会话生效(不写盘) |
 | `/model --cwd <name>` | 切换 + 持久化到当前工作目录(`<cwd_hash>/model_override.json`) |
 | `/model --default <name>` | 切换 + 写回 `config.json` 的 `default_model_name` 字段 |
-| `/config` | 显示当前配置信息（provider、模型、上下文窗口等） |
+| `/config [tab]` | 打开英文全屏设置中心；可进入 `general`、`appearance`、`configuration`、`personalization`、`models`、`usage`、`archived`、`about` |
+| `/config show` | 在对话区显示精简配置摘要（provider、模型、上下文窗口等） |
 | `/tokens` | 显示本次会话的 token 用量 |
 | `/resume` | 显示会话选择器，恢复历史会话 |
-| `/mcp` | 列出 MCP 服务器及状态 |
+| `/mcp` | 打开能力中心并选中 MCP Servers 页签 |
 | `/mcp list` | 列出所有 MCP 工具（按服务器分组） |
 | `/mcp enable <name>` | 连接一个已禁用或连接失败的服务器 |
 | `/mcp disable <name>` | 停止服务器并注销其工具 |
 | `/mcp reconnect <name>` | 强制断开并重新连接服务器 |
 | `/mcp help` | 显示 /mcp 子命令帮助 |
-| `/skills` | 列出所有已安装的技能 |
+| `/skills` | 打开能力中心并选中 Skills 页签 |
+| `/skills list` | 在对话区列出所有已安装的技能 |
 | `/skills reload` | 重新扫描磁盘，加载新增或修改的技能 |
 | `/skills help` | 显示技能系统使用说明 |
+| `/connectors` | 打开能力中心并选中 Connectors 页签 |
+| `/tools` | 打开能力中心并选中 Tools 页签 |
+| `/hooks` | 打开能力中心并选中 Hooks 页签 |
 | `/init` | 让 LLM 分析当前仓库，自动生成或改进 `AGENT.md`（详见下方小节） |
 | `/history` | 列出当前工作目录的持久化输入历史（旧→新编号） |
 | `/history clear` | 清空当前工作目录的输入历史（内存 + 磁盘） |
 | `/exit` | 退出 acecode |
+
+### TUI 设置与能力中心
+
+`/config` 使用与主聊天相同的 FTXUI 事件循环。顶部页签固定为
+`General / Appearance / Configuration / Personalization / Models / Usage /
+Archived / About`。不带参数重新打开时会保留本进程上次的页签、筛选和选择状态；
+`/config models` 这类显式深链会直接切到目标页。新进程从 General 开始。
+
+General、Appearance 的单选和开关立即保存；Configuration、Personalization 与模型表单使用
+`Ctrl+S` 显式保存。脏表单按 `Esc` 或切换页签时会出现 Save / Discard / Cancel。
+`/model` 仍只控制当前会话，Models 页设置的是已保存配置和后续新会话的默认模型。
+
+Skills、MCP Servers、Connectors、Tools、Hooks 位于独立能力中心。对应无参数命令直接点亮
+目标顶部页签；`/skills list`、`/skills reload` 与带参数的 `/mcp` 子命令保持原文本/运行时语义。
+列表页统一支持 `/` 聚焦筛选、方向键移动、`Tab` 切换控件、底部提示的单键动作和 `Esc` 返回聊天。
 
 #### `/init` 的工作方式
 
@@ -457,7 +477,8 @@ Skills 是用户自定义的工作流指令，存储为 Markdown 文件，acecod
 
 | 命令 | 说明 |
 |------|------|
-| `/skills` | 列出所有已安装技能（按分类分组） |
+| `/skills` | 打开能力中心的 Skills 页签 |
+| `/skills list` | 在对话区列出所有已安装技能（按分类分组） |
 | `/skills reload` | 重新扫描磁盘（编辑完 SKILL.md 后使用） |
 | `/skills help` | 显示技能系统使用帮助 |
 

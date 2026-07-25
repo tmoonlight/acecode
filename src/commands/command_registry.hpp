@@ -49,6 +49,13 @@ struct CommandContext {
     // Optional observer installed only by direct user-input surfaces. Internal
     // dispatch contexts omit it so programmatic commands do not affect usage.
     std::function<void(const std::string&)> on_command_recognized;
+    // Full-screen TUI surface entry points. They are intentionally callbacks
+    // instead of FTXUI types so the command layer stays usable by daemon and
+    // headless contexts. The string is a stable deep-link slug.
+    std::function<bool(const std::string& tab, std::string& error)>
+        open_settings_surface;
+    std::function<bool(const std::string& tab, std::string& error)>
+        open_management_surface;
 };
 
 inline void submit_user_input(CommandContext& ctx, UserInput input) {

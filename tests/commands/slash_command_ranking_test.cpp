@@ -87,3 +87,21 @@ TEST(SlashCommandRanking, UnmatchedCandidatesAreFilteredOut) {
     ASSERT_EQ(ranked.size(), 1u);
     EXPECT_EQ(ranked.front().name, "model");
 }
+
+TEST(SlashCommandRanking, ExactNameBeatsUsageAndDescriptionMatches) {
+    const std::vector<acecode::SlashCommandCandidate> candidates = {
+        {"skills", "Open skill management"},
+        {"skill-creator", "Create and maintain reusable skills"},
+        {"find-skills", "Discover skills"},
+    };
+    const acecode::SlashCommandUsageCounts usage = {
+        {"skill-creator", 1000},
+        {"find-skills", 2000},
+    };
+
+    const auto ranked =
+        acecode::rank_slash_command_candidates("skills", candidates, usage);
+
+    ASSERT_FALSE(ranked.empty());
+    EXPECT_EQ(ranked.front().name, "skills");
+}

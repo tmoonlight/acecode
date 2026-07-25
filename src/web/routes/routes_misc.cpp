@@ -1,5 +1,6 @@
 // routes_misc.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
+#include "../../config/settings_mutations.hpp"
 #include "../../feedback/feedback_upload.hpp"
 #include "../../hooks/hook_runner.hpp"  // 连接器 on_enable 钩子异步拉起
 #include "../../tool/mcp_manager.hpp"  // /api/mcp/toggle 运行时 enable/disable
@@ -1334,24 +1335,18 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             const std::string text = body["text"].get<std::string>();
-            if (text.size() > kCustomInstructionsMaxBytes) {
-                return json_err(400, "BAD_REQUEST",
-                                "custom instructions exceed " +
-                                std::to_string(kCustomInstructionsMaxBytes) + " bytes");
-            }
-
             std::lock_guard<std::mutex> config_lock(app_config_mu);
-            const auto before = deps.app_config->custom_instructions;
-            deps.app_config->custom_instructions.set_text(text);
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->custom_instructions = before;
-                return json_err(500, "PERSIST_FAILED", e.what());
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            const auto result = set_custom_instructions(text, options);
+            if (!result.ok) {
+                const bool validation =
+                    result.error_kind == SettingsMutationErrorKind::Validation;
+                return json_err(
+                    validation ? 400 : 500,
+                    validation ? "BAD_REQUEST" : "PERSIST_FAILED",
+                    result.error);
             }
 
             crow::response r(200);
@@ -1511,20 +1506,27 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             std::lock_guard<std::mutex> config_lock(app_config_mu);
-            const std::string before = deps.app_config->default_permission_mode;
-            deps.app_config->default_permission_mode = PermissionManager::mode_name(*mode);
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            options.apply_live = [this, mode](
+                const AppConfig&,
+                std::string&) {
+                if (deps.session_registry) {
+                    deps.session_registry->set_default_permission_mode(*mode);
                 }
-            } catch (const std::exception& e) {
-                deps.app_config->default_permission_mode = before;
-                return json_err(500, "PERSIST_FAILED", e.what());
-            }
-            if (deps.session_registry) {
-                deps.session_registry->set_default_permission_mode(*mode);
+                return true;
+            };
+            const auto result = set_default_permission_mode(
+                PermissionManager::mode_name(*mode),
+                options);
+            if (!result.ok) {
+                const bool validation =
+                    result.error_kind == SettingsMutationErrorKind::Validation;
+                return json_err(
+                    validation ? 400 : 500,
+                    validation ? "INVALID_PERMISSION_MODE" : "PERSIST_FAILED",
+                    result.error);
             }
 
             crow::response r(200);
@@ -1558,18 +1560,14 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             std::lock_guard<std::mutex> config_lock(app_config_mu);
-            const auto before = deps.app_config->desktop.notifications;
-            deps.app_config->desktop.notifications.enabled =
-                body["enabled"].get<bool>();
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->desktop.notifications = before;
-                return json_err(500, "PERSIST_FAILED", e.what());
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            const auto result = set_native_notifications_enabled(
+                body["enabled"].get<bool>(),
+                options);
+            if (!result.ok) {
+                return json_err(500, "PERSIST_FAILED", result.error);
             }
 
             crow::response r(200);
@@ -1603,25 +1601,20 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, "BAD_REQUEST", "expected {base_url: string}");
             }
 
-            const std::string normalized =
-                normalize_upgrade_base_url(body["base_url"].get<std::string>());
-            if (!is_valid_upgrade_base_url(normalized)) {
-                return json_err(400, "BAD_REQUEST",
-                                "upgrade.base_url must be a non-empty http or https URL");
-            }
-
             std::lock_guard<std::mutex> config_lock(app_config_mu);
-            const auto before = deps.app_config->upgrade;
-            deps.app_config->upgrade.base_url = normalized;
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->upgrade = before;
-                return json_err(500, "PERSIST_FAILED", e.what());
+            SettingsMutationOptions options;
+            options.config_path = deps.config_path;
+            options.live_config = deps.app_config;
+            const auto result = set_upgrade_base_url(
+                body["base_url"].get<std::string>(),
+                options);
+            if (!result.ok) {
+                const bool validation =
+                    result.error_kind == SettingsMutationErrorKind::Validation;
+                return json_err(
+                    validation ? 400 : 500,
+                    validation ? "BAD_REQUEST" : "PERSIST_FAILED",
+                    result.error);
             }
 
             crow::response r(200);

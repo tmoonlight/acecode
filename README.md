@@ -293,14 +293,16 @@ The optional `acecode-desktop` target wraps the web UI in a native desktop shell
 | `/help` | Show command help. |
 | `/clear` | Clear the current conversation. |
 | `/model` | Show or switch the current model profile. |
-| `/config` | Show active provider, model, context window, and permission mode. |
+| `/config [tab]` | Open the full-screen TUI settings center; an optional tab deep-links to General, Appearance, Configuration, Personalization, Models, Usage, Archived, or About. |
+| `/config show` | Print the compact active-configuration summary in the transcript. |
 | `/tokens` | Show session token usage. |
 | `/compact` | Compress long conversation history. |
 | `/resume` | Open the session picker. |
 | `/rewind` | Rewind to a previous user turn. |
 | `/checkpoint` | Alias for `/rewind`. |
-| `/mcp` | Manage MCP servers and tools. |
-| `/skills` | List, invoke, or reload installed skills. |
+| `/mcp` | Open the capability center on MCP Servers; `/mcp list`, `enable`, `disable`, and `reconnect` remain text/runtime subcommands. |
+| `/skills` | Open the capability center on Skills; `/skills list` and `/skills reload` remain text/runtime subcommands. |
+| `/connectors`, `/tools`, `/hooks` | Open the matching capability-center tab. |
 | `/memory` | Manage persistent user memory. |
 | `/init` | Generate or improve project instructions for the current directory. |
 | `/history` | List or clear per-working-directory input history. |

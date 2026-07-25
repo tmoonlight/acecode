@@ -1053,3 +1053,76 @@ TEST(BuiltinCommands, ResumePickerRefreshesModelAndTokenState) {
 
     h.expect_resumed_runtime_state();
 }
+
+TEST(BuiltinCommands, ConfigRoutesToSettingsSurfaceAndKeepsTextSummary) {
+    ResumeCommandHarness h("config_surface_routing");
+    auto ctx = h.context();
+    std::vector<std::string> opened_tabs;
+    ctx.open_settings_surface =
+        [&opened_tabs](const std::string& tab, std::string&) {
+            opened_tabs.push_back(tab);
+            return true;
+        };
+
+    ASSERT_TRUE(h.registry_.dispatch("/config", ctx));
+    ASSERT_TRUE(h.registry_.dispatch("/config models", ctx));
+    ASSERT_EQ(opened_tabs.size(), 2u);
+    EXPECT_EQ(opened_tabs[0], "");
+    EXPECT_EQ(opened_tabs[1], "models");
+
+    const std::size_t messages_before = h.state_.conversation.size();
+    ASSERT_TRUE(h.registry_.dispatch("/config show", ctx));
+    EXPECT_EQ(opened_tabs.size(), 2u);
+    ASSERT_EQ(h.state_.conversation.size(), messages_before + 1);
+    EXPECT_NE(
+        h.state_.conversation.back().content.find(
+            "Current configuration:"),
+        std::string::npos);
+}
+
+TEST(BuiltinCommands, CapabilityCommandsOpenTheirMatchingTopTabs) {
+    ResumeCommandHarness h("capability_surface_routing");
+    auto ctx = h.context();
+    std::vector<std::string> opened_tabs;
+    ctx.open_management_surface =
+        [&opened_tabs](const std::string& tab, std::string&) {
+            opened_tabs.push_back(tab);
+            return true;
+        };
+
+    ASSERT_TRUE(h.registry_.dispatch("/skills", ctx));
+    ASSERT_TRUE(h.registry_.dispatch("/mcp", ctx));
+    ASSERT_TRUE(h.registry_.dispatch("/connectors", ctx));
+    ASSERT_TRUE(h.registry_.dispatch("/tools", ctx));
+    ASSERT_TRUE(h.registry_.dispatch("/hooks", ctx));
+
+    EXPECT_EQ(
+        opened_tabs,
+        (std::vector<std::string>{
+            "skills", "mcp", "connectors", "tools", "hooks"}));
+}
+
+TEST(BuiltinCommands, ParameterizedSkillsAndMcpDoNotOpenManagementSurface) {
+    ResumeCommandHarness h("capability_parameterized_routing");
+    auto ctx = h.context();
+    int open_count = 0;
+    ctx.open_management_surface =
+        [&open_count](const std::string&, std::string&) {
+            ++open_count;
+            return true;
+        };
+
+    ASSERT_TRUE(h.registry_.dispatch("/skills list", ctx));
+    ASSERT_TRUE(h.registry_.dispatch("/mcp list", ctx));
+
+    EXPECT_EQ(open_count, 0);
+    ASSERT_GE(h.state_.conversation.size(), 2u);
+    EXPECT_NE(
+        h.state_.conversation[h.state_.conversation.size() - 2]
+            .content.find("Skill system is not available"),
+        std::string::npos);
+    EXPECT_NE(
+        h.state_.conversation.back().content.find(
+            "MCP manager is not available"),
+        std::string::npos);
+}

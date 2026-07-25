@@ -3,6 +3,7 @@
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
 #include "../utils/constants.hpp"
+#include "../utils/atomic_file.hpp"
 #include "../utils/logger.hpp"
 #include "../utils/paths.hpp"
 #include "../utils/utf8_path.hpp"
@@ -713,17 +714,25 @@ static void sanitize_disabled_model_providers(AppConfig& cfg) {
 }
 
 AppConfig load_config() {
+    const std::string config_path =
+        path_to_utf8(path_from_utf8(get_acecode_dir()) / "config.json");
+    return load_config_from_path(config_path, true);
+}
+
+AppConfig load_config_from_path(
+    const std::string& explicit_path,
+    bool apply_environment_overrides) {
     AppConfig cfg;
     bool saved_models_key_present = false;
 
-    std::string acecode_dir = get_acecode_dir();
-    std::string config_path = path_to_utf8(path_from_utf8(acecode_dir) / "config.json");
+    fs::path native_config_path = path_from_utf8(explicit_path);
+    fs::path native_acecode_dir = native_config_path.parent_path();
+    const std::string config_path = path_to_utf8(native_config_path);
 
     // Create directory and default config if missing
     std::error_code home_ec;
-    fs::path native_acecode_dir = path_from_utf8(acecode_dir);
-    fs::path native_config_path = path_from_utf8(config_path);
-    bool home_exists = fs::exists(native_acecode_dir, home_ec);
+    bool home_exists =
+        native_acecode_dir.empty() || fs::exists(native_acecode_dir, home_ec);
     if (home_ec) home_exists = false;
     if (!home_exists) {
         fs::create_directories(native_acecode_dir);
@@ -1605,38 +1614,41 @@ AppConfig load_config() {
         }
     }
 
-    // Environment variable overrides
-    std::string env;
-    if (getenv_utf8("ACECODE_PROVIDER", env)) {
-        cfg.provider = env;
-    }
-    if (getenv_utf8("ACECODE_OPENAI_BASE_URL", env)) {
-        cfg.openai.base_url = env;
-    }
-    if (getenv_utf8("ACECODE_OPENAI_API_KEY", env)) {
-        cfg.openai.api_key = env;
-    }
-    if (getenv_utf8("ACECODE_OPENAI_STREAM_TIMEOUT_MS", env)) {
-        auto parsed = parse_positive_int(env);
-        if (parsed.has_value()) {
-            cfg.openai.stream_timeout_ms = *parsed;
-        } else {
-            LOG_WARN("[config] ACECODE_OPENAI_STREAM_TIMEOUT_MS='" + env +
-                     "' invalid; expected positive integer, keeping " +
-                     std::to_string(cfg.openai.stream_timeout_ms));
+    if (apply_environment_overrides) {
+        // Environment variable overrides are runtime-only. Explicit-path loads
+        // default to false so a later save cannot leak an env-provided secret.
+        std::string env;
+        if (getenv_utf8("ACECODE_PROVIDER", env)) {
+            cfg.provider = env;
         }
-    }
-    if (getenv_utf8("ACECODE_MODEL", env)) {
-        if (cfg.provider == "openai") {
-            cfg.openai.model = env;
-        } else if (cfg.provider == "codex") {
-            cfg.codex.model = env;
-        } else {
-            cfg.copilot.model = env;
+        if (getenv_utf8("ACECODE_OPENAI_BASE_URL", env)) {
+            cfg.openai.base_url = env;
         }
-    }
-    if (getenv_utf8("ACECODE_UPGRADE_BASE_URL", env)) {
-        cfg.upgrade.base_url = normalize_upgrade_base_url(env);
+        if (getenv_utf8("ACECODE_OPENAI_API_KEY", env)) {
+            cfg.openai.api_key = env;
+        }
+        if (getenv_utf8("ACECODE_OPENAI_STREAM_TIMEOUT_MS", env)) {
+            auto parsed = parse_positive_int(env);
+            if (parsed.has_value()) {
+                cfg.openai.stream_timeout_ms = *parsed;
+            } else {
+                LOG_WARN("[config] ACECODE_OPENAI_STREAM_TIMEOUT_MS='" + env +
+                         "' invalid; expected positive integer, keeping " +
+                         std::to_string(cfg.openai.stream_timeout_ms));
+            }
+        }
+        if (getenv_utf8("ACECODE_MODEL", env)) {
+            if (cfg.provider == "openai") {
+                cfg.openai.model = env;
+            } else if (cfg.provider == "codex") {
+                cfg.codex.model = env;
+            } else {
+                cfg.copilot.model = env;
+            }
+        }
+        if (getenv_utf8("ACECODE_UPGRADE_BASE_URL", env)) {
+            cfg.upgrade.base_url = normalize_upgrade_base_url(env);
+        }
     }
 
     synthesize_legacy_saved_model_if_needed(cfg, saved_models_key_present);
@@ -2124,13 +2136,7 @@ void save_config(const AppConfig& cfg) {
     }
 
     auto j = build_config_json(cfg);
-    std::ofstream ofs(path_from_utf8(config_path));
-    if (!ofs.is_open()) {
-        throw std::runtime_error("failed to open config file for writing: " +
-                                 config_path);
-    }
-    ofs << j.dump(2) << std::endl;
-    if (!ofs.good()) {
+    if (!atomic_write_file(config_path, j.dump(2) + "\n", true)) {
         throw std::runtime_error("failed to write config file: " + config_path);
     }
 }
@@ -2142,13 +2148,7 @@ void save_config(const AppConfig& cfg, const std::string& explicit_path) {
     }
 
     auto j = build_config_json(cfg);
-    std::ofstream ofs(p);
-    if (!ofs.is_open()) {
-        throw std::runtime_error("failed to open config file for writing: " +
-                                 path_to_utf8(p));
-    }
-    ofs << j.dump(2) << std::endl;
-    if (!ofs.good()) {
+    if (!atomic_write_file(path_to_utf8(p), j.dump(2) + "\n", true)) {
         throw std::runtime_error("failed to write config file: " +
                                  path_to_utf8(p));
     }

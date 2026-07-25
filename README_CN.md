@@ -288,14 +288,16 @@ acecode service uninstall
 | `/help` | 显示命令帮助。 |
 | `/clear` | 清空当前对话。 |
 | `/model` | 查看或切换当前模型配置。 |
-| `/config` | 显示当前 provider、模型、上下文窗口和权限模式。 |
+| `/config [tab]` | 打开英文全屏 TUI 设置中心；可直接进入 General、Appearance、Configuration、Personalization、Models、Usage、Archived 或 About。 |
+| `/config show` | 在对话区输出精简的当前配置摘要。 |
 | `/tokens` | 显示本会话 token 用量。 |
 | `/compact` | 压缩较长的对话历史。 |
 | `/resume` | 打开会话选择器。 |
 | `/rewind` | 回退到之前的用户轮次。 |
 | `/checkpoint` | `/rewind` 的别名。 |
-| `/mcp` | 管理 MCP servers 和工具。 |
-| `/skills` | 列出、调用或重新加载已安装技能。 |
+| `/mcp` | 在能力中心打开 MCP Servers；`list`、`enable`、`disable`、`reconnect` 子命令保持原行为。 |
+| `/skills` | 在能力中心打开 Skills；`list`、`reload` 子命令保持原行为。 |
+| `/connectors`、`/tools`、`/hooks` | 打开能力中心的对应页签。 |
 | `/memory` | 管理持久化用户记忆。 |
 | `/init` | 为当前目录生成或改进项目指令。 |
 | `/history` | 列出或清理当前工作目录的输入历史。 |

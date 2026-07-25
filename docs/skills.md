@@ -83,7 +83,8 @@ Both fields default to empty and the whole block may be omitted.
 
 ## Runtime commands
 
-- `/skills` or `/skills list` — show installed skills grouped by category.
+- `/skills` — open the full-screen capability center on the Skills tab.
+- `/skills list` — show installed skills grouped by category in the transcript.
 - `/skills reload` — rescan disk and re-register slash commands. Use after editing a SKILL.md.
 - `/skills help` — print this summary inside the TUI.
 - `/<skill-name>` — activate the skill directly.

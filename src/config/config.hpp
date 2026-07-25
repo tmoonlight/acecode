@@ -509,6 +509,13 @@ std::vector<ConnectorConfig> startup_hook_connectors(
 // Creates default config if missing.
 AppConfig load_config();
 
+// Load config from an explicit path. Environment overrides are disabled by
+// default so read-modify-write callers never persist process-only secrets or
+// overrides back into config.json.
+AppConfig load_config_from_path(
+    const std::string& explicit_path,
+    bool apply_environment_overrides = false);
+
 // True after load_config() created the ACECode home directory during this
 // process. consume_acecode_home_created_by_process() returns that value and
 // clears it so first-initialization hooks run once.

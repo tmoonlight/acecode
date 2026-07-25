@@ -11,6 +11,7 @@ int match_score(std::string_view query,
                 std::string_view name,
                 std::string_view description) {
     if (query.empty()) return 1;
+    if (name == query) return 200;
     if (name.rfind(query, 0) == 0) return 100;
     if (name.find(query) != std::string_view::npos) return 50;
     if (description.find(query) != std::string_view::npos) return 10;
