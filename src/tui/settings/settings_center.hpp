@@ -24,6 +24,8 @@ struct SettingsCenterDependencies {
         model_profile_used_by_busy_session;
     std::function<bool(const std::string& session_id)>
         session_is_busy;
+    std::function<bool(const std::string& path)>
+        reveal_in_file_manager;
 };
 
 class SettingsCenter {

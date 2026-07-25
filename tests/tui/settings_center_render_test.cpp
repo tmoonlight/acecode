@@ -16,6 +16,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -158,7 +159,7 @@ INSTANTIATE_TEST_SUITE_P(
             "Custom instructions"),
         std::make_pair(
             ats::SettingsTab::Models,
-            "Manage saved profiles"),
+            "Inspect saved profiles"),
         std::make_pair(ats::SettingsTab::Usage, "Usage"),
         std::make_pair(ats::SettingsTab::Archived, "Archived"),
         std::make_pair(ats::SettingsTab::About, "Build and installation")));
@@ -246,6 +247,61 @@ TEST(ManagementCenterRender, SearchInputOwnsShortcutLettersWhileFocused) {
     EXPECT_NE(output.find("rel"), std::string::npos) << output;
 }
 
+TEST(ManagementCenterRender, AllFiltersStayOnOneRow) {
+    acecode::tui::init_theme_palette("dark");
+    const std::array<
+        std::tuple<ats::ManagementTab, const char*, const char*>,
+        5>
+        cases = {{
+            {ats::ManagementTab::Skills,
+             "/ to search skills",
+             "0 skills"},
+            {ats::ManagementTab::McpServers,
+             "/ to search MCP servers",
+             "0 servers"},
+            {ats::ManagementTab::Connectors,
+             "/ to search connectors",
+             "0 connectors"},
+            {ats::ManagementTab::Tools,
+             "/ to search tools",
+             "0 tools"},
+            {ats::ManagementTab::Hooks,
+             "/ to search hooks",
+             "0 hooks  0 diagnostics"},
+        }};
+
+    for (const char* palette : {"dark", "light"}) {
+        acecode::tui::swap_theme_palette(palette);
+        for (const auto& [tab, placeholder, count] : cases) {
+            SCOPED_TRACE(
+                std::string(palette) + " / " +
+                ats::management_tab_slug(tab));
+            auto center = make_management_center();
+            center.open(tab);
+            center.component()->TakeFocus();
+
+            const ftxui::Screen screen =
+                render_screen(center.component(), 112, 28);
+            const std::string output = screen.ToString();
+            const int search_row = row_containing(output, "Search ");
+            const int placeholder_row =
+                row_containing(output, placeholder);
+            const int count_row = row_containing(output, count);
+
+            ASSERT_GE(search_row, 0) << output;
+            ASSERT_GE(placeholder_row, 0) << output;
+            ASSERT_GE(count_row, 0) << output;
+            EXPECT_EQ(placeholder_row, search_row) << output;
+            EXPECT_EQ(count_row, search_row) << output;
+            EXPECT_GT(
+                non_default_background_cells(screen, search_row),
+                24)
+                << output;
+        }
+    }
+    acecode::tui::swap_theme_palette("dark");
+}
+
 TEST(ManagementCenterRender, McpDetailsAndEditorDoNotExposeSecrets) {
     acecode::tui::init_theme_palette("dark");
     acecode::AppConfig config;
@@ -321,7 +377,7 @@ TEST(SettingsCenterRender, LightPaletteRendersTheSameControlContract) {
     acecode::tui::swap_theme_palette("dark");
 }
 
-TEST(SettingsCenterRender, ScalarAndModelFilterInputsStayOnOneRow) {
+TEST(SettingsCenterRender, ScalarAndSettingsFiltersStayOnOneRow) {
     acecode::tui::init_theme_palette("dark");
     for (const char* palette : {"dark", "light"}) {
         acecode::tui::swap_theme_palette(palette);
@@ -365,6 +421,31 @@ TEST(SettingsCenterRender, ScalarAndModelFilterInputsStayOnOneRow) {
             const int placeholder_row =
                 row_containing(output, "/ to search models");
             const int count_row = row_containing(output, "2 profiles");
+
+            ASSERT_GE(search_row, 0) << output;
+            ASSERT_GE(placeholder_row, 0) << output;
+            ASSERT_GE(count_row, 0) << output;
+            EXPECT_EQ(placeholder_row, search_row) << output;
+            EXPECT_EQ(count_row, search_row) << output;
+            EXPECT_GT(non_default_background_cells(screen, search_row), 24)
+                << output;
+        }
+
+        {
+            auto config = render_config();
+            auto center = make_settings_center(config);
+            center.open(ats::SettingsTab::Archived);
+            center.component()->TakeFocus();
+
+            const ftxui::Screen screen =
+                render_screen(center.component(), 96, 28);
+            const std::string output = screen.ToString();
+            const int search_row = row_containing(output, "Search ");
+            const int placeholder_row =
+                row_containing(
+                    output,
+                    "/ to search archived sessions");
+            const int count_row = row_containing(output, "0 selected");
 
             ASSERT_GE(search_row, 0) << output;
             ASSERT_GE(placeholder_row, 0) << output;
@@ -440,7 +521,7 @@ TEST(SettingsCenterRender, StaleUsageCompletionCannotOverwriteNewTab) {
     EXPECT_NE(output.find("Config path"), std::string::npos) << output;
 }
 
-TEST(SettingsCenterRender, ModelSearchFiltersRowsAndDirtyEscapeUsesModal) {
+TEST(SettingsCenterRender, ModelSearchAndExternalConfigEdit) {
     acecode::tui::init_theme_palette("dark");
     auto config = render_config();
     {
@@ -461,20 +542,37 @@ TEST(SettingsCenterRender, ModelSearchFiltersRowsAndDirtyEscapeUsesModal) {
             << output;
     }
 
-    auto modal_center = make_settings_center(config);
-    modal_center.open(ats::SettingsTab::Models);
-    const auto modal_component = modal_center.component();
-    modal_component->TakeFocus();
+    std::string revealed_path;
+    const fs::path acecode_dir =
+        fs::temp_directory_path() / "acecode_model_edit_render";
+    ats::SettingsCenterDependencies deps;
+    deps.config = &config;
+    deps.acecode_version = "render-test";
+    deps.acecode_dir_override = acecode_dir.string();
+    deps.post_to_ui = [](std::function<void()>) {};
+    deps.reveal_in_file_manager =
+        [&](const std::string& path) {
+            revealed_path = path;
+            return true;
+        };
+    ats::SettingsCenter edit_center(std::move(deps));
+    edit_center.open(ats::SettingsTab::Models);
+    const auto edit_component = edit_center.component();
+    edit_component->TakeFocus();
+
+    std::string output = render_component(edit_component);
+    EXPECT_NE(output.find("Edit..."), std::string::npos) << output;
+    EXPECT_EQ(output.find(" Add "), std::string::npos) << output;
     ASSERT_TRUE(
-        modal_component->OnEvent(ftxui::Event::Character('a')));
-    ASSERT_TRUE(
-        modal_component->OnEvent(ftxui::Event::Character('x')));
-    ASSERT_TRUE(modal_component->OnEvent(ftxui::Event::Escape));
-    const std::string output = render_component(modal_component);
-    EXPECT_NE(output.find("Unsaved model profile"), std::string::npos)
+        edit_component->OnEvent(ftxui::Event::Character('e')));
+    EXPECT_EQ(
+        fs::path(revealed_path).lexically_normal(),
+        (acecode_dir / "config.json").lexically_normal());
+    output = render_component(edit_component);
+    EXPECT_NE(
+        output.find("Revealed config.json in the system file manager."),
+        std::string::npos)
         << output;
-    EXPECT_NE(output.find("Save changes"), std::string::npos) << output;
-    EXPECT_NE(output.find("Discard changes"), std::string::npos) << output;
 }
 
 } // namespace

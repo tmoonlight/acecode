@@ -78,18 +78,25 @@ The Settings tabs are:
 2. Appearance: TUI theme (`auto`, `dark`, `light`) only.
 3. Configuration: upgrade service base URL only.
 4. Personalization: global custom instructions.
-5. Models: saved profiles, global default, model probing, and Copilot auth.
+5. Models: saved-profile inspection, filtering, global default, deletion, and
+   one external configuration-edit entry.
 6. Usage: 30-day summary, trend, token categories, models, and workspaces.
 7. Archived: all-workspace archived sessions, multi-select restore, and permanent purge.
 8. About: ACECode version, FTXUI version, config path, and project link.
 
 The Capability Management tabs are Skills, MCP Servers, Connectors, Tools, and Hooks. Models are deliberately absent.
 
+Models does not duplicate the structured model editor inside the TUI. Its
+separate Add and Edit actions are replaced by one `Edit...` action that reveals
+the canonical `config.json` in the system file manager so the user can choose
+their preferred text editor. The file remains shared with MCP configuration and
+the Desktop/daemon surfaces.
+
 ### 5. Separate immediate settings from explicit drafts
 
 Radioboxes, checkboxes, theme selection, default permission, notifications, and setting the default model persist immediately and expose Saving/Saved/Failed state.
 
-Upgrade URL, custom instructions, and model forms use explicit Save/`Ctrl+S`. `Esc` from a dirty editor opens Save/Discard/Cancel. Switching a top tab while dirty follows the same gate. Destructive model/session actions always use an immediate FTXUI modal with the exact target name or count.
+Upgrade URL and custom instructions use explicit Save/`Ctrl+S`. `Esc` from a dirty editor opens Save/Discard/Cancel. Switching a top tab while dirty follows the same gate. Destructive model/session actions always use an immediate FTXUI modal with the exact target name or count.
 
 Settings remembers the last tab, selection, filter, and scroll position for the current process. A fresh process opens General. Explicit deep links such as `/config models` override remembered state.
 

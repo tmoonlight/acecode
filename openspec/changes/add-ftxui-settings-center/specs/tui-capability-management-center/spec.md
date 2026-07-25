@@ -18,6 +18,10 @@ Each management tab SHALL provide a search band, dense selectable list, right-al
 - **WHEN** the user enters a filter
 - **THEN** matching rows remain visible, selection moves to a valid result, and source/status metadata stays aligned
 
+#### Scenario: Render compact management filters
+- **WHEN** Skills, MCP Servers, Connectors, Tools, or Hooks displays its search filter
+- **THEN** the filter occupies one terminal row, uses a visible background, and shows an in-field placeholder when empty
+
 #### Scenario: Empty filtered list
 - **WHEN** no row matches
 - **THEN** the page explains how to clear the filter or add/configure the capability

@@ -60,35 +60,27 @@ Configuration SHALL edit the upgrade service base URL, and Personalization SHALL
 - **THEN** no configuration is changed and an actionable validation error is displayed beside the field
 
 #### Scenario: Render compact scalar and filter inputs
-- **WHEN** Configuration displays the upgrade URL field or Models displays its search filter
+- **WHEN** Configuration displays the upgrade URL field or Models or Archived displays its search filter
 - **THEN** the editable field occupies one terminal row, uses a visible background, and shows an in-field placeholder when empty
 
 #### Scenario: Leave dirty custom instructions
 - **WHEN** custom instructions differ from the loaded value and the user changes tabs or presses Esc
 - **THEN** a Save, Discard, or Cancel modal appears before navigation continues
 
-### Requirement: Complete saved-model management
-Models SHALL list, filter, add, edit, rename, delete, probe, and set the global default for saved model profiles, including OpenAI, Anthropic, and Copilot-specific fields and Copilot device authentication.
+### Requirement: Saved-model settings handoff
+Models SHALL list and filter saved model profiles, allow deletion and setting the global default, and expose one `Edit...` action that reveals the canonical `config.json` in the system file manager. Models SHALL NOT expose separate Add and Edit form actions.
 
 #### Scenario: Set global default model
 - **WHEN** the user marks a saved model as default
 - **THEN** the global default for future sessions changes and the active session model remains unchanged
 
-#### Scenario: Add multiple probed models
-- **WHEN** an OpenAI-compatible or Copilot probe returns models and the user selects multiple IDs
-- **THEN** one validated saved profile per selected model is created using the entered provider settings
-
-#### Scenario: Edit a profile
-- **WHEN** the user edits a model name, provider, base URL, API key, headers, context window, capabilities, or model ID and saves
-- **THEN** the shared saved-model editor validates and persists the profile and preserves default-name consistency on rename
+#### Scenario: Open model configuration for editing
+- **WHEN** the user activates `Edit...` from Models
+- **THEN** the system file manager reveals the shared `config.json` containing saved-model and MCP configuration so the user can open it with a preferred text editor
 
 #### Scenario: Delete model used by busy session
 - **WHEN** a saved model is used by a busy active session
 - **THEN** its destructive action is disabled and the UI explains that the active work must settle first
-
-#### Scenario: Authenticate Copilot
-- **WHEN** the user starts Copilot device authentication
-- **THEN** the TUI displays the user code, offers copy/open actions, polls asynchronously, and updates the authenticated state without exposing tokens
 
 ### Requirement: Usage inspection
 Usage SHALL show the latest 30-day token summary, daily trend, token categories, model breakdown, and workspace breakdown using FTXUI data components.

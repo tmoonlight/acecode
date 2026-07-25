@@ -305,6 +305,41 @@ bool open_external_url(const std::string& url) {
 #endif
 }
 
+bool reveal_path_in_file_manager(const std::string& path) {
+#ifdef _WIN32
+    std::wstring parameters = L"/select,\"";
+    parameters += path_from_utf8(path).wstring();
+    parameters += L"\"";
+    const auto result = reinterpret_cast<std::intptr_t>(
+        ::ShellExecuteW(
+            nullptr,
+            L"open",
+            L"explorer.exe",
+            parameters.c_str(),
+            nullptr,
+            SW_SHOWNORMAL));
+    return result > 32;
+#else
+    const pid_t pid = ::fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+#  ifdef __APPLE__
+        ::execlp(
+            "open", "open", "-R", path.c_str(),
+            static_cast<char*>(nullptr));
+#  else
+        const std::string directory = path_to_utf8(
+            path_from_utf8(path).parent_path());
+        ::execlp(
+            "xdg-open", "xdg-open", directory.c_str(),
+            static_cast<char*>(nullptr));
+#  endif
+        _exit(127);
+    }
+    return true;
+#endif
+}
+
 struct WorkspaceScope {
     std::string project_dir;
     std::string hash;
@@ -503,7 +538,6 @@ struct SettingsCenter::Impl {
     Component personalization_page;
     Component model_filter_input;
     Component model_menu;
-    Component model_add_button;
     Component model_edit_button;
     Component model_default_button;
     Component model_delete_button;
@@ -741,38 +775,25 @@ struct SettingsCenter::Impl {
         auth_url.clear();
     }
 
-    void open_model_add() {
-        clear_model_form();
-        model_form_open = true;
+    std::string config_file_path() const {
+        return path_to_utf8(
+            path_from_utf8(
+                deps.acecode_dir_override.empty()
+                    ? get_acecode_dir()
+                    : deps.acecode_dir_override) /
+            "config.json");
     }
 
-    void open_model_edit() {
-        const ModelProfile* profile = selected_model();
-        if (!profile) {
-            set_status("Select a model profile first.", true);
-            return;
-        }
-        clear_model_form();
-        model_form_edit = true;
-        model_original_name = profile->name;
-        form_name = profile->name;
-        form_provider_index =
-            profile->provider == "anthropic" ? 1 :
-            profile->provider == "copilot" ? 2 : 0;
-        form_model = profile->model;
-        form_base_url = profile->base_url;
-        form_api_key = profile->api_key;
-        if (profile->context_window.has_value()) {
-            form_context_window = std::to_string(*profile->context_window);
-        }
-        if (profile->stream_timeout_ms.has_value()) {
-            form_stream_timeout =
-                std::to_string(*profile->stream_timeout_ms);
-        }
-        form_capabilities = join_strings(profile->capabilities, ", ");
-        form_headers = headers_to_json(profile->request_headers);
-        model_form_dirty = false;
-        model_form_open = true;
+    void open_model_config() {
+        const std::string path = config_file_path();
+        const bool opened = deps.reveal_in_file_manager
+            ? deps.reveal_in_file_manager(path)
+            : reveal_path_in_file_manager(path);
+        set_status(
+            opened
+                ? "Revealed config.json in the system file manager."
+                : "Could not open the system file manager.",
+            !opened);
     }
 
     void close_model_form_now() {
@@ -1782,11 +1803,8 @@ struct SettingsCenter::Impl {
             };
         model_menu = Menu(
             &model_entries, &model_selected, model_menu_option);
-        model_add_button = Button(
-            " Add ", [this]() { open_model_add(); },
-            ButtonOption::Animated());
         model_edit_button = Button(
-            " Edit ", [this]() { open_model_edit(); },
+            " Edit... ", [this]() { open_model_config(); },
             ButtonOption::Animated());
         model_default_button = Button(
             " Set default ", [this]() { set_default_model(); },
@@ -1799,7 +1817,6 @@ struct SettingsCenter::Impl {
             Container::Horizontal({
                 model_menu,
                 Container::Vertical({
-                    model_add_button,
                     model_edit_button,
                     model_default_button,
                     model_delete_button,
@@ -1810,8 +1827,9 @@ struct SettingsCenter::Impl {
             return vbox({
                 page_heading(
                     "Models",
-                    "Manage saved profiles and the global default for future "
-                    "sessions. Use /model to switch only the current session."),
+                    "Inspect saved profiles and manage the global default. "
+                    "Edit... reveals config.json; /model switches only the "
+                    "current session."),
                 hbox({
                     text("Search ") | bold,
                     compact_input_element(model_filter_input),
@@ -1827,7 +1845,6 @@ struct SettingsCenter::Impl {
                     vbox({
                         render_model_details() | flex,
                         hbox({
-                            model_add_button->Render(),
                             model_edit_button->Render(),
                             model_default_button->Render(),
                             model_delete_button->Render(),
@@ -1952,7 +1969,7 @@ struct SettingsCenter::Impl {
             }) | yframe | vscroll_indicator | flex;
         });
 
-        InputOption archived_filter_option = InputOption::Spacious();
+        InputOption archived_filter_option = compact_input_option();
         archived_filter_option.content = &archived_filter;
         archived_filter_option.placeholder =
             "/ to search archived sessions";
@@ -2003,8 +2020,7 @@ struct SettingsCenter::Impl {
                     "workspace. Space toggles batch selection."),
                 hbox({
                     text("Search ") | bold,
-                    archived_filter_input->Render() | flex | border |
-                        color(theme().ui.border),
+                    compact_input_element(archived_filter_input),
                     text(
                         "  " +
                         std::to_string(archived_selected_ids.size()) +
@@ -2170,12 +2186,8 @@ struct SettingsCenter::Impl {
                 if (model_filter_input->Focused()) return false;
                 const std::string character =
                     lower_ascii(event.character());
-                if (character == "a") {
-                    open_model_add();
-                    return true;
-                }
                 if (character == "e") {
-                    open_model_edit();
+                    open_model_config();
                     return true;
                 }
                 if (character == "s") {

@@ -40,3 +40,6 @@
 - [x] 5.3 Update command help and daemon API/config documentation for UI entry points and shared mutation semantics
 - [x] 5.4 Build `acecode_unit_tests` and `acecode`, run focused and full CTest suites, run code-quality and whitespace checks, and manually exercise every tab in dark and light themes
 - [x] 5.5 Render the Configuration URL and Models filter as one-row background-filled inputs with placeholders and add fixed-size regression coverage
+- [x] 5.6 Render Archived and all five capability-management filters as one-row background-filled inputs and add fixed-size render coverage
+- [x] 5.7 Replace the Models Add/Edit entries with one external `Edit...` config-file handoff, update shortcuts/footer state, and add callback-based regression coverage
+- [x] 5.8 Build the TUI and unit tests, run focused settings tests, validate OpenSpec, and check the final diff

@@ -238,6 +238,42 @@ Element status_line(const std::string& value, bool error) {
     }) | color(error ? theme().semantic.error : theme().semantic.success);
 }
 
+InputOption compact_input_option() {
+    InputOption option;
+    option.multiline = false;
+    option.transform = [](InputState state) {
+        const Color foreground =
+            state.focused
+                ? theme().ui.selection_fg
+                : (state.is_placeholder
+                       ? theme().ui.text_secondary
+                       : theme().ui.text_primary);
+        const Color background =
+            state.focused
+                ? theme().ui.selection_bg
+                : theme().ui.input_bg;
+        Element value = state.element | color(foreground);
+        if (state.is_placeholder && !state.focused) {
+            value = std::move(value) | dim;
+        } else if (state.hovered && !state.focused) {
+            value = std::move(value) | underlined;
+        }
+        return hbox({
+            text(" "),
+            std::move(value),
+            filler(),
+            text(" "),
+        }) | bgcolor(background) | size(HEIGHT, EQUAL, 1);
+    };
+    return option;
+}
+
+Element compact_input_element(const Component& component) {
+    return component->Render() |
+        size(HEIGHT, EQUAL, 1) |
+        flex;
+}
+
 Element badge(const std::string& value, Color foreground, Color background) {
     return text(" " + value + " ") |
         color(foreground) | bgcolor(background);
@@ -1651,7 +1687,7 @@ struct ManagementCenter::Impl {
         std::string* value,
         const std::string& placeholder,
         std::function<void()> on_change) {
-        InputOption option = InputOption::Spacious();
+        InputOption option = compact_input_option();
         option.content = value;
         option.placeholder = placeholder;
         option.multiline = false;
@@ -1735,8 +1771,7 @@ struct ManagementCenter::Impl {
                     "compatibility, and external roots."),
                 hbox({
                     text("Search ") | bold,
-                    skill_filter_input->Render() | flex | border |
-                        color(theme().ui.border),
+                    compact_input_element(skill_filter_input),
                     text(
                         "  " +
                         std::to_string(visible_skill_indexes.size()) +
@@ -1796,8 +1831,7 @@ struct ManagementCenter::Impl {
                     "state, and connection errors."),
                 hbox({
                     text("Search ") | bold,
-                    mcp_filter_input->Render() | flex | border |
-                        color(theme().ui.border),
+                    compact_input_element(mcp_filter_input),
                     text(
                         "  " + std::to_string(mcp_rows.size()) +
                         " servers") |
@@ -1850,8 +1884,7 @@ struct ManagementCenter::Impl {
                     "authentication-recovery lifecycle hooks."),
                 hbox({
                     text("Search ") | bold,
-                    connector_filter_input->Render() | flex | border |
-                        color(theme().ui.border),
+                    compact_input_element(connector_filter_input),
                     text(
                         "  " +
                         std::to_string(visible_connector_indexes.size()) +
@@ -1893,8 +1926,7 @@ struct ManagementCenter::Impl {
                     "tools are informational only."),
                 hbox({
                     text("Search ") | bold,
-                    tool_filter_input->Render() | flex | border |
-                        color(theme().ui.border),
+                    compact_input_element(tool_filter_input),
                     text(
                         "  " + std::to_string(tool_rows.size()) +
                         " tools") |
@@ -1954,8 +1986,7 @@ struct ManagementCenter::Impl {
                     "and loader diagnostics."),
                 hbox({
                     text("Search ") | bold,
-                    hook_filter_input->Render() | flex | border |
-                        color(theme().ui.border),
+                    compact_input_element(hook_filter_input),
                     text(
                         "  " +
                         std::to_string(hook_snapshot.hooks.size()) +

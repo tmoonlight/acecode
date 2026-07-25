@@ -131,7 +131,7 @@ std::string footer_action_label(FooterAction action) {
         case FooterAction::Filter: return "filter";
         case FooterAction::Save: return "save";
         case FooterAction::Add: return "add";
-        case FooterAction::Edit: return "edit";
+        case FooterAction::Edit: return "edit...";
         case FooterAction::Delete: return "delete";
         case FooterAction::SetDefault: return "set default";
         case FooterAction::Toggle: return "enable/disable";
@@ -175,7 +175,6 @@ std::vector<FooterAction> settings_footer_actions(
         case SettingsTab::Models:
             actions = {
                 FooterAction::Filter,
-                FooterAction::Add,
                 FooterAction::Edit,
                 FooterAction::SetDefault,
                 FooterAction::Delete,

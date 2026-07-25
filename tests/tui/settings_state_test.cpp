@@ -106,6 +106,22 @@ TEST(SettingsState, FootersExposeOnlyContextualActions) {
             ats::FooterAction::Save),
         config_dirty.end());
 
+    auto model_actions = ats::settings_footer_actions(
+        ats::SettingsTab::Models,
+        false);
+    EXPECT_NE(
+        std::find(
+            model_actions.begin(),
+            model_actions.end(),
+            ats::FooterAction::Edit),
+        model_actions.end());
+    EXPECT_EQ(
+        std::find(
+            model_actions.begin(),
+            model_actions.end(),
+            ats::FooterAction::Add),
+        model_actions.end());
+
     ats::ManagementRowCapabilities immutable_tool;
     auto tool_actions = ats::management_footer_actions(
         ats::ManagementTab::Tools,
