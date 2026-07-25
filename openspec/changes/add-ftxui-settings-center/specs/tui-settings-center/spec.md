@@ -59,6 +59,10 @@ Configuration SHALL edit the upgrade service base URL, and Personalization SHALL
 - **WHEN** the user attempts to save a URL without an HTTP or HTTPS scheme
 - **THEN** no configuration is changed and an actionable validation error is displayed beside the field
 
+#### Scenario: Render compact scalar and filter inputs
+- **WHEN** Configuration displays the upgrade URL field or Models displays its search filter
+- **THEN** the editable field occupies one terminal row, uses a visible background, and shows an in-field placeholder when empty
+
 #### Scenario: Leave dirty custom instructions
 - **WHEN** custom instructions differ from the loaded value and the user changes tabs or presses Esc
 - **THEN** a Save, Discard, or Cancel modal appears before navigation continues

@@ -211,6 +211,55 @@ Element field_row(const std::string& label,
     return vbox(std::move(rows));
 }
 
+InputOption compact_input_option() {
+    InputOption option;
+    option.multiline = false;
+    option.transform = [](InputState state) {
+        const Color foreground =
+            state.focused
+                ? theme().ui.selection_fg
+                : (state.is_placeholder
+                       ? theme().ui.text_secondary
+                       : theme().ui.text_primary);
+        const Color background =
+            state.focused
+                ? theme().ui.selection_bg
+                : theme().ui.input_bg;
+        Element value = state.element | color(foreground);
+        if (state.is_placeholder && !state.focused) {
+            value = std::move(value) | dim;
+        } else if (state.hovered && !state.focused) {
+            value = std::move(value) | underlined;
+        }
+        return hbox({
+            text(" "),
+            std::move(value),
+            filler(),
+            text(" "),
+        }) | bgcolor(background) | size(HEIGHT, EQUAL, 1);
+    };
+    return option;
+}
+
+Element compact_input_element(const Component& component) {
+    return component->Render() |
+        size(HEIGHT, EQUAL, 1) |
+        flex;
+}
+
+Element compact_field_row(const std::string& label,
+                          const Component& component,
+                          const std::string& help = {}) {
+    Elements rows = {
+        text(label) | bold | color(theme().ui.text_primary),
+        compact_input_element(component),
+    };
+    if (!help.empty()) {
+        rows.push_back(paragraph(help) | color(theme().ui.text_secondary));
+    }
+    return vbox(std::move(rows));
+}
+
 Element badge(const std::string& value, Color foreground, Color background) {
     return text(" " + value + " ") | color(foreground) | bgcolor(background);
 }
@@ -1623,8 +1672,9 @@ struct SettingsCenter::Impl {
             }) | yframe | vscroll_indicator | flex;
         });
 
-        InputOption upgrade_option = InputOption::Spacious();
+        InputOption upgrade_option = compact_input_option();
         upgrade_option.content = &upgrade_url;
+        upgrade_option.placeholder = "https://updates.example.com/";
         upgrade_option.multiline = false;
         upgrade_option.on_change = [this]() {
             navigation.set_dirty(
@@ -1647,7 +1697,7 @@ struct SettingsCenter::Impl {
                         "Configuration",
                         "Service endpoints shared by the TUI, Desktop, and "
                         "daemon."),
-                    field_row(
+                    compact_field_row(
                         "Upgrade service URL",
                         upgrade_input,
                         "Must be an HTTP or HTTPS base URL. The trailing slash "
@@ -1713,7 +1763,7 @@ struct SettingsCenter::Impl {
                 }) | yframe | vscroll_indicator | flex;
             });
 
-        InputOption model_filter_option = InputOption::Spacious();
+        InputOption model_filter_option = compact_input_option();
         model_filter_option.content = &model_filter;
         model_filter_option.placeholder = "/ to search models";
         model_filter_option.multiline = false;
@@ -1764,8 +1814,7 @@ struct SettingsCenter::Impl {
                     "sessions. Use /model to switch only the current session."),
                 hbox({
                     text("Search ") | bold,
-                    model_filter_input->Render() | flex | border |
-                        color(theme().ui.border),
+                    compact_input_element(model_filter_input),
                     text("  " + std::to_string(
                         visible_model_indexes.size()) + " profiles") |
                         color(theme().ui.text_secondary),

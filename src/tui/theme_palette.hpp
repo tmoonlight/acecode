@@ -26,6 +26,7 @@ struct UiColors {
     Color accent;           // 主强调色(工具名、关键字高亮)
     Color accent_alt;       // 次强调色(计时器、token 统计)
     Color border;           // 边框、下拉面板
+    Color input_bg;         // 单行输入框背景
     Color selection_fg;     // 选中项前景
     Color selection_bg;     // 选中项背景
     Color badge_fg;         // 标签前景(attachment badge)

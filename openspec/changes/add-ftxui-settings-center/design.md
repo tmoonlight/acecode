@@ -64,6 +64,10 @@ The settings shell uses:
 
 Dark and light palettes remain authoritative. No new hard-coded product palette is introduced. The top rail and selected rows use `ui.accent`, `ui.selection_bg`, and `ui.selection_fg`; success/warning/error states use semantic colors. Animation is concentrated on tab and selection movement instead of scattered decoration.
 
+Single-line scalar and filter inputs use a compact one-row transform with a
+palette-backed background and in-field placeholder. Multiline height is
+reserved for custom instructions and structured editors such as raw JSON.
+
 The UI copy is English. Stable IDs never depend on labels, and copy is centralized per surface so a future whole-TUI localization change does not require rewriting controllers.
 
 ### 4. Keep approved page scope exact

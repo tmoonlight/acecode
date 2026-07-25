@@ -8,6 +8,7 @@
 #include <ftxui/screen/screen.hpp>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <condition_variable>
@@ -57,6 +58,38 @@ std::string render_component(
     ftxui::Screen screen(width, height);
     ftxui::Render(screen, component->Render());
     return screen.ToString();
+}
+
+ftxui::Screen render_screen(
+    const ftxui::Component& component,
+    int width = 128,
+    int height = 40) {
+    ftxui::Screen screen(width, height);
+    ftxui::Render(screen, component->Render());
+    return screen;
+}
+
+int row_containing(
+    const std::string& output,
+    const std::string& needle) {
+    const std::size_t offset = output.find(needle);
+    if (offset == std::string::npos) return -1;
+    return static_cast<int>(std::count(
+        output.begin(), output.begin() + offset, '\n'));
+}
+
+int non_default_background_cells(
+    const ftxui::Screen& screen,
+    int row) {
+    if (row < 0 || row >= screen.dimy()) return 0;
+    int count = 0;
+    for (int column = 0; column < screen.dimx(); ++column) {
+        if (screen.PixelAt(column, row).background_color !=
+            ftxui::Color::Default) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 ats::SettingsCenter make_settings_center(acecode::AppConfig& config) {
@@ -285,6 +318,63 @@ TEST(SettingsCenterRender, LightPaletteRendersTheSameControlContract) {
 
     EXPECT_NE(output.find("Default permission mode"), std::string::npos);
     EXPECT_NE(output.find("Native notifications"), std::string::npos);
+    acecode::tui::swap_theme_palette("dark");
+}
+
+TEST(SettingsCenterRender, ScalarAndModelFilterInputsStayOnOneRow) {
+    acecode::tui::init_theme_palette("dark");
+    for (const char* palette : {"dark", "light"}) {
+        acecode::tui::swap_theme_palette(palette);
+        SCOPED_TRACE(palette);
+        {
+            auto config = render_config();
+            config.upgrade.base_url.clear();
+            auto center = make_settings_center(config);
+            center.open(ats::SettingsTab::Configuration);
+            center.component()->TakeFocus();
+
+            const ftxui::Screen screen =
+                render_screen(center.component(), 96, 28);
+            const std::string output = screen.ToString();
+            const int label_row =
+                row_containing(output, "Upgrade service URL");
+            const int input_row =
+                row_containing(output, "https://updates.example.com/");
+            const int help_row =
+                row_containing(output, "Must be an HTTP or HTTPS base URL.");
+
+            ASSERT_GE(label_row, 0) << output;
+            ASSERT_GE(input_row, 0) << output;
+            ASSERT_GE(help_row, 0) << output;
+            EXPECT_EQ(input_row, label_row + 1) << output;
+            EXPECT_EQ(help_row, input_row + 1) << output;
+            EXPECT_GT(non_default_background_cells(screen, input_row), 24)
+                << output;
+        }
+
+        {
+            auto config = render_config();
+            auto center = make_settings_center(config);
+            center.open(ats::SettingsTab::Models);
+            center.component()->TakeFocus();
+
+            const ftxui::Screen screen =
+                render_screen(center.component(), 96, 28);
+            const std::string output = screen.ToString();
+            const int search_row = row_containing(output, "Search ");
+            const int placeholder_row =
+                row_containing(output, "/ to search models");
+            const int count_row = row_containing(output, "2 profiles");
+
+            ASSERT_GE(search_row, 0) << output;
+            ASSERT_GE(placeholder_row, 0) << output;
+            ASSERT_GE(count_row, 0) << output;
+            EXPECT_EQ(placeholder_row, search_row) << output;
+            EXPECT_EQ(count_row, search_row) << output;
+            EXPECT_GT(non_default_background_cells(screen, search_row), 24)
+                << output;
+        }
+    }
     acecode::tui::swap_theme_palette("dark");
 }
 
