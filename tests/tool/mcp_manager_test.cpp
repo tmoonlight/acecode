@@ -118,6 +118,15 @@ TEST(McpManagerAsync, StartAsyncPublishesToolsAndStatusUpdates) {
     EXPECT_EQ(manager.connected_server_count(), 1u);
     EXPECT_EQ(manager.discovered_tool_count(), 1u);
     EXPECT_TRUE(tools.has_tool("mcp_alpha_echo"));
+    const auto catalog = tools.get_registered_tools();
+    const auto registered = std::find_if(
+        catalog.begin(), catalog.end(),
+        [](const acecode::RegisteredToolInfo& item) {
+            return item.definition.name == "mcp_alpha_echo";
+        });
+    ASSERT_NE(registered, catalog.end());
+    EXPECT_EQ(registered->source, acecode::ToolSource::Mcp);
+    EXPECT_EQ(registered->source_owner, "alpha");
 
     auto result = tools.execute("mcp_alpha_echo", R"({"text":"hello"})");
     EXPECT_TRUE(result.success);

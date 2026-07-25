@@ -1300,6 +1300,9 @@ void WebServer::Impl::register_sessions() {
 
             json payload = expert_definition_to_json(*result.expert, false);
             payload["queued"] = true;
+            payload["pending"] = result.pending;
+            payload["busy"] = result.busy;
+            payload["effective_boundary"] = result.effective_boundary;
             crow::response r(payload.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));

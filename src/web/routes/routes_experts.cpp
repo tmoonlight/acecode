@@ -1,12 +1,58 @@
 // routes_experts.cpp — local expert component discovery and managed CRUD.
 #include "../server_impl.hpp"
+#include "../../tool/mcp_manager.hpp"
 
 namespace acecode::web {
 
 using nlohmann::json;
 
+namespace {
+
+const char* mcp_status_name(McpServerState state) {
+    switch (state) {
+        case McpServerState::Starting: return "starting";
+        case McpServerState::Connected: return "connected";
+        case McpServerState::Disabled: return "disabled";
+        case McpServerState::Failed: return "failed";
+        case McpServerState::Cancelled: return "cancelled";
+        case McpServerState::TimedOut: return "timed_out";
+    }
+    return "unavailable";
+}
+
+const char* mcp_disabled_reason(McpServerState state) {
+    switch (state) {
+        case McpServerState::Connected: return "";
+        case McpServerState::Disabled: return "globally_disabled";
+        case McpServerState::Starting: return "starting";
+        case McpServerState::Failed: return "connection_failed";
+        case McpServerState::Cancelled: return "connection_cancelled";
+        case McpServerState::TimedOut: return "connection_timed_out";
+    }
+    return "unavailable";
+}
+
+const char* mcp_transport_name(McpTransport transport) {
+    switch (transport) {
+        case McpTransport::Stdio: return "stdio";
+        case McpTransport::Sse: return "sse";
+        case McpTransport::Http: return "http";
+    }
+    return "unknown";
+}
+
+bool contains_name(const std::optional<std::vector<std::string>>& names,
+                   const std::string& name) {
+    return !names ||
+           std::find(names->begin(), names->end(), name) != names->end();
+}
+
+} // namespace
+
 void WebServer::Impl::register_experts() {
     CROW_ROUTE(app, "/api/experts").methods(crow::HTTPMethod::Options)
+    ([this](const crow::request& req) { return cors_preflight(req); });
+    CROW_ROUTE(app, "/api/experts/capabilities").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/experts/<string>").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req, const std::string&) {
@@ -18,6 +64,118 @@ void WebServer::Impl::register_experts() {
         const char* raw = req.url_params.get("workspace");
         return resolve_workspace(raw && *raw ? std::string(raw) : "__local__");
     };
+
+    CROW_ROUTE(app, "/api/experts/capabilities").methods(crow::HTTPMethod::GET)
+    ([this, workspace_for_request](const crow::request& req) {
+        if (auto rejected = require_auth(req)) return std::move(*rejected);
+        const auto workspace = workspace_for_request(req);
+        if (!workspace) {
+            crow::response response(404);
+            response.body = json{{"error", "UNKNOWN_WORKSPACE"},
+                                 {"message", "unknown workspace"}}.dump();
+            response.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(response));
+        }
+
+        std::optional<AppConfig> config_snapshot;
+        {
+            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            if (deps.app_config) config_snapshot = *deps.app_config;
+        }
+
+        json skills = json::array();
+        if (config_snapshot) {
+            const auto payload =
+                build_skills_payload(*config_snapshot, workspace->cwd);
+            for (const auto& item : payload) {
+                const std::string id =
+                    item.value("name", std::string{});
+                if (id.empty()) continue;
+                const bool enabled = item.value("enabled", false);
+                const bool globally_allowed =
+                    contains_name(config_snapshot->skills.allowed, id);
+                const bool available = enabled && globally_allowed;
+                std::string disabled_reason;
+                if (!enabled) {
+                    disabled_reason = "globally_disabled";
+                } else if (!globally_allowed) {
+                    disabled_reason = "not_allowed_by_global_policy";
+                }
+                skills.push_back({
+                    {"id", id},
+                    {"description",
+                     item.value("description", std::string{})},
+                    {"source", item.value("source", std::string{})},
+                    {"available", available},
+                    {"status", available ? "available" : "disabled"},
+                    {"disabled_reason", disabled_reason},
+                });
+            }
+        }
+
+        json mcp_servers = json::array();
+        if (deps.mcp_manager) {
+            for (const auto& server : deps.mcp_manager->list_servers()) {
+                const bool available =
+                    server.state == McpServerState::Connected;
+                mcp_servers.push_back({
+                    {"id", server.name},
+                    {"description", std::string{}},
+                    {"transport", server.transport},
+                    {"available", available},
+                    {"status", mcp_status_name(server.state)},
+                    {"disabled_reason",
+                     mcp_disabled_reason(server.state)},
+                    {"tool_count", server.tool_count},
+                });
+            }
+        } else if (config_snapshot) {
+            // Tests and reduced embedders may not own a live manager. Return
+            // configured IDs and safe state only; never serialize config
+            // command lines, environment, headers, or credentials.
+            for (const auto& [id, config] :
+                 config_snapshot->mcp_servers) {
+                const bool disabled = config.disabled;
+                mcp_servers.push_back({
+                    {"id", id},
+                    {"description", std::string{}},
+                    {"transport",
+                     mcp_transport_name(config.transport)},
+                    {"available", false},
+                    {"status", disabled ? "disabled" : "unavailable"},
+                    {"disabled_reason",
+                     disabled ? "globally_disabled"
+                              : "runtime_unavailable"},
+                    {"tool_count", 0},
+                });
+            }
+        }
+
+        json tools = json::array();
+        if (deps.tools) {
+            for (const auto& tool : deps.tools->get_registered_tools()) {
+                if (tool.source != ToolSource::Builtin) continue;
+                tools.push_back({
+                    {"id", tool.definition.name},
+                    {"description", tool.definition.description},
+                    {"available", true},
+                    {"status", "available"},
+                    {"disabled_reason", ""},
+                    {"configurable", true},
+                    {"read_only", tool.is_read_only},
+                });
+            }
+        }
+
+        crow::response response(200);
+        response.body = json{
+            {"skills", std::move(skills)},
+            {"mcp_servers", std::move(mcp_servers)},
+            {"tools", std::move(tools)},
+        }.dump();
+        response.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(response));
+    });
 
     CROW_ROUTE(app, "/api/experts").methods(crow::HTTPMethod::GET)
     ([this, workspace_for_request](const crow::request& req) {

@@ -1656,11 +1656,14 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
         system_prompt += "\n</loop-execution>";
     }
     LOG_DEBUG("System prompt length: " + std::to_string(system_prompt.size()));
-    bundle.tool_defs = tools_.get_tool_definitions();
+    bundle.tool_defs =
+        tools_.get_tool_definitions(&tool_capability_policy_);
     const auto builtin_tool_defs =
-        tools_.get_tool_definitions_by_source(ToolSource::Builtin);
+        tools_.get_tool_definitions_by_source(
+            ToolSource::Builtin, &tool_capability_policy_);
     const auto mcp_tool_defs =
-        tools_.get_tool_definitions_by_source(ToolSource::Mcp);
+        tools_.get_tool_definitions_by_source(
+            ToolSource::Mcp, &tool_capability_policy_);
     LOG_DEBUG("Registered tools: " + std::to_string(bundle.tool_defs.size()));
 
     // gitStatus 快照:每会话激活惰性采集一次,cwd 切换或外部失效(Web UI
@@ -2085,6 +2088,7 @@ ToolContext AgentLoop::build_tool_context(
     tool_ctx.skill_registry = skill_registry_;
     tool_ctx.scratch_dir = build_session_scratch_dir(cwd_, session_manager_);
     tool_ctx.preserve_full_output = true;
+    tool_ctx.capability_policy = tool_capability_policy_;
     tool_ctx.account_goal_usage = [this]() {
         account_goal_usage(0, true);
     };
@@ -2621,15 +2625,27 @@ bool AgentLoop::execute_tool_calls(
                     original_index,
                     tc_copy,
                     std::async(std::launch::async,
-                    [&run_tool_with_lifecycle, &execute_single_tool,
+                    [this, &run_tool_with_lifecycle, &execute_single_tool,
                      &maybe_guard_tool, tc_copy, original_index]() {
                         return run_tool_with_lifecycle(
                             tc_copy, original_index, false,
-                            [&execute_single_tool, &maybe_guard_tool](
-                                const ToolCall& effective_tc,
-                                const ToolContext& ctx,
-                                const std::string& ctx_path,
-                                const std::string&) {
+                            [this, &execute_single_tool, &maybe_guard_tool](
+                                 const ToolCall& effective_tc,
+                                 const ToolContext& ctx,
+                                 const std::string& ctx_path,
+                                 const std::string&) {
+                                const ToolCapabilityPolicy* policy =
+                                    ctx.capability_policy
+                                        ? &*ctx.capability_policy
+                                        : nullptr;
+                                if (tools_.is_denied_by_policy(
+                                        effective_tc.function_name, policy)) {
+                                    return ToolResult{
+                                        "[Error] Tool denied by the active "
+                                        "expert capability policy: " +
+                                            effective_tc.function_name,
+                                        false};
+                                }
                                 if (auto guarded = maybe_guard_tool(effective_tc)) {
                                     return *guarded;
                                 }
@@ -2681,6 +2697,17 @@ bool AgentLoop::execute_tool_calls(
                 const ToolContext& tool_ctx,
                 const std::string& ctx_path,
                 const std::string& ctx_command) -> ToolResult {
+                const ToolCapabilityPolicy* policy =
+                    tool_ctx.capability_policy
+                        ? &*tool_ctx.capability_policy
+                        : nullptr;
+                if (tools_.is_denied_by_policy(
+                        effective_tc.function_name, policy)) {
+                    return ToolResult{
+                        "[Error] Tool denied by the active expert capability "
+                        "policy: " + effective_tc.function_name,
+                        false};
+                }
                 if (auto guarded = maybe_guard_tool(effective_tc)) {
                     return *guarded;
                 }

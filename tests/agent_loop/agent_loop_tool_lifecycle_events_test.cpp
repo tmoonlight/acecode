@@ -136,6 +136,9 @@ public:
     StubLlmProvider& provider() { return *provider_; }
     PermissionManager& permissions() { return perms_; }
     std::atomic<int>& confirm_count() { return confirm_count_; }
+    void set_tool_capability_policy(acecode::ToolCapabilityPolicy policy) {
+        loop_->set_tool_capability_policy(std::move(policy));
+    }
 
     bool submit_and_wait(std::chrono::milliseconds timeout = 5s) {
         {
@@ -177,6 +180,72 @@ private:
     bool busy_ = false;
     std::atomic<int> confirm_count_{0};
 };
+
+TEST(AgentLoopToolLifecycleEvents,
+     ExpertPolicyFiltersProviderSchemaAndRejectsReplayBeforePermission) {
+    auto cwd = make_temp_dir("acecode_expert_tool_policy");
+    std::atomic<int> allowed_read_calls{0};
+    std::atomic<int> denied_write_calls{0};
+    std::atomic<int> allowed_mcp_calls{0};
+    std::atomic<int> denied_mcp_calls{0};
+    ToolLifecycleHarness h(cwd.string());
+
+    h.tools().register_tool(
+        make_probe_tool("allowed_read", true, &allowed_read_calls));
+    h.tools().register_tool(
+        make_probe_tool("denied_write", false, &denied_write_calls));
+    auto allowed_mcp =
+        make_probe_tool("mcp_alpha_search", true, &allowed_mcp_calls);
+    allowed_mcp.source = ToolSource::Mcp;
+    allowed_mcp.source_owner = "alpha";
+    h.tools().register_tool(allowed_mcp);
+    auto denied_mcp =
+        make_probe_tool("mcp_alphabet_search", true, &denied_mcp_calls);
+    denied_mcp.source = ToolSource::Mcp;
+    denied_mcp.source_owner = "alphabet";
+    h.tools().register_tool(denied_mcp);
+
+    acecode::ToolCapabilityPolicy policy;
+    policy.builtin_tools =
+        std::unordered_set<std::string>{"allowed_read"};
+    policy.mcp_servers =
+        std::unordered_set<std::string>{"alpha"};
+    h.set_tool_capability_policy(std::move(policy));
+
+    // A stale/replayed provider call is still rejected even though the denied
+    // tool was absent from the schema sent for this request.
+    ScriptedResponse tools_turn;
+    tools_turn.tool_calls.push_back(
+        {"call-denied", "denied_write", "{}"});
+    h.provider().push_response(std::move(tools_turn));
+    h.provider().push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait());
+    const auto schema = h.provider().tools_for_turn(0);
+    std::vector<std::string> schema_names;
+    for (const auto& tool : schema) schema_names.push_back(tool.name);
+    EXPECT_EQ(schema_names,
+              std::vector<std::string>({
+                  "allowed_read",
+                  "mcp_alpha_search",
+              }));
+
+    EXPECT_EQ(allowed_read_calls.load(), 0);
+    EXPECT_EQ(denied_write_calls.load(), 0);
+    EXPECT_EQ(allowed_mcp_calls.load(), 0);
+    EXPECT_EQ(denied_mcp_calls.load(), 0);
+    EXPECT_EQ(h.confirm_count().load(), 0);
+
+    const auto ends = h.events_of(SessionEventKind::ToolEnd);
+    ASSERT_EQ(ends.size(), 1u);
+    EXPECT_FALSE(ends[0].payload.value("success", true));
+    EXPECT_NE(
+        ends[0].payload.value("output", std::string{}).find(
+            "expert capability policy"),
+        std::string::npos);
+
+    fs::remove_all(cwd);
+}
 
 class AllowingToolHarness {
 public:

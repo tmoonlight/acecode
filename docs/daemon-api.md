@@ -254,6 +254,12 @@ when known.
 | POST | `/api/sessions/:id/commands` | run daemon builtin slash command |
 | POST | `/api/sessions/:id/side-question` | run isolated one-turn `/btw` question |
 | PUT | `/api/sessions/:id/expert` | switch the active session expert for subsequent turns |
+| GET | `/api/experts` | list expert components for a workspace |
+| POST | `/api/experts` | create a managed global expert component |
+| GET | `/api/experts/capabilities` | list sanitized expert capability choices |
+| GET | `/api/experts/:id` | read one expert component |
+| PUT | `/api/experts/:id` | update a managed global expert component |
+| DELETE | `/api/experts/:id` | delete a managed global expert component |
 | GET | `/api/sessions/:id/permissions` | read session permission mode |
 | PUT | `/api/sessions/:id/permissions` | set session permission mode |
 | GET | `/api/sessions/:id/model` | read session model state |
@@ -946,11 +952,22 @@ component-scoped Skills are queued on the same worker as chat turns. An
 in-flight turn therefore finishes with its existing expert; the switch is
 persisted and applies before the next subsequently queued turn.
 
-Success returns the selected expert definition plus:
+Success returns the selected expert definition plus queue state:
 
 ```json
-{"queued":true}
+{
+  "queued": true,
+  "pending": true,
+  "busy": true,
+  "effective_boundary": "next_turn"
+}
 ```
+
+`busy` is a snapshot taken when the switch was accepted. When it is true,
+`effective_boundary` is `next_turn`; the running turn keeps its old prompt,
+Skill registry, MCP scope, and built-in-tool scope. Otherwise the value is
+`queued_control`. In either case all four contexts change together in the
+session worker queue before any later queued chat turn.
 
 Errors:
 
@@ -1286,6 +1303,131 @@ empty `commands` array plus enabled global skills only:
 
 For backward compatibility, omitting the `workspace` query entirely returns
 the builtin-only response and omits both `commands` and `skills`.
+
+### Expert components
+
+`GET /api/experts?workspace=<hash>` returns:
+
+```json
+{
+  "experts": [
+    {
+      "id": "code-reviewer",
+      "version": "1.0.0",
+      "type": "agent",
+      "display_name": "Code Reviewer",
+      "author": "ACECode QA",
+      "profession": "Review engineer",
+      "description": "Reviews changes before delivery.",
+      "avatar_path": "avatar.png",
+      "default_init_prompt": "Review the active change.",
+      "tags": ["开发", "质量"],
+      "expertise": ["架构审查", "回归风险"],
+      "quick_prompts": ["Review this change", "Check tests"],
+      "created_at": "2026-07-25T09:00:00Z",
+      "updated_at": "2026-07-25T09:05:00Z",
+      "capabilities": {
+        "skills": ["review-checklist"],
+        "mcp_servers": ["github"],
+        "tools": ["file_read", "AskUserQuestion"]
+      },
+      "lead_agent_id": "lead",
+      "member_agent_ids": [],
+      "references_existing_experts": false,
+      "lead_expert_id": "",
+      "member_expert_ids": [],
+      "agents": [
+        {
+          "id": "lead",
+          "display_name": "Code Reviewer",
+          "profession": "Review engineer"
+        }
+      ],
+      "source": "global",
+      "managed_global": true
+    }
+  ],
+  "diagnostics": [],
+  "workspace_hash": "...",
+  "cwd": "C:/repo",
+  "global_root": "C:/Users/me/.acecode/experts"
+}
+```
+
+`GET /api/experts/:id?workspace=<hash>` returns the same definition and adds
+the selected Agent's `instructions`. List responses intentionally omit
+instructions. Neither response exposes the package root or Skill-root paths.
+
+`POST /api/experts?workspace=<hash>` creates a managed global component;
+`PUT /api/experts/:id?workspace=<hash>` updates one. Both accept the fields
+above using snake-case request names. A single expert supplies
+`instructions` (or a `lead` object). A team supplies one
+`lead_expert_id` and a non-empty `member_expert_ids` array referencing
+installed single experts. Workspace-sourced packages are read-only through
+these routes. Updates merge managed fields into the existing package and keep
+avatar configuration, packaged Skills, resources, and unknown manifest
+fields. `DELETE /api/experts/:id?workspace=<hash>` removes only a managed
+global package.
+
+Each of `capabilities.skills`, `capabilities.mcp_servers`, and
+`capabilities.tools` is independently optional:
+
+- missing key: inherit all capabilities available under global policy;
+- empty array: allow none of that capability class;
+- non-empty array: exact-name allowlist.
+
+Unknown or temporarily unavailable IDs remain persisted so the editor can
+show the saved choice and its unavailable state. A referenced expert team
+does not merge capability lists; every member executes under that member
+expert's own scopes. The manifest's top-level `skills` field remains package
+content metadata and is not the capability selection field.
+
+`GET /api/experts/capabilities?workspace=<hash>` returns the read-only,
+runtime-backed selection catalog:
+
+```json
+{
+  "skills": [
+    {
+      "id": "review-checklist",
+      "description": "Review checklist",
+      "source": "project",
+      "available": true,
+      "status": "available",
+      "disabled_reason": ""
+    }
+  ],
+  "mcp_servers": [
+    {
+      "id": "github",
+      "description": "",
+      "transport": "stdio",
+      "available": true,
+      "status": "connected",
+      "disabled_reason": "",
+      "tool_count": 3
+    }
+  ],
+  "tools": [
+    {
+      "id": "file_write",
+      "description": "Write a file",
+      "available": true,
+      "status": "available",
+      "disabled_reason": "",
+      "configurable": true,
+      "read_only": false
+    }
+  ]
+}
+```
+
+Skill availability reflects global allowed/disabled policy. MCP entries expose
+only server ID, safe transport, runtime state, and tool count; command lines,
+arguments, environment variables, URLs, headers, authorization tokens, and
+connection error text are never returned. Tool IDs are exact registered
+built-in names; MCP tools are selected by their exact owning server ID instead
+of by parsing a qualified tool name.
 
 ### `GET /api/skills/root?workspace=<hash>`
 

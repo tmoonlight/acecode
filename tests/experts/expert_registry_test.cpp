@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "experts/expert_registry.hpp"
+#include "../agent_loop/stub_provider.hpp"
 #include "permissions.hpp"
 #include "session/session_registry.hpp"
 #include "session/session_storage.hpp"
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -175,14 +177,32 @@ TEST(ExpertRegistry, ReferencedTeamKeepsEachExpertsOwnSkillRoots) {
     const fs::path global_root = temp.path / "global";
     acecode::ExpertRegistry registry(global_root);
     std::string error;
-    ASSERT_TRUE(registry.create_global(make_agent("reviewer", "Reviewer"), &error))
-        << error;
-    ASSERT_TRUE(registry.create_global(make_agent("tester", "Tester"), &error))
-        << error;
+    auto reviewer = make_agent("reviewer", "Reviewer");
+    reviewer.capabilities.skills =
+        std::vector<std::string>{"review-skill"};
+    reviewer.capabilities.mcp_servers =
+        std::vector<std::string>{"review-mcp"};
+    reviewer.capabilities.tools =
+        std::vector<std::string>{"file_read"};
+    ASSERT_TRUE(registry.create_global(reviewer, &error)) << error;
+    auto tester = make_agent("tester", "Tester");
+    tester.capabilities.skills =
+        std::vector<std::string>{"test-skill"};
+    tester.capabilities.mcp_servers =
+        std::vector<std::string>{"test-mcp"};
+    tester.capabilities.tools =
+        std::vector<std::string>{"file_write"};
+    ASSERT_TRUE(registry.create_global(tester, &error)) << error;
 
     for (const std::string& id : {"reviewer", "tester"}) {
         const fs::path package = global_root / id;
         fs::create_directories(package / "skills");
+        const std::string skill_name =
+            id == "reviewer" ? "review-skill" : "test-skill";
+        fs::create_directories(package / "skills" / skill_name);
+        std::ofstream(package / "skills" / skill_name / "SKILL.md")
+            << "---\nname: " << skill_name
+            << "\ndescription: Team member skill\n---\n";
         std::ifstream input(package / "expert.json");
         auto manifest = nlohmann::json::parse(input);
         input.close();
@@ -209,6 +229,69 @@ TEST(ExpertRegistry, ReferencedTeamKeepsEachExpertsOwnSkillRoots) {
               fs::weakly_canonical(global_root / "reviewer" / "skills"));
     EXPECT_EQ(member_roots.front(),
               fs::weakly_canonical(global_root / "tester" / "skills"));
+
+    const auto lead_scopes = found->selected_capabilities();
+    const auto member_scopes = found->selected_capabilities("tester");
+    ASSERT_TRUE(lead_scopes.tools.has_value());
+    ASSERT_TRUE(member_scopes.tools.has_value());
+    EXPECT_EQ(*lead_scopes.tools,
+              std::vector<std::string>({"file_read"}));
+    EXPECT_EQ(*member_scopes.tools,
+              std::vector<std::string>({"file_write"}));
+    EXPECT_EQ(*lead_scopes.mcp_servers,
+              std::vector<std::string>({"review-mcp"}));
+    EXPECT_EQ(*member_scopes.mcp_servers,
+              std::vector<std::string>({"test-mcp"}));
+
+    acecode::AppConfig cfg;
+    cfg.skills.reuse_opencode = false;
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor =
+        [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(temp.path);
+    deps.config = &cfg;
+    deps.expert_registry = &registry;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions lead_options;
+    lead_options.cwd = acecode::path_to_utf8(temp.path);
+    lead_options.expert_id = "delivery-team";
+    const std::string lead_id = sessions.create(lead_options);
+    auto lead_entry = sessions.acquire(lead_id);
+    ASSERT_NE(lead_entry, nullptr);
+    ASSERT_TRUE(lead_entry->tool_capability_policy.builtin_tools.has_value());
+    EXPECT_TRUE(lead_entry->tool_capability_policy.builtin_tools->count(
+                    "file_read") != 0);
+    EXPECT_TRUE(lead_entry->tool_capability_policy.mcp_servers->count(
+                    "review-mcp") != 0);
+    ASSERT_NE(lead_entry->skill_registry, nullptr);
+    EXPECT_TRUE(lead_entry->skill_registry->find("review-skill").has_value());
+    EXPECT_FALSE(lead_entry->skill_registry->find("test-skill").has_value());
+
+    auto member_options = lead_options;
+    member_options.expert_member_id = "tester";
+    const std::string member_id = sessions.create(member_options);
+    auto member_entry = sessions.acquire(member_id);
+    ASSERT_NE(member_entry, nullptr);
+    ASSERT_TRUE(
+        member_entry->tool_capability_policy.builtin_tools.has_value());
+    EXPECT_TRUE(member_entry->tool_capability_policy.builtin_tools->count(
+                    "file_write") != 0);
+    EXPECT_FALSE(member_entry->tool_capability_policy.builtin_tools->count(
+                     "file_read") != 0);
+    EXPECT_TRUE(member_entry->tool_capability_policy.mcp_servers->count(
+                    "test-mcp") != 0);
+    ASSERT_NE(member_entry->skill_registry, nullptr);
+    EXPECT_TRUE(member_entry->skill_registry->find("test-skill").has_value());
+    EXPECT_FALSE(
+        member_entry->skill_registry->find("review-skill").has_value());
+
+    sessions.destroy(lead_id);
+    sessions.destroy(member_id);
 }
 
 TEST(ExpertRegistry, RejectsMissingSelfNestedAndOutOfScopeTeamReferences) {
@@ -286,6 +369,151 @@ TEST(ExpertRegistry, DraftJsonRejectsInvalidIdentifiersAndToolFieldsDoNotMatter)
     }, &error);
     ASSERT_TRUE(valid.has_value()) << error;
     EXPECT_EQ(valid->lead.instructions, "Act safely.");
+}
+
+TEST(ExpertRegistry, NormalizesMetadataAndPreservesOptionalCapabilityStates) {
+    std::string error;
+    auto draft = acecode::ExpertRegistry::draft_from_json({
+        {"id", "unicode-expert"},
+        {"display_name", "研发专家"},
+        {"author", "吴八哥"},
+        {"profession", "开发"},
+        {"description", "处理复杂研发任务"},
+        {"instructions", "严格验证每一项改动。"},
+        {"tags", nlohmann::json::array({" 开发 ", "", "OPC-一人公司", "开发"})},
+        {"expertise", nlohmann::json::array({"系统架构", " 高级开发 ", "系统架构"})},
+        {"quick_prompts", nlohmann::json::array({"审查当前改动", " ", "审查当前改动"})},
+        {"capabilities", {
+            {"skills", nlohmann::json::array()},
+            {"mcp_servers", nlohmann::json::array({" github ", "missing", "github"})},
+            {"tools", nlohmann::json::array({"file_read", "AskUserQuestion"})},
+        }},
+    }, &error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_EQ(draft->author, "吴八哥");
+    EXPECT_EQ(draft->tags,
+              std::vector<std::string>({"开发", "OPC-一人公司"}));
+    EXPECT_EQ(draft->expertise,
+              std::vector<std::string>({"系统架构", "高级开发"}));
+    EXPECT_EQ(draft->quick_prompts,
+              std::vector<std::string>({"审查当前改动"}));
+    ASSERT_TRUE(draft->capabilities.skills.has_value());
+    EXPECT_TRUE(draft->capabilities.skills->empty());
+    ASSERT_TRUE(draft->capabilities.mcp_servers.has_value());
+    EXPECT_EQ(*draft->capabilities.mcp_servers,
+              std::vector<std::string>({"github", "missing"}));
+    ASSERT_TRUE(draft->capabilities.tools.has_value());
+    EXPECT_EQ(*draft->capabilities.tools,
+              std::vector<std::string>({"file_read", "AskUserQuestion"}));
+
+    TempDir temp;
+    acecode::ExpertRegistry registry(temp.path / "global");
+    ASSERT_TRUE(registry.create_global(*draft, &error)) << error;
+    auto found = registry.find(acecode::path_to_utf8(temp.path),
+                               "unicode-expert");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->author, "吴八哥");
+    EXPECT_EQ(found->tags, draft->tags);
+    EXPECT_EQ(found->expertise, draft->expertise);
+    ASSERT_TRUE(found->capabilities.skills.has_value());
+    EXPECT_TRUE(found->capabilities.skills->empty());
+    ASSERT_TRUE(found->capabilities.mcp_servers.has_value());
+    EXPECT_EQ(*found->capabilities.mcp_servers,
+              std::vector<std::string>({"github", "missing"}));
+    EXPECT_FALSE(found->created_at.empty());
+    EXPECT_FALSE(found->updated_at.empty());
+
+    const auto dto = acecode::expert_definition_to_json(*found, true);
+    EXPECT_EQ(dto["author"], "吴八哥");
+    EXPECT_EQ(dto["capabilities"]["skills"], nlohmann::json::array());
+    EXPECT_EQ(dto["capabilities"]["mcp_servers"][1], "missing");
+    EXPECT_FALSE(dto.contains("package_root"));
+    EXPECT_FALSE(dto.contains("skill_roots"));
+}
+
+TEST(ExpertRegistry, UpdateMergesManagedFieldsWithoutLosingPackageData) {
+    TempDir temp;
+    const fs::path global_root = temp.path / "global";
+    acecode::ExpertRegistry registry(global_root);
+    std::string error;
+
+    auto initial = make_agent("preserved", "Original");
+    initial.capabilities_present = true;
+    initial.capabilities.skills =
+        std::vector<std::string>{"frontend-design", "missing-skill"};
+    initial.capabilities.mcp_servers =
+        std::vector<std::string>{"github"};
+    initial.capabilities.tools =
+        std::vector<std::string>{"file_read"};
+    ASSERT_TRUE(registry.create_global(initial, &error)) << error;
+
+    const fs::path package = global_root / "preserved";
+    fs::create_directories(package / "skills" / "bundled");
+    fs::create_directories(package / "resources");
+    std::ofstream(package / "skills" / "bundled" / "SKILL.md")
+        << "---\nname: bundled\n---\nBundled skill.\n";
+    std::ofstream(package / "resources" / "guide.txt") << "keep me";
+    std::ofstream(package / "avatar.svg") << "<svg/>";
+
+    std::ifstream input(package / "expert.json");
+    auto manifest = nlohmann::json::parse(input);
+    input.close();
+    const std::string created_at =
+        manifest.value("created_at", std::string{});
+    manifest["avatar"] = "avatar.svg";
+    manifest["skills"] = nlohmann::json::array({"skills"});
+    manifest["x-forward-compatible"] = {
+        {"nested", true},
+    };
+    manifest["capabilities"]["future_scope"] =
+        nlohmann::json::array({"keep"});
+    std::ofstream(package / "expert.json") << manifest.dump(2) << '\n';
+
+    auto legacy_client_update = make_agent("preserved", "Legacy Update");
+    legacy_client_update.author = "作者";
+    legacy_client_update.tags = {"开发", "开发", " OPC "};
+    legacy_client_update.expertise = {"架构", "", "架构"};
+    ASSERT_TRUE(registry.update_global("preserved", legacy_client_update, &error))
+        << error;
+
+    std::ifstream preserved_input(package / "expert.json");
+    auto preserved = nlohmann::json::parse(preserved_input);
+    preserved_input.close();
+    EXPECT_EQ(preserved["avatar"], "avatar.svg");
+    EXPECT_EQ(preserved["skills"], nlohmann::json::array({"skills"}));
+    EXPECT_TRUE(preserved["x-forward-compatible"]["nested"]);
+    EXPECT_EQ(preserved["capabilities"]["skills"][1], "missing-skill");
+    EXPECT_EQ(preserved["capabilities"]["future_scope"][0], "keep");
+    EXPECT_EQ(preserved["created_at"], created_at);
+    EXPECT_NE(preserved["updated_at"].get<std::string>(), std::string{});
+    EXPECT_TRUE(fs::is_regular_file(package / "avatar.svg"));
+    EXPECT_TRUE(fs::is_regular_file(package / "resources" / "guide.txt"));
+    EXPECT_TRUE(fs::is_regular_file(
+        package / "skills" / "bundled" / "SKILL.md"));
+
+    auto explicit_scope_update = legacy_client_update;
+    explicit_scope_update.capabilities_present = true;
+    explicit_scope_update.capabilities.skills =
+        std::vector<std::string>{};
+    explicit_scope_update.capabilities.tools =
+        std::vector<std::string>{"file_read", "missing-tool"};
+    ASSERT_TRUE(registry.update_global("preserved", explicit_scope_update,
+                                       &error)) << error;
+
+    auto found =
+        registry.find(acecode::path_to_utf8(temp.path), "preserved");
+    ASSERT_TRUE(found.has_value());
+    ASSERT_TRUE(found->capabilities.skills.has_value());
+    EXPECT_TRUE(found->capabilities.skills->empty());
+    EXPECT_FALSE(found->capabilities.mcp_servers.has_value());
+    ASSERT_TRUE(found->capabilities.tools.has_value());
+    EXPECT_EQ(*found->capabilities.tools,
+              std::vector<std::string>({"file_read", "missing-tool"}));
+
+    std::ifstream scoped_input(package / "expert.json");
+    const auto scoped = nlohmann::json::parse(scoped_input);
+    EXPECT_FALSE(scoped["capabilities"].contains("mcp_servers"));
+    EXPECT_EQ(scoped["capabilities"]["future_scope"][0], "keep");
 }
 
 TEST(ExpertRegistry, RejectsDraftsThatCannotRoundTrip) {
@@ -400,5 +628,178 @@ TEST(ExpertRegistry, ActiveSessionSwitchQueuesAndPersistsExpertBinding) {
 
     auto missing = sessions.switch_expert(id, "missing");
     EXPECT_EQ(missing.status, acecode::ExpertSwitchStatus::UnknownExpert);
+    sessions.destroy(id);
+}
+
+TEST(ExpertRegistry,
+     BusySwitchChangesPromptSkillsAndToolScopesAtOneQueueBoundary) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(workspace);
+    auto write_skill = [&](const std::string& name) {
+        const fs::path root =
+            workspace / ".acecode" / "skills" / name;
+        fs::create_directories(root);
+        std::ofstream(root / "SKILL.md")
+            << "---\nname: " << name
+            << "\ndescription: " << name << " description\n---\n";
+    };
+    write_skill("review-skill");
+    write_skill("write-skill");
+
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    auto reviewer = make_agent("reviewer", "Reviewer");
+    reviewer.capabilities.skills =
+        std::vector<std::string>{"review-skill"};
+    reviewer.capabilities.mcp_servers =
+        std::vector<std::string>{"review-mcp"};
+    reviewer.capabilities.tools =
+        std::vector<std::string>{"file_read"};
+    ASSERT_TRUE(experts.create_global(reviewer, &error)) << error;
+    auto writer = make_agent("writer", "Writer");
+    writer.lead.instructions = "Write the requested implementation.";
+    writer.capabilities.skills =
+        std::vector<std::string>{"write-skill"};
+    writer.capabilities.mcp_servers =
+        std::vector<std::string>{"write-mcp"};
+    writer.capabilities.tools =
+        std::vector<std::string>{"file_write"};
+    ASSERT_TRUE(experts.create_global(writer, &error)) << error;
+
+    std::atomic<int> tool_calls{0};
+    acecode::ToolExecutor tools;
+    auto register_tool = [&](std::string name, acecode::ToolSource source,
+                             std::string owner, bool read_only) {
+        acecode::ToolImpl tool;
+        tool.definition.name = std::move(name);
+        tool.definition.description = "scope probe";
+        tool.definition.parameters = nlohmann::json::object();
+        tool.source = source;
+        tool.source_owner = std::move(owner);
+        tool.is_read_only = read_only;
+        tool.execute = [&](const std::string&, const acecode::ToolContext&) {
+            ++tool_calls;
+            return acecode::ToolResult{"ok", true};
+        };
+        tools.register_tool(tool);
+    };
+    register_tool("file_read", acecode::ToolSource::Builtin, {}, true);
+    register_tool("file_write", acecode::ToolSource::Builtin, {}, false);
+    register_tool("mcp_review_probe", acecode::ToolSource::Mcp,
+                  "review-mcp", true);
+    register_tool("mcp_write_probe", acecode::ToolSource::Mcp,
+                  "write-mcp", true);
+
+    auto provider =
+        std::make_shared<acecode_test::StubLlmProvider>();
+    provider->set_latency_ms(250);
+    provider->push_text("first complete");
+    provider->push_text("second complete");
+
+    acecode::AppConfig cfg;
+    cfg.skills.reuse_opencode = false;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor = [provider] {
+        return std::static_pointer_cast<acecode::LlmProvider>(provider);
+    };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.config = &cfg;
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions options;
+    options.cwd = acecode::path_to_utf8(workspace);
+    options.expert_id = "reviewer";
+    const std::string id = sessions.create(options);
+    auto entry = sessions.acquire(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->loop, nullptr);
+    ASSERT_NE(entry->provider_slot, nullptr);
+    {
+        std::lock_guard<std::mutex> lock(entry->provider_slot->mu);
+        entry->provider_slot->provider = provider;
+    }
+
+    entry->loop->submit("review first");
+    const auto first_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (provider->turn_count() < 1 &&
+           std::chrono::steady_clock::now() < first_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_GE(provider->turn_count(), 1);
+    ASSERT_TRUE(entry->loop->is_busy());
+
+    const auto switched = sessions.switch_expert(id, "writer");
+    ASSERT_EQ(switched.status, acecode::ExpertSwitchStatus::Accepted);
+    EXPECT_TRUE(switched.busy);
+    EXPECT_TRUE(switched.pending);
+    EXPECT_EQ(switched.effective_boundary, "next_turn");
+    EXPECT_EQ(entry->expert_id, "reviewer");
+
+    // The control task is enqueued before this chat task, so the next request
+    // must see all writer contexts together.
+    entry->loop->submit("write second");
+    const auto done_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while ((provider->turn_count() < 2 || entry->loop->is_busy()) &&
+           std::chrono::steady_clock::now() < done_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_GE(provider->turn_count(), 2);
+    ASSERT_FALSE(entry->loop->is_busy());
+
+    auto tool_names = [](const std::vector<acecode::ToolDef>& defs) {
+        std::vector<std::string> result;
+        for (const auto& def : defs) result.push_back(def.name);
+        return result;
+    };
+    EXPECT_EQ(tool_names(provider->tools_for_turn(0)),
+              std::vector<std::string>({
+                  "file_read",
+                  "mcp_review_probe",
+              }));
+    EXPECT_EQ(tool_names(provider->tools_for_turn(1)),
+              std::vector<std::string>({
+                  "file_write",
+                  "mcp_write_probe",
+              }));
+
+    auto request_text = [](const std::vector<acecode::ChatMessage>& messages) {
+        std::string result;
+        for (const auto& message : messages) {
+            result += message.content;
+            result.push_back('\n');
+        }
+        return result;
+    };
+    const std::string first_request =
+        request_text(provider->messages_for_turn(0));
+    const std::string second_request =
+        request_text(provider->messages_for_turn(1));
+    EXPECT_NE(first_request.find("Review code carefully."),
+              std::string::npos);
+    EXPECT_NE(first_request.find("review-skill"), std::string::npos);
+    EXPECT_EQ(first_request.find("write-skill"), std::string::npos);
+    EXPECT_NE(second_request.find("Write the requested implementation."),
+              std::string::npos);
+    EXPECT_NE(second_request.find("write-skill"), std::string::npos);
+    EXPECT_EQ(second_request.find("review-skill"), std::string::npos);
+
+    EXPECT_EQ(entry->expert_id, "writer");
+    ASSERT_NE(entry->skill_registry, nullptr);
+    EXPECT_TRUE(entry->skill_registry->find("write-skill").has_value());
+    EXPECT_FALSE(entry->skill_registry->find("review-skill").has_value());
+    ASSERT_TRUE(entry->tool_capability_policy.builtin_tools.has_value());
+    EXPECT_TRUE(entry->tool_capability_policy.builtin_tools->count(
+                    "file_write") != 0);
+    EXPECT_FALSE(entry->tool_capability_policy.builtin_tools->count(
+                     "file_read") != 0);
+    EXPECT_EQ(tool_calls.load(), 0);
+
     sessions.destroy(id);
 }

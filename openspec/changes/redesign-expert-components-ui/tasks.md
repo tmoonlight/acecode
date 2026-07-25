@@ -1,19 +1,19 @@
 ## 1. Expert schema and lossless persistence
 
-- [ ] 1.1 Extend expert definitions and drafts with author, Tags, expertise, timestamps, and independently optional Skill/MCP/tool capability scopes.
-- [ ] 1.2 Parse, validate, normalize, and serialize missing, empty, non-empty, Unicode, duplicate, and unavailable capability/list values with focused registry tests.
-- [ ] 1.3 Make expert updates merge managed fields into the existing manifest while preserving avatar settings, packaged Skills, resources, and unknown fields; cover preservation and workspace read-only behavior with tests.
-- [ ] 1.4 Extend expert list/create/update HTTP DTOs and smoke tests for the new expert and team fields without exposing package-private data.
+- [x] 1.1 Extend expert definitions and drafts with author, Tags, expertise, timestamps, and independently optional Skill/MCP/tool capability scopes.
+- [x] 1.2 Parse, validate, normalize, and serialize missing, empty, non-empty, Unicode, duplicate, and unavailable capability/list values with focused registry tests.
+- [x] 1.3 Make expert updates merge managed fields into the existing manifest while preserving avatar settings, packaged Skills, resources, and unknown fields; cover preservation and workspace read-only behavior with tests.
+- [x] 1.4 Extend expert list/create/update HTTP DTOs and smoke tests for the new expert and team fields without exposing package-private data.
 
 ## 2. Runtime capability catalog and enforcement
 
-- [ ] 2.1 Add exact tool-source ownership metadata and a sanitized runtime capability catalog for Skills, MCP server IDs/status, and registered built-in tool IDs.
-- [ ] 2.2 Add the read-only expert capability-catalog API, ensure MCP command/env/header/token data is excluded, and cover availability/unavailable states with HTTP tests.
-- [ ] 2.3 Intersect optional expert Skill selections with global allowed/disabled policy while retaining valid packaged Skills across create, resume, fork, and switch paths.
-- [ ] 2.4 Add session-local built-in/MCP tool filtering to provider schemas and an execution-boundary denial check without unregistering global tools or bypassing permissions.
-- [ ] 2.5 Atomically update prompt context, Skill registry, MCP scope, and built-in-tool scope in the queued expert switch; preserve member-specific scopes for expert-team delegation.
-- [ ] 2.6 Add focused C++ tests for schema filtering, execution denial, global-policy intersection, member isolation, and in-flight-turn switch ordering.
-- [ ] 2.7 Document the extended expert and capability-catalog API in `docs/daemon-api.md`.
+- [x] 2.1 Add exact tool-source ownership metadata and a sanitized runtime capability catalog for Skills, MCP server IDs/status, and registered built-in tool IDs.
+- [x] 2.2 Add the read-only expert capability-catalog API, ensure MCP command/env/header/token data is excluded, and cover availability/unavailable states with HTTP tests.
+- [x] 2.3 Intersect optional expert Skill selections with global allowed/disabled policy while retaining valid packaged Skills across create, resume, fork, and switch paths.
+- [x] 2.4 Add session-local built-in/MCP tool filtering to provider schemas and an execution-boundary denial check without unregistering global tools or bypassing permissions.
+- [x] 2.5 Atomically update prompt context, Skill registry, MCP scope, and built-in-tool scope in the queued expert switch; preserve member-specific scopes for expert-team delegation.
+- [x] 2.6 Add focused C++ tests for schema filtering, execution denial, global-policy intersection, member isolation, and in-flight-turn switch ordering.
+- [x] 2.7 Document the extended expert and capability-catalog API in `docs/daemon-api.md`.
 
 ## 3. Frontend data and API contracts
 

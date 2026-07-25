@@ -43,6 +43,25 @@ std::string normalized_path_for_scope(const std::string& raw,
     return text;
 }
 
+bool tool_allowed_by_policy(const ToolImpl& impl,
+                            const ToolCapabilityPolicy* policy) {
+    if (!policy) return true;
+    if (impl.source == ToolSource::Builtin) {
+        return !policy->builtin_tools ||
+               policy->builtin_tools->count(impl.definition.name) != 0;
+    }
+    return !policy->mcp_servers ||
+           (!impl.source_owner.empty() &&
+            policy->mcp_servers->count(impl.source_owner) != 0);
+}
+
+ToolResult expert_policy_denied_result(const std::string& tool_name) {
+    return ToolResult{
+        "[Error] Tool denied by the active expert capability policy: " +
+            tool_name,
+        false};
+}
+
 } // namespace
 
 bool ToolContext::is_workspace_scratch_path(const std::string& file_path) const {
@@ -89,22 +108,63 @@ bool ToolExecutor::unregister_tool(const std::string& name) {
     return true;
 }
 
-std::vector<ToolDef> ToolExecutor::get_tool_definitions() const {
+std::vector<ToolDef> ToolExecutor::get_tool_definitions(
+    const ToolCapabilityPolicy* policy) const {
     std::vector<ToolDef> defs;
     std::lock_guard<std::mutex> lk(tools_mu_);
     for (const auto& [name, impl] : tools_) {
-        defs.push_back(impl.definition);
+        (void)name;
+        if (tool_allowed_by_policy(impl, policy)) {
+            defs.push_back(impl.definition);
+        }
     }
     return defs;
 }
 
-std::vector<ToolDef> ToolExecutor::get_tool_definitions_by_source(ToolSource source) const {
+std::vector<ToolDef> ToolExecutor::get_tool_definitions_by_source(
+    ToolSource source,
+    const ToolCapabilityPolicy* policy) const {
     std::vector<ToolDef> defs;
     std::lock_guard<std::mutex> lk(tools_mu_);
     for (const auto& [name, impl] : tools_) {
-        if (impl.source == source) defs.push_back(impl.definition);
+        (void)name;
+        if (impl.source == source && tool_allowed_by_policy(impl, policy)) {
+            defs.push_back(impl.definition);
+        }
     }
     return defs;
+}
+
+std::vector<RegisteredToolInfo> ToolExecutor::get_registered_tools() const {
+    std::vector<RegisteredToolInfo> result;
+    std::lock_guard<std::mutex> lk(tools_mu_);
+    result.reserve(tools_.size());
+    for (const auto& [name, impl] : tools_) {
+        (void)name;
+        result.push_back({
+            impl.definition,
+            impl.is_read_only,
+            impl.source,
+            impl.source_owner,
+        });
+    }
+    return result;
+}
+
+bool ToolExecutor::is_allowed(const std::string& name,
+                              const ToolCapabilityPolicy* policy) const {
+    std::lock_guard<std::mutex> lk(tools_mu_);
+    const auto it = tools_.find(name);
+    return it != tools_.end() && tool_allowed_by_policy(it->second, policy);
+}
+
+bool ToolExecutor::is_denied_by_policy(
+    const std::string& name,
+    const ToolCapabilityPolicy* policy) const {
+    std::lock_guard<std::mutex> lk(tools_mu_);
+    const auto it = tools_.find(name);
+    return it != tools_.end() &&
+           !tool_allowed_by_policy(it->second, policy);
 }
 
 ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string& arguments_json) const {
@@ -120,6 +180,13 @@ ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string
         if (it == tools_.end()) {
             LOG_ERROR("execute: unknown tool '" + tool_name + "'");
             return ToolResult{"[Error] Unknown tool: " + tool_name, false};
+        }
+        const ToolCapabilityPolicy* policy =
+            ctx.capability_policy ? &*ctx.capability_policy : nullptr;
+        if (!tool_allowed_by_policy(it->second, policy)) {
+            LOG_WARN("execute: expert capability policy denied tool '" +
+                     tool_name + "'");
+            return expert_policy_denied_result(tool_name);
         }
         impl = it->second;
     }
@@ -140,10 +207,13 @@ bool ToolExecutor::is_read_only(const std::string& name) const {
     return it != tools_.end() && it->second.is_read_only;
 }
 
-std::string ToolExecutor::generate_tools_prompt() const {
+std::string ToolExecutor::generate_tools_prompt(
+    const ToolCapabilityPolicy* policy) const {
     std::ostringstream oss;
     std::lock_guard<std::mutex> lk(tools_mu_);
     for (const auto& [name, impl] : tools_) {
+        (void)name;
+        if (!tool_allowed_by_policy(impl, policy)) continue;
         oss << "## " << impl.definition.name << "\n"
             << "Description: " << impl.definition.description << "\n"
             << "Parameters:\n```json\n"

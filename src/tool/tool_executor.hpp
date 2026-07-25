@@ -14,12 +14,28 @@
 #include <optional>
 #include <utility>
 #include <mutex>
+#include <unordered_set>
 
 namespace acecode {
 
 class SessionManager;
 class SkillRegistry;
 class ToolExecutor;
+
+// Origin of a registered tool. MCP tools are grouped separately in the system
+// prompt so the LLM can distinguish internal versus external capabilities.
+enum class ToolSource {
+    Builtin = 0,
+    Mcp = 1,
+};
+
+// Session-local expert policy. Missing members inherit all currently
+// registered/global capabilities, while engaged empty sets allow none.
+// Built-in tool IDs and MCP server IDs remain separate namespaces.
+struct ToolCapabilityPolicy {
+    std::optional<std::unordered_set<std::string>> builtin_tools;
+    std::optional<std::unordered_set<std::string>> mcp_servers;
+};
 
 // Structured summary used by the TUI to render a single-line tool-result row
 // (icon + verb + object + dot-separated metrics). Unset on tools that have not
@@ -155,6 +171,11 @@ struct ToolContext {
     // the available tool set can use this to register additional tools for the
     // next model request.
     ToolExecutor* tool_executor = nullptr;
+
+    // Optional session-local expert scope. ToolExecutor checks this again at
+    // the execution boundary so replayed/model-produced calls cannot bypass
+    // provider schema filtering.
+    std::optional<ToolCapabilityPolicy> capability_policy;
 };
 
 // UI-only metadata contract: a successful structured file change under the
@@ -165,13 +186,6 @@ inline constexpr const char* kExcludeFromTurnChangeSummaryMetadata =
 
 void mark_workspace_scratch_change(ToolResult& result, const ToolContext& ctx);
 
-// Origin of a registered tool. MCP tools are grouped separately in the system
-// prompt so the LLM can distinguish internal versus external capabilities.
-enum class ToolSource {
-    Builtin = 0,
-    Mcp = 1,
-};
-
 // A registered tool implementation. The execute function takes a ToolContext —
 // tools that don't need streaming simply ignore it.
 struct ToolImpl {
@@ -179,6 +193,16 @@ struct ToolImpl {
     std::function<ToolResult(const std::string& arguments_json, const ToolContext& ctx)> execute;
     bool is_read_only = false; // Read-only tools are auto-approved without user confirmation
     ToolSource source = ToolSource::Builtin;
+    // Exact owning MCP server ID. Empty for built-ins. This metadata is never
+    // inferred from a qualified tool name.
+    std::string source_owner;
+};
+
+struct RegisteredToolInfo {
+    ToolDef definition;
+    bool is_read_only = false;
+    ToolSource source = ToolSource::Builtin;
+    std::string source_owner;
 };
 
 class ToolExecutor {
@@ -189,10 +213,26 @@ public:
     bool unregister_tool(const std::string& name);
 
     // Get all tool definitions for inclusion in API requests
-    std::vector<ToolDef> get_tool_definitions() const;
+    std::vector<ToolDef> get_tool_definitions(
+        const ToolCapabilityPolicy* policy = nullptr) const;
 
     // Get tool definitions filtered by source (built-in vs MCP).
-    std::vector<ToolDef> get_tool_definitions_by_source(ToolSource source) const;
+    std::vector<ToolDef> get_tool_definitions_by_source(
+        ToolSource source,
+        const ToolCapabilityPolicy* policy = nullptr) const;
+
+    // Sanitized registration metadata for runtime-backed capability catalogs.
+    std::vector<RegisteredToolInfo> get_registered_tools() const;
+
+    // Central policy predicate shared by schema filtering and AgentLoop's
+    // pre-permission rejection path.
+    bool is_allowed(const std::string& name,
+                    const ToolCapabilityPolicy* policy) const;
+
+    // Returns true only for a registered tool excluded by the policy. Unknown
+    // tool names remain unknown instead of being mislabeled as policy denials.
+    bool is_denied_by_policy(const std::string& name,
+                             const ToolCapabilityPolicy* policy) const;
 
     // Execute a tool call and return the result. Legacy overload — no streaming,
     // no abort flag. Delegates to the ctx overload with a default context.
@@ -211,7 +251,8 @@ public:
     bool is_read_only(const std::string& name) const;
 
     // Generate a formatted description of all registered tools for system prompt
-    std::string generate_tools_prompt() const;
+    std::string generate_tools_prompt(
+        const ToolCapabilityPolicy* policy = nullptr) const;
 
     // Format a tool result into a ChatMessage suitable for the messages array
     static ChatMessage format_tool_result(const std::string& tool_call_id, const ToolResult& result);

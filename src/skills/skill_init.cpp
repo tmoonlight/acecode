@@ -6,7 +6,9 @@
 #include "../utils/paths.hpp"
 #include "../utils/utf8_path.hpp"
 
+#include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -98,7 +100,9 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
                                  const AppConfig& config,
                                  const std::string& working_dir,
                                  const std::vector<std::filesystem::path>&
-                                     prepended_roots) {
+                                     prepended_roots,
+                                 const std::optional<std::vector<std::string>>&
+                                     expert_allowed) {
     std::error_code ec;
 
     std::vector<std::filesystem::path> roots = prepended_roots;
@@ -119,9 +123,47 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
     skill_registry.set_scan_roots(std::move(roots));
     skill_registry.set_disabled(std::unordered_set<std::string>(
         config.skills.disabled.begin(), config.skills.disabled.end()));
-    if (config.skills.allowed) {
-        skill_registry.set_allowed(std::unordered_set<std::string>(
-            config.skills.allowed->begin(), config.skills.allowed->end()));
+    std::optional<std::unordered_set<std::string>> effective_allowed;
+    if (expert_allowed) {
+        std::unordered_set<std::string> selected(
+            expert_allowed->begin(), expert_allowed->end());
+
+        // Package-local Skills are part of the selected expert package rather
+        // than the installed/global catalog. Preserve every valid bundled
+        // Skill even when it was not named in capabilities.skills; global
+        // disabled and allowed policy still remains authoritative.
+        if (!prepended_roots.empty()) {
+            SkillRegistry packaged;
+            packaged.set_scan_roots(prepended_roots);
+            packaged.set_disabled(std::unordered_set<std::string>(
+                config.skills.disabled.begin(),
+                config.skills.disabled.end()));
+            packaged.set_allowed(std::nullopt);
+            packaged.scan();
+            for (const auto& skill : packaged.list()) {
+                selected.insert(skill.name);
+            }
+        }
+
+        if (config.skills.allowed) {
+            std::unordered_set<std::string> intersection;
+            for (const auto& name : selected) {
+                if (std::find(config.skills.allowed->begin(),
+                              config.skills.allowed->end(),
+                              name) != config.skills.allowed->end()) {
+                    intersection.insert(name);
+                }
+            }
+            effective_allowed = std::move(intersection);
+        } else {
+            effective_allowed = std::move(selected);
+        }
+    } else if (config.skills.allowed) {
+        effective_allowed = std::unordered_set<std::string>(
+            config.skills.allowed->begin(), config.skills.allowed->end());
+    }
+    if (effective_allowed) {
+        skill_registry.set_allowed(std::move(effective_allowed));
     } else {
         skill_registry.set_allowed(std::nullopt);
     }

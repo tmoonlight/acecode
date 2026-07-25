@@ -444,6 +444,7 @@ void McpManager::publish_connection_result(const std::shared_ptr<State>& state,
                 impl.definition = tool.definition;
                 impl.is_read_only = tool.is_read_only;
                 impl.source = ToolSource::Mcp;
+                impl.source_owner = tool.server_name;
                 const std::string server_name = tool.server_name;
                 const std::string tool_name = tool.original_tool_name;
                 impl.execute = [weak_state, server_name, tool_name](

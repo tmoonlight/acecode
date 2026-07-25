@@ -86,6 +86,7 @@ struct SessionEntry {
     };
     std::shared_ptr<ProviderSlot> provider_slot;
     std::shared_ptr<SkillRegistry>       skill_registry;
+    ToolCapabilityPolicy                tool_capability_policy;
     std::unique_ptr<SessionManager>     sm;
     std::unique_ptr<PermissionManager>  perm;
     std::unique_ptr<AgentLoop>           loop;
@@ -141,6 +142,9 @@ struct ExpertSwitchResult {
     ExpertSwitchStatus status = ExpertSwitchStatus::Failed;
     std::optional<ExpertDefinition> expert;
     std::string error;
+    bool busy = false;
+    bool pending = false;
+    std::string effective_boundary;
 };
 
 class SessionRegistry {

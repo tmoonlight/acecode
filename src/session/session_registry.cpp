@@ -37,6 +37,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 
 namespace acecode {
@@ -73,6 +74,20 @@ std::string trim_copy(const std::string& value) {
         --last;
     }
     return value.substr(first, last - first);
+}
+
+ToolCapabilityPolicy tool_policy_from_expert_scopes(
+    const ExpertCapabilityScopes& scopes) {
+    ToolCapabilityPolicy policy;
+    if (scopes.tools) {
+        policy.builtin_tools = std::unordered_set<std::string>(
+            scopes.tools->begin(), scopes.tools->end());
+    }
+    if (scopes.mcp_servers) {
+        policy.mcp_servers = std::unordered_set<std::string>(
+            scopes.mcp_servers->begin(), scopes.mcp_servers->end());
+    }
+    return policy;
 }
 
 bool is_transcript_only_message(const ChatMessage& msg) {
@@ -786,8 +801,20 @@ SessionRegistry::make_entry_locked(const std::string& id,
             entry->expert
                 ? entry->expert->selected_skill_roots(entry->expert_member_id)
                           : std::vector<std::filesystem::path>{};
+        const ExpertCapabilityScopes expert_scopes =
+            entry->expert
+                ? entry->expert->selected_capabilities(
+                      entry->expert_member_id)
+                : ExpertCapabilityScopes{};
+        entry->tool_capability_policy =
+            tool_policy_from_expert_scopes(expert_scopes);
         initialize_skill_registry(*entry->skill_registry, *deps_.config,
-                                  entry->cwd, expert_skill_roots);
+                                  entry->cwd, expert_skill_roots,
+                                  expert_scopes.skills);
+    } else if (entry->expert) {
+        entry->tool_capability_policy = tool_policy_from_expert_scopes(
+            entry->expert->selected_capabilities(
+                entry->expert_member_id));
     }
 
     // SessionManager
@@ -922,6 +949,8 @@ SessionRegistry::make_entry_locked(const std::string& id,
     entry->loop->set_custom_instructions_config(deps_.custom_instructions_cfg);
     entry->loop->set_expert_context(entry->expert ? &*entry->expert : nullptr,
                                     entry->expert_member_id);
+    entry->loop->set_tool_capability_policy(
+        entry->tool_capability_policy);
     if (deps_.config) {
         entry->loop->set_git_context_config(&deps_.config->git_context);
     }
@@ -1372,6 +1401,10 @@ ExpertSwitchResult SessionRegistry::switch_expert(
     }
 
     auto expert = std::make_shared<ExpertDefinition>(std::move(*resolved));
+    const ExpertCapabilityScopes expert_scopes =
+        expert->selected_capabilities();
+    const ToolCapabilityPolicy tool_policy =
+        tool_policy_from_expert_scopes(expert_scopes);
     std::shared_ptr<SkillRegistry> skills;
     try {
         if (deps_.config) {
@@ -1380,7 +1413,8 @@ ExpertSwitchResult SessionRegistry::switch_expert(
                 *skills,
                 *deps_.config,
                 entry->cwd,
-                expert->selected_skill_roots());
+                expert->selected_skill_roots(),
+                expert_scopes.skills);
         }
     } catch (const std::exception& e) {
         return {
@@ -1391,8 +1425,9 @@ ExpertSwitchResult SessionRegistry::switch_expert(
     }
 
     const std::string session_id = id;
+    const bool busy = entry->loop->is_busy();
     entry->loop->enqueue_control(
-        [this, session_id, expected = entry, expert, skills]() {
+        [this, session_id, expected = entry, expert, skills, tool_policy]() {
             std::lock_guard<std::mutex> lk(mu_);
             auto it = entries_.find(session_id);
             if (it == entries_.end() || it->second != expected) return;
@@ -1403,6 +1438,7 @@ ExpertSwitchResult SessionRegistry::switch_expert(
             active.expert_missing = false;
             active.expert = *expert;
             active.skill_registry = skills;
+            active.tool_capability_policy = tool_policy;
             if (active.sm) {
                 active.sm->set_expert_binding(active.expert_id);
             }
@@ -1412,6 +1448,8 @@ ExpertSwitchResult SessionRegistry::switch_expert(
                         ? active.skill_registry.get()
                         : deps_.skill_registry);
                 active.loop->set_expert_context(&*active.expert);
+                active.loop->set_tool_capability_policy(
+                    active.tool_capability_policy);
             }
         });
 
@@ -1419,6 +1457,9 @@ ExpertSwitchResult SessionRegistry::switch_expert(
         ExpertSwitchStatus::Accepted,
         *expert,
         {},
+        busy,
+        true,
+        busy ? "next_turn" : "queued_control",
     };
 }
 

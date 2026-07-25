@@ -14,6 +14,20 @@ enum class ExpertType {
     Team,
 };
 
+// Each capability class is independently optional:
+//   nullopt      -> inherit the globally available capability set
+//   empty vector -> explicitly allow none
+//   values       -> allow only the named identifiers
+//
+// The manifest's existing top-level "skills" field is intentionally unrelated:
+// it contains package-local Skill directories, while this structure contains
+// stable names selected from the runtime capability catalog.
+struct ExpertCapabilityScopes {
+    std::optional<std::vector<std::string>> skills;
+    std::optional<std::vector<std::string>> mcp_servers;
+    std::optional<std::vector<std::string>> tools;
+};
+
 struct ExpertAgent {
     std::string id;
     std::string display_name;
@@ -21,6 +35,7 @@ struct ExpertAgent {
     std::string instructions;
     std::filesystem::path document_path;
     std::vector<std::filesystem::path> skill_roots;
+    ExpertCapabilityScopes capabilities;
 };
 
 struct ExpertDefinition {
@@ -28,11 +43,17 @@ struct ExpertDefinition {
     std::string version;
     ExpertType type = ExpertType::Agent;
     std::string display_name;
+    std::string author;
     std::string profession;
     std::string description;
     std::string avatar_path;
     std::string default_init_prompt;
+    std::vector<std::string> tags;
+    std::vector<std::string> expertise;
     std::vector<std::string> quick_prompts;
+    std::string created_at;
+    std::string updated_at;
+    ExpertCapabilityScopes capabilities;
 
     std::string lead_agent_id;
     std::vector<ExpertAgent> agents;
@@ -49,6 +70,8 @@ struct ExpertDefinition {
     const ExpertAgent* agent(const std::string& agent_id) const;
     const ExpertAgent* selected_agent(const std::string& member_id = {}) const;
     std::vector<std::filesystem::path> selected_skill_roots(
+        const std::string& member_id = {}) const;
+    ExpertCapabilityScopes selected_capabilities(
         const std::string& member_id = {}) const;
     bool is_declared_member(const std::string& member_id) const;
 };
@@ -70,10 +93,20 @@ struct ExpertDraft {
     std::string version = "1.0.0";
     ExpertType type = ExpertType::Agent;
     std::string display_name;
+    std::string author;
     std::string profession;
     std::string description;
     std::string default_init_prompt;
+    std::vector<std::string> tags;
+    std::vector<std::string> expertise;
     std::vector<std::string> quick_prompts;
+    std::string created_at;
+    std::string updated_at;
+    ExpertCapabilityScopes capabilities;
+    // Distinguishes an omitted capabilities object (preserve it on update for
+    // older API clients) from an explicitly submitted empty object (set all
+    // three classes to inheritance).
+    bool capabilities_present = false;
     ExpertAgentDraft lead;
     std::string lead_expert_id;
     std::vector<std::string> member_expert_ids;

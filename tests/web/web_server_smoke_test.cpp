@@ -407,6 +407,7 @@ struct WebServerFixture {
         wdeps.session_registry = registry.get();
         wdeps.expert_registry = expert_registry.get();
         wdeps.hook_manager = hook_manager.get();
+        wdeps.tools = &tools;
         wdeps.projects_dir = projects_dir.string();
         wdeps.workspace_registry = workspace_registry.get();
         wdeps.native_folder_picker_enabled = native_folder_picker_enabled;
@@ -1584,6 +1585,9 @@ TEST(WebServerHttp, SessionExpertEndpointSwitchesActiveSessionInPlace) {
     EXPECT_EQ(payload["id"], "reviewer");
     EXPECT_EQ(payload["display_name"], "Code Reviewer");
     EXPECT_TRUE(payload["queued"].get<bool>());
+    EXPECT_TRUE(payload["pending"].get<bool>());
+    EXPECT_FALSE(payload["busy"].get<bool>());
+    EXPECT_EQ(payload["effective_boundary"], "queued_control");
 
     bool applied = false;
     const auto deadline =
@@ -2359,6 +2363,26 @@ TEST(WebServerHttp, ForkWorkspaceSessionResumesInSourceWorkspace) {
     std::filesystem::create_directories(other_cwd_path);
     const std::string other_cwd = other_cwd_path.string();
     const std::string other_hash = acecode::compute_cwd_hash(other_cwd);
+    write_text(other_cwd_path / ".acecode" / "skills" / "fork-skill" /
+                   "SKILL.md",
+               "---\nname: fork-skill\ndescription: Fork skill\n---\n");
+    fx.cfg.skills.reuse_opencode = false;
+
+    acecode::ExpertDraft fork_expert;
+    fork_expert.id = "fork-expert";
+    fork_expert.display_name = "Fork Expert";
+    fork_expert.lead = {
+        "lead", "Fork Expert", "Tester", "Keep the fork scoped.",
+    };
+    fork_expert.capabilities.skills =
+        std::vector<std::string>{"fork-skill"};
+    fork_expert.capabilities.mcp_servers =
+        std::vector<std::string>{};
+    fork_expert.capabilities.tools =
+        std::vector<std::string>{};
+    std::string expert_error;
+    ASSERT_TRUE(fx.expert_registry->create_global(
+        fork_expert, &expert_error, other_cwd)) << expert_error;
 
     auto post_ws = cpr::Post(cpr::Url{fx.url("/api/workspaces")},
                              cpr::Header{{"Content-Type", "application/json"}},
@@ -2367,12 +2391,19 @@ TEST(WebServerHttp, ForkWorkspaceSessionResumesInSourceWorkspace) {
 
     auto create = cpr::Post(cpr::Url{fx.url("/api/workspaces/" + other_hash + "/sessions")},
                             cpr::Header{{"Content-Type", "application/json"}},
-                            cpr::Body{R"({})"});
+                            cpr::Body{json{{"expert_id", "fork-expert"}}.dump()});
     ASSERT_EQ(create.status_code, 201) << create.text;
     const std::string sid = json::parse(create.text)["session_id"].get<std::string>();
 
     auto* entry = fx.registry->lookup(sid);
     ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(entry->expert_id, "fork-expert");
+    ASSERT_NE(entry->skill_registry, nullptr);
+    EXPECT_TRUE(entry->skill_registry->find("fork-skill").has_value());
+    ASSERT_TRUE(entry->tool_capability_policy.builtin_tools.has_value());
+    EXPECT_TRUE(entry->tool_capability_policy.builtin_tools->empty());
+    ASSERT_TRUE(entry->tool_capability_policy.mcp_servers.has_value());
+    EXPECT_TRUE(entry->tool_capability_policy.mcp_servers->empty());
     acecode::ChatMessage msg;
     msg.role = "user";
     msg.content = "fork from workspace";
@@ -2393,6 +2424,27 @@ TEST(WebServerHttp, ForkWorkspaceSessionResumesInSourceWorkspace) {
     ASSERT_NE(forked, nullptr);
     EXPECT_EQ(forked->workspace_hash, other_hash);
     EXPECT_EQ(forked->cwd, other_cwd);
+    EXPECT_EQ(forked->expert_id, "fork-expert");
+    ASSERT_NE(forked->skill_registry, nullptr);
+    EXPECT_TRUE(forked->skill_registry->find("fork-skill").has_value());
+    ASSERT_TRUE(forked->tool_capability_policy.builtin_tools.has_value());
+    EXPECT_TRUE(forked->tool_capability_policy.builtin_tools->empty());
+
+    // A later explicit resume goes through the same constructor path and must
+    // rebuild the persisted expert's Skill and tool scopes.
+    fx.registry->destroy(new_id);
+    ASSERT_EQ(fx.registry->lookup(new_id), nullptr);
+    acecode::SessionOptions resume_options;
+    resume_options.cwd = other_cwd;
+    resume_options.workspace_hash = other_hash;
+    ASSERT_TRUE(fx.registry->resume(new_id, resume_options));
+    auto* resumed = fx.registry->lookup(new_id);
+    ASSERT_NE(resumed, nullptr);
+    EXPECT_EQ(resumed->expert_id, "fork-expert");
+    ASSERT_NE(resumed->skill_registry, nullptr);
+    EXPECT_TRUE(resumed->skill_registry->find("fork-skill").has_value());
+    ASSERT_TRUE(resumed->tool_capability_policy.builtin_tools.has_value());
+    EXPECT_TRUE(resumed->tool_capability_policy.builtin_tools->empty());
 }
 
 // 场景: registry 里留着一个已删除/不可访问的 workspace 时,列表仍可返回,
@@ -3707,6 +3759,135 @@ TEST(WebServerHttp, ResumeDiskSessionActivatesIt) {
     EXPECT_TRUE(found);
 }
 
+TEST(WebServerHttp, ExpertCapabilityCatalogIsRuntimeBackedAndSanitized) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+
+    write_text(fx.cwd_dir / ".acecode" / "skills" / "available-skill" /
+                   "SKILL.md",
+               "---\nname: available-skill\ndescription: Available skill\n---\n");
+    write_text(fx.cwd_dir / ".acecode" / "skills" / "disabled-skill" /
+                   "SKILL.md",
+               "---\nname: disabled-skill\ndescription: Disabled skill\n---\n");
+    write_text(fx.cwd_dir / ".acecode" / "skills" / "policy-blocked-skill" /
+                   "SKILL.md",
+               "---\nname: policy-blocked-skill\ndescription: Blocked skill\n---\n");
+    fx.cfg.skills.reuse_opencode = false;
+    fx.cfg.skills.disabled = {"disabled-skill"};
+    fx.cfg.skills.allowed =
+        std::vector<std::string>{"available-skill", "disabled-skill"};
+
+    acecode::McpServerConfig enabled_server;
+    enabled_server.command = "do-not-leak-command";
+    enabled_server.args = {"--token", "do-not-leak-arg"};
+    enabled_server.env["PRIVATE_ENV"] = "do-not-leak-env";
+    enabled_server.headers["Authorization"] = "do-not-leak-header";
+    enabled_server.auth_token = "do-not-leak-token";
+    fx.cfg.mcp_servers["secure-runtime"] = enabled_server;
+
+    acecode::McpServerConfig disabled_server;
+    disabled_server.transport = acecode::McpTransport::Http;
+    disabled_server.url = "https://do-not-leak-url.invalid";
+    disabled_server.disabled = true;
+    fx.cfg.mcp_servers["disabled-runtime"] = disabled_server;
+
+    std::atomic<int> tool_calls{0};
+    auto register_tool = [&](std::string id, acecode::ToolSource source,
+                             std::string owner, bool read_only) {
+        acecode::ToolImpl tool;
+        tool.definition.name = std::move(id);
+        tool.definition.description = "runtime tool";
+        tool.definition.parameters = json::object();
+        tool.source = source;
+        tool.source_owner = std::move(owner);
+        tool.is_read_only = read_only;
+        tool.execute = [&](const std::string&, const acecode::ToolContext&) {
+            ++tool_calls;
+            return acecode::ToolResult{"ok", true};
+        };
+        fx.tools.register_tool(tool);
+    };
+    register_tool("AskUserQuestion", acecode::ToolSource::Builtin, {}, true);
+    register_tool("file_write", acecode::ToolSource::Builtin, {}, false);
+    register_tool("mcp_secure_search", acecode::ToolSource::Mcp,
+                  "secure-runtime", true);
+
+    auto response = cpr::Get(cpr::Url{
+        fx.url("/api/experts/capabilities?workspace=" + hash)});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto payload = json::parse(response.text);
+    ASSERT_TRUE(payload["skills"].is_array());
+    ASSERT_TRUE(payload["mcp_servers"].is_array());
+    ASSERT_TRUE(payload["tools"].is_array());
+
+    auto by_id = [](const json& items, const std::string& id)
+        -> const json* {
+        const auto it = std::find_if(
+            items.begin(), items.end(),
+            [&](const json& item) { return item.value("id", "") == id; });
+        return it == items.end() ? nullptr : &*it;
+    };
+
+    const json* available = by_id(payload["skills"], "available-skill");
+    ASSERT_NE(available, nullptr);
+    EXPECT_TRUE((*available)["available"].get<bool>());
+    EXPECT_EQ((*available)["status"], "available");
+    EXPECT_EQ((*available)["disabled_reason"], "");
+
+    const json* disabled = by_id(payload["skills"], "disabled-skill");
+    ASSERT_NE(disabled, nullptr);
+    EXPECT_FALSE((*disabled)["available"].get<bool>());
+    EXPECT_EQ((*disabled)["disabled_reason"], "globally_disabled");
+
+    const json* policy_blocked =
+        by_id(payload["skills"], "policy-blocked-skill");
+    ASSERT_NE(policy_blocked, nullptr);
+    EXPECT_FALSE((*policy_blocked)["available"].get<bool>());
+    EXPECT_EQ((*policy_blocked)["disabled_reason"],
+              "not_allowed_by_global_policy");
+
+    const json* secure = by_id(payload["mcp_servers"], "secure-runtime");
+    ASSERT_NE(secure, nullptr);
+    EXPECT_FALSE((*secure)["available"].get<bool>());
+    EXPECT_EQ((*secure)["status"], "unavailable");
+    EXPECT_EQ((*secure)["disabled_reason"], "runtime_unavailable");
+    EXPECT_EQ((*secure)["transport"], "stdio");
+    for (const char* private_key : {
+             "command", "command_line", "args", "env", "url", "headers",
+             "auth_token", "token", "error"}) {
+        EXPECT_FALSE(secure->contains(private_key));
+    }
+
+    const json* mcp_disabled =
+        by_id(payload["mcp_servers"], "disabled-runtime");
+    ASSERT_NE(mcp_disabled, nullptr);
+    EXPECT_EQ((*mcp_disabled)["status"], "disabled");
+    EXPECT_EQ((*mcp_disabled)["disabled_reason"], "globally_disabled");
+    EXPECT_EQ((*mcp_disabled)["transport"], "http");
+
+    ASSERT_EQ(payload["tools"].size(), 2u);
+    const json* ask = by_id(payload["tools"], "AskUserQuestion");
+    ASSERT_NE(ask, nullptr);
+    EXPECT_TRUE((*ask)["available"].get<bool>());
+    EXPECT_TRUE((*ask)["read_only"].get<bool>());
+    const json* file_write = by_id(payload["tools"], "file_write");
+    ASSERT_NE(file_write, nullptr);
+    EXPECT_FALSE((*file_write)["read_only"].get<bool>());
+    EXPECT_EQ(by_id(payload["tools"], "mcp_secure_search"), nullptr);
+
+    for (const char* secret : {
+             "do-not-leak-command", "do-not-leak-arg", "do-not-leak-env",
+             "do-not-leak-header", "do-not-leak-token",
+             "do-not-leak-url.invalid"}) {
+        EXPECT_EQ(response.text.find(secret), std::string::npos);
+    }
+
+    auto unknown = cpr::Get(cpr::Url{
+        fx.url("/api/experts/capabilities?workspace=missing-workspace")});
+    ASSERT_EQ(unknown.status_code, 404) << unknown.text;
+    EXPECT_EQ(json::parse(unknown.text)["error"], "UNKNOWN_WORKSPACE");
+}
+
 TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
     WebServerFixture fx;
     const std::string hash = acecode::compute_cwd_hash(fx.cwd);
@@ -3714,10 +3895,18 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
         {"id", "code-reviewer"},
         {"type", "agent"},
         {"display_name", "Code Reviewer"},
+        {"author", "ACECode QA"},
         {"profession", "Review engineer"},
         {"description", "Reviews changes before delivery."},
         {"instructions", "Inspect the change and report concrete risks."},
-        {"quick_prompts", json::array({"Review this change"})},
+        {"tags", json::array({"开发", "质量"})},
+        {"expertise", json::array({"架构审查", "回归风险"})},
+        {"quick_prompts", json::array({"Review this change", "Check tests"})},
+        {"capabilities", json{
+            {"skills", json::array()},
+            {"mcp_servers", json::array({"github"})},
+            {"tools", json::array({"file_read", "ask_user_question"})},
+        }},
     };
 
     auto created = cpr::Post(
@@ -3729,6 +3918,17 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
     EXPECT_EQ(created_body["id"], "code-reviewer");
     EXPECT_EQ(created_body["source"], "global");
     EXPECT_TRUE(created_body["managed_global"].get<bool>());
+    EXPECT_EQ(created_body["author"], "ACECode QA");
+    EXPECT_EQ(created_body["tags"], json::array({"开发", "质量"}));
+    EXPECT_EQ(created_body["expertise"],
+              json::array({"架构审查", "回归风险"}));
+    EXPECT_EQ(created_body["capabilities"]["skills"], json::array());
+    EXPECT_EQ(created_body["capabilities"]["mcp_servers"],
+              json::array({"github"}));
+    EXPECT_FALSE(created_body.value("created_at", "").empty());
+    EXPECT_FALSE(created_body.value("updated_at", "").empty());
+    EXPECT_FALSE(created_body.contains("package_root"));
+    EXPECT_FALSE(created_body.contains("skill_roots"));
     ASSERT_TRUE(created_body["agents"].is_array());
     EXPECT_EQ(created_body["agents"][0]["instructions"],
               "Inspect the change and report concrete risks.");
@@ -3740,6 +3940,13 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
     ASSERT_EQ(listed_body["experts"].size(), 1);
     EXPECT_EQ(listed_body["experts"][0]["id"], "code-reviewer");
     EXPECT_FALSE(listed_body["experts"][0]["agents"][0].contains("instructions"));
+    EXPECT_EQ(listed_body["experts"][0]["author"], "ACECode QA");
+    EXPECT_EQ(listed_body["experts"][0]["tags"],
+              json::array({"开发", "质量"}));
+    EXPECT_EQ(listed_body["experts"][0]["capabilities"]["tools"],
+              json::array({"file_read", "ask_user_question"}));
+    EXPECT_FALSE(listed_body["experts"][0].contains("package_root"));
+    EXPECT_FALSE(listed_body["experts"][0].contains("skill_roots"));
 
     draft["display_name"] = "Updated Reviewer";
     auto updated = cpr::Put(
@@ -3811,7 +4018,11 @@ TEST(WebServerHttp, ExpertTeamsReferenceExistingExpertsThroughApi) {
         {"id", "delivery-team"},
         {"type", "team"},
         {"display_name", "Delivery Team"},
+        {"author", "ACECode Delivery"},
         {"description", "Ship a verified change."},
+        {"tags", json::array({"开发", "质量"})},
+        {"expertise", json::array({"代码评审", "测试验收"})},
+        {"quick_prompts", json::array({"Plan a safe release"})},
         {"lead_expert_id", "reviewer"},
         {"member_expert_ids", json::array({"tester"})},
     };
@@ -3825,6 +4036,13 @@ TEST(WebServerHttp, ExpertTeamsReferenceExistingExpertsThroughApi) {
     EXPECT_EQ(created_body["lead_expert_id"], "reviewer");
     EXPECT_EQ(created_body["member_expert_ids"],
               json::array({"tester"}));
+    EXPECT_EQ(created_body["author"], "ACECode Delivery");
+    EXPECT_EQ(created_body["tags"], json::array({"开发", "质量"}));
+    EXPECT_EQ(created_body["expertise"],
+              json::array({"代码评审", "测试验收"}));
+    EXPECT_FALSE(created_body.contains("capabilities"));
+    EXPECT_FALSE(created_body.contains("package_root"));
+    EXPECT_FALSE(created_body.contains("skill_roots"));
     ASSERT_EQ(created_body["agents"].size(), 2u);
     EXPECT_EQ(created_body["agents"][0]["display_name"], "Reviewer");
     EXPECT_EQ(created_body["agents"][1]["display_name"], "Tester");

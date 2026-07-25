@@ -13,6 +13,7 @@
 //   7) external dirs — config.skills.external_dirs
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,9 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
                                  const AppConfig& config,
                                  const std::string& working_dir,
                                  const std::vector<std::filesystem::path>&
-                                     prepended_roots = {});
+                                     prepended_roots = {},
+                                 const std::optional<std::vector<std::string>>&
+                                     expert_allowed = std::nullopt);
 
 // 项目链扫描根(上表 1-3 段):working_dir 沿目录树向上(不含 HOME 本身)。
 // 命中这些根的 skill 在 web UI 里归类为「项目技能」。纯枚举,不创建目录。

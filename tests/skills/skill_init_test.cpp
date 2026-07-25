@@ -264,4 +264,48 @@ TEST_F(SkillInitOpencodeTest, PrependedExpertRootIsSessionScopedAndPolicyAware) 
     EXPECT_FALSE(disabled.find("expert-only").has_value());
 }
 
+TEST_F(SkillInitOpencodeTest, ExpertAllowlistIntersectsGlobalPolicyAndKeepsBundledSkills) {
+    const fs::path expert_root = root / "expert-skills";
+    write_skill(expert_root, "bundled-skill", "bundled by expert");
+    write_skill(workspace / ".acecode" / "skills",
+                "selected-global", "selected");
+    write_skill(workspace / ".acecode" / "skills",
+                "unselected-global", "not selected");
+    write_skill(workspace / ".acecode" / "skills",
+                "disabled-global", "disabled");
+
+    acecode::AppConfig cfg;
+    cfg.skills.allowed = std::vector<std::string>{
+        "bundled-skill",
+        "selected-global",
+        "unselected-global",
+        "disabled-global",
+    };
+    cfg.skills.disabled = {"disabled-global"};
+
+    acecode::SkillRegistry selected;
+    acecode::initialize_skill_registry(
+        selected, cfg, workspace.string(), {expert_root},
+        std::vector<std::string>{"selected-global", "disabled-global"});
+
+    EXPECT_TRUE(selected.find("bundled-skill").has_value());
+    EXPECT_TRUE(selected.find("selected-global").has_value());
+    EXPECT_FALSE(selected.find("unselected-global").has_value());
+    EXPECT_FALSE(selected.find("disabled-global").has_value());
+
+    cfg.skills.allowed = std::vector<std::string>{"selected-global"};
+    acecode::SkillRegistry globally_restricted;
+    acecode::initialize_skill_registry(
+        globally_restricted, cfg, workspace.string(), {expert_root},
+        std::vector<std::string>{"selected-global"});
+    EXPECT_TRUE(globally_restricted.find("selected-global").has_value());
+    EXPECT_FALSE(globally_restricted.find("bundled-skill").has_value());
+
+    acecode::SkillRegistry explicit_none;
+    acecode::initialize_skill_registry(
+        explicit_none, acecode::AppConfig{}, workspace.string(), {},
+        std::vector<std::string>{});
+    EXPECT_TRUE(explicit_none.list().empty());
+}
+
 } // namespace
