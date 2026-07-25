@@ -19,17 +19,23 @@ struct DefaultSkillSeedOutcome {
     std::string relative_path;
     std::string result;
     std::string message;
-    std::string skill_md_hash;
+    std::string source_tree_sha256;
+    std::string installed_tree_sha256;
+    bool acecode_owned = false;
 };
 
 struct DefaultSkillSeedInstallResult {
     bool attempted = false;
-    bool first_initialization = false;
     bool state_written = false;
+    bool version_written = false;
+    bool downgrade_skipped = false;
     std::string error;
+    std::string bundle_version;
+    std::string user_version;
     std::filesystem::path seed_skills_dir;
     std::filesystem::path target_root;
     std::filesystem::path state_path;
+    std::filesystem::path version_path;
     std::vector<DefaultSkillSeedOutcome> outcomes;
 };
 
@@ -41,14 +47,18 @@ std::optional<std::filesystem::path> find_default_skill_seed_dir(
 std::filesystem::path default_skill_seed_state_path(
     const std::filesystem::path& acecode_home);
 
-DefaultSkillSeedInstallResult install_default_global_skills(
-    const std::filesystem::path& acecode_home,
-    const std::filesystem::path& seed_skills_dir,
-    bool first_initialization);
+std::filesystem::path default_skill_seed_version_path(
+    const std::filesystem::path& acecode_home);
 
-DefaultSkillSeedInstallResult install_default_global_skills_on_first_initialization(
+std::filesystem::path packaged_default_skill_seed_version_path(
+    const std::filesystem::path& seed_skills_dir);
+
+DefaultSkillSeedInstallResult reconcile_default_global_skills(
     const std::filesystem::path& acecode_home,
-    const std::string& argv0_dir,
-    bool first_initialization);
+    const std::filesystem::path& seed_skills_dir);
+
+DefaultSkillSeedInstallResult reconcile_default_global_skills_on_startup(
+    const std::filesystem::path& acecode_home,
+    const std::string& argv0_dir);
 
 } // namespace acecode

@@ -58,15 +58,13 @@ std::string executable_dir_from_path(const std::string& exe_path) {
     return path_to_utf8(native_exe.parent_path());
 }
 
-void seed_default_skills_if_first_initialization(const std::string& exe_path) {
-    bool first_initialization = acecode::consume_acecode_home_created_by_process();
-    auto result = acecode::install_default_global_skills_on_first_initialization(
+void reconcile_default_skills_on_startup(const std::string& exe_path) {
+    auto result = acecode::reconcile_default_global_skills_on_startup(
         path_from_utf8(acecode::get_acecode_dir()),
-        executable_dir_from_path(exe_path),
-        first_initialization);
+        executable_dir_from_path(exe_path));
     if (!result.attempted) return;
     if (!result.error.empty()) {
-        LOG_WARN("[skills] Default skill seeding issue: " + result.error);
+        LOG_WARN("[skills] Default skill reconciliation issue: " + result.error);
     }
 }
 
@@ -252,7 +250,7 @@ static int do_foreground(const Args& a, const std::string& exe_path) {
     }
 
     AppConfig cfg = load_config();
-    seed_default_skills_if_first_initialization(exe_path);
+    reconcile_default_skills_on_startup(exe_path);
     auto errs = validate_config(cfg);
     if (!errs.empty()) {
         for (const auto& e : errs) std::cerr << "config error: " << e << "\n";

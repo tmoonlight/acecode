@@ -160,7 +160,7 @@ std::optional<int> dispatch_non_tui_command(int argc, char* argv[]) {
 
 int validate_models_registry_command(const std::string& argv0_dir) {
     AppConfig config = load_config();
-    acecode::tui::seed_default_skills_if_first_initialization(argv0_dir);
+    acecode::tui::reconcile_default_skills_on_startup(argv0_dir);
     acecode::initialize_registry(config, argv0_dir);
     const auto& src = acecode::current_registry_source();
     auto registry = acecode::current_registry();
@@ -196,7 +196,7 @@ std::optional<int> run_pre_tui_command(const InteractiveCliOptions& cli,
                                        const std::string& argv0_dir) {
     if (cli.run_configure_cmd) {
         AppConfig config = load_config();
-        acecode::tui::seed_default_skills_if_first_initialization(argv0_dir);
+        acecode::tui::reconcile_default_skills_on_startup(argv0_dir);
         acecode::initialize_registry(config, argv0_dir);
         return acecode::run_configure(config);
     }

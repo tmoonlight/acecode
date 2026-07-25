@@ -23,8 +23,8 @@ namespace acecode { namespace tui {
 std::string get_cwd();
 std::string get_executable_dir_from_argv(int argc, char* argv[]);
 
-// Seed default skills on first initialization
-void seed_default_skills_if_first_initialization(const std::string& argv0_dir);
+// Reconcile bundled default skills before the first registry scan.
+void reconcile_default_skills_on_startup(const std::string& argv0_dir);
 
 // Terminal control sequences
 void write_terminal_control_sequence(std::string_view seq);

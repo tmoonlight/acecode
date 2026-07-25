@@ -50,23 +50,31 @@ std::string get_executable_dir_from_argv(int argc, char* argv[]) {
     return exe.parent_path().string();
 }
 
-void seed_default_skills_if_first_initialization(const std::string& argv0_dir) {
-    bool first_initialization = acecode::consume_acecode_home_created_by_process();
-    auto result = acecode::install_default_global_skills_on_first_initialization(
+void reconcile_default_skills_on_startup(const std::string& argv0_dir) {
+    auto result = acecode::reconcile_default_global_skills_on_startup(
         std::filesystem::path(acecode::get_acecode_dir()),
-        argv0_dir, first_initialization);
+        argv0_dir);
     if (!result.attempted) return;
-    size_t installed = 0, skipped = 0, errors = 0;
+    size_t installed = 0;
+    size_t updated = 0;
+    size_t unchanged = 0;
+    size_t preserved = 0;
+    size_t errors = 0;
     for (const auto& outcome : result.outcomes) {
         if (outcome.result == "installed") ++installed;
-        else if (outcome.result == "skipped") ++skipped;
+        else if (outcome.result == "updated") ++updated;
+        else if (outcome.result == "unchanged") ++unchanged;
+        else if (outcome.result == "preserved_user_modified") ++preserved;
         else ++errors;
     }
     if (!result.error.empty()) {
-        LOG_WARN("[skills] Default skill seeding issue: " + result.error);
+        LOG_WARN("[skills] Default skill reconciliation issue: " + result.error);
     }
-    LOG_INFO("[skills] Default skill seeding attempted: installed=" +
-             std::to_string(installed) + " skipped=" + std::to_string(skipped) +
+    LOG_INFO("[skills] Default skill reconciliation attempted: version=" +
+             result.bundle_version + " installed=" + std::to_string(installed) +
+             " updated=" + std::to_string(updated) +
+             " unchanged=" + std::to_string(unchanged) +
+             " preserved=" + std::to_string(preserved) +
              " errors=" + std::to_string(errors));
 }
 

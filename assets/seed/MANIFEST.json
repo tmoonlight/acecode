@@ -1,6 +1,6 @@
 {
   "bundle_version": "2026-07-20.1",
-  "description": "Default ACECode global skill seed bundle installed on first ACECode initialization.",
+  "description": "Versioned default ACECode global skill seed bundle reconciled at startup.",
   "skills": [
     {
       "name": "find-skills",
@@ -42,7 +42,7 @@
       "name": "acecode-desktop-usage",
       "source_id": "acecode:acecode-desktop-usage@2026-07-20",
       "relative_path": "acecode/acecode-desktop-usage",
-      "skill_md_sha256": "e17379c466308b60b4344cde3e3275228558f88f4256a992cf5aac4b7ffb1eb3"
+      "skill_md_sha256": "4b5464470b3321128bb3e76eaaea51246342da5ee42e7f8b2c9baaf75e34e556"
     },
     {
       "name": "vision-image-reader",

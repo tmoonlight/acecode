@@ -19,9 +19,16 @@ Skills live under built-in roots `~/.acecode/skills/` and compatible `~/.agent/s
 
 `<category>` is a free-form folder name (for example `engineering`, `writing`, `ops`). Skills at the top level (without a category folder) get category `"default"`. Extra root directories can be added via `config.skills.external_dirs`.
 
-## Default first-run skills
+## Default seeded skills
 
-On the first ACECode initialization, ACECode installs a small offline seed bundle into `~/.acecode/skills/` if the ACECode home directory is being created for the first time. The default bundle contains:
+At startup, ACECode compares the packaged `assets/seed/seed.version` revision with
+`~/.acecode/seed.version` before the first skill registry scan. The revision uses
+`YYYY-MM-DD.N`, where `N` is a numeric revision for that date. A missing, invalid,
+or older user marker triggers an offline reconciliation of the bundled skills into
+`~/.acecode/skills/`. An equal marker is a no-op, and a newer user marker prevents
+an older installation from downgrading the bundle.
+
+The default bundle contains:
 
 - `find-skills`
 - `skill-installer`
@@ -32,7 +39,15 @@ On the first ACECode initialization, ACECode installs a small offline seed bundl
 - `acecode-desktop-usage`
 - `vision-image-reader`
 
-Existing skill directories are never overwritten. ACECode records the install result in `~/.acecode/.seed_skills_state.json`.
+Missing skills are installed. A previously seeded skill is updated only when its
+complete installed directory still matches the ACECode-owned hash recorded in
+`~/.acecode/.seed_skills_state.json`. Unknown directories and user-modified seeded
+skills are preserved. ACECode atomically records the detailed reconciliation state
+before advancing `~/.acecode/seed.version`, so an interrupted or failed run can be
+retried on the next startup.
+
+When the packaged seed bundle changes, update `assets/seed/seed.version` and keep
+the same revision in `assets/seed/MANIFEST.json`.
 
 ## SKILL.md format
 

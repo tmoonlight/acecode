@@ -789,27 +789,32 @@ static std::string get_executable_dir_from_argv(int argc, char* argv[]) {
     return exe.parent_path().string();
 }
 
-static void seed_default_skills_if_first_initialization(const std::string& argv0_dir) {
-    bool first_initialization = acecode::consume_acecode_home_created_by_process();
-    auto result = acecode::install_default_global_skills_on_first_initialization(
+static void reconcile_default_skills_on_startup(const std::string& argv0_dir) {
+    auto result = acecode::reconcile_default_global_skills_on_startup(
         std::filesystem::path(acecode::get_acecode_dir()),
-        argv0_dir,
-        first_initialization);
+        argv0_dir);
     if (!result.attempted) return;
 
     size_t installed = 0;
-    size_t skipped = 0;
+    size_t updated = 0;
+    size_t unchanged = 0;
+    size_t preserved = 0;
     size_t errors = 0;
     for (const auto& outcome : result.outcomes) {
         if (outcome.result == "installed") ++installed;
-        else if (outcome.result == "skipped") ++skipped;
+        else if (outcome.result == "updated") ++updated;
+        else if (outcome.result == "unchanged") ++unchanged;
+        else if (outcome.result == "preserved_user_modified") ++preserved;
         else ++errors;
     }
     if (!result.error.empty()) {
-        LOG_WARN("[skills] Default skill seeding issue: " + result.error);
+        LOG_WARN("[skills] Default skill reconciliation issue: " + result.error);
     }
-    LOG_INFO("[skills] Default skill seeding attempted: installed=" +
-             std::to_string(installed) + " skipped=" + std::to_string(skipped) +
+    LOG_INFO("[skills] Default skill reconciliation attempted: version=" +
+             result.bundle_version + " installed=" + std::to_string(installed) +
+             " updated=" + std::to_string(updated) +
+             " unchanged=" + std::to_string(unchanged) +
+             " preserved=" + std::to_string(preserved) +
              " errors=" + std::to_string(errors));
 }
 
@@ -2521,7 +2526,7 @@ static std::optional<int> dispatch_non_tui_command(int argc, char* argv[]) {
 
 static int validate_models_registry_command(const std::string& argv0_dir) {
     AppConfig config = load_config();
-    seed_default_skills_if_first_initialization(argv0_dir);
+    reconcile_default_skills_on_startup(argv0_dir);
     initialize_registry(config, argv0_dir);
     const auto& src = current_registry_source();
     auto registry = current_registry();
@@ -2557,7 +2562,7 @@ static std::optional<int> run_pre_tui_command(const InteractiveCliOptions& cli,
                                               const std::string& argv0_dir) {
     if (cli.run_configure_cmd) {
         AppConfig config = load_config();
-        seed_default_skills_if_first_initialization(argv0_dir);
+        reconcile_default_skills_on_startup(argv0_dir);
         initialize_registry(config, argv0_dir);
         return run_configure(config);
     }
@@ -3128,7 +3133,7 @@ static AppConfig load_tui_config_and_runtime(HookManager& hook_manager,
         hook_load.project_trusted = true;
         hook_manager.refresh_registry(load_hook_registry(hook_load, &trust_store));
     }
-    seed_default_skills_if_first_initialization(argv0_dir);
+    reconcile_default_skills_on_startup(argv0_dir);
     initialize_proxy_runtime(config);
     initialize_models_registry_runtime(config, argv0_dir);
     return config;
