@@ -2,10 +2,28 @@
 
 #include "../provider/llm_provider.hpp"
 #include "todo_state.hpp"
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace acecode {
+
+struct SessionLoadDiagnostics {
+    std::size_t malformed_complete_records = 0;
+    bool ignored_partial_tail = false;
+    bool recovered_unterminated_record = false;
+
+    bool recovered() const {
+        return malformed_complete_records > 0 ||
+               ignored_partial_tail ||
+               recovered_unterminated_record;
+    }
+};
+
+struct SessionLoadResult {
+    std::vector<ChatMessage> messages;
+    SessionLoadDiagnostics diagnostics;
+};
 
 // Worktree 会话状态(enter_worktree 工具 / --worktree 启动写入)。
 // worktree_path 非空 = 该会话当前工作在 linked worktree 里;resume 时恢复
@@ -90,15 +108,23 @@ public:
     static std::string get_project_dir(const std::string& cwd);
 
     // Append a single ChatMessage as one JSONL line to a session file.
-    static void append_message(const std::string& session_path, const ChatMessage& msg);
+    // Returns false if the record could not be durably handed to the stream.
+    // If a previous crash left an unterminated tail, a newline is inserted
+    // first so the new record cannot be swallowed by that damaged fragment.
+    static bool append_message(const std::string& session_path, const ChatMessage& msg);
 
     // Rewrite a session JSONL file with all messages using one stream.
     static void write_messages(const std::string& session_path,
                                const std::vector<ChatMessage>& messages);
 
     // Load all messages from a JSONL session file.
-    // Skips unparseable trailing lines (crash protection).
+    // Skips malformed records while preserving later valid records.
     static std::vector<ChatMessage> load_messages(const std::string& session_path);
+
+    // Detailed form used by resume/diagnostic surfaces. A valid final record
+    // without a newline is recovered; an invalid final fragment is ignored.
+    static SessionLoadResult load_messages_with_diagnostics(
+        const std::string& session_path);
 
     // Write session metadata to a .meta.json file. Returns true only when the
     // atomic replacement succeeds.

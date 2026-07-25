@@ -432,6 +432,11 @@ TEST(OpenAiProviderReasoningTest, OrphanToolCallGetsPlaceholderToolMessage) {
               "call_VLsQS3a2qyysX8yMojt23dso");
     // stub content 需要明确传达"被中断",不能是空字符串(某些 endpoint 会拒)。
     EXPECT_FALSE(msgs[2].value("content", std::string{}).empty());
+    EXPECT_NE(msgs[2].value("content", std::string{}).find("outcome is unknown"),
+              std::string::npos);
+    EXPECT_NE(msgs[2].value("content", std::string{}).find(
+                  "do not assume success or failure"),
+              std::string::npos);
     EXPECT_EQ(msgs[3].value("role", std::string{}), "user");
     EXPECT_EQ(msgs[3]["content"].get<std::string>(), "再解读一下");
 }

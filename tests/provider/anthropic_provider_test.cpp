@@ -122,6 +122,41 @@ TEST(AnthropicProviderTest, BuildRequestMapsSystemToolsAndToolResults) {
     EXPECT_EQ(body["tools"][0]["input_schema"]["type"], "object");
 }
 
+TEST(AnthropicProviderTest, BuildRequestRepairsMissingToolResultBeforeNextTurn) {
+    AnthropicProvider provider(
+        AnthropicProvider::kDefaultBaseUrl, "sk-ant-test", "claude-test");
+
+    ChatMessage assistant;
+    assistant.role = "assistant";
+    assistant.tool_calls = nlohmann::json::array({
+        {
+            {"id", "toolu_interrupted"},
+            {"type", "function"},
+            {"function", {
+                {"name", "file_write"},
+                {"arguments", R"({"path":"result.txt","content":"done"})"}
+            }}
+        }
+    });
+
+    auto body = provider.build_request_body(
+        {user_message("write it"), assistant, user_message("continue")}, {}, false);
+
+    const auto& messages = body["messages"];
+    ASSERT_EQ(messages.size(), 4u);
+    EXPECT_EQ(messages[1]["role"], "assistant");
+    EXPECT_EQ(messages[1]["content"][0]["type"], "tool_use");
+    EXPECT_EQ(messages[2]["role"], "user");
+    EXPECT_EQ(messages[2]["content"][0]["type"], "tool_result");
+    EXPECT_EQ(messages[2]["content"][0]["tool_use_id"], "toolu_interrupted");
+    EXPECT_NE(
+        messages[2]["content"][0]["content"].get<std::string>().find(
+            "outcome is unknown"),
+        std::string::npos);
+    EXPECT_EQ(messages[3]["role"], "user");
+    EXPECT_EQ(messages[3]["content"][0]["text"], "continue");
+}
+
 TEST(AnthropicProviderTest, ParseResponseMapsContentUsageAndToolUse) {
     nlohmann::json response = {
         {"stop_reason", "tool_use"},

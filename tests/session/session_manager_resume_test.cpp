@@ -77,6 +77,34 @@ TEST(SessionManagerResume, RepeatedResumeDoesNotDuplicateCanonicalJsonl) {
     fs::remove_all(cwd);
 }
 
+TEST(SessionManagerResume, FailedAppendDoesNotAdvancePersistedCounters) {
+    auto cwd = make_temp_cwd("append_failure");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    fs::remove_all(project_dir);
+
+    SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model");
+    sm.on_message(message("user", "persisted"));
+    const std::string session_id = sm.current_session_id();
+    ASSERT_FALSE(session_id.empty());
+
+    const fs::path jsonl_path =
+        SessionStorage::session_path(project_dir, session_id);
+    ASSERT_TRUE(fs::remove(jsonl_path));
+    ASSERT_TRUE(fs::create_directory(jsonl_path));
+
+    sm.on_message(message("user", "must fail"));
+
+    const auto meta = SessionStorage::read_meta(
+        SessionStorage::meta_path(project_dir, session_id));
+    EXPECT_EQ(meta.message_count, 1);
+    EXPECT_EQ(meta.turn_count, 1);
+    EXPECT_NE(sm.last_error().find("failed to append"), std::string::npos);
+
+    fs::remove_all(project_dir);
+    fs::remove_all(cwd);
+}
+
 TEST(SessionManagerResume, PidOnlyOldDataIsRejectedAndDoesNotCreateCanonical) {
     auto cwd = make_temp_cwd("old_pid_only");
     auto project_dir = SessionStorage::get_project_dir(cwd.string());

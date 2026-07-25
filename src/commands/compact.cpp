@@ -1,6 +1,7 @@
 #include "compact.hpp"
 #include "compact_prompt.hpp"
 #include "../session/compact_checkpoint.hpp"
+#include "../session/session_history_recovery.hpp"
 #include "../utils/logger.hpp"
 
 #include <algorithm>
@@ -324,7 +325,7 @@ std::vector<ChatMessage> build_compacted_history(
 
 std::vector<ChatMessage> normalize_messages_for_api(
     const std::vector<ChatMessage>& messages) {
-    return provider_relevant_messages(messages);
+    return recover_provider_history(provider_relevant_messages(messages)).messages;
 }
 
 int get_effective_context_window(int context_window) {

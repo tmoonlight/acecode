@@ -1,4 +1,5 @@
 #include "compact_checkpoint.hpp"
+#include "session_history_recovery.hpp"
 #include "session_serializer.hpp"
 #include "../utils/uuid.hpp"
 
@@ -141,7 +142,8 @@ std::vector<ChatMessage> reconstruct_effective_model_history(
     }
 
     if (effective.empty() && suffix_start == 0) {
-        return provider_relevant_messages(raw_messages);
+        return recover_provider_history(
+            provider_relevant_messages(raw_messages)).messages;
     }
 
     for (std::size_t i = suffix_start; i < raw_messages.size(); ++i) {
@@ -156,7 +158,7 @@ std::vector<ChatMessage> reconstruct_effective_model_history(
         auto one = provider_relevant_messages({msg});
         effective.insert(effective.end(), one.begin(), one.end());
     }
-    return effective;
+    return recover_provider_history(effective).messages;
 }
 
 } // namespace acecode
