@@ -89,6 +89,10 @@ Usage SHALL show the latest 30-day token summary, daily trend, token categories,
 - **WHEN** usage aggregation succeeds
 - **THEN** the page shows totals, records, sessions, a Canvas trend, token categories, and selectable model/workspace details
 
+#### Scenario: Daily trend has a coordinate system
+- **WHEN** the Usage page renders daily token totals
+- **THEN** the Canvas shows a token-value Y axis with guides and a date X axis, and reduces date-tick density when horizontal space is limited
+
 #### Scenario: Usage load fails
 - **WHEN** aggregation fails
 - **THEN** the page retains navigation and displays a precise retryable error instead of stale or fabricated totals

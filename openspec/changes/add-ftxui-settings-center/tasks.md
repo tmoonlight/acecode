@@ -43,3 +43,5 @@
 - [x] 5.6 Render Archived and all five capability-management filters as one-row background-filled inputs and add fixed-size render coverage
 - [x] 5.7 Replace the Models Add/Edit entries with one external `Edit...` config-file handoff, update shortcuts/footer state, and add callback-based regression coverage
 - [x] 5.8 Build the TUI and unit tests, run focused settings tests, validate OpenSpec, and check the final diff
+- [x] 5.9 Add a responsive token/date coordinate system to the Usage daily-trend Canvas and fixed-size render coverage
+- [x] 5.10 Build the TUI and unit tests, run focused settings tests, validate OpenSpec, and check the final diff

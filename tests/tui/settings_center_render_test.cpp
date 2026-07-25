@@ -1,6 +1,7 @@
 #include "tui/settings/management_center.hpp"
 #include "tui/settings/settings_center.hpp"
 #include "tui/theme_palette.hpp"
+#include "session/session_usage_ledger.hpp"
 #include "tool/mcp_manager.hpp"
 
 #include <ftxui/component/event.hpp>
@@ -519,6 +520,116 @@ TEST(SettingsCenterRender, StaleUsageCompletionCannotOverwriteNewTab) {
         std::string::npos)
         << output;
     EXPECT_NE(output.find("Config path"), std::string::npos) << output;
+}
+
+TEST(SettingsCenterRender, UsageDailyTrendHasTokenAndDateAxes) {
+    acecode::tui::init_theme_palette("dark");
+    auto config = render_config();
+    const auto unique =
+        std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path acecode_dir =
+        fs::temp_directory_path() /
+        ("acecode_usage_chart_" + std::to_string(unique));
+    const fs::path project_dir =
+        acecode_dir / "projects" / "chart-workspace";
+    const std::int64_t now = acecode::usage_now_unix_ms();
+    constexpr std::int64_t day_ms = 86'400'000;
+
+    auto append_record = [&](std::int64_t timestamp,
+                             const std::string& session_id,
+                             int total_tokens) {
+        acecode::UsageLedgerRecord record;
+        record.timestamp_ms = timestamp;
+        record.timestamp =
+            acecode::usage_iso8601_from_unix_ms(timestamp);
+        record.session_id = session_id;
+        record.provider = "openai";
+        record.model = "chart-model";
+        record.model_preset = record.model;
+        record.surface = "tui";
+        record.usage.prompt_tokens = total_tokens * 3 / 4;
+        record.usage.completion_tokens =
+            total_tokens - record.usage.prompt_tokens;
+        record.usage.total_tokens = total_tokens;
+        record.usage.has_data = true;
+        acecode::append_usage_ledger_record(
+            project_dir.string(), record);
+    };
+    append_record(now - 7 * day_ms, "older", 25'000);
+    append_record(now, "latest", 125'000);
+
+    acecode::UsageLedgerQuery expected_query;
+    expected_query.days = 30;
+    expected_query.now_ms = now;
+    const auto expected = acecode::aggregate_usage_ledgers(
+        {{
+            project_dir.string(),
+            "chart-workspace",
+            "Chart workspace",
+            "C:/chart",
+        }},
+        expected_query);
+    ASSERT_EQ(expected.daily.size(), 30u);
+    const std::string wide_only_date =
+        expected.daily[7].date.substr(5);
+    const std::string latest_date =
+        expected.daily.back().date.substr(5);
+
+    std::mutex mutex;
+    std::condition_variable ready;
+    std::vector<std::function<void()>> posted;
+    ats::SettingsCenterDependencies deps;
+    deps.config = &config;
+    deps.acecode_version = "render-test";
+    deps.acecode_dir_override = acecode_dir.string();
+    deps.post_to_ui =
+        [&](std::function<void()> task) {
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                posted.push_back(std::move(task));
+            }
+            ready.notify_one();
+        };
+
+    {
+        ats::SettingsCenter center(std::move(deps));
+        center.open(ats::SettingsTab::Usage);
+
+        std::function<void()> completion;
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            ASSERT_TRUE(ready.wait_for(
+                lock,
+                std::chrono::seconds(2),
+                [&]() { return !posted.empty(); }));
+            completion = std::move(posted.front());
+            posted.erase(posted.begin());
+        }
+        completion();
+
+        const std::string wide =
+            render_component(center.component(), 128, 42);
+        EXPECT_NE(wide.find("Daily trend"), std::string::npos)
+            << wide;
+        EXPECT_NE(wide.find("Tokens"), std::string::npos) << wide;
+        EXPECT_NE(wide.find("200.0K"), std::string::npos) << wide;
+        EXPECT_NE(wide.find(wide_only_date), std::string::npos)
+            << wide;
+        EXPECT_NE(wide.find(latest_date), std::string::npos)
+            << wide;
+
+        const std::string narrow =
+            render_component(center.component(), 72, 42);
+        EXPECT_NE(narrow.find("Tokens"), std::string::npos)
+            << narrow;
+        EXPECT_NE(narrow.find(latest_date), std::string::npos)
+            << narrow;
+        EXPECT_EQ(narrow.find(wide_only_date), std::string::npos)
+            << narrow;
+    }
+
+    std::error_code cleanup_error;
+    fs::remove_all(acecode_dir, cleanup_error);
 }
 
 TEST(SettingsCenterRender, ModelSearchAndExternalConfigEdit) {

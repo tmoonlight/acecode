@@ -47,6 +47,9 @@
 #ifdef _WIN32
 #  include <windows.h>
 #  include <shellapi.h>
+#  ifdef DrawText
+#    undef DrawText
+#  endif
 #  ifdef RGB
 #    undef RGB
 #  endif
@@ -105,6 +108,53 @@ std::string format_tokens(std::int64_t value) {
         out << value;
     }
     return out.str();
+}
+
+std::int64_t nice_usage_axis_max(std::int64_t value) {
+    if (value <= 0) return 4;
+
+    std::int64_t magnitude = 1;
+    while (magnitude <=
+               (std::numeric_limits<std::int64_t>::max)() / 10 &&
+           value > magnitude * 10) {
+        magnitude *= 10;
+    }
+
+    const std::int64_t scaled =
+        value / magnitude + (value % magnitude == 0 ? 0 : 1);
+    const std::int64_t multiplier =
+        scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10;
+    if (magnitude >
+        (std::numeric_limits<std::int64_t>::max)() / multiplier) {
+        return (std::numeric_limits<std::int64_t>::max)();
+    }
+    return std::max<std::int64_t>(4, magnitude * multiplier);
+}
+
+std::string usage_date_tick_label(const std::string& date) {
+    return date.size() >= 10 ? date.substr(5, 5) : date;
+}
+
+std::vector<std::size_t> usage_date_tick_indexes(
+    std::size_t point_count,
+    int plot_columns) {
+    if (point_count == 0) return {};
+    if (point_count == 1) return {0};
+
+    const int desired =
+        plot_columns >= 72 ? 5 : plot_columns >= 36 ? 3 : 2;
+    const std::size_t count = std::min<std::size_t>(
+        point_count, static_cast<std::size_t>(desired));
+    std::vector<std::size_t> indexes;
+    indexes.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        const std::size_t index =
+            i * (point_count - 1) / (count - 1);
+        if (indexes.empty() || indexes.back() != index) {
+            indexes.push_back(index);
+        }
+    }
+    return indexes;
 }
 
 std::string join_strings(const std::vector<std::string>& values,
@@ -1387,40 +1437,128 @@ struct SettingsCenter::Impl {
     }
 
     Element render_usage_chart() const {
-        constexpr int width = 120;
-        constexpr int height = 32;
-        Canvas chart(width, height);
-        chart.DrawBlockLine(
-            2, height - 4, width - 2, height - 4,
-            theme().ui.text_dim);
-        if (!usage.daily.empty()) {
-            std::int64_t max_total = 1;
-            for (const auto& day : usage.daily) {
-                max_total =
-                    std::max(max_total, day.totals.total_tokens);
-            }
-            int previous_x = 2;
-            int previous_y = height - 4;
-            for (std::size_t i = 0; i < usage.daily.size(); ++i) {
-                const int x = 2 + static_cast<int>(
-                    (width - 4) * i /
-                    std::max<std::size_t>(1, usage.daily.size() - 1));
-                const int y = height - 4 - static_cast<int>(
-                    (height - 8) *
-                    usage.daily[i].totals.total_tokens / max_total);
-                if (i) {
-                    chart.DrawBlockLine(
-                        previous_x, previous_y, x, y,
-                        theme().ui.accent);
-                }
-                chart.DrawBlockCircleFilled(
-                    x, y, 1, theme().ui.accent_alt);
-                previous_x = x;
-                previous_y = y;
-            }
+        std::int64_t observed_max = 0;
+        for (const auto& day : usage.daily) {
+            observed_max =
+                std::max(observed_max, day.totals.total_tokens);
         }
-        return canvas(std::move(chart)) |
-            size(HEIGHT, EQUAL, 8) |
+        const std::int64_t axis_max =
+            nice_usage_axis_max(observed_max);
+        const auto daily = usage.daily;
+        const Color accent = theme().ui.accent;
+        const Color point = theme().ui.accent_alt;
+        const Color axis = theme().ui.text_secondary;
+        const Color grid = theme().ui.text_dim;
+
+        return canvas(
+            120,
+            44,
+            [daily, axis_max, accent, point, axis, grid](
+                Canvas& chart) {
+                const int width = chart.width();
+                const int height = chart.height();
+                constexpr int plot_left = 16;
+                constexpr int plot_top = 4;
+                const int plot_right = width - 4;
+                const int x_axis_y = height - 8;
+                if (plot_right <= plot_left ||
+                    x_axis_y <= plot_top) {
+                    return;
+                }
+
+                chart.DrawText(0, 0, "Tokens", axis);
+                const int plot_height = x_axis_y - plot_top;
+                for (int tick = 0; tick <= 4; ++tick) {
+                    const int y =
+                        x_axis_y - plot_height * tick / 4;
+                    const std::int64_t value =
+                        (axis_max / 4) * tick +
+                        (axis_max % 4) * tick / 4;
+                    const std::string label = format_tokens(value);
+                    const int label_x = std::max(
+                        0,
+                        plot_left - 2 -
+                            static_cast<int>(label.size()) * 2);
+                    chart.DrawBlockLine(
+                        plot_left,
+                        y,
+                        plot_right,
+                        y,
+                        tick == 0 ? axis : grid);
+                    chart.DrawText(label_x, y, label, axis);
+                }
+                chart.DrawBlockLine(
+                    plot_left,
+                    plot_top,
+                    plot_left,
+                    x_axis_y,
+                    axis);
+
+                const int plot_width = plot_right - plot_left;
+                auto point_x = [&](std::size_t index) {
+                    if (daily.size() <= 1) {
+                        return plot_left + plot_width / 2;
+                    }
+                    return plot_left + static_cast<int>(
+                        plot_width * index / (daily.size() - 1));
+                };
+
+                for (std::size_t i = 0; i < daily.size(); ++i) {
+                    const int x = point_x(i);
+                    const auto total = std::max<std::int64_t>(
+                        0, daily[i].totals.total_tokens);
+                    const int scaled_height = static_cast<int>(
+                        static_cast<long double>(total) *
+                        plot_height /
+                        static_cast<long double>(axis_max));
+                    const int y = x_axis_y - scaled_height;
+                    if (i > 0) {
+                        const auto previous_total =
+                            std::max<std::int64_t>(
+                                0,
+                                daily[i - 1].totals.total_tokens);
+                        const int previous_height = static_cast<int>(
+                            static_cast<long double>(previous_total) *
+                            plot_height /
+                            static_cast<long double>(axis_max));
+                        chart.DrawBlockLine(
+                            point_x(i - 1),
+                            x_axis_y - previous_height,
+                            x,
+                            y,
+                            accent);
+                    }
+                    chart.DrawBlockCircleFilled(
+                        x, y, 1, point);
+                }
+
+                const auto tick_indexes =
+                    usage_date_tick_indexes(
+                        daily.size(), plot_width / 2);
+                for (std::size_t index : tick_indexes) {
+                    const int x = point_x(index);
+                    chart.DrawBlockLine(
+                        x,
+                        x_axis_y,
+                        x,
+                        std::min(height - 6, x_axis_y + 2),
+                        axis);
+                    const std::string label =
+                        usage_date_tick_label(daily[index].date);
+                    const int label_width =
+                        static_cast<int>(label.size()) * 2;
+                    const int label_x = std::clamp(
+                        x - label_width / 2,
+                        plot_left,
+                        std::max(plot_left, width - label_width));
+                    chart.DrawText(
+                        label_x,
+                        height - 4,
+                        label,
+                        axis);
+                }
+            }) |
+            size(HEIGHT, EQUAL, 11) |
             flex;
     }
 

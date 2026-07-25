@@ -68,6 +68,12 @@ Single-line scalar and filter inputs use a compact one-row transform with a
 palette-backed background and in-field placeholder. Multiline height is
 reserved for custom instructions and structured editors such as raw JSON.
 
+The Usage daily trend uses a dynamically sized `Canvas` with an explicit
+coordinate system: token-value labels and horizontal guides on the Y axis,
+date labels on the X axis, and the data line inside those bounds. Wide
+terminals show more date ticks; narrow terminals reduce tick density instead
+of overlapping labels.
+
 The UI copy is English. Stable IDs never depend on labels, and copy is centralized per surface so a future whole-TUI localization change does not require rewriting controllers.
 
 ### 4. Keep approved page scope exact
