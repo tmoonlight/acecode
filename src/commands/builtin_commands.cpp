@@ -390,6 +390,8 @@ static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
         << "  /help     - Show this help message\n"
         << "  /clear    - Clear conversation history\n"
         << "  /new      - Alias for /clear\n"
+        << "  /archive  - Archive this session, then clear the conversation\n"
+        << "  /archieve - Alias for /archive\n"
         << "  /compact  - Compress conversation history\n"
         << "  /model    - Show or switch current model\n"
         << "  /mode     - Show or switch permission mode\n"
@@ -665,7 +667,7 @@ static void cmd_plan(CommandContext& ctx, const std::string& raw_args) {
     if (ctx.post_event) ctx.post_event();
 }
 
-static void cmd_clear(CommandContext& ctx, const std::string& /*args*/) {
+static void reset_conversation_for_new_session(CommandContext& ctx) {
     std::string cleared_session_id;
     bool clear_title = false;
     {
@@ -704,6 +706,41 @@ static void cmd_clear(CommandContext& ctx, const std::string& /*args*/) {
         "Conversation cleared.\n" + default_summary,
         false});
     ctx.state.chat_follow_tail = true;
+}
+
+static void cmd_clear(CommandContext& ctx, const std::string& /*args*/) {
+    reset_conversation_for_new_session(ctx);
+}
+
+static void cmd_archive(CommandContext& ctx, const std::string& /*args*/) {
+    if (!ctx.session_manager) {
+        std::lock_guard<std::mutex> lk(ctx.state.mu);
+        emit_system_message_locked(
+            ctx.state,
+            "Archive failed: session persistence is unavailable. "
+            "The current conversation was not cleared.");
+        return;
+    }
+
+    const ArchiveCurrentSessionResult result =
+        ctx.session_manager->archive_current_session();
+    if (result == ArchiveCurrentSessionResult::PersistenceFailed) {
+        std::string detail = ctx.session_manager->last_error();
+        if (detail.empty()) {
+            detail = "Failed to persist archived session metadata.";
+        }
+        std::lock_guard<std::mutex> lk(ctx.state.mu);
+        emit_system_message_locked(
+            ctx.state,
+            "Archive failed: " + detail +
+                " The current conversation was not cleared.");
+        return;
+    }
+
+    // No active persisted session still receives the requested /clear effect.
+    // reset_conversation_for_new_session keeps session creation lazy, so this
+    // path never creates an empty archived session.
+    reset_conversation_for_new_session(ctx);
 }
 
 static void show_config_summary(CommandContext& ctx) {
@@ -1933,6 +1970,16 @@ void register_builtin_commands(CommandRegistry& registry) {
     registry.register_command({"help", "Show available commands", cmd_help});
     registry.register_command({"clear", "Clear conversation history", cmd_clear});
     registry.register_command({"new", "Alias for /clear", cmd_clear});
+    registry.register_command({
+        "archive",
+        "Archive this session, then clear the conversation",
+        cmd_archive,
+    });
+    registry.register_command({
+        "archieve",
+        "Alias for /archive",
+        cmd_archive,
+    });
     register_model_command(registry);
     registry.register_command({"mode", "Show or switch permission mode", cmd_mode});
     registry.register_command({"config", "Open settings (/config show for text summary)", cmd_config});

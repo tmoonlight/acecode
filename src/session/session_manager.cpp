@@ -949,9 +949,9 @@ const ThreadGoalStore* SessionManager::goal_store() const {
     return goal_store_.get();
 }
 
-void SessionManager::update_meta() {
+bool SessionManager::update_meta() {
     // Must be called under lock
-    if (!created_) return;
+    if (!created_) return true;
 
     SessionMeta meta;
     meta.id = session_id_;
@@ -980,8 +980,11 @@ void SessionManager::update_meta() {
     meta.loop_id = loop_id_;
     meta.loop_run_id = loop_run_id_;
     meta.worktree = worktree_;
-    SessionStorage::write_meta(meta_path_str_, meta);
-    refresh_writer_lease_locked();
+    const bool written = SessionStorage::write_meta(meta_path_str_, meta);
+    if (written) {
+        refresh_writer_lease_locked();
+    }
+    return written;
 }
 
 void SessionManager::set_session_title(std::string title) {
@@ -1122,6 +1125,24 @@ void SessionManager::set_session_archived(bool archived) {
     if (created_) {
         update_meta();
     }
+}
+
+ArchiveCurrentSessionResult SessionManager::archive_current_session() {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (!created_ || finalized_ || session_id_.empty()) {
+        return ArchiveCurrentSessionResult::NoActiveSession;
+    }
+
+    const bool previous_archived = archived_;
+    archived_ = true;
+    if (!update_meta()) {
+        archived_ = previous_archived;
+        last_error_ = "Failed to persist archived session metadata.";
+        return ArchiveCurrentSessionResult::PersistenceFailed;
+    }
+
+    last_error_.clear();
+    return ArchiveCurrentSessionResult::Archived;
 }
 
 void SessionManager::set_parent_session_id(std::string parent_id) {

@@ -16,6 +16,12 @@
 
 namespace acecode {
 
+enum class ArchiveCurrentSessionResult {
+    Archived,
+    NoActiveSession,
+    PersistenceFailed,
+};
+
 class SessionManager {
 public:
     // Prepare a new session (lazy: files created on first message)
@@ -163,6 +169,12 @@ public:
     // immediately when metadata already exists.
     void set_session_archived(bool archived);
 
+    // Atomically persist archived=true for the active session. Unlike the
+    // general setter, this reports whether an active session existed and
+    // whether the metadata commit succeeded so callers can gate lifecycle
+    // changes such as clearing the TUI.
+    ArchiveCurrentSessionResult archive_current_session();
+
     // Mark the current session as a spawn_subagent child of parent_id.
     // Persisted to .meta.json (immediately when metadata already exists,
     // otherwise on lazy creation). Pass empty string to clear.
@@ -211,7 +223,7 @@ public:
 
 private:
     bool ensure_created();  // Lazy creation of session files on first message
-    void update_meta();     // Write current metadata to disk
+    bool update_meta();     // Write current metadata to disk
     bool try_set_generated_session_title_locked(std::string title);
     void reset_auto_title_state_locked();
     std::string extract_summary(const std::string& content) const;

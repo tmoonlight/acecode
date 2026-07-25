@@ -22,6 +22,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <random>
+#include <stdexcept>
 #include <thread>
 
 #ifdef _WIN32
@@ -93,6 +94,56 @@ fs::path temp_cwd(const std::string& hint) {
     fs::remove_all(acecode::SessionStorage::get_project_dir(dir.string()));
     return dir;
 }
+
+class ProjectDirectoryWriteBlocker {
+public:
+    explicit ProjectDirectoryWriteBlocker(fs::path project_dir)
+        : project_dir_(std::move(project_dir))
+        , backup_dir_(project_dir_.string() + ".archive-write-backup") {
+        std::error_code ec;
+        fs::remove_all(backup_dir_, ec);
+        ec.clear();
+        fs::rename(project_dir_, backup_dir_, ec);
+        if (ec) {
+            throw std::runtime_error(
+                "failed to move project directory: " + ec.message());
+        }
+
+        std::ofstream blocker(project_dir_, std::ios::binary | std::ios::trunc);
+        if (!blocker.is_open()) {
+            restore();
+            throw std::runtime_error("failed to create project directory blocker");
+        }
+        blocker << "not a directory";
+        blocked_ = true;
+    }
+
+    ProjectDirectoryWriteBlocker(const ProjectDirectoryWriteBlocker&) = delete;
+    ProjectDirectoryWriteBlocker& operator=(
+        const ProjectDirectoryWriteBlocker&) = delete;
+
+    ~ProjectDirectoryWriteBlocker() {
+        (void)restore();
+    }
+
+    bool restore() {
+        if (!blocked_ && !fs::exists(backup_dir_)) return true;
+
+        std::error_code ec;
+        fs::remove(project_dir_, ec);
+        if (ec) return false;
+        ec.clear();
+        fs::rename(backup_dir_, project_dir_, ec);
+        if (ec) return false;
+        blocked_ = false;
+        return true;
+    }
+
+private:
+    fs::path project_dir_;
+    fs::path backup_dir_;
+    bool blocked_ = false;
+};
 
 acecode::ChatMessage message(const std::string& role, const std::string& content) {
     acecode::ChatMessage msg;
@@ -465,6 +516,25 @@ TEST(BuiltinCommands, NewIsRegisteredAsClearAlias) {
     ASSERT_TRUE(registry.has_command("clear"));
     ASSERT_TRUE(registry.has_command("new"));
     EXPECT_EQ(registry.commands().at("new").description, "Alias for /clear");
+}
+
+TEST(BuiltinCommands, ArchiveCommandsAreRegisteredAndListedInHelp) {
+    ResumeCommandHarness h("archive_help");
+
+    ASSERT_TRUE(h.registry_.has_command("archive"));
+    ASSERT_TRUE(h.registry_.has_command("archieve"));
+    EXPECT_EQ(
+        h.registry_.commands().at("archive").description,
+        "Archive this session, then clear the conversation");
+    EXPECT_EQ(
+        h.registry_.commands().at("archieve").description,
+        "Alias for /archive");
+
+    ASSERT_TRUE(h.dispatch("/help"));
+    ASSERT_FALSE(h.state_.conversation.empty());
+    const std::string help = h.state_.conversation.back().content;
+    EXPECT_NE(help.find("/archive"), std::string::npos);
+    EXPECT_NE(help.find("/archieve"), std::string::npos);
 }
 
 TEST(BuiltinCommands, TurnBtwAndSideCommandsAreRegistered) {
@@ -1011,6 +1081,136 @@ TEST(BuiltinCommands, ClearAppliesExternalDefaultsToNextLazySessionWithoutEmptyF
     EXPECT_EQ(meta.model_preset, "mini");
     EXPECT_EQ(meta.model, "gpt-mini");
     EXPECT_EQ(meta.permission_mode, "yolo");
+}
+
+TEST(BuiltinCommands, ArchivePersistsOldSessionAndRunsClearLifecycle) {
+    ScopedHomeOverride home(fs::temp_directory_path() /
+        ("acecode_builtin_commands_home_" + std::to_string(std::random_device{}())));
+    ResumeCommandHarness h("archive_success");
+    acecode::save_config(h.config_);
+
+    h.sm_.on_message(identified_user_message("archive-user", "archive me"));
+    const std::string archived_id = h.sm_.current_session_id();
+    ASSERT_FALSE(archived_id.empty());
+
+    h.state_.conversation.push_back({"user", "visible archive me", false});
+    h.state_.goal_status = "goal: active";
+    h.state_.current_session_title = "Archive test";
+    h.loop_.push_message(message("user", "agent history"));
+    acecode::TokenUsage usage;
+    usage.prompt_tokens = 321;
+    usage.completion_tokens = 12;
+    usage.total_tokens = 333;
+    usage.has_data = true;
+    h.tracker_.record(usage);
+
+    ASSERT_TRUE(h.dispatch("/archive"));
+
+    const auto project_dir =
+        acecode::SessionStorage::get_project_dir(h.cwd_.string());
+    const auto archived_meta = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(project_dir, archived_id));
+    EXPECT_TRUE(archived_meta.archived);
+    const auto listed_sessions = h.sm_.list_sessions();
+    const auto archived_row = std::find_if(
+        listed_sessions.begin(),
+        listed_sessions.end(),
+        [&](const acecode::SessionMeta& meta) {
+            return meta.id == archived_id && meta.archived;
+        });
+    EXPECT_NE(archived_row, listed_sessions.end());
+    EXPECT_TRUE(fs::exists(
+        acecode::SessionStorage::session_path(project_dir, archived_id)));
+    EXPECT_TRUE(fs::exists(
+        acecode::SessionStorage::meta_path(project_dir, archived_id)));
+
+    EXPECT_TRUE(h.sm_.current_session_id().empty());
+    EXPECT_TRUE(h.loop_.messages().empty());
+    EXPECT_EQ(h.tracker_.total_tokens(), 0);
+    EXPECT_TRUE(h.state_.goal_status.empty());
+    EXPECT_TRUE(h.state_.current_session_title.empty());
+    ASSERT_EQ(h.state_.conversation.size(), 1u);
+    EXPECT_EQ(
+        h.state_.conversation.front().content.find("Conversation cleared."),
+        0u);
+
+    h.sm_.on_message(identified_user_message("fresh-user", "fresh session"));
+    const std::string fresh_id = h.sm_.current_session_id();
+    ASSERT_FALSE(fresh_id.empty());
+    EXPECT_NE(fresh_id, archived_id);
+    const auto fresh_meta = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(project_dir, fresh_id));
+    EXPECT_FALSE(fresh_meta.archived);
+}
+
+TEST(BuiltinCommands, ArchieveWithoutActiveSessionClearsWithoutCreatingOne) {
+    ScopedHomeOverride home(fs::temp_directory_path() /
+        ("acecode_builtin_commands_home_" + std::to_string(std::random_device{}())));
+    ResumeCommandHarness h("archieve_no_active");
+    acecode::save_config(h.config_);
+    const auto before = h.sm_.list_sessions().size();
+    const auto untouched_id = h.target_session_id_;
+
+    h.state_.conversation.push_back(
+        {"system", "temporary surface text", false});
+    h.loop_.push_message(message("system", "temporary agent text"));
+
+    ASSERT_TRUE(h.dispatch("/archieve"));
+
+    EXPECT_TRUE(h.sm_.current_session_id().empty());
+    EXPECT_EQ(h.sm_.list_sessions().size(), before);
+    const auto untouched_meta = h.sm_.load_session_meta(untouched_id);
+    EXPECT_EQ(untouched_meta.id, untouched_id);
+    EXPECT_FALSE(untouched_meta.archived);
+    EXPECT_TRUE(h.loop_.messages().empty());
+    ASSERT_EQ(h.state_.conversation.size(), 1u);
+    EXPECT_EQ(
+        h.state_.conversation.front().content.find("Conversation cleared."),
+        0u);
+}
+
+TEST(BuiltinCommands, ArchiveWriteFailureKeepsCurrentConversationActive) {
+    ScopedHomeOverride home(fs::temp_directory_path() /
+        ("acecode_builtin_commands_home_" + std::to_string(std::random_device{}())));
+    ResumeCommandHarness h("archive_write_failure");
+    acecode::save_config(h.config_);
+
+    h.sm_.on_message(identified_user_message("keep-user", "keep session"));
+    const std::string session_id = h.sm_.current_session_id();
+    ASSERT_FALSE(session_id.empty());
+    h.state_.conversation.push_back({"user", "keep visible", false});
+    h.loop_.push_message(message("user", "keep agent history"));
+    acecode::TokenUsage usage;
+    usage.prompt_tokens = 88;
+    usage.completion_tokens = 12;
+    usage.total_tokens = 100;
+    usage.has_data = true;
+    h.tracker_.record(usage);
+
+    const fs::path project_dir =
+        acecode::SessionStorage::get_project_dir(h.cwd_.string());
+    ProjectDirectoryWriteBlocker blocker(project_dir);
+
+    ASSERT_TRUE(h.dispatch("/archive"));
+    ASSERT_TRUE(blocker.restore());
+
+    EXPECT_EQ(h.sm_.current_session_id(), session_id);
+    EXPECT_FALSE(h.loop_.messages().empty());
+    EXPECT_EQ(h.tracker_.total_tokens(), 100);
+    ASSERT_EQ(h.state_.conversation.size(), 2u);
+    EXPECT_EQ(h.state_.conversation.front().content, "keep visible");
+    EXPECT_NE(
+        h.state_.conversation.back().content.find("Archive failed:"),
+        std::string::npos);
+    EXPECT_NE(
+        h.state_.conversation.back().content.find("was not cleared"),
+        std::string::npos);
+
+    const auto meta_path =
+        acecode::SessionStorage::meta_path(project_dir.string(), session_id);
+    ASSERT_TRUE(fs::exists(meta_path));
+    const auto meta = acecode::SessionStorage::read_meta(meta_path);
+    EXPECT_FALSE(meta.archived);
 }
 
 TEST(BuiltinCommands, ResumeByNumberRefreshesModelAndTokenState) {

@@ -100,8 +100,9 @@ public:
     // Skips unparseable trailing lines (crash protection).
     static std::vector<ChatMessage> load_messages(const std::string& session_path);
 
-    // Write session metadata to a .meta.json file.
-    static void write_meta(const std::string& meta_path, const SessionMeta& meta);
+    // Write session metadata to a .meta.json file. Returns true only when the
+    // atomic replacement succeeds.
+    static bool write_meta(const std::string& meta_path, const SessionMeta& meta);
 
     // Read session metadata from a .meta.json file.
     static SessionMeta read_meta(const std::string& meta_path);

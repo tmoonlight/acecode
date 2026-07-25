@@ -196,7 +196,7 @@ std::vector<ChatMessage> SessionStorage::load_messages(const std::string& sessio
     return messages;
 }
 
-void SessionStorage::write_meta(const std::string& meta_path, const SessionMeta& meta) {
+bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta& meta) {
     nlohmann::json j;
     j["id"] = meta.id;
     j["cwd"] = meta.cwd;
@@ -274,7 +274,7 @@ void SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
 
     std::error_code ec;
     fs::create_directories(path_from_utf8(meta_path).parent_path(), ec);
-    atomic_write_file(meta_path, j.dump(2) + '\n');
+    return atomic_write_file(meta_path, j.dump(2) + '\n');
 }
 
 SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
