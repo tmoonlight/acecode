@@ -27,12 +27,56 @@
 #include <utility>
 #include <limits>
 #include <memory>
+#include <chrono>
 
 namespace acecode {
 
 struct LoopExecutionPolicy {
     bool active = false;
     std::string system_context;
+};
+
+// Authoritative receipt for a control task inserted into the AgentLoop worker
+// queue. queued_behind_turn is computed while holding the same mutex that
+// orders chat/control tasks, so a chat that has been submitted but has not yet
+// flipped busy=true is still observed. Completion and success are separate: a
+// callback that ran but could not commit its state must not be reported as
+// applied.
+struct ControlExecutionState {
+    mutable std::mutex mu;
+    std::condition_variable cv;
+    bool completed = false;
+    bool succeeded = false;
+};
+
+struct ControlEnqueueReceipt {
+    std::uint64_t sequence = 0;
+    bool accepted = false;
+    bool queued_behind_turn = false;
+    std::shared_ptr<ControlExecutionState> execution;
+
+    bool completed() const {
+        if (!execution) return false;
+        std::lock_guard<std::mutex> lock(execution->mu);
+        return execution->completed;
+    }
+
+    bool succeeded() const {
+        if (!execution) return false;
+        std::lock_guard<std::mutex> lock(execution->mu);
+        return execution->completed && execution->succeeded;
+    }
+
+    bool applied() const {
+        return succeeded();
+    }
+
+    bool wait_for_completion(std::chrono::milliseconds timeout) const {
+        if (!execution) return false;
+        std::unique_lock<std::mutex> lock(execution->mu);
+        return execution->cv.wait_for(
+            lock, timeout, [&] { return execution->completed; });
+    }
 };
 
 class SkillRegistry;
@@ -163,7 +207,7 @@ public:
     // callback runs between already-queued and subsequently-queued turns, so an
     // in-flight turn keeps its current context while the next turn sees the
     // update.
-    void enqueue_control(std::function<void()> control);
+    ControlEnqueueReceipt enqueue_control(std::function<bool()> control);
 
     // Emit a visible system message without adding it to LLM history. Used by
     // daemon-owned builtin commands for TUI-like progress and fallback output.
@@ -579,6 +623,9 @@ private:
     std::condition_variable queue_cv_;
     std::queue<WorkerTask> task_queue_;
     bool shutdown_requested_ = false;
+    bool worker_task_active_ = false;
+    WorkerTask::Kind worker_task_kind_ = WorkerTask::Kind::Control;
+    std::uint64_t next_control_sequence_ = 0;
 
     // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
     // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由

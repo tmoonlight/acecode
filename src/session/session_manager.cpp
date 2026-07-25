@@ -1159,12 +1159,38 @@ std::string SessionManager::current_parent_session_id() const {
 }
 
 void SessionManager::set_expert_binding(std::string expert_id, std::string member_id) {
+    (void)set_expert_binding_and_input_draft(
+        std::move(expert_id), std::move(member_id), std::nullopt);
+}
+
+bool SessionManager::set_expert_binding_and_input_draft(
+    std::string expert_id,
+    std::string member_id,
+    std::optional<std::string> input_draft) {
     std::lock_guard<std::mutex> lk(mu_);
+    const std::string previous_expert_id = expert_id_;
+    const std::string previous_member_id = expert_member_id_;
+    const std::string previous_input_draft = input_draft_;
+
     expert_id_ = std::move(expert_id);
     expert_member_id_ = expert_id_.empty() ? std::string{} : std::move(member_id);
-    if (created_) {
-        update_meta();
+    if (input_draft) input_draft_ = std::move(*input_draft);
+
+    if (!created_ && started_ && input_draft && !input_draft_.empty()) {
+        if (!ensure_created()) {
+            expert_id_ = previous_expert_id;
+            expert_member_id_ = previous_member_id;
+            input_draft_ = previous_input_draft;
+            return false;
+        }
     }
+    if (created_ && !update_meta()) {
+        expert_id_ = previous_expert_id;
+        expert_member_id_ = previous_member_id;
+        input_draft_ = previous_input_draft;
+        return false;
+    }
+    return true;
 }
 
 std::string SessionManager::current_expert_id() const {

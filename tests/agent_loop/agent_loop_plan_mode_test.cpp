@@ -17,6 +17,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -76,6 +77,10 @@ public:
     acecode_test::StubLlmProvider& provider() { return *provider_; }
     acecode::SessionManager& session_manager() { return sm_; }
     int confirm_count() const { return confirm_count_; }
+    void set_tool_capability_policy(
+        acecode::ToolCapabilityPolicy policy) {
+        loop_->set_tool_capability_policy(std::move(policy));
+    }
 
     bool submit_and_wait(std::chrono::milliseconds timeout = 5s) {
         {
@@ -159,6 +164,10 @@ public:
     std::string session_pre_plan_mode() const { return sm_.current_pre_plan_permission_mode(); }
     int confirm_count() const { return confirm_count_; }
     int provider_turn_count() const { return provider_->turn_count(); }
+    void set_tool_capability_policy(
+        acecode::ToolCapabilityPolicy policy) {
+        loop_->set_tool_capability_policy(std::move(policy));
+    }
 
     bool submit_and_wait(std::chrono::milliseconds timeout = 5s) {
         {
@@ -306,4 +315,28 @@ TEST(AgentLoopPlanMode, DeniedPlanExitEndsTurnWithoutRetrying) {
     EXPECT_EQ(h.permission_mode(), acecode::PermissionMode::Plan);
     EXPECT_EQ(h.session_permission_mode(), "plan");
     EXPECT_EQ(h.session_pre_plan_mode(), "default");
+}
+
+TEST(AgentLoopPlanMode, HiddenPlanContextOmitsDisabledToolNames) {
+    auto cwd = make_temp_dir("acecode_agent_plan_context_policy");
+    PlanToolHarness h(
+        cwd.string(),
+        acecode::PermissionMode::Plan,
+        acecode::PermissionResult::Deny);
+    acecode::ToolCapabilityPolicy policy;
+    policy.builtin_tools = std::unordered_set<std::string>{};
+    policy.mcp_servers = std::unordered_set<std::string>{};
+    h.set_tool_capability_policy(std::move(policy));
+    h.provider().push_text("plan ready");
+
+    ASSERT_TRUE(h.submit_and_wait());
+    ASSERT_EQ(h.provider().turn_count(), 1);
+    std::string request;
+    for (const auto& message : h.provider().messages_for_turn(0)) {
+        request += message.content;
+        request.push_back('\n');
+    }
+    EXPECT_NE(request.find("<plan_mode>"), std::string::npos);
+    EXPECT_EQ(request.find("AskUserQuestion"), std::string::npos);
+    EXPECT_EQ(request.find("ExitPlanMode"), std::string::npos);
 }

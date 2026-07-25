@@ -48,6 +48,16 @@ void SkillRegistry::set_allowed(
     allowed_ = std::move(allowed);
 }
 
+void SkillRegistry::configure(
+    std::vector<fs::path> roots,
+    std::unordered_set<std::string> disabled,
+    std::optional<std::unordered_set<std::string>> allowed) {
+    std::lock_guard<std::mutex> lk(mu_);
+    roots_ = std::move(roots);
+    disabled_ = std::move(disabled);
+    allowed_ = std::move(allowed);
+}
+
 void SkillRegistry::refresh_from_disk() const {
     std::vector<fs::path> roots;
     std::unordered_set<std::string> disabled;

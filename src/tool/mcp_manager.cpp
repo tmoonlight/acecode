@@ -246,17 +246,26 @@ McpManager::~McpManager() {
     shutdown();
 }
 
-std::string McpManager::sanitize(const std::string& s) {
+std::string McpManager::encode_server_id(const std::string& s) {
+    static constexpr char kHex[] = "0123456789abcdef";
     std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        if (std::isalnum(static_cast<unsigned char>(c))) {
-            out.push_back(c);
+    out.reserve(s.size() * 3);
+    for (unsigned char c : s) {
+        const bool ascii_alphanumeric =
+            (c >= '0' && c <= '9') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z');
+        if (ascii_alphanumeric) {
+            out.push_back(static_cast<char>(c));
         } else {
+            // '_' is escaped as well, making the encoding unambiguous:
+            // foo-bar -> foo_2dbar, foo_bar -> foo_5fbar.
             out.push_back('_');
+            out.push_back(kHex[(c >> 4) & 0x0f]);
+            out.push_back(kHex[c & 0x0f]);
         }
     }
-    return out;
+    return out.empty() ? "empty" : out;
 }
 
 void McpManager::set_status_callback(StatusCallback callback) {
@@ -388,7 +397,8 @@ McpManager::ConnectionResult McpManager::connect_entry(ConnectionSnapshot snapsh
         DiscoveredTool dt;
         dt.server_name = snapshot.server_name;
         dt.original_tool_name = t.name;
-        dt.qualified_name = "mcp_" + sanitize(snapshot.server_name) + "_" + t.name;
+        dt.qualified_name =
+            "mcp_" + encode_server_id(snapshot.server_name) + "_" + t.name;
         dt.definition.name = dt.qualified_name;
         dt.definition.description = t.description;
         dt.definition.parameters = mcp_to_std(t.parameters_schema);
@@ -425,7 +435,7 @@ void McpManager::publish_connection_result(const std::shared_ptr<State>& state,
         auto dt = state->discovered_tools.begin();
         while (dt != state->discovered_tools.end()) {
             if (dt->server_name == it->name) {
-                executor.unregister_tool(dt->qualified_name);
+                executor.unregister_tool(dt->qualified_name, dt->server_name);
                 dt = state->discovered_tools.erase(dt);
             } else {
                 ++dt;
@@ -455,8 +465,13 @@ void McpManager::publish_connection_result(const std::shared_ptr<State>& state,
                     return McpManager::invoke(weak_state, server_name, tool_name,
                                               args_json, ctx.abort_flag);
                 };
-                executor.register_tool(impl);
-                state->discovered_tools.push_back(tool);
+                if (executor.register_tool(impl)) {
+                    state->discovered_tools.push_back(tool);
+                } else {
+                    LOG_WARN("[mcp] skipped colliding tool registration '" +
+                             impl.definition.name + "' for server '" +
+                             server_name + "'");
+                }
             }
         }
 
@@ -569,7 +584,7 @@ void McpManager::teardown_locked(ServerEntry& entry, ToolExecutor& executor) {
     auto it = state_->discovered_tools.begin();
     while (it != state_->discovered_tools.end()) {
         if (it->server_name == entry.name) {
-            executor.unregister_tool(it->qualified_name);
+            executor.unregister_tool(it->qualified_name, it->server_name);
             it = state_->discovered_tools.erase(it);
         } else {
             ++it;

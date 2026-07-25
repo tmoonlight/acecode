@@ -90,6 +90,14 @@ ToolCapabilityPolicy tool_policy_from_expert_scopes(
     return policy;
 }
 
+ExpertCapabilityScopes fail_closed_expert_scopes() {
+    ExpertCapabilityScopes scopes;
+    scopes.skills = std::vector<std::string>{};
+    scopes.mcp_servers = std::vector<std::string>{};
+    scopes.tools = std::vector<std::string>{};
+    return scopes;
+}
+
 bool is_transcript_only_message(const ChatMessage& msg) {
     return msg.metadata.is_object() &&
            msg.metadata.value("transcript_only", false);
@@ -795,26 +803,25 @@ SessionRegistry::make_entry_locked(const std::string& id,
                 "expert member requires a team expert binding");
         }
     }
+    const ExpertCapabilityScopes expert_scopes =
+        entry->expert
+            ? entry->expert->selected_capabilities(entry->expert_member_id)
+            : (entry->expert_missing
+                   ? fail_closed_expert_scopes()
+                   : ExpertCapabilityScopes{});
+    entry->expert_skill_roots =
+        entry->expert
+            ? entry->expert->selected_skill_roots(entry->expert_member_id)
+            : std::vector<std::filesystem::path>{};
+    entry->expert_skill_allowlist = expert_scopes.skills;
+    entry->tool_capability_policy =
+        tool_policy_from_expert_scopes(expert_scopes);
+
     if (deps_.config) {
         entry->skill_registry = std::make_shared<SkillRegistry>();
-        const std::vector<std::filesystem::path> expert_skill_roots =
-            entry->expert
-                ? entry->expert->selected_skill_roots(entry->expert_member_id)
-                          : std::vector<std::filesystem::path>{};
-        const ExpertCapabilityScopes expert_scopes =
-            entry->expert
-                ? entry->expert->selected_capabilities(
-                      entry->expert_member_id)
-                : ExpertCapabilityScopes{};
-        entry->tool_capability_policy =
-            tool_policy_from_expert_scopes(expert_scopes);
         initialize_skill_registry(*entry->skill_registry, *deps_.config,
-                                  entry->cwd, expert_skill_roots,
-                                  expert_scopes.skills);
-    } else if (entry->expert) {
-        entry->tool_capability_policy = tool_policy_from_expert_scopes(
-            entry->expert->selected_capabilities(
-                entry->expert_member_id));
+                                  entry->cwd, entry->expert_skill_roots,
+                                  entry->expert_skill_allowlist);
     }
 
     // SessionManager
@@ -1087,6 +1094,48 @@ std::shared_ptr<SessionEntry> SessionRegistry::acquire(const std::string& id) {
     std::lock_guard<std::mutex> lk(mu_);
     auto it = entries_.find(id);
     return it == entries_.end() ? nullptr : it->second;
+}
+
+std::shared_ptr<const SkillRegistry>
+SessionRegistry::skill_registry_snapshot(const std::string& id) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    const auto it = entries_.find(id);
+    if (it == entries_.end()) return nullptr;
+    return it->second->skill_registry;
+}
+
+void SessionRegistry::refresh_skill_policy(const AppConfig& config) {
+    struct RefreshTarget {
+        std::shared_ptr<SkillRegistry> registry;
+        std::string cwd;
+        std::vector<std::filesystem::path> roots;
+        std::optional<std::vector<std::string>> expert_allowed;
+    };
+
+    std::vector<RefreshTarget> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (!entry || !entry->skill_registry) continue;
+            targets.push_back({
+                entry->skill_registry,
+                entry->cwd,
+                entry->expert_skill_roots,
+                entry->expert_skill_allowlist,
+            });
+        }
+    }
+
+    for (auto& target : targets) {
+        initialize_skill_registry(
+            *target.registry,
+            config,
+            target.cwd,
+            target.roots,
+            target.expert_allowed);
+    }
 }
 
 SessionEntry* SessionRegistry::lookup(const std::string& id) {
@@ -1368,7 +1417,8 @@ void SessionRegistry::handle_auto_title_turn_finished(
 
 ExpertSwitchResult SessionRegistry::switch_expert(
     const std::string& id,
-    const std::string& expert_id) {
+    const std::string& expert_id,
+    std::optional<std::string> draft_text) {
     std::shared_ptr<SessionEntry> entry;
     {
         std::lock_guard<std::mutex> lk(mu_);
@@ -1405,6 +1455,8 @@ ExpertSwitchResult SessionRegistry::switch_expert(
         expert->selected_capabilities();
     const ToolCapabilityPolicy tool_policy =
         tool_policy_from_expert_scopes(expert_scopes);
+    const auto expert_skill_roots = expert->selected_skill_roots();
+    const auto expert_skill_allowlist = expert_scopes.skills;
     std::shared_ptr<SkillRegistry> skills;
     try {
         if (deps_.config) {
@@ -1413,8 +1465,8 @@ ExpertSwitchResult SessionRegistry::switch_expert(
                 *skills,
                 *deps_.config,
                 entry->cwd,
-                expert->selected_skill_roots(),
-                expert_scopes.skills);
+                expert_skill_roots,
+                expert_skill_allowlist);
         }
     } catch (const std::exception& e) {
         return {
@@ -1425,23 +1477,29 @@ ExpertSwitchResult SessionRegistry::switch_expert(
     }
 
     const std::string session_id = id;
-    const bool busy = entry->loop->is_busy();
-    entry->loop->enqueue_control(
-        [this, session_id, expected = entry, expert, skills, tool_policy]() {
+    auto receipt = entry->loop->enqueue_control(
+        [this, session_id, expected = entry, expert, skills, tool_policy,
+         expert_skill_roots, expert_skill_allowlist, draft_text]() mutable {
             std::lock_guard<std::mutex> lk(mu_);
             auto it = entries_.find(session_id);
-            if (it == entries_.end() || it->second != expected) return;
+            if (it == entries_.end() || it->second != expected) return false;
 
             auto& active = *it->second;
+            if (active.sm &&
+                !active.sm->set_expert_binding_and_input_draft(
+                    expert->id, {}, draft_text)) {
+                LOG_ERROR("[registry] failed to persist expert switch for " +
+                          session_id);
+                return false;
+            }
             active.expert_id = expert->id;
             active.expert_member_id.clear();
             active.expert_missing = false;
             active.expert = *expert;
             active.skill_registry = skills;
+            active.expert_skill_roots = expert_skill_roots;
+            active.expert_skill_allowlist = expert_skill_allowlist;
             active.tool_capability_policy = tool_policy;
-            if (active.sm) {
-                active.sm->set_expert_binding(active.expert_id);
-            }
             if (active.loop) {
                 active.loop->set_skill_registry(
                     active.skill_registry
@@ -1451,16 +1509,43 @@ ExpertSwitchResult SessionRegistry::switch_expert(
                 active.loop->set_tool_capability_policy(
                     active.tool_capability_policy);
             }
+            return true;
         });
+    if (!receipt.accepted) {
+        return {
+            ExpertSwitchStatus::Failed,
+            std::nullopt,
+            "failed to enqueue expert switch",
+        };
+    }
 
-    return {
-        ExpertSwitchStatus::Accepted,
-        *expert,
-        {},
-        busy,
-        true,
-        busy ? "next_turn" : "queued_control",
-    };
+    if (!receipt.queued_behind_turn) {
+        (void)receipt.wait_for_completion(std::chrono::milliseconds(250));
+    }
+    if (receipt.completed() && !receipt.succeeded()) {
+        return {
+            ExpertSwitchStatus::Failed,
+            std::nullopt,
+            "failed to apply expert switch",
+        };
+    }
+
+    const bool applied = receipt.applied();
+    ExpertSwitchResult result;
+    result.status = ExpertSwitchStatus::Accepted;
+    result.expert = *expert;
+    result.busy = !applied && receipt.queued_behind_turn;
+    result.pending = !applied;
+    result.applied = applied;
+    result.effective_boundary =
+        applied
+            ? "applied"
+            : (receipt.queued_behind_turn ? "next_turn"
+                                          : "queued_control");
+    result.control_sequence = receipt.sequence;
+    result.draft_text_present = draft_text.has_value();
+    if (draft_text) result.draft_text = std::move(*draft_text);
+    return result;
 }
 
 PermissionMode SessionRegistry::default_permission_mode() const {

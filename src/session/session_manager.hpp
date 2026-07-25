@@ -183,6 +183,13 @@ public:
 
     // Persist the current expert identity selected for this session.
     void set_expert_binding(std::string expert_id, std::string member_id = {});
+    // Mutate and persist the expert binding plus an optional unsubmitted
+    // composer draft with one metadata update. A missing draft leaves it
+    // unchanged; an engaged empty string explicitly clears it.
+    bool set_expert_binding_and_input_draft(
+        std::string expert_id,
+        std::string member_id,
+        std::optional<std::string> input_draft);
     std::string current_expert_id() const;
     std::string current_expert_member_id() const;
 

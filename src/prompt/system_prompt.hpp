@@ -44,7 +44,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
                                 const SkillRegistry* skills = nullptr,
                                 const MemoryRegistry* memory = nullptr,
                                 const MemoryConfig* memory_cfg = nullptr,
-                                const ProjectInstructionsConfig* project_instructions_cfg = nullptr);
+                                const ProjectInstructionsConfig* project_instructions_cfg = nullptr,
+                                const ToolCapabilityPolicy* effective_tool_policy = nullptr);
 
 // Build provider-visible, session-scoped context blocks. These are assembled
 // for the current API request only and must not be persisted into the visible
@@ -74,13 +75,16 @@ std::size_t skills_index_char_budget(int context_window_tokens);
 // cut and a "(+N more skills — call skills_list to see all)" marker appended.
 std::string format_skills_index_within_budget(
     const std::vector<SkillMetadata>& skills,
-    std::size_t char_budget);
+    std::size_t char_budget,
+    bool skills_list_available = true);
 
 // Wrap the rendered index in a titled block with a content-hash cache key.
 // Null registry or empty skill list yields an empty block (not sent).
 PromptContextBlock build_skills_index_context_prompt(
     const SkillRegistry* skills,
-    int context_window_tokens);
+    int context_window_tokens,
+    bool skill_view_available = true,
+    bool skills_list_available = true);
 
 // gitStatus 快照块(openspec add-git-context):把 collector 采集的快照文本
 // 包成带缓存 key 的块。空文本(非仓库/采集失败/disabled)→ 空块不发送。
@@ -90,7 +94,8 @@ PromptContextBlock build_git_status_context_prompt(
 
 PromptContextBlock build_expert_context_prompt(
     const ExpertDefinition* expert,
-    const std::string& member_id = std::string());
+    const std::string& member_id = std::string(),
+    bool spawn_subagent_available = true);
 
 PromptContextBlock build_session_context_prompt(
     const std::string& cwd,
@@ -103,7 +108,10 @@ PromptContextBlock build_session_context_prompt(
     const std::string& git_status_snapshot = std::string(),
     const ExpertDefinition* expert = nullptr,
     const std::string& expert_member_id = std::string(),
-    PromptContextCategoryBytes* category_bytes = nullptr);
+    PromptContextCategoryBytes* category_bytes = nullptr,
+    bool skill_view_available = true,
+    bool skills_list_available = true,
+    bool spawn_subagent_available = true);
 
 // Build dynamic request-local context. This is sent near the end of the
 // messages array for the current provider call only; it must not be persisted

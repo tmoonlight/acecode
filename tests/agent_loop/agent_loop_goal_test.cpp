@@ -18,6 +18,7 @@
 #include <optional>
 #include <random>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 using namespace std::chrono_literals;
@@ -213,6 +214,66 @@ TEST(AgentLoopGoal, EstimatedUsageCanBudgetLimitWithoutProviderUsage) {
     EXPECT_EQ(goal->status, acecode::ThreadGoalStatus::BudgetLimited);
     EXPECT_GT(goal->tokens_used, 0);
     EXPECT_TRUE(h.saw_goal_status(acecode::ThreadGoalStatus::BudgetLimited));
+}
+
+TEST(AgentLoopGoal, HiddenGoalContextOmitsDisabledAskUserQuestion) {
+    AgentLoopGoalHarness h("goal_context_policy");
+    acecode::ToolImpl ask;
+    ask.definition.name = "AskUserQuestion";
+    ask.definition.description = "test question tool";
+    ask.definition.parameters = nlohmann::json::object();
+    ask.execute = [](const std::string&, const acecode::ToolContext&) {
+        return acecode::ToolResult{"ok", true};
+    };
+    ASSERT_TRUE(h.tools().register_tool(ask));
+    acecode::ToolCapabilityPolicy policy;
+    policy.builtin_tools =
+        std::unordered_set<std::string>{"update_goal"};
+    policy.mcp_servers = std::unordered_set<std::string>{};
+    h.loop().set_tool_capability_policy(std::move(policy));
+    h.create_goal();
+    h.provider().push_text("goal progress");
+    h.provider().push_tool_call(
+        "update_goal", R"({"status":"complete"})", "goal-policy-done");
+
+    ASSERT_TRUE(h.submit_and_wait("start"));
+    ASSERT_TRUE(h.wait_until([&h] {
+        auto goal = h.goal();
+        return goal.has_value() &&
+            goal->status == acecode::ThreadGoalStatus::Complete;
+    }, 10s));
+    std::string continuation;
+    for (const auto& message : h.loop().messages()) {
+        if (message.metadata.is_object() &&
+            message.metadata.value("hidden_goal_context", false) &&
+            message.content.find("<goal_context>") != std::string::npos) {
+            continuation = message.content;
+            break;
+        }
+    }
+    ASSERT_FALSE(continuation.empty());
+    EXPECT_EQ(continuation.find("AskUserQuestion"), std::string::npos);
+}
+
+TEST(AgentLoopGoal, DisabledGoalUpdateDoesNotLeakIntoBudgetPrompt) {
+    AgentLoopGoalHarness h("goal_update_policy");
+    acecode::ToolCapabilityPolicy policy;
+    policy.builtin_tools = std::unordered_set<std::string>{};
+    policy.mcp_servers = std::unordered_set<std::string>{};
+    h.loop().set_tool_capability_policy(std::move(policy));
+    h.create_goal(1);
+    h.provider().push_tool_call("get_goal", "{}", "goal-policy-get");
+    h.provider().push_text("wrapping up");
+
+    ASSERT_TRUE(h.submit_and_wait("start"));
+    ASSERT_GE(h.provider().turn_count(), 2);
+    std::string request;
+    for (const auto& message : h.provider().messages_for_turn(1)) {
+        request += message.content;
+        request.push_back('\n');
+    }
+    EXPECT_NE(request.find("reached its token budget"), std::string::npos);
+    EXPECT_EQ(request.find("update_goal"), std::string::npos);
 }
 
 TEST(AgentLoopGoal, AbortPausesActiveGoalAfterAccounting) {
@@ -460,6 +521,14 @@ TEST(AgentLoopGoal, PlanModeSuppressesGoalContinuation) {
 // 防止后续改 prompt 时静默丢段。
 TEST(AgentLoopGoal, ContinuationPromptCoversAuditAndUnattendedSections) {
     AgentLoopGoalHarness h("prompt_content");
+    acecode::ToolImpl ask;
+    ask.definition.name = "AskUserQuestion";
+    ask.definition.description = "test question tool";
+    ask.definition.parameters = nlohmann::json::object();
+    ask.execute = [](const std::string&, const acecode::ToolContext&) {
+        return acecode::ToolResult{"ok", true};
+    };
+    ASSERT_TRUE(h.tools().register_tool(ask));
     h.create_goal();
     h.provider().push_text("progress");
     h.provider().push_tool_call("update_goal", R"({"status":"complete"})", "goal-done");

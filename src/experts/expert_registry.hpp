@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -103,9 +104,9 @@ struct ExpertDraft {
     std::string created_at;
     std::string updated_at;
     ExpertCapabilityScopes capabilities;
-    // Distinguishes an omitted capabilities object (preserve it on update for
-    // older API clients) from an explicitly submitted empty object (set all
-    // three classes to inheritance).
+    // Records whether the payload included a capabilities object. Updates are
+    // authoritative either way: omitted managed scope keys mean inheritance,
+    // while unknown capability extension keys remain package-owned data.
     bool capabilities_present = false;
     ExpertAgentDraft lead;
     std::string lead_expert_id;
@@ -144,6 +145,10 @@ public:
 
 private:
     std::filesystem::path global_root_;
+    // Registry discovery and package transactions share deterministic
+    // recovery paths. Serialize them per registry, including nested list/find
+    // calls made by CRUD validation.
+    mutable std::recursive_mutex io_mu_;
 };
 
 nlohmann::json expert_definition_to_json(const ExpertDefinition& expert,

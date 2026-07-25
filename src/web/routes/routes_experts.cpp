@@ -47,6 +47,47 @@ bool contains_name(const std::optional<std::vector<std::string>>& names,
            std::find(names->begin(), names->end(), name) != names->end();
 }
 
+json expert_response_json(const ExpertDefinition& expert,
+                          bool include_instructions,
+                          const std::string& workspace_hash) {
+    json result =
+        expert_definition_to_json(expert, include_instructions);
+    result["avatar_url"] =
+        expert.avatar_path.empty()
+            ? std::string{}
+            : "/api/experts/" + expert.id +
+                  "/avatar?workspace=" + workspace_hash;
+    return result;
+}
+
+std::optional<std::filesystem::path> safe_avatar_path(
+    const ExpertDefinition& expert) {
+    if (expert.avatar_path.empty() || expert.package_root.empty()) {
+        return std::nullopt;
+    }
+    std::error_code ec;
+    const auto root =
+        std::filesystem::weakly_canonical(expert.package_root, ec);
+    if (ec) return std::nullopt;
+    const auto avatar = std::filesystem::weakly_canonical(
+        path_from_utf8(expert.avatar_path), ec);
+    if (ec || !std::filesystem::is_regular_file(avatar, ec)) {
+        return std::nullopt;
+    }
+    const auto relative = std::filesystem::relative(avatar, root, ec);
+    if (ec || relative.empty() || relative == "." ||
+        *relative.begin() == "..") {
+        return std::nullopt;
+    }
+    return avatar;
+}
+
+bool supported_avatar_mime(const std::string& mime) {
+    return mime == "image/png" || mime == "image/jpeg" ||
+           mime == "image/gif" || mime == "image/webp" ||
+           mime == "image/bmp" || mime == "image/x-icon";
+}
+
 } // namespace
 
 void WebServer::Impl::register_experts() {
@@ -55,6 +96,10 @@ void WebServer::Impl::register_experts() {
     CROW_ROUTE(app, "/api/experts/capabilities").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/experts/<string>").methods(crow::HTTPMethod::Options)
+    ([this](const crow::request& req, const std::string&) {
+        return cors_preflight(req);
+    });
+    CROW_ROUTE(app, "/api/experts/<string>/avatar").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req, const std::string&) {
         return cors_preflight(req);
     });
@@ -194,7 +239,8 @@ void WebServer::Impl::register_experts() {
         const auto experts = deps.expert_registry->list(workspace->cwd, &diagnostics);
         json items = json::array();
         for (const auto& expert : experts) {
-            items.push_back(expert_definition_to_json(expert, false));
+            items.push_back(expert_response_json(
+                expert, false, workspace->hash));
         }
         json problems = json::array();
         for (const auto& diagnostic : diagnostics) {
@@ -210,6 +256,47 @@ void WebServer::Impl::register_experts() {
             {"global_root", path_to_utf8(deps.expert_registry->global_root())},
         }.dump();
         response.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(response));
+    });
+
+    CROW_ROUTE(app, "/api/experts/<string>/avatar").methods(crow::HTTPMethod::GET)
+    ([this, workspace_for_request](const crow::request& req,
+                                  const std::string& id) {
+        if (auto rejected = require_auth(req)) return std::move(*rejected);
+        if (!deps.expert_registry) return crow::response(503);
+        const auto workspace = workspace_for_request(req);
+        if (!workspace) {
+            return with_cors(req, crow::response(404));
+        }
+        const auto expert =
+            deps.expert_registry->find(workspace->cwd, id);
+        if (!expert) return with_cors(req, crow::response(404));
+
+        const auto avatar = safe_avatar_path(*expert);
+        if (!avatar) return with_cors(req, crow::response(404));
+        const auto mime = preview_blob_mime(path_to_utf8(*avatar));
+        if (!mime || !supported_avatar_mime(*mime)) {
+            return with_cors(req, crow::response(404));
+        }
+
+        std::error_code ec;
+        constexpr std::uintmax_t kMaxAvatarBytes = 8 * 1024 * 1024;
+        const auto size = std::filesystem::file_size(*avatar, ec);
+        if (ec || size > kMaxAvatarBytes) {
+            return with_cors(req, crow::response(404));
+        }
+        std::ifstream input(*avatar, std::ios::binary);
+        if (!input) return with_cors(req, crow::response(404));
+        std::string bytes(static_cast<std::size_t>(size), '\0');
+        if (size > 0) {
+            input.read(bytes.data(), static_cast<std::streamsize>(size));
+            if (!input) return with_cors(req, crow::response(404));
+        }
+
+        crow::response response(std::move(bytes));
+        response.add_header("Content-Type", *mime);
+        response.add_header("Cache-Control", "private, max-age=300");
+        response.add_header("X-Content-Type-Options", "nosniff");
         return with_cors(req, std::move(response));
     });
 
@@ -232,7 +319,8 @@ void WebServer::Impl::register_experts() {
             response.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(response));
         }
-        crow::response response(expert_definition_to_json(*expert, true).dump());
+        crow::response response(
+            expert_response_json(*expert, true, workspace->hash).dump());
         response.add_header("Content-Type", "application/json");
         return with_cors(req, std::move(response));
     });
@@ -258,14 +346,27 @@ void WebServer::Impl::register_experts() {
         std::string error;
         auto draft = ExpertRegistry::draft_from_json(body, &error);
         if (!draft) return error_response(400, "INVALID_EXPERT", error);
+        if (const auto effective =
+                deps.expert_registry->find(workspace->cwd, draft->id)) {
+            if (!effective->managed_global) {
+                return error_response(
+                    409, "WORKSPACE_EXPERT_READ_ONLY",
+                    "workspace expert packages are read-only through this API");
+            }
+            return error_response(
+                409, "EXPERT_ALREADY_EXISTS",
+                "a global expert with this ID already exists");
+        }
         if (!deps.expert_registry->create_global(*draft, &error, workspace->cwd)) {
-            return error_response(error.find("already exists") != std::string::npos ? 409 : 400,
-                                  "CREATE_FAILED", error);
+            if (error.find("already exists") != std::string::npos) {
+                return error_response(409, "EXPERT_ALREADY_EXISTS", error);
+            }
+            return error_response(400, "CREATE_FAILED", error);
         }
         auto created = deps.expert_registry->find(workspace->cwd, draft->id);
         crow::response response(201);
         response.body = created
-            ? expert_definition_to_json(*created, true).dump()
+            ? expert_response_json(*created, true, workspace->hash).dump()
             : json{{"id", draft->id}, {"ok", true}}.dump();
         response.add_header("Content-Type", "application/json");
         return with_cors(req, std::move(response));
@@ -305,7 +406,7 @@ void WebServer::Impl::register_experts() {
         }
         auto updated = deps.expert_registry->find(workspace->cwd, id);
         crow::response response(updated
-            ? expert_definition_to_json(*updated, true).dump()
+            ? expert_response_json(*updated, true, workspace->hash).dump()
             : json{{"id", id}, {"ok", true}}.dump());
         response.add_header("Content-Type", "application/json");
         return with_cors(req, std::move(response));

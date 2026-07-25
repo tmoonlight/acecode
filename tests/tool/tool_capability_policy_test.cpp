@@ -106,3 +106,21 @@ TEST(ToolCapabilityPolicy, RegisteredCatalogKeepsExactIdAndOwner) {
     EXPECT_EQ(catalog[1].source, acecode::ToolSource::Mcp);
     EXPECT_EQ(catalog[1].source_owner, "GitHub");
 }
+
+TEST(ToolCapabilityPolicy, RegistrationAndRemovalRequireMatchingOwnerIdentity) {
+    std::atomic<int> calls{0};
+    acecode::ToolExecutor tools;
+    ASSERT_TRUE(tools.register_tool(make_tool(
+        "mcp_shared_echo", acecode::ToolSource::Mcp, "server-a", &calls)));
+
+    EXPECT_FALSE(tools.register_tool(make_tool(
+        "mcp_shared_echo", acecode::ToolSource::Mcp, "server-b", &calls)));
+    EXPECT_FALSE(tools.unregister_tool("mcp_shared_echo", "server-b"));
+    EXPECT_TRUE(tools.has_tool("mcp_shared_echo"));
+
+    const auto catalog = tools.get_registered_tools();
+    ASSERT_EQ(catalog.size(), 1u);
+    EXPECT_EQ(catalog.front().source_owner, "server-a");
+    EXPECT_TRUE(tools.unregister_tool("mcp_shared_echo", "server-a"));
+    EXPECT_FALSE(tools.has_tool("mcp_shared_echo"));
+}

@@ -120,9 +120,6 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
         roots.emplace_back(std::move(root));
     }
 
-    skill_registry.set_scan_roots(std::move(roots));
-    skill_registry.set_disabled(std::unordered_set<std::string>(
-        config.skills.disabled.begin(), config.skills.disabled.end()));
     std::optional<std::unordered_set<std::string>> effective_allowed;
     if (expert_allowed) {
         std::unordered_set<std::string> selected(
@@ -162,11 +159,11 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
         effective_allowed = std::unordered_set<std::string>(
             config.skills.allowed->begin(), config.skills.allowed->end());
     }
-    if (effective_allowed) {
-        skill_registry.set_allowed(std::move(effective_allowed));
-    } else {
-        skill_registry.set_allowed(std::nullopt);
-    }
+    skill_registry.configure(
+        std::move(roots),
+        std::unordered_set<std::string>(
+            config.skills.disabled.begin(), config.skills.disabled.end()),
+        std::move(effective_allowed));
     skill_registry.scan();
 }
 

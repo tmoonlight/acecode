@@ -8,9 +8,9 @@
 #include "../utils/uuid.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
@@ -572,7 +572,10 @@ std::vector<fs::path> sorted_package_dirs(const fs::path& root) {
     if (!fs::is_directory(root, ec)) return result;
     for (fs::directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
          it != end && !ec; it.increment(ec)) {
-        if (it->is_directory(ec)) result.push_back(it->path());
+        if (!it->is_directory(ec)) continue;
+        const std::string name = path_to_utf8(it->path().filename());
+        if (!name.empty() && name.front() == '.') continue;
+        result.push_back(it->path());
     }
     std::sort(result.begin(), result.end(), [](const fs::path& lhs, const fs::path& rhs) {
         return path_to_utf8(lhs.filename()) < path_to_utf8(rhs.filename());
@@ -743,6 +746,99 @@ json draft_manifest(const ExpertDraft& draft) {
     return result;
 }
 
+std::string agent_entry_id(const json& entry) {
+    if (entry.is_object()) return json_text(entry, "id");
+    if (entry.is_string()) {
+        return path_from_utf8(entry.get<std::string>()).stem().string();
+    }
+    return {};
+}
+
+json merge_agent_entries(const json& existing, const json& managed) {
+    json merged = existing.is_array() ? existing : json::array();
+    if (!managed.is_array()) return merged;
+
+    for (const auto& managed_entry : managed) {
+        const std::string id = agent_entry_id(managed_entry);
+        auto match = std::find_if(
+            merged.begin(), merged.end(), [&](const json& entry) {
+                return agent_entry_id(entry) == id;
+            });
+
+        json updated = json::object();
+        if (match != merged.end()) {
+            if (match->is_object()) {
+                updated = *match;
+            } else if (match->is_string()) {
+                updated["id"] = id;
+                updated["path"] = match->get<std::string>();
+            }
+        }
+        for (const char* key : {"id", "displayName", "profession"}) {
+            if (managed_entry.contains(key)) {
+                updated[key] = managed_entry[key];
+            }
+        }
+        // A pre-existing custom Agent document path is package-owned data.
+        // Only supply the generated default for a new entry.
+        if (!updated.contains("path") && managed_entry.contains("path")) {
+            updated["path"] = managed_entry["path"];
+        }
+
+        if (match == merged.end()) merged.push_back(std::move(updated));
+        else *match = std::move(updated);
+    }
+    return merged;
+}
+
+json merge_object_fields(const json& existing,
+                         const json& managed,
+                         std::initializer_list<const char*> keys) {
+    json merged = existing.is_object() ? existing : json::object();
+    for (const char* key : keys) {
+        if (managed.contains(key)) merged[key] = managed[key];
+    }
+    return merged;
+}
+
+bool resolve_contained_write_path(const fs::path& root,
+                                  const fs::path& relative,
+                                  fs::path* resolved,
+                                  std::string* error) {
+    if (relative.empty() || relative.is_absolute()) {
+        set_error(error, "package path must be relative");
+        return false;
+    }
+    for (const auto& part : relative) {
+        if (part == "..") {
+            set_error(error, "package path escapes its package root");
+            return false;
+        }
+    }
+
+    std::error_code ec;
+    const fs::path canonical_root = fs::weakly_canonical(root, ec);
+    if (ec) {
+        set_error(error, "cannot resolve package root");
+        return false;
+    }
+    const fs::path canonical_target =
+        fs::weakly_canonical(root / relative, ec);
+    if (ec) {
+        set_error(error, "cannot resolve package path");
+        return false;
+    }
+    const fs::path relation =
+        fs::relative(canonical_target, canonical_root, ec);
+    if (ec || relation.empty() || relation == "." ||
+        *relation.begin() == "..") {
+        set_error(error, "package path escapes its package root");
+        return false;
+    }
+    if (resolved) *resolved = canonical_target;
+    return true;
+}
+
 bool materialize_draft(const fs::path& root,
                        const ExpertDraft& draft,
                        bool updating,
@@ -752,25 +848,6 @@ bool materialize_draft(const fs::path& root,
     if (ec) {
         set_error(error, "cannot create expert staging directory");
         return false;
-    }
-    if (draft.type == ExpertType::Agent) {
-        fs::create_directories(root / "agents", ec);
-        if (ec) {
-            set_error(error, "cannot create Agent staging directory");
-            return false;
-        }
-        if (!atomic_write_file(
-                path_to_utf8(root / "agents" / (draft.lead.id + ".md")),
-                agent_markdown(draft.lead))) {
-            set_error(error, "cannot write lead Agent document");
-            return false;
-        }
-    } else {
-        fs::remove_all(root / "agents", ec);
-        if (ec) {
-            set_error(error, "cannot remove copied Agent documents from team package");
-            return false;
-        }
     }
     const fs::path existing_manifest_path = root / "expert.json";
     json manifest = json::object();
@@ -817,15 +894,51 @@ bool materialize_draft(const fs::path& root,
 
     if (materialized.type == ExpertType::Agent) {
         manifest["agentName"] = managed["agentName"];
-        manifest["agents"] = managed["agents"];
+        const auto existing_agents = manifest.find("agents");
+        manifest["agents"] = merge_agent_entries(
+            existing_agents != manifest.end() ? *existing_agents
+                                              : json::array(),
+            managed["agents"]);
         manifest.erase("teamInfo");
+
+        std::string lead_path;
+        for (const auto& entry : manifest["agents"]) {
+            if (agent_entry_id(entry) == materialized.lead.id &&
+                entry.is_object()) {
+                lead_path = json_text(entry, "path");
+                break;
+            }
+        }
+        fs::path agent_path;
+        std::string path_error;
+        if (!resolve_contained_write_path(
+                root, path_from_utf8(lead_path), &agent_path,
+                &path_error)) {
+            set_error(error, "invalid lead Agent path: " + path_error);
+            return false;
+        }
+        fs::create_directories(agent_path.parent_path(), ec);
+        if (ec) {
+            set_error(error, "cannot create Agent staging directory");
+            return false;
+        }
+        if (!atomic_write_file(path_to_utf8(agent_path),
+                               agent_markdown(materialized.lead))) {
+            set_error(error, "cannot write lead Agent document");
+            return false;
+        }
     } else {
-        manifest["teamInfo"] = managed["teamInfo"];
+        const auto existing_team_info = manifest.find("teamInfo");
+        manifest["teamInfo"] = merge_object_fields(
+            existing_team_info != manifest.end() ? *existing_team_info
+                                                 : json::object(),
+            managed["teamInfo"],
+            {"leadExpert", "memberExperts"});
         manifest.erase("agentName");
         manifest.erase("agents");
     }
 
-    if (materialized.capabilities_present ||
+    if (updating || materialized.capabilities_present ||
         has_any_capability_scope(materialized.capabilities)) {
         json capabilities = json::object();
         const auto existing = manifest.find("capabilities");
@@ -840,8 +953,9 @@ bool materialize_draft(const fs::path& root,
         merge_scope("skills", materialized.capabilities.skills);
         merge_scope("mcp_servers", materialized.capabilities.mcp_servers);
         merge_scope("tools", materialized.capabilities.tools);
-        manifest["capabilities"] = std::move(capabilities);
-    } else if (!updating) {
+        if (capabilities.empty()) manifest.erase("capabilities");
+        else manifest["capabilities"] = std::move(capabilities);
+    } else {
         manifest.erase("capabilities");
     }
 
@@ -857,9 +971,182 @@ bool materialize_draft(const fs::path& root,
     return true;
 }
 
-std::string staging_suffix() {
-    const auto value = std::chrono::steady_clock::now().time_since_epoch().count();
-    return ".tmp-" + std::to_string(value);
+struct PackageTransactionPaths {
+    fs::path target;
+    fs::path staging;
+    fs::path backup;
+    fs::path marker;
+};
+
+PackageTransactionPaths package_transaction_paths(const fs::path& root,
+                                                  const std::string& id) {
+    return {
+        root / path_from_utf8(id),
+        root / path_from_utf8("." + id + ".staging"),
+        root / path_from_utf8("." + id + ".backup"),
+        root / path_from_utf8("." + id + ".transaction.json"),
+    };
+}
+
+std::string transaction_operation(const fs::path& marker) {
+    std::string error;
+    auto raw = read_bounded_file(marker, 16 * 1024, &error);
+    if (!raw) return {};
+    try {
+        const json value = json::parse(*raw);
+        if (value.is_object()) return json_text(value, "operation");
+    } catch (...) {
+    }
+    return {};
+}
+
+bool write_transaction_marker(const PackageTransactionPaths& paths,
+                              const std::string& id,
+                              bool updating,
+                              const char* phase,
+                              std::string* error) {
+    const json marker = {
+        {"id", id},
+        {"operation", updating ? "update" : "create"},
+        {"phase", phase},
+    };
+    if (!atomic_write_file(path_to_utf8(paths.marker),
+                           marker.dump(2) + "\n")) {
+        set_error(error, "cannot persist expert package transaction");
+        return false;
+    }
+    return true;
+}
+
+bool validate_installed_package(const fs::path& target,
+                                const std::string& id,
+                                std::string* error) {
+    std::string load_error;
+    auto loaded = load_package(target, "global", true, &load_error);
+    if (!loaded || loaded->id != id) {
+        set_error(error, "installed expert package is invalid: " + load_error);
+        return false;
+    }
+    return true;
+}
+
+bool recover_package_transaction(const fs::path& root,
+                                 const std::string& id,
+                                 std::string* error) {
+    const auto paths = package_transaction_paths(root, id);
+    std::error_code ec;
+    const bool has_target = fs::is_directory(paths.target, ec);
+    ec.clear();
+    const bool has_staging = fs::is_directory(paths.staging, ec);
+    ec.clear();
+    const bool has_backup = fs::is_directory(paths.backup, ec);
+    ec.clear();
+    const bool has_marker = fs::is_regular_file(paths.marker, ec);
+    ec.clear();
+
+    if (!has_staging && !has_backup && !has_marker) return true;
+
+    if (has_target) {
+        std::string validation_error;
+        if (!validate_installed_package(paths.target, id,
+                                        &validation_error)) {
+            if (!has_backup) {
+                if (transaction_operation(paths.marker) == "create") {
+                    fs::remove_all(paths.target, ec);
+                    fs::remove_all(paths.staging, ec);
+                    fs::remove(paths.marker, ec);
+                }
+                set_error(error, validation_error);
+                return false;
+            }
+            fs::remove_all(paths.target, ec);
+            ec.clear();
+            fs::rename(paths.backup, paths.target, ec);
+            if (ec ||
+                !validate_installed_package(paths.target, id, error)) {
+                set_error(error, "cannot restore expert package backup");
+                return false;
+            }
+        }
+        fs::remove_all(paths.staging, ec);
+        ec.clear();
+        fs::remove_all(paths.backup, ec);
+        ec.clear();
+        fs::remove(paths.marker, ec);
+        return true;
+    }
+
+    // An update always prefers the last committed package. This also repairs
+    // an orphan backup whose marker was lost between rename operations.
+    if (has_backup) {
+        fs::rename(paths.backup, paths.target, ec);
+        if (ec || !validate_installed_package(paths.target, id, error)) {
+            set_error(error, "cannot restore expert package backup");
+            return false;
+        }
+        fs::remove_all(paths.staging, ec);
+        ec.clear();
+        fs::remove(paths.marker, ec);
+        return true;
+    }
+
+    // A staged create may be completed only when its durable marker says it
+    // was prepared. An unmarked orphan staging directory was never committed.
+    if (has_staging && has_marker &&
+        transaction_operation(paths.marker) == "create") {
+        fs::rename(paths.staging, paths.target, ec);
+        if (ec || !validate_installed_package(paths.target, id, error)) {
+            fs::remove_all(paths.target, ec);
+            fs::remove(paths.marker, ec);
+            set_error(error, "cannot recover staged expert package");
+            return false;
+        }
+        fs::remove(paths.marker, ec);
+        return true;
+    }
+
+    fs::remove_all(paths.staging, ec);
+    ec.clear();
+    fs::remove(paths.marker, ec);
+    return true;
+}
+
+std::vector<ExpertDiagnostic> recover_package_transactions(
+    const fs::path& root) {
+    std::set<std::string> ids;
+    std::error_code ec;
+    if (!fs::is_directory(root, ec)) return {};
+    for (fs::directory_iterator it(
+             root, fs::directory_options::skip_permission_denied, ec),
+         end;
+         it != end && !ec; it.increment(ec)) {
+        const std::string name = path_to_utf8(it->path().filename());
+        if (name.size() < 3 || name.front() != '.') continue;
+        for (const std::string suffix :
+             {std::string(".staging"), std::string(".backup"),
+              std::string(".transaction.json")}) {
+            if (name.size() <= suffix.size() + 1 ||
+                name.compare(name.size() - suffix.size(), suffix.size(),
+                             suffix) != 0) {
+                continue;
+            }
+            const std::string id =
+                name.substr(1, name.size() - suffix.size() - 1);
+            if (ExpertRegistry::valid_id(id)) ids.insert(id);
+        }
+    }
+
+    std::vector<ExpertDiagnostic> diagnostics;
+    for (const auto& id : ids) {
+        std::string error;
+        if (!recover_package_transaction(root, id, &error)) {
+            diagnostics.push_back({
+                path_to_utf8(package_transaction_paths(root, id).marker),
+                std::move(error),
+            });
+        }
+    }
+    return diagnostics;
 }
 
 bool replace_package(const fs::path& global_root,
@@ -873,49 +1160,88 @@ bool replace_package(const fs::path& global_root,
         set_error(error, "cannot create global expert root");
         return false;
     }
-    const fs::path target = global_root / path_from_utf8(id);
-    const bool exists = fs::exists(target, ec);
+    if (!recover_package_transaction(global_root, id, error)) return false;
+
+    const auto paths = package_transaction_paths(global_root, id);
+    const bool exists = fs::exists(paths.target, ec);
     if (ec || exists != require_existing) {
         set_error(error, require_existing ? "global expert does not exist"
                                           : "global expert already exists");
         return false;
     }
 
-    const std::string suffix = staging_suffix();
-    const fs::path staging = global_root / path_from_utf8("." + id + suffix);
-    const fs::path backup = global_root / path_from_utf8("." + id + ".backup" + suffix);
+    fs::remove_all(paths.staging, ec);
+    ec.clear();
+    fs::remove_all(paths.backup, ec);
+    ec.clear();
+    fs::remove(paths.marker, ec);
+    ec.clear();
+
     if (require_existing) {
-        fs::copy(target, staging, fs::copy_options::recursive, ec);
+        fs::copy(paths.target, paths.staging,
+                 fs::copy_options::recursive, ec);
         if (ec) {
-            fs::remove_all(staging, ec);
+            fs::remove_all(paths.staging, ec);
             set_error(error, "cannot preserve existing expert package assets");
             return false;
         }
     }
-    if (!materialize_draft(staging, draft, require_existing, error)) {
-        fs::remove_all(staging, ec);
+    if (!materialize_draft(paths.staging, draft, require_existing, error)) {
+        fs::remove_all(paths.staging, ec);
+        return false;
+    }
+    if (!write_transaction_marker(
+            paths, id, require_existing, "prepared", error)) {
+        fs::remove_all(paths.staging, ec);
         return false;
     }
 
     if (require_existing) {
-        fs::rename(target, backup, ec);
+        fs::rename(paths.target, paths.backup, ec);
         if (ec) {
-            fs::remove_all(staging, ec);
+            fs::remove_all(paths.staging, ec);
+            fs::remove(paths.marker, ec);
             set_error(error, "cannot stage existing expert for update");
             return false;
         }
+        if (!write_transaction_marker(
+                paths, id, true, "backup_moved", error)) {
+            std::error_code rollback;
+            fs::rename(paths.backup, paths.target, rollback);
+            fs::remove_all(paths.staging, ec);
+            fs::remove(paths.marker, ec);
+            return false;
+        }
     }
-    fs::rename(staging, target, ec);
+    fs::rename(paths.staging, paths.target, ec);
     if (ec) {
         if (require_existing) {
             std::error_code rollback;
-            fs::rename(backup, target, rollback);
+            fs::rename(paths.backup, paths.target, rollback);
         }
-        fs::remove_all(staging, ec);
+        fs::remove_all(paths.staging, ec);
+        fs::remove(paths.marker, ec);
         set_error(error, "cannot install expert package");
         return false;
     }
-    if (require_existing) fs::remove_all(backup, ec);
+
+    if (!validate_installed_package(paths.target, id, error)) {
+        fs::remove_all(paths.target, ec);
+        if (require_existing) {
+            std::error_code rollback;
+            fs::rename(paths.backup, paths.target, rollback);
+        }
+        fs::remove(paths.marker, ec);
+        return false;
+    }
+
+    // Success is reported only after a valid canonical target exists. Cleanup
+    // is recoverable: if the process dies here, the target wins on next scan.
+    (void)write_transaction_marker(
+        paths, id, require_existing, "installed", nullptr);
+    if (require_existing) fs::remove_all(paths.backup, ec);
+    ec.clear();
+    fs::remove(paths.marker, ec);
     return true;
 }
 
@@ -1022,6 +1348,7 @@ bool ExpertRegistry::valid_id(const std::string& id) {
 std::vector<ExpertDefinition> ExpertRegistry::list(
     const std::string& working_dir,
     std::vector<ExpertDiagnostic>* diagnostics) const {
+    std::lock_guard<std::recursive_mutex> io_lock(io_mu_);
     struct Root {
         fs::path path;
         std::string source;
@@ -1039,6 +1366,18 @@ std::vector<ExpertDefinition> ExpertRegistry::list(
     std::vector<ExpertDefinition> result;
     std::unordered_set<std::string> seen;
     for (const auto& root : roots) {
+        if (root.managed) {
+            auto recovery_diagnostics =
+                recover_package_transactions(root.path);
+            if (diagnostics) {
+                diagnostics->insert(
+                    diagnostics->end(),
+                    std::make_move_iterator(
+                        recovery_diagnostics.begin()),
+                    std::make_move_iterator(
+                        recovery_diagnostics.end()));
+            }
+        }
         for (const auto& package : sorted_package_dirs(root.path)) {
             std::string error;
             auto expert = load_package(package, root.source, root.managed, &error);
@@ -1121,6 +1460,7 @@ std::optional<ExpertDefinition> ExpertRegistry::find(
     const std::string& working_dir,
     const std::string& id,
     std::vector<ExpertDiagnostic>* diagnostics) const {
+    std::lock_guard<std::recursive_mutex> io_lock(io_mu_);
     if (!valid_id(id)) return std::nullopt;
     auto experts = list(working_dir, diagnostics);
     auto it = std::find_if(experts.begin(), experts.end(), [&](const ExpertDefinition& item) {
@@ -1133,9 +1473,21 @@ std::optional<ExpertDefinition> ExpertRegistry::find(
 bool ExpertRegistry::create_global(const ExpertDraft& draft,
                                    std::string* error,
                                    const std::string& working_dir) const {
+    std::lock_guard<std::recursive_mutex> io_lock(io_mu_);
     ExpertDraft normalized = normalize_draft(draft);
     if (!validate_draft(normalized, error)) return false;
-    if (!validate_team_reference_targets(normalized, list(working_dir), error)) {
+    const auto effective_experts = list(working_dir);
+    if (std::any_of(
+            effective_experts.begin(), effective_experts.end(),
+            [&](const ExpertDefinition& expert) {
+                return expert.id == normalized.id;
+            })) {
+        set_error(error,
+                  "expert ID already exists in the effective workspace");
+        return false;
+    }
+    if (!validate_team_reference_targets(
+            normalized, effective_experts, error)) {
         return false;
     }
     return replace_package(global_root_, normalized.id, normalized, false, error);
@@ -1145,6 +1497,7 @@ bool ExpertRegistry::update_global(const std::string& id,
                                    const ExpertDraft& draft,
                                    std::string* error,
                                    const std::string& working_dir) const {
+    std::lock_guard<std::recursive_mutex> io_lock(io_mu_);
     ExpertDraft normalized = normalize_draft(draft);
     if (!valid_id(id) || normalized.id != id) {
         set_error(error, "expert ID cannot be changed during update");
@@ -1158,10 +1511,12 @@ bool ExpertRegistry::update_global(const std::string& id,
 }
 
 bool ExpertRegistry::delete_global(const std::string& id, std::string* error) const {
+    std::lock_guard<std::recursive_mutex> io_lock(io_mu_);
     if (!valid_id(id)) {
         set_error(error, "invalid expert ID");
         return false;
     }
+    if (!recover_package_transaction(global_root_, id, error)) return false;
     std::error_code ec;
     const fs::path root = fs::weakly_canonical(global_root_, ec);
     if (ec) {
@@ -1307,7 +1662,6 @@ json expert_definition_to_json(const ExpertDefinition& expert,
         {"author", expert.author},
         {"profession", expert.profession},
         {"description", expert.description},
-        {"avatar_path", expert.avatar_path},
         {"default_init_prompt", expert.default_init_prompt},
         {"tags", expert.tags},
         {"expertise", expert.expertise},

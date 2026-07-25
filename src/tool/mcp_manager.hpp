@@ -171,9 +171,10 @@ private:
         std::vector<DiscoveredTool> tools;
     };
 
-    // Build the qualified tool name. Sanitizes non-alphanumeric characters in
-    // the server name to underscore so function-calling naming rules are met.
-    static std::string sanitize(const std::string& s);
+    // Collision-free, stable ASCII encoding for an arbitrary UTF-8 server ID.
+    // Alphanumerics remain readable; every other byte (including underscore)
+    // uses an unambiguous _HH escape, so "foo-bar" and "foo_bar" differ.
+    static std::string encode_server_id(const std::string& s);
 
     // Invoke a tool via the owning server. Thread-safe with respect to other
     // invocations of the same server (cpp-mcp handles the pipe locking)。

@@ -371,6 +371,9 @@ void WebServer::Impl::register_skills() {
                                               deps.config_path,
                                               workspace_lookup ? &*workspace_lookup
                                                                : nullptr);
+            if (result.ok && deps.session_registry) {
+                deps.session_registry->refresh_skill_policy(*deps.app_config);
+            }
             crow::response r(result.http_status);
             r.body = result.body.dump();
             r.add_header("Content-Type", "application/json");

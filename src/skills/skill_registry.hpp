@@ -30,6 +30,14 @@ public:
     // means unrestricted; an engaged empty set intentionally selects no skills.
     void set_allowed(std::optional<std::unordered_set<std::string>> allowed);
 
+    // Atomically replace all discovery/policy inputs. Active session registries
+    // use this when daemon-wide Skill policy changes so readers never observe a
+    // mixture of old allowlist and new disabled state.
+    void configure(
+        std::vector<std::filesystem::path> roots,
+        std::unordered_set<std::string> disabled,
+        std::optional<std::unordered_set<std::string>> allowed);
+
     // Recursively scan every root for SKILL.md, deduplicate by skill name
     // (first-seen wins, local roots first), drop platform-incompatible or
     // disabled skills, and populate the internal list.

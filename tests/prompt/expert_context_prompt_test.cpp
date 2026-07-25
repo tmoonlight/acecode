@@ -50,6 +50,15 @@ TEST(ExpertContextPrompt, MemberReceivesOnlyItsOwnInstructions) {
     EXPECT_EQ(block.content.find("spawn_subagent(expert_member"), std::string::npos);
 }
 
+TEST(ExpertContextPrompt, TeamLeadOmitsUnavailableDelegationToolName) {
+    auto expert = make_team();
+    auto block = acecode::build_expert_context_prompt(
+        &expert, std::string{}, false);
+    EXPECT_NE(block.content.find("selected team members"), std::string::npos);
+    EXPECT_NE(block.content.find("tester: Tester - QA"), std::string::npos);
+    EXPECT_EQ(block.content.find("spawn_subagent"), std::string::npos);
+}
+
 TEST(ExpertContextPrompt, ExpertPrecedesOtherDynamicSessionContext) {
     auto expert = make_team();
     auto block = acecode::build_session_context_prompt(

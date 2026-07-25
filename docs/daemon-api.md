@@ -258,6 +258,7 @@ when known.
 | POST | `/api/experts` | create a managed global expert component |
 | GET | `/api/experts/capabilities` | list sanitized expert capability choices |
 | GET | `/api/experts/:id` | read one expert component |
+| GET | `/api/experts/:id/avatar` | read a contained expert avatar image |
 | PUT | `/api/experts/:id` | update a managed global expert component |
 | DELETE | `/api/experts/:id` | delete a managed global expert component |
 | GET | `/api/sessions/:id/permissions` | read session permission mode |
@@ -944,36 +945,58 @@ Switches the selected expert component for the active session without creating
 or navigating to another conversation. Body:
 
 ```json
-{"expert_id":"reviewer"}
+{"expert_id":"reviewer","draft_text":"Please review the active change"}
 ```
 
 The expert is resolved against the session workspace. Its prompt context and
 component-scoped Skills are queued on the same worker as chat turns. An
 in-flight turn therefore finishes with its existing expert; the switch is
-persisted and applies before the next subsequently queued turn.
+persisted and applies before the next subsequently queued turn. `draft_text`
+is optional. When present (including an empty string), the expert binding and
+composer draft are persisted at that same queue boundary; omitting it preserves
+the current draft.
 
 Success returns the selected expert definition plus queue state:
 
 ```json
 {
-  "queued": true,
-  "pending": true,
-  "busy": true,
-  "effective_boundary": "next_turn"
+  "expert": {"id":"reviewer","display_name":"Code Reviewer"},
+  "accepted": true,
+  "queued": false,
+  "pending": false,
+  "busy": false,
+  "applied": true,
+  "effective_boundary": "applied",
+  "control_sequence": 17,
+  "receipt": {
+    "sequence": 17,
+    "expert_id": "reviewer",
+    "state": "applied",
+    "applied": true,
+    "effective_boundary": "applied"
+  },
+  "draft_text": "Please review the active change"
 }
 ```
 
-`busy` is a snapshot taken when the switch was accepted. When it is true,
-`effective_boundary` is `next_turn`; the running turn keeps its old prompt,
-Skill registry, MCP scope, and built-in-tool scope. Otherwise the value is
-`queued_control`. In either case all four contexts change together in the
-session worker queue before any later queued chat turn.
+For compatibility the selected expert's fields are also present at the top
+level. `busy` is derived from the authoritative worker-queue receipt, not only
+from the loop's transient busy flag. When a turn was already active or queued,
+`pending` and `queued` are true, `applied` is false, and
+`effective_boundary` is `next_turn`; that turn keeps its old prompt, Skill
+registry, MCP scope, built-in-tool scope, and draft. An idle switch normally
+returns `applied`; `queued_control` means the control was accepted but did not
+finish within the bounded synchronous wait. All expert contexts and an
+optional draft change together before any later queued chat turn. A control
+callback that ran but failed to persist is not reported as applied.
 
 Errors:
 
-- `400` when `expert_id` is missing or the component is unavailable.
+- `400` when `expert_id` is missing, `draft_text` is not a string, or the
+  component is unavailable.
 - `404` when the active session does not exist.
-- `500` when the expert Skill context cannot be prepared.
+- `500` when the expert Skill context cannot be prepared or the atomic
+  binding/draft update cannot be persisted.
 
 ### `GET /api/sessions/:id/permissions`
 
@@ -1319,7 +1342,7 @@ the builtin-only response and omits both `commands` and `skills`.
       "author": "ACECode QA",
       "profession": "Review engineer",
       "description": "Reviews changes before delivery.",
-      "avatar_path": "avatar.png",
+      "avatar_url": "/api/experts/code-reviewer/avatar?workspace=abc123",
       "default_init_prompt": "Review the active change.",
       "tags": ["开发", "质量"],
       "expertise": ["架构审查", "回归风险"],
@@ -1356,7 +1379,12 @@ the builtin-only response and omits both `commands` and `skills`.
 
 `GET /api/experts/:id?workspace=<hash>` returns the same definition and adds
 the selected Agent's `instructions`. List responses intentionally omit
-instructions. Neither response exposes the package root or Skill-root paths.
+instructions. Neither response exposes the package root, avatar filesystem
+path, or Skill-root paths. `avatar_url` is empty when no avatar is configured.
+Otherwise it points to
+`GET /api/experts/:id/avatar?workspace=<hash>`, which serves only a supported
+image contained inside that resolved expert package (maximum 8 MiB) and
+returns `404` for missing, escaped, unsupported, or oversized files.
 
 `POST /api/experts?workspace=<hash>` creates a managed global component;
 `PUT /api/experts/:id?workspace=<hash>` updates one. Both accept the fields
@@ -1366,8 +1394,17 @@ above using snake-case request names. A single expert supplies
 installed single experts. Workspace-sourced packages are read-only through
 these routes. Updates merge managed fields into the existing package and keep
 avatar configuration, packaged Skills, resources, and unknown manifest
-fields. `DELETE /api/experts/:id?workspace=<hash>` removes only a managed
-global package.
+fields, including unknown nested Agent and `teamInfo` fields. The managed
+capability keys are authoritative on update: an omitted key means inherit, an
+empty array means allow none, and a non-empty array is an exact allowlist;
+unknown keys under `capabilities` are preserved. The
+`DELETE /api/experts/:id?workspace=<hash>` route removes only a managed global
+package.
+
+Creating an ID shadowed by a workspace package returns
+`409 WORKSPACE_EXPERT_READ_ONLY`; creating an existing managed global ID
+returns `409 EXPERT_ALREADY_EXISTS`. Updating or deleting a workspace-sourced
+package also returns `409 WORKSPACE_EXPERT_READ_ONLY`.
 
 Each of `capabilities.skills`, `capabilities.mcp_servers`, and
 `capabilities.tools` is independently optional:

@@ -47,27 +47,38 @@ static std::string get_default_shell() {
 // POSIX 例子压倒性多,光在 # Environment 标 "Shell: cmd.exe" 不足以压住肌肉
 // 记忆 — 用户实测 `mkdir -p testfolder1` 会建出 `-p` 和 `testfolder1` 两个目录。
 // 这里枚举高频 cmd.exe vs POSIX 分歧让 LLM 写出正确语法。POSIX 平台返回空串。
-static std::string get_shell_guidance() {
+static std::string get_shell_guidance(bool bash_allowed,
+                                      bool file_write_allowed) {
 #ifdef _WIN32
-    return "# Shell Command Guidance (Windows)\n\n"
-           "The `bash` tool runs commands through `cmd.exe /c`, NOT through a POSIX shell. "
-           "Use Windows-native syntax. Common traps:\n\n"
-           "- `mkdir foo\\bar\\baz` already creates parent directories — DO NOT pass `-p`. "
-           "`mkdir -p foo` will create TWO directories: `-p` and `foo`.\n"
-           "- Remove: `rd /s /q DIR` for directories, `del /q FILE` for files. There is no `rm -rf`.\n"
-           "- Copy: `copy SRC DST`, or `xcopy /e /i SRC DST` for directories. There is no `cp -r`.\n"
-           "- Rename/move: `move` or `ren`. There is no `mv`.\n"
-           "- Variables: `%VAR%` (not `$VAR`). Set with `set VAR=value` (not `export`).\n"
-           "- Quoting: use double quotes for arguments containing spaces; cmd.exe does NOT strip "
-           "single quotes — they become literal characters.\n"
-           "- No heredocs. To write multi-line content, prefer the `file_write` tool.\n"
-           "- Sequencing: `&&` (run if previous succeeded) and `||` (run if previous failed) work. "
-           "Use `&` for unconditional sequencing (not `;`).\n"
-           "- Lookups: `where X` (not `which`), `dir` (not `ls`), `type` (not `cat`).\n"
-           "- For temporary scripts, use `%ACECODE_TMPDIR%` when it is available; do not drop helper scripts in the workspace root.\n"
-           "- For complex persistent scripts, prefer creating a real `.bat` or `.ps1` via `file_write` and "
-           "running that, rather than fighting cmd.exe's quoting in a one-liner.\n\n";
+    if (!bash_allowed) return "";
+    std::ostringstream out;
+    out << "# Shell Command Guidance (Windows)\n\n"
+        << "The `bash` tool runs commands through `cmd.exe /c`, NOT through a POSIX shell. "
+        << "Use Windows-native syntax. Common traps:\n\n"
+        << "- `mkdir foo\\bar\\baz` already creates parent directories — DO NOT pass `-p`. "
+        << "`mkdir -p foo` will create TWO directories: `-p` and `foo`.\n"
+        << "- Remove: `rd /s /q DIR` for directories, `del /q FILE` for files. There is no `rm -rf`.\n"
+        << "- Copy: `copy SRC DST`, or `xcopy /e /i SRC DST` for directories. There is no `cp -r`.\n"
+        << "- Rename/move: `move` or `ren`. There is no `mv`.\n"
+        << "- Variables: `%VAR%` (not `$VAR`). Set with `set VAR=value` (not `export`).\n"
+        << "- Quoting: use double quotes for arguments containing spaces; cmd.exe does NOT strip "
+        << "single quotes — they become literal characters.\n";
+    if (file_write_allowed) {
+        out << "- No heredocs. To write multi-line content, prefer the `file_write` tool.\n";
+    }
+    out << "- Sequencing: `&&` (run if previous succeeded) and `||` (run if previous failed) work. "
+        << "Use `&` for unconditional sequencing (not `;`).\n"
+        << "- Lookups: `where X` (not `which`), `dir` (not `ls`), `type` (not `cat`).\n"
+        << "- For temporary scripts, use `%ACECODE_TMPDIR%` when it is available; do not drop helper scripts in the workspace root.\n";
+    if (file_write_allowed) {
+        out << "- For complex persistent scripts, prefer creating a real `.bat` or `.ps1` via `file_write` and "
+            << "running that, rather than fighting cmd.exe's quoting in a one-liner.\n";
+    }
+    out << "\n";
+    return out.str();
 #else
+    (void)bash_allowed;
+    (void)file_write_allowed;
     return "";
 #endif
 }
@@ -84,13 +95,26 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
                                 const SkillRegistry* skills,
                                 const MemoryRegistry* memory,
                                 const MemoryConfig* memory_cfg,
-                                const ProjectInstructionsConfig* project_instructions_cfg) {
-    (void)tools;
+                                const ProjectInstructionsConfig* project_instructions_cfg,
+                                const ToolCapabilityPolicy* effective_tool_policy) {
     (void)cwd;
     (void)skills;
     (void)memory;
     (void)memory_cfg;
     (void)project_instructions_cfg;
+
+    auto guidance_allows = [&](const char* name) {
+        return effective_tool_policy == nullptr ||
+               tools.is_allowed(name, effective_tool_policy);
+    };
+    const bool file_read_allowed = guidance_allows("file_read");
+    const bool file_edit_allowed = guidance_allows("file_edit");
+    const bool file_write_allowed = guidance_allows("file_write");
+    const bool ask_user_allowed = guidance_allows("AskUserQuestion");
+    const bool task_complete_allowed = guidance_allows("task_complete");
+    const bool bash_allowed = guidance_allows("bash");
+    const bool skill_view_allowed = guidance_allows("skill_view");
+    const bool skills_list_allowed = guidance_allows("skills_list");
 
     std::ostringstream oss;
 
@@ -128,23 +152,40 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "- If you encounter unexpected files, state, or conflicts, investigate before deleting or bypassing them.\n\n";
 
     oss << "# Using your tools\n\n"
-        << "- Prefer dedicated tools over shell commands when an appropriate tool exists.\n"
-        << "- Always use absolute file paths with file tools.\n"
-        << "- Do not call file_read again for the same file/range when that content is already current in the conversation; repeated unchanged reads return a compact stub.\n"
-        << "- Built-in file tools decode supported text to UTF-8/LF internally and preserve existing encoding/line endings on write.\n"
-        << "- You must use your file_read tool at least once in the conversation before editing. file_edit will error if you attempt an edit without reading the file.\n"
-        << "- If this is an existing file, you MUST use the file_read tool first to read the file's contents before file_write. file_write will fail if you did not read the file first.\n"
-        << "- Use file_edit with exact old_string/new_string replacements. Include enough surrounding context to uniquely identify the target, or set replace_all=true when every occurrence should change.\n"
-        << "- Use file_edit with empty old_string only to create a missing file or fill a blank file.\n"
-        << "- If file_edit or file_write reports that the file has not been read or has changed since it was read, use file_read and retry. Do not re-read a file only to verify a successful edit/write; the tool will fail if it did not work.\n"
-        << "- If file_edit reports an encoding or old_string failure, re-read the current content and retry with a corrected exact old_string instead of bypassing with shell, Python, or PowerShell writes.\n"
-        << "- Temporary helper scripts belong under ACECODE_TMPDIR, which resolves to .acecode/tmp/session-<id> for active sessions. Do not create throwaway scripts in the workspace root.\n"
-        << "- Tool results wrapped in <persisted-output> are previews; read the saved path with file_read if you need the full output.\n"
+        << "- Prefer dedicated tools over shell commands when an appropriate tool exists.\n";
+    if (file_read_allowed || file_edit_allowed || file_write_allowed) {
+        oss << "- Always use absolute file paths with file tools.\n"
+            << "- Built-in file tools decode supported text to UTF-8/LF internally and preserve existing encoding/line endings on write.\n";
+    }
+    if (file_read_allowed) {
+        oss << "- Do not call file_read again for the same file/range when that content is already current in the conversation; repeated unchanged reads return a compact stub.\n"
+            << "- Tool results wrapped in <persisted-output> are previews; read the saved path with file_read if you need the full output.\n";
+    }
+    if (file_read_allowed && file_edit_allowed) {
+        oss << "- You must use your file_read tool at least once in the conversation before editing. file_edit will error if you attempt an edit without reading the file.\n";
+    }
+    if (file_read_allowed && file_write_allowed) {
+        oss << "- If this is an existing file, you MUST use the file_read tool first to read the file's contents before file_write. file_write will fail if you did not read the file first.\n";
+    }
+    if (file_edit_allowed) {
+        oss << "- Use file_edit with exact old_string/new_string replacements. Include enough surrounding context to uniquely identify the target, or set replace_all=true when every occurrence should change.\n"
+            << "- Use file_edit with empty old_string only to create a missing file or fill a blank file.\n";
+    }
+    if (file_read_allowed && (file_edit_allowed || file_write_allowed)) {
+        oss << "- If an available edit/write tool reports that the file has not been read or has changed since it was read, use the available read tool and retry. Do not re-read a file only to verify a successful edit/write; the tool will fail if it did not work.\n";
+    }
+    if (file_read_allowed && file_edit_allowed) {
+        oss << "- If file_edit reports an encoding or old_string failure, re-read the current content and retry with a corrected exact old_string instead of bypassing with shell, Python, or PowerShell writes.\n";
+    }
+    oss << "- Temporary helper scripts belong under ACECODE_TMPDIR, which resolves to .acecode/tmp/session-<id> for active sessions. Do not create throwaway scripts in the workspace root.\n"
         << "- Avoid interactive shell programs.\n"
-        << "- When multiple independent tool calls are useful, especially read-only calls such as file_read, grep, or glob, batch them in the same assistant message so they can run in parallel.\n"
-        << "- Do not add a progress sentence before each individual tool call. If a batch is obvious, emit the tool calls without preceding text.\n"
-        << "  Good: emit file_read for several files plus one grep in the same assistant message, with no narration before each call.\n"
-        << "  Bad:  \"Let me read this file.\" then exactly one file_read, then \"Now let me search.\" then exactly one grep.\n\n";
+        << "- When multiple independent tool calls are useful, especially read-only calls, batch them in the same assistant message so they can run in parallel.\n"
+        << "- Do not add a progress sentence before each individual tool call. If a batch is obvious, emit the tool calls without preceding text.\n";
+    if (file_read_allowed) {
+        oss << "  Good: emit file_read for several files plus an available search operation in the same assistant message, with no narration before each call.\n"
+            << "  Bad:  \"Let me read this file.\" then exactly one file_read, then \"Now let me search.\" then exactly one search.\n";
+    }
+    oss << "\n";
 
     oss << "# Tone and style\n\n"
         << "- Be concise and direct.\n"
@@ -156,11 +197,17 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "Only emit a progress update when it helps the user understand a "
         << "long-running transition, a meaningful phase change, or why you are "
         << "about to perform a non-obvious action. Keep progress updates "
-        << "**extremely short** - 10 words or fewer:\n\n"
-        << "  Good: emit several independent file_read/grep/glob calls together with no preceding text.\n"
+        << "**extremely short** - 10 words or fewer:\n\n";
+    if (file_read_allowed) {
+        oss << "  Good: emit several independent file_read and available search calls together with no preceding text.\n";
+    }
+    oss
         << "  Good: \"Checking the test results.\"\n"
-        << "  Good: \"Found the issue, fixing now.\"\n"
-        << "  Bad:  \"Let me read this file.\" followed by one file_read, then another progress sentence before the next read.\n"
+        << "  Good: \"Found the issue, fixing now.\"\n";
+    if (file_read_allowed) {
+        oss << "  Bad:  \"Let me read this file.\" followed by one file_read, then another progress sentence before the next read.\n";
+    }
+    oss
         << "  Bad:  \"I've analyzed the error in src/foo.cpp and determined that the "
         << "root cause is a null pointer dereference on line 42. Let me fix that.\"\n\n"
         << "Do NOT put conclusions, explanations, reasoning, lists of changes, or "
@@ -169,15 +216,21 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "is complete.\n\n";
 
     oss << "# Presenting your work and final message\n\n"
-        << "Your final message in a turn — the one right before you stop or call "
-        << "`task_complete` — is the only message the user will read in full. "
-        << "Everything before it is collapsed into a brief summary in the UI.\n\n"
+        << "Your final message in a turn is the only message the user will read in full. ";
+    if (task_complete_allowed) {
+        oss << "If you call `task_complete`, the assistant message immediately before it "
+            << "is treated as that final message. ";
+    }
+    oss << "Everything before it is collapsed into a brief summary in the UI.\n\n"
         << "Therefore:\n"
         << "- Put ALL substantive content in the final message: what you found, "
         << "what you changed, what the user needs to know, and any remaining items.\n"
-        << "- Lead with the answer or action, not the reasoning.\n"
-        << "- If you call `task_complete`, the assistant message immediately before "
-        << "it is the one the user sees. Make that message the complete summary.\n"
+        << "- Lead with the answer or action, not the reasoning.\n";
+    if (task_complete_allowed) {
+        oss << "- If you call `task_complete`, make the assistant message immediately "
+            << "before it the complete summary.\n";
+    }
+    oss
         << "- Never split important information across multiple mid-turn messages "
         << "and assume the user will read all of them — they won't.\n\n";
 
@@ -196,8 +249,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "- In a user message, an `@path` or `@\"path with spaces\"` token is a file or "
         << "directory reference. Resolve relative paths from the current working directory; "
         << "an explicitly selected folder may use an absolute path. Its content is not "
-        << "automatically attached. Inspect it only as needed with the existing file_read, glob, "
-        << "or grep tools; do not assume a referenced directory was recursively loaded.\n\n";
+        << "automatically attached. Inspect it only as needed with available read or search "
+        << "tools; do not assume a referenced directory was recursively loaded.\n\n";
 
     oss << "# Environment\n\n"
         << "- OS: " << get_os_name() << "\n"
@@ -205,13 +258,15 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "- Is directory a git repo: "
         << (gitinfo::is_inside_git_repo(cwd) ? "Yes" : "No") << "\n\n";
 
-    oss << get_shell_guidance();
+    oss << get_shell_guidance(bash_allowed, file_write_allowed);
 
-    oss << "# User Shell Mode\n\n"
-        << "- The user can run shell commands themselves by typing `!<cmd>` in the prompt. "
-        << "These commands are executed directly and their output is appended to the conversation "
-        << "as a `<bash-input>` / `<bash-stdout>` / `<bash-stderr>` / `<bash-exit-code>` block under the `user` role.\n"
-        << "- When you see such a block, treat it as a result the user has already obtained. Do NOT re-run the same command; use the output to answer or plan the next step.\n\n";
+    if (bash_allowed) {
+        oss << "# User Shell Mode\n\n"
+            << "- The user can run shell commands themselves by typing `!<cmd>` in the prompt. "
+            << "These commands are executed directly and their output is appended to the conversation "
+            << "as a `<bash-input>` / `<bash-stdout>` / `<bash-stderr>` / `<bash-exit-code>` block under the `user` role.\n"
+            << "- When you see such a block, treat it as a result the user has already obtained. Do NOT re-run the same command; use the output to answer or plan the next step.\n\n";
+    }
 
     oss << stable_tool_schema_guidance();
 
@@ -224,35 +279,48 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "Just complete the task and report what you did.\n"
         << "- A text reply ends your turn. There is no automatic continuation; if you "
         << "stop writing, the user has to type the next message. So make sure your "
-        << "reply is the final answer or the natural end of the task.\n"
-        << "- Optionally, at the end of a multi-step task, you may call `task_complete` "
-        << "with a completion summary. This is NOT required — a plain text reply works too. "
-        << "The summary is rendered as Markdown, so use short paragraphs or bullets for "
-        << "multi-part results instead of collapsing everything into one long line.\n"
-        << "- `AskUserQuestion` is a tool for multi-choice decisions mid-task "
-        << "(e.g. \"which library should I use: A, B, or C?\"). The user's selection "
-        << "comes back to you as a tool result and you continue working — it is NOT "
-        << "a way to hand control back to the user. Use it only when you need a "
-        << "concrete choice to proceed, not for \"should I keep going?\".\n\n";
+        << "reply is the final answer or the natural end of the task.\n";
+    if (task_complete_allowed) {
+        oss << "- Optionally, at the end of a multi-step task, you may call `task_complete` "
+            << "with a completion summary. This is NOT required — a plain text reply works too. "
+            << "The summary is rendered as Markdown, so use short paragraphs or bullets for "
+            << "multi-part results instead of collapsing everything into one long line.\n";
+    }
+    if (ask_user_allowed) {
+        oss << "- `AskUserQuestion` is a tool for multi-choice decisions mid-task "
+            << "(e.g. \"which library should I use: A, B, or C?\"). The user's selection "
+            << "comes back to you as a tool result and you continue working — it is NOT "
+            << "a way to hand control back to the user. Use it only when you need a "
+            << "concrete choice to proceed, not for \"should I keep going?\".\n";
+    }
+    oss << "\n";
 
-    oss << "# Skills\n\n"
-        << "Skills provide specialized capabilities, domain knowledge, and the user's "
-        << "preferred workflows. The index of installed skills (name, description, when "
-        << "to use) is provided in a system-reminder context block under \"# Available "
-        << "Skills\" — scan it before replying to any task.\n\n"
-        << "When users reference a \"slash command\" or \"/<something>\" (e.g., \"/commit\", \"/review-pr\"), they are referring to a skill.\n\n"
-        << "How to invoke:\n"
-        << "- Call `skill_view(name=\"<name>\")` to load the full SKILL.md body before acting on a matching task.\n"
-        << "- Use `skill_view(name=\"<name>\", file_path=\"<relative>\")` to load supporting files (references/, templates/, scripts/, assets/) listed in the skill body.\n"
-        << "- `skills_list` re-enumerates the full set; use it when the index was truncated or you need to double-check.\n\n"
-        << "Important:\n"
-        << "- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: load the skill via `skill_view` before generating any other response about the task.\n"
-        << "- If a skill is even partially relevant, err on the side of loading it — skills encode proven workflows, pitfalls, and project conventions that outperform general-purpose approaches, even for tasks you already know how to do.\n"
-        << "- Only proceed without loading a skill if genuinely none are relevant to the task.\n"
-        << "- NEVER mention a skill by name without actually loading it via `skill_view`.\n"
-        << "- Do not invoke a skill whose content is already active in the current turn — if you see a `[SYSTEM: The user has invoked the \"<name>\" skill ...]` block, the skill has ALREADY been loaded; follow its instructions directly instead of calling `skill_view` again.\n"
-        << "- Do not use these tools for built-in CLI commands (like /help, /clear, /model, /compact).\n\n"
-        << "Skills can also be triggered directly by the user via `/<skill-name>` in the TUI, in which case the skill body is injected as a system-reminder at the start of your next turn.\n\n";
+    if (skill_view_allowed || skills_list_allowed) {
+        oss << "# Skills\n\n"
+            << "Skills provide specialized capabilities, domain knowledge, and the user's "
+            << "preferred workflows. The index of installed skills (name, description, when "
+            << "to use) is provided in a system-reminder context block under \"# Available "
+            << "Skills\" — scan it before replying to any task.\n\n"
+            << "When users reference a \"slash command\" or \"/<something>\" (e.g., \"/commit\", \"/review-pr\"), they are referring to a skill.\n\n";
+        if (skill_view_allowed) {
+            oss << "How to invoke:\n"
+                << "- Call `skill_view(name=\"<name>\")` to load the full SKILL.md body before acting on a matching task.\n"
+                << "- Use `skill_view(name=\"<name>\", file_path=\"<relative>\")` to load supporting files (references/, templates/, scripts/, assets/) listed in the skill body.\n";
+        }
+        if (skills_list_allowed) {
+            oss << "- `skills_list` re-enumerates the full set; use it when the index was truncated or you need to double-check.\n";
+        }
+        if (skill_view_allowed) {
+            oss << "\nImportant:\n"
+                << "- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: load the skill via `skill_view` before generating any other response about the task.\n"
+                << "- If a skill is even partially relevant, err on the side of loading it — skills encode proven workflows, pitfalls, and project conventions that outperform general-purpose approaches, even for tasks you already know how to do.\n"
+                << "- Only proceed without loading a skill if genuinely none are relevant to the task.\n"
+                << "- NEVER mention a skill by name without actually loading it via `skill_view`.\n"
+                << "- Do not invoke a skill whose content is already active in the current turn — if you see a `[SYSTEM: The user has invoked the \"<name>\" skill ...]` block, the skill has ALREADY been loaded; follow its instructions directly instead of calling `skill_view` again.\n"
+                << "- Do not use these tools for built-in CLI commands (like /help, /clear, /model, /compact).\n";
+        }
+        oss << "\nSkills can also be triggered directly by the user via `/<skill-name>` in the TUI, in which case the skill body is injected as a system-reminder at the start of your next turn.\n\n";
+    }
 
     return oss.str();
 }
@@ -404,7 +472,8 @@ std::string render_skills_index(const std::vector<SkillMetadata>& skills,
 // names-only 仍超预算时的兜底:按行贪心保留,被丢弃的 skill 条目数进 marker。
 std::string cut_names_only_to_budget(const std::string& names_only_index,
                                      std::size_t char_budget,
-                                     std::size_t total_skills) {
+                                     std::size_t total_skills,
+                                     bool skills_list_available) {
     std::istringstream iss(names_only_index);
     std::string line;
     std::string kept;
@@ -424,8 +493,11 @@ std::string cut_names_only_to_budget(const std::string& names_only_index,
     std::size_t omitted = total_skills > kept_skills ? total_skills - kept_skills : 0;
     if (omitted > 0) {
         if (!kept.empty()) kept += "\n";
-        kept += "(+" + std::to_string(omitted) +
-                " more skills \xE2\x80\x94 call skills_list to see all)";
+        kept += "(+" + std::to_string(omitted) + " more skills";
+        if (skills_list_available) {
+            kept += " \xE2\x80\x94 call skills_list to see all";
+        }
+        kept += ")";
     }
     return kept;
 }
@@ -434,7 +506,8 @@ std::string cut_names_only_to_budget(const std::string& names_only_index,
 
 std::string format_skills_index_within_budget(
     const std::vector<SkillMetadata>& skills,
-    std::size_t char_budget) {
+    std::size_t char_budget,
+    bool skills_list_available) {
     if (skills.empty()) return "";
 
     std::string full = render_skills_index(skills, /*names_only=*/false);
@@ -443,20 +516,24 @@ std::string format_skills_index_within_budget(
     std::string names_only = render_skills_index(skills, /*names_only=*/true);
     if (names_only.size() <= char_budget) return names_only;
 
-    return cut_names_only_to_budget(names_only, char_budget, skills.size());
+    return cut_names_only_to_budget(
+        names_only, char_budget, skills.size(), skills_list_available);
 }
 
 PromptContextBlock build_skills_index_context_prompt(
     const SkillRegistry* skills,
-    int context_window_tokens) {
+    int context_window_tokens,
+    bool skill_view_available,
+    bool skills_list_available) {
     PromptContextBlock block;
-    if (!skills) return block;
+    if (!skills || !skill_view_available) return block;
 
     auto all = skills->list();
     if (all.empty()) return block;
 
     std::string index = format_skills_index_within_budget(
-        all, skills_index_char_budget(context_window_tokens));
+        all, skills_index_char_budget(context_window_tokens),
+        skills_list_available);
     if (index.empty()) return block;
 
     std::ostringstream oss;
@@ -488,7 +565,8 @@ PromptContextBlock build_git_status_context_prompt(
 
 PromptContextBlock build_expert_context_prompt(
     const ExpertDefinition* expert,
-    const std::string& member_id) {
+    const std::string& member_id,
+    bool spawn_subagent_available) {
     PromptContextBlock block;
     if (!expert) return block;
 
@@ -511,8 +589,13 @@ PromptContextBlock build_expert_context_prompt(
         if (!expert->description.empty()) {
             content << "Team purpose: " << expert->description << "\n\n";
         }
-        content << "You are the lead of this expert team. You may delegate only to these "
-                   "selected experts using spawn_subagent(expert_member=\"<id>\", ...):\n";
+        content << "You are the lead of this expert team. ";
+        if (spawn_subagent_available) {
+            content << "You may delegate only to these selected experts using "
+                       "spawn_subagent(expert_member=\"<id>\", ...):\n";
+        } else {
+            content << "The selected team members are:\n";
+        }
         for (const auto& id : expert->member_agent_ids) {
             if (const ExpertAgent* member = expert->agent(id)) {
                 content << "- " << member->id << ": " << member->display_name;
@@ -547,17 +630,23 @@ PromptContextBlock build_session_context_prompt(
     const std::string& git_status_snapshot,
     const ExpertDefinition* expert,
     const std::string& expert_member_id,
-    PromptContextCategoryBytes* category_bytes) {
+    PromptContextCategoryBytes* category_bytes,
+    bool skill_view_available,
+    bool skills_list_available,
+    bool spawn_subagent_available) {
     if (category_bytes) *category_bytes = PromptContextCategoryBytes{};
 
     PromptContextBlock expert_context =
-        build_expert_context_prompt(expert, expert_member_id);
+        build_expert_context_prompt(
+            expert, expert_member_id, spawn_subagent_available);
     PromptContextBlock project = build_project_instructions_context_prompt(cwd, project_instructions_cfg);
     PromptContextBlock user_memory = build_user_memory_context_prompt(memory, memory_cfg);
     PromptContextBlock custom =
         build_custom_instructions_context_prompt(custom_instructions_cfg);
     PromptContextBlock skill_index =
-        build_skills_index_context_prompt(skills, context_window_tokens);
+        build_skills_index_context_prompt(
+            skills, context_window_tokens,
+            skill_view_available, skills_list_available);
     PromptContextBlock git_status =
         build_git_status_context_prompt(git_status_snapshot);
 

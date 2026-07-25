@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <unordered_set>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -334,6 +335,39 @@ TEST_F(SystemPromptTest, TaskCompletionProtocolAppears) {
     // 必须说清 AskUserQuestion 不是终止器,是辅助决策工具
     EXPECT_NE(out.find("NOT a way to hand control back"),
               std::string::npos);
+}
+
+TEST_F(SystemPromptTest, EffectiveToolPolicyOmitsDisabledToolGuidance) {
+    acecode::ToolExecutor tools;
+    auto register_tool = [&](const std::string& name) {
+        acecode::ToolImpl impl;
+        impl.definition.name = name;
+        impl.definition.description = "test tool";
+        impl.definition.parameters = nlohmann::json::object();
+        impl.execute = [](const std::string&, const acecode::ToolContext&) {
+            return acecode::ToolResult{"ok", true};
+        };
+        ASSERT_TRUE(tools.register_tool(impl));
+    };
+    for (const char* name : {
+             "file_read", "file_edit", "file_write", "grep", "glob", "bash",
+             "AskUserQuestion", "task_complete", "skill_view", "skills_list"}) {
+        register_tool(name);
+    }
+
+    acecode::ToolCapabilityPolicy policy;
+    policy.builtin_tools =
+        std::unordered_set<std::string>{"file_read"};
+    policy.mcp_servers = std::unordered_set<std::string>{};
+    const std::string out = acecode::build_system_prompt(
+        tools, temp_home.string(), nullptr, nullptr, nullptr, nullptr, &policy);
+
+    EXPECT_NE(out.find("file_read"), std::string::npos);
+    for (const char* denied : {
+             "file_edit", "file_write", "grep", "glob", "bash",
+             "AskUserQuestion", "task_complete", "skill_view", "skills_list"}) {
+        EXPECT_EQ(out.find(denied), std::string::npos) << denied;
+    }
 }
 
 // 场景:工具使用与进度更新文案应鼓励同一 assistant turn 中批量发出独立工具调用,

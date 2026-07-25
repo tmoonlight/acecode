@@ -323,6 +323,48 @@ TEST(McpManagerAsync, DisableConnectedServerUnregistersToolsAndSnapshots) {
     EXPECT_EQ(servers[0].state, acecode::McpServerState::Disabled);
 }
 
+TEST(McpManagerAsync, CollidingLegacyServerIdsKeepIndependentToolsAndTeardown) {
+    auto cfg = config_with_stdio_server(
+        "foo-bar", helper_args({"--tool", "echo"}));
+    acecode::McpServerConfig second;
+    second.transport = acecode::McpTransport::Stdio;
+    second.command = ACECODE_MCP_STDIO_TEST_SERVER_PATH;
+    second.args = helper_args({"--tool", "echo"});
+    cfg.mcp_servers["foo_bar"] = std::move(second);
+
+    acecode::ToolExecutor tools;
+    acecode::McpManager manager;
+    ASSERT_TRUE(manager.connect_all(cfg));
+    manager.start_async(tools);
+    ASSERT_TRUE(manager.wait_for_startup_settled(std::chrono::seconds(5)));
+
+    constexpr const char* kDashTool = "mcp_foo_2dbar_echo";
+    constexpr const char* kUnderscoreTool = "mcp_foo_5fbar_echo";
+    ASSERT_TRUE(tools.has_tool(kDashTool));
+    ASSERT_TRUE(tools.has_tool(kUnderscoreTool));
+    EXPECT_EQ(manager.discovered_tool_count(), 2u);
+
+    const auto catalog = tools.get_registered_tools();
+    auto owner_for = [&](const std::string& name) {
+        const auto it = std::find_if(
+            catalog.begin(), catalog.end(), [&](const auto& item) {
+                return item.definition.name == name;
+            });
+        return it == catalog.end() ? std::string{} : it->source_owner;
+    };
+    EXPECT_EQ(owner_for(kDashTool), "foo-bar");
+    EXPECT_EQ(owner_for(kUnderscoreTool), "foo_bar");
+
+    ASSERT_TRUE(manager.disable("foo-bar", tools));
+    EXPECT_FALSE(tools.has_tool(kDashTool));
+    EXPECT_TRUE(tools.has_tool(kUnderscoreTool));
+    EXPECT_EQ(manager.discovered_tool_count(), 1u);
+
+    ASSERT_TRUE(manager.disable("foo_bar", tools));
+    EXPECT_FALSE(tools.has_tool(kUnderscoreTool));
+    EXPECT_EQ(manager.discovered_tool_count(), 0u);
+}
+
 TEST(McpManagerAsync, ShutdownDuringStartupReturnsQuicklyAndPreventsLateRegistration) {
     auto cfg = config_with_stdio_server(
         "slow",

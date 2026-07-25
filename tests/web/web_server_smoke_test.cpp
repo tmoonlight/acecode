@@ -26,6 +26,7 @@
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_manager.hpp"
 #include "loop/loop_store.hpp"
+#include "prompt/system_prompt.hpp"
 #include "provider/cwd_model_override.hpp"
 #include "session/local_session_client.hpp"
 #include "session/session_manager.hpp"
@@ -1579,15 +1580,28 @@ TEST(WebServerHttp, SessionExpertEndpointSwitchesActiveSessionInPlace) {
 
     auto put = cpr::Put(cpr::Url{fx.url("/api/sessions/" + sid + "/expert")},
                         cpr::Header{{"Content-Type", "application/json"}},
-                        cpr::Body{R"({"expert_id":"reviewer"})"});
+                        cpr::Body{
+                            R"({"expert_id":"reviewer","draft_text":"updated draft"})"});
     ASSERT_EQ(put.status_code, 200) << put.text;
     const auto payload = json::parse(put.text);
     EXPECT_EQ(payload["id"], "reviewer");
     EXPECT_EQ(payload["display_name"], "Code Reviewer");
-    EXPECT_TRUE(payload["queued"].get<bool>());
-    EXPECT_TRUE(payload["pending"].get<bool>());
+    EXPECT_EQ(payload["expert"]["id"], "reviewer");
+    EXPECT_TRUE(payload["accepted"].get<bool>());
+    const bool applied_in_response = payload["applied"].get<bool>();
+    EXPECT_EQ(payload["queued"].get<bool>(), !applied_in_response);
+    EXPECT_EQ(payload["pending"].get<bool>(), !applied_in_response);
     EXPECT_FALSE(payload["busy"].get<bool>());
-    EXPECT_EQ(payload["effective_boundary"], "queued_control");
+    EXPECT_EQ(payload["effective_boundary"],
+              applied_in_response ? "applied" : "queued_control");
+    EXPECT_GT(payload["control_sequence"].get<std::uint64_t>(), 0u);
+    EXPECT_EQ(payload["receipt"]["sequence"],
+              payload["control_sequence"]);
+    EXPECT_EQ(payload["receipt"]["expert_id"], "reviewer");
+    EXPECT_EQ(payload["receipt"]["applied"], applied_in_response);
+    EXPECT_EQ(payload["receipt"]["state"],
+              applied_in_response ? "applied" : "queued");
+    EXPECT_EQ(payload["draft_text"], "updated draft");
 
     bool applied = false;
     const auto deadline =
@@ -1601,21 +1615,224 @@ TEST(WebServerHttp, SessionExpertEndpointSwitchesActiveSessionInPlace) {
         std::this_thread::sleep_for(5ms);
     }
     ASSERT_TRUE(applied);
+    EXPECT_EQ(entry->sm->current_input_draft(), "updated draft");
     const auto meta = acecode::SessionStorage::read_meta(
         acecode::SessionStorage::meta_path(fx.project_dir, sid));
     EXPECT_EQ(meta.expert_id, "reviewer");
+    EXPECT_EQ(meta.input_draft, "updated draft");
 
     auto invalid = cpr::Put(
         cpr::Url{fx.url("/api/sessions/" + sid + "/expert")},
         cpr::Header{{"Content-Type", "application/json"}},
-        cpr::Body{R"({"expert_id":"missing"})"});
+        cpr::Body{
+            R"({"expert_id":"missing","draft_text":"must not apply"})"});
     EXPECT_EQ(invalid.status_code, 400) << invalid.text;
+    EXPECT_EQ(entry->sm->current_expert_id(), "reviewer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "updated draft");
+
+    auto invalid_draft = cpr::Put(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/expert")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"expert_id":"reviewer","draft_text":42})"});
+    EXPECT_EQ(invalid_draft.status_code, 400) << invalid_draft.text;
+    EXPECT_EQ(entry->sm->current_input_draft(), "updated draft");
 
     auto unknown = cpr::Put(
         cpr::Url{fx.url("/api/sessions/missing-session/expert")},
         cpr::Header{{"Content-Type", "application/json"}},
         cpr::Body{R"({"expert_id":"reviewer"})"});
     EXPECT_EQ(unknown.status_code, 404) << unknown.text;
+}
+
+TEST(WebServerHttp, BusyExpertSwitchAppliesDraftAtTheSameQueueBoundary) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    std::string error;
+    auto reviewer = acecode::ExpertDraft{};
+    reviewer.id = "reviewer";
+    reviewer.display_name = "Reviewer";
+    reviewer.lead = {
+        "lead", "Reviewer", "Review", "Review the current request.",
+    };
+    auto writer = reviewer;
+    writer.id = "writer";
+    writer.display_name = "Writer";
+    writer.lead.instructions = "Write the requested result.";
+    ASSERT_TRUE(fx.expert_registry->create_global(reviewer, &error)) << error;
+    ASSERT_TRUE(fx.expert_registry->create_global(writer, &error)) << error;
+
+    auto create = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"expert_id", "reviewer"}}.dump()});
+    ASSERT_EQ(create.status_code, 201) << create.text;
+    const std::string sid = json::parse(create.text).value("id", "");
+    ASSERT_FALSE(sid.empty());
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_NE(entry, nullptr);
+    entry->sm->set_input_draft("reviewer draft");
+
+    auto provider = std::make_shared<BlockingProvider>();
+    {
+        std::lock_guard<std::mutex> lock(entry->provider_slot->mu);
+        entry->provider_slot->provider = provider;
+    }
+    auto chat = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"text", "keep this turn on reviewer"}}.dump()});
+    ASSERT_EQ(chat.status_code, 202) << chat.text;
+    ASSERT_TRUE(provider->wait_for_started(2s));
+
+    auto put = cpr::Put(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/expert")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"expert_id", "writer"},
+            {"draft_text", "writer draft"},
+        }.dump()});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    const auto payload = json::parse(put.text);
+    EXPECT_TRUE(payload["accepted"].get<bool>());
+    EXPECT_TRUE(payload["queued"].get<bool>());
+    EXPECT_TRUE(payload["pending"].get<bool>());
+    EXPECT_TRUE(payload["busy"].get<bool>());
+    EXPECT_FALSE(payload["applied"].get<bool>());
+    EXPECT_EQ(payload["effective_boundary"], "next_turn");
+    EXPECT_EQ(payload["receipt"]["state"], "queued");
+    EXPECT_EQ(entry->sm->current_expert_id(), "reviewer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "reviewer draft");
+
+    provider->release();
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while ((entry->sm->current_expert_id() != "writer" ||
+            entry->loop->is_busy()) &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT_EQ(entry->sm->current_expert_id(), "writer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "writer draft");
+    const auto persisted = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(fx.project_dir, sid));
+    EXPECT_EQ(persisted.expert_id, "writer");
+    EXPECT_EQ(persisted.input_draft, "writer draft");
+
+    auto clear = cpr::Put(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/expert")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"expert_id", "writer"},
+            {"draft_text", ""},
+        }.dump()});
+    ASSERT_EQ(clear.status_code, 200) << clear.text;
+    const auto clear_deadline =
+        std::chrono::steady_clock::now() + 2s;
+    while (!entry->sm->current_input_draft().empty() &&
+           std::chrono::steady_clock::now() < clear_deadline) {
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT_TRUE(entry->sm->current_input_draft().empty());
+}
+
+TEST(WebServerHttp, SessionSlashExpansionUsesLiveExpertSkillRegistry) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    fx.cfg.skills.reuse_opencode = false;
+    write_text(
+        fx.cwd_dir / ".acecode" / "skills" / "allowed-skill" / "SKILL.md",
+        "---\nname: allowed-skill\ndescription: Allowed workflow\n---\n\n"
+        "Follow the allowed workflow.\n");
+    write_text(
+        fx.cwd_dir / ".acecode" / "skills" / "blocked-skill" / "SKILL.md",
+        "---\nname: blocked-skill\ndescription: Blocked workflow\n---\n\n"
+        "This workflow must not expand.\n");
+
+    acecode::ExpertDraft expert;
+    expert.id = "skill-limited";
+    expert.display_name = "Skill Limited";
+    expert.lead = {
+        "lead", "Skill Limited", "Tester", "Use only selected skills.",
+    };
+    expert.capabilities.skills =
+        std::vector<std::string>{"allowed-skill"};
+    std::string error;
+    ASSERT_TRUE(fx.expert_registry->create_global(expert, &error)) << error;
+
+    auto create = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"expert_id", "skill-limited"}}.dump()});
+    ASSERT_EQ(create.status_code, 201) << create.text;
+    const std::string sid = json::parse(create.text).value("id", "");
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_NE(entry, nullptr);
+    auto skills = fx.registry->skill_registry_snapshot(sid);
+    ASSERT_NE(skills, nullptr);
+    EXPECT_TRUE(skills->find("allowed-skill").has_value());
+    EXPECT_FALSE(skills->find("blocked-skill").has_value());
+
+    auto submit_and_wait = [&](const std::string& text,
+                               std::size_t expected_user_count) {
+        auto response = cpr::Post(
+            cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{json{{"text", text}}.dump()});
+        EXPECT_EQ(response.status_code, 202) << response.text;
+        const auto deadline =
+            std::chrono::steady_clock::now() + 2s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            std::size_t count = 0;
+            for (const auto& message : entry->loop->messages()) {
+                if (message.role == "user") ++count;
+            }
+            if (count >= expected_user_count && !entry->loop->is_busy()) {
+                break;
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+    };
+    auto user_messages = [&] {
+        std::vector<acecode::ChatMessage> result;
+        for (const auto& message : entry->loop->messages()) {
+            if (message.role == "user") result.push_back(message);
+        }
+        return result;
+    };
+
+    submit_and_wait("/blocked-skill inspect", 1);
+    auto users = user_messages();
+    ASSERT_GE(users.size(), 1u);
+    EXPECT_EQ(users[0].content, "/blocked-skill inspect");
+    EXPECT_FALSE(users[0].metadata.contains("display_text"));
+
+    submit_and_wait("/allowed-skill inspect", 2);
+    users = user_messages();
+    ASSERT_GE(users.size(), 2u);
+    EXPECT_NE(users[1].content.find("allowed-skill"),
+              std::string::npos);
+    EXPECT_NE(users[1].content, "/allowed-skill inspect");
+    EXPECT_EQ(users[1].metadata.value("display_text", ""),
+              "/allowed-skill inspect");
+
+    auto disable = cpr::Put(
+        cpr::Url{fx.url(
+            "/api/skills/allowed-skill?workspace=" + hash)},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":false})"});
+    ASSERT_EQ(disable.status_code, 200) << disable.text;
+    auto refreshed = fx.registry->skill_registry_snapshot(sid);
+    ASSERT_EQ(refreshed, skills);
+    EXPECT_TRUE(refreshed->list().empty());
+    EXPECT_FALSE(refreshed->find("allowed-skill").has_value());
+    EXPECT_TRUE(acecode::build_skills_index_context_prompt(
+                    refreshed.get(), 128000, true, true)
+                    .content.empty());
+
+    submit_and_wait("/allowed-skill after-disable", 3);
+    users = user_messages();
+    ASSERT_GE(users.size(), 3u);
+    EXPECT_EQ(users[2].content, "/allowed-skill after-disable");
+    EXPECT_FALSE(users[2].metadata.contains("display_text"));
 }
 
 // 场景: Web 状态栏/设置页切换权限模式走真实 daemon API,必须立即更新
@@ -3933,6 +4150,14 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
     EXPECT_EQ(created_body["agents"][0]["instructions"],
               "Inspect the change and report concrete risks.");
 
+    auto duplicate = cpr::Post(
+        cpr::Url{fx.url("/api/experts?workspace=" + hash)},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{draft.dump()});
+    ASSERT_EQ(duplicate.status_code, 409) << duplicate.text;
+    EXPECT_EQ(json::parse(duplicate.text)["error"],
+              "EXPERT_ALREADY_EXISTS");
+
     auto listed = cpr::Get(cpr::Url{
         fx.url("/api/experts?workspace=" + hash)});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
@@ -3989,6 +4214,78 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
     EXPECT_TRUE(json::parse(removed.text)["ok"].get<bool>());
     EXPECT_FALSE(std::filesystem::exists(fx.expert_registry->global_root() /
                                          "code-reviewer"));
+}
+
+TEST(WebServerHttp, ExpertAvatarUsesContainedHttpEndpointAndSafeDto) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    acecode::ExpertDraft expert;
+    expert.id = "avatar-expert";
+    expert.display_name = "Avatar Expert";
+    expert.lead = {
+        "lead", "Avatar Expert", "Design", "Use the avatar safely.",
+    };
+    std::string error;
+    ASSERT_TRUE(fx.expert_registry->create_global(expert, &error)) << error;
+
+    const auto package =
+        fx.expert_registry->global_root() / "avatar-expert";
+    write_text(package / "avatar.png", "\x89PNG\r\n\x1a\nfixture");
+    auto set_avatar = [&](const std::string& value) {
+        std::ifstream input(package / "expert.json");
+        auto manifest = json::parse(input);
+        input.close();
+        manifest["avatar"] = value;
+        write_text(package / "expert.json", manifest.dump(2) + "\n");
+    };
+    set_avatar("avatar.png");
+
+    auto listed = cpr::Get(cpr::Url{
+        fx.url("/api/experts?workspace=" + hash)});
+    ASSERT_EQ(listed.status_code, 200) << listed.text;
+    const auto list_body = json::parse(listed.text);
+    ASSERT_EQ(list_body["experts"].size(), 1u);
+    const auto& list_item = list_body["experts"][0];
+    EXPECT_FALSE(list_item.contains("avatar_path"));
+    const std::string avatar_url =
+        list_item.value("avatar_url", "");
+    EXPECT_EQ(
+        avatar_url,
+        "/api/experts/avatar-expert/avatar?workspace=" + hash);
+
+    auto detail = cpr::Get(cpr::Url{fx.url(
+        "/api/experts/avatar-expert?workspace=" + hash)});
+    ASSERT_EQ(detail.status_code, 200) << detail.text;
+    const auto detail_body = json::parse(detail.text);
+    EXPECT_FALSE(detail_body.contains("avatar_path"));
+    EXPECT_EQ(detail_body["avatar_url"], avatar_url);
+
+    auto avatar = cpr::Get(cpr::Url{fx.url(avatar_url)});
+    ASSERT_EQ(avatar.status_code, 200) << avatar.text;
+    EXPECT_EQ(avatar.text, "\x89PNG\r\n\x1a\nfixture");
+    const auto content_type_lower =
+        avatar.header.find("content-type");
+    const auto content_type_upper =
+        avatar.header.find("Content-Type");
+    const std::string content_type =
+        content_type_lower != avatar.header.end()
+            ? content_type_lower->second
+            : (content_type_upper != avatar.header.end()
+                   ? content_type_upper->second
+                   : std::string{});
+    EXPECT_EQ(content_type, "image/png");
+
+    set_avatar("missing.png");
+    auto missing = cpr::Get(cpr::Url{fx.url(
+        "/api/experts/avatar-expert/avatar?workspace=" + hash)});
+    EXPECT_EQ(missing.status_code, 404);
+
+    write_text(fx.expert_registry->global_root() / "outside.png",
+               "\x89PNG\r\n\x1a\noutside");
+    set_avatar("../outside.png");
+    auto escaped = cpr::Get(cpr::Url{fx.url(
+        "/api/experts/avatar-expert/avatar?workspace=" + hash)});
+    EXPECT_EQ(escaped.status_code, 404);
 }
 
 TEST(WebServerHttp, ExpertTeamsReferenceExistingExpertsThroughApi) {
@@ -4113,6 +4410,16 @@ TEST(WebServerHttp, ExpertsRejectInvalidWorkspaceAndWorkspaceMutations) {
         {"display_name", "Replacement"},
         {"instructions", "Replacement instructions."},
     };
+    auto create_shadow = cpr::Post(
+        cpr::Url{fx.url("/api/experts?workspace=" + hash)},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{replacement.dump()});
+    ASSERT_EQ(create_shadow.status_code, 409) << create_shadow.text;
+    EXPECT_EQ(json::parse(create_shadow.text)["error"],
+              "WORKSPACE_EXPERT_READ_ONLY");
+    EXPECT_FALSE(std::filesystem::exists(
+        fx.expert_registry->global_root() / "workspace-reviewer"));
+
     auto update = cpr::Put(
         cpr::Url{fx.url("/api/experts/workspace-reviewer?workspace=" + hash)},
         cpr::Header{{"Content-Type", "application/json"}},

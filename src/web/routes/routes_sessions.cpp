@@ -159,18 +159,13 @@ WebServer::Impl::parse_session_user_input_request(
         }
     }
     if (!expanded && attachment_refs.empty() && contexts.empty() &&
-        deps.session_registry && deps.app_config) {
-        if (auto entry = deps.session_registry->acquire(session_id)) {
-            if (!entry->cwd.empty()) {
-                SkillRegistry skills;
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
-                initialize_skill_registry(
-                    skills, *deps.app_config, entry->cwd);
-                auto skill = web::try_expand_skill_command(text, skills);
-                if (skill.expanded) {
-                    text = std::move(skill.text);
-                    expanded = true;
-                }
+        deps.session_registry) {
+        if (auto skills =
+                deps.session_registry->skill_registry_snapshot(session_id)) {
+            auto skill = web::try_expand_skill_command(text, *skills);
+            if (skill.expanded) {
+                text = std::move(skill.text);
+                expanded = true;
             }
         }
     }
@@ -1250,8 +1245,9 @@ void WebServer::Impl::register_sessions() {
             return with_cors(req, std::move(r));
         });
 
-        // PUT /api/sessions/:id/expert body {expert_id}: keep the current
-        // conversation and serialize the expert/Skill update between turns.
+        // PUT /api/sessions/:id/expert body {expert_id,draft_text?}: keep the
+        // current conversation and serialize expert capabilities plus an
+        // optional composer draft at one worker control boundary.
         CROW_ROUTE(app, "/api/sessions/<string>/expert").methods(crow::HTTPMethod::PUT)
         ([this](const crow::request& req, const std::string& id) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -1263,12 +1259,27 @@ void WebServer::Impl::register_sessions() {
             }
 
             std::string expert_id;
+            std::optional<std::string> draft_text;
             try {
                 auto body = json::parse(req.body);
-                if (body.is_object() &&
-                    body.contains("expert_id") &&
+                if (!body.is_object()) {
+                    crow::response r(400);
+                    r.body = R"({"error":"body must be an object"})";
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+                if (body.contains("expert_id") &&
                     body["expert_id"].is_string()) {
                     expert_id = body["expert_id"].get<std::string>();
+                }
+                if (body.contains("draft_text")) {
+                    if (!body["draft_text"].is_string()) {
+                        crow::response r(400);
+                        r.body = R"({"error":"draft_text must be a string"})";
+                        r.add_header("Content-Type", "application/json");
+                        return with_cors(req, std::move(r));
+                    }
+                    draft_text = body["draft_text"].get<std::string>();
                 }
             } catch (const std::exception& e) {
                 crow::response r(400);
@@ -1284,7 +1295,12 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, std::move(r));
             }
 
-            auto result = deps.session_registry->switch_expert(id, expert_id);
+            ExpertSwitchResult result;
+            {
+                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                result = deps.session_registry->switch_expert(
+                    id, expert_id, draft_text);
+            }
             if (result.status != ExpertSwitchStatus::Accepted || !result.expert) {
                 int status = 500;
                 if (result.status == ExpertSwitchStatus::UnknownSession) status = 404;
@@ -1298,11 +1314,27 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, std::move(r));
             }
 
-            json payload = expert_definition_to_json(*result.expert, false);
-            payload["queued"] = true;
+            json expert_payload =
+                expert_definition_to_json(*result.expert, false);
+            json payload = expert_payload;
+            payload["expert"] = expert_payload;
+            payload["accepted"] = true;
+            payload["queued"] = result.pending;
             payload["pending"] = result.pending;
             payload["busy"] = result.busy;
+            payload["applied"] = result.applied;
             payload["effective_boundary"] = result.effective_boundary;
+            payload["control_sequence"] = result.control_sequence;
+            payload["receipt"] = {
+                {"sequence", result.control_sequence},
+                {"expert_id", result.expert->id},
+                {"state", result.applied ? "applied" : "queued"},
+                {"applied", result.applied},
+                {"effective_boundary", result.effective_boundary},
+            };
+            if (result.draft_text_present) {
+                payload["draft_text"] = result.draft_text;
+            }
             crow::response r(payload.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));

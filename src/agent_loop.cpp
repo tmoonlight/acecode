@@ -241,7 +241,9 @@ std::string build_plan_permission_args(const std::string& tool_name,
     return args_json;
 }
 
-std::string build_plan_mode_context_prompt(SessionManager* session_manager) {
+std::string build_plan_mode_context_prompt(SessionManager* session_manager,
+                                           bool ask_user_allowed,
+                                           bool exit_plan_mode_allowed) {
     if (!session_manager) return {};
     const std::string plan_file = session_manager->ensure_plan_file_path();
     if (plan_file.empty()) return {};
@@ -255,11 +257,23 @@ std::string build_plan_mode_context_prompt(SessionManager* session_manager) {
         << "Plan exists: " << (existing_plan.empty() ? "false" : "true") << "\n\n"
         << "Workflow:\n"
         << "1. Explore the codebase with read-only tools until the approach is clear.\n"
-        << "2. Keep the implementation plan in the plan file. Update that file as your plan changes.\n"
-        << "3. Use AskUserQuestion only for unresolved requirements or approach choices.\n"
-        << "4. When the plan is complete and unambiguous, call ExitPlanMode for user approval.\n\n"
-        << "Do not ask the user whether the plan is OK with AskUserQuestion; ExitPlanMode is the approval request.\n"
-        << "</plan_mode>";
+        << "2. Keep the implementation plan in the plan file. Update that file as your plan changes.\n";
+    int workflow_step = 3;
+    if (ask_user_allowed) {
+        oss << workflow_step++
+            << ". Use AskUserQuestion only for unresolved requirements or approach choices.\n";
+    }
+    if (exit_plan_mode_allowed) {
+        oss << workflow_step++
+            << ". When the plan is complete and unambiguous, call ExitPlanMode for user approval.\n\n";
+        if (ask_user_allowed) {
+            oss << "Do not ask the user whether the plan is OK with AskUserQuestion; ExitPlanMode is the approval request.\n";
+        }
+    } else {
+        oss << workflow_step
+            << ". When the plan is complete, present the result in your final reply.\n";
+    }
+    oss << "</plan_mode>";
     return oss.str();
 }
 
@@ -626,6 +640,8 @@ void AgentLoop::worker_main() {
             if (shutdown_requested_) return;
             task = std::move(task_queue_.front());
             task_queue_.pop();
+            worker_task_active_ = true;
+            worker_task_kind_ = task.kind;
         }
         switch (task.kind) {
         case WorkerTask::Kind::Chat:
@@ -644,6 +660,11 @@ void AgentLoop::worker_main() {
         case WorkerTask::Kind::Control:
             if (task.control) task.control();
             break;
+        }
+        {
+            std::lock_guard<std::mutex> lk(queue_mu_);
+            worker_task_active_ = false;
+            worker_task_kind_ = WorkerTask::Kind::Control;
         }
     }
 }
@@ -672,16 +693,54 @@ void AgentLoop::submit(const UserInput& input) {
     queue_cv_.notify_one();
 }
 
-void AgentLoop::enqueue_control(std::function<void()> control) {
-    if (!control) return;
+ControlEnqueueReceipt AgentLoop::enqueue_control(
+    std::function<bool()> control) {
+    ControlEnqueueReceipt receipt;
+    if (!control) return receipt;
+    auto execution = std::make_shared<ControlExecutionState>();
     {
         std::lock_guard<std::mutex> lk(queue_mu_);
+        if (shutdown_requested_) return receipt;
+
+        auto is_turn_task = [](WorkerTask::Kind kind) {
+            return kind == WorkerTask::Kind::Chat ||
+                   kind == WorkerTask::Kind::Shell ||
+                   kind == WorkerTask::Kind::Compact;
+        };
+        bool queued_behind_turn =
+            worker_task_active_ && is_turn_task(worker_task_kind_);
+        auto queued = task_queue_;
+        while (!queued_behind_turn && !queued.empty()) {
+            queued_behind_turn = is_turn_task(queued.front().kind);
+            queued.pop();
+        }
+
         WorkerTask task;
         task.kind = WorkerTask::Kind::Control;
-        task.control = std::move(control);
+        task.control = [control = std::move(control), execution]() mutable {
+            bool succeeded = false;
+            try {
+                succeeded = control();
+            } catch (const std::exception& e) {
+                LOG_ERROR(std::string("Control task failed: ") + e.what());
+            } catch (...) {
+                LOG_ERROR("Control task failed with unknown exception");
+            }
+            {
+                std::lock_guard<std::mutex> lock(execution->mu);
+                execution->succeeded = succeeded;
+                execution->completed = true;
+            }
+            execution->cv.notify_all();
+        };
         task_queue_.push(std::move(task));
+        receipt.sequence = ++next_control_sequence_;
+        receipt.accepted = true;
+        receipt.queued_behind_turn = queued_behind_turn;
+        receipt.execution = std::move(execution);
     }
     queue_cv_.notify_one();
+    return receipt;
 }
 
 TurnSteerResult AgentLoop::steer_input(
@@ -819,7 +878,8 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
 
     std::string system_prompt = build_system_prompt(
         tools_, cwd_, skill_registry_, memory_registry_,
-        memory_cfg_, project_instructions_cfg_);
+        memory_cfg_, project_instructions_cfg_,
+        &tool_capability_policy_);
     if (loop_execution_policy_.active &&
         !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
@@ -835,10 +895,19 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
 
     const std::string git_snapshot =
         git_snapshot_cache_.has_value() ? *git_snapshot_cache_ : std::string{};
+    const bool skill_view_available =
+        tools_.is_allowed("skill_view", &tool_capability_policy_);
+    const bool skills_list_available =
+        tools_.is_allowed("skills_list", &tool_capability_policy_);
+    const bool spawn_subagent_available =
+        tools_.is_allowed("spawn_subagent", &tool_capability_policy_);
     std::string mutable_context = build_session_context_prompt(
         cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
         skill_registry_, context_window_.load(std::memory_order_relaxed),
-        custom_instructions_cfg_, git_snapshot, expert_, expert_member_id_).content;
+        custom_instructions_cfg_, git_snapshot, expert_, expert_member_id_,
+        /*category_bytes=*/nullptr,
+        skill_view_available, skills_list_available,
+        spawn_subagent_available).content;
     const std::string request_context = build_request_context_prompt(cwd_);
     if (!request_context.empty()) {
         if (!mutable_context.empty()) mutable_context += "\n\n";
@@ -1188,6 +1257,8 @@ std::string AgentLoop::build_goal_context_prompt(const ThreadGoal& goal) const {
     const std::string remaining_tokens = goal.token_budget.has_value()
         ? std::to_string(std::max<std::int64_t>(0, *goal.token_budget - goal.tokens_used))
         : "unbounded";
+    const bool update_goal_allowed =
+        tools_.is_allowed("update_goal", &tool_capability_policy_);
 
     std::ostringstream oss;
     oss << "<goal_context>\n"
@@ -1213,10 +1284,13 @@ std::string AgentLoop::build_goal_context_prompt(const ThreadGoal& goal) const {
         << "- Elapsed seconds: " << goal.time_used_seconds << "\n\n"
         << "Goal interaction mode:\n"
         << "- Tool permission confirmations are granted automatically while the goal is "
-        << "active.\n"
-        << "- You may call AskUserQuestion for a useful clarification. The user has 30 "
-        << "seconds to answer; after that, the recommended option is selected "
-        << "automatically so the goal keeps moving.\n\n"
+        << "active.\n";
+    if (tools_.is_allowed("AskUserQuestion", &tool_capability_policy_)) {
+        oss << "- You may call AskUserQuestion for a useful clarification. The user has 30 "
+            << "seconds to answer; after that, the recommended option is selected "
+            << "automatically so the goal keeps moving.\n";
+    }
+    oss << "\n"
         << "Work from evidence:\n"
         << "Use the current worktree and external state as authoritative. Previous "
         << "conversation context can help locate relevant work, but inspect the current "
@@ -1253,28 +1327,31 @@ std::string AgentLoop::build_goal_context_prompt(const ThreadGoal& goal) const {
         << "Do not rely on intent, partial progress, memory of earlier work, or a "
         << "plausible final answer as proof of completion. Only mark the goal achieved "
         << "when current evidence proves every requirement has been satisfied and no "
-        << "required work remains. If the objective is achieved, call update_goal with "
-        << "status \"complete\" so usage accounting is preserved. If the achieved goal "
-        << "has a token budget, report the final consumed token budget to the user after "
-        << "update_goal succeeds.\n\n"
-        << "Blocked audit:\n"
-        << "- Do not call update_goal with status \"blocked\" the first time a blocker appears.\n"
-        << "- Only use status \"blocked\" when the same blocking condition has repeated for at "
-        << "least three consecutive goal turns, counting the original/user-triggered turn and "
-        << "any automatic goal continuations.\n"
-        << "- If the user resumes a goal that was previously marked \"blocked\", treat the "
-        << "resumed run as a fresh blocked audit before marking it \"blocked\" again.\n"
-        << "- Use status \"blocked\" only when you are truly at an impasse and cannot make "
-        << "meaningful progress without user input or an external-state change.\n"
-        << "- Once the blocked threshold is satisfied, do not keep reporting that you are "
-        << "still blocked while leaving the goal active; call update_goal with status "
-        << "\"blocked\".\n"
-        << "- Never use status \"blocked\" merely because the work is hard, slow, uncertain, "
-        << "incomplete, or would benefit from clarification.\n\n"
-        << "Do not call update_goal unless the goal is complete or the strict blocked audit "
-        << "above is satisfied. Do not mark a goal complete merely because the budget is nearly "
-        << "exhausted or because you are stopping work.\n"
-        << "</goal_context>";
+        << "required work remains.\n\n";
+    if (update_goal_allowed) {
+        oss << "If the objective is achieved, call update_goal with status \"complete\" "
+            << "so usage accounting is preserved. If the achieved goal has a token "
+            << "budget, report the final consumed token budget to the user after "
+            << "update_goal succeeds.\n\n"
+            << "Blocked audit:\n"
+            << "- Do not call update_goal with status \"blocked\" the first time a blocker appears.\n"
+            << "- Only use status \"blocked\" when the same blocking condition has repeated for at "
+            << "least three consecutive goal turns, counting the original/user-triggered turn and "
+            << "any automatic goal continuations.\n"
+            << "- If the user resumes a goal that was previously marked \"blocked\", treat the "
+            << "resumed run as a fresh blocked audit before marking it \"blocked\" again.\n"
+            << "- Use status \"blocked\" only when you are truly at an impasse and cannot make "
+            << "meaningful progress without user input or an external-state change.\n"
+            << "- Once the blocked threshold is satisfied, do not keep reporting that you are "
+            << "still blocked while leaving the goal active; call update_goal with status "
+            << "\"blocked\".\n"
+            << "- Never use status \"blocked\" merely because the work is hard, slow, uncertain, "
+            << "incomplete, or would benefit from clarification.\n\n"
+            << "Do not call update_goal unless the goal is complete or the strict blocked audit "
+            << "above is satisfied. Do not mark a goal complete merely because the budget is nearly "
+            << "exhausted or because you are stopping work.\n";
+    }
+    oss << "</goal_context>";
     return oss.str();
 }
 
@@ -1298,9 +1375,11 @@ std::string AgentLoop::build_goal_budget_limit_prompt(const ThreadGoal& goal) co
         << "The system has marked the goal as budget_limited, so do not start new "
         << "substantive work for this goal. Wrap up this turn soon: summarize useful "
         << "progress, identify remaining work or blockers, and leave the user with a "
-        << "clear next step.\n\n"
-        << "Do not call update_goal unless the goal is actually complete.\n"
-        << "</goal_context>";
+        << "clear next step.\n";
+    if (tools_.is_allowed("update_goal", &tool_capability_policy_)) {
+        oss << "\nDo not call update_goal unless the goal is actually complete.\n";
+    }
+    oss << "</goal_context>";
     return oss.str();
 }
 
@@ -1327,14 +1406,17 @@ std::string AgentLoop::build_goal_objective_updated_prompt(const ThreadGoal& goa
         << "- Tokens remaining: " << remaining_tokens << "\n\n"
         << "Adjust the current turn to pursue the updated objective. Avoid continuing "
         << "work that only served the previous objective unless it also helps the "
-        << "updated objective.\n\n"
-        << "Do not call update_goal unless the updated goal is actually complete.\n"
-        << "</goal_context>";
+        << "updated objective.\n";
+    if (tools_.is_allowed("update_goal", &tool_capability_policy_)) {
+        oss << "\nDo not call update_goal unless the updated goal is actually complete.\n";
+    }
+    oss << "</goal_context>";
     return oss.str();
 }
 
 void AgentLoop::maybe_continue_goal() {
     if (!session_manager_ || abort_requested_.load() || busy_.load()) return;
+    if (!tools_.is_allowed("update_goal", &tool_capability_policy_)) return;
     // Plan mode 下不自动开新回合(对齐 Codex try_start_turn_if_idle 的
     // PlanMode 拒绝):plan 模式的只读约束不该被 goal continuation 绕过。
     // 退出 plan mode 后的下一次回合结束会重新触发 continuation。
@@ -1649,7 +1731,8 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     // system prompt remains cacheable for providers such as DeepSeek.
     std::string system_prompt = build_system_prompt(
         tools_, cwd_, skill_registry_, memory_registry_,
-        memory_cfg_, project_instructions_cfg_);
+        memory_cfg_, project_instructions_cfg_,
+        &tool_capability_policy_);
     if (loop_execution_policy_.active && !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
         system_prompt += loop_execution_policy_.system_context;
@@ -1684,13 +1767,21 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     // Prepare provider-facing messages with system prompt at front.
     auto api_messages = provider_relevant_messages(messages_);
     PromptContextCategoryBytes context_category_bytes;
+    const bool skill_view_available =
+        tools_.is_allowed("skill_view", &tool_capability_policy_);
+    const bool skills_list_available =
+        tools_.is_allowed("skills_list", &tool_capability_policy_);
+    const bool spawn_subagent_available =
+        tools_.is_allowed("spawn_subagent", &tool_capability_policy_);
     std::string session_context = cached_context_for_api(
         build_session_context_prompt(
             cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
             skill_registry_, context_window_.load(std::memory_order_relaxed),
             custom_instructions_cfg_,
             *git_snapshot_cache_, expert_, expert_member_id_,
-            &context_category_bytes),
+            &context_category_bytes,
+            skill_view_available, skills_list_available,
+            spawn_subagent_available),
         session_context_cache_key_, session_context_cache_content_);
     std::vector<ChatMessage> mutable_context_messages;
     append_request_context_for_api(mutable_context_messages, session_context);
@@ -1700,7 +1791,10 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     append_request_context_for_api(mutable_context_messages, hook_context);
     std::string plan_mode_context =
         permissions_.mode() == PermissionMode::Plan
-            ? build_plan_mode_context_prompt(session_manager_)
+            ? build_plan_mode_context_prompt(
+                  session_manager_,
+                  tools_.is_allowed("AskUserQuestion", &tool_capability_policy_),
+                  tools_.is_allowed("ExitPlanMode", &tool_capability_policy_))
             : std::string{};
     append_plan_mode_context_for_api(mutable_context_messages, plan_mode_context);
     std::vector<TodoItem> todo_context_items =

@@ -3,11 +3,15 @@
 #include "experts/expert_registry.hpp"
 #include "../agent_loop/stub_provider.hpp"
 #include "permissions.hpp"
+#include "prompt/system_prompt.hpp"
 #include "session/session_registry.hpp"
 #include "session/session_storage.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
+#include "web/handlers/skill_command_expander.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -147,11 +151,16 @@ TEST(ExpertRegistry, TeamReferencesExistingExpertsWithoutCopyingDefinitions) {
 
     std::ifstream manifest_input(
         temp.path / "global" / "delivery-team" / "expert.json");
-    const auto manifest = nlohmann::json::parse(manifest_input);
+    auto manifest = nlohmann::json::parse(manifest_input);
     manifest_input.close();
     EXPECT_FALSE(manifest.contains("agents"));
     EXPECT_EQ(manifest["teamInfo"]["leadExpert"], "reviewer");
     EXPECT_EQ(manifest["teamInfo"]["memberExperts"][0], "tester");
+    manifest["teamInfo"]["future_extension"] = {
+        {"nested", "preserve-team-data"},
+    };
+    std::ofstream(temp.path / "global" / "delivery-team" / "expert.json")
+        << manifest.dump(2) << '\n';
 
     const fs::path stale_agents =
         temp.path / "global" / "delivery-team" / "agents";
@@ -159,7 +168,12 @@ TEST(ExpertRegistry, TeamReferencesExistingExpertsWithoutCopyingDefinitions) {
     std::ofstream(stale_agents / "legacy-copy.md") << "Legacy member copy.";
     team.description = "Updated without copied member documents.";
     ASSERT_TRUE(registry.update_global("delivery-team", team, &error)) << error;
-    EXPECT_FALSE(fs::exists(stale_agents));
+    EXPECT_TRUE(fs::exists(stale_agents));
+    std::ifstream updated_team_input(
+        temp.path / "global" / "delivery-team" / "expert.json");
+    const auto updated_team = nlohmann::json::parse(updated_team_input);
+    EXPECT_EQ(updated_team["teamInfo"]["future_extension"]["nested"],
+              "preserve-team-data");
 
     tester.display_name = "Senior Tester";
     tester.lead.instructions = "Run the current acceptance plan.";
@@ -467,13 +481,20 @@ TEST(ExpertRegistry, UpdateMergesManagedFieldsWithoutLosingPackageData) {
     };
     manifest["capabilities"]["future_scope"] =
         nlohmann::json::array({"keep"});
+    fs::create_directories(package / "custom");
+    fs::rename(package / "agents" / "lead.md",
+               package / "custom" / "reviewer.md");
+    manifest["agents"][0]["path"] = "custom/reviewer.md";
+    manifest["agents"][0]["future_agent_data"] = {
+        {"nested", "keep-agent-data"},
+    };
     std::ofstream(package / "expert.json") << manifest.dump(2) << '\n';
 
-    auto legacy_client_update = make_agent("preserved", "Legacy Update");
-    legacy_client_update.author = "作者";
-    legacy_client_update.tags = {"开发", "开发", " OPC "};
-    legacy_client_update.expertise = {"架构", "", "架构"};
-    ASSERT_TRUE(registry.update_global("preserved", legacy_client_update, &error))
+    auto inherit_update = initial;
+    inherit_update.description = "Only the description changed.";
+    inherit_update.capabilities = {};
+    inherit_update.capabilities_present = false;
+    ASSERT_TRUE(registry.update_global("preserved", inherit_update, &error))
         << error;
 
     std::ifstream preserved_input(package / "expert.json");
@@ -482,16 +503,26 @@ TEST(ExpertRegistry, UpdateMergesManagedFieldsWithoutLosingPackageData) {
     EXPECT_EQ(preserved["avatar"], "avatar.svg");
     EXPECT_EQ(preserved["skills"], nlohmann::json::array({"skills"}));
     EXPECT_TRUE(preserved["x-forward-compatible"]["nested"]);
-    EXPECT_EQ(preserved["capabilities"]["skills"][1], "missing-skill");
+    EXPECT_FALSE(preserved["capabilities"].contains("skills"));
+    EXPECT_FALSE(preserved["capabilities"].contains("mcp_servers"));
+    EXPECT_FALSE(preserved["capabilities"].contains("tools"));
     EXPECT_EQ(preserved["capabilities"]["future_scope"][0], "keep");
+    EXPECT_EQ(preserved["agents"][0]["path"], "custom/reviewer.md");
+    EXPECT_EQ(
+        preserved["agents"][0]["future_agent_data"]["nested"],
+        "keep-agent-data");
     EXPECT_EQ(preserved["created_at"], created_at);
     EXPECT_NE(preserved["updated_at"].get<std::string>(), std::string{});
+    EXPECT_EQ(preserved["displayDescription"],
+              "Only the description changed.");
     EXPECT_TRUE(fs::is_regular_file(package / "avatar.svg"));
     EXPECT_TRUE(fs::is_regular_file(package / "resources" / "guide.txt"));
     EXPECT_TRUE(fs::is_regular_file(
         package / "skills" / "bundled" / "SKILL.md"));
+    EXPECT_TRUE(fs::is_regular_file(package / "custom" / "reviewer.md"));
+    EXPECT_FALSE(fs::exists(package / "agents" / "lead.md"));
 
-    auto explicit_scope_update = legacy_client_update;
+    auto explicit_scope_update = inherit_update;
     explicit_scope_update.capabilities_present = true;
     explicit_scope_update.capabilities.skills =
         std::vector<std::string>{};
@@ -514,6 +545,45 @@ TEST(ExpertRegistry, UpdateMergesManagedFieldsWithoutLosingPackageData) {
     const auto scoped = nlohmann::json::parse(scoped_input);
     EXPECT_FALSE(scoped["capabilities"].contains("mcp_servers"));
     EXPECT_EQ(scoped["capabilities"]["future_scope"][0], "keep");
+}
+
+TEST(ExpertRegistry, RecoversMissingTargetFromDurableBackupTransaction) {
+    TempDir temp;
+    const fs::path global_root = temp.path / "global";
+    acecode::ExpertRegistry registry(global_root);
+    std::string error;
+    ASSERT_TRUE(registry.create_global(
+        make_agent("recoverable", "Committed"), &error)) << error;
+
+    const fs::path target = global_root / "recoverable";
+    const fs::path staging = global_root / ".recoverable.staging";
+    const fs::path backup = global_root / ".recoverable.backup";
+    const fs::path marker =
+        global_root / ".recoverable.transaction.json";
+    fs::copy(target, staging, fs::copy_options::recursive);
+    {
+        std::ifstream input(staging / "expert.json");
+        auto staged_manifest = nlohmann::json::parse(input);
+        input.close();
+        staged_manifest["displayName"] = "Uncommitted";
+        std::ofstream(staging / "expert.json")
+            << staged_manifest.dump(2) << '\n';
+    }
+    fs::rename(target, backup);
+    std::ofstream(marker) << nlohmann::json{
+        {"id", "recoverable"},
+        {"operation", "update"},
+        {"phase", "backup_moved"},
+    }.dump(2);
+
+    auto recovered = registry.find(
+        acecode::path_to_utf8(temp.path), "recoverable");
+    ASSERT_TRUE(recovered.has_value());
+    EXPECT_EQ(recovered->display_name, "Committed");
+    EXPECT_TRUE(fs::is_directory(target));
+    EXPECT_FALSE(fs::exists(staging));
+    EXPECT_FALSE(fs::exists(backup));
+    EXPECT_FALSE(fs::exists(marker));
 }
 
 TEST(ExpertRegistry, RejectsDraftsThatCannotRoundTrip) {
@@ -571,6 +641,153 @@ TEST(ExpertRegistry, SessionCreationBindsKnownExpertAndRejectsUnknownExpert) {
     sessions.destroy(id);
 }
 
+TEST(ExpertRegistry, ResumedMissingOrCorruptExpertBindingsFailClosed) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(
+        workspace / ".acecode" / "skills" / "ambient-skill");
+    std::ofstream(
+        workspace / ".acecode" / "skills" / "ambient-skill" / "SKILL.md")
+        << "---\nname: ambient-skill\ndescription: Must stay hidden\n---\n";
+
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("reviewer", "Reviewer"), &error)) << error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("tester", "Tester"), &error)) << error;
+    acecode::ExpertDraft team;
+    team.id = "delivery-team";
+    team.type = acecode::ExpertType::Team;
+    team.display_name = "Delivery Team";
+    team.lead_expert_id = "reviewer";
+    team.member_expert_ids = {"tester"};
+    ASSERT_TRUE(experts.create_global(team, &error)) << error;
+
+    auto persist_binding = [&](const std::string& id,
+                               const std::string& expert_id,
+                               const std::string& member_id) {
+        acecode::SessionManager sm;
+        sm.start_session(
+            acecode::path_to_utf8(workspace), "test-provider",
+            "test-model", id);
+        sm.set_expert_binding(expert_id, member_id);
+        acecode::ChatMessage message;
+        message.role = "user";
+        message.content = "persist binding";
+        sm.on_message(message);
+        sm.finalize();
+    };
+    const std::string missing_id = "20260726-010101-a001";
+    const std::string invalid_member_id = "20260726-010102-a002";
+    persist_binding(missing_id, "removed-expert", {});
+    persist_binding(invalid_member_id, "delivery-team", "not-a-member");
+
+    acecode::AppConfig cfg;
+    cfg.skills.reuse_opencode = false;
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor =
+        [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.config = &cfg;
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    for (const std::string& id : {missing_id, invalid_member_id}) {
+        ASSERT_TRUE(sessions.resume(id));
+        auto entry = sessions.acquire(id);
+        ASSERT_NE(entry, nullptr);
+        EXPECT_TRUE(entry->expert_missing);
+        EXPECT_FALSE(entry->expert.has_value());
+        ASSERT_TRUE(
+            entry->tool_capability_policy.builtin_tools.has_value());
+        EXPECT_TRUE(
+            entry->tool_capability_policy.builtin_tools->empty());
+        ASSERT_TRUE(
+            entry->tool_capability_policy.mcp_servers.has_value());
+        EXPECT_TRUE(
+            entry->tool_capability_policy.mcp_servers->empty());
+        ASSERT_NE(entry->skill_registry, nullptr);
+        EXPECT_TRUE(entry->skill_registry->list().empty());
+        EXPECT_FALSE(
+            entry->skill_registry->find("ambient-skill").has_value());
+    }
+
+    sessions.destroy(missing_id);
+    sessions.destroy(invalid_member_id);
+    fs::remove_all(acecode::SessionStorage::get_project_dir(
+        acecode::path_to_utf8(workspace)));
+}
+
+TEST(ExpertRegistry, ActiveSessionSkillPolicyRefreshesPromptListViewAndSlash) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    const fs::path skill_dir =
+        workspace / ".acecode" / "skills" / "toggle-skill";
+    fs::create_directories(skill_dir);
+    std::ofstream(skill_dir / "SKILL.md")
+        << "---\nname: toggle-skill\ndescription: Toggle me\n---\n\n"
+        << "Use the toggled workflow.\n";
+
+    acecode::AppConfig cfg;
+    cfg.skills.reuse_opencode = false;
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor =
+        [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.config = &cfg;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions options;
+    options.cwd = acecode::path_to_utf8(workspace);
+    const std::string id = sessions.create(options);
+    auto before = sessions.skill_registry_snapshot(id);
+    ASSERT_NE(before, nullptr);
+    EXPECT_TRUE(before->find("toggle-skill").has_value());
+    EXPECT_FALSE(before->list().empty());
+    EXPECT_NE(
+        acecode::build_skills_index_context_prompt(
+            before.get(), 128000, true, true)
+            .content.find("toggle-skill"),
+        std::string::npos);
+    EXPECT_TRUE(acecode::web::try_expand_skill_command(
+                    "/toggle-skill run", *before)
+                    .expanded);
+
+    cfg.skills.disabled.push_back("toggle-skill");
+    sessions.refresh_skill_policy(cfg);
+
+    auto after = sessions.skill_registry_snapshot(id);
+    ASSERT_EQ(after, before);
+    EXPECT_FALSE(after->find("toggle-skill").has_value());
+    const auto after_list = after->list();
+    EXPECT_TRUE(std::none_of(
+        after_list.begin(), after_list.end(),
+        [](const acecode::SkillMetadata& skill) {
+            return skill.name == "toggle-skill";
+        }));
+    EXPECT_EQ(
+        acecode::build_skills_index_context_prompt(
+            after.get(), 128000, true, true)
+            .content.find("toggle-skill"),
+        std::string::npos);
+    EXPECT_FALSE(acecode::web::try_expand_skill_command(
+                     "/toggle-skill run", *after)
+                     .expanded);
+
+    sessions.destroy(id);
+    fs::remove_all(acecode::SessionStorage::get_project_dir(
+        acecode::path_to_utf8(workspace)));
+}
+
 TEST(ExpertRegistry, ActiveSessionSwitchQueuesAndPersistsExpertBinding) {
     TempDir temp;
     const fs::path workspace = temp.path / "workspace";
@@ -601,10 +818,18 @@ TEST(ExpertRegistry, ActiveSessionSwitchQueuesAndPersistsExpertBinding) {
     ASSERT_NE(entry->sm, nullptr);
     entry->sm->set_input_draft("persist expert switch");
 
-    auto switched = sessions.switch_expert(id, "writer");
+    auto switched = sessions.switch_expert(
+        id, "writer", std::string("replacement draft"));
     ASSERT_EQ(switched.status, acecode::ExpertSwitchStatus::Accepted);
     ASSERT_TRUE(switched.expert.has_value());
     EXPECT_EQ(switched.expert->id, "writer");
+    EXPECT_GT(switched.control_sequence, 0u);
+    EXPECT_EQ(switched.pending, !switched.applied);
+    EXPECT_EQ(switched.busy,
+              switched.pending &&
+                  switched.effective_boundary == "next_turn");
+    EXPECT_TRUE(switched.draft_text_present);
+    EXPECT_EQ(switched.draft_text, "replacement draft");
 
     bool applied = false;
     const auto deadline =
@@ -619,16 +844,86 @@ TEST(ExpertRegistry, ActiveSessionSwitchQueuesAndPersistsExpertBinding) {
     }
     ASSERT_TRUE(applied);
     EXPECT_EQ(entry->sm->current_expert_id(), "writer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "replacement draft");
 
     const std::string project_dir =
         acecode::SessionStorage::get_project_dir(acecode::path_to_utf8(workspace));
     const auto meta = acecode::SessionStorage::read_meta(
         acecode::SessionStorage::meta_path(project_dir, id));
     EXPECT_EQ(meta.expert_id, "writer");
+    EXPECT_EQ(meta.input_draft, "replacement draft");
 
-    auto missing = sessions.switch_expert(id, "missing");
+    auto missing = sessions.switch_expert(
+        id, "missing", std::string("must not apply"));
     EXPECT_EQ(missing.status, acecode::ExpertSwitchStatus::UnknownExpert);
+    EXPECT_EQ(entry->sm->current_expert_id(), "writer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "replacement draft");
+
+    auto unchanged = sessions.switch_expert(id, "reviewer");
+    EXPECT_EQ(unchanged.status, acecode::ExpertSwitchStatus::Accepted);
+    const auto unchanged_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (entry->sm->current_expert_id() != "reviewer" &&
+           std::chrono::steady_clock::now() < unchanged_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_EQ(entry->sm->current_input_draft(), "replacement draft");
     sessions.destroy(id);
+}
+
+TEST(ExpertRegistry, IdleSwitchPersistenceFailureDoesNotClaimApplied) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(workspace);
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("reviewer", "Reviewer"), &error)) << error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("writer", "Writer"), &error)) << error;
+
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor = [] {
+        return std::shared_ptr<acecode::LlmProvider>{};
+    };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions options;
+    options.cwd = acecode::path_to_utf8(workspace);
+    options.expert_id = "reviewer";
+    const std::string id = sessions.create(options);
+    auto entry = sessions.acquire(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    entry->sm->set_input_draft("reviewer draft");
+
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(
+            acecode::path_to_utf8(workspace));
+    const fs::path meta_path = acecode::path_from_utf8(
+        acecode::SessionStorage::meta_path(project_dir, id));
+    ASSERT_TRUE(fs::is_regular_file(meta_path));
+    ASSERT_TRUE(fs::remove(meta_path));
+    ASSERT_TRUE(fs::create_directory(meta_path));
+
+    const auto switched = sessions.switch_expert(
+        id, "writer", std::string("writer draft"));
+    EXPECT_EQ(switched.status, acecode::ExpertSwitchStatus::Failed);
+    EXPECT_FALSE(switched.applied);
+    EXPECT_FALSE(switched.expert.has_value());
+    EXPECT_EQ(entry->expert_id, "reviewer");
+    EXPECT_EQ(entry->sm->current_expert_id(), "reviewer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "reviewer draft");
+
+    ASSERT_GT(fs::remove_all(meta_path), 0u);
+    sessions.destroy(id);
+    fs::remove_all(project_dir);
 }
 
 TEST(ExpertRegistry,
@@ -655,7 +950,11 @@ TEST(ExpertRegistry,
     reviewer.capabilities.mcp_servers =
         std::vector<std::string>{"review-mcp"};
     reviewer.capabilities.tools =
-        std::vector<std::string>{"file_read"};
+        std::vector<std::string>{
+            "file_read",
+            "skill_view",
+            "skills_list",
+        };
     ASSERT_TRUE(experts.create_global(reviewer, &error)) << error;
     auto writer = make_agent("writer", "Writer");
     writer.lead.instructions = "Write the requested implementation.";
@@ -664,7 +963,11 @@ TEST(ExpertRegistry,
     writer.capabilities.mcp_servers =
         std::vector<std::string>{"write-mcp"};
     writer.capabilities.tools =
-        std::vector<std::string>{"file_write"};
+        std::vector<std::string>{
+            "file_write",
+            "skill_view",
+            "skills_list",
+        };
     ASSERT_TRUE(experts.create_global(writer, &error)) << error;
 
     std::atomic<int> tool_calls{0};
@@ -686,6 +989,8 @@ TEST(ExpertRegistry,
     };
     register_tool("file_read", acecode::ToolSource::Builtin, {}, true);
     register_tool("file_write", acecode::ToolSource::Builtin, {}, false);
+    register_tool("skill_view", acecode::ToolSource::Builtin, {}, true);
+    register_tool("skills_list", acecode::ToolSource::Builtin, {}, true);
     register_tool("mcp_review_probe", acecode::ToolSource::Mcp,
                   "review-mcp", true);
     register_tool("mcp_write_probe", acecode::ToolSource::Mcp,
@@ -719,6 +1024,7 @@ TEST(ExpertRegistry,
     ASSERT_NE(entry, nullptr);
     ASSERT_NE(entry->loop, nullptr);
     ASSERT_NE(entry->provider_slot, nullptr);
+    entry->sm->set_input_draft("reviewer draft");
     {
         std::lock_guard<std::mutex> lock(entry->provider_slot->mu);
         entry->provider_slot->provider = provider;
@@ -734,12 +1040,16 @@ TEST(ExpertRegistry,
     ASSERT_GE(provider->turn_count(), 1);
     ASSERT_TRUE(entry->loop->is_busy());
 
-    const auto switched = sessions.switch_expert(id, "writer");
+    const auto switched = sessions.switch_expert(
+        id, "writer", std::string("writer draft"));
     ASSERT_EQ(switched.status, acecode::ExpertSwitchStatus::Accepted);
     EXPECT_TRUE(switched.busy);
     EXPECT_TRUE(switched.pending);
+    EXPECT_FALSE(switched.applied);
     EXPECT_EQ(switched.effective_boundary, "next_turn");
+    EXPECT_GT(switched.control_sequence, 0u);
     EXPECT_EQ(entry->expert_id, "reviewer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "reviewer draft");
 
     // The control task is enqueued before this chat task, so the next request
     // must see all writer contexts together.
@@ -762,11 +1072,15 @@ TEST(ExpertRegistry,
               std::vector<std::string>({
                   "file_read",
                   "mcp_review_probe",
+                  "skill_view",
+                  "skills_list",
               }));
     EXPECT_EQ(tool_names(provider->tools_for_turn(1)),
               std::vector<std::string>({
                   "file_write",
                   "mcp_write_probe",
+                  "skill_view",
+                  "skills_list",
               }));
 
     auto request_text = [](const std::vector<acecode::ChatMessage>& messages) {
@@ -791,6 +1105,7 @@ TEST(ExpertRegistry,
     EXPECT_EQ(second_request.find("review-skill"), std::string::npos);
 
     EXPECT_EQ(entry->expert_id, "writer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "writer draft");
     ASSERT_NE(entry->skill_registry, nullptr);
     EXPECT_TRUE(entry->skill_registry->find("write-skill").has_value());
     EXPECT_FALSE(entry->skill_registry->find("review-skill").has_value());
@@ -800,6 +1115,89 @@ TEST(ExpertRegistry,
     EXPECT_FALSE(entry->tool_capability_policy.builtin_tools->count(
                      "file_read") != 0);
     EXPECT_EQ(tool_calls.load(), 0);
+
+    sessions.destroy(id);
+}
+
+TEST(ExpertRegistry, QueueReceiptSeesSubmittedTurnBeforeBusyFlag) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(workspace);
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("reviewer", "Reviewer"), &error)) << error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("writer", "Writer"), &error)) << error;
+
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->set_latency_ms(300);
+    provider->push_text("done");
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor = [provider] {
+        return std::static_pointer_cast<acecode::LlmProvider>(provider);
+    };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions options;
+    options.cwd = acecode::path_to_utf8(workspace);
+    options.expert_id = "reviewer";
+    const std::string id = sessions.create(options);
+    auto entry = sessions.acquire(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->loop, nullptr);
+    {
+        std::lock_guard<std::mutex> lock(entry->provider_slot->mu);
+        entry->provider_slot->provider = provider;
+    }
+
+    entry->loop->submit("queued turn");
+    const auto switched = sessions.switch_expert(id, "writer");
+    ASSERT_EQ(switched.status, acecode::ExpertSwitchStatus::Accepted);
+    EXPECT_TRUE(switched.pending);
+    EXPECT_TRUE(switched.busy);
+    EXPECT_FALSE(switched.applied);
+    EXPECT_EQ(switched.effective_boundary, "next_turn");
+
+    const auto applied_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (entry->expert_id != "writer" &&
+           std::chrono::steady_clock::now() < applied_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_EQ(entry->expert_id, "writer");
+
+    std::atomic<bool> control_ran{false};
+    const auto receipt = entry->loop->enqueue_control(
+        [&] {
+            control_ran.store(true, std::memory_order_release);
+            return true;
+        });
+    EXPECT_TRUE(receipt.accepted);
+    EXPECT_GT(receipt.sequence, switched.control_sequence);
+    const auto receipt_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!receipt.applied() &&
+           std::chrono::steady_clock::now() < receipt_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_TRUE(receipt.applied());
+    EXPECT_TRUE(control_ran.load(std::memory_order_acquire));
+
+    const auto rejected_receipt =
+        entry->loop->enqueue_control([] { return false; });
+    ASSERT_TRUE(rejected_receipt.accepted);
+    EXPECT_TRUE(
+        rejected_receipt.wait_for_completion(std::chrono::seconds(2)));
+    EXPECT_TRUE(rejected_receipt.completed());
+    EXPECT_FALSE(rejected_receipt.succeeded());
+    EXPECT_FALSE(rejected_receipt.applied());
 
     sessions.destroy(id);
 }

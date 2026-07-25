@@ -207,10 +207,16 @@ struct RegisteredToolInfo {
 
 class ToolExecutor {
 public:
-    void register_tool(const ToolImpl& tool);
+    // Register or refresh a tool only when an existing entry has the same
+    // source/owner identity. This prevents one MCP server from overwriting a
+    // different server (or a built-in) on a qualified-name collision.
+    bool register_tool(const ToolImpl& tool);
 
-    // Remove a tool by name. Returns true if the tool existed and was removed.
-    bool unregister_tool(const std::string& name);
+    // Remove a tool by name. When expected_source_owner is present, removal is
+    // allowed only for the exact (name, owner) pair.
+    bool unregister_tool(
+        const std::string& name,
+        std::optional<std::string> expected_source_owner = std::nullopt);
 
     // Get all tool definitions for inclusion in API requests
     std::vector<ToolDef> get_tool_definitions(

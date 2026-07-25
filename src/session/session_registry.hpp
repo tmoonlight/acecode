@@ -86,6 +86,10 @@ struct SessionEntry {
     };
     std::shared_ptr<ProviderSlot> provider_slot;
     std::shared_ptr<SkillRegistry>       skill_registry;
+    // Inputs required to re-apply a changed global Skill policy without
+    // losing expert package roots or the expert's independent allowlist.
+    std::vector<std::filesystem::path>   expert_skill_roots;
+    std::optional<std::vector<std::string>> expert_skill_allowlist;
     ToolCapabilityPolicy                tool_capability_policy;
     std::unique_ptr<SessionManager>     sm;
     std::unique_ptr<PermissionManager>  perm;
@@ -144,7 +148,11 @@ struct ExpertSwitchResult {
     std::string error;
     bool busy = false;
     bool pending = false;
+    bool applied = false;
     std::string effective_boundary;
+    std::uint64_t control_sequence = 0;
+    bool draft_text_present = false;
+    std::string draft_text;
 };
 
 class SessionRegistry {
@@ -202,7 +210,21 @@ public:
     // The update is serialized with chat turns, persists to session metadata,
     // and rebuilds the component-scoped Skill registry before later turns run.
     ExpertSwitchResult switch_expert(const std::string& id,
-                                     const std::string& expert_id);
+                                     const std::string& expert_id,
+                                     std::optional<std::string> draft_text =
+                                         std::nullopt);
+
+    // Return the currently effective per-session Skill registry as a shared,
+    // immutable-lifetime snapshot. Pointer replacement during an expert switch
+    // is serialized by the registry mutex.
+    std::shared_ptr<const SkillRegistry> skill_registry_snapshot(
+        const std::string& id) const;
+
+    // Re-apply a changed daemon-wide Skill policy to every active session
+    // while preserving each session's expert package roots and allowlist.
+    // Existing registry objects are reconfigured in place so AgentLoop and
+    // Skill tools never retain a stale pointer.
+    void refresh_skill_policy(const AppConfig& config);
 
     // Fire-and-forget hidden title generation for the first visible user input.
     // It never writes to transcript or blocks send_input.

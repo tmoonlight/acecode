@@ -93,16 +93,32 @@ void mark_workspace_scratch_change(ToolResult& result, const ToolContext& ctx) {
     }
 }
 
-void ToolExecutor::register_tool(const ToolImpl& tool) {
-    LOG_INFO("Registering tool: " + tool.definition.name);
+bool ToolExecutor::register_tool(const ToolImpl& tool) {
     std::lock_guard<std::mutex> lk(tools_mu_);
+    const auto existing = tools_.find(tool.definition.name);
+    if (existing != tools_.end() &&
+        (existing->second.source != tool.source ||
+         existing->second.source_owner != tool.source_owner)) {
+        LOG_WARN("Refusing tool registration collision for " +
+                 tool.definition.name);
+        return false;
+    }
+    LOG_INFO("Registering tool: " + tool.definition.name);
     tools_[tool.definition.name] = tool;
+    return true;
 }
 
-bool ToolExecutor::unregister_tool(const std::string& name) {
+bool ToolExecutor::unregister_tool(
+    const std::string& name,
+    std::optional<std::string> expected_source_owner) {
     std::lock_guard<std::mutex> lk(tools_mu_);
     auto it = tools_.find(name);
     if (it == tools_.end()) return false;
+    if (expected_source_owner &&
+        it->second.source_owner != *expected_source_owner) {
+        LOG_WARN("Refusing tool unregister owner mismatch for " + name);
+        return false;
+    }
     LOG_INFO("Unregistering tool: " + name);
     tools_.erase(it);
     return true;
