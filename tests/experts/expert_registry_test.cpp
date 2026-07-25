@@ -3,14 +3,17 @@
 #include "experts/expert_registry.hpp"
 #include "permissions.hpp"
 #include "session/session_registry.hpp"
+#include "session/session_storage.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -337,5 +340,65 @@ TEST(ExpertRegistry, SessionCreationBindsKnownExpertAndRejectsUnknownExpert) {
 
     options.expert_id = "missing";
     EXPECT_THROW(sessions.create(options), std::invalid_argument);
+    sessions.destroy(id);
+}
+
+TEST(ExpertRegistry, ActiveSessionSwitchQueuesAndPersistsExpertBinding) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(workspace);
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    ASSERT_TRUE(experts.create_global(make_agent("reviewer", "Reviewer"), &error))
+        << error;
+    ASSERT_TRUE(experts.create_global(make_agent("writer", "Writer"), &error))
+        << error;
+
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions options;
+    options.cwd = acecode::path_to_utf8(workspace);
+    options.expert_id = "reviewer";
+    const std::string id = sessions.create(options);
+    auto entry = sessions.acquire(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    entry->sm->set_input_draft("persist expert switch");
+
+    auto switched = sessions.switch_expert(id, "writer");
+    ASSERT_EQ(switched.status, acecode::ExpertSwitchStatus::Accepted);
+    ASSERT_TRUE(switched.expert.has_value());
+    EXPECT_EQ(switched.expert->id, "writer");
+
+    bool applied = false;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto active = sessions.list_active();
+        if (active.size() == 1 && active.front().expert_id == "writer") {
+            applied = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_TRUE(applied);
+    EXPECT_EQ(entry->sm->current_expert_id(), "writer");
+
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(acecode::path_to_utf8(workspace));
+    const auto meta = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(project_dir, id));
+    EXPECT_EQ(meta.expert_id, "writer");
+
+    auto missing = sessions.switch_expert(id, "missing");
+    EXPECT_EQ(missing.status, acecode::ExpertSwitchStatus::UnknownExpert);
     sessions.destroy(id);
 }

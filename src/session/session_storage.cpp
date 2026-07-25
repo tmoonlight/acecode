@@ -2,6 +2,7 @@
 #include "session_serializer.hpp"
 #include "session_title_generator.hpp"
 #include "../config/config.hpp"
+#include "../prompt/context_usage_breakdown.hpp"
 #include "../utils/atomic_file.hpp"
 #include "../utils/cwd_hash.hpp"
 #include "../utils/utf8_path.hpp"
@@ -45,11 +46,12 @@ bool token_usage_has_values(const TokenUsage& usage) {
            usage.total_tokens != 0 ||
            usage.cache_read_tokens != 0 ||
            usage.cache_write_tokens != 0 ||
-           usage.reasoning_tokens != 0;
+           usage.reasoning_tokens != 0 ||
+           usage.context_breakdown.has_data;
 }
 
 nlohmann::json token_usage_to_json(const TokenUsage& usage) {
-    return nlohmann::json{
+    nlohmann::json value = {
         {"prompt_tokens", usage.prompt_tokens},
         {"completion_tokens", usage.completion_tokens},
         {"total_tokens", usage.total_tokens},
@@ -58,6 +60,11 @@ nlohmann::json token_usage_to_json(const TokenUsage& usage) {
         {"reasoning_tokens", usage.reasoning_tokens},
         {"has_data", usage.has_data},
     };
+    if (usage.context_breakdown.has_data) {
+        value["context_breakdown"] =
+            context_usage_breakdown_to_json(usage.context_breakdown);
+    }
+    return value;
 }
 
 TokenUsage token_usage_from_json(const nlohmann::json& j) {
@@ -70,6 +77,10 @@ TokenUsage token_usage_from_json(const nlohmann::json& j) {
     usage.cache_write_tokens = j.value("cache_write_tokens", 0);
     usage.reasoning_tokens = j.value("reasoning_tokens", 0);
     usage.has_data = j.value("has_data", false);
+    if (auto it = j.find("context_breakdown"); it != j.end()) {
+        usage.context_breakdown =
+            context_usage_breakdown_from_json(*it);
+    }
     return usage;
 }
 

@@ -546,7 +546,10 @@ PromptContextBlock build_session_context_prompt(
     const CustomInstructionsConfig* custom_instructions_cfg,
     const std::string& git_status_snapshot,
     const ExpertDefinition* expert,
-    const std::string& expert_member_id) {
+    const std::string& expert_member_id,
+    PromptContextCategoryBytes* category_bytes) {
+    if (category_bytes) *category_bytes = PromptContextCategoryBytes{};
+
     PromptContextBlock expert_context =
         build_expert_context_prompt(expert, expert_member_id);
     PromptContextBlock project = build_project_instructions_context_prompt(cwd, project_instructions_cfg);
@@ -576,6 +579,18 @@ PromptContextBlock build_session_context_prompt(
     if (!git_status.content.empty()) content << git_status.content << "\n";
     content << "</system-reminder>";
     block.content = content.str();
+
+    if (category_bytes) {
+        category_bytes->project_rules =
+            project.content.size() + custom.content.size();
+        category_bytes->skills = skill_index.content.size();
+        const std::size_t assigned =
+            category_bytes->project_rules + category_bytes->skills;
+        category_bytes->dynamic_context =
+            block.content.size() > assigned
+                ? block.content.size() - assigned
+                : 0;
+    }
 
     block.cache_key = prompt_component_hash(
         expert_context.cache_key + "\n" + project.cache_key + "\n" +

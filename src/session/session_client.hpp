@@ -153,9 +153,10 @@ struct SessionOptions {
     // 可选初始系统消息或 prompt 注入。v1 留空。
     std::string initial_user_message;
 
-    // Optional immutable expert binding for this session. expert_member_id is
+    // Optional initial expert binding for this session. expert_member_id is
     // reserved for validated team-member child sessions created internally by
-    // spawn_subagent; ordinary clients select only expert_id.
+    // spawn_subagent; ordinary clients select only expert_id and may later
+    // switch it through the active-session API.
     std::string expert_id;
     std::string expert_member_id;
 

@@ -5,6 +5,7 @@ import {
   reconcileSidebarSessions,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
+  shouldStartRemoteControlSurge,
   sidebarSessionHasWorktree,
   sidebarSessionMarker,
   sidebarRevealTarget,
@@ -47,6 +48,14 @@ test('sidebarSessionMarker gives LOOP alarm priority over worktree', () => {
     loop_execution: {},
     worktree: { name: 'ses-abc' },
   }), 'worktree');
+});
+
+test('remote-control surge starts only on a false-to-true binding transition', () => {
+  assert.equal(shouldStartRemoteControlSurge(false, true), true);
+  assert.equal(shouldStartRemoteControlSurge(undefined, true), true);
+  assert.equal(shouldStartRemoteControlSurge(true, true), false);
+  assert.equal(shouldStartRemoteControlSurge(true, false), false);
+  assert.equal(shouldStartRemoteControlSurge(false, false), false);
 });
 
 test('five or fewer sidebar sessions are not collapsible', () => {

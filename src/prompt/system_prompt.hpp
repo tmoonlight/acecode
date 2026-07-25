@@ -29,6 +29,12 @@ struct PromptCacheDiagnostics {
     std::string tool_schema_hash;
 };
 
+struct PromptContextCategoryBytes {
+    std::size_t project_rules = 0;
+    std::size_t skills = 0;
+    std::size_t dynamic_context = 0;
+};
+
 // Build the static system prompt with identity, stable environment info, and
 // behavior rules. Per-request context such as current time/CWD, mutable project
 // instructions, mutable memory index content, and full tool JSON schemas belong
@@ -96,7 +102,8 @@ PromptContextBlock build_session_context_prompt(
     const CustomInstructionsConfig* custom_instructions_cfg = nullptr,
     const std::string& git_status_snapshot = std::string(),
     const ExpertDefinition* expert = nullptr,
-    const std::string& expert_member_id = std::string());
+    const std::string& expert_member_id = std::string(),
+    PromptContextCategoryBytes* category_bytes = nullptr);
 
 // Build dynamic request-local context. This is sent near the end of the
 // messages array for the current provider call only; it must not be persisted

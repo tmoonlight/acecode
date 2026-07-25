@@ -61,6 +61,14 @@ TEST(SessionStorage, MetaRoundtrip) {
     in.last_token_usage.completion_tokens = 1200;
     in.last_token_usage.total_tokens = 9200;
     in.last_token_usage.has_data = true;
+    in.last_token_usage.context_breakdown.system_prompt = 1000;
+    in.last_token_usage.context_breakdown.project_rules = 500;
+    in.last_token_usage.context_breakdown.skills = 500;
+    in.last_token_usage.context_breakdown.builtin_tools = 1200;
+    in.last_token_usage.context_breakdown.mcp_tools = 800;
+    in.last_token_usage.context_breakdown.conversation = 3500;
+    in.last_token_usage.context_breakdown.dynamic_context = 500;
+    in.last_token_usage.context_breakdown.has_data = true;
     in.session_token_usage.prompt_tokens = 18000;
     in.session_token_usage.completion_tokens = 2200;
     in.session_token_usage.total_tokens = 20200;
@@ -101,6 +109,9 @@ TEST(SessionStorage, MetaRoundtrip) {
     EXPECT_EQ(out.last_token_usage.completion_tokens, 1200);
     EXPECT_EQ(out.last_token_usage.total_tokens, 9200);
     EXPECT_TRUE(out.last_token_usage.has_data);
+    EXPECT_TRUE(out.last_token_usage.context_breakdown.has_data);
+    EXPECT_EQ(out.last_token_usage.context_breakdown.system_prompt, 1000);
+    EXPECT_EQ(out.last_token_usage.context_breakdown.conversation, 3500);
     EXPECT_EQ(out.session_token_usage.prompt_tokens, 18000);
     EXPECT_EQ(out.session_token_usage.completion_tokens, 2200);
     EXPECT_EQ(out.session_token_usage.total_tokens, 20200);
@@ -182,6 +193,7 @@ TEST(SessionStorage, LegacyMetaWithoutTitle) {
         << "legacy meta without 'turn_count' must deserialize to zero";
     EXPECT_EQ(out.last_token_usage.total_tokens, 0);
     EXPECT_EQ(out.session_token_usage.total_tokens, 0);
+    EXPECT_FALSE(out.last_token_usage.context_breakdown.has_data);
     EXPECT_TRUE(out.todos.empty())
         << "legacy meta without 'todos' must deserialize to an empty checklist";
     EXPECT_TRUE(out.loop_id.empty());

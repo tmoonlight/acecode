@@ -290,7 +290,7 @@ function ExpertCard({
             <button type="button" onClick={() => onDelete(expert)} className="h-7 rounded-md px-2 text-[11px] text-fg-mute hover:bg-danger-bg hover:text-danger">删除</button>
           </>
         )}
-        <button type="button" onClick={() => onUse(expert)} className="h-7 rounded-md bg-accent px-3 text-[11px] font-medium text-white hover:opacity-90">使用</button>
+        <button type="button" onClick={() => onUse(expert)} className="h-7 rounded-md bg-accent px-3 text-[11px] font-medium text-white hover:opacity-90">派遣</button>
       </div>
     </article>
   );

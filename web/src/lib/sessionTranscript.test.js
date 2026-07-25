@@ -708,6 +708,42 @@ run('usage 事件更新 token usage 且不新增 transcript item', () => {
   assert.equal(state.lastSeq, 1);
 });
 
+run('usage 事件保留上下文分类明细的独立副本', () => {
+  const payload = {
+    prompt_tokens: 8000,
+    completion_tokens: 1200,
+    total_tokens: 9200,
+    has_data: true,
+    context_breakdown: {
+      system_prompt: 500,
+      project_rules: 600,
+      skills: 700,
+      builtin_tools: 1200,
+      mcp_tools: 500,
+      conversation: 4000,
+      dynamic_context: 500,
+      has_data: true,
+    },
+  };
+  const state = reduceMany([
+    { type: 'usage', payload, timestamp_ms: 123, seq: 1 },
+  ]);
+
+  assert.deepEqual(state.tokenUsage.contextBreakdown, {
+    systemPrompt: 500,
+    projectRules: 600,
+    skills: 700,
+    builtinTools: 1200,
+    mcpTools: 500,
+    conversation: 4000,
+    dynamicContext: 500,
+    hasData: true,
+  });
+
+  payload.context_breakdown.conversation = 1;
+  assert.equal(state.tokenUsage.contextBreakdown.conversation, 4000);
+});
+
 run('history replay 会恢复 usage 事件状态', () => {
   const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
     messages: [{ id: 'u1', role: 'user', content: 'hello', ts: 1 }],
@@ -848,6 +884,32 @@ run('history load 使用运行时快照恢复轮次和 token 状态', () => {
   assert.equal(loaded.tokenUsage.completionTokens, 1200);
   assert.equal(loaded.tokenUsage.totalTokens, 33200);
   assert.equal(loaded.tokenUsage.hasData, true);
+});
+
+run('history load 从运行时快照恢复上下文分类明细', () => {
+  const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: [],
+    events: [],
+    token_usage: {
+      prompt_tokens: 32000,
+      total_tokens: 33000,
+      has_data: true,
+      context_breakdown: {
+        system_prompt: 2000,
+        project_rules: 1000,
+        skills: 2000,
+        builtin_tools: 4000,
+        mcp_tools: 3000,
+        conversation: 18000,
+        dynamic_context: 2000,
+        has_data: true,
+      },
+    },
+  }).state;
+
+  assert.equal(loaded.tokenUsage.contextBreakdown.systemPrompt, 2000);
+  assert.equal(loaded.tokenUsage.contextBreakdown.conversation, 18000);
+  assert.equal(loaded.tokenUsage.contextBreakdown.hasData, true);
 });
 
 run('history load 的 idle 运行时快照不增加轮次', () => {

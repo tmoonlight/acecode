@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { clsx } from '../lib/format.js';
+import { computeTokenBudgetPanelLayout } from '../lib/tokenBudgetPanelLayout.js';
+import { VsIcon } from './Icon.jsx';
 
 const RING_COLOR = {
   safe: 'var(--ace-accent)',
@@ -9,10 +17,39 @@ const RING_COLOR = {
   unknown: 'var(--ace-fg-mute)',
 };
 
+const HOVER_CLOSE_DELAY_MS = 140;
+const FULL_CONTEXT_PANEL_WIDTH_PX = 420;
+const AGGREGATE_CONTEXT_PANEL_WIDTH_PX = 240;
+
+function panelGeometry(anchor, pointer = null, preferredWidth = FULL_CONTEXT_PANEL_WIDTH_PX) {
+  const host = anchor.closest('.ace-composer-card') || anchor;
+  const hostRect = host.getBoundingClientRect();
+  const anchorRect = anchor.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const pointerX = Number.isFinite(pointer?.x)
+    ? pointer.x
+    : anchorRect.left + (anchorRect.width / 2);
+  const pointerY = Number.isFinite(pointer?.y)
+    ? pointer.y
+    : anchorRect.top + (anchorRect.height / 2);
+
+  return computeTokenBudgetPanelLayout({
+    panelWidth: Math.min(hostRect.width, preferredWidth),
+    pointerX,
+    pointerY,
+    viewportWidth,
+    viewportHeight,
+  });
+}
+
 export function TokenBudgetRing({ budget, className = '' }) {
   const anchorRef = useRef(null);
-  const tooltipId = useId();
-  const [tip, setTip] = useState(null);
+  const panelRef = useRef(null);
+  const closeTimerRef = useRef(null);
+  const panelId = useId();
+  const titleId = useId();
+  const [panel, setPanel] = useState(null);
 
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
@@ -21,55 +58,71 @@ export function TokenBudgetRing({ budget, className = '' }) {
   const dashOffset = circumference * (1 - ratio);
   const color = RING_COLOR[budget?.severity] || RING_COLOR.unknown;
   const label = budget?.ariaLabel || budget?.title || 'Token usage unavailable';
-  const tooltipText = budget?.title || label;
+  const aggregateOnly = known && !budget?.breakdownKnown;
 
-  const showTip = useCallback((mode = 'hover') => {
-    if (!tooltipText) return;
-    const el = anchorRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const viewportWidth = window.innerWidth || 0;
-    const maxTipWidth = Math.min(320, Math.max(120, viewportWidth - 16));
-    const center = r.left + (r.width / 2);
-    const left = Math.round(Math.min(
-      viewportWidth - 8 - (maxTipWidth / 2),
-      Math.max(8 + (maxTipWidth / 2), center),
-    ));
-    const placement = r.top < 72 ? 'below' : 'above';
-    setTip({
-      mode,
-      placement,
-      left,
-      top: placement === 'below' ? Math.round(r.bottom + 6) : undefined,
-      bottom: placement === 'above' ? Math.round(window.innerHeight - r.top + 6) : undefined,
-    });
-  }, [tooltipText]);
-
-  const closeTip = useCallback(() => setTip(null), []);
-  const closeHoverTip = useCallback(() => {
-    setTip((current) => (current?.mode === 'click' ? current : null));
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
   }, []);
 
+  const closePanel = useCallback(() => {
+    clearCloseTimer();
+    setPanel(null);
+  }, [clearCloseTimer]);
+
+  const showPanel = useCallback((mode = 'hover', pointer = null) => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    clearCloseTimer();
+    const geometry = panelGeometry(
+      anchor,
+      pointer,
+      aggregateOnly
+        ? AGGREGATE_CONTEXT_PANEL_WIDTH_PX
+        : FULL_CONTEXT_PANEL_WIDTH_PX,
+    );
+    setPanel((current) => ({
+      ...geometry,
+      mode: current?.mode === 'click' && mode === 'hover' ? 'click' : mode,
+    }));
+  }, [aggregateOnly, clearCloseTimer]);
+
+  const scheduleHoverClose = useCallback(() => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setPanel((current) => (current?.mode === 'click' ? current : null));
+    }, HOVER_CLOSE_DELAY_MS);
+  }, [clearCloseTimer]);
+
+  useEffect(() => () => clearCloseTimer(), [clearCloseTimer]);
+
   useEffect(() => {
-    if (tip?.mode !== 'click') return undefined;
+    if (!panel) return undefined;
+
     const onPointerDown = (event) => {
       if (anchorRef.current?.contains(event.target)) return;
-      closeTip();
+      if (panelRef.current?.contains(event.target)) return;
+      closePanel();
     };
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') closeTip();
+      if (event.key === 'Escape') closePanel();
     };
+    const onViewportChange = () => closePanel();
+
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
-    window.addEventListener('resize', closeTip);
-    document.addEventListener('scroll', closeTip, true);
+    window.addEventListener('resize', onViewportChange);
+    document.addEventListener('scroll', onViewportChange, true);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('resize', closeTip);
-      document.removeEventListener('scroll', closeTip, true);
+      window.removeEventListener('resize', onViewportChange);
+      document.removeEventListener('scroll', onViewportChange, true);
     };
-  }, [closeTip, tip?.mode]);
+  }, [closePanel, panel]);
 
   if (!budget) return null;
 
@@ -77,20 +130,26 @@ export function TokenBudgetRing({ budget, className = '' }) {
     <button
       ref={anchorRef}
       type="button"
-      className={clsx('ace-token-budget-button inline-flex items-center justify-center w-4 h-4 shrink-0', className)}
+      className={clsx('ace-token-budget-button inline-flex items-center justify-center shrink-0', className)}
       aria-label={label}
-      aria-describedby={tip ? tooltipId : undefined}
-      onMouseEnter={() => showTip('hover')}
-      onMouseLeave={closeHoverTip}
-      onFocus={() => showTip('hover')}
-      onBlur={closeTip}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        showTip('click');
-      }}
+      aria-haspopup="dialog"
+      aria-expanded={!!panel}
+      aria-controls={panel ? panelId : undefined}
+      onMouseEnter={(event) => showPanel('hover', {
+        x: event.clientX,
+        y: event.clientY,
+      })}
+      onMouseLeave={scheduleHoverClose}
+      onFocus={() => showPanel('hover')}
+      onBlur={scheduleHoverClose}
       onClick={(event) => {
         event.stopPropagation();
-        showTip('click');
+        showPanel(
+          'click',
+          event.detail > 0
+            ? { x: event.clientX, y: event.clientY }
+            : null,
+        );
       }}
       data-token-budget-severity={budget?.severity || 'unknown'}
     >
@@ -130,21 +189,109 @@ export function TokenBudgetRing({ budget, className = '' }) {
           />
         )}
       </svg>
-      {tip
+      {panel
         ? createPortal(
-            <span
-              id={tooltipId}
-              className="ace-token-budget-tip"
-              role="tooltip"
-              data-placement={tip.placement}
+            <div
+              ref={panelRef}
+              id={panelId}
+              role="dialog"
+              aria-labelledby={aggregateOnly ? undefined : titleId}
+              aria-label={aggregateOnly ? label : undefined}
+              className={clsx(
+                'ace-context-usage-panel',
+                aggregateOnly && 'ace-context-usage-panel-aggregate',
+              )}
+              data-placement={panel.placement}
+              data-mode={panel.mode}
+              data-severity={budget?.severity || 'unknown'}
               style={{
-                left: tip.left,
-                top: tip.placement === 'below' ? tip.top : undefined,
-                bottom: tip.placement === 'above' ? tip.bottom : undefined,
+                left: panel.left,
+                width: panel.width,
+                maxHeight: panel.maxHeight,
+                top: panel.placement === 'below' ? panel.top : undefined,
+                bottom: panel.placement === 'above' ? panel.bottom : undefined,
               }}
+              onMouseEnter={clearCloseTimer}
+              onMouseLeave={scheduleHoverClose}
+              onFocusCapture={clearCloseTimer}
+              onBlurCapture={scheduleHoverClose}
+              onClick={(event) => event.stopPropagation()}
             >
-              {tooltipText}
-            </span>,
+              {aggregateOnly ? (
+                <div
+                  className="ace-context-usage-track ace-context-usage-track-aggregate"
+                  role="img"
+                  aria-label={`${budget.percent}% 已用`}
+                >
+                  <span
+                    className="ace-context-usage-segment"
+                    data-context-category="aggregate"
+                    style={{ width: `${ratio * 100}%` }}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="ace-context-usage-header">
+                    <div id={titleId} className="ace-context-usage-title">上下文用量</div>
+                    <button
+                      type="button"
+                      className="ace-context-usage-close"
+                      aria-label="关闭上下文用量"
+                      onClick={closePanel}
+                    >
+                      <VsIcon name="close" size={13} />
+                    </button>
+                  </div>
+
+                  {known ? (
+                    <>
+                      <div className="ace-context-usage-summary">
+                        <span>{budget.percent}% 已用</span>
+                        <span>
+                          {budget.compactUsedTokens} / {budget.compactLimitTokens} Tokens
+                        </span>
+                      </div>
+                      <div
+                        className="ace-context-usage-track"
+                        role="img"
+                        aria-label={`${budget.percent}% 已用`}
+                      >
+                        {budget.categories.map((category) => (
+                          <span
+                            key={category.key}
+                            className="ace-context-usage-segment"
+                            data-context-category={category.tone}
+                            style={{
+                              width: `${Math.min(1, Math.max(0, category.windowShare)) * 100}%`,
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="ace-context-usage-rows">
+                        {budget.categories.map((category) => (
+                          <div
+                            key={category.key}
+                            className="ace-context-usage-row"
+                            data-context-category={category.tone}
+                          >
+                            <span className="ace-context-usage-swatch" aria-hidden="true" />
+                          <span className="ace-context-usage-label">{category.label}</span>
+                          <span className="ace-context-usage-value">
+                            {category.compactTokens}
+                          </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="ace-context-usage-unavailable">
+                      {budget.title || '尚未收到 token 用量数据'}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>,
             document.body,
           )
         : null}

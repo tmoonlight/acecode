@@ -109,7 +109,8 @@ function ComposerSelectionCard({ item, pinned = false, onPin, onRemove }) {
 export const InputBar = forwardRef(function InputBar({
   disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, goal = null, goalStopping = false, history = [], variant = 'default',
   value: controlledValue, onChange,
-  attachments = [], contexts = [], onMediaFiles, onRemoveAttachment, onAddBrowserContext, onRemoveContext,
+  attachments = [], contexts = [], onMediaFiles, onRemoveAttachment, onRemoveContext,
+  expertOptions = [], selectedExpertId = '', selectedExpertName = '', onSelectExpert, onOpenExpertComponents,
   selectionPreview = null, onPinSelectionPreview,
   pathReferenceApi = null, cwd = '',
   sessionControls = null,
@@ -121,6 +122,7 @@ export const InputBar = forwardRef(function InputBar({
   const [editedSinceHistory, setEditedSinceHistory] = useState(false);
   const [dropdownClosed, setDropdownClosed] = useState(false); // Esc 关闭后,直到首段变化或重新输入 / 才重开
   const [capabilityOpen, setCapabilityOpen] = useState(false);
+  const [expertSubmenuOpen, setExpertSubmenuOpen] = useState(false);
   const [composerSelection, setComposerSelection] = useState({ start: 0, end: 0, direction: 'none' });
   const [composerComposing, setComposerComposing] = useState(false);
   const [pathMention, setPathMention] = useState(null);
@@ -147,12 +149,14 @@ export const InputBar = forwardRef(function InputBar({
   const textareaMaxHeight = LINE_HEIGHT * MAX_ROWS + textareaVerticalPadding;
   const attachmentItems = Array.isArray(attachments) ? attachments : [];
   const contextItems = Array.isArray(contexts) ? contexts : [];
+  const recentExpertItems = Array.isArray(expertOptions) ? expertOptions.slice(0, 5) : [];
   const selectionContextItems = contextItems.filter((item) => item?.type === SELECTION_CONTEXT_TYPE);
   const otherContextItems = contextItems.filter((item) => item?.type !== SELECTION_CONTEXT_TYPE);
   const hasExtras = attachmentItems.length > 0 || contextItems.length > 0;
   const nativeContextPickerAvailable = hasNativeContextPicker();
   const canChooseLocalContext = !!onMediaFiles || nativeContextPickerAvailable;
-  const hasCapabilityHandlers = canChooseLocalContext || !!onAddBrowserContext;
+  const hasExpertHandlers = !!onSelectExpert || !!onOpenExpertComponents;
+  const hasCapabilityHandlers = canChooseLocalContext || hasExpertHandlers;
   const isImageAttachment = (item) => String(item.kind || item.mime_type || '').startsWith('image');
   const imageAttachments = attachmentItems.filter(isImageAttachment);
   const fileAttachments = attachmentItems.filter((item) => !isImageAttachment(item));
@@ -344,10 +348,6 @@ export const InputBar = forwardRef(function InputBar({
     requestAnimationFrame(() => ta.current?.focus());
   };
 
-  const focusTextareaSoon = useCallback(() => {
-    requestAnimationFrame(() => ta.current?.focus());
-  }, []);
-
   const restorePathCaret = useCallback((cursor) => {
     requestAnimationFrame(() => {
       const editor = ta.current;
@@ -498,10 +498,17 @@ export const InputBar = forwardRef(function InputBar({
     addMediaFiles(files);
   };
 
-  const addBrowser = () => {
+  const selectExpert = (expert) => {
+    if (!expert?.id || !onSelectExpert) return;
     setCapabilityOpen(false);
-    onAddBrowserContext?.();
-    focusTextareaSoon();
+    setExpertSubmenuOpen(false);
+    onSelectExpert(expert);
+  };
+
+  const openMoreExperts = () => {
+    setCapabilityOpen(false);
+    setExpertSubmenuOpen(false);
+    onOpenExpertComponents?.();
   };
 
   const resetDragState = useCallback(() => {
@@ -554,6 +561,10 @@ export const InputBar = forwardRef(function InputBar({
   useEffect(() => {
     if (!hasCapabilityHandlers && capabilityOpen) setCapabilityOpen(false);
   }, [capabilityOpen, hasCapabilityHandlers]);
+
+  useEffect(() => {
+    if (!capabilityOpen) setExpertSubmenuOpen(false);
+  }, [capabilityOpen]);
 
   useEffect(() => {
     if (!capabilityOpen) return undefined;
@@ -638,24 +649,92 @@ export const InputBar = forwardRef(function InputBar({
         <VsIcon name="add" size={15} />
       </button>
       {capabilityOpen && hasCapabilityHandlers && (
-        <div className="absolute left-0 bottom-8 z-50 w-52 py-1 rounded-lg border border-border bg-surface ace-shadow">
+        <div
+          data-composer-capability-menu="true"
+          role="menu"
+          className="absolute left-0 bottom-8 z-50 w-52 py-1 rounded-lg border border-border bg-surface ace-shadow"
+        >
+          <div className="relative">
+            <button
+              type="button"
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={expertSubmenuOpen}
+              disabled={!hasExpertHandlers}
+              title={selectedExpertName ? `当前专家组件：${selectedExpertName}` : '选择专家组件'}
+              className="w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] text-fg hover:bg-surface-hi disabled:opacity-50"
+              onPointerEnter={() => setExpertSubmenuOpen(true)}
+              onClick={() => setExpertSubmenuOpen((open) => !open)}
+            >
+              <VsIcon name="brain" size={14} />
+              <span className="min-w-0 flex-1 truncate">专家组件</span>
+              <VsIcon name="expandRight" size={13} className="shrink-0 text-fg-mute" />
+            </button>
+
+            {expertSubmenuOpen && hasExpertHandlers && (
+              <div
+                data-expert-components-submenu="true"
+                role="menu"
+                aria-label="最近使用的专家组件"
+                className="absolute bottom-0 left-full ml-1 w-[440px] max-w-[calc(100vw-232px)] overflow-hidden rounded-lg border border-border bg-surface ace-shadow"
+              >
+                <div className="py-1">
+                  {recentExpertItems.map((expert) => {
+                    const selected = expert.id === selectedExpertId;
+                    return (
+                      <button
+                        key={expert.id}
+                        type="button"
+                        role="menuitem"
+                        data-expert-menu-item={expert.id}
+                        onClick={() => selectExpert(expert)}
+                        className={clsx(
+                          'grid h-9 w-full grid-cols-[16px_minmax(88px,148px)_minmax(0,1fr)] items-center gap-2 px-3 text-left transition-colors',
+                          selected ? 'bg-accent-bg text-accent' : 'text-fg hover:bg-surface-hi',
+                        )}
+                      >
+                        <VsIcon
+                          name={expert.type === 'team' ? 'extension' : 'brain'}
+                          size={15}
+                          className="shrink-0"
+                        />
+                        <span className="truncate text-[13px] font-medium">
+                          {expert.display_name || expert.id}
+                        </span>
+                        <span className="truncate text-[12px] text-fg-mute">
+                          {expert.description || expert.profession || '暂无简介'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-border py-1">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={openMoreExperts}
+                    className="flex h-9 w-full items-center gap-2 px-3 text-left text-[13px] text-fg-2 hover:bg-surface-hi"
+                  >
+                    <VsIcon name="extension" size={15} className="shrink-0" />
+                    <span>更多专家</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="my-1 border-t border-border" aria-hidden="true" />
+
           <button
             type="button"
+            role="menuitem"
             className="w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] text-fg hover:bg-surface-hi disabled:opacity-50"
+            onPointerEnter={() => setExpertSubmenuOpen(false)}
             onClick={chooseLocalContext}
             disabled={!canChooseLocalContext}
           >
-            <VsIcon name="openFile" size={14} />
-            <span>{nativeContextPickerAvailable ? '添加图片、文件或文件夹' : '添加图片或文件'}</span>
-          </button>
-          <button
-            type="button"
-            className="w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] text-fg hover:bg-surface-hi disabled:opacity-50"
-            onClick={addBrowser}
-            disabled={!onAddBrowserContext}
-          >
-            <VsIcon name="search" size={14} />
-            <span>浏览器</span>
+            <VsIcon name="folderOpen" size={14} />
+            <span>文件或文件夹</span>
           </button>
         </div>
       )}
@@ -905,6 +984,8 @@ export const InputBar = forwardRef(function InputBar({
           addControl={capabilityControl}
           contexts={inlineContextControls}
           actions={submitControls}
+          expertId={selectedExpertId}
+          expertName={selectedExpertName}
         />
       </div>
       <ImageLightbox preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />

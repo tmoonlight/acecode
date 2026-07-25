@@ -54,8 +54,8 @@ struct SessionMeta {
     // 子会话依然被识别为后台任务,而不是泄漏进侧栏。空时序列化省略。
     std::string parent_session_id;
 
-    // Immutable expert identity selected when the session was created. Member
-    // is non-empty only for a validated team sub-agent session.
+    // Current expert identity for this session. Normal conversations may switch
+    // it between turns; member is non-empty only for a validated team sub-agent.
     std::string expert_id;
     std::string expert_member_id;
 

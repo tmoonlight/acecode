@@ -3,6 +3,7 @@ import {
   builtinCommandRequestForText,
   desktopFeedbackRequestForText,
   inputRouteForText,
+  remoteControlSessionRefreshForCommand,
   sideQuestionRequestForText,
   sessionCreateOptionsForText,
   turnSteerRequestForText,
@@ -117,6 +118,34 @@ run('unknown slash input remains ordinary message route', () => {
     kind: 'message',
     text: '/foobar test',
   });
+});
+
+run('successful remote-control bind and off commands request a session-list refresh', () => {
+  assert.deepEqual(remoteControlSessionRefreshForCommand({
+    command: 'rc',
+    args: '',
+  }, 'session-1'), {
+    reason: 'remote-control-bound',
+    sessionId: 'session-1',
+  });
+  assert.deepEqual(remoteControlSessionRefreshForCommand({
+    name: 'remote-control',
+    args: ' off ',
+  }, 'session-2'), {
+    reason: 'remote-control-unbound',
+    sessionId: 'session-2',
+  });
+});
+
+run('remote-control show and unrelated commands do not request a binding refresh', () => {
+  assert.equal(remoteControlSessionRefreshForCommand({
+    command: 'rc',
+    args: 'show',
+  }, 'session-1'), null);
+  assert.equal(remoteControlSessionRefreshForCommand({
+    command: 'compact',
+    args: '',
+  }, 'session-1'), null);
 });
 
 run('home builtin session creation disables auto start', () => {

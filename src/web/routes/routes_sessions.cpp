@@ -1250,6 +1250,61 @@ void WebServer::Impl::register_sessions() {
             return with_cors(req, std::move(r));
         });
 
+        // PUT /api/sessions/:id/expert body {expert_id}: keep the current
+        // conversation and serialize the expert/Skill update between turns.
+        CROW_ROUTE(app, "/api/sessions/<string>/expert").methods(crow::HTTPMethod::PUT)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.session_registry) {
+                crow::response r(503);
+                r.body = R"({"error":"session registry unavailable"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            std::string expert_id;
+            try {
+                auto body = json::parse(req.body);
+                if (body.is_object() &&
+                    body.contains("expert_id") &&
+                    body["expert_id"].is_string()) {
+                    expert_id = body["expert_id"].get<std::string>();
+                }
+            } catch (const std::exception& e) {
+                crow::response r(400);
+                r.body = json{{"error", std::string("bad json: ") + e.what()}}.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            if (expert_id.empty()) {
+                crow::response r(400);
+                r.body = R"({"error":"expert_id is required"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            auto result = deps.session_registry->switch_expert(id, expert_id);
+            if (result.status != ExpertSwitchStatus::Accepted || !result.expert) {
+                int status = 500;
+                if (result.status == ExpertSwitchStatus::UnknownSession) status = 404;
+                if (result.status == ExpertSwitchStatus::UnknownExpert) status = 400;
+                crow::response r(status);
+                r.body = json{{
+                    "error",
+                    result.error.empty() ? "failed to switch expert" : result.error,
+                }}.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            json payload = expert_definition_to_json(*result.expert, false);
+            payload["queued"] = true;
+            crow::response r(payload.dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
         // GET /api/sessions/:id/permissions: current active session permission mode.
         CROW_ROUTE(app, "/api/sessions/<string>/permissions").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req, const std::string& id) {

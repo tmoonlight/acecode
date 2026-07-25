@@ -60,11 +60,13 @@ import {
 import { PERMISSION_MODES, normalizePermissionMode } from '../lib/permissionMode.js';
 import { sessionDisplayTitle } from '../lib/sessionTitle.js';
 import {
+  allArchivedSessionsSelected,
   archivedSessionKey,
   archivedSessionTarget,
   removeArchivedSessionsByKey,
   selectedArchivedSessions,
   shouldToggleArchivedSessionRow,
+  toggleAllArchivedSessionSelection,
 } from '../lib/archivedSessions.js';
 import { formatUsageTokens, normalizeUsageStats, usageDataNote } from '../lib/usageStats.js';
 import {
@@ -2429,6 +2431,7 @@ function SectionArchived() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [unarchivingKeys, setUnarchivingKeys] = useState(() => new Set());
   const [deletingKeys, setDeletingKeys] = useState(() => new Set());
   const [purgeConfirmation, setPurgeConfirmation] = useState(null);
 
@@ -2465,6 +2468,11 @@ function SectionArchived() {
     () => selectedArchivedSessions(list, selectedKeys),
     [list, selectedKeys],
   );
+  const allSelected = useMemo(
+    () => allArchivedSessionsSelected(list, selectedKeys),
+    [list, selectedKeys],
+  );
+  const operationBusy = unarchivingKeys.size > 0 || deletingKeys.size > 0;
 
   const removeSelectionKeys = (removedKeys) => {
     setSelectedKeys((previous) => {
@@ -2474,9 +2482,16 @@ function SectionArchived() {
     });
   };
 
+  const toggleAllSelected = () => {
+    if (operationBusy) return;
+    setSelectedKeys((previous) => (
+      toggleAllArchivedSessionSelection(list, previous)
+    ));
+  };
+
   const toggleSelected = (item) => {
     const key = archivedSessionKey(item);
-    if (!key || deletingKeys.has(key)) return;
+    if (!key || unarchivingKeys.has(key) || deletingKeys.has(key)) return;
     setSelectedKeys((previous) => {
       const next = new Set(previous);
       if (next.has(key)) next.delete(key);
@@ -2485,28 +2500,89 @@ function SectionArchived() {
     });
   };
 
-  const unarchive = async (item) => {
-    const { id, workspaceHash, key } = archivedSessionTarget(item);
-    if (!id) return;
+  const unarchiveArchivedItems = async (items, { batch = false } = {}) => {
+    const targets = items
+      .map((item) => ({ item, ...archivedSessionTarget(item) }))
+      .filter((target) => (
+        target.id
+        && target.key
+        && !unarchivingKeys.has(target.key)
+        && !deletingKeys.has(target.key)
+      ));
+    if (targets.length === 0) return;
+
+    const targetKeys = targets.map((target) => target.key);
+    setUnarchivingKeys((previous) => {
+      const next = new Set(previous);
+      for (const key of targetKeys) next.add(key);
+      return next;
+    });
+
     try {
-      if (workspaceHash && workspaceHash !== '__local__') {
-        await api.unarchiveWorkspaceSession(workspaceHash, id);
-      } else {
-        await api.unarchiveSession(id);
+      const results = await Promise.allSettled(targets.map((target) => {
+        if (target.workspaceHash && target.workspaceHash !== '__local__') {
+          return api.unarchiveWorkspaceSession(target.workspaceHash, target.id);
+        }
+        return api.unarchiveSession(target.id);
+      }));
+      const succeeded = new Set();
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') succeeded.add(targets[index].key);
+      });
+      const successCount = succeeded.size;
+      const failedCount = targets.length - successCount;
+
+      if (successCount > 0) {
+        setList((previous) => removeArchivedSessionsByKey(previous, succeeded));
+        removeSelectionKeys(succeeded);
+        window.dispatchEvent(new Event('ace-session-archive-changed'));
       }
-      setList((previous) => removeArchivedSessionsByKey(previous, new Set([key])));
-      removeSelectionKeys([key]);
-      window.dispatchEvent(new Event('ace-session-archive-changed'));
-      toast({ kind: 'ok', text: '已取消归档' });
-    } catch (e) {
-      toast({ kind: 'err', text: '取消归档失败:' + (e.message || '') });
+
+      if (batch) {
+        if (failedCount === 0) {
+          toast({ kind: 'ok', text: `已取消 ${successCount} 个会话的归档` });
+        } else {
+          toast({
+            kind: 'err',
+            text: `已取消 ${successCount} 个会话的归档，${failedCount} 个失败`,
+          });
+        }
+      } else if (failedCount === 0) {
+        toast({ kind: 'ok', text: '已取消归档' });
+      } else {
+        const failure = results.find((result) => result.status === 'rejected');
+        toast({
+          kind: 'err',
+          text: '取消归档失败:' + (failure?.reason?.message || ''),
+        });
+      }
+    } finally {
+      setUnarchivingKeys((previous) => {
+        const next = new Set(previous);
+        for (const key of targetKeys) next.delete(key);
+        return next;
+      });
     }
+  };
+
+  const unarchive = (item) => {
+    void unarchiveArchivedItems([item]);
+  };
+
+  const unarchiveSelected = () => {
+    if (selectedItems.length === 0 || operationBusy) return;
+    void unarchiveArchivedItems([...selectedItems], { batch: true });
   };
 
   const purgeArchivedItems = async (items, { batch = false } = {}) => {
     const targets = items
       .map((item) => ({ item, ...archivedSessionTarget(item) }))
-      .filter((target) => target.id && target.key);
+      .filter((target) => (
+        target.id
+        && target.key
+        && !unarchivingKeys.has(target.key)
+        && !deletingKeys.has(target.key)
+      ));
     if (targets.length === 0) return;
 
     const targetKeys = targets.map((target) => target.key);
@@ -2574,7 +2650,7 @@ function SectionArchived() {
   };
 
   const purgeSelected = () => {
-    if (selectedItems.length === 0) return;
+    if (selectedItems.length === 0 || operationBusy) return;
     setPurgeConfirmation({
       title: '彻底删除选中的会话',
       message: `彻底删除选中的 ${selectedItems.length} 个会话？此操作不可撤销。`,
@@ -2589,10 +2665,6 @@ function SectionArchived() {
     setPurgeConfirmation(null);
     void purgeArchivedItems(pending.items, { batch: pending.batch });
   };
-
-  const selectedDeletionBusy = selectedItems.some((item) => (
-    deletingKeys.has(archivedSessionKey(item))
-  ));
 
   return (
     <>
@@ -2619,7 +2691,9 @@ function SectionArchived() {
             const target = archivedSessionTarget(item);
             const title = sessionDisplayTitle(item, item.name || '');
             const selected = selectedKeys.has(target.key);
+            const unarchiving = unarchivingKeys.has(target.key);
             const deleting = deletingKeys.has(target.key);
+            const busy = unarchiving || deleting;
             return (
               <div
                 key={target.key || item.id}
@@ -2628,7 +2702,7 @@ function SectionArchived() {
                 }}
                 className={clsx(
                   'flex items-center gap-3 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 transition',
-                  deleting
+                  busy
                     ? 'cursor-wait opacity-60'
                     : 'cursor-pointer hover:bg-surface-hi',
                 )}
@@ -2636,7 +2710,7 @@ function SectionArchived() {
                 <input
                   type="checkbox"
                   checked={selected}
-                  disabled={deleting}
+                  disabled={busy}
                   onChange={() => toggleSelected(item)}
                   aria-label={`选择会话 ${title || '未命名会话'}`}
                   className="h-4 w-4 shrink-0 accent-accent disabled:opacity-60"
@@ -2651,15 +2725,15 @@ function SectionArchived() {
                   <button
                     type="button"
                     onClick={() => unarchive(item)}
-                    disabled={deleting}
+                    disabled={busy}
                     className="px-3 py-1 rounded-md text-[12px] text-fg-2 bg-surface-hi hover:bg-surface-alt border border-border transition disabled:opacity-60"
                   >
-                    取消归档
+                    {unarchiving ? '取消中' : '取消归档'}
                   </button>
                   <button
                     type="button"
                     onClick={() => purgeOne(item)}
-                    disabled={deleting}
+                    disabled={busy}
                     className="px-3 py-1 rounded-md text-[12px] text-danger bg-danger-bg hover:opacity-80 border border-danger/40 transition disabled:opacity-60"
                   >
                     {deleting ? '删除中' : '彻底删除'}
@@ -2668,14 +2742,30 @@ function SectionArchived() {
               </div>
             );
           })}
-          <div className="mt-3 flex">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleAllSelected}
+              disabled={operationBusy}
+              className="inline-flex w-fit items-center justify-center px-3 py-1 rounded-md text-[12px] text-fg-2 bg-surface-hi hover:bg-surface-alt border border-border transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {allSelected ? '全不选' : '全选'}
+            </button>
+            <button
+              type="button"
+              onClick={unarchiveSelected}
+              disabled={selectedItems.length === 0 || operationBusy}
+              className="inline-flex w-fit items-center justify-center px-3 py-1 rounded-md text-[12px] text-fg-2 bg-surface-hi hover:bg-surface-alt border border-border transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              取消选中会话的归档
+            </button>
             <button
               type="button"
               onClick={purgeSelected}
-              disabled={selectedItems.length === 0 || selectedDeletionBusy}
+              disabled={selectedItems.length === 0 || operationBusy}
               className="inline-flex w-fit items-center justify-center px-3 py-1 rounded-md text-[12px] text-danger bg-danger-bg hover:opacity-80 border border-danger/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              删除选中的所有会话
+              删除选中会话
             </button>
           </div>
         </>

@@ -224,6 +224,13 @@ export function createApi(base = null) {
       request('PUT', sessionDraftPath(id, workspaceHash), { text }, base),
     setSessionTitle:  (id, title = '', workspaceHash = '') =>
       request('PUT', sessionTitlePath(id, workspaceHash), { title }, base),
+    setSessionExpert: (id, expertId) =>
+      request(
+        'PUT',
+        `/api/sessions/${encodeURIComponent(id)}/expert`,
+        { expert_id: expertId },
+        base,
+      ),
     clearSessionTodos: (id, workspaceHash = '') =>
       request('DELETE', sessionTodosPath(id, workspaceHash), undefined, base),
     sendInput:        (id, payload)  => {

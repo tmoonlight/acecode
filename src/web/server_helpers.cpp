@@ -5,6 +5,7 @@
 
 #include "server_impl.hpp"
 #include "session_status_routing.hpp"
+#include "../prompt/context_usage_breakdown.hpp"
 #include "../session/session_user_message_search.hpp"
 
 namespace acecode::web {
@@ -537,11 +538,12 @@ bool WebServer::Impl::token_usage_has_values(const TokenUsage& usage) {
            usage.total_tokens != 0 ||
            usage.cache_read_tokens != 0 ||
            usage.cache_write_tokens != 0 ||
-           usage.reasoning_tokens != 0;
+           usage.reasoning_tokens != 0 ||
+           usage.context_breakdown.has_data;
 }
 
 json WebServer::Impl::token_usage_to_json(const TokenUsage& usage) {
-    return json{
+    json value = {
         {"prompt_tokens", usage.prompt_tokens},
         {"completion_tokens", usage.completion_tokens},
         {"total_tokens", usage.total_tokens},
@@ -550,6 +552,11 @@ json WebServer::Impl::token_usage_to_json(const TokenUsage& usage) {
         {"reasoning_tokens", usage.reasoning_tokens},
         {"has_data", usage.has_data},
     };
+    if (usage.context_breakdown.has_data) {
+        value["context_breakdown"] =
+            context_usage_breakdown_to_json(usage.context_breakdown);
+    }
+    return value;
 }
 
 json WebServer::Impl::token_usage_or_null(const TokenUsage& usage) {
@@ -887,6 +894,20 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
         if (m.archived != archived_only) continue;
         if (m.no_workspace && !include_no_workspace) continue;
         arr.push_back(session_meta_to_json(m, m.no_workspace ? std::string{} : ws.hash));
+    }
+
+    // Desktop 的 /rc 会话背景以 daemon 持久化绑定为权威。只在锁内快照
+    // session id，随后再标注列表，避免序列化每一项时重复持锁，也绝不把
+    // remote-control token / channel 配置暴露给前端。
+    std::string remote_control_session_id;
+    if (deps.app_config) {
+        std::lock_guard<std::mutex> config_lock(app_config_mu);
+        remote_control_session_id = deps.app_config->remote_control.bound_session_id;
+    }
+    for (auto& item : arr) {
+        item["remote_control_bound"] =
+            !remote_control_session_id.empty() &&
+            item.value("id", std::string{}) == remote_control_session_id;
     }
     return arr;
 }

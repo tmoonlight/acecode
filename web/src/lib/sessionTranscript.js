@@ -41,7 +41,11 @@ function cloneTurnTimings(turnTimings) {
 
 function cloneTokenUsage(tokenUsage) {
   if (!tokenUsage || typeof tokenUsage !== 'object') return null;
-  return { ...tokenUsage };
+  const cloned = { ...tokenUsage };
+  if (tokenUsage.contextBreakdown && typeof tokenUsage.contextBreakdown === 'object') {
+    cloned.contextBreakdown = { ...tokenUsage.contextBreakdown };
+  }
+  return cloned;
 }
 
 function cloneGoal(goal) {
@@ -117,15 +121,35 @@ function readUsageInt(payload, snakeKey, camelKey) {
   return Math.max(0, Math.trunc(value));
 }
 
+function normalizeContextBreakdown(payload) {
+  const raw = payload?.context_breakdown ?? payload?.contextBreakdown;
+  if (!raw || typeof raw !== 'object') return null;
+  const hasData = raw.has_data === true || raw.hasData === true;
+  if (!hasData) return null;
+  return {
+    systemPrompt: readUsageInt(raw, 'system_prompt', 'systemPrompt'),
+    projectRules: readUsageInt(raw, 'project_rules', 'projectRules'),
+    skills: readUsageInt(raw, 'skills', 'skills'),
+    builtinTools: readUsageInt(raw, 'builtin_tools', 'builtinTools'),
+    mcpTools: readUsageInt(raw, 'mcp_tools', 'mcpTools'),
+    conversation: readUsageInt(raw, 'conversation', 'conversation'),
+    dynamicContext: readUsageInt(raw, 'dynamic_context', 'dynamicContext'),
+    hasData: true,
+  };
+}
+
 function normalizeUsagePayload(payload, timestampMs) {
   const hasDataRaw = payload?.has_data ?? payload?.hasData;
-  return {
+  const normalized = {
     promptTokens: readUsageInt(payload, 'prompt_tokens', 'promptTokens'),
     completionTokens: readUsageInt(payload, 'completion_tokens', 'completionTokens'),
     totalTokens: readUsageInt(payload, 'total_tokens', 'totalTokens'),
     hasData: hasDataRaw === true,
     timestampMs: Number(timestampMs) || Date.now(),
   };
+  const contextBreakdown = normalizeContextBreakdown(payload);
+  if (contextBreakdown) normalized.contextBreakdown = contextBreakdown;
+  return normalized;
 }
 
 function allocateItemId(state) {

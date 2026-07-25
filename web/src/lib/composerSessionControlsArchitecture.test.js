@@ -90,6 +90,10 @@ run('composer footer preserves required left-to-right control order', () => {
     'data-composer-control="model"',
     'data-composer-control="submit"',
   ]);
+  assert.match(footer, /\{expertName && \(/);
+  assert.match(footer, /data-composer-control="expert"[\s\S]*role="status"/);
+  assert.match(footer, /当前专家组件：\$\{expertName\}/);
+  assert.doesNotMatch(footer, /openMenu === 'expert'|onExpertChange|expertLocked/);
 });
 
 run('selected contexts remain accessible while the composer footer stays on one row', () => {

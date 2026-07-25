@@ -159,6 +159,12 @@ public:
     // turns so transcript mutation cannot race an active model run.
     void submit_compact();
 
+    // Queue a runtime-context update on the same worker as chat turns. The
+    // callback runs between already-queued and subsequently-queued turns, so an
+    // in-flight turn keeps its current context while the next turn sees the
+    // update.
+    void enqueue_control(std::function<void()> control);
+
     // Emit a visible system message without adding it to LLM history. Used by
     // daemon-owned builtin commands for TUI-like progress and fallback output.
     void emit_system_message(const std::string& content);
@@ -423,6 +429,7 @@ private:
     struct ApiRequestBundle {
         std::vector<ChatMessage> messages_with_system;
         std::vector<ToolDef> tool_defs;
+        ContextUsageBreakdown context_usage_estimate;
         nlohmann::json prompt_diag; // simplified: store as raw json
     };
     ApiRequestBundle build_api_request_messages();
@@ -482,7 +489,7 @@ private:
         std::chrono::steady_clock::time_point& last_progress_emit_at);
 
     struct WorkerTask {
-        enum class Kind { Chat, Shell, Compact };
+        enum class Kind { Chat, Shell, Compact, Control };
         Kind kind = Kind::Chat;
         std::string payload;
         UserInput input;
@@ -491,6 +498,7 @@ private:
         // LLM 看到同一份(payload)。
         std::string display_text;
         bool hidden_goal_context = false;
+        std::function<void()> control;
     };
 
     ProviderAccessor provider_accessor_;

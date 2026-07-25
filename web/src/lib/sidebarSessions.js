@@ -65,6 +65,10 @@ export function sidebarSessionMarker(session = {}) {
   return sidebarSessionHasWorktree(session) ? 'worktree' : '';
 }
 
+export function shouldStartRemoteControlSurge(previousBound, nextBound) {
+  return !Boolean(previousBound) && Boolean(nextBound);
+}
+
 export function expandedSessionListsAfterWorkspaceCollapseAll(
   currentExpanded = new Set(),
   workspaces = [],

@@ -31,6 +31,12 @@ import { sessionDisplayTitle } from './lib/sessionTitle.js';
 import { notifySessionListChanged } from './lib/sessionListEvents.js';
 import { usePreference } from './lib/usePreference.js';
 import {
+  DEFAULT_RECENT_EXPERT_IDS,
+  RECENT_EXPERTS_STORAGE_KEY,
+  recordRecentExpert,
+  validateRecentExpertIds,
+} from './lib/recentExperts.js';
+import {
   DEFAULT_UI_PREFS,
   DEFAULT_FONT_SIZE,
   effectiveFontSize,
@@ -180,6 +186,16 @@ export function App() {
     UI_PREFS_STORAGE_KEY, DEFAULT_UI_PREFS, validateUiPrefs);
   const [consoleDock, setConsoleDock] = usePreference(
     CONSOLE_DOCK_STORAGE_KEY, DEFAULT_CONSOLE_DOCK, validateConsoleDock);
+  const [recentExpertIds, setRecentExpertIds] = usePreference(
+    RECENT_EXPERTS_STORAGE_KEY,
+    DEFAULT_RECENT_EXPERT_IDS,
+    validateRecentExpertIds,
+  );
+  const rememberRecentExpert = useCallback((expertOrId) => {
+    const id = typeof expertOrId === 'string' ? expertOrId : expertOrId?.id;
+    if (!id) return;
+    setRecentExpertIds((current) => recordRecentExpert(current, id));
+  }, [setRecentExpertIds]);
   // grid4/grid9 入口暂时隐藏:主界面固定单会话,避免旧 localStorage 把用户卡在未完善视图。
   const view = 'single';
   const fontSize = effectiveFontSize(uiPrefs);
@@ -247,6 +263,15 @@ export function App() {
     document.documentElement.setAttribute('data-font-size', fontSize);
   }, [fontSize]);
   useEffect(() => { activeRefRef.current = activeRef; }, [activeRef]);
+  useEffect(() => {
+    const expertId = activeRef?.expertId || activeRef?.expert_id || activeRef?.expert?.id || '';
+    if (expertId) rememberRecentExpert(expertId);
+  }, [
+    activeRef?.expert?.id,
+    activeRef?.expertId,
+    activeRef?.expert_id,
+    rememberRecentExpert,
+  ]);
   useEffect(() => { healthRef.current = health; }, [health]);
   useEffect(() => { subagentIndexRef.current = subagentIndex; }, [subagentIndex]);
   useEffect(() => { subagentDirectoryRef.current = subagentDirectory; }, [subagentDirectory]);
@@ -1021,13 +1046,28 @@ export function App() {
   }, [health, navigateToRef]);
 
   const useExpertForNewTask = useCallback((expert) => {
+    rememberRecentExpert(expert);
     const current = activeRefRef.current || {};
     navigateToRef({
       ...homeRefFromWorkspace(current, current, health),
       expertId: expert?.id || '',
       expert: expert || null,
     });
-  }, [health, navigateToRef]);
+  }, [health, navigateToRef, rememberRecentExpert]);
+
+  const replaceActiveSessionExpert = useCallback((sessionId, expert) => {
+    const expertId = String(expert?.id || '');
+    if (!sessionId || !expertId) return;
+    replaceActiveRef((current) => {
+      if (sessionJumpId(current) !== sessionId) return current;
+      return {
+        ...current,
+        expertId,
+        expert_id: expertId,
+        expert,
+      };
+    });
+  }, [replaceActiveRef]);
 
   const replaceHomeWorkspace = useCallback((workspace) => {
     replaceActiveRef((current) => homeRefFromWorkspace(workspace, current, health));
@@ -1500,6 +1540,7 @@ export function App() {
                 sessionRef={activeRef}
                 modelProfileRevision={modelProfileRevision}
                 onSessionPromoted={navigateToRef}
+                onSessionExpertChanged={replaceActiveSessionExpert}
                 onHomeWorkspaceChange={replaceHomeWorkspace}
                 onCommandWorkspaceChange={setCommandWorkspaceHash}
                 onConsoleCwdChange={setConsoleCwd}
@@ -1527,6 +1568,9 @@ export function App() {
                 questionRequest={visibleQuestionReq}
                 onQuestionResolve={resolveVisibleQuestion}
                 onSubagentTasksChange={handleSubagentTasksChange}
+                recentExpertIds={recentExpertIds}
+                onRememberExpert={rememberRecentExpert}
+                onOpenExpertComponents={openExpertComponents}
               />
             )}
           </div>

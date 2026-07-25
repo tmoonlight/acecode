@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { normalizeTokenBudget } from './tokenBudget.js';
+import {
+  formatCompactTokenCount,
+  normalizeTokenBudget,
+} from './tokenBudget.js';
 
 function run(name, fn) {
   try {
@@ -71,4 +74,75 @@ run('severity 阈值仅按 prompt token 已用比例计算', () => {
   assert.equal(normalizeTokenBudget({ usage: { promptTokens: 89600, hasData: true }, contextWindow: 128000 }).severity, 'warning');
   assert.equal(normalizeTokenBudget({ usage: { promptTokens: 96000, hasData: true }, contextWindow: 128000 }).severity, 'warning');
   assert.equal(normalizeTokenBudget({ usage: { promptTokens: 115200, hasData: true }, contextWindow: 128000 }).severity, 'danger');
+});
+
+run('分类明细按 provider prompt_tokens 校准且稳定排序', () => {
+  const budget = normalizeTokenBudget({
+    usage: {
+      promptTokens: 44100,
+      completionTokens: 500,
+      totalTokens: 44600,
+      hasData: true,
+      contextBreakdown: {
+        systemPrompt: 10,
+        projectRules: 20,
+        skills: 30,
+        builtinTools: 40,
+        mcpTools: 50,
+        conversation: 60,
+        dynamicContext: 70,
+        hasData: true,
+      },
+    },
+    contextWindow: 256000,
+  });
+
+  assert.equal(budget.breakdownKnown, true);
+  assert.equal(budget.categories.length, 7);
+  assert.deepEqual(
+    budget.categories.map(({ key }) => key),
+    ['systemPrompt', 'projectRules', 'skills', 'builtinTools', 'mcpTools', 'conversation', 'dynamicContext'],
+  );
+  assert.equal(
+    budget.categories.reduce((sum, category) => sum + category.tokens, 0),
+    44100,
+  );
+  assert.equal(
+    budget.categories.reduce((sum, category) => sum + category.windowShare, 0),
+    budget.usedRatio,
+  );
+});
+
+run('legacy usage 保留总量但分类明细不可用', () => {
+  const budget = normalizeTokenBudget({
+    usage: { promptTokens: 8000, hasData: true },
+    contextWindow: 128000,
+  });
+  assert.equal(budget.known, true);
+  assert.equal(budget.breakdownKnown, false);
+  assert.deepEqual(budget.categories, []);
+});
+
+run('空分类权重回退到对话分类', () => {
+  const budget = normalizeTokenBudget({
+    usage: {
+      prompt_tokens: 8000,
+      has_data: true,
+      context_breakdown: { has_data: true },
+    },
+    contextWindow: 128000,
+  });
+  assert.equal(budget.breakdownKnown, true);
+  assert.equal(
+    budget.categories.find(({ key }) => key === 'conversation').tokens,
+    8000,
+  );
+});
+
+run('token 紧凑格式避免无意义小数', () => {
+  assert.equal(formatCompactTokenCount(478), '478');
+  assert.equal(formatCompactTokenCount(9900), '9.9K');
+  assert.equal(formatCompactTokenCount(44100), '44.1K');
+  assert.equal(formatCompactTokenCount(256000), '256K');
+  assert.equal(formatCompactTokenCount(1250000), '1.3M');
 });

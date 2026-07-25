@@ -169,7 +169,7 @@ public:
     void set_parent_session_id(std::string parent_id);
     std::string current_parent_session_id() const;
 
-    // Persist the immutable expert identity selected for this session.
+    // Persist the current expert identity selected for this session.
     void set_expert_binding(std::string expert_id, std::string member_id = {});
     std::string current_expert_id() const;
     std::string current_expert_member_id() const;

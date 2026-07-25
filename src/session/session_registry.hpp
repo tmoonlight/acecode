@@ -85,7 +85,7 @@ struct SessionEntry {
         std::shared_ptr<LlmProvider> provider;
     };
     std::shared_ptr<ProviderSlot> provider_slot;
-    std::unique_ptr<SkillRegistry>       skill_registry;
+    std::shared_ptr<SkillRegistry>       skill_registry;
     std::unique_ptr<SessionManager>     sm;
     std::unique_ptr<PermissionManager>  perm;
     std::unique_ptr<AgentLoop>           loop;
@@ -128,6 +128,19 @@ struct SessionRegistryDeps {
     // configured model provider.
     std::function<std::optional<std::string>(const std::string&)>
                                      auto_title_generator;
+};
+
+enum class ExpertSwitchStatus {
+    Accepted,
+    UnknownSession,
+    UnknownExpert,
+    Failed,
+};
+
+struct ExpertSwitchResult {
+    ExpertSwitchStatus status = ExpertSwitchStatus::Failed;
+    std::optional<ExpertDefinition> expert;
+    std::string error;
 };
 
 class SessionRegistry {
@@ -180,6 +193,12 @@ public:
     // session-scoped so Web UI changes do not affect unrelated sessions.
     std::optional<PermissionMode> permission_mode(const std::string& id) const;
     bool set_permission_mode(const std::string& id, PermissionMode mode);
+
+    // Validate and queue an expert binding update on the session's AgentLoop.
+    // The update is serialized with chat turns, persists to session metadata,
+    // and rebuilds the component-scoped Skill registry before later turns run.
+    ExpertSwitchResult switch_expert(const std::string& id,
+                                     const std::string& expert_id);
 
     // Fire-and-forget hidden title generation for the first visible user input.
     // It never writes to transcript or blocks send_input.

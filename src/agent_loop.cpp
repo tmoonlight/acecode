@@ -1,6 +1,7 @@
 #include "agent_loop.hpp"
 #include "agent_loop_doom_guard.hpp"
 #include "agent_loop_shell_guard.hpp"
+#include "prompt/context_usage_breakdown.hpp"
 #include "prompt/system_prompt.hpp"
 #include "gitinfo/git_context_collector.hpp"
 #include "utils/encoding.hpp"
@@ -146,7 +147,7 @@ nlohmann::json provider_error_to_json(const ProviderErrorInfo& info) {
 }
 
 nlohmann::json model_step_usage_to_json(const TokenUsage& usage) {
-    return nlohmann::json{
+    nlohmann::json value = {
         {"prompt_tokens", usage.prompt_tokens},
         {"completion_tokens", usage.completion_tokens},
         {"total_tokens", usage.total_tokens},
@@ -155,6 +156,11 @@ nlohmann::json model_step_usage_to_json(const TokenUsage& usage) {
         {"reasoning_tokens", usage.reasoning_tokens},
         {"has_data", usage.has_data},
     };
+    if (usage.context_breakdown.has_data) {
+        value["context_breakdown"] =
+            context_usage_breakdown_to_json(usage.context_breakdown);
+    }
+    return value;
 }
 
 std::string provider_error_summary_for_log(const ProviderErrorInfo& info) {
@@ -635,6 +641,9 @@ void AgentLoop::worker_main() {
         case WorkerTask::Kind::Compact:
             run_compact();
             break;
+        case WorkerTask::Kind::Control:
+            if (task.control) task.control();
+            break;
         }
     }
 }
@@ -658,6 +667,18 @@ void AgentLoop::submit(const UserInput& input) {
         task.kind = WorkerTask::Kind::Chat;
         task.input = input;
         task.hidden_goal_context = false;
+        task_queue_.push(std::move(task));
+    }
+    queue_cv_.notify_one();
+}
+
+void AgentLoop::enqueue_control(std::function<void()> control) {
+    if (!control) return;
+    {
+        std::lock_guard<std::mutex> lk(queue_mu_);
+        WorkerTask task;
+        task.kind = WorkerTask::Kind::Control;
+        task.control = std::move(control);
         task_queue_.push(std::move(task));
     }
     queue_cv_.notify_one();
@@ -1636,6 +1657,10 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     }
     LOG_DEBUG("System prompt length: " + std::to_string(system_prompt.size()));
     bundle.tool_defs = tools_.get_tool_definitions();
+    const auto builtin_tool_defs =
+        tools_.get_tool_definitions_by_source(ToolSource::Builtin);
+    const auto mcp_tool_defs =
+        tools_.get_tool_definitions_by_source(ToolSource::Mcp);
     LOG_DEBUG("Registered tools: " + std::to_string(bundle.tool_defs.size()));
 
     // gitStatus 快照:每会话激活惰性采集一次,cwd 切换或外部失效(Web UI
@@ -1655,12 +1680,14 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
 
     // Prepare provider-facing messages with system prompt at front.
     auto api_messages = provider_relevant_messages(messages_);
+    PromptContextCategoryBytes context_category_bytes;
     std::string session_context = cached_context_for_api(
         build_session_context_prompt(
             cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
             skill_registry_, context_window_.load(std::memory_order_relaxed),
             custom_instructions_cfg_,
-            *git_snapshot_cache_, expert_, expert_member_id_),
+            *git_snapshot_cache_, expert_, expert_member_id_,
+            &context_category_bytes),
         session_context_cache_key_, session_context_cache_content_);
     std::vector<ChatMessage> mutable_context_messages;
     append_request_context_for_api(mutable_context_messages, session_context);
@@ -1676,6 +1703,16 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     std::vector<TodoItem> todo_context_items =
         session_manager_ ? session_manager_->current_todos() : std::vector<TodoItem>{};
     append_todo_context_for_api(mutable_context_messages, todo_context_items);
+
+    bundle.context_usage_estimate = estimate_context_usage_breakdown(
+        system_prompt,
+        api_messages,
+        mutable_context_messages,
+        context_category_bytes.project_rules,
+        context_category_bytes.skills,
+        builtin_tool_defs,
+        mcp_tool_defs);
+
     insert_context_before_last_real_user_or_summary(
         api_messages, std::move(mutable_context_messages));
 
@@ -1807,7 +1844,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
     std::size_t reasoning_bytes = 0;
     int reasoning_fragments = 0;
 
-    auto stream_callback = [&result, &resp_mu, &emit_progress,
+    auto stream_callback = [&result, &resp_mu, &emit_progress, &bundle,
                             &reasoning_bytes, &reasoning_fragments,
                             this](const StreamEvent& evt) {
         switch (evt.type) {
@@ -1859,35 +1896,34 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
                 result.accumulated.finish_reason = evt.finish_reason;
             }
             break;
-        case StreamEventType::Usage:
+        case StreamEventType::Usage: {
+            TokenUsage usage = evt.usage;
+            usage.context_breakdown = reconcile_context_usage_breakdown(
+                bundle.context_usage_estimate,
+                usage.prompt_tokens);
             last_api_total_tokens_.store(
-                evt.usage.total_tokens > 0
-                    ? evt.usage.total_tokens
-                    : evt.usage.prompt_tokens,
+                usage.total_tokens > 0
+                    ? usage.total_tokens
+                    : usage.prompt_tokens,
                 std::memory_order_relaxed);
             {
                 std::lock_guard<std::mutex> lk(resp_mu);
-                result.accumulated.usage = evt.usage;
+                result.accumulated.usage = usage;
             }
-            if (evt.usage.has_data) {
-                account_goal_usage(evt.usage.total_tokens, false);
+            if (usage.has_data) {
+                account_goal_usage(usage.total_tokens, false);
             }
             if (callbacks_.on_usage) {
-                callbacks_.on_usage(evt.usage);
+                callbacks_.on_usage(usage);
             }
             if (session_manager_) {
-                session_manager_->record_token_usage(evt.usage);
+                session_manager_->record_token_usage(usage);
             }
-            events_.emit(SessionEventKind::Usage, nlohmann::json{
-                {"prompt_tokens", evt.usage.prompt_tokens},
-                {"completion_tokens", evt.usage.completion_tokens},
-                {"total_tokens", evt.usage.total_tokens},
-                {"cache_read_tokens", evt.usage.cache_read_tokens},
-                {"cache_write_tokens", evt.usage.cache_write_tokens},
-                {"reasoning_tokens", evt.usage.reasoning_tokens},
-                {"has_data", evt.usage.has_data},
-            });
+            events_.emit(
+                SessionEventKind::Usage,
+                model_step_usage_to_json(usage));
             break;
+        }
         case StreamEventType::Retry:
             result.provider_error_info = evt.provider_error;
             // Drop-partial 重试族:Timeout 与 MalformedSse(SSE 中途断流)。

@@ -1188,6 +1188,57 @@ TEST(WebServerHttp, CreateSessionThenListShowsActive) {
     EXPECT_EQ(occurrences, 1) << "active 与 disk meta 必须合并为同一条";
 }
 
+// /rc 的固定会话背景由 session list 的 remote_control_bound 字段恢复。
+// 只允许持久化绑定 id 命中的那一项为 true；off 清空后所有项都必须为 false。
+TEST(WebServerHttp, SessionListMarksOnlyRemoteControlBoundSession) {
+    WebServerFixture fx;
+    const auto create_session = [&]() {
+        auto response = cpr::Post(
+            cpr::Url{fx.url("/api/sessions")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{R"({})"});
+        EXPECT_EQ(response.status_code, 201) << response.text;
+        return json::parse(response.text).value("session_id", std::string{});
+    };
+
+    const std::string bound_id = create_session();
+    const std::string other_id = create_session();
+    ASSERT_FALSE(bound_id.empty());
+    ASSERT_FALSE(other_id.empty());
+    ASSERT_NE(bound_id, other_id);
+
+    fx.server->with_app_config_lock([&] {
+        fx.cfg.remote_control.bound_session_id = bound_id;
+    });
+
+    const auto listed = cpr::Get(cpr::Url{fx.url("/api/sessions")});
+    ASSERT_EQ(listed.status_code, 200) << listed.text;
+    const auto sessions = json::parse(listed.text);
+    bool saw_bound = false;
+    bool saw_other = false;
+    for (const auto& session : sessions) {
+        const std::string id = session.value("id", std::string{});
+        if (id == bound_id) {
+            saw_bound = true;
+            EXPECT_TRUE(session.value("remote_control_bound", false));
+        } else if (id == other_id) {
+            saw_other = true;
+            EXPECT_FALSE(session.value("remote_control_bound", true));
+        }
+    }
+    EXPECT_TRUE(saw_bound);
+    EXPECT_TRUE(saw_other);
+
+    fx.server->with_app_config_lock([&] {
+        fx.cfg.remote_control.bound_session_id.clear();
+    });
+    const auto unbound = cpr::Get(cpr::Url{fx.url("/api/sessions")});
+    ASSERT_EQ(unbound.status_code, 200) << unbound.text;
+    for (const auto& session : json::parse(unbound.text)) {
+        EXPECT_FALSE(session.value("remote_control_bound", true));
+    }
+}
+
 TEST(WebServerHttp, ExportSessionMarkdownWritesVisibleTranscriptToPickedFolder) {
     const auto export_dir = std::filesystem::temp_directory_path() /
                             ("acecode_session_export_success_" + std::to_string(std::random_device{}()));
@@ -1495,6 +1546,72 @@ TEST(WebServerHttp, SessionUserMessageSearchKeepsLiteralPlusAndPercent) {
     ASSERT_EQ(percent.status_code, 200) << percent.text;
     ASSERT_EQ(json::parse(percent.text)["matches"].size(), 1u)
         << "字面 '%' 被二次解码,导致查询不命中";
+}
+
+// 场景: 已有对话从 composer 选择专家时保持当前 session。端点先验证专家,
+// 再把专家 prompt/Skills 与消息放进同一 worker 队列,最终持久化新 binding。
+TEST(WebServerHttp, SessionExpertEndpointSwitchesActiveSessionInPlace) {
+    WebServerFixture fx;
+    acecode::ExpertDraft expert;
+    expert.id = "reviewer";
+    expert.display_name = "Code Reviewer";
+    expert.profession = "Reviewer";
+    expert.description = "Reviews active conversations.";
+    expert.lead = {
+        "lead",
+        "Lead Reviewer",
+        "Reviewer",
+        "Review the current conversation carefully.",
+    };
+    std::string error;
+    ASSERT_TRUE(fx.expert_registry->create_global(expert, &error)) << error;
+
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}},
+                          cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201) << post.text;
+    const auto sid = json::parse(post.text)["session_id"].get<std::string>();
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    entry->sm->set_input_draft("persist expert endpoint");
+
+    auto put = cpr::Put(cpr::Url{fx.url("/api/sessions/" + sid + "/expert")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{R"({"expert_id":"reviewer"})"});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    const auto payload = json::parse(put.text);
+    EXPECT_EQ(payload["id"], "reviewer");
+    EXPECT_EQ(payload["display_name"], "Code Reviewer");
+    EXPECT_TRUE(payload["queued"].get<bool>());
+
+    bool applied = false;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto active = fx.registry->list_active();
+        if (active.size() == 1 && active.front().expert_id == "reviewer") {
+            applied = true;
+            break;
+        }
+        std::this_thread::sleep_for(5ms);
+    }
+    ASSERT_TRUE(applied);
+    const auto meta = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(fx.project_dir, sid));
+    EXPECT_EQ(meta.expert_id, "reviewer");
+
+    auto invalid = cpr::Put(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/expert")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"expert_id":"missing"})"});
+    EXPECT_EQ(invalid.status_code, 400) << invalid.text;
+
+    auto unknown = cpr::Put(
+        cpr::Url{fx.url("/api/sessions/missing-session/expert")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"expert_id":"reviewer"})"});
+    EXPECT_EQ(unknown.status_code, 404) << unknown.text;
 }
 
 // 场景: Web 状态栏/设置页切换权限模式走真实 daemon API,必须立即更新
@@ -3477,6 +3594,14 @@ TEST(WebServerHttp, GetMessagesForInactiveDiskSessionReturnsHistory) {
     meta.last_token_usage.prompt_tokens = 32000;
     meta.last_token_usage.total_tokens = 33000;
     meta.last_token_usage.has_data = true;
+    meta.last_token_usage.context_breakdown.system_prompt = 2000;
+    meta.last_token_usage.context_breakdown.project_rules = 1000;
+    meta.last_token_usage.context_breakdown.skills = 2000;
+    meta.last_token_usage.context_breakdown.builtin_tools = 4000;
+    meta.last_token_usage.context_breakdown.mcp_tools = 3000;
+    meta.last_token_usage.context_breakdown.conversation = 18000;
+    meta.last_token_usage.context_breakdown.dynamic_context = 2000;
+    meta.last_token_usage.context_breakdown.has_data = true;
     acecode::SessionStorage::write_meta(
         acecode::SessionStorage::meta_path(fx.project_dir, sid, 0), meta);
 
@@ -3490,6 +3615,9 @@ TEST(WebServerHttp, GetMessagesForInactiveDiskSessionReturnsHistory) {
     EXPECT_EQ(j["permission_mode"], "accept-edits");
     ASSERT_TRUE(j["token_usage"].is_object());
     EXPECT_EQ(j["token_usage"]["prompt_tokens"], 32000);
+    ASSERT_TRUE(j["token_usage"]["context_breakdown"].is_object());
+    EXPECT_EQ(j["token_usage"]["context_breakdown"]["system_prompt"], 2000);
+    EXPECT_EQ(j["token_usage"]["context_breakdown"]["conversation"], 18000);
 }
 
 TEST(WebServerHttp, RestoreFileCheckpointRestoresTrackedFile) {

@@ -781,7 +781,7 @@ SessionRegistry::make_entry_locked(const std::string& id,
         }
     }
     if (deps_.config) {
-        entry->skill_registry = std::make_unique<SkillRegistry>();
+        entry->skill_registry = std::make_shared<SkillRegistry>();
         const std::vector<std::filesystem::path> expert_skill_roots =
             entry->expert
                 ? entry->expert->selected_skill_roots(entry->expert_member_id)
@@ -1335,6 +1335,91 @@ void SessionRegistry::handle_auto_title_turn_finished(
     if (retry.has_value()) {
         start_auto_title_attempt(id, std::move(*retry));
     }
+}
+
+ExpertSwitchResult SessionRegistry::switch_expert(
+    const std::string& id,
+    const std::string& expert_id) {
+    std::shared_ptr<SessionEntry> entry;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end() || !it->second || !it->second->loop) {
+            return {
+                ExpertSwitchStatus::UnknownSession,
+                std::nullopt,
+                "unknown session",
+            };
+        }
+        entry = it->second;
+    }
+
+    if (expert_id.empty() || !deps_.expert_registry) {
+        return {
+            ExpertSwitchStatus::UnknownExpert,
+            std::nullopt,
+            "unknown or invalid expert component",
+        };
+    }
+
+    auto resolved = deps_.expert_registry->find(entry->cwd, expert_id);
+    if (!resolved) {
+        return {
+            ExpertSwitchStatus::UnknownExpert,
+            std::nullopt,
+            "unknown or invalid expert component",
+        };
+    }
+
+    auto expert = std::make_shared<ExpertDefinition>(std::move(*resolved));
+    std::shared_ptr<SkillRegistry> skills;
+    try {
+        if (deps_.config) {
+            skills = std::make_shared<SkillRegistry>();
+            initialize_skill_registry(
+                *skills,
+                *deps_.config,
+                entry->cwd,
+                expert->selected_skill_roots());
+        }
+    } catch (const std::exception& e) {
+        return {
+            ExpertSwitchStatus::Failed,
+            std::nullopt,
+            std::string("failed to load expert skills: ") + e.what(),
+        };
+    }
+
+    const std::string session_id = id;
+    entry->loop->enqueue_control(
+        [this, session_id, expected = entry, expert, skills]() {
+            std::lock_guard<std::mutex> lk(mu_);
+            auto it = entries_.find(session_id);
+            if (it == entries_.end() || it->second != expected) return;
+
+            auto& active = *it->second;
+            active.expert_id = expert->id;
+            active.expert_member_id.clear();
+            active.expert_missing = false;
+            active.expert = *expert;
+            active.skill_registry = skills;
+            if (active.sm) {
+                active.sm->set_expert_binding(active.expert_id);
+            }
+            if (active.loop) {
+                active.loop->set_skill_registry(
+                    active.skill_registry
+                        ? active.skill_registry.get()
+                        : deps_.skill_registry);
+                active.loop->set_expert_context(&*active.expert);
+            }
+        });
+
+    return {
+        ExpertSwitchStatus::Accepted,
+        *expert,
+        {},
+    };
 }
 
 PermissionMode SessionRegistry::default_permission_mode() const {

@@ -156,15 +156,31 @@ Some fields are omitted when empty, especially `todos` and token usage.
 
 ```json
 {
-  "prompt_tokens": 0,
-  "completion_tokens": 0,
-  "total_tokens": 0,
+  "prompt_tokens": 44100,
+  "completion_tokens": 2100,
+  "total_tokens": 46200,
   "cache_read_tokens": 0,
   "cache_write_tokens": 0,
   "reasoning_tokens": 0,
-  "has_data": false
+  "has_data": true,
+  "context_breakdown": {
+    "system_prompt": 478,
+    "project_rules": 4400,
+    "skills": 5200,
+    "builtin_tools": 9900,
+    "mcp_tools": 2200,
+    "conversation": 21000,
+    "dynamic_context": 922,
+    "has_data": true
+  }
 }
 ```
+
+`context_breakdown` is optional and describes the latest provider prompt using
+ACECode-side estimates. Its seven category values are proportionally reconciled
+to the provider-reported `prompt_tokens`, but remain approximate rather than
+provider-tokenizer or billing measurements. Older session metadata and usage
+events can omit the object.
 
 ### Session event
 
@@ -237,6 +253,7 @@ when known.
 | GET | `/api/sessions/:id/attachments/:attachment_id/blob` | download attachment bytes |
 | POST | `/api/sessions/:id/commands` | run daemon builtin slash command |
 | POST | `/api/sessions/:id/side-question` | run isolated one-turn `/btw` question |
+| PUT | `/api/sessions/:id/expert` | switch the active session expert for subsequent turns |
 | GET | `/api/sessions/:id/permissions` | read session permission mode |
 | PUT | `/api/sessions/:id/permissions` | set session permission mode |
 | GET | `/api/sessions/:id/model` | read session model state |
@@ -914,6 +931,32 @@ Returns `202 {"queued":true,"command":"compact"}`. Errors:
 - `400 {"error":"unsupported command","command":"..."}`
 - `404 {"error":"unknown session"}`
 - `500 {"error":"command failed"}`
+
+### `PUT /api/sessions/:id/expert`
+
+Switches the selected expert component for the active session without creating
+or navigating to another conversation. Body:
+
+```json
+{"expert_id":"reviewer"}
+```
+
+The expert is resolved against the session workspace. Its prompt context and
+component-scoped Skills are queued on the same worker as chat turns. An
+in-flight turn therefore finishes with its existing expert; the switch is
+persisted and applies before the next subsequently queued turn.
+
+Success returns the selected expert definition plus:
+
+```json
+{"queued":true}
+```
+
+Errors:
+
+- `400` when `expert_id` is missing or the component is unavailable.
+- `404` when the active session does not exist.
+- `500` when the expert Skill context cannot be prepared.
 
 ### `GET /api/sessions/:id/permissions`
 

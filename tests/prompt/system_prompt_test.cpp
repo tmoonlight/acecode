@@ -241,6 +241,7 @@ TEST_F(SystemPromptTest, CustomInstructionsOmittedWhenWhitespaceOnly) {
 TEST_F(SystemPromptTest, SessionContextIncludesCustomInstructions) {
     acecode::CustomInstructionsConfig custom_cfg;
     custom_cfg.text = "Use repository-specific wording.";
+    acecode::PromptContextCategoryBytes category_bytes;
 
     auto context = acecode::build_session_context_prompt(
         temp_home.string(),
@@ -249,12 +250,23 @@ TEST_F(SystemPromptTest, SessionContextIncludesCustomInstructions) {
         /*project_instructions_cfg=*/nullptr,
         /*skills=*/nullptr,
         /*context_window_tokens=*/0,
-        &custom_cfg);
+        &custom_cfg,
+        /*git_status_snapshot=*/{},
+        /*expert=*/nullptr,
+        /*expert_member_id=*/{},
+        &category_bytes);
 
     EXPECT_NE(context.content.find("<system-reminder>"), std::string::npos);
     EXPECT_NE(context.content.find("# Custom Instructions"), std::string::npos);
     EXPECT_NE(context.content.find("repository-specific wording"), std::string::npos);
     EXPECT_FALSE(context.cache_key.empty());
+    EXPECT_GT(category_bytes.project_rules, 0u);
+    EXPECT_EQ(category_bytes.skills, 0u);
+    EXPECT_GT(category_bytes.dynamic_context, 0u);
+    EXPECT_EQ(
+        category_bytes.project_rules + category_bytes.skills +
+            category_bytes.dynamic_context,
+        context.content.size());
 }
 
 // 场景:full tool schema 不再重复塞进静态 system prompt,避免工具 schema 变化

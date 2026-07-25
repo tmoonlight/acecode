@@ -83,10 +83,8 @@ export function ComposerSessionControls({
   permissionMode = 'default',
   permissionSwitching = false,
   onPermissionModeChange,
-  expertOptions = [],
-  selectedExpertId = '',
-  expertLocked = false,
-  onExpertChange,
+  expertId = '',
+  expertName = '',
 }) {
   const [localMode, setLocalMode] = useState(normalizePermissionMode(permissionMode));
   const [openMenu, setOpenMenu] = useState('');
@@ -125,8 +123,6 @@ export function ComposerSessionControls({
     : (selectedModelName || modelMenu.displayLabel);
   const canOpenModelMenu = modelOptions.length > 0 || !!onRefreshModels;
   const modelBusy = modelSwitching || modelRefreshing;
-  const selectedExpert = expertOptions.find((expert) => expert?.id === selectedExpertId) || null;
-  const expertLabel = selectedExpert?.display_name || selectedExpertId || '选择专家';
 
   const selectPermission = (nextMode) => {
     const normalized = normalizePermissionMode(nextMode);
@@ -147,12 +143,6 @@ export function ComposerSessionControls({
     onOpenModelSettings?.();
   };
 
-  const selectExpert = (id) => {
-    if (expertLocked) return;
-    onExpertChange?.(String(id || ''));
-    setOpenMenu('');
-  };
-
   return (
     <div
       ref={rootRef}
@@ -168,80 +158,17 @@ export function ComposerSessionControls({
           {addControl}
         </div>
 
-        {(selectedExpertId || !expertLocked) && (
-          <div data-composer-control="expert" className="relative min-w-0">
-            <button
-              type="button"
-              disabled={expertLocked}
-              onClick={() => {
-                if (!expertLocked) setOpenMenu((current) => (current === 'expert' ? '' : 'expert'));
-              }}
-              title={expertLocked
-                ? `当前会话已绑定专家组件：${expertLabel}`
-                : '为新会话选择专家组件'}
-              aria-haspopup={expertLocked ? undefined : 'listbox'}
-              aria-expanded={!expertLocked && openMenu === 'expert'}
-              className={clsx(
-                'ace-composer-control-button max-w-[180px]',
-                selectedExpertId ? 'text-accent' : 'text-fg-mute',
-                expertLocked && 'cursor-default',
-              )}
-            >
-              <VsIcon name="brain" size={14} className="shrink-0" />
-              <span className="truncate text-[11px]">{expertLabel}</span>
-              {!expertLocked && <VsIcon name="glyphDown" size={10} className="shrink-0 opacity-75" />}
-              {expertLocked && <VsIcon name="lock" size={10} className="shrink-0 opacity-60" />}
-            </button>
-
-            {!expertLocked && openMenu === 'expert' && (
-              <div className="ace-composer-popup left-0 min-w-[240px] max-w-[320px]">
-                <div className="border-b border-border px-3 py-2 text-[10px] text-fg-mute">
-                  专家只影响新会话的身份、方法与 Skills
-                </div>
-                <div role="listbox" aria-label="选择专家组件" className="max-h-[260px] overflow-y-auto p-1">
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={!selectedExpertId}
-                    onClick={() => selectExpert('')}
-                    className={clsx(
-                      'flex w-full items-center gap-2 rounded px-2 py-2 text-left text-[11px]',
-                      !selectedExpertId ? 'bg-accent-bg text-accent' : 'text-fg-2 hover:bg-surface-hi',
-                    )}
-                  >
-                    <span className="w-3 shrink-0 text-center">{!selectedExpertId && <VsIcon name="ok" size={11} mono={false} />}</span>
-                    <span>不使用专家组件</span>
-                  </button>
-                  {expertOptions.map((expert) => (
-                    <button
-                      key={expert.id}
-                      type="button"
-                      role="option"
-                      aria-selected={expert.id === selectedExpertId}
-                      onClick={() => selectExpert(expert.id)}
-                      className={clsx(
-                        'flex w-full items-start gap-2 rounded px-2 py-2 text-left',
-                        expert.id === selectedExpertId ? 'bg-accent-bg text-accent' : 'text-fg hover:bg-surface-hi',
-                      )}
-                    >
-                      <span className="mt-0.5 w-3 shrink-0 text-center">{expert.id === selectedExpertId && <VsIcon name="ok" size={11} mono={false} />}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1.5 text-[11px]">
-                          <span className="truncate font-medium">{expert.display_name || expert.id}</span>
-                          <span className="shrink-0 text-[9px] text-fg-mute">{expert.type === 'team' ? '团队' : '专家'}</span>
-                        </span>
-                        {(expert.profession || expert.description) && (
-                          <span className="mt-0.5 block truncate text-[10px] text-fg-mute">{expert.profession || expert.description}</span>
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                  {expertOptions.length === 0 && (
-                    <div className="px-3 py-4 text-center text-[11px] text-fg-mute">暂无专家组件，可从侧栏“专家组件”创建</div>
-                  )}
-                </div>
-              </div>
-            )}
+        {expertName && (
+          <div
+            data-composer-control="expert"
+            data-expert-id={expertId || undefined}
+            role="status"
+            aria-label={`当前专家组件：${expertName}`}
+            title={`当前专家组件：${expertName}`}
+            className="flex h-7 min-w-0 max-w-[180px] items-center gap-1.5 px-1.5 text-accent"
+          >
+            <VsIcon name="brain" size={14} className="shrink-0" />
+            <span className="min-w-0 truncate text-[11px] font-medium">{expertName}</span>
           </div>
         )}
 

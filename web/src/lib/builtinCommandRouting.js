@@ -53,6 +53,26 @@ export function inputRouteForText(text) {
   return { kind: 'message', text };
 }
 
+export function remoteControlSessionRefreshForCommand(command = {}, sessionId = '') {
+  const name = String(command?.command || command?.name || '').trim().toLowerCase();
+  if (name !== 'rc' && name !== 'remote-control') return null;
+
+  const args = String(command?.args || '').trim().toLowerCase();
+  if (args === '') {
+    return {
+      reason: 'remote-control-bound',
+      sessionId: String(sessionId || '').trim(),
+    };
+  }
+  if (args === 'off') {
+    return {
+      reason: 'remote-control-unbound',
+      sessionId: String(sessionId || '').trim(),
+    };
+  }
+  return null;
+}
+
 export function sessionCreateOptionsForText(text) {
   if (desktopFeedbackRequestForText(text)
       || sideQuestionRequestForText(text)

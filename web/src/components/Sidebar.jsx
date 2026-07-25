@@ -52,6 +52,7 @@ import {
   reconcileSidebarSessions,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
+  shouldStartRemoteControlSurge,
   sidebarSessionMarker,
   sidebarRevealTarget,
   sidebarSessionProjection,
@@ -431,13 +432,26 @@ function SessionRow({
   const rowKey = pinned ? pinnedSessionKey(workspaceHash, s.id) : '';
   const title = sessionDisplayTitle(s, s.name || '');
   const sessionMarker = sidebarSessionMarker(s);
+  const remoteControlBound = Boolean(s.remote_control_bound ?? s.remoteControlBound);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
+  const [remoteControlSurging, setRemoteControlSurging] = useState(false);
+  const previousRemoteControlBoundRef = useRef(remoteControlBound);
   const committingRef = useRef(false);
 
   useEffect(() => {
     if (!editing) setDraft(title);
   }, [editing, title]);
+
+  useEffect(() => {
+    const wasBound = previousRemoteControlBoundRef.current;
+    previousRemoteControlBoundRef.current = remoteControlBound;
+    if (shouldStartRemoteControlSurge(wasBound, remoteControlBound)) {
+      setRemoteControlSurging(true);
+    } else if (!remoteControlBound) {
+      setRemoteControlSurging(false);
+    }
+  }, [remoteControlBound]);
 
   const commitRename = async () => {
     if (committingRef.current) return;
@@ -488,6 +502,7 @@ function SessionRow({
       data-desktop-session-pinned={pinned ? 'true' : 'false'}
       data-desktop-session-title={title || undefined}
       data-desktop-session-archive="true"
+      data-remote-control-bound={remoteControlBound ? 'true' : undefined}
       data-sidebar-pinned-key={rowKey || undefined}
       data-sidebar-pinned-id={pinned ? s.id || undefined : undefined}
       data-sidebar-pinned-workspace={pinned ? workspaceHash || undefined : undefined}
@@ -498,6 +513,7 @@ function SessionRow({
         dropPlacement === 'before' && 'is-drop-before',
         dropPlacement === 'after' && 'is-drop-after',
         !pinned && importHighlighted && 'is-opencode-import-highlight',
+        remoteControlBound && 'is-remote-control-bound',
         active
           ? 'bg-accent-soft/50 text-accent'
           : 'text-fg hover:bg-surface-hi',
@@ -510,6 +526,13 @@ function SessionRow({
         onSelect?.(s);
       }}
     >
+      {remoteControlSurging && (
+        <span
+          aria-hidden="true"
+          className="ace-session-remote-control-surge"
+          onAnimationEnd={() => setRemoteControlSurging(false)}
+        />
+      )}
       <span className="relative flex w-6 h-7 items-center justify-center shrink-0">
         {pinned && pinEnabled ? (
           <>

@@ -62,6 +62,20 @@ struct ToolCall {
     std::string function_arguments; // raw JSON string
 };
 
+// ACECode-side estimate of the provider prompt's composition. Providers only
+// report aggregate prompt_tokens, so these fields are proportionally
+// reconciled to that authoritative total before they are exposed to clients.
+struct ContextUsageBreakdown {
+    int system_prompt = 0;
+    int project_rules = 0;
+    int skills = 0;
+    int builtin_tools = 0;
+    int mcp_tools = 0;
+    int conversation = 0;
+    int dynamic_context = 0;
+    bool has_data = false;
+};
+
 struct TokenUsage {
     int prompt_tokens = 0;
     int completion_tokens = 0;
@@ -70,6 +84,7 @@ struct TokenUsage {
     int cache_write_tokens = 0;  // from prompt_tokens_details.cache_write_tokens
     int reasoning_tokens = 0;    // from completion_tokens_details.reasoning_tokens
     bool has_data = false; // true if server returned usage info
+    ContextUsageBreakdown context_breakdown;
 };
 
 struct ToolDef {
