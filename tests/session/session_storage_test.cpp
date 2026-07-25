@@ -426,9 +426,9 @@ TEST(SessionStorage, ListSessionsIncludesCustomIdSessions) {
     EXPECT_EQ(sessions[1].id, custom.id);
 }
 
-// 场景:JSONL 可能因为异常退出留下坏行或未以换行结尾的半行。
-// load_messages 只能返回完整、可解析的记录,不能抛异常。
-TEST(SessionStorage, LoadMessagesSkipsMalformedAndTrailingPartialLines) {
+// 场景:JSONL 中间的坏行不能遮住后续记录；一个内容完整但缺少最终换行的
+// 尾记录也应恢复，并通过诊断结果告诉调用方发生过恢复。
+TEST(SessionStorage, LoadMessagesContinuesPastMalformedAndRecoversValidTail) {
     auto dir = make_unique_tmp_dir("safe-read");
     const std::string sid = "20260502-101144-61ab";
     const auto path = SessionStorage::session_path(dir.string(), sid);
@@ -436,7 +436,7 @@ TEST(SessionStorage, LoadMessagesSkipsMalformedAndTrailingPartialLines) {
     acecode::ChatMessage user;
     user.role = "user";
     user.content = "完整消息";
-    SessionStorage::append_message(path, user);
+    ASSERT_TRUE(SessionStorage::append_message(path, user));
 
     {
         std::ofstream ofs(path, std::ios::app | std::ios::binary);
@@ -444,11 +444,80 @@ TEST(SessionStorage, LoadMessagesSkipsMalformedAndTrailingPartialLines) {
         ofs << "{\"role\":\"assistant\",\"content\":\"partial\"}";
     }
 
-    std::vector<acecode::ChatMessage> out;
-    ASSERT_NO_THROW(out = SessionStorage::load_messages(path));
-    ASSERT_EQ(out.size(), 1u);
-    EXPECT_EQ(out[0].role, "user");
-    EXPECT_EQ(out[0].content, "完整消息");
+    acecode::SessionLoadResult result;
+    ASSERT_NO_THROW(result = SessionStorage::load_messages_with_diagnostics(path));
+    ASSERT_EQ(result.messages.size(), 2u);
+    EXPECT_EQ(result.messages[0].role, "user");
+    EXPECT_EQ(result.messages[0].content, "完整消息");
+    EXPECT_EQ(result.messages[1].role, "assistant");
+    EXPECT_EQ(result.messages[1].content, "partial");
+    EXPECT_EQ(result.diagnostics.malformed_complete_records, 1u);
+    EXPECT_TRUE(result.diagnostics.recovered_unterminated_record);
+    EXPECT_FALSE(result.diagnostics.ignored_partial_tail);
+    EXPECT_TRUE(result.diagnostics.recovered());
+}
+
+// 场景:崩溃留下半截 JSON 后继续对同一会话追加。新记录前必须先补一个换行，
+// 否则新消息会和坏尾巴粘在一起，下一次恢复时两者都会被丢掉。
+TEST(SessionStorage, AppendIsolatesDamagedTailFromNewRecord) {
+    auto dir = make_unique_tmp_dir("tail-isolation");
+    const auto path = SessionStorage::session_path(dir.string(), "tail-isolation");
+
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "before crash";
+    ASSERT_TRUE(SessionStorage::append_message(path, user));
+
+    {
+        std::ofstream ofs(path, std::ios::app | std::ios::binary);
+        ofs << "{\"role\":\"assistant\",\"content\":";
+    }
+
+    acecode::ChatMessage after;
+    after.role = "user";
+    after.content = "after restart";
+    ASSERT_TRUE(SessionStorage::append_message(path, after));
+
+    const auto result = SessionStorage::load_messages_with_diagnostics(path);
+    ASSERT_EQ(result.messages.size(), 2u);
+    EXPECT_EQ(result.messages[0].content, "before crash");
+    EXPECT_EQ(result.messages[1].content, "after restart");
+    EXPECT_EQ(result.diagnostics.malformed_complete_records, 1u);
+    EXPECT_FALSE(result.diagnostics.ignored_partial_tail);
+}
+
+// 场景:最后一段确实是截断 JSON 时只忽略该片段，不能让加载失败或污染前面的
+// 完整历史；诊断标志供上层显示“已恢复”而不泄露消息正文。
+TEST(SessionStorage, LoadMessagesReportsIgnoredPartialTail) {
+    auto dir = make_unique_tmp_dir("partial-tail");
+    const auto path = SessionStorage::session_path(dir.string(), "partial-tail");
+
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "safe";
+    ASSERT_TRUE(SessionStorage::append_message(path, user));
+    {
+        std::ofstream ofs(path, std::ios::app | std::ios::binary);
+        ofs << "{\"role\":\"assistant\"";
+    }
+
+    const auto result = SessionStorage::load_messages_with_diagnostics(path);
+    ASSERT_EQ(result.messages.size(), 1u);
+    EXPECT_EQ(result.messages.front().content, "safe");
+    EXPECT_TRUE(result.diagnostics.ignored_partial_tail);
+    EXPECT_FALSE(result.diagnostics.recovered_unterminated_record);
+    EXPECT_TRUE(result.diagnostics.recovered());
+}
+
+// 场景:路径本身是目录时追加必须显式失败，调用方才不会在写失败后仍递增
+// message_count 或把 meta 伪装成已成功持久化。
+TEST(SessionStorage, AppendReportsWriteFailure) {
+    auto dir = make_unique_tmp_dir("append-failure");
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "must not disappear";
+
+    EXPECT_FALSE(SessionStorage::append_message(dir.string(), user));
 }
 
 // 场景:meta 写入要能替换已经存在的文件。Windows 上 rename 不覆盖目标,

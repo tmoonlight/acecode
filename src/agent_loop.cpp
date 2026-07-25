@@ -12,6 +12,7 @@
 #include "commands/compact.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/compact_notice.hpp"
+#include "session/session_history_recovery.hpp"
 #include "session/tool_metadata_codec.hpp"
 #include "session/tool_result_storage.hpp"
 #include "session/output_attachments.hpp"
@@ -46,6 +47,29 @@ namespace {
 
 constexpr const char* kDefaultNoModelConfiguredPrompt =
     u8"请先配置大模型服务。";
+
+std::vector<ChatMessage> recovered_provider_messages(
+    const std::vector<ChatMessage>& messages,
+    const char* boundary) {
+    auto recovery = recover_provider_history(provider_relevant_messages(messages));
+    if (recovery.stats.changed()) {
+        const auto& stats = recovery.stats;
+        LOG_WARN(std::string{"[session-recovery] boundary="} + boundary +
+                 " malformed_calls=" + std::to_string(stats.malformed_tool_calls) +
+                 " duplicate_calls=" + std::to_string(stats.duplicate_tool_calls) +
+                 " synthesized_results=" +
+                 std::to_string(stats.synthesized_tool_results) +
+                 " standalone_results=" +
+                 std::to_string(stats.standalone_tool_results) +
+                 " unexpected_results=" +
+                 std::to_string(stats.unexpected_tool_results) +
+                 " duplicate_results=" +
+                 std::to_string(stats.duplicate_tool_results) +
+                 " empty_assistants=" +
+                 std::to_string(stats.empty_assistant_messages));
+    }
+    return std::move(recovery.messages);
+}
 
 bool has_meaningful_user_input(const UserInput& input) {
     if (input.has_content_parts()) return true;
@@ -857,7 +881,7 @@ void AgentLoop::emit_transcript_system_message(const std::string& content,
 bool AgentLoop::active_estimate_exceeds_auto_threshold(
     const UserInput* pending_input) const {
     auto request = build_compaction_initial_context();
-    auto history = provider_relevant_messages(messages_);
+    auto history = recovered_provider_messages(messages_, "token-estimate");
     if (pending_input && !pending_input->empty()) {
         ChatMessage pending;
         pending.role = "user";
@@ -957,12 +981,12 @@ void AgentLoop::apply_compact_result(
     const std::string& trigger,
     const std::string& compact_notice_id) {
     auto initial_context = build_compaction_initial_context();
-    auto pre_history = provider_relevant_messages(messages_);
+    auto pre_history = recovered_provider_messages(messages_, "compact-input");
     auto pre_request = initial_context;
     pre_request.insert(pre_request.end(), pre_history.begin(), pre_history.end());
     const int pre_tokens = estimate_message_tokens(pre_request);
     std::vector<ChatMessage> replacement_history =
-        provider_relevant_messages(result.compacted_messages);
+        recovered_provider_messages(result.compacted_messages, "compact-output");
     auto post_request = initial_context;
     post_request.insert(
         post_request.end(), replacement_history.begin(), replacement_history.end());
@@ -1019,7 +1043,8 @@ void AgentLoop::apply_compact_result(
 bool AgentLoop::maybe_run_auto_compact() {
     const int context_window = context_window_.load(std::memory_order_relaxed);
     auto initial_context = build_compaction_initial_context();
-    const auto active_history = provider_relevant_messages(messages_);
+    const auto active_history =
+        recovered_provider_messages(messages_, "auto-compact");
     auto estimated_request = initial_context;
     estimated_request.insert(
         estimated_request.end(), active_history.begin(), active_history.end());
@@ -1765,7 +1790,7 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     }
 
     // Prepare provider-facing messages with system prompt at front.
-    auto api_messages = provider_relevant_messages(messages_);
+    auto api_messages = recovered_provider_messages(messages_, "provider-request");
     PromptContextCategoryBytes context_category_bytes;
     const bool skill_view_available =
         tools_.is_allowed("skill_view", &tool_capability_policy_);

@@ -123,10 +123,12 @@ TEST(CompactCore, UsesExactCodexPromptAndSummaryShape) {
     std::vector<acecode::ChatMessage> initial_context{
         msg("system", "stable base instructions"),
     };
+    auto first_answer = tool_call_message("call-1");
+    first_answer.content = "first answer";
     std::vector<acecode::ChatMessage> messages{
         msg("user", "first request", "u1"),
-        msg("assistant", "first answer"),
-        msg("tool", "tool output"),
+        std::move(first_answer),
+        tool_output_message("call-1"),
         msg("user", "latest request", "u2"),
     };
 

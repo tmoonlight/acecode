@@ -160,6 +160,36 @@ TEST(CompactCheckpoint, ReconstructsFromLatestCheckpointAndSuffix) {
     EXPECT_EQ(effective[1].content, "after second");
 }
 
+TEST(CompactCheckpoint, RepairedHistoryFillsMissingResultAcrossCheckpointSuffix) {
+    acecode::ChatMessage interrupted = msg("assistant", "");
+    interrupted.tool_calls = nlohmann::json::array({
+        {
+            {"id", "call-interrupted"},
+            {"type", "function"},
+            {"function", {{"name", "file_write"}, {"arguments", "{}"}}}
+        }
+    });
+
+    acecode::CompactCheckpoint checkpoint;
+    checkpoint.replacement_history = {
+        msg("user", "summary context"),
+        interrupted,
+    };
+    std::vector<acecode::ChatMessage> raw = {
+        acecode::encode_compact_checkpoint(checkpoint),
+        msg("user", "continue after restart"),
+    };
+
+    auto effective = acecode::reconstruct_effective_model_history(raw);
+    ASSERT_EQ(effective.size(), 4u);
+    EXPECT_EQ(effective[1].role, "assistant");
+    EXPECT_EQ(effective[2].role, "tool");
+    EXPECT_EQ(effective[2].tool_call_id, "call-interrupted");
+    EXPECT_NE(effective[2].content.find("outcome is unknown"),
+              std::string::npos);
+    EXPECT_EQ(effective[3].content, "continue after restart");
+}
+
 TEST(CompactCheckpoint, MalformedCheckpointFallsBackToLatestValidCheckpoint) {
     acecode::CompactCheckpoint valid;
     valid.replacement_history = {msg("system", "valid summary")};

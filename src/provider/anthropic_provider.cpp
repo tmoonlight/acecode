@@ -2,6 +2,7 @@
 
 #include "config/request_headers.hpp"
 #include "network/proxy_resolver.hpp"
+#include "session/session_history_recovery.hpp"
 #include "utils/logger.hpp"
 #include "utils/sha1.hpp"
 
@@ -442,7 +443,8 @@ nlohmann::json AnthropicProvider::build_request_body(
     int dropped_tool_calls = 0;
     int dropped_invalid_role = 0;
 
-    for (const auto& msg : messages) {
+    const auto recovered_history = recover_provider_history(messages);
+    for (const auto& msg : recovered_history.messages) {
         if (msg.role == "system") {
             const std::string text = textual_content_parts(msg);
             if (!text.empty()) {

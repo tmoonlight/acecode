@@ -95,6 +95,23 @@ bool is_visible_user_turn(const ChatMessage& msg) {
            !is_hidden_goal_context_message_storage(msg);
 }
 
+bool try_deserialize_session_record(const std::string& line,
+                                    ChatMessage& message) {
+    try {
+        const auto json = nlohmann::json::parse(line);
+        if (!json.is_object() ||
+            !json.contains("role") ||
+            !json["role"].is_string() ||
+            json["role"].get_ref<const std::string&>().empty()) {
+            return false;
+        }
+        message = deserialize_message(line);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 } // namespace
 
 std::string SessionStorage::compute_project_hash(const std::string& cwd) {
@@ -139,20 +156,52 @@ std::string SessionStorage::get_project_dir(const std::string& cwd) {
     return path_to_utf8(path_from_utf8(acecode_dir) / "projects" / hash);
 }
 
-void SessionStorage::append_message(const std::string& session_path, const ChatMessage& msg) {
-    std::string record = serialize_message(msg);
-    record.push_back('\n');
+bool SessionStorage::append_message(const std::string& session_path, const ChatMessage& msg) {
+    std::string record;
+    try {
+        record = serialize_message(msg);
+    } catch (...) {
+        return false;
+    }
 
     static std::mutex append_mu;
     std::lock_guard<std::mutex> lk(append_mu);
 
+    const fs::path path = path_from_utf8(session_path);
     std::error_code ec;
-    fs::create_directories(path_from_utf8(session_path).parent_path(), ec);
+    const fs::path parent = path.parent_path();
+    if (!parent.empty()) {
+        fs::create_directories(parent, ec);
+        if (ec) return false;
+    }
 
-    std::ofstream ofs(path_from_utf8(session_path), std::ios::binary | std::ios::app);
-    if (!ofs.is_open()) return;
+    bool isolate_existing_tail = false;
+    const bool exists = fs::exists(path, ec);
+    if (ec) return false;
+    if (exists) {
+        if (!fs::is_regular_file(path, ec) || ec) return false;
+        const auto size = fs::file_size(path, ec);
+        if (ec) return false;
+        if (size > 0) {
+            std::ifstream tail(path, std::ios::binary);
+            if (!tail.is_open()) return false;
+            tail.seekg(-1, std::ios::end);
+            char last = '\0';
+            tail.read(&last, 1);
+            if (!tail.good()) return false;
+            isolate_existing_tail = last != '\n';
+        }
+    }
+
+    std::ofstream ofs(path, std::ios::binary | std::ios::app);
+    if (!ofs.is_open()) return false;
+    if (isolate_existing_tail) {
+        ofs.put('\n');
+    }
     ofs.write(record.data(), static_cast<std::streamsize>(record.size()));
+    ofs.put('\n');
     ofs.flush();
+    return ofs.good();
 }
 
 void SessionStorage::write_messages(const std::string& session_path,
@@ -168,10 +217,11 @@ void SessionStorage::write_messages(const std::string& session_path,
     atomic_write_file(session_path, content);
 }
 
-std::vector<ChatMessage> SessionStorage::load_messages(const std::string& session_path) {
-    std::vector<ChatMessage> messages;
+SessionLoadResult SessionStorage::load_messages_with_diagnostics(
+    const std::string& session_path) {
+    SessionLoadResult result;
     std::ifstream ifs(path_from_utf8(session_path), std::ios::binary);
-    if (!ifs.is_open()) return messages;
+    if (!ifs.is_open()) return result;
 
     std::string content((std::istreambuf_iterator<char>(ifs)),
                         std::istreambuf_iterator<char>());
@@ -179,7 +229,20 @@ std::vector<ChatMessage> SessionStorage::load_messages(const std::string& sessio
     while (start < content.size()) {
         const size_t nl = content.find('\n', start);
         if (nl == std::string::npos) {
-            break; // trailing partial record
+            std::string tail = content.substr(start);
+            if (!tail.empty() && tail.back() == '\r') {
+                tail.pop_back();
+            }
+            if (!tail.empty()) {
+                ChatMessage message;
+                if (try_deserialize_session_record(tail, message)) {
+                    result.messages.push_back(std::move(message));
+                    result.diagnostics.recovered_unterminated_record = true;
+                } else {
+                    result.diagnostics.ignored_partial_tail = true;
+                }
+            }
+            break;
         }
         std::string line = content.substr(start, nl - start);
         start = nl + 1;
@@ -187,13 +250,18 @@ std::vector<ChatMessage> SessionStorage::load_messages(const std::string& sessio
             line.pop_back();
         }
         if (line.empty()) continue;
-        try {
-            messages.push_back(deserialize_message(line));
-        } catch (...) {
-            // Skip malformed complete lines.
+        ChatMessage message;
+        if (try_deserialize_session_record(line, message)) {
+            result.messages.push_back(std::move(message));
+        } else {
+            ++result.diagnostics.malformed_complete_records;
         }
     }
-    return messages;
+    return result;
+}
+
+std::vector<ChatMessage> SessionStorage::load_messages(const std::string& session_path) {
+    return load_messages_with_diagnostics(session_path).messages;
 }
 
 bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta& meta) {

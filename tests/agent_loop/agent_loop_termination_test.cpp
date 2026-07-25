@@ -178,6 +178,12 @@ public:
     }
 
     ~AgentLoopHarness() {
+        // on_busy_changed(false) is intentionally emitted before the worker
+        // publishes its terminal events. Join first so those callbacks cannot
+        // race with destruction of the mutexes/vectors they capture.
+        if (loop_) {
+            loop_->shutdown();
+        }
         if (loop_ && event_sub_ != 0) {
             loop_->events().unsubscribe(event_sub_);
         }

@@ -1,4 +1,5 @@
 #include "openai_provider.hpp"
+#include "session/session_history_recovery.hpp"
 #include "image/image_processor.hpp"
 #include "config/request_headers.hpp"
 #include "session/attachment_store.hpp"
@@ -824,7 +825,8 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
     int repaired_tool_arguments = 0;
     int dropped_malformed_tool_calls = 0;
     int dropped_empty_assistant_tool_messages = 0;
-    for (const auto& msg : messages) {
+    const auto recovered_history = recover_provider_history(messages);
+    for (const auto& msg : recovered_history.messages) {
         const bool valid_role = (msg.role == "system" || msg.role == "user" ||
                                  msg.role == "assistant" || msg.role == "tool");
         if (!valid_role) {

@@ -315,8 +315,12 @@ void SessionManager::on_message(const ChatMessage& msg) {
     const auto before_index_signature =
         session_user_message_file_signature(jsonl_path_);
 
-    // Append message to JSONL
-    SessionStorage::append_message(jsonl_path_, msg);
+    // Never let metadata/index state claim a message that was not persisted.
+    if (!SessionStorage::append_message(jsonl_path_, msg)) {
+        last_error_ = "failed to append session message";
+        LOG_WARN("[session] " + last_error_ + " session=" + session_id_);
+        return;
+    }
     message_count_++;
     if (is_visible_user_turn_message(msg)) {
         turn_count_++;
@@ -413,7 +417,12 @@ bool SessionManager::append_compact_checkpoint(const CompactCheckpoint& checkpoi
     if (!ensure_created()) return false;
     if (!created_) return false;
 
-    SessionStorage::append_message(jsonl_path_, encode_compact_checkpoint(checkpoint));
+    if (!SessionStorage::append_message(
+            jsonl_path_, encode_compact_checkpoint(checkpoint))) {
+        last_error_ = "failed to append compact checkpoint";
+        LOG_WARN("[session] " + last_error_ + " session=" + session_id_);
+        return false;
+    }
     message_count_++;
     update_meta();
     return true;
@@ -425,7 +434,12 @@ void SessionManager::begin_user_turn_checkpoint(const std::string& user_message_
     if (!ensure_created()) return;
 
     FileCheckpointSnapshot snapshot = checkpoint_store_.make_snapshot(user_message_uuid);
-    SessionStorage::append_message(jsonl_path_, FileCheckpointStore::encode_snapshot_message(snapshot));
+    if (!SessionStorage::append_message(
+            jsonl_path_, FileCheckpointStore::encode_snapshot_message(snapshot))) {
+        last_error_ = "failed to append file checkpoint";
+        LOG_WARN("[session] " + last_error_ + " session=" + session_id_);
+        return;
+    }
     message_count_++;
     update_meta();
 }
@@ -437,7 +451,12 @@ void SessionManager::track_file_write_before(const std::string& file_path) {
 
     auto snapshot = checkpoint_store_.track_before_write(file_path);
     if (!snapshot.has_value()) return;
-    SessionStorage::append_message(jsonl_path_, FileCheckpointStore::encode_snapshot_message(*snapshot));
+    if (!SessionStorage::append_message(
+            jsonl_path_, FileCheckpointStore::encode_snapshot_message(*snapshot))) {
+        last_error_ = "failed to append file checkpoint";
+        LOG_WARN("[session] " + last_error_ + " session=" + session_id_);
+        return;
+    }
     message_count_++;
     update_meta();
 }
@@ -481,7 +500,20 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         }
         return {};
     }
-    auto messages = SessionStorage::load_messages(jsonl_path);
+    auto load_result =
+        SessionStorage::load_messages_with_diagnostics(jsonl_path);
+    if (load_result.diagnostics.recovered()) {
+        LOG_WARN("[session-recovery] resumed session=" + session_id +
+                 " malformed_records=" +
+                 std::to_string(
+                     load_result.diagnostics.malformed_complete_records) +
+                 " partial_tail=" +
+                 std::to_string(load_result.diagnostics.ignored_partial_tail ? 1 : 0) +
+                 " unterminated_record=" +
+                 std::to_string(
+                     load_result.diagnostics.recovered_unterminated_record ? 1 : 0));
+    }
+    auto messages = std::move(load_result.messages);
     const auto replacement_state = reconstruct_tool_result_replacement_state(messages);
     const int replacement_count = apply_tool_result_replacements(messages, replacement_state);
     if (replacement_count > 0) {
@@ -693,25 +725,44 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
     fs::create_directories(project_dir_);
     update_meta();
 
+    bool append_failed = false;
     for (const auto& msg : fork_messages) {
         if (is_file_checkpoint_message(msg)) continue;
         if (is_turn_timing_message(msg)) continue;
-        SessionStorage::append_message(jsonl_path_, msg);
+        if (!SessionStorage::append_message(jsonl_path_, msg)) {
+            append_failed = true;
+            break;
+        }
         message_count_++;
         if (is_visible_user_turn_message(msg)) {
             turn_count_++;
             auto timing_it = timing_by_user.find(msg.uuid);
             if (timing_it != timing_by_user.end()) {
                 for (const auto& timing_msg : timing_it->second) {
-                    SessionStorage::append_message(jsonl_path_, timing_msg);
+                    if (!SessionStorage::append_message(jsonl_path_, timing_msg)) {
+                        append_failed = true;
+                        break;
+                    }
                     message_count_++;
                 }
+                if (append_failed) break;
             }
         }
     }
-    for (const auto& msg : checkpoint_meta) {
-        SessionStorage::append_message(jsonl_path_, msg);
-        message_count_++;
+    if (!append_failed) {
+        for (const auto& msg : checkpoint_meta) {
+            if (!SessionStorage::append_message(jsonl_path_, msg)) {
+                append_failed = true;
+                break;
+            }
+            message_count_++;
+        }
+    }
+    if (append_failed) {
+        last_error_ = "failed to append forked session history";
+        LOG_WARN("[session] " + last_error_ + " session=" + session_id_);
+        update_meta();
+        return {};
     }
     {
         std::string index_error;
@@ -781,16 +832,23 @@ std::string SessionManager::fork_session_to_new_id(
         for (const auto& msg : fork_messages) {
             if (is_file_checkpoint_message(msg)) continue;
             if (is_turn_timing_message(msg)) continue;
-            SessionStorage::append_message(new_jsonl, msg);
+            if (!SessionStorage::append_message(new_jsonl, msg)) {
+                io_error = true;
+                break;
+            }
             count++;
             if (is_visible_user_turn_message(msg)) {
                 turn_count++;
                 auto timing_it = timing_by_user.find(msg.uuid);
                 if (timing_it != timing_by_user.end()) {
                     for (const auto& timing_msg : timing_it->second) {
-                        SessionStorage::append_message(new_jsonl, timing_msg);
+                        if (!SessionStorage::append_message(new_jsonl, timing_msg)) {
+                            io_error = true;
+                            break;
+                        }
                         count++;
                     }
+                    if (io_error) break;
                 }
             }
             if (is_visible_user_turn_message(msg) && !msg.content.empty()) {
