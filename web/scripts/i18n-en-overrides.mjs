@@ -312,4 +312,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '请移除不可用成员：{{p0}}': 'Remove unavailable members: {{p0}}',
   '主理人必须是当前可用的单专家': 'The lead must be a currently available individual expert',
   '{{p0}}（不可用）': '{{p0}} (unavailable)',
+  '专家切换结果与当前会话不一致，已同步为 {{p0}}': 'The expert switch did not match the current conversation. Synced to {{p0}}.',
+  '无法确认专家切换：当前对话已不存在或不可见': 'Could not confirm the expert switch because the current conversation no longer exists or is not visible.',
+  '确认专家切换状态失败：{{p0}}': 'Could not confirm the expert switch status: {{p0}}',
+  '未派遣专家': 'No expert dispatched',
+  '无法读取当前对话': 'Could not read the current conversation',
 });

@@ -461,6 +461,71 @@ export function shouldApplyExpertSwitchResponse(requestSequence, latestRequestSe
     && Number(requestSequence) === Number(latestRequestSequence);
 }
 
+export function resolveCanonicalExpertSwitchPoll({
+  sessions,
+  sessionId = '',
+  targetExpertId = '',
+  requestSequence = 0,
+  latestRequestSequence = 0,
+  latestTargetExpertId = '',
+  attempt = 1,
+  maxAttempts = 1,
+  loadError = null,
+} = {}) {
+  const targetId = String(targetExpertId || '');
+  const latestTargetId = String(latestTargetExpertId || '');
+  if (!shouldApplyExpertSwitchResponse(requestSequence, latestRequestSequence)
+      || !targetId
+      || targetId !== latestTargetId) {
+    return {
+      status: 'stale',
+      canonicalExpertId: '',
+      session: null,
+    };
+  }
+
+  const currentAttempt = Math.max(1, Number(attempt) || 1);
+  const attemptLimit = Math.max(1, Number(maxAttempts) || 1);
+  const exhausted = currentAttempt >= attemptLimit;
+  if (loadError) {
+    return {
+      status: exhausted ? 'error' : 'retry',
+      canonicalExpertId: '',
+      session: null,
+    };
+  }
+
+  const targetSessionId = String(sessionId || '');
+  const session = normalizeTargetSessions(sessions)
+    .find((item) => item.id === targetSessionId) || null;
+  if (!session) {
+    return {
+      status: exhausted ? 'missing' : 'retry',
+      canonicalExpertId: '',
+      session: null,
+    };
+  }
+
+  const canonicalExpertId = String(
+    session.expert_id
+    || session.expertId
+    || session.expert?.id
+    || '',
+  );
+  if (canonicalExpertId === targetId) {
+    return {
+      status: 'matched',
+      canonicalExpertId,
+      session,
+    };
+  }
+  return {
+    status: exhausted ? 'mismatch' : 'retry',
+    canonicalExpertId,
+    session,
+  };
+}
+
 export function shouldRequestExpertSwitch({
   expertId = '',
   currentExpertId = '',

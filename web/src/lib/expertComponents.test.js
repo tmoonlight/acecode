@@ -12,6 +12,7 @@ import {
   normalizeExpertSwitchReceipt,
   normalizeExperts,
   parseLineList,
+  resolveCanonicalExpertSwitchPoll,
   safeExpertAvatarUrl,
   selectedTeamMemberRows,
   selectedTeamExperts,
@@ -327,4 +328,71 @@ test('expert switch receipts and latest-request checks are authoritative', () =>
     currentExpertId: 'current-a',
     hasDraftText: true,
   }), true);
+});
+
+test('canonical expert switch polling requires the latest sequence and target', () => {
+  const sessions = [{
+    id: 'session-a',
+    expert_id: 'designer',
+    expert: { id: 'designer', display_name: '界面设计' },
+  }];
+  assert.equal(resolveCanonicalExpertSwitchPoll({
+    sessions,
+    sessionId: 'session-a',
+    targetExpertId: 'designer',
+    requestSequence: 4,
+    latestRequestSequence: 5,
+    latestTargetExpertId: 'designer',
+  }).status, 'stale');
+  assert.equal(resolveCanonicalExpertSwitchPoll({
+    sessions,
+    sessionId: 'session-a',
+    targetExpertId: 'designer',
+    requestSequence: 5,
+    latestRequestSequence: 5,
+    latestTargetExpertId: 'reviewer',
+  }).status, 'stale');
+  const matched = resolveCanonicalExpertSwitchPoll({
+    sessions,
+    sessionId: 'session-a',
+    targetExpertId: 'designer',
+    requestSequence: 5,
+    latestRequestSequence: 5,
+    latestTargetExpertId: 'designer',
+  });
+  assert.equal(matched.status, 'matched');
+  assert.equal(matched.canonicalExpertId, 'designer');
+  assert.equal(matched.session.expert.display_name, '界面设计');
+});
+
+test('canonical expert switch polling retries before bounded mismatch and missing timeouts', () => {
+  const base = {
+    sessions: [{ id: 'session-a', expert_id: 'reviewer' }],
+    sessionId: 'session-a',
+    targetExpertId: 'designer',
+    requestSequence: 8,
+    latestRequestSequence: 8,
+    latestTargetExpertId: 'designer',
+    maxAttempts: 3,
+  };
+  assert.equal(resolveCanonicalExpertSwitchPoll({
+    ...base,
+    attempt: 2,
+  }).status, 'retry');
+  const mismatch = resolveCanonicalExpertSwitchPoll({
+    ...base,
+    attempt: 3,
+  });
+  assert.equal(mismatch.status, 'mismatch');
+  assert.equal(mismatch.canonicalExpertId, 'reviewer');
+  assert.equal(resolveCanonicalExpertSwitchPoll({
+    ...base,
+    sessions: [],
+    attempt: 3,
+  }).status, 'missing');
+  assert.equal(resolveCanonicalExpertSwitchPoll({
+    ...base,
+    loadError: new Error('offline'),
+    attempt: 3,
+  }).status, 'error');
 });

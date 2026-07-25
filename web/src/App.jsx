@@ -1047,14 +1047,14 @@ export function App() {
 
   const replaceActiveSessionExpert = useCallback((sessionId, expert) => {
     const expertId = String(expert?.id || '');
-    if (!sessionId || !expertId) return;
+    if (!sessionId) return;
     replaceActiveRef((current) => {
       if (sessionJumpId(current) !== sessionId) return current;
       return {
         ...current,
         expertId,
         expert_id: expertId,
-        expert,
+        expert: expertId ? expert : null,
       };
     });
   }, [replaceActiveRef]);

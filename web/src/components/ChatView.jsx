@@ -107,6 +107,7 @@ import { pickModelLoad } from '../lib/modelLoad.js';
 import {
   normalizeExperts,
   normalizeExpertSwitchReceipt,
+  resolveCanonicalExpertSwitchPoll,
   shouldApplyExpertSwitchResponse,
   shouldRequestExpertSwitch,
 } from '../lib/expertComponents.js';
@@ -538,6 +539,9 @@ function fallbackWorkspaceOption(ref, health) {
 function isRealWorkspaceHash(hash) {
   return !!hash && hash !== '__local__';
 }
+
+const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
+const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 
 export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
@@ -2963,15 +2967,24 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       ) && sidRef.current === targetSessionId) {
         const acceptedFallback = acceptedExpertSwitchRef.current;
         if (acceptedFallback && acceptedFallback.requestSequence < requestSequence) {
-          if (acceptedFallback.receipt?.applied) {
-            setSessionExpertId(acceptedFallback.expert.id);
-            setSessionExpertSnapshot(acceptedFallback.expert);
+          const restoredFallback = {
+            ...acceptedFallback,
+            requestSequence,
+          };
+          acceptedExpertSwitchRef.current = restoredFallback;
+          latestExpertSwitchRequestRef.current = {
+            ...latestExpertSwitchRequestRef.current,
+            expertId: restoredFallback.expert.id,
+          };
+          if (restoredFallback.receipt?.applied) {
+            setSessionExpertId(restoredFallback.expert.id);
+            setSessionExpertSnapshot(restoredFallback.expert);
             pendingExpertRef.current = null;
             setPendingExpert(null);
-            onSessionExpertChanged?.(targetSessionId, acceptedFallback.expert);
+            onSessionExpertChanged?.(targetSessionId, restoredFallback.expert);
           } else {
-            pendingExpertRef.current = acceptedFallback;
-            setPendingExpert(acceptedFallback);
+            pendingExpertRef.current = restoredFallback;
+            setPendingExpert(restoredFallback);
           }
         } else {
           setSessionExpertId(previousId);
@@ -3005,14 +3018,143 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   ]);
 
   useEffect(() => {
-    if (busy || expertSwitching || !pendingExpert?.confirmed || !sid) return;
-    const confirmedExpert = pendingExpert.expert;
-    setSessionExpertId(confirmedExpert.id);
-    setSessionExpertSnapshot(confirmedExpert);
-    pendingExpertRef.current = null;
-    setPendingExpert(null);
-    onSessionExpertChanged?.(sid, confirmedExpert);
-  }, [busy, expertSwitching, onSessionExpertChanged, pendingExpert, sid]);
+    if (busy || expertSwitching || !pendingExpert?.confirmed || !sid) return undefined;
+    const targetSessionId = sid;
+    const targetExpert = pendingExpert.expert;
+    const targetExpertId = String(targetExpert?.id || '');
+    const requestSequence = Number(pendingExpert.requestSequence || 0);
+    if (!targetExpertId || requestSequence <= 0) return undefined;
+
+    let cancelled = false;
+    let retryTimer = 0;
+    let attempt = 0;
+    let lastLoadError = null;
+    const isCurrentRequest = () => {
+      const latest = latestExpertSwitchRequestRef.current;
+      const currentPending = pendingExpertRef.current;
+      return !cancelled
+        && sidRef.current === targetSessionId
+        && shouldApplyExpertSwitchResponse(requestSequence, latest.sequence)
+        && String(latest.expertId || '') === targetExpertId
+        && Number(currentPending?.requestSequence || 0) === requestSequence
+        && String(currentPending?.expert?.id || '') === targetExpertId;
+    };
+    const clearConfirmedPending = () => {
+      if (!isCurrentRequest()) return false;
+      pendingExpertRef.current = null;
+      acceptedExpertSwitchRef.current = null;
+      setPendingExpert(null);
+      return true;
+    };
+    const canonicalExpertSnapshot = (session, canonicalExpertId, fallback = null) => {
+      const fromSession = session?.expert && typeof session.expert === 'object'
+        ? normalizeExperts([session.expert])[0]
+        : null;
+      if (fromSession?.id === canonicalExpertId) return fromSession;
+      const fromCatalog = experts.find((item) => item.id === canonicalExpertId);
+      if (fromCatalog) return fromCatalog;
+      if (fallback?.id === canonicalExpertId) return fallback;
+      if (!canonicalExpertId) return null;
+      return {
+        id: canonicalExpertId,
+        display_name: canonicalExpertId,
+        type: 'agent',
+        source: 'global',
+        managed_global: false,
+        quick_prompts: [],
+      };
+    };
+    const scheduleRetry = (poll) => {
+      retryTimer = window.setTimeout(
+        poll,
+        EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS,
+      );
+    };
+    const pollCanonicalSession = async () => {
+      if (!isCurrentRequest()) return;
+      attempt += 1;
+      let sessions = [];
+      let loadError = null;
+      try {
+        sessions = isRealWorkspaceHash(sessionWorkspaceHash)
+          ? await api.listWorkspaceSessions(sessionWorkspaceHash)
+          : await api.listSessions();
+      } catch (error) {
+        loadError = error;
+        lastLoadError = error;
+      }
+      if (!isCurrentRequest()) return;
+
+      const latest = latestExpertSwitchRequestRef.current;
+      const resolution = resolveCanonicalExpertSwitchPoll({
+        sessions,
+        sessionId: targetSessionId,
+        targetExpertId,
+        requestSequence,
+        latestRequestSequence: latest.sequence,
+        latestTargetExpertId: latest.expertId,
+        attempt,
+        maxAttempts: EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS,
+        loadError,
+      });
+      if (resolution.status === 'stale') return;
+      if (resolution.status === 'retry') {
+        scheduleRetry(pollCanonicalSession);
+        return;
+      }
+      if (resolution.status === 'matched') {
+        const confirmedExpert = canonicalExpertSnapshot(
+          resolution.session,
+          targetExpertId,
+          targetExpert,
+        );
+        if (!clearConfirmedPending()) return;
+        setSessionExpertId(targetExpertId);
+        setSessionExpertSnapshot(confirmedExpert);
+        onSessionExpertChanged?.(targetSessionId, confirmedExpert);
+        return;
+      }
+      if (!clearConfirmedPending()) return;
+
+      if (resolution.status === 'mismatch') {
+        const canonicalExpert = canonicalExpertSnapshot(
+          resolution.session,
+          resolution.canonicalExpertId,
+        );
+        setSessionExpertId(resolution.canonicalExpertId);
+        setSessionExpertSnapshot(canonicalExpert);
+        onSessionExpertChanged?.(targetSessionId, canonicalExpert);
+        toast({
+          kind: 'err',
+          text: `专家切换结果与当前会话不一致，已同步为 ${canonicalExpert?.display_name || '未派遣专家'}`,
+        });
+        return;
+      }
+      if (resolution.status === 'missing') {
+        toast({ kind: 'err', text: '无法确认专家切换：当前对话已不存在或不可见' });
+        return;
+      }
+      toast({
+        kind: 'err',
+        text: `确认专家切换状态失败：${lastLoadError?.message || '无法读取当前对话'}`,
+      });
+    };
+
+    pollCanonicalSession();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [
+    api,
+    busy,
+    expertSwitching,
+    experts,
+    onSessionExpertChanged,
+    pendingExpert,
+    sessionWorkspaceHash,
+    sid,
+  ]);
 
   const selectExpertOpeningPrompt = useCallback(async (expert, prompt) => {
     return selectComposerExpert(expert, { draftText: String(prompt || '') });

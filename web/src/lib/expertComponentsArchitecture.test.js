@@ -108,6 +108,11 @@ test('all real composers host the picker in place and opening prompts use atomic
   assert.match(chat, /selectComposerExpert\(expert, \{ draftText: String\(prompt \|\| ''\) \}\)/);
   assert.match(chat, /api\.setSessionExpert\(targetSessionId, expertId, requestOptions\)/);
   assert.match(chat, /normalizeExpertSwitchReceipt\(result, expertId\)/);
+  assert.match(chat, /resolveCanonicalExpertSwitchPoll/);
+  assert.match(chat, /api\.listWorkspaceSessions\(sessionWorkspaceHash\)/);
+  assert.match(chat, /api\.listSessions\(\)/);
+  assert.match(chat, /const restoredFallback = \{\s*\.\.\.acceptedFallback,\s*requestSequence,/);
+  assert.doesNotMatch(chat, /if \(busy \|\| expertSwitching \|\| !pendingExpert\?\.confirmed \|\| !sid\) return;\s*const confirmedExpert/);
   assert.match(chat, /shouldApplyExpertSwitchResponse/);
   assert.match(chat, /latestExpertSwitchRequestRef/);
   assert.doesNotMatch(chat, /expertId === sessionExpertId\) \{/);
