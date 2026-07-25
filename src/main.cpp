@@ -2876,8 +2876,9 @@ static void shutdown_after_tui_loop(TuiState& state,
                                     SessionManager& session_manager,
                                     const AppConfig& config) {
 #ifdef _WIN32
-    // Clear WinToast handlers before any TUI/session objects captured by the
-    // activation callback begin teardown.
+    // Clear notification handlers (and stop the self-drawn toast thread) before
+    // any TUI/session objects captured by the activation callback begin
+    // teardown.
     acecode::desktop::shutdown_notifications();
 #endif
     g_active_screen.store(nullptr, std::memory_order_release);
@@ -5598,8 +5599,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     CommandRegistry cmd_registry;
     register_slash_commands(cmd_registry, skill_registry, config, working_dir);
 
-    // Windows TUI WinToast setup. Keep WinToast calls and session mutations on
-    // the FTXUI thread: activation callbacks only enqueue a main-loop task.
+    // Windows TUI notification setup. The backend (OS toast or the self-drawn
+    // renderer) is picked inside init_notifications; either way session
+    // mutations stay on the FTXUI thread because activation callbacks only
+    // enqueue a main-loop task.
     void* tui_notification_window = nullptr;
     bool tui_notifications_ready = false;
 #ifdef _WIN32
@@ -5611,6 +5614,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         notification_options.app_name = "ACECode TUI";
         notification_options.application_id = "ACECode.ACECode.TUI.1";
         notification_options.activation_window = tui_notification_window;
+        notification_options.backend = config.desktop.notifications.backend;
         tui_notifications_ready =
             acecode::desktop::init_notifications(notification_options);
         if (tui_notifications_ready) {

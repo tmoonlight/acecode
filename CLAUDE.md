@@ -108,6 +108,7 @@ Key modules:
 - `daemon_pool`: per-workspace daemon process management.
 - `web_host`: native webview wrapper and bridge binding.
 - `tray_icon_win` and `notifications_win`: Windows tray and notification integration.
+- `custom_toast_win` and `notification_backend_policy`: the self-drawn toast fallback and the backend decision it hangs off.
 
 Detailed behavior is in [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md).
 
@@ -285,6 +286,23 @@ daemon 侧 `src/web/pty/`:`PtyBackend` 四实现 — **ConPty**(1809+,GetProcAdd
 
 **ConPTY 必踩坑**:pseudoconsole 子进程的 std 句柄仍按老规则从父进程 PEB 复制 — daemon 被 desktop 以 `CREATE_NO_WINDOW` + NUL std 启动时,cmd 复制到无效 stdin → 读 EOF → 秒退 code 0(实测复现)。修复 = spawn 时 `STARTF_USESTDHANDLES` + 三个 NULL 句柄(node-pty 同款),console 子进程初始化回退绑定 conpty console。该修复同时治好了单测 harness 内的同根伪影(最初误判为受限 Job 杀 conhost);`pty_backend_test.cpp` 的环境探针防御性保留。
 
+### Windows 弹框:系统 toast + 自绘兜底(fix-wintoast-silent-drop)
+
+问题:一批 Win10 机器上 WinToast 的 `initialize()` / `showToast()` 全返回成功,弹框却永远不出现 —— AUMID 的开始菜单快捷方式没建成、通知被系统/单应用/组策略关掉、或被"优化"工具停了通知平台。这些都读不出错误码,单靠返回值永远发现不了。
+
+**三层结构**(全部在 `src/desktop/`):
+1. `notification_backend_policy.{hpp,cpp}` — 纯判定表。输入 `NotificationBackendPreference`(config `desktop.notifications.backend` = `auto`(默认)/ `system` / `custom`)+ `SystemToastSignals`(platform_supported / toasts_enabled_globally / app_toasts_enabled / policy_disabled / runtime_delivery_failed),输出 `System | Custom | None` + reason 文案。`auto` 任一信号变坏就转自绘;`system` 是显式选择,不可用时返回 `None` 而**不是**偷偷换成自绘;`custom` 无条件自绘。
+2. `notifications_win.cpp` — 路由 + 注册表探测(`PushNotifications\ToastEnabled`、`Notifications\Settings\<AUMID>\Enabled`、两条 policy 键的 HKCU/HKLM)。WinToast 代码整体收进 `#ifdef ACECODE_HAS_WINTOAST`,**该文件现在在所有 WIN32 构建里编译**(MinGW/WinLibs 不再退化成 no-op stub,自绘渲染只吃 Win32+GDI)。运行期降级是粘性的:`showToast` 返回 <0 或 `toastFailed()` 回调(WinRT 线程,所以用 `std::atomic` 不用锁)置位后重新判定并改走自绘。
+3. `custom_toast.{hpp,cpp}` + `custom_toast_win.cpp` — 自绘渲染,抄 Electron 的 `win32_desktop_notifications`(MIT):隐藏 controller 窗口持 15ms 动画 timer,工作区右下角一摞 `WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOPMOST` 的 `WS_POPUP`,GDI 画进内存 DC 后 `UpdateLayeredWindow(Indirect)` 推给合成器;宽度 ease-in(源点同步左移 = 从屏幕边缘滑出)、alpha ease-out、栈塌陷动画三条曲线。
+
+**两处有意偏离 Electron**:(a) Electron 跑在浏览器 UI 线程上,ACECode 要同时服务 FTXUI 终端(**根本没有 Win32 消息循环**)和 desktop 壳,所以 controller 自带**独立线程 + 自己的消息循环**,`show()` 是 `PostMessage` 异步投递(payload 堆分配,post 失败即 delete);(b) Electron 画不透明矩形,这里画**每像素 alpha 的圆角卡片**(跟随系统深浅色,accent 色缩成左侧竖条)。
+
+**per-pixel alpha 的坑**:GDI 文字/图标输出不写 alpha 字节,直接 `ULW_ALPHA` 会合成出垃圾。`apply_rounded_alpha()` 在每次 draw 末尾重写整个 alpha 平面 —— 圆角矩形内恒 255,四角圆弧 4×4 超采样抗锯齿并按覆盖率**预乘 RGB**(`UpdateLayeredWindow` 要求预乘)。DIB 用负 biHeight 建成 top-down,像素遍历才是自然顺序;改像素前必须 `GdiFlush()`。
+
+其它必知细节:controller 窗口**不能用 HWND_MESSAGE**(收不到 `WM_SETTINGCHANGE`/`WM_DISPLAYCHANGE` 广播,重锚失效,同 tray 的坑);渲染线程起手 `SetThreadDpiAwarenessContext(-4)`(动态取址,按 HANDLE 定型以兼容 MinGW 老头文件),这样终端进程不用改进程级 DPI 感知也能画清楚;鼠标悬停期间**冻结整摞**不回收空位(否则卡片滑到光标下,点击会落到另一条通知上);`shutdown()` 若发现自己就跑在渲染线程上(点击回调里拆通知)就 detach 而不是 join,否则自锁。
+
+纯逻辑(缓动曲线、栈偏移、工作区锚定、DPI 缩放、判定表)在 `tests/desktop/custom_toast_layout_test.cpp` + `notification_backend_policy_test.cpp` 里跨平台跑;GDI 渲染只能靠 `notifications_native_test.cpp` 里 `ACECODE_RUN_NOTIFICATION_SMOKE=1` 门控的两条手动冒烟(系统 toast 一条、强制 `backend=custom` 一条)。
+
 ### Proxy / 抓包
 
 `src/network/proxy_resolver.{hpp,cpp}` (with platform-specific `_posix` / `_win` bodies) injects proxy options into all cpr call sites uniformly. Design: `openspec/changes/respect-system-proxy`.
@@ -404,7 +422,8 @@ Both `main.cpp` and `daemon/worker.cpp` call `proxy_resolver().init(cfg.network)
       "enabled": true,
       "on_question": true,
       "on_completion": true,
-      "suppress_when_focused": true
+      "suppress_when_focused": true,
+      "backend": "auto"
     }
   },
   "saved_models": [

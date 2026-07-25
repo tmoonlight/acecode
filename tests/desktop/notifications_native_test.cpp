@@ -185,4 +185,33 @@ TEST(NativeNotifications, OptInDeliversWindowsToastAndActivatesWindow) {
 #endif
 }
 
+// 手动冒烟:在"WinToast 装了也不弹"的那类 Win10 机器上直接验证自绘弹框。
+// 强制 backend=custom 绕开系统 toast 通路,弹框应出现在工作区右下角。
+TEST(NativeNotifications, OptInDeliversSelfDrawnToast) {
+#ifdef _WIN32
+    const char* enabled = std::getenv("ACECODE_RUN_NOTIFICATION_SMOKE");
+    if (!enabled || std::string(enabled) != "1") {
+        GTEST_SKIP() << "set ACECODE_RUN_NOTIFICATION_SMOKE=1 for the Windows runtime smoke";
+    }
+
+    acecode::desktop::shutdown_notifications();
+    acecode::desktop::NotificationInitOptions options;
+    options.app_name = "ACECode Desktop";
+    options.application_id = "ACECode.ACECode.Desktop.1";
+    options.activation_window =
+        acecode::desktop::capture_tui_notification_window();
+    options.backend = "custom";
+    ASSERT_TRUE(acecode::desktop::init_notifications(options));
+
+    EXPECT_TRUE(acecode::desktop::show_notification(
+        sample_payload("completion-custom-smoke", "session-custom-smoke")));
+
+    // 渲染线程是异步的:留出够看到淡入动画的时间再拆掉。
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    acecode::desktop::shutdown_notifications();
+#else
+    GTEST_SKIP() << "the self-drawn toast renderer is Windows-only";
+#endif
+}
+
 } // namespace

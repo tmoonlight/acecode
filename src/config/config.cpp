@@ -1385,6 +1385,17 @@ AppConfig load_config() {
                                 cfg.desktop.notifications.suppress_when_focused =
                                     nj["suppress_when_focused"].get<bool>();
                             }
+                            if (nj.contains("backend") && nj["backend"].is_string()) {
+                                const std::string backend =
+                                    nj["backend"].get<std::string>();
+                                if (backend == "auto" || backend == "system" ||
+                                    backend == "custom") {
+                                    cfg.desktop.notifications.backend = backend;
+                                } else {
+                                    LOG_WARN("[config] 'desktop.notifications.backend' "
+                                             "must be auto|system|custom, using auto");
+                                }
+                            }
                         }
                     }
                 }
@@ -1834,6 +1845,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             dnj["on_completion"] = cfg.desktop.notifications.on_completion;
         if (cfg.desktop.notifications.suppress_when_focused != dn_d.suppress_when_focused)
             dnj["suppress_when_focused"] = cfg.desktop.notifications.suppress_when_focused;
+        if (cfg.desktop.notifications.backend != dn_d.backend)
+            dnj["backend"] = cfg.desktop.notifications.backend;
         nlohmann::json deskj = nlohmann::json::object();
         if (cfg.desktop.close_to_tray != desk_d.close_to_tray)
             deskj["close_to_tray"] = cfg.desktop.close_to_tray;
