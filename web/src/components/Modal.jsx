@@ -134,12 +134,13 @@ export function SlideOver({ children, onClose, width = 380 }) {
 }
 
 // Toggle switch — Modal/Panels 复用
-export function Toggle({ on, onChange, disabled }) {
+export function Toggle({ on, onChange, disabled, ariaLabel }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange?.(!on)}
       className={clsx(

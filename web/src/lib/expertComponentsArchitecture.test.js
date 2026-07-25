@@ -35,7 +35,8 @@ test('standalone expert page owns management and explicit conversation targeting
   assert.match(page, /api\.deleteExpert/);
   assert.match(page, /data-expert-target-conversation="true"/);
   assert.match(page, /api\.setSessionExpert/);
-  assert.match(page, /api\.setSessionDraft/);
+  assert.match(page, /\{ draftText: target\.prompt \}/);
+  assert.doesNotMatch(page, /api\.setSessionDraft/);
   assert.doesNotMatch(page, /<InputBar|data-composer|模拟聊天|悬浮输入/);
   assert.doesNotMatch(page, /window\.confirm|window\.alert/);
 });
@@ -85,14 +86,18 @@ test('editor provides basic, advanced, and inline team-member workflows backed b
   assert.match(editor, /capabilitySourceLabel/);
   assert.match(editor, /已在全局设置中禁用/);
   assert.match(editor, /<Toggle/);
+  assert.match(editor, /ariaLabel=\{`\$\{checked \? '关闭' : '开启'\}本地工具 \$\{option\.label\}`\}/);
   assert.match(editor, /data-team-expert-picker="true"/);
+  assert.match(editor, /aria-pressed=\{selected\}/);
+  assert.match(editor, /data-team-member-unavailable/);
+  assert.match(editor, /validateExpertFormFields\(form, experts\)/);
   assert.match(editor, /设为主理人/);
   assert.match(editor, />\s*移除\s*</);
   assert.match(editor, /放弃未保存的更改/);
   assert.match(api, /\/api\/experts\/capabilities/);
 });
 
-test('all real composers host the picker in place and opening prompts write the existing draft', () => {
+test('all real composers host the picker in place and opening prompts use atomic expert draft dispatch', () => {
   const chat = source('components/ChatView.jsx');
   const input = source('components/InputBar.jsx');
   const controls = source('components/ComposerSessionControls.jsx');
@@ -100,17 +105,21 @@ test('all real composers host the picker in place and opening prompts write the 
 
   assert.equal((chat.match(/<ExpertPickerDialog/g) || []).length, 2);
   assert.match(chat, /setExpertPickerOpen\(true\)/);
-  assert.match(chat, /setComposerValue\(String\(prompt \|\| ''\)\)/);
-  assert.match(chat, /const accepted = await selectComposerExpert\(expert\)/);
-  assert.match(chat, /api\.setSessionExpert\(sid, expertId\)/);
-  assert.match(chat, /result\?\.busy === true/);
+  assert.match(chat, /selectComposerExpert\(expert, \{ draftText: String\(prompt \|\| ''\) \}\)/);
+  assert.match(chat, /api\.setSessionExpert\(targetSessionId, expertId, requestOptions\)/);
+  assert.match(chat, /normalizeExpertSwitchReceipt\(result, expertId\)/);
+  assert.match(chat, /shouldApplyExpertSwitchResponse/);
+  assert.match(chat, /latestExpertSwitchRequestRef/);
+  assert.doesNotMatch(chat, /expertId === sessionExpertId\) \{/);
   assert.match(chat, /pendingExpert\?\.confirmed/);
   assert.match(chat, /onOpenExpertComponents=\{\(\) => setExpertPickerOpen\(true\)\}/);
 
   assert.match(input, /data-expert-components-submenu="true"/);
+  assert.match(input, /createPortal\(/);
+  assert.match(input, /placeExpertSubmenu/);
+  assert.match(input, /className="fixed z-\[100\]/);
   assert.match(input, /recentExpertItems\.length > 0 &&/);
   assert.match(input, /compactExpertSummary\(expert\)/);
-  assert.match(input, /expertSubmenuSide === 'left'/);
   assert.match(input, />更多专家</);
   assert.match(input, />文件或文件夹</);
   assert.doesNotMatch(input, /暂无最近使用的专家|没有最近的专家|onAddBrowserContext|>浏览器</);
@@ -122,4 +131,14 @@ test('all real composers host the picker in place and opening prompts write the 
   assert.match(app, /<ExpertComponentsPage/);
   assert.match(app, /recentExpertIds=\{recentExpertIds\}/);
   assert.doesNotMatch(app, /useExpertForNewTask|onUseExpert=/);
+});
+
+test('conversation picker does not expose management controls without callbacks', () => {
+  const catalog = source('components/ExpertCatalog.jsx');
+  const card = between(catalog, 'function ExpertCard', 'function DetailSection');
+  const picker = between(catalog, 'export function ExpertPickerDialog', 'export function compactExpertSummary');
+  assert.match(card, /expert\.managed_global && \(onEdit \|\| onDelete\)/);
+  assert.match(card, /\{onEdit && \(/);
+  assert.match(card, /\{onDelete && \(/);
+  assert.doesNotMatch(picker, /onEdit=|onDelete=/);
 });

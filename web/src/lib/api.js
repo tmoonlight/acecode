@@ -232,13 +232,19 @@ export function createApi(base = null) {
       request('PUT', sessionDraftPath(id, workspaceHash), { text }, base),
     setSessionTitle:  (id, title = '', workspaceHash = '') =>
       request('PUT', sessionTitlePath(id, workspaceHash), { title }, base),
-    setSessionExpert: (id, expertId) =>
-      request(
+    setSessionExpert: (id, expertId, options = {}) => {
+      const body = { expert_id: expertId };
+      if (options && typeof options === 'object'
+          && Object.prototype.hasOwnProperty.call(options, 'draftText')) {
+        body.draft_text = String(options.draftText ?? '');
+      }
+      return request(
         'PUT',
         `/api/sessions/${encodeURIComponent(id)}/expert`,
-        { expert_id: expertId },
+        body,
         base,
-      ),
+      );
+    },
     clearSessionTodos: (id, workspaceHash = '') =>
       request('DELETE', sessionTodosPath(id, workspaceHash), undefined, base),
     sendInput:        (id, payload)  => {

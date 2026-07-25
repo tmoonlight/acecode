@@ -9,10 +9,15 @@ import {
   filterExperts,
   normalizeCapabilityCatalog,
   normalizeExpertCapabilities,
+  normalizeExpertSwitchReceipt,
   normalizeExperts,
   parseLineList,
+  safeExpertAvatarUrl,
+  selectedTeamMemberRows,
   selectedTeamExperts,
   setCapabilityScopeMode,
+  shouldApplyExpertSwitchResponse,
+  shouldRequestExpertSwitch,
   singleExpertsForTeam,
   sortExperts,
   toggleCapabilitySelection,
@@ -61,6 +66,19 @@ test('expert list normalization preserves distinct expertise and opening prompts
   assert.deepEqual(catalog[0].tags, ['OPC-一人公司', '开发']);
   assert.deepEqual(catalog[0].expertise, ['架构设计', '代码质量']);
   assert.deepEqual(catalog[0].quick_prompts, ['审查当前改动']);
+});
+
+test('expert avatars accept controlled URLs and reject local filesystem paths', () => {
+  assert.equal(safeExpertAvatarUrl('/api/experts/reviewer/avatar'), '/api/experts/reviewer/avatar');
+  assert.equal(safeExpertAvatarUrl('https://assets.example/avatar.png'), 'https://assets.example/avatar.png');
+  assert.equal(safeExpertAvatarUrl('N:\\private\\avatar.png'), '');
+  assert.equal(safeExpertAvatarUrl('file:///N:/private/avatar.png'), '');
+  const [normalized] = normalizeExperts([{
+    id: 'local-avatar',
+    avatar_url: 'C:\\Users\\name\\avatar.png',
+    avatar_path: 'C:\\Users\\name\\avatar.png',
+  }]);
+  assert.equal(normalized.avatar_url, '');
 });
 
 test('Tag membership is non-exclusive and combines with plain-language search', () => {
@@ -232,4 +250,81 @@ test('team picker only offers existing single experts and resolves selections', 
     ).map((item) => item.id),
     ['designer'],
   );
+});
+
+test('team validation rejects missing, out-of-scope, and nested-team references', () => {
+  const form = {
+    ...emptyExpertForm('team'),
+    displayName: '交付团队',
+    author: 'ACECode',
+    selectedExpertIds: ['reviewer', 'missing-expert'],
+    leadExpertId: 'reviewer',
+  };
+  let errors = validateExpertFormFields(form, catalog);
+  assert.match(errors.members, /不可用成员/);
+  assert.match(errors.members, /missing-expert/);
+
+  const nested = {
+    ...form,
+    selectedExpertIds: ['reviewer', 'delivery-team'],
+  };
+  errors = validateExpertFormFields(nested, catalog);
+  assert.match(errors.members, /交付团队/);
+
+  const selfReference = {
+    ...form,
+    id: 'reviewer',
+    selectedExpertIds: ['reviewer', 'designer'],
+    leadExpertId: 'designer',
+  };
+  errors = validateExpertFormFields(selfReference, catalog);
+  assert.match(errors.members, /代码审查/);
+});
+
+test('saved unavailable team members remain visible and removable', () => {
+  const rows = selectedTeamMemberRows({
+    id: 'editing-team',
+    selectedExpertIds: ['reviewer', 'missing-expert', 'delivery-team'],
+  }, catalog);
+  assert.deepEqual(rows.map((row) => row.id), ['reviewer', 'missing-expert', 'delivery-team']);
+  assert.equal(rows[0].unavailable, false);
+  assert.equal(rows[1].unavailable_reason, 'missing');
+  assert.equal(rows[2].unavailable_reason, 'nested_team');
+});
+
+test('expert switch receipts and latest-request checks are authoritative', () => {
+  assert.deepEqual(normalizeExpertSwitchReceipt({
+    busy: true,
+    receipt: {
+      sequence: 9,
+      expert_id: 'designer',
+      state: 'queued',
+      applied: false,
+      effective_boundary: 'next_turn',
+    },
+  }), {
+    sequence: 9,
+    expertId: 'designer',
+    state: 'queued',
+    applied: false,
+    pending: true,
+    busy: true,
+    effectiveBoundary: 'next_turn',
+  });
+  assert.equal(shouldApplyExpertSwitchResponse(4, 4), true);
+  assert.equal(shouldApplyExpertSwitchResponse(3, 4), false);
+  assert.equal(shouldRequestExpertSwitch({
+    expertId: 'current-a',
+    currentExpertId: 'current-a',
+    pendingExpertId: 'pending-b',
+  }), true);
+  assert.equal(shouldRequestExpertSwitch({
+    expertId: 'current-a',
+    currentExpertId: 'current-a',
+  }), false);
+  assert.equal(shouldRequestExpertSwitch({
+    expertId: 'current-a',
+    currentExpertId: 'current-a',
+    hasDraftText: true,
+  }), true);
 });

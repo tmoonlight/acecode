@@ -8,7 +8,7 @@ import {
   filterExperts,
   normalizeCapabilityCatalog,
   normalizeStringList,
-  selectedTeamExperts,
+  selectedTeamMemberRows,
   setCapabilityScopeMode,
   singleExpertsForTeam,
   toggleCapabilitySelection,
@@ -249,7 +249,11 @@ function CapabilityList({
           </div>
           <label className="flex items-center gap-2 text-[10px] text-fg-mute">
             继承全局
-            <Toggle on={inherited} onChange={onToggleInherited} />
+            <Toggle
+              on={inherited}
+              onChange={onToggleInherited}
+              ariaLabel={`${title} 继承全局`}
+            />
           </label>
         </div>
         <label className="relative mt-2 block">
@@ -333,7 +337,11 @@ function ToolScope({
         </div>
         <label className="flex items-center gap-2 text-[10px] text-fg-mute">
           继承全局
-          <Toggle on={inherited} onChange={onToggleInherited} />
+          <Toggle
+            on={inherited}
+            onChange={onToggleInherited}
+            ariaLabel="ACECode 本地工具继承全局"
+          />
         </label>
       </div>
       <div className="grid grid-cols-1 gap-px bg-border sm:grid-cols-2">
@@ -350,7 +358,12 @@ function ToolScope({
                   {capabilityDisabledReason(option) || status.label}
                 </div>
               </div>
-              <Toggle on={checked} disabled={disabled} onChange={() => onToggle(option.id)} />
+              <Toggle
+                on={checked}
+                disabled={disabled}
+                onChange={() => onToggle(option.id)}
+                ariaLabel={`${checked ? '关闭' : '开启'}本地工具 ${option.label}`}
+              />
             </div>
           );
         })}
@@ -506,6 +519,7 @@ function MemberPickerDialog({ form, experts, onConfirm, onClose }) {
                   <button
                     key={expert.id}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => toggle(expert.id)}
                     className={clsx(
                       'flex w-full items-center gap-3 border-b border-border px-3 py-2.5 text-left last:border-b-0',
@@ -553,7 +567,7 @@ function MemberPickerDialog({ form, experts, onConfirm, onClose }) {
 
 function TeamMembersEditor({ form, experts, error, onChange }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const selected = selectedTeamExperts(form, experts);
+  const selected = selectedTeamMemberRows(form, experts);
 
   return (
     <div data-team-members-editor="true">
@@ -577,18 +591,32 @@ function TeamMembersEditor({ form, experts, error, onChange }) {
         <div className="overflow-hidden rounded-lg border border-border">
           {selected.map((expert) => {
             const lead = form.leadExpertId === expert.id;
+            const unavailableReason = expert.unavailable_reason === 'nested_team'
+              ? '专家团不能作为团队成员'
+              : expert.unavailable_reason === 'out_of_scope'
+                ? '不在当前可选专家范围内'
+                : '该专家已缺失或当前不可用';
             return (
-              <div key={expert.id} className="flex items-center gap-3 border-b border-border bg-surface px-3 py-3 last:border-b-0">
+              <div
+                key={expert.id}
+                data-team-member-unavailable={expert.unavailable ? 'true' : undefined}
+                className="flex items-center gap-3 border-b border-border bg-surface px-3 py-3 last:border-b-0"
+              >
                 <ExpertAvatar expert={expert} size={34} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12px] font-medium text-fg">{expert.display_name}</div>
-                  <div className="mt-0.5 truncate text-[10px] text-fg-mute">
-                    {expert.profession || '专家'}{expert.expertise[0] ? ` · 擅长${expert.expertise[0]}` : ''}
+                  <div className={clsx(
+                    'mt-0.5 truncate text-[10px]',
+                    expert.unavailable ? 'text-danger' : 'text-fg-mute',
+                  )}>
+                    {expert.unavailable
+                      ? unavailableReason
+                      : `${expert.profession || '专家'}${expert.expertise[0] ? ` · 擅长${expert.expertise[0]}` : ''}`}
                   </div>
                 </div>
-                {lead ? (
+                {lead && !expert.unavailable ? (
                   <span className="rounded bg-accent-bg px-2 py-1 text-[10px] text-accent">主理人</span>
-                ) : (
+                ) : !expert.unavailable ? (
                   <button
                     type="button"
                     onClick={() => onChange({ ...form, leadExpertId: expert.id })}
@@ -596,7 +624,7 @@ function TeamMembersEditor({ form, experts, error, onChange }) {
                   >
                     设为主理人
                   </button>
-                )}
+                ) : null}
                 <button
                   type="button"
                   onClick={() => onChange(toggleTeamExpert(form, expert.id))}
@@ -690,7 +718,7 @@ export function ExpertEditor({
   }, [dirty, onClose, saving]);
 
   const save = async () => {
-    const nextErrors = validateExpertFormFields(form);
+    const nextErrors = validateExpertFormFields(form, experts);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       setTab(nextErrors.members || nextErrors.leadExpertId ? 'members' : 'basic');

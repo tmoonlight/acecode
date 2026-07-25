@@ -104,7 +104,12 @@ import {
 } from '../lib/conversationActivity.js';
 import { normalizeTokenBudget } from '../lib/tokenBudget.js';
 import { pickModelLoad } from '../lib/modelLoad.js';
-import { normalizeExperts } from '../lib/expertComponents.js';
+import {
+  normalizeExperts,
+  normalizeExpertSwitchReceipt,
+  shouldApplyExpertSwitchResponse,
+  shouldRequestExpertSwitch,
+} from '../lib/expertComponents.js';
 import { resolveRecentExperts } from '../lib/recentExperts.js';
 import {
   modelDisplayLabel,
@@ -699,6 +704,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   );
   const [expertSwitching, setExpertSwitching] = useState(false);
   const [pendingExpert, setPendingExpert] = useState(null);
+  const pendingExpertRef = useRef(null);
+  const latestExpertSwitchRequestRef = useRef({
+    sequence: 0,
+    expertId: '',
+    settled: true,
+  });
+  const acceptedExpertSwitchRef = useRef(null);
+  const expertSwitchQueueRef = useRef(Promise.resolve());
   const [expertPickerOpen, setExpertPickerOpen] = useState(false);
   const [modelState, setModelState] = useState(null);
   // 模型池负载快照(每 30s 轮询 /api/model-pool-status)。
@@ -946,7 +959,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       setSessionExpertSnapshot(
         ref?.expert && typeof ref.expert === 'object' ? ref.expert : null,
       );
-      setPendingExpert((current) => (current?.expert?.id === expertId ? null : current));
+      if (pendingExpertRef.current?.expert?.id === expertId) {
+        pendingExpertRef.current = null;
+        setPendingExpert(null);
+      }
+      if (!pendingExpertRef.current
+          && acceptedExpertSwitchRef.current?.expert?.id !== expertId) {
+        acceptedExpertSwitchRef.current = null;
+      }
       return;
     }
     setHomeExpertId(expertId);
@@ -954,7 +974,16 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
 
   useEffect(() => {
     setExpertPickerOpen(false);
+    pendingExpertRef.current = null;
     setPendingExpert(null);
+    latestExpertSwitchRequestRef.current = {
+      sequence: latestExpertSwitchRequestRef.current.sequence + 1,
+      expertId: '',
+      settled: true,
+    };
+    acceptedExpertSwitchRef.current = null;
+    expertSwitchQueueRef.current = Promise.resolve();
+    setExpertSwitching(false);
   }, [sid]);
 
   useEffect(() => {
@@ -2824,57 +2853,152 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const composerExpertId = sid ? boundExpertId : homeExpertId;
   const composerExpert = displayedExperts.find((expert) => expert.id === composerExpertId)
     || null;
-  const selectComposerExpert = useCallback(async (expert) => {
+  const selectComposerExpert = useCallback(async (expert, options = {}) => {
     const expertId = String(expert?.id || '');
     if (!expertId) return false;
+    const hasDraftText = Object.prototype.hasOwnProperty.call(options, 'draftText');
+    const requestedDraftText = hasDraftText ? String(options.draftText ?? '') : '';
     if (!sid) {
       onRememberExpert?.(expert);
       setHomeExpertId(expertId);
+      if (hasDraftText) {
+        draftEditVersionRef.current += 1;
+        composerDirtyRef.current = true;
+        setComposerValue(requestedDraftText);
+        restoreChatInputFocusSoon(true);
+      }
       return true;
     }
 
-    if (expertSwitching || expertId === sessionExpertId) {
+    const latestRequest = latestExpertSwitchRequestRef.current;
+    if (!shouldRequestExpertSwitch({
+      expertId,
+      currentExpertId: sessionExpertId,
+      pendingExpertId: pendingExpertRef.current?.expert?.id || '',
+      requestInFlight: latestRequest.settled === false,
+      hasDraftText,
+    })) {
       onRememberExpert?.(expert);
-      return expertId === sessionExpertId;
+      return true;
     }
 
+    const targetSessionId = sid;
+    const requestSequence = latestRequest.sequence + 1;
     const previousId = sessionExpertId;
     const previousSnapshot = sessionExpertSnapshot;
-    setPendingExpert({ expert, confirmed: false, previousId, previousSnapshot });
+    const previousPending = pendingExpertRef.current;
+    const requested = {
+      expert,
+      confirmed: false,
+      previousId,
+      previousSnapshot,
+      requestSequence,
+    };
+    latestExpertSwitchRequestRef.current = {
+      sequence: requestSequence,
+      expertId,
+      settled: false,
+    };
+    pendingExpertRef.current = requested;
+    setPendingExpert(requested);
     setExpertSwitching(true);
+
+    const requestOptions = hasDraftText ? { draftText: requestedDraftText } : {};
+    const responsePromise = expertSwitchQueueRef.current
+      .catch(() => undefined)
+      .then(() => api.setSessionExpert(targetSessionId, expertId, requestOptions));
+    expertSwitchQueueRef.current = responsePromise.then(() => undefined, () => undefined);
+
     try {
-      const result = await api.setSessionExpert(sid, expertId);
+      const result = await responsePromise;
       const confirmedExpert = normalizeExperts([result?.expert || result])[0] || expert;
+      const receipt = normalizeExpertSwitchReceipt(result, expertId);
+      const accepted = {
+        expert: confirmedExpert,
+        confirmed: true,
+        previousId,
+        previousSnapshot,
+        requestSequence,
+        receipt,
+        effectiveBoundary: receipt.effectiveBoundary,
+      };
+      acceptedExpertSwitchRef.current = accepted;
+      if (!shouldApplyExpertSwitchResponse(
+        requestSequence,
+        latestExpertSwitchRequestRef.current.sequence,
+      ) || sidRef.current !== targetSessionId) {
+        return true;
+      }
+
       onRememberExpert?.(confirmedExpert);
-      if (result?.busy === true) {
-        setPendingExpert({
-          expert: confirmedExpert,
-          confirmed: true,
-          previousId,
-          previousSnapshot,
-          effectiveBoundary: result?.effective_boundary || 'queued_control',
-        });
-      } else {
-        setSessionExpertId(expertId);
+      if (receipt.applied) {
+        setSessionExpertId(confirmedExpert.id);
         setSessionExpertSnapshot(confirmedExpert);
+        pendingExpertRef.current = null;
         setPendingExpert(null);
         onSessionExpertChanged?.(sid, confirmedExpert);
+      } else {
+        pendingExpertRef.current = accepted;
+        setPendingExpert(accepted);
+      }
+
+      if (hasDraftText) {
+        const confirmedDraft = Object.prototype.hasOwnProperty.call(result || {}, 'draft_text')
+          ? String(result.draft_text ?? '')
+          : requestedDraftText;
+        draftEditVersionRef.current += 1;
+        composerDirtyRef.current = true;
+        draftLastSavedRef.current = {
+          key: draftSessionKeyRef.current,
+          text: confirmedDraft,
+        };
+        setComposerValue(confirmedDraft);
+        restoreChatInputFocusSoon(true);
       }
       return true;
     } catch (error) {
-      setSessionExpertId(previousId);
-      setSessionExpertSnapshot(previousSnapshot);
-      setPendingExpert(null);
-      toast({ kind: 'err', text: `切换专家失败：${error?.message || ''}` });
+      if (shouldApplyExpertSwitchResponse(
+        requestSequence,
+        latestExpertSwitchRequestRef.current.sequence,
+      ) && sidRef.current === targetSessionId) {
+        const acceptedFallback = acceptedExpertSwitchRef.current;
+        if (acceptedFallback && acceptedFallback.requestSequence < requestSequence) {
+          if (acceptedFallback.receipt?.applied) {
+            setSessionExpertId(acceptedFallback.expert.id);
+            setSessionExpertSnapshot(acceptedFallback.expert);
+            pendingExpertRef.current = null;
+            setPendingExpert(null);
+            onSessionExpertChanged?.(targetSessionId, acceptedFallback.expert);
+          } else {
+            pendingExpertRef.current = acceptedFallback;
+            setPendingExpert(acceptedFallback);
+          }
+        } else {
+          setSessionExpertId(previousId);
+          setSessionExpertSnapshot(previousSnapshot);
+          pendingExpertRef.current = previousPending;
+          setPendingExpert(previousPending);
+        }
+        toast({ kind: 'err', text: `切换专家失败：${error?.message || ''}` });
+      }
       return false;
     } finally {
-      setExpertSwitching(false);
+      if (shouldApplyExpertSwitchResponse(
+        requestSequence,
+        latestExpertSwitchRequestRef.current.sequence,
+      ) && sidRef.current === targetSessionId) {
+        latestExpertSwitchRequestRef.current = {
+          ...latestExpertSwitchRequestRef.current,
+          settled: true,
+        };
+        setExpertSwitching(false);
+      }
     }
   }, [
     api,
-    expertSwitching,
     onRememberExpert,
     onSessionExpertChanged,
+    restoreChatInputFocusSoon,
     sessionExpertId,
     sessionExpertSnapshot,
     sid,
@@ -2885,23 +3009,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     const confirmedExpert = pendingExpert.expert;
     setSessionExpertId(confirmedExpert.id);
     setSessionExpertSnapshot(confirmedExpert);
+    pendingExpertRef.current = null;
     setPendingExpert(null);
     onSessionExpertChanged?.(sid, confirmedExpert);
   }, [busy, expertSwitching, onSessionExpertChanged, pendingExpert, sid]);
 
   const selectExpertOpeningPrompt = useCallback(async (expert, prompt) => {
-    const previousDraft = composerValueRef.current;
-    const accepted = await selectComposerExpert(expert);
-    if (!accepted) {
-      if (composerValueRef.current !== previousDraft) setComposerValue(previousDraft);
-      return false;
-    }
-    draftEditVersionRef.current += 1;
-    composerDirtyRef.current = true;
-    setComposerValue(String(prompt || ''));
-    restoreChatInputFocusSoon(true);
-    return true;
-  }, [restoreChatInputFocusSoon, selectComposerExpert]);
+    return selectComposerExpert(expert, { draftText: String(prompt || '') });
+  }, [selectComposerExpert]);
   const currentContextWindow = Number(modelState?.contextWindow || ref?.context_window || ref?.contextWindow || 0) || 0;
   const tokenBudget = useMemo(() => normalizeTokenBudget({
     usage: tokenUsage,
@@ -3371,7 +3486,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
                 value={composerValue}
                 onChange={handleComposerChange}
                 onSubmit={submit}
-                disabled={!!questionForView || homeSubmitting || expertSwitching}
+                disabled={!!questionForView || homeSubmitting}
                 placeholder="向 ACECode 描述任务，或输入 / 命令..."
                 {...composerInputProps}
                 sessionControls={{
@@ -4031,7 +4146,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             onSubmit={submit}
             onAbort={stopCurrentWork}
             {...composerInputProps}
-            disabled={!!questionForView || composerSubmitting || expertSwitching}
+            disabled={!!questionForView || composerSubmitting}
             placeholder={questionForView ? '请先回答上方问题…' : undefined}
             sessionControls={{
               model: currentModelLabel,

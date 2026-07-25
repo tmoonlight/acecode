@@ -1,5 +1,6 @@
 import './questionPicker.test.js';
 import './pendingQuestions.test.js';
+import './expertMenuPosition.test.js';
 import './stickyUserContext.test.js';
 import './desktopContextMenu.test.js';
 import './topBarQuickActions.test.js';

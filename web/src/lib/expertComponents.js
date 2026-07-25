@@ -47,6 +47,14 @@ export function normalizeExpertCapabilities(value) {
   return normalized;
 }
 
+export function safeExpertAvatarUrl(value) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (/^(?:https?:|blob:|data:image\/)/i.test(url)) return url;
+  if (url.startsWith('/') && !url.startsWith('//')) return url;
+  return '';
+}
+
 function normalizeAgent(value) {
   if (!value || typeof value !== 'object') return null;
   return {
@@ -55,6 +63,7 @@ function normalizeAgent(value) {
     display_name: String(value.display_name || ''),
     profession: String(value.profession || ''),
     instructions: String(value.instructions || ''),
+    avatar_url: safeExpertAvatarUrl(value.avatar_url),
   };
 }
 
@@ -72,7 +81,7 @@ export function normalizeExperts(value) {
       description: String(item.description || ''),
       source: item.source === 'workspace' ? 'workspace' : 'global',
       managed_global: item.managed_global === true,
-      avatar_url: String(item.avatar_url || item.avatar_path || item.avatar?.url || ''),
+      avatar_url: safeExpertAvatarUrl(item.avatar_url),
       tags: normalizeStringList(item.tags),
       expertise: normalizeStringList(item.expertise),
       quick_prompts: normalizeStringList(item.quick_prompts),
@@ -206,7 +215,7 @@ export function expertFormFromDetail(expert) {
   };
 }
 
-export function validateExpertFormFields(form) {
+export function validateExpertFormFields(form, selectableExperts) {
   const errors = {};
   if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(String(form?.id || ''))) {
     errors.id = '无法保存，请重新打开后再试';
@@ -216,8 +225,19 @@ export function validateExpertFormFields(form) {
   if (form?.type === 'team') {
     const selected = normalizeStringList(form.selectedExpertIds);
     if (selected.length < 2) errors.members = '专家团至少需要两位专家';
+    if (!errors.members && Array.isArray(selectableExperts)) {
+      const unavailable = selectedTeamMemberRows(form, selectableExperts)
+        .filter((member) => member.unavailable);
+      if (unavailable.length > 0) {
+        errors.members = `请移除不可用成员：${unavailable.map((member) => member.display_name).join('、')}`;
+      }
+    }
     if (!form.leadExpertId || !selected.includes(form.leadExpertId)) {
       errors.leadExpertId = '请选择一位主理人';
+    } else if (Array.isArray(selectableExperts)) {
+      const lead = selectedTeamMemberRows(form, selectableExperts)
+        .find((member) => member.id === form.leadExpertId);
+      if (!lead || lead.unavailable) errors.leadExpertId = '主理人必须是当前可用的单专家';
     }
   } else if (!String(form?.instructions || '').trim()) {
     errors.instructions = '请填写这个专家的工作方式';
@@ -271,6 +291,39 @@ export function singleExpertsForTeam(experts, editingTeamId = '') {
   return normalizeExperts(experts).filter(
     (expert) => expert.type === 'agent' && expert.id !== editingTeamId,
   );
+}
+
+export function selectedTeamMemberRows(form, experts) {
+  const normalized = normalizeExperts(experts);
+  const byId = new Map(normalized.map((expert) => [expert.id, expert]));
+  const validIds = new Set(singleExpertsForTeam(normalized, form?.id).map((expert) => expert.id));
+  return normalizeStringList(form?.selectedExpertIds).map((id) => {
+    const expert = byId.get(id);
+    if (!expert) {
+      return {
+        id,
+        type: 'agent',
+        display_name: `${id}（不可用）`,
+        profession: '',
+        expertise: [],
+        avatar_url: '',
+        unavailable: true,
+        unavailable_reason: 'missing',
+      };
+    }
+    if (!validIds.has(id)) {
+      return {
+        ...expert,
+        unavailable: true,
+        unavailable_reason: expert.type === 'team' ? 'nested_team' : 'out_of_scope',
+      };
+    }
+    return {
+      ...expert,
+      unavailable: false,
+      unavailable_reason: '',
+    };
+  });
 }
 
 export function selectedTeamExperts(form, experts) {
@@ -378,4 +431,44 @@ export function normalizeTargetSessions(value) {
       updated_at: String(session.updated_at || session.created_at || ''),
     }))
     .sort((left, right) => parsedTime(right.updated_at) - parsedTime(left.updated_at));
+}
+
+export function normalizeExpertSwitchReceipt(value, fallbackExpertId = '') {
+  const result = value && typeof value === 'object' ? value : {};
+  const raw = result.receipt && typeof result.receipt === 'object' ? result.receipt : {};
+  const sequence = Number(raw.sequence ?? result.control_sequence ?? 0);
+  const applied = raw.applied === true
+    || raw.state === 'applied'
+    || result.applied === true;
+  const state = applied ? 'applied' : 'queued';
+  return {
+    sequence: Number.isFinite(sequence) ? sequence : 0,
+    expertId: String(raw.expert_id || result?.expert?.id || result.id || fallbackExpertId || ''),
+    state,
+    applied,
+    pending: !applied,
+    busy: !applied && result.busy === true,
+    effectiveBoundary: String(
+      raw.effective_boundary
+      || result.effective_boundary
+      || (applied ? 'applied' : 'queued_control'),
+    ),
+  };
+}
+
+export function shouldApplyExpertSwitchResponse(requestSequence, latestRequestSequence) {
+  return Number(requestSequence) > 0
+    && Number(requestSequence) === Number(latestRequestSequence);
+}
+
+export function shouldRequestExpertSwitch({
+  expertId = '',
+  currentExpertId = '',
+  pendingExpertId = '',
+  requestInFlight = false,
+  hasDraftText = false,
+} = {}) {
+  if (!String(expertId || '')) return false;
+  if (hasDraftText || requestInFlight || String(pendingExpertId || '')) return true;
+  return String(expertId) !== String(currentExpertId || '');
 }

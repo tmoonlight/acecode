@@ -8,6 +8,7 @@
 // 已识别的首段命令以原子 token 样式在同一 editable layout 内渲染。
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { clsx } from '../lib/format.js';
 import { getGoalStopControlState } from '../lib/goalControl.js';
 import { getInputBarActionState } from '../lib/inputBarState.js';
@@ -50,6 +51,10 @@ import {
   nativePickedFileToFile,
   parseNativeContextPickerResult,
 } from '../lib/desktopContextPicker.js';
+import {
+  nextExpertMenuItemIndex,
+  placeExpertSubmenu,
+} from '../lib/expertMenuPosition.js';
 
 const MAX_ROWS = 8;
 const LINE_HEIGHT = 20; // 与 leading-[20px] 对齐
@@ -131,7 +136,7 @@ export const InputBar = forwardRef(function InputBar({
   const [dropdownClosed, setDropdownClosed] = useState(false); // Esc 关闭后,直到首段变化或重新输入 / 才重开
   const [capabilityOpen, setCapabilityOpen] = useState(false);
   const [expertSubmenuOpen, setExpertSubmenuOpen] = useState(false);
-  const [expertSubmenuSide, setExpertSubmenuSide] = useState('right');
+  const [expertSubmenuPosition, setExpertSubmenuPosition] = useState(null);
   const [composerSelection, setComposerSelection] = useState({ start: 0, end: 0, direction: 'none' });
   const [composerComposing, setComposerComposing] = useState(false);
   const [pathMention, setPathMention] = useState(null);
@@ -143,6 +148,9 @@ export const InputBar = forwardRef(function InputBar({
   const dismissedPathSignatureRef = useRef('');
   const mentionGenerationRef = useRef(0);
   const capabilityMenuRef = useRef(null);
+  const capabilityButtonRef = useRef(null);
+  const expertMenuParentRef = useRef(null);
+  const fileMenuItemRef = useRef(null);
   const expertSubmenuRef = useRef(null);
   const dragDepthRef = useRef(0);
   const composingRef = useRef(false);
@@ -512,12 +520,16 @@ export const InputBar = forwardRef(function InputBar({
     if (!expert?.id || !onSelectExpert) return;
     setCapabilityOpen(false);
     setExpertSubmenuOpen(false);
+    setExpertSubmenuPosition(null);
+    capabilityButtonRef.current?.focus();
     onSelectExpert(expert);
   };
 
   const openMoreExperts = () => {
     setCapabilityOpen(false);
     setExpertSubmenuOpen(false);
+    setExpertSubmenuPosition(null);
+    capabilityButtonRef.current?.focus();
     onOpenExpertComponents?.();
   };
 
@@ -573,19 +585,78 @@ export const InputBar = forwardRef(function InputBar({
   }, [capabilityOpen, hasCapabilityHandlers]);
 
   useEffect(() => {
-    if (!capabilityOpen) setExpertSubmenuOpen(false);
+    if (!capabilityOpen) {
+      setExpertSubmenuOpen(false);
+      setExpertSubmenuPosition(null);
+    }
   }, [capabilityOpen]);
 
   useLayoutEffect(() => {
-    if (!expertSubmenuOpen) return;
-    const parent = capabilityMenuRef.current?.querySelector('[data-expert-menu-parent="true"]');
-    if (!parent) return;
-    const rect = parent.getBoundingClientRect();
-    const preferredWidth = Math.min(440, Math.max(280, window.innerWidth - 24));
-    const rightSpace = window.innerWidth - rect.right;
-    const leftSpace = rect.left;
-    setExpertSubmenuSide(rightSpace < preferredWidth && leftSpace > rightSpace ? 'left' : 'right');
-  }, [expertSubmenuOpen]);
+    if (!expertSubmenuOpen) return undefined;
+    let frame = 0;
+    const updatePosition = () => {
+      const parent = expertMenuParentRef.current;
+      const menu = expertSubmenuRef.current;
+      if (!parent || !menu) return;
+      setExpertSubmenuPosition(placeExpertSubmenu({
+        anchorRect: parent.getBoundingClientRect(),
+        menuRect: menu.getBoundingClientRect(),
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      }));
+    };
+    updatePosition();
+    frame = window.requestAnimationFrame(updatePosition);
+    window.addEventListener('resize', updatePosition);
+    document.addEventListener('scroll', updatePosition, true);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updatePosition);
+      document.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [expertSubmenuOpen, recentExpertItems.length]);
+
+  const focusExpertSubmenuItem = useCallback((index = 0) => {
+    window.requestAnimationFrame(() => {
+      const items = [...(expertSubmenuRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])];
+      items[Math.min(Math.max(index, 0), Math.max(items.length - 1, 0))]?.focus();
+    });
+  }, []);
+
+  const openExpertSubmenu = useCallback((focusFirst = false) => {
+    setExpertSubmenuOpen(true);
+    if (focusFirst) focusExpertSubmenuItem(0);
+  }, [focusExpertSubmenuItem]);
+
+  const closeExpertSubmenu = useCallback((restoreFocus = false) => {
+    setExpertSubmenuOpen(false);
+    setExpertSubmenuPosition(null);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => expertMenuParentRef.current?.focus());
+    }
+  }, []);
+
+  const handleExpertSubmenuKeyDown = useCallback((event) => {
+    const items = [...(expertSubmenuRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])];
+    const currentIndex = Math.max(0, items.indexOf(document.activeElement));
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      items[nextExpertMenuItemIndex(event.key, currentIndex, items.length)]?.focus();
+      return;
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeExpertSubmenu(true);
+    } else if (event.key === 'Tab') {
+      event.preventDefault();
+      closeExpertSubmenu(false);
+      window.requestAnimationFrame(() => {
+        if (event.shiftKey) expertMenuParentRef.current?.focus();
+        else fileMenuItemRef.current?.focus();
+      });
+    }
+  }, [closeExpertSubmenu]);
 
   useEffect(() => {
     if (!capabilityOpen) return undefined;
@@ -594,25 +665,26 @@ export const InputBar = forwardRef(function InputBar({
     const closeFromPointer = (event) => {
       const menu = capabilityMenuRef.current;
       if (menu && event.target instanceof Node && menu.contains(event.target)) return;
+      const submenu = expertSubmenuRef.current;
+      if (submenu && event.target instanceof Node && submenu.contains(event.target)) return;
       closeCapabilityMenu();
     };
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') closeCapabilityMenu();
+      if (event.key === 'Escape' && !expertSubmenuOpen) {
+        closeCapabilityMenu();
+        window.requestAnimationFrame(() => capabilityButtonRef.current?.focus());
+      }
     };
 
     document.addEventListener('click', closeFromPointer, true);
-    document.addEventListener('wheel', closeCapabilityMenu, true);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('blur', closeCapabilityMenu);
-    window.addEventListener('resize', closeCapabilityMenu);
     return () => {
       document.removeEventListener('click', closeFromPointer, true);
-      document.removeEventListener('wheel', closeCapabilityMenu, true);
       document.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('blur', closeCapabilityMenu);
-      window.removeEventListener('resize', closeCapabilityMenu);
     };
-  }, [capabilityOpen]);
+  }, [capabilityOpen, expertSubmenuOpen]);
 
   const handleComposerChange = (next) => {
     // 编辑器的 onChange 回声(程序化设值同步 / 光标移动)文本与当前 value 相同,
@@ -661,11 +733,13 @@ export const InputBar = forwardRef(function InputBar({
   const capabilityControl = (
     <div ref={capabilityMenuRef} className="relative shrink-0 flex items-center">
       <button
+        ref={capabilityButtonRef}
         type="button"
         disabled={disabled || !hasCapabilityHandlers}
         className="w-7 h-7 rounded-full flex items-center justify-center text-fg-mute hover:bg-surface-hi hover:text-fg disabled:opacity-50"
         onClick={() => setCapabilityOpen((open) => !open)}
         title="添加上下文"
+        aria-label="添加上下文"
       >
         <VsIcon name="add" size={15} />
       </button>
@@ -677,6 +751,7 @@ export const InputBar = forwardRef(function InputBar({
         >
           <div className="relative" data-expert-menu-parent="true">
             <button
+              ref={expertMenuParentRef}
               type="button"
               role="menuitem"
               aria-haspopup="menu"
@@ -684,24 +759,38 @@ export const InputBar = forwardRef(function InputBar({
               disabled={!hasExpertHandlers}
               title={selectedExpertName ? `当前专家组件：${selectedExpertName}` : '选择专家组件'}
               className="w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] text-fg hover:bg-surface-hi disabled:opacity-50"
-              onPointerEnter={() => setExpertSubmenuOpen(true)}
-              onClick={() => setExpertSubmenuOpen((open) => !open)}
+              onPointerEnter={() => openExpertSubmenu(false)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  openExpertSubmenu(true);
+                }
+              }}
+              onClick={() => {
+                if (expertSubmenuOpen) closeExpertSubmenu(false);
+                else openExpertSubmenu(true);
+              }}
             >
               <VsIcon name="brain" size={14} />
               <span className="min-w-0 flex-1 truncate">专家组件</span>
               <VsIcon name="expandRight" size={13} className="shrink-0 text-fg-mute" />
             </button>
 
-            {expertSubmenuOpen && hasExpertHandlers && (
+            {expertSubmenuOpen && hasExpertHandlers && typeof document !== 'undefined' && createPortal(
               <div
                 ref={expertSubmenuRef}
                 data-expert-components-submenu="true"
                 role="menu"
                 aria-label="最近使用的专家组件"
-                className={clsx(
-                  'absolute bottom-0 w-[440px] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg border border-border bg-surface ace-shadow',
-                  expertSubmenuSide === 'left' ? 'right-full mr-1' : 'left-full ml-1',
-                )}
+                onKeyDown={handleExpertSubmenuKeyDown}
+                className="fixed z-[100] overflow-y-auto rounded-lg border border-border bg-surface ace-shadow"
+                style={{
+                  top: expertSubmenuPosition?.top ?? 0,
+                  left: expertSubmenuPosition?.left ?? 0,
+                  width: expertSubmenuPosition?.width ?? Math.max(0, Math.min(440, window.innerWidth - 24)),
+                  maxHeight: expertSubmenuPosition?.maxHeight ?? Math.max(0, window.innerHeight - 24),
+                  visibility: expertSubmenuPosition ? 'visible' : 'hidden',
+                }}
               >
                 {recentExpertItems.length > 0 && (
                   <div className="py-1">
@@ -745,17 +834,19 @@ export const InputBar = forwardRef(function InputBar({
                     <span>更多专家</span>
                   </button>
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
 
           <div className="my-1 border-t border-border" aria-hidden="true" />
 
           <button
+            ref={fileMenuItemRef}
             type="button"
             role="menuitem"
             className="w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] text-fg hover:bg-surface-hi disabled:opacity-50"
-            onPointerEnter={() => setExpertSubmenuOpen(false)}
+            onPointerEnter={() => closeExpertSubmenu(false)}
             onClick={chooseLocalContext}
             disabled={!canChooseLocalContext}
           >

@@ -63,6 +63,39 @@ await run('expert capability client reads the sanitized runtime catalog endpoint
   }
 });
 
+await run('expert switch client keeps optional draft text in the atomic request body', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        expert: { id: 'reviewer', display_name: '代码审查' },
+        receipt: { sequence: 7, expert_id: 'reviewer', state: 'applied', applied: true },
+      }),
+    };
+  };
+  try {
+    const client = createApi({ origin: 'http://acecode.test', token: '' });
+    await client.setSessionExpert('session/a', 'reviewer');
+    await client.setSessionExpert('session/a', 'reviewer', { draftText: '' });
+    await client.setSessionExpert('session/a', 'reviewer', { draftText: '审查当前改动' });
+
+    assert.equal(calls[0].url, 'http://acecode.test/api/sessions/session%2Fa/expert');
+    assert.deepEqual(JSON.parse(calls[0].opts.body), { expert_id: 'reviewer' });
+    assert.deepEqual(JSON.parse(calls[1].opts.body), { expert_id: 'reviewer', draft_text: '' });
+    assert.deepEqual(JSON.parse(calls[2].opts.body), {
+      expert_id: 'reviewer',
+      draft_text: '审查当前改动',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await run('合并多个 workspace 的 sessions 并注入 workspaceName', async () => {
   const ws = [
     { hash: 'h1', name: 'acecode', cwd: '/acecode' },

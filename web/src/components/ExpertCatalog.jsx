@@ -168,28 +168,32 @@ function ExpertCard({
               </span>
             ))}
           </div>
-          {expert.managed_global && (
+          {expert.managed_global && (onEdit || onDelete) && (
             <>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onEdit?.(expert);
-                }}
-                className="relative z-10 h-6 rounded px-1.5 text-[11px] text-fg-mute hover:bg-bg hover:text-fg"
-              >
-                编辑
-              </button>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDelete?.(expert);
-                }}
-                className="relative z-10 h-6 rounded px-1.5 text-[11px] text-fg-mute hover:bg-danger-bg hover:text-danger"
-              >
-                删除
-              </button>
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEdit(expert);
+                  }}
+                  className="relative z-10 h-6 rounded px-1.5 text-[11px] text-fg-mute hover:bg-bg hover:text-fg"
+                >
+                  编辑
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(expert);
+                  }}
+                  className="relative z-10 h-6 rounded px-1.5 text-[11px] text-fg-mute hover:bg-danger-bg hover:text-danger"
+                >
+                  删除
+                </button>
+              )}
             </>
           )}
         </div>

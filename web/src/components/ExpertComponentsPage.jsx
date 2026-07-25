@@ -44,14 +44,11 @@ function TargetConversationDialog({
     setBusyId(session.id);
     setError('');
     try {
-      await api.setSessionExpert(session.id, target.expert.id);
-      if (target.prompt) {
-        await api.setSessionDraft(
-          session.id,
-          target.prompt,
-          session.workspace_hash || workspaceHash || '',
-        );
-      }
+      await api.setSessionExpert(
+        session.id,
+        target.expert.id,
+        target.prompt ? { draftText: target.prompt } : {},
+      );
       onDispatched(target.expert, session, target.prompt);
     } catch (dispatchError) {
       setError(dispatchError?.message || '派遣失败');
