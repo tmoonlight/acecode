@@ -71,6 +71,12 @@ function expertsPath(workspaceHash = '', id = '') {
   return hash ? `${base}?workspace=${encodeURIComponent(hash)}` : base;
 }
 
+export function expertCapabilitiesPath(workspaceHash = '') {
+  const hash = String(workspaceHash || '').trim();
+  const base = '/api/experts/capabilities';
+  return hash ? `${base}?workspace=${encodeURIComponent(hash)}` : base;
+}
+
 function desktopFeedbackSessionsPath(limit = 20) {
   const n = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(100, Number(limit))) : 20;
   return `/api/feedback/desktop/recent-sessions?limit=${encodeURIComponent(String(n))}`;
@@ -163,6 +169,8 @@ export function createApi(base = null) {
     listWorkspaces:   ()             => request('GET',    '/api/workspaces', undefined, base),
     listLoops:        ()             => request('GET',    '/api/loops', undefined, base),
     listExperts:      (workspace='') => request('GET',    expertsPath(workspace), undefined, base),
+    listExpertCapabilities: (workspace='') =>
+      request('GET', expertCapabilitiesPath(workspace), undefined, base),
     getExpert:        (id, workspace='') => request('GET', expertsPath(workspace, id), undefined, base),
     createExpert:     (value, workspace='') => request('POST', expertsPath(workspace), value, base),
     updateExpert:     (id, value, workspace='') => request('PUT', expertsPath(workspace, id), value, base),

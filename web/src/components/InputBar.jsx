@@ -13,6 +13,7 @@ import { getGoalStopControlState } from '../lib/goalControl.js';
 import { getInputBarActionState } from '../lib/inputBarState.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { ComposerSessionControls } from './ComposerSessionControls.jsx';
+import { ExpertAvatar, compactExpertSummary } from './ExpertCatalog.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import { RichComposer } from './RichComposer.jsx';
 import { PathReferenceDropdown } from './PathReferenceDropdown.jsx';
@@ -110,7 +111,14 @@ export const InputBar = forwardRef(function InputBar({
   disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, goal = null, goalStopping = false, history = [], variant = 'default',
   value: controlledValue, onChange,
   attachments = [], contexts = [], onMediaFiles, onRemoveAttachment, onRemoveContext,
-  expertOptions = [], selectedExpertId = '', selectedExpertName = '', onSelectExpert, onOpenExpertComponents,
+  expertOptions = [],
+  selectedExpertId = '',
+  selectedExpertName = '',
+  selectedExpertType = 'agent',
+  pendingExpertName = '',
+  pendingExpertType = 'agent',
+  onSelectExpert,
+  onOpenExpertComponents,
   selectionPreview = null, onPinSelectionPreview,
   pathReferenceApi = null, cwd = '',
   sessionControls = null,
@@ -123,6 +131,7 @@ export const InputBar = forwardRef(function InputBar({
   const [dropdownClosed, setDropdownClosed] = useState(false); // Esc 关闭后,直到首段变化或重新输入 / 才重开
   const [capabilityOpen, setCapabilityOpen] = useState(false);
   const [expertSubmenuOpen, setExpertSubmenuOpen] = useState(false);
+  const [expertSubmenuSide, setExpertSubmenuSide] = useState('right');
   const [composerSelection, setComposerSelection] = useState({ start: 0, end: 0, direction: 'none' });
   const [composerComposing, setComposerComposing] = useState(false);
   const [pathMention, setPathMention] = useState(null);
@@ -134,6 +143,7 @@ export const InputBar = forwardRef(function InputBar({
   const dismissedPathSignatureRef = useRef('');
   const mentionGenerationRef = useRef(0);
   const capabilityMenuRef = useRef(null);
+  const expertSubmenuRef = useRef(null);
   const dragDepthRef = useRef(0);
   const composingRef = useRef(false);
   const justFinishedCompositionRef = useRef(false);
@@ -566,6 +576,17 @@ export const InputBar = forwardRef(function InputBar({
     if (!capabilityOpen) setExpertSubmenuOpen(false);
   }, [capabilityOpen]);
 
+  useLayoutEffect(() => {
+    if (!expertSubmenuOpen) return;
+    const parent = capabilityMenuRef.current?.querySelector('[data-expert-menu-parent="true"]');
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const preferredWidth = Math.min(440, Math.max(280, window.innerWidth - 24));
+    const rightSpace = window.innerWidth - rect.right;
+    const leftSpace = rect.left;
+    setExpertSubmenuSide(rightSpace < preferredWidth && leftSpace > rightSpace ? 'left' : 'right');
+  }, [expertSubmenuOpen]);
+
   useEffect(() => {
     if (!capabilityOpen) return undefined;
 
@@ -654,7 +675,7 @@ export const InputBar = forwardRef(function InputBar({
           role="menu"
           className="absolute left-0 bottom-8 z-50 w-52 py-1 rounded-lg border border-border bg-surface ace-shadow"
         >
-          <div className="relative">
+          <div className="relative" data-expert-menu-parent="true">
             <button
               type="button"
               role="menuitem"
@@ -673,42 +694,47 @@ export const InputBar = forwardRef(function InputBar({
 
             {expertSubmenuOpen && hasExpertHandlers && (
               <div
+                ref={expertSubmenuRef}
                 data-expert-components-submenu="true"
                 role="menu"
                 aria-label="最近使用的专家组件"
-                className="absolute bottom-0 left-full ml-1 w-[440px] max-w-[calc(100vw-232px)] overflow-hidden rounded-lg border border-border bg-surface ace-shadow"
+                className={clsx(
+                  'absolute bottom-0 w-[440px] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg border border-border bg-surface ace-shadow',
+                  expertSubmenuSide === 'left' ? 'right-full mr-1' : 'left-full ml-1',
+                )}
               >
-                <div className="py-1">
-                  {recentExpertItems.map((expert) => {
-                    const selected = expert.id === selectedExpertId;
-                    return (
-                      <button
-                        key={expert.id}
-                        type="button"
-                        role="menuitem"
-                        data-expert-menu-item={expert.id}
-                        onClick={() => selectExpert(expert)}
-                        className={clsx(
-                          'grid h-9 w-full grid-cols-[16px_minmax(88px,148px)_minmax(0,1fr)] items-center gap-2 px-3 text-left transition-colors',
-                          selected ? 'bg-accent-bg text-accent' : 'text-fg hover:bg-surface-hi',
-                        )}
-                      >
-                        <VsIcon
-                          name={expert.type === 'team' ? 'extension' : 'brain'}
-                          size={15}
-                          className="shrink-0"
-                        />
-                        <span className="truncate text-[13px] font-medium">
-                          {expert.display_name || expert.id}
-                        </span>
-                        <span className="truncate text-[12px] text-fg-mute">
-                          {expert.description || expert.profession || '暂无简介'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="border-t border-border py-1">
+                {recentExpertItems.length > 0 && (
+                  <div className="py-1">
+                    {recentExpertItems.map((expert) => {
+                      const selected = expert.id === selectedExpertId;
+                      return (
+                        <button
+                          key={expert.id}
+                          type="button"
+                          role="menuitem"
+                          data-expert-menu-item={expert.id}
+                          onClick={() => selectExpert(expert)}
+                          className={clsx(
+                            'grid h-9 w-full grid-cols-[24px_minmax(88px,142px)_minmax(0,1fr)_auto] items-center gap-2 px-3 text-left transition-colors',
+                            selected ? 'bg-accent-bg text-accent' : 'text-fg hover:bg-surface-hi',
+                          )}
+                        >
+                          <ExpertAvatar expert={expert} size={22} className="rounded-md" />
+                          <span className="truncate text-[12px] font-medium">
+                            {expert.display_name || expert.id}
+                          </span>
+                          <span className="truncate text-[11px] text-fg-mute">
+                            {compactExpertSummary(expert) || '尚未填写擅长领域'}
+                          </span>
+                          <span className="rounded border border-border px-1 py-0.5 text-[9px] text-fg-mute">
+                            {expert.type === 'team' ? '专家团' : '专家'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className={clsx('py-1', recentExpertItems.length > 0 && 'border-t border-border')}>
                   <button
                     type="button"
                     role="menuitem"
@@ -986,6 +1012,9 @@ export const InputBar = forwardRef(function InputBar({
           actions={submitControls}
           expertId={selectedExpertId}
           expertName={selectedExpertName}
+          expertType={selectedExpertType}
+          pendingExpertName={pendingExpertName}
+          pendingExpertType={pendingExpertType}
         />
       </div>
       <ImageLightbox preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />

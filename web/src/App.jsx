@@ -1045,16 +1045,6 @@ export function App() {
     });
   }, [health, navigateToRef]);
 
-  const useExpertForNewTask = useCallback((expert) => {
-    rememberRecentExpert(expert);
-    const current = activeRefRef.current || {};
-    navigateToRef({
-      ...homeRefFromWorkspace(current, current, health),
-      expertId: expert?.id || '',
-      expert: expert || null,
-    });
-  }, [health, navigateToRef, rememberRecentExpert]);
-
   const replaceActiveSessionExpert = useCallback((sessionId, expert) => {
     const expertId = String(expert?.id || '');
     if (!sessionId || !expertId) return;
@@ -1532,7 +1522,8 @@ export function App() {
             {view === 'single' && activeRef?.expertComponents && (
               <ExpertComponentsPage
                 workspaceHash={activeRef?.workspaceHash || ''}
-                onUseExpert={useExpertForNewTask}
+                recentExpertIds={recentExpertIds}
+                onRememberExpert={rememberRecentExpert}
               />
             )}
             {view === 'single' && !activeRef?.loop && !activeRef?.expertComponents && (
@@ -1570,7 +1561,6 @@ export function App() {
                 onSubagentTasksChange={handleSubagentTasksChange}
                 recentExpertIds={recentExpertIds}
                 onRememberExpert={rememberRecentExpert}
-                onOpenExpertComponents={openExpertComponents}
               />
             )}
           </div>

@@ -5,7 +5,14 @@
 // 不打真实网络,通过依赖注入 listWorkspaces / listSessions 两个 mock 完成。
 
 import assert from 'node:assert/strict';
-import { ApiError, createApi, mergeAllWorkspaceSessions, sessionDraftPath, sessionTodosPath } from './api.js';
+import {
+  ApiError,
+  createApi,
+  expertCapabilitiesPath,
+  mergeAllWorkspaceSessions,
+  sessionDraftPath,
+  sessionTodosPath,
+} from './api.js';
 
 function run(name, fn) {
   try {
@@ -23,6 +30,38 @@ function run(name, fn) {
     throw error;
   }
 }
+
+run('expert capability catalog path carries only the workspace selector', () => {
+  assert.equal(expertCapabilitiesPath(), '/api/experts/capabilities');
+  assert.equal(
+    expertCapabilitiesPath('项目 hash'),
+    '/api/experts/capabilities?workspace=%E9%A1%B9%E7%9B%AE%20hash',
+  );
+});
+
+await run('expert capability client reads the sanitized runtime catalog endpoint', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ skills: [], mcp_servers: [], tools: [] }),
+    };
+  };
+  try {
+    const result = await createApi({ origin: 'http://acecode.test', token: '' })
+      .listExpertCapabilities('workspace-a');
+    assert.deepEqual(result, { skills: [], mcp_servers: [], tools: [] });
+    assert.equal(calls[0].url, 'http://acecode.test/api/experts/capabilities?workspace=workspace-a');
+    assert.equal(calls[0].opts.method, 'GET');
+    assert.equal(calls[0].opts.body, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 await run('合并多个 workspace 的 sessions 并注入 workspaceName', async () => {
   const ws = [

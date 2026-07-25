@@ -2,7 +2,7 @@
 // 不做进入/退出动画,也不延迟 onClose。
 // 不依赖 bootstrap modal,纯 Tailwind + 内联状态。
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
 
 export function Modal({
@@ -10,13 +10,66 @@ export function Modal({
   onClose,
   width = 460,
   dismissOnBackdrop = true,
+  dismissOnEscape = true,
   layerClassName = 'z-[200]',
+  labelledBy,
 }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+  const dismissOnEscapeRef = useRef(dismissOnEscape);
+  closeRef.current = onClose;
+  dismissOnEscapeRef.current = dismissOnEscape;
+
+  useLayoutEffect(() => {
+    const previouslyFocused = document.activeElement;
+    const focusableSelector = [
+      'button:not([disabled])',
+      '[href]',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+    const focusFirst = () => {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const target = dialog.querySelector('[autofocus]') || dialog.querySelector(focusableSelector);
+      (target || dialog).focus?.();
+    };
+    focusFirst();
+    const onKey = (event) => {
+      const dialog = dialogRef.current;
+      const modalDialogs = [...document.querySelectorAll('[data-ace-modal-dialog="true"]')];
+      if (!dialog || modalDialogs[modalDialogs.length - 1] !== dialog) return;
+      if (event.key === 'Escape' && dismissOnEscapeRef.current) {
+        event.stopImmediatePropagation();
+        closeRef.current?.();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...dialog.querySelectorAll(focusableSelector)]
+        .filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      previouslyFocused?.focus?.();
+    };
+  }, []);
 
   const handleClose = () => onClose?.();
 
@@ -27,8 +80,12 @@ export function Modal({
       onClick={() => dismissOnBackdrop && handleClose()}
     >
       <div
+        ref={dialogRef}
+        data-ace-modal-dialog="true"
         role="dialog"
         aria-modal="true"
+        aria-labelledby={labelledBy}
+        tabIndex={-1}
         className="bg-surface border border-border rounded-xl ace-shadow-lg overflow-hidden"
         style={{ width }}
         onClick={(e) => e.stopPropagation()}

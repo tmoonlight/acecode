@@ -85,6 +85,9 @@ export function ComposerSessionControls({
   onPermissionModeChange,
   expertId = '',
   expertName = '',
+  expertType = 'agent',
+  pendingExpertName = '',
+  pendingExpertType = 'agent',
 }) {
   const [localMode, setLocalMode] = useState(normalizePermissionMode(permissionMode));
   const [openMenu, setOpenMenu] = useState('');
@@ -163,12 +166,32 @@ export function ComposerSessionControls({
             data-composer-control="expert"
             data-expert-id={expertId || undefined}
             role="status"
-            aria-label={`当前专家组件：${expertName}`}
+            data-expert-type={expertType === 'team' ? 'team' : 'agent'}
+            aria-label={`已派遣${expertType === 'team' ? '专家团' : '专家'}：${expertName}`}
             title={`当前专家组件：${expertName}`}
-            className="flex h-7 min-w-0 max-w-[180px] items-center gap-1.5 px-1.5 text-accent"
+            className="flex h-7 min-w-0 max-w-[210px] items-center gap-1.5 rounded-md bg-accent-bg px-2 text-accent"
           >
-            <VsIcon name="brain" size={14} className="shrink-0" />
+            <VsIcon name={expertType === 'team' ? 'extension' : 'brain'} size={14} className="shrink-0" />
             <span className="min-w-0 truncate text-[11px] font-medium">{expertName}</span>
+            <span className="shrink-0 text-[9px] opacity-70">
+              {expertType === 'team' ? '专家团' : '专家'}
+            </span>
+          </div>
+        )}
+
+        {pendingExpertName && (
+          <div
+            data-composer-control="expert-pending"
+            data-expert-type={pendingExpertType === 'team' ? 'team' : 'agent'}
+            role="status"
+            aria-live="polite"
+            aria-label={`下一轮派遣${pendingExpertType === 'team' ? '专家团' : '专家'}：${pendingExpertName}`}
+            title={`当前轮保持原专家；下一轮派遣${pendingExpertName}`}
+            className="flex h-7 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md bg-surface-hi px-2 text-warn"
+          >
+            <VsIcon name="running" size={13} mono={false} className="shrink-0" />
+            <span className="shrink-0 text-[9px]">下一轮</span>
+            <span className="min-w-0 truncate text-[11px] font-medium">{pendingExpertName}</span>
           </div>
         )}
 

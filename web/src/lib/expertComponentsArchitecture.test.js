@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relativePath) => fs.readFileSync(path.join(srcRoot, relativePath), 'utf8');
 
+function between(text, start, end) {
+  const from = text.indexOf(start);
+  const to = text.indexOf(end, from + start.length);
+  assert.notEqual(from, -1, `missing start marker: ${start}`);
+  assert.notEqual(to, -1, `missing end marker: ${end}`);
+  return text.slice(from, to);
+}
+
 function test(name, fn) {
   try {
     fn();
@@ -16,76 +24,102 @@ function test(name, fn) {
   }
 }
 
-test('expert components page uses local CRUD and shared immediate Modal', () => {
+test('standalone expert page owns management and explicit conversation targeting without a composer', () => {
   const page = source('components/ExpertComponentsPage.jsx');
+  const editor = source('components/ExpertEditor.jsx');
+  const catalog = source('components/ExpertCatalog.jsx');
   assert.match(page, /data-expert-components-page="true"/);
-  assert.match(page, /api\.listExperts/);
-  assert.match(page, /api\.createExpert/);
-  assert.match(page, /api\.updateExpert/);
+  assert.match(catalog, /api\.listExperts/);
+  assert.match(editor, /api\.createExpert/);
+  assert.match(editor, /api\.updateExpert/);
   assert.match(page, /api\.deleteExpert/);
-  assert.match(page, /<Modal onClose=/);
-  assert.match(page, /data-expert-delete-dialog="true"/);
+  assert.match(page, /data-expert-target-conversation="true"/);
+  assert.match(page, /api\.setSessionExpert/);
+  assert.match(page, /api\.setSessionDraft/);
+  assert.doesNotMatch(page, /<InputBar|data-composer|模拟聊天|悬浮输入/);
   assert.doesNotMatch(page, /window\.confirm|window\.alert/);
 });
 
-test('expert teams reuse the expert gallery and keep technical details out of the UI', () => {
-  const page = source('components/ExpertComponentsPage.jsx');
-  assert.match(page, />\s*新建专家\s*</);
-  assert.match(page, />\s*组建专家团\s*</);
-  assert.match(page, /data-team-expert-picker="true"/);
-  assert.match(page, /和其他专家组团/);
-  assert.match(page, /返回专家团/);
-  assert.match(page, /设为主理人/);
-  assert.doesNotMatch(page, /添加成员|updateMember|成员指令/);
-  assert.doesNotMatch(page, /Skills|MCP|skill_roots|package_root|expert\.json|font-mono/);
+test('catalog uses type tabs plus dynamic non-exclusive Tags and cards show expertise only', () => {
+  const catalog = source('components/ExpertCatalog.jsx');
+  const card = between(catalog, 'function ExpertCard', 'function DetailSection');
+  assert.match(catalog, /EXPERT_PRIMARY_TABS/);
+  assert.match(catalog, /collectExpertTags/);
+  assert.match(catalog, /overflow-x-auto/);
+  assert.match(catalog, /sortExperts/);
+  assert.match(catalog, /搜索名称、作者、Tag 或擅长领域/);
+  assert.match(card, /expert\.expertise\.slice\(0, 3\)/);
+  assert.doesNotMatch(card, /quick_prompts/);
+  assert.match(card, /<button[\s\S]*aria-label=\{detailLabel\}/);
+  assert.doesNotMatch(card, /<article[\s\S]{0,160}role="button"/);
+  assert.match(card, /event\.stopPropagation\(\)/);
+  assert.match(card, /dispatching \? '派遣中…' : '派遣'/);
 });
 
-test('all composers dispatch recent experts through the plus menu and switch active sessions in place', () => {
+test('detail keeps opening prompts separate and uses accessible, focus-restoring Modal', () => {
+  const catalog = source('components/ExpertCatalog.jsx');
+  const modal = source('components/Modal.jsx');
+  assert.match(catalog, /data-expert-detail="true"/);
+  assert.match(catalog, /expert\.quick_prompts\.map/);
+  assert.match(catalog, /不会自动发送/);
+  assert.match(catalog, /派遣 \$\{expert\.display_name\}/);
+  assert.match(modal, /aria-modal="true"/);
+  assert.match(modal, /event\.key !== 'Tab'/);
+  assert.match(modal, /data-ace-modal-dialog="true"/);
+  assert.match(modal, /modalDialogs\[modalDialogs\.length - 1\] !== dialog/);
+  assert.match(modal, /previouslyFocused\?\.focus/);
+});
+
+test('editor provides basic, advanced, and inline team-member workflows backed by runtime APIs', () => {
+  const editor = source('components/ExpertEditor.jsx');
+  const api = source('lib/api.js');
+  assert.match(editor, /基础信息/);
+  assert.match(editor, /高级功能/);
+  assert.match(editor, /擅长领域/);
+  assert.match(editor, /开场白/);
+  assert.match(editor, /TagEditor/);
+  assert.match(editor, /api\.listExpertCapabilities/);
+  assert.match(editor, /title="Skill"/);
+  assert.match(editor, /title="MCP"/);
+  assert.match(editor, /ACECode 本地工具/);
+  assert.match(editor, /capabilitySourceLabel/);
+  assert.match(editor, /已在全局设置中禁用/);
+  assert.match(editor, /<Toggle/);
+  assert.match(editor, /data-team-expert-picker="true"/);
+  assert.match(editor, /设为主理人/);
+  assert.match(editor, />\s*移除\s*</);
+  assert.match(editor, /放弃未保存的更改/);
+  assert.match(api, /\/api\/experts\/capabilities/);
+});
+
+test('all real composers host the picker in place and opening prompts write the existing draft', () => {
   const chat = source('components/ChatView.jsx');
   const input = source('components/InputBar.jsx');
   const controls = source('components/ComposerSessionControls.jsx');
-  const api = source('lib/api.js');
-  assert.match(chat, /expert_id: homeExpertId/);
+  const app = source('App.jsx');
+
+  assert.equal((chat.match(/<ExpertPickerDialog/g) || []).length, 2);
+  assert.match(chat, /setExpertPickerOpen\(true\)/);
+  assert.match(chat, /setComposerValue\(String\(prompt \|\| ''\)\)/);
+  assert.match(chat, /const accepted = await selectComposerExpert\(expert\)/);
   assert.match(chat, /api\.setSessionExpert\(sid, expertId\)/);
-  assert.match(chat, /setSessionExpertId\(expertId\)/);
-  assert.match(chat, /onSessionExpertChanged\?\.\(sid, confirmedExpert\)/);
-  assert.match(chat, /setSessionExpertId\(previousId\)/);
-  assert.doesNotMatch(chat, /onDispatchExpert/);
-  assert.match(api, /setSessionExpert:\s+\(id, expertId\)/);
-  assert.match(api, /`\/api\/sessions\/\$\{encodeURIComponent\(id\)\}\/expert`/);
-  assert.equal((chat.match(/onOpenExpertComponents=\{onOpenExpertComponents\}/g) || []).length, 2);
+  assert.match(chat, /result\?\.busy === true/);
+  assert.match(chat, /pendingExpert\?\.confirmed/);
+  assert.match(chat, /onOpenExpertComponents=\{\(\) => setExpertPickerOpen\(true\)\}/);
+
   assert.match(input, /data-expert-components-submenu="true"/);
-  assert.match(input, /expertOptions\) \? expertOptions\.slice\(0, 5\)/);
-  assert.match(input, /grid-cols-\[16px_minmax\(88px,148px\)_minmax\(0,1fr\)\]/);
-  const expertEntry = input.indexOf('>专家组件</span>');
-  const separator = input.indexOf('className="my-1 border-t border-border"', expertEntry);
-  const fileEntry = input.indexOf('>文件或文件夹</span>', separator);
-  assert.ok(expertEntry >= 0 && separator > expertEntry && fileEntry > separator);
-  assert.match(input, /<VsIcon name="extension" size=\{15\} className="shrink-0" \/>\s+<span>更多专家<\/span>/);
+  assert.match(input, /recentExpertItems\.length > 0 &&/);
+  assert.match(input, /compactExpertSummary\(expert\)/);
+  assert.match(input, /expertSubmenuSide === 'left'/);
   assert.match(input, />更多专家</);
   assert.match(input, />文件或文件夹</);
-  assert.doesNotMatch(input, /暂无最近使用的专家/);
-  assert.doesNotMatch(input, /onAddBrowserContext|>浏览器</);
-  assert.match(input, /expertId=\{selectedExpertId\}/);
-  assert.match(input, /expertName=\{selectedExpertName\}/);
-  assert.match(controls, /data-composer-control="expert"/);
-  assert.match(controls, /role="status"/);
-  assert.match(controls, /当前专家组件：\$\{expertName\}/);
-  assert.doesNotMatch(controls, /expertLocked|onExpertChange|openMenu === 'expert'/);
-});
+  assert.doesNotMatch(input, /暂无最近使用的专家|没有最近的专家|onAddBrowserContext|>浏览器</);
 
-test('app routes expert entry to page and use action back to a new task', () => {
-  const app = source('App.jsx');
-  const page = source('components/ExpertComponentsPage.jsx');
-  assert.match(app, /expertComponents: true/);
+  assert.match(controls, /data-composer-control="expert-pending"/);
+  assert.match(controls, /下一轮/);
+  assert.match(controls, /expertType === 'team' \? '专家团' : '专家'/);
+
   assert.match(app, /<ExpertComponentsPage/);
-  assert.match(app, /recordRecentExpert\(current, id\)/);
-  assert.match(app, /rememberRecentExpert\(expert\)/);
-  assert.match(app, /expertId: expert\?\.id \|\| ''/);
-  assert.match(app, /onSessionExpertChanged=\{replaceActiveSessionExpert\}/);
-  assert.match(app, /replaceActiveRef\(\(current\) =>/);
-  assert.doesNotMatch(app, /onDispatchExpert=/);
-  assert.match(app, /!activeRef\?\.expertComponents/);
-  assert.match(page, />派遣</);
-  assert.doesNotMatch(page, />使用</);
+  assert.match(app, /recentExpertIds=\{recentExpertIds\}/);
+  assert.doesNotMatch(app, /useExpertForNewTask|onUseExpert=/);
 });

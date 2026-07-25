@@ -17,33 +17,33 @@
 
 ## 3. Frontend data and API contracts
 
-- [ ] 3.1 Extend expert normalization and form payload helpers for author, Tags, expertise, timestamps, and optional capability scopes without mapping opening prompts onto cards.
-- [ ] 3.2 Implement and test dynamic Tag collection, multi-Tag membership, combined search, recent-use/recent-create sorting, line-list parsing, and team lead/member validation.
-- [ ] 3.3 Add the sanitized capability-catalog API client and frontend state helpers for available, globally disabled, disconnected, and saved-but-missing choices.
-- [ ] 3.4 Replace architecture tests that encode the obsolete “no Skill/MCP editor” and “dispatch back to a new task” contracts.
+- [x] 3.1 Extend expert normalization and form payload helpers for author, Tags, expertise, timestamps, and optional capability scopes without mapping opening prompts onto cards.
+- [x] 3.2 Implement and test dynamic Tag collection, multi-Tag membership, combined search, recent-use/recent-create sorting, line-list parsing, and team lead/member validation.
+- [x] 3.3 Add the sanitized capability-catalog API client and frontend state helpers for available, globally disabled, disconnected, and saved-but-missing choices.
+- [x] 3.4 Replace architecture tests that encode the obsolete “no Skill/MCP editor” and “dispatch back to a new task” contracts.
 
 ## 4. Expert catalog, cards, and detail
 
-- [ ] 4.1 Rebuild the expert-components page header, primary expert/team tabs, horizontally scrollable dynamic Tag rail, search, real sorting, result summary, and management actions using ACECode tokens.
-- [ ] 4.2 Implement responsive expert and team cards with real avatar fallback, author, Tags, expertise, team lead/member count, semantic detail activation, and a non-bubbling `派遣` action.
-- [ ] 4.3 Implement accessible expert/team detail dialogs with expertise, team members, editable/read-only state, opening prompts, dispatch actions, focus restoration, and no page-level chat input.
-- [ ] 4.4 Add skeleton, filter-empty, catalog-empty, local error/retry, unavailable, light/dark/orange theme, and narrow-width states.
+- [x] 4.1 Rebuild the expert-components page header, primary expert/team tabs, horizontally scrollable dynamic Tag rail, search, real sorting, result summary, and management actions using ACECode tokens.
+- [x] 4.2 Implement responsive expert and team cards with real avatar fallback, author, Tags, expertise, team lead/member count, semantic detail activation, and a non-bubbling `派遣` action.
+- [x] 4.3 Implement accessible expert/team detail dialogs with expertise, team members, editable/read-only state, opening prompts, dispatch actions, focus restoration, and no page-level chat input.
+- [x] 4.4 Add skeleton, filter-empty, catalog-empty, local error/retry, unavailable, light/dark/orange theme, and narrow-width states.
 
 ## 5. Expert and team editors
 
-- [ ] 5.1 Build one expert editor with `基础信息` and `高级功能` tabs, preserved unsaved state, field-level validation, busy/error handling, and unsaved-close confirmation.
-- [ ] 5.2 Implement the basic fields including separate Tag multi-select, one-line-per-item expertise and opening-prompt editors, introduction, author/call name, and work instructions.
-- [ ] 5.3 Implement searchable Skill and MCP selectors plus Toggle-based real built-in-tool controls, selection counts, unavailable reasons, and exact optional-scope semantics.
-- [ ] 5.4 Replace the full-page team picker with an in-editor searchable/Tag-filtered member picker and rows that support add, remove, and exactly one lead.
-- [ ] 5.5 Wire create, update, confirmed delete, in-place refresh, managed-global edit boundaries, and accessible responsive dialog behavior.
+- [x] 5.1 Build one expert editor with `基础信息` and `高级功能` tabs, preserved unsaved state, field-level validation, busy/error handling, and unsaved-close confirmation.
+- [x] 5.2 Implement the basic fields including separate Tag multi-select, one-line-per-item expertise and opening-prompt editors, introduction, author/call name, and work instructions.
+- [x] 5.3 Implement searchable Skill and MCP selectors plus Toggle-based real built-in-tool controls, selection counts, unavailable reasons, and exact optional-scope semantics.
+- [x] 5.4 Replace the full-page team picker with an in-editor searchable/Tag-filtered member picker and rows that support add, remove, and exactly one lead.
+- [x] 5.5 Wire create, update, confirmed delete, in-place refresh, managed-global edit boundaries, and accessible responsive dialog behavior.
 
 ## 6. Conversation-hosted dispatch experience
 
-- [ ] 6.1 Reuse the expert catalog/detail as a `ChatView`-hosted picker for `更多专家`, preserving the current session, transcript, draft, attachments, route, and composer focus.
-- [ ] 6.2 Make opening prompts dispatch the selected expert and fill the existing composer draft without auto-send; keep the picker and old draft/expert coherent on failure.
-- [ ] 6.3 Update the shared plus-menu recent rows to show one-line expertise/type summaries, render no recent container or separator when empty, keep the combined five-item limit, and flip placement when space is constrained.
-- [ ] 6.4 Update the composer expert status to show expert/team type and a busy-session `下一轮` state, promoting it only after the queued switch boundary.
-- [ ] 6.5 Provide an explicit target-conversation chooser for dispatch from the standalone management route when no conversation dispatch context exists, without creating a fake composer or silent new task.
+- [x] 6.1 Reuse the expert catalog/detail as a `ChatView`-hosted picker for `更多专家`, preserving the current session, transcript, draft, attachments, route, and composer focus.
+- [x] 6.2 Make opening prompts dispatch the selected expert and fill the existing composer draft without auto-send; keep the picker and old draft/expert coherent on failure.
+- [x] 6.3 Update the shared plus-menu recent rows to show one-line expertise/type summaries, render no recent container or separator when empty, keep the combined five-item limit, and flip placement when space is constrained.
+- [x] 6.4 Update the composer expert status to show expert/team type and a busy-session `下一轮` state, promoting it only after the queued switch boundary.
+- [x] 6.5 Provide an explicit target-conversation chooser for dispatch from the standalone management route when no conversation dispatch context exists, without creating a fake composer or silent new task.
 
 ## 7. Verification and delivery
 
