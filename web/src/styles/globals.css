@@ -1573,6 +1573,13 @@ body {
   .ace-home-hints {
     grid-template-columns: 1fr;
   }
+
+  /* 专家组件是独立管理页，窄屏时让内容使用完整视口；普通聊天页仍保留
+     现有项目栏行为，避免扩大本次改动的布局影响面。 */
+  .ace-expert-components-shell > .ace-sidebar,
+  .ace-expert-components-shell > .ace-resize-handle-left {
+    display: none;
+  }
 }
 
 /* 代码块 / inline code (在 markdown 渲染里用 .ace-md class 套作用域) */

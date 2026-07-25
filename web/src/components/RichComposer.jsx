@@ -291,11 +291,22 @@ function RichComposerShell({
 
   useImperativeHandle(ref, () => ({
     focus() {
-      if (!editor.selection) {
-        const end = latestTextRef.current.length;
-        Transforms.select(editor, composerSelectionFromPlainTextRange(editor.children, end, end));
+      const focusEditor = () => {
+        if (!editor.selection) {
+          const end = latestTextRef.current.length;
+          Transforms.select(editor, composerSelectionFromPlainTextRange(editor.children, end, end));
+        }
+        ReactEditor.focus(editor);
+      };
+      try {
+        focusEditor();
+      } catch {
+        // 外部草稿刚替换 Slate 文档时，React 树和 Slate DOM 映射可能相差一帧。
+        // 延迟重试避免开场白回填成功却留下 Cannot resolve a DOM node 错误。
+        window.requestAnimationFrame(() => {
+          try { focusEditor(); } catch {}
+        });
       }
-      ReactEditor.focus(editor);
     },
     setSelectionRange(start, end, direction) {
       const selection = composerSelectionFromPlainTextRange(

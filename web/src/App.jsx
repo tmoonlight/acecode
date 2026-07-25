@@ -1479,7 +1479,13 @@ export function App() {
         onCheckUpdates={checkForUpdates}
         appVersion={health?.version || ''}
       />
-      <div ref={singleShellRef} className="flex-1 flex overflow-hidden relative min-h-0 ace-single-shell">
+      <div
+        ref={singleShellRef}
+        className={[
+          'flex-1 flex overflow-hidden relative min-h-0 ace-single-shell',
+          activeRef?.expertComponents ? 'ace-expert-components-shell' : '',
+        ].filter(Boolean).join(' ')}
+      >
         <Sidebar
           activeId={activeId}
           activeRef={activeRef}

@@ -47,8 +47,8 @@
 
 ## 7. Verification and delivery
 
-- [ ] 7.1 Run all Web unit tests and production build, fixing regressions and keeping generated output out of direct edits.
-- [ ] 7.2 Build and run focused expert, Skill, MCP, AgentLoop/tool-policy, prompt, and Web HTTP C++ tests.
-- [ ] 7.3 Run the available full C++ test suite and distinguish environment-only failures from product regressions.
-- [ ] 7.4 Validate the OpenSpec change strictly and run `git diff --check`.
-- [ ] 7.5 Perform real-browser interaction and screenshot review at wide, medium, and narrow widths across light, dark, and orange themes, including every empty/error/pending state and confirming the expert page has no bottom chatbox.
+- [x] 7.1 Run all Web unit tests and production build, fixing regressions and keeping generated output out of direct edits.
+- [x] 7.2 Build and run focused expert, Skill, MCP, AgentLoop/tool-policy, prompt, and Web HTTP C++ tests.
+- [x] 7.3 Run the available full C++ test suite and distinguish environment-only failures from product regressions.
+- [x] 7.4 Validate the OpenSpec change strictly and run `git diff --check`.
+- [x] 7.5 Perform real-browser interaction and screenshot review at wide, medium, and narrow widths across light, dark, and orange themes, including every empty/error/pending state and confirming the expert page has no bottom chatbox.

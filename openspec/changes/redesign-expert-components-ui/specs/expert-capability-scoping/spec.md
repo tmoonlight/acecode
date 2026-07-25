@@ -83,4 +83,3 @@ An expert team SHALL reference existing expert definitions rather than copying o
 #### Scenario: Team members have different allowed tools
 - **WHEN** a team lead delegates to a member whose expert allows a different tool set
 - **THEN** the delegated member session uses that member’s scope and does not inherit a broader union from the team
-

@@ -28,6 +28,8 @@ test('standalone expert page owns management and explicit conversation targeting
   const page = source('components/ExpertComponentsPage.jsx');
   const editor = source('components/ExpertEditor.jsx');
   const catalog = source('components/ExpertCatalog.jsx');
+  const app = source('App.jsx');
+  const styles = source('styles/globals.css');
   assert.match(page, /data-expert-components-page="true"/);
   assert.match(catalog, /api\.listExperts/);
   assert.match(editor, /api\.createExpert/);
@@ -39,6 +41,9 @@ test('standalone expert page owns management and explicit conversation targeting
   assert.doesNotMatch(page, /api\.setSessionDraft/);
   assert.doesNotMatch(page, /<InputBar|data-composer|模拟聊天|悬浮输入/);
   assert.doesNotMatch(page, /window\.confirm|window\.alert/);
+  assert.match(app, /activeRef\?\.expertComponents \? 'ace-expert-components-shell'/);
+  assert.match(styles, /\.ace-expert-components-shell > \.ace-sidebar/);
+  assert.match(styles, /\.ace-expert-components-shell > \.ace-resize-handle-left/);
 });
 
 test('catalog uses type tabs plus dynamic non-exclusive Tags and cards show expertise only', () => {
@@ -101,6 +106,7 @@ test('all real composers host the picker in place and opening prompts use atomic
   const chat = source('components/ChatView.jsx');
   const input = source('components/InputBar.jsx');
   const controls = source('components/ComposerSessionControls.jsx');
+  const sidebar = source('components/Sidebar.jsx');
   const app = source('App.jsx');
 
   assert.equal((chat.match(/<ExpertPickerDialog/g) || []).length, 2);
@@ -132,6 +138,9 @@ test('all real composers host the picker in place and opening prompts use atomic
   assert.match(controls, /data-composer-control="expert-pending"/);
   assert.match(controls, /下一轮/);
   assert.match(controls, /expertType === 'team' \? '专家团' : '专家'/);
+
+  assert.match(sidebar, /function expertReferenceForSession/);
+  assert.equal((sidebar.match(/\.\.\.expertReferenceForSession\(session\)/g) || []).length, 2);
 
   assert.match(app, /<ExpertComponentsPage/);
   assert.match(app, /recentExpertIds=\{recentExpertIds\}/);

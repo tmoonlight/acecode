@@ -121,6 +121,22 @@ function normalizeWorkspaceSession(session = {}, workspace = {}) {
   };
 }
 
+function expertReferenceForSession(session = {}) {
+  const expertId = String(
+    session.expert_id
+    || session.expertId
+    || session.expert?.id
+    || '',
+  );
+  return {
+    expertId,
+    expert_id: expertId,
+    expert: session.expert && typeof session.expert === 'object'
+      ? session.expert
+      : null,
+  };
+}
+
 function sameStringArray(a = [], b = []) {
   if (a.length !== b.length) return false;
   return a.every((value, index) => value === b[index]);
@@ -2207,6 +2223,7 @@ export function Sidebar({
               message_count: session.message_count,
               created_at: session.created_at,
               updated_at: session.updated_at,
+              ...expertReferenceForSession(session),
             });
             return;
           } catch (inner) {
@@ -2245,6 +2262,7 @@ export function Sidebar({
       message_count: session.message_count,
       created_at: session.created_at,
       updated_at: session.updated_at,
+      ...expertReferenceForSession(session),
     });
   };
 

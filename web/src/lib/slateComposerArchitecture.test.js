@@ -75,6 +75,13 @@ run('atomic deletion is routed through the plain-text tag range helper', () => {
   assert.match(composer, /Transforms\.delete\(editor\)/);
 });
 
+run('imperative focus retries after an external Slate document replacement', () => {
+  const composer = source('components/RichComposer.jsx');
+  assert.match(composer, /const focusEditor = \(\) =>/);
+  assert.match(composer, /try \{\s*focusEditor\(\);\s*\} catch \{/s);
+  assert.match(composer, /window\.requestAnimationFrame\(\(\) => \{\s*try \{ focusEditor\(\); \} catch \{\}/s);
+});
+
 run('attachments, contexts, and footer controls remain outside the Slate editor', () => {
   const inputBar = source('components/InputBar.jsx');
   const composer = source('components/RichComposer.jsx');

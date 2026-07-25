@@ -103,4 +103,3 @@ The catalog, menus, drawers, and dialogs SHALL remain usable at desktop and narr
 #### Scenario: Catalog request fails
 - **WHEN** expert data cannot be loaded
 - **THEN** the page shows an error and retry action rather than presenting a legitimate empty catalog
-

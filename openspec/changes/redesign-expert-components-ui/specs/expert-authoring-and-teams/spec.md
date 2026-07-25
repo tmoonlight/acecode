@@ -72,4 +72,3 @@ User-facing expert UI SHALL use `Tag` for non-exclusive filters, `擅长领域` 
 #### Scenario: Compare catalog, detail, and editor
 - **WHEN** the same expert is shown across the catalog card, detail dialog, and editor
 - **THEN** each field uses the same defined term and content semantics on every surface
-
