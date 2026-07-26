@@ -24,7 +24,7 @@ function test(name, fn) {
   }
 }
 
-test('standalone expert page owns management and explicit conversation targeting without a composer', () => {
+test('standalone expert page dispatches to the real new-task composer without rendering one', () => {
   const page = source('components/ExpertComponentsPage.jsx');
   const editor = source('components/ExpertEditor.jsx');
   const catalog = source('components/ExpertCatalog.jsx');
@@ -35,9 +35,13 @@ test('standalone expert page owns management and explicit conversation targeting
   assert.match(editor, /api\.createExpert/);
   assert.match(editor, /api\.updateExpert/);
   assert.match(page, /api\.deleteExpert/);
-  assert.match(page, /data-expert-target-conversation="true"/);
-  assert.match(page, /api\.setSessionExpert/);
-  assert.match(page, /\{ draftText: target\.prompt \}/);
+  assert.match(page, /onDispatchToNewTask/);
+  assert.match(page, /dispatchToNewTask/);
+  assert.doesNotMatch(page, /TargetConversationDialog|选择目标对话|api\.setSessionExpert/);
+  assert.match(app, /dispatchExpertToNewTask/);
+  assert.match(app, /initialDraftText: String\(prompt\)/);
+  assert.match(app, /onDispatchToNewTask=\{dispatchExpertToNewTask\}/);
+  assert.match(app, /onInitialDraftConsumed=\{consumeInitialDraftText\}/);
   assert.doesNotMatch(page, /api\.setSessionDraft/);
   assert.doesNotMatch(page, /<InputBar|data-composer|模拟聊天|悬浮输入/);
   assert.doesNotMatch(page, /window\.confirm|window\.alert/);
@@ -78,6 +82,7 @@ test('detail keeps opening prompts separate and uses accessible, focus-restoring
 
 test('editor provides basic, advanced, and inline team-member workflows backed by runtime APIs', () => {
   const editor = source('components/ExpertEditor.jsx');
+  const toolScope = between(editor, 'function ToolScope', 'function AdvancedEditor');
   const api = source('lib/api.js');
   assert.match(editor, /基础信息/);
   assert.match(editor, /高级功能/);
@@ -89,9 +94,14 @@ test('editor provides basic, advanced, and inline team-member workflows backed b
   assert.match(editor, /title="MCP"/);
   assert.match(editor, /ACECode 本地工具/);
   assert.match(editor, /capabilitySourceLabel/);
-  assert.match(editor, /已在全局设置中禁用/);
+  assert.match(editor, /全局已禁用；该专家仍可单独启用/);
+  assert.match(editor, /显式勾选优先于全局启用\/禁用状态/);
   assert.match(editor, /<Toggle/);
-  assert.match(editor, /ariaLabel=\{`\$\{checked \? '关闭' : '开启'\}本地工具 \$\{option\.label\}`\}/);
+  assert.match(toolScope, /type="checkbox"/);
+  assert.match(toolScope, /aria-label=\{`\$\{checked \? '关闭' : '开启'\}本地工具 \$\{option\.label\}`\}/);
+  assert.equal((toolScope.match(/<Toggle/g) || []).length, 1);
+  assert.match(editor, /option\.default_enabled/);
+  assert.match(editor, /option\.expert_selectable/);
   assert.match(editor, /data-team-expert-picker="true"/);
   assert.match(editor, /aria-pressed=\{selected\}/);
   assert.match(editor, /data-team-member-unavailable/);
@@ -113,6 +123,8 @@ test('all real composers host the picker in place and opening prompts use atomic
   assert.match(chat, /setExpertPickerOpen\(true\)/);
   assert.match(chat, /selectComposerExpert\(expert, \{ draftText: String\(prompt \|\| ''\) \}\)/);
   assert.match(chat, /api\.setSessionExpert\(targetSessionId, expertId, requestOptions\)/);
+  assert.match(chat, /api\.clearSessionExpert\(targetSessionId\)/);
+  assert.match(chat, /onRemoveExpert=\{detachComposerExpert\}/);
   assert.match(chat, /normalizeExpertSwitchReceipt\(result, expertId\)/);
   assert.match(chat, /resolveCanonicalExpertSwitchPoll/);
   assert.match(chat, /api\.listWorkspaceSessions\(sessionWorkspaceHash\)/);
@@ -138,13 +150,16 @@ test('all real composers host the picker in place and opening prompts use atomic
   assert.match(controls, /data-composer-control="expert-pending"/);
   assert.match(controls, /下一轮/);
   assert.match(controls, /expertType === 'team' \? '专家团' : '专家'/);
+  assert.match(controls, /aria-label=\{`解除\$\{expertType/);
+  assert.match(controls, /onClick=\{onRemoveExpert\}/);
 
   assert.match(sidebar, /function expertReferenceForSession/);
   assert.equal((sidebar.match(/\.\.\.expertReferenceForSession\(session\)/g) || []).length, 2);
 
   assert.match(app, /<ExpertComponentsPage/);
   assert.match(app, /recentExpertIds=\{recentExpertIds\}/);
-  assert.doesNotMatch(app, /useExpertForNewTask|onUseExpert=/);
+  assert.match(app, /dispatchExpertToNewTask/);
+  assert.match(app, /expert: expertId \? expert : null/);
 });
 
 test('conversation picker does not expose management controls without callbacks', () => {

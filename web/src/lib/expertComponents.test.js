@@ -160,6 +160,10 @@ test('legacy, explicit empty, and selected capability scopes remain distinct', (
   assert.deepEqual(normalizeExpertCapabilities({ tools: ['file_read', 'file_read'] }), { tools: ['file_read'] });
   let value = setCapabilityScopeMode({}, 'tools', 'custom');
   assert.deepEqual(value, { tools: [] });
+  assert.deepEqual(
+    setCapabilityScopeMode({}, 'tools', 'custom', ['file_read', 'file_write']),
+    { tools: ['file_read', 'file_write'] },
+  );
   value = toggleCapabilitySelection(value, 'tools', 'file_read');
   assert.deepEqual(value, { tools: ['file_read'] });
   value = setCapabilityScopeMode(value, 'tools', 'inherit');
@@ -172,11 +176,32 @@ test('saved missing capabilities stay visible and removable', () => {
     mcp_servers: [{ id: 'github', status: 'disconnected', available: false }],
   });
   assert.equal(normalized.tools[0].id, 'file_read');
+  assert.equal(normalized.tools[0].default_enabled, true);
+  assert.equal(normalized.tools[0].expert_selectable, true);
   assert.equal(normalized.mcp_servers[0].status, 'disconnected');
+  assert.equal(normalized.mcp_servers[0].default_enabled, false);
+  assert.equal(normalized.mcp_servers[0].expert_selectable, false);
   const options = capabilityOptionsWithSaved(normalized.tools, ['file_read', 'old_tool'], 'tools');
   assert.deepEqual(options.map((item) => item.id), ['file_read', 'old_tool']);
   assert.equal(options[1].status, 'missing');
   assert.equal(options[1].available, false);
+  assert.equal(options[1].expert_selectable, false);
+});
+
+test('globally disabled installed capabilities remain expert-selectable without becoming defaults', () => {
+  const catalog = normalizeCapabilityCatalog({
+    skills: [{
+      id: 'review',
+      available: false,
+      globally_enabled: false,
+      default_enabled: false,
+      expert_selectable: true,
+      disabled_reason: 'globally_disabled',
+    }],
+  });
+  assert.equal(catalog.skills[0].available, false);
+  assert.equal(catalog.skills[0].default_enabled, false);
+  assert.equal(catalog.skills[0].expert_selectable, true);
 });
 
 test('expert detail form round-trips optional scopes', () => {

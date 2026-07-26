@@ -264,7 +264,7 @@ TEST_F(SkillInitOpencodeTest, PrependedExpertRootIsSessionScopedAndPolicyAware) 
     EXPECT_FALSE(disabled.find("expert-only").has_value());
 }
 
-TEST_F(SkillInitOpencodeTest, ExpertAllowlistIntersectsGlobalPolicyAndKeepsBundledSkills) {
+TEST_F(SkillInitOpencodeTest, ExpertAllowlistOverridesGlobalPolicyAndKeepsBundledSkills) {
     const fs::path expert_root = root / "expert-skills";
     write_skill(expert_root, "bundled-skill", "bundled by expert");
     write_skill(workspace / ".acecode" / "skills",
@@ -291,15 +291,16 @@ TEST_F(SkillInitOpencodeTest, ExpertAllowlistIntersectsGlobalPolicyAndKeepsBundl
     EXPECT_TRUE(selected.find("bundled-skill").has_value());
     EXPECT_TRUE(selected.find("selected-global").has_value());
     EXPECT_FALSE(selected.find("unselected-global").has_value());
-    EXPECT_FALSE(selected.find("disabled-global").has_value());
+    EXPECT_TRUE(selected.find("disabled-global").has_value());
 
-    cfg.skills.allowed = std::vector<std::string>{"selected-global"};
+    cfg.skills.allowed = std::vector<std::string>{};
+    cfg.skills.disabled = {"bundled-skill", "selected-global"};
     acecode::SkillRegistry globally_restricted;
     acecode::initialize_skill_registry(
         globally_restricted, cfg, workspace.string(), {expert_root},
         std::vector<std::string>{"selected-global"});
     EXPECT_TRUE(globally_restricted.find("selected-global").has_value());
-    EXPECT_FALSE(globally_restricted.find("bundled-skill").has_value());
+    EXPECT_TRUE(globally_restricted.find("bundled-skill").has_value());
 
     acecode::SkillRegistry explicit_none;
     acecode::initialize_skill_registry(

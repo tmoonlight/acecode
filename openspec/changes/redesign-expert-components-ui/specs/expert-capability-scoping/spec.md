@@ -26,12 +26,12 @@ Expert manifests and API DTOs SHALL persist three independently optional scopes:
 - **WHEN** an expert contains a selected capability identifier that is temporarily unavailable
 - **THEN** reading and saving unrelated fields does not silently discard that identifier
 
-### Requirement: Expert scopes can only narrow global capability policy
-The effective capability set for a turn SHALL be the intersection of the expert’s optional allowlist and the capabilities enabled by ACECode global configuration, startup selection, permission mode, and security policy. An expert manifest MUST NOT start a disabled MCP server, enable a globally disabled Skill, register an absent tool, elevate permissions, or bypass plan/dangerous-mode restrictions.
+### Requirement: Explicit expert scopes take precedence over global enablement
+When an expert scope is explicitly present, its selected known Skill names, configured MCP server identifiers, and registered local-tool identifiers SHALL take precedence over ACECode’s global enable/disable state. An absent expert scope SHALL continue to inherit global defaults. Expert precedence MUST NOT install an absent Skill, invent MCP configuration or credentials, register an absent tool, elevate permissions, or bypass approval, plan/dangerous-mode, path, sandbox, or other security restrictions.
 
 #### Scenario: Expert selects a globally disabled capability
 - **WHEN** an expert allowlist names a Skill or MCP server disabled in global configuration
-- **THEN** that capability remains unavailable to the expert
+- **THEN** ACECode makes that known capability available to the expert context while keeping it hidden from sessions that inherit the global disabled state
 
 #### Scenario: Expert selects a write tool in restrictive permission mode
 - **WHEN** the expert allows a write tool but the active permission policy requires approval or forbids it
@@ -49,7 +49,7 @@ For an expert-bound turn, the system SHALL omit disallowed built-in and MCP tool
 - **THEN** ACECode returns a deterministic denied result and does not execute that tool
 
 ### Requirement: MCP selection operates at server identity
-The expert editor SHALL select MCP capabilities by configured server identifier. At runtime, selecting a server SHALL allow only that server’s currently registered MCP tools, subject to global availability; it MUST NOT accidentally allow tools from another server with a similar display name or tool name.
+The expert editor SHALL select MCP capabilities by configured server identifier. At runtime, selecting a configured globally disabled server SHALL be allowed to start/connect it for the expert, and the expert policy SHALL allow only that server’s currently registered MCP tools. It MUST NOT accidentally expose those tools to global-inheriting sessions or allow tools from another server with a similar display name or tool name.
 
 #### Scenario: Two MCP servers expose the same unqualified tool name
 - **WHEN** an expert selects only one of those server identifiers
@@ -60,7 +60,7 @@ The expert editor SHALL select MCP capabilities by configured server identifier.
 - **THEN** the expert remains loadable, the editor shows its unavailable state, and no tools from that server are advertised
 
 ### Requirement: Skill selection limits expert-visible Skills
-When a Skill scope is present, expert session initialization SHALL retain only globally enabled Skills whose stable names appear in that scope, while still honoring valid Skill content bundled inside that expert package. Skill discovery, prompt injection, slash invocation, and Skill-reading tools SHALL not expose unselected global Skills.
+When a Skill scope is present, expert session initialization SHALL retain installed Skills whose stable names appear in that scope even when those Skills are globally disabled or outside the global allowlist, while still honoring valid Skill content bundled inside that expert package. Skill discovery, prompt injection, slash invocation, and Skill-reading tools SHALL not expose unselected global Skills.
 
 #### Scenario: Expert selects a subset of global Skills
 - **WHEN** an expert selects two of five globally enabled Skills
@@ -68,7 +68,18 @@ When a Skill scope is present, expert session initialization SHALL retain only g
 
 #### Scenario: Selected Skill is globally disabled
 - **WHEN** a selected Skill is disabled globally
-- **THEN** it is omitted from expert-visible Skill discovery and prompt content
+- **THEN** it remains present in that expert’s Skill discovery and prompt content while globally inheriting sessions continue to omit it
+
+### Requirement: Local-tool choices use checkbox defaults
+The advanced editor SHALL render each ACECode local-tool choice as a checkbox rather than a Toggle. When a capability class is inheriting global defaults, globally enabled and registered tools SHALL appear checked and disabled/unavailable tools SHALL appear unchecked. Switching to explicit configuration SHALL begin from those visible defaults.
+
+#### Scenario: Open a new expert with inherited tools
+- **WHEN** the capability catalog reports `file_write` enabled and another tool disabled
+- **THEN** `file_write` is visibly checked and the disabled tool is visibly unchecked
+
+#### Scenario: Customize inherited local tools
+- **WHEN** the user turns off inheritance for local tools
+- **THEN** the explicit selection starts with the previously displayed enabled tools checked
 
 ### Requirement: In-place expert switches atomically update all expert scopes
 Switching an active conversation to another expert SHALL update expert prompt context, Skill registry, MCP allowlist, and built-in-tool allowlist together in the same queued control operation. A later turn MUST NOT observe a mixture of the old and new experts’ capability scopes.

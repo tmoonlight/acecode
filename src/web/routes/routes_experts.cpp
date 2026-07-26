@@ -140,6 +140,9 @@ void WebServer::Impl::register_experts() {
                 const bool globally_allowed =
                     contains_name(config_snapshot->skills.allowed, id);
                 const bool available = enabled && globally_allowed;
+                const std::string source =
+                    item.value("source", std::string{});
+                const bool expert_selectable = !source.empty();
                 std::string disabled_reason;
                 if (!enabled) {
                     disabled_reason = "globally_disabled";
@@ -150,8 +153,12 @@ void WebServer::Impl::register_experts() {
                     {"id", id},
                     {"description",
                      item.value("description", std::string{})},
-                    {"source", item.value("source", std::string{})},
+                    {"source", source},
                     {"available", available},
+                    {"globally_enabled", available},
+                    {"default_enabled", available},
+                    {"expert_selectable", expert_selectable},
+                    {"configurable", expert_selectable},
                     {"status", available ? "available" : "disabled"},
                     {"disabled_reason", disabled_reason},
                 });
@@ -161,16 +168,34 @@ void WebServer::Impl::register_experts() {
         json mcp_servers = json::array();
         if (deps.mcp_manager) {
             for (const auto& server : deps.mcp_manager->list_servers()) {
-                const bool available =
+                const auto config_it = config_snapshot
+                    ? config_snapshot->mcp_servers.find(server.name)
+                    : std::map<std::string, McpServerConfig>::const_iterator{};
+                const bool configured = !config_snapshot ||
+                    config_it != config_snapshot->mcp_servers.end();
+                const bool globally_enabled = configured &&
+                    (!config_snapshot || !config_it->second.disabled);
+                const bool runtime_available =
                     server.state == McpServerState::Connected;
                 mcp_servers.push_back({
                     {"id", server.name},
                     {"description", std::string{}},
                     {"transport", server.transport},
-                    {"available", available},
-                    {"status", mcp_status_name(server.state)},
+                    {"available",
+                     globally_enabled && runtime_available},
+                    {"globally_enabled", globally_enabled},
+                    {"default_enabled", globally_enabled},
+                    {"expert_selectable", configured},
+                    {"configurable", configured},
+                    {"runtime_available", runtime_available},
+                    {"status",
+                     globally_enabled
+                         ? mcp_status_name(server.state)
+                         : "disabled"},
                     {"disabled_reason",
-                     mcp_disabled_reason(server.state)},
+                     globally_enabled
+                         ? mcp_disabled_reason(server.state)
+                         : "globally_disabled"},
                     {"tool_count", server.tool_count},
                 });
             }
@@ -187,6 +212,11 @@ void WebServer::Impl::register_experts() {
                     {"transport",
                      mcp_transport_name(config.transport)},
                     {"available", false},
+                    {"globally_enabled", !disabled},
+                    {"default_enabled", !disabled},
+                    {"expert_selectable", true},
+                    {"configurable", true},
+                    {"runtime_available", false},
                     {"status", disabled ? "disabled" : "unavailable"},
                     {"disabled_reason",
                      disabled ? "globally_disabled"
@@ -204,6 +234,9 @@ void WebServer::Impl::register_experts() {
                     {"id", tool.definition.name},
                     {"description", tool.definition.description},
                     {"available", true},
+                    {"globally_enabled", true},
+                    {"default_enabled", true},
+                    {"expert_selectable", true},
                     {"status", "available"},
                     {"disabled_reason", ""},
                     {"configurable", true},

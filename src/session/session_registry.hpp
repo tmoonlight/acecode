@@ -44,6 +44,7 @@ class HookManager;
 class MemoryRegistry;
 class ActiveSessionPowerGuard;
 class ConnectorAuthRecovery;
+class McpManager;
 
 std::string default_no_workspace_cache_root();
 std::string no_workspace_session_cwd(const std::string& session_id,
@@ -74,6 +75,9 @@ struct SessionEntry {
     std::string expert_member_id;
     bool expert_missing = false;
     std::optional<ExpertDefinition> expert;
+    // Monotonic UI-binding intent. A metadata-only detach increments this so
+    // an older expert switch waiting behind a turn cannot reattach itself.
+    std::uint64_t expert_binding_revision = 0;
     bool loop_execution = false;
     std::string loop_id;
     std::string loop_run_id;
@@ -115,6 +119,9 @@ struct SessionRegistryDeps {
     const ProjectInstructionsConfig* project_instructions_cfg = nullptr;
     const CustomInstructionsConfig*  custom_instructions_cfg = nullptr;
     HookManager*                     hook_manager = nullptr;
+    // Shared MCP runtime. Explicit expert MCP selections may start a
+    // configured server even when its daemon-global default is disabled.
+    McpManager*                      mcp_manager = nullptr;
     // 全局 PermissionManager(用于派生 per-session perm 的 mode + rules
     // 起始值)。每个 session 自己的 PermissionManager 是独立实例,session_allowed_
     // 不串。
@@ -153,6 +160,20 @@ struct ExpertSwitchResult {
     std::uint64_t control_sequence = 0;
     bool draft_text_present = false;
     std::string draft_text;
+};
+
+enum class ExpertDetachStatus {
+    Detached,
+    UnknownSession,
+    Failed,
+};
+
+struct ExpertDetachResult {
+    ExpertDetachStatus status = ExpertDetachStatus::Failed;
+    std::string error;
+    // Detaching only clears the durable/UI binding. The running AgentLoop
+    // intentionally retains the expert context it has already loaded.
+    bool context_retained = true;
 };
 
 class SessionRegistry {
@@ -214,6 +235,11 @@ public:
                                      std::optional<std::string> draft_text =
                                          std::nullopt);
 
+    // Clear only the durable/UI expert binding. This deliberately does not
+    // enqueue an AgentLoop control, rebuild prompts or capability registries,
+    // or mutate provider context/KV-cache state.
+    ExpertDetachResult detach_expert(const std::string& id);
+
     // Return the currently effective per-session Skill registry as a shared,
     // immutable-lifetime snapshot. Pointer replacement during an expert switch
     // is serialized by the registry mutex.
@@ -225,6 +251,15 @@ public:
     // Existing registry objects are reconfigured in place so AgentLoop and
     // Skill tools never retain a stale pointer.
     void refresh_skill_policy(const AppConfig& config);
+
+    // Recompute the MCP allowlist inherited by every active session after a
+    // global toggle. Explicit expert selections remain authoritative.
+    void refresh_mcp_policy(const AppConfig& config);
+
+    // Whether an attached expert in any active session explicitly selects the
+    // named MCP server. Used to avoid tearing down shared runtime tools that an
+    // expert still needs after the global default is disabled.
+    bool expert_requires_mcp_server(const std::string& name) const;
 
     // Fire-and-forget hidden title generation for the first visible user input.
     // It never writes to transcript or blocks send_input.

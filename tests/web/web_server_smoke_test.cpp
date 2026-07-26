@@ -1637,11 +1637,39 @@ TEST(WebServerHttp, SessionExpertEndpointSwitchesActiveSessionInPlace) {
     EXPECT_EQ(invalid_draft.status_code, 400) << invalid_draft.text;
     EXPECT_EQ(entry->sm->current_input_draft(), "updated draft");
 
+    ASSERT_TRUE(entry->expert.has_value());
+    const auto* retained_expert = &*entry->expert;
+    const auto retained_policy = entry->tool_capability_policy;
+    auto detached = cpr::Delete(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/expert")});
+    ASSERT_EQ(detached.status_code, 200) << detached.text;
+    const auto detached_payload = json::parse(detached.text);
+    EXPECT_TRUE(detached_payload["detached"].get<bool>());
+    EXPECT_TRUE(detached_payload["context_retained"].get<bool>());
+    EXPECT_EQ(detached_payload["expert_id"], "");
+    EXPECT_TRUE(entry->expert_id.empty());
+    EXPECT_TRUE(entry->sm->current_expert_id().empty());
+    EXPECT_EQ(entry->sm->current_input_draft(), "updated draft");
+    ASSERT_TRUE(entry->expert.has_value());
+    EXPECT_EQ(&*entry->expert, retained_expert);
+    EXPECT_EQ(entry->tool_capability_policy.builtin_tools,
+              retained_policy.builtin_tools);
+    EXPECT_EQ(entry->tool_capability_policy.mcp_servers,
+              retained_policy.mcp_servers);
+    const auto detached_meta = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(fx.project_dir, sid));
+    EXPECT_TRUE(detached_meta.expert_id.empty());
+    EXPECT_EQ(detached_meta.input_draft, "updated draft");
+
     auto unknown = cpr::Put(
         cpr::Url{fx.url("/api/sessions/missing-session/expert")},
         cpr::Header{{"Content-Type", "application/json"}},
         cpr::Body{R"({"expert_id":"reviewer"})"});
     EXPECT_EQ(unknown.status_code, 404) << unknown.text;
+
+    auto unknown_detach = cpr::Delete(
+        cpr::Url{fx.url("/api/sessions/missing-session/expert")});
+    EXPECT_EQ(unknown_detach.status_code, 404) << unknown_detach.text;
 }
 
 TEST(WebServerHttp, BusyExpertSwitchAppliesDraftAtTheSameQueueBoundary) {
@@ -4048,24 +4076,34 @@ TEST(WebServerHttp, ExpertCapabilityCatalogIsRuntimeBackedAndSanitized) {
     const json* available = by_id(payload["skills"], "available-skill");
     ASSERT_NE(available, nullptr);
     EXPECT_TRUE((*available)["available"].get<bool>());
+    EXPECT_TRUE((*available)["globally_enabled"].get<bool>());
+    EXPECT_TRUE((*available)["default_enabled"].get<bool>());
+    EXPECT_TRUE((*available)["expert_selectable"].get<bool>());
     EXPECT_EQ((*available)["status"], "available");
     EXPECT_EQ((*available)["disabled_reason"], "");
 
     const json* disabled = by_id(payload["skills"], "disabled-skill");
     ASSERT_NE(disabled, nullptr);
     EXPECT_FALSE((*disabled)["available"].get<bool>());
+    EXPECT_FALSE((*disabled)["default_enabled"].get<bool>());
+    EXPECT_TRUE((*disabled)["expert_selectable"].get<bool>());
     EXPECT_EQ((*disabled)["disabled_reason"], "globally_disabled");
 
     const json* policy_blocked =
         by_id(payload["skills"], "policy-blocked-skill");
     ASSERT_NE(policy_blocked, nullptr);
     EXPECT_FALSE((*policy_blocked)["available"].get<bool>());
+    EXPECT_FALSE((*policy_blocked)["default_enabled"].get<bool>());
+    EXPECT_TRUE((*policy_blocked)["expert_selectable"].get<bool>());
     EXPECT_EQ((*policy_blocked)["disabled_reason"],
               "not_allowed_by_global_policy");
 
     const json* secure = by_id(payload["mcp_servers"], "secure-runtime");
     ASSERT_NE(secure, nullptr);
     EXPECT_FALSE((*secure)["available"].get<bool>());
+    EXPECT_TRUE((*secure)["globally_enabled"].get<bool>());
+    EXPECT_TRUE((*secure)["default_enabled"].get<bool>());
+    EXPECT_TRUE((*secure)["expert_selectable"].get<bool>());
     EXPECT_EQ((*secure)["status"], "unavailable");
     EXPECT_EQ((*secure)["disabled_reason"], "runtime_unavailable");
     EXPECT_EQ((*secure)["transport"], "stdio");
@@ -4078,6 +4116,9 @@ TEST(WebServerHttp, ExpertCapabilityCatalogIsRuntimeBackedAndSanitized) {
     const json* mcp_disabled =
         by_id(payload["mcp_servers"], "disabled-runtime");
     ASSERT_NE(mcp_disabled, nullptr);
+    EXPECT_FALSE((*mcp_disabled)["globally_enabled"].get<bool>());
+    EXPECT_FALSE((*mcp_disabled)["default_enabled"].get<bool>());
+    EXPECT_TRUE((*mcp_disabled)["expert_selectable"].get<bool>());
     EXPECT_EQ((*mcp_disabled)["status"], "disabled");
     EXPECT_EQ((*mcp_disabled)["disabled_reason"], "globally_disabled");
     EXPECT_EQ((*mcp_disabled)["transport"], "http");
@@ -4086,9 +4127,12 @@ TEST(WebServerHttp, ExpertCapabilityCatalogIsRuntimeBackedAndSanitized) {
     const json* ask = by_id(payload["tools"], "AskUserQuestion");
     ASSERT_NE(ask, nullptr);
     EXPECT_TRUE((*ask)["available"].get<bool>());
+    EXPECT_TRUE((*ask)["default_enabled"].get<bool>());
+    EXPECT_TRUE((*ask)["expert_selectable"].get<bool>());
     EXPECT_TRUE((*ask)["read_only"].get<bool>());
     const json* file_write = by_id(payload["tools"], "file_write");
     ASSERT_NE(file_write, nullptr);
+    EXPECT_TRUE((*file_write)["default_enabled"].get<bool>());
     EXPECT_FALSE((*file_write)["read_only"].get<bool>());
     EXPECT_EQ(by_id(payload["tools"], "mcp_secure_search"), nullptr);
 

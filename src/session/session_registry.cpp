@@ -20,6 +20,7 @@
 #include "../provider/provider_factory.hpp"
 #include "../skills/skill_init.hpp"
 #include "../gitinfo/git_context_core.hpp"
+#include "../tool/mcp_manager.hpp"
 #include "../tool/question_policy.hpp"
 #include "../worktree/worktree_core.hpp"
 #include "../worktree/worktree_manager.hpp"
@@ -77,7 +78,8 @@ std::string trim_copy(const std::string& value) {
 }
 
 ToolCapabilityPolicy tool_policy_from_expert_scopes(
-    const ExpertCapabilityScopes& scopes) {
+    const ExpertCapabilityScopes& scopes,
+    const AppConfig* config) {
     ToolCapabilityPolicy policy;
     if (scopes.tools) {
         policy.builtin_tools = std::unordered_set<std::string>(
@@ -86,8 +88,29 @@ ToolCapabilityPolicy tool_policy_from_expert_scopes(
     if (scopes.mcp_servers) {
         policy.mcp_servers = std::unordered_set<std::string>(
             scopes.mcp_servers->begin(), scopes.mcp_servers->end());
+    } else if (config) {
+        // A shared MCP runtime may contain servers started for another
+        // expert. Inheriting sessions only see daemon-global enabled servers.
+        std::unordered_set<std::string> globally_enabled;
+        for (const auto& [name, server] : config->mcp_servers) {
+            if (!server.disabled) globally_enabled.insert(name);
+        }
+        policy.mcp_servers = std::move(globally_enabled);
     }
     return policy;
+}
+
+void ensure_expert_mcp_servers_available(
+    const ExpertCapabilityScopes& scopes,
+    McpManager* manager,
+    ToolExecutor* tools) {
+    if (!scopes.mcp_servers || !manager || !tools) return;
+    for (const auto& name : *scopes.mcp_servers) {
+        if (!manager->has_server(name)) continue;
+        // enable() is idempotent for Connected/Starting entries and does not
+        // mutate AppConfig, so the global default remains disabled.
+        (void)manager->enable(name, *tools);
+    }
 }
 
 ExpertCapabilityScopes fail_closed_expert_scopes() {
@@ -814,8 +837,10 @@ SessionRegistry::make_entry_locked(const std::string& id,
             ? entry->expert->selected_skill_roots(entry->expert_member_id)
             : std::vector<std::filesystem::path>{};
     entry->expert_skill_allowlist = expert_scopes.skills;
+    ensure_expert_mcp_servers_available(
+        expert_scopes, deps_.mcp_manager, deps_.tools);
     entry->tool_capability_policy =
-        tool_policy_from_expert_scopes(expert_scopes);
+        tool_policy_from_expert_scopes(expert_scopes, deps_.config);
 
     if (deps_.config) {
         entry->skill_registry = std::make_shared<SkillRegistry>();
@@ -1415,6 +1440,74 @@ void SessionRegistry::handle_auto_title_turn_finished(
     }
 }
 
+void SessionRegistry::refresh_mcp_policy(const AppConfig& config) {
+    auto config_snapshot = std::make_shared<AppConfig>(config);
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+
+    for (const auto& entry : targets) {
+        const std::string session_id = entry->id;
+        auto receipt = entry->loop->enqueue_control(
+            [this, session_id, expected = entry, config_snapshot]() {
+                std::lock_guard<std::mutex> lk(mu_);
+                auto it = entries_.find(session_id);
+                if (it == entries_.end() || it->second != expected) {
+                    return false;
+                }
+                auto& active = *it->second;
+                ExpertCapabilityScopes scopes;
+                if (!active.expert_id.empty() && active.expert) {
+                    scopes = active.expert->selected_capabilities(
+                        active.expert_member_id);
+                } else if (active.expert_missing) {
+                    scopes = fail_closed_expert_scopes();
+                }
+                const auto refreshed =
+                    tool_policy_from_expert_scopes(
+                        scopes, config_snapshot.get());
+                active.tool_capability_policy.mcp_servers =
+                    refreshed.mcp_servers;
+                if (active.loop) {
+                    active.loop->set_tool_capability_policy(
+                        active.tool_capability_policy);
+                }
+                return true;
+            });
+        if (receipt.accepted && !receipt.queued_behind_turn) {
+            (void)receipt.wait_for_completion(
+                std::chrono::milliseconds(250));
+        }
+    }
+}
+
+bool SessionRegistry::expert_requires_mcp_server(
+    const std::string& name) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const auto& [id, entry] : entries_) {
+        (void)id;
+        if (!entry || entry->expert_id.empty() ||
+            entry->expert_missing || !entry->expert) {
+            continue;
+        }
+        const auto scopes =
+            entry->expert->selected_capabilities(entry->expert_member_id);
+        if (!scopes.mcp_servers) continue;
+        if (std::find(scopes.mcp_servers->begin(),
+                      scopes.mcp_servers->end(),
+                      name) != scopes.mcp_servers->end()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 ExpertSwitchResult SessionRegistry::switch_expert(
     const std::string& id,
     const std::string& expert_id,
@@ -1453,8 +1546,10 @@ ExpertSwitchResult SessionRegistry::switch_expert(
     auto expert = std::make_shared<ExpertDefinition>(std::move(*resolved));
     const ExpertCapabilityScopes expert_scopes =
         expert->selected_capabilities();
+    ensure_expert_mcp_servers_available(
+        expert_scopes, deps_.mcp_manager, deps_.tools);
     const ToolCapabilityPolicy tool_policy =
-        tool_policy_from_expert_scopes(expert_scopes);
+        tool_policy_from_expert_scopes(expert_scopes, deps_.config);
     const auto expert_skill_roots = expert->selected_skill_roots();
     const auto expert_skill_allowlist = expert_scopes.skills;
     std::shared_ptr<SkillRegistry> skills;
@@ -1476,15 +1571,33 @@ ExpertSwitchResult SessionRegistry::switch_expert(
         };
     }
 
+    std::uint64_t binding_revision = 0;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end() || it->second != entry) {
+            return {
+                ExpertSwitchStatus::UnknownSession,
+                std::nullopt,
+                "unknown session",
+            };
+        }
+        binding_revision = ++it->second->expert_binding_revision;
+    }
+
     const std::string session_id = id;
     auto receipt = entry->loop->enqueue_control(
         [this, session_id, expected = entry, expert, skills, tool_policy,
-         expert_skill_roots, expert_skill_allowlist, draft_text]() mutable {
+         expert_skill_roots, expert_skill_allowlist, draft_text,
+         binding_revision]() mutable {
             std::lock_guard<std::mutex> lk(mu_);
             auto it = entries_.find(session_id);
             if (it == entries_.end() || it->second != expected) return false;
 
             auto& active = *it->second;
+            // A later switch or metadata-only detach superseded this queued
+            // intent. Treat it as consumed without touching AgentLoop state.
+            if (active.expert_binding_revision != binding_revision) return true;
             if (active.sm &&
                 !active.sm->set_expert_binding_and_input_draft(
                     expert->id, {}, draft_text)) {
@@ -1546,6 +1659,44 @@ ExpertSwitchResult SessionRegistry::switch_expert(
     result.draft_text_present = draft_text.has_value();
     if (draft_text) result.draft_text = std::move(*draft_text);
     return result;
+}
+
+ExpertDetachResult SessionRegistry::detach_expert(const std::string& id) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = entries_.find(id);
+    if (it == entries_.end() || !it->second || !it->second->sm) {
+        return {
+            ExpertDetachStatus::UnknownSession,
+            "unknown session",
+            true,
+        };
+    }
+
+    auto& active = *it->second;
+    if (!active.sm->set_expert_binding_and_input_draft(
+            "", {}, std::nullopt)) {
+        return {
+            ExpertDetachStatus::Failed,
+            "failed to persist detached expert binding",
+            true,
+        };
+    }
+
+    ++active.expert_binding_revision;
+    active.expert_id.clear();
+    active.expert_member_id.clear();
+    active.expert_missing = false;
+
+    // Do not reset active.expert or any loop-facing capability state here.
+    // AgentLoop may retain a pointer to active.expert, and the product contract
+    // explicitly allows the already-loaded expert prompt/tools to remain until
+    // a later lifecycle boundary. In particular, this path must not enqueue a
+    // control or invalidate provider context/KV cache.
+    return {
+        ExpertDetachStatus::Detached,
+        {},
+        true,
+    };
 }
 
 PermissionMode SessionRegistry::default_permission_mode() const {

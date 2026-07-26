@@ -83,6 +83,7 @@ await run('expert switch client keeps optional draft text in the atomic request 
     await client.setSessionExpert('session/a', 'reviewer');
     await client.setSessionExpert('session/a', 'reviewer', { draftText: '' });
     await client.setSessionExpert('session/a', 'reviewer', { draftText: '审查当前改动' });
+    await client.clearSessionExpert('session/a');
 
     assert.equal(calls[0].url, 'http://acecode.test/api/sessions/session%2Fa/expert');
     assert.deepEqual(JSON.parse(calls[0].opts.body), { expert_id: 'reviewer' });
@@ -91,6 +92,9 @@ await run('expert switch client keeps optional draft text in the atomic request 
       expert_id: 'reviewer',
       draft_text: '审查当前改动',
     });
+    assert.equal(calls[3].url, 'http://acecode.test/api/sessions/session%2Fa/expert');
+    assert.equal(calls[3].opts.method, 'DELETE');
+    assert.equal(calls[3].opts.body, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

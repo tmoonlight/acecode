@@ -120,9 +120,11 @@ export const InputBar = forwardRef(function InputBar({
   selectedExpertId = '',
   selectedExpertName = '',
   selectedExpertType = 'agent',
+  expertRemoving = false,
   pendingExpertName = '',
   pendingExpertType = 'agent',
   onSelectExpert,
+  onRemoveExpert,
   onOpenExpertComponents,
   selectionPreview = null, onPinSelectionPreview,
   pathReferenceApi = null, cwd = '',
@@ -1104,6 +1106,8 @@ export const InputBar = forwardRef(function InputBar({
           expertId={selectedExpertId}
           expertName={selectedExpertName}
           expertType={selectedExpertType}
+          expertRemoving={expertRemoving}
+          onRemoveExpert={onRemoveExpert}
           pendingExpertName={pendingExpertName}
           pendingExpertType={pendingExpertType}
         />

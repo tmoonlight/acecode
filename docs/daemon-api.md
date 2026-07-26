@@ -254,6 +254,7 @@ when known.
 | POST | `/api/sessions/:id/commands` | run daemon builtin slash command |
 | POST | `/api/sessions/:id/side-question` | run isolated one-turn `/btw` question |
 | PUT | `/api/sessions/:id/expert` | switch the active session expert for subsequent turns |
+| DELETE | `/api/sessions/:id/expert` | clear the persisted/UI expert binding without rebuilding live context |
 | GET | `/api/experts` | list expert components for a workspace |
 | POST | `/api/experts` | create a managed global expert component |
 | GET | `/api/experts/capabilities` | list sanitized expert capability choices |
@@ -998,6 +999,28 @@ Errors:
 - `500` when the expert Skill context cannot be prepared or the atomic
   binding/draft update cannot be persisted.
 
+### `DELETE /api/sessions/:id/expert`
+
+Clears the active session's persisted expert ID and the expert chip shown by
+real composers:
+
+```json
+{"detached":true,"expert_id":"","context_retained":true}
+```
+
+This is deliberately a metadata-only detach. It does not enqueue an AgentLoop
+control, rebuild the system prompt or capability registries, alter the current
+provider context, or invalidate KV cache. Expert instructions and capability
+state that were already loaded may therefore remain effective until another
+normal lifecycle boundary. A detach also supersedes any older expert switch
+still queued behind an in-flight turn, so that switch cannot restore the UI
+binding afterward. The current composer draft is preserved.
+
+Errors:
+
+- `404` when the active session does not exist.
+- `500` when the cleared binding cannot be persisted.
+
 ### `GET /api/sessions/:id/permissions`
 
 Returns the active or persisted session permission mode:
@@ -1411,13 +1434,18 @@ Each of `capabilities.skills`, `capabilities.mcp_servers`, and
 
 - missing key: inherit all capabilities available under global policy;
 - empty array: allow none of that capability class;
-- non-empty array: exact-name allowlist.
+- non-empty array: exact-name expert allowlist. For known installed Skills and
+  configured MCP servers, this explicit list overrides the daemon-global
+  allowed/disabled default.
 
 Unknown or temporarily unavailable IDs remain persisted so the editor can
 show the saved choice and its unavailable state. A referenced expert team
 does not merge capability lists; every member executes under that member
 expert's own scopes. The manifest's top-level `skills` field remains package
-content metadata and is not the capability selection field.
+content metadata and is not the capability selection field. Expert precedence
+does not bypass tool permission approval, permission/Plan/Dangerous mode,
+sandboxing, credentials, or runtime availability, and it does not synthesize
+an uninstalled Skill, unconfigured MCP server, or unregistered local tool.
 
 `GET /api/experts/capabilities?workspace=<hash>` returns the read-only,
 runtime-backed selection catalog:
@@ -1430,6 +1458,10 @@ runtime-backed selection catalog:
       "description": "Review checklist",
       "source": "project",
       "available": true,
+      "globally_enabled": true,
+      "default_enabled": true,
+      "expert_selectable": true,
+      "configurable": true,
       "status": "available",
       "disabled_reason": ""
     }
@@ -1440,6 +1472,11 @@ runtime-backed selection catalog:
       "description": "",
       "transport": "stdio",
       "available": true,
+      "globally_enabled": true,
+      "default_enabled": true,
+      "expert_selectable": true,
+      "configurable": true,
+      "runtime_available": true,
       "status": "connected",
       "disabled_reason": "",
       "tool_count": 3
@@ -1450,6 +1487,9 @@ runtime-backed selection catalog:
       "id": "file_write",
       "description": "Write a file",
       "available": true,
+      "globally_enabled": true,
+      "default_enabled": true,
+      "expert_selectable": true,
       "status": "available",
       "disabled_reason": "",
       "configurable": true,
@@ -1459,8 +1499,12 @@ runtime-backed selection catalog:
 }
 ```
 
-Skill availability reflects global allowed/disabled policy. MCP entries expose
-only server ID, safe transport, runtime state, and tool count; command lines,
+`default_enabled` drives inherited checkbox state. `expert_selectable` may
+remain true when `globally_enabled` and `available` are false, which lets an
+expert explicitly enable a known Skill or configured MCP server. Dispatching
+such an expert can start that MCP server without changing its global disabled
+default; inheriting sessions continue to filter it out. MCP entries expose only
+server ID, safe transport, runtime state, and tool count; command lines,
 arguments, environment variables, URLs, headers, authorization tokens, and
 connection error text are never returned. Tool IDs are exact registered
 built-in names; MCP tools are selected by their exact owning server ID instead

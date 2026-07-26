@@ -319,6 +319,10 @@ void WebServer::Impl::register_sessions() {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/sessions/<string>/expert").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/sessions/<string>/permissions").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
@@ -1336,6 +1340,46 @@ void WebServer::Impl::register_sessions() {
                 payload["draft_text"] = result.draft_text;
             }
             crow::response r(payload.dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
+        // DELETE /api/sessions/:id/expert: clear only the persisted/UI binding.
+        // The already-loaded AgentLoop context is intentionally left untouched
+        // so this operation never rebuilds prompts or invalidates KV cache.
+        CROW_ROUTE(app, "/api/sessions/<string>/expert").methods(crow::HTTPMethod::DELETE)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.session_registry) {
+                crow::response r(503);
+                r.body = R"({"error":"session registry unavailable"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            const ExpertDetachResult result =
+                deps.session_registry->detach_expert(id);
+            if (result.status != ExpertDetachStatus::Detached) {
+                const int status =
+                    result.status == ExpertDetachStatus::UnknownSession
+                        ? 404
+                        : 500;
+                crow::response r(status);
+                r.body = json{{
+                    "error",
+                    result.error.empty()
+                        ? "failed to detach expert"
+                        : result.error,
+                }}.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            crow::response r(json{
+                {"detached", true},
+                {"expert_id", ""},
+                {"context_retained", result.context_retained},
+            }.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });

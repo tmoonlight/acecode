@@ -20,6 +20,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 
@@ -871,6 +872,137 @@ TEST(ExpertRegistry, ActiveSessionSwitchQueuesAndPersistsExpertBinding) {
     sessions.destroy(id);
 }
 
+TEST(ExpertRegistry, DetachClearsOnlyPersistedBindingAndRetainsLiveExpertState) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(workspace);
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    auto reviewer = make_agent("reviewer", "Reviewer");
+    reviewer.capabilities.tools =
+        std::vector<std::string>{"file_read"};
+    reviewer.capabilities.mcp_servers =
+        std::vector<std::string>{"disabled-runtime"};
+    ASSERT_TRUE(experts.create_global(reviewer, &error)) << error;
+
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor = [] {
+        return std::shared_ptr<acecode::LlmProvider>{};
+    };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions options;
+    options.cwd = acecode::path_to_utf8(workspace);
+    options.expert_id = "reviewer";
+    const std::string id = sessions.create(options);
+    auto entry = sessions.acquire(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_TRUE(entry->expert.has_value());
+    entry->sm->set_input_draft("keep this draft");
+
+    const auto* retained_expert = &*entry->expert;
+    const auto retained_skills = entry->skill_registry;
+    const auto retained_policy = entry->tool_capability_policy;
+    const auto detached = sessions.detach_expert(id);
+    ASSERT_EQ(detached.status, acecode::ExpertDetachStatus::Detached);
+    EXPECT_TRUE(detached.context_retained);
+    EXPECT_TRUE(entry->expert_id.empty());
+    EXPECT_TRUE(entry->expert_member_id.empty());
+    EXPECT_FALSE(entry->expert_missing);
+    ASSERT_TRUE(entry->expert.has_value());
+    EXPECT_EQ(&*entry->expert, retained_expert);
+    EXPECT_EQ(entry->expert->id, "reviewer");
+    EXPECT_EQ(entry->skill_registry, retained_skills);
+    EXPECT_EQ(entry->tool_capability_policy.builtin_tools,
+              retained_policy.builtin_tools);
+    EXPECT_EQ(entry->tool_capability_policy.mcp_servers,
+              retained_policy.mcp_servers);
+    EXPECT_TRUE(entry->sm->current_expert_id().empty());
+    EXPECT_EQ(entry->sm->current_input_draft(), "keep this draft");
+
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(
+            acecode::path_to_utf8(workspace));
+    const auto meta = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(project_dir, id));
+    EXPECT_TRUE(meta.expert_id.empty());
+    EXPECT_EQ(meta.input_draft, "keep this draft");
+    EXPECT_EQ(sessions.detach_expert("missing").status,
+              acecode::ExpertDetachStatus::UnknownSession);
+
+    sessions.destroy(id);
+}
+
+TEST(ExpertRegistry, DetachSupersedesExpertSwitchQueuedBehindBusyTurn) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(workspace);
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("reviewer", "Reviewer"), &error)) << error;
+    ASSERT_TRUE(experts.create_global(
+        make_agent("writer", "Writer"), &error)) << error;
+
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->set_latency_ms(300);
+    provider->push_text("complete");
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor = [provider] {
+        return std::static_pointer_cast<acecode::LlmProvider>(provider);
+    };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions options;
+    options.cwd = acecode::path_to_utf8(workspace);
+    options.expert_id = "reviewer";
+    const std::string id = sessions.create(options);
+    auto entry = sessions.acquire(id);
+    ASSERT_NE(entry, nullptr);
+    entry->sm->set_input_draft("unchanged");
+    entry->loop->submit("keep the current turn");
+    const auto started_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while ((!entry->loop->is_busy() || provider->turn_count() < 1) &&
+           std::chrono::steady_clock::now() < started_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_TRUE(entry->loop->is_busy());
+
+    const auto switched = sessions.switch_expert(id, "writer");
+    ASSERT_EQ(switched.status, acecode::ExpertSwitchStatus::Accepted);
+    ASSERT_TRUE(switched.pending);
+    const auto detached = sessions.detach_expert(id);
+    ASSERT_EQ(detached.status, acecode::ExpertDetachStatus::Detached);
+
+    const auto done_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (entry->loop->is_busy() &&
+           std::chrono::steady_clock::now() < done_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_FALSE(entry->loop->is_busy());
+    EXPECT_TRUE(entry->expert_id.empty());
+    EXPECT_TRUE(entry->sm->current_expert_id().empty());
+    ASSERT_TRUE(entry->expert.has_value());
+    EXPECT_EQ(entry->expert->id, "reviewer");
+    EXPECT_EQ(entry->sm->current_input_draft(), "unchanged");
+
+    sessions.destroy(id);
+}
+
 TEST(ExpertRegistry, IdleSwitchPersistenceFailureDoesNotClaimApplied) {
     TempDir temp;
     const fs::path workspace = temp.path / "workspace";
@@ -924,6 +1056,68 @@ TEST(ExpertRegistry, IdleSwitchPersistenceFailureDoesNotClaimApplied) {
     ASSERT_GT(fs::remove_all(meta_path), 0u);
     sessions.destroy(id);
     fs::remove_all(project_dir);
+}
+
+TEST(ExpertRegistry, ExplicitExpertMcpScopeOverridesGlobalDefaults) {
+    TempDir temp;
+    const fs::path workspace = temp.path / "workspace";
+    fs::create_directories(workspace);
+    acecode::ExpertRegistry experts(temp.path / "global");
+    std::string error;
+    auto reviewer = make_agent("reviewer", "Reviewer");
+    reviewer.capabilities.mcp_servers =
+        std::vector<std::string>{"expert-only"};
+    ASSERT_TRUE(experts.create_global(reviewer, &error)) << error;
+
+    acecode::AppConfig cfg;
+    cfg.mcp_servers["expert-only"].disabled = true;
+    cfg.mcp_servers["global-default"].disabled = false;
+    cfg.mcp_servers["future-default"].disabled = true;
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.provider_accessor = [] {
+        return std::shared_ptr<acecode::LlmProvider>{};
+    };
+    deps.tools = &tools;
+    deps.cwd = acecode::path_to_utf8(workspace);
+    deps.config = &cfg;
+    deps.expert_registry = &experts;
+    deps.template_permissions = &permissions;
+    acecode::SessionRegistry sessions(std::move(deps));
+
+    acecode::SessionOptions ordinary_options;
+    ordinary_options.cwd = acecode::path_to_utf8(workspace);
+    const std::string ordinary_id = sessions.create(ordinary_options);
+    auto ordinary = sessions.acquire(ordinary_id);
+    ASSERT_NE(ordinary, nullptr);
+    ASSERT_TRUE(ordinary->tool_capability_policy.mcp_servers.has_value());
+    EXPECT_EQ(*ordinary->tool_capability_policy.mcp_servers,
+              std::unordered_set<std::string>({"global-default"}));
+
+    acecode::SessionOptions expert_options = ordinary_options;
+    expert_options.expert_id = "reviewer";
+    const std::string expert_id = sessions.create(expert_options);
+    auto expert = sessions.acquire(expert_id);
+    ASSERT_NE(expert, nullptr);
+    ASSERT_TRUE(expert->tool_capability_policy.mcp_servers.has_value());
+    EXPECT_EQ(*expert->tool_capability_policy.mcp_servers,
+              std::unordered_set<std::string>({"expert-only"}));
+    EXPECT_TRUE(sessions.expert_requires_mcp_server("expert-only"));
+    EXPECT_FALSE(sessions.expert_requires_mcp_server("global-default"));
+
+    cfg.mcp_servers["global-default"].disabled = true;
+    cfg.mcp_servers["future-default"].disabled = false;
+    sessions.refresh_mcp_policy(cfg);
+    ASSERT_TRUE(ordinary->tool_capability_policy.mcp_servers.has_value());
+    EXPECT_EQ(*ordinary->tool_capability_policy.mcp_servers,
+              std::unordered_set<std::string>({"future-default"}));
+    ASSERT_TRUE(expert->tool_capability_policy.mcp_servers.has_value());
+    EXPECT_EQ(*expert->tool_capability_policy.mcp_servers,
+              std::unordered_set<std::string>({"expert-only"}));
+
+    sessions.destroy(expert_id);
+    sessions.destroy(ordinary_id);
 }
 
 TEST(ExpertRegistry,

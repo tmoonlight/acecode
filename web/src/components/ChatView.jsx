@@ -543,7 +543,7 @@ function isRealWorkspaceHash(hash) {
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 
-export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
+export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const readOnlyExternalSession = !!(
@@ -707,6 +707,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     () => (ref?.expert && typeof ref.expert === 'object' ? ref.expert : null),
   );
   const [expertSwitching, setExpertSwitching] = useState(false);
+  const [expertDetaching, setExpertDetaching] = useState(false);
   const [pendingExpert, setPendingExpert] = useState(null);
   const pendingExpertRef = useRef(null);
   const latestExpertSwitchRequestRef = useRef({
@@ -717,6 +718,13 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const acceptedExpertSwitchRef = useRef(null);
   const expertSwitchQueueRef = useRef(Promise.resolve());
   const [expertPickerOpen, setExpertPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sid && Object.prototype.hasOwnProperty.call(ref || {}, 'initialDraftText')) {
+      onInitialDraftConsumed?.();
+    }
+  }, [onInitialDraftConsumed, ref, sid]);
+
   const [modelState, setModelState] = useState(null);
   // 模型池负载快照(每 30s 轮询 /api/model-pool-status)。
   const [poolModels, setPoolModels] = useState([]);
@@ -759,7 +767,9 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const sidePanelResizeActiveRef = useRef(false);
   const previewPanelResizeActiveRef = useRef(false);
   const renderedPreviewPanelWidthRef = useRef(previewPanelWidth);
-  const [composerValue, setComposerValue] = useState('');
+  const [composerValue, setComposerValue] = useState(
+    () => String(ref?.initialDraftText || ''),
+  );
   const [composerAttachments, setComposerAttachments] = useState([]);
   const [composerContexts, setComposerContexts] = useState([]);
   const [selectionPreview, setSelectionPreview] = useState(null);
@@ -988,6 +998,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     acceptedExpertSwitchRef.current = null;
     expertSwitchQueueRef.current = Promise.resolve();
     setExpertSwitching(false);
+    setExpertDetaching(false);
   }, [sid]);
 
   useEffect(() => {
@@ -2865,6 +2876,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     if (!sid) {
       onRememberExpert?.(expert);
       setHomeExpertId(expertId);
+      onSessionExpertChanged?.('', expert);
       if (hasDraftText) {
         draftEditVersionRef.current += 1;
         composerDirtyRef.current = true;
@@ -3014,6 +3026,58 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     restoreChatInputFocusSoon,
     sessionExpertId,
     sessionExpertSnapshot,
+    sid,
+  ]);
+
+  const detachComposerExpert = useCallback(async () => {
+    if (expertDetaching) return false;
+    const hasBoundExpert = sid ? !!sessionExpertId : !!homeExpertId;
+    if (!hasBoundExpert && !pendingExpertRef.current) return true;
+
+    const nextSequence = latestExpertSwitchRequestRef.current.sequence + 1;
+    latestExpertSwitchRequestRef.current = {
+      sequence: nextSequence,
+      expertId: '',
+      settled: true,
+    };
+    pendingExpertRef.current = null;
+    acceptedExpertSwitchRef.current = null;
+    setPendingExpert(null);
+    setExpertSwitching(false);
+
+    if (!sid) {
+      setHomeExpertId('');
+      onSessionExpertChanged?.('', null);
+      return true;
+    }
+
+    const targetSessionId = sid;
+    setExpertDetaching(true);
+    const detachPromise = expertSwitchQueueRef.current
+      .catch(() => undefined)
+      .then(() => api.clearSessionExpert(targetSessionId));
+    expertSwitchQueueRef.current = detachPromise.then(() => undefined, () => undefined);
+    try {
+      await detachPromise;
+      if (sidRef.current !== targetSessionId) return true;
+      setSessionExpertId('');
+      setSessionExpertSnapshot(null);
+      onSessionExpertChanged?.(targetSessionId, null);
+      return true;
+    } catch (error) {
+      if (sidRef.current === targetSessionId) {
+        toast({ kind: 'err', text: `解除专家失败：${error?.message || ''}` });
+      }
+      return false;
+    } finally {
+      if (sidRef.current === targetSessionId) setExpertDetaching(false);
+    }
+  }, [
+    api,
+    expertDetaching,
+    homeExpertId,
+    onSessionExpertChanged,
+    sessionExpertId,
     sid,
   ]);
 
@@ -3622,7 +3686,9 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
                 selectedExpertId={composerExpertId}
                 selectedExpertName={composerExpert?.display_name || ''}
                 selectedExpertType={composerExpert?.type || 'agent'}
+                expertRemoving={expertDetaching}
                 onSelectExpert={selectComposerExpert}
+                onRemoveExpert={detachComposerExpert}
                 onOpenExpertComponents={() => setExpertPickerOpen(true)}
                 history={composerHistory}
                 value={composerValue}
@@ -4277,7 +4343,9 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             selectedExpertType={composerExpert?.type || 'agent'}
             pendingExpertName={pendingExpert?.confirmed ? pendingExpert.expert?.display_name : ''}
             pendingExpertType={pendingExpert?.confirmed ? pendingExpert.expert?.type : 'agent'}
+            expertRemoving={expertDetaching}
             onSelectExpert={selectComposerExpert}
+            onRemoveExpert={detachComposerExpert}
             onOpenExpertComponents={() => setExpertPickerOpen(true)}
             busy={busy}
             goal={goal}

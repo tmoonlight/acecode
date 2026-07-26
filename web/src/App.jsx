@@ -1045,11 +1045,39 @@ export function App() {
     });
   }, [health, navigateToRef]);
 
+  const dispatchExpertToNewTask = useCallback((expert, prompt = '') => {
+    const expertId = String(expert?.id || '');
+    if (!expertId) return false;
+    const current = activeRefRef.current || {};
+    const base = homeRefFromWorkspace(current, current, health);
+    navigateToRef({
+      ...base,
+      expertId,
+      expert_id: expertId,
+      expert,
+      ...(prompt ? { initialDraftText: String(prompt) } : {}),
+    });
+    rememberRecentExpert(expert);
+    return true;
+  }, [health, navigateToRef, rememberRecentExpert]);
+
+  const consumeInitialDraftText = useCallback(() => {
+    replaceActiveRef((current) => {
+      if (!current || !Object.prototype.hasOwnProperty.call(current, 'initialDraftText')) {
+        return current;
+      }
+      const { initialDraftText: _consumed, ...next } = current;
+      return next;
+    });
+  }, [replaceActiveRef]);
+
   const replaceActiveSessionExpert = useCallback((sessionId, expert) => {
     const expertId = String(expert?.id || '');
-    if (!sessionId) return;
     replaceActiveRef((current) => {
-      if (sessionJumpId(current) !== sessionId) return current;
+      const currentSessionId = sessionJumpId(current);
+      if (sessionId ? currentSessionId !== sessionId : !!currentSessionId) {
+        return current;
+      }
       return {
         ...current,
         expertId,
@@ -1530,6 +1558,7 @@ export function App() {
                 workspaceHash={activeRef?.workspaceHash || ''}
                 recentExpertIds={recentExpertIds}
                 onRememberExpert={rememberRecentExpert}
+                onDispatchToNewTask={dispatchExpertToNewTask}
               />
             )}
             {view === 'single' && !activeRef?.loop && !activeRef?.expertComponents && (
@@ -1567,6 +1596,7 @@ export function App() {
                 onSubagentTasksChange={handleSubagentTasksChange}
                 recentExpertIds={recentExpertIds}
                 onRememberExpert={rememberRecentExpert}
+                onInitialDraftConsumed={consumeInitialDraftText}
               />
             )}
           </div>

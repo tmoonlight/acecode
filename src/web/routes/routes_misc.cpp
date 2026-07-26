@@ -682,6 +682,7 @@ void WebServer::Impl::register_mcp() {
                 const bool enabled = j.value("enabled", true);
 
                 bool found = false;
+                std::optional<AppConfig> config_snapshot;
                 {
                     std::lock_guard<std::mutex> config_lock(app_config_mu);
                     auto it = deps.app_config->mcp_servers.find(name);
@@ -693,21 +694,44 @@ void WebServer::Impl::register_mcp() {
                         } else {
                             save_config(*deps.app_config);
                         }
+                        config_snapshot = *deps.app_config;
                     }
                 }
                 if (!found) {
                     return reply(404, json{{"error", "unknown mcp server"}});
                 }
 
+                if (config_snapshot && deps.session_registry) {
+                    deps.session_registry->refresh_mcp_policy(
+                        *config_snapshot);
+                }
+
                 // 运行时热切换:锁外调用,避免持 app_config_mu 期间进 manager 锁。
                 // manager 缺失(测试 fixture)或未登记该 server 时降级为仅落盘,
                 // 前端据 applied=false 提示需重启。
                 bool applied = false;
+                const bool retained_for_expert =
+                    !enabled && deps.session_registry &&
+                    deps.session_registry->expert_requires_mcp_server(name);
                 if (deps.mcp_manager && deps.tools && deps.mcp_manager->has_server(name)) {
-                    applied = enabled ? deps.mcp_manager->enable(name, *deps.tools)
-                                      : deps.mcp_manager->disable(name, *deps.tools);
+                    if (retained_for_expert) {
+                        // The config is globally disabled and inheriting
+                        // sessions have already been narrowed above, but the
+                        // shared runtime must remain registered for explicit
+                        // expert sessions.
+                        applied = true;
+                    } else {
+                        applied = enabled
+                            ? deps.mcp_manager->enable(name, *deps.tools)
+                            : deps.mcp_manager->disable(name, *deps.tools);
+                    }
                 }
-                return reply(200, json{{"name", name}, {"enabled", enabled}, {"applied", applied}});
+                return reply(200, json{
+                    {"name", name},
+                    {"enabled", enabled},
+                    {"applied", applied},
+                    {"retained_for_expert", retained_for_expert},
+                });
             } catch (const std::exception& e) {
                 return reply(400, json{{"error", std::string("bad json: ") + e.what()}});
             }

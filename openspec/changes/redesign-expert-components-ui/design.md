@@ -17,14 +17,14 @@ The imported static Skill/MCP/tool arrays, hard-coded avatar colors, Design Canv
 - Deliver the imported expert catalog, detail, editor, team editor, menu, and status experience using ACECode’s production tokens and components.
 - Make Tags, expertise, and opening prompts first-class, separate data.
 - Preserve the current conversation, draft, attachments, and transcript when opening the picker, selecting a prompt, or switching an expert.
-- Persist and enforce optional per-expert Skill, MCP-server, and built-in-tool scopes without broadening global policy.
+- Persist and enforce optional per-expert Skill, MCP-server, and built-in-tool scopes, with explicit expert selections overriding global enable/disable state while preserving security and permission boundaries.
 - Preserve legacy expert behavior and package resources while adding the new schema.
 - Provide deterministic loading, empty, error, unavailable, busy, keyboard, theme, and responsive states.
 
 **Non-Goals:**
 
 - Replacing the existing conversation composer, session persistence format, global Skill/MCP settings, permission manager, or sandbox.
-- Letting an expert install a Skill, configure MCP credentials, start a globally disabled server, or grant itself permission.
+- Letting an expert install an absent Skill, invent MCP configuration or credentials, register an absent built-in tool, or grant itself permission.
 - Copying prototype seed data, a second icon set, hard-coded palette values, or the Design Canvas runtime.
 - Adding a chat input, fake status bar, or floating composer to the standalone expert-components page.
 - Automatically sending an opening prompt.
@@ -38,7 +38,7 @@ The catalog will be decomposed into reusable discovery, card, detail, editor, an
 - The sidebar route hosts the full standalone management page.
 - `ChatView` hosts the same discovery/detail experience as a modal or drawer when the user chooses `更多专家`.
 
-The conversation-hosted variant receives an explicit dispatch context containing the session/new-task binding callback, current draft setter, attachment-preserving composer state, and focus-return target. It never navigates or unmounts `ChatView`. The standalone route does not manufacture a composer; when no dispatch target exists it opens an explicit recent-conversation target chooser rather than silently creating a new task.
+The conversation-hosted variant receives an explicit dispatch context containing the session/new-task binding callback, current draft setter, attachment-preserving composer state, and focus-return target. It never navigates or unmounts `ChatView`. The standalone management route does not manufacture a composer; invoking `派遣` navigates to ACECode’s real new-task composer in the current workspace and stages the selected expert there. A selected opening prompt is staged in that same real composer without auto-send.
 
 This is preferred to routing away and reconstructing draft state because draft text, attachments, optimistic expert state, and focus already live in `ChatView`.
 
@@ -106,14 +106,14 @@ Disabling an MCP server or unregistering a tool globally is not acceptable becau
 
 - `ToolImpl`/tool catalog records its source and, for MCP tools, the exact owning server ID.
 - `AgentLoop` owns an immutable-at-turn-boundary expert capability policy.
-- API request construction filters provider-facing definitions by that policy and global availability.
+- API request construction filters provider-facing definitions by that policy and runtime availability.
 - Execution checks the same policy again before permission prompting or implementation dispatch and returns a deterministic denied result for a hidden tool.
 
-Filtering uses MCP ownership metadata supplied by `McpManager`, not a guessed name prefix. Built-in tools use their exact registered IDs, including casing. Existing permission, question, dangerous/plan mode, path, and sandbox checks remain downstream and unchanged.
+Filtering uses MCP ownership metadata supplied by `McpManager`, not a guessed name prefix. Built-in tools use their exact registered IDs, including casing. An explicit expert allowlist is authoritative over global enable/disable flags for known configured components. For MCP, a selected globally disabled server may be connected process-wide for tool registration, but global/non-selecting sessions keep a baseline server allowlist that hides it. Existing permission, question, dangerous/plan mode, path, and sandbox checks remain downstream and unchanged.
 
-### 6. Skill scope is applied by registry intersection
+### 6. Explicit expert Skill scope overrides global enable/disable lists
 
-`initialize_skill_registry` will accept an optional expert Skill-name scope and intersect it with `SkillsConfig::allowed` and the global disabled list through the existing `SkillRegistry::set_allowed` semantics. Valid packaged Skill roots remain scan roots for that expert and can be identified as package-provided; global/project Skills outside an explicit expert scope are not indexed, injected, or returned by Skill tools.
+`initialize_skill_registry` accepts an optional expert Skill-name scope. When the scope is absent it follows `SkillsConfig::allowed` and the global disabled list. When the scope is explicitly present, its selected installed Skill names take precedence over those global enable/disable lists. Valid packaged Skill roots remain scan roots for that expert; global/project Skills outside an explicit expert scope are not indexed, injected, or returned by Skill tools.
 
 The same helper is used for create, resume, fork, member context, and active-session switch so behavior cannot drift between entry paths.
 
@@ -130,6 +130,8 @@ The same helper is used for create, resume, fork, member context, and active-ses
 Because the control is serialized with turns, an in-flight turn retains its old prompt and tool policy. The UI shows a `下一轮：{专家名}` pending state while the session is busy and promotes it to the current `已派遣` state after the control boundary/session-status confirmation. Failed API calls roll back the optimistic selection.
 
 Referenced teams expose a member-aware capability selection helper. Delegated/member sessions use the selected member’s policy, never a union of all members or the lead’s broader policy.
+
+Detaching is intentionally a different operation from switching. The `×` control clears the persisted expert ID and the composer’s displayed binding immediately, including while a turn is running, but does not enqueue an AgentLoop control operation and does not replace the live prompt, Skill registry, or tool policy. This preserves the current KV cache; any already-loaded expert context may remain effective until the session is recreated or another expert is switched in.
 
 ### 8. Opening prompts write through the real composer contract
 
@@ -150,7 +152,7 @@ The page follows the imported proportions while using only ACECode tokens/classe
 - detail/editor become near-full-screen on narrow devices;
 - at most three expertise chips on cards; real avatar first, token-colored initials only as fallback.
 
-Existing `VsIcon` assets and `globals.css` semantic tokens cover icons, light/dark/orange themes, focus, borders, backgrounds, and state colors. The imported hard-coded colors, shadows, and duplicate SVG files are not copied. Local tools use the production `Toggle`; Skill/MCP selections use checkbox/list semantics.
+Existing `VsIcon` assets and `globals.css` semantic tokens cover icons, light/dark/orange themes, focus, borders, backgrounds, and state colors. The imported hard-coded colors, shadows, and duplicate SVG files are not copied. Skill, MCP, and local-tool items use checkbox/list semantics. In inherited mode, each checkbox reflects the capability’s current global default; switching to explicit mode starts from those displayed defaults.
 
 ### 10. Interaction and state behavior is explicit
 
@@ -161,11 +163,12 @@ Existing `VsIcon` assets and `globals.css` semantic tokens cover icons, light/da
 - Read-only workspace experts do not expose a misleading enabled edit action.
 - Recent-menu separators render only when recent items exist; the menu flips to fit viewport space.
 - Create/update/delete refresh catalog data in place and deletion remains explicitly confirmed.
+- The current expert/team chip exposes a keyboard-accessible `×`. New-task removal is local state; active-session removal calls the metadata-only detach API and leaves the live AgentLoop context untouched.
 
 ## Risks / Trade-offs
 
 - **[Cross-cutting runtime filtering can create schema/execution drift]** → Centralize the predicate in one capability-policy helper and test both definition filtering and execution denial with identical fixtures.
-- **[Shared MCP registration can change while a turn is active]** → Snapshot available definitions at request construction, keep the expert allowlist stable for that turn, and let normal unknown/unavailable handling reject a tool removed globally before execution.
+- **[An expert can activate a globally disabled MCP server in a shared executor]** → Keep process-wide registration separate from session visibility, give every non-overriding session a global MCP baseline allowlist, and enforce exact owner IDs again at execution.
 - **[Legacy and explicit-empty scopes are easy to conflate]** → Model each collection as `optional`, add JSON round-trip tests for missing/empty/non-empty, and never default an editor-loaded legacy scope to an explicit empty array unless the user changes it.
 - **[Updating manifests may destroy third-party extensions]** → Merge managed fields into the original JSON object, use atomic replace, and regression-test unknown keys plus avatar/Skill/resource files.
 - **[Conversation picker reuse can leak standalone navigation assumptions]** → Pass an explicit dispatch context and test that session ID, draft, attachments, and route remain unchanged.
@@ -187,4 +190,4 @@ Rollback is a normal source rollback: legacy manifests remain readable because t
 
 ## Open Questions
 
-No product-blocking questions remain. The implementation will use an explicit recent-conversation target chooser when the standalone management route lacks a dispatch context, retain exact runtime identifiers in advanced configuration, and treat the requirements document—not prototype demo behavior—as authoritative where sources conflict.
+No product-blocking questions remain. The standalone management route dispatches to the real new-task composer, detach intentionally preserves any already-loaded runtime context to avoid KV-cache churn, advanced configuration retains exact runtime identifiers, and the requirements document—not prototype demo behavior—is authoritative where sources conflict.

@@ -472,6 +472,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     reg_deps.project_instructions_cfg = &cfg_mut.project_instructions;
     reg_deps.custom_instructions_cfg = &cfg_mut.custom_instructions;
     reg_deps.hook_manager         = &hook_manager;
+    reg_deps.mcp_manager          = &mcp_runtime.manager();
     reg_deps.template_permissions = &template_perm;
     reg_deps.power_guard          = &acecode::process_power_guard();
     reg_deps.auth_recovery        = &auth_recovery;

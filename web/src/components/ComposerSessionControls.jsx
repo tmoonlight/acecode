@@ -86,6 +86,8 @@ export function ComposerSessionControls({
   expertId = '',
   expertName = '',
   expertType = 'agent',
+  expertRemoving = false,
+  onRemoveExpert,
   pendingExpertName = '',
   pendingExpertType = 'agent',
 }) {
@@ -165,17 +167,35 @@ export function ComposerSessionControls({
           <div
             data-composer-control="expert"
             data-expert-id={expertId || undefined}
-            role="status"
             data-expert-type={expertType === 'team' ? 'team' : 'agent'}
-            aria-label={`已派遣${expertType === 'team' ? '专家团' : '专家'}：${expertName}`}
             title={`当前专家组件：${expertName}`}
             className="flex h-7 min-w-0 max-w-[210px] items-center gap-1.5 rounded-md bg-accent-bg px-2 text-accent"
           >
-            <VsIcon name={expertType === 'team' ? 'extension' : 'brain'} size={14} className="shrink-0" />
-            <span className="min-w-0 truncate text-[11px] font-medium">{expertName}</span>
-            <span className="shrink-0 text-[9px] opacity-70">
-              {expertType === 'team' ? '专家团' : '专家'}
+            <span
+              role="status"
+              aria-label={`已派遣${expertType === 'team' ? '专家团' : '专家'}：${expertName}`}
+              className="flex min-w-0 items-center gap-1.5"
+            >
+              <VsIcon name={expertType === 'team' ? 'extension' : 'brain'} size={14} className="shrink-0" />
+              <span className="min-w-0 truncate text-[11px] font-medium">{expertName}</span>
+              <span className="shrink-0 text-[9px] opacity-70">
+                {expertType === 'team' ? '专家团' : '专家'}
+              </span>
             </span>
+            <button
+              type="button"
+              disabled={expertRemoving}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={onRemoveExpert}
+              title={`解除${expertType === 'team' ? '专家团' : '专家'} ${expertName}`}
+              aria-label={`解除${expertType === 'team' ? '专家团' : '专家'}：${expertName}`}
+              className={clsx(
+                'ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded text-accent opacity-70 hover:bg-accent-bg hover:opacity-100',
+                expertRemoving && 'cursor-wait opacity-50',
+              )}
+            >
+              <VsIcon name="close" size={11} />
+            </button>
           </div>
         )}
 
@@ -192,6 +212,20 @@ export function ComposerSessionControls({
             <VsIcon name="running" size={13} mono={false} className="shrink-0" />
             <span className="shrink-0 text-[9px]">下一轮</span>
             <span className="min-w-0 truncate text-[11px] font-medium">{pendingExpertName}</span>
+            <button
+              type="button"
+              disabled={expertRemoving}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={onRemoveExpert}
+              title={`取消派遣 ${pendingExpertName}`}
+              aria-label={`取消派遣：${pendingExpertName}`}
+              className={clsx(
+                'ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded text-warn opacity-70 hover:bg-surface-alt hover:opacity-100',
+                expertRemoving && 'cursor-wait opacity-50',
+              )}
+            >
+              <VsIcon name="close" size={11} />
+            </button>
           </div>
         )}
 

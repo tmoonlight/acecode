@@ -354,6 +354,17 @@ function normalizeCapabilityOption(item, kind) {
   if (!item || typeof item !== 'object' || !String(item.id || '').trim()) return null;
   const id = String(item.id).trim();
   const status = String(item.status || (item.available === false ? 'unavailable' : 'available'));
+  const available = item.available !== false;
+  const configurable = item.configurable !== false;
+  const globallyEnabled = Object.prototype.hasOwnProperty.call(item, 'globally_enabled')
+    ? item.globally_enabled === true
+    : available;
+  const defaultEnabled = Object.prototype.hasOwnProperty.call(item, 'default_enabled')
+    ? item.default_enabled === true
+    : globallyEnabled;
+  const expertSelectable = Object.prototype.hasOwnProperty.call(item, 'expert_selectable')
+    ? item.expert_selectable === true
+    : (available && configurable);
   return {
     ...item,
     id,
@@ -363,8 +374,11 @@ function normalizeCapabilityOption(item, kind) {
     source: String(item.source || ''),
     transport: String(item.transport || ''),
     status,
-    available: item.available !== false,
-    configurable: item.configurable !== false,
+    available,
+    globally_enabled: globallyEnabled,
+    default_enabled: defaultEnabled,
+    expert_selectable: expertSelectable,
+    configurable,
     disabled_reason: String(item.disabled_reason || item.unavailable_reason || ''),
   };
 }
@@ -395,18 +409,23 @@ export function capabilityOptionsWithSaved(options, selectedIds, kind) {
       transport: '',
       status: 'missing',
       available: false,
-      configurable: true,
+      globally_enabled: false,
+      default_enabled: false,
+      expert_selectable: false,
+      configurable: false,
       disabled_reason: '已保存，但当前运行环境不可用',
     });
   }
   return normalized;
 }
 
-export function setCapabilityScopeMode(capabilities, kind, mode) {
+export function setCapabilityScopeMode(capabilities, kind, mode, defaultIds = []) {
   const next = normalizeExpertCapabilities(capabilities);
   if (!CAPABILITY_KINDS.includes(kind)) return next;
   if (mode === 'inherit') delete next[kind];
-  else if (!Object.prototype.hasOwnProperty.call(next, kind)) next[kind] = [];
+  else if (!Object.prototype.hasOwnProperty.call(next, kind)) {
+    next[kind] = normalizeStringList(defaultIds);
+  }
   return next;
 }
 

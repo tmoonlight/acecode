@@ -121,20 +121,19 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
     }
 
     std::optional<std::unordered_set<std::string>> effective_allowed;
+    std::unordered_set<std::string> effective_disabled(
+        config.skills.disabled.begin(), config.skills.disabled.end());
     if (expert_allowed) {
         std::unordered_set<std::string> selected(
             expert_allowed->begin(), expert_allowed->end());
 
         // Package-local Skills are part of the selected expert package rather
         // than the installed/global catalog. Preserve every valid bundled
-        // Skill even when it was not named in capabilities.skills; global
-        // disabled and allowed policy still remains authoritative.
+        // Skill even when it was not named in capabilities.skills.
         if (!prepended_roots.empty()) {
             SkillRegistry packaged;
             packaged.set_scan_roots(prepended_roots);
-            packaged.set_disabled(std::unordered_set<std::string>(
-                config.skills.disabled.begin(),
-                config.skills.disabled.end()));
+            packaged.set_disabled({});
             packaged.set_allowed(std::nullopt);
             packaged.scan();
             for (const auto& skill : packaged.list()) {
@@ -142,27 +141,20 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
             }
         }
 
-        if (config.skills.allowed) {
-            std::unordered_set<std::string> intersection;
-            for (const auto& name : selected) {
-                if (std::find(config.skills.allowed->begin(),
-                              config.skills.allowed->end(),
-                              name) != config.skills.allowed->end()) {
-                    intersection.insert(name);
-                }
-            }
-            effective_allowed = std::move(intersection);
-        } else {
-            effective_allowed = std::move(selected);
+        // Explicit expert selections have first priority over daemon-global
+        // allow/disable defaults. They still pass through ordinary permission,
+        // sandbox and runtime safety checks when tools execute.
+        for (const auto& name : selected) {
+            effective_disabled.erase(name);
         }
+        effective_allowed = std::move(selected);
     } else if (config.skills.allowed) {
         effective_allowed = std::unordered_set<std::string>(
             config.skills.allowed->begin(), config.skills.allowed->end());
     }
     skill_registry.configure(
         std::move(roots),
-        std::unordered_set<std::string>(
-            config.skills.disabled.begin(), config.skills.disabled.end()),
+        std::move(effective_disabled),
         std::move(effective_allowed));
     skill_registry.scan();
 }

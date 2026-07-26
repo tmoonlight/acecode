@@ -245,6 +245,12 @@ export function createApi(base = null) {
         base,
       );
     },
+    clearSessionExpert: (id) => request(
+      'DELETE',
+      `/api/sessions/${encodeURIComponent(id)}/expert`,
+      undefined,
+      base,
+    ),
     clearSessionTodos: (id, workspaceHash = '') =>
       request('DELETE', sessionTodosPath(id, workspaceHash), undefined, base),
     sendInput:        (id, payload)  => {

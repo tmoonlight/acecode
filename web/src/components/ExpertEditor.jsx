@@ -188,6 +188,12 @@ function capabilityStatus(option) {
     missing: '已缺失',
     unavailable: '不可用',
   };
+  if (option.expert_selectable && !option.globally_enabled) {
+    return {
+      label: '专家可启用',
+      className: 'text-accent',
+    };
+  }
   const warning = ['starting', 'disconnected', 'failed', 'timed_out'].includes(option.status);
   const danger = option.status === 'missing';
   return {
@@ -198,8 +204,8 @@ function capabilityStatus(option) {
 
 function capabilityDisabledReason(option) {
   const reasons = {
-    globally_disabled: '已在全局设置中禁用',
-    not_allowed_by_global_policy: '不在全局允许范围内',
+    globally_disabled: '全局已禁用；该专家仍可单独启用',
+    not_allowed_by_global_policy: '不在全局允许范围内；该专家仍可单独启用',
     runtime_unavailable: '当前运行环境不可用',
     starting: '正在建立连接',
     connection_failed: '连接失败，请检查全局 MCP 设置',
@@ -271,7 +277,8 @@ function CapabilityList({
       <div className="max-h-[248px] overflow-y-auto p-1.5">
         {visible.length > 0 ? visible.map((option) => {
           const checked = selected.includes(option.id);
-          const disabled = inherited || ((!option.available || !option.configurable) && !checked);
+          const disabled = inherited
+            || ((!option.expert_selectable || !option.configurable) && !checked);
           const status = capabilityStatus(option);
           return (
             <label
@@ -348,23 +355,32 @@ function ToolScope({
         {options.map((option) => {
           const checked = selected.includes(option.id);
           const canRemove = checked && !inherited;
-          const disabled = inherited || (!canRemove && (!option.available || !option.configurable));
+          const disabled = inherited
+            || (!canRemove && (!option.expert_selectable || !option.configurable));
           const status = capabilityStatus(option);
           return (
-            <div key={option.id} className="flex min-h-[54px] items-center justify-between gap-3 bg-surface px-3 py-2">
-              <div className="min-w-0">
+            <label
+              key={option.id}
+              className={clsx(
+                'flex min-h-[54px] items-start gap-2.5 bg-surface px-3 py-2',
+                disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer hover:bg-surface-hi',
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                onChange={() => onToggle(option.id)}
+                aria-label={`${checked ? '关闭' : '开启'}本地工具 ${option.label}`}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--ace-accent)]"
+              />
+              <span className="min-w-0 flex-1">
                 <div className="truncate text-[11px] font-medium text-fg">{option.label}</div>
                 <div className={clsx('mt-0.5 truncate text-[9px]', status.className)}>
                   {capabilityDisabledReason(option) || status.label}
                 </div>
-              </div>
-              <Toggle
-                on={checked}
-                disabled={disabled}
-                onChange={() => onToggle(option.id)}
-                ariaLabel={`${checked ? '关闭' : '开启'}本地工具 ${option.label}`}
-              />
-            </div>
+              </span>
+            </label>
           );
         })}
       </div>
@@ -388,19 +404,33 @@ function AdvancedEditor({
   ])), [capabilities, catalog]);
 
   const inherited = (kind) => !Object.prototype.hasOwnProperty.call(capabilities, kind);
-  const selected = (kind) => normalizeStringList(capabilities[kind]);
+  const storedSelected = (kind) => normalizeStringList(capabilities[kind]);
+  const defaultSelected = (kind) => optionGroups[kind]
+    .filter((option) => option.default_enabled)
+    .map((option) => option.id);
+  const selected = (kind) => (
+    inherited(kind) ? defaultSelected(kind) : storedSelected(kind)
+  );
   const setInherited = (kind, on) => {
-    updateCapabilities(setCapabilityScopeMode(capabilities, kind, on ? 'inherit' : 'custom'));
+    updateCapabilities(setCapabilityScopeMode(
+      capabilities,
+      kind,
+      on ? 'inherit' : 'custom',
+      defaultSelected(kind),
+    ));
   };
   const toggle = (kind, id) => updateCapabilities(toggleCapabilitySelection(capabilities, kind, id));
-  const total = CAPABILITY_KINDS.reduce((sum, kind) => sum + selected(kind).length, 0);
+  const total = CAPABILITY_KINDS.reduce(
+    (sum, kind) => sum + (inherited(kind) ? 0 : storedSelected(kind).length),
+    0,
+  );
 
   return (
     <div data-expert-editor-advanced="true">
       <div className="mb-4 rounded-lg border border-border bg-surface-alt px-3.5 py-3">
         <div className="text-[13px] font-semibold text-fg">该专家的能力范围</div>
         <p className="mt-1 text-[11px] leading-5 text-fg-mute">
-          已明确选择 {total} 项。每一类都可选择继承全局，或改为只允许已勾选项；专家设置不会突破全局权限、安全策略或沙箱。
+          已明确选择 {total} 项。显式勾选优先于全局启用/禁用状态；执行时仍受权限确认、运行模式、安全策略与沙箱约束。
         </p>
       </div>
 

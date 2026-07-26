@@ -93,6 +93,32 @@ Dispatching an expert or team SHALL apply it to the current conversation and upd
 - **WHEN** the server rejects or fails an expert switch
 - **THEN** the UI restores the previous selection and shows an actionable error without navigating away
 
+### Requirement: Standalone dispatch opens a new task with the expert attached
+Dispatching from the standalone expert-components management page SHALL navigate directly to ACECode’s real new-task composer in the current workspace with the selected expert or expert team attached. It MUST NOT ask the user to choose an existing target conversation.
+
+#### Scenario: Dispatch from an expert card
+- **WHEN** the user selects `派遣` on the standalone expert-components page
+- **THEN** ACECode opens the new-task composer and its expert status shows the selected component
+
+#### Scenario: Select an opening prompt from standalone detail
+- **WHEN** the user selects an opening prompt outside an active conversation
+- **THEN** ACECode opens the new-task composer with the expert attached and the prompt filled but unsent
+
+### Requirement: Composer expert bindings can be detached without rebuilding context
+Every displayed current expert or expert-team status in a new-task or active-session composer SHALL include a keyboard-accessible `×` action. For a new task, the action SHALL clear the staged expert locally. For an active session, the action SHALL clear the persisted/displayed binding without enqueueing an AgentLoop context update, rebuilding prompt/Skill/tool state, or otherwise invalidating KV cache.
+
+#### Scenario: Remove a staged expert from a new task
+- **WHEN** the user activates `×` before the first message
+- **THEN** the expert chip disappears and the new session is created without an expert binding
+
+#### Scenario: Detach an expert during an active conversation
+- **WHEN** the user activates `×` after the expert has already contributed context
+- **THEN** the persisted expert ID and composer chip are cleared immediately while any already-loaded runtime expert context is allowed to remain
+
+#### Scenario: Detach while a turn is running
+- **WHEN** the active session is busy and the user activates `×`
+- **THEN** the current turn and KV cache are not restarted or invalidated
+
 ### Requirement: Expert discovery surfaces handle responsive and operational states
 The catalog, menus, drawers, and dialogs SHALL remain usable at desktop and narrow widths, provide keyboard-visible focus and semantic controls, and distinguish loading, empty, error, and unavailable states. Long names and descriptions SHALL truncate or wrap without causing horizontal page overflow.
 

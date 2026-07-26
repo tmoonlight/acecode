@@ -33,7 +33,7 @@
 
 - [x] 5.1 Build one expert editor with `基础信息` and `高级功能` tabs, preserved unsaved state, field-level validation, busy/error handling, and unsaved-close confirmation.
 - [x] 5.2 Implement the basic fields including separate Tag multi-select, one-line-per-item expertise and opening-prompt editors, introduction, author/call name, and work instructions.
-- [x] 5.3 Implement searchable Skill and MCP selectors plus Toggle-based real built-in-tool controls, selection counts, unavailable reasons, and exact optional-scope semantics.
+- [x] 5.3 Implement searchable Skill and MCP selectors plus checkbox-based real built-in-tool controls, selection counts, unavailable reasons, and exact optional-scope semantics.
 - [x] 5.4 Replace the full-page team picker with an in-editor searchable/Tag-filtered member picker and rows that support add, remove, and exactly one lead.
 - [x] 5.5 Wire create, update, confirmed delete, in-place refresh, managed-global edit boundaries, and accessible responsive dialog behavior.
 
@@ -43,7 +43,7 @@
 - [x] 6.2 Make opening prompts dispatch the selected expert and fill the existing composer draft without auto-send; keep the picker and old draft/expert coherent on failure.
 - [x] 6.3 Update the shared plus-menu recent rows to show one-line expertise/type summaries, render no recent container or separator when empty, keep the combined five-item limit, and flip placement when space is constrained.
 - [x] 6.4 Update the composer expert status to show expert/team type and a busy-session `下一轮` state, promoting it only after the queued switch boundary.
-- [x] 6.5 Provide an explicit target-conversation chooser for dispatch from the standalone management route when no conversation dispatch context exists, without creating a fake composer or silent new task.
+- [x] 6.5 Route standalone management-page dispatch directly to the real new-task composer with the selected expert and optional unsent opening prompt, without rendering a fake composer.
 
 ## 7. Verification and delivery
 
@@ -52,3 +52,11 @@
 - [x] 7.3 Run the available full C++ test suite and distinguish environment-only failures from product regressions.
 - [x] 7.4 Validate the OpenSpec change strictly and run `git diff --check`.
 - [x] 7.5 Perform real-browser interaction and screenshot review at wide, medium, and narrow widths across light, dark, and orange themes, including every empty/error/pending state and confirming the expert page has no bottom chatbox.
+
+## 8. Follow-up dispatch, detach, and capability precedence
+
+- [x] 8.1 Replace the standalone target-conversation chooser with direct navigation to the real new-task composer, preserving expert/team selection and optional unsent opening-prompt text.
+- [x] 8.2 Add a current-expert `×` to every real composer and a metadata-only active-session detach API that clears the persisted/UI binding without mutating AgentLoop prompt, Skill, tool policy, or KV cache.
+- [x] 8.3 Make explicit expert Skill and MCP selections override global enable/disable lists while preserving global defaults for inheriting sessions and all downstream permission/security checks.
+- [x] 8.4 Render ACECode local tools as checkboxes and derive inherited/custom defaults from runtime-backed global enabled state.
+- [x] 8.5 Add focused frontend/C++/HTTP regression tests, run Web tests/build, build the C++ targets, validate OpenSpec strictly, and perform real-browser interaction checks for the four follow-up behaviors.
