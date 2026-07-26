@@ -7,6 +7,7 @@
 #include "session_status_routing.hpp"
 #include "../prompt/context_usage_breakdown.hpp"
 #include "../session/session_user_message_search.hpp"
+#include "../utils/encoding.hpp"
 
 namespace acecode::web {
 
@@ -156,11 +157,91 @@ int json_positive_int_field(const json& object, const char* key) {
     return 0;
 }
 
+std::optional<std::int64_t> json_nonnegative_int_field(const json& object,
+                                                       const char* key) {
+    if (!object.is_object() || !object.contains(key)) return std::nullopt;
+    const auto& value = object[key];
+    if (value.is_number_unsigned()) {
+        const auto number = value.get<std::uint64_t>();
+        if (number <= static_cast<std::uint64_t>(
+                std::numeric_limits<std::int64_t>::max())) {
+            return static_cast<std::int64_t>(number);
+        }
+    } else if (value.is_number_integer()) {
+        const auto number = value.get<std::int64_t>();
+        if (number >= 0) return number;
+    }
+    return std::nullopt;
+}
+
 std::string truncate_selection_context_text(std::string text) {
     if (text.size() <= kMaxSelectionContextChars) return text;
-    text.resize(kMaxSelectionContextChars);
+    text = truncate_utf8_prefix(text, kMaxSelectionContextChars, "");
     text += "\n[Selection truncated]";
     return text;
+}
+
+std::string truncate_selection_anchor_text(std::string text) {
+    std::string normalized;
+    normalized.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '\r') {
+            normalized.push_back('\n');
+            if (i + 1 < text.size() && text[i + 1] == '\n') ++i;
+        } else {
+            normalized.push_back(text[i]);
+        }
+    }
+    if (normalized.size() > kMaxSelectionContextChars) {
+        normalized =
+            truncate_utf8_prefix(normalized, kMaxSelectionContextChars, "");
+    }
+    return normalized;
+}
+
+std::string truncate_selection_annotation_text(std::string text) {
+    if (text.size() <= kMaxSelectionAnnotationChars) return text;
+    text = truncate_utf8_prefix(text, kMaxSelectionAnnotationChars, "");
+    text += "\n[Annotation truncated]";
+    return text;
+}
+
+json sanitized_selection_annotations(const json& ctx) {
+    constexpr std::size_t kMaxAnnotationIdBytes = 256;
+    constexpr std::size_t kMaxAnnotationTimestampBytes = 64;
+    json annotations = json::array();
+    if (!ctx.is_object() || !ctx.contains("annotations") ||
+        !ctx["annotations"].is_array()) {
+        return annotations;
+    }
+
+    std::unordered_set<std::string> seen_ids;
+    std::size_t fallback_id = 0;
+    for (const auto& raw : ctx["annotations"]) {
+        if (annotations.size() >= kMaxSelectionAnnotations) break;
+        if (!raw.is_object()) continue;
+        std::string text =
+            truncate_selection_annotation_text(json_string_field(raw, "text"));
+        if (!has_non_whitespace(text)) continue;
+
+        std::string id = truncate_utf8_prefix(
+            json_string_field(raw, "id"), kMaxAnnotationIdBytes, "");
+        if (!has_non_whitespace(id)) {
+            id = "annotation-" + std::to_string(++fallback_id);
+        }
+        if (!seen_ids.insert(id).second) continue;
+
+        json annotation{{"id", id}, {"text", std::move(text)}};
+        const std::string created_at = truncate_utf8_prefix(
+            json_string_field(raw, "created_at"),
+            kMaxAnnotationTimestampBytes,
+            "");
+        if (has_non_whitespace(created_at)) {
+            annotation["created_at"] = created_at;
+        }
+        annotations.push_back(std::move(annotation));
+    }
+    return annotations;
 }
 
 std::string selection_line_suffix(const json& source) {
@@ -191,6 +272,17 @@ std::optional<json> sanitized_selection_context_meta(const json& ctx) {
         if (start > 0) source["start_line"] = start;
         if (end > 0) source["end_line"] = end;
         if (line_count > 0) source["line_count"] = line_count;
+        const std::string view = json_string_field(raw_source, "view");
+        if (view == "source" || view == "rendered") source["view"] = view;
+        const auto start_offset =
+            json_nonnegative_int_field(raw_source, "start_offset");
+        const auto end_offset =
+            json_nonnegative_int_field(raw_source, "end_offset");
+        if (start_offset.has_value() && end_offset.has_value() &&
+            *end_offset > *start_offset) {
+            source["start_offset"] = *start_offset;
+            source["end_offset"] = *end_offset;
+        }
     }
 
     json meta = json::object();
@@ -202,6 +294,14 @@ std::optional<json> sanitized_selection_context_meta(const json& ctx) {
     if (!label.empty()) meta["label"] = label;
     if (!note.empty()) meta["note"] = note;
     if (!source.empty()) meta["source"] = std::move(source);
+    std::string selected_text = json_string_field(ctx, "selected_text");
+    if (!has_non_whitespace(selected_text)) selected_text = text;
+    selected_text = truncate_selection_anchor_text(std::move(selected_text));
+    if (has_non_whitespace(selected_text)) {
+        meta["selected_text"] = std::move(selected_text);
+    }
+    json annotations = sanitized_selection_annotations(ctx);
+    if (!annotations.empty()) meta["annotations"] = std::move(annotations);
     return meta;
 }
 
@@ -233,6 +333,18 @@ SelectionPromptContext build_selection_prompt_context(const json& contexts) {
             body << "Source: " << source_label << "\n";
         }
         body << "Text:\n" << text << "\n\n";
+        if (meta->contains("annotations") && (*meta)["annotations"].is_array() &&
+            !(*meta)["annotations"].empty()) {
+            body << "Annotations:\n";
+            int annotation_number = 0;
+            for (const auto& annotation : (*meta)["annotations"]) {
+                const std::string annotation_text =
+                    json_string_field(annotation, "text");
+                if (!has_non_whitespace(annotation_text)) continue;
+                body << ++annotation_number << ". " << annotation_text << "\n";
+            }
+            body << "\n";
+        }
     }
 
     if (count > 0) {

@@ -1,0 +1,155 @@
+import { useLayoutEffect, useRef, useState } from 'react';
+import {
+  applySelectionSourceDecorations,
+  clearSelectionSourceDecorations,
+} from '../lib/selectionSourceDecorations.js';
+
+const BUBBLE_GAP = 28;
+const FIRST_MARKER_TOP = 38;
+const STALE_TOP = 38;
+
+function measuredMarkers(frame, host, groups) {
+  const frameRect = frame.getBoundingClientRect();
+  const hostRect = host.getBoundingClientRect();
+  const maxTop = Math.max(FIRST_MARKER_TOP, frameRect.height - 30);
+  const resolved = [];
+  const stale = [];
+  for (const group of groups) {
+    if (!group.annotations?.length || !group.annotationNumber) continue;
+    const firstMark = group.marks?.find((mark) => mark?.isConnected);
+    if (group.anchor?.status === 'resolved' && firstMark) {
+      const rect = firstMark.getBoundingClientRect();
+      if (rect.bottom < hostRect.top || rect.top > hostRect.bottom) continue;
+      resolved.push({
+        id: group.id,
+        number: group.annotationNumber,
+        annotations: group.annotations,
+        stale: false,
+        top: Math.min(
+          maxTop,
+          Math.max(FIRST_MARKER_TOP, rect.top - frameRect.top + rect.height / 2 - 11),
+        ),
+      });
+    } else {
+      stale.push({
+        id: group.id,
+        number: group.annotationNumber,
+        annotations: group.annotations,
+        stale: true,
+      });
+    }
+  }
+
+  resolved.sort((left, right) => left.top - right.top || left.number - right.number);
+  let previousTop = -BUBBLE_GAP;
+  for (const marker of resolved) {
+    marker.top = Math.min(maxTop, Math.max(marker.top, previousTop + BUBBLE_GAP));
+    previousTop = marker.top;
+  }
+  const staleStart = Math.max(STALE_TOP, previousTop + BUBBLE_GAP);
+  stale.forEach((marker, index) => {
+    marker.top = Math.min(maxTop, staleStart + index * BUBBLE_GAP);
+  });
+  return [...resolved, ...stale];
+}
+
+export function SelectionAnnotationOverlay({
+  hostRef,
+  contexts = [],
+  sourcePath = '',
+  sourceText = '',
+  rendered = false,
+}) {
+  const frameRef = useRef(0);
+  const [appliedGroups, setAppliedGroups] = useState([]);
+  const [markers, setMarkers] = useState([]);
+
+  useLayoutEffect(() => {
+    const host = hostRef?.current;
+    if (!host) {
+      setAppliedGroups([]);
+      return undefined;
+    }
+    const groups = applySelectionSourceDecorations(host, {
+      contexts,
+      sourcePath,
+      sourceText,
+      rendered,
+    });
+    setAppliedGroups(groups);
+    return () => {
+      clearSelectionSourceDecorations(host);
+    };
+  }, [contexts, hostRef, rendered, sourcePath, sourceText]);
+
+  useLayoutEffect(() => {
+    const host = hostRef?.current;
+    const frame = host?.closest?.('.ace-copyable-code');
+    if (!host || !frame) {
+      setMarkers([]);
+      return undefined;
+    }
+
+    const measure = () => {
+      frameRef.current = 0;
+      setMarkers(measuredMarkers(frame, host, appliedGroups));
+    };
+    const scheduleMeasure = () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      frameRef.current = requestAnimationFrame(measure);
+    };
+    scheduleMeasure();
+    host.addEventListener('scroll', scheduleMeasure, { passive: true });
+    window.addEventListener('resize', scheduleMeasure);
+    const observer = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(scheduleMeasure)
+      : null;
+    observer?.observe(host);
+    observer?.observe(frame);
+    return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
+      host.removeEventListener('scroll', scheduleMeasure);
+      window.removeEventListener('resize', scheduleMeasure);
+      observer?.disconnect();
+    };
+  }, [appliedGroups, hostRef]);
+
+  if (markers.length === 0) return null;
+  return (
+    <div className="ace-selection-annotation-layer">
+      {markers.map((marker) => {
+        const label = marker.stale
+          ? `批注 ${marker.number}，原文已变化`
+          : `批注 ${marker.number}`;
+        return (
+          <button
+            key={`${marker.id}-${marker.number}`}
+            type="button"
+            className="ace-selection-annotation-bubble"
+            data-stale={marker.stale ? 'true' : 'false'}
+            style={{ top: marker.top }}
+            aria-label={label}
+          >
+            <span className="ace-selection-annotation-bubble-number">{marker.number}</span>
+            <span className="ace-selection-annotation-bubble-tail" aria-hidden="true" />
+            <span className="ace-selection-annotation-bubble-tooltip" role="tooltip">
+              <span className="ace-selection-annotation-bubble-title">
+                {marker.stale ? `${marker.number} · 原文已变化` : `批注 ${marker.number}`}
+              </span>
+              {marker.annotations.map((annotation, index) => (
+                <span
+                  className="ace-selection-annotation-bubble-item"
+                  key={annotation.id || index}
+                >
+                  <span>{index + 1}</span>
+                  <span>{annotation.text}</span>
+                </span>
+              ))}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}

@@ -600,6 +600,300 @@ body {
   color: #fff;
 }
 
+/* File-preview selection actions, persisted reference marks, and annotations. */
+.ace-selection-action-popover {
+  position: fixed;
+  z-index: 10020;
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  color: var(--ace-fg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.14));
+  animation: ace-selection-popover-in 0.1s ease both;
+}
+@keyframes ace-selection-popover-in {
+  from { opacity: 0; transform: translateY(2px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.ace-selection-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--ace-border);
+  border-radius: 10px;
+  background: rgba(var(--ace-surface-rgb), 0.98);
+  box-shadow: var(--ace-shadow-lg);
+}
+.ace-selection-action-buttons > button {
+  appearance: none;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ace-fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ace-selection-action-buttons > button:hover,
+.ace-selection-action-buttons > button:focus-visible {
+  outline: none;
+  color: var(--ace-accent);
+  background: rgba(var(--ace-accent-rgb), 0.1);
+}
+.ace-selection-annotation-editor {
+  width: min(360px, calc(100vw - 16px));
+  padding: 8px;
+  border: 1px solid rgba(var(--ace-accent-rgb), 0.5);
+  border-radius: 12px;
+  background: rgba(var(--ace-surface-rgb), 0.99);
+  box-shadow:
+    0 0 0 2px rgba(var(--ace-accent-rgb), 0.12),
+    var(--ace-shadow-lg);
+}
+.ace-selection-annotation-editor textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 54px;
+  max-height: 150px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  resize: vertical;
+  outline: none;
+  background: var(--ace-surface-alt);
+  color: var(--ace-fg);
+  font: inherit;
+  line-height: 1.45;
+}
+.ace-selection-annotation-editor textarea::placeholder {
+  color: var(--ace-fg-mute);
+  opacity: 0.72;
+}
+.ace-selection-annotation-footer {
+  min-height: 25px;
+  padding: 7px 2px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--ace-fg-mute);
+  font-size: 10px;
+}
+.ace-selection-annotation-footer > span.is-error {
+  color: var(--ace-danger);
+}
+.ace-selection-annotation-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ace-selection-annotation-actions button {
+  appearance: none;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--ace-border);
+  border-radius: 6px;
+  background: var(--ace-surface);
+  color: var(--ace-fg-2);
+  font: inherit;
+  cursor: pointer;
+}
+.ace-selection-annotation-actions button:hover,
+.ace-selection-annotation-actions button:focus-visible {
+  outline: none;
+  color: var(--ace-fg);
+  border-color: rgba(var(--ace-accent-rgb), 0.5);
+}
+.ace-selection-annotation-actions button.is-primary {
+  border-color: var(--ace-accent);
+  background: var(--ace-accent);
+  color: #fff;
+}
+.ace-selection-reference-mark {
+  margin: 0;
+  padding: 0;
+  border-radius: 2px;
+  background: rgba(var(--ace-accent-rgb), 0.08);
+  color: inherit;
+  font: inherit;
+  box-shadow: inset 0 -1px 0 rgba(var(--ace-accent-rgb), 0.34);
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+}
+.ace-selection-reference-mark:hover,
+.ace-selection-reference-mark.is-hovered {
+  background: rgba(var(--ace-accent-rgb), 0.14);
+  box-shadow: inset 0 0 0 1px var(--ace-accent);
+}
+.ace-selection-annotation-badge {
+  position: relative;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px 999px 999px 4px;
+  background: var(--ace-accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  outline: none;
+}
+.ace-selection-annotation-badge[data-compact="true"] {
+  width: 14px;
+  height: 14px;
+}
+.ace-selection-annotation-badge-count {
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+}
+.ace-selection-annotation-tooltip,
+.ace-selection-annotation-bubble-tooltip {
+  position: absolute;
+  z-index: 10040;
+  box-sizing: border-box;
+  width: min(280px, calc(100vw - 24px));
+  max-height: min(320px, calc(100vh - 24px));
+  padding: 9px 10px;
+  border: 1px solid var(--ace-border);
+  border-radius: 9px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: var(--ace-shadow-lg);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  overflow-y: auto;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: opacity 0.1s ease, transform 0.1s ease, visibility 0.1s ease;
+}
+.ace-selection-annotation-tooltip {
+  right: 0;
+  bottom: calc(100% + 7px);
+}
+.ace-selection-annotation-badge:hover .ace-selection-annotation-tooltip,
+.ace-selection-annotation-badge:focus-visible .ace-selection-annotation-tooltip,
+.ace-selection-annotation-bubble:hover .ace-selection-annotation-bubble-tooltip,
+.ace-selection-annotation-bubble:focus-visible .ace-selection-annotation-bubble-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.ace-selection-annotation-tooltip-title,
+.ace-selection-annotation-bubble-title {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ace-fg);
+  font-weight: 600;
+}
+.ace-selection-annotation-tooltip-item,
+.ace-selection-annotation-bubble-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 4px;
+  color: var(--ace-fg-2);
+  overflow-wrap: anywhere;
+}
+.ace-selection-annotation-tooltip-item > span:last-child,
+.ace-selection-annotation-bubble-item > span:last-child {
+  white-space: pre-wrap;
+}
+.ace-selection-annotation-tooltip-item + .ace-selection-annotation-tooltip-item,
+.ace-selection-annotation-bubble-item + .ace-selection-annotation-bubble-item {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--ace-border-soft);
+}
+.ace-selection-annotation-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: visible;
+  pointer-events: none;
+}
+.ace-selection-annotation-bubble {
+  appearance: none;
+  position: absolute;
+  right: 9px;
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 2px solid var(--ace-surface);
+  border-radius: 999px;
+  background: var(--ace-accent);
+  color: #fff;
+  box-shadow: 0 1px 5px rgba(var(--ace-accent-rgb), 0.32);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  cursor: help;
+  pointer-events: auto;
+  outline: none;
+}
+.ace-selection-annotation-bubble:hover,
+.ace-selection-annotation-bubble:focus-visible {
+  box-shadow:
+    0 0 0 2px rgba(var(--ace-accent-rgb), 0.2),
+    0 2px 8px rgba(var(--ace-accent-rgb), 0.42);
+}
+.ace-selection-annotation-bubble[data-stale="true"] {
+  background: var(--ace-warn);
+  box-shadow: 0 1px 5px rgba(var(--ace-warn-rgb), 0.32);
+}
+.ace-selection-annotation-bubble-number {
+  position: relative;
+  z-index: 1;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+}
+.ace-selection-annotation-bubble-tail {
+  position: absolute;
+  right: -1px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--ace-surface);
+  border-bottom: 2px solid var(--ace-surface);
+  border-radius: 0 0 5px 0;
+  background: inherit;
+  transform: rotate(20deg);
+}
+.ace-selection-annotation-bubble-tooltip {
+  top: -1px;
+  right: calc(100% + 9px);
+  cursor: default;
+}
+.ace-selection-annotation-badge:hover .ace-selection-annotation-tooltip,
+.ace-selection-annotation-badge:focus-visible .ace-selection-annotation-tooltip,
+.ace-selection-annotation-bubble:hover .ace-selection-annotation-bubble-tooltip,
+.ace-selection-annotation-bubble:focus-visible .ace-selection-annotation-bubble-tooltip {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ace-selection-action-popover,
+  .ace-selection-reference-mark,
+  .ace-selection-annotation-tooltip,
+  .ace-selection-annotation-bubble-tooltip {
+    animation: none;
+    transition: none;
+  }
+}
+
 /* 阴影 utility:Tailwind v4 的 shadow-* 需要 inline 表达式,这里用 CSS 变量更灵活 */
 .ace-shadow    { box-shadow: var(--ace-shadow); }
 .ace-shadow-lg { box-shadow: var(--ace-shadow-lg); }
@@ -3677,6 +3971,11 @@ body {
   white-space: inherit;
   overflow-wrap: inherit;
   word-break: inherit;
+}
+.ace-preview,
+.ace-side-markdown-preview {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .ace-line-table {

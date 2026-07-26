@@ -13,6 +13,7 @@ import { clsx } from '../lib/format.js';
 import { getGoalStopControlState } from '../lib/goalControl.js';
 import { getInputBarActionState } from '../lib/inputBarState.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
+import { SelectionAnnotationBadge } from './SelectionAnnotationBadge.jsx';
 import { ComposerSessionControls } from './ComposerSessionControls.jsx';
 import { ExpertAvatar, compactExpertSummary } from './ExpertCatalog.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
@@ -108,6 +109,7 @@ function ComposerSelectionCard({ item, pinned = false, onPin, onRemove }) {
       <span className={['truncate text-fg', pinned ? '' : 'opacity-80'].filter(Boolean).join(' ')}>
         {presentation.label}
       </span>
+      <SelectionAnnotationBadge annotations={presentation.annotations} compact />
     </div>
   );
 }

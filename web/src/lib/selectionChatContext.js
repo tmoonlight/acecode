@@ -1,6 +1,9 @@
 export const SELECTION_CONTEXT_TYPE = 'selection';
 export const SELECTION_PREVIEW_SELECTOR = '[data-desktop-preview-path]';
 export const MAX_SELECTION_CONTEXT_CHARS = 40000;
+export const MAX_SELECTION_ANNOTATION_CHARS = 4000;
+
+let annotationSequence = 0;
 
 function asString(value) {
   return value == null ? '' : String(value);
@@ -9,6 +12,21 @@ function asString(value) {
 function positiveInt(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function offsetInt(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : -1;
+}
+
+function stableStringHash(value) {
+  let hash = 2166136261;
+  const text = asString(value);
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function selectionLineCount(text) {
@@ -22,6 +40,72 @@ export function truncateSelectionText(text, limit = MAX_SELECTION_CONTEXT_CHARS)
   const max = Math.max(0, Number(limit) || 0);
   if (!max || value.length <= max) return value;
   return `${value.slice(0, max)}\n[Selection truncated]`;
+}
+
+export function truncateSelectionAnchorText(text, limit = MAX_SELECTION_CONTEXT_CHARS) {
+  const value = asString(text).replace(/\r\n|\r/g, '\n');
+  const max = Math.max(0, Number(limit) || 0);
+  return max && value.length > max ? value.slice(0, max) : value;
+}
+
+export function truncateSelectionAnnotation(text, limit = MAX_SELECTION_ANNOTATION_CHARS) {
+  const value = asString(text);
+  const max = Math.max(0, Number(limit) || 0);
+  if (!max || value.length <= max) return value;
+  return `${value.slice(0, max)}\n[Annotation truncated]`;
+}
+
+export function nextSelectionAnnotationId(now = Date.now()) {
+  annotationSequence = (annotationSequence + 1) % 0x100000;
+  return `annotation-${now}-${annotationSequence.toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+export function createSelectionAnnotation({
+  id = '',
+  text = '',
+  createdAt = '',
+  now = Date.now(),
+} = {}) {
+  const clippedText = truncateSelectionAnnotation(text).trim();
+  if (!clippedText) return null;
+  return {
+    id: asString(id) || nextSelectionAnnotationId(now),
+    text: clippedText,
+    created_at: asString(createdAt) || new Date(now).toISOString(),
+  };
+}
+
+export function normalizeSelectionAnnotations(value) {
+  const raw = Array.isArray(value)
+    ? value
+    : (value == null || value === '' ? [] : [value]);
+  const normalized = [];
+  const seen = new Set();
+  for (const entry of raw) {
+    const object = entry && typeof entry === 'object' ? entry : { text: entry };
+    const text = truncateSelectionAnnotation(object.text).trim();
+    if (!text) continue;
+    const createdAt = asString(object.created_at ?? object.createdAt);
+    const id = asString(object.id)
+      || `annotation-${stableStringHash(`${text}\u001f${createdAt}`)}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    normalized.push({
+      id,
+      text,
+      ...(createdAt ? { created_at: createdAt } : {}),
+    });
+  }
+  return normalized;
+}
+
+export function mergeSelectionAnnotations(...values) {
+  const combined = [];
+  for (const value of values) {
+    if (Array.isArray(value)) combined.push(...value);
+    else if (value != null && value !== '') combined.push(value);
+  }
+  return normalizeSelectionAnnotations(combined);
 }
 
 export function basenameForPath(path) {
@@ -85,12 +169,25 @@ export function selectionContextLocationKey(ctx = {}) {
   if ((ctx.type || '') !== SELECTION_CONTEXT_TYPE) return '';
   const source = ctx.source && typeof ctx.source === 'object' ? ctx.source : {};
   const path = asString(source.path || ctx.path || '').replace(/\\/g, '/');
+  const view = asString(source.view || ctx.view || 'source');
+  const startOffset = offsetInt(source.start_offset ?? source.startOffset);
+  const endOffset = offsetInt(source.end_offset ?? source.endOffset);
   const start = positiveInt(source.start_line ?? source.startLine);
   const end = positiveInt(source.end_line ?? source.endLine) || start;
-  if (!path || !start) return '';
+  if (!path || (startOffset < 0 && !start)) return '';
+  if (startOffset >= 0 && endOffset > startOffset) {
+    return [
+      SELECTION_CONTEXT_TYPE,
+      path,
+      view,
+      startOffset,
+      endOffset,
+    ].join('\u001f');
+  }
   return [
     SELECTION_CONTEXT_TYPE,
     path,
+    view,
     start,
     end,
   ].join('\u001f');
@@ -100,30 +197,45 @@ export function createSelectionContext({
   id = '',
   localId = '',
   text = '',
+  selectedText = '',
   path = '',
   kind = '',
+  view = '',
   startLine = 0,
   endLine = 0,
   lineCount = 0,
+  startOffset = -1,
+  endOffset = -1,
+  annotations = [],
 } = {}) {
   const clippedText = truncateSelectionText(text);
+  const anchorText = truncateSelectionAnchorText(selectedText || text);
   const safeStart = positiveInt(startLine);
   const safeEnd = positiveInt(endLine);
+  const safeStartOffset = offsetInt(startOffset);
+  const safeEndOffset = offsetInt(endOffset);
   const safeLineCount = positiveInt(lineCount) || selectionLineCount(clippedText);
   const source = {
     path: asString(path),
     kind: asString(kind),
     line_count: safeLineCount,
   };
+  if (view) source.view = asString(view);
   if (safeStart) source.start_line = safeStart;
   if (safeEnd || safeStart) source.end_line = safeEnd || safeStart;
+  if (safeStartOffset >= 0 && safeEndOffset > safeStartOffset) {
+    source.start_offset = safeStartOffset;
+    source.end_offset = safeEndOffset;
+  }
 
   const context = {
     type: SELECTION_CONTEXT_TYPE,
     local_id: localId || id || '',
     id: id || localId || '',
     text: clippedText,
+    selected_text: anchorText,
     source,
+    annotations: normalizeSelectionAnnotations(annotations),
   };
   context.label = formatSelectionContextLabel(context);
   context.note = formatSelectionContextNote(context);
@@ -163,12 +275,17 @@ export function normalizeComposerContext(ctx = {}) {
   const normalized = createSelectionContext({
     id: ctx.id || ctx.local_id || '',
     localId: ctx.local_id || ctx.id || '',
-    text: ctx.text || '',
+    text: ctx.text || ctx.selected_text || ctx.selectedText || '',
+    selectedText: ctx.selected_text || ctx.selectedText || ctx.text || '',
     path: source.path || ctx.path || '',
     kind: source.kind || ctx.kind || '',
+    view: source.view || ctx.view || '',
     startLine: source.start_line ?? source.startLine,
     endLine: source.end_line ?? source.endLine,
     lineCount: source.line_count ?? source.lineCount,
+    startOffset: source.start_offset ?? source.startOffset,
+    endOffset: source.end_offset ?? source.endOffset,
+    annotations: ctx.annotations ?? ctx.annotation ?? [],
   });
   if (!normalized.text.trim()) return null;
   return {
@@ -177,19 +294,79 @@ export function normalizeComposerContext(ctx = {}) {
     label: normalized.label,
     note: normalized.note,
     text: normalized.text,
+    selected_text: normalized.selected_text,
     source: normalized.source,
+    annotations: normalized.annotations,
   };
+}
+
+export function upsertSelectionContext(items = [], incoming = {}) {
+  const list = Array.isArray(items) ? items : [];
+  const normalized = normalizeComposerContext(incoming);
+  if (!normalized) return list;
+  const localId = incoming.local_id || incoming.id || normalized.id;
+  const nextContext = {
+    ...normalized,
+    local_id: localId,
+    id: normalized.id || localId,
+  };
+  const locationKey = selectionContextLocationKey(nextContext);
+  const index = locationKey
+    ? list.findIndex((item) => selectionContextLocationKey(item) === locationKey)
+    : -1;
+  if (index < 0) return [...list, nextContext];
+
+  const existing = normalizeComposerContext(list[index]) || list[index];
+  const annotations = mergeSelectionAnnotations(existing.annotations, nextContext.annotations);
+  if (
+    annotations.length === normalizeSelectionAnnotations(existing.annotations).length
+    && nextContext.annotations.length === 0
+  ) {
+    return list;
+  }
+  const merged = {
+    ...existing,
+    local_id: list[index].local_id || list[index].id || localId,
+    id: existing.id || list[index].id || localId,
+    annotations,
+  };
+  return list.map((item, itemIndex) => (itemIndex === index ? merged : item));
+}
+
+export function selectionContextsFromTranscriptItems(items = []) {
+  const contexts = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const parts = Array.isArray(item?.contentParts)
+      ? item.contentParts
+      : (Array.isArray(item?.content_parts) ? item.content_parts : []);
+    for (const part of parts) {
+      if (part?.type !== 'selection_context' || !part.context) continue;
+      const normalized = normalizeComposerContext({
+        ...part.context,
+        type: SELECTION_CONTEXT_TYPE,
+      });
+      if (normalized) contexts.push(normalized);
+    }
+  }
+  return contexts;
 }
 
 export function contextPresentation(ctx = {}) {
   if ((ctx.type || '') === SELECTION_CONTEXT_TYPE) {
     const label = formatSelectionContextLabel(ctx);
     const note = formatSelectionContextNote(ctx);
+    const annotations = normalizeSelectionAnnotations(ctx.annotations ?? ctx.annotation);
+    const annotationText = annotations
+      .map((annotation, index) => `${index + 1}. ${annotation.text}`)
+      .join('\n');
     return {
       icon: 'info',
       label,
       note,
-      title: [label, note].filter(Boolean).join('\n'),
+      title: [label, note, annotationText].filter(Boolean).join('\n'),
+      annotations,
+      annotationCount: annotations.length,
+      annotationText,
       removeLabel: '移除引用上下文',
     };
   }
@@ -219,6 +396,52 @@ function sourceElementForPreview(preview) {
   return preview?.querySelector?.('.ace-preview')
     || preview?.querySelector?.('.ace-side-markdown-preview')
     || preview;
+}
+
+export function selectionPreviewKindSupportsActions(kind) {
+  return kind === 'text' || kind === 'markdown';
+}
+
+function textOffsetWithinElement(root, node, offset) {
+  if (!root || !node) return -1;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(root);
+    range.setEnd(node, offset);
+    const length = range.toString().length;
+    range.detach?.();
+    return length;
+  } catch {
+    return -1;
+  }
+}
+
+function sourceOffsetsForRange(source, range) {
+  if (!source || !range) return { startOffset: -1, endOffset: -1, view: '' };
+  const startElement = elementFromNode(range.startContainer);
+  const endElement = elementFromNode(range.endContainer);
+  const startCell = startElement?.closest?.('.ace-line-code');
+  const endCell = endElement?.closest?.('.ace-line-code');
+  if (startCell && endCell && source.contains(startCell) && source.contains(endCell)) {
+    const startBase = offsetInt(startCell.getAttribute('data-source-start'));
+    const endBase = offsetInt(endCell.getAttribute('data-source-start'));
+    const localStart = textOffsetWithinElement(startCell, range.startContainer, range.startOffset);
+    const localEnd = textOffsetWithinElement(endCell, range.endContainer, range.endOffset);
+    if (startBase >= 0 && endBase >= 0 && localStart >= 0 && localEnd >= 0) {
+      return {
+        startOffset: startBase + localStart,
+        endOffset: endBase + localEnd,
+        view: 'source',
+      };
+    }
+  }
+  const startOffset = textOffsetWithinElement(source, range.startContainer, range.startOffset);
+  const endOffset = textOffsetWithinElement(source, range.endContainer, range.endOffset);
+  return {
+    startOffset,
+    endOffset,
+    view: source.classList?.contains('ace-side-markdown-preview') ? 'rendered' : 'source',
+  };
 }
 
 function lineNumberAt(source, node, offset) {
@@ -268,11 +491,12 @@ export function selectionContextFromWindowSelection({
     });
   if (!path) return null;
   const kind = preview.getAttribute('data-desktop-preview-kind') || '';
-  if (kind === 'image') return null;
+  if (!selectionPreviewKindSupportsActions(kind)) return null;
 
   let startLine = 0;
   let endLine = 0;
   const source = sourceElementForPreview(preview);
+  const offsets = sourceOffsetsForRange(source, range);
   if (range && source) {
     startLine = lineNumberAt(source, range.startContainer, range.startOffset);
     endLine = lineNumberAt(source, range.endContainer, range.endOffset);
@@ -287,8 +511,11 @@ export function selectionContextFromWindowSelection({
     text,
     path,
     kind,
+    view: offsets.view,
     startLine,
     endLine,
     lineCount: selectionLineCount(text),
+    startOffset: offsets.startOffset,
+    endOffset: offsets.endOffset,
   });
 }

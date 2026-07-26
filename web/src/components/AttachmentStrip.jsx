@@ -9,6 +9,7 @@ import { contextPresentation } from '../lib/selectionChatContext.js';
 import { clsx } from '../lib/format.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
+import { SelectionAnnotationBadge } from './SelectionAnnotationBadge.jsx';
 
 function attachmentContextKey(att, index) {
   return String(att?.id || att?.blob_url || att?.preview_url || att?.url || att?.path || att?.name || index);
@@ -121,6 +122,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
                 <VsIcon name={presentation.icon} size={11} className="ace-selection-context-icon" />
               )}
               <span className="truncate">{presentation.label}</span>
+              <SelectionAnnotationBadge annotations={presentation.annotations} compact />
             </div>
           );
         })}

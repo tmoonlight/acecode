@@ -118,7 +118,7 @@ export function shouldClearPreviewSelectionOnMouseDown(event, {
   return hasSavedRanges || hasActiveHighlight || isInPreview(selection);
 }
 
-function clearSelection() {
+export function clearPreviewSelection() {
   savedRanges = [];
   clearHighlight();
   globalThis.window?.getSelection?.()?.removeAllRanges?.();
@@ -132,7 +132,7 @@ function onPreviewMouseDown(event) {
   })) {
     return;
   }
-  clearSelection();
+  clearPreviewSelection();
 }
 
 function promote() {

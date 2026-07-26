@@ -28,6 +28,7 @@ import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBl
 import { Message } from './Message.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
+import { SelectionActionPopover } from './SelectionActionPopover.jsx';
 import { ExpertPickerDialog } from './ExpertCatalog.jsx';
 import { QueueCardList } from './QueueCardList.jsx';
 import { SideQuestionCard } from './SideQuestionCard.jsx';
@@ -181,12 +182,18 @@ import {
 } from '../lib/desktopContextMenu.js';
 import { normalizeReferencePath } from '../lib/pathReference.js';
 import {
+  createSelectionAnnotation,
   createFileContext,
+  mergeSelectionAnnotations,
   normalizeComposerContext,
   selectionContextFingerprint,
   selectionContextFromWindowSelection,
   selectionContextLocationKey,
+  selectionContextsFromTranscriptItems,
+  upsertSelectionContext,
 } from '../lib/selectionChatContext.js';
+import { selectionRangeViewportRect } from '../lib/selectionActionPopover.js';
+import { clearPreviewSelection } from '../lib/inactiveSelection.js';
 import { getGoalStopControlState } from '../lib/goalControl.js';
 import {
   CHANGE_DOCK_DISMISSALS_STORAGE_KEY,
@@ -769,6 +776,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const [composerAttachments, setComposerAttachments] = useState([]);
   const [composerContexts, setComposerContexts] = useState([]);
   const [selectionPreview, setSelectionPreview] = useState(null);
+  const [selectionAction, setSelectionAction] = useState(null);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
   const [draftReadyKey, setDraftReadyKey] = useState('');
   const draftEditVersionRef = useRef(0);
@@ -1041,6 +1049,10 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       return [];
     });
     setComposerContexts([]);
+    setSelectionAction(null);
+    selectionPreviewFingerprintRef.current = '';
+    setSelectionPreview(null);
+    clearPreviewSelection();
   }, []);
 
   const createHomeComposerSession = useCallback(async (text, {
@@ -1200,20 +1212,29 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       local_id: localId,
       id: normalized.id || localId,
     };
-    const locationKey = selectionContextLocationKey(pinned);
-    setComposerContexts((items) => {
-      if (
-        locationKey
-        && items.some((item) => selectionContextLocationKey(item) === locationKey)
-      ) {
-        return items;
-      }
-      return [...items, pinned];
-    });
+    setComposerContexts((items) => upsertSelectionContext(items, pinned));
     selectionPreviewFingerprintRef.current = '';
     setSelectionPreview(null);
+    setSelectionAction(null);
+    clearPreviewSelection();
     requestAnimationFrame(() => inputRef.current?.focus());
     return true;
+  }, []);
+
+  const pinSelectionAnnotation = useCallback((context, text) => {
+    const annotation = createSelectionAnnotation({ text });
+    if (!annotation) return false;
+    return pinSelectionContext({
+      ...context,
+      annotations: mergeSelectionAnnotations(context?.annotations, annotation),
+    });
+  }, [pinSelectionContext]);
+
+  const dismissSelectionAction = useCallback(() => {
+    selectionPreviewFingerprintRef.current = '';
+    setSelectionPreview(null);
+    setSelectionAction(null);
+    clearPreviewSelection();
   }, []);
 
   useEffect(() => {
@@ -1221,15 +1242,35 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     const updatePreview = () => {
       raf = 0;
       const next = selectionContextFromWindowSelection();
-      if (!next) {
+      const rect = next ? selectionRangeViewportRect() : null;
+      if (!next || !rect) {
         selectionPreviewFingerprintRef.current = '';
         setSelectionPreview((prev) => (prev ? null : prev));
+        setSelectionAction((prev) => (prev?.mode === 'annotation' ? prev : null));
         return;
       }
       const fingerprint = selectionContextFingerprint(next);
-      if (fingerprint === selectionPreviewFingerprintRef.current) return;
+      if (fingerprint === selectionPreviewFingerprintRef.current) {
+        setSelectionAction((prev) => (
+          prev?.key === fingerprint && prev.mode === 'annotation'
+            ? prev
+            : {
+              key: fingerprint,
+              context: next,
+              rect,
+              mode: 'actions',
+            }
+        ));
+        return;
+      }
       selectionPreviewFingerprintRef.current = fingerprint;
       setSelectionPreview(next);
+      setSelectionAction({
+        key: fingerprint,
+        context: next,
+        rect,
+        mode: 'actions',
+      });
     };
     const schedulePreviewUpdate = () => {
       if (raf) cancelAnimationFrame(raf);
@@ -1255,6 +1296,16 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     }
     return keys;
   }, [composerContexts]);
+
+  const sentSelectionContexts = useMemo(
+    () => selectionContextsFromTranscriptItems(rawItems),
+    [rawItems],
+  );
+
+  const previewSelectionContexts = useMemo(
+    () => [...sentSelectionContexts, ...composerContexts],
+    [composerContexts, sentSelectionContexts],
+  );
 
   const visibleSelectionPreview = useMemo(() => {
     if (!selectionPreview) return null;
@@ -4419,6 +4470,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             changeSummary={changeSummary}
             maximized={previewPanelMaximized}
             busy={busy}
+            selectionContexts={previewSelectionContexts}
             sidePanelListCollapsed={sidePanelListCollapsed}
             onActivateTab={activatePreview}
             onCloseTab={closePreview}
@@ -4463,6 +4515,24 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           )}
         </Modal>
       )}
+      <SelectionActionPopover
+        snapshot={selectionAction}
+        mode={selectionAction?.mode || 'actions'}
+        onQuote={() => {
+          if (!pinSelectionContext(selectionAction?.context)) {
+            toast({ kind: 'err', text: '没有可引用的选中文本' });
+          }
+        }}
+        onStartAnnotation={() => {
+          setSelectionAction((prev) => (prev ? { ...prev, mode: 'annotation' } : prev));
+        }}
+        onSubmitAnnotation={(text) => {
+          if (!pinSelectionAnnotation(selectionAction?.context, text)) {
+            toast({ kind: 'err', text: '没有可批注的选中文本' });
+          }
+        }}
+        onCancel={dismissSelectionAction}
+      />
       {sidePanelMounted && (
         <>
           {!sidePanelNavigationCollapsed && (

@@ -12,6 +12,7 @@ import {
   DESKTOP_CONTEXT_ACTIONS,
 } from '../lib/desktopContextMenu.js';
 import { resolveSelectionSourcePath } from '../lib/selectionChatContext.js';
+import { normalizeSelectionSourceText } from '../lib/selectionSourceDecorations.js';
 import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { clsx, formatBytes } from '../lib/format.js';
 import { filePreviewKind, isBlobFilePreview } from '../lib/filePreviewKind.js';
@@ -21,6 +22,7 @@ import {
 } from '../lib/filePreviewScroll.js';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
+import { SelectionAnnotationOverlay } from './SelectionAnnotationOverlay.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
@@ -45,6 +47,7 @@ export function FilePreviewContent({
   focusLineRevision = 0,
   reloadRevision = 0,
   wrapPreview,
+  selectionContexts = [],
   onToggleWrapPreview,
   onRefresh,
 }) {
@@ -337,21 +340,29 @@ export function FilePreviewContent({
   }
 
   const lang = state.lang;
+  const normalizedSourceText = normalizeSelectionSourceText(state.text);
   let codeHtml;
   if (lang && hljs.getLanguage(lang)) {
     try {
-      codeHtml = hljs.highlight(state.text, { language: lang, ignoreIllegals: true }).value;
+      codeHtml = hljs.highlight(normalizedSourceText, { language: lang, ignoreIllegals: true }).value;
     } catch {
-      codeHtml = escapeHtml(state.text);
+      codeHtml = escapeHtml(normalizedSourceText);
     }
   } else {
-    codeHtml = escapeHtml(state.text);
+    codeHtml = escapeHtml(normalizedSourceText);
   }
   const lines = codeHtml.split('\n');
+  const sourceLines = normalizedSourceText.split('\n');
+  const sourceLineStarts = [];
+  let sourceOffset = 0;
+  for (const line of sourceLines) {
+    sourceLineStarts.push(sourceOffset);
+    sourceOffset += line.length + 1;
+  }
   const gutterW = String(lines.length).length;
   const html = `<table class="ace-line-table"><tbody>${
     lines.map((ln, i) =>
-      `<tr${i + 1 === focusLine ? ' class="ace-line-focus"' : ''}><td class="ace-line-no" style="width:${gutterW + 1}ch">${i + 1}</td><td class="ace-line-code">${ln || ' '}</td></tr>`
+      `<tr${i + 1 === focusLine ? ' class="ace-line-focus"' : ''}><td class="ace-line-no" style="width:${gutterW + 1}ch">${i + 1}</td><td class="ace-line-code" data-source-start="${sourceLineStarts[i] ?? 0}" data-source-length="${sourceLines[i]?.length ?? 0}">${ln || ' '}</td></tr>`
     ).join('')
   }</tbody></table>`;
   const wrapTitle = wrapPreview ? '关闭自动换行' : '开启自动换行';
@@ -394,17 +405,34 @@ export function FilePreviewContent({
         )}
       >
         {showMarkdownRendered ? (
-          <div
-            ref={previewScrollRef}
-            className="h-full overflow-auto ace-md ace-side-markdown-preview"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(state.text) }}
-          />
+          <>
+            <div
+              ref={previewScrollRef}
+              className="h-full overflow-auto ace-md ace-side-markdown-preview"
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(state.text) }}
+            />
+            <SelectionAnnotationOverlay
+              hostRef={previewScrollRef}
+              contexts={selectionContexts}
+              sourcePath={sourcePath}
+              sourceText={normalizedSourceText}
+              rendered
+            />
+          </>
         ) : (
-          <div
-            ref={previewScrollRef}
-            className="h-full overflow-auto text-[11px] ace-preview"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          <>
+            <div
+              ref={previewScrollRef}
+              className="h-full overflow-auto text-[11px] ace-preview"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+            <SelectionAnnotationOverlay
+              hostRef={previewScrollRef}
+              contexts={selectionContexts}
+              sourcePath={sourcePath}
+              sourceText={normalizedSourceText}
+            />
+          </>
         )}
       </CopyableCodeFrame>
     </div>

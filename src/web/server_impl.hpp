@@ -71,6 +71,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -180,6 +181,8 @@ AuthResult check_explicit_token(std::string_view server_token,
                                  std::string_view query_token);
 
 constexpr std::size_t kMaxSelectionContextChars = 40000;
+constexpr std::size_t kMaxSelectionAnnotationChars = 4000;
+constexpr std::size_t kMaxSelectionAnnotations = 64;
 
 struct UpdateJobStatus {
     std::string job_id;

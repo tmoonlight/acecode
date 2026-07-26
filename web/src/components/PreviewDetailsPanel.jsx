@@ -176,6 +176,7 @@ export function PreviewDetailsPanel({
   changeSummary = null,
   maximized = false,
   busy = false,
+  selectionContexts = [],
   sidePanelListCollapsed = false,
   onActivateTab,
   onCloseTab,
@@ -273,11 +274,12 @@ export function PreviewDetailsPanel({
         focusLineRevision={active.lineRevision || 0}
         reloadRevision={active.reloadRevision || 0}
         wrapPreview={wrapPreview}
+        selectionContexts={selectionContexts}
         onToggleWrapPreview={() => setWrapPreview((prev) => !prev)}
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, api, busy, changeGroups, changeSummary, cwd, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, setWrapPreview, wrapPreview]);
+  }, [active, api, busy, changeGroups, changeSummary, cwd, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
