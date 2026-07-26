@@ -6,6 +6,8 @@
 
 namespace acecode::markdown {
 
+class MarkdownLinkRegionCollector;
+
 enum class TokenType {
     // Block-level
     Heading,
@@ -53,6 +55,7 @@ struct FormatOptions {
     bool syntax_highlight = true;
     bool hyperlinks = true;
     bool strip_xml = true;
+    MarkdownLinkRegionCollector* link_regions = nullptr;
 };
 
 // Style attributes for a run of text (used in inline rendering)
