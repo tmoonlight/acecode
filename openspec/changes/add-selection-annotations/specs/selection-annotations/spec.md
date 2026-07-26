@@ -5,7 +5,19 @@ The Web UI SHALL show a floating action surface beside a non-empty selection ins
 
 #### Scenario: Selecting preview text opens actions
 - **WHEN** the user completes a non-empty selection in a supported file preview
-- **THEN** the UI shows `引用到聊天` and `批注` beside the selection
+- **THEN** the UI shows `引用到聊天` and `批注` beside the released mouse cursor
+
+#### Scenario: Dragging a multiline selection does not move actions to the preview edge
+- **WHEN** the user drags across multiple source lines
+- **THEN** no action surface is shown until mouse release and the resulting surface is anchored beside the release cursor rather than the selection's union rectangle
+
+#### Scenario: Keyboard selection opens actions
+- **WHEN** the user completes a supported non-empty selection with the keyboard
+- **THEN** the UI shows the same actions beside the selected range
+
+#### Scenario: Popover interaction keeps the captured selection
+- **WHEN** the user clicks `批注` or types inside the annotation editor
+- **THEN** those events do not re-anchor the action surface or replace the captured preview selection
 
 #### Scenario: Unsupported surfaces do not open actions
 - **WHEN** the user selects content in a PDF, Word, spreadsheet, image, chat transcript, diff, editor, or another non-preview surface
@@ -73,7 +85,7 @@ The active file preview SHALL decorate every current-session selection context t
 
 #### Scenario: Annotated reference has a bubble
 - **WHEN** a resolvable annotated selection belongs to the active preview file
-- **THEN** its exact text gains the hover border and a numbered annotation bubble is aligned to that passage
+- **THEN** its exact text gains a clearly visible theme-compatible fill and outline plus a numbered annotation bubble immediately to the left of that passage
 
 #### Scenario: Hover bubble shows annotation content
 - **WHEN** the user hovers or focuses an annotation bubble
@@ -82,6 +94,18 @@ The active file preview SHALL decorate every current-session selection context t
 #### Scenario: Multiple passages are numbered per file
 - **WHEN** the active file has annotations on multiple passages
 - **THEN** its bubbles are numbered from one in first-appearance order for that file
+
+#### Scenario: Source selection records its actual lines
+- **WHEN** the user selects one or more rows in a source-mode text, log, code, or Markdown preview
+- **THEN** the composer card displays the actual first and last source line numbers from those rows
+
+#### Scenario: Source selection preserves blank lines
+- **WHEN** a source-mode selection spans one or more empty rows rendered with visual placeholders
+- **THEN** the stored selected text and offsets use the exact source slice without placeholder characters and the new decoration resolves immediately
+
+#### Scenario: Decoration contrast follows light and dark themes
+- **WHEN** an annotated passage is displayed in either light or dark mode
+- **THEN** its persistent fill and outline remain visually distinct without obscuring the source text
 
 ### Requirement: Selection annotations persist within the session
 Newly sent selection content parts SHALL preserve a sanitized selected-text anchor, source range and offsets, and normalized annotations. The Web UI SHALL derive source decorations from the active session transcript plus pending composer contexts and SHALL NOT share them with other sessions.

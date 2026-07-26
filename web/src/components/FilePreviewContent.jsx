@@ -362,7 +362,7 @@ export function FilePreviewContent({
   const gutterW = String(lines.length).length;
   const html = `<table class="ace-line-table"><tbody>${
     lines.map((ln, i) =>
-      `<tr${i + 1 === focusLine ? ' class="ace-line-focus"' : ''}><td class="ace-line-no" style="width:${gutterW + 1}ch">${i + 1}</td><td class="ace-line-code" data-source-start="${sourceLineStarts[i] ?? 0}" data-source-length="${sourceLines[i]?.length ?? 0}">${ln || ' '}</td></tr>`
+      `<tr${i + 1 === focusLine ? ' class="ace-line-focus"' : ''}><td class="ace-line-no" style="width:${gutterW + 1}ch">${i + 1}</td><td class="ace-line-code" data-source-line="${i + 1}" data-source-start="${sourceLineStarts[i] ?? 0}" data-source-length="${sourceLines[i]?.length ?? 0}">${ln || ' '}</td></tr>`
     ).join('')
   }</tbody></table>`;
   const wrapTitle = wrapPreview ? '关闭自动换行' : '开启自动换行';

@@ -2,9 +2,11 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import {
   applySelectionSourceDecorations,
   clearSelectionSourceDecorations,
+  selectionAnnotationBubbleLeft,
 } from '../lib/selectionSourceDecorations.js';
 
 const BUBBLE_GAP = 28;
+const BUBBLE_LEFT = 6;
 const FIRST_MARKER_TOP = 38;
 const STALE_TOP = 38;
 
@@ -19,12 +21,18 @@ function measuredMarkers(frame, host, groups) {
     const firstMark = group.marks?.find((mark) => mark?.isConnected);
     if (group.anchor?.status === 'resolved' && firstMark) {
       const rect = firstMark.getBoundingClientRect();
-      if (rect.bottom < hostRect.top || rect.top > hostRect.bottom) continue;
+      if (
+        rect.bottom < hostRect.top
+        || rect.top > hostRect.bottom
+        || rect.right < hostRect.left
+        || rect.left > hostRect.right
+      ) continue;
       resolved.push({
         id: group.id,
         number: group.annotationNumber,
         annotations: group.annotations,
         stale: false,
+        left: selectionAnnotationBubbleLeft(rect, frameRect),
         top: Math.min(
           maxTop,
           Math.max(FIRST_MARKER_TOP, rect.top - frameRect.top + rect.height / 2 - 11),
@@ -36,6 +44,7 @@ function measuredMarkers(frame, host, groups) {
         number: group.annotationNumber,
         annotations: group.annotations,
         stale: true,
+        left: BUBBLE_LEFT,
       });
     }
   }
@@ -128,7 +137,7 @@ export function SelectionAnnotationOverlay({
             type="button"
             className="ace-selection-annotation-bubble"
             data-stale={marker.stale ? 'true' : 'false'}
-            style={{ top: marker.top }}
+            style={{ left: marker.left, top: marker.top }}
             aria-label={label}
           >
             <span className="ace-selection-annotation-bubble-number">{marker.number}</span>

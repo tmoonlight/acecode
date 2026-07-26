@@ -425,12 +425,21 @@ function sourceOffsetsForRange(source, range) {
   if (startCell && endCell && source.contains(startCell) && source.contains(endCell)) {
     const startBase = offsetInt(startCell.getAttribute('data-source-start'));
     const endBase = offsetInt(endCell.getAttribute('data-source-start'));
+    const startLength = offsetInt(startCell.getAttribute('data-source-length'));
+    const endLength = offsetInt(endCell.getAttribute('data-source-length'));
     const localStart = textOffsetWithinElement(startCell, range.startContainer, range.startOffset);
     const localEnd = textOffsetWithinElement(endCell, range.endContainer, range.endOffset);
-    if (startBase >= 0 && endBase >= 0 && localStart >= 0 && localEnd >= 0) {
+    if (
+      startBase >= 0
+      && endBase >= 0
+      && startLength >= 0
+      && endLength >= 0
+      && localStart >= 0
+      && localEnd >= 0
+    ) {
       return {
-        startOffset: startBase + localStart,
-        endOffset: endBase + localEnd,
+        startOffset: startBase + Math.min(localStart, startLength),
+        endOffset: endBase + Math.min(localEnd, endLength),
         view: 'source',
       };
     }
@@ -444,9 +453,25 @@ function sourceOffsetsForRange(source, range) {
   };
 }
 
-function lineNumberAt(source, node, offset) {
+export function selectionSourceTextFromCells(source) {
+  const cells = Array.from(
+    source?.querySelectorAll?.('.ace-line-code[data-source-length]') || [],
+  );
+  if (cells.length === 0) return '';
+  return cells.map((cell) => {
+    const length = offsetInt(cell.getAttribute('data-source-length'));
+    return asString(cell.textContent).slice(0, Math.max(0, length));
+  }).join('\n');
+}
+
+export function selectionLineNumberAt(source, node, offset) {
   if (!source || !node) return 0;
   const nodeElement = elementFromNode(node);
+  const sourceLineCell = nodeElement?.closest?.('.ace-line-code[data-source-line]');
+  if (sourceLineCell && source.contains?.(sourceLineCell)) {
+    const sourceLine = positiveInt(sourceLineCell.getAttribute('data-source-line'));
+    if (sourceLine) return sourceLine;
+  }
   if (nodeElement && !source.contains(nodeElement) && source !== nodeElement) return 0;
   try {
     const range = document.createRange();
@@ -468,7 +493,7 @@ export function selectionContextFromWindowSelection({
 } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return null;
   const selection = window.getSelection?.();
-  const text = selectedText || selection?.toString?.() || '';
+  let text = selectedText || selection?.toString?.() || '';
   if (!text.trim()) return null;
 
   let preview = closestPreviewElement(target);
@@ -497,9 +522,14 @@ export function selectionContextFromWindowSelection({
   let endLine = 0;
   const source = sourceElementForPreview(preview);
   const offsets = sourceOffsetsForRange(source, range);
+  if (offsets.view === 'source' && offsets.startOffset >= 0 && offsets.endOffset > offsets.startOffset) {
+    const sourceText = selectionSourceTextFromCells(source);
+    const exactText = sourceText.slice(offsets.startOffset, offsets.endOffset);
+    if (exactText.trim()) text = exactText;
+  }
   if (range && source) {
-    startLine = lineNumberAt(source, range.startContainer, range.startOffset);
-    endLine = lineNumberAt(source, range.endContainer, range.endOffset);
+    startLine = selectionLineNumberAt(source, range.startContainer, range.startOffset);
+    endLine = selectionLineNumberAt(source, range.endContainer, range.endOffset);
     if (startLine && endLine && endLine < startLine) {
       [startLine, endLine] = [endLine, startLine];
     }

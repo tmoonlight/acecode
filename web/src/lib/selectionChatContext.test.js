@@ -12,8 +12,10 @@ import {
   resolveSelectionSourcePath,
   selectionContextLocationKey,
   selectionContextsFromTranscriptItems,
+  selectionLineNumberAt,
   selectionLineCount,
   selectionPreviewKindSupportsActions,
+  selectionSourceTextFromCells,
   truncateSelectionAnchorText,
   truncateSelectionAnnotation,
   truncateSelectionText,
@@ -43,6 +45,41 @@ run('selection context formats file line ranges and line counts', () => {
   assert.equal(formatSelectionContextNote(ctx), '2 行');
   assert.equal(ctx.source.path, 'C:/repo/docs/README.md');
   assert.equal(ctx.source.line_count, 2);
+});
+
+run('source selections read actual row numbers instead of counting rendered table text', () => {
+  const sourceLineCell = {
+    getAttribute(name) {
+      return name === 'data-source-line' ? '17' : null;
+    },
+  };
+  const parentElement = {
+    closest(selector) {
+      return selector === '.ace-line-code[data-source-line]' ? sourceLineCell : null;
+    },
+  };
+  const source = {
+    contains(element) {
+      return element === sourceLineCell;
+    },
+  };
+  assert.equal(selectionLineNumberAt(source, { nodeType: 3, parentElement }, 4), 17);
+});
+
+run('source selections rebuild blank lines without preview placeholder spaces', () => {
+  const cells = [
+    { textContent: '# Title', getAttribute: () => '7' },
+    { textContent: ' ', getAttribute: () => '0' },
+    { textContent: 'Paragraph', getAttribute: () => '9' },
+    { textContent: ' ', getAttribute: () => '0' },
+  ];
+  const source = {
+    querySelectorAll(selector) {
+      assert.equal(selector, '.ace-line-code[data-source-length]');
+      return cells;
+    },
+  };
+  assert.equal(selectionSourceTextFromCells(source), '# Title\n\nParagraph\n');
 });
 
 run('selection contexts keep text when normalized for composer payload', () => {

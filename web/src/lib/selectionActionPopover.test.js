@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { selectionActionPopoverPosition } from './selectionActionPopover.js';
+import {
+  selectionActionPopoverPosition,
+  selectionPointerViewportRect,
+  selectionRangeViewportRect,
+} from './selectionActionPopover.js';
 
 function run(name, fn) {
   try {
@@ -42,4 +46,65 @@ run('selection action popover clamps to viewport margins', () => {
     ),
     { left: 8, top: 22, placement: 'below' },
   );
+});
+
+run('cursor-anchored popover opens above and beside the released pointer', () => {
+  assert.deepEqual(
+    selectionActionPopoverPosition(
+      { left: 420, top: 300, right: 420, bottom: 300, width: 0, height: 0 },
+      { width: 180, height: 48 },
+      { width: 800, height: 600 },
+      { anchorMode: 'cursor' },
+    ),
+    { left: 428, top: 244, placement: 'above' },
+  );
+});
+
+run('cursor-anchored popover flips left instead of escaping the viewport', () => {
+  assert.deepEqual(
+    selectionActionPopoverPosition(
+      { left: 780, top: 300, right: 780, bottom: 300, width: 0, height: 0 },
+      { width: 180, height: 48 },
+      { width: 800, height: 600 },
+      { anchorMode: 'cursor' },
+    ),
+    { left: 592, top: 244, placement: 'above' },
+  );
+});
+
+run('pointer viewport rect preserves the mouseup cursor position', () => {
+  assert.deepEqual(selectionPointerViewportRect({ clientX: 321, clientY: 456 }), {
+    left: 321,
+    top: 456,
+    right: 321,
+    bottom: 456,
+    width: 0,
+    height: 0,
+  });
+  assert.equal(selectionPointerViewportRect({ clientX: undefined, clientY: 10 }), null);
+});
+
+run('keyboard fallback uses the first visible range fragment instead of a multiline union', () => {
+  const first = { left: 120, top: 50, right: 210, bottom: 68, width: 90, height: 18 };
+  const selection = {
+    rangeCount: 1,
+    isCollapsed: false,
+    getRangeAt() {
+      return {
+        getClientRects: () => [
+          first,
+          { left: 40, top: 70, right: 760, bottom: 88, width: 720, height: 18 },
+        ],
+        getBoundingClientRect: () => ({
+          left: 40,
+          top: 50,
+          right: 760,
+          bottom: 88,
+          width: 720,
+          height: 38,
+        }),
+      };
+    },
+  };
+  assert.deepEqual(selectionRangeViewportRect(selection), first);
 });

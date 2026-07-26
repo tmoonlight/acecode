@@ -186,13 +186,17 @@ import {
   createFileContext,
   mergeSelectionAnnotations,
   normalizeComposerContext,
+  SELECTION_PREVIEW_SELECTOR,
   selectionContextFingerprint,
   selectionContextFromWindowSelection,
   selectionContextLocationKey,
   selectionContextsFromTranscriptItems,
   upsertSelectionContext,
 } from '../lib/selectionChatContext.js';
-import { selectionRangeViewportRect } from '../lib/selectionActionPopover.js';
+import {
+  selectionPointerViewportRect,
+  selectionRangeViewportRect,
+} from '../lib/selectionActionPopover.js';
 import { clearPreviewSelection } from '../lib/inactiveSelection.js';
 import { getGoalStopControlState } from '../lib/goalControl.js';
 import {
@@ -1239,52 +1243,75 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
 
   useEffect(() => {
     let raf = 0;
+    let pendingActionTrigger = null;
     const updatePreview = () => {
       raf = 0;
+      const actionTrigger = pendingActionTrigger;
+      pendingActionTrigger = null;
       const next = selectionContextFromWindowSelection();
-      const rect = next ? selectionRangeViewportRect() : null;
-      if (!next || !rect) {
+      const rangeRect = next ? selectionRangeViewportRect() : null;
+      const actionRect = actionTrigger?.rect || rangeRect;
+      if (!next || !rangeRect) {
         selectionPreviewFingerprintRef.current = '';
         setSelectionPreview((prev) => (prev ? null : prev));
         setSelectionAction((prev) => (prev?.mode === 'annotation' ? prev : null));
         return;
       }
       const fingerprint = selectionContextFingerprint(next);
-      if (fingerprint === selectionPreviewFingerprintRef.current) {
-        setSelectionAction((prev) => (
-          prev?.key === fingerprint && prev.mode === 'annotation'
-            ? prev
-            : {
-              key: fingerprint,
-              context: next,
-              rect,
-              mode: 'actions',
-            }
-        ));
-        return;
-      }
       selectionPreviewFingerprintRef.current = fingerprint;
       setSelectionPreview(next);
-      setSelectionAction({
-        key: fingerprint,
-        context: next,
-        rect,
-        mode: 'actions',
+      setSelectionAction((prev) => {
+        if (actionTrigger?.show && actionRect) {
+          return {
+            key: fingerprint,
+            context: next,
+            rect: actionRect,
+            anchor: actionTrigger.anchor || 'selection',
+            mode: 'actions',
+          };
+        }
+        if (prev?.key === fingerprint) return prev;
+        return prev?.mode === 'annotation' ? prev : null;
       });
     };
-    const schedulePreviewUpdate = () => {
+    const schedulePreviewUpdate = (actionTrigger = null) => {
+      if (actionTrigger) pendingActionTrigger = actionTrigger;
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(updatePreview);
     };
+    const handleSelectionChange = () => schedulePreviewUpdate();
+    const handleMouseUp = (event) => {
+      if (event.button !== 0) return;
+      const target = event.target?.nodeType === Node.ELEMENT_NODE
+        ? event.target
+        : event.target?.parentElement;
+      if (!target?.closest?.(SELECTION_PREVIEW_SELECTOR)) return;
+      schedulePreviewUpdate({
+        show: true,
+        anchor: 'pointer',
+        rect: selectionPointerViewportRect(event),
+      });
+    };
+    const handleKeyUp = (event) => {
+      const target = event.target?.nodeType === Node.ELEMENT_NODE
+        ? event.target
+        : event.target?.parentElement;
+      if (!event.shiftKey || !target?.closest?.(SELECTION_PREVIEW_SELECTOR)) return;
+      schedulePreviewUpdate({
+        show: true,
+        anchor: 'selection',
+        rect: null,
+      });
+    };
 
-    document.addEventListener('selectionchange', schedulePreviewUpdate);
-    document.addEventListener('mouseup', schedulePreviewUpdate, true);
-    document.addEventListener('keyup', schedulePreviewUpdate, true);
+    document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('mouseup', handleMouseUp, true);
+    document.addEventListener('keyup', handleKeyUp, true);
     return () => {
       if (raf) cancelAnimationFrame(raf);
-      document.removeEventListener('selectionchange', schedulePreviewUpdate);
-      document.removeEventListener('mouseup', schedulePreviewUpdate, true);
-      document.removeEventListener('keyup', schedulePreviewUpdate, true);
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('mouseup', handleMouseUp, true);
+      document.removeEventListener('keyup', handleKeyUp, true);
     };
   }, []);
 

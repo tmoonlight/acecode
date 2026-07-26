@@ -67,6 +67,14 @@ Choosing `批注` switches the same popover into an input mode. The captured con
 
 Keeping the snapshot in React state is more reliable than asking `window.getSelection()` again after a button or textarea has taken focus.
 
+Selection changes fired while the pointer is still dragging update only the transient
+selection candidate. The action surface is created after `mouseup` and is anchored to
+that event's viewport cursor position, matching the contextual toolbar behavior of
+Office-style editors and avoiding the oversized union rectangle produced by multiline
+table selections. Keyboard-created selections fall back to the selected range.
+The global release/key listeners ignore events outside the supported preview, so
+clicking the popover or typing in its annotation editor cannot re-anchor or replace it.
+
 ### 3. Merge annotations into an already-pinned location
 
 Plain reference pinning preserves the existing location-based deduplication. Annotating a location that is already present in the current composer appends a distinct normalized annotation to that context instead of adding a duplicate card.
@@ -102,6 +110,18 @@ For code/text/Markdown source mode, raw-source offsets map to text nodes inside 
 The helper wraps only matched text-node fragments with semantic `<mark>` elements. A React overlay measures the first mark in each annotated group and keeps its numbered bubble aligned during scroll and resize. Unresolved groups appear in a compact stale stack at the preview edge with `原文已变化`; they never point at arbitrary text.
 
 DOM marks are cleared before each application and during unmount so they do not leak across `dangerouslySetInnerHTML` refreshes. Annotation bubbles live in a separate overlay and therefore do not pollute copy or selection text.
+
+Source-mode rows expose their actual 1-based line number as DOM metadata. Selection
+capture reads that metadata instead of counting text across the rendered table, whose
+line-number cells and row boundaries do not map reliably to `Range.toString()`.
+It also clamps each range endpoint to the row's real source length and reconstructs the
+selected source slice from row metadata. This removes visual placeholder spaces from
+empty rows, preserving exact Markdown anchors and preventing immediate false stale
+results for selections that contain blank lines.
+
+Resolved annotation bubbles are positioned immediately to the left of the first marked
+fragment. Persistent annotated marks use a visible themed fill and outline in both light
+and dark modes; plain references remain quieter and gain the stronger outline on hover.
 
 ### 7. Reuse the existing card with an annotation affordance
 

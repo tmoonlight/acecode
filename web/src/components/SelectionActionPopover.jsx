@@ -32,8 +32,9 @@ export function SelectionActionPopover({
       snapshot.rect,
       { width: rect.width, height: rect.height },
       { width: window.innerWidth, height: window.innerHeight },
+      { anchorMode: snapshot.anchor === 'pointer' ? 'cursor' : 'selection' },
     ));
-  }, [mode, snapshot?.rect, snapshotKey]);
+  }, [mode, snapshot?.anchor, snapshot?.rect, snapshotKey]);
 
   useEffect(() => {
     if (mode !== 'annotation') return;
@@ -81,6 +82,7 @@ export function SelectionActionPopover({
       ref={rootRef}
       className="ace-selection-action-popover"
       data-mode={mode}
+      data-anchor={snapshot.anchor || 'selection'}
       data-placement={position?.placement || 'below'}
       style={{
         left: position?.left ?? snapshot.rect.left,

@@ -14,6 +14,7 @@ export function selectionActionPopoverPosition(
   {
     gap = 8,
     margin = 8,
+    anchorMode = 'selection',
   } = {},
 ) {
   const anchor = anchorRect || {};
@@ -28,17 +29,31 @@ export function selectionActionPopoverPosition(
   const anchorWidth = Math.max(0, finite(anchor.width, finite(anchor.right) - anchorLeft));
   const anchorBottom = finite(anchor.bottom, anchorTop + Math.max(0, finite(anchor.height)));
 
-  let placement = 'below';
-  let top = anchorBottom + gap;
-  if (top + height > viewportHeight - margin && anchorTop - gap - height >= margin) {
+  const cursorAnchor = anchorMode === 'cursor';
+  let placement = cursorAnchor ? 'above' : 'below';
+  let top = cursorAnchor ? anchorTop - gap - height : anchorBottom + gap;
+  if (cursorAnchor && top < margin) {
+    placement = 'below';
+    top = anchorBottom + gap;
+  } else if (
+    !cursorAnchor
+    && top + height > viewportHeight - margin
+    && anchorTop - gap - height >= margin
+  ) {
     placement = 'above';
     top = anchorTop - gap - height;
   }
-  const left = clamp(
-    anchorLeft + anchorWidth / 2 - width / 2,
-    margin,
-    viewportWidth - margin - width,
-  );
+  let left = cursorAnchor
+    ? anchorLeft + gap
+    : anchorLeft + anchorWidth / 2 - width / 2;
+  if (
+    cursorAnchor
+    && left + width > viewportWidth - margin
+    && anchorLeft - gap - width >= margin
+  ) {
+    left = anchorLeft - gap - width;
+  }
+  left = clamp(left, margin, viewportWidth - margin - width);
   top = clamp(top, margin, viewportHeight - margin - height);
   return {
     left: Math.round(left),
@@ -47,15 +62,29 @@ export function selectionActionPopoverPosition(
   };
 }
 
+export function selectionPointerViewportRect(event = {}) {
+  const left = Number(event.clientX);
+  const top = Number(event.clientY);
+  if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+  return {
+    left,
+    top,
+    right: left,
+    bottom: top,
+    width: 0,
+    height: 0,
+  };
+}
+
 export function selectionRangeViewportRect(selection = globalThis.window?.getSelection?.()) {
   if (!selection || selection.rangeCount <= 0 || selection.isCollapsed) return null;
   try {
     const range = selection.getRangeAt(0);
-    const rect = range.getBoundingClientRect?.();
-    if (!rect) return null;
-    const fallbackRect = Array.from(range.getClientRects?.() || [])
+    const firstFragment = Array.from(range.getClientRects?.() || [])
       .find((candidate) => candidate.width || candidate.height);
-    const chosen = (rect.width || rect.height) ? rect : fallbackRect;
+    const boundingRect = range.getBoundingClientRect?.();
+    const chosen = firstFragment
+      || ((boundingRect?.width || boundingRect?.height) ? boundingRect : null);
     if (!chosen) return null;
     return {
       left: finite(chosen.left),

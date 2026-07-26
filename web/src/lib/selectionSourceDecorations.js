@@ -6,6 +6,7 @@ import {
 } from './selectionChatContext.js';
 
 export const SELECTION_REFERENCE_MARK_CLASS = 'ace-selection-reference-mark';
+export const SELECTION_ANNOTATION_BUBBLE_WIDTH = 23;
 
 function asString(value) {
   return value == null ? '' : String(value);
@@ -14,6 +15,26 @@ function asString(value) {
 function offsetInt(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : -1;
+}
+
+function finiteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+export function selectionAnnotationBubbleLeft(markRect = {}, frameRect = {}, {
+  bubbleWidth = SELECTION_ANNOTATION_BUBBLE_WIDTH,
+  gap = 8,
+  margin = 6,
+} = {}) {
+  const frameLeft = finiteNumber(frameRect.left);
+  const frameWidth = Math.max(
+    0,
+    finiteNumber(frameRect.width, finiteNumber(frameRect.right) - frameLeft),
+  );
+  const rawLeft = finiteNumber(markRect.left) - frameLeft - bubbleWidth - gap;
+  const maxLeft = Math.max(margin, frameWidth - bubbleWidth - margin);
+  return Math.round(Math.min(Math.max(rawLeft, margin), maxLeft));
 }
 
 function positiveInt(value) {
@@ -203,7 +224,7 @@ function textNodeParts(root, start, end) {
   return parts;
 }
 
-function wrapElementTextRange(root, start, end, groupId) {
+function wrapElementTextRange(root, start, end, groupId, annotated = false) {
   const parts = textNodeParts(root, start, end);
   const marks = [];
   for (const part of parts.reverse()) {
@@ -215,12 +236,13 @@ function wrapElementTextRange(root, start, end, groupId) {
     );
     if (!mark) continue;
     mark.dataset.selectionDecorationId = groupId;
+    mark.dataset.selectionAnnotated = annotated ? 'true' : 'false';
     marks.push(mark);
   }
   return marks.reverse();
 }
 
-function sourceRangeMarks(root, anchor, groupId) {
+function sourceRangeMarks(root, anchor, groupId, annotated = false) {
   const marks = [];
   const cells = Array.from(root?.querySelectorAll?.('.ace-line-code[data-source-start]') || []);
   for (const cell of cells) {
@@ -234,6 +256,7 @@ function sourceRangeMarks(root, anchor, groupId) {
       Math.max(0, anchor.start - cellStart),
       Math.min(cellLength, anchor.end - cellStart),
       groupId,
+      annotated,
     ));
   }
   return marks;
@@ -276,7 +299,7 @@ export function renderedPreviewTextIndex(root) {
   return { text, nodes };
 }
 
-function renderedRangeMarks(index, anchor, groupId) {
+function renderedRangeMarks(index, anchor, groupId, annotated = false) {
   const marks = [];
   const parts = [];
   for (const entry of index.nodes) {
@@ -296,6 +319,7 @@ function renderedRangeMarks(index, anchor, groupId) {
     );
     if (!mark) continue;
     mark.dataset.selectionDecorationId = groupId;
+    mark.dataset.selectionAnnotated = annotated ? 'true' : 'false';
     marks.push(mark);
   }
   return marks.reverse();
@@ -335,8 +359,8 @@ export function applySelectionSourceDecorations(root, {
       continue;
     }
     const marks = rendered
-      ? renderedRangeMarks(renderedIndex, anchor, group.id)
-      : sourceRangeMarks(root, anchor, group.id);
+      ? renderedRangeMarks(renderedIndex, anchor, group.id, group.annotations.length > 0)
+      : sourceRangeMarks(root, anchor, group.id, group.annotations.length > 0);
     if (marks.length === 0) {
       applied.push({
         ...group,

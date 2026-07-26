@@ -40,3 +40,20 @@
 - `build\tests\Release\acecode_unit_tests.exe --gtest_filter=SelectionContextAnnotation.*` — 6 tests passed.
 - `scripts\code_quality_check.bat` — completed with the repository's existing advisory findings.
 - Real Web UI — confirmed the exact action labels, annotation editor validation and keyboard behavior, same-location annotation merging, sent-card counts, source marks, plain-reference/no-bubble behavior, grouped hover content, reload persistence, session isolation, and non-overlapping `原文已变化` bubbles. Browser error/warning log was empty.
+
+## 6. Acceptance feedback polish
+
+- [x] 6.1 Show the selection actions only after mouse release and anchor them beside the release cursor, with a range fallback for keyboard selections.
+- [x] 6.2 Capture source-mode start/end lines from explicit row metadata so composer labels remain accurate for multiline log, code, text, and Markdown selections.
+- [x] 6.3 Position resolved annotation bubbles to the left of their marked passage and strengthen annotated marks for both light and dark themes.
+- [x] 6.4 Add focused regression coverage and run the Web test suite plus production build.
+- [x] 6.5 In the real UI, annotate selections longer than two lines in both `1.log` and `2.md`, then verify cursor placement, card line ranges, left-side bubbles, hover content, and light/dark contrast.
+
+## Acceptance feedback verification
+
+- Raw Playwright Web UI — selected and annotated `1.log` lines 17–20 and `2.md` lines 1–4 in the pinned `测试任务`.
+- Cursor placement — both action surfaces used the `pointer` anchor and opened 8–10 px to the right of the mouse-release point rather than at the multiline union edge.
+- Composer numbers — cards displayed `1.log:17-20` and `2.md:1-4`, each with the expected single-annotation count.
+- Source decorations — resolved bubbles were immediately left of the first marked fragment; hover cards opened to the bubble's right and showed the submitted annotation.
+- Blank-line anchoring — the Markdown selection included empty rows and resolved immediately without `原文已变化`.
+- Theme contrast — light mode used a 0.18 accent fill with a 0.68 inset outline; dark mode used a 0.26 fill with a 0.82 inset outline.

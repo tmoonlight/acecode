@@ -4,6 +4,7 @@ import {
   normalizeSelectionSourcePath,
   resolveSelectionAnchor,
   sameSelectionSourcePath,
+  selectionAnnotationBubbleLeft,
   sourceLineStartOffset,
 } from './selectionSourceDecorations.js';
 import { createSelectionContext } from './selectionChatContext.js';
@@ -35,6 +36,22 @@ run('stored selection offsets win when their text still matches', () => {
     endLine: 2,
     moved: false,
   });
+});
+
+run('annotation bubbles sit immediately left of marked content and stay inside the frame', () => {
+  const frame = { left: 100, width: 500, right: 600 };
+  assert.equal(
+    selectionAnnotationBubbleLeft({ left: 180 }, frame),
+    49,
+  );
+  assert.equal(
+    selectionAnnotationBubbleLeft({ left: 105 }, frame),
+    6,
+  );
+  assert.equal(
+    selectionAnnotationBubbleLeft({ left: 900 }, frame),
+    471,
+  );
 });
 
 run('anchor resolution follows the nearest exact text after edits', () => {

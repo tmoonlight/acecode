@@ -40,10 +40,13 @@ run('ChatView scopes preview decorations to transcript and composer contexts', (
   assert.match(chat, /upsertSelectionContext\(items, pinned\)/);
   assert.match(chat, /clearPreviewSelection\(\)/);
   assert.match(chat, /<SelectionActionPopover/);
+  assert.match(chat, /target\?\.closest\?\.\(SELECTION_PREVIEW_SELECTOR\)/);
+  assert.match(chat, /if \(!event\.shiftKey \|\| !target\?\.closest\?\.\(SELECTION_PREVIEW_SELECTOR\)\) return/);
 });
 
 run('file previews expose precise source offsets and both supported decoration surfaces', () => {
   const preview = source('components/FilePreviewContent.jsx');
+  assert.match(preview, /data-source-line=/);
   assert.match(preview, /data-source-start=/);
   assert.match(preview, /data-source-length=/);
   assert.equal((preview.match(/<SelectionAnnotationOverlay/g) || []).length, 2);
@@ -66,11 +69,14 @@ run('plain references get source marks while only annotated groups get bubbles',
   const decorations = source('lib/selectionSourceDecorations.js');
   const styles = source('styles/globals.css');
   assert.match(decorations, /SELECTION_REFERENCE_MARK_CLASS/);
+  assert.match(decorations, /dataset\.selectionAnnotated = annotated/);
   assert.match(decorations, /group\.annotationNumber = annotationNumber/);
   assert.match(overlay, /if \(!group\.annotations\?\.length \|\| !group\.annotationNumber\) continue/);
+  assert.match(overlay, /selectionAnnotationBubbleLeft\(rect, frameRect\)/);
   assert.match(overlay, /const staleStart = Math\.max\(STALE_TOP, previousTop \+ BUBBLE_GAP\)/);
-  assert.match(styles, /\.ace-selection-reference-mark:hover/);
-  assert.match(styles, /box-shadow: inset 0 0 0 1px var\(--ace-accent\)/);
+  assert.match(styles, /\.ace-selection-reference-mark\[data-selection-annotated="true"\]/);
+  assert.match(styles, /\[data-theme="dark"\] \.ace-selection-reference-mark\[data-selection-annotated="true"\]/);
+  assert.match(styles, /\.ace-selection-annotation-bubble-tooltip\s*\{[^}]*left: calc\(100% \+ 9px\)/s);
 });
 
 console.log('selectionAnnotationsArchitecture tests passed');
