@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <vector>
 
 using acecode::HookCommandSpec;
 using acecode::HookProcessResult;
@@ -78,6 +79,8 @@ TEST(ChannelPluginStatus, ParsesConnectedWebhookStatus) {
         {"type", "channel.status"},
         {"state", "connected"},
         {"already_running", true},
+        {"binding_token", "binding-123"},
+        {"future_extension", nlohmann::json{{"ignored", true}}},
         {"outbound",
          nlohmann::json{
              {"mode", "webhook"},
@@ -93,6 +96,64 @@ TEST(ChannelPluginStatus, ParsesConnectedWebhookStatus) {
     EXPECT_TRUE(status.already_running);
     EXPECT_EQ(status.outbound_mode, "webhook");
     EXPECT_EQ(status.outbound_url, "http://127.0.0.1:39001/messages");
+    ASSERT_TRUE(status.binding_token.has_value());
+    EXPECT_EQ(*status.binding_token, "binding-123");
+}
+
+TEST(ChannelPluginStatus, AcceptsLegacyStatusWithoutBindingToken) {
+    const auto j = nlohmann::json{
+        {"type", "channel.status"},
+        {"state", "connected"},
+        {"outbound",
+         nlohmann::json{
+             {"mode", "webhook"},
+             {"url", "http://127.0.0.1:39001/messages"},
+         }},
+    };
+
+    ChannelPluginStatus status;
+    std::string error;
+    ASSERT_TRUE(acecode::rc::parse_channel_plugin_status_json(j, &status, &error))
+        << error;
+    EXPECT_FALSE(status.binding_token.has_value());
+}
+
+TEST(ChannelPluginStatus, RejectsInvalidBindingToken) {
+    for (const auto& invalid : {
+             nlohmann::json(""),
+             nlohmann::json(nullptr),
+             nlohmann::json(7),
+             nlohmann::json::object(),
+         }) {
+        const auto j = nlohmann::json{
+            {"type", "channel.status"},
+            {"state", "connected"},
+            {"binding_token", invalid},
+        };
+        ChannelPluginStatus status;
+        std::string error;
+        EXPECT_FALSE(acecode::rc::parse_channel_plugin_status_json(
+            j, &status, &error));
+        EXPECT_NE(error.find("binding_token"), std::string::npos);
+    }
+}
+
+TEST(ChannelDeactivationRequest, IncludesTokenOnlyForTokenAwareBinding) {
+    const auto token_aware =
+        acecode::rc::channel_deactivation_request_to_json(
+            "session-1", "binding-123");
+    EXPECT_EQ(token_aware["type"], "channel.deactivate");
+    EXPECT_EQ(token_aware["protocol_version"], 1);
+    EXPECT_EQ(token_aware["session_id"], "session-1");
+    EXPECT_EQ(token_aware["binding_token"], "binding-123");
+
+    const auto legacy =
+        acecode::rc::channel_deactivation_request_to_json("session-1");
+    EXPECT_EQ(legacy, nlohmann::json({
+                          {"type", "channel.deactivate"},
+                          {"protocol_version", 1},
+                          {"session_id", "session-1"},
+                      }));
 }
 
 TEST(ChannelPluginHost, ActivatesAndAcceptsAlreadyRunningRuntime) {
@@ -118,7 +179,7 @@ TEST(ChannelPluginHost, ActivatesAndAcceptsAlreadyRunningRuntime) {
         result.started = true;
         result.exit_code = 0;
         result.stdout_text =
-            R"({"type":"channel.status","state":"connected","already_running":true,"outbound":{"mode":"webhook","url":"http://127.0.0.1:39001/messages"}})";
+            R"({"type":"channel.status","state":"connected","already_running":true,"binding_token":"binding-123","outbound":{"mode":"webhook","url":"http://127.0.0.1:39001/messages"}})";
         return result;
     });
 
@@ -133,6 +194,8 @@ TEST(ChannelPluginHost, ActivatesAndAcceptsAlreadyRunningRuntime) {
     ASSERT_TRUE(activation.ok) << error;
     EXPECT_TRUE(activation.status.already_running);
     EXPECT_EQ(activation.status.outbound_url, "http://127.0.0.1:39001/messages");
+    ASSERT_TRUE(activation.status.binding_token.has_value());
+    EXPECT_EQ(*activation.status.binding_token, "binding-123");
     EXPECT_EQ(seen_command.command, "chat-channel.exe");
     ASSERT_EQ(seen_command.args.size(), 1u);
     EXPECT_EQ(seen_command.args[0], "--stdio");
@@ -171,4 +234,37 @@ TEST(ChannelPluginHost, ReportsPluginFailure) {
     const auto activation = host.activate(manifest, request, 10000, &error);
     EXPECT_FALSE(activation.ok);
     EXPECT_NE(error.find("login required"), std::string::npos);
+}
+
+TEST(ChannelPluginHost, DeactivationEchoesCurrentBindingToken) {
+    ChannelPluginManifest manifest;
+    manifest.name = "chat";
+    manifest.command = "chat-channel.exe";
+
+    std::vector<nlohmann::json> requests;
+    ChannelPluginHost host([&](const HookCommandSpec&,
+                               const std::string& stdin_text,
+                               int,
+                               const std::string&) {
+        requests.push_back(nlohmann::json::parse(stdin_text));
+        HookProcessResult result;
+        result.started = true;
+        result.exit_code = 0;
+        return result;
+    });
+
+    std::string error;
+    EXPECT_TRUE(host.deactivate(
+        manifest, "session-1", "binding-123", 10000, &error)) << error;
+    EXPECT_TRUE(host.deactivate(
+        manifest, "session-legacy", 10000, &error)) << error;
+
+    ASSERT_EQ(requests.size(), 2u);
+    EXPECT_EQ(requests[0]["binding_token"], "binding-123");
+    EXPECT_EQ(requests[0]["session_id"], "session-1");
+    EXPECT_EQ(requests[1], nlohmann::json({
+                               {"type", "channel.deactivate"},
+                               {"protocol_version", 1},
+                               {"session_id", "session-legacy"},
+                           }));
 }

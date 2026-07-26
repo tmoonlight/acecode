@@ -370,10 +370,34 @@ struct RunnerLog {
     std::condition_variable cv;
     std::vector<nlohmann::json> activations;
     std::vector<nlohmann::json> deactivations;
+    bool emit_binding_token = true;
+    std::vector<std::string> activation_binding_tokens;
+    std::size_t block_activation_number = 0;
+    bool blocked_activation_entered = false;
+    bool release_blocked_activation = false;
 
     bool wait_for_activations(std::size_t n, std::chrono::milliseconds timeout) {
         std::unique_lock<std::mutex> lk(mu);
         return cv.wait_for(lk, timeout, [&] { return activations.size() >= n; });
+    }
+
+    bool wait_for_deactivations(std::size_t n,
+                                std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lk(mu);
+        return cv.wait_for(lk, timeout, [&] { return deactivations.size() >= n; });
+    }
+
+    bool wait_for_blocked_activation(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lk(mu);
+        return cv.wait_for(lk, timeout, [&] {
+            return blocked_activation_entered;
+        });
+    }
+
+    void release_activation() {
+        std::lock_guard<std::mutex> lk(mu);
+        release_blocked_activation = true;
+        cv.notify_all();
     }
 };
 
@@ -388,9 +412,29 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
         auto request = nlohmann::json::parse(stdin_text, nullptr, false);
         const std::string type =
             request.is_object() ? request.value("type", "") : "";
+        std::string binding_token;
         {
-            std::lock_guard<std::mutex> lk(log->mu);
-            if (type == "channel.activate") log->activations.push_back(request);
+            std::unique_lock<std::mutex> lk(log->mu);
+            if (type == "channel.activate") {
+                log->activations.push_back(request);
+                const std::size_t activation_number = log->activations.size();
+                if (log->emit_binding_token) {
+                    binding_token =
+                        activation_number <=
+                                log->activation_binding_tokens.size()
+                            ? log->activation_binding_tokens[
+                                  activation_number - 1]
+                            : "binding-" +
+                                  std::to_string(activation_number);
+                }
+                if (activation_number == log->block_activation_number) {
+                    log->blocked_activation_entered = true;
+                    log->cv.notify_all();
+                    log->cv.wait(lk, [&] {
+                        return log->release_blocked_activation;
+                    });
+                }
+            }
             if (type == "channel.deactivate") log->deactivations.push_back(request);
             log->cv.notify_all();
         }
@@ -402,6 +446,9 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
                 {"outbound",
                  nlohmann::json{{"mode", "webhook"}, {"url", outbound_url}}},
             };
+            if (!binding_token.empty()) {
+                status["binding_token"] = binding_token;
+            }
             result.stdout_text = status.dump();
         }
         return result;
@@ -708,12 +755,192 @@ TEST(SessionChannelBinderIntegration, BindRebindOffLifecycle) {
     EXPECT_TRUE(hx.cfg.remote_control.bound_session_id.empty());
     {
         std::lock_guard<std::mutex> lk(hx.runner_log->mu);
-        ASSERT_GE(hx.runner_log->deactivations.size(), 1u);
+        ASSERT_EQ(hx.runner_log->deactivations.size(), 2u);
+        EXPECT_EQ(hx.runner_log->deactivations.front()["session_id"], s1);
+        EXPECT_EQ(hx.runner_log->deactivations.front()["binding_token"],
+                  "binding-1");
         EXPECT_EQ(hx.runner_log->deactivations.back()["session_id"], s2);
+        EXPECT_EQ(hx.runner_log->deactivations.back()["binding_token"],
+                  "binding-2");
     }
 
     hx.registry.destroy(s1);
     hx.registry.destroy(s2);
+}
+
+TEST(SessionChannelBinderIntegration,
+     LegacyBindingKeepsSessionOnlyDeactivateShape) {
+    BinderHarness hx("legacy-token");
+    hx.runner_log->emit_binding_token = false;
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    const auto sid = hx.client.create_session({});
+
+    auto bind = binder.execute_command(sid, "");
+    ASSERT_TRUE(bind.ok) << bind.message;
+    auto off = binder.execute_command(sid, "off");
+    ASSERT_TRUE(off.ok) << off.message;
+
+    std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+    ASSERT_EQ(hx.runner_log->deactivations.size(), 1u);
+    EXPECT_EQ(hx.runner_log->deactivations.front(),
+              nlohmann::json({
+                  {"type", "channel.deactivate"},
+                  {"protocol_version", 1},
+                  {"session_id", sid},
+              }));
+    hx.registry.destroy(sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     SameSessionReactivationScopesStaleAndCurrentDeactivateTokens) {
+    BinderHarness hx("same-session-token");
+    hx.runner_log->activation_binding_tokens = {"token-A", "token-B"};
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    const auto sid = hx.client.create_session({});
+
+    auto first = binder.execute_command(sid, "");
+    ASSERT_TRUE(first.ok) << first.message;
+    auto second = binder.execute_command(sid, "");
+    ASSERT_TRUE(second.ok) << second.message;
+
+    ASSERT_TRUE(hx.runner_log->wait_for_deactivations(
+        1, std::chrono::seconds(5)));
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        ASSERT_EQ(hx.runner_log->deactivations.size(), 1u);
+        EXPECT_EQ(hx.runner_log->deactivations.front()["session_id"], sid);
+        EXPECT_EQ(hx.runner_log->deactivations.front()["binding_token"],
+                  "token-A");
+    }
+
+    auto off = binder.execute_command(sid, "off");
+    ASSERT_TRUE(off.ok) << off.message;
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        ASSERT_EQ(hx.runner_log->deactivations.size(), 2u);
+        EXPECT_EQ(hx.runner_log->deactivations.back()["session_id"], sid);
+        EXPECT_EQ(hx.runner_log->deactivations.back()["binding_token"],
+                  "token-B");
+    }
+    hx.registry.destroy(sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     SameSessionLegacyReactivationSkipsUnscopedStaleDeactivate) {
+    BinderHarness hx("same-session-legacy");
+    hx.runner_log->emit_binding_token = false;
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    const auto sid = hx.client.create_session({});
+
+    ASSERT_TRUE(binder.execute_command(sid, "").ok);
+    ASSERT_TRUE(binder.execute_command(sid, "").ok);
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        EXPECT_TRUE(hx.runner_log->deactivations.empty());
+    }
+
+    ASSERT_TRUE(binder.execute_command(sid, "off").ok);
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        ASSERT_EQ(hx.runner_log->deactivations.size(), 1u);
+        EXPECT_FALSE(
+            hx.runner_log->deactivations.front().contains("binding_token"));
+    }
+    hx.registry.destroy(sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     ConcurrentReplaceAndOffUseTheBindingCurrentAfterReplacement) {
+    BinderHarness hx("replace-off-race");
+    hx.runner_log->activation_binding_tokens = {"token-A", "token-B"};
+    hx.runner_log->block_activation_number = 2;
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    const auto sid = hx.client.create_session({});
+
+    auto first = binder.execute_command(sid, "");
+    ASSERT_TRUE(first.ok) << first.message;
+
+    auto replacing = std::async(std::launch::async, [&] {
+        return binder.execute_command(sid, "");
+    });
+    const bool replacement_blocked =
+        hx.runner_log->wait_for_blocked_activation(std::chrono::seconds(5));
+    if (!replacement_blocked) hx.runner_log->release_activation();
+    ASSERT_TRUE(replacement_blocked);
+
+    auto closing = std::async(std::launch::async, [&] {
+        return binder.execute_command(sid, "off");
+    });
+    EXPECT_EQ(closing.wait_for(std::chrono::milliseconds(200)),
+              std::future_status::timeout);
+
+    hx.runner_log->release_activation();
+    ASSERT_EQ(replacing.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    const auto replacement = replacing.get();
+    ASSERT_TRUE(replacement.ok) << replacement.message;
+    ASSERT_EQ(closing.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    const auto off = closing.get();
+    ASSERT_TRUE(off.ok) << off.message;
+
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        ASSERT_EQ(hx.runner_log->deactivations.size(), 2u);
+        EXPECT_EQ(hx.runner_log->deactivations.front()["session_id"], sid);
+        EXPECT_EQ(hx.runner_log->deactivations.front()["binding_token"],
+                  "token-A");
+        EXPECT_EQ(hx.runner_log->deactivations.back()["session_id"], sid);
+        EXPECT_EQ(hx.runner_log->deactivations.back()["binding_token"],
+                  "token-B");
+    }
+    EXPECT_TRUE(binder.bound_session_id().empty());
+    hx.registry.destroy(sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     ShutdownSerializesWithActivationWithoutDeactivatingPlugin) {
+    BinderHarness hx("activate-shutdown-race");
+    hx.runner_log->activation_binding_tokens = {"token-A"};
+    hx.runner_log->block_activation_number = 1;
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    const auto sid = hx.client.create_session({});
+
+    auto activating = std::async(std::launch::async, [&] {
+        return binder.execute_command(sid, "");
+    });
+    const bool activation_blocked =
+        hx.runner_log->wait_for_blocked_activation(std::chrono::seconds(5));
+    if (!activation_blocked) hx.runner_log->release_activation();
+    ASSERT_TRUE(activation_blocked);
+
+    auto shutting_down = std::async(std::launch::async, [&] {
+        binder.shutdown();
+    });
+    EXPECT_EQ(shutting_down.wait_for(std::chrono::milliseconds(200)),
+              std::future_status::timeout);
+
+    hx.runner_log->release_activation();
+    ASSERT_EQ(activating.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    const auto activation = activating.get();
+    ASSERT_TRUE(activation.ok) << activation.message;
+    ASSERT_EQ(shutting_down.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    shutting_down.get();
+
+    EXPECT_FALSE(hx.service.running());
+    EXPECT_TRUE(binder.bound_session_id().empty());
+    EXPECT_EQ(hx.cfg.remote_control.bound_session_id, sid);
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        EXPECT_TRUE(hx.runner_log->deactivations.empty());
+    }
+    const auto after_shutdown = binder.execute_command(sid, "");
+    EXPECT_FALSE(after_shutdown.ok);
+    EXPECT_NE(after_shutdown.message.find("shutting down"),
+              std::string::npos);
+    hx.registry.destroy(sid);
 }
 
 // 需求③④:固定确认已前移到 hub 合法入站路径,因此 Token/Done 不再触发或
@@ -833,8 +1060,17 @@ TEST(SessionChannelBinderIntegration, ConsecutiveOutboundFailuresTriggerReactiva
               std::future_status::ready);
     (void)pending.get();
 
-    binder.shutdown();
+    auto off = binder.execute_command(s1, "off");
+    ASSERT_TRUE(off.ok) << off.message;
     EXPECT_FALSE(hx.service.running());
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        ASSERT_EQ(hx.runner_log->deactivations.size(), 2u);
+        EXPECT_EQ(hx.runner_log->deactivations.front()["binding_token"],
+                  "binding-1");
+        EXPECT_EQ(hx.runner_log->deactivations.back()["binding_token"],
+                  "binding-2");
+    }
     hx.registry.destroy(s1);
 }
 

@@ -189,12 +189,18 @@ nlohmann::json channel_activation_request_to_json(const ChannelActivationRequest
     };
 }
 
-nlohmann::json channel_deactivation_request_to_json(const std::string& session_id) {
-    return nlohmann::json{
+nlohmann::json channel_deactivation_request_to_json(
+    const std::string& session_id,
+    const std::string& binding_token) {
+    nlohmann::json request{
         {"type", "channel.deactivate"},
         {"protocol_version", kChannelPluginProtocolVersion},
         {"session_id", session_id},
     };
+    if (!binding_token.empty()) {
+        request["binding_token"] = binding_token;
+    }
+    return request;
 }
 
 bool parse_channel_plugin_status_json(const nlohmann::json& j,
@@ -235,6 +241,14 @@ bool parse_channel_plugin_status_json(const nlohmann::json& j,
             return false;
         }
         status.message = j["message"].get<std::string>();
+    }
+    if (j.contains("binding_token")) {
+        if (!j["binding_token"].is_string() ||
+            j["binding_token"].get_ref<const std::string&>().empty()) {
+            set_error(error, "field must be a non-empty string: binding_token");
+            return false;
+        }
+        status.binding_token = j["binding_token"].get<std::string>();
     }
     if (j.contains("outbound")) {
         if (!j["outbound"].is_object()) {
@@ -332,13 +346,15 @@ ChannelPluginActivationResult ChannelPluginHost::activate(
 
 bool ChannelPluginHost::deactivate(const ChannelPluginManifest& manifest,
                                    const std::string& session_id,
+                                   const std::string& binding_token,
                                    int timeout_ms,
                                    std::string* error) const {
     if (error) error->clear();
     if (!validate_stdio_manifest(manifest, error)) return false;
 
     HookCommandSpec command{manifest.command, manifest.args};
-    const std::string stdin_text = channel_deactivation_request_to_json(session_id).dump() + "\n";
+    const std::string stdin_text =
+        channel_deactivation_request_to_json(session_id, binding_token).dump() + "\n";
     HookProcessResult result =
         runner_(command, stdin_text, effective_timeout_ms(manifest, timeout_ms), manifest.cwd);
     if (!result.started) {

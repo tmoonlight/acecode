@@ -42,6 +42,7 @@ struct ChannelPluginStatus {
     std::string outbound_mode;
     std::string outbound_url;
     std::string message;
+    std::optional<std::string> binding_token;
 
     bool connected() const { return state == "connected"; }
     bool failed() const { return state == "failed"; }
@@ -60,7 +61,9 @@ std::optional<ChannelPluginManifest> load_channel_plugin_manifest(
     std::string* error = nullptr);
 
 nlohmann::json channel_activation_request_to_json(const ChannelActivationRequest& request);
-nlohmann::json channel_deactivation_request_to_json(const std::string& session_id);
+nlohmann::json channel_deactivation_request_to_json(
+    const std::string& session_id,
+    const std::string& binding_token = {});
 
 bool parse_channel_plugin_status_json(const nlohmann::json& j,
                                       ChannelPluginStatus* out,
@@ -82,8 +85,18 @@ public:
 
     bool deactivate(const ChannelPluginManifest& manifest,
                     const std::string& session_id,
+                    const std::string& binding_token,
                     int timeout_ms,
                     std::string* error = nullptr) const;
+
+    // Source-compatible legacy call shape for bindings whose activation status
+    // did not provide a binding token.
+    bool deactivate(const ChannelPluginManifest& manifest,
+                    const std::string& session_id,
+                    int timeout_ms,
+                    std::string* error = nullptr) const {
+        return deactivate(manifest, session_id, {}, timeout_ms, error);
+    }
 
     static Runner default_runner();
 

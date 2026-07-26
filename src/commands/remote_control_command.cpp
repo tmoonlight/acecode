@@ -18,6 +18,7 @@ struct ActiveChannelBinding {
     std::string name;
     rc::ChannelPluginManifest manifest;
     std::string session_id;
+    std::string binding_token;
     int timeout_ms = 10000;
 };
 
@@ -190,6 +191,7 @@ void activate_default_channel(CommandContext& ctx) {
         channel_name,
         *manifest,
         request.session_id,
+        activation.status.binding_token.value_or(std::string{}),
         timeout_ms,
     });
 
@@ -206,7 +208,8 @@ void deactivate_active_channel_best_effort(std::string* warning) {
     if (!active.has_value()) return;
     std::string error;
     rc::ChannelPluginHost host;
-    if (!host.deactivate(active->manifest, active->session_id, active->timeout_ms, &error) &&
+    if (!host.deactivate(active->manifest, active->session_id,
+                         active->binding_token, active->timeout_ms, &error) &&
         warning) {
         *warning = error;
     }

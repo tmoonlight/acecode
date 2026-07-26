@@ -226,6 +226,7 @@ private:
         std::string name;
         ChannelPluginManifest manifest;
         ChannelActivationRequest request;
+        std::string binding_token;
         int timeout_ms = 10000;
         std::uint64_t generation = 0;
     };
@@ -241,6 +242,9 @@ private:
     void ensure_keepalive_thread();
     void keepalive_loop();
     ChannelPluginHost make_plugin_host() const;
+    void deactivate_replaced_channel_best_effort(
+        const std::optional<ActiveChannel>& previous,
+        const ActiveChannel& current) const;
     static void deactivate_context(
         const std::shared_ptr<BindingContext>& context);
     static void emit_question_texts(

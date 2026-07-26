@@ -353,6 +353,12 @@ MCP servers can add more tools at runtime.
 3. `/remote-control on` and `/remote-control url http://127.0.0.1:<port>/<path>` — manual webhook fallback when no default channel plugin is configured.
 4. `/remote-control show` displays status, pairing info, and traffic counters. `/remote-control off` stops the listener and asks the active plugin to detach.
 
+Channel v1 plugins may return an opaque non-empty `binding_token` in their
+`channel.status` activation response. ACECode returns that token on the matching
+`channel.deactivate`, so delayed cleanup for an old instance cannot detach a
+newer binding of the same session. Plugins that omit the token retain the
+original session-only deactivation shape.
+
 **Inbound — channel → ACECode.** Forward each channel message as:
 
 ```bash
@@ -386,7 +392,7 @@ Injected text goes through the exact same submit path as typing in the input box
 - The token is required even for loopback callers (unlike the daemon's loopback bypass): any local process must not be able to inject prompts into a session that can execute tools.
 - Tool permission prompts and `AskUserQuestion` still need to be answered in the TUI in this version.
 
-Protocol and design details: [openspec/changes/add-remote-control/design.md](openspec/changes/add-remote-control/design.md).
+Protocol and lifecycle details: [docs/channel-plugin-protocol.md](docs/channel-plugin-protocol.md).
 
 ## Configuration Highlights
 
@@ -420,6 +426,7 @@ Model selection details are documented in [docs/model-context-resolution.md](doc
 - [docs/user-manual.md](docs/user-manual.md): user workflow details.
 - [docs/daemon-api.md](docs/daemon-api.md): daemon HTTP/WebSocket API.
 - [docs/hooks.md](docs/hooks.md): Codex-compatible lifecycle hooks, trust review, and Settings UI management.
+- [docs/channel-plugin-protocol.md](docs/channel-plugin-protocol.md): generic Channel v1 activation, binding identity, and deactivation contract.
 - [docs/model-context-resolution.md](docs/model-context-resolution.md): model profile and context-window resolution.
 - [docs/skills.md](docs/skills.md): skill authoring and usage.
 - [docs/skills-implementation.md](docs/skills-implementation.md): skill runtime implementation notes.

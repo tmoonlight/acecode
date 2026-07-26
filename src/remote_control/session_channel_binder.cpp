@@ -215,6 +215,29 @@ ChannelPluginHost SessionChannelBinder::make_plugin_host() const {
                                : ChannelPluginHost();
 }
 
+void SessionChannelBinder::deactivate_replaced_channel_best_effort(
+    const std::optional<ActiveChannel>& previous,
+    const ActiveChannel& current) const {
+    if (!previous.has_value()) return;
+
+    const bool same_session =
+        previous->request.session_id == current.request.session_id;
+    if (same_session &&
+        (previous->binding_token.empty() || current.binding_token.empty() ||
+         previous->binding_token == current.binding_token)) {
+        // A session-only stale cleanup could detach the replacement. Equal
+        // tokens describe the same current binding rather than a stale one.
+        return;
+    }
+
+    std::string error;
+    auto host = make_plugin_host();
+    if (!host.deactivate(previous->manifest, previous->request.session_id,
+                         previous->binding_token, previous->timeout_ms, &error)) {
+        LOG_WARN("[remote-control] replaced channel deactivate failed: " + error);
+    }
+}
+
 std::string SessionChannelBinder::bound_session_id() const {
     std::lock_guard<std::mutex> lk(mu_);
     return binding_.bound_session();
@@ -335,6 +358,7 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
     std::string old_session;
     SessionClient::SubscriptionId old_sub = 0;
     std::shared_ptr<BindingContext> old_context;
+    std::optional<ActiveChannel> old_active;
     std::uint64_t generation = 0;
     // Hub route 是入站 generation 的线性化点：先切断后续接受，再更新 binder
     // 状态。此前已由 handle_inbound 快照接受的 callback 仍按旧 session 完成。
@@ -345,6 +369,8 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
         old_sub = sub_id_;
         sub_id_ = 0;
         old_context = std::move(binding_context_);
+        old_active = active_channel_;
+        active_channel_.reset();
         generation = binding_.bind(session_id);
     }
     deactivate_context(old_context);
@@ -470,13 +496,20 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
         return {false, "Failed to activate channel '" + channel_name + "': " + error};
     }
 
+    ActiveChannel current_channel{
+        channel_name,
+        *manifest,
+        request,
+        activation.status.binding_token.value_or(std::string{}),
+        timeout_ms,
+        generation,
+    };
     service.set_outbound_url(activation.status.outbound_url);
     {
         std::lock_guard<std::mutex> lk(mu_);
         sub_id_ = sub;
         binding_context_ = context;
-        active_channel_ = ActiveChannel{channel_name, *manifest, request,
-                                        timeout_ms, generation};
+        active_channel_ = current_channel;
         decider_ = KeepaliveDecider(deps_.failure_threshold, deps_.health_interval);
         decider_.note_reactivated(KeepaliveDecider::Clock::now());
         reactivate_now_ = false;
@@ -535,6 +568,7 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
         }
     });
 
+    deactivate_replaced_channel_best_effort(old_active, current_channel);
     persist_binding(session_id, token);
     ensure_keepalive_thread();
 
@@ -594,7 +628,7 @@ SessionChannelBinder::CommandOutcome SessionChannelBinder::unbind_and_stop() {
         std::string error;
         auto host = make_plugin_host();
         if (!host.deactivate(active->manifest, active->request.session_id,
-                             active->timeout_ms, &error)) {
+                             active->binding_token, active->timeout_ms, &error)) {
             warning = error;
         }
     }
@@ -618,6 +652,11 @@ void SessionChannelBinder::shutdown() {
         cv_.notify_all();
     }
     if (keepalive_thread_.joinable()) keepalive_thread_.join();
+
+    // Bind/off/keepalive process calls are serialized by op_mu_. Join first so
+    // a keepalive already waiting for op_mu_ can observe stop_requested_ and
+    // leave, then fence command operations before tearing down shared state.
+    std::lock_guard<std::mutex> op(op_mu_);
 
     // 行为⑥:先停 rc 服务 —— teardown 期间不再接受 channel 入站,也避免
     // 静态析构阶段才停监听的 Crow/asio 顺序问题(镜像 TUI teardown 的顺序,
@@ -745,7 +784,9 @@ void SessionChannelBinder::keepalive_loop() {
             std::optional<ActiveChannel> snapshot;
             {
                 std::lock_guard<std::mutex> state(mu_);
-                snapshot = active_channel_;
+                if (!stop_requested_) {
+                    snapshot = active_channel_;
+                }
             }
             if (snapshot.has_value()) {
                 std::string error;
@@ -755,6 +796,8 @@ void SessionChannelBinder::keepalive_loop() {
                 auto activation = host.activate(snapshot->manifest, snapshot->request,
                                                 snapshot->timeout_ms, &error);
                 std::shared_ptr<BindingContext> announce_context;
+                std::optional<ActiveChannel> replaced_channel;
+                std::optional<ActiveChannel> current_channel;
                 {
                     std::lock_guard<std::mutex> state(mu_);
                     if (active_channel_.has_value() &&
@@ -765,6 +808,11 @@ void SessionChannelBinder::keepalive_loop() {
                             // 地址变化才重发当前问题，避免周期探活每分钟刷屏。
                             deps_.service->set_outbound_url(
                                 activation.status.outbound_url);
+                            replaced_channel = active_channel_;
+                            active_channel_->binding_token =
+                                activation.status.binding_token.value_or(
+                                    std::string{});
+                            current_channel = active_channel_;
                             const bool recovered =
                                 fire ||
                                 channel_recovery_pending_ ||
@@ -783,6 +831,11 @@ void SessionChannelBinder::keepalive_loop() {
                         decider_.note_reactivated(
                             KeepaliveDecider::Clock::now());
                     }
+                }
+                if (replaced_channel.has_value() &&
+                    current_channel.has_value()) {
+                    deactivate_replaced_channel_best_effort(
+                        replaced_channel, *current_channel);
                 }
                 if (announce_context) {
                     ContextLease lease(announce_context);
