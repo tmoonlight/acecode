@@ -4,6 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -267,4 +268,122 @@ TEST(ChannelPluginHost, DeactivationEchoesCurrentBindingToken) {
                                {"protocol_version", 1},
                                {"session_id", "session-legacy"},
                            }));
+}
+
+TEST(ChannelPluginHost, RedactsBindingTokenFromDeactivationFailures) {
+    ChannelPluginManifest manifest;
+    manifest.name = "chat";
+    manifest.command = "chat-channel.exe";
+
+    const std::string token = R"(binding-"secret\line)";
+    const std::string encoded = nlohmann::json(token).dump();
+    const std::string escaped =
+        encoded.substr(1, encoded.size() - 2);
+    auto expect_redacted =
+        [&](ChannelPluginHost::Runner runner,
+            const std::string& diagnostic_context) {
+            ChannelPluginHost host(std::move(runner));
+            std::string error;
+            EXPECT_FALSE(host.deactivate(
+                manifest, "session-1", token, 10000, &error));
+            EXPECT_EQ(error.find(token), std::string::npos) << error;
+            EXPECT_EQ(error.find(escaped), std::string::npos) << error;
+            EXPECT_NE(error.find("[binding token redacted]"),
+                      std::string::npos)
+                << error;
+            EXPECT_NE(error.find(diagnostic_context), std::string::npos)
+                << error;
+        };
+
+    expect_redacted(
+        [&](const HookCommandSpec&, const std::string&, int,
+            const std::string&) {
+            HookProcessResult result;
+            result.error = "runner launch rejected token " + token;
+            return result;
+        },
+        "runner launch rejected");
+
+    expect_redacted(
+        [&](const HookCommandSpec&, const std::string&, int,
+            const std::string&) {
+            HookProcessResult result;
+            result.started = true;
+            result.exit_code = 7;
+            result.stderr_text = "stderr rejected token " + token;
+            return result;
+        },
+        "stderr rejected");
+
+    expect_redacted(
+        [](const HookCommandSpec&, const std::string& stdin_text, int,
+           const std::string&) {
+            HookProcessResult result;
+            result.started = true;
+            result.exit_code = 8;
+            result.output = "request echo: " + stdin_text;
+            return result;
+        },
+        "channel.deactivate");
+
+    expect_redacted(
+        [&](const HookCommandSpec&, const std::string&, int,
+            const std::string&) {
+            HookProcessResult result;
+            result.started = true;
+            result.exit_code = 0;
+            result.stdout_text =
+                nlohmann::json{
+                    {"type", "channel.status"},
+                    {"state", "failed"},
+                    {"message", "status rejected token " + token},
+                }.dump();
+            return result;
+        },
+        "status rejected");
+
+    expect_redacted(
+        [&](const HookCommandSpec&, const std::string&, int,
+            const std::string&) -> HookProcessResult {
+            throw std::runtime_error(
+                "runner exception echoed token " + token);
+        },
+        "runner exception echoed");
+
+    expect_redacted(
+        [&](const HookCommandSpec&, const std::string&, int,
+            const std::string&) {
+            HookProcessResult result;
+            result.started = true;
+            result.exit_code = 0;
+            result.stdout_text =
+                nlohmann::json{
+                    {"type", "channel.status"},
+                    {"state", token},
+                }.dump();
+            return result;
+        },
+        "unsupported channel status state");
+}
+
+TEST(ChannelPluginHost, PreservesLegacyDeactivationDiagnostic) {
+    ChannelPluginManifest manifest;
+    manifest.name = "chat";
+    manifest.command = "chat-channel.exe";
+
+    ChannelPluginHost host(
+        [](const HookCommandSpec&, const std::string&, int,
+           const std::string&) {
+            HookProcessResult result;
+            result.error = "legacy detach rejected: retry manually";
+            return result;
+        });
+
+    std::string error;
+    EXPECT_FALSE(host.deactivate(
+        manifest, "session-legacy", 10000, &error));
+    EXPECT_EQ(error,
+              "failed to start channel plugin: "
+              "legacy detach rejected: retry manually");
+    EXPECT_EQ(error.find("redacted"), std::string::npos);
 }

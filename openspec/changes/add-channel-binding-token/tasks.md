@@ -21,3 +21,4 @@
 - [x] 4.1 Update the durable Channel v1 protocol documentation
 - [x] 4.2 Run focused Channel tests, the feasible full `acecode_unit_tests` suite, OpenSpec validation, and diff hygiene checks
 - [x] 4.3 Audit for provider-specific strings, complete task checkboxes, and commit the scoped change
+- [x] 4.4 Redact echoed binding tokens from deactivation failures and cover Host, binder, and TUI-facing error boundaries

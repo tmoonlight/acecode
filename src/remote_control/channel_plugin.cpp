@@ -65,6 +65,41 @@ std::string runner_error(const HookProcessResult& result) {
     return "plugin process failed";
 }
 
+void replace_all_exact(std::string* text,
+                       const std::string& needle,
+                       const std::string& replacement) {
+    if (!text || needle.empty()) return;
+    std::size_t pos = 0;
+    while ((pos = text->find(needle, pos)) != std::string::npos) {
+        text->replace(pos, needle.size(), replacement);
+        pos += replacement.size();
+    }
+}
+
+std::string redact_binding_token(std::string message,
+                                 const std::string& binding_token) {
+    if (binding_token.empty()) return message;
+
+    std::string replacement = "[binding token redacted]";
+    if (replacement.find(binding_token) != std::string::npos) {
+        // A pathological short token can itself occur in the marker. Removing
+        // it entirely is the only way to guarantee the secret is absent.
+        replacement.clear();
+    }
+
+    // A process may echo either the raw value or the JSON-escaped value copied
+    // from the request it received on stdin.
+    const std::string encoded = nlohmann::json(binding_token).dump();
+    const std::string escaped =
+        encoded.size() >= 2 ? encoded.substr(1, encoded.size() - 2)
+                            : std::string{};
+    if (escaped != binding_token) {
+        replace_all_exact(&message, escaped, replacement);
+    }
+    replace_all_exact(&message, binding_token, replacement);
+    return message;
+}
+
 int effective_timeout_ms(const ChannelPluginManifest& manifest, int override_ms) {
     if (override_ms > 0) return override_ms;
     return manifest.timeout_ms > 0 ? manifest.timeout_ms : 10000;
@@ -350,25 +385,39 @@ bool ChannelPluginHost::deactivate(const ChannelPluginManifest& manifest,
                                    int timeout_ms,
                                    std::string* error) const {
     if (error) error->clear();
-    if (!validate_stdio_manifest(manifest, error)) return false;
+    auto fail = [&](std::string message) {
+        set_error(error, redact_binding_token(std::move(message), binding_token));
+        return false;
+    };
+
+    std::string internal_error;
+    if (!validate_stdio_manifest(manifest, &internal_error)) {
+        return fail(std::move(internal_error));
+    }
 
     HookCommandSpec command{manifest.command, manifest.args};
     const std::string stdin_text =
         channel_deactivation_request_to_json(session_id, binding_token).dump() + "\n";
-    HookProcessResult result =
-        runner_(command, stdin_text, effective_timeout_ms(manifest, timeout_ms), manifest.cwd);
+    HookProcessResult result;
+    try {
+        result =
+            runner_(command, stdin_text,
+                    effective_timeout_ms(manifest, timeout_ms), manifest.cwd);
+    } catch (const std::exception& e) {
+        return fail(std::string("channel plugin runner threw: ") + e.what());
+    } catch (...) {
+        return fail("channel plugin runner threw an unknown exception");
+    }
     if (!result.started) {
-        set_error(error, "failed to start channel plugin: " + runner_error(result));
-        return false;
+        return fail("failed to start channel plugin: " + runner_error(result));
     }
     if (result.timed_out) {
-        set_error(error, "channel plugin timed out");
-        return false;
+        return fail("channel plugin timed out");
     }
     if (result.exit_code != 0) {
-        set_error(error, "channel plugin exited with code " +
-                             std::to_string(result.exit_code) + ": " + runner_error(result));
-        return false;
+        return fail("channel plugin exited with code " +
+                    std::to_string(result.exit_code) + ": " +
+                    runner_error(result));
     }
     if (result.stdout_text.empty()) return true;
 
@@ -376,12 +425,14 @@ bool ChannelPluginHost::deactivate(const ChannelPluginManifest& manifest,
     if (status_json.is_discarded()) return true;
 
     ChannelPluginStatus status;
-    if (!parse_channel_plugin_status_json(status_json, &status, error)) return false;
+    if (!parse_channel_plugin_status_json(
+            status_json, &status, &internal_error)) {
+        return fail(std::move(internal_error));
+    }
     if (status.failed()) {
-        set_error(error, status.message.empty()
-                             ? "channel plugin reported failed"
-                             : status.message);
-        return false;
+        return fail(status.message.empty()
+                        ? "channel plugin reported failed"
+                        : status.message);
     }
     return true;
 }

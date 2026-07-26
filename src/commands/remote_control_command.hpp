@@ -26,6 +26,8 @@ struct RemoteControlDisplaySnapshot {
 };
 
 std::string format_remote_control_display(const RemoteControlDisplaySnapshot& snap);
+std::string format_remote_control_stop_message(
+    const std::string& deactivate_warning);
 
 void register_remote_control_command(CommandRegistry& registry);
 

@@ -375,6 +375,7 @@ struct RunnerLog {
     std::size_t block_activation_number = 0;
     bool blocked_activation_entered = false;
     bool release_blocked_activation = false;
+    bool fail_deactivation_with_request_echo = false;
 
     bool wait_for_activations(std::size_t n, std::chrono::milliseconds timeout) {
         std::unique_lock<std::mutex> lk(mu);
@@ -413,6 +414,7 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
         const std::string type =
             request.is_object() ? request.value("type", "") : "";
         std::string binding_token;
+        bool fail_deactivation = false;
         {
             std::unique_lock<std::mutex> lk(log->mu);
             if (type == "channel.activate") {
@@ -435,7 +437,11 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
                     });
                 }
             }
-            if (type == "channel.deactivate") log->deactivations.push_back(request);
+            if (type == "channel.deactivate") {
+                log->deactivations.push_back(request);
+                fail_deactivation =
+                    log->fail_deactivation_with_request_echo;
+            }
             log->cv.notify_all();
         }
         if (type == "channel.activate") {
@@ -450,6 +456,10 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
                 status["binding_token"] = binding_token;
             }
             result.stdout_text = status.dump();
+        } else if (fail_deactivation) {
+            result.started = false;
+            result.error =
+                "deactivation request rejected: " + stdin_text;
         }
         return result;
     };
@@ -788,6 +798,39 @@ TEST(SessionChannelBinderIntegration,
                   {"protocol_version", 1},
                   {"session_id", sid},
               }));
+    hx.registry.destroy(sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     DeactivationWarningRedactsBindingTokenFromRequestEcho) {
+    BinderHarness hx("deactivate-error-redaction");
+    const std::string token = R"(binding-"secret\line)";
+    const std::string encoded = nlohmann::json(token).dump();
+    const std::string escaped =
+        encoded.substr(1, encoded.size() - 2);
+    hx.runner_log->activation_binding_tokens = {token};
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    const auto sid = hx.client.create_session({});
+
+    auto bind = binder.execute_command(sid, "");
+    ASSERT_TRUE(bind.ok) << bind.message;
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        hx.runner_log->fail_deactivation_with_request_echo = true;
+    }
+
+    const auto off = binder.execute_command(sid, "off");
+    ASSERT_TRUE(off.ok) << off.message;
+    EXPECT_NE(off.message.find("Channel deactivate warning"),
+              std::string::npos);
+    EXPECT_NE(off.message.find("deactivation request rejected"),
+              std::string::npos);
+    EXPECT_NE(off.message.find("[binding token redacted]"),
+              std::string::npos);
+    EXPECT_EQ(off.message.find(token), std::string::npos)
+        << off.message;
+    EXPECT_EQ(off.message.find(escaped), std::string::npos)
+        << off.message;
     hx.registry.destroy(sid);
 }
 

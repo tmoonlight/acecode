@@ -58,6 +58,8 @@ For a token-aware binding:
 
 When activation returned no token, ACECode emits the original three-field request with no `binding_token`. The serializer does not invent, persist, trim, log, or display a token.
 
+External process failures are sanitized at the `ChannelPluginHost::deactivate` boundary. ACECode replaces the exact known token, including its JSON-escaped request representation, in runner exceptions, process diagnostics, parser errors, and status messages before returning an error to daemon logs or user-facing command text. Legacy calls have no token to redact and retain their original diagnostics.
+
 ### 3. Current identity is owned by the binding generation
 
 Daemon `ActiveChannel` and the TUI's active binding retain the activation token beside the session and manifest. Explicit off first invalidates inbound/event callbacks, snapshots the current active binding, then deactivates using that snapshot's session and token.

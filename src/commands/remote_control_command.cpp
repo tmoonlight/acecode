@@ -258,9 +258,7 @@ void cmd_remote_control(CommandContext& ctx, const std::string& args) {
         std::string warning;
         deactivate_active_channel_best_effort(&warning);
         service.stop();
-        std::string message = "Remote control stopped.";
-        if (!warning.empty()) message += "\nChannel deactivate warning: " + warning;
-        emit(ctx, message);
+        emit(ctx, format_remote_control_stop_message(warning));
         return;
     }
     if (sub.rfind("url", 0) == 0) {
@@ -289,6 +287,15 @@ void cmd_remote_control(CommandContext& ctx, const std::string& args) {
 }
 
 } // anonymous namespace
+
+std::string format_remote_control_stop_message(
+    const std::string& deactivate_warning) {
+    std::string message = "Remote control stopped.";
+    if (!deactivate_warning.empty()) {
+        message += "\nChannel deactivate warning: " + deactivate_warning;
+    }
+    return message;
+}
 
 std::string format_remote_control_display(const RemoteControlDisplaySnapshot& snap) {
     std::ostringstream oss;

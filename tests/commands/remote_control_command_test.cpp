@@ -4,6 +4,7 @@
 #include "config/config.hpp"
 #include "commands/remote_control_command.hpp"
 #include "permissions.hpp"
+#include "remote_control/channel_plugin.hpp"
 #include "remote_control/remote_control_service.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
@@ -19,6 +20,7 @@ namespace fs = std::filesystem;
 using acecode::CommandRegistry;
 using acecode::RemoteControlDisplaySnapshot;
 using acecode::format_remote_control_display;
+using acecode::format_remote_control_stop_message;
 
 namespace {
 
@@ -130,6 +132,47 @@ TEST(RemoteControlCommand, ShowAndOffAreSafeWhenStopped) {
 
     ASSERT_TRUE(h.dispatch("/remote-control off"));
     EXPECT_NE(h.last_system_message().find("Remote control is not running"), std::string::npos);
+}
+
+TEST(RemoteControlCommand,
+     StopMessageDoesNotReintroduceRedactedBindingToken) {
+    acecode::rc::ChannelPluginManifest manifest;
+    manifest.name = "chat";
+    manifest.command = "chat-channel.exe";
+    const std::string token = "binding-secret-for-ui";
+    acecode::rc::ChannelPluginHost host(
+        [&](const acecode::HookCommandSpec&, const std::string&, int,
+            const std::string&) {
+            acecode::HookProcessResult result;
+            result.started = true;
+            result.exit_code = 0;
+            result.stdout_text =
+                nlohmann::json{
+                    {"type", "channel.status"},
+                    {"state", "failed"},
+                    {"message", "detach refused for " + token},
+                }.dump();
+            return result;
+        });
+
+    std::string error;
+    ASSERT_FALSE(host.deactivate(
+        manifest, "session-1", token, 10000, &error));
+    const std::string text =
+        format_remote_control_stop_message(error);
+    EXPECT_NE(text.find("Channel deactivate warning"),
+              std::string::npos);
+    EXPECT_NE(text.find("detach refused"), std::string::npos);
+    EXPECT_NE(text.find("[binding token redacted]"),
+              std::string::npos);
+    EXPECT_EQ(text.find(token), std::string::npos) << text;
+
+    EXPECT_EQ(
+        format_remote_control_stop_message(
+            "legacy detach rejected: retry manually"),
+        "Remote control stopped.\n"
+        "Channel deactivate warning: "
+        "legacy detach rejected: retry manually");
 }
 
 // 场景:/remote-control 状态输出(运行中)。期望:包含入站端点、token header、

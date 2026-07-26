@@ -30,6 +30,14 @@ ACECode SHALL serialize `channel.deactivate` from one atomic current-binding sna
 - **WHEN** the current binding was activated without a token
 - **THEN** the request contains only the Channel v1 type, protocol version, and `session_id` fields
 
+#### Scenario: Failed deactivation echoes a binding token
+- **WHEN** a token-aware plugin includes the current `binding_token` in a runner exception, process diagnostic, request echo, parser error, or status message
+- **THEN** ACECode redacts that exact token before returning, logging, or displaying the failure
+
+#### Scenario: Legacy deactivation reports an error
+- **WHEN** a legacy binding without a token fails to deactivate
+- **THEN** ACECode preserves the plugin's diagnostic text
+
 #### Scenario: Keepalive rotates binding identity
 - **WHEN** a current binding with token `A` is successfully reactivated and the matching generation returns token `B`
 - **THEN** ACECode atomically makes `B` current and any later explicit close uses `B`

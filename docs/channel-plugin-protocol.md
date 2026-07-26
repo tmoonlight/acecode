@@ -84,6 +84,11 @@ ACECode does not send a stale session-only cleanup after replacing a legacy
 binding with another binding of the same session, because that request cannot
 distinguish the old and new instances.
 
+If a failed deactivation process echoes the binding token in an exception,
+process diagnostic, request dump, or `channel.status.message`, ACECode replaces
+the exact token before the error can reach logs, command results, or UI text.
+Legacy deactivation errors are preserved because no binding token was sent.
+
 Explicit `/remote-control off` deactivates the current binding snapshot.
 Daemon shutdown intentionally stops only the local listener and retains the
 configured session for startup rebuild, so it does not send plugin
