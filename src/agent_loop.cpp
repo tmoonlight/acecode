@@ -2359,6 +2359,9 @@ bool AgentLoop::execute_tool_calls(
             auto args_json = nlohmann::json::parse(tc.function_arguments);
             if (args_json.contains("file_path") && args_json["file_path"].is_string()) {
                 ctx_path = args_json["file_path"].get<std::string>();
+            } else if (args_json.contains("image_path") &&
+                       args_json["image_path"].is_string()) {
+                ctx_path = args_json["image_path"].get<std::string>();
             } else if (args_json.contains("path") && args_json["path"].is_string()) {
                 ctx_path = args_json["path"].get<std::string>();
             }

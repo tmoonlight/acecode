@@ -11,6 +11,7 @@
 #include "grep_tool.hpp"
 #include "lsp_tool.hpp"
 #include "plan_mode_tool.hpp"
+#include "show_image_tool.hpp"
 #include "task_complete_tool.hpp"
 #include "todo_write_tool.hpp"
 #include "tool_executor.hpp"
@@ -26,6 +27,7 @@ inline void register_session_builtin_tools(ToolExecutor& tools, const AppConfig&
     tools.register_tool(create_file_read_tool());
     tools.register_tool(create_file_write_tool());
     tools.register_tool(create_file_edit_tool());
+    tools.register_tool(create_show_image_tool());
     tools.register_tool(create_grep_tool());
     tools.register_tool(create_glob_tool());
     tools.register_tool(create_task_complete_tool());
