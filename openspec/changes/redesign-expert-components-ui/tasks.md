@@ -60,3 +60,8 @@
 - [x] 8.3 Make explicit expert Skill and MCP selections override global enable/disable lists while preserving global defaults for inheriting sessions and all downstream permission/security checks.
 - [x] 8.4 Render ACECode local tools as checkboxes and derive inherited/custom defaults from runtime-backed global enabled state.
 - [x] 8.5 Add focused frontend/C++/HTTP regression tests, run Web tests/build, build the C++ targets, validate OpenSpec strictly, and perform real-browser interaction checks for the four follow-up behaviors.
+
+## 9. Standalone opening-prompt draft regression
+
+- [x] 9.1 Preserve a standalone expert detail opening prompt through new-task composer draft initialization and consume the route payload only after the staged draft has been applied.
+- [x] 9.2 Add focused regression coverage and verify the Web suite/build, strict OpenSpec validation, diff hygiene, and the real standalone-detail interaction.

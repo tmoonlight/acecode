@@ -105,6 +105,7 @@ import {
 import { normalizeTokenBudget } from '../lib/tokenBudget.js';
 import { pickModelLoad } from '../lib/modelLoad.js';
 import {
+  expertDispatchDraftFromRef,
   normalizeExperts,
   normalizeExpertSwitchReceipt,
   resolveCanonicalExpertSwitchPoll,
@@ -546,6 +547,7 @@ const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
+  const stagedExpertDraft = expertDispatchDraftFromRef(ref);
   const readOnlyExternalSession = !!(
     ref?.readOnly || ref?.read_only
   );
@@ -719,12 +721,6 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const expertSwitchQueueRef = useRef(Promise.resolve());
   const [expertPickerOpen, setExpertPickerOpen] = useState(false);
 
-  useEffect(() => {
-    if (!sid && Object.prototype.hasOwnProperty.call(ref || {}, 'initialDraftText')) {
-      onInitialDraftConsumed?.();
-    }
-  }, [onInitialDraftConsumed, ref, sid]);
-
   const [modelState, setModelState] = useState(null);
   // 模型池负载快照(每 30s 轮询 /api/model-pool-status)。
   const [poolModels, setPoolModels] = useState([]);
@@ -768,7 +764,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const previewPanelResizeActiveRef = useRef(false);
   const renderedPreviewPanelWidthRef = useRef(previewPanelWidth);
   const [composerValue, setComposerValue] = useState(
-    () => String(ref?.initialDraftText || ''),
+    () => stagedExpertDraft.text,
   );
   const [composerAttachments, setComposerAttachments] = useState([]);
   const [composerContexts, setComposerContexts] = useState([]);
@@ -1329,9 +1325,10 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     setComposerSubmitting(false);
 
     if (!targetSid || !targetKey) {
-      composerDirtyRef.current = false;
-      setComposerValue('');
+      composerDirtyRef.current = stagedExpertDraft.present;
+      setComposerValue(stagedExpertDraft.text);
       draftLastSavedRef.current = { key: '', text: '' };
+      if (stagedExpertDraft.present) onInitialDraftConsumed?.();
       return () => { cancelled = true; };
     }
 
@@ -1354,7 +1351,12 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       });
 
     return () => { cancelled = true; };
-  }, [api, draftSessionKey, draftWorkspaceHash, sid]);
+  // stagedExpertDraft deliberately stays out of the dependency list. App
+  // consumes the one-shot route payload after this effect applies it; that
+  // parent re-render must not immediately run this effect again and clear the
+  // composer. A real session/workspace transition still changes the existing
+  // dependencies and performs the normal draft reset/load.
+  }, [api, draftSessionKey, draftWorkspaceHash, onInitialDraftConsumed, sid]);
 
   useEffect(() => {
     const targetSid = sid;

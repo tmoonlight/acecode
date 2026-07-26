@@ -4,6 +4,7 @@ import {
   collectExpertTags,
   createExpertInternalId,
   emptyExpertForm,
+  expertDispatchDraftFromRef,
   expertFormFromDetail,
   expertPayloadFromForm,
   filterExperts,
@@ -107,6 +108,27 @@ test('recent and created sorting have real deterministic meanings', () => {
 
 test('line list parser trims, removes blank lines, and de-duplicates in order', () => {
   assert.deepEqual(parseLineList(' 架构设计 \n\n代码质量\n架构设计\r\n'), ['架构设计', '代码质量']);
+});
+
+test('standalone expert opening prompt remains a one-shot new-task draft', () => {
+  assert.deepEqual(
+    expertDispatchDraftFromRef({ initialDraftText: '帮我确定最应该先验证的假设' }),
+    {
+      present: true,
+      text: '帮我确定最应该先验证的假设',
+    },
+  );
+  assert.deepEqual(
+    expertDispatchDraftFromRef({ initialDraftText: null }),
+    {
+      present: true,
+      text: '',
+    },
+  );
+  assert.deepEqual(expertDispatchDraftFromRef({}), {
+    present: false,
+    text: '',
+  });
 });
 
 test('new expert forms generate valid hidden IDs', () => {

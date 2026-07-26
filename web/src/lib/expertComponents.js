@@ -30,6 +30,15 @@ export function parseLineList(value) {
   return normalizeStringList(String(value || '').split(/\r?\n/));
 }
 
+export function expertDispatchDraftFromRef(value) {
+  const ref = value && typeof value === 'object' ? value : {};
+  const present = Object.prototype.hasOwnProperty.call(ref, 'initialDraftText');
+  return {
+    present,
+    text: present ? String(ref.initialDraftText ?? '') : '',
+  };
+}
+
 function optionalScope(capabilities, key) {
   if (!capabilities || typeof capabilities !== 'object'
       || !Object.prototype.hasOwnProperty.call(capabilities, key)) {

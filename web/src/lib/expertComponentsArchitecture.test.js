@@ -29,6 +29,7 @@ test('standalone expert page dispatches to the real new-task composer without re
   const editor = source('components/ExpertEditor.jsx');
   const catalog = source('components/ExpertCatalog.jsx');
   const app = source('App.jsx');
+  const chat = source('components/ChatView.jsx');
   const styles = source('styles/globals.css');
   assert.match(page, /data-expert-components-page="true"/);
   assert.match(catalog, /api\.listExperts/);
@@ -42,6 +43,11 @@ test('standalone expert page dispatches to the real new-task composer without re
   assert.match(app, /initialDraftText: String\(prompt\)/);
   assert.match(app, /onDispatchToNewTask=\{dispatchExpertToNewTask\}/);
   assert.match(app, /onInitialDraftConsumed=\{consumeInitialDraftText\}/);
+  assert.match(chat, /const stagedExpertDraft = expertDispatchDraftFromRef\(ref\)/);
+  assert.match(
+    chat,
+    /if \(!targetSid \|\| !targetKey\) \{[\s\S]{0,300}setComposerValue\(stagedExpertDraft\.text\);[\s\S]{0,300}onInitialDraftConsumed\?\.\(\)/,
+  );
   assert.doesNotMatch(page, /api\.setSessionDraft/);
   assert.doesNotMatch(page, /<InputBar|data-composer|模拟聊天|悬浮输入/);
   assert.doesNotMatch(page, /window\.confirm|window\.alert/);
