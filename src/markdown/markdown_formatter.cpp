@@ -21,6 +21,31 @@ using namespace ftxui;
 
 namespace acecode::markdown {
 
+MarkdownLinkRegion& MarkdownLinkRegionCollector::add(std::string href) {
+    regions_.push_back({std::move(href), {}});
+    return regions_.back();
+}
+
+void MarkdownLinkRegionCollector::clear() {
+    regions_.clear();
+}
+
+std::optional<std::string> MarkdownLinkRegionCollector::href_at(
+    int x,
+    int y) const {
+    for (const auto& region : regions_) {
+        if (!region.box.IsEmpty() && region.box.Contain(x, y)) {
+            return region.href;
+        }
+    }
+    return std::nullopt;
+}
+
+const std::deque<MarkdownLinkRegion>&
+MarkdownLinkRegionCollector::regions() const {
+    return regions_;
+}
+
 // ---------------------------------------------------------------------------
 // XML tag stripping (matches claude-code stripPromptXMLTags)
 // ---------------------------------------------------------------------------
@@ -192,8 +217,10 @@ static void flatten_inline(const std::vector<Token>& tokens,
     }
 }
 
-// Apply TextStyle to an FTXUI Element
-static Element apply_style(const std::string& txt, const TextStyle& style) {
+// Apply TextStyle to an FTXUI Element.
+static Element apply_style(const std::string& txt,
+                           const TextStyle& style,
+                           const FormatOptions& opts) {
     Element e = text(txt);
 
     const auto& md = acecode::tui::theme().markdown;
@@ -213,6 +240,11 @@ static Element apply_style(const std::string& txt, const TextStyle& style) {
     if (style.italic) e = e | italic;
     if (style.underline) e = e | underlined;
     if (style.dim) e = e | dim;
+
+    if (style.is_link && opts.hyperlinks && opts.link_regions) {
+        auto& region = opts.link_regions->add(style.href);
+        e = e | reflect(region.box);
+    }
 
     return e;
 }
@@ -252,7 +284,8 @@ static bool is_closing_cjk_punct(const std::string& g) {
 
 // Split styled runs into word-level Elements for flexbox paragraph wrapping.
 // CJK-aware: each wide glyph becomes its own token so flexbox can wrap.
-static Elements styled_words(const std::vector<StyledRun>& runs) {
+static Elements styled_words(const std::vector<StyledRun>& runs,
+                             const FormatOptions& opts) {
     Elements words;
 
     for (const auto& run : runs) {
@@ -272,7 +305,7 @@ static Elements styled_words(const std::vector<StyledRun>& runs) {
                 token = std::move(pending_prefix) + token;
                 pending_prefix.clear();
             }
-            words.push_back(apply_style(std::move(token), run.style));
+            words.push_back(apply_style(std::move(token), run.style, opts));
         };
 
         for (const auto& g : glyphs) {
@@ -300,11 +333,11 @@ static Elements styled_words(const std::vector<StyledRun>& runs) {
                     // Append closing punct to previous token by replacing it
                     // We create a new combined element instead
                     // Simpler: emit as own token (flexbox will keep it adjacent)
-                    words.push_back(apply_style(g, run.style));
+                    words.push_back(apply_style(g, run.style, opts));
                 } else if (!pending_prefix.empty()) {
                     pending_prefix += g;
                 } else {
-                    words.push_back(apply_style(g, run.style));
+                    words.push_back(apply_style(g, run.style, opts));
                 }
                 continue;
             }
@@ -321,16 +354,18 @@ static Elements styled_words(const std::vector<StyledRun>& runs) {
                 token = std::move(pending_prefix) + token;
                 pending_prefix.clear();
             }
-            words.push_back(apply_style(std::move(token), run.style));
+            words.push_back(apply_style(std::move(token), run.style, opts));
         }
 
         flush_ascii();
         if (!pending_prefix.empty()) {
             if (!words.empty()) {
                 // Orphan opening punct — attach to previous
-                words.push_back(apply_style(std::move(pending_prefix), run.style));
+                words.push_back(
+                    apply_style(std::move(pending_prefix), run.style, opts));
             } else {
-                words.push_back(apply_style(std::move(pending_prefix), run.style));
+                words.push_back(
+                    apply_style(std::move(pending_prefix), run.style, opts));
             }
             pending_prefix.clear();
         }
@@ -341,7 +376,8 @@ static Elements styled_words(const std::vector<StyledRun>& runs) {
 
 // Build a paragraph Element from inline tokens with word wrapping.
 // Splits at \n boundaries, then uses flexbox per line (like FTXUI paragraph).
-static Element styled_paragraph(const std::vector<Token>& inline_tokens) {
+static Element styled_paragraph(const std::vector<Token>& inline_tokens,
+                                const FormatOptions& opts) {
     std::vector<StyledRun> runs;
     TextStyle base_style;
     flatten_inline(inline_tokens, base_style, runs);
@@ -374,7 +410,7 @@ static Element styled_paragraph(const std::vector<Token>& inline_tokens) {
     static const auto config = FlexboxConfig().SetGap(0, 0);
 
     for (const auto& lr : line_runs) {
-        auto words = styled_words(lr);
+        auto words = styled_words(lr, opts);
         if (words.empty()) {
             line_elements.push_back(text(""));
         } else {
@@ -447,7 +483,7 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
 
     // -- Heading --
     case TokenType::Heading: {
-        Element content = styled_paragraph(token.children);
+        Element content = styled_paragraph(token.children, ctx.opts);
         switch (token.depth) {
             case 1:
                 content = content | bold | italic | underlined | color(acecode::tui::theme().markdown.heading);
@@ -464,7 +500,7 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
 
     // -- Paragraph --
     case TokenType::Paragraph: {
-        return styled_paragraph(token.children);
+        return styled_paragraph(token.children, ctx.opts);
     }
 
     // -- Code block --
@@ -568,8 +604,11 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
         for (const auto& child : token.children) {
             if (child.type == TokenType::Text) {
                 // Inline text — render as styled paragraph
-                content_parts.push_back(styled_paragraph(child.children.empty() ?
-                    parse_inline(child.text) : child.children));
+                content_parts.push_back(styled_paragraph(
+                    child.children.empty()
+                        ? parse_inline(child.text)
+                        : child.children,
+                    ctx.opts));
             } else if (child.type == TokenType::List) {
                 // Nested list
                 FormatContext nested = ctx;
@@ -604,7 +643,7 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
         // Header row
         std::vector<Element> header_row;
         for (const auto& cell : token.header_cells) {
-            header_row.push_back(styled_paragraph(cell));
+            header_row.push_back(styled_paragraph(cell, ctx.opts));
         }
         table_data.push_back(std::move(header_row));
 
@@ -613,7 +652,7 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
             std::vector<Element> elem_row;
             for (size_t c = 0; c < num_cols; c++) {
                 if (c < row.size()) {
-                    elem_row.push_back(styled_paragraph(row[c]));
+                    elem_row.push_back(styled_paragraph(row[c], ctx.opts));
                 } else {
                     elem_row.push_back(text(""));
                 }
@@ -644,10 +683,10 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
     // -- Inline text (shouldn't appear at block level, but handle gracefully) --
     case TokenType::Text: {
         if (!token.children.empty()) {
-            return styled_paragraph(token.children);
+            return styled_paragraph(token.children, ctx.opts);
         }
         auto inline_tokens = parse_inline(token.text);
-        return styled_paragraph(inline_tokens);
+        return styled_paragraph(inline_tokens, ctx.opts);
     }
 
     // -- Other inline types at block level (shouldn't normally happen) --

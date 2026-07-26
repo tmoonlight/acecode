@@ -119,6 +119,7 @@
 #include "worktree/worktree_core.hpp"
 #include "worktree/worktree_manager.hpp"
 #include "tui/chat_line_measure.hpp"
+#include "tui/chat_file_link.hpp"
 #include "tui/chat_message_spacing.hpp"
 #include "tui/chat_scroll.hpp"
 #include "tui/chat_render_window.hpp"
@@ -3257,6 +3258,7 @@ struct TuiRendererContext {
     Box& sidebar_scrollbar_box;
     std::vector<Box>& message_boxes;
     std::vector<Box>& path_reference_boxes;
+    acecode::markdown::MarkdownLinkRegionCollector& chat_link_regions;
     std::vector<Box>& message_layout_boxes;
     std::vector<char>& message_layout_valid;
     std::vector<std::size_t>& message_layout_revisions;
@@ -3288,6 +3290,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& sidebar_scrollbar_box = ctx.sidebar_scrollbar_box;
     auto& message_boxes = ctx.message_boxes;
     auto& path_reference_boxes = ctx.path_reference_boxes;
+    auto& chat_link_regions = ctx.chat_link_regions;
     auto& message_layout_boxes = ctx.message_layout_boxes;
     auto& message_layout_valid = ctx.message_layout_valid;
     auto& message_layout_revisions = ctx.message_layout_revisions;
@@ -3384,6 +3387,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     }
 
     message_boxes.assign(n_msgs, Box{});
+    chat_link_regions.clear();
     message_layout_boxes.assign(n_msgs, Box{});
     message_layout_valid.assign(n_msgs, 0);
     message_layout_revisions.assign(n_msgs, 0);
@@ -3493,6 +3497,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             md_opts.syntax_highlight = true;
             md_opts.hyperlinks = true;
             md_opts.strip_xml = true;
+            md_opts.link_regions = &chat_link_regions;
             return acecode::markdown::format_markdown(content, md_opts);
         } catch (...) {
             return paragraph(content) | color(fallback_color);
@@ -4794,6 +4799,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // 读取路径保持一致的 "PostEvent happens-before" 模型.
     std::vector<Box> message_boxes;
     std::vector<Box> path_reference_boxes;
+    acecode::markdown::MarkdownLinkRegionCollector chat_link_regions;
     std::vector<Box> message_layout_boxes;
     std::vector<char> message_layout_valid;
     std::vector<std::size_t> message_layout_revisions;
@@ -6073,7 +6079,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
 #if ACECODE_TUI_INPUT_TRACE
         if (event != Event::Custom &&
             !event.is_cursor_position() &&
@@ -7591,6 +7597,35 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
 
+            // TUI chat file links: exact reflected link hits take priority over
+            // scrollbar and drag-selection startup. Non-local links fall
+            // through so the existing selection path remains unchanged.
+            if (mouse.button == Mouse::Left &&
+                mouse.motion == Mouse::Pressed) {
+                if (const auto href =
+                        chat_link_regions.href_at(mouse.x, mouse.y)) {
+                    const auto opened = acecode::tui::open_tui_chat_file_link(
+                        *href,
+                        agent_loop.cwd());
+                    if (opened.handled) {
+                        const std::string status_msg = opened.ok
+                            ? "Opened file location in system file manager"
+                            : "Unable to open file location: " +
+                                  (opened.error.empty()
+                                       ? std::string("unknown error")
+                                       : opened.error);
+                        {
+                            std::lock_guard<std::mutex> lk(state.mu);
+                            set_transient_status_line_locked(
+                                state,
+                                status_msg);
+                        }
+                        screen.PostEvent(Event::Custom);
+                        return true;
+                    }
+                }
+            }
+
             auto reflected_box_rows = [](const Box& box) {
                 return box.IsEmpty() ? 0 : box.y_max - box.y_min + 1;
             };
@@ -8368,6 +8403,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         sidebar_scrollbar_box,
         message_boxes,
         path_reference_boxes,
+        chat_link_regions,
         message_layout_boxes,
         message_layout_valid,
         message_layout_revisions,
