@@ -82,6 +82,7 @@ run('composer footer preserves required left-to-right control order', () => {
 
   expectInOrder(footer, [
     'data-composer-control="add-context"',
+    'data-composer-control="swarm-mode"',
     'data-composer-control="expert"',
     'data-composer-control="permission"',
     'data-composer-control="selected-contexts"',
@@ -91,9 +92,36 @@ run('composer footer preserves required left-to-right control order', () => {
     'data-composer-control="submit"',
   ]);
   assert.match(footer, /\{expertName && \(/);
+  assert.match(footer, /\{swarmMode && \(/);
+  assert.match(footer, /data-composer-control="swarm-mode"[\s\S]*role="status"/);
+  assert.match(footer, /<SwarmModeIcon size=\{14\}/);
+  assert.match(footer, /aria-label="关闭蜂群模式"/);
   assert.match(footer, /data-composer-control="expert"[\s\S]*role="status"/);
   assert.match(footer, /当前专家组件：\$\{expertName\}/);
   assert.doesNotMatch(footer, /openMenu === 'expert'|onExpertChange|expertLocked/);
+});
+
+run('swarm mode uses the shared composer menu and a one-turn payload lifecycle', () => {
+  const chatView = source('components/ChatView.jsx');
+  const inputBar = source('components/InputBar.jsx');
+  const icon = source('components/SwarmModeIcon.jsx');
+
+  assert.match(inputBar, /role="menuitemcheckbox"/);
+  assert.match(inputBar, /aria-checked=\{swarmMode\}/);
+  assert.match(inputBar, /<SwarmModeIcon size=\{15\}/);
+  assert.match(inputBar, />蜂群模式</);
+  assert.match(icon, /HEX_CELLS/);
+  assert.match(icon, /<polygon/);
+  assert.equal((icon.match(/\[[\d.]+,\s*[\d.]+\]/g) || []).length, 7);
+  assert.match(icon, /stroke="currentColor"/);
+
+  assert.match(chatView, /const \[composerSwarmMode, setComposerSwarmMode\] = useState\(false\)/);
+  assert.match(chatView, /if \(swarmMode\) payload\.swarm_mode = true/);
+  assert.match(chatView, /swarmMode: composerSwarmMode/);
+  assert.match(chatView, /const explicitHomeSend = !isBuiltin && \(hasExtras \|\| hasSwarmMode/);
+  assert.match(chatView, /preserveExtras: hasSwarmMode/);
+  assert.match(chatView, /if \(!preserveSwarm\) setComposerSwarmMode\(false\)/);
+  assert.match(chatView, /clearComposerExtras\(\{ preserveSwarm: isBuiltin \}\)/);
 });
 
 run('selected contexts remain accessible while the composer footer stays on one row', () => {

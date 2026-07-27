@@ -64,6 +64,7 @@ WebServer::Impl::parse_session_user_input_request(
     std::string client_message_id;
     json attachment_refs = json::array();
     json contexts = json::array();
+    bool swarm_mode = false;
 
     try {
         auto payload = json::parse(body);
@@ -80,6 +81,13 @@ WebServer::Impl::parse_session_user_input_request(
         }
         if (payload.contains("contexts") && payload["contexts"].is_array()) {
             contexts = payload["contexts"];
+        }
+        if (payload.contains("swarm_mode")) {
+            if (!payload["swarm_mode"].is_boolean()) {
+                result.error = "swarm_mode must be a boolean";
+                return result;
+            }
+            swarm_mode = payload["swarm_mode"].get<bool>();
         }
         if (payload.contains("client_message_id") &&
             payload["client_message_id"].is_string()) {
@@ -180,6 +188,9 @@ WebServer::Impl::parse_session_user_input_request(
     }
     if (!client_message_id.empty()) {
         result.input.metadata["client_message_id"] = client_message_id;
+    }
+    if (swarm_mode) {
+        result.input.metadata["swarm_mode"] = true;
     }
 
     if (!attachment_refs.empty() || !contexts.empty()) {

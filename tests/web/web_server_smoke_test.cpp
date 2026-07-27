@@ -3612,9 +3612,22 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
     ASSERT_EQ(post.status_code, 201);
     auto sid = json::parse(post.text)["session_id"].get<std::string>();
 
+    auto invalid = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"text":"invalid swarm","swarm_mode":"true"})"});
+    ASSERT_EQ(invalid.status_code, 400) << invalid.text;
+    EXPECT_EQ(
+        json::parse(invalid.text)["error"],
+        "swarm_mode must be a boolean");
+
     auto queued = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
                             cpr::Header{{"Content-Type", "application/json"}},
-                            cpr::Body{R"({"text":"hello from http submit","client_message_id":"queued-test-1"})"});
+                            cpr::Body{R"({
+                                "text":"hello from http submit",
+                                "client_message_id":"queued-test-1",
+                                "swarm_mode":true
+                            })"});
     ASSERT_EQ(queued.status_code, 202) << queued.text;
     EXPECT_TRUE(json::parse(queued.text)["queued"].get<bool>());
 
@@ -3628,7 +3641,8 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
             if (m.value("role", "") == "user" &&
                 m.value("content", "") == "hello from http submit" &&
                 m.contains("metadata") && m["metadata"].is_object() &&
-                m["metadata"].value("client_message_id", "") == "queued-test-1") {
+                m["metadata"].value("client_message_id", "") == "queued-test-1" &&
+                m["metadata"].value("swarm_mode", false)) {
                 found = true;
                 break;
             }
@@ -3636,6 +3650,38 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
         if (!found) std::this_thread::sleep_for(20ms);
     }
     EXPECT_TRUE(found) << "HTTP submit should be owned by daemon session";
+
+    auto ordinary = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({
+            "text":"ordinary follow-up",
+            "client_message_id":"queued-test-2"
+        })"});
+    ASSERT_EQ(ordinary.status_code, 202) << ordinary.text;
+
+    bool ordinary_found = false;
+    deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline && !ordinary_found) {
+        auto r = cpr::Get(
+            cpr::Url{fx.url("/api/sessions/" + sid + "/messages")});
+        ASSERT_EQ(r.status_code, 200) << r.text;
+        auto j = json::parse(r.text);
+        for (const auto& m : j["messages"]) {
+            if (m.value("role", "") == "user" &&
+                m.value("content", "") == "ordinary follow-up" &&
+                m.contains("metadata") && m["metadata"].is_object() &&
+                m["metadata"].value("client_message_id", "") ==
+                    "queued-test-2" &&
+                !m["metadata"].contains("swarm_mode")) {
+                ordinary_found = true;
+                break;
+            }
+        }
+        if (!ordinary_found) std::this_thread::sleep_for(20ms);
+    }
+    EXPECT_TRUE(ordinary_found)
+        << "ordinary follow-up should not inherit swarm metadata";
 }
 
 TEST(WebServerHttp, TurnSteerValidatesIdentityAndCommitsAcceptedInput) {

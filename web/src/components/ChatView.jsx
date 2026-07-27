@@ -245,14 +245,16 @@ function fileToBase64(file) {
   });
 }
 
-function normalizeComposerPayload(text, attachments = [], contexts = []) {
-  return {
+function normalizeComposerPayload(text, attachments = [], contexts = [], swarmMode = false) {
+  const payload = {
     text: String(text || ''),
     attachments: attachments
       .filter((item) => item && !item.uploading && item.id)
       .map((item) => ({ id: item.id })),
     contexts: contexts.map(normalizeComposerContext).filter(Boolean),
   };
+  if (swarmMode) payload.swarm_mode = true;
+  return payload;
 }
 
 function payloadHasExtras(payload) {
@@ -780,6 +782,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   );
   const [composerAttachments, setComposerAttachments] = useState([]);
   const [composerContexts, setComposerContexts] = useState([]);
+  const [composerSwarmMode, setComposerSwarmMode] = useState(false);
   const [selectionPreview, setSelectionPreview] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
@@ -1044,7 +1047,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     setComposerValue(next);
   }, []);
 
-  const clearComposerExtras = useCallback(() => {
+  const clearComposerExtras = useCallback(({ preserveSwarm = false } = {}) => {
     setComposerAttachments((items) => {
       for (const item of items) {
         if (item?.preview_url && item.preview_url.startsWith('blob:')) {
@@ -1054,6 +1057,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       return [];
     });
     setComposerContexts([]);
+    if (!preserveSwarm) setComposerSwarmMode(false);
     setSelectionAction(null);
     selectionPreviewFingerprintRef.current = '';
     setSelectionPreview(null);
@@ -1355,9 +1359,12 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     onRemoveAttachment: removeComposerAttachment,
     onRemoveContext: removeComposerContext,
     onPinSelectionPreview: pinSelectionContext,
+    swarmMode: composerSwarmMode,
+    onSwarmModeChange: setComposerSwarmMode,
   }), [
     composerAttachments,
     composerContexts,
+    composerSwarmMode,
     handleMediaFiles,
     pinSelectionContext,
     removeComposerAttachment,
@@ -2232,8 +2239,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       toast({ kind: 'err', text: '附件仍在上传，请稍后发送' });
       return;
     }
-    const payload = normalizeComposerPayload(text, composerAttachments, composerContexts);
+    const payload = normalizeComposerPayload(
+      text,
+      composerAttachments,
+      composerContexts,
+      composerSwarmMode,
+    );
     const hasExtras = payloadHasExtras(payload);
+    const hasSwarmMode = payload.swarm_mode === true;
     if (!payload.text.trim() && !hasExtras) return;
     const route = inputRouteForText(payload.text);
     if (route.kind === 'desktop_feedback') {
@@ -2298,7 +2311,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       });
       if (started) {
         clearCurrentSessionDraft();
-        clearComposerExtras();
+        clearComposerExtras({ preserveSwarm: true });
         restoreChatInputFocusSoon(false);
       }
       return;
@@ -2362,16 +2375,20 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       const worktreeIntent = !isBuiltin
         ? buildWorktreeIntent({ ...gitPillIntentRef.current, sessionStarted: false })
         : null;
-      const createOptions = hasExtras || worktreeIntent
+      const explicitHomeSend = !isBuiltin && (hasExtras || hasSwarmMode || !!worktreeIntent);
+      const createOptions = explicitHomeSend
         ? { auto_start: false }
         : sessionCreateOptionsForText(payload.text);
-      createHomeComposerSession(payload.text, { createOptions })
+      createHomeComposerSession(payload.text, {
+        createOptions,
+        preserveExtras: hasSwarmMode,
+      })
         .then(async (created) => {
           const id = created?.id;
           if (!id) return;
           if (isBuiltin) {
             await executeBuiltinCommand(id, route.command);
-          } else if (hasExtras || worktreeIntent) {
+          } else if (explicitHomeSend) {
             applyEvent({ type: 'busy_changed', payload: { busy: true } }, { emitEffects: false });
             const sendPayload = worktreeIntent
               ? { ...payload, worktree: worktreeIntent }
@@ -2391,12 +2408,12 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             }
           }
           if (payload.text.trim()) recordInputHistory(payload.text);
-          if (hasExtras) {
+          if (!isBuiltin && (hasExtras || hasSwarmMode)) {
             clearComposerExtras();
           }
         })
         .catch((e) => {
-          if (hasExtras || worktreeIntent) {
+          if (explicitHomeSend) {
             applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
           }
           toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
@@ -2445,14 +2462,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
         if (payload.text.trim()) recordInputHistory(payload.text);
         if (!ref?.title) setTranscriptTitle(payload.text || composerAttachments[0]?.name || '附件消息');
         clearCurrentSessionDraft();
-        clearComposerExtras();
+        clearComposerExtras({ preserveSwarm: isBuiltin });
       })
       .catch((e) => {
         toast({ kind: 'err', text: '发送失败:' + (e.message || '') });
         applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
       })
       .finally(() => setComposerSubmitting(false));
-  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, clearComposerExtras, createHomeComposerSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash]);
+  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmMode, clearComposerExtras, createHomeComposerSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash]);
 
   const drainQueuedInput = useCallback(() => {
     const targetSid = sidRef.current;

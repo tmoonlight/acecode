@@ -179,6 +179,39 @@ run('排队提交复用稳定 id 作为请求关联键和接受后投影', () =>
   });
 });
 
+run('蜂群模式在排队、重试和请求重建时保持，普通消息不产生该字段', () => {
+  let state = createChatInputQueueState();
+  state = enqueueQueuedInput(state, {
+    sessionId: 's1',
+    payload: {
+      text: '并行检查实现和测试',
+      attachments: [],
+      contexts: [],
+      swarm_mode: true,
+    },
+    now: 100,
+  });
+  const swarm = nextQueuedInput(state, 's1');
+  assert.equal(swarm.queued.payload.swarm_mode, true);
+  assert.equal(queuedInputRequestPayload(swarm).swarm_mode, true);
+
+  state = markQueuedInputSending(state, swarm.queued.id, { now: 150 });
+  state = markQueuedInputFailed(state, swarm.queued.id, 'network');
+  state = retryQueuedInput(state, swarm.queued.id);
+  const retried = nextQueuedInput(state, 's1');
+  assert.equal(retried.queued.payload.swarm_mode, true);
+  assert.equal(queuedInputRequestPayload(retried).swarm_mode, true);
+
+  state = enqueueQueuedInput(state, {
+    sessionId: 's2',
+    payload: { text: '普通消息', attachments: [], contexts: [] },
+    now: 200,
+  });
+  const ordinary = nextQueuedInput(state, 's2');
+  assert.equal(Object.hasOwn(ordinary.queued.payload, 'swarm_mode'), false);
+  assert.equal(Object.hasOwn(queuedInputRequestPayload(ordinary), 'swarm_mode'), false);
+});
+
 run('cancelled 项不会出现在可见队列也不会被发送', () => {
   let state = createChatInputQueueState();
   state = enqueueQueuedInput(state, { sessionId: 's1', text: 'one' });

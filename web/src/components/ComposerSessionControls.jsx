@@ -4,6 +4,7 @@ import { loadTier, loadTierTextClass } from '../lib/modelLoad.js';
 import { PERMISSION_MODES, normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
 import { buildStatusBarModelMenu } from '../lib/sessionModel.js';
 import { RefreshIcon, VsIcon } from './Icon.jsx';
+import { SwarmModeIcon } from './SwarmModeIcon.jsx';
 import { TokenBudgetRing } from './TokenBudgetRing.jsx';
 
 function permissionTextClass(color) {
@@ -83,6 +84,8 @@ export function ComposerSessionControls({
   permissionMode = 'default',
   permissionSwitching = false,
   onPermissionModeChange,
+  swarmMode = false,
+  onDisableSwarm,
   expertId = '',
   expertName = '',
   expertType = 'agent',
@@ -162,6 +165,29 @@ export function ComposerSessionControls({
         >
           {addControl}
         </div>
+
+        {swarmMode && (
+          <div
+            data-composer-control="swarm-mode"
+            role="status"
+            aria-label="已开启蜂群模式"
+            title="下一条普通消息将积极派遣子 Agent"
+            className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md bg-accent-bg px-2 text-accent"
+          >
+            <SwarmModeIcon size={14} className="shrink-0" />
+            <span className="text-[11px] font-medium">蜂群模式</span>
+            <button
+              type="button"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={onDisableSwarm}
+              title="关闭蜂群模式"
+              aria-label="关闭蜂群模式"
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-accent opacity-70 hover:bg-accent-bg hover:opacity-100"
+            >
+              <VsIcon name="close" size={11} />
+            </button>
+          </div>
+        )}
 
         {expertName && (
           <div

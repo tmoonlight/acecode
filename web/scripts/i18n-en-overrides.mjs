@@ -341,4 +341,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '批注 {{p0}}，原文已变化': 'Annotation {{p0}}, source text changed',
   '批注 {{p0}}': 'Annotation {{p0}}',
   '{{p0}} · 原文已变化': '{{p0}} · Source text changed',
+  '添加能力或上下文': 'Add capability or context',
+  '蜂群模式': 'Swarm mode',
+  '已开启蜂群模式': 'Swarm mode enabled',
+  '下一条普通消息将积极派遣子 Agent': 'The next regular message will proactively dispatch subagents',
+  '关闭蜂群模式': 'Disable swarm mode',
 });

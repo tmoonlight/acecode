@@ -17,11 +17,13 @@ function normalizeText(text) {
 
 function normalizePayload({ text, payload } = {}) {
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-    return {
+    const normalized = {
       text: normalizeText(payload.text),
       attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
       contexts: Array.isArray(payload.contexts) ? payload.contexts : [],
     };
+    if (payload.swarm_mode === true) normalized.swarm_mode = true;
+    return normalized;
   }
   return {
     text: normalizeText(text),

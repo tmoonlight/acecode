@@ -1810,6 +1810,10 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
         session_context_cache_key_, session_context_cache_content_);
     std::vector<ChatMessage> mutable_context_messages;
     append_request_context_for_api(mutable_context_messages, session_context);
+    std::string swarm_mode_context = build_swarm_mode_context_prompt(
+        active_turn_swarm_mode_, spawn_subagent_available);
+    append_request_context_for_api(
+        mutable_context_messages, swarm_mode_context);
     std::string request_context = build_request_context_prompt(cwd_);
     append_request_context_for_api(mutable_context_messages, request_context);
     std::string hook_context = drain_hook_request_context();
@@ -1847,8 +1851,9 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
 
     auto prompt_diag = build_prompt_cache_diagnostics(
         system_prompt,
-        session_context + "\n" + request_context + "\n" + plan_mode_context +
-            "\n" + hook_context + "\n" + format_todo_injection(todo_context_items),
+        session_context + "\n" + swarm_mode_context + "\n" +
+            request_context + "\n" + plan_mode_context + "\n" +
+            hook_context + "\n" + format_todo_injection(todo_context_items),
         bundle.tool_defs);
     bundle.prompt_diag = {
         {"system", prompt_diag.static_system_prompt_hash},
@@ -3153,6 +3158,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     // inject_if_running 在无活动回合时静默跳过)。
     pending_goal_budget_limit_steering_.store(false);
     pending_goal_objective_steering_.store(false);
+    active_turn_swarm_mode_ = false;
 
     if (!hidden_goal_context && hook_manager_) {
         auto fields = build_hook_common_fields(kCodexHookEventUserPromptSubmit);
@@ -3179,6 +3185,16 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             return;
         }
     }
+
+    active_turn_swarm_mode_ =
+        input.metadata.is_object() &&
+        input.metadata.contains("swarm_mode") &&
+        input.metadata["swarm_mode"].is_boolean() &&
+        input.metadata["swarm_mode"].get<bool>();
+    struct ActiveTurnSwarmModeReset {
+        bool& active;
+        ~ActiveTurnSwarmModeReset() { active = false; }
+    } swarm_mode_reset{active_turn_swarm_mode_};
 
     // Codex pre-turn compaction estimates the pending input but summarizes only
     // already-recorded history. Persisting first would put the new request into

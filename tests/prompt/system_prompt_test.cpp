@@ -455,3 +455,26 @@ TEST_F(SystemPromptTest, GeneralNonCodeRequestsAreAllowed) {
     EXPECT_NE(out.find("non-code help"), std::string::npos);
     EXPECT_NE(out.find("forcing them into a codebase frame"), std::string::npos);
 }
+
+TEST_F(SystemPromptTest, SwarmModeContextIsRequestLocalAndPolicyGated) {
+    EXPECT_TRUE(
+        acecode::build_swarm_mode_context_prompt(false, true).empty());
+    EXPECT_TRUE(
+        acecode::build_swarm_mode_context_prompt(true, false).empty());
+
+    const std::string swarm =
+        acecode::build_swarm_mode_context_prompt(true, true);
+    EXPECT_NE(swarm.find("# Swarm Mode"), std::string::npos);
+    EXPECT_NE(swarm.find("two or three"), std::string::npos);
+    EXPECT_NE(swarm.find("spawn_subagent"), std::string::npos);
+    EXPECT_NE(swarm.find("wait=false"), std::string::npos);
+    EXPECT_NE(swarm.find("wait_subagent"), std::string::npos);
+    EXPECT_NE(swarm.find("read-heavy"), std::string::npos);
+    EXPECT_NE(swarm.find("same-file"), std::string::npos);
+    EXPECT_NE(swarm.find("final verification"), std::string::npos);
+
+    acecode::ToolExecutor tools;
+    const std::string static_prompt =
+        acecode::build_system_prompt(tools, temp_home.string());
+    EXPECT_EQ(static_prompt.find("# Swarm Mode"), std::string::npos);
+}

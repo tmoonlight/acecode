@@ -697,6 +697,24 @@ std::string build_request_context_prompt(const std::string& cwd) {
     return oss.str();
 }
 
+std::string build_swarm_mode_context_prompt(
+    bool enabled,
+    bool spawn_subagent_available) {
+    if (!enabled || !spawn_subagent_available) return {};
+
+    return R"(<swarm-mode>
+# Swarm Mode
+
+The user explicitly enabled proactive subagent delegation for this turn.
+
+- At the start, identify at least two concrete, bounded, independent workstreams. When a safe split exists, proactively launch two or three useful subagents early without waiting for the user to ask again.
+- Fan out independent `spawn_subagent` calls with `wait=false` before joining them with `wait_subagent`. Keep the main agent working on complementary critical-path work while the children run.
+- Prefer read-heavy investigation or non-overlapping write scopes. Give each child a specific deliverable and enough context to work independently.
+- Keep reconciliation, source-of-truth checks, integration, and final verification with the main agent.
+- Do not create ceremonial subagents for trivial or tightly sequential work, approval-sensitive actions, or same-file write-heavy scopes likely to conflict. If no useful safe split exists, continue locally.
+</swarm-mode>)";
+}
+
 std::string prompt_component_hash(const std::string& text) {
     std::uint64_t h = 14695981039346656037ull;
     for (unsigned char c : text) {

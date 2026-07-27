@@ -17,6 +17,7 @@ import { SelectionAnnotationBadge } from './SelectionAnnotationBadge.jsx';
 import { ComposerSessionControls } from './ComposerSessionControls.jsx';
 import { ExpertAvatar, compactExpertSummary } from './ExpertCatalog.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
+import { SwarmModeIcon } from './SwarmModeIcon.jsx';
 import { RichComposer } from './RichComposer.jsx';
 import { PathReferenceDropdown } from './PathReferenceDropdown.jsx';
 import { SlashDropdown } from './SlashDropdown.jsx';
@@ -129,6 +130,7 @@ export const InputBar = forwardRef(function InputBar({
   value: controlledValue, onChange,
   attachments = [], contexts = [], annotationPresentations = null,
   onMediaFiles, onRemoveAttachment, onRemoveContext,
+  swarmMode = false, onSwarmModeChange,
   expertOptions = [],
   selectedExpertId = '',
   selectedExpertName = '',
@@ -189,7 +191,7 @@ export const InputBar = forwardRef(function InputBar({
   const nativeContextPickerAvailable = hasNativeContextPicker();
   const canChooseLocalContext = !!onMediaFiles || nativeContextPickerAvailable;
   const hasExpertHandlers = !!onSelectExpert || !!onOpenExpertComponents;
-  const hasCapabilityHandlers = canChooseLocalContext || hasExpertHandlers;
+  const hasCapabilityHandlers = !!onSwarmModeChange || canChooseLocalContext || hasExpertHandlers;
   const isImageAttachment = (item) => String(item.kind || item.mime_type || '').startsWith('image');
   const imageAttachments = attachmentItems.filter(isImageAttachment);
   const fileAttachments = attachmentItems.filter((item) => !isImageAttachment(item));
@@ -651,6 +653,18 @@ export const InputBar = forwardRef(function InputBar({
     }
   }, []);
 
+  const toggleSwarmMode = useCallback(() => {
+    setCapabilityOpen(false);
+    closeExpertSubmenu(false);
+    onSwarmModeChange?.(!swarmMode);
+    requestComposerCaretRestore();
+  }, [
+    closeExpertSubmenu,
+    onSwarmModeChange,
+    requestComposerCaretRestore,
+    swarmMode,
+  ]);
+
   const handleExpertSubmenuKeyDown = useCallback((event) => {
     const items = [...(expertSubmenuRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])];
     const currentIndex = Math.max(0, items.indexOf(document.activeElement));
@@ -753,8 +767,8 @@ export const InputBar = forwardRef(function InputBar({
         disabled={disabled || !hasCapabilityHandlers}
         className="w-7 h-7 rounded-full flex items-center justify-center text-fg-mute hover:bg-surface-hi hover:text-fg disabled:opacity-50"
         onClick={() => setCapabilityOpen((open) => !open)}
-        title="添加上下文"
-        aria-label="添加上下文"
+        title="添加能力或上下文"
+        aria-label="添加能力或上下文"
       >
         <VsIcon name="add" size={15} />
       </button>
@@ -764,6 +778,24 @@ export const InputBar = forwardRef(function InputBar({
           role="menu"
           className="absolute left-0 bottom-8 z-50 w-52 py-1 rounded-lg border border-border bg-surface ace-shadow"
         >
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={swarmMode}
+            className={clsx(
+              'w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] hover:bg-surface-hi',
+              swarmMode ? 'bg-accent-bg text-accent' : 'text-fg',
+            )}
+            onPointerEnter={() => closeExpertSubmenu(false)}
+            onClick={toggleSwarmMode}
+          >
+            <SwarmModeIcon size={15} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">蜂群模式</span>
+            {swarmMode && <VsIcon name="check" size={12} className="shrink-0 opacity-70" />}
+          </button>
+
+          <div className="my-1 border-t border-border" aria-hidden="true" />
+
           <div className="relative" data-expert-menu-parent="true">
             <button
               ref={expertMenuParentRef}
@@ -1121,6 +1153,8 @@ export const InputBar = forwardRef(function InputBar({
           expertId={selectedExpertId}
           expertName={selectedExpertName}
           expertType={selectedExpertType}
+          swarmMode={swarmMode}
+          onDisableSwarm={() => onSwarmModeChange?.(false)}
           expertRemoving={expertRemoving}
           onRemoveExpert={onRemoveExpert}
           pendingExpertName={pendingExpertName}
