@@ -12,7 +12,7 @@ The system SHALL provide an expert-components management page and SHALL reuse th
 - **THEN** the system shows the expert entry on that existing composer rather than creating a second composer
 
 ### Requirement: Expert and team catalog follows the imported information architecture
-The system SHALL expose primary tabs named `专家` and `专家团`. Expert filtering SHALL use non-exclusive Tags, so one expert can appear under every Tag assigned to it. Search SHALL match at least expert name, author, introduction, Tag, and expertise text, and the selected Tag and search term SHALL combine as an intersection.
+The system SHALL expose primary tabs named `专家` and `专家团`. Expert filtering SHALL use non-exclusive Tags, so one expert can appear under every Tag assigned to it. Search SHALL match at least expert name, introduction, Tag, and expertise text, and the selected Tag and search term SHALL combine as an intersection.
 
 #### Scenario: Expert has multiple Tags
 - **WHEN** an expert has both `OPC-一人公司` and `开发` Tags
@@ -27,7 +27,7 @@ The system SHALL expose primary tabs named `专家` and `专家团`. Expert filt
 - **THEN** the page displays team cards and team-appropriate actions without expert-only Tag semantics being misrepresented as categories
 
 ### Requirement: Expert cards distinguish expertise from opening prompts
-Every expert card SHALL present identity, author/source information, a concise introduction, and expertise items. A card MUST NOT use opening prompts as expertise labels. Card actions SHALL use the Chinese label `派遣`.
+Every expert card SHALL present one identity from the expert display name, profession/source fallback where available, a concise introduction, and expertise items. It MUST NOT expose a separate author/call-name field. A card MUST NOT use opening prompts as expertise labels. Card actions SHALL use the Chinese label `派遣`.
 
 #### Scenario: Render an expert card
 - **WHEN** an expert contains both expertise items and opening prompts
@@ -38,7 +38,7 @@ Every expert card SHALL present identity, author/source information, a concise i
 - **THEN** the action label is `派遣`
 
 ### Requirement: Expert detail provides selectable opening prompts
-The expert detail surface SHALL display identity, author/source, introduction, expertise, and a section of opening prompts. Selecting an opening prompt SHALL copy its text into the currently active real conversation composer, MUST NOT send it automatically, and SHALL keep the user in the current conversation context.
+The expert detail surface SHALL display the expert display name as its sole identity, profession/source fallback where available, introduction, expertise, and a section of opening prompts. It MUST NOT expose a separate author/call-name field. Selecting an opening prompt SHALL copy its text into the currently active real conversation composer, MUST NOT send it automatically, and SHALL keep the user in the current conversation context.
 
 #### Scenario: Select an opening prompt with a conversation available
 - **WHEN** the user selects an opening prompt from expert detail

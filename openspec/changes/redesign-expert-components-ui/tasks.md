@@ -1,6 +1,6 @@
 ## 1. Expert schema and lossless persistence
 
-- [x] 1.1 Extend expert definitions and drafts with author, Tags, expertise, timestamps, and independently optional Skill/MCP/tool capability scopes.
+- [x] 1.1 Extend expert definitions and drafts with Tags, expertise, timestamps, and independently optional Skill/MCP/tool capability scopes.
 - [x] 1.2 Parse, validate, normalize, and serialize missing, empty, non-empty, Unicode, duplicate, and unavailable capability/list values with focused registry tests.
 - [x] 1.3 Make expert updates merge managed fields into the existing manifest while preserving avatar settings, packaged Skills, resources, and unknown fields; cover preservation and workspace read-only behavior with tests.
 - [x] 1.4 Extend expert list/create/update HTTP DTOs and smoke tests for the new expert and team fields without exposing package-private data.
@@ -17,7 +17,7 @@
 
 ## 3. Frontend data and API contracts
 
-- [x] 3.1 Extend expert normalization and form payload helpers for author, Tags, expertise, timestamps, and optional capability scopes without mapping opening prompts onto cards.
+- [x] 3.1 Extend expert normalization and form payload helpers for Tags, expertise, timestamps, and optional capability scopes without mapping opening prompts onto cards.
 - [x] 3.2 Implement and test dynamic Tag collection, multi-Tag membership, combined search, recent-use/recent-create sorting, line-list parsing, and team lead/member validation.
 - [x] 3.3 Add the sanitized capability-catalog API client and frontend state helpers for available, globally disabled, disconnected, and saved-but-missing choices.
 - [x] 3.4 Replace architecture tests that encode the obsolete “no Skill/MCP editor” and “dispatch back to a new task” contracts.
@@ -25,14 +25,14 @@
 ## 4. Expert catalog, cards, and detail
 
 - [x] 4.1 Rebuild the expert-components page header, primary expert/team tabs, horizontally scrollable dynamic Tag rail, search, real sorting, result summary, and management actions using ACECode tokens.
-- [x] 4.2 Implement responsive expert and team cards with real avatar fallback, author, Tags, expertise, team lead/member count, semantic detail activation, and a non-bubbling `派遣` action.
+- [x] 4.2 Implement responsive expert and team cards with real avatar fallback, profession/source fallback, Tags, expertise, team lead/member count, semantic detail activation, and a non-bubbling `派遣` action.
 - [x] 4.3 Implement accessible expert/team detail dialogs with expertise, team members, editable/read-only state, opening prompts, dispatch actions, focus restoration, and no page-level chat input.
 - [x] 4.4 Add skeleton, filter-empty, catalog-empty, local error/retry, unavailable, light/dark/orange theme, and narrow-width states.
 
 ## 5. Expert and team editors
 
 - [x] 5.1 Build one expert editor with `基础信息` and `高级功能` tabs, preserved unsaved state, field-level validation, busy/error handling, and unsaved-close confirmation.
-- [x] 5.2 Implement the basic fields including separate Tag multi-select, one-line-per-item expertise and opening-prompt editors, introduction, author/call name, and work instructions.
+- [x] 5.2 Implement the basic fields including separate Tag multi-select, one-line-per-item expertise and opening-prompt editors, introduction, expert display name, and work instructions.
 - [x] 5.3 Implement searchable Skill and MCP selectors plus checkbox-based real built-in-tool controls, selection counts, unavailable reasons, and exact optional-scope semantics.
 - [x] 5.4 Replace the full-page team picker with an in-editor searchable/Tag-filtered member picker and rows that support add, remove, and exactly one lead.
 - [x] 5.5 Wire create, update, confirmed delete, in-place refresh, managed-global edit boundaries, and accessible responsive dialog behavior.
@@ -65,3 +65,9 @@
 
 - [x] 9.1 Preserve a standalone expert detail opening prompt through new-task composer draft initialization and consume the route payload only after the staged draft has been applied.
 - [x] 9.2 Add focused regression coverage and verify the Web suite/build, strict OpenSpec validation, diff hygiene, and the real standalone-detail interaction.
+
+## 10. Expert identity cleanup and bundled resources
+
+- [x] 10.1 Remove the legacy `author` field from expert runtime models, CRUD DTOs, search, cards, detail, and editor; ignore it on legacy input and erase it when updating a managed package.
+- [x] 10.2 Bundle the `expert-manager` Skill and the ten OPC expert/team packages, and reconcile them through the versioned ownership-safe Seed transaction without overwriting user-modified resources.
+- [x] 10.3 Verify Skill guidance, manifests, frontend/C++ regressions, a clean new-user initialization from installed assets, and the contents of the local-only 0.8.0 release package.

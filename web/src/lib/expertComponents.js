@@ -85,7 +85,6 @@ export function normalizeExperts(value) {
       id: String(item.id || ''),
       type: item.type === 'team' ? 'team' : 'agent',
       display_name: String(item.display_name || item.id || ''),
-      author: String(item.author || item.call_name || ''),
       profession: String(item.profession || ''),
       description: String(item.description || ''),
       source: item.source === 'workspace' ? 'workspace' : 'global',
@@ -125,7 +124,6 @@ export function filterExperts(experts, {
     if (!needle) return true;
     return [
       expert.display_name,
-      expert.author,
       expert.profession,
       expert.description,
       ...expert.tags,
@@ -183,7 +181,6 @@ export function emptyExpertForm(type = 'agent', initialExpertId = '') {
   return {
     id: createExpertInternalId(normalizedType),
     displayName: '',
-    author: '',
     profession: '',
     description: '',
     type: normalizedType,
@@ -210,7 +207,6 @@ export function expertFormFromDetail(expert) {
   return {
     id: normalized.id || '',
     displayName: normalized.display_name || '',
-    author: normalized.author || '',
     profession: normalized.profession || '',
     description: normalized.description || '',
     type: normalized.type || 'agent',
@@ -230,7 +226,6 @@ export function validateExpertFormFields(form, selectableExperts) {
     errors.id = '无法保存，请重新打开后再试';
   }
   if (!String(form?.displayName || '').trim()) errors.displayName = '请填写专家名称';
-  if (!String(form?.author || '').trim()) errors.author = '请填写姓名或称呼';
   if (form?.type === 'team') {
     const selected = normalizeStringList(form.selectedExpertIds);
     if (selected.length < 2) errors.members = '专家团至少需要两位专家';
@@ -268,7 +263,6 @@ export function expertPayloadFromForm(form) {
     id: String(form.id || '').trim(),
     type: form.type === 'team' ? 'team' : 'agent',
     display_name: String(form.displayName || '').trim(),
-    author: String(form.author || '').trim(),
     profession: String(form.profession || '').trim(),
     description: String(form.description || '').trim(),
     tags: normalizeStringList(form.tags),

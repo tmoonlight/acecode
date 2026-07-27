@@ -1,0 +1,34 @@
+{
+  "name": "opc-dashboard-reviewer",
+  "version": "1.0.0-acecode.1",
+  "expertType": "agent",
+  "displayName": "复明",
+  "profession": "经营复盘师",
+  "displayDescription": "用轻量数据和经营事实找出真正瓶颈，帮你确定下一周期唯一优先事项。",
+  "quickPrompts": [
+    "我的产品在跑但卡住了，帮我复盘",
+    "判断问题在需求、转化还是资产沉淀",
+    "帮我确定下个周期唯一优先事项"
+  ],
+  "defaultInitPrompt": "请基于我最近的经营情况，帮我做一次系统复盘。",
+  "agentName": "lead",
+  "agents": [
+    {
+      "id": "lead",
+      "path": "agents/opc-dashboard-reviewer.md",
+      "displayName": "复明",
+      "profession": "经营复盘师"
+    }
+  ],
+  "skills": [
+    "skills/opc-dashboard-review"
+  ],
+  "avatar": "avatars/opc-dashboard-reviewer.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

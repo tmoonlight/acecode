@@ -1,6 +1,7 @@
 // 覆盖 src/provider/models_dev_paths.{hpp,cpp} 的查找顺序：
-// ACECODE_MODELS_DEV_DIR > <argv0_dir>/../share/acecode/models_dev > /usr/share/...
-// 测试用 setenv/unsetenv 切环境，构造合成 install 布局来精确控制命中情况。
+// ACECODE_MODELS_DEV_DIR > <argv0_dir>/share/acecode/models_dev
+// > <argv0_dir>/../share/acecode/models_dev > /usr/share/...
+// 测试用 setenv/unsetenv 切环境，构造合成 portable/install 布局来精确控制命中。
 //
 // 注意：这些用例修改进程级环境变量，gtest 单线程执行 OK；如果将来切并行执行
 // 模式，需要换用 fixture 隔离。
@@ -72,6 +73,19 @@ TEST(ModelsDevPaths, EnvDirWithoutApiJsonFallsBack) {
     set_env("ACECODE_MODELS_DEV_DIR", env_dir.string().c_str());
     auto found = acecode::find_models_dev_dir(exe_dir.string());
     set_env("ACECODE_MODELS_DEV_DIR", nullptr);
+
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(fs::canonical(*found), fs::canonical(bundled));
+}
+
+// 场景：发布 ZIP 将 acecode.exe 与 share/ 放在同一级，必须直接命中该布局。
+TEST(ModelsDevPaths, DiscoversPortableUpdaterLayout) {
+    auto portable = tmp_root("portable");
+    auto bundled =
+        make_seed_dir(portable / "share" / "acecode", "models_dev");
+
+    set_env("ACECODE_MODELS_DEV_DIR", nullptr);
+    auto found = acecode::find_models_dev_dir(portable.string());
 
     ASSERT_TRUE(found.has_value());
     EXPECT_EQ(fs::canonical(*found), fs::canonical(bundled));

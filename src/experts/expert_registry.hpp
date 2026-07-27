@@ -44,7 +44,6 @@ struct ExpertDefinition {
     std::string version;
     ExpertType type = ExpertType::Agent;
     std::string display_name;
-    std::string author;
     std::string profession;
     std::string description;
     std::string avatar_path;
@@ -94,7 +93,6 @@ struct ExpertDraft {
     std::string version = "1.0.0";
     ExpertType type = ExpertType::Agent;
     std::string display_name;
-    std::string author;
     std::string profession;
     std::string description;
     std::string default_init_prompt;

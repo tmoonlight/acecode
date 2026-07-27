@@ -60,17 +60,21 @@ void reconcile_default_skills_on_startup(const std::string& argv0_dir) {
     size_t unchanged = 0;
     size_t preserved = 0;
     size_t errors = 0;
-    for (const auto& outcome : result.outcomes) {
-        if (outcome.result == "installed") ++installed;
-        else if (outcome.result == "updated") ++updated;
-        else if (outcome.result == "unchanged") ++unchanged;
-        else if (outcome.result == "preserved_user_modified") ++preserved;
-        else ++errors;
-    }
+    const auto count_outcomes = [&](const auto& outcomes) {
+        for (const auto& outcome : outcomes) {
+            if (outcome.result == "installed") ++installed;
+            else if (outcome.result == "updated") ++updated;
+            else if (outcome.result == "unchanged") ++unchanged;
+            else if (outcome.result == "preserved_user_modified") ++preserved;
+            else ++errors;
+        }
+    };
+    count_outcomes(result.outcomes);
+    count_outcomes(result.expert_outcomes);
     if (!result.error.empty()) {
-        LOG_WARN("[skills] Default skill reconciliation issue: " + result.error);
+        LOG_WARN("[seed] Default resource reconciliation issue: " + result.error);
     }
-    LOG_INFO("[skills] Default skill reconciliation attempted: version=" +
+    LOG_INFO("[seed] Default resource reconciliation attempted: version=" +
              result.bundle_version + " installed=" + std::to_string(installed) +
              " updated=" + std::to_string(updated) +
              " unchanged=" + std::to_string(unchanged) +

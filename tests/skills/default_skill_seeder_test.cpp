@@ -1,5 +1,6 @@
 #include "skills/default_skill_seeder.hpp"
 #include "skills/skill_registry.hpp"
+#include "experts/expert_registry.hpp"
 #include "utils/sha256.hpp"
 
 #include <gtest/gtest.h>
@@ -61,6 +62,54 @@ void write_seed_version(const fs::path& seed_root,
     write_file(seed_root.parent_path() / "seed.version", version + "\n");
 }
 
+void write_expert_package(const fs::path& dir,
+                          const acecode::DefaultExpertSeed& seed) {
+    nlohmann::json manifest = {
+        {"name", seed.name},
+        {"version", "1.0.0"},
+        {"expertType", "agent"},
+        {"displayName", seed.name},
+        {"displayDescription", "seeded " + seed.name},
+        {"agentName", "lead"},
+        {"agents",
+         nlohmann::json::array({
+             {
+                 {"id", "lead"},
+                 {"path", "agents/lead.md"},
+                 {"displayName", seed.name},
+             },
+         })},
+    };
+    if (seed.name == "opc-team") {
+        manifest.erase("agentName");
+        manifest.erase("agents");
+        manifest["expertType"] = "team";
+        manifest["teamInfo"] = {
+            {"leadExpert", "opc-team-lead"},
+            {"memberExperts",
+             nlohmann::json::array({
+                 "opc-resource-auditor",
+                 "opc-niche-strategist",
+                 "opc-value-designer",
+                 "opc-model-architect",
+                 "opc-mvp-designer",
+                 "opc-conversion-designer",
+                 "opc-asset-strategist",
+                 "opc-dashboard-reviewer",
+             })},
+        };
+    } else {
+        write_file(
+            dir / "agents" / "lead.md",
+            "---\n"
+            "id: lead\n"
+            "displayName: " + seed.name + "\n"
+            "---\n\n"
+            "You are " + seed.name + ".\n");
+    }
+    write_file(dir / "expert.json", manifest.dump(2) + "\n");
+}
+
 void write_seed_bundle(const fs::path& seed_root,
                        const std::string& version = kSeedVersion1,
                        const std::string& description_prefix = "seeded ") {
@@ -69,6 +118,11 @@ void write_seed_bundle(const fs::path& seed_root,
             seed_root / seed.relative_path,
             seed.name,
             description_prefix + seed.name);
+    }
+    for (const auto& seed : acecode::default_expert_seeds()) {
+        write_expert_package(
+            seed_root.parent_path() / "experts" / seed.relative_path,
+            seed);
     }
     write_seed_version(seed_root, version);
 }
@@ -136,10 +190,29 @@ std::size_t count_outcome(
     return count;
 }
 
+std::size_t count_expert_outcome(
+    const acecode::DefaultSkillSeedInstallResult& result,
+    const std::string& value) {
+    std::size_t count = 0;
+    for (const auto& outcome : result.expert_outcomes) {
+        if (outcome.result == value) ++count;
+    }
+    return count;
+}
+
 const acecode::DefaultSkillSeedOutcome* find_outcome(
     const acecode::DefaultSkillSeedInstallResult& result,
     const std::string& name) {
     for (const auto& outcome : result.outcomes) {
+        if (outcome.name == name) return &outcome;
+    }
+    return nullptr;
+}
+
+const acecode::DefaultSkillSeedOutcome* find_expert_outcome(
+    const acecode::DefaultSkillSeedInstallResult& result,
+    const std::string& name) {
+    for (const auto& outcome : result.expert_outcomes) {
         if (outcome.name == name) return &outcome;
     }
     return nullptr;
@@ -178,6 +251,9 @@ TEST_F(DefaultSkillSeederTest, ExistingHomeWithoutMarkerReceivesAllDefaults) {
         count_outcome(result, "installed"),
         acecode::default_skill_seeds().size());
     EXPECT_EQ(
+        count_expert_outcome(result, "installed"),
+        acecode::default_expert_seeds().size());
+    EXPECT_EQ(
         trim_ascii(read_file(
             acecode::default_skill_seed_version_path(home))),
         kSeedVersion1);
@@ -186,16 +262,30 @@ TEST_F(DefaultSkillSeederTest, ExistingHomeWithoutMarkerReceivesAllDefaults) {
         EXPECT_TRUE(fs::is_regular_file(
             home / "skills" / seed.relative_path / "SKILL.md"));
     }
+    for (const auto& seed : acecode::default_expert_seeds()) {
+        EXPECT_TRUE(fs::is_regular_file(
+            home / "experts" / seed.relative_path / "expert.json"));
+    }
 
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
-    EXPECT_EQ(state["schema_version"], 2);
+    EXPECT_EQ(state["schema_version"], 3);
     EXPECT_EQ(state["bundle_version"], kSeedVersion1);
     EXPECT_TRUE(state["completed"].get<bool>());
     ASSERT_EQ(
         state["skills"].size(),
         acecode::default_skill_seeds().size());
     for (const auto& item : state["skills"]) {
+        EXPECT_TRUE(item["acecode_owned"].get<bool>());
+        EXPECT_EQ(item["source_tree_sha256"].get<std::string>().size(), 64u);
+        EXPECT_EQ(
+            item["installed_tree_sha256"].get<std::string>().size(),
+            64u);
+    }
+    ASSERT_EQ(
+        state["experts"].size(),
+        acecode::default_expert_seeds().size());
+    for (const auto& item : state["experts"]) {
         EXPECT_TRUE(item["acecode_owned"].get<bool>());
         EXPECT_EQ(item["source_tree_sha256"].get<std::string>().size(), 64u);
         EXPECT_EQ(
@@ -223,6 +313,52 @@ TEST_F(DefaultSkillSeederTest, SeededSkillsAreVisibleInSameRegistryScan) {
     }
 }
 
+TEST_F(DefaultSkillSeederTest, SeededExpertsAreVisibleInSameRegistryScan) {
+    auto result =
+        acecode::reconcile_default_global_skills(home, seed_root);
+    ASSERT_TRUE(result.version_written);
+
+    acecode::ExpertRegistry registry(home / "experts");
+    std::vector<acecode::ExpertDiagnostic> diagnostics;
+    const auto experts = registry.list(root.string(), &diagnostics);
+
+    EXPECT_TRUE(diagnostics.empty());
+    EXPECT_EQ(experts.size(), acecode::default_expert_seeds().size());
+    for (const auto& seed : acecode::default_expert_seeds()) {
+        auto found = registry.find(root.string(), seed.name);
+        ASSERT_TRUE(found.has_value()) << seed.name;
+        EXPECT_EQ(found->display_name, seed.name);
+    }
+}
+
+TEST_F(DefaultSkillSeederTest, DiscoversPortableUpdaterLayout) {
+    const fs::path executable_dir = root / "portable";
+    const fs::path portable_seed =
+        executable_dir / "share" / "acecode" / "seed" / "skills";
+    write_seed_bundle(portable_seed);
+
+    const auto found =
+        acecode::find_default_skill_seed_dir(executable_dir.string());
+
+    ASSERT_TRUE(found.has_value());
+    EXPECT_TRUE(fs::equivalent(*found, portable_seed));
+}
+
+TEST_F(DefaultSkillSeederTest, DiscoversInstalledBinShareLayout) {
+    const fs::path install_root = root / "installed";
+    const fs::path executable_dir = install_root / "bin";
+    const fs::path installed_seed =
+        install_root / "share" / "acecode" / "seed" / "skills";
+    fs::create_directories(executable_dir);
+    write_seed_bundle(installed_seed);
+
+    const auto found =
+        acecode::find_default_skill_seed_dir(executable_dir.string());
+
+    ASSERT_TRUE(found.has_value());
+    EXPECT_TRUE(fs::equivalent(*found, installed_seed));
+}
+
 TEST_F(DefaultSkillSeederTest, EqualVersionIsANoOp) {
     auto first =
         acecode::reconcile_default_global_skills(home, seed_root);
@@ -238,6 +374,7 @@ TEST_F(DefaultSkillSeederTest, EqualVersionIsANoOp) {
     EXPECT_FALSE(second.attempted);
     EXPECT_FALSE(second.version_written);
     EXPECT_TRUE(second.outcomes.empty());
+    EXPECT_TRUE(second.expert_outcomes.empty());
     EXPECT_NE(
         read_file(target / "SKILL.md").find(
             "changed after reconciliation"),
@@ -262,6 +399,34 @@ TEST_F(DefaultSkillSeederTest, PreservesUnknownExistingTarget) {
         std::string::npos);
 
     const auto* outcome = find_outcome(result, seed.name);
+    ASSERT_NE(outcome, nullptr);
+    EXPECT_FALSE(outcome->acecode_owned);
+}
+
+TEST_F(DefaultSkillSeederTest, PreservesUserCreatedExpertWithSeededId) {
+    const auto& seed = acecode::default_expert_seeds().front();
+    const fs::path existing =
+        home / "experts" / seed.relative_path;
+    write_expert_package(existing, seed);
+    auto manifest = read_json(existing / "expert.json");
+    manifest["displayName"] = "user copy";
+    write_file(existing / "expert.json", manifest.dump(2) + "\n");
+
+    auto result =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    ASSERT_TRUE(result.version_written);
+    EXPECT_EQ(
+        count_expert_outcome(result, "preserved_user_modified"),
+        1u);
+    EXPECT_EQ(
+        count_expert_outcome(result, "installed"),
+        acecode::default_expert_seeds().size() - 1);
+    EXPECT_EQ(
+        read_json(existing / "expert.json")["displayName"],
+        "user copy");
+
+    const auto* outcome = find_expert_outcome(result, seed.name);
     ASSERT_NE(outcome, nullptr);
     EXPECT_FALSE(outcome->acecode_owned);
 }
@@ -298,6 +463,34 @@ TEST_F(DefaultSkillSeederTest, UpdatesPristineAcecodeOwnedSeed) {
     EXPECT_EQ(
         outcome->source_tree_sha256,
         outcome->installed_tree_sha256);
+}
+
+TEST_F(DefaultSkillSeederTest, UpdatesPristineAcecodeOwnedExpert) {
+    auto first =
+        acecode::reconcile_default_global_skills(home, seed_root);
+    ASSERT_TRUE(first.version_written);
+
+    const auto& seed = acecode::default_expert_seeds().front();
+    const fs::path bundled =
+        seed_root.parent_path() / "experts" / seed.relative_path;
+    auto manifest = read_json(bundled / "expert.json");
+    manifest["displayName"] = "new bundled expert";
+    write_file(bundled / "expert.json", manifest.dump(2) + "\n");
+    write_seed_version(seed_root, kSeedVersion2);
+
+    auto second =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    ASSERT_TRUE(second.version_written);
+    EXPECT_EQ(count_expert_outcome(second, "updated"), 1u);
+    EXPECT_EQ(
+        count_expert_outcome(second, "unchanged"),
+        acecode::default_expert_seeds().size() - 1);
+    EXPECT_EQ(
+        read_json(
+            home / "experts" / seed.relative_path / "expert.json")
+            ["displayName"],
+        "new bundled expert");
 }
 
 TEST_F(DefaultSkillSeederTest, PreservesModifiedAcecodeOwnedSeed) {
@@ -457,6 +650,40 @@ TEST_F(DefaultSkillSeederTest, PartialFailureDoesNotAdvanceAndCanRetry) {
         acecode::default_skill_seeds().size() - 1);
 }
 
+TEST_F(DefaultSkillSeederTest, MissingExpertDoesNotAdvanceAndCanRetry) {
+    const auto& failed_seed = acecode::default_expert_seeds().front();
+    const fs::path source =
+        seed_root.parent_path() / "experts" /
+        failed_seed.relative_path / "expert.json";
+    fs::remove(source);
+
+    auto first =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    EXPECT_TRUE(first.attempted);
+    EXPECT_FALSE(first.error.empty());
+    EXPECT_TRUE(first.state_written);
+    EXPECT_FALSE(first.version_written);
+    EXPECT_FALSE(fs::exists(
+        acecode::default_skill_seed_version_path(home)));
+    EXPECT_EQ(count_expert_outcome(first, "missing_source"), 1u);
+
+    write_expert_package(
+        seed_root.parent_path() / "experts" /
+            failed_seed.relative_path,
+        failed_seed);
+
+    auto second =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    ASSERT_TRUE(second.version_written);
+    EXPECT_TRUE(second.error.empty());
+    EXPECT_EQ(count_expert_outcome(second, "installed"), 1u);
+    EXPECT_EQ(
+        count_expert_outcome(second, "unchanged"),
+        acecode::default_expert_seeds().size() - 1);
+}
+
 TEST_F(DefaultSkillSeederTest, RetryPreservesPriorOwnershipAfterSourceFailure) {
     auto initial =
         acecode::reconcile_default_global_skills(home, seed_root);
@@ -560,6 +787,9 @@ TEST_F(DefaultSkillSeederTest, ConcurrentCallsProduceOneConsistentState) {
         state["skills"].size(),
         acecode::default_skill_seeds().size());
     EXPECT_EQ(
+        state["experts"].size(),
+        acecode::default_expert_seeds().size());
+    EXPECT_EQ(
         trim_ascii(read_file(
             acecode::default_skill_seed_version_path(home))),
         kSeedVersion1);
@@ -629,6 +859,72 @@ TEST(DefaultSkillSeedRegistryTest, PackagedManifestVersionAndHashesAgree) {
     for (const auto& seed : acecode::default_skill_seeds()) {
         EXPECT_EQ(manifest_names.count(seed.name), 1u) << seed.name;
     }
+
+    ASSERT_TRUE(manifest["experts"].is_array());
+    EXPECT_EQ(
+        manifest["experts"].size(),
+        acecode::default_expert_seeds().size());
+    std::set<std::string> manifest_expert_names;
+    for (const auto& item : manifest["experts"]) {
+        const std::string name = item["name"].get<std::string>();
+        const std::string relative_path =
+            item["relative_path"].get<std::string>();
+        const fs::path expert_json =
+            seed_root / "experts" / relative_path / "expert.json";
+        manifest_expert_names.insert(name);
+        ASSERT_TRUE(fs::is_regular_file(expert_json)) << expert_json;
+        EXPECT_EQ(
+            canonical_lf_sha256(expert_json),
+            item["expert_json_sha256"].get<std::string>())
+            << name;
+    }
+    for (const auto& seed : acecode::default_expert_seeds()) {
+        EXPECT_EQ(manifest_expert_names.count(seed.name), 1u)
+            << seed.name;
+    }
+}
+
+TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const fs::path seed_root = repository_root / "assets" / "seed";
+    const fs::path temp_root = make_temp_root("packaged-resources");
+    const fs::path home = temp_root / "profile" / ".acecode";
+
+    const auto result = acecode::reconcile_default_global_skills(
+        home, seed_root / "skills");
+
+    EXPECT_TRUE(result.error.empty()) << result.error;
+    ASSERT_TRUE(result.version_written);
+    EXPECT_EQ(
+        count_outcome(result, "installed"),
+        acecode::default_skill_seeds().size());
+    EXPECT_EQ(
+        count_expert_outcome(result, "installed"),
+        acecode::default_expert_seeds().size());
+
+    acecode::SkillRegistry skill_registry;
+    skill_registry.set_scan_roots({home / "skills"});
+    skill_registry.scan();
+    EXPECT_TRUE(skill_registry.find("expert-manager").has_value());
+
+    acecode::ExpertRegistry expert_registry(home / "experts");
+    std::vector<acecode::ExpertDiagnostic> diagnostics;
+    const auto experts =
+        expert_registry.list(temp_root.string(), &diagnostics);
+    EXPECT_TRUE(diagnostics.empty());
+    EXPECT_EQ(experts.size(), acecode::default_expert_seeds().size());
+    EXPECT_TRUE(
+        expert_registry.find(temp_root.string(), "opc-team").has_value());
+
+    const auto state =
+        read_json(acecode::default_skill_seed_state_path(home));
+    EXPECT_TRUE(state["completed"].get<bool>());
+    EXPECT_EQ(state["bundle_version"], "2026-07-27.1");
+
+    std::error_code cleanup_error;
+    fs::remove_all(temp_root, cleanup_error);
 }
 
 TEST(DefaultSkillSeedRegistryTest, AcecodeTuiUsageSkillIsRegisteredInSeedBundle) {
@@ -683,6 +979,29 @@ TEST(DefaultSkillSeedRegistryTest, VisionImageReaderSkillIsRegisteredInSeedBundl
     }
     EXPECT_TRUE(found)
         << "vision-image-reader seed must stay registered";
+}
+
+TEST(DefaultSkillSeedRegistryTest, OpcExpertsAndManagerAreRegistered) {
+    EXPECT_EQ(acecode::default_expert_seeds().size(), 10u);
+    std::set<std::string> expert_names;
+    for (const auto& seed : acecode::default_expert_seeds()) {
+        expert_names.insert(seed.name);
+        EXPECT_NE(
+            seed.source_id.find("acecode:opc-expert/"),
+            std::string::npos);
+    }
+    EXPECT_EQ(expert_names.count("opc-team"), 1u);
+    EXPECT_EQ(expert_names.count("opc-team-lead"), 1u);
+
+    bool manager_found = false;
+    for (const auto& seed : acecode::default_skill_seeds()) {
+        if (seed.name != "expert-manager") continue;
+        manager_found = true;
+        EXPECT_EQ(
+            seed.relative_path.generic_string(),
+            "expert-management/expert-manager");
+    }
+    EXPECT_TRUE(manager_found);
 }
 
 } // namespace

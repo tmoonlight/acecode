@@ -1,0 +1,35 @@
+{
+  "name": "opc-team",
+  "version": "1.0.0-acecode.1",
+  "expertType": "team",
+  "displayName": "一人公司专家团",
+  "profession": "一人公司共创团队",
+  "displayDescription": "从资源盘点、利基定位到 MVP、转化与复盘，按阶段陪你搭出并迭代一人公司。",
+  "quickPrompts": [
+    "我想从零开始规划一个一人公司，帮我启动资源盘点。",
+    "我有个想法但找不到利基，帮我用三环框架梳理一下。",
+    "我的产品在跑但卡住了，帮我做一次系统的经营复盘。"
+  ],
+  "defaultInitPrompt": "我想从零开始规划一个一人公司，帮我启动资源盘点。",
+  "teamInfo": {
+    "leadExpert": "opc-team-lead",
+    "memberExperts": [
+      "opc-resource-auditor",
+      "opc-niche-strategist",
+      "opc-value-designer",
+      "opc-model-architect",
+      "opc-mvp-designer",
+      "opc-conversion-designer",
+      "opc-asset-strategist",
+      "opc-dashboard-reviewer"
+    ]
+  },
+  "avatar": "avatars/team.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

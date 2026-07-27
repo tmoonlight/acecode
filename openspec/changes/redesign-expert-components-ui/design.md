@@ -48,7 +48,6 @@ Agent manifests gain managed fields equivalent to:
 
 ```json
 {
-  "author": "吴八哥",
   "tags": ["OPC-一人公司", "开发"],
   "expertise": ["高级开发", "架构设计", "代码质量"],
   "quick_prompts": ["审查当前改动"],
@@ -62,7 +61,7 @@ Agent manifests gain managed fields equivalent to:
 }
 ```
 
-`quick_prompts` remains the persisted opening-prompt field for compatibility. `expertise` is new and is the only list used as card capability content. `tags` is an ordered, de-duplicated list and never an exclusive category. `profession`, `description`, and `instructions` keep their existing meanings. Teams may have author, Tags, description, expertise, and timestamps, but their runtime capabilities come from referenced member experts rather than a copied union.
+`quick_prompts` remains the persisted opening-prompt field for compatibility. `expertise` is new and is the only list used as card capability content. `tags` is an ordered, de-duplicated list and never an exclusive category. `profession`, `description`, and `instructions` keep their existing meanings. `displayName` is the sole user-facing expert identity; legacy `author` metadata is ignored on read and removed when ACECode updates a managed package. Attribution belongs in `NOTICE`, `LICENSE`, or `homepage`. Teams may have Tags, description, expertise, and timestamps, but their runtime capabilities come from referenced member experts rather than a copied union.
 
 The manifest’s existing top-level `skills` value continues to mean packaged Skill directories. Selected installed Skill names live under `capabilities.skills`, avoiding a schema collision.
 

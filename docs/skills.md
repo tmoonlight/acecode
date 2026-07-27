@@ -19,30 +19,34 @@ Skills live under built-in roots `~/.acecode/skills/` and compatible `~/.agent/s
 
 `<category>` is a free-form folder name (for example `engineering`, `writing`, `ops`). Skills at the top level (without a category folder) get category `"default"`. Extra root directories can be added via `config.skills.external_dirs`.
 
-## Default seeded skills
+## Default seeded resources
 
 At startup, ACECode compares the packaged `assets/seed/seed.version` revision with
-`~/.acecode/seed.version` before the first skill registry scan. The revision uses
+`~/.acecode/seed.version` before the first Skill and expert registry scans. The revision uses
 `YYYY-MM-DD.N`, where `N` is a numeric revision for that date. A missing, invalid,
-or older user marker triggers an offline reconciliation of the bundled skills into
-`~/.acecode/skills/`. An equal marker is a no-op, and a newer user marker prevents
+or older user marker triggers an offline reconciliation of bundled Skills into
+`~/.acecode/skills/` and bundled experts into `~/.acecode/experts/`. An equal marker is a no-op, and a newer user marker prevents
 an older installation from downgrading the bundle.
 
-The default bundle contains:
+The default Skill bundle contains:
 
 - `find-skills`
 - `skill-installer`
 - `skill-creator`
+- `expert-manager`
 - `native-mcp`
 - `mcporter`
 - `acecode-tui-usage`
 - `acecode-desktop-usage`
 - `vision-image-reader`
 
-Missing skills are installed. A previously seeded skill is updated only when its
-complete installed directory still matches the ACECode-owned hash recorded in
+The expert bundle contains the OPC one-person-company team, its lead, and eight
+stage experts under the `opc-*` package IDs.
+
+Missing resources are installed. A previously seeded Skill or expert is updated
+only when its complete installed directory still matches the ACECode-owned hash recorded in
 `~/.acecode/.seed_skills_state.json`. Unknown directories and user-modified seeded
-skills are preserved. ACECode atomically records the detailed reconciliation state
+resources are preserved. ACECode atomically records the detailed reconciliation state
 before advancing `~/.acecode/seed.version`, so an interrupted or failed run can be
 retried on the next startup.
 

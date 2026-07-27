@@ -1,0 +1,34 @@
+{
+  "name": "opc-asset-strategist",
+  "version": "1.0.0-acecode.1",
+  "expertType": "agent",
+  "displayName": "沉墨",
+  "profession": "资产沉淀师",
+  "displayDescription": "识别已经重复出现的成果，把它们变成模板、流程、内容或工具等可复用资产。",
+  "quickPrompts": [
+    "帮我判断最近哪些成果值得沉淀",
+    "给我三种资产化优先方案",
+    "把重复劳动梳理成可复用资产"
+  ],
+  "defaultInitPrompt": "请帮我识别当前最值得优先沉淀的可复用资产。",
+  "agentName": "lead",
+  "agents": [
+    {
+      "id": "lead",
+      "path": "agents/opc-asset-strategist.md",
+      "displayName": "沉墨",
+      "profession": "资产沉淀师"
+    }
+  ],
+  "skills": [
+    "skills/opc-asset-ops"
+  ],
+  "avatar": "avatars/opc-asset-strategist.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

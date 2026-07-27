@@ -4182,7 +4182,7 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
     EXPECT_EQ(created_body["id"], "code-reviewer");
     EXPECT_EQ(created_body["source"], "global");
     EXPECT_TRUE(created_body["managed_global"].get<bool>());
-    EXPECT_EQ(created_body["author"], "ACECode QA");
+    EXPECT_FALSE(created_body.contains("author"));
     EXPECT_EQ(created_body["tags"], json::array({"开发", "质量"}));
     EXPECT_EQ(created_body["expertise"],
               json::array({"架构审查", "回归风险"}));
@@ -4212,7 +4212,7 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
     ASSERT_EQ(listed_body["experts"].size(), 1);
     EXPECT_EQ(listed_body["experts"][0]["id"], "code-reviewer");
     EXPECT_FALSE(listed_body["experts"][0]["agents"][0].contains("instructions"));
-    EXPECT_EQ(listed_body["experts"][0]["author"], "ACECode QA");
+    EXPECT_FALSE(listed_body["experts"][0].contains("author"));
     EXPECT_EQ(listed_body["experts"][0]["tags"],
               json::array({"开发", "质量"}));
     EXPECT_EQ(listed_body["experts"][0]["capabilities"]["tools"],
@@ -4380,7 +4380,7 @@ TEST(WebServerHttp, ExpertTeamsReferenceExistingExpertsThroughApi) {
     EXPECT_EQ(created_body["lead_expert_id"], "reviewer");
     EXPECT_EQ(created_body["member_expert_ids"],
               json::array({"tester"}));
-    EXPECT_EQ(created_body["author"], "ACECode Delivery");
+    EXPECT_FALSE(created_body.contains("author"));
     EXPECT_EQ(created_body["tags"], json::array({"开发", "质量"}));
     EXPECT_EQ(created_body["expertise"],
               json::array({"代码评审", "测试验收"}));

@@ -1,0 +1,34 @@
+{
+  "name": "opc-resource-auditor",
+  "version": "1.0.0-acecode.1",
+  "expertType": "agent",
+  "displayName": "顾盘",
+  "profession": "资源盘点师",
+  "displayDescription": "把你的经历、人脉、技能、渠道、资产和现实边界盘清楚，形成后续决策底稿。",
+  "quickPrompts": [
+    "从零开始帮我做一次资源盘点",
+    "我总觉得自己没资源，帮我系统梳理",
+    "检查我的资源清单还漏了什么"
+  ],
+  "defaultInitPrompt": "请按八类资源带我做一次完整盘点。",
+  "agentName": "lead",
+  "agents": [
+    {
+      "id": "lead",
+      "path": "agents/opc-resource-auditor.md",
+      "displayName": "顾盘",
+      "profession": "资源盘点师"
+    }
+  ],
+  "skills": [
+    "skills/opc-resource-audit"
+  ],
+  "avatar": "avatars/opc-resource-auditor.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

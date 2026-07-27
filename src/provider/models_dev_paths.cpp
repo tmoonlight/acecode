@@ -29,6 +29,19 @@ std::optional<std::string> find_models_dev_dir(const std::string& argv0_dir) {
     }
 
     if (!argv0_dir.empty()) {
+        // Portable updater layout: acecode.exe and share/ are siblings.
+        fs::path portable_candidate = path_from_utf8(argv0_dir) / "share" /
+                                      "acecode" / "models_dev";
+        std::error_code portable_ec;
+        fs::path portable_normalized =
+            fs::weakly_canonical(portable_candidate, portable_ec);
+        if (portable_ec) {
+            portable_normalized = portable_candidate.lexically_normal();
+        }
+        if (dir_has_api_json(portable_normalized)) {
+            return path_to_utf8(portable_normalized);
+        }
+
         // Production install layout: <prefix>/bin/acecode → <prefix>/share/...
         fs::path install_candidate = path_from_utf8(argv0_dir) / ".." / "share" / "acecode" / "models_dev";
         std::error_code ec;

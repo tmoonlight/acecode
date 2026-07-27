@@ -478,7 +478,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/assets/models_dev/api.json)
     endif()
 endif()
 
-# Versioned default skill seed bundle. Installed alongside the executable so
+# Versioned default Skill and expert seed bundle. Installed alongside the executable so
 # find_default_skill_seed_dir() can resolve <exe_dir>/../share/acecode/seed/skills.
 if(EXISTS ${CMAKE_SOURCE_DIR}/assets/seed/skills)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/seed/

@@ -1362,7 +1362,6 @@ the builtin-only response and omits both `commands` and `skills`.
       "version": "1.0.0",
       "type": "agent",
       "display_name": "Code Reviewer",
-      "author": "ACECode QA",
       "profession": "Review engineer",
       "description": "Reviews changes before delivery.",
       "avatar_url": "/api/experts/code-reviewer/avatar?workspace=abc123",

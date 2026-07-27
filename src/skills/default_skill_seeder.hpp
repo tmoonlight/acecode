@@ -13,6 +13,12 @@ struct DefaultSkillSeed {
     std::filesystem::path relative_path;
 };
 
+struct DefaultExpertSeed {
+    std::string name;
+    std::string source_id;
+    std::filesystem::path relative_path;
+};
+
 struct DefaultSkillSeedOutcome {
     std::string name;
     std::string source_id;
@@ -33,13 +39,17 @@ struct DefaultSkillSeedInstallResult {
     std::string bundle_version;
     std::string user_version;
     std::filesystem::path seed_skills_dir;
+    std::filesystem::path seed_experts_dir;
     std::filesystem::path target_root;
+    std::filesystem::path expert_target_root;
     std::filesystem::path state_path;
     std::filesystem::path version_path;
     std::vector<DefaultSkillSeedOutcome> outcomes;
+    std::vector<DefaultSkillSeedOutcome> expert_outcomes;
 };
 
 const std::vector<DefaultSkillSeed>& default_skill_seeds();
+const std::vector<DefaultExpertSeed>& default_expert_seeds();
 
 std::optional<std::filesystem::path> find_default_skill_seed_dir(
     const std::string& argv0_dir = "");

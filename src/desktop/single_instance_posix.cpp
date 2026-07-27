@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <sys/file.h>
 #include <unistd.h>
+#include <utility>
 
 #ifdef __APPLE__
 #  include <CoreFoundation/CoreFoundation.h>
@@ -44,7 +45,8 @@ void*    fd_to_handle(intptr_t fd) { return reinterpret_cast<void*>(fd); }
 
 } // namespace
 
-SingleInstance::SingleInstance() = default;
+SingleInstance::SingleInstance(std::string lock_name)
+    : lock_name_(std::move(lock_name)) {}
 
 SingleInstance::~SingleInstance() {
     release();
@@ -52,7 +54,7 @@ SingleInstance::~SingleInstance() {
 
 bool SingleInstance::try_acquire() {
     if (acquired_) return true;
-    lock_path_ = default_lock_path();
+    lock_path_ = lock_name_.empty() ? default_lock_path() : lock_name_;
     int fd = ::open(lock_path_.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
     if (fd < 0) {
         LOG_WARN(std::string("[desktop] single_instance: open(") + lock_path_ +

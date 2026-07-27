@@ -31,7 +31,10 @@ namespace acecode::desktop {
 // RAII 单例锁。析构时自动 release。仅一个进程能持有。
 class SingleInstance {
 public:
-    SingleInstance();
+    // Production callers leave lock_name empty and use ACECode's stable
+    // per-user singleton. A non-empty name exists so tests and embedded hosts
+    // can isolate their lock namespace without disturbing a running desktop.
+    explicit SingleInstance(std::string lock_name = {});
     ~SingleInstance();
 
     SingleInstance(const SingleInstance&) = delete;
@@ -50,6 +53,7 @@ public:
 private:
     bool acquired_ = false;
     void* native_handle_ = nullptr; // Windows: HANDLE;POSIX: 把 fd 装在 intptr_t 里
+    std::string lock_name_;          // empty = production singleton name/path
     std::string lock_path_;          // POSIX 用,Windows 留空
 };
 

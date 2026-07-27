@@ -1,0 +1,34 @@
+{
+  "name": "opc-niche-strategist",
+  "version": "1.0.0-acecode.1",
+  "expertType": "agent",
+  "displayName": "林利基",
+  "profession": "利基定位师",
+  "displayDescription": "把行业变化、可用杠杆和你的独有资源叠在一起，找出值得切入的细分市场。",
+  "quickPrompts": [
+    "我有个想法但找不到利基，帮我梳理",
+    "用三环框架分析我的方向",
+    "给几个候选利基并做六维评分"
+  ],
+  "defaultInitPrompt": "请用三环合一框架帮我寻找并筛选利基。",
+  "agentName": "lead",
+  "agents": [
+    {
+      "id": "lead",
+      "path": "agents/opc-niche-strategist.md",
+      "displayName": "林利基",
+      "profession": "利基定位师"
+    }
+  ],
+  "skills": [
+    "skills/opc-niche-positioning"
+  ],
+  "avatar": "avatars/opc-niche-strategist.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

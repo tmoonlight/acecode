@@ -65,6 +65,11 @@ struct PreviousSeedState {
     bool acecode_owned = false;
 };
 
+struct PreviousSeedStates {
+    std::unordered_map<std::string, PreviousSeedState> skills;
+    std::unordered_map<std::string, PreviousSeedState> experts;
+};
+
 std::mutex g_seed_reconciliation_mutex;
 
 void append_error(DefaultSkillSeedInstallResult& result,
@@ -181,11 +186,21 @@ std::optional<ParsedSeedVersion> read_seed_version(const fs::path& path,
     return parsed;
 }
 
-bool seed_dir_has_all_skills(const fs::path& dir) {
+bool seed_dir_has_all_resources(const fs::path& skills_dir) {
     std::error_code ec;
-    if (!fs::is_directory(dir, ec)) return false;
+    if (!fs::is_directory(skills_dir, ec)) return false;
     for (const auto& seed : default_skill_seeds()) {
-        if (!fs::is_regular_file(dir / seed.relative_path / "SKILL.md", ec)) {
+        if (!fs::is_regular_file(
+                skills_dir / seed.relative_path / "SKILL.md", ec)) {
+            return false;
+        }
+    }
+
+    const fs::path experts_dir = skills_dir.parent_path() / "experts";
+    if (!fs::is_directory(experts_dir, ec)) return false;
+    for (const auto& seed : default_expert_seeds()) {
+        if (!fs::is_regular_file(
+                experts_dir / seed.relative_path / "expert.json", ec)) {
             return false;
         }
     }
@@ -201,7 +216,7 @@ fs::path normalized_path(const fs::path& path) {
 
 std::optional<fs::path> valid_seed_dir(const fs::path& path) {
     fs::path normalized = normalized_path(path);
-    if (seed_dir_has_all_skills(normalized)) return normalized;
+    if (seed_dir_has_all_resources(normalized)) return normalized;
     return std::nullopt;
 }
 
@@ -372,9 +387,40 @@ bool directory_contains_only_skill_md(const fs::path& directory) {
     return !ec && file_count == 1;
 }
 
-std::unordered_map<std::string, PreviousSeedState> read_previous_seed_state(
-    const fs::path& state_path) {
-    std::unordered_map<std::string, PreviousSeedState> previous;
+void read_previous_seed_group(
+    const nlohmann::json& state,
+    const char* key,
+    std::unordered_map<std::string, PreviousSeedState>& previous) {
+    const auto group_it = state.find(key);
+    if (group_it == state.end() || !group_it->is_array()) return;
+
+    for (const auto& item : *group_it) {
+        if (!item.is_object()) continue;
+        const std::string relative_path =
+            item.value("relative_path", std::string{});
+        if (relative_path.empty()) continue;
+
+        PreviousSeedState entry;
+        entry.result = item.value("result", std::string{});
+        entry.installed_tree_sha256 =
+            item.value("installed_tree_sha256", std::string{});
+        entry.skill_md_hash =
+            item.value("skill_md_hash", std::string{});
+        if (item.contains("acecode_owned") &&
+            item["acecode_owned"].is_boolean()) {
+            entry.acecode_owned = item["acecode_owned"].get<bool>();
+        } else {
+            entry.acecode_owned =
+                entry.result == "installed" ||
+                entry.result == "updated" ||
+                entry.result == "unchanged";
+        }
+        previous[relative_path] = std::move(entry);
+    }
+}
+
+PreviousSeedStates read_previous_seed_state(const fs::path& state_path) {
+    PreviousSeedStates previous;
     std::error_code ec;
     if (!fs::is_regular_file(state_path, ec)) return previous;
 
@@ -382,37 +428,14 @@ std::unordered_map<std::string, PreviousSeedState> read_previous_seed_state(
         std::ifstream ifs(state_path, std::ios::binary);
         if (!ifs.is_open()) return previous;
         const nlohmann::json state = nlohmann::json::parse(ifs);
-        const auto skills_it = state.find("skills");
-        if (skills_it == state.end() || !skills_it->is_array()) {
-            return previous;
-        }
-        for (const auto& item : *skills_it) {
-            if (!item.is_object()) continue;
-            const std::string relative_path =
-                item.value("relative_path", std::string{});
-            if (relative_path.empty()) continue;
-
-            PreviousSeedState entry;
-            entry.result = item.value("result", std::string{});
-            entry.installed_tree_sha256 =
-                item.value("installed_tree_sha256", std::string{});
-            entry.skill_md_hash =
-                item.value("skill_md_hash", std::string{});
-            if (item.contains("acecode_owned") &&
-                item["acecode_owned"].is_boolean()) {
-                entry.acecode_owned = item["acecode_owned"].get<bool>();
-            } else {
-                entry.acecode_owned =
-                    entry.result == "installed" ||
-                    entry.result == "updated" ||
-                    entry.result == "unchanged";
-            }
-            previous[relative_path] = std::move(entry);
-        }
+        read_previous_seed_group(state, "skills", previous.skills);
+        read_previous_seed_group(state, "experts", previous.experts);
     } catch (const std::exception& e) {
-        LOG_WARN(std::string("[skills] Ignoring unreadable legacy seed state: ") +
-                 e.what());
-        previous.clear();
+        LOG_WARN(
+            std::string("[seed] Ignoring unreadable legacy seed state: ") +
+            e.what());
+        previous.skills.clear();
+        previous.experts.clear();
     }
     return previous;
 }
@@ -537,21 +560,15 @@ void remove_empty_ancestors(fs::path path, const fs::path& stop) {
     }
 }
 
-bool recover_interrupted_seed_update(
-    const fs::path& acecode_home,
+template <typename Seed>
+bool recover_seed_group(
+    const std::vector<Seed>& seeds,
+    const fs::path& backup_root,
     const fs::path& target_root,
+    const fs::path& cleanup_stop,
     DefaultSkillSeedInstallResult& result) {
-    const fs::path staging_root = acecode_home / kSeedStagingDir;
-    const fs::path backup_root = acecode_home / kSeedBackupDir;
     std::error_code ec;
-
-    fs::remove_all(staging_root, ec);
-    if (ec) {
-        append_error(result, "failed to clean seed staging: " + ec.message());
-        return false;
-    }
-
-    for (const auto& seed : default_skill_seeds()) {
+    for (const auto& seed : seeds) {
         const fs::path backup_dir = backup_root / seed.relative_path;
         const fs::path target_dir = target_root / seed.relative_path;
         const bool backup_exists = fs::exists(backup_dir, ec);
@@ -590,9 +607,51 @@ bool recover_interrupted_seed_update(
                 return false;
             }
         }
-        remove_empty_ancestors(backup_dir.parent_path(), backup_root);
+        remove_empty_ancestors(backup_dir.parent_path(), cleanup_stop);
     }
     return true;
+}
+
+bool recover_interrupted_seed_update(
+    const fs::path& acecode_home,
+    const fs::path& skill_target_root,
+    const fs::path& expert_target_root,
+    DefaultSkillSeedInstallResult& result) {
+    const fs::path staging_root = acecode_home / kSeedStagingDir;
+    const fs::path backup_root = acecode_home / kSeedBackupDir;
+    std::error_code ec;
+
+    fs::remove_all(staging_root, ec);
+    if (ec) {
+        append_error(result, "failed to clean seed staging: " + ec.message());
+        return false;
+    }
+
+    // Releases before schema 3 stored skill backups directly below the
+    // backup root. Restore those first, then handle namespaced resource
+    // backups used by the unified Skill + expert seed transaction.
+    if (!recover_seed_group(
+            default_skill_seeds(),
+            backup_root,
+            skill_target_root,
+            backup_root,
+            result)) {
+        return false;
+    }
+    if (!recover_seed_group(
+            default_skill_seeds(),
+            backup_root / "skills",
+            skill_target_root,
+            backup_root,
+            result)) {
+        return false;
+    }
+    return recover_seed_group(
+        default_expert_seeds(),
+        backup_root / "experts",
+        expert_target_root,
+        backup_root,
+        result);
 }
 
 bool publish_staged_seed(const fs::path& stage_dir,
@@ -647,22 +706,12 @@ bool publish_staged_seed(const fs::path& stage_dir,
     return true;
 }
 
-bool write_seed_state(
-    DefaultSkillSeedInstallResult& result,
-    bool completed,
-    const std::unordered_map<std::string, PreviousSeedState>& previous) {
-    nlohmann::json state;
-    state["schema_version"] = 2;
-    state["bundle_version"] = result.bundle_version;
-    state["completed"] = completed;
-    state["seed_skills_dir"] =
-        path_to_utf8_generic(result.seed_skills_dir);
-    state["target_root"] = path_to_utf8_generic(result.target_root);
-    state["generated_at_unix"] =
-        static_cast<long long>(std::time(nullptr));
-    state["skills"] = nlohmann::json::array();
-
-    for (const auto& outcome : result.outcomes) {
+void append_seed_state_group(
+    nlohmann::json& items,
+    const std::vector<DefaultSkillSeedOutcome>& outcomes,
+    const std::unordered_map<std::string, PreviousSeedState>& previous,
+    bool retain_legacy_skill_hash) {
+    for (const auto& outcome : outcomes) {
         nlohmann::json item;
         item["name"] = outcome.name;
         item["source_id"] = outcome.source_id;
@@ -698,11 +747,40 @@ bool write_seed_state(
             item["installed_tree_sha256"] =
                 installed_tree_sha256;
         }
-        if (!legacy_skill_md_hash.empty()) {
+        if (retain_legacy_skill_hash && !legacy_skill_md_hash.empty()) {
             item["skill_md_hash"] = legacy_skill_md_hash;
         }
-        state["skills"].push_back(std::move(item));
+        items.push_back(std::move(item));
     }
+}
+
+bool write_seed_state(
+    DefaultSkillSeedInstallResult& result,
+    bool completed,
+    const PreviousSeedStates& previous) {
+    nlohmann::json state;
+    state["schema_version"] = 3;
+    state["bundle_version"] = result.bundle_version;
+    state["completed"] = completed;
+    state["seed_skills_dir"] =
+        path_to_utf8_generic(result.seed_skills_dir);
+    state["seed_experts_dir"] =
+        path_to_utf8_generic(result.seed_experts_dir);
+    state["target_root"] = path_to_utf8_generic(result.target_root);
+    state["expert_target_root"] =
+        path_to_utf8_generic(result.expert_target_root);
+    state["generated_at_unix"] =
+        static_cast<long long>(std::time(nullptr));
+    state["skills"] = nlohmann::json::array();
+    state["experts"] = nlohmann::json::array();
+
+    append_seed_state_group(
+        state["skills"], result.outcomes, previous.skills, true);
+    append_seed_state_group(
+        state["experts"],
+        result.expert_outcomes,
+        previous.experts,
+        false);
 
     if (!atomic_write_file(
             path_to_utf8(result.state_path), state.dump(2) + "\n")) {
@@ -803,6 +881,202 @@ private:
 #endif
 };
 
+template <typename Seed>
+void reconcile_seed_group(
+    const std::vector<Seed>& seeds,
+    const fs::path& source_root,
+    const fs::path& target_root,
+    const fs::path& staging_root,
+    const fs::path& backup_root,
+    const std::string& resource_namespace,
+    const char* required_filename,
+    const char* resource_label,
+    const std::unordered_map<std::string, PreviousSeedState>& previous,
+    std::vector<DefaultSkillSeedOutcome>& outcomes,
+    DefaultSkillSeedInstallResult& result,
+    bool& completed) {
+    std::error_code ec;
+    for (const auto& seed : seeds) {
+        DefaultSkillSeedOutcome outcome;
+        outcome.name = seed.name;
+        outcome.source_id = seed.source_id;
+        outcome.relative_path =
+            path_to_utf8_generic(seed.relative_path);
+
+        const fs::path source_dir = source_root / seed.relative_path;
+        const fs::path required_source =
+            source_dir / required_filename;
+        const fs::path target_dir = target_root / seed.relative_path;
+        const fs::path stage_dir =
+            staging_root / resource_namespace / seed.relative_path;
+        const fs::path backup_dir =
+            backup_root / resource_namespace / seed.relative_path;
+
+        if (!fs::is_regular_file(required_source, ec)) {
+            outcome.result = "missing_source";
+            outcome.message = path_to_utf8_generic(required_source);
+            completed = false;
+            append_error(
+                result,
+                std::string("default ") + resource_label +
+                    " source is missing: " +
+                    path_to_utf8_generic(required_source));
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+
+        std::string source_hash_error;
+        auto source_hash =
+            hash_directory_tree(source_dir, source_hash_error);
+        if (!source_hash) {
+            outcome.result = "error";
+            outcome.message = source_hash_error;
+            completed = false;
+            append_error(result, source_hash_error);
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+        outcome.source_tree_sha256 = *source_hash;
+
+        const bool target_exists = fs::exists(target_dir, ec);
+        if (ec) {
+            outcome.result = "error";
+            outcome.message =
+                "failed to inspect target: " + ec.message();
+            completed = false;
+            append_error(result, outcome.message);
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+
+        if (!target_exists) {
+            std::string stage_error;
+            if (!stage_seed_directory(
+                    source_dir, stage_dir, *source_hash, stage_error)) {
+                outcome.result = "error";
+                outcome.message = stage_error;
+                completed = false;
+                append_error(result, stage_error);
+                outcomes.push_back(std::move(outcome));
+                continue;
+            }
+
+            const bool target_appeared = fs::exists(target_dir, ec);
+            if (ec) {
+                outcome.result = "error";
+                outcome.message =
+                    "failed to recheck target: " + ec.message();
+                completed = false;
+                append_error(result, outcome.message);
+                fs::remove_all(stage_dir, ec);
+                outcomes.push_back(std::move(outcome));
+                continue;
+            }
+            if (target_appeared) {
+                outcome.result = "preserved_user_modified";
+                outcome.message =
+                    "target appeared during reconciliation";
+                std::string target_hash_error;
+                if (auto target_hash = hash_directory_tree(
+                        target_dir, target_hash_error)) {
+                    outcome.installed_tree_sha256 = *target_hash;
+                }
+                fs::remove_all(stage_dir, ec);
+                outcomes.push_back(std::move(outcome));
+                continue;
+            }
+
+            std::string publish_error;
+            if (!publish_staged_seed(
+                    stage_dir,
+                    target_dir,
+                    backup_dir,
+                    false,
+                    publish_error)) {
+                outcome.result = "error";
+                outcome.message = publish_error;
+                completed = false;
+                append_error(result, publish_error);
+                outcomes.push_back(std::move(outcome));
+                continue;
+            }
+            outcome.result = "installed";
+            outcome.acecode_owned = true;
+            outcome.installed_tree_sha256 = *source_hash;
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+
+        std::string target_hash_error;
+        auto target_hash =
+            hash_directory_tree(target_dir, target_hash_error);
+        if (!target_hash) {
+            outcome.result = "error";
+            outcome.message = target_hash_error;
+            completed = false;
+            append_error(result, target_hash_error);
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+        outcome.installed_tree_sha256 = *target_hash;
+
+        const auto previous_it =
+            previous.find(outcome.relative_path);
+        const PreviousSeedState* previous_entry =
+            previous_it == previous.end() ? nullptr : &previous_it->second;
+        if (!previous_state_proves_pristine(
+                previous_entry, target_dir, *target_hash)) {
+            outcome.result = "preserved_user_modified";
+            outcome.message =
+                previous_entry
+                    ? "installed content differs from recorded seed state"
+                    : "existing target is not owned by ACECode";
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+
+        if (*target_hash == *source_hash) {
+            outcome.result = "unchanged";
+            outcome.acecode_owned = true;
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+
+        std::string stage_error;
+        if (!stage_seed_directory(
+                source_dir, stage_dir, *source_hash, stage_error)) {
+            outcome.result = "error";
+            outcome.message = stage_error;
+            outcome.acecode_owned = true;
+            completed = false;
+            append_error(result, stage_error);
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+
+        std::string publish_error;
+        if (!publish_staged_seed(
+                stage_dir,
+                target_dir,
+                backup_dir,
+                true,
+                publish_error)) {
+            outcome.result = "error";
+            outcome.message = publish_error;
+            outcome.acecode_owned = true;
+            completed = false;
+            append_error(result, publish_error);
+            outcomes.push_back(std::move(outcome));
+            continue;
+        }
+
+        outcome.result = "updated";
+        outcome.acecode_owned = true;
+        outcome.installed_tree_sha256 = *source_hash;
+        outcomes.push_back(std::move(outcome));
+    }
+}
+
 } // namespace
 
 const std::vector<DefaultSkillSeed>& default_skill_seeds() {
@@ -816,6 +1090,9 @@ const std::vector<DefaultSkillSeed>& default_skill_seeds() {
         {"skill-creator",
          "codex-system:skill-creator@2026-04-30",
          fs::path("skill-management") / "skill-creator"},
+        {"expert-manager",
+         "acecode:expert-manager@2026-07-27",
+         fs::path("expert-management") / "expert-manager"},
         {"native-mcp",
          "hermes-agent:mcp/native-mcp@4eecaf06e48834e105cbd989ae0bae5a2a618c1d",
          fs::path("mcp") / "native-mcp"},
@@ -835,6 +1112,42 @@ const std::vector<DefaultSkillSeed>& default_skill_seeds() {
     return seeds;
 }
 
+const std::vector<DefaultExpertSeed>& default_expert_seeds() {
+    static const std::vector<DefaultExpertSeed> seeds = {
+        {"opc-asset-strategist",
+         "acecode:opc-expert/opc-asset-strategist@2026-07-27",
+         "opc-asset-strategist"},
+        {"opc-conversion-designer",
+         "acecode:opc-expert/opc-conversion-designer@2026-07-27",
+         "opc-conversion-designer"},
+        {"opc-dashboard-reviewer",
+         "acecode:opc-expert/opc-dashboard-reviewer@2026-07-27",
+         "opc-dashboard-reviewer"},
+        {"opc-model-architect",
+         "acecode:opc-expert/opc-model-architect@2026-07-27",
+         "opc-model-architect"},
+        {"opc-mvp-designer",
+         "acecode:opc-expert/opc-mvp-designer@2026-07-27",
+         "opc-mvp-designer"},
+        {"opc-niche-strategist",
+         "acecode:opc-expert/opc-niche-strategist@2026-07-27",
+         "opc-niche-strategist"},
+        {"opc-resource-auditor",
+         "acecode:opc-expert/opc-resource-auditor@2026-07-27",
+         "opc-resource-auditor"},
+        {"opc-team",
+         "acecode:opc-expert/opc-team@2026-07-27",
+         "opc-team"},
+        {"opc-team-lead",
+         "acecode:opc-expert/opc-team-lead@2026-07-27",
+         "opc-team-lead"},
+        {"opc-value-designer",
+         "acecode:opc-expert/opc-value-designer@2026-07-27",
+         "opc-value-designer"},
+    };
+    return seeds;
+}
+
 std::optional<fs::path> find_default_skill_seed_dir(
     const std::string& argv0_dir) {
     const std::string env = getenv_utf8("ACECODE_SEED_SKILLS_DIR");
@@ -843,6 +1156,14 @@ std::optional<fs::path> find_default_skill_seed_dir(
     }
 
     if (!argv0_dir.empty()) {
+        // Updater ZIPs are portable layouts with the executable and share/
+        // as siblings. Installed layouts usually place the executable in
+        // bin/, so retain the parent/share probe immediately afterward.
+        const fs::path portable_candidate =
+            path_from_utf8(argv0_dir) / "share" /
+            "acecode" / "seed" / "skills";
+        if (auto found = valid_seed_dir(portable_candidate)) return found;
+
         const fs::path install_candidate =
             path_from_utf8(argv0_dir) / ".." / "share" /
             "acecode" / "seed" / "skills";
@@ -887,7 +1208,10 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
     const fs::path& seed_skills_dir) {
     DefaultSkillSeedInstallResult result;
     result.seed_skills_dir = normalized_path(seed_skills_dir);
+    result.seed_experts_dir =
+        result.seed_skills_dir.parent_path() / "experts";
     result.target_root = acecode_home / "skills";
+    result.expert_target_root = acecode_home / "experts";
     result.state_path = default_skill_seed_state_path(acecode_home);
     result.version_path = default_skill_seed_version_path(acecode_home);
 
@@ -896,7 +1220,10 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
         SeedUpdateFileLock file_lock(acecode_home);
 
         if (!recover_interrupted_seed_update(
-                acecode_home, result.target_root, result)) {
+                acecode_home,
+                result.target_root,
+                result.expert_target_root,
+                result)) {
             result.attempted = true;
             return result;
         }
@@ -921,8 +1248,8 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
             if (user_version) {
                 result.user_version = user_version->text;
             } else {
-                LOG_WARN("[skills] " + user_version_error +
-                         "; reconciling seed bundle");
+                LOG_WARN("[seed] " + user_version_error +
+                          "; reconciling seed bundle");
             }
         }
 
@@ -945,6 +1272,13 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
                 "failed to create global skills root: " + ec.message());
             return result;
         }
+        fs::create_directories(result.expert_target_root, ec);
+        if (ec) {
+            append_error(
+                result,
+                "failed to create global experts root: " + ec.message());
+            return result;
+        }
 
         const auto previous =
             read_previous_seed_state(result.state_path);
@@ -952,174 +1286,32 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
         const fs::path backup_root = acecode_home / kSeedBackupDir;
         bool completed = true;
 
-        for (const auto& seed : default_skill_seeds()) {
-            DefaultSkillSeedOutcome outcome;
-            outcome.name = seed.name;
-            outcome.source_id = seed.source_id;
-            outcome.relative_path =
-                path_to_utf8_generic(seed.relative_path);
-
-            const fs::path source_dir =
-                result.seed_skills_dir / seed.relative_path;
-            const fs::path source_md = source_dir / "SKILL.md";
-            const fs::path target_dir =
-                result.target_root / seed.relative_path;
-            const fs::path stage_dir =
-                staging_root / seed.relative_path;
-            const fs::path backup_dir =
-                backup_root / seed.relative_path;
-
-            if (!fs::is_regular_file(source_md, ec)) {
-                outcome.result = "missing_source";
-                outcome.message = path_to_utf8_generic(source_md);
-                completed = false;
-                append_error(
-                    result,
-                    "default skill source is missing: " +
-                        path_to_utf8_generic(source_md));
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-
-            std::string source_hash_error;
-            auto source_hash =
-                hash_directory_tree(source_dir, source_hash_error);
-            if (!source_hash) {
-                outcome.result = "error";
-                outcome.message = source_hash_error;
-                completed = false;
-                append_error(result, source_hash_error);
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-            outcome.source_tree_sha256 = *source_hash;
-
-            const bool target_exists = fs::exists(target_dir, ec);
-            if (ec) {
-                outcome.result = "error";
-                outcome.message =
-                    "failed to inspect target: " + ec.message();
-                completed = false;
-                append_error(result, outcome.message);
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-
-            if (!target_exists) {
-                std::string stage_error;
-                if (!stage_seed_directory(
-                        source_dir, stage_dir, *source_hash, stage_error)) {
-                    outcome.result = "error";
-                    outcome.message = stage_error;
-                    completed = false;
-                    append_error(result, stage_error);
-                    result.outcomes.push_back(std::move(outcome));
-                    continue;
-                }
-
-                if (fs::exists(target_dir, ec)) {
-                    outcome.result = "preserved_user_modified";
-                    outcome.message = "target appeared during reconciliation";
-                    std::string target_hash_error;
-                    if (auto target_hash =
-                            hash_directory_tree(
-                                target_dir, target_hash_error)) {
-                        outcome.installed_tree_sha256 = *target_hash;
-                    }
-                    fs::remove_all(stage_dir, ec);
-                    result.outcomes.push_back(std::move(outcome));
-                    continue;
-                }
-
-                std::string publish_error;
-                if (!publish_staged_seed(
-                        stage_dir,
-                        target_dir,
-                        backup_dir,
-                        false,
-                        publish_error)) {
-                    outcome.result = "error";
-                    outcome.message = publish_error;
-                    completed = false;
-                    append_error(result, publish_error);
-                    result.outcomes.push_back(std::move(outcome));
-                    continue;
-                }
-                outcome.result = "installed";
-                outcome.acecode_owned = true;
-                outcome.installed_tree_sha256 = *source_hash;
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-
-            std::string target_hash_error;
-            auto target_hash =
-                hash_directory_tree(target_dir, target_hash_error);
-            if (!target_hash) {
-                outcome.result = "error";
-                outcome.message = target_hash_error;
-                completed = false;
-                append_error(result, target_hash_error);
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-            outcome.installed_tree_sha256 = *target_hash;
-
-            const auto previous_it =
-                previous.find(outcome.relative_path);
-            const PreviousSeedState* previous_entry =
-                previous_it == previous.end() ? nullptr : &previous_it->second;
-            if (!previous_state_proves_pristine(
-                    previous_entry, target_dir, *target_hash)) {
-                outcome.result = "preserved_user_modified";
-                outcome.message =
-                    previous_entry
-                        ? "installed content differs from recorded seed state"
-                        : "existing target is not owned by ACECode";
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-
-            if (*target_hash == *source_hash) {
-                outcome.result = "unchanged";
-                outcome.acecode_owned = true;
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-
-            std::string stage_error;
-            if (!stage_seed_directory(
-                    source_dir, stage_dir, *source_hash, stage_error)) {
-                outcome.result = "error";
-                outcome.message = stage_error;
-                outcome.acecode_owned = true;
-                completed = false;
-                append_error(result, stage_error);
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-
-            std::string publish_error;
-            if (!publish_staged_seed(
-                    stage_dir,
-                    target_dir,
-                    backup_dir,
-                    true,
-                    publish_error)) {
-                outcome.result = "error";
-                outcome.message = publish_error;
-                outcome.acecode_owned = true;
-                completed = false;
-                append_error(result, publish_error);
-                result.outcomes.push_back(std::move(outcome));
-                continue;
-            }
-
-            outcome.result = "updated";
-            outcome.acecode_owned = true;
-            outcome.installed_tree_sha256 = *source_hash;
-            result.outcomes.push_back(std::move(outcome));
-        }
+        reconcile_seed_group(
+            default_skill_seeds(),
+            result.seed_skills_dir,
+            result.target_root,
+            staging_root,
+            backup_root,
+            "skills",
+            "SKILL.md",
+            "skill",
+            previous.skills,
+            result.outcomes,
+            result,
+            completed);
+        reconcile_seed_group(
+            default_expert_seeds(),
+            result.seed_experts_dir,
+            result.expert_target_root,
+            staging_root,
+            backup_root,
+            "experts",
+            "expert.json",
+            "expert",
+            previous.experts,
+            result.expert_outcomes,
+            result,
+            completed);
 
         fs::remove_all(staging_root, ec);
         if (ec) {
@@ -1154,15 +1346,16 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills_on_startup(
     const std::string& argv0_dir) {
     DefaultSkillSeedInstallResult result;
     result.target_root = acecode_home / "skills";
+    result.expert_target_root = acecode_home / "experts";
     result.state_path = default_skill_seed_state_path(acecode_home);
     result.version_path = default_skill_seed_version_path(acecode_home);
 
     auto seed_dir = find_default_skill_seed_dir(argv0_dir);
     if (!seed_dir) {
         result.attempted = true;
-        result.error = "default skill seed bundle not found";
+        result.error = "default seed resource bundle not found";
         LOG_WARN(
-            "[skills] Default skill seed bundle not found; "
+            "[seed] Default seed resource bundle not found; "
             "skipping startup reconciliation");
         return result;
     }

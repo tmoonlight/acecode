@@ -112,14 +112,6 @@ function BasicEditor({ form, errors, tagSuggestions, update }) {
           placeholder={isTeam ? '产品交付专家团' : '高级开发工程师'}
         />
       </Field>
-      <Field label={isTeam ? '创建者或团队称呼' : '姓名或称呼'} error={errors.author} required>
-        <input
-          className={inputClass}
-          value={form.author}
-          onChange={(event) => update('author', event.target.value)}
-          placeholder={isTeam ? 'ACECode' : '吴八哥'}
-        />
-      </Field>
       <Field label="职业 / 定位">
         <input
           className={inputClass}

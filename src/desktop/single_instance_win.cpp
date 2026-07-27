@@ -5,6 +5,7 @@
 
 #ifdef _WIN32
 
+#include "../utils/encoding.hpp"
 #include "../utils/logger.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -14,6 +15,8 @@
 #  define NOMINMAX
 #endif
 #include <windows.h>
+
+#include <utility>
 
 namespace acecode::desktop {
 
@@ -41,7 +44,8 @@ UINT desktop_focus_existing_message_id() {
     return focus_existing_msg_id();
 }
 
-SingleInstance::SingleInstance() = default;
+SingleInstance::SingleInstance(std::string lock_name)
+    : lock_name_(std::move(lock_name)) {}
 
 SingleInstance::~SingleInstance() {
     release();
@@ -49,7 +53,11 @@ SingleInstance::~SingleInstance() {
 
 bool SingleInstance::try_acquire() {
     if (acquired_) return true;
-    HANDLE h = ::CreateMutexW(nullptr, /*bInitialOwner=*/TRUE, kMutexName);
+    const std::wstring mutex_name =
+        lock_name_.empty() ? std::wstring(kMutexName)
+                           : acecode::utf8_to_wide(lock_name_);
+    HANDLE h =
+        ::CreateMutexW(nullptr, /*bInitialOwner=*/TRUE, mutex_name.c_str());
     if (!h) {
         DWORD err = ::GetLastError();
         LOG_WARN("[desktop] single_instance: CreateMutexW failed, err=" + std::to_string(err));

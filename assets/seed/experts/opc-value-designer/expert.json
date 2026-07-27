@@ -1,0 +1,34 @@
+{
+  "name": "opc-value-designer",
+  "version": "1.0.0-acecode.1",
+  "expertType": "agent",
+  "displayName": "言之",
+  "profession": "价值主张设计师",
+  "displayDescription": "拆清客户想完成的事、痛点和收益，帮你形成可以验证的价值主张。",
+  "quickPrompts": [
+    "帮我梳理客户的 Jobs、Pains 和 Gains",
+    "为我的目标客户生成三版价值主张",
+    "检查我的价值主张是不是太空泛"
+  ],
+  "defaultInitPrompt": "请基于我的目标利基，带我设计价值主张。",
+  "agentName": "lead",
+  "agents": [
+    {
+      "id": "lead",
+      "path": "agents/opc-value-designer.md",
+      "displayName": "言之",
+      "profession": "价值主张设计师"
+    }
+  ],
+  "skills": [
+    "skills/opc-value-proposition"
+  ],
+  "avatar": "avatars/opc-value-designer.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

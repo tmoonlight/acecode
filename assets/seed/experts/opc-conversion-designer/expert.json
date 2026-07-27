@@ -1,0 +1,40 @@
+{
+  "agentName": "lead",
+  "agents": [
+    {
+      "displayName": "闭环",
+      "id": "lead",
+      "path": "agents/opc-conversion-designer.md",
+      "profession": "转化路径设计师"
+    }
+  ],
+  "avatar": "avatars/opc-conversion-designer.png",
+  "created_at": "2026-07-26T06:25:34Z",
+  "defaultInitPrompt": "",
+  "displayDescription": "把触达、承接和成交串成一条清楚的路径，找出断点并确定最小闭环。",
+  "displayName": "闭环",
+  "expertType": "agent",
+  "expertise": [],
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "license": "CC-BY-NC-SA-4.0",
+  "name": "opc-conversion-designer",
+  "profession": "转化路径设计师",
+  "quickPrompts": [
+    "帮我设计从触达到成交的转化路径",
+    "检查我的转化链路断在哪里",
+    "给我三种轻量转化闭环方案"
+  ],
+  "skills": [
+    "skills/opc-conversion-loop"
+  ],
+  "tags": [
+    "OPC"
+  ],
+  "updated_at": "2026-07-26T06:25:34Z",
+  "upstream": {
+    "package": "opc-team",
+    "product": "WorkBuddy",
+    "version": "1.0.0"
+  },
+  "version": "1.0.0"
+}

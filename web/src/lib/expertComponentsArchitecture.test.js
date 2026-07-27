@@ -63,7 +63,7 @@ test('catalog uses type tabs plus dynamic non-exclusive Tags and cards show expe
   assert.match(catalog, /collectExpertTags/);
   assert.match(catalog, /overflow-x-auto/);
   assert.match(catalog, /sortExperts/);
-  assert.match(catalog, /搜索名称、作者、Tag 或擅长领域/);
+  assert.match(catalog, /搜索名称、Tag 或擅长领域/);
   assert.match(card, /expert\.expertise\.slice\(0, 3\)/);
   assert.doesNotMatch(card, /quick_prompts/);
   assert.match(card, /<button[\s\S]*aria-label=\{detailLabel\}/);

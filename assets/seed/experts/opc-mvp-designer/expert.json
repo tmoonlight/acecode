@@ -1,0 +1,34 @@
+{
+  "name": "opc-mvp-designer",
+  "version": "1.0.0-acecode.1",
+  "expertType": "agent",
+  "displayName": "验真",
+  "profession": "MVP实验设计师",
+  "displayDescription": "把最危险的假设收缩成一次最小验证，明确形式、边界和成功标准。",
+  "quickPrompts": [
+    "帮我确定最应该先验证的假设",
+    "给我三种最小 MVP 方案",
+    "检查我的 MVP 是不是做得太大"
+  ],
+  "defaultInitPrompt": "请把我当前最危险的假设设计成一次最小验证。",
+  "agentName": "lead",
+  "agents": [
+    {
+      "id": "lead",
+      "path": "agents/opc-mvp-designer.md",
+      "displayName": "验真",
+      "profession": "MVP实验设计师"
+    }
+  ],
+  "skills": [
+    "skills/opc-mvp-designer"
+  ],
+  "avatar": "avatars/opc-mvp-designer.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

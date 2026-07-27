@@ -344,7 +344,6 @@ std::optional<ExpertDefinition> load_package(const fs::path& package_root,
     }
     expert.display_name = json_text(manifest, "displayName");
     if (expert.display_name.empty()) expert.display_name = expert.id;
-    expert.author = json_text(manifest, "author");
     expert.profession = json_text(manifest, "profession");
     expert.description = json_text(manifest, "displayDescription");
     expert.default_init_prompt = json_text(manifest, "defaultInitPrompt");
@@ -355,12 +354,10 @@ std::optional<ExpertDefinition> load_package(const fs::path& package_root,
     expert.source = source;
     expert.managed_global = managed;
 
-    if (expert.display_name.size() > 512 || expert.author.size() > 512 ||
-        expert.profession.size() > 512 ||
+    if (expert.display_name.size() > 512 || expert.profession.size() > 512 ||
         expert.description.size() > kMaxTextBytes ||
         expert.default_init_prompt.size() > kMaxTextBytes ||
         expert.created_at.size() > 128 || expert.updated_at.size() > 128 ||
-        !is_valid_utf8(expert.author) ||
         !is_valid_utf8(expert.created_at) ||
         !is_valid_utf8(expert.updated_at)) {
         set_error(error, "expert display text exceeds size limit");
@@ -593,7 +590,6 @@ bool validate_draft(const ExpertDraft& draft, std::string* error) {
     }
     if (draft.version.size() > 128 ||
         draft.display_name.empty() || draft.display_name.size() > 512 ||
-        draft.author.size() > 512 ||
         draft.profession.size() > 512 || draft.description.size() > kMaxTextBytes ||
         draft.default_init_prompt.size() > kMaxTextBytes ||
         draft.created_at.size() > 128 || draft.updated_at.size() > 128) {
@@ -601,7 +597,6 @@ bool validate_draft(const ExpertDraft& draft, std::string* error) {
         return false;
     }
     if (!is_valid_utf8(draft.version) || !is_valid_utf8(draft.display_name) ||
-        !is_valid_utf8(draft.author) ||
         !is_valid_utf8(draft.profession) ||
         !is_valid_utf8(draft.description) ||
         !is_valid_utf8(draft.default_init_prompt) ||
@@ -710,7 +705,6 @@ json draft_manifest(const ExpertDraft& draft) {
         {"version", draft.version.empty() ? "1.0.0" : draft.version},
         {"expertType", to_string(draft.type)},
         {"displayName", draft.display_name},
-        {"author", draft.author},
         {"profession", draft.profession},
         {"displayDescription", draft.description},
         {"tags", draft.tags},
@@ -886,11 +880,15 @@ bool materialize_draft(const fs::path& root,
 
     json managed = draft_manifest(materialized);
     for (const char* field : {
-             "name", "version", "expertType", "displayName", "author",
+             "name", "version", "expertType", "displayName",
              "profession", "displayDescription", "tags", "expertise",
              "quickPrompts", "defaultInitPrompt", "created_at", "updated_at"}) {
         manifest[field] = managed[field];
     }
+    // `author` was display-only metadata and is no longer part of the expert
+    // model. Remove it when a legacy package is edited instead of preserving a
+    // field that ACECode can no longer show or use.
+    manifest.erase("author");
 
     if (materialized.type == ExpertType::Agent) {
         manifest["agentName"] = managed["agentName"];
@@ -1560,7 +1558,6 @@ std::optional<ExpertDraft> ExpertRegistry::draft_from_json(const json& value,
     }
     draft.display_name = json_text(value, "display_name");
     if (draft.display_name.empty()) draft.display_name = json_text(value, "displayName");
-    draft.author = json_text(value, "author");
     draft.profession = json_text(value, "profession");
     draft.description = json_text(value, "description");
     if (draft.description.empty()) draft.description = json_text(value, "displayDescription");
@@ -1659,7 +1656,6 @@ json expert_definition_to_json(const ExpertDefinition& expert,
         {"version", expert.version},
         {"type", to_string(expert.type)},
         {"display_name", expert.display_name},
-        {"author", expert.author},
         {"profession", expert.profession},
         {"description", expert.description},
         {"default_init_prompt", expert.default_init_prompt},

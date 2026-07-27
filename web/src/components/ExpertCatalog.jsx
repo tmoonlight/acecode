@@ -123,7 +123,7 @@ function ExpertCard({
             </span>
           </div>
           <p className="mt-0.5 truncate text-[11px] text-fg-mute">
-            {expert.author || expert.profession || (expert.source === 'workspace' ? '项目提供' : '我的专家')}
+            {expert.profession || (expert.source === 'workspace' ? '项目提供' : '我的专家')}
           </p>
         </div>
         <button
@@ -243,7 +243,7 @@ export function ExpertDetailDialog({
               {expert.display_name}
             </h2>
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-fg-mute">
-              <span>{expert.author || expert.profession || 'ACECode'}</span>
+              <span>{expert.profession || (expert.source === 'workspace' ? '项目提供' : '我的专家')}</span>
               <span className="rounded border border-border px-1.5 py-0.5">{tagLabel(expert)}</span>
               {expert.tags.map((tag) => (
                 <span key={tag} className="rounded bg-accent-bg px-1.5 py-0.5 text-accent">{tag}</span>
@@ -444,7 +444,7 @@ export function ExpertCatalog({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-8 text-[12px] text-fg outline-none transition placeholder:text-fg-mute focus:border-accent"
-              placeholder="搜索名称、作者、Tag 或擅长领域"
+              placeholder="搜索名称、Tag 或擅长领域"
             />
             {query && (
               <button

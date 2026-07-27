@@ -8,7 +8,7 @@ The expert editor SHALL provide tabs named `基础信息` and `高级功能`. Ch
 - **THEN** all unsaved basic and advanced selections remain intact
 
 ### Requirement: Basic information uses the correct expert field semantics
-The basic tab SHALL allow editing expert name, author/call-name metadata where supported, multiple Tags, introduction, expertise, opening prompts, and work style/system instructions. Tags SHALL be multi-valued. Expertise and opening prompts SHALL be distinct ordered lists, with the editor presenting one item per line rather than a comma-delimited category field.
+The basic tab SHALL allow editing one expert display name, multiple Tags, introduction, expertise, opening prompts, and work style/system instructions. It MUST NOT expose or persist a separate author/call-name value. Tags SHALL be multi-valued. Expertise and opening prompts SHALL be distinct ordered lists, with the editor presenting one item per line rather than a comma-delimited category field.
 
 #### Scenario: Save line-separated expertise and prompts
 - **WHEN** a user enters three expertise lines and two opening-prompt lines

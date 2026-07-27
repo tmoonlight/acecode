@@ -1,0 +1,34 @@
+{
+  "name": "opc-team-lead",
+  "version": "1.0.0-acecode.1",
+  "expertType": "agent",
+  "displayName": "易牧",
+  "profession": "首席编排师",
+  "displayDescription": "判断你所处的阶段，调度合适的成员，并把每一步衔接成可继续推进的方案。",
+  "quickPrompts": [
+    "从零开始带我规划一人公司",
+    "读取 opc-doc，告诉我上次做到哪一步",
+    "我卡住了，帮我判断该找哪位成员"
+  ],
+  "defaultInitPrompt": "先判断我现在处于哪个阶段，再安排合适的成员和下一步。",
+  "agentName": "lead",
+  "agents": [
+    {
+      "id": "lead",
+      "path": "agents/opc-team-lead.md",
+      "displayName": "易牧",
+      "profession": "首席编排师"
+    }
+  ],
+  "skills": [
+    "skills/opc-orchestrator"
+  ],
+  "avatar": "avatars/opc-team-lead.png",
+  "license": "CC-BY-NC-SA-4.0",
+  "homepage": "https://github.com/easychen/opc-methodology",
+  "upstream": {
+    "product": "WorkBuddy",
+    "package": "opc-team",
+    "version": "1.0.0"
+  }
+}

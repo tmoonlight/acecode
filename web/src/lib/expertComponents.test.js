@@ -42,7 +42,6 @@ const catalog = normalizeExperts({ experts: [
   {
     id: 'reviewer',
     display_name: '代码审查',
-    author: '吴八哥',
     type: 'agent',
     source: 'global',
     description: '检查实现质量',
@@ -54,7 +53,6 @@ const catalog = normalizeExperts({ experts: [
   {
     id: 'designer',
     display_name: '界面设计',
-    author: '言之',
     type: 'agent',
     tags: ['设计'],
     expertise: ['交互流程'],
@@ -87,7 +85,7 @@ test('Tag membership is non-exclusive and combines with plain-language search', 
   assert.deepEqual(collectExpertTags(catalog, 'agent'), ['OPC-一人公司', '开发', '设计']);
   assert.deepEqual(filterExperts(catalog, { type: 'agent', tag: '开发' }).map((item) => item.id), ['reviewer']);
   assert.deepEqual(filterExperts(catalog, { type: 'agent', tag: 'OPC-一人公司' }).map((item) => item.id), ['reviewer']);
-  assert.deepEqual(filterExperts(catalog, { type: 'agent', query: '吴八哥' }).map((item) => item.id), ['reviewer']);
+  assert.deepEqual(filterExperts(catalog, { type: 'agent', query: '代码审查' }).map((item) => item.id), ['reviewer']);
   assert.deepEqual(filterExperts(catalog, { type: 'agent', query: '架构' }).map((item) => item.id), ['reviewer']);
   assert.deepEqual(filterExperts(catalog, { type: 'agent', query: '审查当前' }).map((item) => item.id), ['reviewer']);
   assert.deepEqual(filterExperts(catalog, { type: 'team' }).map((item) => item.id), ['delivery-team']);
@@ -136,11 +134,10 @@ test('new expert forms generate valid hidden IDs', () => {
   assert.match(createExpertInternalId('team'), /^team-[a-z0-9-]+$/);
 });
 
-test('expert payload keeps author, Tags, expertise, prompts and optional scopes separate', () => {
+test('expert payload keeps Tags, expertise, prompts and optional scopes separate', () => {
   const form = emptyExpertForm('agent');
   Object.assign(form, {
     displayName: '代码审查专家',
-    author: '吴八哥',
     profession: '高级开发工程师',
     description: '检查当前实现',
     tags: ['开发', 'OPC-一人公司'],
@@ -157,7 +154,6 @@ test('expert payload keeps author, Tags, expertise, prompts and optional scopes 
     id: form.id,
     type: 'agent',
     display_name: '代码审查专家',
-    author: '吴八哥',
     profession: '高级开发工程师',
     description: '检查当前实现',
     tags: ['开发', 'OPC-一人公司'],
@@ -230,7 +226,6 @@ test('expert detail form round-trips optional scopes', () => {
   const form = expertFormFromDetail({
     id: 'reviewer',
     display_name: '审查',
-    author: '吴八哥',
     type: 'agent',
     expertise: ['架构'],
     quick_prompts: ['审查'],
@@ -246,7 +241,6 @@ test('expert team payload references selected existing experts and one lead', ()
   const form = emptyExpertForm('team', 'reviewer');
   Object.assign(form, {
     displayName: '交付团队',
-    author: 'ACECode',
     profession: '研发交付',
     tags: ['项目质量'],
     expertiseText: '需求拆解\n体验验收',
@@ -259,7 +253,6 @@ test('expert team payload references selected existing experts and one lead', ()
     id: form.id,
     type: 'team',
     display_name: '交付团队',
-    author: 'ACECode',
     profession: '研发交付',
     description: '',
     tags: ['项目质量'],
@@ -274,7 +267,6 @@ test('team validation associates missing values with fields', () => {
   const form = emptyExpertForm('team', 'reviewer');
   const errors = validateExpertFormFields(form);
   assert.equal(errors.displayName, '请填写专家名称');
-  assert.equal(errors.author, '请填写姓名或称呼');
   assert.match(errors.members, /至少需要两位/);
 });
 
@@ -304,7 +296,6 @@ test('team validation rejects missing, out-of-scope, and nested-team references'
   const form = {
     ...emptyExpertForm('team'),
     displayName: '交付团队',
-    author: 'ACECode',
     selectedExpertIds: ['reviewer', 'missing-expert'],
     leadExpertId: 'reviewer',
   };

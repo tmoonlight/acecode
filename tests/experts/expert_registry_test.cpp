@@ -405,7 +405,6 @@ TEST(ExpertRegistry, NormalizesMetadataAndPreservesOptionalCapabilityStates) {
         }},
     }, &error);
     ASSERT_TRUE(draft.has_value()) << error;
-    EXPECT_EQ(draft->author, "吴八哥");
     EXPECT_EQ(draft->tags,
               std::vector<std::string>({"开发", "OPC-一人公司"}));
     EXPECT_EQ(draft->expertise,
@@ -427,7 +426,6 @@ TEST(ExpertRegistry, NormalizesMetadataAndPreservesOptionalCapabilityStates) {
     auto found = registry.find(acecode::path_to_utf8(temp.path),
                                "unicode-expert");
     ASSERT_TRUE(found.has_value());
-    EXPECT_EQ(found->author, "吴八哥");
     EXPECT_EQ(found->tags, draft->tags);
     EXPECT_EQ(found->expertise, draft->expertise);
     ASSERT_TRUE(found->capabilities.skills.has_value());
@@ -439,7 +437,7 @@ TEST(ExpertRegistry, NormalizesMetadataAndPreservesOptionalCapabilityStates) {
     EXPECT_FALSE(found->updated_at.empty());
 
     const auto dto = acecode::expert_definition_to_json(*found, true);
-    EXPECT_EQ(dto["author"], "吴八哥");
+    EXPECT_FALSE(dto.contains("author"));
     EXPECT_EQ(dto["capabilities"]["skills"], nlohmann::json::array());
     EXPECT_EQ(dto["capabilities"]["mcp_servers"][1], "missing");
     EXPECT_FALSE(dto.contains("package_root"));
@@ -477,6 +475,7 @@ TEST(ExpertRegistry, UpdateMergesManagedFieldsWithoutLosingPackageData) {
         manifest.value("created_at", std::string{});
     manifest["avatar"] = "avatar.svg";
     manifest["skills"] = nlohmann::json::array({"skills"});
+    manifest["author"] = "Legacy author";
     manifest["x-forward-compatible"] = {
         {"nested", true},
     };
@@ -503,6 +502,7 @@ TEST(ExpertRegistry, UpdateMergesManagedFieldsWithoutLosingPackageData) {
     preserved_input.close();
     EXPECT_EQ(preserved["avatar"], "avatar.svg");
     EXPECT_EQ(preserved["skills"], nlohmann::json::array({"skills"}));
+    EXPECT_FALSE(preserved.contains("author"));
     EXPECT_TRUE(preserved["x-forward-compatible"]["nested"]);
     EXPECT_FALSE(preserved["capabilities"].contains("skills"));
     EXPECT_FALSE(preserved["capabilities"].contains("mcp_servers"));

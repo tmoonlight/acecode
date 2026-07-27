@@ -64,7 +64,7 @@ void reconcile_default_skills_on_startup(const std::string& exe_path) {
         executable_dir_from_path(exe_path));
     if (!result.attempted) return;
     if (!result.error.empty()) {
-        LOG_WARN("[skills] Default skill reconciliation issue: " + result.error);
+        LOG_WARN("[seed] Default resource reconciliation issue: " + result.error);
     }
 }
 

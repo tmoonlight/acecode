@@ -16,7 +16,46 @@
 
 #include "desktop/single_instance.hpp"
 
+#include <filesystem>
+#include <string>
+
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#else
+#  include <unistd.h>
+#endif
+
 using namespace acecode::desktop;
+
+namespace {
+
+std::string test_process_id() {
+#ifdef _WIN32
+    return std::to_string(static_cast<unsigned long>(::GetCurrentProcessId()));
+#else
+    return std::to_string(static_cast<long long>(::getpid()));
+#endif
+}
+
+std::string test_lock_name() {
+#ifdef _WIN32
+    return "Local\\ACECode-Desktop-Singleton-UnitTest-" + test_process_id();
+#else
+    return (std::filesystem::temp_directory_path() /
+            ("acecode-desktop-singleton-unit-test-" + test_process_id() +
+             ".lock"))
+        .string();
+#endif
+}
+
+SingleInstance make_test_instance() {
+    return SingleInstance(test_lock_name());
+}
+
+} // namespace
 
 TEST(DesktopSingleInstance, DefaultConstructedIsNotAcquired) {
     SingleInstance s;
@@ -24,42 +63,42 @@ TEST(DesktopSingleInstance, DefaultConstructedIsNotAcquired) {
 }
 
 TEST(DesktopSingleInstance, FirstAcquireSucceeds) {
-    SingleInstance s;
+    auto s = make_test_instance();
     EXPECT_TRUE(s.try_acquire());
     EXPECT_TRUE(s.acquired());
 }
 
 TEST(DesktopSingleInstance, SecondInstanceCannotAcquireWhileFirstHolds) {
-    SingleInstance first;
+    auto first = make_test_instance();
     ASSERT_TRUE(first.try_acquire());
 
-    SingleInstance second;
+    auto second = make_test_instance();
     EXPECT_FALSE(second.try_acquire());
     EXPECT_FALSE(second.acquired());
 }
 
 TEST(DesktopSingleInstance, ExplicitReleaseAllowsNewAcquire) {
-    SingleInstance first;
+    auto first = make_test_instance();
     ASSERT_TRUE(first.try_acquire());
     first.release();
     EXPECT_FALSE(first.acquired());
 
-    SingleInstance second;
+    auto second = make_test_instance();
     EXPECT_TRUE(second.try_acquire());
     EXPECT_TRUE(second.acquired());
 }
 
 TEST(DesktopSingleInstance, DestructorReleasesAllowingReacquire) {
     {
-        SingleInstance scoped;
+        auto scoped = make_test_instance();
         ASSERT_TRUE(scoped.try_acquire());
     }
-    SingleInstance fresh;
+    auto fresh = make_test_instance();
     EXPECT_TRUE(fresh.try_acquire());
 }
 
 TEST(DesktopSingleInstance, RepeatedAcquireOnSameInstanceIsIdempotent) {
-    SingleInstance s;
+    auto s = make_test_instance();
     EXPECT_TRUE(s.try_acquire());
     EXPECT_TRUE(s.try_acquire());  // 第二次是 no-op,不重复 acquire
     EXPECT_TRUE(s.acquired());
