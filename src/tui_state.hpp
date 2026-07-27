@@ -118,6 +118,8 @@ struct TuiState {
     std::string update_notice; // startup update availability prompt
     std::string token_status; // for token usage display
     int token_percent = 0; // current context usage percentage
+    // Session prompt-cache hit rate, -1 when the provider reported no usage.
+    int cache_hit_percent = -1;
     std::string goal_status; // compact goal status chip
     std::vector<TodoItem> todos; // visible TodoWrite checklist
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  computeCacheHitPercent,
   formatCompactTokenCount,
   normalizeTokenBudget,
 } from './tokenBudget.js';
@@ -145,4 +146,52 @@ run('token 紧凑格式避免无意义小数', () => {
   assert.equal(formatCompactTokenCount(44100), '44.1K');
   assert.equal(formatCompactTokenCount(256000), '256K');
   assert.equal(formatCompactTokenCount(1250000), '1.3M');
+});
+
+run('提示缓存命中率 = cache_read_tokens / prompt_tokens', () => {
+  assert.equal(computeCacheHitPercent({
+    promptTokens: 1000,
+    cacheReadTokens: 870,
+    hasData: true,
+  }), 87);
+  assert.equal(computeCacheHitPercent({
+    prompt_tokens: 1000,
+    cache_read_tokens: 250,
+    has_data: true,
+  }), 25);
+});
+
+run('没有用量数据时缓存命中率为 null,而报告 0 命中时为 0', () => {
+  assert.equal(computeCacheHitPercent(null), null);
+  assert.equal(computeCacheHitPercent({ promptTokens: 1000 }), null);
+  assert.equal(computeCacheHitPercent({ promptTokens: 0, hasData: true }), null);
+  // provider 报了用量但没有缓存计数 -> 0%,这是真实读数,不能被藏起来
+  assert.equal(computeCacheHitPercent({ promptTokens: 4096, hasData: true }), 0);
+});
+
+run('normalizeTokenBudget 透出缓存字段与标签', () => {
+  const budget = normalizeTokenBudget({
+    usage: {
+      promptTokens: 20000,
+      completionTokens: 500,
+      totalTokens: 20500,
+      cacheReadTokens: 18000,
+      cacheWriteTokens: 1200,
+      hasData: true,
+    },
+    contextWindow: 128000,
+  });
+  assert.equal(budget.cacheHitPercent, 90);
+  assert.equal(budget.cacheReadTokens, 18000);
+  assert.equal(budget.cacheWriteTokens, 1200);
+  assert.equal(budget.cacheLabel, 'cache 90%');
+  assert.match(budget.cacheTitle, /90%/);
+});
+
+run('无用量数据的 budget 也带齐缓存字段(形状稳定)', () => {
+  const budget = normalizeTokenBudget({ usage: null, contextWindow: 128000 });
+  assert.equal(budget.known, false);
+  assert.equal(budget.cacheHitPercent, null);
+  assert.equal(budget.cacheLabel, '');
+  assert.equal(budget.cacheReadTokens, 0);
 });

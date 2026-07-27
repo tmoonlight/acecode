@@ -281,6 +281,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '关闭上下文用量': 'Close context usage',
   '% 已用': '% used',
   '{{p0}}% 已用': '{{p0}}% used',
+  '提示缓存命中': 'Prompt cache hits',
+  '提示缓存命中：{{p0}} / {{p1}} 输入 token（{{p2}}%），缓存写入 {{p3}}':
+    'Prompt cache hits: {{p0}} of {{p1}} input tokens ({{p2}}%), {{p3}} written to cache',
   '约': 'Approx.',
   '系统提示': 'System prompt',
   '项目与自定义规则': 'Project and custom rules',

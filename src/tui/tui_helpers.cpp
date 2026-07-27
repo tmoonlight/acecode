@@ -28,6 +28,7 @@
 #include "tui/todo_checklist_view.hpp"
 #include "tui/unclipped_reflect.hpp"
 #include "tui/vertical_scroll.hpp"
+#include "utils/token_tracker.hpp"
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"
 
@@ -492,6 +493,17 @@ Color status_line_color(const std::string& status_line) {
         : theme().ui.text_primary;
 }
 
+// Keep in sync with the file-static twin in main.cpp, which is the copy the
+// TUI actually renders.
+Element render_cache_hit_chip(const TuiState& state) {
+    const std::string label =
+        TokenTracker::format_cache_status_for(state.cache_hit_percent);
+    if (label.empty()) {
+        return text("");
+    }
+    return text(label + "  ") | dim | color(theme().ui.text_dim);
+}
+
 Element render_token_usage_chip(const TuiState& state) {
     if (state.token_status.empty()) {
         return text("");
@@ -513,6 +525,7 @@ Element render_token_usage_chip(const TuiState& state) {
         text(repeat_utf8_glyph(kEmpty, empty)) | dim | color(theme().ui.text_dim),
         text("] ") | dim | color(theme().ui.text_dim),
         text(std::to_string(percent) + "%  ") | dim | color(progress_color),
+        render_cache_hit_chip(state),
     });
 }
 

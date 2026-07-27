@@ -52,6 +52,7 @@ inline void sync_tui_resume_runtime_state(
     }
     state.token_status = token_tracker.format_status(config.context_window);
     state.token_percent = token_tracker.context_percent(config.context_window);
+    state.cache_hit_percent = token_tracker.cache_hit_percent();
 }
 
 } // namespace acecode

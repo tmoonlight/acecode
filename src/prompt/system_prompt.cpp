@@ -252,9 +252,16 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "automatically attached. Inspect it only as needed with available read or search "
         << "tools; do not assume a referenced directory was recursively loaded.\n\n";
 
+    // Working directory and date live here rather than in a per-request
+    // context block: both are stable for the whole session (cwd changes only
+    // on worktree enter/exit, the date once a day), so keeping them in the
+    // static system prompt leaves the cacheable prompt prefix intact across
+    // every sampling iteration of a turn.
     oss << "# Environment\n\n"
         << "- OS: " << get_os_name() << "\n"
         << "- Shell: " << get_default_shell() << "\n"
+        << "- Working directory: " << cwd << "\n"
+        << "- Today's date: " << current_prompt_date() << "\n"
         << "- Is directory a git repo: "
         << (gitinfo::is_inside_git_repo(cwd) ? "Yes" : "No") << "\n\n";
 
@@ -687,14 +694,6 @@ PromptContextBlock build_session_context_prompt(
         custom.cache_key + "\n" + skill_index.cache_key + "\n" +
         git_status.cache_key);
     return block;
-}
-
-std::string build_request_context_prompt(const std::string& cwd) {
-    std::ostringstream oss;
-    oss << "[当前环境状态]\n"
-        << "时间：" << current_prompt_datetime() << "\n"
-        << "工作目录：" << cwd;
-    return oss.str();
 }
 
 std::string prompt_component_hash(const std::string& text) {

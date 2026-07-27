@@ -144,6 +144,8 @@ function normalizeUsagePayload(payload, timestampMs) {
     promptTokens: readUsageInt(payload, 'prompt_tokens', 'promptTokens'),
     completionTokens: readUsageInt(payload, 'completion_tokens', 'completionTokens'),
     totalTokens: readUsageInt(payload, 'total_tokens', 'totalTokens'),
+    cacheReadTokens: readUsageInt(payload, 'cache_read_tokens', 'cacheReadTokens'),
+    cacheWriteTokens: readUsageInt(payload, 'cache_write_tokens', 'cacheWriteTokens'),
     hasData: hasDataRaw === true,
     timestampMs: Number(timestampMs) || Date.now(),
   };

@@ -75,17 +75,33 @@ TEST_F(SystemPromptTest, EmptyInputsOmitSections) {
     EXPECT_EQ(out.find("# Project Instructions"), std::string::npos);
 }
 
-// 场景:静态 system prompt 不能包含每次请求都可能变化的上下文,
-// 否则 DeepSeek 等 provider 的 prompt cache 前缀会被打穿。
-TEST_F(SystemPromptTest, StaticEnvironmentOmitsPerRequestContext) {
+// 场景:# Environment 携带会话级稳定的环境事实(cwd + 日期)。日期是模型
+// 推理必需的背景信息(库版本新旧、changelog 年份、相对期限),模型不会
+// 意识到要主动查询,所以必须 push 进 prompt 而不是留给工具。
+TEST_F(SystemPromptTest, EnvironmentCarriesWorkingDirectoryAndDate) {
     acecode::ToolExecutor tools;
     std::string out = acecode::build_system_prompt(tools, temp_home.string());
 
     EXPECT_NE(out.find("# Environment"), std::string::npos);
     EXPECT_NE(out.find("- OS: "), std::string::npos);
     EXPECT_NE(out.find("- Shell: "), std::string::npos);
-    EXPECT_EQ(out.find("- CWD: "), std::string::npos);
-    EXPECT_EQ(out.find("Current local date/time"), std::string::npos);
+    EXPECT_NE(out.find("- Working directory: " + temp_home.string()),
+              std::string::npos);
+    EXPECT_NE(out.find("- Today's date: "), std::string::npos);
+}
+
+// 场景:静态 system prompt 不能包含每次请求都会变化的内容,否则 prompt
+// cache 前缀会被从最前面打穿。日期只精确到天,时分秒一律不进 prompt。
+TEST_F(SystemPromptTest, StaticSystemPromptIsByteStableAcrossCalls) {
+    acecode::ToolExecutor tools;
+    const std::string first =
+        acecode::build_system_prompt(tools, temp_home.string());
+    const std::string second =
+        acecode::build_system_prompt(tools, temp_home.string());
+
+    EXPECT_EQ(first, second);
+    EXPECT_EQ(first.find("[当前环境状态]"), std::string::npos);
+    EXPECT_EQ(first.find("Current local date/time"), std::string::npos);
 }
 
 TEST_F(SystemPromptTest, UserAtPathReferenceContractIsExplicit) {
@@ -103,15 +119,22 @@ TEST_F(SystemPromptTest, UserAtPathReferenceContractIsExplicit) {
               std::string::npos);
 }
 
-// 场景:动态请求上下文单独构建,由 AgentLoop 放到消息尾部,
-// 让模型仍能回答"现在几点"/"当前目录"等问题。
-TEST_F(SystemPromptTest, RequestContextIncludesCwdAndCurrentLocalDatetime) {
-    std::string out = acecode::build_request_context_prompt(temp_home.string());
+// 场景:插入到历史中部的可变上下文块必须内容驱动 —— 输入不变则逐字节
+// 不变。这里曾经拼进一个秒级时间戳,导致同一回合内每次工具调用往返都把
+// 缓存前缀从插入点截断,整条尾巴全价重算。
+TEST_F(SystemPromptTest, SessionContextIsByteStableForUnchangedInputs) {
+    acecode::MemoryRegistry reg;
+    reg.scan();
+    acecode::MemoryConfig mem_cfg;
 
-    EXPECT_NE(out.find("[当前环境状态]"), std::string::npos);
-    EXPECT_NE(out.find("时间："), std::string::npos);
-    EXPECT_NE(out.find(" UTC"), std::string::npos);
-    EXPECT_NE(out.find("工作目录：" + temp_home.string()), std::string::npos);
+    const auto first = acecode::build_session_context_prompt(
+        temp_home.string(), &reg, &mem_cfg, nullptr, nullptr, 128000);
+    const auto second = acecode::build_session_context_prompt(
+        temp_home.string(), &reg, &mem_cfg, nullptr, nullptr, 128000);
+
+    EXPECT_EQ(first.content, second.content);
+    EXPECT_EQ(first.cache_key, second.cache_key);
+    EXPECT_EQ(first.content.find("[当前环境状态]"), std::string::npos);
 }
 
 // 场景:memory 有条目 -> MEMORY.md 非空 -> 进入 session context,

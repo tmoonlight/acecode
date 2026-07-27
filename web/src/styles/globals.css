@@ -1113,6 +1113,19 @@ body {
   text-align: right;
   white-space: nowrap;
 }
+/* Prompt-cache hit rate sits below the category rows, separated by a rule:
+   it measures request efficiency rather than context occupancy, so it must
+   not read as another slice of the window. */
+.ace-context-usage-cache {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 5px 6px 0;
+  border-top: 1px solid var(--ace-border);
+  font-size: 11px;
+}
 .ace-context-usage-unavailable {
   padding: 9px 7px;
   border-radius: 6px;

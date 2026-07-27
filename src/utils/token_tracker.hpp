@@ -45,6 +45,24 @@ public:
     // Shows current context occupancy (last_prompt_tokens / context_window)
     std::string format_status(int context_window) const;
 
+    // Share of billed input tokens served from the provider's prompt cache,
+    // for the most recent call and for the session so far. Returns -1 only
+    // when the server has reported no usage at all, so callers can hide the
+    // indicator instead of guessing. A provider that reports usage but no
+    // cache counters reads as 0% — which is the honest answer, and the signal
+    // that makes a missing-cache regression visible instead of silent.
+    int last_cache_hit_percent() const;
+    int cache_hit_percent() const;
+
+    // "cache 87%" / empty string when unknown. Session-cumulative.
+    std::string format_cache_status() const;
+    static std::string format_cache_status_for(int cache_hit_percent);
+
+    // prompt_tokens is the total billed input across every provider, with
+    // cache_read_tokens a subset of it (the Anthropic provider normalizes its
+    // split counters to match). Returns -1 when the ratio is unknown.
+    static int cache_hit_percent_for(int prompt_tokens, int cache_read_tokens);
+
     // Context occupancy percentage for the status bar, rounded to nearest int.
     // Returns 0 for invalid context windows and caps overfull contexts at 100.
     int context_percent(int context_window) const;

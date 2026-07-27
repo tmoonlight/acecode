@@ -174,30 +174,55 @@ nlohmann::json anthropic_tool_use_blocks(const nlohmann::json& tool_calls,
     return out;
 }
 
-void merge_usage(TokenUsage& usage, const nlohmann::json& node) {
+} // namespace
+
+void AnthropicProvider::merge_usage(TokenUsage& usage, const nlohmann::json& node) {
     if (!node.is_object()) return;
-    if (node.contains("input_tokens") && node["input_tokens"].is_number_integer()) {
-        usage.prompt_tokens = node["input_tokens"].get<int>();
+
+    const auto read_int = [&node](const char* key) -> std::optional<int> {
+        const auto it = node.find(key);
+        if (it == node.end() || !it->is_number_integer()) return std::nullopt;
+        return it->get<int>();
+    };
+
+    // Anthropic reports `input_tokens` EXCLUDING cache reads and cache writes,
+    // while OpenAI-compatible providers report `prompt_tokens` INCLUDING the
+    // cached prefix. Normalize to the OpenAI contract here — prompt_tokens is
+    // the total billed input and cache_read_tokens is a subset of it — so that
+    // context meters and cache hit-rate math stay provider-agnostic.
+    //
+    // The uncached remainder is recovered from the accumulated totals rather
+    // than remembered separately, which keeps this idempotent across the
+    // multiple usage nodes a streaming response delivers.
+    int uncached_input =
+        usage.prompt_tokens - usage.cache_read_tokens - usage.cache_write_tokens;
+    if (uncached_input < 0) uncached_input = 0;
+
+    if (const auto input = read_int("input_tokens")) {
+        uncached_input = *input;
         usage.has_data = true;
     }
-    if (node.contains("output_tokens") && node["output_tokens"].is_number_integer()) {
-        usage.completion_tokens = node["output_tokens"].get<int>();
+    if (const auto output = read_int("output_tokens")) {
+        usage.completion_tokens = *output;
         usage.has_data = true;
     }
-    if (node.contains("cache_read_input_tokens") &&
-        node["cache_read_input_tokens"].is_number_integer()) {
-        usage.cache_read_tokens = node["cache_read_input_tokens"].get<int>();
+    if (const auto cache_read = read_int("cache_read_input_tokens")) {
+        usage.cache_read_tokens = *cache_read;
         usage.has_data = true;
     }
-    if (node.contains("cache_creation_input_tokens") &&
-        node["cache_creation_input_tokens"].is_number_integer()) {
-        usage.cache_write_tokens = node["cache_creation_input_tokens"].get<int>();
+    if (const auto cache_write = read_int("cache_creation_input_tokens")) {
+        usage.cache_write_tokens = *cache_write;
         usage.has_data = true;
     }
+
     if (usage.has_data) {
+        usage.prompt_tokens =
+            uncached_input + usage.cache_read_tokens + usage.cache_write_tokens;
         usage.total_tokens = usage.prompt_tokens + usage.completion_tokens;
     }
 }
+
+namespace {
 
 std::string header_value_ci(const cpr::Header& headers, const std::string& key) {
     const std::string wanted = ascii_lower(key);

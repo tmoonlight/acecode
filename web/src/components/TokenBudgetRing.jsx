@@ -283,6 +283,18 @@ export function TokenBudgetRing({ budget, className = '' }) {
                           </div>
                         ))}
                       </div>
+
+                      {budget.cacheHitPercent !== null && (
+                        <div
+                          className="ace-context-usage-cache"
+                          title={budget.cacheTitle}
+                        >
+                          <span className="ace-context-usage-label">提示缓存命中</span>
+                          <span className="ace-context-usage-value">
+                            {budget.cacheHitPercent}%
+                          </span>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="ace-context-usage-unavailable">

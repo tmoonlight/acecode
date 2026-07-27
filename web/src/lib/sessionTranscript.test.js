@@ -702,10 +702,32 @@ run('usage 事件更新 token usage 且不新增 transcript item', () => {
     promptTokens: 8000,
     completionTokens: 1200,
     totalTokens: 9200,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     hasData: true,
     timestampMs: 123,
   });
   assert.equal(state.lastSeq, 1);
+});
+
+run('usage 事件透传提示缓存计数', () => {
+  const state = reduceMany([
+    {
+      type: 'usage',
+      payload: {
+        prompt_tokens: 20000,
+        completion_tokens: 500,
+        total_tokens: 20500,
+        cache_read_tokens: 18000,
+        cache_write_tokens: 1200,
+        has_data: true,
+      },
+      timestamp_ms: 456,
+      seq: 1,
+    },
+  ]);
+  assert.equal(state.tokenUsage.cacheReadTokens, 18000);
+  assert.equal(state.tokenUsage.cacheWriteTokens, 1200);
 });
 
 run('usage 事件保留上下文分类明细的独立副本', () => {

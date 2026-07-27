@@ -157,6 +157,35 @@ std::string TokenTracker::format_status(int context_window) const {
     return format_tokens(last_prompt_tokens_) + "/" + format_tokens(context_window);
 }
 
+int TokenTracker::cache_hit_percent_for(int prompt_tokens, int cache_read_tokens) {
+    if (prompt_tokens <= 0 || cache_read_tokens < 0) return -1;
+    const auto cached = static_cast<std::int64_t>(cache_read_tokens);
+    const auto prompt = static_cast<std::int64_t>(prompt_tokens);
+    const auto rounded = (cached * 100 + prompt / 2) / prompt;
+    return static_cast<int>(std::clamp<std::int64_t>(rounded, 0, 100));
+}
+
+int TokenTracker::last_cache_hit_percent() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (!last_has_data_) return -1;
+    return cache_hit_percent_for(last_prompt_tokens_, last_cache_read_tokens_);
+}
+
+int TokenTracker::cache_hit_percent() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (!session_has_data_) return -1;
+    return cache_hit_percent_for(session_prompt_tokens_, session_cache_read_tokens_);
+}
+
+std::string TokenTracker::format_cache_status_for(int cache_hit_percent) {
+    if (cache_hit_percent < 0) return {};
+    return "cache " + std::to_string(std::clamp(cache_hit_percent, 0, 100)) + "%";
+}
+
+std::string TokenTracker::format_cache_status() const {
+    return format_cache_status_for(cache_hit_percent());
+}
+
 int TokenTracker::context_percent(int context_window) const {
     std::lock_guard<std::mutex> lk(mu_);
     return context_percent_for(last_prompt_tokens_, context_window);

@@ -113,11 +113,6 @@ PromptContextBlock build_session_context_prompt(
     bool skills_list_available = true,
     bool spawn_subagent_available = true);
 
-// Build dynamic request-local context. This is sent near the end of the
-// messages array for the current provider call only; it must not be persisted
-// into session history.
-std::string build_request_context_prompt(const std::string& cwd);
-
 // Deterministic helpers for prompt-cache diagnostics and tests.
 std::string prompt_component_hash(const std::string& text);
 std::string serialize_tool_schemas_for_prompt_cache(const std::vector<ToolDef>& tools);

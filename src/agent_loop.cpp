@@ -932,11 +932,6 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
         /*category_bytes=*/nullptr,
         skill_view_available, skills_list_available,
         spawn_subagent_available).content;
-    const std::string request_context = build_request_context_prompt(cwd_);
-    if (!request_context.empty()) {
-        if (!mutable_context.empty()) mutable_context += "\n\n";
-        mutable_context += request_context;
-    }
     if (!mutable_context.empty()) {
         ChatMessage user;
         user.role = "user";
@@ -1810,8 +1805,6 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
         session_context_cache_key_, session_context_cache_content_);
     std::vector<ChatMessage> mutable_context_messages;
     append_request_context_for_api(mutable_context_messages, session_context);
-    std::string request_context = build_request_context_prompt(cwd_);
-    append_request_context_for_api(mutable_context_messages, request_context);
     std::string hook_context = drain_hook_request_context();
     append_request_context_for_api(mutable_context_messages, hook_context);
     std::string plan_mode_context =
@@ -1847,8 +1840,8 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
 
     auto prompt_diag = build_prompt_cache_diagnostics(
         system_prompt,
-        session_context + "\n" + request_context + "\n" + plan_mode_context +
-            "\n" + hook_context + "\n" + format_todo_injection(todo_context_items),
+        session_context + "\n" + plan_mode_context + "\n" + hook_context +
+            "\n" + format_todo_injection(todo_context_items),
         bundle.tool_defs);
     bundle.prompt_diag = {
         {"system", prompt_diag.static_system_prompt_hash},
