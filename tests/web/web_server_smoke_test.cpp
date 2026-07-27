@@ -1762,7 +1762,7 @@ TEST(WebServerHttp, BusyExpertSwitchAppliesDraftAtTheSameQueueBoundary) {
     EXPECT_TRUE(entry->sm->current_input_draft().empty());
 }
 
-TEST(WebServerHttp, SessionSlashExpansionUsesLiveExpertSkillRegistry) {
+TEST(WebServerHttp, SessionSlashExpansionHonorsExplicitExpertSkillScope) {
     WebServerFixture fx;
     const std::string hash = acecode::compute_cwd_hash(fx.cwd);
     fx.cfg.skills.reuse_opencode = false;
@@ -1842,6 +1842,8 @@ TEST(WebServerHttp, SessionSlashExpansionUsesLiveExpertSkillRegistry) {
     EXPECT_EQ(users[1].metadata.value("display_text", ""),
               "/allowed-skill inspect");
 
+    // Explicit expert scopes take precedence over global enablement. The
+    // policy refresh must keep this session's selected Skill available.
     auto disable = cpr::Put(
         cpr::Url{fx.url(
             "/api/skills/allowed-skill?workspace=" + hash)},
@@ -1850,17 +1852,18 @@ TEST(WebServerHttp, SessionSlashExpansionUsesLiveExpertSkillRegistry) {
     ASSERT_EQ(disable.status_code, 200) << disable.text;
     auto refreshed = fx.registry->skill_registry_snapshot(sid);
     ASSERT_EQ(refreshed, skills);
-    EXPECT_TRUE(refreshed->list().empty());
-    EXPECT_FALSE(refreshed->find("allowed-skill").has_value());
-    EXPECT_TRUE(acecode::build_skills_index_context_prompt(
-                    refreshed.get(), 128000, true, true)
-                    .content.empty());
+    EXPECT_FALSE(refreshed->list().empty());
+    EXPECT_TRUE(refreshed->find("allowed-skill").has_value());
+    EXPECT_FALSE(acecode::build_skills_index_context_prompt(
+                     refreshed.get(), 128000, true, true)
+                     .content.empty());
 
     submit_and_wait("/allowed-skill after-disable", 3);
     users = user_messages();
     ASSERT_GE(users.size(), 3u);
-    EXPECT_EQ(users[2].content, "/allowed-skill after-disable");
-    EXPECT_FALSE(users[2].metadata.contains("display_text"));
+    EXPECT_NE(users[2].content, "/allowed-skill after-disable");
+    EXPECT_EQ(users[2].metadata.value("display_text", ""),
+              "/allowed-skill after-disable");
 }
 
 // 场景: Web 状态栏/设置页切换权限模式走真实 daemon API,必须立即更新
