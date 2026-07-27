@@ -17,7 +17,9 @@
 #include <optional>
 #include <unordered_set>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <memory>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -137,6 +139,7 @@
 #include "tui/path_reference_input.hpp"
 #include "tui/text_truncation.hpp"
 #include "tui/thick_vscroll_bar.hpp"
+#include "tui/redraw_pacer.hpp"
 #include "tui/thinking_animation.hpp"
 #include "tui/compact_animation.hpp"
 #include "tui/compact_notice_row.hpp"
@@ -174,6 +177,11 @@ using namespace ftxui;
 using namespace acecode;
 
 namespace {
+
+static std::int64_t monotonic_milliseconds() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 static const std::string EN_THINKING_PHRASES[50] = {
     "Analyzing", "Pondering", "Investigating", "Synthesizing", "Reviewing",
@@ -3513,18 +3521,15 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         state.conversation.size(),
         static_cast<size_t>(std::max(0,
             render_window.last_message_exclusive)));
-    // 工具行指示灯:FIFO 配对 tool_call ↔ tool_result 得到 灰/绿/红 三态。
-    // O(n) 纯角色字符串扫描,逐帧重算即可,不值得做增量缓存。
-    const auto tool_dots =
-        acecode::tui::compute_tool_call_dots(state.conversation);
-    const auto tool_result_names =
-        acecode::tui::compute_tool_result_names(state.conversation);
+    // 工具行元数据只扫描可见窗口；若窗口切进并行工具批次，纯函数会扩到
+    // 相邻批次边界，单次 FIFO 同时得到 call 灯态和 result 工具名。
+    const auto tool_metadata =
+        acecode::tui::compute_tool_row_metadata_window(
+            state.conversation, render_first, render_last);
     for (size_t i = render_first; i < render_last; ++i) {
         const auto& msg = state.conversation[i];
-        const std::string paired_tool_name =
-            i < tool_result_names.size()
-            ? tool_result_names[i]
-            : std::string();
+        const std::string& paired_tool_name =
+            tool_metadata.result_name_at(i);
         const bool task_complete_result =
             acecode::tui::is_task_complete_result(
                 msg, paired_tool_name);
@@ -3570,12 +3575,11 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             const bool show_args = acecode::tui::tool_call_arguments_visible(
                 state.transcript_expanded);
             Color dot_color = tui::theme().ui.text_dim;
-            if (i < tool_dots.size()) {
-                if (tool_dots[i] == acecode::tui::ToolCallDot::Ok) {
-                    dot_color = tui::theme().semantic.success;
-                } else if (tool_dots[i] == acecode::tui::ToolCallDot::Failed) {
-                    dot_color = tui::theme().semantic.error;
-                }
+            const auto tool_dot = tool_metadata.call_dot_at(i);
+            if (tool_dot == acecode::tui::ToolCallDot::Ok) {
+                dot_color = tui::theme().semantic.success;
+            } else if (tool_dot == acecode::tui::ToolCallDot::Failed) {
+                dot_color = tui::theme().semantic.error;
             }
             Elements segs;
             segs.push_back(text(" \xE2\x97\x8F ") | color(dot_color)); // "●"
@@ -3987,7 +3991,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
 
         // smooth-tui-thinking-animation:短语和固定三个点共用一条基于真实
         // elapsed time 的方向性流光。黄色尾迹接亮白核心,前沿自然回落到灰色;
-        // 20ms 相邻帧仍只移动约 0.405 cell,漏帧时也会直接回到正确 phase。
+        // 自适应采样只改变帧密度,漏帧时也会直接回到正确 phase。
         const std::vector<std::string> thinking_glyphs =
             ftxui::Utf8ToGlyphs(state.current_thinking_phrase + "...");
         const auto animation_frame = tui::make_thinking_animation_frame(
@@ -4821,6 +4825,18 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                                    force_alt_screen);
 
     auto screen = acecode::tui::make_screen_interactive(render_mode);
+    auto redraw_pacer = std::make_shared<acecode::tui::TuiRedrawPacer>();
+    std::atomic<std::int64_t> last_keyboard_input_at_ms{0};
+    auto request_scheduled_redraw =
+        [&screen, redraw_pacer](int minimum_interval_ms) {
+            const std::int64_t now_ms = monotonic_milliseconds();
+            if (!redraw_pacer->try_request_scheduled_redraw(
+                    now_ms, minimum_interval_ms)) {
+                return false;
+            }
+            screen.PostEvent(Event::Custom);
+            return true;
+        };
     // Publish for the Windows console-ctrl handler so Ctrl+C can trigger a
     // graceful Loop exit instead of letting the default handler kill us.
     g_active_screen.store(&screen, std::memory_order_release);
@@ -5074,18 +5090,31 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (agent_aborting.load()) return PermissionResult::Deny;
         return state.confirm_result;
     };
-    callbacks.on_delta = [&state, &clamp_chat_focus, &screen](const std::string& token) {
-        std::lock_guard<std::mutex> lk(state.mu);
-        // Find or create the streaming assistant message
-        if (state.conversation.empty() ||
-            state.conversation.back().role != "assistant" ||
-            state.conversation.back().is_tool) {
-            state.conversation.push_back({"assistant", "", false});
+    callbacks.on_delta = [&state, &clamp_chat_focus,
+                          &last_keyboard_input_at_ms, redraw_pacer,
+                          &request_scheduled_redraw](
+                             const std::string& token) {
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            // Find or create the streaming assistant message
+            if (state.conversation.empty() ||
+                state.conversation.back().role != "assistant" ||
+                state.conversation.back().is_tool) {
+                state.conversation.push_back({"assistant", "", false});
+            }
+            state.conversation.back().content += token;
+            state.streaming_output_chars += token.size();
+            clamp_chat_focus();
         }
-        state.conversation.back().content += token;
-        state.streaming_output_chars += token.size();
-        clamp_chat_focus();
-        screen.PostEvent(Event::Custom);
+        const std::int64_t now_ms = monotonic_milliseconds();
+        const bool keyboard_input_recent =
+            acecode::tui::is_keyboard_input_recent(
+                now_ms,
+                last_keyboard_input_at_ms.load(std::memory_order_acquire));
+        request_scheduled_redraw(
+            acecode::tui::select_streaming_redraw_interval_ms(
+                keyboard_input_recent,
+                redraw_pacer->last_frame_latency_ms()));
     };
     // Attach summary/display_override to the two most-recent TUI messages
     // (the trailing tool_call row and tool_result row that on_message just
@@ -5926,31 +5955,48 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     // ---- Animation ticker thread ----
     std::atomic<bool> running{true};
-    std::thread anim_thread([&running, &anim_tick, &state, &screen, &scroll_chat_by_lines, conhost_compat_layout] {
+    std::thread anim_thread([
+        &running,
+        &anim_tick,
+        &state,
+        &screen,
+        &scroll_chat_by_lines,
+        &last_keyboard_input_at_ms,
+        &request_scheduled_redraw,
+        redraw_pacer,
+        conhost_compat_layout] {
         const auto legacy_tick_period = std::chrono::milliseconds(
             conhost_compat_layout ? tui::kConhostAnimationFrameMs
                                   : tui::kDefaultAnimationFrameMs);
         auto last_legacy_tick_at = std::chrono::steady_clock::now();
+        auto current_pacing_context = [&] {
+            tui::ThinkingAnimationPacingContext context;
+            context.conhost_compat_layout = conhost_compat_layout;
+            context.keyboard_input_recent =
+                tui::is_keyboard_input_recent(
+                    monotonic_milliseconds(),
+                    last_keyboard_input_at_ms.load(
+                        std::memory_order_acquire));
+            context.last_frame_latency_ms =
+                redraw_pacer->last_frame_latency_ms();
+            std::lock_guard<std::mutex> lk(state.mu);
+            context.drag_autoscroll_active =
+                state.drag_phase == drag_scroll::Phase::ScrollingUp ||
+                state.drag_phase == drag_scroll::Phase::ScrollingDown;
+            context.thinking_visible =
+                state.is_waiting && !state.tool_running;
+            return context;
+        };
         while (running) {
-            // smooth-tui-thinking-animation:只有现代布局的 thinking 行真实可见
-            // 时才提速到 80ms。tool progress 接管该行后立即回到普通 cadence;
-            // drag-autoscroll 的 50ms 优先级仍最高,conhost 仍保持 1000ms。
-            bool drag_autoscroll_active = false;
-            bool thinking_visible = false;
-            {
-                std::lock_guard<std::mutex> lk(state.mu);
-                drag_autoscroll_active =
-                    state.drag_phase == drag_scroll::Phase::ScrollingUp ||
-                    state.drag_phase == drag_scroll::Phase::ScrollingDown;
-                thinking_visible = state.is_waiting && !state.tool_running;
-            }
+            // Modern thinking frames adapt to recent typing and the measured
+            // completed-frame latency. Drag keeps highest priority; conhost
+            // retains its slower compatibility cadence.
             const int frame_interval_ms = tui::select_animation_frame_interval_ms(
-                conhost_compat_layout, thinking_visible,
-                drag_autoscroll_active);
+                current_pacing_context());
             std::this_thread::sleep_for(std::chrono::milliseconds(frame_interval_ms));
 
             // anim_tick 仍服务 MCP 等旧动画。按真实经过时间维持原来的
-            // 300/1000ms phase,避免 thinking 的 80ms redraw 把其他效果加速。
+            // 300/1000ms phase,避免 thinking 的自适应 redraw 把其他效果加速。
             const auto tick_now = std::chrono::steady_clock::now();
             const auto legacy_elapsed = tick_now - last_legacy_tick_at;
             if (legacy_elapsed >= legacy_tick_period) {
@@ -5964,7 +6010,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             // mouse-selection-copy: clear the "Copied N bytes" confirmation
             // ~2 s after the copy fired. Run before the post-event gate so we
             // always get a final render when the deadline passes.
-            bool needs_post = false;
+            bool requires_immediate_post = false;
+            bool background_animation_visible = false;
             bool should_post = false;
             {
                 std::lock_guard<std::mutex> lk(state.mu);
@@ -5974,15 +6021,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.status_line = state.status_line_saved;
                     state.status_line_saved.clear();
                     state.status_line_clear_at = {};
-                    needs_post = true;
+                    requires_immediate_post = true;
                 }
                 if (acecode::tui::expire_ctrl_c_exit_state(
                         state.ctrl_c_armed, state.last_ctrl_c_time, now)) {
-                    needs_post = true;
+                    requires_immediate_post = true;
                 }
-                if (mcp_sidebar_has_loading(state)) {
-                    needs_post = true;
-                }
+                background_animation_visible = mcp_sidebar_has_loading(state);
 
                 // drag-autoscroll: 时间门到点就滚一行, 把 ShiftSelection 的补偿请求
                 // 累加到 pending_shift_dy, 由事件线程 CatchEvent 的入口消费 — 避免
@@ -6015,7 +6060,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                                       std::to_string(state.last_mouse_y) +
                                       ")");
 #endif
-                            needs_post = true;
+                            requires_immediate_post = true;
                         }
                     }
                 }
@@ -6023,11 +6068,18 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 // Drive re-render while waiting on LLM or while a live tool/
                 // subagent elapsed readout is visible,以及状态确认刚到清理期限时。
                 // 把读取留在同一把锁里,避免 ticker 与回调并发改 busy 字段。
-                should_post = needs_post || state.is_waiting || state.tool_running ||
+                should_post = requires_immediate_post ||
+                    background_animation_visible ||
+                    state.is_waiting ||
+                    state.tool_running ||
                     !state.subagent_tasks.empty();
             }
-            if (should_post) {
+            if (requires_immediate_post) {
                 screen.PostEvent(Event::Custom);
+            } else if (should_post) {
+                request_scheduled_redraw(
+                    tui::select_animation_frame_interval_ms(
+                        current_pacing_context()));
             }
         }
     });
@@ -6083,7 +6135,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+        if (event != Event::Custom &&
+            !event.is_mouse() &&
+            !event.is_cursor_position() &&
+            !event.is_cursor_shape()) {
+            last_keyboard_input_at_ms.store(
+                monotonic_milliseconds(), std::memory_order_release);
+        }
 #if ACECODE_TUI_INPUT_TRACE
         if (event != Event::Custom &&
             !event.is_cursor_position() &&
@@ -8423,9 +8482,21 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         chat_viewport_rows,
         sync_chat_line_counts_from_layout,
     };
-    auto chat_renderer = Renderer(input_with_esc, [&renderer_ctx] {
-        return render_tui_frame(renderer_ctx);
-    });
+    auto chat_renderer = Renderer(
+        input_with_esc,
+        [&renderer_ctx, &screen, redraw_pacer] {
+            const auto frame_ticket = redraw_pacer->begin_frame(
+                monotonic_milliseconds());
+            auto frame = render_tui_frame(renderer_ctx);
+            // FTXUI closures do not invalidate the frame. This one runs on the
+            // next loop turn, after the current Draw/TerminalFlush completed,
+            // and therefore measures conservative end-to-end frame latency.
+            screen.Post([redraw_pacer, frame_ticket] {
+                redraw_pacer->complete_frame(
+                    frame_ticket, monotonic_milliseconds());
+            });
+            return frame;
+        });
 
     int root_surface_index =
         static_cast<int>(acecode::tui::settings::RootSurface::Chat);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <deque>
+#include <utility>
 
 namespace acecode { namespace tui {
 
@@ -115,20 +116,86 @@ bool tool_result_row_failed(const TuiState::Message& msg) {
     return false;
 }
 
-std::vector<ToolCallDot> compute_tool_call_dots(
-    const std::vector<TuiState::Message>& conversation) {
-    std::vector<ToolCallDot> dots(conversation.size(), ToolCallDot::Pending);
-    std::deque<size_t> unmatched_calls;
-    for (size_t i = 0; i < conversation.size(); ++i) {
+bool ToolRowMetadataWindow::contains(
+    std::size_t conversation_index) const noexcept {
+    return conversation_index >= first_message &&
+        conversation_index < last_message_exclusive;
+}
+
+ToolCallDot ToolRowMetadataWindow::call_dot_at(
+    std::size_t conversation_index) const noexcept {
+    if (!contains(conversation_index)) return ToolCallDot::Pending;
+    const std::size_t offset = conversation_index - first_message;
+    return offset < call_dots.size()
+        ? call_dots[offset]
+        : ToolCallDot::Pending;
+}
+
+const std::string& ToolRowMetadataWindow::result_name_at(
+    std::size_t conversation_index) const noexcept {
+    static const std::string kEmptyName;
+    if (!contains(conversation_index)) return kEmptyName;
+    const std::size_t offset = conversation_index - first_message;
+    return offset < result_names.size()
+        ? result_names[offset]
+        : kEmptyName;
+}
+
+ToolRowMetadataWindow compute_tool_row_metadata_window(
+    const std::vector<TuiState::Message>& conversation,
+    std::size_t requested_first,
+    std::size_t requested_last_exclusive) {
+    const std::size_t conversation_size = conversation.size();
+    std::size_t first = std::min(requested_first, conversation_size);
+    std::size_t last = std::min(
+        std::max(requested_last_exclusive, first),
+        conversation_size);
+
+    const auto is_tool_pair_role = [&conversation](std::size_t index) {
+        const auto& role = conversation[index].role;
+        return role == "tool_call" || role == "tool_result";
+    };
+    if (first < last && is_tool_pair_role(first)) {
+        while (first > 0 && is_tool_pair_role(first - 1)) {
+            --first;
+        }
+    }
+    if (first < last && is_tool_pair_role(last - 1)) {
+        while (last < conversation_size && is_tool_pair_role(last)) {
+            ++last;
+        }
+    }
+
+    ToolRowMetadataWindow metadata;
+    metadata.first_message = first;
+    metadata.last_message_exclusive = last;
+    const std::size_t window_size = last - first;
+    metadata.call_dots.assign(window_size, ToolCallDot::Pending);
+    metadata.result_names.resize(window_size);
+
+    struct PendingToolCall {
+        std::size_t window_offset = 0;
+        std::string name;
+    };
+    std::deque<PendingToolCall> unmatched_calls;
+    for (std::size_t i = first; i < last; ++i) {
         const auto& msg = conversation[i];
+        const std::size_t window_offset = i - first;
         if (msg.role == "tool_call") {
-            unmatched_calls.push_back(i);
+            unmatched_calls.push_back({
+                window_offset,
+                parse_tool_row(msg.content, msg.display_override).name,
+            });
         } else if (msg.role == "tool_result") {
             if (!unmatched_calls.empty()) {
-                dots[unmatched_calls.front()] = tool_result_row_failed(msg)
+                auto pending = std::move(unmatched_calls.front());
+                unmatched_calls.pop_front();
+                metadata.call_dots[pending.window_offset] =
+                    tool_result_row_failed(msg)
                     ? ToolCallDot::Failed
                     : ToolCallDot::Ok;
-                unmatched_calls.pop_front();
+                metadata.result_names[window_offset] =
+                    std::move(pending.name);
             }
         } else {
             // 批次边界:其他角色出现说明这一轮工具阶段已经结束,残留的
@@ -137,28 +204,21 @@ std::vector<ToolCallDot> compute_tool_call_dots(
             unmatched_calls.clear();
         }
     }
-    return dots;
+    return metadata;
+}
+
+std::vector<ToolCallDot> compute_tool_call_dots(
+    const std::vector<TuiState::Message>& conversation) {
+    auto metadata = compute_tool_row_metadata_window(
+        conversation, 0, conversation.size());
+    return std::move(metadata.call_dots);
 }
 
 std::vector<std::string> compute_tool_result_names(
     const std::vector<TuiState::Message>& conversation) {
-    std::vector<std::string> names(conversation.size());
-    std::deque<std::string> unmatched_calls;
-    for (size_t i = 0; i < conversation.size(); ++i) {
-        const auto& msg = conversation[i];
-        if (msg.role == "tool_call") {
-            unmatched_calls.push_back(
-                parse_tool_row(msg.content, msg.display_override).name);
-        } else if (msg.role == "tool_result") {
-            if (!unmatched_calls.empty()) {
-                names[i] = std::move(unmatched_calls.front());
-                unmatched_calls.pop_front();
-            }
-        } else {
-            unmatched_calls.clear();
-        }
-    }
-    return names;
+    auto metadata = compute_tool_row_metadata_window(
+        conversation, 0, conversation.size());
+    return std::move(metadata.result_names);
 }
 
 bool is_task_complete_result(const TuiState::Message& msg,

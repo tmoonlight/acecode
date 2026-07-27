@@ -311,4 +311,78 @@ TEST(ToolRowFormatTest, DotsAssistantTextIsBatchBoundary) {
     EXPECT_EQ(dots[3], ToolCallDot::Failed);
 }
 
+// 场景:可见窗口只落在并行批次的第一个 result 上,左右边缘都切进批次。
+// 期望:范围只扩到相邻工具批次边界,一次 FIFO 同时算对两个 call 灯态和名字。
+TEST(ToolRowFormatTest, MetadataWindowExpandsThroughIntersectedToolBatch) {
+    std::vector<TuiState::Message> conv;
+    conv.push_back(make_msg("user", "run tools"));                  // 0
+    conv.push_back(make_msg("tool_call", "[Tool: file_read] {}")); // 1
+    conv.push_back(make_msg("tool_call", "[Tool: bash] {}"));      // 2
+    conv.push_back(make_msg("tool_result", "contents"));           // 3
+    conv.push_back(make_msg("tool_result", "[Error] failed"));     // 4
+    conv.push_back(make_msg("assistant", "done"));                 // 5
+
+    const auto metadata =
+        compute_tool_row_metadata_window(conv, 3, 4);
+    EXPECT_EQ(metadata.first_message, 1u);
+    EXPECT_EQ(metadata.last_message_exclusive, 5u);
+    ASSERT_EQ(metadata.call_dots.size(), 4u);
+    ASSERT_EQ(metadata.result_names.size(), 4u);
+    EXPECT_EQ(metadata.call_dot_at(1), ToolCallDot::Ok);
+    EXPECT_EQ(metadata.call_dot_at(2), ToolCallDot::Failed);
+    EXPECT_EQ(metadata.result_name_at(3), "file_read");
+    EXPECT_EQ(metadata.result_name_at(4), "bash");
+    EXPECT_FALSE(metadata.contains(0));
+    EXPECT_TRUE(metadata.result_name_at(0).empty());
+}
+
+// 场景:几千条旧消息与当前可见工具批次之间有明确的非工具边界。
+// 期望:返回窗口只含尾部四条工具消息,不会生成 conversation 大小的向量。
+TEST(ToolRowFormatTest, MetadataWindowExcludesDistantHistory) {
+    std::vector<TuiState::Message> conv;
+    constexpr std::size_t kDistantHistorySize = 5000;
+    conv.reserve(kDistantHistorySize + 5);
+    for (std::size_t i = 0; i < kDistantHistorySize; ++i) {
+        conv.push_back(make_msg("user", "old turn"));
+    }
+    conv.push_back(make_msg("tool_call", "[Tool: grep] {}"));      // 5000
+    conv.push_back(make_msg("tool_call", "[Tool: glob] {}"));      // 5001
+    conv.push_back(make_msg("tool_result", "grep result"));        // 5002
+    conv.push_back(make_msg("tool_result", "glob result"));        // 5003
+    conv.push_back(make_msg("assistant", "tail boundary"));        // 5004
+
+    const auto metadata = compute_tool_row_metadata_window(
+        conv, kDistantHistorySize + 2, kDistantHistorySize + 3);
+    EXPECT_EQ(metadata.first_message, kDistantHistorySize);
+    EXPECT_EQ(
+        metadata.last_message_exclusive, kDistantHistorySize + 4);
+    EXPECT_EQ(metadata.call_dots.size(), 4u);
+    EXPECT_EQ(metadata.result_names.size(), 4u);
+    EXPECT_EQ(
+        metadata.call_dot_at(kDistantHistorySize), ToolCallDot::Ok);
+    EXPECT_EQ(
+        metadata.result_name_at(kDistantHistorySize + 3), "glob");
+}
+
+// 场景:旧调用方仍请求 conversation 大小的 dots / names。
+// 期望:兼容 helper 与同一 one-pass 核心的全范围结果逐项一致。
+TEST(ToolRowFormatTest, FullHistoryHelpersMatchCombinedMetadata) {
+    std::vector<TuiState::Message> conv;
+    conv.push_back(make_msg("tool_call", "[Tool: bash] {}"));
+    conv.push_back(make_msg("tool_result", "ok"));
+    conv.push_back(make_msg("assistant", "boundary"));
+    conv.push_back(make_msg("tool_call", "[Tool: file_read] {}"));
+    conv.push_back(make_msg("tool_result", "[Error] missing"));
+
+    const auto metadata =
+        compute_tool_row_metadata_window(conv, 0, conv.size());
+    const auto dots = compute_tool_call_dots(conv);
+    const auto names = compute_tool_result_names(conv);
+
+    EXPECT_EQ(metadata.first_message, 0u);
+    EXPECT_EQ(metadata.last_message_exclusive, conv.size());
+    EXPECT_EQ(metadata.call_dots, dots);
+    EXPECT_EQ(metadata.result_names, names);
+}
+
 }} // namespace acecode::tui
