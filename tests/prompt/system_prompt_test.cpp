@@ -364,10 +364,15 @@ TEST_F(SystemPromptTest, EffectiveToolPolicyOmitsDisabledToolGuidance) {
 
     EXPECT_NE(out.find("file_read"), std::string::npos);
     for (const char* denied : {
-             "file_edit", "file_write", "grep", "glob", "bash",
+             "file_edit", "file_write", "grep", "glob",
              "AskUserQuestion", "task_complete", "skill_view", "skills_list"}) {
         EXPECT_EQ(out.find(denied), std::string::npos) << denied;
     }
+    // On POSIX the environment section may legitimately report /bin/bash as
+    // the user's shell even when the bash tool is disabled. Assert on the
+    // tool-specific guidance instead of the ambient shell name.
+    EXPECT_EQ(out.find("# User Shell Mode"), std::string::npos);
+    EXPECT_EQ(out.find("<bash-input>"), std::string::npos);
 }
 
 // 场景:工具使用与进度更新文案应鼓励同一 assistant turn 中批量发出独立工具调用,
