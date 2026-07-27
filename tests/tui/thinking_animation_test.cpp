@@ -12,28 +12,83 @@
 using acecode::tui::kConhostAnimationFrameMs;
 using acecode::tui::kDefaultAnimationFrameMs;
 using acecode::tui::kDragAutoscrollFrameMs;
+using acecode::tui::kInteractiveBackgroundFrameMs;
+using acecode::tui::kMaxAdaptiveAnimationFrameMs;
+using acecode::tui::kRecentKeyboardInputWindowMs;
+using acecode::tui::kStreamingRedrawFrameMs;
 using acecode::tui::kThinkingAnimationFrameMs;
 using acecode::tui::kThinkingShimmerCellsPerSecond;
 using acecode::tui::kThinkingShimmerEdgePaddingCells;
+using acecode::tui::ThinkingAnimationPacingContext;
+using acecode::tui::is_keyboard_input_recent;
 using acecode::tui::make_thinking_animation_frame;
 using acecode::tui::select_animation_frame_interval_ms;
+using acecode::tui::select_streaming_redraw_interval_ms;
 
 // 触发场景:共享 ticker 在拖动、旧终端、现代 thinking 与空闲状态间选择节奏。
-// 期望行为:拖动优先级最高;旧终端保持 1s;只有可见 thinking 使用 20ms。
+// 期望行为:拖动优先级最高;旧终端保持 1s;只有可见 thinking 使用 60ms。
 TEST(ThinkingAnimationCadence, SelectsActiveOnlyIntervalWithStablePriority) {
-    EXPECT_EQ(select_animation_frame_interval_ms(false, true, true),
+    ThinkingAnimationPacingContext context;
+    context.thinking_visible = true;
+    context.drag_autoscroll_active = true;
+    EXPECT_EQ(select_animation_frame_interval_ms(context),
               kDragAutoscrollFrameMs);
-    EXPECT_EQ(select_animation_frame_interval_ms(true, true, false),
+
+    context.drag_autoscroll_active = false;
+    context.conhost_compat_layout = true;
+    EXPECT_EQ(select_animation_frame_interval_ms(context),
               kConhostAnimationFrameMs);
-    EXPECT_EQ(select_animation_frame_interval_ms(false, true, false),
+
+    context.conhost_compat_layout = false;
+    EXPECT_EQ(select_animation_frame_interval_ms(context),
               kThinkingAnimationFrameMs);
-    EXPECT_EQ(select_animation_frame_interval_ms(false, false, false),
+
+    context.thinking_visible = false;
+    EXPECT_EQ(select_animation_frame_interval_ms(context),
               kDefaultAnimationFrameMs);
 
     EXPECT_EQ(kDragAutoscrollFrameMs, 50);
-    EXPECT_EQ(kThinkingAnimationFrameMs, 20);
+    EXPECT_EQ(kThinkingAnimationFrameMs, 60);
     EXPECT_EQ(kDefaultAnimationFrameMs, 300);
     EXPECT_EQ(kConhostAnimationFrameMs, 1000);
+}
+
+// 触发场景:模型工作时用户连续输入,或完整终端帧本身已经很贵。
+// 期望行为:最近输入把后台帧降到 250ms;成本按 3 倍退避并封顶 400ms。
+TEST(ThinkingAnimationCadence, BacksOffForTypingAndCompletedFrameCost) {
+    ThinkingAnimationPacingContext context;
+    context.thinking_visible = true;
+    context.keyboard_input_recent = true;
+    EXPECT_EQ(select_animation_frame_interval_ms(context),
+              kInteractiveBackgroundFrameMs);
+
+    context.keyboard_input_recent = false;
+    context.last_frame_latency_ms = 30;
+    EXPECT_EQ(select_animation_frame_interval_ms(context), 90);
+
+    context.last_frame_latency_ms = 200;
+    EXPECT_EQ(select_animation_frame_interval_ms(context),
+              kMaxAdaptiveAnimationFrameMs);
+
+    EXPECT_EQ(select_streaming_redraw_interval_ms(false, 0),
+              kStreamingRedrawFrameMs);
+    EXPECT_EQ(select_streaming_redraw_interval_ms(true, 0),
+              kInteractiveBackgroundFrameMs);
+    EXPECT_EQ(select_streaming_redraw_interval_ms(false, 30), 90);
+    EXPECT_EQ(select_streaming_redraw_interval_ms(true, 100), 300);
+    EXPECT_EQ(select_streaming_redraw_interval_ms(false, 1000),
+              kMaxAdaptiveAnimationFrameMs);
+}
+
+// 触发场景:单调时钟尚无按键、恰在窗口边界、超过窗口或出现防御性倒退。
+// 期望行为:只有合法且不超过 750ms 的时间差算最近键盘活动。
+TEST(ThinkingAnimationCadence, DetectsRecentKeyboardInputAtBoundaries) {
+    EXPECT_FALSE(is_keyboard_input_recent(1000, 0));
+    EXPECT_FALSE(is_keyboard_input_recent(1000, 1001));
+    EXPECT_TRUE(is_keyboard_input_recent(
+        1000 + kRecentKeyboardInputWindowMs, 1000));
+    EXPECT_FALSE(is_keyboard_input_recent(
+        1001 + kRecentKeyboardInputWindowMs, 1000));
 }
 
 // 触发场景:为短语和固定三个点生成一帧双色流光权重。
@@ -55,19 +110,20 @@ TEST(ThinkingAnimationFrame, ProducesBoundedWarmAndWhiteWeightsPerGlyph) {
     EXPECT_GT(peak_white, 0.8f);
 }
 
-// 触发场景:相邻两帧相隔产品设定的 20ms。
+// 触发场景:底层流光模型在任意两个相隔 20ms 的采样点。
 // 期望行为:速度从 6.75 再增加 200% 到 20.25 cells/s,高光中心每帧
 // 仍只移动 0.405 个 cell,多个 glyph 的中间亮度随之渐变,
 // 而不是直接从一个整字符跳到下一个整字符。
 TEST(ThinkingAnimationFrame, AdjacentFramesInterpolateSubcellMovement) {
+    constexpr int kInterpolationSampleMs = 20;
     EXPECT_DOUBLE_EQ(kThinkingShimmerCellsPerSecond, 6.75 * 3.0);
 
     const auto first = make_thinking_animation_frame(12, 500);
     const auto next = make_thinking_animation_frame(
-        12, 500 + kThinkingAnimationFrameMs);
+        12, 500 + kInterpolationSampleMs);
 
     const double expected_delta =
-        kThinkingShimmerCellsPerSecond * kThinkingAnimationFrameMs / 1000.0;
+        kThinkingShimmerCellsPerSecond * kInterpolationSampleMs / 1000.0;
     EXPECT_NEAR(expected_delta, 0.405, 1e-12);
     EXPECT_NEAR(next.highlight_center - first.highlight_center,
                 expected_delta, 1e-9);

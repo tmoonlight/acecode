@@ -4,6 +4,7 @@
 // 默认 ` ● ToolName`,全局 verbose 时 ` ● ToolName(args)`。
 // 纯字符串/状态逻辑,无 FTXUI 依赖,编进 acecode_testable 供单测。
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,25 @@ std::string pascal_case_tool_name(const std::string& name);
 // tool_result 行是否为失败态。与渲染层给结果行标红的判定保持一致:
 // "[Error]" 前缀,或 summary metrics 里 exit != 0 / aborted / timeout。
 bool tool_result_row_failed(const TuiState::Message& msg);
+
+// 单次 FIFO 扫描同时得到 call 状态和 result 工具名。范围边缘若切进
+// 连续 tool_call/tool_result 批次，只扩到该批次边界，不扫描更远历史。
+struct ToolRowMetadataWindow {
+    std::size_t first_message = 0;
+    std::size_t last_message_exclusive = 0;
+    std::vector<ToolCallDot> call_dots;
+    std::vector<std::string> result_names;
+
+    bool contains(std::size_t conversation_index) const noexcept;
+    ToolCallDot call_dot_at(std::size_t conversation_index) const noexcept;
+    const std::string& result_name_at(
+        std::size_t conversation_index) const noexcept;
+};
+
+ToolRowMetadataWindow compute_tool_row_metadata_window(
+    const std::vector<TuiState::Message>& conversation,
+    std::size_t requested_first,
+    std::size_t requested_last_exclusive);
 
 // FIFO 配对 tool_call ↔ tool_result,给每条消息算指示灯状态(仅 tool_call
 // 下标位置有意义,其余为 Pending 占位)。并行批次的派发顺序是先推全部

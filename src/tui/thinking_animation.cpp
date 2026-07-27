@@ -12,6 +12,21 @@ constexpr double kWarmTrailSigmaCells = 1.1;
 constexpr double kWhiteCoreSigmaCells = 0.6;
 constexpr double kOffTextFadeSigmaCells = 1.0;
 
+int adaptive_background_interval_ms(int base_interval_ms,
+                                    int last_frame_latency_ms) {
+    const int bounded_latency_ms = std::clamp(
+        last_frame_latency_ms,
+        0,
+        kMaxAdaptiveAnimationFrameMs);
+    const int cost_interval_ms = std::min(
+        kMaxAdaptiveAnimationFrameMs,
+        bounded_latency_ms * kFrameCostBackoffMultiplier);
+    return std::clamp(
+        std::max(base_interval_ms, cost_interval_ms),
+        base_interval_ms,
+        kMaxAdaptiveAnimationFrameMs);
+}
+
 double gaussian_weight(double distance, double sigma) {
     const double normalized = distance / sigma;
     return std::exp(-0.5 * normalized * normalized);
@@ -19,13 +34,36 @@ double gaussian_weight(double distance, double sigma) {
 
 } // namespace
 
-int select_animation_frame_interval_ms(bool conhost_compat_layout,
-                                       bool thinking_visible,
-                                       bool drag_autoscroll_active) {
-    if (drag_autoscroll_active) return kDragAutoscrollFrameMs;
-    if (conhost_compat_layout) return kConhostAnimationFrameMs;
-    if (thinking_visible) return kThinkingAnimationFrameMs;
+bool is_keyboard_input_recent(std::int64_t now_ms,
+                              std::int64_t last_keyboard_input_ms) {
+    if (last_keyboard_input_ms <= 0 || now_ms < last_keyboard_input_ms) {
+        return false;
+    }
+    return now_ms - last_keyboard_input_ms <=
+        kRecentKeyboardInputWindowMs;
+}
+
+int select_animation_frame_interval_ms(
+    const ThinkingAnimationPacingContext& context) {
+    if (context.drag_autoscroll_active) return kDragAutoscrollFrameMs;
+    if (context.conhost_compat_layout) return kConhostAnimationFrameMs;
+    if (context.thinking_visible) {
+        const int base_interval_ms = context.keyboard_input_recent
+            ? kInteractiveBackgroundFrameMs
+            : kThinkingAnimationFrameMs;
+        return adaptive_background_interval_ms(
+            base_interval_ms, context.last_frame_latency_ms);
+    }
     return kDefaultAnimationFrameMs;
+}
+
+int select_streaming_redraw_interval_ms(bool keyboard_input_recent,
+                                        int last_frame_latency_ms) {
+    const int base_interval_ms = keyboard_input_recent
+        ? kInteractiveBackgroundFrameMs
+        : kStreamingRedrawFrameMs;
+    return adaptive_background_interval_ms(
+        base_interval_ms, last_frame_latency_ms);
 }
 
 ThinkingAnimationFrame make_thinking_animation_frame(std::size_t glyph_count,

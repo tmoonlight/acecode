@@ -270,6 +270,7 @@ set(ACECODE_TESTABLE_TUI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/tui/settings/settings_center.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/settings/settings_state.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/thick_vscroll_bar.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/redraw_pacer.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/thinking_animation.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/thinking_heartbeat.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/tool_result_fold.cpp
