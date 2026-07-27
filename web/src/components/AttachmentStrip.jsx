@@ -19,6 +19,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
   contentParts = [],
   attachments,
   contexts,
+  annotationPresentations = null,
   align = 'left',
   compact = false,
 }) {
@@ -107,7 +108,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
           );
         })}
         {contextItems.map((ctx, index) => {
-          const presentation = contextPresentation(ctx);
+          const presentation = contextPresentation(ctx, annotationPresentations);
           const isSelection = ctx?.type === 'selection';
           const sourcePath = ctx?.source?.path || ctx?.path || presentation.label;
           return (
@@ -122,7 +123,11 @@ export const AttachmentStrip = memo(function AttachmentStrip({
                 <VsIcon name={presentation.icon} size={11} className="ace-selection-context-icon" />
               )}
               <span className="truncate">{presentation.label}</span>
-              <SelectionAnnotationBadge annotations={presentation.annotations} compact />
+              <SelectionAnnotationBadge
+                number={presentation.annotationNumber}
+                annotations={presentation.annotations}
+                compact
+              />
             </div>
           );
         })}

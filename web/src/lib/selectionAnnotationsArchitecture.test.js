@@ -36,6 +36,9 @@ run('ChatView scopes preview decorations to transcript and composer contexts', (
   const chat = source('components/ChatView.jsx');
   assert.match(chat, /selectionContextsFromTranscriptItems\(rawItems\)/);
   assert.match(chat, /\[\.\.\.sentSelectionContexts, \.\.\.composerContexts\]/);
+  assert.match(chat, /selectionAnnotationPresentationMap\(previewSelectionContexts\)/);
+  assert.match(chat, /annotationPresentations:\s*selectionAnnotationPresentations/);
+  assert.match(chat, /annotationPresentations=\{selectionAnnotationPresentations\}/);
   assert.match(chat, /selectionContexts=\{previewSelectionContexts\}/);
   assert.match(chat, /upsertSelectionContext\(items, pinned\)/);
   assert.match(chat, /clearPreviewSelection\(\)/);
@@ -57,20 +60,32 @@ run('file previews expose precise source offsets and both supported decoration s
   assert.match(styles, /\.ace-preview,\s*\.ace-side-markdown-preview\s*\{[^}]*user-select:\s*text;/s);
 });
 
-run('composer and sent selection cards share the compact annotation badge', () => {
+run('composer and sent selection cards share passage numbers and grouped annotation content', () => {
   const input = source('components/InputBar.jsx');
   const sent = source('components/AttachmentStrip.jsx');
-  assert.match(input, /<SelectionAnnotationBadge annotations=\{presentation\.annotations\} compact \/>/);
-  assert.match(sent, /<SelectionAnnotationBadge annotations=\{presentation\.annotations\} compact \/>/);
+  const badge = source('components/SelectionAnnotationBadge.jsx');
+  const styles = source('styles/globals.css');
+  assert.match(input, /number=\{presentation\.annotationNumber\}/);
+  assert.match(input, /annotations=\{presentation\.annotations\}/);
+  assert.match(sent, /number=\{presentation\.annotationNumber\}/);
+  assert.match(sent, /annotations=\{presentation\.annotations\}/);
+  assert.match(badge, /data-annotation-number=\{annotationNumber\}/);
+  assert.match(badge, /onMouseEnter=\{showTooltip\}/);
+  assert.match(badge, /onFocus=\{showTooltip\}/);
+  assert.match(badge, /createPortal\(/);
+  assert.match(badge, /\{annotation\.text\}/);
+  assert.match(styles, /\.ace-selection-annotation-tooltip\s*\{[^}]*position:\s*fixed;/s);
 });
 
 run('plain references get source marks while only annotated groups get bubbles', () => {
   const overlay = source('components/SelectionAnnotationOverlay.jsx');
   const decorations = source('lib/selectionSourceDecorations.js');
+  const contexts = source('lib/selectionChatContext.js');
   const styles = source('styles/globals.css');
   assert.match(decorations, /SELECTION_REFERENCE_MARK_CLASS/);
   assert.match(decorations, /dataset\.selectionAnnotated = annotated/);
-  assert.match(decorations, /group\.annotationNumber = annotationNumber/);
+  assert.match(decorations, /groupSelectionAnnotationContexts\(contexts, \{ sourcePath, view \}\)/);
+  assert.match(contexts, /group\.annotationNumber = annotationNumber/);
   assert.match(overlay, /if \(!group\.annotations\?\.length \|\| !group\.annotationNumber\) continue/);
   assert.match(overlay, /selectionAnnotationBubbleLeft\(rect, frameRect\)/);
   assert.match(overlay, /const staleStart = Math\.max\(STALE_TOP, previousTop \+ BUBBLE_GAP\)/);

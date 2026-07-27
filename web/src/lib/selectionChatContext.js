@@ -193,6 +193,102 @@ export function selectionContextLocationKey(ctx = {}) {
   ].join('\u001f');
 }
 
+export function normalizeSelectionSourcePath(value) {
+  const path = asString(value).replace(/\\/g, '/');
+  return /^(?:[a-zA-Z]:\/|\/\/)/.test(path) ? path.toLowerCase() : path;
+}
+
+export function sameSelectionSourcePath(left, right) {
+  const normalizedLeft = normalizeSelectionSourcePath(left);
+  const normalizedRight = normalizeSelectionSourcePath(right);
+  return !!normalizedLeft && normalizedLeft === normalizedRight;
+}
+
+export function selectionAnchorText(context = {}) {
+  return asString(
+    context.selected_text ?? context.selectedText ?? context.text ?? '',
+  ).replace(/\r\n|\r/g, '\n');
+}
+
+export function selectionAnnotationGroupKey(context = {}) {
+  if (context?.type !== SELECTION_CONTEXT_TYPE) return '';
+  const normalized = normalizeComposerContext(context);
+  if (!normalized) return '';
+  const path = normalized.source?.path || '';
+  const anchorText = selectionAnchorText(normalized);
+  if (!path || !anchorText) return '';
+  const location = selectionContextLocationKey(normalized);
+  return [
+    location || normalizeSelectionSourcePath(path),
+    normalized.source?.view || 'source',
+    anchorText,
+  ].join('\u001f');
+}
+
+export function groupSelectionAnnotationContexts(contexts = [], {
+  sourcePath = '',
+  view = '',
+} = {}) {
+  const groups = [];
+  const byKey = new Map();
+  for (const context of Array.isArray(contexts) ? contexts : []) {
+    if (context?.type !== SELECTION_CONTEXT_TYPE) continue;
+    const normalized = normalizeComposerContext(context);
+    if (!normalized) continue;
+    const path = normalized.source?.path || '';
+    if (sourcePath && !sameSelectionSourcePath(path, sourcePath)) continue;
+    const contextView = normalized.source?.view || 'source';
+    if (view && contextView !== view) continue;
+    const key = selectionAnnotationGroupKey(normalized);
+    if (!key) continue;
+    let group = byKey.get(key);
+    if (!group) {
+      group = {
+        id: normalized.id || `selection-decoration-${stableStringHash(key)}`,
+        key,
+        sourceKey: [
+          normalizeSelectionSourcePath(path),
+          contextView,
+        ].join('\u001f'),
+        context: normalized,
+        annotations: [],
+        annotationNumber: 0,
+      };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    const existingIds = new Set(group.annotations.map((annotation) => annotation.id));
+    for (const annotation of normalizeSelectionAnnotations(normalized.annotations)) {
+      if (existingIds.has(annotation.id)) continue;
+      existingIds.add(annotation.id);
+      group.annotations.push(annotation);
+    }
+  }
+
+  const numberBySource = new Map();
+  for (const group of groups) {
+    if (group.annotations.length === 0) continue;
+    const annotationNumber = (numberBySource.get(group.sourceKey) || 0) + 1;
+    numberBySource.set(group.sourceKey, annotationNumber);
+    group.annotationNumber = annotationNumber;
+  }
+  return groups;
+}
+
+export function selectionAnnotationPresentationMap(contexts = []) {
+  return new Map(
+    groupSelectionAnnotationContexts(contexts)
+      .filter((group) => group.annotationNumber > 0 && group.annotations.length > 0)
+      .map((group) => [
+        group.key,
+        {
+          annotationNumber: group.annotationNumber,
+          annotations: group.annotations,
+        },
+      ]),
+  );
+}
+
 export function createSelectionContext({
   id = '',
   localId = '',
@@ -351,11 +447,20 @@ export function selectionContextsFromTranscriptItems(items = []) {
   return contexts;
 }
 
-export function contextPresentation(ctx = {}) {
+export function contextPresentation(ctx = {}, annotationPresentations = null) {
   if ((ctx.type || '') === SELECTION_CONTEXT_TYPE) {
     const label = formatSelectionContextLabel(ctx);
     const note = formatSelectionContextNote(ctx);
-    const annotations = normalizeSelectionAnnotations(ctx.annotations ?? ctx.annotation);
+    const localAnnotations = normalizeSelectionAnnotations(ctx.annotations ?? ctx.annotation);
+    const grouped = localAnnotations.length > 0
+      ? annotationPresentations?.get?.(selectionAnnotationGroupKey(ctx))
+      : null;
+    const annotations = normalizeSelectionAnnotations(
+      grouped?.annotations?.length ? grouped.annotations : localAnnotations,
+    );
+    const annotationNumber = annotations.length > 0
+      ? positiveInt(grouped?.annotationNumber) || 1
+      : 0;
     const annotationText = annotations
       .map((annotation, index) => `${index + 1}. ${annotation.text}`)
       .join('\n');
@@ -365,6 +470,7 @@ export function contextPresentation(ctx = {}) {
       note,
       title: [label, note, annotationText].filter(Boolean).join('\n'),
       annotations,
+      annotationNumber,
       annotationCount: annotations.length,
       annotationText,
       removeLabel: '移除引用上下文',

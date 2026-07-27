@@ -1,9 +1,16 @@
 import { unwrapMarks, wrapTextNodeRange } from './domTextMarks.js';
 import {
-  normalizeComposerContext,
-  normalizeSelectionAnnotations,
-  selectionContextLocationKey,
+  groupSelectionAnnotationContexts,
+  normalizeSelectionSourcePath,
+  sameSelectionSourcePath,
+  selectionAnchorText,
 } from './selectionChatContext.js';
+
+export {
+  normalizeSelectionSourcePath,
+  sameSelectionSourcePath,
+  selectionAnchorText,
+};
 
 export const SELECTION_REFERENCE_MARK_CLASS = 'ace-selection-reference-mark';
 export const SELECTION_ANNOTATION_BUBBLE_WIDTH = 23;
@@ -42,35 +49,8 @@ function positiveInt(value) {
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
-function stableStringHash(value) {
-  let hash = 2166136261;
-  const text = asString(value);
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
 export function normalizeSelectionSourceText(value) {
   return asString(value).replace(/\r\n|\r/g, '\n');
-}
-
-export function normalizeSelectionSourcePath(value) {
-  const path = asString(value).replace(/\\/g, '/');
-  return /^(?:[a-zA-Z]:\/|\/\/)/.test(path) ? path.toLowerCase() : path;
-}
-
-export function sameSelectionSourcePath(left, right) {
-  const normalizedLeft = normalizeSelectionSourcePath(left);
-  const normalizedRight = normalizeSelectionSourcePath(right);
-  return !!normalizedLeft && normalizedLeft === normalizedRight;
-}
-
-export function selectionAnchorText(context = {}) {
-  return normalizeSelectionSourceText(
-    context.selected_text ?? context.selectedText ?? context.text ?? '',
-  );
 }
 
 export function sourceLineStartOffset(text, lineNumber) {
@@ -151,51 +131,7 @@ export function resolveSelectionAnchor(sourceText, context = {}) {
 }
 
 export function groupSelectionDecorations(contexts = [], sourcePath = '', view = '') {
-  const groups = [];
-  const byKey = new Map();
-  for (const context of Array.isArray(contexts) ? contexts : []) {
-    if (context?.type !== 'selection') continue;
-    const normalized = normalizeComposerContext(context);
-    if (!normalized) continue;
-    const path = normalized.source?.path || '';
-    if (!sameSelectionSourcePath(path, sourcePath)) continue;
-    const contextView = normalized.source?.view || 'source';
-    if (view && contextView !== view) continue;
-    const anchorText = selectionAnchorText(normalized);
-    if (!anchorText) continue;
-    const location = selectionContextLocationKey(normalized);
-    const key = [
-      location || normalizeSelectionSourcePath(path),
-      normalized.source?.view || 'source',
-      anchorText,
-    ].join('\u001f');
-    let group = byKey.get(key);
-    if (!group) {
-      group = {
-        id: normalized.id || `selection-decoration-${stableStringHash(key)}`,
-        key,
-        context: normalized,
-        annotations: [],
-        annotationNumber: 0,
-      };
-      byKey.set(key, group);
-      groups.push(group);
-    }
-    const existingIds = new Set(group.annotations.map((annotation) => annotation.id));
-    for (const annotation of normalizeSelectionAnnotations(normalized.annotations)) {
-      if (existingIds.has(annotation.id)) continue;
-      existingIds.add(annotation.id);
-      group.annotations.push(annotation);
-    }
-  }
-
-  let annotationNumber = 0;
-  for (const group of groups) {
-    if (group.annotations.length === 0) continue;
-    annotationNumber += 1;
-    group.annotationNumber = annotationNumber;
-  }
-  return groups;
+  return groupSelectionAnnotationContexts(contexts, { sourcePath, view });
 }
 
 function textNodeParts(root, start, end) {

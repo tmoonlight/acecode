@@ -128,10 +128,21 @@ function UserMessageBody({ content }) {
   );
 }
 
-function UserBubble({ content, contentParts, ts, messageId, onFork }) {
+function UserBubble({
+  content,
+  contentParts,
+  ts,
+  messageId,
+  onFork,
+  annotationPresentations,
+}) {
   return (
     <div className="self-end min-w-0 max-w-[70%] flex flex-col items-end gap-0.5 group">
-      <AttachmentStrip contentParts={contentParts} align="right" />
+      <AttachmentStrip
+        contentParts={contentParts}
+        annotationPresentations={annotationPresentations}
+        align="right"
+      />
       {content ? (
         <div className="ace-chat-message-content px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
           <UserMessageBody content={content} />
@@ -160,6 +171,7 @@ function AssistantBubble({
   continuation,
   showFooter,
   showAceCodeAvatar,
+  annotationPresentations,
 }) {
   // 按块渲染(而非全文一次 dangerouslySetInnerHTML):流式追加时只有尾部
   // 块的 HTML 字符串变化,前缀块被 React 的字符串比较跳过,DOM 保持不动。
@@ -220,7 +232,11 @@ function AssistantBubble({
             />
           ))}
         </div>
-        <AttachmentStrip contentParts={contentParts} align="left" />
+        <AttachmentStrip
+          contentParts={contentParts}
+          annotationPresentations={annotationPresentations}
+          align="left"
+        />
         {showFooter && (
           <div className="min-h-6 flex items-center gap-1">
             {!streaming && (
@@ -312,6 +328,7 @@ export const Message = memo(function Message({
   continuation,
   showFooter = true,
   showAceCodeAvatar = false,
+  annotationPresentations = null,
 }) {
   useTranslation();
   if (role === 'user') {
@@ -325,7 +342,8 @@ export const Message = memo(function Message({
       : content;
     return <UserBubble content={displayContent} contentParts={contentParts} ts={ts}
                         messageId={messageId}
-                        onFork={onFork} />;
+                        onFork={onFork}
+                        annotationPresentations={annotationPresentations} />;
   }
   if (role === 'assistant') {
     return <AssistantBubble content={content} contentParts={contentParts}
@@ -334,7 +352,8 @@ export const Message = memo(function Message({
                              onOpenFilePreview={onOpenFilePreview}
                              continuation={continuation}
                              showFooter={showFooter}
-                             showAceCodeAvatar={showAceCodeAvatar} />;
+                             showAceCodeAvatar={showAceCodeAvatar}
+                             annotationPresentations={annotationPresentations} />;
   }
   if (role === 'error') {
     return <ErrorRow content={content} />;

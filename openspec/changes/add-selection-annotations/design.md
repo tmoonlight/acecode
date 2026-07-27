@@ -123,9 +123,11 @@ Resolved annotation bubbles are positioned immediately to the left of the first 
 fragment. Persistent annotated marks use a visible themed fill and outline in both light
 and dark modes; plain references remain quieter and gain the stronger outline on hover.
 
-### 7. Reuse the existing card with an annotation affordance
+### 7. Reuse the existing card with a shared passage number
 
-Composer and sent-message cards keep their current dimensions, file icon, label, border, and remove/pin behavior. Annotated cards add a compact count indicator. Hovering or focusing that indicator reveals the annotation text; the base card remains visually consistent with a plain reference.
+Composer and sent-message cards keep their current dimensions, file icon, label, border, and remove/pin behavior. Annotated cards add a compact passage-number indicator derived from the same session-scoped grouping used by source-preview bubbles. The number is not an annotation count: three annotated passages in one file display `1`, `2`, and `3`, while the first annotated passage in another file starts again at `1`.
+
+Hovering or focusing the indicator reveals the annotations grouped at that anchored passage in creation order. Chat cards receive the complete active-session presentation map, so a sent card and its source bubble resolve to the same number and annotation collection. The indicator is omitted if normalization produces no annotation text, preventing an empty tooltip surface.
 
 ## Risks / Trade-offs
 
@@ -134,6 +136,7 @@ Composer and sent-message cards keep their current dimensions, file icon, label,
 - **[Risk] Large selections and comments could inflate session records.** → Keep the existing selected-text cap, add a separate annotation cap, deduplicate annotations, and store only sanitized fields.
 - **[Risk] Rendered Markdown text does not map one-to-one to source Markdown.** → Treat rendered mode as a rendered-text anchor and resolve it against the rendered DOM; source mode continues to use raw-source offsets.
 - **[Risk] Overlay positions can drift after wrapping, zoom, or resize.** → Re-measure on scroll, resize, `ResizeObserver`, and decoration changes.
+- **[Risk] Chat cards and preview bubbles can derive different numbers from local subsets.** → Build one active-session annotation presentation map from transcript contexts plus pending composer contexts and pass it to both sent and composer cards.
 - **[Trade-off] Historical annotations are immutable.** → This matches message history semantics and avoids a second persistence API; a later message can add another annotation to the same passage.
 
 ## Migration Plan

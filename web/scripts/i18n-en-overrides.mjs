@@ -337,6 +337,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '选中文本操作': 'Selected text actions',
   '批注': 'Annotate',
   '{{p0}} 条批注': '{{p0}} annotations',
+  '{{p0}} 号批注位置，共 {{p1}} 条批注': 'Annotation marker {{p0}}, {{p1}} annotations',
   '批注 {{p0}}，原文已变化': 'Annotation {{p0}}, source text changed',
   '批注 {{p0}}': 'Annotation {{p0}}',
   '{{p0}} · 原文已变化': '{{p0}} · Source text changed',

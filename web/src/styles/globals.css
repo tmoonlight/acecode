@@ -796,8 +796,14 @@ body {
   transition: opacity 0.1s ease, transform 0.1s ease, visibility 0.1s ease;
 }
 .ace-selection-annotation-tooltip {
-  right: 0;
-  bottom: calc(100% + 7px);
+  position: fixed;
+  z-index: 220;
+  right: auto;
+  bottom: auto;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: none;
 }
 .ace-selection-annotation-badge:hover .ace-selection-annotation-tooltip,
 .ace-selection-annotation-badge:focus-visible .ace-selection-annotation-tooltip,

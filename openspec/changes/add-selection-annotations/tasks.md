@@ -9,7 +9,7 @@
 - [x] 2.1 Add tested viewport placement helpers and a portal-based selection action popover with exact `引用到聊天` / `批注` actions.
 - [x] 2.2 Add the focused annotation editor with required text, `Enter` submit, `Shift+Enter` newline, `Escape` cancel, outside dismissal, and accessible labels.
 - [x] 2.3 Wire selection snapshots, quote pinning, annotation merging, and explicit inactive-selection cleanup into `ChatView`.
-- [x] 2.4 Extend composer and sent-message selection cards with a compact annotation count and hover/focus annotation content while retaining the existing card surface.
+- [x] 2.4 Extend composer and sent-message selection cards with a compact numbered annotation marker and hover/focus annotation content while retaining the existing card surface.
 
 ## 3. Source decorations and persistence
 
@@ -39,7 +39,7 @@
 - `cmake --build build --target acecode acecode_unit_tests --config Release -j 8` — passed.
 - `build\tests\Release\acecode_unit_tests.exe --gtest_filter=SelectionContextAnnotation.*` — 6 tests passed.
 - `scripts\code_quality_check.bat` — completed with the repository's existing advisory findings.
-- Real Web UI — confirmed the exact action labels, annotation editor validation and keyboard behavior, same-location annotation merging, sent-card counts, source marks, plain-reference/no-bubble behavior, grouped hover content, reload persistence, session isolation, and non-overlapping `原文已变化` bubbles. Browser error/warning log was empty.
+- Real Web UI — confirmed the exact action labels, annotation editor validation and keyboard behavior, same-location annotation merging, sent-card markers, source marks, plain-reference/no-bubble behavior, grouped hover content, reload persistence, session isolation, and non-overlapping `原文已变化` bubbles. Browser error/warning log was empty.
 
 ## 6. Acceptance feedback polish
 
@@ -53,7 +53,22 @@
 
 - Raw Playwright Web UI — selected and annotated `1.log` lines 17–20 and `2.md` lines 1–4 in the pinned `测试任务`.
 - Cursor placement — both action surfaces used the `pointer` anchor and opened 8–10 px to the right of the mouse-release point rather than at the multiline union edge.
-- Composer numbers — cards displayed `1.log:17-20` and `2.md:1-4`, each with the expected single-annotation count.
+- Composer annotations — cards displayed `1.log:17-20` and `2.md:1-4`, each with the expected single-annotation indicator.
 - Source decorations — resolved bubbles were immediately left of the first marked fragment; hover cards opened to the bubble's right and showed the submitted annotation.
 - Blank-line anchoring — the Markdown selection included empty rows and resolved immediately without `原文已变化`.
 - Theme contrast — light mode used a 0.18 accent fill with a 0.68 inset outline; dark mode used a 0.26 fill with a 0.82 inset outline.
+
+## 7. Chat annotation numbering regression
+
+- [x] 7.1 Derive one per-file passage-number presentation from active-session and pending selection contexts, then reuse it for preview bubbles, composer cards, and sent-message cards.
+- [x] 7.2 Make annotated card hover/focus content use the grouped normalized annotations and prevent empty annotation tooltips.
+- [x] 7.3 Add focused regression coverage for `1` / `2` / `3` parity, same-passage grouping, per-file reset, plain contexts, and non-empty hover content.
+- [x] 7.4 Run the Web suite/build and verify in the real UI that three annotated passages show matching `1` / `2` / `3` numbers in details and chat, with the correct content visible on hover or keyboard focus.
+
+## Chat annotation numbering verification
+
+- `pnpm test` — passed.
+- `pnpm build` — passed.
+- `openspec validate add-selection-annotations --strict` — passed.
+- Real Web UI — loaded three sent annotations for `1.log` lines 4, 8, and 12; details and chat both displayed `1`, `2`, and `3`, all three source anchors resolved, and no stale annotation was reported.
+- Card tooltip — focusing the chat marker `2` rendered a fixed top-level tooltip with `第二处批注：检查 grep 工具注册`; computed visibility was `visible` with opacity `1`.

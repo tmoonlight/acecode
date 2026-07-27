@@ -187,6 +187,7 @@ import {
   mergeSelectionAnnotations,
   normalizeComposerContext,
   SELECTION_PREVIEW_SELECTOR,
+  selectionAnnotationPresentationMap,
   selectionContextFingerprint,
   selectionContextFromWindowSelection,
   selectionContextLocationKey,
@@ -1334,6 +1335,11 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     [composerContexts, sentSelectionContexts],
   );
 
+  const selectionAnnotationPresentations = useMemo(
+    () => selectionAnnotationPresentationMap(previewSelectionContexts),
+    [previewSelectionContexts],
+  );
+
   const visibleSelectionPreview = useMemo(() => {
     if (!selectionPreview) return null;
     const key = selectionContextLocationKey(selectionPreview);
@@ -1343,6 +1349,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const composerInputProps = useMemo(() => ({
     attachments: composerAttachments,
     contexts: composerContexts,
+    annotationPresentations: selectionAnnotationPresentations,
     selectionPreview: visibleSelectionPreview,
     onMediaFiles: handleMediaFiles,
     onRemoveAttachment: removeComposerAttachment,
@@ -1355,6 +1362,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     pinSelectionContext,
     removeComposerAttachment,
     removeComposerContext,
+    selectionAnnotationPresentations,
     visibleSelectionPreview,
   ]);
 
@@ -4027,6 +4035,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
               continuation={childContinuation}
               showFooter={childShowFooter}
               showAceCodeAvatar={showAceCodeAvatar}
+              annotationPresentations={selectionAnnotationPresentations}
             />
           )}
         </div>
@@ -4298,6 +4307,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
                       continuation={continuation}
                       showFooter={showFooter}
                       showAceCodeAvatar={showAceCodeAvatar}
+                      annotationPresentations={selectionAnnotationPresentations}
                     />
                   )}
                 </div>

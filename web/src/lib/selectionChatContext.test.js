@@ -10,6 +10,7 @@ import {
   normalizeComposerContext,
   normalizeSelectionAnnotations,
   resolveSelectionSourcePath,
+  selectionAnnotationPresentationMap,
   selectionContextLocationKey,
   selectionContextsFromTranscriptItems,
   selectionLineNumberAt,
@@ -234,6 +235,86 @@ run('annotated contexts survive composer normalization and expose hover presenta
   assert.equal(presentation.annotationCount, 1);
   assert.match(presentation.annotationText, /Check the fallback/);
   assert.match(presentation.title, /a\.js:3/);
+});
+
+run('chat annotation presentations match per-file passage numbers and grouped content', () => {
+  const annotated = [
+    createSelectionContext({
+      id: 'a-1',
+      text: 'first',
+      path: 'C:/repo/a.js',
+      startLine: 1,
+      endLine: 1,
+      startOffset: 0,
+      endOffset: 5,
+      annotations: [{ id: 'ann-1', text: 'First note' }],
+    }),
+    createSelectionContext({
+      id: 'a-2',
+      text: 'second',
+      path: 'C:/repo/a.js',
+      startLine: 2,
+      endLine: 2,
+      startOffset: 6,
+      endOffset: 12,
+      annotations: [{ id: 'ann-2', text: 'Second note' }],
+    }),
+    createSelectionContext({
+      id: 'a-3',
+      text: 'third',
+      path: 'C:/repo/a.js',
+      startLine: 3,
+      endLine: 3,
+      startOffset: 13,
+      endOffset: 18,
+      annotations: [{ id: 'ann-3', text: 'Third note' }],
+    }),
+    createSelectionContext({
+      id: 'a-2-later',
+      text: 'second',
+      path: 'C:/repo/a.js',
+      startLine: 2,
+      endLine: 2,
+      startOffset: 6,
+      endOffset: 12,
+      annotations: [{ id: 'ann-2b', text: 'Second follow-up' }],
+    }),
+    createSelectionContext({
+      id: 'b-1',
+      text: 'other file',
+      path: 'C:/repo/b.js',
+      startLine: 1,
+      endLine: 1,
+      startOffset: 0,
+      endOffset: 10,
+      annotations: [{ id: 'ann-b', text: 'Other file note' }],
+    }),
+  ];
+  const plain = createSelectionContext({
+    id: 'plain',
+    text: 'plain',
+    path: 'C:/repo/a.js',
+    startLine: 4,
+    endLine: 4,
+    startOffset: 19,
+    endOffset: 24,
+  });
+  const presentations = selectionAnnotationPresentationMap([...annotated, plain]);
+  const cards = annotated.map((context) => contextPresentation(context, presentations));
+
+  assert.deepEqual(
+    cards.map((presentation) => presentation.annotationNumber),
+    [1, 2, 3, 2, 1],
+  );
+  assert.deepEqual(
+    cards[1].annotations.map((annotation) => annotation.text),
+    ['Second note', 'Second follow-up'],
+  );
+  assert.match(cards[1].annotationText, /Second note/);
+  assert.match(cards[1].annotationText, /Second follow-up/);
+  const plainPresentation = contextPresentation(plain, presentations);
+  assert.equal(plainPresentation.annotationNumber, 0);
+  assert.deepEqual(plainPresentation.annotations, []);
 });
 
 run('upsert merges annotations into one pending card and keeps plain duplicates deduplicated', () => {

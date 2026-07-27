@@ -62,15 +62,23 @@ An annotated selection SHALL remain a selection context with a normalized `annot
 - **THEN** the composer does not add duplicate selection cards
 
 ### Requirement: Annotated references reuse chat presentation
-Composer and sent-message annotated references SHALL reuse the existing selection-card surface. An annotated card SHALL expose a compact annotation count and SHALL reveal annotation content on hover or keyboard focus without replacing the file label or line range.
+Composer and sent-message annotated references SHALL reuse the existing selection-card surface. An annotated card SHALL expose the same per-file passage number as its source-preview annotation bubble and SHALL reveal the grouped annotation content on hover or keyboard focus without replacing the file label or line range.
 
-#### Scenario: Composer card shows annotation affordance
-- **WHEN** a selection context has one or more annotations
-- **THEN** its existing composer card shows the annotation count and exposes the annotation text
+#### Scenario: Composer cards match source bubble numbering
+- **WHEN** one file has annotations on three different passages
+- **THEN** the existing composer cards show `1`, `2`, and `3` in the same first-appearance order as the source-preview bubbles
 
-#### Scenario: Sent card preserves annotation affordance
-- **WHEN** an annotated context appears in a sent user message
-- **THEN** the sent-message selection card uses the same annotation count and hover or focus content
+#### Scenario: Sent cards preserve source bubble numbering
+- **WHEN** annotated contexts appear in sent user messages
+- **THEN** each sent-message selection card keeps the same per-file passage number as the matching source-preview bubble
+
+#### Scenario: Card annotation hover is never empty
+- **WHEN** the user hovers or focuses an annotated composer or sent-message card number
+- **THEN** the tooltip shows all annotations grouped at that passage in creation order and does not render as an empty surface
+
+#### Scenario: Separate files number independently
+- **WHEN** annotated selections reference different files
+- **THEN** the first annotated passage in each file is numbered `1`
 
 #### Scenario: Plain card remains unchanged
 - **WHEN** a selection context has no annotations

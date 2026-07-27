@@ -79,8 +79,14 @@ function composerContextKey(item, index = 0) {
   return String(item?.local_id || item?.id || item?.type || index);
 }
 
-function ComposerSelectionCard({ item, pinned = false, onPin, onRemove }) {
-  const presentation = contextPresentation(item);
+function ComposerSelectionCard({
+  item,
+  annotationPresentations = null,
+  pinned = false,
+  onPin,
+  onRemove,
+}) {
+  const presentation = contextPresentation(item, annotationPresentations);
   const sourcePath = item?.source?.path || item?.path || presentation.label;
   const actionTitle = pinned ? '移除引用' : '固定引用';
   const actionLabel = pinned ? '移除引用上下文' : '固定引用上下文';
@@ -109,7 +115,11 @@ function ComposerSelectionCard({ item, pinned = false, onPin, onRemove }) {
       <span className={['truncate text-fg', pinned ? '' : 'opacity-80'].filter(Boolean).join(' ')}>
         {presentation.label}
       </span>
-      <SelectionAnnotationBadge annotations={presentation.annotations} compact />
+      <SelectionAnnotationBadge
+        number={presentation.annotationNumber}
+        annotations={presentation.annotations}
+        compact
+      />
     </div>
   );
 }
@@ -117,7 +127,8 @@ function ComposerSelectionCard({ item, pinned = false, onPin, onRemove }) {
 export const InputBar = forwardRef(function InputBar({
   disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, goal = null, goalStopping = false, history = [], variant = 'default',
   value: controlledValue, onChange,
-  attachments = [], contexts = [], onMediaFiles, onRemoveAttachment, onRemoveContext,
+  attachments = [], contexts = [], annotationPresentations = null,
+  onMediaFiles, onRemoveAttachment, onRemoveContext,
   expertOptions = [],
   selectedExpertId = '',
   selectedExpertName = '',
@@ -1056,6 +1067,7 @@ export const InputBar = forwardRef(function InputBar({
             {selectionPreview ? (
               <ComposerSelectionCard
                 item={selectionPreview}
+                annotationPresentations={annotationPresentations}
                 onPin={() => onPinSelectionPreview?.(selectionPreview)}
               />
             ) : null}
@@ -1065,6 +1077,7 @@ export const InputBar = forwardRef(function InputBar({
                 <ComposerSelectionCard
                   key={key}
                   item={item}
+                  annotationPresentations={annotationPresentations}
                   pinned
                   onRemove={() => onRemoveContext?.(key)}
                 />
