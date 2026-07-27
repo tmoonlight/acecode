@@ -237,6 +237,10 @@ Print 模式默认值是确定的：新会话使用配置的默认模型（恢�
 能力列表使用区分大小写的精确名称，支持逗号分隔和重复传参：
 
 ```bash
+./acecode -p --list-tools
+./acecode -p --list-skills
+./acecode -p --list-mcp
+./acecode -p --list-tools --list-skills --list-mcp
 ./acecode -p --disable-tools bash,file_write "只分析，不改文件"
 ./acecode -p --enable-skills code-review --enable-mcp github "审查这个 PR"
 ./acecode -p --enable-mcp github,linear --enable-mcp browser "处理这个问题"
@@ -245,8 +249,11 @@ Print 模式默认值是确定的：新会话使用配置的默认模型（恢�
 - `--disable-tools <names>`：移除点名的 ACECode 系统工具。
 - `--enable-skills <names>`：只启用点名的已安装 Skill。
 - `--enable-mcp <names>`：只启动点名且未被全局禁用的已配置 MCP server。
+- `--list-tools`：列出可传给 `--disable-tools` 的内置工具精确名称。
+- `--list-skills`：列出当前工作区可传给 `--enable-skills` 的精确名称。
+- `--list-mcp`：列出可传给 `--enable-mcp` 的已配置、未全局禁用名称。
 
-未知或全局不可用的名称会在模型 turn 前失败，退出码为 64，并列出本次可用名称。此前依赖隐式 Skill/MCP 能力的脚本现在必须显式启用。运行 `acecode -p --help` 可查看输出格式、会话续接和完整参数。
+三个发现参数都不需要 prompt，也可以组合使用。它们只构建本地能力目录：不会执行工具，不会创建模型或会话，也不会连接 MCP server。未知或全局不可用的名称会在模型 turn 前失败，退出码为 64，并列出本次可用名称。此前依赖隐式 Skill/MCP 能力的脚本现在必须显式启用。运行 `acecode -p --help` 可查看输出格式、会话续接、能力发现和完整参数。
 
 ### Daemon 与 Web UI
 

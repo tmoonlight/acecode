@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "headless/headless_capability_catalog.hpp"
 #include "headless/headless_name_selection.hpp"
 #include "headless/headless_options.hpp"
 
@@ -43,6 +44,7 @@ TEST(HeadlessOptions, ParsesBasicPromptForm) {
     EXPECT_EQ(o.prompt, "explain this repo");
     EXPECT_FALSE(o.dangerous_mode);
     EXPECT_EQ(o.max_turns, 0);
+    EXPECT_FALSE(o.list_tools);
     EXPECT_TRUE(o.disabled_system_tools.empty());
     EXPECT_TRUE(o.enabled_skills.empty());
     EXPECT_TRUE(o.enabled_mcp_servers.empty());
@@ -152,6 +154,52 @@ TEST(HeadlessOptions, ParsesRepeatableCapabilityLists) {
     EXPECT_EQ(o.prompt, "go");
 }
 
+// 场景:内置工具/Skill/MCP 的发现 flag 可单独或组合使用,不需要 prompt。
+// 期望:parser 只设置对应目录开关,不把发现当成一次 agent 执行。
+TEST(HeadlessOptions, ParsesCapabilityDiscoveryFlags) {
+    auto tools = parse_headless_cli_options({"-p", "--list-tools"});
+    EXPECT_TRUE(tools.error.empty()) << tools.error;
+    EXPECT_TRUE(tools.list_tools);
+    EXPECT_FALSE(tools.list_skills);
+    EXPECT_FALSE(tools.list_mcp_servers);
+
+    auto skills = parse_headless_cli_options({"-p", "--list-skills"});
+    EXPECT_TRUE(skills.error.empty()) << skills.error;
+    EXPECT_FALSE(skills.list_tools);
+    EXPECT_TRUE(skills.list_skills);
+    EXPECT_FALSE(skills.list_mcp_servers);
+    EXPECT_TRUE(skills.prompt.empty());
+
+    auto all = parse_headless_cli_options(
+        {"--list-mcp", "-p", "--list-tools", "--list-skills"});
+    EXPECT_TRUE(all.error.empty()) << all.error;
+    EXPECT_TRUE(all.list_tools);
+    EXPECT_TRUE(all.list_skills);
+    EXPECT_TRUE(all.list_mcp_servers);
+    EXPECT_TRUE(all.prompt.empty());
+}
+
+// 场景:发现模式与 prompt 或任何执行专用参数混用。
+// 期望:硬报用法错误,避免 stdout 混合目录与模型结果,也不静默忽略参数。
+TEST(HeadlessOptions, RejectsCapabilityDiscoveryMixedWithExecution) {
+    const std::vector<std::vector<std::string>> cases = {
+        {"-p", "--list-tools", "review this"},
+        {"-p", "--list-tools", "--disable-tools", "bash"},
+        {"-p", "--list-skills", "review this"},
+        {"-p", "--list-mcp", "--output-format", "json"},
+        {"-p", "--list-skills", "--enable-skills", "code-review"},
+        {"-p", "--list-mcp", "--enable-mcp=github"},
+        {"-p", "--list-skills", "--continue"},
+        {"-p", "--list-mcp", "--yolo"},
+    };
+    for (const auto& tokens : cases) {
+        auto o = parse_headless_cli_options(tokens);
+        EXPECT_FALSE(o.error.empty());
+        EXPECT_NE(o.error.find("cannot be combined"), std::string::npos)
+            << o.error;
+    }
+}
+
 // 场景:空 value、首尾逗号与连续逗号都会产生空名称。
 // 期望:parser 层直接报用法错误,不把半截列表留给 runner。
 TEST(HeadlessOptions, RejectsEmptyCapabilityListMembers) {
@@ -187,6 +235,31 @@ TEST(HeadlessNameSelection, ResolvesExactNamesDeterministically) {
     EXPECT_EQ(acecode::headless::format_name_list(result.available),
               "bash, file_write, grep");
     EXPECT_EQ(acecode::headless::format_name_list({}), "(none)");
+}
+
+// 场景:目录输入乱序、重名,Skill 描述还包含多行/制表空白。
+// 期望:名称稳定排序并去重,描述压成单行;空目录明确打印 (none)。
+TEST(HeadlessCapabilityCatalog, FormatsDeterministically) {
+    using acecode::headless::CapabilityCatalogEntry;
+    using acecode::headless::format_capability_catalog;
+
+    const std::vector<CapabilityCatalogEntry> entries = {
+        {"zeta", "multi\n  line\t description  "},
+        {"alpha", "first description"},
+        {"zeta", "later duplicate"},
+        {"", "ignored"},
+    };
+    EXPECT_EQ(
+        format_capability_catalog("Available Skills", entries),
+        "Available Skills (2):\n"
+        "  alpha\n"
+        "    first description\n"
+        "  zeta\n"
+        "    multi line description\n");
+    EXPECT_EQ(
+        format_capability_catalog("Available MCP servers", {}),
+        "Available MCP servers (0):\n"
+        "  (none)\n");
 }
 
 // 场景:拼错的 flag(--modle)。-p 模式常被 CI 脚本调用,静默吞掉未知
@@ -338,6 +411,11 @@ TEST(HeadlessOptions, HelpDocumentsAdditiveStreamJsonMode) {
     EXPECT_NE(help.find("--disable-tools"), std::string::npos);
     EXPECT_NE(help.find("--enable-skills"), std::string::npos);
     EXPECT_NE(help.find("--enable-mcp"), std::string::npos);
+    EXPECT_NE(help.find("--list-tools"), std::string::npos);
+    EXPECT_NE(help.find("--list-skills"), std::string::npos);
+    EXPECT_NE(help.find("--list-mcp"), std::string::npos);
+    EXPECT_NE(help.find("does not connect to MCP servers"), std::string::npos);
+    EXPECT_NE(help.find("require no prompt"), std::string::npos);
     EXPECT_NE(help.find("default: unlimited"), std::string::npos);
     EXPECT_NE(help.find("Skills"), std::string::npos);
 }

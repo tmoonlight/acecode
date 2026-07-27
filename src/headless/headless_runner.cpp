@@ -1,5 +1,6 @@
 #include "headless_runner.hpp"
 
+#include "headless_capability_catalog.hpp"
 #include "headless_jsonl.hpp"
 #include "headless_mode.hpp"
 #include "headless_name_selection.hpp"
@@ -190,9 +191,98 @@ void expand_skill_prompt(const SkillRegistry& skill_registry,
     }
 }
 
+void register_headless_tools(
+    ToolExecutor& tools,
+    const AppConfig& cfg,
+    SkillRegistry* skill_registry,
+    const std::shared_ptr<SubagentToolDeps>& subagent_deps) {
+    register_session_builtin_tools(tools, cfg);
+    tools.register_tool(create_ask_user_question_tool_async());
+    if (skill_registry && cfg.skills.allowed &&
+        !cfg.skills.allowed->empty()) {
+        tools.register_tool(create_skills_list_tool(*skill_registry, &cfg));
+        tools.register_tool(create_skill_view_tool(*skill_registry, &cfg));
+    }
+    tools.register_tool(create_spawn_subagent_tool(subagent_deps));
+    tools.register_tool(create_wait_subagent_tool(subagent_deps));
+}
+
+int print_available_capabilities(const HeadlessCliOptions& opts) {
+    AppConfig cfg = load_config();
+    const auto config_errors = validate_config(cfg);
+    if (!config_errors.empty()) {
+        for (const auto& error : config_errors) {
+            std::cerr << "acecode -p: config error: " << error << "\n";
+        }
+        return 1;
+    }
+
+    bool wrote_catalog = false;
+    auto write_catalog = [&wrote_catalog](
+                             const std::string& heading,
+                             const std::vector<CapabilityCatalogEntry>& entries) {
+        if (wrote_catalog) std::cout << "\n";
+        std::cout << format_capability_catalog(heading, entries);
+        wrote_catalog = true;
+    };
+
+    if (opts.list_tools) {
+        const bool initialized_web_search =
+            cfg.web_search.enabled && !web_search::is_initialized();
+        if (initialized_web_search) {
+            web_search::init(cfg.web_search);
+        }
+
+        std::vector<CapabilityCatalogEntry> entries;
+        {
+            ToolExecutor tools;
+            auto subagent_deps = std::make_shared<SubagentToolDeps>();
+            register_headless_tools(
+                tools, cfg, nullptr, subagent_deps);
+            for (const auto& def :
+                 tools.get_tool_definitions_by_source(ToolSource::Builtin)) {
+                entries.push_back({def.name, {}});
+            }
+        }
+
+        if (initialized_web_search) {
+            web_search::shutdown();
+        }
+        write_catalog("Available built-in tools", entries);
+    }
+
+    if (opts.list_skills) {
+        SkillRegistry registry;
+        initialize_skill_registry(registry, cfg, acecode::current_path_utf8());
+
+        std::vector<CapabilityCatalogEntry> entries;
+        for (const auto& skill : registry.list()) {
+            entries.push_back({skill.name, skill.description});
+        }
+        write_catalog("Available Skills", entries);
+    }
+
+    if (opts.list_mcp_servers) {
+        std::vector<CapabilityCatalogEntry> entries;
+        for (const auto& [name, server] : cfg.mcp_servers) {
+            if (!server.disabled) entries.push_back({name, {}});
+        }
+        write_catalog("Available MCP servers", entries);
+    }
+
+    return 0;
+}
+
 } // namespace
 
 int run_print_mode(const HeadlessCliOptions& opts) {
+    // Discovery is a terminal local-config action. Keep it before prompt
+    // assembly so redirected stdin is neither awaited nor consumed, and before
+    // hooks/model/session/MCP initialization so listing has no runtime effects.
+    if (opts.list_tools || opts.list_skills || opts.list_mcp_servers) {
+        return print_available_capabilities(opts);
+    }
+
     g_interrupt_requested.store(false);
     g_interrupt_count.store(0);
 
@@ -352,18 +442,10 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     acecode::initialize_skill_registry(skill_registry, cfg, cwd);
 
     acecode::ToolExecutor tools;
-    acecode::register_session_builtin_tools(tools, cfg);
+    auto subagent_deps = std::make_shared<acecode::SubagentToolDeps>();
     // async 版 AskUserQuestion:headless::active() 分支在工具内部自动应答,
     // 不会真的走到 prompter。仍注册它是为了让模型看到与 daemon 一致的工具面。
-    tools.register_tool(acecode::create_ask_user_question_tool_async());
-    if (cfg.skills.allowed && !cfg.skills.allowed->empty()) {
-        tools.register_tool(acecode::create_skills_list_tool(skill_registry, &cfg));
-        tools.register_tool(acecode::create_skill_view_tool(skill_registry, &cfg));
-    }
-
-    auto subagent_deps = std::make_shared<acecode::SubagentToolDeps>();
-    tools.register_tool(acecode::create_spawn_subagent_tool(subagent_deps));
-    tools.register_tool(acecode::create_wait_subagent_tool(subagent_deps));
+    register_headless_tools(tools, cfg, &skill_registry, subagent_deps);
 
     acecode::daemon::DaemonMcpRuntime mcp_runtime;
 

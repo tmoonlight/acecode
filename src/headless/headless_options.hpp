@@ -29,6 +29,12 @@
 //                                           只启用点名 Skill(默认全禁用)
 //   acecode -p --enable-mcp github,linear "..."
 //                                           只启用点名 MCP(默认全禁用)
+//   acecode -p --list-tools                列出可供 --disable-tools
+//                                           使用的默认内置工具精确名称
+//   acecode -p --list-skills               列出当前 cwd 可供
+//                                           --enable-skills 使用的精确名称
+//   acecode -p --list-mcp                  列出可供 --enable-mcp 使用的
+//                                           已配置、未禁用 server 名
 //   acecode -p --help                       打印 print 模式帮助
 
 #include <string>
@@ -42,6 +48,9 @@ struct HeadlessCliOptions {
     bool dangerous_mode = false;   // --yolo / --dangerous(与 TUI 同名参数对齐)
     bool include_thinking = false; // --thinking:stream-json 输出 reasoning part
     bool continue_latest = false;  // -c / --continue:接当前 cwd 最近会话
+    bool list_tools = false;       // --list-tools:列出默认注册的内置工具
+    bool list_skills = false;      // --list-skills:列出当前 cwd 可选 Skill
+    bool list_mcp_servers = false; // --list-mcp:列出未全局禁用的 MCP server
     std::string resume_session_id; // --resume <id>:接指定会话
     std::string session_id;        // --session-id <id>:新会话自定 id
     std::string output_format;     // --output-format <text|json|stream-json>,空 = text

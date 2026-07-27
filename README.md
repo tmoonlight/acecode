@@ -242,6 +242,10 @@ Print-mode defaults are deliberately deterministic: new sessions use the configu
 The capability lists use exact, case-sensitive names. They accept comma-separated values and can be repeated:
 
 ```bash
+./acecode -p --list-tools
+./acecode -p --list-skills
+./acecode -p --list-mcp
+./acecode -p --list-tools --list-skills --list-mcp
 ./acecode -p --disable-tools bash,file_write "analyze without changing files"
 ./acecode -p --enable-skills code-review --enable-mcp github "review the pull request"
 ./acecode -p --enable-mcp github,linear --enable-mcp browser "triage the issue"
@@ -250,8 +254,11 @@ The capability lists use exact, case-sensitive names. They accept comma-separate
 - `--disable-tools <names>` removes named ACECode system tools.
 - `--enable-skills <names>` enables only the named installed Skills.
 - `--enable-mcp <names>` starts only the named configured, globally enabled MCP servers.
+- `--list-tools` prints the built-in names accepted by `--disable-tools`.
+- `--list-skills` prints the workspace-aware names accepted by `--enable-skills`.
+- `--list-mcp` prints the configured, globally enabled names accepted by `--enable-mcp`.
 
-Unknown or globally unavailable names fail before the model turn with exit code 64 and an available-name list. Existing scripts that relied on implicit Skill or MCP access must now opt in explicitly. Run `acecode -p --help` for output formats, session continuation, and all options.
+The three discovery flags require no prompt and can be combined. They only build local capability catalogs: no tool is executed, no model or session is created, and no MCP server is connected. Unknown or globally unavailable names fail before the model turn with exit code 64 and an available-name list. Existing scripts that relied on implicit Skill or MCP access must now opt in explicitly. Run `acecode -p --help` for output formats, session continuation, capability discovery, and all options.
 
 ### Daemon And Web UI
 

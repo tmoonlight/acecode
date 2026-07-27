@@ -151,6 +151,12 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
             o.include_thinking = true;
         } else if (t == "-c" || t == "--continue") {
             o.continue_latest = true;
+        } else if (t == "--list-tools") {
+            o.list_tools = true;
+        } else if (t == "--list-skills") {
+            o.list_skills = true;
+        } else if (t == "--list-mcp") {
+            o.list_mcp_servers = true;
         } else if (t == "--resume") {
             if (i + 1 >= tokens.size()) {
                 return fail("--resume requires a session id "
@@ -250,6 +256,19 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
         return fail("invalid --output-format: " + o.output_format +
                     " (expected text|json|stream-json)");
     }
+    const bool discovery_mode =
+        o.list_tools || o.list_skills || o.list_mcp_servers;
+    const bool has_execution_input =
+        !o.prompt.empty() || o.dangerous_mode || o.include_thinking ||
+        o.continue_latest || !o.resume_session_id.empty() ||
+        !o.session_id.empty() || !o.output_format.empty() ||
+        !o.permission_mode.empty() || !o.model_name.empty() ||
+        o.max_turns != 0 || !o.disabled_system_tools.empty() ||
+        !o.enabled_skills.empty() || !o.enabled_mcp_servers.empty();
+    if (discovery_mode && has_execution_input) {
+        return fail("--list-tools/--list-skills/--list-mcp cannot be combined "
+                    "with a prompt or execution options");
+    }
     // --yolo 与 --permission-mode 同时给且矛盾时,尊重更宽的显式意志:
     // dangerous 本来就是"跳过一切确认",permission_mode 保留原值用于
     // plan 等只读约束(dangerous 时 plan 的只读门在 AgentLoop 内已被
@@ -258,7 +277,10 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
 }
 
 std::string print_mode_usage_line() {
-    return "usage: acecode -p [-c | --resume <id> | --session-id <id>] "
+    return "usage: acecode -p --list-tools [--list-skills] [--list-mcp]\n"
+           "   or: acecode -p --list-skills [--list-mcp]\n"
+           "   or: acecode -p --list-mcp\n"
+           "   or: acecode -p [-c | --resume <id> | --session-id <id>] "
            "[--output-format text|json|stream-json] [--thinking] "
            "[--yolo] [--permission-mode <m>] "
            "[--model <name>] [--max-turns <n>] "
@@ -278,6 +300,8 @@ std::string print_mode_help() {
         "  acecode -p [options] \"<prompt>\"\n"
         "  echo \"prompt\" | acecode -p [options]\n"
         "  git diff | acecode -p \"review this diff\"    (stdin + argument are joined)\n"
+        "  acecode -p --list-tools [--list-skills] [--list-mcp]\n"
+        "                                                       (no prompt required)\n"
         "\n"
         "Options:\n"
         "  -c, --continue           Continue the most recent session in this directory\n"
@@ -300,6 +324,10 @@ std::string print_mode_help() {
         "  --enable-skills <names>  Enable exact installed Skill names (default: none)\n"
         "  --enable-mcp <names>     Enable exact configured MCP server names (default: none)\n"
         "                           Lists are comma-separated and options are repeatable\n"
+        "  --list-tools             List names accepted by --disable-tools, then exit\n"
+        "  --list-skills            List names accepted by --enable-skills, then exit\n"
+        "  --list-mcp               List names accepted by --enable-mcp, then exit\n"
+        "                           (reads config only; does not connect to MCP servers)\n"
         "  --yolo, --dangerous      Skip all permission confirmations\n"
         "  -h, --help               Show this help\n"
         "\n"
@@ -313,8 +341,10 @@ std::string print_mode_help() {
         "  acecode -p -c \"next step\"\n"
         "\n"
         "Capability examples:\n"
+        "  acecode -p --list-tools --list-skills --list-mcp\n"
         "  acecode -p --disable-tools bash,file_write \"analyze only\"\n"
         "  acecode -p --enable-skills code-review --enable-mcp github \"review PR\"\n"
+        "Discovery flags require no prompt and cannot be mixed with execution options.\n"
         "By default all currently available system tools are enabled, while Skills\n"
         "and MCP servers are disabled. Globally disabled features stay unavailable.\n"
         "\n"
