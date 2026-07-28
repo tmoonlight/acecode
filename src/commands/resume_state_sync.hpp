@@ -40,7 +40,8 @@ inline std::string tui_model_status_line(const SessionModelState& model_state) {
 }
 
 // Caller owns any required TuiState locking. The /resume picker invokes this
-// while state.mu is already held by the event handler.
+// while state.mu is already held by the event handler. Keep the token usage
+// text, context percentage, and cache hit percentage in one restore step.
 inline void sync_tui_resume_runtime_state(
     TuiState& state,
     const AppConfig& config,
@@ -52,6 +53,7 @@ inline void sync_tui_resume_runtime_state(
     }
     state.token_status = token_tracker.format_status(config.context_window);
     state.token_percent = token_tracker.context_percent(config.context_window);
+    state.cache_hit_percent = token_tracker.cache_hit_percent();
 }
 
 } // namespace acecode

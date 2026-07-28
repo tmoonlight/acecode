@@ -46,6 +46,10 @@ Sub-agent sessions are **hidden from normal session lists** and surfaced only in
 
 `bash_tool` streams cleaned output, polls abort state, truncates very large output, and supports POSIX `stdin_inputs`. File tools should preserve checkpoint hooks by calling `track_file_write_before` before mutating files.
 
+**Prompt cache prefix invariant**:`build_api_request_messages()` 每次采样迭代都跑一遍,所以**注入到最后一条真实 user 消息之前的内容必须内容驱动** —— 输入不变就逐字节不变。任何随时间/随请求变化的东西进了那个位置,同一回合内每次工具往返都会把缓存前缀从注入点截断,后面整条尾巴(user 消息 + 全部 assistant/tool 消息)全价重算;工具越多损失越大。曾经的 `[当前环境状态]` 块带秒级时间戳,正好踩中这条。现在 cwd 与日期(只到天,`current_prompt_date`)留在静态 system prompt 的 `# Environment` 里,只在工作目录或日期变化时改变。守护测试:`agent_loop_termination_test.cpp::RequestPrefixIsByteStableAcrossIterationsInATurn`(逐条比对相邻两次请求的公共前缀)+ `system_prompt_test.cpp` 的两个 byte-stable 用例。同理,`cached_context_for_api` 按 cache_key pin 住 session context 内容、git 快照按会话缓存、`ToolExecutor::tools_` 用 `std::map` 保证工具顺序、Anthropic 合成 tool_call_id 走内容哈希 —— 都是为同一条不变量服务的,改动这些地方前先想清楚会不会打穿前缀。
+
+跨 provider 的 usage 口径:`prompt_tokens` = 本次请求的**全部**输入 token,`cache_read_tokens` 是它的子集。Anthropic 原生把 `input_tokens` 与 cache 读写分开报,`AnthropicProvider::merge_usage` 负责合并成上述口径(对流式的多个 usage 节点幂等),否则上下文占用会少算、缓存命中率也算不对。TUI token chip 显示会话累计缓存命中率,Web 上下文用量面板显示最近一次请求的缓存命中率;provider 报了 usage 但没有缓存计数时显示 0% 而不是隐藏 —— 这正是「缓存没生效」需要被看见的场景。
+
 MCP 工具调用同样响应 abort:`McpManager::invoke` 把阻塞的 JSON-RPC 调用放进 detached 工作线程,本线程 100ms 轮询 `ctx.abort_flag`,置位立即返回 `[Aborted]`(迟到响应整体丢弃,工作线程最多活到 cpp-mcp 内部 60s 超时)。不加这层时,慢 MCP 工具(实测 windows-mcp Snapshot 30+ 秒)会让停止请求在整个调用期间失效 —— 表现为「点停止提示已终止,busy 却持续到工具自己返回」。回归测试:`tests/tool/mcp_manager_test.cpp::AbortDuringSlowToolCallReturnsQuickly`(test server `--call-delay-ms`)。
 
 ### Thread Goals(/goal,复刻 Codex ext/goal)

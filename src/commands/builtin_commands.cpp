@@ -1412,6 +1412,8 @@ static void do_resume_session(CommandContext& ctx, const std::string& session_id
             }
         }
         if (target) {
+            // Restore all persisted usage counters before synchronizing the
+            // context and cache indicators rendered by the TUI.
             ctx.token_tracker.restore(target->last_token_usage,
                                       target->session_token_usage);
         }

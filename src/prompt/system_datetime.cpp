@@ -91,4 +91,27 @@ std::string current_prompt_datetime() {
                                   utc_offset_minutes_for(t));
 }
 
+std::string format_prompt_date(const std::tm& local_time,
+                               int utc_offset_minutes) {
+    std::ostringstream oss;
+    oss << std::setw(4) << std::setfill('0') << (local_time.tm_year + 1900)
+        << "-"
+        << std::setw(2) << std::setfill('0') << (local_time.tm_mon + 1)
+        << "-"
+        << std::setw(2) << std::setfill('0') << local_time.tm_mday
+        << " ("
+        << weekday_name(local_time.tm_wday)
+        << ", "
+        << format_utc_offset(utc_offset_minutes)
+        << ")";
+    return oss.str();
+}
+
+std::string current_prompt_date() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    return format_prompt_date(local_tm_from_time(t),
+                              utc_offset_minutes_for(t));
+}
+
 } // namespace acecode

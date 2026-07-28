@@ -249,8 +249,11 @@ public:
         EXPECT_EQ(config_.context_window, 64000);
         EXPECT_EQ(tracker_.last_prompt_tokens(), 8000);
         EXPECT_EQ(tracker_.prompt_tokens(), 8000);
+        EXPECT_EQ(tracker_.cache_read_tokens(), 6000);
+        EXPECT_EQ(tracker_.cache_hit_percent(), 75);
         EXPECT_EQ(state_.token_status, "8.0k/64.0k");
         EXPECT_EQ(state_.token_percent, 13);
+        EXPECT_EQ(state_.cache_hit_percent, 75);
         EXPECT_NE(state_.status_line.find("[openai]"), std::string::npos);
         EXPECT_NE(state_.status_line.find("gpt-mini"), std::string::npos);
     }
@@ -280,6 +283,7 @@ private:
         usage.prompt_tokens = 8000;
         usage.completion_tokens = 1200;
         usage.total_tokens = 9200;
+        usage.cache_read_tokens = 6000;
         usage.has_data = true;
         writer.record_token_usage(usage);
         writer.finalize();

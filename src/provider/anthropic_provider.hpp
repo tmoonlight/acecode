@@ -56,6 +56,12 @@ public:
 
     static ChatResponse parse_response(const nlohmann::json& j);
 
+    // Merge one Anthropic `usage` node into an accumulator, normalizing
+    // prompt_tokens to the total input (cache reads/writes included) so
+    // it matches the OpenAI-compatible contract. Safe to call repeatedly with
+    // the same node, as the streaming path does.
+    static void merge_usage(TokenUsage& usage, const nlohmann::json& node);
+
 private:
     ChatResponse parse_sse_stream(
         const std::string& url,

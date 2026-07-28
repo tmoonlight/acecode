@@ -545,9 +545,43 @@ TEST(AgentLoopTermination, TextOnlyEndsTurnUnconditionally) {
               std::string::npos);  // 正常退出,无 cap 消息
 }
 
-// 场景:动态时间/CWD 只进入发给 provider 的 API 消息，并位于最后一个
-// 真实 user 消息之前；不合并或写入会话历史。
-TEST(AgentLoopTermination, RequestContextIsApiOnlyAtHandoffBoundary) {
+// 场景:同一回合内的多次采样请求必须共享逐字节相同的前缀,否则 provider
+// 的 prompt cache 每轮都从注入点被截断,整条工具调用尾巴全价重算。
+//
+// 回归背景:注入到最后一条真实 user 消息之前的可变上下文块曾经拼进一个
+// 秒级时间戳,于是每一轮工具往返都换一份内容,缓存前缀在此断开。日期与
+// cwd 现在留在静态 system prompt 里(普通采样迭代间稳定),可变块只随内容变化。
+TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossIterationsInATurn) {
+    AgentLoopHarness h;
+    h.push_tool_call("noop", "{}", "c1");
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("run the tool"));
+    ASSERT_EQ(h.turn_count(), 2);
+
+    const auto first = h.request_messages_for_turn(0);
+    const auto second = h.request_messages_for_turn(1);
+    ASSERT_GE(first.size(), 3u);
+    ASSERT_GT(second.size(), first.size());
+
+    // 第二次请求只应在第一次的末尾追加(assistant 工具调用 + 工具结果),
+    // 前面每一条消息(system prompt、历史、注入的可变上下文)必须一致。
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first[i].role, second[i].role) << "role mismatch at " << i;
+        EXPECT_EQ(first[i].content, second[i].content)
+            << "prompt prefix changed at message " << i
+            << " - this breaks provider prompt caching for the whole turn";
+    }
+
+    // 静态 system prompt 携带低频变化的日期与 cwd,时分秒不进 prompt。
+    EXPECT_EQ(first.front().role, "system");
+    EXPECT_NE(first.front().content.find("- Today's date: "), std::string::npos);
+    EXPECT_NE(first.front().content.find("- Working directory: "), std::string::npos);
+    EXPECT_EQ(first.front().content.find("[当前环境状态]"), std::string::npos);
+}
+
+// 场景:注入的可变上下文只进 API 消息,不落会话历史。
+TEST(AgentLoopTermination, InjectedContextIsApiOnlyAtHandoffBoundary) {
     AgentLoopHarness h;
     h.push_text("ok");
 
@@ -555,22 +589,18 @@ TEST(AgentLoopTermination, RequestContextIsApiOnlyAtHandoffBoundary) {
     ASSERT_EQ(h.turn_count(), 1);
 
     auto request = h.request_messages_for_turn(0);
-    ASSERT_GE(request.size(), 3u);
+    ASSERT_GE(request.size(), 2u);
     EXPECT_EQ(request.front().role, "system");
     EXPECT_EQ(request.back().role, "user");
     EXPECT_EQ(request.back().content, "what time is it?");
-    const auto& request_context = request[request.size() - 2];
-    EXPECT_EQ(request_context.role, "user");
-    EXPECT_NE(request_context.content.find("[当前环境状态]"), std::string::npos);
-    EXPECT_NE(request_context.content.find("时间："), std::string::npos);
-    EXPECT_NE(request_context.content.find("工作目录：."), std::string::npos);
-    EXPECT_EQ(request_context.content.find("[用户输入]"), std::string::npos);
 
     auto persisted = h.persisted_messages();
     ASSERT_GE(persisted.size(), 2u);
     EXPECT_EQ(persisted[0].role, "user");
     EXPECT_EQ(persisted[0].content, "what time is it?");
-    EXPECT_EQ(persisted[0].content.find("[当前环境状态]"), std::string::npos);
+    for (const auto& msg : persisted) {
+        EXPECT_EQ(msg.content.find("<system-reminder>"), std::string::npos);
+    }
 }
 
 // 场景:Project Instructions / User Memory 从静态 system prompt 移到
@@ -624,16 +654,17 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     EXPECT_TRUE(saw_memory);
     EXPECT_EQ(request.back().content, "what should I do?");
     ASSERT_GE(request.size(), 2u);
-    EXPECT_NE(request[request.size() - 2].content.find("[当前环境状态]"),
-              std::string::npos);
-    EXPECT_EQ(request[request.size() - 2].content.find("[用户输入]"),
-              std::string::npos);
+    // 可变上下文紧贴在最后一条真实 user 消息之前。
+    const auto& injected = request[request.size() - 2];
+    EXPECT_EQ(injected.role, "user");
+    EXPECT_NE(injected.content.find("<system-reminder>"), std::string::npos);
+    EXPECT_EQ(injected.content.find("[用户输入]"), std::string::npos);
 
     auto persisted = h.persisted_messages();
     for (const auto& msg : persisted) {
         EXPECT_EQ(msg.content.find("# Project Instructions"), std::string::npos);
         EXPECT_EQ(msg.content.find("# User Memory"), std::string::npos);
-        EXPECT_EQ(msg.content.find("[当前环境状态]"), std::string::npos);
+        EXPECT_EQ(msg.content.find("<system-reminder>"), std::string::npos);
     }
 }
 

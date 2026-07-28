@@ -24,6 +24,19 @@ export const CONTEXT_USAGE_CATEGORIES = Object.freeze([
   Object.freeze({ key: 'dynamicContext', snakeKey: 'dynamic_context', tone: 'dynamic-context', label: '动态上下文' }),
 ]);
 
+// Share of total input tokens served from the provider's prompt cache.
+// `promptTokens` is the total input on every provider (the Anthropic
+// provider normalizes its split counters server-side), so cache reads are a
+// subset of it. Returns null when the provider reported no usage at all;
+// a reported 0% is meaningful and must stay visible.
+export function computeCacheHitPercent(usage) {
+  if (!hasApiUsageData(usage)) return null;
+  const promptTokens = readTokenValue(usage, 'promptTokens', 'prompt_tokens');
+  if (promptTokens <= 0) return null;
+  const cacheRead = readTokenValue(usage, 'cacheReadTokens', 'cache_read_tokens');
+  return Math.min(100, Math.max(0, Math.round((cacheRead / promptTokens) * 100)));
+}
+
 export function formatCompactTokenCount(value) {
   const tokens = toNonNegativeInt(value);
   if (tokens < 1000) return String(tokens);
@@ -95,6 +108,11 @@ function unknownBudget(limitTokens, reason = 'no_usage') {
     rawUsedRatio: 0,
     percent: 0,
     severity: 'unknown',
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    cacheHitPercent: null,
+    cacheLabel: '',
+    cacheTitle: '',
     compactUsedTokens: '0',
     compactLimitTokens: formatCompactTokenCount(limitTokens),
     breakdownKnown: false,
@@ -125,6 +143,12 @@ export function normalizeTokenBudget({ usage = null, contextWindow = 0 } = {}) {
     : rawUsedRatio >= 0.7
       ? 'warning'
       : 'safe';
+  const cacheReadTokens = readTokenValue(usage, 'cacheReadTokens', 'cache_read_tokens');
+  const cacheWriteTokens = readTokenValue(usage, 'cacheWriteTokens', 'cache_write_tokens');
+  const cacheHitPercent = computeCacheHitPercent(usage);
+  const cacheTitle = cacheHitPercent === null
+    ? ''
+    : `提示词缓存命中：${cacheReadTokens} / ${usedTokens} 输入 token（${cacheHitPercent}%），缓存写入 ${cacheWriteTokens}`;
   const title = `上下文 token：${usedTokens} / ${limitTokens}（${percent}% 已用），剩余 ${remainingTokens}`;
   const breakdown = normalizeContextBreakdown(usage, usedTokens, limitTokens);
 
@@ -141,6 +165,11 @@ export function normalizeTokenBudget({ usage = null, contextWindow = 0 } = {}) {
     rawUsedRatio,
     percent,
     severity,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheHitPercent,
+    cacheLabel: cacheHitPercent === null ? '' : `cache ${cacheHitPercent}%`,
+    cacheTitle,
     compactUsedTokens: formatCompactTokenCount(usedTokens),
     compactLimitTokens: formatCompactTokenCount(limitTokens),
     breakdownKnown: breakdown.known,

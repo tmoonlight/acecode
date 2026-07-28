@@ -483,6 +483,19 @@ static Color status_line_color(const std::string& status_line) {
         : tui::theme().ui.text_primary;
 }
 
+// Prompt-cache hit rate for the session. Rendered next to the context meter so
+// a cache regression (a prompt prefix that stopped being stable, or a provider
+// wired up without cache breakpoints) shows up as a number the user can watch
+// rather than an invisible cost increase.
+static Element render_cache_hit_chip(const acecode::TuiState& state) {
+    const std::string label =
+        acecode::TokenTracker::format_cache_status_for(state.cache_hit_percent);
+    if (label.empty()) {
+        return text("");
+    }
+    return text(label + "  ") | dim | color(tui::theme().ui.text_dim);
+}
+
 static Element render_token_usage_chip(const acecode::TuiState& state) {
     if (state.token_status.empty()) {
         return text("");
@@ -504,6 +517,7 @@ static Element render_token_usage_chip(const acecode::TuiState& state) {
         text(repeat_utf8_glyph(kEmpty, empty)) | dim | color(tui::theme().ui.text_dim),
         text("] ") | dim | color(tui::theme().ui.text_dim),
         text(std::to_string(percent) + "%  ") | dim | color(progress_color),
+        render_cache_hit_chip(state),
     });
 }
 
@@ -4982,6 +4996,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     TokenTracker token_tracker;
     state.token_status = token_tracker.format_status(config.context_window);
     state.token_percent = token_tracker.context_percent(config.context_window);
+    state.cache_hit_percent = token_tracker.cache_hit_percent();
 
     // ---- Agent callbacks ----
     std::atomic<bool> agent_aborting{false};  // shared abort flag for confirm_cv
@@ -5155,6 +5170,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         std::lock_guard<std::mutex> lk(state.mu);
         state.token_status = token_tracker.format_status(config.context_window);
         state.token_percent = token_tracker.context_percent(config.context_window);
+        state.cache_hit_percent = token_tracker.cache_hit_percent();
         // 心跳读数走回合累计:本请求的 completion_tokens 入账,同时清零流式
         // 估算基数(该请求的 delta 已计入确认值,不清会双重计数)。
         state.turn_completion_tokens_confirmed += usage.completion_tokens;

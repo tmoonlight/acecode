@@ -113,11 +113,6 @@ PromptContextBlock build_session_context_prompt(
     bool skills_list_available = true,
     bool spawn_subagent_available = true);
 
-// Build dynamic request-local context. This is sent near the end of the
-// messages array for the current provider call only; it must not be persisted
-// into session history.
-std::string build_request_context_prompt(const std::string& cwd);
-
 // Build one-turn proactive delegation guidance. Empty output means swarm mode
 // is disabled or the effective tool policy cannot expose spawn_subagent.
 std::string build_swarm_mode_context_prompt(

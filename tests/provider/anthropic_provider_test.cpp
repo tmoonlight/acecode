@@ -29,6 +29,7 @@ using acecode::ChatMessage;
 using acecode::ProviderErrorKind;
 using acecode::StreamEvent;
 using acecode::StreamEventType;
+using acecode::TokenUsage;
 using acecode::ToolDef;
 
 struct LocalHttpServer {
@@ -189,11 +190,50 @@ TEST(AnthropicProviderTest, ParseResponseMapsContentUsageAndToolUse) {
     EXPECT_EQ(nlohmann::json::parse(parsed.tool_calls[0].function_arguments)["path"],
               "AGENTS.md");
     EXPECT_TRUE(parsed.usage.has_data);
-    EXPECT_EQ(parsed.usage.prompt_tokens, 11);
+    // Anthropic reports input_tokens separately from the cached prefix; the
+    // provider normalizes prompt_tokens to the total billed input so that
+    // cache_read_tokens is a subset of it, matching OpenAI-compatible usage.
+    EXPECT_EQ(parsed.usage.prompt_tokens, 11 + 3 + 2);
     EXPECT_EQ(parsed.usage.completion_tokens, 7);
-    EXPECT_EQ(parsed.usage.total_tokens, 18);
+    EXPECT_EQ(parsed.usage.total_tokens, 16 + 7);
     EXPECT_EQ(parsed.usage.cache_read_tokens, 3);
     EXPECT_EQ(parsed.usage.cache_write_tokens, 2);
+}
+
+TEST(AnthropicProviderTest, UsageNormalizationIsIdempotentAcrossStreamNodes) {
+    // A streaming response merges several usage nodes into one accumulator:
+    // message_start carries the input breakdown, message_delta re-reports it
+    // alongside the running output count. Normalization must not compound the
+    // cache totals into prompt_tokens once per node.
+    TokenUsage usage;
+    const nlohmann::json message_start = {
+        {"input_tokens", 11},
+        {"cache_read_input_tokens", 3},
+        {"cache_creation_input_tokens", 2}
+    };
+    AnthropicProvider::merge_usage(usage, message_start);
+    EXPECT_EQ(usage.prompt_tokens, 16);
+
+    // Same node again (harmless duplicate), then an output-only delta.
+    AnthropicProvider::merge_usage(usage, message_start);
+    EXPECT_EQ(usage.prompt_tokens, 16);
+
+    AnthropicProvider::merge_usage(usage, nlohmann::json{{"output_tokens", 7}});
+    EXPECT_EQ(usage.prompt_tokens, 16);
+    EXPECT_EQ(usage.completion_tokens, 7);
+    EXPECT_EQ(usage.total_tokens, 23);
+    EXPECT_EQ(usage.cache_read_tokens, 3);
+    EXPECT_EQ(usage.cache_write_tokens, 2);
+}
+
+TEST(AnthropicProviderTest, UsageWithoutCacheFieldsKeepsPlainInputTokens) {
+    TokenUsage usage;
+    AnthropicProvider::merge_usage(
+        usage, nlohmann::json{{"input_tokens", 40}, {"output_tokens", 5}});
+    EXPECT_EQ(usage.prompt_tokens, 40);
+    EXPECT_EQ(usage.total_tokens, 45);
+    EXPECT_EQ(usage.cache_read_tokens, 0);
+    EXPECT_EQ(usage.cache_write_tokens, 0);
 }
 
 TEST(AnthropicProviderTest, MissingApiKeyFailsBeforeNetwork) {
