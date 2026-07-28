@@ -35,6 +35,7 @@ json desktop_notifications_to_json(const DesktopNotificationsConfig& config) {
         {"on_question", config.on_question},
         {"on_completion", config.on_completion},
         {"suppress_when_focused", config.suppress_when_focused},
+        {"backend", config.backend},
     };
 }
 

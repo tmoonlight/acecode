@@ -43,6 +43,9 @@ struct NotificationInitOptions {
     std::string application_id;
     // Windows: HWND. macOS Desktop: NSWindow*. Unsupported platforms: ignored.
     void* activation_window = nullptr;
+    // Windows only: "auto" | "system" | "custom", see
+    // notification_backend_policy.hpp. Other platforms ignore it.
+    std::string backend = "auto";
 };
 
 using ClickHandler = std::function<void(const NotifyPayload& payload)>;

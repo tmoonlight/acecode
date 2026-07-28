@@ -2,10 +2,11 @@
 // 设计参见 openspec/changes/add-windows-wintoast-completion-notifications。
 //
 // 验收点:
-//   - DesktopNotificationsConfig 五个字段默认全 true
+//   - DesktopNotificationsConfig 五个 bool 默认全 true,backend 默认 "auto"
 //   - desktop / desktop.notifications 段完全缺失 → 默认值,无 warning
 //   - 部分字段缺失 → 仅缺的字段走默认,提供的字段被读入
 //   - 字段类型错误(应该 bool 给了 string)→ 该字段保留默认 + 整段 warning
+//   - backend 只接受 auto|system|custom,其它值(含非法字符串)保留默认
 //   - desktop 整段非对象 / desktop.notifications 非对象 → 默认值 + warning
 //
 // 与 config_tui_test 风格一致:复刻 load_config 的解析分支,不依赖真实 config.json,
@@ -53,6 +54,12 @@ int apply_desktop_section(const nlohmann::json& j, DesktopNotificationsConfig& o
     if (nj.contains("suppress_when_focused") && nj["suppress_when_focused"].is_boolean()) {
         out.suppress_when_focused = nj["suppress_when_focused"].get<bool>();
     }
+    if (nj.contains("backend") && nj["backend"].is_string()) {
+        const std::string backend = nj["backend"].get<std::string>();
+        if (backend == "auto" || backend == "system" || backend == "custom") {
+            out.backend = backend;
+        }
+    }
     return warnings;
 }
 
@@ -66,6 +73,7 @@ TEST(ConfigDesktopNotificationsDefaults, StructDefault) {
     EXPECT_TRUE(n.on_question);
     EXPECT_TRUE(n.on_completion);
     EXPECT_TRUE(n.suppress_when_focused);
+    EXPECT_EQ(n.backend, "auto");
 }
 
 // 场景:AppConfig 中默认包含 desktop.notifications 且默认全 true
@@ -76,6 +84,7 @@ TEST(ConfigDesktopNotificationsDefaults, NestedInAppConfig) {
     EXPECT_TRUE(cfg.desktop.notifications.on_question);
     EXPECT_TRUE(cfg.desktop.notifications.on_completion);
     EXPECT_TRUE(cfg.desktop.notifications.suppress_when_focused);
+    EXPECT_EQ(cfg.desktop.notifications.backend, "auto");
 }
 
 // 场景:config.json 完全没有 desktop 段 → 默认值,无警告
@@ -168,4 +177,33 @@ TEST(ConfigDesktopNotificationsLoader, NotificationsBlockWrongTypeWarns) {
     nlohmann::json j = {{"desktop", {{"notifications", "should be object"}}}};
     EXPECT_EQ(apply_desktop_section(j, n), 1);
     EXPECT_TRUE(n.enabled);
+}
+
+// 场景:backend 显式给合法值 → 读入
+TEST(ConfigDesktopNotificationsLoader, BackendAcceptsKnownValues) {
+    for (const char* value : {"auto", "system", "custom"}) {
+        DesktopNotificationsConfig n;
+        nlohmann::json j = {
+            {"desktop", {{"notifications", {{"backend", value}}}}}
+        };
+        EXPECT_EQ(apply_desktop_section(j, n), 0);
+        EXPECT_EQ(n.backend, value);
+    }
+}
+
+// 场景:backend 给了未知字符串或非字符串 → 静默保持默认 "auto"
+TEST(ConfigDesktopNotificationsLoader, BackendRejectsUnknownValue) {
+    DesktopNotificationsConfig n;
+    nlohmann::json j = {
+        {"desktop", {{"notifications", {{"backend", "wintoast"}}}}}
+    };
+    EXPECT_EQ(apply_desktop_section(j, n), 0);
+    EXPECT_EQ(n.backend, "auto");
+
+    DesktopNotificationsConfig m;
+    nlohmann::json k = {
+        {"desktop", {{"notifications", {{"backend", 42}}}}}
+    };
+    EXPECT_EQ(apply_desktop_section(k, m), 0);
+    EXPECT_EQ(m.backend, "auto");
 }

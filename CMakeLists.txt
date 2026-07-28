@@ -187,8 +187,11 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/daemon/platform_posix.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/platform_windows.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/runtime_files.cpp
+    ${CMAKE_SOURCE_DIR}/src/desktop/custom_toast.cpp
+    ${CMAKE_SOURCE_DIR}/src/desktop/custom_toast_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/folder_picker_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/locale.cpp
+    ${CMAKE_SOURCE_DIR}/src/desktop/notification_backend_policy.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/notifications.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/open_request.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/open_in_explorer.cpp
@@ -304,25 +307,30 @@ elseif(WIN32)
     # advapi32: restrictive ACL writes in utils/atomic_file.hpp.
     # ws2_32: daemon/runtime_files.cpp port probes.
     # ole32/shell32/user32: native folder picker and clipboard integration.
+    # gdi32/msimg32: the self-drawn toast renderer (layered window + GDI).
+    # winmm: PlaySound for the self-drawn toast.
     target_link_libraries(acecode_native_bridge_support PUBLIC
-        advapi32 ws2_32 ole32 shell32 user32
+        advapi32 ws2_32 ole32 shell32 user32 gdi32 msimg32 winmm
+    )
+    # The Windows backend is always compiled now: it also owns the self-drawn
+    # renderer, which needs nothing beyond Win32 + GDI. WinToast is layered on
+    # top when the toolchain can build it.
+    target_sources(acecode_native_bridge_support PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/desktop/notifications_win.cpp
     )
     if(ACECODE_HAS_WINTOAST)
-        target_sources(acecode_native_bridge_support PRIVATE
-            ${CMAKE_SOURCE_DIR}/src/desktop/notifications_win.cpp
-        )
         target_link_libraries(acecode_native_bridge_support PUBLIC
             unofficial::wintoast::wintoast
         )
+        target_compile_definitions(acecode_native_bridge_support PUBLIC
+            ACECODE_HAS_WINTOAST=1
+        )
     else()
         # WinToast requires Windows SDK WRL headers, which are intentionally
-        # absent from self-contained MinGW/WinLibs toolchains.
-        target_sources(acecode_native_bridge_support PRIVATE
-            ${CMAKE_SOURCE_DIR}/src/desktop/notifications_stub.cpp
-        )
-        target_compile_definitions(acecode_native_bridge_support PUBLIC
-            ACECODE_NOTIFICATION_BACKEND_STUB=1
-        )
+        # absent from self-contained MinGW/WinLibs toolchains. Those builds run
+        # the self-drawn renderer only.
+        message(STATUS "WinToast unavailable; Windows notifications will use "
+                       "the self-drawn toast renderer only.")
     endif()
 else()
     target_sources(acecode_native_bridge_support PRIVATE

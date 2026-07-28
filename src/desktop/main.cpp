@@ -1139,6 +1139,7 @@ int main(int argc, char** argv) {
     notification_options.app_name = "ACECode Desktop";
 #ifdef _WIN32
     notification_options.application_id = "ACECode.ACECode.Desktop.1";
+    notification_options.backend = desktop_cfg.desktop.notifications.backend;
 #endif
     notification_options.activation_window = host.native_window();
     const bool notifications_ok = init_notifications(notification_options);
