@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 
-export function SessionNavigationMask({ open = false }) {
+export function SessionNavigationMask({ open = false, onCancel }) {
   const { t } = useTranslation();
   if (!open) return null;
 
@@ -8,6 +8,17 @@ export function SessionNavigationMask({ open = false }) {
   const stopInteraction = (event) => {
     event.preventDefault();
     event.stopPropagation();
+  };
+  // 这层遮罩吞掉全部指针与键盘输入,一旦上游没能收尾就等于界面死锁。
+  // Esc 是用户手里最后一个不依赖任何网络往返的出口。
+  const onKeyDown = (event) => {
+    if (event.key === 'Escape' && typeof onCancel === 'function') {
+      event.preventDefault();
+      event.stopPropagation();
+      onCancel();
+      return;
+    }
+    stopInteraction(event);
   };
 
   return (
@@ -25,7 +36,7 @@ export function SessionNavigationMask({ open = false }) {
       data-session-navigation-mask="true"
       tabIndex={0}
       autoFocus
-      onKeyDown={stopInteraction}
+      onKeyDown={onKeyDown}
       onPointerDown={stopInteraction}
     >
       <div className="flex min-w-44 flex-col items-center gap-3 rounded-xl border border-border bg-surface px-6 py-5 ace-shadow-lg">

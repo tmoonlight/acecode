@@ -17,6 +17,8 @@ WebServer::Impl::~Impl() {
     }
     join_rebind_stop_thread();
 
+    // 先阻止 tracked-subagent producer 再停 flusher。若先停 flusher，
+    // 尚未解除的订阅仍可能标脏，却再也没有线程负责落盘。
     if (subagent_tracker_state) {
         std::lock_guard<std::mutex> lk(subagent_tracker_state->mu);
         subagent_tracker_state->impl = nullptr;
@@ -36,6 +38,10 @@ WebServer::Impl::~Impl() {
             deps.session_client->unsubscribe(sid, sub);
         }
     }
+
+    // 所有已知 attention producer 均已停用，最后一次 flush 不会再漏掉
+    // 在 shutdown / unsubscribe 期间到达的事件。
+    stop_attention_flusher();
 }
 
 void WebServer::Impl::request_listener_rebind() {

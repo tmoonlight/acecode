@@ -297,6 +297,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '当前轮保持原专家；下一轮派遣{{p0}}': 'Keep the current expert for this turn; dispatch {{p0}} for the next turn',
   '当前运行环境不可用': 'Unavailable in the current runtime',
   '连接超时': 'Connection timed out',
+  '请求超时,请重试': 'Request timed out. Please try again',
+  '打开会话超时,请重试': 'Opening the session timed out. Please try again',
   '连接失败': 'Connection failed',
   '连接失败，请检查全局 MCP 设置': 'Connection failed. Check the global MCP settings',
   '连接已取消': 'Connection cancelled',

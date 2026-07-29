@@ -1596,6 +1596,10 @@ void WebServer::Impl::load_attention_workspace_locked(const std::string& workspa
 }
 
 void WebServer::Impl::save_attention_workspace_locked(const std::string& workspace_hash) const {
+    // 无论下面是否真的写成功,都先摘掉脏标记:cwd 未知的 workspace 永远
+    // 写不出去,留着只会让 flusher 每个周期空转一次。
+    attention_dirty_workspaces.erase(workspace_hash);
+
     auto cwd_it = attention_workspace_cwds.find(workspace_hash);
     if (cwd_it == attention_workspace_cwds.end() || cwd_it->second.empty()) return;
 
@@ -1621,7 +1625,8 @@ void WebServer::Impl::save_attention_workspace_locked(const std::string& workspa
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         if (!out) return;
-        out << root.dump(2);
+        // 机器读的状态文件,不需要缩进 —— dump(2) 会把体积放大近一倍。
+        out << root.dump();
         out << '\n';
     }
     std::filesystem::rename(tmp, path, ec);
@@ -1633,6 +1638,43 @@ void WebServer::Impl::save_attention_workspace_locked(const std::string& workspa
     if (ec) {
         LOG_WARN("[web] failed to save session read state: " + ec.message());
     }
+}
+
+void WebServer::Impl::flush_dirty_attention_workspaces_locked() const {
+    if (attention_dirty_workspaces.empty()) return;
+    // save_attention_workspace_locked 会从集合里删元素,所以先拷一份再遍历。
+    const std::vector<std::string> pending(attention_dirty_workspaces.begin(),
+                                           attention_dirty_workspaces.end());
+    for (const auto& hash : pending) {
+        save_attention_workspace_locked(hash);
+    }
+    attention_dirty_workspaces.clear();
+}
+
+void WebServer::Impl::start_attention_flusher() {
+    attention_flush_thread = std::thread([this] {
+        std::unique_lock<std::mutex> lk(attention_mu);
+        while (!attention_flush_stop) {
+            attention_flush_cv.wait_for(
+                lk,
+                std::chrono::milliseconds(kAttentionFlushIntervalMs),
+                [this] { return attention_flush_stop; });
+            if (attention_flush_stop) break;
+            flush_dirty_attention_workspaces_locked();
+        }
+    });
+}
+
+void WebServer::Impl::stop_attention_flusher() {
+    if (!attention_flush_thread.joinable()) return;
+    {
+        std::lock_guard<std::mutex> lk(attention_mu);
+        attention_flush_stop = true;
+        // 正常退出路径把最后一个周期的脏数据落盘,别让 daemon 关闭吞掉未读态。
+        flush_dirty_attention_workspaces_locked();
+    }
+    attention_flush_cv.notify_all();
+    attention_flush_thread.join();
 }
 
 SessionAttentionRecord WebServer::Impl::attention_record_for_session(
@@ -1804,9 +1846,16 @@ void WebServer::Impl::note_session_event_for_attention(
             record.update_cursor != before_record.update_cursor ||
             record.updated_at_ms != before_record.updated_at_ms ||
             record.busy != before_record.busy) {
-            save_attention_workspace_locked(workspace_hash);
+            // 热路径:每个 token 都会走到这里,只标脏。见 Impl 里
+            // kAttentionFlushIntervalMs 附近对写放大的说明。
+            attention_dirty_workspaces.insert(workspace_hash);
         }
-        if (changed) payload = attention_payload_for_record(session_id, workspace_hash, cwd, record);
+        if (changed) {
+            // 状态跃迁 / busy 翻转 = 回合边界,一个回合只有几次,立即落盘
+            // 保证异常退出后未读态与实际一致。
+            flush_dirty_attention_workspaces_locked();
+            payload = attention_payload_for_record(session_id, workspace_hash, cwd, record);
+        }
     }
     if (changed) broadcast_session_status(payload);
 }
