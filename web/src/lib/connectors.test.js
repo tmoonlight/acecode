@@ -3,8 +3,8 @@
 // 回归目标:设置页「连接器」开关不能把 config.json 里的 hooks / auth_error_scope
 // 冲掉。开关流程是 GET -> normalizeConnectorList -> (点击) applyConnectorToggle
 // -> PUT { connectors: next } -> normalizeConnectorList(result)。任何一步把
-// hooks/auth_error_scope 之类的字段丢了,PUT 回去的 config.json 就永久清空了
-// on_enable 钩子。
+// hooks/auth_error_scope 之类的字段丢了,PUT 回去的 config.json 就会永久
+// 清空这些兼容配置。
 
 import assert from 'node:assert/strict';
 import { normalizeConnectorList, applyConnectorToggle } from './connectors.js';

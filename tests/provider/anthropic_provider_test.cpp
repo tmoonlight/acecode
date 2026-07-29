@@ -13,6 +13,7 @@
 
 #include <httplib.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -401,4 +402,68 @@ TEST(AnthropicProviderTest, StreamParsesTextToolUseUsageAndDone) {
     auto request = nlohmann::json::parse(seen_body);
     EXPECT_TRUE(request["stream"].get<bool>());
     EXPECT_EQ(request["model"], "claude-test");
+}
+
+TEST(AnthropicProviderTest, StreamingOverloadRetriesAndResumesWithoutBudget) {
+    std::atomic<int> hits{0};
+    LocalHttpServer server([&](httplib::Server& s) {
+        s.Post("/messages", [&](const httplib::Request&, httplib::Response& res) {
+            if (++hits == 1) {
+                res.status = 503;
+                res.set_header("Retry-After", "0");
+                res.set_content(
+                    R"({"type":"error","error":{"type":"overloaded_error","message":"try later"}})",
+                    "application/json");
+                return;
+            }
+            res.status = 200;
+            res.set_content(
+                "event: content_block_delta\n"
+                "data: {\"type\":\"content_block_delta\",\"index\":0,"
+                "\"delta\":{\"type\":\"text_delta\",\"text\":\"recovered\"}}\n\n"
+                "event: message_stop\n"
+                "data: {\"type\":\"message_stop\"}\n\n",
+                "text/event-stream");
+        });
+    });
+
+    AnthropicProvider provider(
+        server.base_url(), "sk-ant-test", "claude-test", 5000);
+    std::vector<StreamEvent> events;
+    std::atomic<bool> abort{false};
+    provider.chat_stream(
+        {user_message("hi")},
+        {},
+        [&](const StreamEvent& event) { events.push_back(event); },
+        &abort);
+
+    EXPECT_EQ(hits.load(), 2);
+    ASSERT_GE(events.size(), 4u);
+    const auto retry = std::find_if(
+        events.begin(), events.end(), [](const StreamEvent& event) {
+            return event.type == StreamEventType::Retry;
+        });
+    ASSERT_NE(retry, events.end());
+    EXPECT_EQ(retry->provider_error.kind, ProviderErrorKind::Http);
+    EXPECT_EQ(retry->provider_error.status_code, 503);
+    EXPECT_TRUE(retry->provider_error.retryable);
+    EXPECT_EQ(retry->provider_error.retry_attempt, 1);
+    EXPECT_EQ(retry->provider_error.retry_max_attempts, -1);
+    EXPECT_EQ(retry->provider_error.retry_delay_ms, 0);
+    EXPECT_NE(
+        std::find_if(events.begin(), events.end(), [](const StreamEvent& event) {
+            return event.type == StreamEventType::RetryResume;
+        }),
+        events.end());
+    EXPECT_NE(
+        std::find_if(events.begin(), events.end(), [](const StreamEvent& event) {
+            return event.type == StreamEventType::Delta &&
+                   event.content == "recovered";
+        }),
+        events.end());
+    EXPECT_NE(
+        std::find_if(events.begin(), events.end(), [](const StreamEvent& event) {
+            return event.type == StreamEventType::Done;
+        }),
+        events.end());
 }

@@ -27,6 +27,7 @@
 #include "tool/tool_executor.hpp"
 #include "permissions.hpp"
 #include "provider/llm_provider.hpp"
+#include "provider/retry_policy.hpp"
 #include "session/turn_timing.hpp"
 
 #include <nlohmann/json.hpp>
@@ -50,6 +51,7 @@ using acecode::PermissionManager;
 using acecode::PermissionResult;
 using acecode::ProviderErrorInfo;
 using acecode::ProviderErrorKind;
+using acecode::kProviderRetryMaxDelayMs;
 using acecode::ToolDef;
 using acecode::ToolExecutor;
 using acecode::ToolImpl;
@@ -161,6 +163,17 @@ public:
             live_stream_.clear();
             ++stream_retry_resets_;
         };
+        cb.on_model_retry = [this](const ProviderErrorInfo& info) {
+            {
+                std::lock_guard<std::mutex> lk(retry_mu_);
+                retry_infos_.push_back(info);
+            }
+            retry_cv_.notify_all();
+        };
+        cb.on_model_retry_resume = [this]() {
+            std::lock_guard<std::mutex> lk(retry_mu_);
+            ++retry_resumes_;
+        };
 
         auto provider_accessor =
             [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
@@ -221,17 +234,38 @@ public:
     void push_events(std::vector<acecode::StreamEvent> events) {
         provider_->push_events(std::move(events));
     }
+    void push_retry_wait(ProviderErrorInfo info) {
+        provider_->push_retry_wait(std::move(info));
+    }
 
     // 发消息并阻塞直到 on_busy_changed(false)。返回 false 代表超时(测试失败信号)。
     bool submit_and_wait(const std::string& msg,
                         std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+        submit_without_wait(msg);
+        return wait_until_idle(timeout);
+    }
+
+    void submit_without_wait(const std::string& msg) {
         {
             std::lock_guard<std::mutex> lk(busy_mu_);
             is_busy_ = true;  // 认定 submit 前就进入 busy 状态;on_busy_changed 会先升后降
         }
         loop_->submit(msg);
+    }
+
+    bool wait_until_idle(
+        std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
         std::unique_lock<std::mutex> lk(busy_mu_);
         return busy_cv_.wait_for(lk, timeout, [this] { return !is_busy_; });
+    }
+
+    bool wait_for_retry_count(
+        std::size_t count,
+        std::chrono::milliseconds timeout = std::chrono::seconds(2)) {
+        std::unique_lock<std::mutex> lk(retry_mu_);
+        return retry_cv_.wait_for(lk, timeout, [this, count] {
+            return retry_infos_.size() >= count;
+        });
     }
 
     bool submit_input_and_wait(const UserInput& input,
@@ -299,6 +333,16 @@ public:
         return stream_retry_resets_;
     }
 
+    int retry_resumes() {
+        std::lock_guard<std::mutex> lk(retry_mu_);
+        return retry_resumes_;
+    }
+
+    std::vector<acecode::SessionEvent> snapshot_events() {
+        std::lock_guard<std::mutex> lk(event_mu_);
+        return events_;
+    }
+
     std::string last_turn_outcome() {
         std::lock_guard<std::mutex> lk(outcome_mu_);
         return turn_outcomes_.empty() ? std::string{} : turn_outcomes_.back();
@@ -363,6 +407,11 @@ private:
     std::vector<Msg> messages_;
     std::string live_stream_;
     int stream_retry_resets_ = 0;
+
+    std::mutex retry_mu_;
+    std::condition_variable retry_cv_;
+    std::vector<ProviderErrorInfo> retry_infos_;
+    int retry_resumes_ = 0;
 
     std::mutex outcome_mu_;
     std::vector<std::string> turn_outcomes_;
@@ -484,39 +533,79 @@ TEST(AgentLoopTurnTiming, TranscriptOnlyTimingDoesNotEnterNextProviderRequest) {
     }
 }
 
-// 场景: provider 在同一请求内部对 timeout 做重新连接重试时,AgentLoop 必须
-// 清掉失败连接已经流出的临时 assistant 文本,最终只持久化成功重试的输出。
-TEST(AgentLoopTermination, TimeoutRetryResetClearsPartialLiveOutput) {
+// 场景:provider 在同一请求内部对临时网络故障重试时,AgentLoop 必须清掉
+// 失败连接的全部 provisional 状态,暴露非 transcript 的等待/恢复进度,
+// 最终只持久化成功重试的输出。
+TEST(AgentLoopTermination, TransientRetryResetsProvisionalStateAndReportsProgress) {
     AgentLoopHarness h;
 
-    ProviderErrorInfo timeout = make_stub_provider_error("request timed out");
-    timeout.kind = ProviderErrorKind::Timeout;
-    timeout.status_code = 0;
-    timeout.retryable = true;
-    timeout.retry_attempt = 1;
-    timeout.retry_max_attempts = -1;
-    timeout.retry_delay_ms = 0;
+    ProviderErrorInfo network = make_stub_provider_error("connection lost");
+    network.kind = ProviderErrorKind::Network;
+    network.status_code = 0;
+    network.retryable = true;
+    network.retry_attempt = 3;
+    network.retry_max_attempts = -1;
+    network.retry_delay_ms = 4000;
 
     acecode::StreamEvent partial;
     partial.type = acecode::StreamEventType::Delta;
     partial.content = "partial";
 
+    acecode::StreamEvent reasoning;
+    reasoning.type = acecode::StreamEventType::ReasoningDelta;
+    reasoning.content = "provisional reasoning";
+
+    acecode::StreamEvent usage;
+    usage.type = acecode::StreamEventType::Usage;
+    usage.usage.has_data = true;
+    usage.usage.prompt_tokens = 100;
+    usage.usage.completion_tokens = 50;
+    usage.usage.total_tokens = 150;
+
+    acecode::StreamEvent provisional_tool;
+    provisional_tool.type = acecode::StreamEventType::ToolCall;
+    provisional_tool.tool_call.id = "provisional-call";
+    provisional_tool.tool_call.function_name = "noop";
+    provisional_tool.tool_call.function_arguments = "{}";
+
     acecode::StreamEvent retry;
     retry.type = acecode::StreamEventType::Retry;
-    retry.provider_error = timeout;
-    retry.error = timeout.display_message;
+    retry.provider_error = network;
+    retry.error = network.display_message;
+
+    acecode::StreamEvent resumed;
+    resumed.type = acecode::StreamEventType::RetryResume;
+    resumed.provider_error = network;
 
     acecode::StreamEvent final_delta;
     final_delta.type = acecode::StreamEventType::Delta;
     final_delta.content = "final";
 
+    acecode::StreamEvent final_usage;
+    final_usage.type = acecode::StreamEventType::Usage;
+    final_usage.usage.has_data = true;
+    final_usage.usage.prompt_tokens = 7;
+    final_usage.usage.completion_tokens = 3;
+    final_usage.usage.total_tokens = 10;
+
     acecode::StreamEvent done;
     done.type = acecode::StreamEventType::Done;
 
-    h.push_events({partial, retry, final_delta, done});
+    h.push_events({
+        partial,
+        reasoning,
+        usage,
+        provisional_tool,
+        retry,
+        resumed,
+        final_delta,
+        final_usage,
+        done,
+    });
 
     ASSERT_TRUE(h.submit_and_wait("run"));
     EXPECT_EQ(h.stream_retry_resets(), 1);
+    EXPECT_EQ(h.retry_resumes(), 1);
     EXPECT_EQ(h.live_stream(), "final");
 
     auto persisted = h.persisted_messages();
@@ -531,6 +620,79 @@ TEST(AgentLoopTermination, TimeoutRetryResetClearsPartialLiveOutput) {
     EXPECT_EQ(assistant_count, 1);
     EXPECT_EQ(assistant_content, "final");
     EXPECT_EQ(assistant_content.find("partial"), std::string::npos);
+    for (const auto& msg : persisted) {
+        EXPECT_NE(msg.tool_call_id, "provisional-call");
+        EXPECT_EQ(
+            msg.tool_calls.dump().find("provisional-call"),
+            std::string::npos);
+    }
+
+    bool saw_retry_progress = false;
+    bool saw_resume_progress = false;
+    bool saw_transcript_reset = false;
+    int usage_event_count = 0;
+    for (const auto& event : h.snapshot_events()) {
+        if (event.kind == acecode::SessionEventKind::Usage) {
+            ++usage_event_count;
+            EXPECT_EQ(event.payload.value("total_tokens", 0), 10);
+        }
+        if (event.kind == acecode::SessionEventKind::TranscriptReplace) {
+            saw_transcript_reset = true;
+        }
+        if (event.kind != acecode::SessionEventKind::AgentProgress ||
+            !event.payload.is_object()) {
+            continue;
+        }
+        const std::string phase =
+            event.payload.value("phase", std::string{});
+        if (phase == "model_retry") {
+            saw_retry_progress = true;
+            EXPECT_EQ(event.payload.value("retry_attempt", 0), 3);
+            EXPECT_EQ(event.payload.value("retry_delay_ms", 0), 4000);
+            EXPECT_EQ(event.payload.value("retry_max_attempts", 0), -1);
+            EXPECT_GT(event.payload.value("retry_at_ms", 0LL), 0);
+        } else if (phase == "model_waiting" &&
+                   event.payload.contains("retry_attempt")) {
+            saw_resume_progress = true;
+        }
+    }
+    EXPECT_TRUE(saw_retry_progress);
+    EXPECT_TRUE(saw_resume_progress);
+    EXPECT_TRUE(saw_transcript_reset);
+    EXPECT_EQ(usage_event_count, 1);
+
+    for (const auto& message : h.snapshot_messages()) {
+        EXPECT_EQ(
+            message.content.find("网络暂时不可用"),
+            std::string::npos);
+    }
+}
+
+// 场景:任务已进入 20 分钟封顶等待时,stop 必须通知 active provider 的
+// condition variable,立即结束,而不是等到下一次定时唤醒。
+TEST(AgentLoopTermination, AbortWakesTwentyMinuteRetryWaitPromptly) {
+    AgentLoopHarness h;
+    ProviderErrorInfo network = make_stub_provider_error("offline");
+    network.kind = ProviderErrorKind::Network;
+    network.status_code = 0;
+    network.retry_attempt = 20;
+    network.retry_max_attempts = -1;
+    network.retry_delay_ms = static_cast<int>(kProviderRetryMaxDelayMs);
+    h.push_retry_wait(network);
+
+    h.submit_without_wait("keep running");
+    ASSERT_TRUE(h.wait_for_retry_count(1));
+
+    const auto started = std::chrono::steady_clock::now();
+    h.abort();
+    ASSERT_TRUE(h.wait_until_idle(std::chrono::seconds(2)));
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    EXPECT_LT(elapsed, std::chrono::seconds(1));
+    EXPECT_EQ(h.turn_count(), 1);
+    EXPECT_EQ(h.count_by_role("error"), 0);
+    EXPECT_EQ(h.last_system_message(), "[Interrupted]");
+    EXPECT_EQ(h.last_turn_outcome(), "aborted");
 }
 
 // 场景 (a):text-only 响应直接结束 loop。chit-chat 与 mid-task hedge 都走这条路径。

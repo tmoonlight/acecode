@@ -869,6 +869,18 @@ export function reduceTranscriptEvent(state, msg) {
         toolIndex: p.tool_index ?? null,
         startedAtMs: Number(p.started_at_ms) || eventTs(msg),
         timestampMs: eventTs(msg),
+        retryAttempt: Number.isFinite(Number(p.retry_attempt))
+          ? Number(p.retry_attempt)
+          : null,
+        retryDelayMs: Number.isFinite(Number(p.retry_delay_ms))
+          ? Number(p.retry_delay_ms)
+          : null,
+        retryAtMs: Number.isFinite(Number(p.retry_at_ms))
+          ? Number(p.retry_at_ms)
+          : null,
+        retryMaxAttempts: Number.isFinite(Number(p.retry_max_attempts))
+          ? Number(p.retry_max_attempts)
+          : null,
       };
       break;
     }

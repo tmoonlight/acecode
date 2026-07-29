@@ -13,14 +13,20 @@
 
 #include "utils/state_file.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -48,6 +54,40 @@ protected:
 void write_raw(const std::string& path, const std::string& contents) {
     std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
     ofs << contents;
+}
+
+std::string quote_arg(const std::string& value) {
+    return "\"" + value + "\"";
+}
+
+int run_claim_worker(const std::string& state_path,
+                     const std::string& key,
+                     const std::string& ready_path,
+                     const std::string& go_path,
+                     const std::string& result_path) {
+    std::ostringstream command;
+#ifdef _WIN32
+    command << "\"";
+#endif
+    command
+        << quote_arg(ACECODE_STATE_FILE_CLAIM_WORKER_PATH) << " "
+        << quote_arg(state_path) << " "
+        << quote_arg(key) << " "
+        << quote_arg(ready_path) << " "
+        << quote_arg(go_path) << " "
+        << quote_arg(result_path);
+#ifdef _WIN32
+    command << "\"";
+#endif
+    return std::system(command.str().c_str());
+}
+
+std::pair<int, int> read_claim_result(const fs::path& path) {
+    std::ifstream input(path);
+    int claimed = -1;
+    int persisted = -1;
+    input >> claimed >> persisted;
+    return {claimed, persisted};
 }
 
 } // namespace
@@ -109,6 +149,85 @@ TEST_F(StateFileTest, ConcurrentCheckedWritesPreserveEveryKey) {
     for (int i = 0; i < kWriterCount; ++i) {
         EXPECT_TRUE(acecode::read_state_flag("concurrent_flag_" + std::to_string(i)));
     }
+}
+
+TEST_F(StateFileTest, ClaimFlagIsGrantedExactlyOnceAcrossConcurrentCallers) {
+    constexpr int kClaimerCount = 16;
+    std::atomic<int> claimed{0};
+    std::atomic<int> persisted{0};
+    std::vector<std::thread> claimers;
+    claimers.reserve(kClaimerCount);
+    for (int i = 0; i < kClaimerCount; ++i) {
+        claimers.emplace_back([&]() {
+            const auto result =
+                acecode::try_claim_state_flag(
+                    "connector_first_start_auth_v1");
+            if (result.claimed) ++claimed;
+            if (result.persisted) ++persisted;
+        });
+    }
+    for (auto& claimer : claimers) claimer.join();
+
+    EXPECT_EQ(claimed.load(), 1);
+    EXPECT_EQ(persisted.load(), kClaimerCount);
+    EXPECT_TRUE(acecode::read_state_flag(
+        "connector_first_start_auth_v1"));
+    const auto later = acecode::try_claim_state_flag(
+        "connector_first_start_auth_v1");
+    EXPECT_FALSE(later.claimed);
+    EXPECT_TRUE(later.persisted);
+}
+
+TEST_F(StateFileTest, ClaimFlagIsGrantedExactlyOnceAcrossProcesses) {
+    const fs::path directory = fs::path(path_).parent_path();
+    const fs::path ready_a = directory / "ready-a";
+    const fs::path ready_b = directory / "ready-b";
+    const fs::path go = directory / "go";
+    const fs::path result_a = directory / "result-a";
+    const fs::path result_b = directory / "result-b";
+    const std::string key = "connector_first_start_auth_v1";
+
+    auto worker_a = std::async(std::launch::async, [&]() {
+        return run_claim_worker(
+            path_, key, ready_a.string(), go.string(), result_a.string());
+    });
+    auto worker_b = std::async(std::launch::async, [&]() {
+        return run_claim_worker(
+            path_, key, ready_b.string(), go.string(), result_b.string());
+    });
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while ((!fs::exists(ready_a) || !fs::exists(ready_b)) &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    write_raw(go.string(), "go\n");
+
+    ASSERT_TRUE(fs::exists(ready_a));
+    ASSERT_TRUE(fs::exists(ready_b));
+    EXPECT_EQ(worker_a.get(), 0);
+    EXPECT_EQ(worker_b.get(), 0);
+
+    const auto [claimed_a, persisted_a] = read_claim_result(result_a);
+    const auto [claimed_b, persisted_b] = read_claim_result(result_b);
+    EXPECT_EQ(claimed_a + claimed_b, 1);
+    EXPECT_EQ(persisted_a, 1);
+    EXPECT_EQ(persisted_b, 1);
+    EXPECT_TRUE(acecode::read_state_flag(key));
+}
+
+TEST_F(StateFileTest, FailedClaimIsNotGranted) {
+    fs::path directory_target =
+        fs::path(path_).parent_path() / "claim-state-directory";
+    fs::create_directories(directory_target);
+    acecode::set_state_file_path_for_test(directory_target.string());
+
+    const auto result = acecode::try_claim_state_flag(
+        "connector_first_start_auth_v1");
+
+    EXPECT_FALSE(result.claimed);
+    EXPECT_FALSE(result.persisted);
 }
 
 // 场景:已存在但内容是非合法 JSON → read 视同 false,后续 write 覆盖成功

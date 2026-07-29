@@ -139,10 +139,15 @@ struct AgentCallbacks {
     std::function<void(const std::vector<ChatMessage>& messages,
                        const CompactResult& result)> on_transcript_replace;
 
-    // Called before a provider timeout retry replays the current model request.
+    // Called before a provider retry replays the current model request.
     // Consumers should clear provisional live assistant output from the failed
     // stream attempt; persisted history is unchanged.
     std::function<void()> on_stream_retry_reset;
+
+    // Presentation-only retry lifecycle; neither callback appends transcript
+    // messages.
+    std::function<void(const ProviderErrorInfo&)> on_model_retry;
+    std::function<void()> on_model_retry_resume;
 
     // Called just before a tool begins executing. `command_preview` is a short
     // human-readable summary (e.g. the first 60 chars of a bash command).
@@ -312,13 +317,6 @@ public:
     void set_session_manager(SessionManager* sm) { session_manager_ = sm; }
     void set_hook_manager(HookManager* hm) { hook_manager_ = hm; }
 
-    // 连接器认证自动恢复(见 src/connectors/connector_auth_recovery.hpp)。
-    // 入参 = 失败请求的 provider base_url 与请求时所用 api_key;
-    // 返回新 key 表示已恢复,AgentLoop 会更新 provider 并重试该请求一次;
-    // 空 function = 功能关闭(默认)。
-    using AuthRecoveryFn = std::function<std::optional<std::string>(
-        const std::string& base_url, const std::string& api_key_at_request)>;
-    void set_auth_recovery(AuthRecoveryFn fn) { auth_recovery_ = std::move(fn); }
     void dispatch_session_start_hook(const std::string& source);
     void restore_goal_runtime();
     void publish_current_goal_state();
@@ -406,6 +404,11 @@ private:
     // goal:HTTP 429 → usage_limited,其余 → blocked。对齐 Codex ext/goal 的
     // on_turn_error,防止 maybe_continue_goal 对着同一个错误无限重试烧 token。
     void stop_active_goal_after_turn_error(const ProviderErrorInfo& info);
+    void set_active_provider_for_retry(
+        const std::shared_ptr<LlmProvider>& provider);
+    void clear_active_provider_for_retry(
+        const std::shared_ptr<LlmProvider>& provider);
+    void wake_active_provider_retry();
     // 在每次模型请求前消费 pending steering 标记,把 budget_limit /
     // objective_updated 提示以 hidden_goal_context user 消息注入。
     void maybe_inject_goal_steering();
@@ -494,15 +497,16 @@ private:
         const std::shared_ptr<LlmProvider>& provider,
         const ApiRequestBundle& bundle,
         const ProgressEmitter& emit_progress);
+    void emit_retry_lifecycle(
+        const ProviderErrorInfo& info,
+        bool waiting,
+        bool compaction);
 
-    // Phase 4: Classify provider errors and handle connector auth recovery.
+    // Phase 4: Classify terminal provider errors.
     enum class HandleErrorResult { Continue, Break, Proceed };
     HandleErrorResult handle_provider_error(
         ProviderCallResult& result,
         const std::vector<ChatMessage>& messages_with_system,
-        // Mutable state passed by reference from the orchestrator:
-        int& auth_recovery_attempts,
-        int& total_iterations,
         std::string& turn_timing_status);
 
     // Phase 5: Execute tool calls (parallel read + serial write).
@@ -551,7 +555,6 @@ private:
     ProviderAccessor provider_accessor_;
     ToolExecutor& tools_;
     AgentCallbacks callbacks_;
-    AuthRecoveryFn auth_recovery_;
     std::vector<ChatMessage> messages_;
     mutable std::mutex side_question_context_mu_;
     std::vector<ChatMessage> side_question_context_;
@@ -560,6 +563,8 @@ private:
     std::atomic<bool> side_question_shutdown_{false};
     std::atomic<bool> abort_requested_{false};
     std::atomic<bool> busy_{false};
+    std::mutex active_provider_mu_;
+    std::weak_ptr<LlmProvider> active_provider_;
     std::string cwd_;
     PermissionManager& permissions_;
     PathValidator path_validator_;

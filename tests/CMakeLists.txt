@@ -67,6 +67,24 @@ target_include_directories(concurrent_session_writer PRIVATE
 )
 add_dependencies(acecode_unit_tests concurrent_session_writer)
 
+# Runtime state is shared by multiple workspace daemons. This helper lets the
+# state-file tests race two real processes against the first-start claim.
+add_executable(state_file_claim_worker
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/helpers/state_file_claim_worker.cpp
+)
+target_link_libraries(state_file_claim_worker PRIVATE
+    acecode_testable
+    acecode_native_bridge_support
+    ftxui::screen
+    ftxui::dom
+    ftxui::component
+)
+target_include_directories(state_file_claim_worker PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+add_dependencies(acecode_unit_tests state_file_claim_worker)
+
 # 测试辅助 MCP stdio server: 用于 McpManager 异步启动测试走真实
 # stdio JSON-RPC 路径,避免依赖外部 node/python。
 add_executable(mcp_stdio_test_server
@@ -105,6 +123,7 @@ add_dependencies(acecode_unit_tests headless_jsonl_process_driver)
 # 注入 helper 绝对路径给测试代码(避免 ctest cwd 不确定问题)
 target_compile_definitions(acecode_unit_tests PRIVATE
     ACECODE_CONCURRENT_SESSION_WRITER_PATH="$<TARGET_FILE:concurrent_session_writer>"
+    ACECODE_STATE_FILE_CLAIM_WORKER_PATH="$<TARGET_FILE:state_file_claim_worker>"
     ACECODE_MCP_STDIO_TEST_SERVER_PATH="$<TARGET_FILE:mcp_stdio_test_server>"
     ACECODE_FAKE_LSP_SERVER_PATH="$<TARGET_FILE:fake_lsp_server>"
     ACECODE_HEADLESS_JSONL_DRIVER_PATH="$<TARGET_FILE:headless_jsonl_process_driver>"

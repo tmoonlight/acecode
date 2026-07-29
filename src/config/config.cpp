@@ -275,20 +275,6 @@ bool parse_connectors_json(const nlohmann::json& value,
     return true;
 }
 
-std::vector<ConnectorConfig> newly_enabled_connectors(
-        const std::vector<ConnectorConfig>& before,
-        const std::vector<ConnectorConfig>& after) {
-    std::vector<ConnectorConfig> newly;
-    for (const auto& connector : after) {
-        if (!connector.enabled || !connector.on_enable) continue;
-        const auto prev = std::find_if(before.begin(), before.end(),
-            [&](const ConnectorConfig& b) { return b.id == connector.id; });
-        const bool was_enabled = prev != before.end() && prev->enabled;
-        if (!was_enabled) newly.push_back(connector);
-    }
-    return newly;
-}
-
 std::vector<ConnectorConfig> startup_hook_connectors(
         const std::vector<ConnectorConfig>& connectors) {
     std::vector<ConnectorConfig> out;

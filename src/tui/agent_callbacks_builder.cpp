@@ -13,6 +13,7 @@
 
 #include "agent_loop.hpp"
 #include "commands/compact.hpp"
+#include "tui/model_retry_status.hpp"
 #include "tui/tool_row_format.hpp"
 #include "tui/tui_helpers.hpp"
 #include "tui/clipboard_helpers.hpp"
@@ -145,6 +146,20 @@ void setup_agent_callbacks(TuiContext& ctx) {
             state.conversation.pop_back();
         }
         state.streaming_output_chars = 0;
+        screen.PostEvent(ftxui::Event::Custom);
+    };
+    callbacks.on_model_retry = [&state, &screen](
+                                   const ProviderErrorInfo& info) {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.current_thinking_phrase =
+            model_retry_wait_phrase(
+                is_user_chinese(state), info.retry_delay_ms);
+        screen.PostEvent(ftxui::Event::Custom);
+    };
+    callbacks.on_model_retry_resume = [&state, &screen]() {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.current_thinking_phrase =
+            model_retry_resume_phrase(is_user_chinese(state));
         screen.PostEvent(ftxui::Event::Custom);
     };
 

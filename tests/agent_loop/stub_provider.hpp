@@ -33,6 +33,7 @@ struct ScriptedResponse {
     bool emit_error = false;
     acecode::ProviderErrorInfo provider_error;
     bool error_after_payload = false;
+    bool simulate_retry_wait = false;
 };
 
 class StubLlmProvider : public acecode::LlmProvider {
@@ -74,6 +75,17 @@ public:
     void push_events(std::vector<acecode::StreamEvent> events) {
         ScriptedResponse r;
         r.events = std::move(events);
+        push_response(std::move(r));
+    }
+
+    void push_retry_wait(acecode::ProviderErrorInfo info) {
+        ScriptedResponse r;
+        acecode::StreamEvent retry;
+        retry.type = acecode::StreamEventType::Retry;
+        retry.provider_error = std::move(info);
+        retry.error = retry.provider_error.display_message;
+        r.events.push_back(std::move(retry));
+        r.simulate_retry_wait = true;
         push_response(std::move(r));
     }
 
@@ -153,6 +165,27 @@ public:
         if (!r.events.empty()) {
             for (const auto& evt : r.events) {
                 callback(evt);
+                if (r.simulate_retry_wait &&
+                    evt.type == acecode::StreamEventType::Retry) {
+                    if (wait_for_retry(
+                            std::chrono::milliseconds(
+                                evt.provider_error.retry_delay_ms),
+                            abort_flag)) {
+                        acecode::StreamEvent cancelled;
+                        cancelled.type = acecode::StreamEventType::Error;
+                        cancelled.error = "Request cancelled";
+                        cancelled.provider_error.kind =
+                            acecode::ProviderErrorKind::UserCancelled;
+                        cancelled.provider_error.display_message =
+                            cancelled.error;
+                        callback(cancelled);
+                        return;
+                    }
+                    acecode::StreamEvent resumed;
+                    resumed.type = acecode::StreamEventType::RetryResume;
+                    resumed.provider_error = evt.provider_error;
+                    callback(resumed);
+                }
             }
             return;
         }

@@ -63,6 +63,38 @@ std::vector<StreamEvent> collect_events(OpenAiCompatProvider& provider) {
     return events;
 }
 
+std::vector<StreamEvent> collect_events_until_retry(
+    OpenAiCompatProvider& provider,
+    int retry_limit) {
+    std::atomic<bool> abort_flag{false};
+    std::vector<StreamEvent> events;
+    std::mutex mu;
+    int retries = 0;
+    provider.chat_stream(
+        single_user_message(), std::vector<ToolDef>{},
+        [&](const StreamEvent& evt) {
+            {
+                std::lock_guard<std::mutex> lk(mu);
+                events.push_back(evt);
+            }
+            if (evt.type == StreamEventType::Retry &&
+                ++retries >= retry_limit) {
+                abort_flag.store(true);
+            }
+        },
+        &abort_flag);
+    return events;
+}
+
+const StreamEvent* last_event_of_type(
+    const std::vector<StreamEvent>& events,
+    StreamEventType type) {
+    for (auto it = events.rbegin(); it != events.rend(); ++it) {
+        if (it->type == type) return &*it;
+    }
+    return nullptr;
+}
+
 const StreamEvent* last_error_event(const std::vector<StreamEvent>& events) {
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
         if (it->type == StreamEventType::Error) return &*it;
@@ -125,17 +157,45 @@ TEST(OpenAiProviderErrorRecovery, HttpTextErrorBodyIsPreservedAsRawText) {
     EXPECT_NE(err->error.find(raw_body), std::string::npos);
 }
 
+TEST(OpenAiProviderErrorRecovery, HardQuotaRateLimitIsTerminal) {
+    const std::string raw_body =
+        R"({"error":{"code":"insufficient_quota","message":"buy credits"}})";
+    LocalHttpServer server([&](httplib::Server& s) {
+        s.Post("/chat/completions", [&](const httplib::Request&, httplib::Response& res) {
+            res.status = 429;
+            res.set_header("Retry-After", "0");
+            res.set_content(raw_body, "application/json");
+        });
+    });
+
+    OpenAiCompatProvider provider(
+        "http://127.0.0.1:" + std::to_string(server.port), "", "test-model");
+
+    const auto events = collect_events(provider);
+    const StreamEvent* error = last_error_event(events);
+    ASSERT_NE(error, nullptr);
+    EXPECT_EQ(error->provider_error.kind, ProviderErrorKind::Http);
+    EXPECT_EQ(error->provider_error.status_code, 429);
+    EXPECT_FALSE(error->provider_error.retryable);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 0);
+}
+
 TEST(OpenAiProviderErrorRecovery, NetworkFailureIsStructuredAndRetryable) {
     OpenAiCompatProvider provider("http://127.0.0.1:1", "", "test-model");
 
-    const auto events = collect_events(provider);
+    const auto events = collect_events_until_retry(provider, 3);
+    const StreamEvent* retry =
+        last_event_of_type(events, StreamEventType::Retry);
+    ASSERT_NE(retry, nullptr);
     const StreamEvent* err = last_error_event(events);
     ASSERT_NE(err, nullptr);
-    EXPECT_TRUE(err->provider_error.kind == ProviderErrorKind::Network ||
-                err->provider_error.kind == ProviderErrorKind::Timeout);
-    EXPECT_EQ(err->provider_error.status_code, 0);
-    EXPECT_TRUE(err->provider_error.retryable);
-    EXPECT_GE(count_events(events, StreamEventType::Retry), 1);
+    EXPECT_TRUE(retry->provider_error.kind == ProviderErrorKind::Network ||
+                retry->provider_error.kind == ProviderErrorKind::Timeout);
+    EXPECT_EQ(retry->provider_error.status_code, 0);
+    EXPECT_TRUE(retry->provider_error.retryable);
+    EXPECT_EQ(retry->provider_error.retry_max_attempts, -1);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 3);
+    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::UserCancelled);
 }
 
 TEST(OpenAiProviderErrorRecovery, Http200NonSseJsonBodyBecomesMalformedSseError) {
@@ -150,14 +210,20 @@ TEST(OpenAiProviderErrorRecovery, Http200NonSseJsonBodyBecomesMalformedSseError)
     OpenAiCompatProvider provider(
         "http://127.0.0.1:" + std::to_string(server.port), "", "test-model");
 
-    const auto events = collect_events(provider);
+    const auto events = collect_events_until_retry(provider, 1);
+    const StreamEvent* retry =
+        last_event_of_type(events, StreamEventType::Retry);
+    ASSERT_NE(retry, nullptr);
     const StreamEvent* err = last_error_event(events);
     ASSERT_NE(err, nullptr);
-    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::MalformedSse);
-    EXPECT_EQ(err->provider_error.status_code, 200);
-    EXPECT_TRUE(err->provider_error.body_is_json);
-    EXPECT_EQ(err->provider_error.raw_body, raw_body);
-    EXPECT_NE(err->error.find("\"message\": \"not an event stream\""), std::string::npos);
+    EXPECT_EQ(retry->provider_error.kind, ProviderErrorKind::MalformedSse);
+    EXPECT_EQ(retry->provider_error.status_code, 200);
+    EXPECT_TRUE(retry->provider_error.body_is_json);
+    EXPECT_EQ(retry->provider_error.raw_body, raw_body);
+    EXPECT_NE(
+        retry->error.find("\"message\": \"not an event stream\""),
+        std::string::npos);
+    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::UserCancelled);
 }
 
 TEST(OpenAiProviderErrorRecovery, Http200MalformedSseJsonBecomesMalformedJsonError) {
@@ -259,6 +325,7 @@ TEST(OpenAiProviderErrorRecovery, Http200PartialSseThenTransportTimeoutRetriesUn
                     "text/event-stream");
                 return;
             }
+            res.set_header("Retry-After", "0");
             res.set_chunked_content_provider(
                 "text/event-stream",
                 [sent = false](size_t, httplib::DataSink& sink) mutable {
@@ -292,6 +359,7 @@ TEST(OpenAiProviderErrorRecovery, TimeoutBeforeAnySseDataRetriesUntilSuccess) {
             const int call = ++calls;
             res.status = 200;
             if (call < 3) {
+                res.set_header("Retry-After", "0");
                 std::this_thread::sleep_for(1500ms);
                 res.set_content("data: [DONE]\n\n", "text/event-stream");
                 return;
@@ -351,21 +419,18 @@ TEST(OpenAiProviderErrorRecovery, RepeatedTimeoutRetryStopsOnUserAbort) {
     EXPECT_EQ(count_events(events, StreamEventType::Done), 0);
 }
 
-TEST(OpenAiProviderErrorRecovery, IncompleteSseWithoutTransportTimeoutNowRetriesThenFailsMalformedSse) {
+TEST(OpenAiProviderErrorRecovery, IncompleteSseRetriesUntilUserAbort) {
     // 触发场景:服务端发出一段 content delta 后正常关闭 HTTP 连接,但从未发送
     // [DONE] —— 也没有触发 transport timeout(libcurl 不会报错)。这是不稳定
     // 私有模型最常见的"跑着跑着停了"形态。
-    // 期望行为:provider 把 MalformedSse 标为 retryable(因为没有已闭合的
-    // tool_call),走 drop-partial 重试族,达到 kStreamMaxAttempts(3) 次仍失败
-    // 后才报错。
-    // 回归测试:此前 IncompleteSseWithoutTransportTimeoutStaysMalformedSse 测
-    // 试断言 retry=0、calls=1、立即报错 —— 那是"中途断流直接放弃整个 turn"
-    // 的老行为,对脆弱私有模型极不友好,现已改为下面的新断言。
+    // 期望行为:provider 把 MalformedSse 标为 retryable,保持 unbounded
+    // 重试,直到用户显式取消。
     std::atomic<int> calls{0};
     LocalHttpServer server([&](httplib::Server& s) {
         s.Post("/chat/completions", [&](const httplib::Request&, httplib::Response& res) {
             ++calls;
             res.status = 200;
+            res.set_header("Retry-After", "0");
             res.set_content(
                 "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
                 "text/event-stream");
@@ -375,30 +440,35 @@ TEST(OpenAiProviderErrorRecovery, IncompleteSseWithoutTransportTimeoutNowRetries
     OpenAiCompatProvider provider(
         "http://127.0.0.1:" + std::to_string(server.port), "", "test-model", 1000);
 
-    const auto events = collect_events(provider);
+    const auto events = collect_events_until_retry(provider, 4);
+    const StreamEvent* retry =
+        last_event_of_type(events, StreamEventType::Retry);
+    ASSERT_NE(retry, nullptr);
     const StreamEvent* err = last_error_event(events);
     ASSERT_NE(err, nullptr);
-    EXPECT_EQ(calls.load(), 3);
-    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::MalformedSse);
-    EXPECT_EQ(err->provider_error.status_code, 200);
-    EXPECT_TRUE(err->provider_error.retryable);
-    // 每次 attempt 都重新流出一个 content delta(总共 3 次),因为 partial
+    EXPECT_EQ(calls.load(), 4);
+    EXPECT_EQ(retry->provider_error.kind, ProviderErrorKind::MalformedSse);
+    EXPECT_EQ(retry->provider_error.status_code, 200);
+    EXPECT_TRUE(retry->provider_error.retryable);
+    EXPECT_EQ(retry->provider_error.retry_max_attempts, -1);
+    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::UserCancelled);
+    // 每次 attempt 都重新流出一个 content delta,因为 partial
     // 在 provider 端被丢弃了 —— 但 callback 早就吃过 delta,这里仅做计数。
-    EXPECT_EQ(count_events(events, StreamEventType::Delta), 3);
-    EXPECT_EQ(count_events(events, StreamEventType::Retry), 2);
+    EXPECT_EQ(count_events(events, StreamEventType::Delta), 4);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 4);
+    EXPECT_EQ(count_events(events, StreamEventType::RetryResume), 3);
     EXPECT_EQ(count_events(events, StreamEventType::Done), 0);
 }
 
-TEST(OpenAiProviderErrorRecovery, FinishReasonStopWithoutDoneNowRetriesThenFailsMalformedSse) {
+TEST(OpenAiProviderErrorRecovery, FinishReasonStopWithoutDoneRetriesUntilAbort) {
     // 触发场景:服务端发了 content delta 且带 finish_reason=stop,但没有 [DONE]
-    // 帧。同样属于 SSE 协议未完成 —— 没有已闭合 tool_call,应该走 drop-partial 重试。
-    // 回归测试:此前 FinishReasonStopWithoutDoneDoesNotCompleteStream 断言 retry=0、
-    // 立即报错;现在期望走重试族直到 kStreamMaxAttempts 用完。
+    // 帧。同样属于 SSE 协议未完成,应该保持 unbounded 重试。
     std::atomic<int> calls{0};
     LocalHttpServer server([&](httplib::Server& s) {
         s.Post("/chat/completions", [&](const httplib::Request&, httplib::Response& res) {
             ++calls;
             res.status = 200;
+            res.set_header("Retry-After", "0");
             res.set_content(
                 "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\n",
                 "text/event-stream");
@@ -408,14 +478,18 @@ TEST(OpenAiProviderErrorRecovery, FinishReasonStopWithoutDoneNowRetriesThenFails
     OpenAiCompatProvider provider(
         "http://127.0.0.1:" + std::to_string(server.port), "", "test-model", 1000);
 
-    const auto events = collect_events(provider);
+    const auto events = collect_events_until_retry(provider, 3);
+    const StreamEvent* retry =
+        last_event_of_type(events, StreamEventType::Retry);
+    ASSERT_NE(retry, nullptr);
     const StreamEvent* err = last_error_event(events);
     ASSERT_NE(err, nullptr);
     EXPECT_EQ(calls.load(), 3);
-    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::MalformedSse);
-    EXPECT_TRUE(err->provider_error.retryable);
+    EXPECT_EQ(retry->provider_error.kind, ProviderErrorKind::MalformedSse);
+    EXPECT_TRUE(retry->provider_error.retryable);
+    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::UserCancelled);
     EXPECT_EQ(count_events(events, StreamEventType::Delta), 3);
-    EXPECT_EQ(count_events(events, StreamEventType::Retry), 2);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 3);
     EXPECT_EQ(count_events(events, StreamEventType::Done), 0);
 }
 
@@ -433,6 +507,7 @@ TEST(OpenAiProviderErrorRecovery, Http200MalformedSseRecoversOnRetry) {
             const int call = ++calls;
             res.status = 200;
             if (call == 1) {
+                res.set_header("Retry-After", "0");
                 res.set_content(
                     "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
                     "text/event-stream");
@@ -452,6 +527,7 @@ TEST(OpenAiProviderErrorRecovery, Http200MalformedSseRecoversOnRetry) {
     EXPECT_EQ(calls.load(), 2);
     EXPECT_EQ(last_error_event(events), nullptr);
     EXPECT_EQ(count_events(events, StreamEventType::Retry), 1);
+    EXPECT_EQ(count_events(events, StreamEventType::RetryResume), 1);
     EXPECT_EQ(count_events(events, StreamEventType::Done), 1);
     EXPECT_GE(count_events(events, StreamEventType::Delta), 2);
 }
@@ -485,7 +561,7 @@ TEST(OpenAiProviderErrorRecovery, RetriesTransientFailureBeforeAnyOutput) {
     EXPECT_EQ(count_events(events, StreamEventType::Done), 1);
 }
 
-TEST(OpenAiProviderErrorRecovery, RetryExhaustionKeepsFinalProviderBodyVisible) {
+TEST(OpenAiProviderErrorRecovery, UnboundedRetryKeepsLatestProviderBodyVisible) {
     std::atomic<int> calls{0};
     const std::string raw_body = R"({"error":{"type":"overloaded_error","message":"try later"}})";
     LocalHttpServer server([&](httplib::Server& s) {
@@ -500,16 +576,21 @@ TEST(OpenAiProviderErrorRecovery, RetryExhaustionKeepsFinalProviderBodyVisible) 
     OpenAiCompatProvider provider(
         "http://127.0.0.1:" + std::to_string(server.port), "", "test-model");
 
-    const auto events = collect_events(provider);
+    const auto events = collect_events_until_retry(provider, 5);
+    const StreamEvent* retry =
+        last_event_of_type(events, StreamEventType::Retry);
+    ASSERT_NE(retry, nullptr);
     const StreamEvent* err = last_error_event(events);
     ASSERT_NE(err, nullptr);
-    EXPECT_EQ(calls.load(), 3);
-    EXPECT_EQ(count_events(events, StreamEventType::Retry), 2);
-    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::Http);
-    EXPECT_EQ(err->provider_error.status_code, 500);
-    EXPECT_TRUE(err->provider_error.body_is_json);
-    EXPECT_EQ(err->provider_error.raw_body, raw_body);
-    EXPECT_NE(err->error.find("\"overloaded_error\""), std::string::npos);
+    EXPECT_EQ(calls.load(), 5);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 5);
+    EXPECT_EQ(retry->provider_error.kind, ProviderErrorKind::Http);
+    EXPECT_EQ(retry->provider_error.status_code, 500);
+    EXPECT_TRUE(retry->provider_error.body_is_json);
+    EXPECT_EQ(retry->provider_error.raw_body, raw_body);
+    EXPECT_EQ(retry->provider_error.retry_max_attempts, -1);
+    EXPECT_NE(retry->error.find("\"overloaded_error\""), std::string::npos);
+    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::UserCancelled);
 }
 
 } // namespace

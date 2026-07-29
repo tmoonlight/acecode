@@ -10,7 +10,6 @@
 #include "../../config/config_mutation.hpp"
 #include "../../hooks/hook_manager.hpp"
 #include "../../hooks/hook_registry.hpp"
-#include "../../hooks/hook_runner.hpp"
 #include "../../skills/skill_commands.hpp"
 #include "../../skills/skill_init.hpp"
 #include "../../skills/skill_registry.hpp"
@@ -1043,77 +1042,6 @@ struct ManagementCenter::Impl {
             : nullptr;
     }
 
-    void start_connector_enable_hook(
-        std::string connector_id,
-        ConnectorHookConfig hook) {
-        const std::uint64_t generation = ++async_generation;
-        set_status(
-            "Enabled connector: " + connector_id +
-            ". Running its on-enable recovery...");
-        async_threads.emplace_back(
-            [this,
-             generation,
-             connector_id = std::move(connector_id),
-             hook = std::move(hook)]() mutable {
-                HookCommandSpec command;
-                command.command = hook.command;
-                command.args = hook.args;
-                HookProcessResult result = run_hook_process(
-                    command,
-                    std::string{},
-                    hook.timeout_ms,
-                    deps.cwd);
-                std::optional<AppConfig> refreshed;
-                if (result.started && !result.timed_out &&
-                    result.exit_code == 0) {
-                    refreshed = load_config();
-                }
-                post_to_ui(
-                    [this,
-                     generation,
-                     connector_id = std::move(connector_id),
-                     result = std::move(result),
-                     refreshed = std::move(refreshed)]() mutable {
-                        if (shutting_down.load() ||
-                            generation != async_generation.load()) {
-                            return;
-                        }
-                        if (refreshed.has_value() && deps.config) {
-                            *deps.config = std::move(*refreshed);
-                            refresh_connectors();
-                        }
-                        if (!result.started) {
-                            set_status(
-                                "Connector " + connector_id +
-                                    " was enabled, but its on-enable "
-                                    "recovery could not start" +
-                                    (result.error.empty()
-                                         ? std::string(".")
-                                         : ": " + result.error),
-                                true);
-                        } else if (result.timed_out) {
-                            set_status(
-                                "Connector " + connector_id +
-                                    " was enabled, but its on-enable "
-                                    "recovery timed out.",
-                                true);
-                        } else if (result.exit_code != 0) {
-                            set_status(
-                                "Connector " + connector_id +
-                                    " was enabled, but its on-enable "
-                                    "recovery exited with code " +
-                                    std::to_string(result.exit_code) + ".",
-                                true);
-                        } else {
-                            set_status(
-                                "Connector " + connector_id +
-                                " is enabled. Its on-enable recovery "
-                                "completed and config was reloaded.");
-                        }
-                    });
-            });
-    }
-
     void toggle_connector() {
         const ConnectorConfig* connector = selected_connector();
         if (!connector) {
@@ -1122,7 +1050,6 @@ struct ManagementCenter::Impl {
         }
         const std::string id = connector->id;
         const bool enabled = !connector->enabled;
-        const auto on_enable = connector->on_enable;
         ++async_generation;
         const auto result = mutate(
             [id, enabled](AppConfig& config, std::string& error) {
@@ -1145,10 +1072,6 @@ struct ManagementCenter::Impl {
             return;
         }
         refresh_connectors();
-        if (enabled && on_enable.has_value()) {
-            start_connector_enable_hook(id, *on_enable);
-            return;
-        }
         set_status(
             std::string(enabled ? "Enabled connector: "
                                 : "Disabled connector: ") +
@@ -1488,25 +1411,13 @@ struct ManagementCenter::Impl {
                     : connector->description),
             text("ID               " + connector->id),
             text(
-                std::string("On enable        ") +
-                (connector->on_enable.has_value()
-                     ? "configured"
-                     : "not configured")),
-            text(
-                std::string("On auth error    ") +
-                (connector->on_auth_error.has_value()
-                     ? "configured"
-                     : "not configured")),
-            text(
-                std::string("On startup       ") +
+                std::string("First-start auth ") +
                 (connector->on_startup.has_value()
                      ? "configured"
                      : "not configured")),
             paragraph(
-                "Auth URL scope   " +
-                (connector->auth_error_base_url_prefix.empty()
-                     ? "(none)"
-                     : connector->auth_error_base_url_prefix)),
+                "Automatic authentication runs only during the first "
+                "daemon startup for this ACECode installation."),
         }) | color(theme().ui.text_muted) | border;
     }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "retry_policy.hpp"
+
 #include <string>
 #include <vector>
 #include <functional>
@@ -118,6 +120,9 @@ struct ProviderErrorInfo {
     int retry_attempt = 0;
     int retry_max_attempts = 0;
     int retry_delay_ms = 0;
+    // Raw upstream Retry-After guidance for non-streaming callers. -1 means
+    // absent/invalid; zero is a valid immediate retry.
+    std::int64_t server_retry_after_ms = -1;
 
     bool has_error() const { return kind != ProviderErrorKind::None; }
 };
@@ -136,13 +141,6 @@ struct ChatResponse {
     bool has_tool_calls() const { return !tool_calls.empty(); }
 };
 
-// 400/401 视为「认证形态」HTTP 错误 —— 连接器自动恢复(on_auth_error 钩子)
-// 的触发条件。400 覆盖把无效 key 报成 Bad Request 的网关。
-inline bool provider_error_is_auth_shaped(const ProviderErrorInfo& info) {
-    return info.kind == ProviderErrorKind::Http &&
-           (info.status_code == 400 || info.status_code == 401);
-}
-
 // Streaming event types for chat_stream()
 //   ReasoningDelta — chain-of-thought fragment from a reasoning-mode model.
 //   ToolCallDelta — safe metadata while a streaming provider is still
@@ -153,6 +151,7 @@ inline bool provider_error_is_auth_shaped(const ProviderErrorInfo& info) {
 //   Retry — provider is retrying a transient failure. Timeout retries may occur
 //           after provisional stream output; consumers should discard partial
 //           assistant/tool state before accepting output from the next attempt.
+//   RetryResume — the retry wait ended and the next request attempt is starting.
 enum class StreamEventType {
     Delta,
     ToolCall,
@@ -161,6 +160,7 @@ enum class StreamEventType {
     Error,
     Usage,
     Retry,
+    RetryResume,
     ReasoningDelta,
 };
 
@@ -204,9 +204,11 @@ public:
     virtual std::string model() const = 0;
     virtual void set_model(const std::string& m) = 0;
 
-    // Sampling-class retry budget. Codex defaults stream_max_retries to five;
-    // providers and tests may override their effective policy.
-    virtual int stream_max_retries() const { return 5; }
+    bool wait_for_retry(std::chrono::milliseconds delay,
+                        const std::atomic<bool>* abort_flag) {
+        return retry_waiter_.wait_for(delay, abort_flag);
+    }
+    void wake_retry_waiter() { retry_waiter_.wake(); }
 
     // Native Responses-style compaction requires provider-specific trigger and
     // response-item support. Chat providers remain on local compaction. A
@@ -214,13 +216,10 @@ public:
     // protocol; advertising support alone never fabricates native items.
     virtual bool supports_native_compaction() const { return false; }
 
-    // 认证热更新访问器(连接器 auth recovery 用,见 src/connectors/)。
-    // 默认实现表示该 provider 不支持 —— AgentLoop 会跳过自动恢复。
-    virtual std::string base_url() const { return {}; }
-    virtual std::string current_api_key() const { return {}; }
-    virtual void update_api_key(const std::string& /*api_key*/) {}
-
     virtual bool authenticate() { return true; }
+
+private:
+    ProviderRetryWaiter retry_waiter_;
 };
 
 } // namespace acecode

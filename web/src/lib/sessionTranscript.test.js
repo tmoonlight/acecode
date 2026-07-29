@@ -1460,6 +1460,36 @@ run('agent_progress 更新活动状态且 busy 结束时清理', () => {
   assert.equal(cleared.activity, null);
 });
 
+run('model_retry 活动状态保留无限重试元数据且不追加 transcript', () => {
+  const before = reduceMany([
+    { type: 'busy_changed', payload: { busy: true }, seq: 1 },
+    { type: 'token', payload: { text: 'partial' }, seq: 2 },
+  ]);
+  const itemCountBefore = before.items.length;
+  const next = reduceTranscriptEvent(before, {
+    type: 'agent_progress',
+    payload: {
+      phase: 'model_retry',
+      label: '网络暂时不可用，等待重试',
+      detail: '第 12 次重试',
+      started_at_ms: 1000,
+      retry_attempt: 12,
+      retry_delay_ms: 1200000,
+      retry_at_ms: 1201000,
+      retry_max_attempts: -1,
+    },
+    timestamp_ms: 1100,
+    seq: 3,
+  }).state;
+
+  assert.equal(next.items.length, itemCountBefore);
+  assert.equal(next.activity.phase, 'model_retry');
+  assert.equal(next.activity.retryAttempt, 12);
+  assert.equal(next.activity.retryDelayMs, 1200000);
+  assert.equal(next.activity.retryAtMs, 1201000);
+  assert.equal(next.activity.retryMaxAttempts, -1);
+});
+
 run('tool_call_id 优先关联并行同名工具', () => {
   const state = reduceMany([
     { type: 'tool_start', payload: { tool: 'grep', tool_call_id: 'call-a', tool_index: 0 }, seq: 1 },

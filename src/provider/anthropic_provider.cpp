@@ -13,9 +13,9 @@
 #include <chrono>
 #include <cctype>
 #include <map>
+#include <limits>
 #include <optional>
 #include <sstream>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -36,10 +36,6 @@ AnthropicProvider::AnthropicProvider(const std::string& base_url,
 
 namespace {
 
-constexpr int kStreamMaxAttempts = 3;
-constexpr int kStreamRetryBaseDelayMs = 100;
-constexpr int kStreamRetryMaxDelayMs = 15000;
-constexpr int kStreamRetrySleepSliceMs = 50;
 constexpr int kStreamConnectTimeoutCapMs = 15000;
 
 std::int64_t steady_now_ms() {
@@ -332,13 +328,7 @@ ProviderErrorKind classify_cpr_error(const cpr::Error& error) {
 }
 
 bool is_retryable_http_status(int status_code, const std::string& body) {
-    if (status_code == 408 || status_code == 409 || status_code == 429 || status_code == 529) {
-        return true;
-    }
-    if (status_code >= 500 && status_code < 600) return true;
-    const std::string lower_body = ascii_lower(body);
-    return lower_body.find("overloaded_error") != std::string::npos ||
-           lower_body.find("overloaded") != std::string::npos;
+    return provider_http_error_is_retryable(status_code, body);
 }
 
 void emit_provider_error(const StreamCallback& callback, const ProviderErrorInfo& info) {
@@ -357,35 +347,23 @@ void emit_retry_event(const StreamCallback& callback, ProviderErrorInfo info) {
     callback(evt);
 }
 
-bool sleep_retry_or_aborted(int delay_ms, std::atomic<bool>* abort_flag) {
-    int slept_ms = 0;
-    while (slept_ms < delay_ms) {
-        if (abort_flag && abort_flag->load()) return true;
-        const int slice = (std::min)(kStreamRetrySleepSliceMs, delay_ms - slept_ms);
-        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
-        slept_ms += slice;
-    }
-    return abort_flag && abort_flag->load();
+void emit_retry_resume_event(const StreamCallback& callback,
+                             const ProviderErrorInfo& info) {
+    StreamEvent evt;
+    evt.type = StreamEventType::RetryResume;
+    evt.provider_error = info;
+    callback(evt);
 }
 
-int retry_after_delay_ms(const cpr::Header& headers, int attempt_index) {
-    int exponential = kStreamRetryBaseDelayMs;
-    const int capped_attempt = (std::min)(attempt_index, 16);
-    for (int i = 1; i < capped_attempt; ++i) {
-        exponential = (std::min)(kStreamRetryMaxDelayMs, exponential * 2);
-    }
-
+int retry_after_delay_ms(const cpr::Header& headers,
+                         std::uint64_t retry_number) {
+    std::optional<std::int64_t> server_delay;
     const std::string retry_after = header_value_ci(headers, "retry-after");
-    if (retry_after.empty()) return exponential;
-
-    try {
-        const double seconds = std::stod(retry_after);
-        if (seconds < 0.0) return exponential;
-        const int retry_after_ms = static_cast<int>(seconds * 1000.0);
-        return (std::min)(kStreamRetryMaxDelayMs, (std::max)(0, retry_after_ms));
-    } catch (...) {
-        return exponential;
+    if (!retry_after.empty()) {
+        server_delay = parse_retry_after_ms(retry_after);
     }
+    return static_cast<int>(
+        provider_retry_delay_ms(retry_number, server_delay));
 }
 
 bool find_event_delimiter(const std::string& buffer,
@@ -668,7 +646,7 @@ ChatResponse AnthropicProvider::chat(
     }
 
     if (r.status_code < 200 || r.status_code >= 300) {
-        return make_chat_error_response(make_provider_error(
+        auto info = make_provider_error(
             ProviderErrorKind::Http,
             static_cast<int>(r.status_code),
             name(),
@@ -676,7 +654,15 @@ ChatResponse AnthropicProvider::chat(
             extract_request_id(r.header),
             r.text,
             std::string{},
-            is_retryable_http_status(static_cast<int>(r.status_code), r.text)));
+            is_retryable_http_status(static_cast<int>(r.status_code), r.text));
+        const std::string retry_after =
+            header_value_ci(r.header, "retry-after");
+        if (!retry_after.empty()) {
+            if (auto parsed = parse_retry_after_ms(retry_after)) {
+                info.server_retry_after_ms = *parsed;
+            }
+        }
+        return make_chat_error_response(std::move(info));
     }
 
     try {
@@ -736,8 +722,6 @@ ChatResponse AnthropicProvider::parse_sse_stream(
         }
     };
 
-    auto proxy_opts = network::proxy_options_for(url);
-
     struct ContentBlockAccumulator {
         std::string type;
         std::string id;
@@ -748,7 +732,10 @@ ChatResponse AnthropicProvider::parse_sse_stream(
     ChatResponse last_accumulated;
     last_accumulated.finish_reason = "stop";
 
-    for (int attempt = 1; ; ++attempt) {
+    for (std::uint64_t attempt = 1; ;
+         attempt = attempt == (std::numeric_limits<std::uint64_t>::max)()
+             ? attempt
+             : attempt + 1) {
         last_stream_activity_ms.store(steady_now_ms());
         stream_idle_timed_out.store(false);
 
@@ -764,7 +751,6 @@ ChatResponse AnthropicProvider::parse_sse_stream(
         bool saw_payload_error = false;
         std::string payload_error_body;
         std::string payload_error_message;
-        bool emitted_stream_output = false;
 
         auto emit_usage = [&]() {
             if (!accumulated.usage.has_data) return;
@@ -793,7 +779,6 @@ ChatResponse AnthropicProvider::parse_sse_stream(
             evt.tool_call = call;
             evt.tool_index = index;
             callback(evt);
-            emitted_stream_output = true;
         };
 
         auto emit_done = [&]() {
@@ -887,7 +872,6 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                         const std::string token = delta["text"].get<std::string>();
                         accumulated.content += token;
                         if (!token.empty()) {
-                            emitted_stream_output = true;
                             StreamEvent event;
                             event.type = StreamEventType::Delta;
                             event.content = token;
@@ -899,7 +883,6 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                         const std::string token = delta["thinking"].get<std::string>();
                         accumulated.reasoning_content += token;
                         if (!token.empty()) {
-                            emitted_stream_output = true;
                             StreamEvent event;
                             event.type = StreamEventType::ReasoningDelta;
                             event.content = token;
@@ -911,7 +894,6 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                         auto& block = blocks[index];
                         block.type = "tool_use";
                         block.input_json += delta["partial_json"].get<std::string>();
-                        emitted_stream_output = true;
 
                         StreamEvent progress_evt;
                         progress_evt.type = StreamEventType::ToolCallDelta;
@@ -949,6 +931,9 @@ ChatResponse AnthropicProvider::parse_sse_stream(
             return true;
         }};
 
+        // Re-resolve routing on every attempt so a network/VPN transition
+        // becomes visible without mutating the logical request.
+        auto proxy_opts = network::proxy_options_for(url);
         cpr::Response r = cpr::Post(
             cpr::Url{url},
             headers,
@@ -1051,24 +1036,19 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                 request_id,
                 raw_body_capture,
                 transport_message,
-                kind == ProviderErrorKind::MalformedSse && accumulated.tool_calls.empty());
+                kind == ProviderErrorKind::MalformedSse);
         } else {
             return accumulated;
         }
 
-        const bool can_retry =
-            error_info.retryable &&
-            (!emitted_stream_output ||
-             error_info.kind == ProviderErrorKind::Timeout ||
-             error_info.kind == ProviderErrorKind::MalformedSse) &&
-            attempt < kStreamMaxAttempts;
-        if (can_retry) {
+        if (error_info.retryable) {
             const int delay_ms = retry_after_delay_ms(r.header, attempt);
-            error_info.retry_attempt = attempt;
-            error_info.retry_max_attempts = kStreamMaxAttempts - 1;
+            error_info.retry_attempt = saturating_retry_attempt(attempt);
+            error_info.retry_max_attempts = -1;
             error_info.retry_delay_ms = delay_ms;
             emit_retry_event(callback, error_info);
-            if (sleep_retry_or_aborted(delay_ms, abort_flag)) {
+            if (wait_for_retry(
+                    std::chrono::milliseconds(delay_ms), abort_flag)) {
                 auto cancel_info = make_provider_error(
                     ProviderErrorKind::UserCancelled,
                     0,
@@ -1081,11 +1061,13 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                 emit_provider_error(callback, cancel_info);
                 return accumulated;
             }
+            emit_retry_resume_event(callback, error_info);
             continue;
         }
 
-        error_info.retry_attempt = (std::max)(0, attempt - 1);
-        error_info.retry_max_attempts = kStreamMaxAttempts - 1;
+        error_info.retry_attempt =
+            saturating_retry_attempt(attempt > 0 ? attempt - 1 : 0);
+        error_info.retry_max_attempts = 0;
         emit_provider_error(callback, error_info);
         return accumulated;
     }

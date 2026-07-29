@@ -260,68 +260,16 @@ TEST(ConfigConnectors, RejectsHookWithoutCommand) {
     EXPECT_NE(error.find("on_enable"), std::string::npos);
 }
 
-TEST(ConfigConnectors, NewlyEnabledConnectorsDetectsOffToOnWithHook) {
-    ConnectorHookConfig hook;
-    hook.command = "helper.exe";
-
-    ConnectorConfig was_off;
-    was_off.id = "a";
-    was_off.name = "A";
-    was_off.enabled = false;
-    was_off.on_enable = hook;
-
-    ConnectorConfig stays_on = was_off;
-    stays_on.id = "b";
-    stays_on.name = "B";
-    stays_on.enabled = true;
-
-    ConnectorConfig no_hook;
-    no_hook.id = "c";
-    no_hook.name = "C";
-    no_hook.enabled = false;
-
-    std::vector<ConnectorConfig> before = {was_off, stays_on, no_hook};
-
-    auto now_on = was_off;
-    now_on.enabled = true;
-    auto still_on = stays_on;
-    auto hook_off_to_on_but_no_hook = no_hook;
-    hook_off_to_on_but_no_hook.enabled = true;
-    std::vector<ConnectorConfig> after = {now_on, still_on, hook_off_to_on_but_no_hook};
-
-    auto newly = newly_enabled_connectors(before, after);
-    ASSERT_EQ(newly.size(), 1u);
-    EXPECT_EQ(newly[0].id, "a");
-}
-
-TEST(ConfigConnectors, NewlyEnabledTreatsUnknownIdAsNewlyEnabled) {
-    ConnectorHookConfig hook;
-    hook.command = "helper.exe";
-    ConnectorConfig fresh;
-    fresh.id = "new";
-    fresh.name = "New";
-    fresh.enabled = true;
-    fresh.on_enable = hook;
-
-    auto newly = newly_enabled_connectors({}, {fresh});
-    ASSERT_EQ(newly.size(), 1u);
-    EXPECT_EQ(newly[0].id, "new");
-}
-
-// Regression coverage for the lenient loader used by load_config() (the path
-// GET /api/config/connectors and ConnectorAuthRecovery::recover() both go
-// through). load_connectors_lenient() is file-internal to config.cpp (not
-// declared in config.hpp), so it's exercised indirectly through load_config()
+// Regression coverage for the lenient loader used by load_config() and
+// GET /api/config/connectors. load_connectors_lenient() is file-internal to
+// config.cpp (not declared in config.hpp), so it's exercised through load_config()
 // via a redirected $HOME/%USERPROFILE%, following the ScopedTempHome idiom
 // used by config_first_init_test.cpp / config_upgrade_test.cpp.
 //
 // Bug: load_connectors_lenient() only ever parsed id/name/description/enabled
 // and silently dropped hooks + auth_error_scope on every disk read. That
-// meant (1) PUT /api/config/connectors's GET-mutate-PUT-save round trip wiped
-// hooks from disk on a mere enable/disable toggle, and (2)
-// ConnectorAuthRecovery::recover() read connectors via load_config() and so
-// on_auth_error was always nullopt -- the chat-400 auto-recovery feature
-// never matched anything.
+// meant PUT /api/config/connectors's GET-mutate-PUT-save round trip wiped
+// compatibility fields from disk on a mere enable/disable toggle.
 TEST(ConfigConnectorsLenientLoad, LoadConfigParsesHooksAndAuthErrorScope) {
     ScopedTempHome home;
     {
@@ -359,8 +307,7 @@ TEST(ConfigConnectorsLenientLoad, LoadConfigParsesHooksAndAuthErrorScope) {
     EXPECT_EQ(connector.on_enable->timeout_ms, 120000);
 
     ASSERT_TRUE(connector.on_auth_error.has_value())
-        << "load_connectors_lenient() dropped hooks.on_auth_error "
-           "(ConnectorAuthRecovery::recover() can never match)";
+        << "load_connectors_lenient() dropped hooks.on_auth_error";
     EXPECT_EQ(connector.on_auth_error->command, "C:/tools/helper.exe");
     EXPECT_TRUE(connector.on_auth_error->args.empty());
     EXPECT_EQ(connector.on_auth_error->timeout_ms, 300000);
@@ -433,11 +380,6 @@ TEST(ConfigConnectorsLenientLoad, MalformedAuthErrorScopeIsIgnoredButConnectorSu
     EXPECT_TRUE(connector.auth_error_base_url_prefix.empty());
 }
 
-// The disk-wipe regression: GET /api/config/connectors reads via load_config()
-// (lenient path), the web UI mutates the in-memory list (e.g. toggling
-// `enabled`), and PUT saves the whole list back via save_config(). If the
-// lenient loader dropped hooks on the way in, this round trip silently wipes
-// them from disk even though the caller never touched them.
 TEST(ConfigConnectors, ParseOnStartupHook) {
     auto j = nlohmann::json::parse(R"([
         {"id":"delta","name":"Delta","description":"","enabled":true,
@@ -471,6 +413,11 @@ TEST(ConfigConnectors, OnStartupSurvivesStrictRoundTrip) {
     EXPECT_EQ(parsed[0].on_startup->timeout_ms, 300000);
 }
 
+// The disk-wipe regression: GET /api/config/connectors reads via load_config()
+// (lenient path), the web UI mutates the in-memory list (e.g. toggling
+// `enabled`), and PUT saves the whole list back via save_config(). If the
+// lenient loader dropped compatibility hooks on the way in, this round trip
+// silently wipes them even though their runtime triggers are inert.
 TEST(ConfigConnectorsLenientLoad, RoundTripThroughLenientLoadAndSavePreservesHooks) {
     ScopedTempHome home;
     {

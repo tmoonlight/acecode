@@ -7,7 +7,7 @@
 #include "../tool/spawn_subagent_tool.hpp"
 #include "../desktop/workspace_registry.hpp"
 #include "../experts/expert_registry.hpp"
-#include "../connectors/connector_auth_recovery.hpp"
+#include "../connectors/connector_first_start_auth.hpp"
 #include "guid.hpp"
 #include "heartbeat.hpp"
 #include "mcp_runtime.hpp"
@@ -67,6 +67,7 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -85,6 +86,19 @@ namespace {
 std::mutex              g_term_mu;
 std::condition_variable g_term_cv;
 std::atomic<bool>       g_term_requested{false};
+
+struct JoiningThreadGroup {
+    ~JoiningThreadGroup() { join_all(); }
+
+    void join_all() {
+        for (auto& thread : threads) {
+            if (thread.joinable()) thread.join();
+        }
+        threads.clear();
+    }
+
+    std::vector<std::thread> threads;
+};
 
 void request_terminate() {
     g_term_requested.store(true);
@@ -454,12 +468,6 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     template_perm.set_mode(permission_mode_from_config(cfg_mut.default_permission_mode));
     if (opts.dangerous) template_perm.set_dangerous(true);
 
-    // 声明在 reg_deps / registry / server 之前,使其析构晚于三者——三者持有的
-    // AgentLoop / on_config_refreshed 回调在整个生命周期内都可能引用 auth_recovery。
-    acecode::ConnectorAuthRecovery::Options recovery_opts;
-    recovery_opts.load_disk_config = []() { return acecode::load_config(); };
-    acecode::ConnectorAuthRecovery auth_recovery(std::move(recovery_opts));
-
     acecode::SessionRegistryDeps reg_deps;
     reg_deps.provider_accessor    = provider_accessor;
     reg_deps.tools                = &tools;
@@ -475,7 +483,6 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     reg_deps.mcp_manager          = &mcp_runtime.manager();
     reg_deps.template_permissions = &template_perm;
     reg_deps.power_guard          = &acecode::process_power_guard();
-    reg_deps.auth_recovery        = &auth_recovery;
 
     acecode::SessionRegistry registry(std::move(reg_deps));
     acecode::LocalSessionClient client(registry);
@@ -589,8 +596,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     rc_binder_deps.with_config_lock = [&server](const std::function<void()>& fn) {
         server.with_app_config_lock(fn);
     };
-    // persist 前 reload-merge 用的磁盘读取(与 auth_recovery 同款接线;
-    // config_path 即默认路径,读写同一份 config.json)。
+    // persist 前 reload-merge 用的磁盘读取(config_path 即默认路径,
+    // 读写同一份 config.json)。
     rc_binder_deps.load_disk_config = []() { return acecode::load_config(); };
     rc_binder_deps.session_active = [&registry](const std::string& id) {
         return registry.acquire(id) != nullptr;
@@ -626,34 +633,48 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
                     outcome.message};
         });
 
-    // 连接器钩子恢复 key 后落盘 config.json;web server 内存里的 saved_models
-    // 也要跟着重读,否则下一次任何 save_config 会把新写入的 api_key 抹掉。
-    auth_recovery.set_on_config_refreshed([&server]() {
-        server.refresh_saved_models_from_disk();
-    });
-
-    // 连接器 on_startup 钩子:daemon 启动时对 enabled 连接器各异步执行一次
-    // (如外部登录器的登录态检查)。退出 0 后重读磁盘 saved_models —— 钩子可能
-    // 回写了配置;无回写时重读无副作用。detached 线程捕获 &server 与下方
-    // subagent_deps->on_spawn / watcher 的既有 on_enable detached 模式风险
-    // 一致(server.run() 尚未阻塞前钩子线程即可能仍在跑;终审已接受该模式)。
-    for (const auto& connector : acecode::startup_hook_connectors(cfg_mut.connectors)) {
+    // Connector 自动认证只允许在这个 ACECode home 的第一次 daemon 启动
+    // 执行。先持久化 at-most-once claim,再启动任何外部进程;落盘失败时宁可
+    // 跳过,避免每次启动都反复弹登录器。
+    JoiningThreadGroup connector_first_start_threads;
+    const auto first_start_auth =
+        acecode::plan_connector_first_start_auth(cfg_mut.connectors);
+    if (!first_start_auth.persisted) {
+        LOG_ERROR(
+            "connector first-start authentication skipped: "
+            "failed to persist durable claim");
+    } else if (!first_start_auth.claimed) {
+        LOG_INFO(
+            "connector first-start authentication already claimed; "
+            "skipping automatic hooks");
+    }
+    for (const auto& connector : first_start_auth.connectors) {
         const acecode::ConnectorHookConfig hook = *connector.on_startup;
         const std::string connector_id = connector.id;
-        std::thread([hook, connector_id, &server]() {
-            acecode::HookCommandSpec cmd;
-            cmd.command = hook.command;
-            cmd.args = hook.args;
-            const acecode::HookProcessResult result = acecode::run_hook_process(
-                cmd, std::string{}, hook.timeout_ms, std::string{});
-            LOG_INFO("connector on_startup finished; id=" + connector_id +
-                     " started=" + (result.started ? "true" : "false") +
-                     " timed_out=" + (result.timed_out ? "true" : "false") +
-                     " exit=" + std::to_string(result.exit_code));
-            if (result.started && !result.timed_out && result.exit_code == 0) {
-                server.refresh_saved_models_from_disk();
-            }
-        }).detach();
+        connector_first_start_threads.threads.emplace_back(
+            [hook, connector_id, &server]() {
+                acecode::HookCommandSpec cmd;
+                cmd.command = hook.command;
+                cmd.args = hook.args;
+                const acecode::HookProcessResult result =
+                    acecode::run_hook_process(
+                        cmd,
+                        std::string{},
+                        hook.timeout_ms,
+                        std::string{});
+                LOG_INFO(
+                    "connector first-start auth finished; id=" +
+                    connector_id +
+                    " started=" +
+                    (result.started ? "true" : "false") +
+                    " timed_out=" +
+                    (result.timed_out ? "true" : "false") +
+                    " exit=" + std::to_string(result.exit_code));
+                if (result.started && !result.timed_out &&
+                    result.exit_code == 0) {
+                    server.refresh_saved_models_from_disk();
+                }
+            });
     }
 
     // 子会话 spawn 后登记到 WebServer,给它挂常驻状态监听器,使其 busy 能广播
@@ -746,8 +767,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // 随后 handler 不会再被 HTTP 调到(server 已停),清空防悬垂。
     rc_binder.shutdown();
     registry.set_external_command_handler({});
-    // server 已停止:清空回调,防止残余会话线程在析构窗口内经回调触达已析构的 server。
-    auth_recovery.set_on_config_refreshed({});
+    // first-start hook 线程会在成功时刷新 server 内存配置,因此必须在 server
+    // 对象析构前收拢,不能 detach 后留下关停期 UAF。
+    connector_first_start_threads.join_all();
     request_terminate(); // 唤醒 watcher(防 server 自然退出但信号还没来)
     if (watcher.joinable()) watcher.join();
     desktop_owner_monitor_stop.store(true);

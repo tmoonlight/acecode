@@ -10,7 +10,6 @@
 #include "turn_timing.hpp"
 #include "../commands/init_command.hpp"
 #include "../commands/lsp_command.hpp"
-#include "../connectors/connector_auth_recovery.hpp"
 #include "../provider/apply_model_to_session.hpp"
 #include "../provider/copilot_provider.hpp"
 #include "../provider/cwd_model_override.hpp"
@@ -959,19 +958,6 @@ SessionRegistry::make_entry_locked(const std::string& id,
     }
     entry->loop->set_session_manager(entry->sm.get());
     entry->loop->set_hook_manager(deps_.hook_manager);
-    if (deps_.auth_recovery) {
-        auto* recovery = deps_.auth_recovery;
-        entry->loop->set_auth_recovery(
-            [recovery, session_manager = entry->sm.get()](
-                const std::string& base_url,
-                const std::string& key_at_request) {
-                return recovery->recover(session_manager
-                                             ? session_manager->current_model_preset()
-                                             : std::string{},
-                                         base_url,
-                                         key_at_request);
-            });
-    }
     entry->loop->set_skill_registry(entry->skill_registry
         ? entry->skill_registry.get()
         : deps_.skill_registry);

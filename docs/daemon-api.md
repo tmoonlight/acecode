@@ -711,10 +711,13 @@ inserts them before the last real user message (or fallback summary), so it neve
 rewrites the compact summary prefix or trails a mid-turn summary.
 
 Non-streaming provider failures carry structured `ProviderErrorInfo`. Retryable
-non-context failures use the provider `stream_max_retries` budget with bounded,
-abort-aware exponential backoff and preserve the same request history. History
-trimming is reserved for explicitly classified context-window overflow; a generic
-HTTP 413 or ambiguous payload-size message is terminal and does not delete items.
+non-context failures keep the same immutable compaction request and retry
+without a count limit. Local delays start at one second, double to a maximum of
+twenty minutes, honor valid `Retry-After` guidance up to the same cap, and wake
+promptly on cancellation. History trimming is reserved for explicitly
+classified context-window overflow and resets the transient backoff sequence;
+a generic HTTP 413 or ambiguous payload-size message is terminal and does not
+delete items.
 
 When `since>0`, returns an event array directly:
 
@@ -1850,7 +1853,20 @@ Body:
 {"connectors":[]}
 ```
 
-Parses connector config, persists, and echoes `{"connectors":[...]}`.
+Parses connector config, persists, and echoes `{"connectors":[...]}`. Changing
+`enabled` never launches an authentication helper.
+
+Automatic connector authentication is gated by the versioned
+`connector_first_start_auth_v1` flag in the daemon runtime `state.json`. The
+first daemon startup that durably claims this flag launches each enabled
+connector's `hooks.on_startup` helper once; later daemon startups never launch
+automatic connector authentication. The claim is persisted before any helper
+starts. If it cannot be persisted, helpers are skipped. Helper threads are
+joined before daemon teardown.
+
+For configuration compatibility, `hooks.on_enable`, `hooks.on_auth_error`, and
+`auth_error_scope` are still parsed and serialized, but they are inert: neither
+a settings toggle nor an HTTP 400/401 model response executes them.
 
 ### `GET /api/config/default-permission-mode`
 
@@ -2248,6 +2264,28 @@ transition, `busy_changed` includes
 and the following `done` frame repeats the same `outcome`. Other busy cycles
 such as compaction may omit it. Clients should only treat `completed` as a
 successful turn.
+
+Transient pure-sampling failures use `agent_progress` rather than transcript
+messages. While waiting, the payload is:
+
+```json
+{
+  "phase": "model_retry",
+  "label": "网络暂时不可用，等待重试",
+  "retry_attempt": 12,
+  "retry_delay_ms": 1200000,
+  "retry_at_ms": 1783153200000,
+  "retry_max_attempts": -1
+}
+```
+
+`retry_max_attempts: -1` means the count is unbounded. Immediately before the
+next attempt, another `agent_progress` frame changes `phase` back to
+`model_waiting` (or `compacting`) and sets `retry_delay_ms` to zero. The retry
+wait is cancellable through the existing abort/stop path. A replay also emits
+`transcript_replace` so provisional text, reasoning, usage, and tool-call
+fragments from the failed attempt disappear without becoming conversation
+history.
 
 `transcript_replace` is for retry/recovery cleanup. Normal compact success
 appends visible marker messages and a hidden checkpoint instead.

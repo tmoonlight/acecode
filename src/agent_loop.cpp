@@ -166,6 +166,7 @@ nlohmann::json provider_error_to_json(const ProviderErrorInfo& info) {
         {"retry_attempt", info.retry_attempt},
         {"retry_max_attempts", info.retry_max_attempts},
         {"retry_delay_ms", info.retry_delay_ms},
+        {"server_retry_after_ms", info.server_retry_after_ms},
     };
     return j;
 }
@@ -616,6 +617,7 @@ void AgentLoop::dispatch_session_start_hook(const std::string& source) {
 
 void AgentLoop::abort() {
     abort_requested_ = true;
+    wake_active_provider_retry();
 }
 
 void AgentLoop::clear_stale_abort_request() {
@@ -631,11 +633,36 @@ void AgentLoop::shutdown() {
         shutdown_requested_ = true;
     }
     abort_requested_ = true;
+    wake_active_provider_retry();
     queue_cv_.notify_one();
     if (worker_thread_.joinable()) {
         worker_thread_.join();
     }
     join_side_question_threads();
+}
+
+void AgentLoop::set_active_provider_for_retry(
+    const std::shared_ptr<LlmProvider>& provider) {
+    std::lock_guard<std::mutex> lock(active_provider_mu_);
+    active_provider_ = provider;
+}
+
+void AgentLoop::clear_active_provider_for_retry(
+    const std::shared_ptr<LlmProvider>& provider) {
+    std::lock_guard<std::mutex> lock(active_provider_mu_);
+    auto active = active_provider_.lock();
+    if (!active || active == provider) {
+        active_provider_.reset();
+    }
+}
+
+void AgentLoop::wake_active_provider_retry() {
+    std::shared_ptr<LlmProvider> provider;
+    {
+        std::lock_guard<std::mutex> lock(active_provider_mu_);
+        provider = active_provider_.lock();
+    }
+    if (provider) provider->wake_retry_waiter();
 }
 
 void AgentLoop::join_side_question_threads() {
@@ -1086,12 +1113,17 @@ bool AgentLoop::maybe_run_auto_compact() {
     LOG_INFO("Auto full compact starting; messages=" + std::to_string(messages_.size()) +
              " active_estimated_tokens=" + std::to_string(pre_tokens) +
              " threshold=" + std::to_string(threshold));
+    set_active_provider_for_retry(provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
         messages_,
         initial_context,
         true,
-        &abort_requested_);
+        &abort_requested_,
+        [this](const ProviderErrorInfo& info, bool waiting) {
+            emit_retry_lifecycle(info, waiting, true);
+        });
+    clear_active_provider_for_retry(provider_snapshot);
 
     if (!result.performed) {
         LOG_WARN("Auto full compact failed; error=" +
@@ -1952,6 +1984,55 @@ bool AgentLoop::ask_side_question_async(
     return true;
 }
 
+void AgentLoop::emit_retry_lifecycle(
+    const ProviderErrorInfo& info,
+    bool waiting,
+    bool compaction) {
+    if (waiting) {
+        if (callbacks_.on_model_retry) {
+            callbacks_.on_model_retry(info);
+        }
+    } else if (callbacks_.on_model_retry_resume) {
+        callbacks_.on_model_retry_resume();
+    }
+
+    const std::int64_t now_ms = now_epoch_ms();
+    nlohmann::json payload{
+        {"phase",
+         waiting
+             ? "model_retry"
+             : (compaction ? "compacting" : "model_waiting")},
+        {"label",
+         waiting
+             ? (compaction
+                    ? "压缩请求暂时不可用，等待重试"
+                    : "网络暂时不可用，等待重试")
+             : (compaction
+                    ? "正在重新发起压缩请求"
+                    : "正在重新连接模型")},
+        {"detail",
+         "第 " + std::to_string(info.retry_attempt) +
+             " 次重试" +
+             (waiting
+                  ? "将在 " + std::to_string(info.retry_delay_ms) +
+                      " ms 后发起"
+                  : std::string{})},
+        {"started_at_ms", now_ms},
+        {"retry_attempt", info.retry_attempt},
+        {"retry_delay_ms", waiting ? info.retry_delay_ms : 0},
+        {"retry_at_ms",
+         waiting ? now_ms + info.retry_delay_ms : now_ms},
+        {"retry_max_attempts", info.retry_max_attempts},
+    };
+    EventDispatcher::EmitOptions opts;
+    opts.buffered = true;
+    opts.coalesce_key = "agent_progress";
+    events_.emit(
+        SessionEventKind::AgentProgress,
+        std::move(payload),
+        opts);
+}
+
 AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
     const std::shared_ptr<LlmProvider>& provider,
     const ApiRequestBundle& bundle,
@@ -2021,61 +2102,47 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             usage.context_breakdown = reconcile_context_usage_breakdown(
                 bundle.context_usage_estimate,
                 usage.prompt_tokens);
-            last_api_total_tokens_.store(
-                usage.total_tokens > 0
-                    ? usage.total_tokens
-                    : usage.prompt_tokens,
-                std::memory_order_relaxed);
             {
                 std::lock_guard<std::mutex> lk(resp_mu);
                 result.accumulated.usage = usage;
             }
-            if (usage.has_data) {
-                account_goal_usage(usage.total_tokens, false);
-            }
-            if (callbacks_.on_usage) {
-                callbacks_.on_usage(usage);
-            }
-            if (session_manager_) {
-                session_manager_->record_token_usage(usage);
-            }
-            events_.emit(
-                SessionEventKind::Usage,
-                model_step_usage_to_json(usage));
+            // Usage is provisional until this provider attempt completes. A
+            // later Retry event clears it together with text/reasoning/tools;
+            // publishing here would double-count the failed attempt.
             break;
         }
         case StreamEventType::Retry:
             result.provider_error_info = evt.provider_error;
-            // Drop-partial 重试族:Timeout 与 MalformedSse(SSE 中途断流)。
-            // 两者 provider 端都会重发完整请求,本地必须清空 partial 累积
-            // 否则下一次成功的 stream 会叠加成重复内容(同样的 reasoning /
-            // content 出现两遍)。TranscriptReplace 让前端把 partial 痕迹抹掉。
-            if (evt.provider_error.kind == ProviderErrorKind::Timeout ||
-                evt.provider_error.kind == ProviderErrorKind::MalformedSse) {
-                {
-                    std::lock_guard<std::mutex> lk(resp_mu);
-                    result.accumulated = ChatResponse{};
-                    result.accumulated.finish_reason = "stop";
-                }
-                reasoning_bytes = 0;
-                reasoning_fragments = 0;
-                if (callbacks_.on_stream_retry_reset) {
-                    callbacks_.on_stream_retry_reset();
-                }
+            // A Retry event always precedes a full replay of the immutable
+            // provider request. Clear every provisional response component so
+            // partial output from the failed attempt cannot be duplicated.
+            {
+                std::lock_guard<std::mutex> lk(resp_mu);
+                result.accumulated = ChatResponse{};
+                result.accumulated.finish_reason = "stop";
+            }
+            reasoning_bytes = 0;
+            reasoning_fragments = 0;
+            if (callbacks_.on_stream_retry_reset) {
+                callbacks_.on_stream_retry_reset();
+            }
+            {
                 CompactResult reset_result;
                 std::vector<ChatMessage> visible_reset_messages =
-                    session_manager_ ? session_manager_->load_active_messages() : messages_;
-                events_.emit(SessionEventKind::TranscriptReplace,
-                             build_transcript_replace_payload(visible_reset_messages, reset_result));
+                    session_manager_
+                        ? session_manager_->load_active_messages()
+                        : messages_;
+                events_.emit(
+                    SessionEventKind::TranscriptReplace,
+                    build_transcript_replace_payload(
+                        visible_reset_messages, reset_result));
             }
-            emit_progress(
-                "model_retry",
-                "正在重试模型请求",
-                "第 " + std::to_string(evt.provider_error.retry_attempt + 1) +
-                    " 次请求将在 " +
-                    std::to_string(evt.provider_error.retry_delay_ms) +
-                    " ms 后发起",
-                std::string{}, std::string{}, -1, true);
+            emit_retry_lifecycle(
+                evt.provider_error, true, false);
+            break;
+        case StreamEventType::RetryResume:
+            emit_retry_lifecycle(
+                evt.provider_error, false, false);
             break;
         case StreamEventType::Error:
             if ((evt.provider_error.kind == ProviderErrorKind::UserCancelled ||
@@ -2101,16 +2168,51 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
         emit_progress(
             "model_waiting", "正在等待模型响应",
             std::string{}, std::string{}, std::string{}, -1, true);
+        set_active_provider_for_retry(provider);
         provider->chat_stream(bundle.messages_with_system, bundle.tool_defs,
                               stream_callback, &abort_requested_);
+        clear_active_provider_for_retry(provider);
         LOG_INFO("chat_stream returned. content_len=" +
                  std::to_string(result.accumulated.content.size()) +
                  " tool_calls=" + std::to_string(result.accumulated.tool_calls.size()));
     } catch (const std::exception& e) {
+        clear_active_provider_for_retry(provider);
         LOG_ERROR(std::string("chat_stream exception: ") + e.what());
         result.provider_error_seen = true;
         result.provider_error_info.kind = ProviderErrorKind::Unknown;
         result.provider_error_info.display_message = e.what();
+    } catch (...) {
+        clear_active_provider_for_retry(provider);
+        LOG_ERROR("chat_stream threw an unknown exception");
+        result.provider_error_seen = true;
+        result.provider_error_info.kind = ProviderErrorKind::Unknown;
+        result.provider_error_info.display_message =
+            "Provider request failed with an unknown exception";
+    }
+
+    TokenUsage final_usage;
+    {
+        std::lock_guard<std::mutex> lk(resp_mu);
+        final_usage = result.accumulated.usage;
+    }
+    if (!result.provider_error_seen &&
+        !abort_requested_.load() &&
+        final_usage.has_data) {
+        last_api_total_tokens_.store(
+            final_usage.total_tokens > 0
+                ? final_usage.total_tokens
+                : final_usage.prompt_tokens,
+            std::memory_order_relaxed);
+        account_goal_usage(final_usage.total_tokens, false);
+        if (callbacks_.on_usage) {
+            callbacks_.on_usage(final_usage);
+        }
+        if (session_manager_) {
+            session_manager_->record_token_usage(final_usage);
+        }
+        events_.emit(
+            SessionEventKind::Usage,
+            model_step_usage_to_json(final_usage));
     }
 
     return result;
@@ -2119,8 +2221,6 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
 AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
     ProviderCallResult& result,
     const std::vector<ChatMessage>& messages_with_system,
-    int& auth_recovery_attempts,
-    int& total_iterations,
     std::string& turn_timing_status) {
     if (!result.provider_error_seen) {
         return HandleErrorResult::Proceed;
@@ -2153,34 +2253,6 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
     if (context_overflow) {
         LOG_WARN("Provider rejected the normal request for context overflow; "
                  "ending the turn without summary-free history deletion");
-    }
-
-    // 连接器认证自动恢复:认证形态错误(HTTP 400/401)时拉起 on_auth_error 钩子
-    // (如外部登录器),拿到新 key 后重试一次。上下文超限的 400 不能误判为
-    // key 错误。见 src/connectors/connector_auth_recovery.hpp。
-    if (auth_recovery_ && auth_recovery_attempts == 0 &&
-        !context_overflow &&
-        provider_error_is_auth_shaped(result.provider_error_info)) {
-        auto provider = provider_accessor_ ? provider_accessor_() : nullptr;
-        const std::string base_url = provider ? provider->base_url() : std::string{};
-        if (provider && !base_url.empty()) {
-            const std::string key_at_request = provider->current_api_key();
-            LOG_WARN("Auth-shaped provider error; attempting connector auth recovery"
-                     " status=" + std::to_string(result.provider_error_info.status_code));
-            auto fresh_key = auth_recovery_(base_url, key_at_request);
-            if (fresh_key && !fresh_key->empty() && *fresh_key != key_at_request) {
-                ++auth_recovery_attempts;
-                provider->update_api_key(*fresh_key);
-                if (total_iterations > 0) {
-                    --total_iterations;
-                }
-                LOG_WARN("Connector auth recovery succeeded; retrying request once");
-                emit_transcript_system_message(
-                    "[连接器] 认证已自动恢复,正在重试请求。");
-                return HandleErrorResult::Continue;
-            }
-            LOG_WARN("Connector auth recovery unavailable or failed; falling through");
-        }
     }
 
     nlohmann::json metadata;
@@ -3211,7 +3283,6 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
 
     const int max_iter = loop_cfg_.max_iterations;
     const bool has_max_iterations = max_iter > 0;
-    int auth_recovery_attempts = 0;
     // 空回复兜底重试(fix-glm-empty-response-turn-end):HTTP 200 + [DONE] 正常
     // 收尾、但 content/tool_calls 全空的「成功空响应」。实测形态:火山引擎 GLM
     // 深度思考把输出 token 预算全部耗在 reasoning 上(finish_reason=length,
@@ -3394,7 +3465,6 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // Phase 4: Handle provider errors (context rescue, fatal errors)
         auto error_result = handle_provider_error(
             provider_result, bundle.messages_with_system,
-            auth_recovery_attempts, total_iterations,
             turn_timing_status);
         reset_doom_guard_after_compact();
         if (error_result == HandleErrorResult::Continue) {
@@ -3686,12 +3756,17 @@ void AgentLoop::run_compact() {
         return;
     }
 
+    set_active_provider_for_retry(provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
         messages_,
         build_compaction_initial_context(),
         false,
-        &abort_requested_);
+        &abort_requested_,
+        [this](const ProviderErrorInfo& info, bool waiting) {
+            emit_retry_lifecycle(info, waiting, true);
+        });
+    clear_active_provider_for_retry(provider_snapshot);
 
     if (!result.performed) {
         dispatch_message("error", "[Error] " + result.error, false);

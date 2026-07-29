@@ -3,10 +3,75 @@
 #include "network/proxy_resolver.hpp"
 #include <cpr/cpr.h>
 #include <cpr/ssl_options.h>
+#include <algorithm>
+#include <cctype>
 #include <ctime>
 #include <map>
 
 namespace acecode {
+namespace {
+
+std::string ascii_lower(std::string value) {
+    std::transform(
+        value.begin(), value.end(), value.begin(),
+        [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+    return value;
+}
+
+std::string header_value_ci(const cpr::Header& headers,
+                            const std::string& key) {
+    const std::string wanted = ascii_lower(key);
+    for (const auto& [header_key, value] : headers) {
+        if (ascii_lower(header_key) == wanted) return value;
+    }
+    return {};
+}
+
+ProviderErrorKind classify_cpr_error(const cpr::Error& error) {
+    if (error.code == cpr::ErrorCode::OPERATION_TIMEDOUT) {
+        return ProviderErrorKind::Timeout;
+    }
+    const std::string message = ascii_lower(error.message);
+    if (message.find("timed out") != std::string::npos ||
+        message.find("timeout") != std::string::npos) {
+        return ProviderErrorKind::Timeout;
+    }
+    return ProviderErrorKind::Network;
+}
+
+ChatResponse make_copilot_error(
+    ProviderErrorKind kind,
+    int status_code,
+    const std::string& model,
+    const std::string& message,
+    const std::string& raw_body,
+    bool retryable,
+    const cpr::Header& headers = {}) {
+    ProviderErrorInfo info;
+    info.kind = kind;
+    info.status_code = status_code;
+    info.provider = "copilot";
+    info.model = model;
+    info.display_message = message;
+    info.raw_body = raw_body;
+    info.retryable = retryable;
+    const std::string retry_after = header_value_ci(headers, "retry-after");
+    if (!retry_after.empty()) {
+        if (const auto parsed = parse_retry_after_ms(retry_after)) {
+            info.server_retry_after_ms = *parsed;
+        }
+    }
+
+    ChatResponse response;
+    response.content = "[Error] " + message;
+    response.finish_reason = "error";
+    response.provider_error = std::move(info);
+    return response;
+}
+
+} // namespace
 
 static const std::string COPILOT_CHAT_URL = "https://api.githubcopilot.com/chat/completions";
 
@@ -79,10 +144,13 @@ ChatResponse CopilotProvider::chat(
     const std::vector<ToolDef>& tools
 ) {
     if (!ensure_copilot_token()) {
-        ChatResponse resp;
-        resp.content = "[Error] Copilot session token unavailable. Re-authenticate.";
-        resp.finish_reason = "error";
-        return resp;
+        return make_copilot_error(
+            ProviderErrorKind::Unknown,
+            0,
+            model_,
+            "Copilot session token unavailable. Re-authenticate.",
+            std::string{},
+            false);
     }
 
     nlohmann::json body = build_request_body(messages, tools);
@@ -107,13 +175,6 @@ ChatResponse CopilotProvider::chat(
         cpr::Timeout{stream_timeout_ms_}
     );
 
-    if (r.status_code == 0) {
-        ChatResponse resp;
-        resp.content = "[Error] Connection failed: " + r.error.message;
-        resp.finish_reason = "error";
-        return resp;
-    }
-
     if (r.status_code == 401) {
         // Token expired, try refresh once
         copilot_token_ = {};
@@ -132,21 +193,45 @@ ChatResponse CopilotProvider::chat(
         }
     }
 
+    if (r.status_code == 0) {
+        const ProviderErrorKind kind = classify_cpr_error(r.error);
+        return make_copilot_error(
+            kind,
+            0,
+            model_,
+            (kind == ProviderErrorKind::Timeout
+                 ? "Copilot request timed out: "
+                 : "Copilot connection failed: ") +
+                r.error.message,
+            r.text,
+            true,
+            r.header);
+    }
+
     if (r.status_code != 200) {
-        ChatResponse resp;
-        resp.content = "[Error] HTTP " + std::to_string(r.status_code) + ": " + r.text;
-        resp.finish_reason = "error";
-        return resp;
+        const int status_code = static_cast<int>(r.status_code);
+        return make_copilot_error(
+            ProviderErrorKind::Http,
+            status_code,
+            model_,
+            "Copilot HTTP " + std::to_string(status_code) + ": " + r.text,
+            r.text,
+            provider_http_error_is_retryable(status_code, r.text),
+            r.header);
     }
 
     try {
         nlohmann::json response_json = nlohmann::json::parse(r.text);
         return parse_response(response_json);
     } catch (const nlohmann::json::parse_error& e) {
-        ChatResponse resp;
-        resp.content = "[Error] Failed to parse response: " + std::string(e.what());
-        resp.finish_reason = "error";
-        return resp;
+        return make_copilot_error(
+            ProviderErrorKind::MalformedJson,
+            200,
+            model_,
+            "Failed to parse Copilot response: " + std::string(e.what()),
+            r.text,
+            false,
+            r.header);
     }
 }
 

@@ -26,6 +26,17 @@ bool read_state_flag(const std::string& key);
 // with all other state_file operations in this process.
 bool try_write_state_flag(const std::string& key, bool value);
 
+struct StateFlagClaimResult {
+    bool claimed = false;
+    bool persisted = false;
+};
+
+// Atomically across threads and processes changes a missing/false flag to true.
+// Exactly one concurrent caller observes claimed=true. State writers share the
+// same interprocess lock so a later read-modify-write cannot erase the claim.
+// A failed durable write never grants the claim.
+StateFlagClaimResult try_claim_state_flag(const std::string& key);
+
 // 测试专用:覆盖 state.json 的解析路径。传空串清除覆盖,回到从
 // resolve_data_dir(get_run_mode()) 计算的默认。生产代码不应调用。
 void set_state_file_path_for_test(const std::string& path);

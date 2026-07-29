@@ -11,7 +11,6 @@
 #include <limits>
 #include <set>
 #include <stdexcept>
-#include <thread>
 
 namespace {
 
@@ -108,33 +107,6 @@ bool raw_body_has_context_overflow_code(const std::string& body) {
     } catch (const nlohmann::json::parse_error&) {
         return false;
     }
-}
-
-constexpr int kCompactRetryBaseDelayMs = 200;
-constexpr int kCompactRetryMaxDelayMs = 15000;
-constexpr int kCompactRetrySleepSliceMs = 50;
-constexpr int kCompactRetryLimitCap = 100;
-
-int compact_retry_delay_ms(int retry_number) {
-    int delay_ms = kCompactRetryBaseDelayMs;
-    const int doublings = (std::min)((std::max)(0, retry_number - 1), 16);
-    for (int i = 0; i < doublings; ++i) {
-        delay_ms = (std::min)(kCompactRetryMaxDelayMs, delay_ms * 2);
-    }
-    return delay_ms;
-}
-
-bool sleep_compact_retry_or_aborted(int delay_ms,
-                                    std::atomic<bool>* abort_flag) {
-    int slept_ms = 0;
-    while (slept_ms < delay_ms) {
-        if (abort_flag && abort_flag->load()) return true;
-        const int slice =
-            (std::min)(kCompactRetrySleepSliceMs, delay_ms - slept_ms);
-        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
-        slept_ms += slice;
-    }
-    return abort_flag && abort_flag->load();
 }
 
 std::string compact_trigger_name(bool is_auto) {
@@ -446,7 +418,8 @@ CompactResult compact_messages(
     const std::vector<ChatMessage>& messages,
     const std::vector<ChatMessage>& initial_context,
     bool is_auto,
-    std::atomic<bool>* abort_flag) {
+    std::atomic<bool>* abort_flag,
+    CompactRetryCallback on_retry) {
     CompactResult result;
     const std::vector<ChatMessage> original_history =
         normalize_messages_for_api(messages);
@@ -462,10 +435,7 @@ CompactResult compact_messages(
              " initial_context_items=" + std::to_string(initial_context.size()));
 
     std::string summary_suffix;
-    int transient_retries = 0;
-    const int max_transient_retries = (std::min)(
-        kCompactRetryLimitCap,
-        (std::max)(0, provider.stream_max_retries()));
+    std::uint64_t transient_retries = 0;
     for (;;) {
         if (abort_flag && abort_flag->load()) {
             result.error = "Compaction cancelled.";
@@ -515,19 +485,41 @@ CompactResult compact_messages(
                 }
 
                 if (has_structured_error &&
-                    is_retryable_compaction_error(response.provider_error) &&
-                    transient_retries < max_transient_retries) {
-                    ++transient_retries;
-                    ++result.compaction_request_retries;
-                    const int delay_ms = compact_retry_delay_ms(transient_retries);
+                    is_retryable_compaction_error(response.provider_error)) {
+                    if (transient_retries !=
+                        (std::numeric_limits<std::uint64_t>::max)()) {
+                        ++transient_retries;
+                    }
+                    if (result.compaction_request_retries !=
+                        (std::numeric_limits<int>::max)()) {
+                        ++result.compaction_request_retries;
+                    }
+                    std::optional<std::int64_t> server_delay;
+                    if (response.provider_error.server_retry_after_ms >= 0) {
+                        server_delay =
+                            response.provider_error.server_retry_after_ms;
+                    }
+                    const int delay_ms = static_cast<int>(
+                        provider_retry_delay_ms(
+                            transient_retries, server_delay));
+                    ProviderErrorInfo retry_info = response.provider_error;
+                    retry_info.retry_attempt =
+                        saturating_retry_attempt(transient_retries);
+                    retry_info.retry_max_attempts = -1;
+                    retry_info.retry_delay_ms = delay_ms;
                     LOG_WARN("Retrying compaction request after transient provider error; "
-                             "retry=" + std::to_string(transient_retries) + "/" +
-                             std::to_string(max_transient_retries) +
+                             "retry=" +
+                             std::to_string(retry_info.retry_attempt) +
+                             "/unbounded" +
                              " delay_ms=" + std::to_string(delay_ms));
-                    if (sleep_compact_retry_or_aborted(delay_ms, abort_flag)) {
+                    if (on_retry) on_retry(retry_info, true);
+                    if (provider.wait_for_retry(
+                            std::chrono::milliseconds(delay_ms),
+                            abort_flag)) {
                         result.error = "Compaction cancelled.";
                         return result;
                     }
+                    if (on_retry) on_retry(retry_info, false);
                     continue;
                 }
 

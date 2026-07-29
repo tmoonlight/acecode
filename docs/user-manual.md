@@ -278,6 +278,12 @@ Skills、MCP Servers、Connectors、Tools、Hooks 位于独立能力中心。对
 目标顶部页签；`/skills list`、`/skills reload` 与带参数的 `/mcp` 子命令保持原文本/运行时语义。
 列表页统一支持 `/` 聚焦筛选、方向键移动、`Tab` 切换控件、底部提示的单键动作和 `Esc` 返回聊天。
 
+Connectors 的开关只改变启用状态，不会触发登录。若安装包或第三方连接器配置了
+`hooks.on_startup`，ACECode 会在该用户数据目录第一次启动 daemon 时自动认证一次：
+先把 `connector_first_start_auth_v1` 认领状态持久化，再启动所有已启用连接器的 helper；
+之后无论重启、切换开关，还是模型返回 HTTP 400/401，都不会再次自动认证。为兼容旧配置，
+`hooks.on_enable`、`hooks.on_auth_error` 和 `auth_error_scope` 仍会无损保存，但不再执行。
+
 #### `/init` 的工作方式
 
 配置了 provider 时，`/init` 会把一段分析指令作为 user 消息提交给 LLM（消耗一次对话轮次，token 用量会出现在计数器里）。LLM 会用 `file_read` / `glob` / `grep` / `bash` 等工具读取 `README`、`package.json` / `CMakeLists.txt` / `pyproject.toml` 等清单文件，最后通过 `file_write_tool` 写出 `AGENT.md`。
@@ -438,13 +444,36 @@ acecode: session <id> saved. Resume with: acecode --resume <id>
 
 首次模型请求前，自动阈值估算会计入尚未写入历史的本轮 user 输入，但 compactor 只压缩此前已经记录的历史；压缩完成后才把本轮输入追加到 summary 后面。工具调用后的中途压缩则把 session、时间/CWD、hook、plan 和 todo 等动态上下文作为独立消息插在最后一个真实 user 消息之前，绝不会合并进 summary 或追加到 summary 后面。因此 pre-turn 请求以本轮 user 输入收尾，mid-turn 请求仍以原样的 Codex summary 收尾。
 
-非流式压缩请求会保留 provider 的结构化错误。429、5xx、timeout、network 等标记为 retryable 的非上下文错误会按 provider 的 `stream_max_retries` 预算指数退避重试，重试时不会删除历史；只有明确的 context-overflow code 或强上下文长度错误才会移除最旧逻辑项。普通 413 或含糊的 payload/token 文本不会触发历史删除。
+非流式压缩请求会保留 provider 的结构化错误。网络、timeout、明确的 overload，以及
+HTTP 408、425、429、500、502、503、504、529 等可恢复且非上下文错误会无限重试：
+本地间隔从 1 秒开始翻倍，最高 20 分钟，之后每 20 分钟重试一次；合法的
+`Retry-After` 会覆盖当次本地间隔，但同样封顶 20 分钟。重试保持同一份压缩输入，
+不会删除历史；只有明确的 context-overflow code 或强上下文长度错误才会移除最旧逻辑项，
+并从 1 秒重新开始退避。普通 413、含糊的 payload/token 文本、认证失败和硬额度不足都
+不会进入无限重试。
 
 Desktop、Web 和 TUI 使用同一条串行压缩路径。压缩不会改写或截短人类可见 transcript；JSONL 会追加一个隐藏 checkpoint，记录替换后的模型历史和 compact-window 编号/标识，之后的消息继续追加。刷新、恢复和 fork 会从最新有效 checkpoint 恢复模型历史，再按顺序回放其后的消息。压缩失败时不会写 checkpoint，也不会通过无摘要截断来“抢救”请求。
 
 压缩期间，TUI 会显示 `Compacting conversation...`：整段文字先使用高亮背景，然后默认背景从左右两端对称向中间收缩并循环。压缩产生的进度、checkpoint、摘要和警告仍会完整追加到 transcript；成功完成后，TUI 和 Web 会把同一次操作收成一条 `Context compacted`，可用 TUI 的 `Ctrl+E` / `Ctrl+O` 或 Web 的展开按钮查看全部原文。失败的压缩没有成功完成标记，因此进度和错误会保持展开可见。
 
 当前 Chat Completions 类型 provider 使用上述本地算法。只有未来能够原生发送 compaction trigger 并验证 compaction response item 的 provider 才能启用服务端原生压缩。
+
+### 网络中断与自动重试
+
+正在运行的 OpenAI-compatible 或 Anthropic 模型请求遇到临时网络故障时，会保持当前任务
+运行并重发同一个模型请求，不设重试次数上限。退避间隔为 1、2、4、8 秒……最高
+20 分钟；达到上限后继续每 20 分钟重试。连接恢复后任务从当前模型步骤继续，已经完成并
+保存的 ACECode 工具结果不会再次执行。
+
+等待期间 TUI 会显示下一次重试时间，Web 会收到 `model_retry` 活动状态；这些提示不会写入
+对话历史。若断线前已经流出部分回答、reasoning、usage 或工具参数，重试前会全部清除，
+最终只保留成功尝试的输出。用户随时可以用现有 Stop / Ctrl+C 立即取消，即使当前正在等待
+20 分钟也不需要等计时结束。
+
+只有明确可恢复的网络/超时/服务过载错误会无限重试。HTTP 400/401/403、无效配置、
+上下文超限、格式错误、硬额度或账单限制仍会立即报错。此机制只在 ACECode 进程存活期间
+有效；关机、进程退出或操作系统终止后不会自动恢复等待中的请求。由 provider 自己管理远端
+工具且副作用状态不明确的回合也不会被 ACECode 盲目重放。
 
 ---
 

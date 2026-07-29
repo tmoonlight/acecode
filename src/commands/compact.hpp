@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -65,6 +66,9 @@ bool is_context_overflow_error(const ProviderErrorInfo& info);
 bool is_context_overflow_error(const std::string& error_message);
 bool is_retryable_compaction_error(const ProviderErrorInfo& info);
 
+using CompactRetryCallback =
+    std::function<void(const ProviderErrorInfo& info, bool waiting)>;
+
 // Insert rebuilt request-local context at Codex's handoff boundary: before the
 // last real user message, or before the compact summary when no real user
 // message remains. Existing history content is never rewritten.
@@ -79,6 +83,7 @@ CompactResult compact_messages(
     const std::vector<ChatMessage>& messages,
     const std::vector<ChatMessage>& initial_context = {},
     bool is_auto = false,
-    std::atomic<bool>* abort_flag = nullptr);
+    std::atomic<bool>* abort_flag = nullptr,
+    CompactRetryCallback on_retry = {});
 
 } // namespace acecode

@@ -13,11 +13,11 @@
 #include <sstream>
 #include <optional>
 #include <map>
+#include <limits>
 #include <unordered_set>
 #include <algorithm>
 #include <chrono>
 #include <cctype>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -38,12 +38,6 @@ OpenAiCompatProvider::OpenAiCompatProvider(const std::string& base_url,
 
 namespace {
 
-constexpr int kStreamMaxAttempts = 3;
-constexpr int kStreamRetryBaseDelayMs = 100;
-// 私有/自建大模型常见高延迟场景下 2s 上限不够 — 拉到 15s,让 5xx/429 的 Retry-After
-// 有足够空间避免雪崩式重试。指数退避总是 ≤ 这个上限。
-constexpr int kStreamRetryMaxDelayMs = 15000;
-constexpr int kStreamRetrySleepSliceMs = 50;
 constexpr int kStreamConnectTimeoutCapMs = 15000;
 
 std::int64_t steady_now_ms() {
@@ -486,13 +480,7 @@ std::string extract_request_id(const cpr::Header& headers) {
 }
 
 bool is_retryable_http_status(int status_code, const std::string& body) {
-    if (status_code == 408 || status_code == 409 || status_code == 429 || status_code == 529) {
-        return true;
-    }
-    if (status_code >= 500 && status_code < 600) return true;
-    const std::string lower_body = ascii_lower(body);
-    return lower_body.find("overloaded_error") != std::string::npos ||
-           lower_body.find("overloaded") != std::string::npos;
+    return provider_http_error_is_retryable(status_code, body);
 }
 
 ProviderErrorKind classify_cpr_error(const cpr::Error& error) {
@@ -590,35 +578,23 @@ void emit_retry_event(const StreamCallback& callback, ProviderErrorInfo info) {
     callback(evt);
 }
 
-bool sleep_retry_or_aborted(int delay_ms, std::atomic<bool>* abort_flag) {
-    int slept_ms = 0;
-    while (slept_ms < delay_ms) {
-        if (abort_flag && abort_flag->load()) return true;
-        const int slice = (std::min)(kStreamRetrySleepSliceMs, delay_ms - slept_ms);
-        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
-        slept_ms += slice;
-    }
-    return abort_flag && abort_flag->load();
+void emit_retry_resume_event(const StreamCallback& callback,
+                             const ProviderErrorInfo& info) {
+    StreamEvent evt;
+    evt.type = StreamEventType::RetryResume;
+    evt.provider_error = info;
+    callback(evt);
 }
 
-int retry_after_delay_ms(const cpr::Header& headers, int attempt_index) {
-    int exponential = kStreamRetryBaseDelayMs;
-    const int capped_attempt = (std::min)(attempt_index, 16);
-    for (int i = 1; i < capped_attempt; ++i) {
-        exponential = (std::min)(kStreamRetryMaxDelayMs, exponential * 2);
-    }
-
+int retry_after_delay_ms(const cpr::Header& headers,
+                         std::uint64_t retry_number) {
+    std::optional<std::int64_t> server_delay;
     const std::string retry_after = header_value_ci(headers, "retry-after");
-    if (retry_after.empty()) return exponential;
-
-    try {
-        const double seconds = std::stod(retry_after);
-        if (seconds < 0.0) return exponential;
-        const int retry_after_ms = static_cast<int>(seconds * 1000.0);
-        return (std::min)(kStreamRetryMaxDelayMs, (std::max)(0, retry_after_ms));
-    } catch (...) {
-        return exponential;
+    if (!retry_after.empty()) {
+        server_delay = parse_retry_after_ms(retry_after);
     }
+    return static_cast<int>(
+        provider_retry_delay_ms(retry_number, server_delay));
 }
 
 bool is_text_like_attachment(const AttachmentRecord& record) {
@@ -1125,7 +1101,7 @@ ChatResponse OpenAiCompatProvider::chat(
     }
 
     if (r.status_code != 200) {
-        return make_chat_error_response(make_provider_error(
+        auto info = make_provider_error(
             ProviderErrorKind::Http,
             static_cast<int>(r.status_code),
             name(),
@@ -1133,7 +1109,15 @@ ChatResponse OpenAiCompatProvider::chat(
             extract_request_id(r.header),
             r.text,
             std::string{},
-            is_retryable_http_status(static_cast<int>(r.status_code), r.text)));
+            is_retryable_http_status(static_cast<int>(r.status_code), r.text));
+        const std::string retry_after =
+            header_value_ci(r.header, "retry-after");
+        if (!retry_after.empty()) {
+            if (auto parsed = parse_retry_after_ms(retry_after)) {
+                info.server_retry_after_ms = *parsed;
+            }
+        }
+        return make_chat_error_response(std::move(info));
     }
 
     try {
@@ -1217,8 +1201,6 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         }
     };
 
-    auto proxy_opts = network::proxy_options_for(url);
-
     struct ToolCallAccumulator {
         std::string id;
         std::string name;
@@ -1228,7 +1210,10 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
     ChatResponse last_accumulated;
     last_accumulated.finish_reason = "stop";
 
-    for (int attempt = 1; ; ++attempt) {
+    for (std::uint64_t attempt = 1; ;
+         attempt = attempt == (std::numeric_limits<std::uint64_t>::max)()
+             ? attempt
+             : attempt + 1) {
         last_stream_activity_ms.store(steady_now_ms());
         stream_idle_timed_out.store(false);
 
@@ -1248,7 +1233,6 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         std::string payload_error_body;
         std::string payload_error_message;
         int payload_error_status_code = 0;
-        bool emitted_stream_output = false;
 
         auto flush_pending_tools = [&]() {
             for (auto& [idx, tc] : pending_tools) {
@@ -1401,7 +1385,6 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
                     }
                     if (!reasoning_token.empty()) {
                         accumulated.reasoning_content += reasoning_token;
-                        emitted_stream_output = true;
 
                         StreamEvent evt;
                         evt.type = StreamEventType::ReasoningDelta;
@@ -1413,7 +1396,6 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
                         std::string token = delta["content"].get<std::string>();
                         accumulated.content += token;
                         if (!token.empty()) {
-                            emitted_stream_output = true;
 
                             StreamEvent evt;
                             evt.type = StreamEventType::Delta;
@@ -1468,7 +1450,6 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
                             }
                             if (acc.id != before_id || acc.name != before_name ||
                                 acc.arguments.size() != before_args_size) {
-                                emitted_stream_output = true;
                                 StreamEvent progress_evt;
                                 progress_evt.type = StreamEventType::ToolCallDelta;
                                 progress_evt.tool_index = index;
@@ -1482,7 +1463,6 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
 
                     if (choice.contains("finish_reason") && !choice["finish_reason"].is_null()) {
                         flush_pending_tools();
-                        if (!accumulated.tool_calls.empty()) emitted_stream_output = true;
                     }
                 } catch (const nlohmann::json::parse_error& e) {
                     saw_parse_error = true;
@@ -1493,6 +1473,9 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
             return true;
         }};
 
+        // Re-resolve routing on every attempt so moving between a VPN,
+        // system proxy, and direct networking takes effect after the wait.
+        auto proxy_opts = network::proxy_options_for(url);
         cpr::Response r = cpr::Post(
             cpr::Url{url},
             headers,
@@ -1547,8 +1530,8 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
                 payload_error_message.empty()
                     ? std::string("stream payload contained an error")
                     : payload_error_message,
-                payload_error_status_code > 0 &&
-                    is_retryable_http_status(payload_error_status_code, payload_error_body));
+                is_retryable_http_status(
+                    payload_error_status_code, payload_error_body));
         } else if (idle_timeout ||
                    (transport_failed && transport_kind == ProviderErrorKind::Timeout)) {
             const int status_code = r.status_code == 0 ? 0 : static_cast<int>(r.status_code);
@@ -1604,13 +1587,11 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
             LOG_ERROR("SSE malformed response: " + transport_message +
                       " body=" + log_truncate(raw_body_capture, 2000));
             // SSE 中途断开(HTTP 200 但通道在 [DONE] 前断)是不稳定私有模型的典型
-            // 形态。只要当前回合没产生已闭合的 tool_call,就允许重试 — partial
-            // text/reasoning 会通过下面的 drop-partial 路径丢弃,AgentLoop 端
-            // 响应 Retry 时清空 accumulated 并发 TranscriptReplace。
+            // 形态。工具只会在完整 provider 响应返回后执行,所以 provisional
+            // text/reasoning/tool-call state 都可安全丢弃并重发当前请求。
             // MalformedJson(SSE 帧本身解析失败)不重试 — 再发一次大概率仍是 garbage。
             const bool malformed_sse_retryable =
-                kind == ProviderErrorKind::MalformedSse &&
-                accumulated.tool_calls.empty();
+                kind == ProviderErrorKind::MalformedSse;
             error_info = make_provider_error(
                 kind,
                 200,
@@ -1624,34 +1605,20 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
             return accumulated;
         }
 
-        // Drop-partial 重试族:timeout 与 SSE 中途断流。两者 provider 端都会重发
-        // 请求,本地 partial content/reasoning 已经通过 callback emit 出去,
-        // AgentLoop 会响应 Retry 事件清空 accumulated 并发 TranscriptReplace,
-        // 所以本地丢弃 partial state 没有正确性顾虑。Timeout 走 unbounded 重试
-        // (用户偏好);MalformedSse 受 kStreamMaxAttempts 上限约束。
-        const bool drop_partial_retry =
-            error_info.retryable &&
-            (error_info.kind == ProviderErrorKind::Timeout ||
-             error_info.kind == ProviderErrorKind::MalformedSse);
-        const bool drop_partial_unbounded =
-            drop_partial_retry &&
-            error_info.kind == ProviderErrorKind::Timeout;
-        if (drop_partial_retry &&
-            (drop_partial_unbounded || attempt < kStreamMaxAttempts)) {
+        if (error_info.retryable) {
             const int delay_ms = retry_after_delay_ms(r.header, attempt);
-            error_info.retry_attempt = attempt;
-            error_info.retry_max_attempts =
-                drop_partial_unbounded ? -1 : (kStreamMaxAttempts - 1);
+            error_info.retry_attempt = saturating_retry_attempt(attempt);
+            error_info.retry_max_attempts = -1;
             error_info.retry_delay_ms = delay_ms;
             LOG_WARN("Retrying streaming request after " +
                      provider_error_kind_to_string(error_info.kind) +
-                     " (drop-partial) attempt " +
-                     std::to_string(attempt + 1) + "/" +
-                     (drop_partial_unbounded
-                         ? std::string("unbounded")
-                         : std::to_string(kStreamMaxAttempts)));
+                     " failure; retry=" +
+                     std::to_string(error_info.retry_attempt) +
+                     " delay_ms=" + std::to_string(delay_ms) +
+                     " max_attempts=unbounded");
             emit_retry_event(callback, error_info);
-            if (sleep_retry_or_aborted(delay_ms, abort_flag)) {
+            if (wait_for_retry(
+                    std::chrono::milliseconds(delay_ms), abort_flag)) {
                 auto cancel_info = make_provider_error(
                     ProviderErrorKind::UserCancelled,
                     0,
@@ -1664,41 +1631,13 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
                 emit_provider_error(callback, cancel_info);
                 return accumulated;
             }
+            emit_retry_resume_event(callback, error_info);
             continue;
         }
 
-        const bool can_retry =
-            error_info.retryable &&
-            !emitted_stream_output &&
-            attempt < kStreamMaxAttempts;
-        if (can_retry) {
-            const int delay_ms = retry_after_delay_ms(r.header, attempt);
-            error_info.retry_attempt = attempt;
-            error_info.retry_max_attempts = kStreamMaxAttempts - 1;
-            error_info.retry_delay_ms = delay_ms;
-            LOG_WARN("Retrying streaming request after " +
-                     provider_error_kind_to_string(error_info.kind) +
-                     " failure, attempt " + std::to_string(attempt + 1) +
-                     "/" + std::to_string(kStreamMaxAttempts));
-            emit_retry_event(callback, error_info);
-            if (sleep_retry_or_aborted(delay_ms, abort_flag)) {
-                auto cancel_info = make_provider_error(
-                    ProviderErrorKind::UserCancelled,
-                    0,
-                    name(),
-                    model_,
-                    std::string{},
-                    std::string{},
-                    std::string{},
-                    false);
-                emit_provider_error(callback, cancel_info);
-                return accumulated;
-            }
-            continue;
-        }
-
-        error_info.retry_attempt = (std::max)(0, attempt - 1);
-        error_info.retry_max_attempts = kStreamMaxAttempts - 1;
+        error_info.retry_attempt =
+            saturating_retry_attempt(attempt > 0 ? attempt - 1 : 0);
+        error_info.retry_max_attempts = 0;
         emit_provider_error(callback, error_info);
         return accumulated;
     }

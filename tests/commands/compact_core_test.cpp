@@ -43,7 +43,6 @@ public:
     bool supports_native_compaction() const override {
         return native_capability;
     }
-    int stream_max_retries() const override { return retry_budget; }
 
     static acecode::ChatResponse response(std::string content,
                                           std::string finish_reason = "stop") {
@@ -57,7 +56,6 @@ public:
     std::deque<acecode::ChatResponse> responses;
     std::deque<std::string> exceptions;
     bool native_capability = false;
-    int retry_budget = 5;
 };
 
 acecode::ChatMessage msg(std::string role,
@@ -93,13 +91,16 @@ acecode::ChatResponse provider_error_response(
     int status_code,
     std::string message,
     bool retryable,
-    std::string raw_body = {}) {
+    std::string raw_body = {},
+    std::int64_t server_retry_after_ms = 0) {
     auto response = ChatStubProvider::response(message, "error");
     response.provider_error.kind = kind;
     response.provider_error.status_code = status_code;
     response.provider_error.display_message = std::move(message);
     response.provider_error.raw_body = std::move(raw_body);
     response.provider_error.retryable = retryable;
+    response.provider_error.server_retry_after_ms =
+        server_retry_after_ms;
     return response;
 }
 
@@ -404,7 +405,6 @@ TEST(CompactCore, TerminalFailureDoesNotInstallHistory) {
 
 TEST(CompactCore, RetriesStructuredTransientErrorWithoutRemovingHistory) {
     ChatStubProvider provider;
-    provider.retry_budget = 1;
     provider.responses.push_back(provider_error_response(
         acecode::ProviderErrorKind::Http,
         429,
@@ -426,38 +426,63 @@ TEST(CompactCore, RetriesStructuredTransientErrorWithoutRemovingHistory) {
     EXPECT_EQ(result.compaction_request_items_removed, 0);
 }
 
-TEST(CompactCore, ExhaustedTransientRetryBudgetFailsAtomically) {
+TEST(CompactCore, TransientRetryContinuesUntilCancellation) {
     ChatStubProvider provider;
-    provider.retry_budget = 1;
-    provider.responses.push_back(provider_error_response(
-        acecode::ProviderErrorKind::Http, 503, "overloaded", true));
-    provider.responses.push_back(provider_error_response(
-        acecode::ProviderErrorKind::Http, 503, "still overloaded", true));
+    for (int i = 0; i < 3; ++i) {
+        provider.responses.push_back(provider_error_response(
+            acecode::ProviderErrorKind::Http,
+            503,
+            "still overloaded",
+            true));
+    }
     std::vector<acecode::ChatMessage> messages{
         msg("user", "oldest"),
         msg("assistant", "newest"),
     };
+    std::atomic<bool> abort_flag{false};
+    int observed_retries = 0;
 
-    auto result = acecode::compact_messages(provider, messages);
+    auto result = acecode::compact_messages(
+        provider,
+        messages,
+        {},
+        false,
+        &abort_flag,
+        [&](const acecode::ProviderErrorInfo& info, bool waiting) {
+            if (!waiting) return;
+            ++observed_retries;
+            EXPECT_EQ(info.retry_max_attempts, -1);
+            if (observed_retries == 3) {
+                abort_flag.store(true);
+                provider.wake_retry_waiter();
+            }
+        });
 
     EXPECT_FALSE(result.performed);
-    EXPECT_EQ(provider.calls.size(), 2u);
+    EXPECT_EQ(provider.calls.size(), 3u);
     expect_same_request(provider.calls[0], provider.calls[1]);
-    EXPECT_EQ(result.compaction_request_retries, 1);
+    expect_same_request(provider.calls[1], provider.calls[2]);
+    EXPECT_EQ(observed_retries, 3);
+    EXPECT_EQ(result.compaction_request_retries, 3);
     EXPECT_EQ(result.compaction_request_items_removed, 0);
     EXPECT_TRUE(result.compacted_messages.empty());
-    EXPECT_NE(result.error.find("still overloaded"), std::string::npos);
+    EXPECT_EQ(result.error, "Compaction cancelled.");
 }
 
 TEST(CompactCore, CancellationInterruptsTransientRetryBackoff) {
     ChatStubProvider provider;
-    provider.retry_budget = 5;
     provider.responses.push_back(provider_error_response(
-        acecode::ProviderErrorKind::Timeout, 0, "timed out", true));
+        acecode::ProviderErrorKind::Timeout,
+        0,
+        "timed out",
+        true,
+        {},
+        -1));
     std::atomic<bool> abort_flag{false};
-    std::thread canceller([&abort_flag] {
+    std::thread canceller([&abort_flag, &provider] {
         std::this_thread::sleep_for(std::chrono::milliseconds(75));
         abort_flag.store(true);
+        provider.wake_retry_waiter();
     });
 
     auto result = acecode::compact_messages(
@@ -472,7 +497,6 @@ TEST(CompactCore, CancellationInterruptsTransientRetryBackoff) {
 
 TEST(CompactCore, ContextRemovalResetsTransientRetryBudget) {
     ChatStubProvider provider;
-    provider.retry_budget = 1;
     provider.responses.push_back(provider_error_response(
         acecode::ProviderErrorKind::Timeout, 0, "timed out", true));
     provider.responses.push_back(provider_error_response(
@@ -489,7 +513,16 @@ TEST(CompactCore, ContextRemovalResetsTransientRetryBudget) {
         msg("assistant", "newest"),
     };
 
-    auto result = acecode::compact_messages(provider, messages);
+    std::vector<int> retry_attempts;
+    auto result = acecode::compact_messages(
+        provider,
+        messages,
+        {},
+        false,
+        nullptr,
+        [&](const acecode::ProviderErrorInfo& info, bool waiting) {
+            if (waiting) retry_attempts.push_back(info.retry_attempt);
+        });
 
     ASSERT_TRUE(result.performed) << result.error;
     ASSERT_EQ(provider.calls.size(), 4u);
@@ -499,6 +532,7 @@ TEST(CompactCore, ContextRemovalResetsTransientRetryBudget) {
     expect_same_request(provider.calls[2], provider.calls[3]);
     EXPECT_EQ(result.compaction_request_retries, 2);
     EXPECT_EQ(result.compaction_request_items_removed, 1);
+    EXPECT_EQ(retry_attempts, (std::vector<int>{1, 1}));
 }
 
 TEST(CompactCore, UsesCodexByteTokenEstimateAndUtf8SafeTruncation) {

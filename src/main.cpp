@@ -96,7 +96,6 @@
 #include "utils/logger.hpp"
 #include "permissions.hpp"
 #include "agent_loop.hpp"
-#include "connectors/connector_auth_recovery.hpp"
 #include "cli/interactive_options.hpp"
 #include "commands/configure.hpp"
 #include "daemon/cli.hpp"
@@ -144,6 +143,7 @@
 #include "tui/compact_animation.hpp"
 #include "tui/compact_notice_row.hpp"
 #include "tui/thinking_heartbeat.hpp"
+#include "tui/model_retry_status.hpp"
 #include "tui/tool_progress.hpp"
 #include "tui/tool_result_fold.hpp"
 #include "tui/tool_row_format.hpp"
@@ -5219,6 +5219,20 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         clamp_chat_focus();
         screen.PostEvent(Event::Custom);
     };
+    callbacks.on_model_retry = [&state, &screen](
+                                   const ProviderErrorInfo& info) {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.current_thinking_phrase =
+            acecode::tui::model_retry_wait_phrase(
+                is_user_chinese(state), info.retry_delay_ms);
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_model_retry_resume = [&state, &screen]() {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.current_thinking_phrase =
+            acecode::tui::model_retry_resume_phrase(is_user_chinese(state));
+        screen.PostEvent(Event::Custom);
+    };
     callbacks.on_turn_finished = [&state, &tui_turn_outcome](
                                      const std::string& status) {
         std::lock_guard<std::mutex> lk(state.mu);
@@ -5227,24 +5241,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     PermissionManager permissions;
     configure_permissions(permissions, dangerous_mode, config.default_permission_mode);
-
-    // 声明在 agent_loop 之前,使其析构晚于 agent_loop(agent_loop 持有的
-    // auth_recovery 回调在其整个生命周期内都可能被调用)。
-    ConnectorAuthRecovery::Options recovery_opts;
-    recovery_opts.load_disk_config = []() { return load_config(); };
-    recovery_opts.on_config_refreshed = [&config]() {
-        // TUI 持本地 AppConfig;钩子回写磁盘后合并回来,防止后续保存抹掉新 key。
-        // config 归 UI 线程读写(惯例同下方 model-pool 监视器):本回调跑在
-        // agent 线程,磁盘读留在本线程,合并赋值 Post 到 UI 线程执行。screen
-        // 不活跃(启动前/退出后)时跳过合并,避免与关停期的读写竞争。
-        auto saved = load_config().saved_models;
-        auto* scr = g_active_screen.load(std::memory_order_acquire);
-        if (!scr) return;
-        scr->Post([&config, saved = std::move(saved)]() mutable {
-            config.saved_models = std::move(saved);
-        });
-    };
-    ConnectorAuthRecovery auth_recovery(std::move(recovery_opts));
 
     AgentLoop agent_loop(provider_accessor, tools, callbacks, working_dir, permissions);
     agent_loop.set_context_window(config.context_window);
@@ -5325,13 +5321,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
     }
     agent_loop.set_session_manager(&session_manager);
-    agent_loop.set_auth_recovery(
-        [&auth_recovery, &session_manager](const std::string& base_url,
-                                           const std::string& key_at_request) {
-            return auth_recovery.recover(session_manager.current_model_preset(),
-                                         base_url,
-                                         key_at_request);
-        });
 
     std::mutex tui_title_threads_mu;
     std::vector<std::thread> tui_title_threads;
@@ -5475,7 +5464,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         rd.hook_manager = &hook_manager;
         rd.template_permissions = &permissions;
         rd.power_guard = &acecode::process_power_guard();
-        rd.auth_recovery = &auth_recovery;
         subagent_host_deps.registry_deps = std::move(rd);
     }
     subagent_host_deps.parent_session_id = [&session_manager]() {

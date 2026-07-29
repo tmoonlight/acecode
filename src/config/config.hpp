@@ -126,11 +126,10 @@ private:
     mutable std::mutex mu_;
 };
 
-// 连接器生命周期钩子:一次性外部进程,由 config.json 数据完全描述。
-// on_enable    —— 连接器开关从关到开时异步执行。
-// on_auth_error —— 聊天请求收到认证形态错误(HTTP 400/401)且模型 base_url
-//                  命中 auth_error_scope.base_url_prefix 时执行,退出 0 后
-//                  acecode 按当前 saved model name 精确读取新 key 并重试一次。
+// 连接器首次启动认证钩子:一次性外部进程,由 config.json 数据完全描述。
+// on_startup —— 每个 ACECode 安装仅在首次 daemon 启动时自动执行一次。
+// on_enable / on_auth_error / auth_error_scope 仍为兼容旧配置而解析、序列化,
+// 但运行时不再自动执行或匹配它们。
 struct ConnectorHookConfig {
     std::string command;                 // 可执行文件路径(安装脚本写绝对路径)
     std::vector<std::string> args;
@@ -142,10 +141,10 @@ struct ConnectorConfig {
     std::string name;
     std::string description;
     bool enabled = true;
-    std::optional<ConnectorHookConfig> on_enable;      // JSON: hooks.on_enable
-    std::optional<ConnectorHookConfig> on_auth_error;  // JSON: hooks.on_auth_error
-    std::optional<ConnectorHookConfig> on_startup;     // JSON: hooks.on_startup —— daemon 启动时对 enabled 连接器异步执行一次
-    std::string auth_error_base_url_prefix;            // JSON: auth_error_scope.base_url_prefix
+    std::optional<ConnectorHookConfig> on_enable;      // 兼容旧 JSON: hooks.on_enable,运行时不执行
+    std::optional<ConnectorHookConfig> on_auth_error;  // 兼容旧 JSON: hooks.on_auth_error,运行时不执行
+    std::optional<ConnectorHookConfig> on_startup;     // JSON: hooks.on_startup,首次 daemon 启动认证
+    std::string auth_error_base_url_prefix;            // 兼容旧 JSON: auth_error_scope.base_url_prefix
 };
 
 struct DaemonConfig {
@@ -498,14 +497,8 @@ bool parse_connectors_json(const nlohmann::json& value,
                            std::vector<ConnectorConfig>& out,
                            std::string* error = nullptr);
 
-// 返回「enabled 从 false→true(或新出现)且配置了 on_enable 钩子」的连接器。
-// PUT /api/config/connectors 用它决定要异步拉起哪些 on_enable 进程。
-std::vector<ConnectorConfig> newly_enabled_connectors(
-    const std::vector<ConnectorConfig>& before,
-    const std::vector<ConnectorConfig>& after);
-
-// 返回 enabled 且配置了 on_startup 钩子的连接器。daemon 启动时对它们各异步
-// 执行一次钩子(登录检查类命令自身保证幂等)。
+// 返回 enabled 且配置了 on_startup 钩子的连接器。调用方只可在首次 daemon
+// 启动状态认领成功后执行这些钩子。
 std::vector<ConnectorConfig> startup_hook_connectors(
     const std::vector<ConnectorConfig>& connectors);
 
