@@ -410,7 +410,7 @@ static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
         << "  /memory   - List, view, edit, forget, or reload persistent user memory\n"
         << "  /init     - Generate an AGENT.md skeleton in the current directory\n"
         << "  /history  - List or clear the per-working-directory input history\n"
-        << "  /feedback - Upload current session diagnostics to the configured upgrade service\n"
+        << "  /feedback - Upload current session and runtime logs to the configured upgrade service\n"
         << "  /models   - Inspect bundled models.dev registry\n"
         << "  /browser  - Show or toggle ACE Browser Bridge tools for this session\n"
         << "  /proxy    - Show or switch the HTTP proxy used for LLM/API requests\n"
@@ -500,13 +500,23 @@ static void cmd_feedback(CommandContext& ctx, const std::string& raw_args) {
     }
     if (ctx.post_event) ctx.post_event();
 
-    const fs::path log_path = path_from_utf8(ctx.cwd) / "acecode.log";
     acecode::feedback::FeedbackPackageRequest package_req;
     package_req.feedback_text = feedback_text;
     package_req.session_id = session_id;
     package_req.session_jsonl_path = session_jsonl;
-    package_req.log_path = log_path;
     package_req.acecode_version = ACECODE_VERSION;
+    // TUI 自己的日志(cwd/acecode.log)+ 同机 daemon / desktop 的滚动日志:
+    // TUI 会话也可能被 daemon 侧的组件影响,缺失的来源会被静默跳过。
+    {
+        acecode::feedback::FeedbackLogSource tui_log;
+        tui_log.path = path_from_utf8(ctx.cwd) / "acecode.log";
+        tui_log.entry_name = "logs/acecode.log.tail.txt";
+        package_req.logs.push_back(std::move(tui_log));
+    }
+    for (auto& source :
+         acecode::feedback::collect_runtime_log_sources(path_from_utf8(get_logs_dir()))) {
+        package_req.logs.push_back(std::move(source));
+    }
 
     auto package = acecode::feedback::build_feedback_package(package_req);
     if (!package.ok) {
@@ -2039,7 +2049,7 @@ void register_builtin_commands(CommandRegistry& registry) {
     register_lsp_command(registry);
     register_remote_control_command(registry);
     register_desktop_command(registry);
-    registry.register_command({"feedback", "Upload current session diagnostics to the configured upgrade service", cmd_feedback});
+    registry.register_command({"feedback", "Upload current session and runtime logs to the configured upgrade service", cmd_feedback});
     registry.register_command({"browser", "Show or toggle ACE Browser Bridge tools for this session", cmd_browser});
     registry.register_command({"tasks", "List, abort, or clear subagent background tasks", cmd_tasks});
     registry.register_command({"title", "Set or show the window title for this session", cmd_title});

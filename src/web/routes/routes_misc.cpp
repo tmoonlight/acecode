@@ -489,17 +489,15 @@ void WebServer::Impl::register_feedback() {
             package_req.source = "desktop";
             package_req.feedback_text = *feedback_text;
             package_req.acecode_version = ACECODE_VERSION;
-            package_req.log_entry_name = "logs/desktop.log.tail.txt";
             if (!deps.feedback_output_dir.empty()) {
                 package_req.output_dir = path_from_utf8(deps.feedback_output_dir);
             }
 
+            // desktop 壳日志 + 处理本请求的 daemon 日志:排查问题两边都要看。
             const fs::path logs_dir = deps.logs_dir.empty()
                 ? path_from_utf8(get_logs_dir())
                 : path_from_utf8(deps.logs_dir);
-            if (auto log_path = acecode::feedback::latest_desktop_log_path(logs_dir)) {
-                package_req.log_path = *log_path;
-            }
+            package_req.logs = acecode::feedback::collect_runtime_log_sources(logs_dir);
 
             std::string selected_session_id = *session_id;
             std::string selected_workspace_hash = *workspace_hash;
@@ -539,6 +537,16 @@ void WebServer::Impl::register_feedback() {
             std::error_code ec;
             fs::remove(package.package_path, ec);
 
+            json logs = json::array();
+            for (const auto& inclusion : package.logs) {
+                logs.push_back(json{
+                    {"entry_name", inclusion.entry_name},
+                    {"path", inclusion.source_path},
+                    {"available", inclusion.included},
+                    {"tail_bytes", static_cast<std::uint64_t>(inclusion.tail_bytes)},
+                });
+            }
+
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = json{
@@ -546,6 +554,7 @@ void WebServer::Impl::register_feedback() {
                 {"package_filename", package.package_filename},
                 {"log_included", package.log_included},
                 {"log_tail_bytes", static_cast<std::uint64_t>(package.log_tail_bytes)},
+                {"logs", logs},
                 {"included_files", package.included_files},
                 {"selected_session_id", selected_session_id.empty()
                     ? json(nullptr)

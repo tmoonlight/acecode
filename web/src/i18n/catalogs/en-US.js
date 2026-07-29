@@ -93,7 +93,7 @@ export const enUS = {
     descriptions: {
       init: 'Analyze this codebase and generate (or improve) AGENT.md',
       compact: 'Compress conversation history',
-      feedback: 'Send feedback with current-session Desktop diagnostics',
+      feedback: 'Send feedback with current-session desktop and daemon diagnostics',
       goal: 'Create, view, pause, resume, edit, or clear the thread goal',
       plan: 'Enter plan mode or start planning a described task',
       turn: 'Guide the active turn at its next model boundary',

@@ -93,7 +93,7 @@ export const zhCN = {
     descriptions: {
       init: '分析此代码库并生成（或改进）AGENT.md',
       compact: '压缩对话历史记录',
-      feedback: '发送反馈并附带当前会话和桌面诊断日志',
+      feedback: '发送反馈并附带当前会话、桌面与 daemon 诊断日志',
       goal: '创建、查看、暂停、恢复、编辑或清除线程 Goal',
       plan: '进入计划模式，或开始规划所描述的任务',
       turn: '在下一次模型调用边界引导当前回合',

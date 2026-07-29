@@ -2151,8 +2151,13 @@ Body fields are optional strings:
 }
 ```
 
-If `session_id` is empty, the package contains desktop logs only. The upload
-target is derived from `upgrade.base_url`.
+The package always carries the newest rotated log of every runtime that writes
+into the logs directory: the desktop shell (`desktop-<date>.log`) and the daemon
+that serves the request (`daemon-<date>.log`). Each is truncated to its last
+512 KiB and stored as `logs/desktop.log.tail.txt` / `logs/daemon.log.tail.txt`.
+A runtime with no log file present is skipped silently, so a browser-only
+deployment uploads the daemon log alone. If `session_id` is empty, the package
+contains those logs only. The upload target is derived from `upgrade.base_url`.
 
 Success:
 
@@ -2162,11 +2167,30 @@ Success:
   "package_filename": "acecode-feedback-desktop-....zip",
   "log_included": true,
   "log_tail_bytes": 4312,
-  "included_files": ["logs/desktop.log.tail.txt","feedback.json"],
+  "logs": [
+    {
+      "entry_name": "logs/desktop.log.tail.txt",
+      "path": "/home/u/.acecode/logs/desktop-2026-06-18.log",
+      "available": true,
+      "tail_bytes": 1200
+    },
+    {
+      "entry_name": "logs/daemon.log.tail.txt",
+      "path": "/home/u/.acecode/logs/daemon-2026-06-18.log",
+      "available": true,
+      "tail_bytes": 3112
+    }
+  ],
+  "included_files": ["logs/desktop.log.tail.txt","logs/daemon.log.tail.txt","feedback.json"],
   "selected_session_id": null,
   "workspace_hash": ""
 }
 ```
+
+`log_included` is true when at least one log made it into the archive, and
+`log_tail_bytes` is the sum across all of them; `logs[]` reports each requested
+source, including the ones that were unavailable. The same array is mirrored
+into the archive's `feedback.json` under `logs`.
 
 Errors include `SESSION_NOT_FOUND`, `PACKAGE_FAILED`, and `UPLOAD_FAILED`.
 

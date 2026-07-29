@@ -375,4 +375,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '未发现可用的非本机网络地址，请检查网卡连接。': 'No usable non-local network address was found. Check your network adapter.',
   '系统防火墙、路由器或云安全组可能仍需放行端口。公网访问建议使用可信 VPN 或 HTTPS 反向代理。': 'Your system firewall, router, or cloud security group may still need to allow this port. For public Internet access, use a trusted VPN or HTTPS reverse proxy.',
   '远程 Web 监听地址切换超时': 'Timed out while switching the remote Web listener address',
+  '默认附带最近的 desktop 与 daemon 日志。关联某个具体的会话记录将更有助于我们帮您排查问题。':
+    'By default the most recent desktop and daemon logs are included. Linking a specific session will help us troubleshoot the issue.',
 });
