@@ -1609,6 +1609,69 @@ body {
 .ace-sidebar-session-row {
   position: relative;
 }
+.ace-session-hover-card {
+  position: fixed;
+  z-index: 240;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: min(260px, calc(100vw - 16px));
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 9px 10px;
+  overflow: auto;
+  border: 1px solid var(--ace-border);
+  border-radius: 9px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: var(--ace-shadow-lg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 400;
+  pointer-events: none;
+  animation: ace-session-hover-card-in 0.1s ease both;
+}
+.ace-session-hover-card[data-placement="right"] {
+  --ace-session-hover-card-offset: -3px;
+}
+.ace-session-hover-card[data-placement="left"] {
+  --ace-session-hover-card-offset: 3px;
+}
+.ace-session-hover-detail-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+.ace-session-hover-detail-row + .ace-session-hover-detail-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ace-border-soft);
+}
+.ace-session-hover-detail-label {
+  color: var(--ace-fg-mute);
+  white-space: nowrap;
+}
+.ace-session-hover-detail-value {
+  min-width: 0;
+  color: var(--ace-fg);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+@keyframes ace-session-hover-card-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--ace-session-hover-card-offset, -3px));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-session-hover-card {
+    animation: none;
+  }
+}
 /*
  * /rc 绑定态：亮色 surge 只跑一次，底层的低对比背景一直保留到解绑。
  * 覆盖层不吃鼠标，也不改变 session title / unread / active 的文字语义。
