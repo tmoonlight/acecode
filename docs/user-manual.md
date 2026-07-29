@@ -932,6 +932,21 @@ YOLO / `-dangerous` + 非 loopback 是硬拒绝组合，启动期会被 `preflig
 }
 ```
 
+Desktop/Web 管理界面的“设置 > 常规”底部提供“远程 Web 模式”。开启后，
+ACECode 会把 `web.bind` 持久化为 `0.0.0.0`，并只重启 Web 监听器；daemon
+进程、端口、token、现有会话和正在执行的任务都不会重启。界面的连接下拉框
+会把当前计算机名放在第一项并默认选中，其余可用网卡 IP 地址继续作为备选；
+然后可使用“复制连接”复制完整的 token URL。关闭后会恢复为 `127.0.0.1`。
+
+复制出的连接包含 daemon 访问 Token，**请勿将其公开给别人**。绑定到
+`0.0.0.0` 只表示 ACECode 接受外部连接，不会自动修改 Windows/macOS/Linux
+防火墙、路由器端口转发、云安全组或 NAT。跨公网使用时，优先通过可信 VPN，
+或在 ACECode 前配置 HTTPS 反向代理；直接使用 HTTP 会让同一网络中的监听者
+有机会看到 bearer token。
+
+远程客户端访问 `/api/health`、其他 API 和 WebSocket 时都必须携带正确
+token。危险模式（`--yolo` / `-dangerous`）下不能开启远程 Web 模式。
+
 **端口被占直接拒启**，不 retry / 不 fallback。日志会提示：
 ```
 [web] port 28080 may be in use — change web.port in config.json

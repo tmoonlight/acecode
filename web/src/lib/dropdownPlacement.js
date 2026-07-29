@@ -1,5 +1,6 @@
 export const DROPDOWN_GAP_PX = 8;
 export const DROPDOWN_VIEWPORT_MARGIN_PX = 8;
+export const DROPDOWN_PLACEMENT_HYSTERESIS_PX = 8;
 
 function finiteNumber(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -7,6 +8,38 @@ function finiteNumber(value, fallback = 0) {
 
 function nonNegativeNumber(value, fallback = 0) {
   return Math.max(0, finiteNumber(value, fallback));
+}
+
+function isPlacement(value) {
+  return value === 'above' || value === 'below';
+}
+
+function stabilizePlacement({
+  placement,
+  previousPlacement,
+  availableAbove,
+  availableBelow,
+  preferredHeight,
+  hysteresis,
+}) {
+  if (!isPlacement(previousPlacement) || previousPlacement === placement) {
+    return placement;
+  }
+
+  if (previousPlacement === 'above') {
+    const lowerAdvantage = availableBelow >= preferredHeight
+      ? preferredHeight - availableAbove
+      : availableBelow - availableAbove;
+    return lowerAdvantage > hysteresis ? 'below' : 'above';
+  }
+
+  if (availableAbove >= preferredHeight) {
+    const upperRecovery = availableAbove - preferredHeight;
+    return upperRecovery > hysteresis ? 'above' : 'below';
+  }
+
+  const upperAdvantage = availableAbove - availableBelow;
+  return upperAdvantage > hysteresis ? 'above' : 'below';
 }
 
 export function computeAnchoredDropdownLayout({
@@ -17,6 +50,8 @@ export function computeAnchoredDropdownLayout({
   preferredHeight,
   gap = DROPDOWN_GAP_PX,
   margin = DROPDOWN_VIEWPORT_MARGIN_PX,
+  previousPlacement,
+  hysteresis = DROPDOWN_PLACEMENT_HYSTERESIS_PX,
 } = {}) {
   const safeViewportTop = finiteNumber(viewportTop);
   const safeViewportHeight = nonNegativeNumber(viewportHeight);
@@ -28,6 +63,10 @@ export function computeAnchoredDropdownLayout({
   const safePreferredHeight = nonNegativeNumber(preferredHeight);
   const safeGap = nonNegativeNumber(gap);
   const safeMargin = nonNegativeNumber(margin);
+  const safeHysteresis = nonNegativeNumber(
+    hysteresis,
+    DROPDOWN_PLACEMENT_HYSTERESIS_PX,
+  );
   const viewportBottom = safeViewportTop + safeViewportHeight;
 
   const availableAbove = Math.max(
@@ -45,6 +84,14 @@ export function computeAnchoredDropdownLayout({
       placement = 'below';
     }
   }
+  placement = stabilizePlacement({
+    placement,
+    previousPlacement,
+    availableAbove,
+    availableBelow,
+    preferredHeight: safePreferredHeight,
+    hysteresis: safeHysteresis,
+  });
 
   const availableHeight = placement === 'above' ? availableAbove : availableBelow;
   return {

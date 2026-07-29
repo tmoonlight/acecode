@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace acecode::desktop::custom_toast {
 namespace {
@@ -93,6 +94,68 @@ int fit_body_lines(int available_height, int line_height, int max_lines) {
     if (available_height < line_height) return 0;
     const int fits = available_height / line_height;
     return std::min(fits, max_lines);
+}
+
+ToastChromeGeometry compute_toast_chrome_geometry(int surface_x,
+                                                  int surface_y,
+                                                  int surface_width,
+                                                  int surface_height,
+                                                  int chrome_inset) {
+    const int inset = std::max(0, chrome_inset);
+    const int width = std::max(0, surface_width);
+    const int height = std::max(0, surface_height);
+    return {
+        surface_x - inset,
+        surface_y - inset,
+        width + inset * 2,
+        height + inset * 2,
+        inset,
+        inset,
+        width,
+        height,
+    };
+}
+
+double toast_rounded_rect_distance(double x,
+                                   double y,
+                                   int width,
+                                   int height,
+                                   int radius) {
+    if (width <= 0 || height <= 0) {
+        return std::numeric_limits<double>::infinity();
+    }
+    const double half_width = static_cast<double>(width) / 2.0;
+    const double half_height = static_cast<double>(height) / 2.0;
+    const double clamped_radius = std::clamp(
+        static_cast<double>(std::max(0, radius)),
+        0.0,
+        std::min(half_width, half_height));
+    const double qx =
+        std::abs(x - half_width) - (half_width - clamped_radius);
+    const double qy =
+        std::abs(y - half_height) - (half_height - clamped_radius);
+    const double outside = std::hypot(std::max(qx, 0.0), std::max(qy, 0.0));
+    const double inside = std::min(std::max(qx, qy), 0.0);
+    return outside + inside - clamped_radius;
+}
+
+std::uint8_t toast_surface_coverage(double signed_distance) {
+    const double coverage = std::clamp(0.5 - signed_distance, 0.0, 1.0);
+    return static_cast<std::uint8_t>(std::lround(coverage * 255.0));
+}
+
+std::uint8_t toast_shadow_alpha(double signed_distance,
+                                int blur,
+                                int max_alpha) {
+    if (blur <= 0 || max_alpha <= 0 ||
+        signed_distance >= static_cast<double>(blur)) {
+        return 0;
+    }
+    const double normalized =
+        1.0 - std::max(0.0, signed_distance) / static_cast<double>(blur);
+    const int clamped_max = std::min(255, max_alpha);
+    return static_cast<std::uint8_t>(std::lround(
+        static_cast<double>(clamped_max) * normalized * normalized));
 }
 
 } // namespace acecode::desktop::custom_toast

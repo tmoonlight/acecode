@@ -15,6 +15,8 @@ import {
 } from './lib/desktopNotificationMonitor.js';
 import {
   maybeNotify,
+  noteHostWindowFocus,
+  isHostWindowFocused,
   notificationBodyFromEvent,
 } from './lib/desktopNotify.js';
 import { createNewSessionForActiveWorkspace } from './lib/newSession.js';
@@ -269,6 +271,24 @@ export function App() {
     document.documentElement.setAttribute('data-font-size', fontSize);
   }, [fontSize]);
   useEffect(() => { activeRefRef.current = activeRef; }, [activeRef]);
+  // Track host-window attention for suppress_when_focused. WebView2 can
+  // briefly report document.hasFocus()=false when native chrome steals focus;
+  // window focus/blur keeps a sticky attentive flag as fallback.
+  useEffect(() => {
+    const onFocus = () => noteHostWindowFocus(true);
+    const onBlur = () => noteHostWindowFocus(false);
+    noteHostWindowFocus(
+      typeof document !== 'undefined'
+        && typeof document.hasFocus === 'function'
+        && document.hasFocus(),
+    );
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
   useEffect(() => {
     const expertId = activeRef?.expertId || activeRef?.expert_id || activeRef?.expert?.id || '';
     if (expertId) rememberRecentExpert(expertId);
@@ -729,11 +749,10 @@ export function App() {
         workspaceHash,
         sessionTitle,
         bodyText: notificationBodyFromEvent(type, payload),
+        // visibleSessionRef is non-null only when the chat for that session is
+        // the on-screen active conversation — that is the suppress target.
         activeRef: visibleSessionRef.current,
-        hasFocus: typeof document !== 'undefined'
-          && typeof document.hasFocus === 'function'
-          ? document.hasFocus()
-          : true,
+        hasFocus: isHostWindowFocused(),
         cfg: healthRef.current?.notifications,
       });
     };

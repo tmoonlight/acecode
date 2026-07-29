@@ -154,39 +154,7 @@ TEST(NativeNotifications, AuthorizationStateResetsToUnavailableOnShutdown) {
     EXPECT_FALSE(state.can_open_settings);
 }
 
-TEST(NativeNotifications, OptInDeliversWindowsToastAndActivatesWindow) {
-#if defined(_WIN32) && !defined(ACECODE_NOTIFICATION_BACKEND_STUB)
-    const char* enabled = std::getenv("ACECODE_RUN_NOTIFICATION_SMOKE");
-    if (!enabled || std::string(enabled) != "1") {
-        GTEST_SKIP() << "set ACECODE_RUN_NOTIFICATION_SMOKE=1 for the Windows runtime smoke";
-    }
-
-    acecode::desktop::shutdown_notifications();
-    void* window = acecode::desktop::capture_tui_notification_window();
-    acecode::desktop::NotificationInitOptions options;
-    options.app_name = "ACECode Desktop";
-    options.application_id = "ACECode.ACECode.Desktop.1";
-    options.activation_window = window;
-    ASSERT_TRUE(acecode::desktop::init_notifications(options));
-
-    const auto payload = sample_payload(
-        "completion-runtime-smoke", "session-runtime-smoke");
-    EXPECT_TRUE(acecode::desktop::show_notification(payload));
-    if (window) {
-        EXPECT_TRUE(acecode::desktop::activate_notification_window(window));
-    }
-
-    // Give Windows Notification Center enough time to accept and render the
-    // asynchronous toast before clearing WinToast state.
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    acecode::desktop::shutdown_notifications();
-#else
-    GTEST_SKIP() << "WinToast runtime smoke requires a Windows SDK build";
-#endif
-}
-
-// 手动冒烟:在"WinToast 装了也不弹"的那类 Win10 机器上直接验证自绘弹框。
-// 强制 backend=custom 绕开系统 toast 通路,弹框应出现在工作区右下角。
+// 手动冒烟:验证自绘右下角弹框能出现。需有可用桌面会话。
 TEST(NativeNotifications, OptInDeliversSelfDrawnToast) {
 #ifdef _WIN32
     const char* enabled = std::getenv("ACECODE_RUN_NOTIFICATION_SMOKE");
@@ -200,7 +168,6 @@ TEST(NativeNotifications, OptInDeliversSelfDrawnToast) {
     options.application_id = "ACECode.ACECode.Desktop.1";
     options.activation_window =
         acecode::desktop::capture_tui_notification_window();
-    options.backend = "custom";
     ASSERT_TRUE(acecode::desktop::init_notifications(options));
 
     EXPECT_TRUE(acecode::desktop::show_notification(

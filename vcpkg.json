@@ -7,11 +7,7 @@
     "ftxui",
     "libzip",
     "nlohmann-json",
-    "sqlite3",
-    {
-      "name": "wintoast",
-      "platform": "windows & !mingw"
-    }
+    "sqlite3"
   ],
   "features": {
     "tests": {

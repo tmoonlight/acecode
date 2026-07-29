@@ -115,8 +115,7 @@ $env:PATH = "$env:ACECODE_WINLIBS_ROOT\bin;$env:PATH"
 
 该 preset 还会生成 `compile_commands.json`，为目标和 host 依赖都使用
 MinGW vcpkg triplet，并将构建并行数限制为 8，以提高最小化环境下的稳定性。
-WinToast 依赖 Windows SDK，因此纯 MinGW 构建会
-使用通知 stub；普通 Windows presets 仍保留原生 WinToast 通知。
+Windows 桌面通知统一使用自绘右下角弹框（不再走 WinRT/WinToast）。
 
 等价手动配置：
 

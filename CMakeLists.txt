@@ -118,12 +118,6 @@ find_package(ftxui CONFIG REQUIRED)
 find_package(libzip CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
-set(ACECODE_HAS_WINTOAST OFF)
-if(WIN32 AND NOT MINGW)
-    find_package(unofficial-wintoast CONFIG REQUIRED)
-    set(ACECODE_HAS_WINTOAST ON)
-endif()
-
 # Crow is the HTTP/WebSocket server used by `acecode daemon`. Wired up as
 # QUIET in M1 so existing builds keep working before users re-run vcpkg
 # install; M2 introduces the first translation unit that consumes Crow and
@@ -191,7 +185,6 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/desktop/custom_toast_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/folder_picker_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/locale.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/notification_backend_policy.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/notifications.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/open_request.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/open_in_explorer.cpp
@@ -312,26 +305,10 @@ elseif(WIN32)
     target_link_libraries(acecode_native_bridge_support PUBLIC
         advapi32 ws2_32 ole32 shell32 user32 gdi32 msimg32 winmm
     )
-    # The Windows backend is always compiled now: it also owns the self-drawn
-    # renderer, which needs nothing beyond Win32 + GDI. WinToast is layered on
-    # top when the toolchain can build it.
+    # Windows notifications use the self-drawn layered toast (Win32 + GDI only).
     target_sources(acecode_native_bridge_support PRIVATE
         ${CMAKE_SOURCE_DIR}/src/desktop/notifications_win.cpp
     )
-    if(ACECODE_HAS_WINTOAST)
-        target_link_libraries(acecode_native_bridge_support PUBLIC
-            unofficial::wintoast::wintoast
-        )
-        target_compile_definitions(acecode_native_bridge_support PUBLIC
-            ACECODE_HAS_WINTOAST=1
-        )
-    else()
-        # WinToast requires Windows SDK WRL headers, which are intentionally
-        # absent from self-contained MinGW/WinLibs toolchains. Those builds run
-        # the self-drawn renderer only.
-        message(STATUS "WinToast unavailable; Windows notifications will use "
-                       "the self-drawn toast renderer only.")
-    endif()
 else()
     target_sources(acecode_native_bridge_support PRIVATE
         ${CMAKE_SOURCE_DIR}/src/desktop/notifications_stub.cpp
@@ -411,7 +388,7 @@ if(WIN32)
     # ws2_32: src/desktop/daemon_supervisor.cpp 用 winsock 探测端口连通性。
     # mswsock: standalone Asio IOCP uses AcceptEx/GetAcceptExSockaddrs.
     # ole32/shell32/user32: src/desktop/folder_picker_win.cpp 的 COM + IFileOpenDialog + owner/foreground handling。
-    target_link_libraries(acecode_testable PUBLIC bcrypt advapi32 winhttp ws2_32 mswsock ole32 shell32 user32)
+    target_link_libraries(acecode_testable PUBLIC bcrypt advapi32 winhttp ws2_32 mswsock iphlpapi ole32 shell32 user32)
     # winpty 客户端库(< 1809 的 PTY 兜底,cmake/acecode_winpty.cmake)。
     target_link_libraries(acecode_testable PUBLIC winpty_static)
 endif()

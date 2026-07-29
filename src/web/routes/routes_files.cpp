@@ -1,6 +1,8 @@
 // routes_files.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
 #include "../../skills/skill_init.hpp"
+#include "../../desktop/open_in_explorer.hpp"
+#include "../../config/config.hpp"
 
 namespace acecode::web {
 
@@ -63,35 +65,25 @@ void WebServer::Impl::register_files() {
 
         // 无工作区会话不会把真实 cwd 暴露给前端。变更记录里的绝对路径因此会被
         // 前端拆成“所在目录 + 文件名”,不能通过 workspace cwd 的精确白名单。
-        // 仅预览端点允许在 UnknownWorkspace 后按活动 no-workspace session 根
-        // 重新校验；目录树和 Git 路由仍只认 allowed_file_cwds()。
+        // 仅预览端点在失败后按活动 no-workspace session 根 + ACECode 管理目录
+        // (~/.acecode/skills、projects,与 open-in-explorer 对齐)重新校验。
+        // 目录树和 Git 路由仍只认 allowed_file_cwds()。
         auto validate_preview_path = [this](
             const std::string& cwd,
             const std::string& path)
             -> std::variant<std::filesystem::path, FileError> {
-            auto validated = validate_path_within(cwd, path, allowed_file_cwds());
-            const auto* error = std::get_if<FileError>(&validated);
-            if (!error ||
-                error->kind != FileErrorKind::UnknownWorkspace ||
-                !deps.session_registry) {
-                return validated;
-            }
-
-            const auto requested_path =
-                path_from_utf8(cwd) / path_from_utf8(path);
-            const auto requested_path_utf8 = path_to_utf8(requested_path);
-            for (const auto& session : deps.session_registry->list_active()) {
-                if (!session.no_workspace || session.cwd.empty()) continue;
-                auto session_validated = validate_path_within(
-                    session.cwd,
-                    requested_path_utf8,
-                    {session.cwd});
-                if (std::holds_alternative<std::filesystem::path>(
-                        session_validated)) {
-                    return session_validated;
+            std::vector<std::string> extra_roots;
+            if (deps.session_registry) {
+                for (const auto& session : deps.session_registry->list_active()) {
+                    if (!session.no_workspace || session.cwd.empty()) continue;
+                    extra_roots.push_back(session.cwd);
                 }
             }
-            return validated;
+            extra_roots = acecode::desktop::append_acecode_managed_open_roots(
+                std::move(extra_roots),
+                acecode::get_acecode_dir());
+            return validate_preview_path_within(
+                cwd, path, allowed_file_cwds(), extra_roots);
         };
 
         // GET /api/files?cwd=<abs>&path=<rel>&show_hidden=<0|1>

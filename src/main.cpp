@@ -5688,7 +5688,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         notification_options.app_name = "ACECode TUI";
         notification_options.application_id = "ACECode.ACECode.TUI.1";
         notification_options.activation_window = tui_notification_window;
-        notification_options.backend = config.desktop.notifications.backend;
         tui_notifications_ready =
             acecode::desktop::init_notifications(notification_options);
         if (tui_notifications_ready) {

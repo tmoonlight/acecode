@@ -264,6 +264,99 @@ test('file and directory targets build expected actions', () => {
   ]);
 });
 
+test('所有本地文件地址复制入口都配套同一目标的资源管理器动作', () => {
+  const cases = [
+    {
+      name: 'workspace',
+      input: {
+        workspaceTarget: {
+          workspaceHash: 'w1',
+          path: 'C:/repo',
+          active: false,
+          expanded: false,
+        },
+      },
+      copyAction: DESKTOP_CONTEXT_ACTIONS.COPY_WORKSPACE_PATH,
+      explorerTarget: { path: 'C:/repo', kind: 'workspace' },
+    },
+    {
+      name: 'file tree file',
+      input: {
+        fileTarget: {
+          kind: 'file',
+          relativePath: 'src/a.cpp',
+          absolutePath: 'C:/repo/src/a.cpp',
+        },
+      },
+      copyAction: DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
+      explorerTarget: { path: 'C:/repo/src/a.cpp', kind: 'file' },
+    },
+    {
+      name: 'file tree directory',
+      input: {
+        fileTarget: {
+          kind: 'directory',
+          relativePath: 'src',
+          absolutePath: 'C:/repo/src',
+        },
+      },
+      copyAction: DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
+      explorerTarget: { path: 'C:/repo/src', kind: 'directory' },
+    },
+    {
+      name: 'preview tab',
+      input: {
+        previewTabTarget: {
+          tabType: 'file',
+          relativePath: 'src/a.cpp',
+          absolutePath: 'C:/repo/src/a.cpp',
+        },
+      },
+      copyAction: DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
+      explorerTarget: { path: 'C:/repo/src/a.cpp', kind: 'file' },
+    },
+    {
+      name: 'change review',
+      input: {
+        reviewTarget: {
+          kind: 'file',
+          file: 'src/a.cpp',
+          absolutePath: 'C:/repo/src/a.cpp',
+          canReveal: true,
+        },
+      },
+      copyAction: DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH,
+      explorerTarget: { path: 'C:/repo/src/a.cpp', kind: 'file' },
+    },
+    {
+      name: 'attachment',
+      input: {
+        attachmentTarget: {
+          id: 'a1',
+          name: 'a.png',
+          url: '/api/attachments/a1/blob',
+          path: 'C:/repo/.acecode/attachments/a1.png',
+        },
+      },
+      copyAction: DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL,
+      explorerTarget: { path: 'C:/repo/.acecode/attachments/a1.png', kind: 'file' },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const items = buildDesktopContextMenuItems(testCase.input);
+    assert.equal(
+      items.some((item) => item.id === testCase.copyAction),
+      true,
+      `${testCase.name} should expose its copy action`,
+    );
+    const explorer = items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER);
+    assert.ok(explorer, `${testCase.name} should expose Explorer reveal`);
+    assert.equal(explorer.enabled, true, `${testCase.name} Explorer reveal should be enabled`);
+    assert.deepEqual(explorer.target, testCase.explorerTarget);
+  }
+});
+
 test('review, message, tool, and attachment targets build object actions first', () => {
   assert.deepEqual(ids(buildDesktopContextMenuItems({
     reviewTarget: { kind: 'summary', canRefresh: true },
@@ -327,11 +420,19 @@ test('review, message, tool, and attachment targets build object actions first',
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.deepEqual(ids(buildDesktopContextMenuItems({
-    attachmentTarget: { id: 'a1', name: 'a.png', url: '/blob', previewUrl: '/blob', mutable: true },
+    attachmentTarget: {
+      id: 'a1',
+      name: 'a.png',
+      url: '/blob',
+      path: 'C:/repo/.acecode/attachments/a1.png',
+      previewUrl: '/blob',
+      mutable: true,
+    },
   })), [
     DESKTOP_CONTEXT_ACTIONS.PREVIEW_ATTACHMENT,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_NAME,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL,
+    DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
     DESKTOP_CONTEXT_ACTIONS.REMOVE_ATTACHMENT,
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
@@ -373,6 +474,7 @@ test('聊天图片附件显示复制图片动作', () => {
       id: 'a1',
       name: 'a.png',
       url: '/blob',
+      path: 'C:/repo/.acecode/attachments/a1.png',
       previewUrl: '/blob',
       copyImageUrl: '/blob',
       mimeType: 'image/png',
@@ -386,6 +488,7 @@ test('聊天图片附件显示复制图片动作', () => {
     DESKTOP_CONTEXT_ACTIONS.PREVIEW_ATTACHMENT,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_NAME,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL,
+    DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.equal(items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_IMAGE).enabled, true);
@@ -492,12 +595,17 @@ test('contextTargetsFromElement 提取各类目标', () => {
   const attachment = elementFor(ATTACHMENT_TARGET_SELECTOR, {
     'data-desktop-attachment-id': 'a1',
     'data-desktop-attachment-name': 'a.png',
+    'data-desktop-attachment-path': 'C:/repo/.acecode/attachments/a1.png',
     'data-desktop-attachment-copy-image-url': '/blob',
     'data-desktop-attachment-mime-type': 'image/png',
     'data-desktop-attachment-kind': 'image',
     'data-desktop-attachment-mutable': 'true',
   });
   assert.equal(contextTargetsFromElement(attachment).attachmentTarget.mutable, true);
+  assert.equal(
+    contextTargetsFromElement(attachment).attachmentTarget.path,
+    'C:/repo/.acecode/attachments/a1.png',
+  );
   assert.equal(contextTargetsFromElement(attachment).attachmentTarget.copyImageUrl, '/blob');
   assert.equal(contextTargetsFromElement(attachment).attachmentTarget.mimeType, 'image/png');
   assert.equal(contextTargetsFromElement(attachment).attachmentTarget.kind, 'image');
@@ -512,10 +620,14 @@ test('非图片附件的复制图片动作不可用但保留元数据动作', ()
     DESKTOP_CONTEXT_ACTIONS.PREVIEW_ATTACHMENT,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_NAME,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL,
+    DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.equal(items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_IMAGE).enabled, false);
   assert.equal(items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL).enabled, true);
+  const explorer = items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER);
+  assert.equal(explorer.enabled, false);
+  assert.deepEqual(explorer.target, { path: undefined, kind: 'file' });
 });
 
 test('workspace 路径和相对目录拼接', () => {

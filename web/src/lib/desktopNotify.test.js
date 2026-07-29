@@ -13,6 +13,8 @@ import {
   shouldSuppress,
   truncateForNotification,
   maybeNotify,
+  noteHostWindowFocus,
+  isHostWindowFocused,
 } from './desktopNotify.js';
 
 function run(name, fn) {
@@ -187,6 +189,51 @@ run('shouldSuppress: suppress_when_focused=false 即使聚焦也不抑制', () =
 run('shouldSuppress: 同 session 但 workspace 不同 → 不抑制', () => {
   const active = { sessionId: 's1', workspaceHash: 'other-ws' };
   assert.equal(shouldSuppress(sampleQuestion, active, true, null), false);
+});
+
+run('shouldSuppress: 同 session 且一侧 workspace 为空 → 仍抑制', () => {
+  // 前端 visibleSession 有时还没带上 workspace_hash,不能因此漏抑。
+  const activeEmptyWs = { sessionId: 's1', workspaceHash: '' };
+  assert.equal(shouldSuppress(sampleQuestion, activeEmptyWs, true, null), true);
+  const payloadNoWs = { ...sampleQuestion, workspace_hash: '' };
+  assert.equal(
+    shouldSuppress(payloadNoWs, { sessionId: 's1', workspaceHash: 'w1' }, true, null),
+    true,
+  );
+});
+
+run('shouldSuppress: 窗口聚焦但 activeRef 为空 → 不抑制', () => {
+  assert.equal(shouldSuppress(sampleQuestion, null, true, null), false);
+  assert.equal(shouldSuppress(sampleQuestion, {}, true, null), false);
+});
+
+run('isHostWindowFocused: visibility=hidden 一律视为未聚焦', () => {
+  noteHostWindowFocus(true);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'hidden', hasFocus: () => true }),
+    false,
+  );
+});
+
+run('isHostWindowFocused: hasFocus=true 优先于 sticky blur', () => {
+  noteHostWindowFocus(false);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'visible', hasFocus: () => true }),
+    true,
+  );
+});
+
+run('isHostWindowFocused: hasFocus=false 时回退 sticky focus 标志', () => {
+  noteHostWindowFocus(true);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'visible', hasFocus: () => false }),
+    true,
+  );
+  noteHostWindowFocus(false);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'visible', hasFocus: () => false }),
+    false,
+  );
 });
 
 // maybeNotify 在无桥时静默 no-op

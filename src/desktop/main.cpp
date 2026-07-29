@@ -1139,7 +1139,6 @@ int main(int argc, char** argv) {
     notification_options.app_name = "ACECode Desktop";
 #ifdef _WIN32
     notification_options.application_id = "ACECode.ACECode.Desktop.1";
-    notification_options.backend = desktop_cfg.desktop.notifications.backend;
 #endif
     notification_options.activation_window = host.native_window();
     const bool notifications_ok = init_notifications(notification_options);
@@ -1686,12 +1685,11 @@ int main(int argc, char** argv) {
             for (const auto& m : registry.list()) {
                 if (!m.cwd.empty()) roots.push_back(m.cwd);
             }
-            // 全局 skills 目录不属于任何 workspace,但设置页「打开全局 Skill
-            // 目录」按钮需要打开它 — 恒加入白名单(也保证 roots 非空)。
-            roots = acecode::desktop::append_allowed_open_root(
+            // 全局 skills 与 session projects 不属于 workspace。前者供设置页
+            // 打开全局 Skill 目录，后者供附件右键定位持久化文件。
+            roots = acecode::desktop::append_acecode_managed_open_roots(
                 std::move(roots),
-                acecode::path_to_utf8(
-                    acecode::path_from_utf8(acecode::get_acecode_dir()) / "skills"));
+                acecode::get_acecode_dir());
             auto result = acecode::desktop::open_path_in_file_manager(
                 arr[0].get<std::string>(), roots);
             if (!result.ok) {

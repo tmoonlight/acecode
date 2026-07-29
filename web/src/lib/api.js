@@ -152,7 +152,7 @@ async function request(method, path, body, base) {
 export function createApi(base = null) {
   return {
     health:           ()             => request('GET',    '/api/health', undefined, base),
-    // 模型池负载快照(每 30s 轮询展示精确匹配 modelPoolName 的负载)。无需 token。
+    // 模型池负载快照(每 30s 轮询展示精确匹配 modelPoolName 的负载)。
     modelPoolStatus:  ()             => request('GET',    '/api/model-pool-status', undefined, base),
     // 控制台 PTY(add-console-dock):loopback-only,daemon 端 16 会话上限(429)。
     createPty:        (opts={})      => request('POST',   '/api/pty', opts, base),
@@ -316,6 +316,8 @@ export function createApi(base = null) {
     setDefaultPermissionMode: (mode) => request('PUT',    '/api/config/default-permission-mode', {mode}, base),
     getDesktopNotifications: ()      => request('GET',    '/api/config/desktop-notifications', undefined, base),
     setDesktopNotifications: (enabled) => request('PUT',  '/api/config/desktop-notifications', {enabled: !!enabled}, base),
+    getRemoteWeb:     ()             => request('GET',    '/api/config/remote-web', undefined, base),
+    setRemoteWeb:     (enabled)      => request('PUT',    '/api/config/remote-web', {enabled: !!enabled}, base),
     addModel:         (draft)        => request('POST',   '/api/models', draft, base),
     updateModel:      (name, draft)  => request('PUT',    `/api/models/${encodeURIComponent(name)}`, draft, base),
     removeModel:      (name)         => request('DELETE', `/api/models/${encodeURIComponent(name)}`, undefined, base),

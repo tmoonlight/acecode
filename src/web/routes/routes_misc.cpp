@@ -34,7 +34,6 @@ json desktop_notifications_to_json(const DesktopNotificationsConfig& config) {
         {"on_question", config.on_question},
         {"on_completion", config.on_completion},
         {"suppress_when_focused", config.suppress_when_focused},
-        {"backend", config.backend},
     };
 }
 
@@ -740,14 +739,15 @@ void WebServer::Impl::register_mcp() {
 
 void WebServer::Impl::register_health() {
         // GET /api/health: spec 9.2
-        // 不强制 token (loopback / 远程都返回,为了让前端在加载时探活)。
-        // 但不暴露敏感信息(没有 token / cwd 之外的本机路径等)。
+        // Loopback remains token-optional, while remote bootstrap must present
+        // the daemon token before any process metadata is disclosed.
         CROW_ROUTE(app, "/api/health").methods(crow::HTTPMethod::GET)
-        ([this](const crow::request&) {
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
             json j;
             j["guid"]            = deps.guid;
             j["pid"]             = deps.pid;
-            j["port"]            = deps.web_cfg ? deps.web_cfg->port : 0;
+            j["port"]            = runtime_port;
             j["version"]         = ACECODE_VERSION;
             j["cwd"]             = deps.cwd;
             j["uptime_seconds"]  = (now_unix_ms() - deps.start_time_unix_ms) / 1000;
@@ -780,10 +780,10 @@ void WebServer::Impl::register_health() {
         });
 
         // GET /api/model-pool-status:模型池负载快照(load-monitor 缓存)。
-        // 非敏感数据,与 /api/health 一样不强制 token,便于前端轮询展示负载。
         // 服务未启动 / 尚无数据时 models 为空数组,前端自然不显示负载指示。
         CROW_ROUTE(app, "/api/model-pool-status").methods(crow::HTTPMethod::GET)
-        ([](const crow::request&) {
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
             auto snap = acecode::model_pool_status_service().snapshot();
             json models = json::array();
             for (const auto& kv : snap) {
@@ -923,6 +923,7 @@ void WebServer::Impl::register_static() {
                     } else {
                         resp.add_header("Cache-Control", "no-cache");
                     }
+                    resp.add_header("Referrer-Policy", "no-referrer");
                     return resp;
                 }
             }
@@ -938,6 +939,7 @@ void WebServer::Impl::register_static() {
             resp.body.assign(reinterpret_cast<const char*>(idx->data), idx->size);
             resp.add_header("Content-Type", idx->content_type);
             resp.add_header("Cache-Control", "no-cache");
+            resp.add_header("Referrer-Policy", "no-referrer");
             return resp;
         };
 
@@ -974,6 +976,75 @@ void WebServer::Impl::register_static() {
         });
     }
 
+json WebServer::Impl::remote_web_state_json(
+    const crow::request& req) const {
+    std::string configured_bind = kRemoteWebLoopbackBind;
+    {
+        std::lock_guard<std::mutex> config_lock(app_config_mu);
+        if (deps.app_config) {
+            configured_bind = deps.app_config->web.bind;
+        } else if (deps.web_cfg) {
+            configured_bind = deps.web_cfg->bind;
+        }
+    }
+
+    std::string listener_bind;
+    int listener_port = 0;
+    {
+        std::lock_guard<std::mutex> listener_lock(listener_state_mu);
+        listener_bind = effective_bind;
+        listener_port = effective_port;
+    }
+    if (listener_bind.empty()) {
+        listener_bind = configured_bind;
+        listener_port = runtime_port;
+    }
+
+    const bool configured_enabled =
+        remote_web_enabled_for_bind(configured_bind);
+    const bool effective_enabled =
+        remote_web_enabled_for_bind(listener_bind);
+    json connections = json::array();
+    if (effective_enabled && !deps.token.empty()) {
+        const auto discovered = deps.remote_web_hosts
+            ? deps.remote_web_hosts()
+            : discover_remote_web_hosts();
+        const auto computer_name = deps.remote_web_computer_name
+            ? deps.remote_web_computer_name()
+            : discover_remote_web_computer_name();
+        const auto preferred = remote_web_host_from_header(
+            req.get_header_value("Host"));
+        for (const auto& host : rank_remote_web_hosts(
+                 discovered,
+                 preferred,
+                 listener_bind,
+                 computer_name)) {
+            connections.push_back({
+                {"host", host},
+                {"kind", computer_name && host == *computer_name
+                    ? "computer_name"
+                    : "network_address"},
+                {"url", build_remote_web_url(
+                    host,
+                    listener_port,
+                    deps.token)},
+            });
+        }
+    }
+
+    return json{
+        {"enabled", configured_enabled},
+        {"configured_enabled", configured_enabled},
+        {"effective_enabled", effective_enabled},
+        {"configured_bind", configured_bind},
+        {"effective_bind", listener_bind},
+        {"applying",
+         rebind_requested.load() || configured_bind != listener_bind},
+        {"port", listener_port},
+        {"connections", std::move(connections)},
+    };
+}
+
 void WebServer::Impl::register_ui_preferences() {
         CROW_ROUTE(app, "/api/ui/onboarding/desktop").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
@@ -1008,6 +1079,10 @@ void WebServer::Impl::register_ui_preferences() {
             return cors_preflight(req);
         });
         CROW_ROUTE(app, "/api/config/desktop-notifications").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/config/remote-web").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
@@ -1136,6 +1211,19 @@ void WebServer::Impl::register_ui_preferences() {
             r.add_header("Content-Type", "application/json");
             r.body = desktop_notifications_to_json(
                 deps.app_config->desktop.notifications).dump();
+            return with_cors(req, std::move(r));
+        });
+
+        // GET /api/config/remote-web: authenticated because connection URLs
+        // contain the bearer token used by remote API and WebSocket clients.
+        CROW_ROUTE(app, "/api/config/remote-web").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.app_config && !deps.web_cfg) return crow::response(503);
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.add_header("Cache-Control", "no-store");
+            r.body = remote_web_state_json(req).dump();
             return with_cors(req, std::move(r));
         });
 
@@ -1575,6 +1663,83 @@ void WebServer::Impl::register_ui_preferences() {
             r.add_header("Content-Type", "application/json");
             r.body = desktop_notifications_to_json(
                 deps.app_config->desktop.notifications).dump();
+            return with_cors(req, std::move(r));
+        });
+
+        // PUT /api/config/remote-web body {enabled:boolean}. Persist first,
+        // return the applying state, then stop only the Crow listener after a
+        // short response-flush delay.
+        CROW_ROUTE(app, "/api/config/remote-web").methods(crow::HTTPMethod::PUT)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.app_config) return crow::response(503);
+
+            const auto json_err =
+                [this, &req](
+                    int status,
+                    const char* code,
+                    const std::string& message) {
+                    crow::response r(status);
+                    r.add_header("Content-Type", "application/json");
+                    r.add_header("Cache-Control", "no-store");
+                    r.body = json{
+                        {"error", code},
+                        {"message", message},
+                    }.dump();
+                    return with_cors(req, std::move(r));
+                };
+
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const std::exception& e) {
+                return json_err(
+                    400,
+                    "BAD_JSON",
+                    std::string("invalid JSON body: ") + e.what());
+            }
+            if (!body.is_object() ||
+                !body.contains("enabled") ||
+                !body["enabled"].is_boolean()) {
+                return json_err(
+                    400,
+                    "BAD_REQUEST",
+                    "expected {enabled: boolean}");
+            }
+
+            const bool enabled = body["enabled"].get<bool>();
+            if (enabled && deps.dangerous) {
+                return json_err(
+                    409,
+                    "DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN",
+                    "remote Web mode is unavailable while dangerous mode is active");
+            }
+
+            SettingsMutationResult result;
+            {
+                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                SettingsMutationOptions options;
+                options.config_path = deps.config_path;
+                options.live_config = deps.app_config;
+                result = set_remote_web_enabled(enabled, options);
+            }
+            if (!result.ok) {
+                return json_err(500, "PERSIST_FAILED", result.error);
+            }
+
+            std::string listener_bind;
+            {
+                std::lock_guard<std::mutex> listener_lock(listener_state_mu);
+                listener_bind = effective_bind;
+            }
+            if (listener_bind != result.config.web.bind) {
+                request_listener_rebind();
+            }
+
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.add_header("Cache-Control", "no-store");
+            r.body = remote_web_state_json(req).dump();
             return with_cors(req, std::move(r));
         });
 

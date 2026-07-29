@@ -1413,6 +1413,7 @@ body {
 .border-danger\/30 { border-color: rgba(var(--ace-danger-rgb), 0.30); }
 .border-danger\/40 { border-color: rgba(var(--ace-danger-rgb), 0.40); }
 .hover\:border-danger\/40:hover { border-color: rgba(var(--ace-danger-rgb), 0.40); }
+.border-warn\/30 { border-color: rgba(var(--ace-warn-rgb), 0.30); }
 .border-warn\/50 { border-color: rgba(var(--ace-warn-rgb), 0.50); }
 .text-accent\/60 { color: rgba(var(--ace-accent-rgb), 0.60); }
 .text-fg-mute\/70 { color: var(--ace-fg-mute); }
@@ -4200,8 +4201,45 @@ body {
 }
 
 /* Queue card list (above InputBar): 排队中的待发送消息卡片栈。
- * 卡片左侧 3px 的状态指示条用 absolute 定位,颜色由 utility class 提供
- * (bg-fg-mute/60 / bg-danger),与亮/暗主题自动联动。 */
+ * 背景对齐「查看变更」玻璃 dock:半透明 + backdrop-filter 毛玻璃。
+ * 卡片左侧 3px 状态指示条 absolute 定位。 */
+.ace-queue-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgba(var(--ace-border-rgb), 0.58);
+  border-radius: 12px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: var(--ace-shadow);
+  overflow: hidden;
+  transform: translateZ(0);
+}
+.ace-queue-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  background: rgba(var(--ace-surface-rgb), 0.36);
+  pointer-events: none;
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ace-queue-card {
+    background: rgba(var(--ace-surface-rgb), 0.58);
+    -webkit-backdrop-filter: blur(8px) saturate(1.08);
+    backdrop-filter: blur(8px) saturate(1.08);
+  }
+  .ace-queue-card::before {
+    background: rgba(var(--ace-surface-rgb), 0.12);
+  }
+}
+.ace-queue-card > * {
+  position: relative;
+  z-index: 1;
+}
+.ace-queue-card-dimmed {
+  opacity: 0.6;
+}
 .ace-queue-card-indicator {
   position: absolute;
   left: 0;
@@ -4210,6 +4248,45 @@ body {
   width: 3px;
   border-top-left-radius: 6px;
   border-bottom-left-radius: 6px;
+  z-index: 1;
+}
+.ace-queue-card-indicator.is-queued {
+  background: color-mix(in srgb, var(--ace-fg-mute) 60%, transparent);
+}
+.ace-queue-card-indicator.is-failed {
+  background: var(--ace-danger);
+}
+.ace-queue-card-content {
+  color: var(--ace-fg);
+}
+.ace-queue-card-status {
+  color: var(--ace-fg-mute);
+}
+.ace-queue-card-status.is-failed {
+  color: var(--ace-danger);
+}
+.ace-queue-card-action {
+  color: var(--ace-accent);
+  transition: background-color 0.12s ease;
+}
+.ace-queue-card-action:hover {
+  background: var(--ace-accent-bg);
+}
+.ace-queue-card-guide {
+  border: 1px solid color-mix(in srgb, var(--ace-accent) 40%, transparent);
+  color: var(--ace-accent);
+  transition: background-color 0.12s ease;
+}
+.ace-queue-card-guide:hover:not(:disabled) {
+  background: var(--ace-accent-bg);
+}
+.ace-queue-card-close {
+  color: var(--ace-fg-mute);
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.ace-queue-card-close:hover {
+  color: var(--ace-fg);
+  background: rgba(var(--ace-surface-hi-rgb), 0.72);
 }
 
 /* App typography scale — align desktop readability with Codex-like UI. */

@@ -308,6 +308,8 @@ when known.
 | PUT | `/api/config/connectors` | write connector settings |
 | GET | `/api/config/default-permission-mode` | read default permission mode |
 | PUT | `/api/config/default-permission-mode` | write default permission mode |
+| GET | `/api/config/remote-web` | read remote Web bind state and connection URLs |
+| PUT | `/api/config/remote-web` | enable or disable remote Web mode |
 | GET | `/api/config/upgrade` | read update service config |
 | PUT | `/api/config/upgrade` | write update service config |
 | GET | `/api/update/status` | check update availability |
@@ -335,8 +337,9 @@ when known.
 
 ### `GET /api/health`
 
-No auth requirement. Returns daemon identity and non-sensitive frontend
-capabilities.
+Returns daemon identity and frontend capabilities. Loopback requests remain
+token-optional; non-loopback requests must authenticate before any metadata is
+returned.
 
 ```json
 {
@@ -512,9 +515,11 @@ regular file in its containing folder. Windows Explorer and macOS Finder select
 the file; Linux opens the containing directory because there is no portable
 freedesktop selection protocol. The desktop callback validates that the path
 exists and is within an allowed root: a registered workspace, the daemon cwd,
-or the user-global skills directory (`~/.acecode/skills`, for the settings page
-"open global skills directory" button). Returns `{"ok":true}`. Returns `501`
-when the daemon has no desktop callback.
+or an ACECode-managed directory. Managed roots are the user-global skills
+directory (`~/.acecode/skills`, for the settings page "open global skills
+directory" button) and project/session storage (`~/.acecode/projects`, which
+contains persisted attachments). Returns `{"ok":true}`. Returns `501` when the
+daemon has no desktop callback.
 
 ### `GET /api/workspaces/:hash/sessions?archived=1`
 
@@ -1193,9 +1198,11 @@ shape as `GET`.
 
 Directory listing validates `cwd` against the daemon cwd and registered
 workspace cwds. Text and binary preview requests additionally accept a target
-inside an active no-workspace session root; this does not make that root
-listable. Every target is canonicalized and must stay inside its authorized
-workspace or active-session root.
+inside an active no-workspace session root, or under ACECode-managed roots
+(`~/.acecode/skills`, `~/.acecode/projects` — same set as open-in-explorer);
+this does not make those roots listable via `/api/files`. Every target is
+canonicalized and must stay inside its authorized workspace, session, or
+managed root.
 
 ### `GET /api/files?cwd=<abs>&path=<rel>&show_hidden=1&show_noise=1`
 
@@ -1225,9 +1232,12 @@ Returns `text/plain; charset=utf-8` file content. Error status examples:
 - `500` IO error
 
 For a changed file in an active no-workspace session, `cwd` may be the file's
-containing cache directory and `path` its basename. The canonical target must
-remain under that active session's isolated root. Destroying the session
-revokes this preview-only allowance.
+containing directory and `path` its basename (the real session cwd is not
+exposed to the frontend). The canonical target must remain under that active
+session's isolated root, or under ACECode-managed `skills`/`projects`
+directories (global skill packages the agent may edit). Destroying the session
+revokes only the session-root allowance; managed-root previews remain available
+while the path still exists.
 
 ### `GET /api/files/blob?cwd=<abs>&path=<rel>`
 
@@ -1237,8 +1247,8 @@ Returns raw bytes for browser-native preview types:
 - documents: `pdf`, `docx`, `xlsx`, `xlsm`
 
 The route caps preview bytes at 20 MB and sets `X-Content-Type-Options:
-nosniff`. It uses the same active no-workspace preview authorization as the
-text-content endpoint.
+nosniff`. It uses the same active no-workspace / ACECode-managed preview
+authorization as the text-content endpoint.
 
 ### `GET /api/git/info?cwd=<abs>`
 
@@ -1806,10 +1816,67 @@ stored preference. Invalid values return HTTP `400` with
 `error:"INVALID_UI_LOCALE"`; a persistence failure restores the previous
 in-memory value and returns HTTP `500` with `error:"PERSIST_FAILED"`.
 
+### `GET /api/config/remote-web`
+
+Returns the configured and currently effective listener state. Because
+`connections` contains bearer-token URLs, the route uses normal daemon auth
+and always sends `Cache-Control: no-store`.
+
+```json
+{
+  "enabled": true,
+  "configured_enabled": true,
+  "effective_enabled": true,
+  "configured_bind": "0.0.0.0",
+  "effective_bind": "0.0.0.0",
+  "applying": false,
+  "port": 28080,
+  "connections": [
+    {
+      "host": "ACE-PC",
+      "kind": "computer_name",
+      "url": "http://ACE-PC:28080/?token=<encoded-token>"
+    },
+    {
+      "host": "192.168.1.20",
+      "kind": "network_address",
+      "url": "http://192.168.1.20:28080/?token=<encoded-token>"
+    }
+  ]
+}
+```
+
+The current computer name is the first/default connection candidate when it is
+a valid hostname. Active non-loopback interface addresses follow it and match
+the effective listener's IP address family. Unspecified, loopback, multicast,
+and link-local destinations are omitted; `0.0.0.0` is never returned as a
+destination. Multiple Wi-Fi, Ethernet, VPN, or VM adapter addresses may be
+present. An empty `connections` array means neither a usable computer name nor
+an address was discovered.
+
+### `PUT /api/config/remote-web`
+
+Body:
+
+```json
+{"enabled":true}
+```
+
+Enabling persists `web.bind` as `0.0.0.0`; disabling persists
+`127.0.0.1`. A successful change restarts only the Crow HTTP/WebSocket
+listener on the same port and in the same daemon process, preserving the
+token, sessions, and active Agent work. During the short transition the
+response has `applying:true`; clients should tolerate connection failures and
+poll the GET route until configured and effective state agree.
+
+Enabling while the daemon is in dangerous mode returns HTTP `409` with
+`error:"DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN"` and does not change the
+configuration.
+
 ### Shared settings write semantics
 
 Saved-model/default-model writes and the custom-instructions,
-default-permission, desktop-notification, and upgrade routes share the same
+default-permission, desktop-notification, remote-Web, and upgrade routes share the same
 typed mutation path as the TUI settings center. A write acquires the process
 and interprocess config lock, reloads the latest canonical `config.json`,
 patches only the requested field or domain, validates it, and atomically
@@ -2592,6 +2659,8 @@ The daemon also serves the built frontend:
   the SPA entry.
 - `/api/*` and `/ws/*` never fall back to the SPA; unmatched API/WS paths are
   `404`.
+- Static responses send `Referrer-Policy: no-referrer`, so a bootstrap
+  `?token=` URL is not propagated as a referrer.
 
 ---
 

@@ -334,6 +334,15 @@ export function buildDesktopContextMenuItems({
         group: GROUPS.CONTENT,
         enabled: !!(attachmentTarget.url || attachmentTarget.path),
       });
+      addAction(
+        items,
+        DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+        { path: attachmentTarget.path, kind: 'file' },
+        {
+          group: GROUPS.CONTENT,
+          enabled: !!attachmentTarget.path,
+        },
+      );
       if (attachmentTarget.mutable) {
         addAction(items, DESKTOP_CONTEXT_ACTIONS.REMOVE_ATTACHMENT, attachmentTarget, {
           group: GROUPS.DANGER,

@@ -19,8 +19,7 @@
 //     thread with its own message loop and `show()` is an async post.
 //  2. Electron paints an opaque rectangle tinted from the DWM accent color.
 //     ACECode paints a rounded card with per-pixel alpha, following the
-//     system light/dark preference, with the accent color reduced to a bar
-//     along the leading edge.
+//     system light/dark preference (no leading accent stripe).
 //
 // Everything below the platform surface is pure arithmetic so it can be unit
 // tested on Linux/macOS CI where no Win32 renderer exists.
@@ -121,5 +120,50 @@ std::vector<int> compute_stack_offsets(const std::vector<int>& heights,
 // Number of body lines that fit into `available_height` given `line_height`,
 // capped at `max_lines`.
 int fit_body_lines(int available_height, int line_height, int max_lines);
+
+// Soft drop shadow chrome, matching the tray popup look (blur + slight
+// downward offset + transparent padding around the card surface).
+inline constexpr int kShadowBlurDip = 12;
+inline constexpr int kShadowOffsetYDip = 2;
+inline constexpr int kShadowMaxAlpha = 46;
+inline constexpr int kChromeInsetDip = 16;
+
+struct ToastChromeGeometry {
+    int window_x = 0;
+    int window_y = 0;
+    int window_width = 0;
+    int window_height = 0;
+    // Surface origin is relative to the window bitmap (usually == chrome_inset).
+    int surface_left = 0;
+    int surface_top = 0;
+    int surface_width = 0;
+    int surface_height = 0;
+};
+
+// Expands a surface placement by `chrome_inset` so the layered window has room
+// for the soft drop shadow while the visible card stays pinned to the same
+// bottom-right anchor.
+ToastChromeGeometry compute_toast_chrome_geometry(int surface_x,
+                                                  int surface_y,
+                                                  int surface_width,
+                                                  int surface_height,
+                                                  int chrome_inset);
+
+// Signed distance to a rounded rectangle centered on the surface bounds.
+// Negative inside, zero on the edge, positive outside.
+double toast_rounded_rect_distance(double x,
+                                   double y,
+                                   int width,
+                                   int height,
+                                   int radius);
+
+// Coverage 0..255 for antialiased surface edges from a signed distance.
+std::uint8_t toast_surface_coverage(double signed_distance);
+
+// Soft shadow alpha 0..max from a signed distance outside the card silhouette.
+// `signed_distance` should already include any vertical shadow offset.
+std::uint8_t toast_shadow_alpha(double signed_distance,
+                                int blur,
+                                int max_alpha);
 
 } // namespace acecode::desktop::custom_toast

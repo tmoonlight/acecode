@@ -64,6 +64,7 @@ import {
   completeQueuedInputForMessage,
   createChatInputQueueState,
   enqueueQueuedInput,
+  shouldDrainQueuedInput,
   finishQueuedGuidance,
   hasSendingQueuedInput,
   markQueuedGuidanceAccepted,
@@ -2514,7 +2515,15 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   useEffect(() => {
     const wasBusy = prevBusyRef.current;
     prevBusyRef.current = busy;
-    if (!sid || busy) return;
+    // 切会话瞬间 transcript 会 reset 成 busy=false + loadState=loading。
+    // 在 loaded 之前禁止 drain,否则排队卡片会在还在运行的会话上被误发并消失。
+    if (!shouldDrainQueuedInput({
+      sessionId: sid,
+      busy,
+      loadState: transcriptLoadState,
+    })) {
+      return;
+    }
     const restored = restoreUncommittedGuidanceForSession(
       queueStateRef.current,
       sid,
@@ -2525,7 +2534,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     if (wasBusy || !hasSendingQueuedInput(queueState, sid)) {
       drainQueuedInput();
     }
-  }, [busy, drainQueuedInput, queueState, sid, updateQueueState]);
+  }, [busy, drainQueuedInput, queueState, sid, transcriptLoadState, updateQueueState]);
 
   useEffect(() => {
     if (!sid || items.length === 0) return;

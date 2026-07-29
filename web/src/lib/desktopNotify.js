@@ -10,13 +10,33 @@
 //   - cfg.on_permission=false → permission 类型跳过
 //   - cfg.on_question=false → question 类型跳过
 //   - cfg.on_completion=false → completion 类型跳过
-//   - cfg.suppress_when_focused=true 且窗口聚焦 + 事件 session 是当前可见 session
-//     → 跳过(in-app sidebar 红点已经在做提醒,native 通知会重复打扰)
+//   - cfg.suppress_when_focused=true 且窗口正在被用户注视(hasFocus) + 事件
+//     session 就是当前聊天区打开的会话 → 跳过(页面内已有提问/权限 UI 与
+//     transcript,再弹右下角框是重复打扰)。workspace_hash 仅在两端都非空时
+//     才参与比对,避免前端未填 hash 时永远判成「不同 workspace」而漏抑。
 //
 // payload 构造抽到 buildNotificationPayload — 长文本截断 80 字 + 省略号,
 // 空文本回退到默认占位,纯函数,可测。
 
 const NOTIFICATION_BODY_LIMIT = 80;
+
+// WebView2 / 壳内 focus 有时会短暂落到 native 标题栏,document.hasFocus()
+// 会闪 false。用 focus/blur 跟踪作兜底,hasFocus 优先。
+let hostWindowFocused = true;
+
+export function noteHostWindowFocus(focused) {
+  hostWindowFocused = !!focused;
+}
+
+export function isHostWindowFocused(doc = typeof document !== 'undefined' ? document : null) {
+  if (doc && typeof doc.visibilityState === 'string' && doc.visibilityState === 'hidden') {
+    return false;
+  }
+  if (doc && typeof doc.hasFocus === 'function' && doc.hasFocus()) {
+    return true;
+  }
+  return hostWindowFocused;
+}
 
 function defaultCompletionBody() {
   return '(空白回合)';
@@ -112,9 +132,13 @@ export function shouldSuppress(payload, activeRef, hasFocus, cfg) {
   if (type === 'question' && !c.on_question) return true;
   if (type === 'completion' && !c.on_completion) return true;
   if (c.suppress_when_focused && hasFocus) {
-    const sameSession = activeRef?.sessionId === payload?.session_id;
-    const sameWorkspace = !payload?.workspace_hash
-      || activeRef?.workspaceHash === payload?.workspace_hash;
+    // activeRef 为空 = 当前没有打开聊天区(设置页/首页等),不能抑制。
+    if (!activeRef?.sessionId || !payload?.session_id) return false;
+    const sameSession = activeRef.sessionId === payload.session_id;
+    // 只有两端都带上 workspace 时才比对;任一侧缺失视为同 workspace。
+    const payloadWs = String(payload.workspace_hash || '').trim();
+    const activeWs = String(activeRef.workspaceHash || '').trim();
+    const sameWorkspace = !payloadWs || !activeWs || payloadWs === activeWs;
     if (sameSession && sameWorkspace) return true;
   }
   return false;
@@ -158,7 +182,8 @@ export function focusSession(workspaceHash, sessionId) {
 }
 
 // 一站式入口:构造 payload + 判抑制 + 投递。应用级 WS 监听器调这一个。
-// activeRef = { sessionId, workspaceHash }。hasFocus 由调用方读 document.hasFocus()。
+// activeRef = { sessionId, workspaceHash }。hasFocus 可由调用方传入;省略时
+// 走 isHostWindowFocused()(document.hasFocus + focus/blur 兜底)。
 export function maybeNotify({
   type,
   sessionId,
@@ -173,6 +198,7 @@ export function maybeNotify({
   const payload = buildNotificationPayload({
     type, sessionId, workspaceHash, sessionTitle, bodyText,
   });
-  if (shouldSuppress(payload, activeRef, hasFocus, cfg)) return false;
+  const focused = typeof hasFocus === 'boolean' ? hasFocus : isHostWindowFocused();
+  if (shouldSuppress(payload, activeRef, focused, cfg)) return false;
   return notify(payload);
 }

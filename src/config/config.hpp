@@ -362,10 +362,6 @@ struct DesktopNotificationsConfig {
     bool on_question = true;             // AskUserQuestion 触发通知
     bool on_completion = true;           // 回合完成触发通知
     bool suppress_when_focused = true;   // 当前 session 已可见且窗口聚焦时不弹
-    // Windows 弹框后端:"auto"(系统 toast 可用就用,否则自绘)/ "system"
-    // (只用系统 toast)/ "custom"(始终自绘)。其它平台忽略。
-    // 见 src/desktop/notification_backend_policy.hpp。
-    std::string backend = "auto";
 };
 
 struct DesktopConfig {

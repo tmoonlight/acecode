@@ -153,6 +153,8 @@ import './projectCreation.test.js';
 import './workspacePicker.test.js';
 import './connectors.test.js';
 import './settingsNavigation.test.js';
+import './remoteWeb.test.js';
+import './remoteWebArchitecture.test.js';
 
 // These suites intentionally mutate the process-wide locale. Run them in
 // series after the ordinary static-import suites so top-level await cannot

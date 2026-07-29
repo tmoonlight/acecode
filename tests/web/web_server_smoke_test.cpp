@@ -45,6 +45,7 @@
 #include "web/server.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -329,7 +330,9 @@ struct WebServerFixture {
         std::function<int(const acecode::AppConfig&,
                           acecode::upgrade::UpgradeProgressCallback,
                           std::string*)> run_update_command = {},
-        std::function<std::optional<std::string>(const std::string&)> open_in_explorer = {}) {
+        std::function<std::optional<std::string>(const std::string&)> open_in_explorer = {},
+        bool dangerous = false,
+        std::function<std::vector<std::string>()> remote_web_hosts = {}) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -414,9 +417,13 @@ struct WebServerFixture {
         wdeps.native_folder_picker_enabled = native_folder_picker_enabled;
         wdeps.native_folder_picker = std::move(native_folder_picker);
         wdeps.open_in_explorer = std::move(open_in_explorer);
+        wdeps.remote_web_hosts = std::move(remote_web_hosts);
+        wdeps.remote_web_computer_name = [] {
+            return std::optional<std::string>("ACE-TEST-PC");
+        };
         wdeps.run_update_command = std::move(run_update_command);
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
-        wdeps.dangerous = false;
+        wdeps.dangerous = dangerous;
         wdeps.loop_store = loop_store.get();
 
         server = std::make_unique<acecode::web::WebServer>(std::move(wdeps));
@@ -432,6 +439,19 @@ struct WebServerFixture {
         }
         // 起不来的话后续测试会失败 — 不在这里 throw,让 GTest 给清晰报错
     }
+
+    explicit WebServerFixture(
+        std::function<std::vector<std::string>()> remote_web_hosts,
+        bool dangerous = false)
+        : WebServerFixture(
+              true,
+              false,
+              {},
+              true,
+              {},
+              {},
+              dangerous,
+              std::move(remote_web_hosts)) {}
 
     ~WebServerFixture() {
         if (server) server->stop();
@@ -647,6 +667,197 @@ TEST(WebServerHttp, DesktopNotificationSettingRejectsInvalidPayload) {
     ASSERT_EQ(put.status_code, 400) << put.text;
     EXPECT_EQ(json::parse(put.text)["error"], "BAD_REQUEST");
     EXPECT_TRUE(fx.cfg.desktop.notifications.enabled);
+}
+
+TEST(WebServerHttp, RemoteWebModePersistsGeneratesTokenUrlAndRebindsInProcess) {
+    WebServerFixture fx([] {
+        return std::vector<std::string>{
+            "192.168.50.20",
+            "192.168.50.20",
+            "127.0.0.1",
+        };
+    });
+
+    auto initial = cpr::Get(
+        cpr::Url{fx.url("/api/config/remote-web")});
+    ASSERT_EQ(initial.status_code, 200) << initial.text;
+    EXPECT_EQ(response_header(initial, "Cache-Control"), "no-store");
+    auto initial_json = json::parse(initial.text);
+    EXPECT_FALSE(initial_json["enabled"].get<bool>());
+    EXPECT_FALSE(initial_json["effective_enabled"].get<bool>());
+    EXPECT_FALSE(initial_json["applying"].get<bool>());
+    EXPECT_TRUE(initial_json["connections"].empty());
+
+    auto enabled = cpr::Put(
+        cpr::Url{fx.url("/api/config/remote-web")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":true})"});
+    ASSERT_EQ(enabled.status_code, 200) << enabled.text;
+    EXPECT_EQ(response_header(enabled, "Cache-Control"), "no-store");
+    auto enabled_json = json::parse(enabled.text);
+    EXPECT_TRUE(enabled_json["enabled"].get<bool>());
+    EXPECT_TRUE(enabled_json["applying"].get<bool>());
+    EXPECT_EQ(enabled_json["configured_bind"], "0.0.0.0");
+
+    json effective;
+    const auto enabled_deadline =
+        std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < enabled_deadline) {
+        std::this_thread::sleep_for(50ms);
+        auto current = cpr::Get(
+            cpr::Url{fx.url("/api/config/remote-web")},
+            cpr::Timeout{500});
+        if (current.status_code != 200) continue;
+        effective = json::parse(current.text);
+        if (effective["effective_enabled"].get<bool>() &&
+            !effective["applying"].get<bool>()) {
+            break;
+        }
+    }
+    ASSERT_TRUE(effective.is_object());
+    ASSERT_TRUE(effective["effective_enabled"].get<bool>());
+    ASSERT_FALSE(effective["applying"].get<bool>());
+    EXPECT_EQ(effective["effective_bind"], "0.0.0.0");
+    ASSERT_EQ(effective["connections"].size(), 2u);
+    EXPECT_EQ(effective["connections"][0]["host"], "ACE-TEST-PC");
+    EXPECT_EQ(effective["connections"][0]["kind"], "computer_name");
+    EXPECT_EQ(
+        effective["connections"][0]["url"],
+        "http://ACE-TEST-PC:" + std::to_string(fx.port) +
+            "/?token=smoke-token");
+    EXPECT_EQ(effective["connections"][1]["host"], "192.168.50.20");
+    EXPECT_EQ(effective["connections"][1]["kind"], "network_address");
+    EXPECT_EQ(
+        effective["connections"][1]["url"],
+        "http://192.168.50.20:" + std::to_string(fx.port) +
+            "/?token=smoke-token");
+
+    auto health = cpr::Get(cpr::Url{fx.url("/api/health")});
+    ASSERT_EQ(health.status_code, 200) << health.text;
+    EXPECT_EQ(json::parse(health.text)["guid"], "test-guid-aaaa-bbbb");
+
+    std::ifstream persisted(fx.tmp_dir / "config.json");
+    ASSERT_TRUE(persisted.is_open());
+    EXPECT_EQ(json::parse(persisted)["web"]["bind"], "0.0.0.0");
+    persisted.close();
+
+    auto disabled = cpr::Put(
+        cpr::Url{fx.url("/api/config/remote-web")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":false})"});
+    ASSERT_EQ(disabled.status_code, 200) << disabled.text;
+    EXPECT_FALSE(json::parse(disabled.text)["enabled"].get<bool>());
+
+    bool disabled_effective = false;
+    const auto disabled_deadline =
+        std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < disabled_deadline) {
+        std::this_thread::sleep_for(50ms);
+        auto current = cpr::Get(
+            cpr::Url{fx.url("/api/config/remote-web")},
+            cpr::Timeout{500});
+        if (current.status_code != 200) continue;
+        const auto state = json::parse(current.text);
+        if (!state["effective_enabled"].get<bool>() &&
+            !state["applying"].get<bool>()) {
+            disabled_effective = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(disabled_effective);
+    EXPECT_EQ(fx.cfg.web.bind, "127.0.0.1");
+}
+
+TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
+    WebServerFixture fx([] {
+        return std::vector<std::string>{"192.168.50.20"};
+    });
+
+    // Desktop starts the daemon with a per-run port override while config.json
+    // can still contain the previous run's port. A bind-only mutation must not
+    // move the active listener back to that persisted port.
+    acecode::AppConfig persisted = fx.cfg;
+    persisted.web.port = 65530;
+    acecode::save_config(
+        persisted,
+        (fx.tmp_dir / "config.json").string());
+
+    const std::array<bool, 6> modes{
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+    };
+    for (const bool enabled : modes) {
+        auto mutation = cpr::Put(
+            cpr::Url{fx.url("/api/config/remote-web")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{enabled
+                ? R"({"enabled":true})"
+                : R"({"enabled":false})"});
+        ASSERT_EQ(mutation.status_code, 200) << mutation.text;
+        EXPECT_EQ(
+            json::parse(mutation.text)["configured_enabled"],
+            enabled);
+
+        bool ready = false;
+        const auto deadline =
+            std::chrono::steady_clock::now() + 5s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(50ms);
+            auto current = cpr::Get(
+                cpr::Url{fx.url("/api/config/remote-web")},
+                cpr::Timeout{500});
+            if (current.status_code != 200) continue;
+            const auto state = json::parse(current.text);
+            if (state["effective_enabled"].get<bool>() == enabled &&
+                !state["applying"].get<bool>()) {
+                EXPECT_EQ(state["port"], fx.port);
+                ready = true;
+                break;
+            }
+        }
+        ASSERT_TRUE(ready)
+            << "listener did not return on runtime port " << fx.port;
+
+        auto health = cpr::Get(cpr::Url{fx.url("/api/health")});
+        ASSERT_EQ(health.status_code, 200) << health.text;
+        EXPECT_EQ(json::parse(health.text)["port"], fx.port);
+        EXPECT_EQ(fx.cfg.web.port, fx.port);
+    }
+
+    const auto saved = acecode::load_config_from_path(
+        (fx.tmp_dir / "config.json").string());
+    EXPECT_EQ(saved.web.port, 65530);
+    EXPECT_EQ(saved.web.bind, "127.0.0.1");
+}
+
+TEST(WebServerHttp, RemoteWebModeRejectsDangerousModeWithoutPersisting) {
+    WebServerFixture fx(
+        [] { return std::vector<std::string>{"192.168.50.20"}; },
+        true);
+
+    auto response = cpr::Put(
+        cpr::Url{fx.url("/api/config/remote-web")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":true})"});
+    ASSERT_EQ(response.status_code, 409) << response.text;
+    EXPECT_EQ(
+        json::parse(response.text)["error"],
+        "DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN");
+    EXPECT_EQ(fx.cfg.web.bind, "127.0.0.1");
+    EXPECT_FALSE(std::filesystem::exists(fx.tmp_dir / "config.json"));
+}
+
+TEST(WebServerHttp, StaticDocumentPreventsTokenReferrerPropagation) {
+    WebServerFixture fx;
+    auto response = cpr::Get(cpr::Url{fx.url("/?token=smoke-token")});
+    ASSERT_EQ(response.status_code, 200);
+    EXPECT_EQ(
+        response_header(response, "Referrer-Policy"),
+        "no-referrer");
 }
 
 TEST(WebServerHttp, UiLocaleDefaultsChineseAndPersistsCanonicalPreference) {
@@ -2821,6 +3032,42 @@ TEST(WebServerHttp, FilePreviewEndpointsAllowOnlyActiveNoWorkspaceArtifacts) {
         cpr::Parameters{{"cwd", preview_cwd}, {"path", "session-summary.md"}});
     ASSERT_EQ(stale.status_code, 400) << stale.text;
     EXPECT_EQ(json::parse(stale.text)["error"], "unknown workspace");
+}
+
+// 回归:无工作区会话变更里常出现 ~/.acecode/skills 下的绝对路径(全局 skill
+// 包)。前端拆成 parent+basename 后不在 workspace 白名单,预览应与
+// open-in-explorer 一样放行 ACECode 管理的 skills 根。
+TEST(WebServerHttp, FilePreviewEndpointsAllowAcecodeManagedSkillArtifacts) {
+    WebServerFixture fx;
+
+    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                             cpr::Header{{"Content-Type", "application/json"}},
+                             cpr::Body{R"({"no_workspace":true})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+
+    const auto skills_dir =
+        path_from_utf8(acecode::get_acecode_dir()) / "skills" /
+        ("preview-smoke-" + std::to_string(
+             std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto sdk_dir = skills_dir / "sdk";
+    write_text(sdk_dir / "todo-list.d.ts", "export type TodoStatus = \"pending\";\n");
+
+    const auto preview_cwd = acecode::path_to_utf8(sdk_dir);
+    auto content = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{{"cwd", preview_cwd}, {"path", "todo-list.d.ts"}});
+    EXPECT_EQ(content.status_code, 200) << content.text;
+    EXPECT_EQ(content.text, "export type TodoStatus = \"pending\";\n");
+
+    // 目录树仍不得借预览白名单开放全局 skills 根。
+    auto listing = cpr::Get(
+        cpr::Url{fx.url("/api/files")},
+        cpr::Parameters{{"cwd", preview_cwd}, {"path", ""}});
+    ASSERT_EQ(listing.status_code, 400) << listing.text;
+    EXPECT_EQ(json::parse(listing.text)["error"], "unknown workspace");
+
+    std::error_code ec;
+    std::filesystem::remove_all(skills_dir, ec);
 }
 
 // 场景:/api/files/blob 除图片外也允许浏览器原生可打开的 PDF,供详情面板内嵌预览。

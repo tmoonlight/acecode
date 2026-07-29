@@ -25,6 +25,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace acecode {
 class LlmProvider;
@@ -89,6 +90,12 @@ struct WebServerDeps {
     // std::nullopt,失败返回错误信息。null = 端点 501(与 native_folder_picker
     // 同款门控,仅 desktop 壳启动的 daemon 填入;webapp 兼容模式的右键菜单依赖它)。
     std::function<std::optional<std::string>(const std::string&)> open_in_explorer;
+    // Remote Web connection candidates. Empty uses live interface discovery;
+    // tests can inject deterministic non-loopback addresses.
+    std::function<std::vector<std::string>()> remote_web_hosts;
+    // Current computer name used as the first/default remote connection.
+    // Empty uses live OS discovery.
+    std::function<std::optional<std::string>()> remote_web_computer_name;
     std::function<int(const AppConfig&,
                       acecode::upgrade::UpgradeProgressCallback,
                       std::string*)> run_update_command;

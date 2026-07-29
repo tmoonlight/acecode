@@ -118,27 +118,10 @@ $env:PATH = "$env:ACECODE_WINLIBS_ROOT\bin;$env:PATH"
 
 The preset also exports `compile_commands.json`, uses the MinGW vcpkg target
 and host triplets, and limits builds to eight jobs for reliable use in a
-lightweight environment. WinToast is unavailable
-without the Windows SDK, so this MinGW-only build ships the self-drawn toast
-renderer alone; the normal Windows presets can additionally deliver through the
-OS notification centre.
+lightweight environment.
 
-Notification delivery on Windows is selected by
-`desktop.notifications.backend` in `~/.acecode/config.json`:
-
-| value | behaviour |
-| --- | --- |
-| `"auto"` (default) | Use OS toasts when they are actually deliverable, otherwise fall back to the self-drawn popup. |
-| `"system"` | OS toasts only. No popup at all when the OS path is unusable. |
-| `"custom"` | Always use the self-drawn popup. |
-
-`auto` exists because Windows silently drops toasts on plenty of Windows 10
-machines: WinToast reports success, but the Start Menu shortcut carrying the
-AppUserModelID is missing, notifications were turned off for the app or
-system-wide, group policy forbids them, or a "debloat" tool disabled the
-notification platform. ACECode reads those settings up front and switches to
-the self-drawn popup rather than delivering into a black hole. If toasts still
-never appear on a given machine, set `"custom"` to skip the OS path entirely.
+Windows desktop notifications always use the self-drawn popup (rounded card
+with soft drop shadow). The old WinRT / WinToast path has been removed.
 
 Equivalent manual configuration:
 

@@ -108,6 +108,12 @@ import { RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 import { loadUiLocale, persistUiLocale } from '../lib/uiLocale.js';
 import {
+  normalizeRemoteWebState,
+  remoteWebOriginSurvivesLocalMode,
+  selectRemoteWebConnection,
+  waitForRemoteWebMode,
+} from '../lib/remoteWeb.js';
+import {
   WindowControls,
   isInteractiveTarget,
   nativePointerEvent,
@@ -333,6 +339,23 @@ function SectionGeneral({
   const [maxTurns, setMaxTurns] = useState(50);
   const [workMode, setWorkMode] = useState('coding');
   const [openTarget, setOpenTarget] = useState('vscode');
+  const [remoteWeb, setRemoteWeb] = useState(
+    () => normalizeRemoteWebState(null),
+  );
+  const [remoteWebLoaded, setRemoteWebLoaded] = useState(false);
+  const [remoteWebBusy, setRemoteWebBusy] = useState(false);
+  const remoteWebBusyRef = useRef(false);
+  const [remoteWebError, setRemoteWebError] = useState('');
+  const [remoteWebConnectionUrl, setRemoteWebConnectionUrl] = useState('');
+
+  const applyRemoteWebState = useCallback((value) => {
+    const normalized = normalizeRemoteWebState(value);
+    setRemoteWeb(normalized);
+    setRemoteWebConnectionUrl((current) => (
+      selectRemoteWebConnection(normalized, current)?.url || ''
+    ));
+    return normalized;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -372,6 +395,25 @@ function SectionGeneral({
       });
     return () => { cancelled = true; };
   }, [health?.notifications?.enabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getRemoteWeb()
+      .then((state) => {
+        if (cancelled) return;
+        applyRemoteWebState(state);
+        setRemoteWebError('');
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRemoteWebError(error?.message || '远程 Web 状态读取失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRemoteWebLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, [applyRemoteWebState]);
 
   useEffect(() => {
     if (!backgroundProcessAvailable) return undefined;
@@ -554,6 +596,80 @@ function SectionGeneral({
     }
   };
 
+  const switchRemoteWeb = async (enabled) => {
+    const next = !!enabled;
+    const previous = remoteWeb;
+    let mutationAccepted = false;
+    if (remoteWebBusyRef.current
+        || remoteWebBusy
+        || next === previous.configuredEnabled) {
+      return;
+    }
+    remoteWebBusyRef.current = true;
+    setRemoteWebBusy(true);
+    setRemoteWebError('');
+    setRemoteWeb((current) => ({
+      ...current,
+      enabled: next,
+      configuredEnabled: next,
+      applying: true,
+    }));
+    try {
+      const pending = applyRemoteWebState(await api.setRemoteWeb(next));
+      mutationAccepted = true;
+      const confirmed = applyRemoteWebState(
+        await waitForRemoteWebMode(api, next, {
+          initialState: pending,
+          acceptDisconnectWhenDisabling: !next
+            && !remoteWebOriginSurvivesLocalMode(window.location.hostname),
+        }),
+      );
+      toast({
+        kind: 'ok',
+        text: confirmed.effectiveEnabled
+          ? '远程 Web 模式已开启'
+          : '远程 Web 模式已关闭，仅允许本机访问',
+      });
+    } catch (error) {
+      applyRemoteWebState(
+        mutationAccepted
+          ? (error?.state || {
+            ...previous,
+            enabled: next,
+            configuredEnabled: next,
+            applying: true,
+          })
+          : previous,
+      );
+      const message = error?.code === 'DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN'
+        ? '危险模式下不能开启远程 Web 模式'
+        : (error?.message || '设置失败');
+      setRemoteWebError(message);
+      toast({ kind: 'err', text: `远程 Web 模式设置失败：${message}` });
+    } finally {
+      remoteWebBusyRef.current = false;
+      setRemoteWebBusy(false);
+    }
+  };
+
+  const copyRemoteWebConnection = async () => {
+    const connection = selectRemoteWebConnection(
+      remoteWeb,
+      remoteWebConnectionUrl,
+    );
+    if (!connection) {
+      toast({ kind: 'err', text: '当前没有可复制的远程连接' });
+      return;
+    }
+    const result = await copyTextToSystemClipboard(connection.url);
+    toast({
+      kind: result?.ok ? 'ok' : 'err',
+      text: result?.ok
+        ? '连接已复制到剪贴板'
+        : `复制连接失败：${result?.error || '剪贴板不可用'}`,
+    });
+  };
+
   const switchUiLocale = async (next) => {
     const previous = uiLocale;
     if (uiLocaleBusy || next === previous) return;
@@ -594,6 +710,18 @@ function SectionGeneral({
       setCloseBehaviorBusy(false);
     }
   };
+
+  const selectedRemoteWebConnection = selectRemoteWebConnection(
+    remoteWeb,
+    remoteWebConnectionUrl,
+  );
+  const remoteWebStatus = !remoteWebLoaded
+    ? '正在读取状态'
+    : (remoteWebBusy || remoteWeb.applying
+      ? '正在应用监听地址'
+      : (remoteWeb.effectiveEnabled
+        ? `已监听 ${remoteWeb.effectiveBind}:${remoteWeb.port}`
+        : '仅本机访问'));
 
   return (
     <>
@@ -890,6 +1018,112 @@ function SectionGeneral({
           </div>
         </div>
       )}
+
+      <div className="h-px bg-border my-5" />
+
+      <div
+        data-remote-web-settings
+        className="px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[13px] font-medium">远程 Web 模式</div>
+            <div className="text-[11px] text-fg-mute mt-0.5 max-w-lg">
+              开启后将 Web 监听地址从 127.0.0.1 切换为 0.0.0.0，允许其他设备连接
+            </div>
+          </div>
+          <Toggle
+            on={remoteWeb.configuredEnabled}
+            disabled={!remoteWebLoaded || remoteWebBusy}
+            onChange={switchRemoteWeb}
+            ariaLabel="远程 Web 模式"
+          />
+        </div>
+
+        <div className="h-px bg-border my-3" />
+
+        <div
+          aria-live="polite"
+          className={clsx(
+            'flex items-center gap-1.5 text-[12px]',
+            remoteWebError
+              ? 'text-danger'
+              : ((remoteWebBusy || remoteWeb.applying)
+                ? 'text-warn'
+                : (remoteWeb.effectiveEnabled ? 'text-ok' : 'text-fg-mute')),
+          )}
+        >
+          <span
+            className={clsx(
+              'w-2 h-2 rounded-full shrink-0',
+              remoteWebError
+                ? 'bg-danger'
+                : ((remoteWebBusy || remoteWeb.applying)
+                  ? 'bg-warn'
+                  : (remoteWeb.effectiveEnabled ? 'bg-ok' : 'bg-fg-mute')),
+            )}
+          />
+          {remoteWebError || remoteWebStatus}
+        </div>
+
+        {remoteWeb.effectiveEnabled && (
+          <div className="mt-3">
+            {remoteWeb.connections.length > 1 && (
+              <label className="block mb-2">
+                <span className="block text-[11px] text-fg-mute mb-1">
+                  连接网络
+                </span>
+                <select
+                  value={selectedRemoteWebConnection?.url || ''}
+                  onChange={(event) => setRemoteWebConnectionUrl(
+                    event.target.value,
+                  )}
+                  className="h-8 w-full px-2 text-[12px] rounded-md border border-border bg-surface-alt text-fg outline-none focus:border-accent transition"
+                >
+                  {remoteWeb.connections.map((connection) => (
+                    <option key={connection.url} value={connection.url}>
+                      {connection.kind === 'computer_name'
+                        ? `${connection.host}（计算机名）`
+                        : connection.host}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {selectedRemoteWebConnection ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <input
+                    aria-label="远程 Web 连接"
+                    readOnly
+                    value={selectedRemoteWebConnection.url}
+                    className="h-8 min-w-0 flex-1 px-2 text-[12px] rounded-md border border-border bg-surface-alt text-fg outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={copyRemoteWebConnection}
+                    className="h-8 shrink-0 px-3 rounded-md border border-border bg-surface-alt text-[12px] font-medium hover:bg-surface-hi transition"
+                  >
+                    复制连接
+                  </button>
+                </div>
+                <div className="mt-2 px-2.5 py-2 rounded-md border border-warn/30 bg-warn/10 text-[11px] text-warn">
+                  此连接包含访问 Token，请勿将此连接公开给别人。
+                </div>
+              </>
+            ) : (
+              <div className="text-[11px] text-warn">
+                未发现可用的非本机网络地址，请检查网卡连接。
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="text-[11px] text-fg-mute mt-3 leading-relaxed">
+          系统防火墙、路由器或云安全组可能仍需放行端口。公网访问建议使用可信 VPN 或 HTTPS 反向代理。
+        </div>
+      </div>
     </>
   );
 }

@@ -6,6 +6,7 @@
 
 #include "auth.hpp"
 #include "origin.hpp"
+#include "remote_web.hpp"
 #include "static_assets.hpp"
 #include "../config/config.hpp"
 #include "../config/saved_models_editor.hpp"
@@ -207,6 +208,10 @@ struct UpdateJobRuntime {
 // =====================================================================
 struct WebServer::Impl {
     WebServerDeps              deps;
+    // Captured after CLI/Desktop overrides are applied. Settings mutations
+    // persist config-file values, but a live bind change must never move the
+    // already-running daemon to a different port.
+    const int                  runtime_port;
     crow::SimpleApp            app;
 
     // 静态资源 source(EmbeddedAssetSource / FileSystemAssetSource),按
@@ -220,6 +225,18 @@ struct WebServer::Impl {
     // Crow runs HTTP handlers on multiple worker threads. deps.app_config is a
     // shared mutable object, so every web-side read/write must go through this.
     mutable std::mutex app_config_mu;
+
+    // A remote-mode change restarts only Crow's listener. Terminal shutdown
+    // always wins over a pending rebind, so the daemon cannot accidentally
+    // come back after its owner has requested exit.
+    std::atomic<bool> shutdown_requested{false};
+    std::atomic<bool> rebind_requested{false};
+    mutable std::mutex listener_state_mu;
+    std::string effective_bind;
+    int effective_port = 0;
+    std::mutex listener_stop_mu;
+    std::mutex rebind_thread_mu;
+    std::thread rebind_stop_thread;
 
     // 从磁盘重读 saved_models 合并进内存 —— 连接器钩子(外部登录器)会直接
     // 改写 config.json;不重读的话,下一次任何 save_config 都会把新写入的
@@ -246,10 +263,16 @@ struct WebServer::Impl {
     std::shared_ptr<UpdateJobRuntime> update_job_runtime =
         std::make_shared<UpdateJobRuntime>();
 
-    explicit Impl(WebServerDeps d) : deps(std::move(d)) {
+    explicit Impl(WebServerDeps d)
+        : deps(std::move(d)),
+          runtime_port(deps.web_cfg ? deps.web_cfg->port : 0) {
         subagent_tracker_state->impl = this;
     }
     ~Impl();
+
+    void request_listener_rebind();
+    void join_rebind_stop_thread();
+    nlohmann::json remote_web_state_json(const crow::request& req) const;
 
     // -----------------------------------------------------------------
     // 鉴权 helper  (defined in server_helpers.cpp)
