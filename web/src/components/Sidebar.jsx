@@ -6,7 +6,16 @@
 //
 // 收起态(view !== 'single')→ width 0,sidebar 整个折叠让出主区。
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../lib/api.js';
 import { connection } from '../lib/connection.js';
 import {
@@ -15,6 +24,7 @@ import {
   SESSION_PIN_TOGGLE_EVENT,
 } from '../lib/desktopContextMenu.js';
 import { relativeTime, clsx, formatCount } from '../lib/format.js';
+import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
 import {
   filterPinnedSessions,
   normalizePinnedIds,
@@ -59,6 +69,11 @@ import {
   upsertSidebarSession,
 } from '../lib/sidebarSessions.js';
 import {
+  computeSessionHoverCardPosition,
+  createSessionHoverGitInfoCache,
+  sessionHoverDetails,
+} from '../lib/sessionHoverDetails.js';
+import {
   DEFAULT_SIDEBAR_CUSTOM_EXPANDED,
   DEFAULT_SIDEBAR_SECTION_EXPANSION,
   SIDEBAR_CUSTOM_ITEMS,
@@ -90,6 +105,9 @@ const PINNED_DRAG_START_PX = 5;
 const PINNED_DRAG_EDGE_SCROLL_PX = 34;
 const PINNED_DRAG_EDGE_SCROLL_STEP = 16;
 const NO_WORKSPACE_SESSION_LIST_KEY = '__no_workspace__';
+const sessionHoverGitInfoCache = createSessionHoverGitInfoCache(
+  (cwd) => api.gitInfo(cwd),
+);
 
 function pinnedSessionKey(workspaceHash, sessionId) {
   const ws = String(workspaceHash || '');
@@ -426,6 +444,108 @@ function SessionAttentionIndicator({ attention, meta }) {
   );
 }
 
+function SessionHoverCard({
+  anchorRef,
+  cardId,
+  session,
+}) {
+  const cardRef = useRef(null);
+  const [gitInfo, setGitInfo] = useState(null);
+  const [position, setPosition] = useState(null);
+  const baseDetails = sessionHoverDetails(session);
+  const cwd = baseDetails?.cwd || '';
+  const details = sessionHoverDetails(session, gitInfo);
+
+  useEffect(() => {
+    if (!cwd) return undefined;
+
+    let cancelled = false;
+    let requestVersion = 0;
+    const load = () => {
+      const version = ++requestVersion;
+      sessionHoverGitInfoCache.get(cwd)
+        .then((info) => {
+          if (!cancelled && version === requestVersion) setGitInfo(info);
+        })
+        .catch(() => {
+          if (!cancelled && version === requestVersion) setGitInfo(null);
+        });
+    };
+    const handleGitStateChanged = (event) => {
+      const changedCwd = String(event?.detail?.cwd || '');
+      if (changedCwd && changedCwd !== cwd) return;
+      sessionHoverGitInfoCache.invalidate(changedCwd);
+      setGitInfo(null);
+      load();
+    };
+
+    load();
+    window.addEventListener(GIT_STATE_CHANGED_EVENT, handleGitStateChanged);
+    return () => {
+      cancelled = true;
+      requestVersion += 1;
+      window.removeEventListener(GIT_STATE_CHANGED_EVENT, handleGitStateChanged);
+    };
+  }, [cwd]);
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
+    const updatePosition = () => {
+      const anchor = anchorRef.current;
+      const card = cardRef.current;
+      if (!anchor || !card) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      setPosition(computeSessionHoverCardPosition({
+        anchorRect,
+        cardWidth: cardRect.width,
+        cardHeight: cardRect.height,
+        viewportWidth: window.innerWidth || document.documentElement.clientWidth || 0,
+        viewportHeight: window.innerHeight || document.documentElement.clientHeight || 0,
+      }));
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    document.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      document.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [anchorRef, details?.branch]);
+
+  if (!details || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      ref={cardRef}
+      id={cardId}
+      role="tooltip"
+      className="ace-session-hover-card"
+      data-placement={position?.placement || 'right'}
+      data-session-hover-details="true"
+      style={{
+        left: position?.left ?? 0,
+        top: position?.top ?? 0,
+        maxHeight: position?.maxHeight,
+        visibility: position ? 'visible' : 'hidden',
+      }}
+    >
+      <div className="ace-session-hover-detail-row">
+        <span className="ace-session-hover-detail-label">工作目录</span>
+        <span className="ace-session-hover-detail-value">{details.cwd}</span>
+      </div>
+      {details.isGitRepository && (
+        <div className="ace-session-hover-detail-row">
+          <span className="ace-session-hover-detail-label">Git 分支</span>
+          <span className="ace-session-hover-detail-value">{details.branch}</span>
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
 function SessionRow({
   s,
   active,
@@ -449,11 +569,17 @@ function SessionRow({
   const title = sessionDisplayTitle(s, s.name || '');
   const sessionMarker = sidebarSessionMarker(s);
   const remoteControlBound = Boolean(s.remote_control_bound ?? s.remoteControlBound);
+  const hoverDetails = sessionHoverDetails(s);
+  const hoverCardId = useId();
+  const rowRef = useRef(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
+  const [hovered, setHovered] = useState(false);
+  const [focusWithin, setFocusWithin] = useState(false);
   const [remoteControlSurging, setRemoteControlSurging] = useState(false);
   const previousRemoteControlBoundRef = useRef(remoteControlBound);
   const committingRef = useRef(false);
+  const hoverCardVisible = !!hoverDetails && (hovered || focusWithin);
 
   useEffect(() => {
     if (!editing) setDraft(title);
@@ -513,6 +639,7 @@ function SessionRow({
 
   return (
     <div
+      ref={rowRef}
       data-desktop-session-id={s.id || undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
       data-desktop-session-pinned={pinned ? 'true' : 'false'}
@@ -522,6 +649,7 @@ function SessionRow({
       data-sidebar-pinned-key={rowKey || undefined}
       data-sidebar-pinned-id={pinned ? s.id || undefined : undefined}
       data-sidebar-pinned-workspace={pinned ? workspaceHash || undefined : undefined}
+      aria-describedby={hoverCardVisible ? hoverCardId : undefined}
       className={clsx(
         'ace-sidebar-session-row ace-sidebar-tree-row-grid ace-sidebar-primary-text group grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[5px] mx-1.5 my-px px-2 rounded-md text-[14px] transition',
         pinned && 'ace-sidebar-pinned-session-row',
@@ -535,6 +663,12 @@ function SessionRow({
           : 'text-fg hover:bg-surface-hi',
         attention === 'unread' && !active && 'font-semibold',
       )}
+      onMouseEnter={hoverDetails ? () => setHovered(true) : undefined}
+      onMouseLeave={hoverDetails ? () => setHovered(false) : undefined}
+      onFocusCapture={hoverDetails ? () => setFocusWithin(true) : undefined}
+      onBlurCapture={hoverDetails ? (event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocusWithin(false);
+      } : undefined}
       onPointerDown={pinned ? (event) => onPinnedPointerDown?.(event, s, title) : undefined}
       onClick={(event) => {
         if (event.defaultPrevented) return;
@@ -623,6 +757,7 @@ function SessionRow({
         <button
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSelect(s); }}
+          aria-describedby={hoverCardVisible ? hoverCardId : undefined}
           className="min-w-0 py-[5px] bg-transparent text-left cursor-pointer"
         >
           <span className="block min-w-0 truncate">{title}</span>
@@ -687,6 +822,13 @@ function SessionRow({
           )}
         </button>
       </span>
+      {hoverCardVisible && (
+        <SessionHoverCard
+          anchorRef={rowRef}
+          cardId={hoverCardId}
+          session={s}
+        />
+      )}
     </div>
   );
 }

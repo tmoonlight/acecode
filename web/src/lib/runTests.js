@@ -131,6 +131,8 @@ import './sidebarNavigation.test.js';
 import './sidebarWorkspaceHeadingArchitecture.test.js';
 import './sidebarCustomSectionArchitecture.test.js';
 import './sidebarSessions.test.js';
+import './sessionHoverDetails.test.js';
+import './sessionHoverDetailsArchitecture.test.js';
 import './remoteControlSessionHighlightArchitecture.test.js';
 import './sessionJump.test.js';
 import './sessionNavigationMaskArchitecture.test.js';

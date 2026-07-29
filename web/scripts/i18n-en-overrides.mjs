@@ -33,6 +33,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '无工作区': 'No workspace',
   '当前工作区': 'Current workspace',
   '工作空间': 'Workspace',
+  '工作目录': 'Working directory',
+  'Git 分支': 'Git branch',
   '循环': 'Loops',
   '我的循环': 'My loops',
   '添加循环': 'Add loop',
