@@ -59,6 +59,9 @@ export const zhCN = {
   format: {
     now: '刚刚',
   },
+  sessionNavigation: {
+    opening: '正在打开会话…',
+  },
   counts: {
     filesChanged_one: '{{formattedCount}} 个文件已更改',
     filesChanged_other: '{{formattedCount}} 个文件已更改',

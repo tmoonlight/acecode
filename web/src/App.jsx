@@ -50,6 +50,7 @@ import { TopBar } from './components/TopBar.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchPalette } from './components/SearchPalette.jsx';
+import { SessionNavigationMask } from './components/SessionNavigationMask.jsx';
 import { TokenPrompt } from './components/TokenPrompt.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
 import { DesktopContextMenu } from './components/DesktopContextMenu.jsx';
@@ -233,6 +234,11 @@ export function App() {
     typeof window === 'undefined' ? null : openSessionTargetFromSearch(window.location.search),
   );
   const startupNavigationStartedRef = useRef(false);
+  const pendingSessionNavigationIdsRef = useRef(new Set());
+  const nextSessionNavigationIdRef = useRef(0);
+  const [sessionNavigationPending, setSessionNavigationPending] = useState(
+    () => !!startupOpenTargetRef.current,
+  );
   const [startupNavigationSettled, setStartupNavigationSettled] = useState(
     () => !startupOpenTargetRef.current,
   );
@@ -341,69 +347,90 @@ export function App() {
     setActiveRef(result.activeRef);
   }, []);
 
+  const beginSessionNavigation = useCallback(() => {
+    const navigationId = ++nextSessionNavigationIdRef.current;
+    pendingSessionNavigationIdsRef.current.add(navigationId);
+    setSessionNavigationPending(true);
+    return navigationId;
+  }, []);
+
+  const finishSessionNavigation = useCallback((navigationId) => {
+    pendingSessionNavigationIdsRef.current.delete(navigationId);
+    if (pendingSessionNavigationIdsRef.current.size === 0) {
+      setSessionNavigationPending(false);
+    }
+  }, []);
+
   const resumeAndOpenSession = useCallback(async (target, options = {}) => {
     const sessionId = sessionJumpId(target);
     if (!sessionId) return false;
-    const noWorkspace = sessionJumpNoWorkspace(target);
-    const readOnly = sessionJumpReadOnly(target);
-    const targetHash = sessionJumpWorkspaceHash(target);
-    const shouldResume = !readOnly && (options.forceResume || target?.active !== true);
-    const commitRef = options.replace ? replaceActiveRef : navigateToRef;
-    const resumeWith = async (client, workspaceHash) => {
-      if (!shouldResume) return {};
-      if (noWorkspace || !workspaceHash) return client.resumeSession(sessionId);
-      return client.resumeWorkspaceSession(workspaceHash, sessionId);
-    };
+    const navigationId = beginSessionNavigation();
+    let handedOffToPageLoad = false;
+    try {
+      const noWorkspace = sessionJumpNoWorkspace(target);
+      const readOnly = sessionJumpReadOnly(target);
+      const targetHash = sessionJumpWorkspaceHash(target);
+      const shouldResume = !readOnly && (options.forceResume || target?.active !== true);
+      const commitRef = options.replace ? replaceActiveRef : navigateToRef;
+      const resumeWith = async (client, workspaceHash) => {
+        if (!shouldResume) return {};
+        if (noWorkspace || !workspaceHash) return client.resumeSession(sessionId);
+        return client.resumeWorkspaceSession(workspaceHash, sessionId);
+      };
 
-    if (!noWorkspace
-        && targetHash
-        && options.allowDesktopActivate !== false
-        && targetHash !== activeRefRef.current?.workspaceHash
-        && typeof window !== 'undefined'
-        && typeof window.aceDesktop_activateWorkspace === 'function') {
-      try {
-        const r = parseDesktopBridgeResult(await window.aceDesktop_activateWorkspace(targetHash));
-        if (r && !r.error && r.port && r.token) {
-          let resumed = {};
-          try {
-            resumed = await resumeWith(createApi({ port: r.port, token: r.token }), targetHash);
-          } catch (e) {
-            toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
-            return false;
-          }
-          const url = desktopOpenSessionUrl({
-            port: r.port,
-            token: r.token,
-            sessionId,
-            workspaceHash: targetHash,
-            readOnly,
-            messageOrdinal: sessionJumpMessageOrdinal(target),
-            protocol: window.location?.protocol || 'http:',
-          });
-          if (url) {
-            window.location.href = url;
+      if (!noWorkspace
+          && targetHash
+          && options.allowDesktopActivate !== false
+          && targetHash !== activeRefRef.current?.workspaceHash
+          && typeof window !== 'undefined'
+          && typeof window.aceDesktop_activateWorkspace === 'function') {
+        try {
+          const r = parseDesktopBridgeResult(await window.aceDesktop_activateWorkspace(targetHash));
+          if (r && !r.error && r.port && r.token) {
+            let resumed = {};
+            try {
+              resumed = await resumeWith(createApi({ port: r.port, token: r.token }), targetHash);
+            } catch (e) {
+              toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+              return false;
+            }
+            const url = desktopOpenSessionUrl({
+              port: r.port,
+              token: r.token,
+              sessionId,
+              workspaceHash: targetHash,
+              readOnly,
+              messageOrdinal: sessionJumpMessageOrdinal(target),
+              protocol: window.location?.protocol || 'http:',
+            });
+            if (url) {
+              window.location.href = url;
+              handedOffToPageLoad = true;
+              return true;
+            }
+            commitRef(sessionRefFromJumpTarget(target, resumed, { workspaceHash: targetHash }));
             return true;
           }
-          commitRef(sessionRefFromJumpTarget(target, resumed, { workspaceHash: targetHash }));
-          return true;
+        } catch {
+          // Bridge 不可用或返回格式异常时，降级到当前 daemon 的 workspace-scoped resume。
         }
-      } catch {
-        // Bridge 不可用或返回格式异常时，降级到当前 daemon 的 workspace-scoped resume。
       }
-    }
 
-    try {
-      const resumed = await resumeWith(api, targetHash);
-      commitRef(sessionRefFromJumpTarget(target, resumed, {
-        workspaceHash: targetHash,
-        noWorkspace,
-      }));
-      return true;
-    } catch (e) {
-      toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
-      return false;
+      try {
+        const resumed = await resumeWith(api, targetHash);
+        commitRef(sessionRefFromJumpTarget(target, resumed, {
+          workspaceHash: targetHash,
+          noWorkspace,
+        }));
+        return true;
+      } catch (e) {
+        toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+        return false;
+      }
+    } finally {
+      if (!handedOffToPageLoad) finishSessionNavigation(navigationId);
     }
-  }, [navigateToRef, replaceActiveRef]);
+  }, [beginSessionNavigation, finishSessionNavigation, navigateToRef, replaceActiveRef]);
 
   const openSettingsSection = useCallback((key = 'general') => {
     setSettingsNavKey(key || 'general');
@@ -1675,6 +1702,7 @@ export function App() {
         onDismiss={dismissGuidedTour}
         onAbort={abortGuidedTour}
       />
+      <SessionNavigationMask open={sessionNavigationPending} />
       <Toaster />
     </div>
     </SlashCommandsProvider>

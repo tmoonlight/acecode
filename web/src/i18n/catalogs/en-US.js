@@ -59,6 +59,9 @@ export const enUS = {
   format: {
     now: 'just now',
   },
+  sessionNavigation: {
+    opening: 'Opening conversation...',
+  },
   counts: {
     filesChanged_one: '{{formattedCount}} file changed',
     filesChanged_other: '{{formattedCount}} files changed',

@@ -133,6 +133,7 @@ import './sidebarCustomSectionArchitecture.test.js';
 import './sidebarSessions.test.js';
 import './remoteControlSessionHighlightArchitecture.test.js';
 import './sessionJump.test.js';
+import './sessionNavigationMaskArchitecture.test.js';
 import './sessionListEvents.test.js';
 import './errors.test.js';
 import './modelPicker.test.js';
