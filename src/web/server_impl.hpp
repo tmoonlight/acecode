@@ -68,6 +68,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -231,6 +232,26 @@ struct WebServer::Impl {
     mutable std::unordered_map<std::string, std::string> attention_workspace_cwds;
     mutable std::unordered_map<std::string, std::unordered_map<std::string, SessionAttentionRecord>> attention_by_workspace;
 
+    // Attention 落盘节流。
+    //
+    // note_session_event_for_attention 跑在**发射事件的 AgentLoop worker 线程**
+    // 上(EventDispatcher::emit 同步 drain 订阅者),而 Token / Reasoning /
+    // Tool* 事件全都会推进 update_cursor + updated_at_ms。改造前每个这样的
+    // 事件都会立刻整份重写 workspace 的 attention 文件(tmp + rename)——
+    // 实测流式期间事件峰值约 500/s(feedback IQSZ-D0668,日志里相邻两条
+    // lastSeq 差值 45 / 92ms),等于每秒几百次文件重写,还是在持 attention_mu
+    // 的情况下,并且多会话并发时写的是同一个文件。
+    //
+    // 现在热路径只标脏,真正落盘由后台 flusher 线程按 kAttentionFlushIntervalMs
+    // 合并;状态跃迁(read↔unread↔in_progress / busy 翻转)这种回合边界事件
+    // 仍然立即落盘。最坏情况是异常退出丢掉最多一个 flush 周期的游标推进,
+    // 下一个事件会重新标记,不影响正确性。
+    static constexpr int kAttentionFlushIntervalMs = 1000;
+    mutable std::unordered_set<std::string> attention_dirty_workspaces;
+    std::condition_variable attention_flush_cv;
+    bool attention_flush_stop = false;
+    std::thread attention_flush_thread;
+
     struct SubagentTrackerState {
         std::mutex mu;
         Impl* impl = nullptr;
@@ -248,6 +269,7 @@ struct WebServer::Impl {
 
     explicit Impl(WebServerDeps d) : deps(std::move(d)) {
         subagent_tracker_state->impl = this;
+        start_attention_flusher();
     }
     ~Impl();
 
@@ -359,7 +381,13 @@ struct WebServer::Impl {
     std::string attention_store_path_for_cwd(const std::string& cwd) const;
     void load_attention_workspace_locked(const std::string& workspace_hash,
                                           const std::string& cwd) const;
+    // 立即整份重写该 workspace 的 attention 文件,并清掉它的脏标记
+    //(「写过 ⇒ 不脏」是本模块的不变量)。调用方必须持 attention_mu。
     void save_attention_workspace_locked(const std::string& workspace_hash) const;
+    // 把当前所有脏 workspace 落盘。调用方必须持 attention_mu。
+    void flush_dirty_attention_workspaces_locked() const;
+    void start_attention_flusher();
+    void stop_attention_flusher();
     SessionAttentionRecord attention_record_for_session(const std::string& workspace_hash,
                                                          const std::string& cwd,
                                                          const std::string& session_id,

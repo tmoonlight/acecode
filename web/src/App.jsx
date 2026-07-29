@@ -128,6 +128,11 @@ import {
 
 const SINGLE_LAYOUT_STORAGE_KEY = 'acecode.singleLayoutWidths.v1';
 
+// 导航遮罩的最后兜底。要比 api.js 的 DEFAULT_REQUEST_TIMEOUT_MS 长 —— 正常
+// 情况下应该是请求先超时、上层收尾;这个计时器只负责接住「上层压根没收尾」
+// 的漏网路径,不该抢在请求超时之前触发。
+const SESSION_NAVIGATION_MASK_TIMEOUT_MS = 45000;
+
 // 控制台停靠区偏好(add-console-dock):开关 + 高度跨刷新持久化。
 const CONSOLE_DOCK_STORAGE_KEY = 'acecode.consoleDock.v1';
 const DEFAULT_CONSOLE_DOCK = { open: false, height: CONSOLE_DOCK_DEFAULT_HEIGHT };
@@ -236,6 +241,7 @@ export function App() {
   const startupNavigationStartedRef = useRef(false);
   const pendingSessionNavigationIdsRef = useRef(new Set());
   const nextSessionNavigationIdRef = useRef(0);
+  const sessionNavigationTimersRef = useRef(new Map());
   const [sessionNavigationPending, setSessionNavigationPending] = useState(
     () => !!startupOpenTargetRef.current,
   );
@@ -347,18 +353,47 @@ export function App() {
     setActiveRef(result.activeRef);
   }, []);
 
-  const beginSessionNavigation = useCallback(() => {
-    const navigationId = ++nextSessionNavigationIdRef.current;
-    pendingSessionNavigationIdsRef.current.add(navigationId);
-    setSessionNavigationPending(true);
-    return navigationId;
-  }, []);
-
   const finishSessionNavigation = useCallback((navigationId) => {
+    const timer = sessionNavigationTimersRef.current.get(navigationId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      sessionNavigationTimersRef.current.delete(navigationId);
+    }
     pendingSessionNavigationIdsRef.current.delete(navigationId);
     if (pendingSessionNavigationIdsRef.current.size === 0) {
       setSessionNavigationPending(false);
     }
+  }, []);
+
+  // SessionNavigationMask 是全屏的、吞掉所有指针与键盘事件的遮罩。它只在
+  // finishSessionNavigation 里关闭,所以任何一条不 settle 的 resume 都会
+  // 让界面永久点不动(用户只能从托盘杀进程)。api.js 现在给 fetch 加了
+  // 超时,这里再兜一层:无论上层因为什么原因没能收尾,遮罩都必须自己散。
+  const beginSessionNavigation = useCallback(() => {
+    const navigationId = ++nextSessionNavigationIdRef.current;
+    pendingSessionNavigationIdsRef.current.add(navigationId);
+    setSessionNavigationPending(true);
+    const timer = setTimeout(() => {
+      if (!pendingSessionNavigationIdsRef.current.has(navigationId)) return;
+      toast({ kind: 'err', text: '打开会话超时,请重试' });
+      finishSessionNavigation(navigationId);
+    }, SESSION_NAVIGATION_MASK_TIMEOUT_MS);
+    sessionNavigationTimersRef.current.set(navigationId, timer);
+    return navigationId;
+  }, [finishSessionNavigation]);
+
+  // 用户主动取消(遮罩上按 Esc):清掉全部在途导航,立刻还回操作权。
+  const cancelSessionNavigation = useCallback(() => {
+    const pending = Array.from(pendingSessionNavigationIdsRef.current);
+    pending.forEach((id) => finishSessionNavigation(id));
+  }, [finishSessionNavigation]);
+
+  useEffect(() => {
+    const timers = sessionNavigationTimersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
   }, []);
 
   const resumeAndOpenSession = useCallback(async (target, options = {}) => {
@@ -1702,7 +1737,10 @@ export function App() {
         onDismiss={dismissGuidedTour}
         onAbort={abortGuidedTour}
       />
-      <SessionNavigationMask open={sessionNavigationPending} />
+      <SessionNavigationMask
+        open={sessionNavigationPending}
+        onCancel={cancelSessionNavigation}
+      />
       <Toaster />
     </div>
     </SlashCommandsProvider>

@@ -127,26 +127,62 @@ export function sessionTitlePath(id, workspaceHash = '') {
   return `/api/sessions/${sid}/title`;
 }
 
-async function request(method, path, body, base) {
+// 默认请求超时。裸 fetch 没有超时:daemon 只要有一次不返回(卡在全局
+// app_config_mu 上、卡在同步 SessionStart hook 上、TCP 半开),调用方的
+// promise 就永远不 settle。对持全屏导航遮罩的 resumeAndOpenSession 来说,
+// 这等于整个界面永久吃掉所有点击和按键,用户只能从托盘杀进程。
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+
+// timeoutMs = 0 表示不设超时。仅用于「合法地会阻塞很久」的端点:
+//   - 后端弹原生模态框、等用户操作(选目录 / 导出)
+//   - 后端跑一次完整的模型往返(side question)
+// 其余端点一律走默认超时。
+const NO_TIMEOUT = 0;
+const LLM_ROUNDTRIP_TIMEOUT_MS = 600000;
+
+async function request(method, path, body, base, options = {}) {
   const headers = {};
   const token = baseToken(base);
   if (token) headers['X-ACECode-Token'] = token;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  const resp = await fetch(fullUrl(path, base), {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const ctype = resp.headers.get('Content-Type') || '';
-  let parsed = null;
-  if (resp.status !== 204 && ctype.includes('application/json')) {
-    parsed = await resp.json().catch(() => null);
-  } else if (resp.status !== 204) {
-    parsed = await resp.text().catch(() => '');
+  const rawTimeout = options.timeoutMs;
+  const timeoutMs = rawTimeout === undefined
+    ? DEFAULT_REQUEST_TIMEOUT_MS
+    : Number(rawTimeout) || 0;
+
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = (controller && timeoutMs > 0)
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+
+  try {
+    const resp = await fetch(fullUrl(path, base), {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const ctype = resp.headers.get('Content-Type') || '';
+    let parsed = null;
+    if (resp.status !== 204 && ctype.includes('application/json')) {
+      parsed = await resp.json().catch(() => null);
+    } else if (resp.status !== 204) {
+      parsed = await resp.text().catch(() => '');
+    }
+    if (!resp.ok) throw new ApiError(resp.status, parsed);
+    return parsed;
+  } catch (e) {
+    // 超时统一转成 ApiError(408) 并带上 TIMEOUT code,让调用方能走既有的
+    // ApiError 分支(errors.js 查文案 + toast + 重试),而不是撞上一个语义
+    // 不明的 DOMException。
+    if (e && e.name === 'AbortError') {
+      throw new ApiError(408, { error: 'TIMEOUT', message: '请求超时,请重试' });
+    }
+    throw e;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
-  if (!resp.ok) throw new ApiError(resp.status, parsed);
-  return parsed;
 }
 
 export function createApi(base = null) {
@@ -182,7 +218,9 @@ export function createApi(base = null) {
     deleteLoop:       (id)           => request('DELETE', `/api/loops/${encodeURIComponent(id)}`, undefined, base),
     listLoopRuns:     (id, limit=100) => request('GET',   `/api/loops/${encodeURIComponent(id)}/runs?limit=${encodeURIComponent(String(limit))}`, undefined, base),
     registerWorkspace:(cwd)          => request('POST',   '/api/workspaces', {cwd}, base),
-    pickWorkspaceFolder:()           => request('POST',   '/api/workspaces/pick-folder', undefined, base),
+    // 后端弹原生目录选择框并阻塞到用户选完 —— 不能设超时。
+    pickWorkspaceFolder:()           => request('POST',   '/api/workspaces/pick-folder', undefined, base,
+      { timeoutMs: NO_TIMEOUT }),
     getProjectDefaults:()            => request('GET',    '/api/projects/defaults', undefined, base),
     createProject:(name, parentDir='') => request('POST', '/api/projects', {
       name,
@@ -270,13 +308,17 @@ export function createApi(base = null) {
     uploadSessionAttachment: (id, attachment) =>
       request('POST', `/api/sessions/${encodeURIComponent(id)}/attachments`, attachment, base),
     executeCommand:   (id, command)  => request('POST',   `/api/sessions/${encodeURIComponent(id)}/commands`, command, base),
-    askSideQuestion:  (id, question) => request('POST',   `/api/sessions/${encodeURIComponent(id)}/side-question`, { question }, base),
+    // 同步跑一次完整模型往返(SessionRegistry::ask_side_question),按 LLM 计时。
+    askSideQuestion:  (id, question) => request('POST',   `/api/sessions/${encodeURIComponent(id)}/side-question`, { question }, base,
+      { timeoutMs: LLM_ROUNDTRIP_TIMEOUT_MS }),
     getMessages:      (id, since=0)  => request('GET',    sessionMessagesPath(id, since, base), undefined, base),
+    // 同 pickWorkspaceFolder:后端弹原生目录选择框等用户操作,不设超时。
     exportSession:    (id, workspaceHash = '') => request(
       'POST',
       `/api/sessions/${encodeURIComponent(id)}/export-markdown`,
       { workspace_hash: workspaceHash || '' },
       base,
+      { timeoutMs: NO_TIMEOUT },
     ),
     listSkills:       (workspaceHash = '') => request('GET',
       '/api/skills' + (workspaceHash ? '?workspace=' + encodeURIComponent(workspaceHash) : ''),

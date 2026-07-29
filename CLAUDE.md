@@ -159,6 +159,9 @@ The config schema is intentionally sparse on write: defaults are omitted when po
 3. **AgentLoop workers** — one detached thread per turn per active session, emits via `EventDispatcher`
 4. **Crow internal pool** — handles HTTP + WebSocket
 5. **AsyncPrompter waiters** — AgentLoop blocks on a per-session condvar; unblock posted from the Crow handler thread processing `decision`
+6. **Attention flusher** — `WebServer::Impl::start_attention_flusher`,每 `kAttentionFlushIntervalMs`(1000)把脏 workspace 的 session 未读态落盘
+
+**Attention 落盘是节流的,别改回逐事件写。** `note_session_event_for_attention` 由 WS 订阅的 listener 调用,而 `EventDispatcher::emit` 是在**发射线程(AgentLoop worker)上同步 drain 订阅者**的 —— 所以这个函数跑在 agent 线程上,且 Token / Reasoning / Tool* 事件都会推进 `update_cursor`。曾经每个这样的事件都整份重写 workspace 的 attention 文件(tmp + rename),实测流式峰值约 500 事件/秒(feedback IQSZ-D0668:相邻日志行 lastSeq 差 45 / 92ms),多会话并发时还是同一个文件,把磁盘和 `attention_mu` 一起打满。现在热路径只 `attention_dirty_workspaces.insert`,由上面那条 flusher 线程合并写;只有状态跃迁(read↔unread↔in_progress / busy 翻转,即回合边界)才同步落盘。不变量:`save_attention_workspace_locked` 一定会清掉对应的脏标记(「写过 ⇒ 不脏」)。
 
 ### TUI 工具行渲染(Claude Code 风格)
 

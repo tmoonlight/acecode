@@ -11,6 +11,10 @@ namespace acecode::web {
 using nlohmann::json;
 
 WebServer::Impl::~Impl() {
+    // 先停 flusher(它会把剩余脏 workspace 落盘),再拆订阅 —— 反过来的话
+    // 拆订阅期间到达的事件会标脏,但已经没有线程负责写出去了。
+    stop_attention_flusher();
+
     if (subagent_tracker_state) {
         std::lock_guard<std::mutex> lk(subagent_tracker_state->mu);
         subagent_tracker_state->impl = nullptr;
