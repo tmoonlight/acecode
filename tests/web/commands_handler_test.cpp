@@ -216,7 +216,7 @@ TEST_F(CommandsHandlerTest, BuiltinDescriptionsMatchTuiRegistration) {
     EXPECT_EQ(payload["builtins"][1]["description"].get<std::string>(),
               "Compress conversation history");
     EXPECT_EQ(payload["builtins"][2]["description"].get<std::string>(),
-              "Send feedback with current-session Desktop diagnostics");
+              "Send feedback with current-session desktop and daemon diagnostics");
     EXPECT_EQ(payload["builtins"][3]["description"].get<std::string>(),
               "Create, view, pause, resume, edit, or clear the thread goal");
     EXPECT_EQ(payload["builtins"][4]["description"].get<std::string>(),

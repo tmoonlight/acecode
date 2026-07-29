@@ -17,6 +17,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include <cpr/cpr.h>
@@ -190,12 +191,29 @@ void append_filename_component(std::string& out, const std::string& value) {
     out += sanitize_feedback_filename_component(trimmed);
 }
 
-bool is_desktop_log_filename(const fs::path& path) {
+bool is_rotated_log_filename(const fs::path& path, const std::string& base_name) {
     const std::string name = path.filename().string();
-    return name.rfind("desktop-", 0) == 0 &&
-           name.size() > std::string("desktop-.log").size() &&
-           name.size() >= 4 &&
+    const std::string prefix = base_name + "-";
+    return name.rfind(prefix, 0) == 0 &&
+           name.size() > prefix.size() + std::string(".log").size() &&
            name.substr(name.size() - 4) == ".log";
+}
+
+std::string default_log_entry_name(const fs::path& path) {
+    return "logs/" +
+           sanitize_feedback_filename_component(path.filename().string()) +
+           ".tail.txt";
+}
+
+std::string unique_entry_name(const std::string& desired,
+                              std::vector<std::string>& used) {
+    std::string candidate = desired;
+    int suffix = 2;
+    while (std::find(used.begin(), used.end(), candidate) != used.end()) {
+        candidate = desired + "." + std::to_string(suffix++);
+    }
+    used.push_back(candidate);
+    return candidate;
 }
 
 } // namespace
@@ -239,8 +257,10 @@ std::string make_feedback_package_filename(const std::string& session_id,
     return filename;
 }
 
-std::optional<fs::path> latest_desktop_log_path(const fs::path& logs_dir) {
+std::optional<fs::path> latest_rotated_log_path(const fs::path& logs_dir,
+                                                const std::string& base_name) {
     std::error_code ec;
+    if (base_name.empty()) return std::nullopt;
     if (!fs::is_directory(logs_dir, ec)) return std::nullopt;
 
     std::optional<fs::path> best;
@@ -250,7 +270,7 @@ std::optional<fs::path> latest_desktop_log_path(const fs::path& logs_dir) {
         std::error_code stat_ec;
         if (!entry.is_regular_file(stat_ec) || stat_ec) continue;
         const auto path = entry.path();
-        if (!is_desktop_log_filename(path)) continue;
+        if (!is_rotated_log_filename(path, base_name)) continue;
         const auto modified = entry.last_write_time(stat_ec);
         if (stat_ec) continue;
         if (!best || modified > best_time) {
@@ -259,6 +279,28 @@ std::optional<fs::path> latest_desktop_log_path(const fs::path& logs_dir) {
         }
     }
     return best;
+}
+
+std::optional<fs::path> latest_desktop_log_path(const fs::path& logs_dir) {
+    return latest_rotated_log_path(logs_dir, "desktop");
+}
+
+std::vector<FeedbackLogSource> collect_runtime_log_sources(const fs::path& logs_dir) {
+    // entry 名固定,不随日志文件的日期后缀变化 —— 服务端按名取用。
+    const std::pair<const char*, const char*> wanted[] = {
+        {"desktop", "logs/desktop.log.tail.txt"},
+        {"daemon", "logs/daemon.log.tail.txt"},
+    };
+    std::vector<FeedbackLogSource> sources;
+    for (const auto& [base, entry_name] : wanted) {
+        if (auto path = latest_rotated_log_path(logs_dir, base)) {
+            FeedbackLogSource source;
+            source.path = *path;
+            source.entry_name = entry_name;
+            sources.push_back(std::move(source));
+        }
+    }
+    return sources;
 }
 
 FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& request) {
@@ -311,11 +353,34 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
     const fs::path package_path = output_dir / path_from_utf8(package_filename);
     fs::remove(package_path, ec);
 
-    std::string log_tail;
+    std::vector<FeedbackLogInclusion> log_results;
+    std::vector<std::pair<std::string, std::string>> log_payloads;
+    std::vector<std::string> used_entry_names;
+    bool log_included = false;
     std::size_t log_tail_bytes = 0;
-    const bool log_included =
-        !request.log_path.empty() &&
-        read_tail(request.log_path, request.max_log_bytes, &log_tail, &log_tail_bytes);
+    for (const auto& source : request.logs) {
+        if (source.path.empty()) continue;
+        const std::size_t cap =
+            source.max_bytes != 0 ? source.max_bytes : request.max_log_bytes;
+        std::string tail;
+        std::size_t tail_bytes = 0;
+        const bool ok = read_tail(source.path, cap, &tail, &tail_bytes);
+
+        FeedbackLogInclusion inclusion;
+        inclusion.source_path = path_to_utf8(source.path);
+        inclusion.included = ok;
+        inclusion.entry_name = source.entry_name.empty()
+            ? default_log_entry_name(source.path)
+            : source.entry_name;
+        if (ok) {
+            inclusion.entry_name = unique_entry_name(inclusion.entry_name, used_entry_names);
+            inclusion.tail_bytes = tail_bytes;
+            log_included = true;
+            log_tail_bytes += tail_bytes;
+            log_payloads.emplace_back(inclusion.entry_name, std::move(tail));
+        }
+        log_results.push_back(std::move(inclusion));
+    }
 
     std::vector<std::string> included_files;
     std::string session_entry;
@@ -324,11 +389,18 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
             "session/" + sanitize_feedback_filename_component(request.session_id) + ".jsonl";
         included_files.push_back(session_entry);
     }
-    const std::string log_entry_name = request.log_entry_name.empty()
-        ? "logs/acecode.log.tail.txt"
-        : request.log_entry_name;
-    if (log_included) included_files.push_back(log_entry_name);
+    for (const auto& [entry_name, _] : log_payloads) included_files.push_back(entry_name);
     included_files.push_back("feedback.json");
+
+    nlohmann::json logs_metadata = nlohmann::json::array();
+    for (const auto& inclusion : log_results) {
+        logs_metadata.push_back({
+            {"entry_name", inclusion.entry_name},
+            {"path", inclusion.source_path},
+            {"available", inclusion.included},
+            {"tail_bytes", static_cast<std::uint64_t>(inclusion.tail_bytes)},
+        });
+    }
 
     nlohmann::json metadata = {
         {"source", request.source.empty() ? "tui" : request.source},
@@ -343,10 +415,11 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
         {"login_name", login_name},
         {"log_available", log_included},
         {"log_tail_bytes", static_cast<std::uint64_t>(log_tail_bytes)},
+        {"logs", logs_metadata},
         {"included_files", included_files},
     };
-    if (!request.log_path.empty()) {
-        metadata["log_path"] = path_to_utf8(request.log_path);
+    if (!log_results.empty()) {
+        metadata["log_path"] = log_results.front().source_path;
     }
 
     const std::string metadata_text = metadata.dump(2);
@@ -364,8 +437,9 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
     if (has_session) {
         ok = add_file_entry(archive, session_entry, request.session_jsonl_path, &entry_error);
     }
-    if (ok && log_included) {
-        ok = add_buffer_entry(archive, log_entry_name, log_tail, &entry_error);
+    for (const auto& [entry_name, content] : log_payloads) {
+        if (!ok) break;
+        ok = add_buffer_entry(archive, entry_name, content, &entry_error);
     }
     if (ok) {
         ok = add_buffer_entry(archive, "feedback.json", metadata_text, &entry_error);
@@ -389,6 +463,7 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
     result.package_filename = package_filename;
     result.log_included = log_included;
     result.log_tail_bytes = log_tail_bytes;
+    result.logs = std::move(log_results);
     result.included_files = std::move(included_files);
     return result;
 }

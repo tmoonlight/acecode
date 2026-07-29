@@ -351,4 +351,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '已开启蜂群模式': 'Swarm mode enabled',
   '下一条普通消息将积极派遣子 Agent': 'The next regular message will proactively dispatch subagents',
   '关闭蜂群模式': 'Disable swarm mode',
+  '默认附带最近的 desktop 与 daemon 日志。关联某个具体的会话记录将更有助于我们帮您排查问题。':
+    'By default the most recent desktop and daemon logs are included. Linking a specific session will help us troubleshoot the issue.',
 });

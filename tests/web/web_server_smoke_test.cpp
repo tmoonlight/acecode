@@ -5010,6 +5010,83 @@ TEST(WebServerHttp, DesktopFeedbackUploadsLogOnlyWithoutSession) {
     std::filesystem::remove(received_zip, ec);
 }
 
+TEST(WebServerHttp, DesktopFeedbackUploadsDaemonLogAlongsideDesktopLog) {
+    std::filesystem::path received_zip;
+    LocalUpdateServer upload_server([&](httplib::Server& s) {
+        s.Post("/", [&](const httplib::Request& req, httplib::Response& res) {
+            auto file = req.get_file_value("file");
+            received_zip = std::filesystem::temp_directory_path() /
+                           ("acecode_desktop_feedback_daemon_log_" +
+                            std::to_string(std::chrono::steady_clock::now()
+                                               .time_since_epoch()
+                                               .count()) + ".zip");
+            write_text(received_zip, file.content);
+            res.set_content(R"({"success":true})", "application/json");
+        });
+    });
+
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = upload_server.base_url();
+    write_text(fx.logs_dir / "desktop-2026-06-18.log", "desktop latest log");
+    write_text(fx.logs_dir / "daemon-2026-06-18.log", "daemon latest log");
+
+    auto r = cpr::Post(cpr::Url{fx.url("/api/feedback/desktop")},
+                       cpr::Header{{"Content-Type", "application/json"}},
+                       cpr::Body{json{{"feedback_text", "turn never finished"}}.dump()});
+    ASSERT_EQ(r.status_code, 200) << r.text;
+    auto body = json::parse(r.text);
+    EXPECT_TRUE(body["ok"].get<bool>());
+    ASSERT_EQ(body["logs"].size(), 2u);
+    EXPECT_EQ(body["logs"][1]["entry_name"], "logs/daemon.log.tail.txt");
+    EXPECT_TRUE(body["logs"][1]["available"].get<bool>());
+    EXPECT_EQ(read_zip_entry(received_zip, "logs/desktop.log.tail.txt"),
+              "desktop latest log");
+    EXPECT_EQ(read_zip_entry(received_zip, "logs/daemon.log.tail.txt"),
+              "daemon latest log");
+
+    auto metadata = json::parse(read_zip_entry(received_zip, "feedback.json"));
+    EXPECT_TRUE(metadata["log_available"].get<bool>());
+    ASSERT_EQ(metadata["logs"].size(), 2u);
+    EXPECT_EQ(metadata["logs"][1]["entry_name"], "logs/daemon.log.tail.txt");
+    std::error_code ec;
+    std::filesystem::remove(received_zip, ec);
+}
+
+TEST(WebServerHttp, DesktopFeedbackUploadsDaemonLogWhenDesktopShellIsAbsent) {
+    std::filesystem::path received_zip;
+    LocalUpdateServer upload_server([&](httplib::Server& s) {
+        s.Post("/", [&](const httplib::Request& req, httplib::Response& res) {
+            auto file = req.get_file_value("file");
+            received_zip = std::filesystem::temp_directory_path() /
+                           ("acecode_desktop_feedback_daemon_only_" +
+                            std::to_string(std::chrono::steady_clock::now()
+                                               .time_since_epoch()
+                                               .count()) + ".zip");
+            write_text(received_zip, file.content);
+            res.set_content(R"({"success":true})", "application/json");
+        });
+    });
+
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = upload_server.base_url();
+    write_text(fx.logs_dir / "daemon-2026-06-18.log", "daemon only log");
+
+    auto r = cpr::Post(cpr::Url{fx.url("/api/feedback/desktop")},
+                       cpr::Header{{"Content-Type", "application/json"}},
+                       cpr::Body{json{{"feedback_text", "browser only"}}.dump()});
+    ASSERT_EQ(r.status_code, 200) << r.text;
+    auto body = json::parse(r.text);
+    EXPECT_TRUE(body["ok"].get<bool>());
+    EXPECT_TRUE(body["log_included"].get<bool>());
+    ASSERT_EQ(body["logs"].size(), 1u);
+    EXPECT_EQ(body["logs"][0]["entry_name"], "logs/daemon.log.tail.txt");
+    EXPECT_FALSE(zip_entry_exists(received_zip, "logs/desktop.log.tail.txt"));
+    EXPECT_EQ(read_zip_entry(received_zip, "logs/daemon.log.tail.txt"),
+              "daemon only log");
+    std::error_code ec;
+    std::filesystem::remove(received_zip, ec);
+}
+
 TEST(WebServerHttp, DesktopFeedbackUploadsSelectedSessionOnly) {
     const std::string sid = "20260618-030000-abcf";
     std::filesystem::path received_zip;
