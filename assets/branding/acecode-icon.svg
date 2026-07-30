@@ -17,12 +17,12 @@
   <rect x="32" y="32" width="448" height="448" rx="104" fill="url(#acesheen)"/>
 
   <!-- A(ACE / Agent) -->
-  <path d="M104 384 L194 148 L284 384" fill="none" stroke="#ffffff"
+  <path d="M96 384 L184 148 L272 384" fill="none" stroke="#ffffff"
         stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="149" y1="306" x2="239" y2="306" stroke="#ffffff"
+  <line x1="140" y1="306" x2="228" y2="306" stroke="#ffffff"
         stroke-width="38" stroke-linecap="round"/>
 
   <!-- 终端提示符 > (Code) -->
-  <path d="M318 212 L406 292 L318 372" fill="none" stroke="#ffffff"
+  <path d="M330 212 L416 292 L330 372" fill="none" stroke="#ffffff"
         stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
