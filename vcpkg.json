@@ -1,20 +1,20 @@
 {
-  "name": "acecode",
-  "version-semver": "0.8.2",
-  "dependencies": [
-    "cpr",
-    "crow",
-    "ftxui",
-    "libzip",
-    "nlohmann-json",
-    "sqlite3"
-  ],
-  "features": {
-    "tests": {
-      "description": "Dependencies required only by ACECode unit tests",
-      "dependencies": [
-        "gtest"
-      ]
-    }
-  }
+    "name":  "acecode",
+    "version-semver":  "0.8.3",
+    "dependencies":  [
+                         "cpr",
+                         "crow",
+                         "ftxui",
+                         "libzip",
+                         "nlohmann-json",
+                         "sqlite3"
+                     ],
+    "features":  {
+                     "tests":  {
+                                   "description":  "Dependencies required only by ACECode unit tests",
+                                   "dependencies":  [
+                                                        "gtest"
+                                                    ]
+                               }
+                 }
 }
