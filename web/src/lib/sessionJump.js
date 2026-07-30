@@ -1,3 +1,5 @@
+import { navigationHistoryHash } from './navigationHistory.js';
+
 function text(value) {
   return String(value == null ? '' : value).trim();
 }
@@ -127,6 +129,7 @@ export function desktopOpenSessionUrl({
   noWorkspace = false,
   readOnly = false,
   messageOrdinal = null,
+  navigationHistory = null,
   protocol = 'http:',
 } = {}) {
   const sid = text(sessionId);
@@ -141,7 +144,9 @@ export function desktopOpenSessionUrl({
   const ordinal = ordinalValue(messageOrdinal);
   if (ordinal !== null) params.set('message_ordinal', String(ordinal));
   const scheme = text(protocol).replace(/:$/, '') || 'http';
-  return `${scheme}://127.0.0.1:${encodeURIComponent(String(port))}/?${params.toString()}`;
+  const historyHash = navigationHistory ? navigationHistoryHash(navigationHistory) : '';
+  const fragment = historyHash ? `#${historyHash}` : '';
+  return `${scheme}://127.0.0.1:${encodeURIComponent(String(port))}/?${params.toString()}${fragment}`;
 }
 
 export function sessionRefFromJumpTarget(target = {}, resumeResult = {}, fallback = {}) {

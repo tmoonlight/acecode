@@ -9,6 +9,7 @@ import {
   sidebarSessionHasWorktree,
   sidebarSessionMarker,
   sidebarRevealTarget,
+  sidebarRevealTargetKey,
   sidebarSessionProjection,
   sortSidebarSessionsNewestFirst,
   upsertSidebarSession,
@@ -126,6 +127,47 @@ test('sidebarRevealTarget marks no-workspace sessions without workspace hash', (
     workspaceHash: '',
     noWorkspace: true,
   });
+});
+
+test('sidebarRevealTargetKey distinguishes workspace and no-workspace targets', () => {
+  assert.equal(
+    sidebarRevealTargetKey({ sessionId: 's1', workspaceHash: 'w1' }),
+    'workspace\u0000w1\u0000s1',
+  );
+  assert.equal(
+    sidebarRevealTargetKey({
+      session_id: 's1',
+      workspace_hash: 'stale-workspace',
+      no_workspace: true,
+    }),
+    'no-workspace\u0000\u0000s1',
+  );
+  assert.equal(sidebarRevealTargetKey({ workspaceHash: 'w1' }), '');
+});
+
+test('sidebarRevealTargetKey stays stable across refresh-only metadata updates', () => {
+  const previous = sidebarRevealTargetKey({
+    sessionId: 's1',
+    workspaceHash: 'w1',
+    title: 'Earlier title',
+    updated_at: '2026-07-30T01:00:00Z',
+  });
+  const refreshed = sidebarRevealTargetKey({
+    session_id: 's1',
+    workspace_hash: 'w1',
+    title: 'Updated title',
+    updated_at: '2026-07-30T02:00:00Z',
+    attention_state: 'working',
+  });
+  assert.equal(refreshed, previous);
+  assert.notEqual(
+    sidebarRevealTargetKey({ sessionId: 's1', workspaceHash: 'w2' }),
+    previous,
+  );
+  assert.notEqual(
+    sidebarRevealTargetKey({ sessionId: 's2', workspaceHash: 'w1' }),
+    previous,
+  );
 });
 
 test('sessionListNeedsRevealExpansion expands when target row is hidden', () => {

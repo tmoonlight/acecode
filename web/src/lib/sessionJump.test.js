@@ -7,6 +7,7 @@ import {
   sessionRefFromJumpTarget,
   stripOpenSessionParams,
 } from './sessionJump.js';
+import { navigationHistoryFromHash } from './navigationHistory.js';
 
 function test(name, fn) {
   try {
@@ -124,4 +125,35 @@ test('desktop open session URL preserves matched message ordinal', () => {
     search_match: { kind: 'user_message', message_ordinal: 12, messageOrdinal: 12 },
   });
   assert.equal(stripOpenSessionParams('?token=t1&open=s1&workspace=w1&message_ordinal=12'), 'token=t1');
+});
+
+test('desktop open session URL transfers navigation history in a client-only fragment', () => {
+  const url = desktopOpenSessionUrl({
+    port: 4567,
+    token: 'tok',
+    sessionId: 's2',
+    workspaceHash: 'w2',
+    navigationHistory: {
+      back: [{
+        workspaceHash: 'w1',
+        sessionId: 's1',
+        displayTitle: 'Previous',
+        token: 'must-not-transfer',
+      }],
+      forward: [],
+    },
+  });
+  const parsed = new URL(url);
+
+  assert.equal(parsed.searchParams.get('open'), 's2');
+  assert.equal(parsed.searchParams.has('ace_nav'), false);
+  assert.doesNotMatch(parsed.hash, /must-not-transfer/);
+  assert.deepEqual(navigationHistoryFromHash(parsed.hash), {
+    back: [{
+      workspaceHash: 'w1',
+      sessionId: 's1',
+      displayTitle: 'Previous',
+    }],
+    forward: [],
+  });
 });

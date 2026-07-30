@@ -20,7 +20,14 @@ import {
   notificationBodyFromEvent,
 } from './lib/desktopNotify.js';
 import { createNewSessionForActiveWorkspace } from './lib/newSession.js';
-import { goBack, goForward, pushNavigation } from './lib/navigationHistory.js';
+import {
+  goBack,
+  goForward,
+  navigationHistoryFromHash,
+  normalizeHistory,
+  pushNavigation,
+  stripNavigationHistoryHash,
+} from './lib/navigationHistory.js';
 import {
   addPendingQuestionRequest,
   clearResolvedQuestionRequests,
@@ -159,7 +166,10 @@ export function App() {
   const [health,    setHealth]    = useState(null);
 
   const [activeRef,    setActiveRef]    = useState(null);
-  const [navHistory, setNavHistory] = useState({ back: [], forward: [] });
+  const [navHistory, setNavHistory] = useState(() => (
+    (typeof window !== 'undefined' && navigationHistoryFromHash(window.location.hash))
+    || { back: [], forward: [] }
+  ));
   const [commandWorkspaceHash, setCommandWorkspaceHash] = useState('');
   const [consoleCwd, setConsoleCwd] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -357,20 +367,12 @@ export function App() {
     setActiveRef(next);
   }, []);
 
-  const goBackActiveRef = useCallback(() => {
-    const result = goBack(navHistoryRef.current, activeRefRef.current);
-    navHistoryRef.current = result.history;
-    activeRefRef.current = result.activeRef;
-    setNavHistory(result.history);
-    setActiveRef(result.activeRef);
-  }, []);
-
-  const goForwardActiveRef = useCallback(() => {
-    const result = goForward(navHistoryRef.current, activeRefRef.current);
-    navHistoryRef.current = result.history;
-    activeRefRef.current = result.activeRef;
-    setNavHistory(result.history);
-    setActiveRef(result.activeRef);
+  const replaceNavigationState = useCallback((nextRef, nextHistory) => {
+    const normalized = normalizeHistory(nextHistory);
+    navHistoryRef.current = normalized;
+    activeRefRef.current = nextRef;
+    setNavHistory(normalized);
+    setActiveRef(nextRef);
   }, []);
 
   const finishSessionNavigation = useCallback((navigationId) => {
@@ -428,7 +430,12 @@ export function App() {
       const readOnly = sessionJumpReadOnly(target);
       const targetHash = sessionJumpWorkspaceHash(target);
       const shouldResume = !readOnly && (options.forceResume || target?.active !== true);
-      const commitRef = options.replace ? replaceActiveRef : navigateToRef;
+      const suppliedHistory = options.navigationHistory
+        ? normalizeHistory(options.navigationHistory)
+        : null;
+      const commitRef = suppliedHistory
+        ? (nextRef) => replaceNavigationState(nextRef, suppliedHistory)
+        : (options.replace ? replaceActiveRef : navigateToRef);
       const resumeWith = async (client, workspaceHash) => {
         if (!shouldResume) return {};
         if (noWorkspace || !workspaceHash) return client.resumeSession(sessionId);
@@ -455,6 +462,14 @@ export function App() {
               return false;
             }
             if (!navigationIsPending()) return false;
+            const nextRef = sessionRefFromJumpTarget(target, resumed, {
+              workspaceHash: targetHash,
+            });
+            const redirectHistory = suppliedHistory || (
+              options.replace
+                ? normalizeHistory(navHistoryRef.current)
+                : pushNavigation(navHistoryRef.current, activeRefRef.current, nextRef)
+            );
             const url = desktopOpenSessionUrl({
               port: r.port,
               token: r.token,
@@ -462,6 +477,7 @@ export function App() {
               workspaceHash: targetHash,
               readOnly,
               messageOrdinal: sessionJumpMessageOrdinal(target),
+              navigationHistory: redirectHistory,
               protocol: window.location?.protocol || 'http:',
             });
             if (url) {
@@ -469,7 +485,7 @@ export function App() {
               handedOffToPageLoad = true;
               return true;
             }
-            commitRef(sessionRefFromJumpTarget(target, resumed, { workspaceHash: targetHash }));
+            commitRef(nextRef);
             return true;
           }
         } catch {
@@ -495,7 +511,34 @@ export function App() {
     } finally {
       if (!handedOffToPageLoad) finishSessionNavigation(navigationId);
     }
-  }, [beginSessionNavigation, finishSessionNavigation, navigateToRef, replaceActiveRef]);
+  }, [
+    beginSessionNavigation,
+    finishSessionNavigation,
+    navigateToRef,
+    replaceActiveRef,
+    replaceNavigationState,
+  ]);
+
+  const openHistoryDestination = useCallback((result) => {
+    if (!result?.activeRef) return Promise.resolve(false);
+    if (!sessionJumpId(result.activeRef)) {
+      replaceNavigationState(result.activeRef, result.history);
+      return Promise.resolve(true);
+    }
+    return resumeAndOpenSession(result.activeRef, {
+      forceResume: true,
+      navigationHistory: result.history,
+      replace: true,
+    });
+  }, [replaceNavigationState, resumeAndOpenSession]);
+
+  const goBackActiveRef = useCallback(() => (
+    openHistoryDestination(goBack(navHistoryRef.current, activeRefRef.current))
+  ), [openHistoryDestination]);
+
+  const goForwardActiveRef = useCallback(() => (
+    openHistoryDestination(goForward(navHistoryRef.current, activeRefRef.current))
+  ), [openHistoryDestination]);
 
   const openSettingsSection = useCallback((key = 'general') => {
     setSettingsNavKey(key || 'general');
@@ -629,7 +672,10 @@ export function App() {
     if (!target || startupNavigationStartedRef.current) return;
     startupNavigationStartedRef.current = true;
     const qs = stripOpenSessionParams(window.location.search);
-    const newUrl = window.location.pathname + (qs ? '?' + qs : '');
+    const hash = stripNavigationHistoryHash(window.location.hash);
+    const newUrl = window.location.pathname
+      + (qs ? '?' + qs : '')
+      + (hash ? '#' + hash : '');
     window.history.replaceState(null, '', newUrl);
     resumeAndOpenSession(target, { replace: true, allowDesktopActivate: false })
       .catch(() => {})

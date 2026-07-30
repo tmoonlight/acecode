@@ -65,6 +65,7 @@ import {
   shouldStartRemoteControlSurge,
   sidebarSessionMarker,
   sidebarRevealTarget,
+  sidebarRevealTargetKey,
   sidebarSessionProjection,
   upsertSidebarSession,
 } from '../lib/sidebarSessions.js';
@@ -1297,6 +1298,8 @@ export function Sidebar({
   const [opencodeImportedHighlightKeys, setOpencodeImportedHighlightKeys] = useState(() => new Set());
   const opencodeImportedHighlightTimersRef = useRef(new Map());
   const revealedSectionTargetRef = useRef('');
+  const sessionRevealTargetRef = useRef('');
+  const revealedSessionTargetRef = useRef('');
   const handledWorkspaceActivationRequestRef = useRef(0);
   const revealTarget = useMemo(() => sidebarRevealTarget(activeRef), [activeRef]);
 
@@ -1972,7 +1975,16 @@ export function Sidebar({
   );
 
   useEffect(() => {
-    if (!revealTarget.sessionId) return undefined;
+    if (!revealTarget.sessionId) {
+      sessionRevealTargetRef.current = '';
+      revealedSessionTargetRef.current = '';
+      return undefined;
+    }
+    const targetKey = sidebarRevealTargetKey(revealTarget);
+    if (sessionRevealTargetRef.current !== targetKey) {
+      sessionRevealTargetRef.current = targetKey;
+      revealedSessionTargetRef.current = '';
+    }
     const pinnedTarget = pinnedSessions.some((session) => sessionMatchesRevealTarget(session, revealTarget));
     const targetSection = pinnedTarget
       ? SIDEBAR_SECTION_IDS.PINNED
@@ -2018,9 +2030,12 @@ export function Sidebar({
       });
     }
 
+    if (revealedSessionTargetRef.current === targetKey) return undefined;
     if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
     const frame = window.requestAnimationFrame(() => {
-      const rows = Array.from(document.querySelectorAll('.ace-sidebar-session-row[data-desktop-session-id]'));
+      const scrollRoot = sidebarScrollRef.current;
+      if (!scrollRoot) return;
+      const rows = Array.from(scrollRoot.querySelectorAll('.ace-sidebar-session-row[data-desktop-session-id]'));
       const matches = rows.filter((row) => {
         if (row.getAttribute('data-desktop-session-id') !== revealTarget.sessionId) return false;
         const rowWorkspace = row.getAttribute('data-desktop-session-workspace') || '';
@@ -2029,7 +2044,10 @@ export function Sidebar({
         return rowWorkspace === revealTarget.workspaceHash;
       });
       const row = matches.find((item) => item.getAttribute('data-desktop-session-pinned') !== 'true') || matches[0];
-      row?.scrollIntoView?.({ block: 'nearest' });
+      if (!row) return;
+      if (sessionRevealTargetRef.current !== targetKey) return;
+      revealedSessionTargetRef.current = targetKey;
+      row.scrollIntoView?.({ block: 'nearest' });
     });
     return () => window.cancelAnimationFrame?.(frame);
   }, [expandedSessionLists, noWorkspaceSessions, pinnedSessions, revealTarget, setSectionExpansion, updateExpanded, workspaceSessions]);

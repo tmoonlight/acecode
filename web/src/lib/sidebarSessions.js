@@ -115,6 +115,16 @@ export function sidebarRevealTarget(activeRef = {}) {
   };
 }
 
+export function sidebarRevealTargetKey(target = {}) {
+  const normalized = sidebarRevealTarget(target);
+  if (!normalized.sessionId) return '';
+  return [
+    normalized.noWorkspace ? 'no-workspace' : 'workspace',
+    normalized.workspaceHash,
+    normalized.sessionId,
+  ].join('\u0000');
+}
+
 export function sessionMatchesRevealTarget(session = {}, target = {}) {
   const targetId = String(target?.sessionId || target?.id || target?.session_id || '').trim();
   if (!targetId || sessionId(session) !== targetId) return false;

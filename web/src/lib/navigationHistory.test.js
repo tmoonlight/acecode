@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import {
+  deserializeNavigationHistory,
   goBack,
   goForward,
+  navigationHistoryFromHash,
+  navigationHistoryHash,
   navigationKey,
   pushNavigation,
   sameNavigationRef,
+  serializeNavigationHistory,
+  stripNavigationHistoryHash,
 } from './navigationHistory.js';
 
 function run(name, fn) {
@@ -71,4 +76,81 @@ run('goBack and goForward traverse active refs', () => {
   assert.deepEqual(forwardResult.activeRef, c);
   assert.deepEqual(forwardResult.history.back, [a, b]);
   assert.deepEqual(forwardResult.history.forward, []);
+});
+
+run('transfer snapshot round-trips bounded navigation fields without credentials', () => {
+  const serialized = serializeNavigationHistory({
+    back: [{
+      workspace_hash: 'w1',
+      session_id: 's1',
+      context_id: 'ctx',
+      cwd: 'N:/repo',
+      display_title: 'First',
+      read_only: true,
+      token: 'secret-token',
+      port: 4567,
+      summary: 'large transcript-derived text',
+      search_match: {
+        message_ordinal: 7,
+        snippet: 'private matching text',
+      },
+    }],
+    forward: [{
+      home: true,
+      workspaceHash: 'w2',
+      cwd: 'N:/other',
+      workspaceName: 'Other',
+    }],
+  });
+
+  assert.ok(serialized);
+  assert.doesNotMatch(serialized, /secret-token|large transcript-derived|private matching text/);
+  assert.deepEqual(deserializeNavigationHistory(serialized), {
+    back: [{
+      workspaceHash: 'w1',
+      sessionId: 's1',
+      contextId: 'ctx',
+      cwd: 'N:/repo',
+      displayTitle: 'First',
+      readOnly: true,
+      searchMatch: {
+        kind: 'user_message',
+        messageOrdinal: 7,
+        message_ordinal: 7,
+      },
+    }],
+    forward: [{
+      workspaceHash: 'w2',
+      cwd: 'N:/other',
+      workspaceName: 'Other',
+      home: true,
+    }],
+  });
+});
+
+run('transfer snapshot rejects malformed payloads and preserves the 80-entry bound', () => {
+  assert.equal(deserializeNavigationHistory('not-json'), null);
+  assert.equal(deserializeNavigationHistory(JSON.stringify({ v: 999, b: [], f: [] })), null);
+  assert.equal(deserializeNavigationHistory('x'.repeat((64 * 1024) + 1)), null);
+
+  const back = Array.from({ length: 100 }, (_, index) => ({
+    workspaceHash: 'w1',
+    sessionId: `s${index}`,
+  }));
+  const restored = deserializeNavigationHistory(serializeNavigationHistory({ back, forward: [] }));
+  assert.equal(restored.back.length, 80);
+  assert.equal(restored.back[0].sessionId, 's20');
+  assert.equal(restored.back[79].sessionId, 's99');
+});
+
+run('navigation history fragment is one-shot and preserves unrelated hash parameters', () => {
+  const history = {
+    back: [{ workspaceHash: 'w1', sessionId: 's1' }],
+    forward: [{ workspaceHash: 'w2', sessionId: 's2' }],
+  };
+  const hash = navigationHistoryHash(history);
+  assert.match(hash, /^ace_nav=/);
+  assert.deepEqual(navigationHistoryFromHash(`#panel=chat&${hash}`), history);
+  assert.equal(stripNavigationHistoryHash(`#panel=chat&${hash}`), 'panel=chat');
+  assert.equal(stripNavigationHistoryHash('#plain-anchor'), 'plain-anchor');
 });
