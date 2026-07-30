@@ -244,10 +244,18 @@ run('history load 不继承被旧快照覆盖的 live seq 水位', () => {
   assert.deepEqual(final.items.map((item) => item.content), ['work', 'final answer']);
 });
 
-run('live 首次加载后从 1 补拉事件缓冲,避开 since=0 不回放', () => {
+run('live 补拉只在必要时发生:busy 从 1 起、idle 完全跳过、有游标按游标续', () => {
   assert.equal(replaySinceForLiveCatchup({ isLive: false, loadedSeq: 0 }), null);
-  assert.equal(replaySinceForLiveCatchup({ isLive: true, loadedSeq: 0 }), 1);
+  assert.equal(replaySinceForLiveCatchup({ isLive: false, loadedSeq: 0, busy: true }), null);
+  // idle 会话初始加载:磁盘历史已完整,since=1 会让 daemon 全量回放 1024 条
+  // 事件环形缓冲、前端逐条 reduce —— 纯冗余,必须跳过。
+  assert.equal(replaySinceForLiveCatchup({ isLive: true, loadedSeq: 0 }), null);
+  assert.equal(replaySinceForLiveCatchup({ isLive: true, loadedSeq: 0, busy: false }), null);
+  // busy 会话:进行中回合的流式草稿只存在于事件流里,必须从 1 全量补拉重建。
+  assert.equal(replaySinceForLiveCatchup({ isLive: true, loadedSeq: 0, busy: true }), 1);
+  // 已有事件游标(WS 重连场景):无论 busy 与否都从游标处续传。
   assert.equal(replaySinceForLiveCatchup({ isLive: true, loadedSeq: 42 }), 42);
+  assert.equal(replaySinceForLiveCatchup({ isLive: true, loadedSeq: 42, busy: true }), 42);
 });
 
 run('live catch-up replay 丢弃已持久化 message 前的旧 token', () => {
@@ -1767,4 +1775,17 @@ run('防回退: 快照 seq 更高时即便实时文本更长也以快照为准',
     nextItemId: 2,
   });
   assert.equal(preserveLiveAssistantTailOnLoad(loaded, live), loaded);
+});
+
+// 架构守护: useSessionTranscript 的加载 effect 不得依赖 ref 的对象身份。
+// App 侧 replaceActiveRef / 元数据更新会在 sid 不变时造出新 ref 对象;若
+// deps 含 ref,每次都会把 transcript 重置回 loading + 全量重拉历史(可见
+// 症状即 desktop 日志的 "tail shrank via catchup: lastSeq 0→NNNN")。
+const transcriptSource = (await import('node:fs')).readFileSync(
+  new URL('./sessionTranscript.js', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n');
+run('架构: 加载 effect 依赖为 [api, isLive, sid],不含 ref 对象身份', () => {
+  assert.match(transcriptSource, /\}, \[api, isLive, sid\]\);/);
+  assert.doesNotMatch(transcriptSource, /\}, \[api, isLive, ref, sid\]\);/);
 });
