@@ -3,6 +3,7 @@ import './pendingQuestions.test.js';
 import './expertMenuPosition.test.js';
 import './stickyUserContext.test.js';
 import './desktopContextMenu.test.js';
+import './sessionExplorerArchitecture.test.js';
 import './topBarQuickActions.test.js';
 import './desktopWindowBackground.test.js';
 import './mermaidRenderer.test.js';

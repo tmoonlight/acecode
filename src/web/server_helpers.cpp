@@ -706,6 +706,18 @@ void append_loop_execution(json& target,
     };
 }
 
+std::string existing_session_jsonl_path(const std::string& cwd,
+                                        const std::string& session_id) {
+    if (cwd.empty() || session_id.empty()) return {};
+    const std::string path = SessionStorage::session_path(
+        SessionStorage::get_project_dir(cwd), session_id);
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path_from_utf8(path), ec) || ec) {
+        return {};
+    }
+    return path;
+}
+
 } // namespace
 
 json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMeta* m) const {
@@ -717,7 +729,8 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     const std::string workspace_hash = no_workspace
         ? std::string{}
         : (!s.workspace_hash.empty() ? s.workspace_hash : (m ? compute_cwd_hash(m->cwd) : ""));
-    const std::string cwd = no_workspace ? std::string{} : (!s.cwd.empty() ? s.cwd : (m ? m->cwd : ""));
+    const std::string storage_cwd = !s.cwd.empty() ? s.cwd : (m ? m->cwd : "");
+    const std::string cwd = no_workspace ? std::string{} : storage_cwd;
     o["id"]            = s.id;
     o["active"]        = true;
     o["status"]        = s.busy ? "running" : "idle";
@@ -726,6 +739,7 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     }
     o["workspace_hash"] = workspace_hash;
     o["cwd"]           = cwd;
+    o["session_path"]  = existing_session_jsonl_path(storage_cwd, s.id);
     o["no_workspace"]  = no_workspace;
     o["title"]         = !s.title.empty() ? s.title : (m ? m->title : "");
     o["title_source"]  = !s.title_source.empty() ? s.title_source : (m ? m->title_source : "");
@@ -811,6 +825,7 @@ json WebServer::Impl::session_meta_to_json(const SessionMeta& m, const std::stri
     o["status"]         = "idle";
     o["workspace_hash"] = effective_workspace_hash;
     o["cwd"]            = effective_cwd;
+    o["session_path"]   = existing_session_jsonl_path(m.cwd, m.id);
     o["no_workspace"]   = m.no_workspace;
     o["title"]          = m.title;
     o["title_source"]   = m.title_source;

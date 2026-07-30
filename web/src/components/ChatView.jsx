@@ -2927,6 +2927,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     return busy || transcriptStatus === 'running' ? 'running' : 'idle';
   }, [sid, busy, transcriptStatus]);
   const sessionWorkspaceHash = ref?.workspaceHash || ref?.workspace_hash || '';
+  const sessionPath = ref?.sessionPath || ref?.session_path || '';
   const sessionPinned = !!(ref?.pinned || ref?.isPinned || ref?.is_pinned);
   const openSessionContextMenu = useCallback((event) => {
     if (!sid || typeof window === 'undefined') return;
@@ -4141,6 +4142,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
               type="button"
               data-desktop-session-id={sid || undefined}
               data-desktop-session-workspace={sessionWorkspaceHash || undefined}
+              data-desktop-session-path={sessionPath || undefined}
               data-desktop-session-pinned={sessionPinned ? 'true' : 'false'}
               data-desktop-session-title={title || undefined}
               data-desktop-session-archive="true"

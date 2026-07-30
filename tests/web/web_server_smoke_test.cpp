@@ -2392,6 +2392,62 @@ TEST(WebServerHttp, CreateNoWorkspaceSessionIsListedOutsideWorkspaces) {
     std::filesystem::remove_all(no_workspace_project_dir);
 }
 
+// 场景:会话列表只在规范 JSONL 已经实际落盘时暴露 session_path。
+// 活跃与 inactive 列表必须指向同一个由 SessionStorage 生成的文件。
+TEST(WebServerHttp, SessionListExposesOnlyExistingCanonicalJsonlPath) {
+    WebServerFixture fx;
+    const std::string workspace_hash = acecode::compute_cwd_hash(fx.cwd);
+
+    auto created = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + workspace_hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const std::string sid =
+        json::parse(created.text)["session_id"].get<std::string>();
+
+    auto find_session = [&](const json& sessions) -> const json* {
+        for (const auto& item : sessions) {
+            if (item.value("id", std::string{}) == sid) return &item;
+        }
+        return nullptr;
+    };
+    auto list_sessions = [&]() {
+        auto response = cpr::Get(cpr::Url{
+            fx.url("/api/workspaces/" + workspace_hash + "/sessions")});
+        EXPECT_EQ(response.status_code, 200) << response.text;
+        return json::parse(response.text);
+    };
+
+    auto before = list_sessions();
+    const json* before_item = find_session(before);
+    ASSERT_NE(before_item, nullptr);
+    EXPECT_EQ(before_item->value("session_path", std::string{}), "");
+
+    const std::string expected_path =
+        acecode::SessionStorage::session_path(fx.project_dir, sid);
+    acecode::ChatMessage message;
+    message.role = "user";
+    message.content = "persisted session";
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    entry->sm->on_message(message);
+    ASSERT_TRUE(std::filesystem::is_regular_file(expected_path));
+
+    auto active = list_sessions();
+    const json* active_item = find_session(active);
+    ASSERT_NE(active_item, nullptr);
+    EXPECT_EQ(active_item->value("session_path", std::string{}), expected_path);
+
+    fx.client->destroy_session(sid);
+    auto inactive = list_sessions();
+    const json* inactive_item = find_session(inactive);
+    ASSERT_NE(inactive_item, nullptr);
+    EXPECT_EQ(inactive_item->value("active", true), false);
+    EXPECT_EQ(inactive_item->value("session_path", std::string{}), expected_path);
+}
+
 // 场景:daemon 运行期间 TUI/其它进程改写 config.json 的默认模型和默认
 // 权限模式,后续 create-session 必须在解析前观察磁盘新值。
 TEST(WebServerHttp, CreateSessionRefreshesExternalDefaultPreferences) {

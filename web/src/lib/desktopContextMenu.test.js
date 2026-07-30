@@ -21,6 +21,7 @@ import {
   mermaidTargetFromElement,
   openInExplorerTargetFromElement,
   sessionPinTargetFromElement,
+  sessionTargetFromElement,
   workspaceTargetFromElement,
   shouldUseCustomContextMenu,
 } from './desktopContextMenu.js';
@@ -130,18 +131,38 @@ test('目录目标显示在资源管理器中打开', () => {
 });
 
 test('未置顶会话目标显示会话动作', () => {
-  assert.deepEqual(ids(buildDesktopContextMenuItems({
-    sessionTarget: { sessionId: 's1', title: 'T', pinned: false, canArchive: true },
-  })), [
+  const items = buildDesktopContextMenuItems({
+    sessionTarget: {
+      sessionId: 's1',
+      title: 'T',
+      sessionPath: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
+      pinned: false,
+      canArchive: true,
+    },
+  });
+  assert.deepEqual(ids(items), [
     DESKTOP_CONTEXT_ACTIONS.OPEN_SESSION,
-     DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION,
-     DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE,
-     DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID,
-     DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION,
-     DESKTOP_CONTEXT_ACTIONS.PIN_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE,
+    DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID,
+    DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+    DESKTOP_CONTEXT_ACTIONS.PIN_SESSION,
     DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION,
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
+  assert.deepEqual(
+    items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER).target,
+    { path: 'C:/Users/test/.acecode/projects/hash/s1.jsonl', kind: 'file' },
+  );
+});
+
+test('尚未落盘的会话保留禁用的资源管理器动作', () => {
+  const explorer = buildDesktopContextMenuItems({
+    sessionTarget: { sessionId: 's1', title: 'T', sessionPath: '' },
+  }).find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER);
+  assert.equal(explorer.enabled, false);
+  assert.deepEqual(explorer.target, { path: '', kind: 'file' });
 });
 
 test('descriptor metadata includes label keys, disabled states, and confirmations', () => {
@@ -519,6 +540,26 @@ test('右键目标提取 session pin metadata', () => {
     sessionId: 's1',
     workspaceHash: 'w1',
     pinned: true,
+  });
+});
+
+test('右键目标提取 session JSONL path', () => {
+  const element = elementFor(SESSION_PIN_TARGET_SELECTOR, {
+    'data-desktop-session-id': 's1',
+    'data-desktop-session-workspace': 'w1',
+    'data-desktop-session-title': 'Session 1',
+    'data-desktop-session-path': 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
+    'data-desktop-session-pinned': 'false',
+    'data-desktop-session-archive': 'true',
+  });
+  assert.deepEqual(sessionTargetFromElement(element), {
+    type: 'session',
+    sessionId: 's1',
+    workspaceHash: 'w1',
+    title: 'Session 1',
+    sessionPath: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
+    pinned: false,
+    canArchive: true,
   });
 });
 

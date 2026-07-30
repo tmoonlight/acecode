@@ -188,6 +188,7 @@ export function sessionRefFromJumpTarget(target = {}, resumeResult = {}, fallbac
     ['model_name', ['model_name']],
     ['model_preset', ['model_preset']],
     ['context_window', ['context_window']],
+    ['sessionPath', ['sessionPath', 'session_path']],
     ['message_count', ['message_count', 'messageCount']],
     ['created_at', ['created_at', 'createdAt']],
     ['updated_at', ['updated_at', 'updatedAt']],

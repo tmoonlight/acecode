@@ -565,6 +565,7 @@ function SessionRow({
   const attention = s.attention_state || s.read_state || 'read';
   const meta = attentionMeta(attention);
   const workspaceHash = s.workspace_hash || s.workspaceHash || '';
+  const sessionPath = s.session_path || s.sessionPath || '';
   const rowKey = pinned ? pinnedSessionKey(workspaceHash, s.id) : '';
   const title = sessionDisplayTitle(s, s.name || '');
   const sessionMarker = sidebarSessionMarker(s);
@@ -642,6 +643,7 @@ function SessionRow({
       ref={rowRef}
       data-desktop-session-id={s.id || undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
+      data-desktop-session-path={sessionPath || undefined}
       data-desktop-session-pinned={pinned ? 'true' : 'false'}
       data-desktop-session-title={title || undefined}
       data-desktop-session-archive="true"
@@ -2354,6 +2356,7 @@ export function Sidebar({
               port: r.port,
               token: r.token,
               cwd: r.cwd || ws.cwd,
+              sessionPath: session.sessionPath || session.session_path || r.sessionPath || r.session_path || '',
               title: session.title,
               summary: session.summary,
               provider: session.provider,
@@ -2393,6 +2396,7 @@ export function Sidebar({
       port: ws?.port,
       token: ws?.token,
       cwd: noWorkspace ? '' : (session.cwd || ws?.cwd),
+      sessionPath: session.sessionPath || session.session_path || '',
       title: session.title,
       summary: session.summary,
       provider: session.provider,
@@ -2502,6 +2506,7 @@ export function Sidebar({
         port: ws.port,
         token: ws.token,
         cwd,
+        sessionPath: r.sessionPath || r.session_path || '',
         title: r.title,
         summary: r.summary,
         message_count: r.message_count,
