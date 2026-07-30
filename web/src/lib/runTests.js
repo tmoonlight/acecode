@@ -148,6 +148,7 @@ import './assistantRunDirectives.test.js';
 import './assistantAvatarDisplay.test.js';
 import './todoChecklist.test.js';
 import './transcriptProjection.test.js';
+import './transcriptWindow.test.js';
 import './homeWorkspaceSelection.test.js';
 import './projectCreation.test.js';
 import './workspacePicker.test.js';
