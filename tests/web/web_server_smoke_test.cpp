@@ -670,13 +670,14 @@ TEST(WebServerHttp, DesktopNotificationSettingRejectsInvalidPayload) {
 }
 
 TEST(WebServerHttp, RemoteWebModePersistsGeneratesTokenUrlAndRebindsInProcess) {
-    WebServerFixture fx([] {
-        return std::vector<std::string>{
-            "192.168.50.20",
-            "192.168.50.20",
-            "127.0.0.1",
-        };
-    });
+    WebServerFixture fx(
+        std::function<std::vector<std::string>()>([] {
+            return std::vector<std::string>{
+                "192.168.50.20",
+                "192.168.50.20",
+                "127.0.0.1",
+            };
+        }));
 
     auto initial = cpr::Get(
         cpr::Url{fx.url("/api/config/remote-web")});
@@ -769,9 +770,10 @@ TEST(WebServerHttp, RemoteWebModePersistsGeneratesTokenUrlAndRebindsInProcess) {
 }
 
 TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
-    WebServerFixture fx([] {
-        return std::vector<std::string>{"192.168.50.20"};
-    });
+    WebServerFixture fx(
+        std::function<std::vector<std::string>()>([] {
+            return std::vector<std::string>{"192.168.50.20"};
+        }));
 
     // Desktop starts the daemon with a per-run port override while config.json
     // can still contain the previous run's port. A bind-only mutation must not
@@ -836,7 +838,9 @@ TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
 
 TEST(WebServerHttp, RemoteWebModeRejectsDangerousModeWithoutPersisting) {
     WebServerFixture fx(
-        [] { return std::vector<std::string>{"192.168.50.20"}; },
+        std::function<std::vector<std::string>()>([] {
+            return std::vector<std::string>{"192.168.50.20"};
+        }),
         true);
 
     auto response = cpr::Put(
