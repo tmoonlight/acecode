@@ -78,6 +78,9 @@ export function GlobalFindOverlay({
 
   const openFind = useCallback(() => {
     if (!enabled) return;
+    // 查找在 DOM 文本上执行,通知 ChatView 先把 transcript 尾部窗口全量
+    // 展开,否则窗口外的旧消息搜不到。
+    window.dispatchEvent(new CustomEvent('acecode:conversation-find-open'));
     const selected = selectedTextForFind(resolveFindRoot());
     if (selected) setQuery(selected);
     setOpen(true);

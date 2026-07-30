@@ -79,6 +79,11 @@ import {
 import { findStickyUserContext, sameStickyUserContext, scrollTopForStickySourceRow } from '../lib/stickyUserContext.js';
 import { loadTranscriptHistory, useSessionTranscript } from '../lib/sessionTranscript.js';
 import { projectCollapsedTranscriptItems } from '../lib/transcriptProjection.js';
+import {
+  initialWindowAnchorId,
+  revealEarlierAnchorId,
+  windowTranscriptItems,
+} from '../lib/transcriptWindow.js';
 import { buildComposerHistory } from '../lib/inputHistoryNavigation.js';
 import {
   completedTurnSelfHealEnabled,
@@ -829,6 +834,71 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     () => projectCollapsedTranscriptItems(rawItems, { deferTrailingToolSummary: busy }),
     [rawItems, busy],
   );
+  // 尾部窗口(渐进虚拟化,见 lib/transcriptWindow.js):大会话初始只渲染
+  // 最近的一段投影行,DOM 行数从数百降到 ≤ INITIAL_TAIL_ITEMS。窗口状态
+  // 用「首个可见行的 id」锚定;anchorId === undefined 表示该会话还没初始化
+  // (等第一批条目到达)。下面两处 setState 是 React 文档的 render-phase
+  // 状态调整模式 —— 必须在首次带条目的渲染前定好窗口,useEffect 会先全量
+  // 渲染一遍,虚拟化就白做了。
+  const [transcriptWindow, setTranscriptWindow] = useState({ sid: '', anchorId: undefined });
+  if (transcriptWindow.sid !== sid) {
+    setTranscriptWindow({ sid, anchorId: undefined });
+  }
+  let windowAnchorId = transcriptWindow.sid === sid ? transcriptWindow.anchorId : undefined;
+  if (windowAnchorId === undefined && renderedItems.length > 0) {
+    windowAnchorId = initialWindowAnchorId(renderedItems);
+    setTranscriptWindow({ sid, anchorId: windowAnchorId });
+  } else if (windowAnchorId !== undefined && renderedItems.length === 0) {
+    // 条目清零 = transcript 重置(重载/自愈重建会重新分配 item id,旧锚点
+    // 指向的 id 会被复用到完全不同的行)→ 回到未初始化,等新条目重定锚。
+    setTranscriptWindow({ sid, anchorId: undefined });
+  }
+  const { visible: windowedItems, hiddenCount: windowHiddenCount } = useMemo(
+    () => windowTranscriptItems(renderedItems, windowAnchorId === undefined ? null : windowAnchorId),
+    [renderedItems, windowAnchorId],
+  );
+  const windowHiddenCountRef = useRef(0);
+  windowHiddenCountRef.current = windowHiddenCount;
+  // 「显示更早」的滚动补偿:向上补条目会把现有内容往下推,浏览器原生
+  // 锚定已被 overflow-anchor:none 关掉,这里手动按 scrollHeight 差值回补。
+  const windowRevealScrollRef = useRef(null);
+  const revealEarlierTranscript = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      windowRevealScrollRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
+    }
+    setTranscriptWindow((prev) => {
+      if (prev.sid !== sid || !prev.anchorId) return prev;
+      return { sid, anchorId: revealEarlierAnchorId(itemsRef.current, prev.anchorId) };
+    });
+  }, [sid]);
+  const expandTranscriptWindow = useCallback((options = {}) => {
+    if (!windowHiddenCountRef.current) return;
+    if (options.compensateScroll) {
+      const el = scrollRef.current;
+      if (el) {
+        windowRevealScrollRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
+      }
+    }
+    setTranscriptWindow((prev) => (
+      prev.sid === sid && prev.anchorId ? { sid, anchorId: null } : prev
+    ));
+  }, [sid]);
+  useLayoutEffect(() => {
+    const saved = windowRevealScrollRef.current;
+    if (!saved) return;
+    windowRevealScrollRef.current = null;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = saved.scrollTop + (el.scrollHeight - saved.scrollHeight);
+  }, [transcriptWindow]);
+  // 会话内查找(Ctrl+F)在 DOM 文本上搜索,窗口外的行搜不到 —— find 打开
+  // 时直接全量展开(GlobalFindOverlay 广播的事件)。
+  useEffect(() => {
+    const handler = () => expandTranscriptWindow();
+    window.addEventListener('acecode:conversation-find-open', handler);
+    return () => window.removeEventListener('acecode:conversation-find-open', handler);
+  }, [expandTranscriptWindow]);
   const lastUserTurnKey = useMemo(() => {
     for (let index = rawItems.length - 1; index >= 0; index -= 1) {
       const item = rawItems[index];
@@ -1785,14 +1855,22 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     window.setTimeout(scheduleStickyMeasure, 220);
   }, [scheduleStickyMeasure]);
 
-  const jumpToConversationTurn = useCallback((turn, index) => {
+  const jumpToConversationTurn = useCallback((turn, index, retried = false) => {
     const el = scrollRef.current;
     const targetId = String(turn?.itemId || '');
     if (!el || !targetId) return;
 
     const targetRow = Array.from(el.querySelectorAll('[data-chat-row="true"]'))
       .find((row) => row.getAttribute('data-chat-item-id') === targetId);
-    if (!targetRow) return;
+    if (!targetRow) {
+      // scrubber 的回合列表来自全量 itemsRef,目标可能在尾部窗口之外:
+      // 全量展开后下一帧重试一次(只重试一次,防坏 id 死循环)。
+      if (!retried && windowHiddenCountRef.current > 0) {
+        expandTranscriptWindow();
+        window.requestAnimationFrame(() => jumpToConversationTurn(turn, index, true));
+      }
+      return;
+    }
 
     const containerRect = el.getBoundingClientRect();
     const rowRect = targetRow.getBoundingClientRect();
@@ -1819,7 +1897,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       scrollTop: el.scrollTop,
     };
     window.requestAnimationFrame(scheduleTranscriptMeasures);
-  }, [pauseTailFollowForReview, scheduleTranscriptMeasures, sid]);
+  }, [expandTranscriptWindow, pauseTailFollowForReview, scheduleTranscriptMeasures, sid]);
 
   const focusChatInput = useCallback((force = false) => {
     if (questionRequest) return;
@@ -1913,6 +1991,10 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
         el.scrollTop = scrollTopForCenteredRow(el, targetRow);
         scheduleStickyMeasure();
         task.settled += 1;
+      } else if (el && windowHiddenCountRef.current > 0) {
+        // 目标行可能在尾部窗口之外(深链指向老消息)—— 全量展开后让既有
+        // 重试循环在下一帧找到它。
+        expandTranscriptWindow();
       }
 
       if (task.settled >= 3 || task.attempts >= 12) {
@@ -1936,6 +2018,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   }, [
     cancelTailFollowScroll,
     changeDockBottomPadding,
+    expandTranscriptWindow,
     ref,
     renderedItems,
     scheduleStickyMeasure,
@@ -4201,7 +4284,25 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           style={changeDockBottomPadding > 0 ? { paddingBottom: changeDockBottomPadding } : undefined}
         >
           <div ref={transcriptContentRef} className="flex flex-col gap-3">
-          {renderedItems.map((it) => {
+          {windowHiddenCount > 0 && (
+            <div className="flex items-center justify-center gap-3 py-1.5 text-[12px] text-fg-mute">
+              <button
+                type="button"
+                onClick={revealEarlierTranscript}
+                className="px-3 py-1 rounded-full border border-border bg-surface hover:bg-surface-hi hover:text-fg transition"
+              >
+                {`显示更早的 ${windowHiddenCount} 条消息`}
+              </button>
+              <button
+                type="button"
+                onClick={() => expandTranscriptWindow({ compensateScroll: true })}
+                className="hover:text-fg transition underline-offset-2 hover:underline"
+              >
+                显示全部
+              </button>
+            </div>
+          )}
+          {windowedItems.map((it) => {
             if (it.kind === 'termination_notice') {
               return (
                 <div

@@ -299,6 +299,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '连接超时': 'Connection timed out',
   '请求超时,请重试': 'Request timed out. Please try again',
   '打开会话超时,请重试': 'Opening the session timed out. Please try again',
+  '显示更早的 {{p0}} 条消息': 'Show {{p0}} earlier messages',
+  '显示全部': 'Show all',
   '连接失败': 'Connection failed',
   '连接失败，请检查全局 MCP 设置': 'Connection failed. Check the global MCP settings',
   '连接已取消': 'Connection cancelled',
