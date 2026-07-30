@@ -4251,7 +4251,7 @@ body {
   z-index: 1;
 }
 .ace-queue-card-indicator.is-queued {
-  background: color-mix(in srgb, var(--ace-fg-mute) 60%, transparent);
+  background: rgba(var(--ace-fg-mute-rgb), 0.60);
 }
 .ace-queue-card-indicator.is-failed {
   background: var(--ace-danger);
@@ -4273,7 +4273,7 @@ body {
   background: var(--ace-accent-bg);
 }
 .ace-queue-card-guide {
-  border: 1px solid color-mix(in srgb, var(--ace-accent) 40%, transparent);
+  border: 1px solid rgba(var(--ace-accent-rgb), 0.40);
   color: var(--ace-accent);
   transition: background-color 0.12s ease;
 }

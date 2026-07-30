@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   ApiError,
   createApi,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   expertCapabilitiesPath,
   mergeAllWorkspaceSessions,
   sessionDraftPath,
@@ -60,6 +61,67 @@ await run('expert capability client reads the sanitized runtime catalog endpoint
     assert.equal(calls[0].opts.body, undefined);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+await run('ordinary API requests abort with a structured timeout error', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  let scheduledDelay = null;
+  let clearedTimer = null;
+  globalThis.setTimeout = (callback, delay) => {
+    scheduledDelay = delay;
+    queueMicrotask(callback);
+    return 91;
+  };
+  globalThis.clearTimeout = (timer) => {
+    clearedTimer = timer;
+  };
+  globalThis.fetch = async (_url, opts) => new Promise((_resolve, reject) => {
+    opts.signal.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true });
+  });
+  try {
+    await assert.rejects(
+      createApi({ origin: 'http://acecode.test', token: '' }).health(),
+      (error) => error instanceof ApiError
+        && error.status === 408
+        && error.code === 'TIMEOUT',
+    );
+    assert.equal(scheduledDelay, DEFAULT_REQUEST_TIMEOUT_MS);
+    assert.equal(clearedTimer, 91);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});
+
+await run('native-dialog API requests remain exempt from the default timeout', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  let timerScheduled = false;
+  globalThis.setTimeout = () => {
+    timerScheduled = true;
+    return 92;
+  };
+  globalThis.fetch = async (_url, opts) => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => 'application/json' },
+    json: async () => ({ path: 'C:/workspace' }),
+    signal: opts.signal,
+  });
+  try {
+    await createApi({ origin: 'http://acecode.test', token: '' }).pickWorkspaceFolder();
+    assert.equal(timerScheduled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
   }
 });
 

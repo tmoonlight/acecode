@@ -1401,6 +1401,77 @@ TEST(WebServerHttp, CreateSessionThenListShowsActive) {
     EXPECT_EQ(occurrences, 1) << "active 与 disk meta 必须合并为同一条";
 }
 
+TEST(WebServerHttp, AttentionPersistenceRetriesFailedFlushAndDrainsOnShutdown) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    auto created_response = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(created_response.status_code, 201) << created_response.text;
+    const std::string sid =
+        json::parse(created_response.text).value("session_id", std::string{});
+    ASSERT_FALSE(sid.empty());
+
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->loop, nullptr);
+    ASSERT_EQ(entry->workspace_hash, hash);
+    fx.server->track_subagent(sid);
+
+    const auto state_path =
+        std::filesystem::path(fx.project_dir) / "session_read_state.json";
+    entry->loop->events().emit(
+        acecode::SessionEventKind::BusyChanged, json{{"busy", true}});
+    ASSERT_TRUE(std::filesystem::is_regular_file(state_path));
+
+    // 用非空目录占住最终文件名，使下一次 periodic flush 的 rename 必然失败。
+    // 清掉障碍后如果 dirty 标记仍在，后续周期会自动重试并写出 token 游标。
+    std::error_code ec;
+    std::filesystem::remove(state_path, ec);
+    ASSERT_FALSE(ec);
+    std::filesystem::create_directories(state_path);
+    write_text(state_path / "keep", "block rename");
+    entry->loop->events().emit(
+        acecode::SessionEventKind::Token, json{{"text", "first"}});
+
+    std::this_thread::sleep_for(1500ms);
+    ASSERT_TRUE(std::filesystem::is_directory(state_path));
+    std::filesystem::remove_all(state_path, ec);
+    ASSERT_FALSE(ec);
+
+    const auto retry_deadline = std::chrono::steady_clock::now() + 2500ms;
+    while (std::chrono::steady_clock::now() < retry_deadline &&
+           !std::filesystem::is_regular_file(state_path)) {
+        std::this_thread::sleep_for(50ms);
+    }
+    ASSERT_TRUE(std::filesystem::is_regular_file(state_path));
+
+    const auto read_state = [&] {
+        std::ifstream in(state_path, std::ios::binary);
+        EXPECT_TRUE(in.good());
+        return json::parse(in);
+    };
+    const auto retried = read_state();
+    const auto persisted_cursor =
+        retried["sessions"][sid].value("update_cursor", std::uint64_t{0});
+    EXPECT_GT(persisted_cursor, 0u);
+
+    // 再产生一个同状态 token 后立即销毁 WebServer。析构必须先拆 producer，
+    // 再做 final flush + join，确保最后的 dirty cursor 已落盘。
+    std::this_thread::sleep_for(2ms);
+    entry->loop->events().emit(
+        acecode::SessionEventKind::Token, json{{"text", "second"}});
+    fx.server->stop();
+    if (fx.server_thread.joinable()) fx.server_thread.join();
+    fx.server.reset();
+
+    const auto drained = read_state();
+    EXPECT_GT(
+        drained["sessions"][sid].value("update_cursor", std::uint64_t{0}),
+        persisted_cursor);
+}
+
 // /rc 的固定会话背景由 session list 的 remote_control_bound 字段恢复。
 // 只允许持久化绑定 id 命中的那一项为 true；off 清空后所有项都必须为 false。
 TEST(WebServerHttp, SessionListMarksOnlyRemoteControlBoundSession) {
@@ -4502,16 +4573,22 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
         fx.url("/api/experts?workspace=" + hash)});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
     auto listed_body = json::parse(listed.text);
-    ASSERT_EQ(listed_body["experts"].size(), 1);
-    EXPECT_EQ(listed_body["experts"][0]["id"], "code-reviewer");
-    EXPECT_FALSE(listed_body["experts"][0]["agents"][0].contains("instructions"));
-    EXPECT_FALSE(listed_body["experts"][0].contains("author"));
-    EXPECT_EQ(listed_body["experts"][0]["tags"],
+    const auto& listed_experts = listed_body["experts"];
+    const auto listed_expert_it =
+        std::find_if(listed_experts.begin(), listed_experts.end(),
+                     [](const json& item) {
+                         return item.value("id", "") == "code-reviewer";
+                     });
+    ASSERT_NE(listed_expert_it, listed_experts.end());
+    const auto& listed_expert = *listed_expert_it;
+    EXPECT_FALSE(listed_expert["agents"][0].contains("instructions"));
+    EXPECT_FALSE(listed_expert.contains("author"));
+    EXPECT_EQ(listed_expert["tags"],
               json::array({"开发", "质量"}));
-    EXPECT_EQ(listed_body["experts"][0]["capabilities"]["tools"],
+    EXPECT_EQ(listed_expert["capabilities"]["tools"],
               json::array({"file_read", "ask_user_question"}));
-    EXPECT_FALSE(listed_body["experts"][0].contains("package_root"));
-    EXPECT_FALSE(listed_body["experts"][0].contains("skill_roots"));
+    EXPECT_FALSE(listed_expert.contains("package_root"));
+    EXPECT_FALSE(listed_expert.contains("skill_roots"));
 
     draft["display_name"] = "Updated Reviewer";
     auto updated = cpr::Put(
@@ -4584,8 +4661,14 @@ TEST(WebServerHttp, ExpertAvatarUsesContainedHttpEndpointAndSafeDto) {
         fx.url("/api/experts?workspace=" + hash)});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
     const auto list_body = json::parse(listed.text);
-    ASSERT_EQ(list_body["experts"].size(), 1u);
-    const auto& list_item = list_body["experts"][0];
+    const auto& listed_experts = list_body["experts"];
+    const auto list_item_it =
+        std::find_if(listed_experts.begin(), listed_experts.end(),
+                     [](const json& item) {
+                         return item.value("id", "") == "avatar-expert";
+                     });
+    ASSERT_NE(list_item_it, listed_experts.end());
+    const auto& list_item = *list_item_it;
     EXPECT_FALSE(list_item.contains("avatar_path"));
     const std::string avatar_url =
         list_item.value("avatar_url", "");
@@ -4741,9 +4824,15 @@ TEST(WebServerHttp, ExpertsRejectInvalidWorkspaceAndWorkspaceMutations) {
         fx.url("/api/experts?workspace=" + hash)});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
     const auto listed_body = json::parse(listed.text);
-    ASSERT_EQ(listed_body["experts"].size(), 1);
-    EXPECT_EQ(listed_body["experts"][0]["source"], "workspace");
-    EXPECT_FALSE(listed_body["experts"][0]["managed_global"].get<bool>());
+    const auto& listed_experts = listed_body["experts"];
+    const auto workspace_expert_it =
+        std::find_if(listed_experts.begin(), listed_experts.end(),
+                     [](const json& item) {
+                         return item.value("id", "") == "workspace-reviewer";
+                     });
+    ASSERT_NE(workspace_expert_it, listed_experts.end());
+    EXPECT_EQ((*workspace_expert_it)["source"], "workspace");
+    EXPECT_FALSE((*workspace_expert_it)["managed_global"].get<bool>());
 
     json replacement = {
         {"id", "workspace-reviewer"},

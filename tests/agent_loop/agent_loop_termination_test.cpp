@@ -723,7 +723,9 @@ TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossIterationsInATurn) {
 
     const auto first = h.request_messages_for_turn(0);
     const auto second = h.request_messages_for_turn(1);
-    ASSERT_GE(first.size(), 3u);
+    // A clean CTest working directory has only system + user messages, while
+    // running from the repository may also load project instructions.
+    ASSERT_GE(first.size(), 2u);
     ASSERT_GT(second.size(), first.size());
 
     // 第二次请求只应在第一次的末尾追加(assistant 工具调用 + 工具结果),

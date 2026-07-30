@@ -8,6 +8,8 @@ Selecting a conversation from search closes the search palette before the asynch
 - Keep the mask visible while the shared resume/open flow activates a workspace, resumes the session, or hands off to a cross-workspace page load.
 - Show the same transition state while a redirected page resumes its `?open=` target on startup.
 - Remove the mask when the destination is ready to be shown or when navigation fails, preserving the existing error toast on failure.
+- Bound ordinary API requests and add a later mask-level fallback so a lost response cannot leave the application permanently blocked.
+- Let the user dismiss pending navigation with Escape, and prevent a late activation/resume completion from opening a target after that cancellation.
 - Add focused frontend coverage for the transition-state contract and accessible loading presentation.
 
 ## Capabilities
@@ -24,4 +26,4 @@ None.
 
 - `web/src/App.jsx` shared session-jump state and rendering.
 - A focused Web UI component and/or styles for the full-screen loading mask.
-- Frontend architecture/unit tests; no daemon API, persistence, or dependency changes.
+- Shared Web API timeout handling and frontend architecture/unit tests; no daemon API, persistence, or dependency changes.

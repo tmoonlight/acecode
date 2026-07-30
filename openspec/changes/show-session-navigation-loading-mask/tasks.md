@@ -12,3 +12,9 @@
 
 - [x] 3.1 Add focused frontend coverage for state wiring, redirect retention, startup behavior, and accessible mask presentation.
 - [x] 3.2 Run focused tests, the full frontend suite, production build, strict OpenSpec validation, and diff checks.
+
+## 4. Bounded Recovery Hardening
+
+- [x] 4.1 Add a structured default API timeout with explicit exemptions for native dialogs and long model round trips.
+- [x] 4.2 Add a later mask fallback, Escape cancellation, and pending-operation guards that discard late completions.
+- [x] 4.3 Add timeout/cancellation regression coverage and rerun frontend, build, strict OpenSpec, and diff validation.

@@ -38,3 +38,25 @@ The session navigation loading mask SHALL expose its progress semantics to assis
 - **WHEN** session navigation is pending
 - **THEN** the mask MUST be announced as a polite status
 - **THEN** the mask MUST expose a busy state and a textual conversation-opening label
+
+### Requirement: Session jumps always expose a bounded recovery path
+The Web UI SHALL release a pending session-navigation mask after a bounded wait or an explicit user cancellation, and a cancelled operation MUST NOT activate its target later.
+
+#### Scenario: Session resume request times out
+- **WHEN** an ordinary session resume API request does not settle within the configured request timeout
+- **THEN** the request fails with a structured timeout error
+- **AND** the shared navigation cleanup removes the loading mask
+
+#### Scenario: Non-request navigation step does not settle
+- **WHEN** a workspace bridge or another navigation step remains pending beyond the mask fallback interval
+- **THEN** the loading mask is removed
+- **AND** the user receives local timeout feedback
+
+#### Scenario: User cancels pending navigation
+- **WHEN** the loading mask is visible and the user presses Escape
+- **THEN** every currently pending navigation releases the mask immediately
+- **AND** any later activation or resume completion from those cancelled operations is ignored before URL assignment or active-session commit
+
+#### Scenario: Legitimately blocking API endpoint is used
+- **WHEN** an API endpoint waits on a native modal interaction or an explicitly long model round trip
+- **THEN** that endpoint uses its declared timeout exemption or extended budget instead of the ordinary request timeout

@@ -1596,12 +1596,16 @@ void WebServer::Impl::load_attention_workspace_locked(const std::string& workspa
 }
 
 void WebServer::Impl::save_attention_workspace_locked(const std::string& workspace_hash) const {
-    // 无论下面是否真的写成功,都先摘掉脏标记:cwd 未知的 workspace 永远
-    // 写不出去,留着只会让 flusher 每个周期空转一次。
-    attention_dirty_workspaces.erase(workspace_hash);
+    // 直接调用者（例如 mark_session_read_status）同样需要失败重试语义。
+    // 先标脏，只有完整写出并 rename 成功后才摘掉。
+    attention_dirty_workspaces.insert(workspace_hash);
 
     auto cwd_it = attention_workspace_cwds.find(workspace_hash);
-    if (cwd_it == attention_workspace_cwds.end() || cwd_it->second.empty()) return;
+    if (cwd_it == attention_workspace_cwds.end() || cwd_it->second.empty()) {
+        // 没有 cwd 就无法推导持久化路径，继续重试没有意义。
+        attention_dirty_workspaces.erase(workspace_hash);
+        return;
+    }
 
     json root;
     root["version"] = 1;
@@ -1620,14 +1624,33 @@ void WebServer::Impl::save_attention_workspace_locked(const std::string& workspa
     const auto path = path_from_utf8(attention_store_path_for_cwd(cwd_it->second));
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) {
+        LOG_WARN("[web] failed to create session read state directory: " + ec.message());
+        return;
+    }
     auto tmp = path;
     tmp += ".tmp";
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return;
+        if (!out) {
+            LOG_WARN("[web] failed to open session read state temp file");
+            return;
+        }
         // 机器读的状态文件,不需要缩进 —— dump(2) 会把体积放大近一倍。
         out << root.dump();
         out << '\n';
+        if (!out) {
+            LOG_WARN("[web] failed to write session read state temp file");
+            out.close();
+            std::filesystem::remove(tmp, ec);
+            return;
+        }
+        out.close();
+        if (!out) {
+            LOG_WARN("[web] failed to close session read state temp file");
+            std::filesystem::remove(tmp, ec);
+            return;
+        }
     }
     std::filesystem::rename(tmp, path, ec);
     if (ec) {
@@ -1637,18 +1660,20 @@ void WebServer::Impl::save_attention_workspace_locked(const std::string& workspa
     }
     if (ec) {
         LOG_WARN("[web] failed to save session read state: " + ec.message());
+        return;
     }
+    attention_dirty_workspaces.erase(workspace_hash);
 }
 
 void WebServer::Impl::flush_dirty_attention_workspaces_locked() const {
     if (attention_dirty_workspaces.empty()) return;
-    // save_attention_workspace_locked 会从集合里删元素,所以先拷一份再遍历。
+    // save_attention_workspace_locked 成功时会从集合里删元素，失败时会保留，
+    // 所以先拷一份再遍历，不能在末尾无条件 clear。
     const std::vector<std::string> pending(attention_dirty_workspaces.begin(),
                                            attention_dirty_workspaces.end());
     for (const auto& hash : pending) {
         save_attention_workspace_locked(hash);
     }
-    attention_dirty_workspaces.clear();
 }
 
 void WebServer::Impl::start_attention_flusher() {

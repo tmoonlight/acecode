@@ -404,8 +404,8 @@ struct WebServer::Impl {
     std::string attention_store_path_for_cwd(const std::string& cwd) const;
     void load_attention_workspace_locked(const std::string& workspace_hash,
                                           const std::string& cwd) const;
-    // 立即整份重写该 workspace 的 attention 文件,并清掉它的脏标记
-    //(「写过 ⇒ 不脏」是本模块的不变量)。调用方必须持 attention_mu。
+    // 立即整份重写该 workspace 的 attention 文件。成功后清掉脏标记；
+    // 写失败则保留脏标记，交给 flusher 下个周期重试。调用方必须持 attention_mu。
     void save_attention_workspace_locked(const std::string& workspace_hash) const;
     // 把当前所有脏 workspace 落盘。调用方必须持 attention_mu。
     void flush_dirty_attention_workspaces_locked() const;

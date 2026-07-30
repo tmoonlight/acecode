@@ -60,7 +60,7 @@ run('shared session resume flow owns overlap-safe mask cleanup and redirect hand
   assert.match(navigation, /pendingSessionNavigationIdsRef\.current\.size === 0/);
   assert.match(
     navigation,
-    /const navigationId = beginSessionNavigation\(\);\s*let handedOffToPageLoad = false;\s*try \{/,
+    /const navigationId = beginSessionNavigation\(\);[\s\S]*let handedOffToPageLoad = false;\s*try \{/,
   );
   assert.match(
     navigation,
@@ -71,6 +71,17 @@ run('shared session resume flow owns overlap-safe mask cleanup and redirect hand
     /finally \{\s*if \(!handedOffToPageLoad\) finishSessionNavigation\(navigationId\);\s*\}/,
   );
   assert.match(navigation, /toast\(\{ kind: 'err', text: '恢复失败:' \+ \(e\.message \|\| ''\) \}\)/);
+  assert.match(
+    navigation,
+    /const navigationIsPending = \(\) =>\s*pendingSessionNavigationIdsRef\.current\.has\(navigationId\)/,
+  );
+  const cancellationGuards = navigation.match(
+    /if \(!navigationIsPending\(\)\) return false;/g,
+  ) || [];
+  assert.ok(
+    cancellationGuards.length >= 3,
+    'late workspace/resume completions must not activate a cancelled target',
+  );
 });
 
 // 遮罩吞掉全部输入,所以「一定会散」必须是结构性保证,不能依赖调用方自觉:

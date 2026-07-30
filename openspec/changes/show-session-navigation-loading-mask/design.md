@@ -12,6 +12,8 @@ The existing resume-before-open ordering is required to avoid opening an unloade
 - Reuse the same state for search, desktop jump entry points, and redirected startup navigation.
 - Prevent pointer and keyboard interaction with the intermediate page while navigation is pending.
 - Keep failure behavior recoverable by clearing the mask and retaining the existing toast.
+- Guarantee a bounded escape from a lost request or bridge response.
+- Treat Escape as cancellation of the UI navigation, including suppression of any later target commit from the cancelled operation.
 - Make the loading state recognizable to assistive technology.
 
 **Non-Goals:**
@@ -38,9 +40,18 @@ The existing resume-before-open ordering is required to avoid opening an unloade
 
    A focused `SessionNavigationMask` component renders outside the main content shell with a full-viewport fixed layer, opaque-enough themed backdrop, centered animated spinner, and concise `正在打开会话…` label. It uses `role="status"`, `aria-live="polite"`, and `aria-busy="true"` and blocks underlying input while mounted.
 
+5. **Bound the request first, then retain a mask-level fallback.**
+
+   Ordinary Web API calls use an `AbortController` with a 30-second default and normalize an abort into `ApiError(408)` with code `TIMEOUT`. Endpoints that legitimately wait on a native modal dialog have no timeout, while a full side-question model round trip receives a longer explicit budget. The navigation mask has a 45-second fallback so it still releases if a desktop bridge or another non-fetch step never settles.
+
+6. **Cancellation removes authority to commit the target.**
+
+   Escape clears every pending navigation id. The shared resume/open flow checks that its own id is still pending after each asynchronous workspace activation or resume step, before assigning a URL or committing `activeRef`. Merely hiding the mask was rejected because the old request could otherwise navigate unexpectedly after the user had cancelled it.
+
 ## Risks / Trade-offs
 
-- **A redirect never unloads after URL assignment** → The source mask could remain indefinitely. URL construction and assignment stay inside the existing guarded desktop activation path; assignment failures fall back to the current daemon path and normal cleanup.
+- **A redirect never unloads after URL assignment** → The source mask stays visible by design after the handoff; normal browser navigation owns the page from that point.
 - **A resume request is very fast** → React may display the mask only briefly or not paint an intermediate frame. No artificial minimum delay is added, avoiding slower navigation solely for animation visibility.
-- **A resume request hangs** → The mask remains because the navigation is genuinely pending. Existing API timeout/error handling remains the authority for ending the operation.
+- **A resume request or bridge call hangs** → The request timeout ends normal fetch hangs, and the later mask fallback restores interaction for any remaining path.
+- **A cancelled request completes later** → Pending-id checks discard the late result before URL assignment or active-session commit.
 - **The destination transcript still needs rendering time** → The full-screen mask ends when `activeRef` commits; the chat view's existing session loading state handles subsequent transcript work.

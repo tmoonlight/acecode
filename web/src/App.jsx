@@ -420,6 +420,8 @@ export function App() {
     const sessionId = sessionJumpId(target);
     if (!sessionId) return false;
     const navigationId = beginSessionNavigation();
+    const navigationIsPending = () =>
+      pendingSessionNavigationIdsRef.current.has(navigationId);
     let handedOffToPageLoad = false;
     try {
       const noWorkspace = sessionJumpNoWorkspace(target);
@@ -441,14 +443,18 @@ export function App() {
           && typeof window.aceDesktop_activateWorkspace === 'function') {
         try {
           const r = parseDesktopBridgeResult(await window.aceDesktop_activateWorkspace(targetHash));
+          if (!navigationIsPending()) return false;
           if (r && !r.error && r.port && r.token) {
             let resumed = {};
             try {
               resumed = await resumeWith(createApi({ port: r.port, token: r.token }), targetHash);
             } catch (e) {
-              toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+              if (navigationIsPending()) {
+                toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+              }
               return false;
             }
+            if (!navigationIsPending()) return false;
             const url = desktopOpenSessionUrl({
               port: r.port,
               token: r.token,
@@ -467,19 +473,23 @@ export function App() {
             return true;
           }
         } catch {
+          if (!navigationIsPending()) return false;
           // Bridge 不可用或返回格式异常时，降级到当前 daemon 的 workspace-scoped resume。
         }
       }
 
       try {
         const resumed = await resumeWith(api, targetHash);
+        if (!navigationIsPending()) return false;
         commitRef(sessionRefFromJumpTarget(target, resumed, {
           workspaceHash: targetHash,
           noWorkspace,
         }));
         return true;
       } catch (e) {
-        toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+        if (navigationIsPending()) {
+          toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+        }
         return false;
       }
     } finally {

@@ -334,15 +334,15 @@ TEST(FeedbackUpload, PartiallyMissingLogsStillPackageTheAvailableOnes) {
 TEST(FeedbackUpload, PerLogByteCapOverridesTheRequestDefault) {
     TempDir tmp("acecode_feedback_per_log_cap");
     const fs::path big = tmp.root / "desktop-2026-06-18.log";
-    const fs::path small = tmp.root / "daemon-2026-06-18.log";
+    const fs::path capped_log = tmp.root / "daemon-2026-06-18.log";
     write_text(big, "0123456789");
-    write_text(small, "abcdefghij");
+    write_text(capped_log, "abcdefghij");
 
     acecode::feedback::FeedbackPackageRequest req;
     req.source = "desktop";
     req.max_log_bytes = 4;
     req.logs.push_back({big, "logs/desktop.log.tail.txt", 0});
-    req.logs.push_back({small, "logs/daemon.log.tail.txt", 2});
+    req.logs.push_back({capped_log, "logs/daemon.log.tail.txt", 2});
     req.output_dir = tmp.root / "out";
     req.created_at = "2026-06-18T01:02:03Z";
 
