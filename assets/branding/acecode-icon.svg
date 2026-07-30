@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="512"
+  height="512"
+  viewBox="0 0 512 512"
+  fill="none"
+  role="img"
+  aria-labelledby="title description"
+>
+  <title id="title">ACECode icon</title>
+  <desc id="description">A blue and cyan app icon combining a geometric letter A with a terminal prompt.</desc>
+
+  <defs>
+    <linearGradient id="background" x1="74" y1="38" x2="438" y2="476" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38D5F7"/>
+      <stop offset="0.38" stop-color="#1687DA"/>
+      <stop offset="0.7" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#082A52"/>
+    </linearGradient>
+    <radialGradient
+      id="highlight"
+      cx="0"
+      cy="0"
+      r="1"
+      gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(112 70) rotate(45) scale(276 222)"
+    >
+      <stop stop-color="white" stop-opacity="0.42"/>
+      <stop offset="0.6" stop-color="#A5F3FC" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#A5F3FC" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="letter" x1="92" y1="126" x2="314" y2="388" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white"/>
+      <stop offset="1" stop-color="#E0F2FE"/>
+    </linearGradient>
+    <linearGradient id="prompt" x1="345" y1="199" x2="432" y2="313" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CFFAFE"/>
+      <stop offset="1" stop-color="#67E8F9"/>
+    </linearGradient>
+    <filter id="tile-shadow" x="-10%" y="-8%" width="120%" height="132%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#020617" flood-opacity="0.32"/>
+    </filter>
+    <filter id="mark-shadow" x="-12%" y="-12%" width="124%" height="136%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="7" stdDeviation="6" flood-color="#031B36" flood-opacity="0.42"/>
+    </filter>
+    <clipPath id="tile-clip">
+      <rect x="20" y="20" width="472" height="472" rx="112"/>
+    </clipPath>
+  </defs>
+
+  <g filter="url(#tile-shadow)">
+    <rect x="20" y="20" width="472" height="472" rx="112" fill="url(#background)"/>
+    <g clip-path="url(#tile-clip)">
+      <rect x="20" y="20" width="472" height="472" fill="url(#highlight)"/>
+      <path
+        d="M20 386C126 326 223 326 310 363C378 392 438 391 492 357V492H20V386Z"
+        fill="#020617"
+        fill-opacity="0.12"
+      />
+    </g>
+    <rect
+      x="21.5"
+      y="21.5"
+      width="469"
+      height="469"
+      rx="110.5"
+      stroke="white"
+      stroke-opacity="0.24"
+      stroke-width="3"
+    />
+  </g>
+
+  <g filter="url(#mark-shadow)">
+    <path
+      fill="url(#letter)"
+      fill-rule="evenodd"
+      clip-rule="evenodd"
+      d="M73 384L164.5 139.5C169.1 127.2 178.3 121 192 121H210C223.7 121 232.9 127.2 237.5 139.5L329 384H265L245.7 326H154.3L135 384H73ZM174.7 266H225.3L200.3 190.8L174.7 266Z"
+    />
+    <path
+      d="M348 203L431 256L348 309"
+      stroke="url(#prompt)"
+      stroke-width="38"
+      stroke-linecap="square"
+      stroke-linejoin="miter"
+    />
+  </g>
+</svg>
