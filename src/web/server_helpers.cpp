@@ -679,7 +679,7 @@ bool WebServer::Impl::session_model_deleted(const std::string& model_name) const
     if (model_name.empty() || model_name.rfind("(session:", 0) == 0 || !deps.app_config) {
         return false;
     }
-    std::lock_guard<std::mutex> config_lock(app_config_mu);
+    std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
     for (const auto& entry : deps.app_config->saved_models) {
         if (entry.name == model_name) return false;
     }
@@ -1028,7 +1028,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
     // remote-control token / channel 配置暴露给前端。
     std::string remote_control_session_id;
     if (deps.app_config) {
-        std::lock_guard<std::mutex> config_lock(app_config_mu);
+        std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
         remote_control_session_id = deps.app_config->remote_control.bound_session_id;
     }
     for (auto& item : arr) {
@@ -1962,7 +1962,7 @@ void WebServer::Impl::send_status_snapshot(crow::websocket::connection& conn,
 // =====================================================================
 
 void WebServer::Impl::refresh_saved_models_from_disk() {
-    std::lock_guard<std::mutex> lock(app_config_mu);
+    std::lock_guard<std::shared_mutex> lock(app_config_mu);
     if (!deps.app_config) return;
     try {
         AppConfig disk = load_config();
@@ -1978,7 +1978,7 @@ void WebServer::Impl::refresh_saved_models_from_disk() {
 // =====================================================================
 
 void WebServer::Impl::refresh_default_session_preferences_for_new_session() {
-    std::lock_guard<std::mutex> config_lock(app_config_mu);
+    std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
     refresh_default_session_preferences_for_new_session_locked();
 }
 

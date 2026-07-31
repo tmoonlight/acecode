@@ -120,7 +120,7 @@ int WebServer::run() {
     while (!impl_->shutdown_requested.load()) {
         WebConfig cfg;
         {
-            std::lock_guard<std::mutex> config_lock(impl_->app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(impl_->app_config_mu);
             cfg = *impl_->deps.web_cfg;
         }
         cfg.port = impl_->runtime_port;
@@ -185,7 +185,7 @@ void WebServer::with_app_config_lock(const std::function<void()>& fn) const {
         fn();
         return;
     }
-    std::lock_guard<std::mutex> lock(impl_->app_config_mu);
+    std::lock_guard<std::shared_mutex> lock(impl_->app_config_mu);
     fn();
 }
 

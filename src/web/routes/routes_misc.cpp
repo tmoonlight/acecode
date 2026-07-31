@@ -476,7 +476,7 @@ void WebServer::Impl::register_feedback() {
 
             UpgradeConfig upgrade_cfg;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 upgrade_cfg = deps.app_config->upgrade;
             }
             const std::string upload_url = normalize_upgrade_base_url(upgrade_cfg.base_url);
@@ -572,7 +572,7 @@ void WebServer::Impl::register_mcp() {
             if (auto rej = require_auth(req)) return std::move(*rej);
             json out = json::object();
             if (deps.app_config) {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 for (const auto& [name, srv] : deps.app_config->mcp_servers) {
                     json o;
                     switch (srv.transport) {
@@ -634,7 +634,7 @@ void WebServer::Impl::register_mcp() {
                     cfg.disabled     = v.value("disabled", false);
                     new_servers.emplace(it.key(), std::move(cfg));
                 }
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 deps.app_config->mcp_servers = std::move(new_servers);
                 if (!deps.config_path.empty()) {
                     save_config(*deps.app_config, deps.config_path);
@@ -692,7 +692,7 @@ void WebServer::Impl::register_mcp() {
                 bool found = false;
                 std::optional<AppConfig> config_snapshot;
                 {
-                    std::lock_guard<std::mutex> config_lock(app_config_mu);
+                    std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                     auto it = deps.app_config->mcp_servers.find(name);
                     if (it != deps.app_config->mcp_servers.end()) {
                         found = true;
@@ -767,7 +767,7 @@ void WebServer::Impl::register_health() {
             // (见 openspec/changes/add-windows-wintoast-completion-notifications)。
             // 浏览器直连 daemon 模式没有桌面壳桥,前端会自然 no-op,这里始终输出。
             if (deps.app_config) {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 const auto& n = deps.app_config->desktop.notifications;
                 j["notifications"] = desktop_notifications_to_json(n);
                 j["features"] = {
@@ -860,7 +860,7 @@ void WebServer::Impl::register_history() {
             }
             InputHistoryConfig input_history;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 input_history = deps.app_config->input_history;
             }
             auto arr = load_history(cwd, max, input_history);
@@ -888,7 +888,7 @@ void WebServer::Impl::register_history() {
             }
             InputHistoryConfig input_history;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 input_history = deps.app_config->input_history;
             }
             append_history(deps.cwd, text, input_history);
@@ -989,7 +989,7 @@ json WebServer::Impl::remote_web_state_json(
     const crow::request& req) const {
     std::string configured_bind = kRemoteWebLoopbackBind;
     {
-        std::lock_guard<std::mutex> config_lock(app_config_mu);
+        std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
         if (deps.app_config) {
             configured_bind = deps.app_config->web.bind;
         } else if (deps.web_cfg) {
@@ -1150,7 +1150,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = ui_preferences_to_json(deps.app_config->web_ui).dump();
@@ -1162,7 +1162,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = ui_locale_to_json(deps.app_config->ui).dump();
@@ -1174,7 +1174,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = custom_instructions_to_json(
@@ -1187,7 +1187,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = json{{"connectors", connectors_to_json(
@@ -1200,7 +1200,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             refresh_default_session_preferences_for_new_session_locked();
             auto parsed = parse_permission_mode_name(deps.app_config->default_permission_mode);
             crow::response r(200);
@@ -1215,7 +1215,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = desktop_notifications_to_json(
@@ -1241,7 +1241,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = upgrade_config_to_json(deps.app_config->upgrade).dump();
@@ -1254,7 +1254,7 @@ void WebServer::Impl::register_ui_preferences() {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             auto result = acecode::upgrade::check_for_update(*deps.app_config,
                                                              ACECODE_VERSION);
             crow::response r(200);
@@ -1322,7 +1322,7 @@ void WebServer::Impl::register_ui_preferences() {
             acecode::upgrade::UpdateCheckResult result;
             AppConfig config_snapshot;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 result = acecode::upgrade::check_for_update(*deps.app_config,
                                                             ACECODE_VERSION);
                 config_snapshot = *deps.app_config;
@@ -1456,7 +1456,7 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             const std::string text = body["text"].get<std::string>();
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
@@ -1505,7 +1505,7 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, "BAD_REQUEST", parse_error);
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             const auto before = deps.app_config->connectors;
             deps.app_config->connectors = std::move(parsed);
             try {
@@ -1555,7 +1555,7 @@ void WebServer::Impl::register_ui_preferences() {
                                 "locale must be auto, zh-CN, or en-US");
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             const std::string before = deps.app_config->ui.locale;
             deps.app_config->ui.locale = locale;
             try {
@@ -1603,7 +1603,7 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, "INVALID_PERMISSION_MODE", "invalid permission mode");
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
@@ -1657,7 +1657,7 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, "BAD_REQUEST", "expected {enabled: boolean}");
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
@@ -1726,7 +1726,7 @@ void WebServer::Impl::register_ui_preferences() {
 
             SettingsMutationResult result;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 SettingsMutationOptions options;
                 options.config_path = deps.config_path;
                 options.live_config = deps.app_config;
@@ -1776,7 +1776,7 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, "BAD_REQUEST", "expected {base_url: string}");
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
@@ -1803,7 +1803,7 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = ace_browser_bridge_settings_to_json(
@@ -1835,7 +1835,7 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, "BAD_REQUEST", "expected {enabled: boolean}");
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             const auto before = deps.app_config->ace_browser_bridge;
             deps.app_config->ace_browser_bridge.enabled = body["enabled"].get<bool>();
             try {
@@ -1985,7 +1985,7 @@ void WebServer::Impl::register_ui_preferences() {
                                 "expected {show_acecode_avatar: boolean}");
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             const auto before = deps.app_config->web_ui;
             deps.app_config->web_ui.show_acecode_avatar = false;
             try {

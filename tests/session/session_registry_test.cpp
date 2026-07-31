@@ -1430,14 +1430,21 @@ TEST(SessionRegistry, CreateNoWorkspaceKeepsWorkspaceHashEmpty) {
 // 场景:共享 daemon 的启动 cwd 没有某个 skill,但目标 workspace 有。
 // 新建 session 后,AgentLoop 使用的 skill index 必须来自 session workspace。
 TEST(SessionRegistry, CreateInitializesWorkspaceScopedSkillRegistry) {
-    auto daemon_cwd = temp_cwd("daemon_skill_cwd");
-    auto workspace_cwd = temp_cwd("workspace_skill_cwd");
+    // 隔离真实 HOME 下的大量全局 skills。否则索引超过预算时会合法降级成
+    // names-only，测试却误把缺少 description 当成 workspace 扫描失败。
+    auto temp_home = temp_cwd("workspace_skill_home");
+    ScopedHomeOverride home(temp_home);
+    auto daemon_cwd = temp_home / "daemon";
+    auto workspace_cwd = temp_home / "workspace";
+    std::filesystem::create_directories(daemon_cwd);
+    std::filesystem::create_directories(workspace_cwd);
     write_workspace_skill(workspace_cwd, "workspace-index-only",
                           "Visible only from workspace cwd");
 
     ToolExecutor tools;
     PermissionManager permissions;
     AppConfig cfg;
+    cfg.skills.reuse_opencode = false;
     SessionRegistryDeps deps;
     deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
     deps.tools = &tools;
@@ -1462,6 +1469,7 @@ TEST(SessionRegistry, CreateInitializesWorkspaceScopedSkillRegistry) {
     std::filesystem::remove_all(SessionStorage::get_project_dir(workspace_cwd.string()));
     std::filesystem::remove_all(daemon_cwd);
     std::filesystem::remove_all(workspace_cwd);
+    std::filesystem::remove_all(temp_home);
 }
 
 // 场景: 新 session 的 model state 来自显式 model_name,并透出到 list_active
@@ -2023,6 +2031,172 @@ TEST(SessionRegistry, ResumeDiskSessionRestoresLoopHistory) {
 
     EXPECT_TRUE(registry.resume(id)) << "同 daemon 同 id 二次 resume 应复用 active entry";
     EXPECT_EQ(registry.size(), 1u);
+
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+TEST(SessionRegistry, ConcurrentResumeOfSameIdIsSingleFlight) {
+    auto cwd = temp_cwd("resume_single_flight");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    const std::string id = "20260731-010203-cafe";
+
+    {
+        acecode::SessionManager sm;
+        sm.start_session(cwd.string(), "test-provider", "test-model", id);
+        sm.on_message(registry_msg("user", "resume once"));
+        sm.finalize();
+    }
+
+    ToolExecutor tools;
+    PermissionManager permissions;
+    std::mutex provider_mu;
+    std::condition_variable provider_cv;
+    int provider_calls = 0;
+    bool first_call_blocked = false;
+    bool release_first_call = false;
+
+    SessionRegistryDeps deps;
+    deps.provider_accessor = [&] {
+        std::unique_lock<std::mutex> lock(provider_mu);
+        ++provider_calls;
+        if (provider_calls == 1) {
+            first_call_blocked = true;
+            provider_cv.notify_all();
+            provider_cv.wait(lock, [&] { return release_first_call; });
+        } else {
+            provider_cv.notify_all();
+        }
+        return std::shared_ptr<acecode::LlmProvider>{};
+    };
+    deps.tools = &tools;
+    deps.cwd = cwd.string();
+    deps.template_permissions = &permissions;
+    SessionRegistry registry(std::move(deps));
+
+    std::atomic<bool> first_result{false};
+    std::atomic<bool> second_result{false};
+    std::thread first([&] { first_result.store(registry.resume(id)); });
+
+    {
+        std::unique_lock<std::mutex> lock(provider_mu);
+        if (!provider_cv.wait_for(
+                lock, 1s, [&] { return first_call_blocked; })) {
+            release_first_call = true;
+            lock.unlock();
+            provider_cv.notify_all();
+            first.join();
+            FAIL() << "first resume did not reach the provider gate";
+            return;
+        }
+    }
+
+    std::thread second([&] { second_result.store(registry.resume(id)); });
+
+    bool second_entered_construction = false;
+    {
+        std::unique_lock<std::mutex> lock(provider_mu);
+        second_entered_construction = provider_cv.wait_for(
+            lock, 250ms, [&] { return provider_calls > 1; });
+        release_first_call = true;
+    }
+    provider_cv.notify_all();
+
+    first.join();
+    second.join();
+
+    EXPECT_FALSE(second_entered_construction)
+        << "same-session resume bypassed the per-ID single-flight guard";
+    EXPECT_TRUE(first_result.load());
+    EXPECT_TRUE(second_result.load());
+    EXPECT_EQ(provider_calls, 3)
+        << "the second resume rebuilt the already-active session";
+    EXPECT_EQ(registry.size(), 1u);
+
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+TEST(SessionRegistry, ConcurrentResumeOfDifferentIdsIsNotSerialized) {
+    auto cwd = temp_cwd("resume_parallel_ids");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    const std::string first_id = "20260731-020304-cafe";
+    const std::string second_id = "20260731-020305-beef";
+
+    for (const auto& id : {first_id, second_id}) {
+        acecode::SessionManager sm;
+        sm.start_session(cwd.string(), "test-provider", "test-model", id);
+        sm.on_message(registry_msg("user", "resume in parallel"));
+        sm.finalize();
+    }
+
+    ToolExecutor tools;
+    PermissionManager permissions;
+    std::mutex provider_mu;
+    std::condition_variable provider_cv;
+    int provider_calls = 0;
+    bool first_call_blocked = false;
+    bool release_first_call = false;
+
+    SessionRegistryDeps deps;
+    deps.provider_accessor = [&] {
+        std::unique_lock<std::mutex> lock(provider_mu);
+        ++provider_calls;
+        if (provider_calls == 1) {
+            first_call_blocked = true;
+            provider_cv.notify_all();
+            provider_cv.wait(lock, [&] { return release_first_call; });
+        } else {
+            provider_cv.notify_all();
+        }
+        return std::shared_ptr<acecode::LlmProvider>{};
+    };
+    deps.tools = &tools;
+    deps.cwd = cwd.string();
+    deps.template_permissions = &permissions;
+    SessionRegistry registry(std::move(deps));
+
+    std::atomic<bool> first_result{false};
+    std::atomic<bool> second_result{false};
+    std::thread first(
+        [&] { first_result.store(registry.resume(first_id)); });
+
+    {
+        std::unique_lock<std::mutex> lock(provider_mu);
+        if (!provider_cv.wait_for(
+                lock, 1s, [&] { return first_call_blocked; })) {
+            release_first_call = true;
+            lock.unlock();
+            provider_cv.notify_all();
+            first.join();
+            FAIL() << "first resume did not reach the provider gate";
+            return;
+        }
+    }
+
+    std::thread second(
+        [&] { second_result.store(registry.resume(second_id)); });
+
+    bool second_entered_construction = false;
+    {
+        std::unique_lock<std::mutex> lock(provider_mu);
+        second_entered_construction = provider_cv.wait_for(
+            lock, 1s, [&] { return provider_calls > 1; });
+        release_first_call = true;
+    }
+    provider_cv.notify_all();
+
+    first.join();
+    second.join();
+
+    EXPECT_TRUE(second_entered_construction)
+        << "different session IDs were serialized by a global resume guard";
+    EXPECT_TRUE(first_result.load());
+    EXPECT_TRUE(second_result.load());
+    EXPECT_EQ(provider_calls, 6);
+    EXPECT_EQ(registry.size(), 2u);
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);

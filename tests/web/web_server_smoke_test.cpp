@@ -22,6 +22,7 @@
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
 #include "permissions.hpp"
+#include "desktop/daemon_supervisor.hpp"
 #include "desktop/workspace_registry.hpp"
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_manager.hpp"
@@ -66,12 +67,10 @@ using nlohmann::json;
 
 namespace {
 
-// 找一个未被占用的端口。简化做法: 用 cpr 试连 0(让 OS 分配)不可行 —
-// Crow bind 时要显式数字。这里用一个随机偏移的端口,失败重试几次。
-// 为避免和真 daemon/desktop 默认端口冲突,从高位端口起。
+// 让 OS 选择当前可用端口，再交给 Crow 绑定。端口探测与 Crow 绑定之间仍有
+// 极短竞态，但比固定递增端口可靠，且不会撞上机器已有的 HTTP.sys 监听。
 int pick_test_port() {
-    static std::atomic<int> next{46000};
-    return next.fetch_add(7);
+    return acecode::desktop::pick_free_loopback_port();
 }
 
 std::filesystem::path path_from_utf8(const std::string& s) {
@@ -212,6 +211,47 @@ private:
     bool released_ = false;
 };
 
+class BlockingResumeLocalSessionClient final
+    : public acecode::LocalSessionClient {
+public:
+    explicit BlockingResumeLocalSessionClient(
+        acecode::SessionRegistry& registry)
+        : acecode::LocalSessionClient(registry) {}
+
+    bool resume_session(
+        const std::string&,
+        const acecode::SessionOptions& = {}) override {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            started_ = true;
+        }
+        cv_.notify_all();
+
+        std::unique_lock<std::mutex> lock(mu_);
+        cv_.wait(lock, [this] { return released_; });
+        return true;
+    }
+
+    bool wait_for_started(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mu_);
+        return cv_.wait_for(lock, timeout, [this] { return started_; });
+    }
+
+    void release() {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            released_ = true;
+        }
+        cv_.notify_all();
+    }
+
+private:
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool started_ = false;
+    bool released_ = false;
+};
+
 class TurnSteeringProvider : public acecode::LlmProvider {
 public:
     acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>&,
@@ -295,6 +335,10 @@ private:
 };
 
 struct WebServerFixture {
+    using SessionClientFactory = std::function<
+        std::unique_ptr<acecode::LocalSessionClient>(
+            acecode::SessionRegistry&)>;
+
     acecode::ToolExecutor tools;
     acecode::PermissionManager template_perm;
     acecode::SkillRegistry skill_registry;
@@ -332,7 +376,8 @@ struct WebServerFixture {
                           std::string*)> run_update_command = {},
         std::function<std::optional<std::string>(const std::string&)> open_in_explorer = {},
         bool dangerous = false,
-        std::function<std::vector<std::string>()> remote_web_hosts = {}) {
+        std::function<std::vector<std::string>()> remote_web_hosts = {},
+        SessionClientFactory session_client_factory = {}) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -384,7 +429,9 @@ struct WebServerFixture {
         deps.expert_registry = expert_registry.get();
         deps.template_permissions = &template_perm;
         registry = std::make_unique<acecode::SessionRegistry>(std::move(deps));
-        client = std::make_unique<acecode::LocalSessionClient>(*registry);
+        client = session_client_factory
+            ? session_client_factory(*registry)
+            : std::make_unique<acecode::LocalSessionClient>(*registry);
         hook_manager = std::make_unique<acecode::HookManager>(acecode::HookRegistrySnapshot{});
         loop_store = std::make_unique<acecode::loop::LoopStore>(tmp_dir / "loops.sqlite3");
         acecode::loop::StoreError loop_error;
@@ -452,6 +499,18 @@ struct WebServerFixture {
               {},
               dangerous,
               std::move(remote_web_hosts)) {}
+
+    explicit WebServerFixture(SessionClientFactory session_client_factory)
+        : WebServerFixture(
+              true,
+              false,
+              {},
+              true,
+              {},
+              {},
+              false,
+              {},
+              std::move(session_client_factory)) {}
 
     ~WebServerFixture() {
         if (server) server->stop();
@@ -4429,6 +4488,48 @@ TEST(WebServerHttp, ResumeDiskSessionActivatesIt) {
         }
     }
     EXPECT_TRUE(found);
+}
+
+TEST(WebServerHttp, ConfigReadCompletesWhileSessionResumeIsBlocked) {
+    BlockingResumeLocalSessionClient* blocking_client = nullptr;
+    WebServerFixture fx(WebServerFixture::SessionClientFactory{
+        [&blocking_client](acecode::SessionRegistry& registry)
+            -> std::unique_ptr<acecode::LocalSessionClient> {
+            auto client =
+                std::make_unique<BlockingResumeLocalSessionClient>(registry);
+            blocking_client = client.get();
+            return client;
+        }});
+    ASSERT_NE(blocking_client, nullptr);
+
+    std::optional<cpr::Response> resume_response;
+    std::thread resume_thread([&] {
+        resume_response = cpr::Post(
+            cpr::Url{fx.url("/api/sessions/blocked-resume/resume")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{R"({})"},
+            cpr::Timeout{2000});
+    });
+
+    if (!blocking_client->wait_for_started(1s)) {
+        blocking_client->release();
+        resume_thread.join();
+        FAIL() << "resume request did not reach the blocking session client";
+        return;
+    }
+
+    auto models = cpr::Get(
+        cpr::Url{fx.url("/api/models")},
+        cpr::Timeout{500});
+
+    blocking_client->release();
+    resume_thread.join();
+
+    ASSERT_EQ(models.status_code, 200)
+        << "config-read route waited for the blocked resume: "
+        << models.error.message;
+    ASSERT_TRUE(resume_response.has_value());
+    EXPECT_EQ(resume_response->status_code, 200) << resume_response->text;
 }
 
 TEST(WebServerHttp, ExpertCapabilityCatalogIsRuntimeBackedAndSanitized) {

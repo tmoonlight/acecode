@@ -304,7 +304,7 @@ void WebServer::Impl::register_skills() {
                 } else {
                     ws = compatibility_workspace();
                 }
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 arr = build_skills_payload(*deps.app_config, ws->cwd);
             }
             crow::response r(arr.dump());
@@ -350,7 +350,7 @@ void WebServer::Impl::register_skills() {
                 }
             }
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             std::optional<acecode::SkillRegistry> workspace_lookup;
             if (ws.has_value() && !ws->cwd.empty()) {
                 workspace_lookup.emplace();
@@ -416,7 +416,7 @@ void WebServer::Impl::register_commands() {
             const auto& registry = deps.skill_registry ? *deps.skill_registry : empty_registry;
             json payload;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 payload = build_commands_payload(registry, workspace_cwd, deps.app_config);
             }
             crow::response r(payload.dump());

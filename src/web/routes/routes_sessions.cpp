@@ -156,7 +156,7 @@ WebServer::Impl::parse_session_user_input_request(
         deps.session_registry && deps.app_config) {
         if (auto entry = deps.session_registry->acquire(session_id)) {
             if (!entry->cwd.empty()) {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 auto command = web::try_expand_opencode_command(
                     text, *deps.app_config, entry->cwd);
                 if (command.expanded) {
@@ -515,7 +515,7 @@ void WebServer::Impl::register_sessions() {
 
             std::string id;
             try {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 refresh_default_session_preferences_for_new_session_locked();
                 id = deps.session_client->create_session(opts);
             } catch (const std::invalid_argument& ex) {
@@ -590,7 +590,10 @@ void WebServer::Impl::register_sessions() {
             }
             bool resumed = false;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                // 共享锁:与 routes_workspaces.cpp 的 workspace-scoped resume
+                // 同一决策 —— resume 对 config 只读且耗时数百毫秒,独占持有
+                // 会形成全 HTTP 面的锁车队。
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 resumed = deps.session_client->resume_session(id, opts);
             }
             if (!resumed) {
@@ -1312,7 +1315,7 @@ void WebServer::Impl::register_sessions() {
 
             ExpertSwitchResult result;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 result = deps.session_registry->switch_expert(
                     id, expert_id, draft_text);
             }

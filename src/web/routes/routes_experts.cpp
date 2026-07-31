@@ -124,7 +124,7 @@ void WebServer::Impl::register_experts() {
 
         std::optional<AppConfig> config_snapshot;
         {
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
             if (deps.app_config) config_snapshot = *deps.app_config;
         }
 
