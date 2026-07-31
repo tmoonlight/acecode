@@ -45,7 +45,7 @@ void WebServer::Impl::register_models() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             auto arr = list_models(*deps.app_config);
             crow::response r(arr.dump());
             r.add_header("Content-Type", "application/json");
@@ -58,7 +58,7 @@ void WebServer::Impl::register_models() {
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             refresh_default_session_preferences_for_new_session_locked();
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
@@ -247,7 +247,7 @@ void WebServer::Impl::register_models() {
 
             std::optional<ModelProfile> entry;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 entry = find_model_by_name(*deps.app_config, name);
             }
             if (!entry.has_value()) {
@@ -294,7 +294,7 @@ void WebServer::Impl::register_models() {
             auto draft = parse_model_draft(body, err);
             if (!draft) return json_err(400, "BAD_REQUEST", err);
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
@@ -347,7 +347,7 @@ void WebServer::Impl::register_models() {
             auto draft = parse_model_draft(body, err);
             if (!draft) return json_err(400, "BAD_REQUEST", err);
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             // patch 语义:body 没显式带 api_key / base_url 时,从 existing 条目
             // 注入旧值再走校验。这样旧客户端编辑表单不必每次让用户重输
             // api_key。也覆盖 base_url 以防偶发未提交;model/provider/name 显式必填,
@@ -432,7 +432,7 @@ void WebServer::Impl::register_models() {
                 return with_cors(req, std::move(r));
             };
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
@@ -491,7 +491,7 @@ void WebServer::Impl::register_models() {
             }
             std::string name = body["name"].get<std::string>();
 
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;

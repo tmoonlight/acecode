@@ -127,7 +127,7 @@ void WebServer::with_app_config_lock(const std::function<void()>& fn) const {
         fn();
         return;
     }
-    std::lock_guard<std::mutex> lock(impl_->app_config_mu);
+    std::lock_guard<std::shared_mutex> lock(impl_->app_config_mu);
     fn();
 }
 

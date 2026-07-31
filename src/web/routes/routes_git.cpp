@@ -28,7 +28,7 @@ void WebServer::Impl::register_git() {
         // config 读取小助手:git_context 的 enabled/timeout(加锁快照)。
         auto git_cfg = [this]() {
             std::pair<bool, int> out{true, 3000};
-            std::lock_guard<std::mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             if (deps.app_config) {
                 out.first = deps.app_config->git_context.enabled;
                 out.second = deps.app_config->git_context.timeout_ms;
@@ -53,7 +53,7 @@ void WebServer::Impl::register_git() {
             bool enabled = true;
             int timeout_ms = 3000;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 if (deps.app_config) {
                     enabled = deps.app_config->git_context.enabled;
                     timeout_ms = deps.app_config->git_context.timeout_ms;
@@ -100,7 +100,7 @@ void WebServer::Impl::register_git() {
             bool enabled = true;
             int timeout_ms = 3000;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 if (deps.app_config) {
                     enabled = deps.app_config->git_context.enabled;
                     timeout_ms = deps.app_config->git_context.timeout_ms;

@@ -29,6 +29,7 @@
 #include "session_manager.hpp"
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -36,6 +37,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace acecode {
@@ -330,6 +332,14 @@ private:
     mutable std::mutex                                            title_threads_mu_;
     std::vector<std::thread>                                      title_threads_;
     std::atomic<bool>                                              shutting_down_{false};
+    // 同 id resume 单飞:web 端 resume 从独占 app_config_mu 降级为共享锁后,
+    // 同一会话的并发 resume 不再被外层锁偶然串行化。两个 make_entry 同时
+    // 跑会各自 start_session / 抢 writer lease,输家析构时还可能把赢家的
+    // lease 清掉 —— 必须在入口处按 id 串行,后到者等首个完成后直接命中
+    // entries_ 返回。
+    std::mutex                                                    resume_inflight_mu_;
+    std::condition_variable                                       resume_inflight_cv_;
+    std::unordered_set<std::string>                               resume_inflight_;
 };
 
 } // namespace acecode

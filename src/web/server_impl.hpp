@@ -76,6 +76,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -220,7 +221,15 @@ struct WebServer::Impl {
 
     // Crow runs HTTP handlers on multiple worker threads. deps.app_config is a
     // shared mutable object, so every web-side read/write must go through this.
-    mutable std::mutex app_config_mu;
+    //
+    // 读写纪律(fix session-switch lock convoy):默认一律独占
+    // (std::lock_guard<std::shared_mutex>,与旧 std::mutex 语义一致);只有
+    // **确认全程不改 config** 的长耗时路径才允许降级成 std::shared_lock ——
+    // 目前仅两条 resume 路由:resume 要全量解析 jsonl + 扫 skill 目录 +
+    // 建 provider,实测单次 574~824ms(feedback IQSZ-D0668 daemon 日志),
+    // 独占持有时每次都把整个 HTTP 面卡停近一秒。写方(settings 变更、
+    // refresh_default_session_preferences、saved_models 落盘)必须保持独占。
+    mutable std::shared_mutex app_config_mu;
 
     // 从磁盘重读 saved_models 合并进内存 —— 连接器钩子(外部登录器)会直接
     // 改写 config.json;不重读的话,下一次任何 save_config 都会把新写入的
