@@ -471,7 +471,7 @@ export function SidePanel({
     // 卡片读同一个 cwd,共用一份 30s TTL + 在途去重,避免同一份 git info
     // 被三个组件各打一次(daemon 侧每次 5~7 个 git 子进程)。
     const load = () => {
-      gitInfoCache.get(cwd)
+      gitInfoCache.get(api, cwd)
         .then((info) => { if (!cancelled) setGitInfo(info); })
         .catch(() => { if (!cancelled) setGitInfo(null); });
     };
@@ -480,7 +480,7 @@ export function SidePanel({
       const changedCwd = event?.detail?.cwd || '';
       if (changedCwd && changedCwd !== cwd) return;
       // 先失效再读,不依赖与 gitInfoCache 模块级监听器的触发顺序。
-      gitInfoCache.invalidate(cwd);
+      gitInfoCache.invalidate(api, cwd);
       load();
     };
     window.addEventListener(GIT_STATE_CHANGED_EVENT, handler);

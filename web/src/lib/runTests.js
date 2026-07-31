@@ -51,6 +51,7 @@ import './sessionChanges.test.js';
 import './previewRefresh.test.js';
 import './turnFileList.test.js';
 import './gitSessionPill.test.js';
+import './gitInfoCache.test.js';
 import './gitChanges.test.js';
 import './lspStatus.test.js';
 import './changeReviewStability.test.js';

@@ -23,6 +23,12 @@ export class ApiError extends Error {
 let _baseOrigin = '';
 let _baseToken  = '';
 
+// Cache consumers need to recognize independently-created clients that resolve
+// to the same daemon without serializing credentials into a public key. Keep
+// the credential -> opaque object registry private to this module.
+const API_CONNECTION_SCOPE = Symbol('acecode.apiConnectionScope');
+const connectionScopesByOrigin = new Map();
+
 export function setBase({ port, token }) {
   if (port) _baseOrigin = `${location.protocol}//127.0.0.1:${port}`;
   if (token != null) _baseToken = token;
@@ -38,6 +44,30 @@ function baseOrigin(base) {
 function baseToken(base) {
   if (base && base.token != null) return base.token;
   return _baseToken || getToken() || '';
+}
+
+function connectionScopeForBase(base) {
+  const origin = String(baseOrigin(base) || '');
+  const token = String(baseToken(base) || '');
+  let scopesByToken = connectionScopesByOrigin.get(origin);
+  if (!scopesByToken) {
+    scopesByToken = new Map();
+    connectionScopesByOrigin.set(origin, scopesByToken);
+  }
+  let scope = scopesByToken.get(token);
+  if (!scope) {
+    scope = Object.freeze({});
+    scopesByToken.set(token, scope);
+  }
+  return scope;
+}
+
+export function apiConnectionScope(client) {
+  if (!client || (typeof client !== 'object' && typeof client !== 'function')) {
+    throw new TypeError('API client is required');
+  }
+  const resolveScope = client[API_CONNECTION_SCOPE];
+  return typeof resolveScope === 'function' ? resolveScope() : client;
 }
 
 function fullUrl(path, base) {
@@ -186,7 +216,7 @@ async function request(method, path, body, base, options = {}) {
 }
 
 export function createApi(base = null) {
-  return {
+  const client = {
     health:           ()             => request('GET',    '/api/health', undefined, base),
     // 模型池负载快照(每 30s 轮询展示精确匹配 modelPoolName 的负载)。
     modelPoolStatus:  ()             => request('GET',    '/api/model-pool-status', undefined, base),
@@ -489,6 +519,11 @@ export function createApi(base = null) {
       return resp.blob();
     },
   };
+  Object.defineProperty(client, API_CONNECTION_SCOPE, {
+    enumerable: false,
+    value: () => connectionScopeForBase(base),
+  });
+  return client;
 }
 
 export const api = createApi();

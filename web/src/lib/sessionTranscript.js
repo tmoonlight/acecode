@@ -1387,6 +1387,9 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const optionsRef = useRef(options);
   // 加载 effect 里只用 ref 取展示标题,不依赖它的对象身份 —— 见下方 deps 注释。
   const sessionRefRef = useRef(ref);
+  // state 在 sid 切换后的首帧仍属于上一会话;在 reset effect 落地前不能把
+  // 旧会话的 loaded 状态当成新会话已加载。
+  const stateSessionIdRef = useRef(sid);
   sessionRefRef.current = ref;
   const refreshSignatureRef = useRef('');
 
@@ -1424,6 +1427,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
   }, []);
 
   useEffect(() => {
+    stateSessionIdRef.current = sid;
     const baseTitle = sid ? sessionDisplayTitle(sessionRefRef.current) : '';
     const reset = createTranscriptState({
       title: baseTitle,
@@ -1577,7 +1581,9 @@ export function useSessionTranscript(sessionRef, options = {}) {
     ...state,
     title: state.title || initialTitle,
     isLive,
-    loadState: state.loadState,
+    loadState: stateSessionIdRef.current === sid
+      ? state.loadState
+      : (sid ? 'loading' : 'idle'),
     applyEvent,
     setTitle,
     getState,

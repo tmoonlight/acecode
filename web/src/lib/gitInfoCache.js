@@ -1,31 +1,111 @@
-// `/api/git/info` 的**共享**缓存实例(单例),与 gitChangesCache.js 同构。
+// Shared `/api/git/info` cache.
 //
-// 为什么必须共享:该端点在 daemon 侧要 spawn 5~7 个 git 子进程
-//(rev-parse / symbolic-ref / show-ref ×N / for-each-ref / status --porcelain),
-// Windows 上光进程启动就上百毫秒,大仓库 status 更久。之前只有 Sidebar 的
-// 会话 hover 卡片带 30s TTL 缓存,GitSessionPill **完全没有缓存**,而它挂在
-// ChatView 上且 key 含 sid —— 每次切会话都整组件重挂、无条件重拉一次。
-// 用户在会话间来回切时,Fiddler 里看到的就是 /api/git/info 高频且经常挂起
-//(请求排在 Crow 工作线程池后面)。
-//
-// 同一 workspace 下所有会话共用一个 cwd,所以按 cwd 缓存的命中率极高;
-// 缓存本身还带在途请求去重(同 cwd 并发只发一次)。
-//
-// 失效:监听 GIT_STATE_CHANGED_EVENT(checkout / worktree 等外部 git 状态
-// 变更后由 GitSessionPill 广播),整条 cwd 清掉,下次读取重拉。
+// The endpoint starts several Git subprocesses, so visible consumers share a
+// 30-second result and one in-flight request. The key is deliberately two-part:
+// effective API connection + cwd. A cwd-only singleton can route a session to
+// the mutable global client or leak a result between different daemon ports.
 
-import { api } from './api.js';
-import { createSessionHoverGitInfoCache } from './sessionHoverDetails.js';
+import { apiConnectionScope } from './api.js';
 import { GIT_STATE_CHANGED_EVENT } from './gitSessionPill.js';
+import { SESSION_HOVER_GIT_CACHE_TTL_MS } from './sessionHoverDetails.js';
 
-// 工厂名字带 sessionHover 是历史包袱(最早只服务 hover 卡片),行为是通用的
-// 「按 key 的 TTL + 在途去重」缓存,这里直接复用,不改它的名字以免动它的单测。
-export const gitInfoCache = createSessionHoverGitInfoCache((cwd) => api.gitInfo(cwd));
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+export function createGitInfoCache({
+  now = () => Date.now(),
+  ttlMs = SESSION_HOVER_GIT_CACHE_TTL_MS,
+} = {}) {
+  const entriesByScope = new WeakMap();
+  // Git-state events currently carry cwd but no connection metadata. Keep the
+  // small set of per-document entry maps iterable for conservative invalidation.
+  const allScopeEntries = new Set();
+  const safeTtlMs = Math.max(0, finiteNumber(ttlMs));
+
+  const entriesFor = (apiClient, create = false) => {
+    const scope = apiConnectionScope(apiClient);
+    let entries = entriesByScope.get(scope);
+    if (!entries && create) {
+      entries = new Map();
+      entriesByScope.set(scope, entries);
+      allScopeEntries.add(entries);
+    }
+    return entries;
+  };
+
+  const get = (apiClient, cwd) => {
+    const key = typeof cwd === 'string' ? cwd : '';
+    if (!key.trim()) return Promise.resolve(null);
+    if (!apiClient || typeof apiClient.gitInfo !== 'function') {
+      return Promise.reject(new TypeError('API client with gitInfo is required'));
+    }
+
+    const entries = entriesFor(apiClient, true);
+    const timestamp = finiteNumber(now());
+    const existing = entries.get(key);
+    if (existing?.promise) return existing.promise;
+    if (existing && existing.expiresAt >= timestamp) {
+      return Promise.resolve(existing.value);
+    }
+
+    // Start the caller synchronously after resolving its scope. A mutable
+    // global client can change after this function returns, but request()
+    // captures its URL and token before the first await.
+    let resolveRequest;
+    let rejectRequest;
+    const request = new Promise((resolve, reject) => {
+      resolveRequest = resolve;
+      rejectRequest = reject;
+    });
+    entries.set(key, { promise: request });
+    try {
+      Promise.resolve(apiClient.gitInfo(key)).then(
+        (value) => {
+          if (entries.get(key)?.promise === request) {
+            entries.set(key, {
+              value,
+              expiresAt: finiteNumber(now()) + safeTtlMs,
+            });
+          }
+          resolveRequest(value);
+        },
+        (error) => {
+          if (entries.get(key)?.promise === request) entries.delete(key);
+          rejectRequest(error);
+        },
+      );
+    } catch (error) {
+      if (entries.get(key)?.promise === request) entries.delete(key);
+      rejectRequest(error);
+    }
+    return request;
+  };
+
+  const invalidateEntries = (entries, cwd = '') => {
+    if (!entries) return;
+    const key = typeof cwd === 'string' ? cwd : '';
+    if (key) entries.delete(key);
+    else entries.clear();
+  };
+
+  return {
+    get,
+    invalidate(apiClient, cwd = '') {
+      invalidateEntries(entriesFor(apiClient), cwd);
+    },
+    invalidateAll(cwd = '') {
+      for (const entries of allScopeEntries) invalidateEntries(entries, cwd);
+    },
+  };
+}
+
+export const gitInfoCache = createGitInfoCache();
 
 if (typeof window !== 'undefined') {
   window.addEventListener(GIT_STATE_CHANGED_EVENT, (event) => {
     const changedCwd = String(event?.detail?.cwd || '');
-    // detail 不带 cwd 时保守起见整表清空。
-    gitInfoCache.invalidate(changedCwd);
+    gitInfoCache.invalidateAll(changedCwd);
   });
 }

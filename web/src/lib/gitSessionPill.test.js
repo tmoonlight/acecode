@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   buildPillModel,
   buildWorktreeIntent,
+  shouldLoadGitInfo,
 } from './gitSessionPill.js';
 
 function run(name, fn) {
@@ -90,6 +91,18 @@ run('worktree 意图:勾选且未开始才生成;base 透传', () => {
     { create: true });
 });
 
+run('Git info 只在 hero 或已加载的空白 bar 会话请求', () => {
+  assert.equal(shouldLoadGitInfo({ variant: 'hero', sessionLoaded: false }), true);
+  assert.equal(shouldLoadGitInfo({ variant: 'bar', sessionLoaded: false }), false);
+  assert.equal(shouldLoadGitInfo({ variant: 'bar', sessionLoaded: true }), true);
+  assert.equal(shouldLoadGitInfo({ variant: 'bar', sessionLoaded: true, sessionStarted: true }), false);
+  assert.equal(shouldLoadGitInfo({
+    variant: 'bar',
+    sessionLoaded: true,
+    worktreeSession: { name: 'ses-worktree' },
+  }), false);
+});
+
 // 架构守护:切会话时的 /api/git/info 风暴。
 //
 // pill 挂在 ChatView 上、key 含 sid,每次切会话整组件重挂;而该端点在
@@ -101,10 +114,19 @@ const pillSource = (await import('node:fs')).readFileSync(
   new URL('../components/GitSessionPill.jsx', import.meta.url),
   'utf8',
 ).replace(/\r\n?/g, '\n');
+const chatViewSource = (await import('node:fs')).readFileSync(
+  new URL('../components/ChatView.jsx', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n');
+const transcriptSource = (await import('node:fs')).readFileSync(
+  new URL('./sessionTranscript.js', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n');
 
 run('架构: pill 读 git info 走共享缓存,且不可渲染时不发请求', () => {
   assert.match(pillSource, /import \{ gitInfoCache \} from '\.\.\/lib\/gitInfoCache\.js'/);
-  assert.match(pillSource, /gitInfoCache\.get\(target\)/);
+  assert.match(pillSource, /gitInfoCache\.get\(api, target\)/);
+  assert.match(pillSource, /gitInfoCache\.invalidate\(api, target\)/);
   // 不许绕过缓存直接打接口
   assert.doesNotMatch(pillSource, /api\.gitInfo\(/);
   // 可见性短路:先算 pillCouldRender,effect 里据此提前 return
@@ -112,6 +134,13 @@ run('架构: pill 读 git info 走共享缓存,且不可渲染时不发请求', 
   assert.match(pillSource, /if \(!pillCouldRender\) return;/);
   // 用户显式展开下拉时强制刷新(绕过 TTL)
   assert.match(pillSource, /refreshInfo\(\{ force: true \}\)/);
+  // 两个挂载点都必须保留会话绑定的 API,不能退回模块级全局客户端。
+  const pillTags = chatViewSource.match(/<GitSessionPill\b[\s\S]*?\/>/g) || [];
+  assert.equal(pillTags.length, 2);
+  assert.ok(pillTags.every((tag) => /\bapi=\{api\}/.test(tag)));
+  assert.match(pillTags[1], /sessionLoaded=\{transcriptLoadState === 'loaded'\}/);
+  // sid 切换首帧不能沿用上一空会话的 loaded 状态。
+  assert.match(transcriptSource, /stateSessionIdRef\.current === sid\s*\? state\.loadState/);
 });
 
 console.log('gitSessionPill.test.js: all tests passed');

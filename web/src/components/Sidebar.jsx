@@ -462,7 +462,7 @@ function SessionHoverCard({
     let requestVersion = 0;
     const load = () => {
       const version = ++requestVersion;
-      gitInfoCache.get(cwd)
+      gitInfoCache.get(api, cwd)
         .then((info) => {
           if (!cancelled && version === requestVersion) setGitInfo(info);
         })
@@ -473,7 +473,7 @@ function SessionHoverCard({
     const handleGitStateChanged = (event) => {
       const changedCwd = String(event?.detail?.cwd || '');
       if (changedCwd && changedCwd !== cwd) return;
-      gitInfoCache.invalidate(changedCwd);
+      gitInfoCache.invalidate(api, changedCwd || cwd);
       setGitInfo(null);
       load();
     };

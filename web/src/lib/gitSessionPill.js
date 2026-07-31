@@ -11,6 +11,18 @@
 // GitChangesPanel 等监听并失效缓存)。detail: {cwd}。
 export const GIT_STATE_CHANGED_EVENT = 'acecode:git-state-changed';
 
+export function shouldLoadGitInfo({
+  variant = 'bar',
+  sessionLoaded = true,
+  sessionStarted = false,
+  worktreeSession = null,
+} = {}) {
+  if (variant === 'hero') return true;
+  const inWorktree = !!(worktreeSession
+    && (worktreeSession.name || worktreeSession.branch));
+  return sessionLoaded && !sessionStarted && !inWorktree;
+}
+
 // 渲染模型:组件按这份结构画 UI。
 export function buildPillModel({
   gitInfo = null,          // /api/git/info 响应(null = 未加载/失败)

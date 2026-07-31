@@ -3993,6 +3993,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             </div>
             <GitSessionPill
               key={`home-${homeWorkspaceHash}`}
+              api={api}
               cwd={selectedHomeWorkspace?.cwd || ''}
               variant="hero"
               busy={homeSubmitting}
@@ -4594,8 +4595,10 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           />
           <GitSessionPill
             key={`session-${sid}`}
+            api={api}
             cwd={ref?.cwd || health?.cwd || ''}
             variant="bar"
+            sessionLoaded={transcriptLoadState === 'loaded'}
             sessionStarted={rawItems.length > 0}
             worktreeSession={localWorktree && localWorktree.sid === sid
               ? { name: localWorktree.name }
