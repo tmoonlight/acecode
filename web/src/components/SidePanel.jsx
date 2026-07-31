@@ -46,6 +46,7 @@ import { FileTypeIcon, PanelToggleIcon, VsIcon } from './Icon.jsx';
 import { ChangeCompactList } from './ChangeReview.jsx';
 import { GitChangesPanel } from './GitChangesPanel.jsx';
 import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
+import { gitInfoCache } from '../lib/gitInfoCache.js';
 
 const TABS = [
   { key: 'changes', label: '变更' },
@@ -466,15 +467,21 @@ export function SidePanel({
     let cancelled = false;
     setGitInfo(null);
     if (!cwd) return undefined;
+    // 共享缓存(见 lib/gitInfoCache.js):与 GitSessionPill、Sidebar hover
+    // 卡片读同一个 cwd,共用一份 30s TTL + 在途去重,避免同一份 git info
+    // 被三个组件各打一次(daemon 侧每次 5~7 个 git 子进程)。
     const load = () => {
-      api.gitInfo(cwd)
+      gitInfoCache.get(cwd)
         .then((info) => { if (!cancelled) setGitInfo(info); })
         .catch(() => { if (!cancelled) setGitInfo(null); });
     };
     load();
     const handler = (event) => {
       const changedCwd = event?.detail?.cwd || '';
-      if (!changedCwd || changedCwd === cwd) load();
+      if (changedCwd && changedCwd !== cwd) return;
+      // 先失效再读,不依赖与 gitInfoCache 模块级监听器的触发顺序。
+      gitInfoCache.invalidate(cwd);
+      load();
     };
     window.addEventListener(GIT_STATE_CHANGED_EVENT, handler);
     return () => {

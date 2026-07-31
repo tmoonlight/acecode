@@ -71,9 +71,10 @@ import {
 } from '../lib/sidebarSessions.js';
 import {
   computeSessionHoverCardPosition,
-  createSessionHoverGitInfoCache,
   sessionHoverDetails,
 } from '../lib/sessionHoverDetails.js';
+// hover 卡片与 GitSessionPill 共用同一份 git info 缓存(见 gitInfoCache.js)。
+import { gitInfoCache } from '../lib/gitInfoCache.js';
 import {
   DEFAULT_SIDEBAR_CUSTOM_EXPANDED,
   DEFAULT_SIDEBAR_SECTION_EXPANSION,
@@ -106,9 +107,6 @@ const PINNED_DRAG_START_PX = 5;
 const PINNED_DRAG_EDGE_SCROLL_PX = 34;
 const PINNED_DRAG_EDGE_SCROLL_STEP = 16;
 const NO_WORKSPACE_SESSION_LIST_KEY = '__no_workspace__';
-const sessionHoverGitInfoCache = createSessionHoverGitInfoCache(
-  (cwd) => api.gitInfo(cwd),
-);
 
 function pinnedSessionKey(workspaceHash, sessionId) {
   const ws = String(workspaceHash || '');
@@ -464,7 +462,7 @@ function SessionHoverCard({
     let requestVersion = 0;
     const load = () => {
       const version = ++requestVersion;
-      sessionHoverGitInfoCache.get(cwd)
+      gitInfoCache.get(cwd)
         .then((info) => {
           if (!cancelled && version === requestVersion) setGitInfo(info);
         })
@@ -475,7 +473,7 @@ function SessionHoverCard({
     const handleGitStateChanged = (event) => {
       const changedCwd = String(event?.detail?.cwd || '');
       if (changedCwd && changedCwd !== cwd) return;
-      sessionHoverGitInfoCache.invalidate(changedCwd);
+      gitInfoCache.invalidate(changedCwd);
       setGitInfo(null);
       load();
     };
