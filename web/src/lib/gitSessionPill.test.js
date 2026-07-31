@@ -90,4 +90,28 @@ run('worktree 意图:勾选且未开始才生成;base 透传', () => {
     { create: true });
 });
 
+// 架构守护:切会话时的 /api/git/info 风暴。
+//
+// pill 挂在 ChatView 上、key 含 sid,每次切会话整组件重挂;而该端点在
+// daemon 侧要 spawn 5~7 个 git 子进程。两条不变量必须守住:
+//   1) 读取走共享缓存单例,不许退回裸 api.gitInfo;
+//   2) bar 变体在会话已开始/已在 worktree 时 return null —— 这种情况下
+//      必须在发请求之前就短路掉。
+const pillSource = (await import('node:fs')).readFileSync(
+  new URL('../components/GitSessionPill.jsx', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n');
+
+run('架构: pill 读 git info 走共享缓存,且不可渲染时不发请求', () => {
+  assert.match(pillSource, /import \{ gitInfoCache \} from '\.\.\/lib\/gitInfoCache\.js'/);
+  assert.match(pillSource, /gitInfoCache\.get\(target\)/);
+  // 不许绕过缓存直接打接口
+  assert.doesNotMatch(pillSource, /api\.gitInfo\(/);
+  // 可见性短路:先算 pillCouldRender,effect 里据此提前 return
+  assert.match(pillSource, /const pillCouldRender =/);
+  assert.match(pillSource, /if \(!pillCouldRender\) return;/);
+  // 用户显式展开下拉时强制刷新(绕过 TTL)
+  assert.match(pillSource, /refreshInfo\(\{ force: true \}\)/);
+});
+
 console.log('gitSessionPill.test.js: all tests passed');

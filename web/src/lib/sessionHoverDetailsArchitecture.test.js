@@ -41,13 +41,14 @@ test('hover card lazily shares Git lookup and invalidates on Git state changes',
   assert.ok(cardStart >= 0 && cardEnd > cardStart);
   const card = sidebar.slice(cardStart, cardEnd);
 
-  assert.match(
-    sidebar,
-    /createSessionHoverGitInfoCache\(\s*\(cwd\) => api\.gitInfo\(cwd\),\s*\)/,
-  );
-  assert.match(card, /sessionHoverGitInfoCache\.get\(cwd\)/);
+  // git info 缓存必须是**跨组件共享的单例**(lib/gitInfoCache.js),不能由
+  // Sidebar 自己 new 一份 —— GitSessionPill 读同一个 cwd,各建一份就等于
+  // 每次切会话都重复打一次 /api/git/info(daemon 侧 5~7 个 git 子进程)。
+  assert.match(sidebar, /import \{ gitInfoCache \} from '\.\.\/lib\/gitInfoCache\.js'/);
+  assert.doesNotMatch(sidebar, /createSessionHoverGitInfoCache\(/);
+  assert.match(card, /gitInfoCache\.get\(cwd\)/);
   assert.match(card, /window\.addEventListener\(GIT_STATE_CHANGED_EVENT, handleGitStateChanged\)/);
-  assert.match(card, /sessionHoverGitInfoCache\.invalidate\(changedCwd\)/);
+  assert.match(card, /gitInfoCache\.invalidate\(changedCwd\)/);
   assert.match(card, /computeSessionHoverCardPosition/);
   assert.match(card, /role="tooltip"/);
   assert.match(card, /createPortal\([\s\S]*document\.body/);
