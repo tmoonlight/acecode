@@ -49,14 +49,6 @@ float stack_collapse_position(std::uint32_t elapsed_ms,
     return clamp_unit(exponential_ease(normalized_time(elapsed_ms, duration_ms)));
 }
 
-unsigned clamp_auto_dismiss_seconds(unsigned raw_seconds) {
-    constexpr unsigned kMin = 6;
-    constexpr unsigned kMax = 30;
-    if (raw_seconds < kMin) return kMin;
-    if (raw_seconds > kMax) return kMax;
-    return raw_seconds;
-}
-
 ToastPlacement compute_toast_placement(const ToastRect& work_area,
                                        int margin_x,
                                        int margin_y,

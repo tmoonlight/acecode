@@ -20,6 +20,7 @@ import {
   notificationBodyFromEvent,
 } from './lib/desktopNotify.js';
 import { createNewSessionForActiveWorkspace } from './lib/newSession.js';
+import { refreshWorkspaceGitInfo } from './lib/gitInfoCache.js';
 import {
   goBack,
   goForward,
@@ -1165,7 +1166,9 @@ export function App() {
 
   const openHomeForWorkspace = useCallback((workspace = null) => {
     const target = workspace == null ? noHomeWorkspaceOption() : workspace;
-    navigateToRef(homeRefFromWorkspace(target, activeRefRef.current, health));
+    const next = homeRefFromWorkspace(target, activeRefRef.current, health);
+    void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
+    navigateToRef(next);
   }, [health, navigateToRef]);
 
   const openLoopPage = useCallback(() => {
@@ -1187,6 +1190,7 @@ export function App() {
     if (!expertId) return false;
     const current = activeRefRef.current || {};
     const base = homeRefFromWorkspace(current, current, health);
+    void refreshWorkspaceGitInfo(createApi(base), base).catch(() => {});
     navigateToRef({
       ...base,
       expertId,
@@ -1225,7 +1229,11 @@ export function App() {
   }, [replaceActiveRef]);
 
   const replaceHomeWorkspace = useCallback((workspace) => {
-    replaceActiveRef((current) => homeRefFromWorkspace(workspace, current, health));
+    replaceActiveRef((current) => {
+      const next = homeRefFromWorkspace(workspace, current, health);
+      void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
+      return next;
+    });
   }, [health, replaceActiveRef]);
 
   const abortGuidedTour = useCallback(() => {
@@ -1334,6 +1342,7 @@ export function App() {
   const createDesktopTraySession = useCallback(async () => {
     try {
       const next = await createNewSessionForActiveWorkspace(api, activeRefRef.current, health);
+      void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
       const sessionId = next?.sessionId || next?.id || '';
       const noWorkspace = !!(next?.noWorkspace || next?.no_workspace);
       notifySessionListChanged({

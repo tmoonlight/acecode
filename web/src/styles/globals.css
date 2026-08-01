@@ -3483,6 +3483,211 @@ body {
   overflow: hidden;
 }
 
+/* Agent Browser: React owns the chrome, while the native WebView2 controller
+   is positioned exactly over .ace-agent-browser-native-viewport. The shared
+   border follows VS Code's BrowserView color sequence and two-stage timing. */
+@property --ace-browser-shared-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 135deg;
+}
+@keyframes ace-browser-shared-border-spin {
+  from { --ace-browser-shared-angle: 135deg; }
+  to { --ace-browser-shared-angle: 495deg; }
+}
+@keyframes ace-browser-toolbar-spin {
+  to { transform: rotate(360deg); }
+}
+.ace-agent-browser-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ace-surface);
+  overflow: hidden;
+}
+.ace-agent-browser-toolbar {
+  min-height: 44px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ace-border);
+  background: var(--ace-surface-hi);
+}
+.ace-agent-browser-toolbar-button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ace-fg-2);
+  cursor: pointer;
+}
+.ace-agent-browser-toolbar-button:hover:not(:disabled) {
+  background: var(--ace-surface-alt);
+  color: var(--ace-fg);
+}
+.ace-agent-browser-toolbar-button:disabled {
+  opacity: 0.34;
+  cursor: default;
+}
+.ace-agent-browser-toolbar-button .is-spinning {
+  animation: ace-browser-toolbar-spin 900ms linear infinite;
+}
+.ace-agent-browser-address-form {
+  flex: 1 1 auto;
+  min-width: 80px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--ace-border);
+  border-radius: 7px;
+  background: var(--ace-surface);
+}
+.ace-agent-browser-address-form:focus-within {
+  border-color: var(--ace-accent);
+  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.15);
+}
+.ace-agent-browser-address-icon {
+  flex: 0 0 auto;
+  color: var(--ace-fg-mute);
+}
+.ace-agent-browser-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ace-fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+.ace-agent-browser-address::placeholder {
+  color: var(--ace-fg-mute);
+}
+.ace-agent-browser-shared-badge {
+  flex: 0 0 auto;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border: 1px solid rgba(81, 162, 255, 0.45);
+  border-radius: 6px;
+  background: rgba(81, 162, 255, 0.10);
+  color: var(--ace-fg-2);
+  font-size: 11.5px;
+}
+.ace-agent-browser-error {
+  min-height: 28px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-bottom: 1px solid rgba(216, 69, 69, 0.28);
+  background: rgba(216, 69, 69, 0.08);
+  color: var(--ace-danger, #b42318);
+  font-size: 11.5px;
+}
+.ace-agent-browser-error-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ace-agent-browser-error-retry {
+  flex: 0 0 auto;
+  margin-left: auto;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ace-agent-browser-error-retry:hover {
+  background: rgba(216, 69, 69, 0.12);
+}
+.ace-agent-browser-frame {
+  --ace-browser-shared-angle: 135deg;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 6px;
+  padding: 1px;
+  border-radius: 7px;
+  background: var(--ace-border);
+  transition: padding 350ms cubic-bezier(0.2, 0, 0, 1);
+  overflow: hidden;
+}
+.ace-agent-browser-frame.is-agent-active {
+  padding: 3px;
+  background: conic-gradient(
+    from var(--ace-browser-shared-angle),
+    #b44aff,
+    #4af0c0,
+    #51a2ff,
+    #4af0c0,
+    #b44aff
+  );
+  animation:
+    ace-browser-shared-border-spin 1500ms cubic-bezier(0, 0.2, 0, 1) 1 forwards,
+    ace-browser-shared-border-spin 45s linear 1500ms infinite;
+}
+.ace-agent-browser-native-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 5px;
+  background: #ffffff;
+  overflow: hidden;
+}
+.ace-agent-browser-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--ace-fg-mute);
+  text-align: center;
+}
+.ace-agent-browser-placeholder-title {
+  color: var(--ace-fg);
+  font-size: 15px;
+  font-weight: 600;
+}
+.ace-agent-browser-placeholder-detail {
+  max-width: 380px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-agent-browser-frame.is-agent-active {
+    --ace-browser-shared-angle: 315deg;
+    animation: none;
+  }
+  .ace-agent-browser-toolbar-button .is-spinning {
+    animation: none;
+  }
+}
+
 /* SidePanel — single 视图右侧工作区面板(变更 / 文件) */
 /* shell 包 SidePanel,接收 inline width 控制实际占位,折叠时宽度归 0 + 透明
    过渡。SidePanel 自己 width:100% 跟随 shell。这种"shell 控制宽度"的分层让

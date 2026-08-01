@@ -28,7 +28,7 @@ Alternative considered: publish unscoped `acecode`. The registry authoritatively
 
 ### Publish one native package per npm-supported OS/CPU pair
 
-The generator will create exact-version optional dependencies for Linux x64/arm64, Windows x64/arm64, and macOS x64/arm64. Each native package retains the colocated CLI, desktop shell, and browser host files required by runtime path discovery.
+The generator will create exact-version optional dependencies for Linux x64/arm64, Windows x64/arm64, and macOS x64/arm64. Each native package retains the colocated CLI and desktop shell files required by runtime path discovery.
 
 ### Use an explicit manual npm version for backfills
 

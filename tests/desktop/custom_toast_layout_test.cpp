@@ -62,12 +62,8 @@ TEST(CustomToastEasing, StackCollapseMatchesEaseInCurve) {
     }
 }
 
-TEST(CustomToastDismissal, ClampsAbsurdSystemValues) {
-    EXPECT_EQ(clamp_auto_dismiss_seconds(0), 6u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(5), 6u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(7), 7u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(30), 30u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(3600), 30u);
+TEST(CustomToastDismissal, UsesFixedFiveSecondTimeout) {
+    EXPECT_EQ(kAutoDismissTimeoutMs, 5000u);
 }
 
 TEST(CustomToastPlacement, AnchorsToBottomRightOfWorkArea) {

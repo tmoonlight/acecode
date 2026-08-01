@@ -74,7 +74,7 @@ import {
   sessionHoverDetails,
 } from '../lib/sessionHoverDetails.js';
 // hover 卡片与 GitSessionPill 共用同一份 git info 缓存(见 gitInfoCache.js)。
-import { gitInfoCache } from '../lib/gitInfoCache.js';
+import { gitInfoCache, refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
 import {
   DEFAULT_SIDEBAR_CUSTOM_EXPANDED,
   DEFAULT_SIDEBAR_SECTION_EXPANSION,
@@ -449,10 +449,12 @@ function SessionHoverCard({
   session,
 }) {
   const cardRef = useRef(null);
-  const [gitInfo, setGitInfo] = useState(null);
-  const [position, setPosition] = useState(null);
   const baseDetails = sessionHoverDetails(session);
   const cwd = baseDetails?.cwd || '';
+  const [gitInfo, setGitInfo] = useState(
+    () => gitInfoCache.peek(api, cwd) ?? null,
+  );
+  const [position, setPosition] = useState(null);
   const details = sessionHoverDetails(session, gitInfo);
 
   useEffect(() => {
@@ -470,6 +472,7 @@ function SessionHoverCard({
           if (!cancelled && version === requestVersion) setGitInfo(null);
         });
     };
+    setGitInfo(gitInfoCache.peek(api, cwd) ?? null);
     const handleGitStateChanged = (event) => {
       const changedCwd = String(event?.detail?.cwd || '');
       if (changedCwd && changedCwd !== cwd) return;
@@ -2474,6 +2477,7 @@ export function Sidebar({
   const createSessionInWorkspace = async (ws) => {
     if (!ws?.hash) return;
     workspaceCollapseAllRef.current = false;
+    void refreshWorkspaceGitInfo(api, ws).catch(() => {});
     try {
       const r = ws.hash === '__local__'
         ? await api.createSession({})

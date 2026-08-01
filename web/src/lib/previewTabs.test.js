@@ -6,11 +6,15 @@ import {
   closeVisiblePreviewTabs,
   closeVisiblePreviewTabsConfirmationMessage,
   openFileTab,
+  openBrowserTab,
   openGitChangesTab,
   openSessionChangesTab,
+  previewAbsolutePath,
   previewFileLocation,
+  previewScopeKey,
   refreshPreviewTab,
   reorderPreviewTab,
+  sessionWorkingCwd,
   updateGitChangesTab,
   updateSessionChangesTab,
   visiblePreviewTabs,
@@ -35,6 +39,51 @@ run('openFileTab scopes files by workspace and reuses duplicate paths', () => {
   assert.equal(visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' }).length, 1);
   assert.equal(visiblePreviewTabs(state, { scopeKey: 'workspace-b', sessionId: 's2' }).length, 1);
   assert.equal(activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).path, 'src/main.cpp');
+});
+
+run('openBrowserTab keeps distinct page-backed Browser tabs and deduplicates state events', () => {
+  let state = openFileTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', cwd: 'C:/a', path: 'a.txt',
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-1',
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-2',
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-2',
+  });
+
+  const tabs = visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.deepEqual(tabs.map((tab) => tab.type), ['file', 'browser', 'browser']);
+  assert.deepEqual(tabs.filter((tab) => tab.type === 'browser').map((tab) => tab.pageId), [
+    'page-1', 'page-2',
+  ]);
+  assert.equal(activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).pageId, 'page-2');
+  assert.equal(state.browserTabsBySession.s1.length, 2);
+});
+
+run('closing one Browser tab preserves sibling Browser and file tabs', () => {
+  let state = openFileTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', cwd: 'C:/a', path: 'a.txt',
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-1',
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-2',
+  });
+  const browser = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  state = closePreviewTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', tabKey: browser.key,
+  });
+
+  assert.deepEqual(state.browserTabsBySession.s1.map((tab) => tab.pageId), ['page-1']);
+  assert.deepEqual(
+    visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' }).map((tab) => tab.type),
+    ['file', 'browser'],
+  );
 });
 
 run('refreshPreviewTab increments only the requested file tab reload revision', () => {
@@ -122,6 +171,95 @@ run('previewFileLocation splits absolute Windows paths when cwd is unavailable',
     previewFileLocation({ cwd: '/home/shao/repo/', path: 'src/main.cpp' }),
     { cwd: '/home/shao/repo', path: 'src/main.cpp' },
   );
+});
+
+run('sessionWorkingCwd prefers an active worktree and keeps workspace fallback behavior', () => {
+  assert.equal(
+    sessionWorkingCwd({
+      worktree: { path: 'N:\\repo\\.acecode\\worktrees\\ses-123\\' },
+      cwd: 'N:/repo',
+      fallbackCwd: 'N:/daemon',
+    }),
+    'N:/repo/.acecode/worktrees/ses-123',
+  );
+  assert.equal(
+    sessionWorkingCwd({ worktree: { name: 'ses-legacy' }, cwd: 'N:/repo/' }),
+    'N:/repo',
+  );
+  assert.equal(
+    sessionWorkingCwd({ worktree: { path: '\\\\?\\N:\\repo\\worktree\\' } }),
+    'N:/repo/worktree',
+  );
+  assert.equal(
+    sessionWorkingCwd({ worktree: { path: '\\\\server\\share\\repo\\worktree\\' } }),
+    '//server/share/repo/worktree',
+  );
+  assert.equal(sessionWorkingCwd({ fallbackCwd: '/srv/repo/' }), '/srv/repo');
+});
+
+run('previewFileLocation resolves absolute links under the worktree without duplicating the root', () => {
+  const worktree = 'N:/repo/.acecode/worktrees/ses-123';
+  assert.deepEqual(
+    previewFileLocation({
+      cwd: worktree,
+      path: 'n:\\repo\\.acecode\\worktrees\\ses-123\\docs\\design.md',
+    }),
+    { cwd: worktree, path: 'docs/design.md' },
+  );
+  assert.deepEqual(
+    previewFileLocation({ cwd: '/srv/repo/wt', path: '/srv/repo/wt/docs/design.md' }),
+    { cwd: '/srv/repo/wt', path: 'docs/design.md' },
+  );
+  assert.deepEqual(
+    previewFileLocation({
+      cwd: '//SERVER/share/repo/wt',
+      path: '\\\\server\\share\\repo\\wt\\docs\\design.md',
+    }),
+    { cwd: '//SERVER/share/repo/wt', path: 'docs/design.md' },
+  );
+});
+
+run('previewAbsolutePath produces the same canonical target for relative and absolute links', () => {
+  const worktree = 'N:/repo/.acecode/worktrees/ses-123';
+  const absolute = `${worktree}/docs/design.md`;
+  assert.equal(previewAbsolutePath({ cwd: worktree, path: 'docs/design.md' }), absolute);
+  assert.equal(previewAbsolutePath({ cwd: worktree, path: absolute }), absolute);
+  assert.equal(
+    previewAbsolutePath({ cwd: worktree, path: 'N:\\repo\\.acecode\\worktrees\\ses-123\\docs\\design.md' }),
+    absolute,
+  );
+});
+
+run('previewScopeKey isolates worktree file tabs from the shared workspace scope', () => {
+  const workspaceScope = previewScopeKey({ cwd: 'N:/repo', workspaceHash: 'workspace-1' });
+  const worktreeScope = previewScopeKey({
+    cwd: 'N:/repo/.acecode/worktrees/ses-123',
+    workspaceHash: 'workspace-1',
+    worktreePath: 'N:\\repo\\.acecode\\worktrees\\ses-123',
+  });
+  assert.equal(workspaceScope, 'workspace-1');
+  assert.equal(worktreeScope, 'worktree:N:/repo/.acecode/worktrees/ses-123');
+
+  let state = openFileTab({}, {
+    scopeKey: workspaceScope,
+    sessionId: 'main-session',
+    cwd: 'N:/repo',
+    path: 'docs/design.md',
+  });
+  state = openFileTab(state, {
+    scopeKey: worktreeScope,
+    sessionId: 'worktree-session',
+    cwd: 'N:/repo/.acecode/worktrees/ses-123',
+    path: 'docs/design.md',
+  });
+  assert.equal(visiblePreviewTabs(state, {
+    scopeKey: workspaceScope,
+    sessionId: 'main-session',
+  }).length, 1);
+  assert.equal(visiblePreviewTabs(state, {
+    scopeKey: worktreeScope,
+    sessionId: 'worktree-session',
+  }).length, 1);
 });
 
 run('openSessionChangesTab scopes change tab by session id', () => {

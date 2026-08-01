@@ -5,9 +5,9 @@
 //   node scripts/npm/prepare-npm-packages.mjs --version 0.6.8 --input extracted --output npm-staging
 //
 // 输入布局(与 package.yml 的 Package 步骤产物一致):
-//   extracted/acecode-linux-x64/{acecode,ace-browser-host,acecode-desktop,acecode-logo.png,...}
-//   extracted/acecode-windows-x64/{acecode.exe,ace-browser-host.exe,acecode-desktop.exe,...}
-//   extracted/acecode-macos-arm64/{acecode,ace-browser-host,ACECode.app/,...}
+//   extracted/acecode-linux-x64/{acecode,acecode-desktop,acecode-logo.png,...}
+//   extracted/acecode-windows-x64/{acecode.exe,acecode-desktop.exe,...}
+//   extracted/acecode-macos-arm64/{acecode,ACECode.app/,...}
 //
 // 输出布局(发布顺序:先 platform/* 再 cli / desktop):
 //   npm-staging/platform/<os>-<cpu>/   六个平台二进制包 @aceagent/<os>-<cpu>
@@ -15,8 +15,8 @@
 //   npm-staging/desktop/               @aceagent/desktop(同上)
 //
 // 设计约束:
-// - 平台包同时装下 acecode / ace-browser-host / acecode-desktop(或 ACECode.app):
-//   三个二进制都按「自身所在目录」互相定位,拆开会破坏运行时解析。
+// - 平台包同时装下 acecode / acecode-desktop(或 ACECode.app):
+//   Desktop 按自身所在目录定位 daemon,拆开会破坏运行时解析。
 // - 改包名/scope 时:改这里的 SCOPE 常量 + npm/cli/package.json 与
 //   npm/desktop/package.json 的 name 字段 + 两个 bin/*.js 里的 SCOPE 常量。
 
@@ -38,43 +38,43 @@ const PLATFORMS = [
     ciId: 'linux-x64',
     os: 'linux',
     cpu: 'x64',
-    files: ['acecode', 'ace-browser-host', 'acecode-desktop', 'acecode-logo.png'],
-    executables: ['acecode', 'ace-browser-host', 'acecode-desktop'],
+    files: ['acecode', 'acecode-desktop', 'acecode-logo.png'],
+    executables: ['acecode', 'acecode-desktop'],
   },
   {
     ciId: 'linux-arm64',
     os: 'linux',
     cpu: 'arm64',
-    files: ['acecode', 'ace-browser-host', 'acecode-desktop', 'acecode-logo.png'],
-    executables: ['acecode', 'ace-browser-host', 'acecode-desktop'],
+    files: ['acecode', 'acecode-desktop', 'acecode-logo.png'],
+    executables: ['acecode', 'acecode-desktop'],
   },
   {
     ciId: 'windows-x64',
     os: 'win32',
     cpu: 'x64',
-    files: ['acecode.exe', 'ace-browser-host.exe', 'acecode-desktop.exe'],
+    files: ['acecode.exe', 'acecode-desktop.exe'],
     executables: [],
   },
   {
     ciId: 'windows-arm64',
     os: 'win32',
     cpu: 'arm64',
-    files: ['acecode.exe', 'ace-browser-host.exe', 'acecode-desktop.exe'],
+    files: ['acecode.exe', 'acecode-desktop.exe'],
     executables: [],
   },
   {
     ciId: 'macos-x64',
     os: 'darwin',
     cpu: 'x64',
-    files: ['acecode', 'ace-browser-host', 'ACECode.app'],
-    executables: ['acecode', 'ace-browser-host'],
+    files: ['acecode', 'ACECode.app'],
+    executables: ['acecode'],
   },
   {
     ciId: 'macos-arm64',
     os: 'darwin',
     cpu: 'arm64',
-    files: ['acecode', 'ace-browser-host', 'ACECode.app'],
-    executables: ['acecode', 'ace-browser-host'],
+    files: ['acecode', 'ACECode.app'],
+    executables: ['acecode'],
   },
 ];
 

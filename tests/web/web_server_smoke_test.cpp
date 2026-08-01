@@ -44,6 +44,7 @@
 #include "utils/state_file.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/server.hpp"
+#include "worktree/worktree_manager.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1713,6 +1714,8 @@ TEST(WebServerHttp, ActiveWorktreeSessionListIncludesWorktreeState) {
     worktree.worktree_path = fx.cwd + "/.acecode/worktrees/ses-active-list";
     worktree.worktree_name = "ses-active-list";
     worktree.worktree_branch = "worktree-ses-active-list";
+    const auto worktree_path = path_from_utf8(worktree.worktree_path);
+    write_text(worktree_path / "docs" / "design.md", "# Worktree design\n");
     entry->sm->set_active_worktree(worktree);
 
     auto list = cpr::Get(cpr::Url{fx.url("/api/sessions")});
@@ -1723,9 +1726,91 @@ TEST(WebServerHttp, ActiveWorktreeSessionListIncludesWorktreeState) {
     });
     ASSERT_NE(found, sessions.end());
     EXPECT_TRUE((*found)["active"].get<bool>());
+    EXPECT_EQ((*found)["cwd"], fx.cwd);
     ASSERT_TRUE(found->contains("worktree"));
     EXPECT_EQ((*found)["worktree"]["name"], "ses-active-list");
     EXPECT_EQ((*found)["worktree"]["branch"], "worktree-ses-active-list");
+    EXPECT_EQ((*found)["worktree"]["path"], worktree.worktree_path);
+
+    auto content = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{
+            {"cwd", worktree.worktree_path},
+            {"path", "docs/design.md"},
+        });
+    ASSERT_EQ(content.status_code, 200) << content.text;
+    EXPECT_EQ(content.text, "# Worktree design\n");
+
+    const auto outside_path = fx.cwd_dir / "main-only.md";
+    write_text(outside_path, "main checkout only\n");
+    auto escaped = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{
+            {"cwd", worktree.worktree_path},
+            {"path", acecode::path_to_utf8(outside_path)},
+        });
+    ASSERT_EQ(escaped.status_code, 400) << escaped.text;
+    EXPECT_EQ(json::parse(escaped.text)["error"], "path outside workspace");
+
+    const auto unrelated_cwd = fx.tmp_dir / "unregistered-root";
+    write_text(unrelated_cwd / "unknown.md", "unknown\n");
+    auto unrelated = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{
+            {"cwd", acecode::path_to_utf8(unrelated_cwd)},
+            {"path", "unknown.md"},
+        });
+    ASSERT_EQ(unrelated.status_code, 400) << unrelated.text;
+    EXPECT_EQ(json::parse(unrelated.text)["error"], "unknown workspace");
+}
+
+// 首条消息创建 worktree 时,前端必须从 202 响应立即拿到真实路径；不能等下一次
+// session list 刷新,否则这一轮生成的文档链接仍会按主工作区 cwd 解析。
+TEST(WebServerHttp, FirstWorktreeMessageReturnsCreatedWorkingRoot) {
+    if (!acecode::worktree::run_git({"--version"}, "").ok()) {
+        GTEST_SKIP() << "git not available on this machine";
+    }
+
+    WebServerFixture fx;
+    ASSERT_TRUE(acecode::worktree::run_git({"init", "-b", "main"}, fx.cwd).ok());
+    ASSERT_TRUE(acecode::worktree::run_git(
+        {"config", "user.email", "t@acecode.local"}, fx.cwd).ok());
+    ASSERT_TRUE(acecode::worktree::run_git(
+        {"config", "user.name", "acecode-test"}, fx.cwd).ok());
+    write_text(fx.cwd_dir / "README.md", "worktree response fixture\n");
+    ASSERT_TRUE(acecode::worktree::run_git({"add", "."}, fx.cwd).ok());
+    ASSERT_TRUE(acecode::worktree::run_git(
+        {"commit", "-m", "initial fixture"}, fx.cwd).ok());
+
+    auto created = cpr::Post(
+        cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const auto sid = json::parse(created.text)["session_id"].get<std::string>();
+
+    auto queued = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + url_encode_component(sid) + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({
+            "text":"create a worktree document",
+            "worktree":{"create":true,"base":"main"}
+        })"});
+    ASSERT_EQ(queued.status_code, 202) << queued.text;
+    const auto response = json::parse(queued.text);
+    EXPECT_TRUE(response["queued"].get<bool>());
+    ASSERT_TRUE(response.contains("worktree"));
+    EXPECT_EQ(response["worktree"]["name"], "ses-" + sid);
+    EXPECT_EQ(response["worktree"]["branch"], "worktree-ses-" + sid);
+    const auto worktree_path = response["worktree"]["path"].get<std::string>();
+    EXPECT_FALSE(worktree_path.empty());
+    EXPECT_TRUE(std::filesystem::exists(path_from_utf8(worktree_path) / ".git"));
+
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    EXPECT_EQ(entry->cwd, fx.cwd);
+    EXPECT_EQ(entry->sm->active_worktree().worktree_path, worktree_path);
 }
 
 TEST(WebServerHttp, LoopSessionListIncludesOriginWhileActiveAndAfterDestroy) {

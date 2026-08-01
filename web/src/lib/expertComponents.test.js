@@ -8,6 +8,7 @@ import {
   expertFormFromDetail,
   expertPayloadFromForm,
   filterExperts,
+  groupBuiltinToolOptions,
   normalizeCapabilityCatalog,
   normalizeExpertCapabilities,
   normalizeExpertSwitchReceipt,
@@ -17,6 +18,7 @@ import {
   safeExpertAvatarUrl,
   selectedTeamMemberRows,
   selectedTeamExperts,
+  setCapabilitySelectionBatch,
   setCapabilityScopeMode,
   shouldApplyExpertSwitchResponse,
   shouldRequestExpertSwitch,
@@ -186,6 +188,53 @@ test('legacy, explicit empty, and selected capability scopes remain distinct', (
   assert.deepEqual(value, { tools: ['file_read'] });
   value = setCapabilityScopeMode(value, 'tools', 'inherit');
   assert.deepEqual(value, {});
+});
+
+test('built-in tools group by stable families, retain order, and keep unknown tools visible', () => {
+  const groups = groupBuiltinToolOptions([
+    { id: 'future_runtime_tool' },
+    { id: 'browser_click' },
+    { id: 'file_write' },
+    { id: 'file_read' },
+    { id: 'bash' },
+    { id: 'show_image' },
+    { id: 'AskUserQuestion' },
+    { id: 'skill_view' },
+    { id: 'memory_read' },
+    { id: 'browser_click', description: 'duplicate must not render twice' },
+  ]);
+  assert.deepEqual(groups.map((group) => [group.id, group.label]), [
+    ['files', '文件与代码'],
+    ['command_workspace', '命令与工作区'],
+    ['browser', '浏览器'],
+    ['search_visual', '搜索与视觉'],
+    ['planning', '计划与任务'],
+    ['skills_collaboration', '技能与协作'],
+    ['memory_context', '记忆与上下文'],
+    ['other', '其他工具'],
+  ]);
+  assert.deepEqual(groups[0].options.map((option) => option.id), ['file_write', 'file_read']);
+  assert.deepEqual(groups[2].options.map((option) => option.id), ['browser_click']);
+  assert.deepEqual(groups.at(-1).options.map((option) => option.id), ['future_runtime_tool']);
+});
+
+test('batch capability selection preserves unrelated ids and explicit empty scope', () => {
+  let value = setCapabilitySelectionBatch(
+    { skills: ['review'], tools: ['file_read', 'old_tool', 'browser_click'] },
+    'tools',
+    ['file_read', 'file_write', 'file_write'],
+    true,
+  );
+  assert.deepEqual(value, {
+    skills: ['review'],
+    tools: ['file_read', 'old_tool', 'browser_click', 'file_write'],
+  });
+  value = setCapabilitySelectionBatch(value, 'tools', ['file_read', 'old_tool'], false);
+  assert.deepEqual(value, {
+    skills: ['review'],
+    tools: ['browser_click', 'file_write'],
+  });
+  assert.deepEqual(setCapabilitySelectionBatch({}, 'tools', ['file_read'], false), { tools: [] });
 });
 
 test('saved missing capabilities stay visible and removable', () => {

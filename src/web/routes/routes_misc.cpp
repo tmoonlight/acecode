@@ -1111,11 +1111,6 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
-        CROW_ROUTE(app, "/api/config/ace-browser-bridge").methods(crow::HTTPMethod::Options)
-        ([this](const crow::request& req) {
-            return cors_preflight(req);
-        });
-
         // Desktop guided-tour state lives in state.json instead of localStorage:
         // Desktop's random daemon port and Edge fallback profile are not stable origins.
         CROW_ROUTE(app, "/api/ui/onboarding/desktop").methods(crow::HTTPMethod::GET)
@@ -1795,72 +1790,6 @@ void WebServer::Impl::register_ui_preferences() {
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = upgrade_config_to_json(deps.app_config->upgrade).dump();
-            return with_cors(req, std::move(r));
-        });
-
-        // GET /api/config/ace-browser-bridge: browser bridge tool settings.
-        CROW_ROUTE(app, "/api/config/ace-browser-bridge").methods(crow::HTTPMethod::GET)
-        ([this](const crow::request& req) {
-            if (auto rej = require_auth(req)) return std::move(*rej);
-            if (!deps.app_config) return crow::response(503);
-            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
-            crow::response r(200);
-            r.add_header("Content-Type", "application/json");
-            r.body = ace_browser_bridge_settings_to_json(
-                deps.app_config->ace_browser_bridge).dump();
-            return with_cors(req, std::move(r));
-        });
-
-        // PUT /api/config/ace-browser-bridge body {enabled:boolean}.
-        CROW_ROUTE(app, "/api/config/ace-browser-bridge").methods(crow::HTTPMethod::PUT)
-        ([this](const crow::request& req) {
-            if (auto rej = require_auth(req)) return std::move(*rej);
-            if (!deps.app_config) return crow::response(503);
-
-            auto json_err = [&](int status, const char* code, const std::string& msg) {
-                crow::response r(status);
-                r.body = json{{"error", code}, {"message", msg}}.dump();
-                r.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(r));
-            };
-
-            json body;
-            try { body = json::parse(req.body); }
-            catch (const std::exception& e) {
-                return json_err(400, "BAD_JSON", std::string("invalid JSON body: ") + e.what());
-            }
-            if (!body.is_object() ||
-                !body.contains("enabled") ||
-                !body["enabled"].is_boolean()) {
-                return json_err(400, "BAD_REQUEST", "expected {enabled: boolean}");
-            }
-
-            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
-            const auto before = deps.app_config->ace_browser_bridge;
-            deps.app_config->ace_browser_bridge.enabled = body["enabled"].get<bool>();
-            try {
-                if (!deps.config_path.empty()) {
-                    save_config(*deps.app_config, deps.config_path);
-                } else {
-                    save_config(*deps.app_config);
-                }
-            } catch (const std::exception& e) {
-                deps.app_config->ace_browser_bridge = before;
-                return json_err(500, "PERSIST_FAILED", e.what());
-            }
-
-            if (deps.tools) {
-                ace_browser_bridge::unregister_ace_browser_bridge_tools(*deps.tools);
-                if (deps.app_config->ace_browser_bridge.enabled) {
-                    ace_browser_bridge::register_ace_browser_bridge_tools(
-                        *deps.tools, deps.app_config->ace_browser_bridge);
-                }
-            }
-
-            crow::response r(200);
-            r.add_header("Content-Type", "application/json");
-            r.body = ace_browser_bridge_settings_to_json(
-                deps.app_config->ace_browser_bridge).dump();
             return with_cors(req, std::move(r));
         });
 

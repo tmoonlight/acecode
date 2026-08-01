@@ -76,7 +76,6 @@
 #include "tool/memory_write_tool.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/ask_overlay_input.hpp"
-#include "tool/ace_browser_bridge/browser_tools.hpp"
 #include "tui/confirm_question.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"

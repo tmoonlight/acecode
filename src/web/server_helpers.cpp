@@ -101,31 +101,6 @@ json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result) {
     return out;
 }
 
-json ace_browser_bridge_settings_to_json(const AceBrowserBridgeConfig& cfg) {
-    json out;
-    out["enabled"] = cfg.enabled;
-    out["tool_mode"] = cfg.tool_mode;
-    out["default_mode"] = cfg.default_mode;
-    out["pointer_speed"] = cfg.pointer_speed;
-    out["status_cache_ttl_ms"] = cfg.status_cache_ttl_ms;
-    out["tool_timeout_ms"] = cfg.tool_timeout_ms;
-    out["os_pointer_enabled"] = cfg.os_pointer_enabled;
-    out["tab_group_enabled"] = cfg.tab_group_enabled;
-    out["operation_overlay_enabled"] = cfg.operation_overlay_enabled;
-    out["operation_overlay_watchdog_ms"] = cfg.operation_overlay_watchdog_ms;
-    out["pointer_custom"] = {
-        {"move_duration_ms_min", cfg.pointer_custom.move_duration_ms_min},
-        {"move_duration_ms_max", cfg.pointer_custom.move_duration_ms_max},
-        {"click_hold_ms_min", cfg.pointer_custom.click_hold_ms_min},
-        {"click_hold_ms_max", cfg.pointer_custom.click_hold_ms_max},
-        {"typing_delay_ms_min", cfg.pointer_custom.typing_delay_ms_min},
-        {"typing_delay_ms_max", cfg.pointer_custom.typing_delay_ms_max},
-        {"jitter_px", cfg.pointer_custom.jitter_px},
-        {"max_path_points", cfg.pointer_custom.max_path_points},
-    };
-    return out;
-}
-
 json custom_instructions_to_json(const CustomInstructionsConfig& cfg) {
     return json{{"text", cfg.text_snapshot()}};
 }

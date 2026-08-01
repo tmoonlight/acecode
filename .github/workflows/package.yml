@@ -162,10 +162,6 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
-      - name: Build browser host
-        shell: bash
-        run: cmake --build build --config MinSizeRel --target ace-browser-host
-
       - name: Extract debug symbols (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -222,25 +218,6 @@ jobs:
           cp "build/${{ matrix.executable }}" "$package_dir/"
           cp README.md README_CN.md "$package_dir/"
 
-          browser_host=""
-          for candidate in \
-            "build/ace-browser-host" \
-            "build/Release/ace-browser-host" \
-            "build/RelWithDebInfo/ace-browser-host" \
-            "build/MinSizeRel/ace-browser-host" \
-            "build/Debug/ace-browser-host"; do
-            if [ -f "$candidate" ]; then
-              browser_host="$candidate"
-              break
-            fi
-          done
-          if [ -z "$browser_host" ]; then
-            echo "Missing browser host executable: ace-browser-host" >&2
-            find build -type f -name 'ace-browser-host*' -print >&2 || true
-            exit 1
-          fi
-          cp "$browser_host" "$package_dir/"
-
           if [ "${{ matrix.build_desktop }}" = "true" ]; then
             if [ "$RUNNER_OS" = "macOS" ]; then
               if [ ! -d "build/ACECode.app" ]; then
@@ -257,6 +234,11 @@ jobs:
               cp "web/dist/acecode-logo.png" "$package_dir/"
             fi
           fi
+          legacy="$(find "$package_dir" -maxdepth 1 -iname 'ace-browser-*' -print -quit)"
+          if [ -n "$legacy" ]; then
+            echo "Legacy browser artifact must not be packaged: $legacy" >&2
+            exit 1
+          fi
           tar -C dist -czf "acecode-${{ matrix.id }}.tar.gz" "acecode-${{ matrix.id }}"
 
       - name: Package (Windows)
@@ -272,23 +254,6 @@ jobs:
           }
           Copy-Item -LiteralPath $terminalExe -Destination "$packageDir/"
           Copy-Item "README.md","README_CN.md" "$packageDir/"
-
-          $browserHostCandidates = @(
-            "build/ace-browser-host.exe",
-            "build/Release/ace-browser-host.exe",
-            "build/Debug/ace-browser-host.exe",
-            "build/RelWithDebInfo/ace-browser-host.exe",
-            "build/MinSizeRel/ace-browser-host.exe"
-          )
-          $browserHostExe = $browserHostCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (-not $browserHostExe) {
-            $browserHostExe = Get-ChildItem -Path "build" -Recurse -Filter "ace-browser-host.exe" -File |
-              Select-Object -ExpandProperty FullName -First 1
-          }
-          if (-not $browserHostExe) {
-            throw "Missing browser host executable: ace-browser-host.exe"
-          }
-          Copy-Item -LiteralPath $browserHostExe -Destination "$packageDir/"
 
           if ("${{ matrix.build_desktop }}" -eq "true") {
             $desktopCandidates = @(
@@ -308,6 +273,11 @@ jobs:
             }
             Copy-Item -LiteralPath $desktopExe -Destination "$packageDir/"
           }
+          $legacyBrowserArtifact = Get-ChildItem -LiteralPath $packageDir -Filter "ace-browser-*" -Force |
+            Select-Object -First 1
+          if ($legacyBrowserArtifact) {
+            throw "Legacy browser artifact must not be packaged: $($legacyBrowserArtifact.FullName)"
+          }
           Compress-Archive -Path "$packageDir/*" -DestinationPath "acecode-${{ matrix.id }}.zip" -Force
 
       - name: Verify Windows ARM64 package
@@ -317,8 +287,7 @@ jobs:
           $packageDir = "dist/acecode-${{ matrix.id }}"
           $expectedExecutables = @(
             "acecode.exe",
-            "acecode-desktop.exe",
-            "ace-browser-host.exe"
+            "acecode-desktop.exe"
           )
           foreach ($name in $expectedExecutables) {
             $path = Join-Path $packageDir $name
@@ -490,33 +459,11 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
-      - name: Build browser host
-        shell: bash
-        run: cmake --build build --config MinSizeRel --target ace-browser-host
-
       - name: Verify old Linux ABI
         shell: bash
         run: |
-          browser_host=""
-          for candidate in \
-            "build/ace-browser-host" \
-            "build/Release/ace-browser-host" \
-            "build/RelWithDebInfo/ace-browser-host" \
-            "build/MinSizeRel/ace-browser-host" \
-            "build/Debug/ace-browser-host"; do
-            if [ -f "$candidate" ]; then
-              browser_host="$candidate"
-              break
-            fi
-          done
-          if [ -z "$browser_host" ]; then
-            echo "Missing browser host executable: ace-browser-host" >&2
-            find build -type f -name 'ace-browser-host*' -print >&2 || true
-            exit 1
-          fi
-
           max_glibc="$(
-            strings build/acecode build/acecode-desktop "$browser_host" |
+            strings build/acecode build/acecode-desktop |
               grep -Eo 'GLIBC_[0-9]+\.[0-9]+' |
               sed 's/GLIBC_//' |
               sort -Vu |
@@ -563,25 +510,6 @@ jobs:
           cp "build/${{ matrix.executable }}" "$package_dir/"
           cp README.md README_CN.md "$package_dir/"
 
-          browser_host=""
-          for candidate in \
-            "build/ace-browser-host" \
-            "build/Release/ace-browser-host" \
-            "build/RelWithDebInfo/ace-browser-host" \
-            "build/MinSizeRel/ace-browser-host" \
-            "build/Debug/ace-browser-host"; do
-            if [ -f "$candidate" ]; then
-              browser_host="$candidate"
-              break
-            fi
-          done
-          if [ -z "$browser_host" ]; then
-            echo "Missing browser host executable: ace-browser-host" >&2
-            find build -type f -name 'ace-browser-host*' -print >&2 || true
-            exit 1
-          fi
-          cp "$browser_host" "$package_dir/"
-
           if [ ! -f "build/acecode-desktop" ]; then
             echo "Missing desktop executable: build/acecode-desktop" >&2
             exit 1
@@ -589,6 +517,11 @@ jobs:
           cp "build/acecode-desktop" "$package_dir/"
           cp "web/dist/acecode-logo.png" "$package_dir/"
 
+          legacy="$(find "$package_dir" -maxdepth 1 -iname 'ace-browser-*' -print -quit)"
+          if [ -n "$legacy" ]; then
+            echo "Legacy browser artifact must not be packaged: $legacy" >&2
+            exit 1
+          fi
           tar -C dist -czf "acecode-${{ matrix.id }}.tar.gz" "acecode-${{ matrix.id }}"
 
       - name: Upload artifact
@@ -612,59 +545,11 @@ jobs:
           path: build/acecode-desktop.debug
           if-no-files-found: warn
 
-  package-browser-extension:
-    name: ace-browser-bridge
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Package Chrome extension
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          from zipfile import ZipFile, ZIP_DEFLATED
-
-          root = Path("ace-browser-bridge")
-          required = [
-              root / "manifest.json",
-              root / "service_worker.js",
-              root / "content" / "virtual-cursor.js",
-          ]
-          missing = [str(path) for path in required if not path.is_file()]
-          if missing:
-              raise SystemExit("Missing Chrome extension files: " + ", ".join(missing))
-
-          out = Path("ace-browser-bridge.zip")
-          if out.exists():
-              out.unlink()
-          with ZipFile(out, "w", ZIP_DEFLATED) as archive:
-              for path in sorted(root.rglob("*")):
-                  if path.is_file():
-                      archive.write(path, path.as_posix())
-
-          with ZipFile(out) as archive:
-              names = set(archive.namelist())
-          for path in required:
-              entry = path.as_posix()
-              if entry not in names:
-                  raise SystemExit(f"Chrome extension zip missing {entry}")
-          PY
-
-      - name: Upload Chrome extension artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ace-browser-bridge
-          path: ace-browser-bridge.zip
-          if-no-files-found: error
-
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-and-package
       - build-linux-old-package
-      - package-browser-extension
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

@@ -494,7 +494,7 @@ void AgentLoop::append_tool_user_prompt(const std::string& content,
     msg.content = content;
     msg.metadata = nlohmann::json::object();
     msg.metadata["display_text"] = display_text.empty()
-        ? "[ACE Browser Bridge prompt loaded]"
+        ? "[Tool prompt loaded]"
         : display_text;
     msg.metadata["synthetic_user_prompt"] = true;
     if (!source_tool.empty()) msg.metadata["source_tool"] = source_tool;

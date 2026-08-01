@@ -35,7 +35,7 @@ export function createGitInfoCache({
     return entries;
   };
 
-  const get = (apiClient, cwd) => {
+  const load = (apiClient, cwd, { force = false } = {}) => {
     const key = typeof cwd === 'string' ? cwd : '';
     if (!key.trim()) return Promise.resolve(null);
     if (!apiClient || typeof apiClient.gitInfo !== 'function') {
@@ -46,7 +46,7 @@ export function createGitInfoCache({
     const timestamp = finiteNumber(now());
     const existing = entries.get(key);
     if (existing?.promise) return existing.promise;
-    if (existing && existing.expiresAt >= timestamp) {
+    if (!force && existing && existing.expiresAt >= timestamp) {
       return Promise.resolve(existing.value);
     }
 
@@ -59,7 +59,9 @@ export function createGitInfoCache({
       resolveRequest = resolve;
       rejectRequest = reject;
     });
-    entries.set(key, { promise: request });
+    // Keep a still-fresh value synchronously peekable while an explicit
+    // lifecycle refresh is in flight. `get()` still joins the new request.
+    entries.set(key, { ...existing, promise: request });
     try {
       Promise.resolve(apiClient.gitInfo(key)).then(
         (value) => {
@@ -83,6 +85,21 @@ export function createGitInfoCache({
     return request;
   };
 
+  const peek = (apiClient, cwd) => {
+    const key = typeof cwd === 'string' ? cwd : '';
+    if (!key.trim()) return undefined;
+    if (!apiClient || (typeof apiClient !== 'object' && typeof apiClient !== 'function')) {
+      return undefined;
+    }
+    const entries = entriesFor(apiClient);
+    const existing = entries?.get(key);
+    const expiresAt = Number(existing?.expiresAt);
+    if (!existing || !Number.isFinite(expiresAt) || expiresAt < finiteNumber(now())) {
+      return undefined;
+    }
+    return existing.value;
+  };
+
   const invalidateEntries = (entries, cwd = '') => {
     if (!entries) return;
     const key = typeof cwd === 'string' ? cwd : '';
@@ -91,7 +108,13 @@ export function createGitInfoCache({
   };
 
   return {
-    get,
+    get(apiClient, cwd) {
+      return load(apiClient, cwd);
+    },
+    peek,
+    refresh(apiClient, cwd) {
+      return load(apiClient, cwd, { force: true });
+    },
     invalidate(apiClient, cwd = '') {
       invalidateEntries(entriesFor(apiClient), cwd);
     },
@@ -102,6 +125,18 @@ export function createGitInfoCache({
 }
 
 export const gitInfoCache = createGitInfoCache();
+
+export function refreshWorkspaceGitInfo(apiClient, workspaceOrCwd) {
+  const source = workspaceOrCwd && typeof workspaceOrCwd === 'object'
+    ? workspaceOrCwd
+    : null;
+  if (source?.noWorkspace || source?.no_workspace) return Promise.resolve(null);
+  const cwd = typeof workspaceOrCwd === 'string'
+    ? workspaceOrCwd
+    : String(source?.cwd || '');
+  if (!cwd.trim()) return Promise.resolve(null);
+  return gitInfoCache.refresh(apiClient, cwd);
+}
 
 if (typeof window !== 'undefined') {
   window.addEventListener(GIT_STATE_CHANGED_EVENT, (event) => {

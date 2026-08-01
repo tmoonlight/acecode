@@ -71,6 +71,8 @@ inline constexpr std::size_t kMaxQueuedToasts = 32;
 inline constexpr std::uint32_t kEaseInDurationMs = 320;
 inline constexpr std::uint32_t kEaseOutDurationMs = 160;
 inline constexpr std::uint32_t kStackCollapseDurationMs = 400;
+// A toast always leaves the screen after this interval, even when hovered.
+inline constexpr std::uint32_t kAutoDismissTimeoutMs = 5000;
 
 int scale_for_dpi(int value, unsigned dpi);
 
@@ -82,10 +84,6 @@ float ease_out_position(std::uint32_t elapsed_ms, std::uint32_t duration_ms);
 // Same curve as the ease-in; drives the stack closing its gaps.
 float stack_collapse_position(std::uint32_t elapsed_ms,
                               std::uint32_t duration_ms);
-
-// SPI_GETMESSAGEDURATION is an accessibility setting and can be absurd in
-// either direction; clamp it to something a notification can live with.
-unsigned clamp_auto_dismiss_seconds(unsigned raw_seconds);
 
 struct ToastRect {
     int left = 0;

@@ -1578,7 +1578,7 @@ function SectionPersonalization() {
 // 真实接入:GET /api/skills(?workspace= 可选,带 source/enabled 全量元数据)、
 // PUT /api/skills/:name(?workspace= 供跨工作区校验)、GET /api/skills/root
 // (path / global_path)、GET /api/workspaces。
-// 结构:顶部全局技能(扁平列表 + 打开全局目录按钮),下方「工作区 Skill 目录」
+// 结构:顶部全局技能(响应式卡片网格 + 打开全局目录按钮),下方「工作区 Skill 目录」
 // 每个已注册工作区一个折叠组,默认折叠;mount 后台预取各工作区技能做计数,
 // 展开即渲染缓存,避免一次性渲染全部工作区的技能行。
 // 过滤 / 分组 / 计数逻辑在 lib/skillsSettings.js(有 Node 单测)。
@@ -1592,26 +1592,60 @@ function parseDesktopBridgeResult(value) {
   return JSON.parse(text);
 }
 
-function SkillRow({ skill, busy, onToggle }) {
+function SkillCard({ skill, busy, onToggle }) {
   return (
-    <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
-      <div
-        className={clsx(
-          'w-9 h-9 rounded-md border flex items-center justify-center shrink-0 transition',
-          skill.enabled
-            ? 'bg-accent-bg border-accent/40 text-accent'
-            : 'bg-surface-alt border-border text-fg-mute',
-        )}
-      >
-        <VsIcon name="lightbulb" size={18} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium truncate">{skill.name}</div>
-        <div className="text-[11px] text-fg-mute mt-0.5 truncate" title={skill.description || ''}>
-          {skill.description || '—'}
+    <article
+      data-skill-card="true"
+      className={clsx(
+        'flex min-h-[148px] flex-col rounded-lg border p-3.5 transition',
+        skill.enabled
+          ? 'border-accent/40 bg-accent-bg'
+          : 'border-border bg-surface hover:border-accent/50 hover:bg-surface-hi',
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={clsx(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition',
+            skill.enabled
+              ? 'border-accent/40 bg-surface text-accent'
+              : 'border-border bg-surface-alt text-fg-mute',
+          )}
+        >
+          <VsIcon name="lightbulb" size={18} />
         </div>
+        <div className="min-w-0 flex-1">
+          <div className="break-words text-[13px] font-semibold leading-5 text-fg">{skill.name}</div>
+          <div className="mt-0.5 text-[10px] text-fg-mute">
+            {skill.source === 'project' ? '工作区' : '全局'}
+          </div>
+        </div>
+        <Toggle
+          on={skill.enabled}
+          disabled={busy}
+          onChange={(value) => onToggle(skill.name, value)}
+          ariaLabel={`切换技能 ${skill.name}`}
+        />
       </div>
-      <Toggle on={skill.enabled} disabled={busy} onChange={(v) => onToggle(skill.name, v)} />
+      <p
+        className="mt-3 line-clamp-4 text-[11px] leading-[18px] text-fg-mute"
+        title={skill.description || ''}
+      >
+        {skill.description || '—'}
+      </p>
+    </article>
+  );
+}
+
+function SkillCardGrid({ skills, busy, onToggle }) {
+  return (
+    <div
+      data-skill-card-grid="true"
+      className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+    >
+      {skills.map((skill) => (
+        <SkillCard key={skill.name} skill={skill} busy={busy} onToggle={onToggle} />
+      ))}
     </div>
   );
 }
@@ -1675,9 +1709,9 @@ function WorkspaceSkillGroup({
               {hasQuery ? '无匹配技能' : '该工作区没有技能;放到项目的 .acecode/skills 目录即可被发现'}
             </div>
           )}
-          {shown.map((s) => (
-            <SkillRow key={s.name} skill={s} busy={busy} onToggle={onToggleSkill} />
-          ))}
+          {shown.length > 0 && (
+            <SkillCardGrid skills={shown} busy={busy} onToggle={onToggleSkill} />
+          )}
         </div>
       )}
     </div>
@@ -1855,9 +1889,9 @@ function SectionSkills() {
               {hasQuery ? '无匹配的全局技能' : '暂无全局技能'}
             </div>
           )}
-          {filteredGlobal.map((s) => (
-            <SkillRow key={s.name} skill={s} busy={!!savingName} onToggle={toggle} />
-          ))}
+          {filteredGlobal.length > 0 && (
+            <SkillCardGrid skills={filteredGlobal} busy={!!savingName} onToggle={toggle} />
+          )}
           <button
             type="button"
             onClick={() => openDir('global')}
@@ -2315,57 +2349,7 @@ function SectionConnectors() {
 // ─── 工具 ──────────────────────────────────────────────────────────────────
 
 function SectionTools() {
-  const [bridgeEnabled, setBridgeEnabled] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    api.getAceBrowserBridge()
-      .then((cfg) => {
-        if (!cancelled) setBridgeEnabled(!!cfg?.enabled);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message || String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  const setBridge = async (next) => {
-    const before = bridgeEnabled;
-    setBridgeEnabled(next);
-    setSaving(true);
-    setError('');
-    try {
-      const saved = await api.setAceBrowserBridge({ enabled: next });
-      setBridgeEnabled(!!saved?.enabled);
-      toast({ kind: 'ok', text: next ? 'ACE Browser Bridge 已启用' : 'ACE Browser Bridge 已关闭' });
-    } catch (e) {
-      setBridgeEnabled(before);
-      const message = e.message || String(e);
-      setError(message);
-      toast({ kind: 'err', text: message });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const tools = [
-    {
-      key: 'ace_browser_bridge',
-      name: 'ACE Browser Bridge',
-      desc: '启用 browser_start，并在打开后通过 user prompt 引导模型使用 ace-browser-host CLI。',
-      icon: <VsIcon name="globe" size={20} />,
-      on: bridgeEnabled,
-      toggle: setBridge,
-    },
-  ];
+  const nativeBrowserAvailable = typeof globalThis?.aceDesktop_agentBrowserGetState === 'function';
 
   return (
     <>
@@ -2373,29 +2357,23 @@ function SectionTools() {
 
       <div className="text-[14px] font-semibold mb-1">内置工具</div>
       <p className="text-[12px] text-fg-mute mb-3">
-        启用后 Agent 可在任务中自动调用；会写入 ace_browser_bridge 配置。
+        Agent 浏览器工具由 Windows Desktop 原生提供，模型需要浏览器时会自动打开并操作同一个可见页面。
       </p>
-      {error && (
-        <div className="mb-3 px-3 py-2 rounded-md border border-danger/40 bg-danger/10 text-danger text-[12px]">
-          {error}
-        </div>
-      )}
 
-      {tools.map((tool) => (
-        <div
-          key={tool.key}
-          className="flex items-center gap-3 px-3.5 py-3 rounded-md bg-surface border border-border mb-2"
-        >
-          <div className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
-            {tool.icon}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium">{tool.name}</div>
-            <div className="text-[11px] text-fg-mute mt-0.5">{tool.desc}</div>
-          </div>
-          <Toggle on={tool.on} onChange={tool.toggle} disabled={loading || saving} />
+      <div className="flex items-center gap-3 px-3.5 py-3 rounded-md bg-surface border border-border mb-2">
+        <div className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
+          <VsIcon name="globe" size={20} />
         </div>
-      ))}
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium">Agent 浏览器</div>
+          <div className="text-[11px] text-fg-mute mt-0.5">
+            使用独立 WebView2 配置与 CDP 代理；不会向网页注入 ACECode 桥接对象。
+          </div>
+        </div>
+        <span className={`text-[11px] px-2 py-1 rounded-full border border-border bg-surface-alt ${nativeBrowserAvailable ? 'text-success' : 'text-fg-mute'}`}>
+          {nativeBrowserAvailable ? '可用' : '仅 Windows Desktop'}
+        </span>
+      </div>
 
       {/* 占位:更多工具即将加入 */}
       <div className="px-3.5 py-3 rounded-md border border-dashed border-border text-[12px] text-fg-mute text-center mt-2">

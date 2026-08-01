@@ -14,6 +14,8 @@
 // daemon 端通过 workspace-aware API 在同一进程内服务多个 workspace。
 
 #include "daemon_pool.hpp"
+#include "agent_browser_host.hpp"
+#include "agent_browser_runtime.hpp"
 #include "context_picker.hpp"
 #include "desktop_about.hpp"
 #include "desktop_restart.hpp"
@@ -90,6 +92,24 @@ constexpr const char* kSharedDaemonSlotHash = "__shared_daemon__";
 constexpr const char* kSharedDaemonContextId = "default";
 constexpr const char* kDesktopCloseRequestEvent =
     "acecode:desktop-close-requested";
+
+nlohmann::json agent_browser_state_json(
+    const acecode::desktop::AgentBrowserState& state) {
+    return nlohmann::json{
+        {"supported", state.supported},
+        {"ready", state.ready},
+        {"loading", state.loading},
+        {"visible", state.visible},
+        {"active", state.active},
+        {"closed", state.closed},
+        {"can_go_back", state.can_go_back},
+        {"can_go_forward", state.can_go_forward},
+        {"url", state.url},
+        {"title", state.title},
+        {"error", state.error},
+        {"page_id", state.page_id},
+    };
+}
 
 std::string context_picker_mime_type(const fs::path& path) {
     std::string extension = acecode::path_to_utf8(path.extension());
@@ -953,6 +973,20 @@ int main(int argc, char** argv) {
 #endif
     }
     WebHost& host = *host_storage;
+    AgentBrowserHost agent_browser(
+        host.native_window(),
+        desktop_owner_pid,
+        desktop_owner_instance,
+        [&host](const AgentBrowserState& state) {
+            host.eval(
+                "(function(){try{window.dispatchEvent(new CustomEvent("
+                "'acecode:agent-browser-state',{detail:" +
+                agent_browser_state_json(state).dump() +
+                "}));}catch(e){}})();");
+        },
+        [&host](std::function<void()> task) {
+            host.dispatch(std::move(task));
+        });
     std::atomic<bool> restart_requested{false};
     host.set_title("ACECode");
     host.set_size(kDefaultDesktopWindowWidth, kDefaultDesktopWindowHeight);
@@ -1387,6 +1421,174 @@ int main(int argc, char** argv) {
         }
         return "null";
     });
+
+#ifdef _WIN32
+    host.bind("aceDesktop_agentBrowserGetState",
+              [&](const std::string& req) -> std::string {
+        std::string page_id;
+        const auto args = nlohmann::json::parse(req, nullptr, false);
+        if (args.is_array() && !args.empty() && args[0].is_string()) {
+            page_id = args[0].get<std::string>();
+        }
+        nlohmann::json result = agent_browser_state_json(
+            agent_browser.state(page_id));
+        result["ok"] = true;
+        return result.dump();
+    });
+
+    host.bind("aceDesktop_agentBrowserCreatePage",
+              [&](const std::string& /*req*/) -> std::string {
+        std::string error;
+        const std::string page_id = agent_browser.create_page(&error);
+        if (page_id.empty()) {
+            return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+        }
+        nlohmann::json result = agent_browser_state_json(
+            agent_browser.state(page_id));
+        result["ok"] = true;
+        return result.dump();
+    });
+
+    auto bind_agent_browser_page_lifecycle =
+        [&](const char* name,
+            const std::function<bool(const std::string&, std::string*)>& action) {
+        host.bind(name, [action](const std::string& req) -> std::string {
+            const auto args = nlohmann::json::parse(req, nullptr, false);
+            if (!args.is_array() || args.empty() || !args[0].is_string()) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", "expect [page_id:string]"}
+                }.dump();
+            }
+            const std::string page_id = args[0].get<std::string>();
+            std::string error;
+            if (!action(page_id, &error)) {
+                return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+            }
+            return nlohmann::json{{"ok", true}, {"page_id", page_id}}.dump();
+        });
+    };
+    bind_agent_browser_page_lifecycle(
+        "aceDesktop_agentBrowserSelectPage",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.select_page(page_id, error);
+        });
+    bind_agent_browser_page_lifecycle(
+        "aceDesktop_agentBrowserClosePage",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.close_page(page_id, error);
+        });
+
+    host.bind("aceDesktop_agentBrowserSetLayout",
+              [&](const std::string& req) -> std::string {
+        try {
+            const auto args = nlohmann::json::parse(req);
+            if (!args.is_array() || args.empty() || !args[0].is_object()) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", "expect [layout:object]"}
+                }.dump();
+            }
+            const auto& value = args[0];
+            const std::string page_id = value.value("page_id", "");
+            if (page_id.empty()) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", "layout page_id is required"}
+                }.dump();
+            }
+            AgentBrowserBounds bounds;
+            bounds.x = value.value("x", 0);
+            bounds.y = value.value("y", 0);
+            bounds.width = value.value("width", 0);
+            bounds.height = value.value("height", 0);
+            bounds.visible = value.value("visible", false);
+            std::string error;
+            if (!agent_browser.set_bounds(page_id, bounds, &error)) {
+                return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+            }
+            return nlohmann::json{{"ok", true}}.dump();
+        } catch (const std::exception& e) {
+            return nlohmann::json{
+                {"ok", false}, {"error", std::string("layout: ") + e.what()}
+            }.dump();
+        }
+    });
+
+    host.bind("aceDesktop_agentBrowserNavigate",
+              [&](const std::string& req) -> std::string {
+        try {
+            const auto args = nlohmann::json::parse(req);
+            if (!args.is_array() || args.empty() || !args[0].is_object()) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", "expect [{page_id,url}]"}
+                }.dump();
+            }
+            const std::string page_id = args[0].value("page_id", "");
+            const std::string url = args[0].value("url", "");
+            if (page_id.empty() || url.empty()) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", "page_id and url are required"}
+                }.dump();
+            }
+            std::string error;
+            if (!agent_browser.navigate(page_id, url, &error)) {
+                return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+            }
+            return nlohmann::json{{"ok", true}}.dump();
+        } catch (const std::exception& e) {
+            return nlohmann::json{
+                {"ok", false}, {"error", std::string("navigate: ") + e.what()}
+            }.dump();
+        }
+    });
+
+    auto bind_agent_browser_action =
+        [&](const char* name,
+            const std::function<bool(const std::string&, std::string*)>& action) {
+        host.bind(name, [action](const std::string& req) -> std::string {
+            const auto args = nlohmann::json::parse(req, nullptr, false);
+            if (!args.is_array() || args.empty() || !args[0].is_string()) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", "expect [page_id:string]"}
+                }.dump();
+            }
+            const std::string page_id = args[0].get<std::string>();
+            std::string error;
+            if (!action(page_id, &error)) {
+                return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+            }
+            return nlohmann::json{{"ok", true}, {"page_id", page_id}}.dump();
+        });
+    };
+    bind_agent_browser_action(
+        "aceDesktop_agentBrowserGoBack",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.go_back(page_id, error);
+        });
+    bind_agent_browser_action(
+        "aceDesktop_agentBrowserGoForward",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.go_forward(page_id, error);
+        });
+    bind_agent_browser_action(
+        "aceDesktop_agentBrowserReload",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.reload(page_id, error);
+        });
+    bind_agent_browser_action(
+        "aceDesktop_agentBrowserFocus",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.focus(page_id, error);
+        });
+    host.bind("aceDesktop_agentBrowserHide",
+              [&](const std::string& req) -> std::string {
+        std::string page_id;
+        const auto args = nlohmann::json::parse(req, nullptr, false);
+        if (args.is_array() && !args.empty() && args[0].is_string()) {
+            page_id = args[0].get<std::string>();
+        }
+        agent_browser.hide(page_id);
+        return nlohmann::json{{"ok", true}}.dump();
+    });
+#endif
 
     host.bind("aceDesktop_openDevTools", [&](const std::string& /*req*/) -> std::string {
         return nlohmann::json{{"ok", host.open_dev_tools()}}.dump();

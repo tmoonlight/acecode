@@ -183,6 +183,7 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/daemon/runtime_files.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/custom_toast.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/custom_toast_win.cpp
+    ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_runtime.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/folder_picker_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/locale.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/notifications.cpp
@@ -220,6 +221,7 @@ set(ACECODE_DESKTOP_SUPPORT_SOURCES
 # 里剔除。desktop/native helper 源文件改由 focused support target 拥有,
 # 这样 acecode-desktop 不需要链接 acecode_testable。
 set(ACECODE_DESKTOP_BINARY_ONLY_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/main.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/splash_screen.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp
@@ -437,8 +439,6 @@ source_group("generated" FILES
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
-
-add_subdirectory(ace-browser-host)
 
 # desktop shell 子目标(opt-in,默认 OFF)。include 后只有当 ACECODE_BUILD_DESKTOP=ON
 # 才会真添加 acecode-desktop 这个 target,否则文件本身做无操作 return。

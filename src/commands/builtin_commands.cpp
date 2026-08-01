@@ -21,7 +21,6 @@
 #include "../provider/model_resolver.hpp"
 #include "../feedback/feedback_upload.hpp"
 #include "../tool/mcp_manager.hpp"
-#include "../tool/ace_browser_bridge/browser_tools.hpp"
 #include "../tool/tool_executor.hpp"
 #include "../skills/skill_registry.hpp"
 #include "../skills/skill_commands.hpp"
@@ -412,7 +411,6 @@ static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
         << "  /history  - List or clear the per-working-directory input history\n"
         << "  /feedback - Upload current session and runtime logs to the configured upgrade service\n"
         << "  /models   - Inspect bundled models.dev registry\n"
-        << "  /browser  - Show or toggle ACE Browser Bridge tools for this session\n"
         << "  /proxy    - Show or switch the HTTP proxy used for LLM/API requests\n"
         << "  /desktop  - Open ACECode Desktop\n"
         << "  /title    - Set or show the window title for this session\n"
@@ -1083,66 +1081,6 @@ static std::string trim(const std::string& s) {
     size_t j = s.size();
     while (j > i && std::isspace(static_cast<unsigned char>(s[j - 1]))) --j;
     return s.substr(i, j - i);
-}
-
-static std::string lower_trimmed(const std::string& s) {
-    std::string out = trim(s);
-    std::transform(out.begin(), out.end(), out.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return out;
-}
-
-static bool browser_tools_enabled(const ToolExecutor* tools) {
-    return tools && tools->has_tool("browser_start");
-}
-
-static void cmd_browser(CommandContext& ctx, const std::string& args) {
-    std::string a = lower_trimmed(args);
-    if (a == "enable") a = "on";
-    if (a == "disable") a = "off";
-
-    std::string message;
-    if (!ctx.tools) {
-        message = "ACE Browser Bridge tools unavailable: no tool registry attached.";
-    } else if (a.empty() || a == "status") {
-        std::ostringstream oss;
-        oss << "ACE Browser Bridge tools: "
-            << (browser_tools_enabled(ctx.tools) ? "on" : "off")
-            << " for this session\n"
-            << "  config default: "
-            << (ctx.config.ace_browser_bridge.enabled ? "on" : "off") << "\n"
-            << "  tool_mode:      " << ctx.config.ace_browser_bridge.tool_mode << "\n"
-            << "Use /browser on, /browser off, or /browser toggle.";
-        message = oss.str();
-    } else if (a == "on") {
-        AceBrowserBridgeConfig cfg = ctx.config.ace_browser_bridge;
-        cfg.enabled = true;
-        ace_browser_bridge::unregister_ace_browser_bridge_tools(*ctx.tools);
-        ace_browser_bridge::register_ace_browser_bridge_tools(*ctx.tools, cfg);
-        message = "ACE Browser Bridge tools enabled for this session.";
-    } else if (a == "off") {
-        const std::size_t removed =
-            ace_browser_bridge::unregister_ace_browser_bridge_tools(*ctx.tools);
-        message = removed == 0
-            ? "ACE Browser Bridge tools were already off for this session."
-            : "ACE Browser Bridge tools disabled for this session.";
-    } else if (a == "toggle") {
-        if (browser_tools_enabled(ctx.tools)) {
-            ace_browser_bridge::unregister_ace_browser_bridge_tools(*ctx.tools);
-            message = "ACE Browser Bridge tools disabled for this session.";
-        } else {
-            AceBrowserBridgeConfig cfg = ctx.config.ace_browser_bridge;
-            cfg.enabled = true;
-            ace_browser_bridge::register_ace_browser_bridge_tools(*ctx.tools, cfg);
-            message = "ACE Browser Bridge tools enabled for this session.";
-        }
-    } else {
-        message = "Usage: /browser [status|on|off|toggle]";
-    }
-
-    std::lock_guard<std::mutex> lk(ctx.state.mu);
-    ctx.state.conversation.push_back({"system", message, false});
-    ctx.state.chat_follow_tail = true;
 }
 
 // /page-step: 切换 PgUp / PgDn 是否按单行滚动. 兜底给吞 Alt+方向键的终端.
@@ -2050,7 +1988,6 @@ void register_builtin_commands(CommandRegistry& registry) {
     register_remote_control_command(registry);
     register_desktop_command(registry);
     registry.register_command({"feedback", "Upload current session and runtime logs to the configured upgrade service", cmd_feedback});
-    registry.register_command({"browser", "Show or toggle ACE Browser Bridge tools for this session", cmd_browser});
     registry.register_command({"tasks", "List, abort, or clear subagent background tasks", cmd_tasks});
     registry.register_command({"title", "Set or show the window title for this session", cmd_title});
     registry.register_command({"page-step", "Toggle single-line PgUp/PgDn scrolling (for terminals that swallow Alt+Arrow)", cmd_page_step});

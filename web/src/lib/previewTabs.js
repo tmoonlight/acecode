@@ -4,13 +4,19 @@ export const PREVIEW_TAB_TYPES = Object.freeze({
   FILE: 'file',
   SESSION_CHANGES: 'session-changes',
   GIT_CHANGES: 'git-changes',
+  BROWSER: 'browser',
 });
 
 function normalizePreviewCwd(cwd = '') {
-  const normalized = String(cwd || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/\/\?\//, '')
-    .replace(/\/+/g, '/');
+  let normalized = String(cwd || '').replace(/\\/g, '/');
+  if (/^\/\/\?\/UNC\//i.test(normalized)) {
+    normalized = normalized.replace(/^\/\/\?\/UNC\//i, '//');
+  } else {
+    normalized = normalized.replace(/^\/\/\?\//, '');
+  }
+  const isUnc = normalized.startsWith('//');
+  normalized = normalized.replace(/\/+/g, '/');
+  if (isUnc) normalized = `/${normalized}`;
   if (normalized === '/' || /^[A-Za-z]:\/$/.test(normalized)) return normalized;
   return normalized.replace(/\/+$/g, '');
 }
@@ -24,7 +30,10 @@ function relativePathWithin(absolutePath, cwd) {
   const target = normalizePreviewCwd(absolutePath);
   const root = normalizePreviewCwd(cwd);
   if (!target || !root) return null;
-  const caseInsensitive = /^[A-Za-z]:\//.test(target) && /^[A-Za-z]:\//.test(root);
+  const caseInsensitive = (
+    (/^[A-Za-z]:\//.test(target) && /^[A-Za-z]:\//.test(root))
+    || (target.startsWith('//') && root.startsWith('//'))
+  );
   const targetKey = caseInsensitive ? target.toLowerCase() : target;
   const rootKey = caseInsensitive ? root.toLowerCase() : root;
   if (targetKey === rootKey) return '';
@@ -84,7 +93,15 @@ export function visiblePreviewTabs(state, { scopeKey = '', sessionId = '' } = {}
   const source = state && typeof state === 'object' ? state : {};
   const fileTabs = source.fileTabsByScope?.[scopeKey] || [];
   const changeTab = sessionId ? source.changeTabsBySession?.[sessionId] : null;
-  const naturalTabs = changeTab ? [...fileTabs, changeTab] : fileTabs.slice();
+  const storedBrowserTabs = sessionId ? source.browserTabsBySession?.[sessionId] : null;
+  const browserTabs = Array.isArray(storedBrowserTabs)
+    ? storedBrowserTabs
+    : (storedBrowserTabs ? [storedBrowserTabs] : []);
+  const naturalTabs = [
+    ...fileTabs,
+    ...(changeTab ? [changeTab] : []),
+    ...browserTabs,
+  ];
   return applyVisibleTabOrder(naturalTabs, source.tabOrderByView?.[viewKey(scopeKey, sessionId)]);
 }
 
@@ -146,6 +163,14 @@ function sessionChangesTabKey(sessionId) {
 
 function gitChangesTabKey(sessionId) {
   return `git-changes:${sessionId}`;
+}
+
+function browserTabKey(pageId) {
+  return `browser:${pageId}`;
+}
+
+function isBrowserTabKey(tabKey) {
+  return typeof tabKey === 'string' && tabKey.startsWith('browser:');
 }
 
 // session-changes 与 git-changes 是同一个「变更」概念的两种数据源(非 git
@@ -231,6 +256,42 @@ export function openSessionChangesTab(state, {
     changeTabsBySession: {
       ...(source.changeTabsBySession || {}),
       [sessionId]: tab,
+    },
+    activeTabBySession: {
+      ...(source.activeTabBySession || {}),
+      [sessionId]: key,
+    },
+    activeTabByView: {
+      ...(source.activeTabByView || {}),
+      [viewKey(scopeKey, sessionId)]: key,
+    },
+  };
+}
+
+export function openBrowserTab(state, {
+  scopeKey = '',
+  sessionId = '',
+  pageId = '',
+  title = '浏览器',
+} = {}) {
+  if (!sessionId || !pageId) return state || {};
+  const source = state && typeof state === 'object' ? state : {};
+  const key = browserTabKey(pageId);
+  const stored = source.browserTabsBySession?.[sessionId];
+  const existingTabs = Array.isArray(stored) ? stored : (stored ? [stored] : []);
+  const existing = existingTabs.find((tab) => tab.pageId === pageId || tab.key === key);
+  const tab = existing || {
+    key,
+    type: PREVIEW_TAB_TYPES.BROWSER,
+    sessionId,
+    pageId,
+    title,
+  };
+  return {
+    ...source,
+    browserTabsBySession: {
+      ...(source.browserTabsBySession || {}),
+      [sessionId]: existing ? existingTabs : [...existingTabs, tab],
     },
     activeTabBySession: {
       ...(source.activeTabBySession || {}),
@@ -458,6 +519,33 @@ export function closePreviewTab(state, { scopeKey = '', sessionId = '', tabKey =
       tabOrderByView: removeKeysFromOrders(source.tabOrderByView, [tabKey]),
     };
   }
+  if (isBrowserTabKey(tabKey) && sessionId) {
+    const nextBrowserTabs = { ...(source.browserTabsBySession || {}) };
+    const stored = nextBrowserTabs[sessionId];
+    const tabs = Array.isArray(stored) ? stored : (stored ? [stored] : []);
+    const remaining = tabs.filter((tab) => tab.key !== tabKey);
+    if (remaining.length > 0) nextBrowserTabs[sessionId] = remaining;
+    else delete nextBrowserTabs[sessionId];
+    const nextActive = { ...(source.activeTabBySession || {}) };
+    const nextActiveByView = { ...(source.activeTabByView || {}) };
+    const nextVisibleActive = nextActiveAfterClose(
+      visibleBeforeClose,
+      tabKey,
+    );
+    nextActiveByView[viewKey(scopeKey, sessionId)] = nextVisibleActive;
+    if (isBrowserTabKey(nextVisibleActive) || isChangeTabKey(nextVisibleActive)) {
+      nextActive[sessionId] = nextVisibleActive;
+    } else {
+      delete nextActive[sessionId];
+    }
+    return {
+      ...source,
+      browserTabsBySession: nextBrowserTabs,
+      activeTabBySession: nextActive,
+      activeTabByView: nextActiveByView,
+      tabOrderByView: removeKeysFromOrders(source.tabOrderByView, [tabKey]),
+    };
+  }
   return source;
 }
 
@@ -472,9 +560,11 @@ export function closeVisiblePreviewTabs(state, { scopeKey = '', sessionId = '' }
   delete nextActiveByView[viewKey(scopeKey, sessionId)];
 
   const nextChangeTabs = { ...(source.changeTabsBySession || {}) };
+  const nextBrowserTabs = { ...(source.browserTabsBySession || {}) };
   const nextActiveBySession = { ...(source.activeTabBySession || {}) };
   if (sessionId) {
     delete nextChangeTabs[sessionId];
+    delete nextBrowserTabs[sessionId];
     delete nextActiveBySession[sessionId];
   }
 
@@ -483,6 +573,7 @@ export function closeVisiblePreviewTabs(state, { scopeKey = '', sessionId = '' }
     fileTabsByScope: nextFileTabs,
     activeTabByScope: nextActiveByScope,
     changeTabsBySession: nextChangeTabs,
+    browserTabsBySession: nextBrowserTabs,
     activeTabBySession: nextActiveBySession,
     activeTabByView: nextActiveByView,
     tabOrderByView: removeKeysFromOrders(source.tabOrderByView, closedKeys),
@@ -531,7 +622,7 @@ export function closePreviewTabsToRight(state, { scopeKey = '', sessionId = '', 
 export function activatePreviewTab(state, { scopeKey = '', sessionId = '', tabKey = '' } = {}) {
   if (!tabKey) return state || {};
   const source = state && typeof state === 'object' ? state : {};
-  if (isChangeTabKey(tabKey) && sessionId) {
+  if ((isChangeTabKey(tabKey) || isBrowserTabKey(tabKey)) && sessionId) {
     return {
       ...source,
       activeTabBySession: {

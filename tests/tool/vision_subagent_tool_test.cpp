@@ -251,7 +251,6 @@ TEST(VisionSubagentTool, RandomChooserIsUsedWhenMultipleVisionModelsExist) {
 TEST(VisionSubagentTool, RegisteredInSharedBuiltinToolSet) {
     acecode::AppConfig cfg;
     cfg.web_search.enabled = false;
-    cfg.ace_browser_bridge.enabled = false;
     acecode::ToolExecutor tools;
 
     acecode::register_session_builtin_tools(tools, cfg);

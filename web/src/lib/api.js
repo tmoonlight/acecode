@@ -417,8 +417,6 @@ export function createApi(base = null) {
     getUpdateJob: (jobId)            => request('GET',    `/api/update/jobs/${encodeURIComponent(jobId)}`, undefined, base),
     listDesktopFeedbackSessions: (limit=20) => request('GET', desktopFeedbackSessionsPath(limit), undefined, base),
     submitDesktopFeedback: (payload={}) => request('POST', '/api/feedback/desktop', payload, base),
-    getAceBrowserBridge: ()          => request('GET',    '/api/config/ace-browser-bridge', undefined, base),
-    setAceBrowserBridge: (cfg)       => request('PUT',    '/api/config/ace-browser-bridge', cfg, base),
     // git 感知(add-git-context / add-webui-git-session-pill /
     // redesign-sidepanel-git-changes)。失败(4xx/5xx)抛 ApiError,
     // 调用方经 .status/.body 分派(如 checkout 的 409 dirty 往返)。

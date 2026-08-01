@@ -16,7 +16,7 @@
 
 ## ACECode 当前适配点
 
-ACECode 已经有不错的 agent 底座：C++17 共享 agent core、TUI/daemon/web/desktop 多表面、工具注册、权限提示、session 持久化、MCP、skills、memory、browser bridge、structured attachments、plan mode 和 goal 续跑机制。后续更值得做的不是再堆一个聊天 UI，而是把这些能力工程化成更可靠、更安全、可观测、可评估、可互操作的 agent runtime。
+ACECode 已经有不错的 agent 底座：C++17 共享 agent core、TUI/daemon/web/desktop 多表面、工具注册、权限提示、session 持久化、MCP、skills、memory、Desktop Agent Browser、structured attachments、plan mode 和 goal 续跑机制。后续更值得做的不是再堆一个聊天 UI，而是把这些能力工程化成更可靠、更安全、可观测、可评估、可互操作的 agent runtime。
 
 ## 优先建议
 
@@ -76,7 +76,7 @@ ACECode 后续会越来越依赖复杂工具链、浏览器、MCP、skills 和�
 - 本地写 JSONL trace，并提供 daemon API 查询和 Web trace viewer。
 - 按 OpenTelemetry GenAI semantic conventions 增加可选 OTel exporter，先做 spans/metrics，不必一次性做全。
 - 做 ACECode 自己的 eval runner：临时 repo、脚本化用户输入、预设权限响应、可替换 stub provider、命令行跑多组任务。
-- 建立小型 ACE-bench：覆盖文件编辑、测试修复、MCP 调用、browser bridge、plan/goal、权限拒绝恢复、中文任务。
+- 建立小型 ACE-bench：覆盖文件编辑、测试修复、MCP 调用、Agent Browser、plan/goal、权限拒绝恢复、中文任务。
 
 适配代码方向：
 
@@ -158,7 +158,7 @@ ACECode 已有 skills 系统。趋势上 skills 是 agent 的行为层，风险�
 
 建议优先级：P1
 
-ACECode 的 browser bridge 已经走 direct CDP、结构化 `read-page`、截图、网络和 devtools。下一步可以把它提升成兼容“computer use”范式的通用 UI 行动层，同时保留结构化 DOM 优先的优势。
+ACECode 的 Windows Agent Browser 已经把独立 WebView2 可见页面、CDP 代理、结构化 `read-page` 与截图统一在同一个 Desktop 页签里。下一步可以把它提升成兼容“computer use”范式的通用 UI 行动层，同时保留结构化 DOM 优先的优势。
 
 建议开发：
 
@@ -170,9 +170,9 @@ ACECode 的 browser bridge 已经走 direct CDP、结构化 `read-page`、截图
 
 适配代码方向：
 
-- `ace-browser-host/`、`ace-browser-bridge/`：action 协议和 trace。
-- `src/tool/ace_browser_bridge/`：工具包装和权限。
-- `docs/ace-browser-bridge.md`：使用模型和安全边界。
+- `src/desktop/agent_browser_host.*`：原生浏览器生命周期与 Desktop 可见页面。
+- `src/tool/agent_browser/`：CDP 代理、工具包装和权限。
+- `docs/agent-browser.md`：使用模型、安全边界和平台支持。
 
 候选 OpenSpec：`browser-computer-use-runtime`
 

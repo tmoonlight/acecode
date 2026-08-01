@@ -125,8 +125,9 @@ const transcriptSource = (await import('node:fs')).readFileSync(
 
 run('架构: pill 读 git info 走共享缓存,且不可渲染时不发请求', () => {
   assert.match(pillSource, /import \{ gitInfoCache \} from '\.\.\/lib\/gitInfoCache\.js'/);
+  assert.match(pillSource, /gitInfoCache\.peek\(api, cwd\)/);
   assert.match(pillSource, /gitInfoCache\.get\(api, target\)/);
-  assert.match(pillSource, /gitInfoCache\.invalidate\(api, target\)/);
+  assert.match(pillSource, /gitInfoCache\.refresh\(api, target\)/);
   // 不许绕过缓存直接打接口
   assert.doesNotMatch(pillSource, /api\.gitInfo\(/);
   // 可见性短路:先算 pillCouldRender,effect 里据此提前 return

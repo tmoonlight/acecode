@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createApi } from './api.js';
-import { createGitInfoCache } from './gitInfoCache.js';
+import { createGitInfoCache, refreshWorkspaceGitInfo } from './gitInfoCache.js';
 import { SESSION_HOVER_GIT_CACHE_TTL_MS } from './sessionHoverDetails.js';
 
 async function test(name, fn) {
@@ -61,6 +61,84 @@ await test('same effective connection shares in-flight and fresh Git info across
   timestamp += SESSION_HOVER_GIT_CACHE_TTL_MS + 1;
   assert.equal((await cache.get(firstClient, 'C:/repo')).branch, 'reloaded');
   assert.equal(calls, 2);
+});
+
+await test('peek exposes only a fresh completed value synchronously', async () => {
+  let timestamp = 2_000;
+  let calls = 0;
+  const client = clientWithGitInfo(
+    { origin: 'http://daemon.test', token: 'token' },
+    async () => ({ is_repo: true, branch: `branch-${++calls}` }),
+  );
+  const cache = createGitInfoCache({ now: () => timestamp });
+
+  const pending = cache.get(client, 'C:/repo');
+  assert.equal(cache.peek(client, 'C:/repo'), undefined);
+  const loaded = await pending;
+  assert.strictEqual(cache.peek(client, 'C:/repo'), loaded);
+
+  timestamp += SESSION_HOVER_GIT_CACHE_TTL_MS;
+  assert.strictEqual(cache.peek(client, 'C:/repo'), loaded);
+  timestamp += 1;
+  assert.equal(cache.peek(client, 'C:/repo'), undefined);
+});
+
+await test('refresh bypasses a completed value, joins in-flight work, and restarts the TTL', async () => {
+  let timestamp = 3_000;
+  let calls = 0;
+  let releaseRefresh;
+  const client = clientWithGitInfo(
+    { origin: 'http://daemon.test', token: 'token' },
+    async () => {
+      calls += 1;
+      if (calls === 1) return { is_repo: true, branch: 'cached' };
+      if (calls === 2) {
+        return new Promise((resolve) => {
+          releaseRefresh = () => resolve({ is_repo: true, branch: 'refreshed' });
+        });
+      }
+      return { is_repo: true, branch: 'after-expiry' };
+    },
+  );
+  const cache = createGitInfoCache({ now: () => timestamp });
+
+  await cache.get(client, 'C:/repo');
+  timestamp = 8_000;
+  const refresh = cache.refresh(client, 'C:/repo');
+  const joined = cache.refresh(client, 'C:/repo');
+  assert.strictEqual(joined, refresh);
+  assert.equal(calls, 2);
+  assert.equal(cache.peek(client, 'C:/repo').branch, 'cached');
+
+  timestamp = 12_000;
+  releaseRefresh();
+  assert.equal((await refresh).branch, 'refreshed');
+  assert.equal((await cache.get(client, 'C:/repo')).branch, 'refreshed');
+  assert.equal(calls, 2);
+
+  timestamp += SESSION_HOVER_GIT_CACHE_TTL_MS + 1;
+  assert.equal((await cache.get(client, 'C:/repo')).branch, 'after-expiry');
+  assert.equal(calls, 3);
+});
+
+await test('workspace refresh skips private or empty contexts and warms a real workspace', async () => {
+  let calls = 0;
+  const client = clientWithGitInfo(
+    { origin: 'http://workspace-refresh.test', token: 'token' },
+    async (cwd) => {
+      calls += 1;
+      return { is_repo: true, branch: cwd };
+    },
+  );
+
+  assert.equal(await refreshWorkspaceGitInfo(client, { noWorkspace: true, cwd: 'C:/private' }), null);
+  assert.equal(await refreshWorkspaceGitInfo(client, { cwd: '   ' }), null);
+  assert.equal(calls, 0);
+  assert.equal(
+    (await refreshWorkspaceGitInfo(client, { cwd: 'C:/repo' })).branch,
+    'C:/repo',
+  );
+  assert.equal(calls, 1);
 });
 
 await test('same cwd is isolated between daemon origins', async () => {

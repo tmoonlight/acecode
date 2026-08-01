@@ -92,6 +92,7 @@ import {
 } from '../lib/transcriptSelfHeal.js';
 import { usePreference } from '../lib/usePreference.js';
 import { pickExistingWorkspace } from '../lib/workspacePicker.js';
+import { refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
 import {
   DEFAULT_HOME_WORKSPACE_SELECTION,
   HOME_WORKSPACE_SELECTION_STORAGE_KEY,
@@ -164,6 +165,7 @@ import {
   closeVisiblePreviewTabs,
   closeVisiblePreviewTabsConfirmationMessage,
   openFileTab,
+  openBrowserTab,
   openGitChangesTab,
   openSessionChangesTab,
   previewFileLocation,
@@ -175,6 +177,15 @@ import {
   updateSessionChangesTab,
   visiblePreviewTabs,
 } from '../lib/previewTabs.js';
+import {
+  AGENT_BROWSER_STATE_EVENT,
+  agentBrowserActivityFromItems,
+  closeAgentBrowserPage,
+  createAgentBrowserPage,
+  getAgentBrowserState,
+  hasNativeAgentBrowser,
+  selectAgentBrowserPage,
+} from '../lib/agentBrowser.js';
 import { nextAutoPreviewRefresh } from '../lib/previewRefresh.js';
 import {
   CHAT_TAIL_FOLLOW_STATE,
@@ -815,7 +826,12 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   // ref.worktree 合并,避免消息已进入 worktree 但文件面板仍停在主工作区。
   const [localWorktree, setLocalWorktree] = useState(null); // {sid, name, branch, path}
   const sessionWorktree = localWorktree && localWorktree.sid === sid
-    ? { ...(ref?.worktree || {}), ...localWorktree }
+    ? {
+        ...(ref?.worktree || {}),
+        ...localWorktree,
+        branch: localWorktree.branch || ref?.worktree?.branch || '',
+        path: localWorktree.path || ref?.worktree?.path || '',
+      }
     : (ref?.worktree || null);
   const sidePanelFilesEnabled = !(ref?.noWorkspace || ref?.no_workspace);
   const sidePanelCwd = sidePanelFilesEnabled
@@ -1155,6 +1171,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     const target = selectedHomeWorkspace || fallbackWorkspaceOption(ref, health);
     const targetHash = target?.hash || '';
     const targetNoWorkspace = !!target?.noWorkspace;
+    void refreshWorkspaceGitInfo(api, target).catch(() => {});
     const baseOptions = withCreateSessionPreferences(
       createOptions || sessionCreateOptionsForText(text),
       { modelName: homeModelName, permissionMode },
@@ -3496,6 +3513,11 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     () => latestTurnSuccessfulChangedFiles(items),
     [items],
   );
+  const agentBrowserActivity = useMemo(
+    () => agentBrowserActivityFromItems(items),
+    [items],
+  );
+  const [agentBrowserActivePageId, setAgentBrowserActivePageId] = useState('');
   // 每轮「本轮改动文件」列表:collectTurnChangeSetsFromItems 按 user 消息切
   // 回合聚合变更;列表渲染在回合末尾 = 下一个 user 行之前,最后一轮挂在
   // transcript 末尾(tail)。锚定基于 renderedItems(折叠投影后的视图)里的
@@ -3779,6 +3801,94 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     }));
   }, [previewScope, sid, sidePanelCwd, sidePanelCollapsed, onToggleSidePanel]);
 
+  const showBrowserPage = useCallback((pageId, title = '浏览器') => {
+    if (!sid || !pageId) return;
+    if (sidePanelCollapsed) onToggleSidePanel?.();
+    setPreviewTabState((prev) => openBrowserTab(prev, {
+      scopeKey: previewScope,
+      sessionId: sid,
+      pageId,
+      title,
+    }));
+  }, [onToggleSidePanel, previewScope, sid, sidePanelCollapsed]);
+
+  const openBrowserPreview = useCallback(async () => {
+    if (!sid || !hasNativeAgentBrowser()) return;
+    if (sidePanelCollapsed) onToggleSidePanel?.();
+    const created = await createAgentBrowserPage();
+    if (created?.ok === false || !created?.page_id) return;
+    showBrowserPage(created.page_id, created.title || '浏览器');
+  }, [onToggleSidePanel, showBrowserPage, sid, sidePanelCollapsed]);
+
+  const agentBrowserActivationRef = useRef('');
+  useEffect(() => {
+    const activationKey = agentBrowserActivity.activationKey;
+    if (!activationKey || !sid || !hasNativeAgentBrowser()) return;
+    if (!agentBrowserActivity.active) {
+      setAgentBrowserActivePageId('');
+      return;
+    }
+    const scopedKey = `${sid}:${activationKey}`;
+    if (agentBrowserActivationRef.current === scopedKey) return;
+    agentBrowserActivationRef.current = scopedKey;
+    if (agentBrowserActivity.pageId) {
+      setAgentBrowserActivePageId(agentBrowserActivity.pageId);
+      showBrowserPage(agentBrowserActivity.pageId);
+      void selectAgentBrowserPage(agentBrowserActivity.pageId);
+      return;
+    }
+    if (agentBrowserActivity.toolName === 'browser_open') {
+      setAgentBrowserActivePageId('');
+      return;
+    }
+    void getAgentBrowserState().then((state) => {
+      if (!state?.page_id || state.closed) return;
+      setAgentBrowserActivePageId(state.page_id);
+      showBrowserPage(state.page_id, state.title || '浏览器');
+    });
+  }, [
+    agentBrowserActivity.active,
+    agentBrowserActivity.activationKey,
+    agentBrowserActivity.pageId,
+    agentBrowserActivity.toolName,
+    showBrowserPage,
+    sid,
+  ]);
+
+  useEffect(() => {
+    const onBrowserState = (event) => {
+      const detail = event?.detail;
+      const pageId = String(detail?.page_id || '');
+      if (!sid || !pageId) return;
+      const tabKey = `browser:${pageId}`;
+      if (detail.closed) {
+        setPreviewTabState((prev) => closePreviewTab(prev, {
+          scopeKey: previewScope,
+          sessionId: sid,
+          tabKey,
+        }));
+        setAgentBrowserActivePageId((current) => (current === pageId ? '' : current));
+        return;
+      }
+      if (!agentBrowserActivity.active || !detail.active) return;
+      const expected = agentBrowserActivity.pageId || agentBrowserActivePageId;
+      if (expected && expected !== pageId) return;
+      if (!expected && agentBrowserActivity.toolName === 'browser_close') return;
+      setAgentBrowserActivePageId(pageId);
+      showBrowserPage(pageId, detail.title || '浏览器');
+    };
+    window.addEventListener(AGENT_BROWSER_STATE_EVENT, onBrowserState);
+    return () => window.removeEventListener(AGENT_BROWSER_STATE_EVENT, onBrowserState);
+  }, [
+    agentBrowserActivity.active,
+    agentBrowserActivity.pageId,
+    agentBrowserActivity.toolName,
+    agentBrowserActivePageId,
+    previewScope,
+    showBrowserPage,
+    sid,
+  ]);
+
   const openSessionChangePreview = useCallback((filePath) => {
     if (!sid || !filePath) return;
     if (sidePanelCollapsed) onToggleSidePanel?.();
@@ -3813,12 +3923,16 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   }, [sid]);
 
   const activatePreview = useCallback((tabKey) => {
+    const tab = previewTabs.find((candidate) => candidate.key === tabKey);
+    if (tab?.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
+      void selectAgentBrowserPage(tab.pageId);
+    }
     setPreviewTabState((prev) => activatePreviewTab(prev, {
       scopeKey: previewScope,
       sessionId: sid,
       tabKey,
     }));
-  }, [previewScope, sid]);
+  }, [previewScope, previewTabs, sid]);
 
   const refreshPreview = useCallback((tabKey) => {
     setPreviewTabState((prev) => refreshPreviewTab(prev, {
@@ -3842,22 +3956,31 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
 
   const closePreview = useCallback((tabKey) => {
     const closingLastVisibleTab = previewTabs.length <= 1;
+    const tab = previewTabs.find((candidate) => candidate.key === tabKey);
+    if (tab?.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
+      void closeAgentBrowserPage(tab.pageId);
+    }
     setPreviewTabState((prev) => closePreviewTab(prev, {
       scopeKey: previewScope,
       sessionId: sid,
       tabKey,
     }));
     if (closingLastVisibleTab && sidePanelMaximized) onToggleSidePanelMaximized?.();
-  }, [onToggleSidePanelMaximized, previewScope, previewTabs.length, sid, sidePanelMaximized]);
+  }, [onToggleSidePanelMaximized, previewScope, previewTabs, sid, sidePanelMaximized]);
 
   const closePreviewPanelConfirmed = useCallback(() => {
     setPreviewCloseConfirm(null);
+    previewTabs.forEach((tab) => {
+      if (tab.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
+        void closeAgentBrowserPage(tab.pageId);
+      }
+    });
     setPreviewTabState((prev) => closeVisiblePreviewTabs(prev, {
       scopeKey: previewScope,
       sessionId: sid,
     }));
     if (sidePanelMaximized) onToggleSidePanelMaximized?.();
-  }, [onToggleSidePanelMaximized, previewScope, sid, sidePanelMaximized]);
+  }, [onToggleSidePanelMaximized, previewScope, previewTabs, sid, sidePanelMaximized]);
 
   const closePreviewPanel = useCallback(() => {
     const confirmMessage = closeVisiblePreviewTabsConfirmationMessage(previewTabs.length);
@@ -3869,20 +3992,33 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   }, [closePreviewPanelConfirmed, previewTabs.length]);
 
   const closeOtherPreviews = useCallback((tabKey) => {
+    previewTabs.forEach((tab) => {
+      if (tab.key !== tabKey && tab.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
+        void closeAgentBrowserPage(tab.pageId);
+      }
+    });
     setPreviewTabState((prev) => closeOtherPreviewTabs(prev, {
       scopeKey: previewScope,
       sessionId: sid,
       tabKey,
     }));
-  }, [previewScope, sid]);
+  }, [previewScope, previewTabs, sid]);
 
   const closePreviewsToRight = useCallback((tabKey) => {
+    const tabIndex = previewTabs.findIndex((tab) => tab.key === tabKey);
+    if (tabIndex >= 0) {
+      previewTabs.slice(tabIndex + 1).forEach((tab) => {
+        if (tab.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
+          void closeAgentBrowserPage(tab.pageId);
+        }
+      });
+    }
     setPreviewTabState((prev) => closePreviewTabsToRight(prev, {
       scopeKey: previewScope,
       sessionId: sid,
       tabKey,
     }));
-  }, [previewScope, sid]);
+  }, [previewScope, previewTabs, sid]);
 
   const reorderPreview = useCallback((sourceKey, targetKey, placement) => {
     setPreviewTabState((prev) => reorderPreviewTab(prev, {
@@ -4689,6 +4825,8 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             onReorderTab={reorderPreview}
             onToggleMaximize={onToggleSidePanelMaximized}
             onToggleSidePanelList={onToggleSidePanelList}
+            onOpenBrowser={hasNativeAgentBrowser() ? openBrowserPreview : null}
+            agentBrowserActive={agentBrowserActivity.active ? agentBrowserActivePageId : ''}
             onSelectChangeFile={openSessionChangePreview}
             onSelectGitChangeFile={openGitChangePreview}
             onOpenFilePreview={openFilePreview}

@@ -22,6 +22,34 @@ target_include_directories(acecode_unit_tests PRIVATE
     ${CMAKE_BINARY_DIR}/generated
 )
 
+# Manual, opt-in Windows runtime smoke. It owns an isolated top-level HWND and
+# proves that the native Browser host proxies CDP to the exact visible WebView2
+# page without an external debug port or ACECode host bindings in web content.
+if(WIN32 AND ACECODE_BUILD_DESKTOP)
+    add_executable(agent_browser_host_smoke EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/desktop/helpers/agent_browser_host_smoke.cpp
+        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
+        ${CMAKE_SOURCE_DIR}/src/tool/agent_browser/cdp_client.cpp
+    )
+    target_include_directories(agent_browser_host_smoke PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(agent_browser_host_smoke PRIVATE
+        acecode_desktop_support
+        acecode_native_bridge_support
+        webview::core
+        cpr::cpr
+        nlohmann_json::nlohmann_json
+        ole32 user32 ws2_32
+    )
+    if(MSVC)
+        set_target_properties(agent_browser_host_smoke PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        )
+    endif()
+endif()
+
 if(APPLE)
     # Manual, opt-in runtime check. Run the bundle executable directly so its
     # authorization state and click callback remain visible in the terminal.

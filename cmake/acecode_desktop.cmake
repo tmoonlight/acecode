@@ -38,6 +38,7 @@ FetchContent_MakeAvailable(webview)
 # helper 由根 CMakeLists.txt 里的 focused support target 提供,避免链接
 # acecode_testable 把 agent/TUI/web assets 全部拖入桌面壳。
 set(ACECODE_DESKTOP_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/main.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/splash_screen.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp

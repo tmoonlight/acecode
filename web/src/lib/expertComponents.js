@@ -12,6 +12,62 @@ export const EXPERT_SORTS = Object.freeze([
 ]);
 export const CAPABILITY_KINDS = Object.freeze(['skills', 'mcp_servers', 'tools']);
 
+const BUILTIN_TOOL_GROUP_RULES = Object.freeze([
+  Object.freeze({
+    id: 'files',
+    label: '文件与代码',
+    prefixes: Object.freeze(['file_']),
+    toolIds: Object.freeze(['grep', 'glob', 'lsp']),
+  }),
+  Object.freeze({
+    id: 'command_workspace',
+    label: '命令与工作区',
+    prefixes: Object.freeze([]),
+    toolIds: Object.freeze(['bash', 'enterworktree', 'exitworktree']),
+  }),
+  Object.freeze({
+    id: 'browser',
+    label: '浏览器',
+    prefixes: Object.freeze(['browser_']),
+    toolIds: Object.freeze([]),
+  }),
+  Object.freeze({
+    id: 'search_visual',
+    label: '搜索与视觉',
+    prefixes: Object.freeze([]),
+    toolIds: Object.freeze(['web_search', 'show_image', 'vision_analyze']),
+  }),
+  Object.freeze({
+    id: 'planning',
+    label: '计划与任务',
+    prefixes: Object.freeze([]),
+    toolIds: Object.freeze([
+      'task_complete',
+      'todowrite',
+      'get_goal',
+      'create_goal',
+      'update_goal',
+      'enterplanmode',
+      'exitplanmode',
+      'askuserquestion',
+    ]),
+  }),
+  Object.freeze({
+    id: 'skills_collaboration',
+    label: '技能与协作',
+    prefixes: Object.freeze([]),
+    toolIds: Object.freeze(['skills_list', 'skill_view', 'spawn_subagent', 'wait_subagent']),
+  }),
+  Object.freeze({
+    id: 'memory_context',
+    label: '记忆与上下文',
+    prefixes: Object.freeze(['memory_']),
+    toolIds: Object.freeze([]),
+  }),
+]);
+
+const BUILTIN_TOOL_FALLBACK_GROUP = Object.freeze({ id: 'other', label: '其他工具' });
+
 export function normalizeStringList(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
@@ -422,6 +478,35 @@ export function capabilityOptionsWithSaved(options, selectedIds, kind) {
   return normalized;
 }
 
+function builtinToolGroupForId(id) {
+  const normalizedId = String(id || '').trim().toLocaleLowerCase();
+  return BUILTIN_TOOL_GROUP_RULES.find((group) => (
+    group.toolIds.includes(normalizedId)
+      || group.prefixes.some((prefix) => normalizedId.startsWith(prefix))
+  )) || BUILTIN_TOOL_FALLBACK_GROUP;
+}
+
+export function groupBuiltinToolOptions(options) {
+  const buckets = new Map([
+    ...BUILTIN_TOOL_GROUP_RULES.map((group) => [group.id, { id: group.id, label: group.label, options: [] }]),
+    [BUILTIN_TOOL_FALLBACK_GROUP.id, {
+      id: BUILTIN_TOOL_FALLBACK_GROUP.id,
+      label: BUILTIN_TOOL_FALLBACK_GROUP.label,
+      options: [],
+    }],
+  ]);
+  const seen = new Set();
+  for (const value of Array.isArray(options) ? options : []) {
+    const option = normalizeCapabilityOption(value, 'tools');
+    if (!option || seen.has(option.id)) continue;
+    seen.add(option.id);
+    buckets.get(builtinToolGroupForId(option.id).id).options.push(option);
+  }
+  return [...BUILTIN_TOOL_GROUP_RULES, BUILTIN_TOOL_FALLBACK_GROUP]
+    .map((group) => buckets.get(group.id))
+    .filter((group) => group.options.length > 0);
+}
+
 export function setCapabilityScopeMode(capabilities, kind, mode, defaultIds = []) {
   const next = normalizeExpertCapabilities(capabilities);
   if (!CAPABILITY_KINDS.includes(kind)) return next;
@@ -438,6 +523,26 @@ export function toggleCapabilitySelection(capabilities, kind, id) {
   next[kind] = selected.includes(id)
     ? selected.filter((item) => item !== id)
     : [...selected, id];
+  return next;
+}
+
+export function setCapabilitySelectionBatch(capabilities, kind, ids, checked) {
+  const next = setCapabilityScopeMode(capabilities, kind, 'custom');
+  if (!CAPABILITY_KINDS.includes(kind)) return next;
+  const selected = normalizeStringList(next[kind]);
+  const targets = normalizeStringList(ids);
+  if (!checked) {
+    const removed = new Set(targets);
+    next[kind] = selected.filter((id) => !removed.has(id));
+    return next;
+  }
+  const existing = new Set(selected);
+  next[kind] = [...selected];
+  for (const id of targets) {
+    if (existing.has(id)) continue;
+    existing.add(id);
+    next[kind].push(id);
+  }
   return next;
 }
 

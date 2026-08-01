@@ -28,7 +28,9 @@ export function GitSessionPill({
   busy = false,
   onIntentChange = null,
 }) {
-  const [gitInfo, setGitInfo] = useState(null);
+  const [gitInfo, setGitInfo] = useState(
+    () => gitInfoCache.peek(api, cwd) ?? null,
+  );
   const [open, setOpen] = useState(false);
   const [worktreeChecked, setWorktreeChecked] = useState(false);
   const [selectedBase, setSelectedBase] = useState('');
@@ -52,20 +54,22 @@ export function GitSessionPill({
   const refreshInfo = useCallback(({ force = false } = {}) => {
     const target = cwdRef.current;
     if (!target) { setGitInfo(null); return; }
-    if (force) gitInfoCache.invalidate(api, target);
-    gitInfoCache.get(api, target)
+    const request = force
+      ? gitInfoCache.refresh(api, target)
+      : gitInfoCache.get(api, target);
+    request
       .then((info) => { if (cwdRef.current === target) setGitInfo(info); })
       .catch(() => { if (cwdRef.current === target) setGitInfo(null); });
   }, [api]);
 
   // cwd 变化(切 workspace)重拉;非仓库时 pill 整体不渲染(零占位)。
   useEffect(() => {
-    setGitInfo(null);
+    setGitInfo(gitInfoCache.peek(api, cwdRef.current) ?? null);
     setWorktreeChecked(false);
     setSelectedBase('');
     if (!pillCouldRender) return;
     refreshInfo();
-  }, [cwd, pillCouldRender, refreshInfo]);
+  }, [api, cwd, pillCouldRender, refreshInfo]);
 
   // 把待生效意图同步给父组件(首条消息发送时读取)。
   useEffect(() => {

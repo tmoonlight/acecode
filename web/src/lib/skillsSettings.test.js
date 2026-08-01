@@ -8,6 +8,9 @@
 //  - skillsEnabledSummary 的 N/M 文案
 
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   enabledRatioLabel,
   filterSkills,
@@ -26,6 +29,14 @@ function run(name, fn) {
     console.error(`[fail] ${name}`);
     throw error;
   }
+}
+
+function between(text, start, end) {
+  const from = text.indexOf(start);
+  const to = text.indexOf(end, from + start.length);
+  assert.notEqual(from, -1, `missing start marker: ${start}`);
+  assert.notEqual(to, -1, `missing end marker: ${end}`);
+  return text.slice(from, to);
 }
 
 run('normalizeSkillList 非数组输入返回空数组', () => {
@@ -123,4 +134,24 @@ run('workspaceAutoExpand 搜索命中已加载的工作区才自动展开', () =
   assert.equal(workspaceAutoExpand(wsSkills, 'no-hit'), false);
   // 未加载(null)不展开 — 防止搜索时所有工作区无脑弹开
   assert.equal(workspaceAutoExpand(null, '铁路'), false);
+});
+
+run('技能设置以响应式卡片网格复用全局和工作区条目', () => {
+  const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const settings = fs.readFileSync(path.join(srcRoot, 'components', 'SettingsPage.jsx'), 'utf8');
+  const cards = between(settings, 'function SkillCard(', '// 单个工作区的折叠组');
+  const workspace = between(settings, 'function WorkspaceSkillGroup(', 'function SectionSkills(');
+  const section = between(settings, 'function SectionSkills(', 'function SectionMCP(');
+
+  assert.match(cards, /data-skill-card="true"/);
+  assert.match(cards, /data-skill-card-grid="true"/);
+  assert.match(cards, /lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4/);
+  assert.match(cards, /border-accent\/40 bg-accent-bg/);
+  assert.doesNotMatch(cards, /shadow-\[inset_[^\]]+\]/);
+  assert.doesNotMatch(cards, /border-l-(?:accent|\[[^\]]+\])/);
+  assert.match(cards, /line-clamp-4/);
+  assert.match(cards, /ariaLabel=\{`切换技能 \$\{skill\.name\}`\}/);
+  assert.match(workspace, /<SkillCardGrid skills=\{shown\}/);
+  assert.match(section, /<SkillCardGrid skills=\{filteredGlobal\}/);
+  assert.doesNotMatch(settings, /function SkillRow\(/);
 });

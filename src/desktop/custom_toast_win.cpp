@@ -280,6 +280,7 @@ public:
         stack_collapse_pos_ = 1.0f;
         ease_in_start_ = ::GetTickCount();
         ease_in_active_ = true;
+        schedule_dismissal();
     }
 
     void set_vertical_position(int vertical_offset) {
@@ -302,16 +303,7 @@ public:
 
     // Starts the fade-out. Further input is ignored but mouse messages keep
     // flowing so the stack does not collapse under the cursor.
-    void dismiss() {
-        if (interactive_) {
-            interactive_ = false;
-            ::KillTimer(hwnd_, kDismissTimerId);
-            if (!ease_out_active_) {
-                ease_out_start_ = ::GetTickCount();
-                ease_out_active_ = true;
-            }
-        }
-    }
+    void dismiss();
 
     HDWP animate(HDWP hdwp, const ToastRect& work_area, int margin_x,
                  int margin_y);
@@ -329,7 +321,6 @@ private:
     void apply_surface_and_shadow_alpha();
     void push_contents();
     void schedule_dismissal();
-    void cancel_dismissal();
     void on_mouse_move(POINT cursor);
     void on_mouse_leave();
     void on_click();
@@ -487,6 +478,20 @@ private:
 // ToastWindow implementation
 // ---------------------------------------------------------------------------
 
+void ToastWindow::dismiss() {
+    if (!interactive_) return;
+    interactive_ = false;
+    ::KillTimer(hwnd_, kDismissTimerId);
+    if (!ease_out_active_) {
+        ease_out_start_ = ::GetTickCount();
+        ease_out_active_ = true;
+    }
+    // The controller stops its animation timer once the entrance animation is
+    // complete. Restart it so timer-driven dismissal can actually fade out and
+    // remove the window.
+    controller_.start_animation();
+}
+
 LRESULT CALLBACK ToastWindow::wnd_proc(HWND hwnd, UINT message, WPARAM wparam,
                                        LPARAM lparam) {
     switch (message) {
@@ -539,8 +544,6 @@ void ToastWindow::on_mouse_move(POINT cursor) {
         close_hot_ = close_hot;
         changed = true;
     }
-    // Hovering holds the toast open; the countdown restarts on mouse leave.
-    if (interactive_) cancel_dismissal();
     if (changed) {
         // Hover only repaints — the measured layout is unaffected.
         draw();
@@ -553,7 +556,6 @@ void ToastWindow::on_mouse_leave() {
     close_hot_ = false;
     draw();
     push_contents();
-    if (interactive_ && !ease_in_active_) schedule_dismissal();
     controller_.start_animation();
 }
 
@@ -562,7 +564,6 @@ void ToastWindow::on_click() {
     const bool close_clicked = close_hot_;
     NotifyPayload payload = payload_;
     dismiss();
-    controller_.start_animation();
     if (!close_clicked) {
         // May run arbitrary application code. It never touches this object.
         dispatch_notification_activation(payload);
@@ -570,17 +571,7 @@ void ToastWindow::on_click() {
 }
 
 void ToastWindow::schedule_dismissal() {
-    ULONG duration = 0;
-    if (!::SystemParametersInfoW(SPI_GETMESSAGEDURATION, 0, &duration, 0)) {
-        duration = 0;
-    }
-    const unsigned seconds =
-        clamp_auto_dismiss_seconds(static_cast<unsigned>(duration));
-    ::SetTimer(hwnd_, kDismissTimerId, seconds * 1000, nullptr);
-}
-
-void ToastWindow::cancel_dismissal() {
-    ::KillTimer(hwnd_, kDismissTimerId);
+    ::SetTimer(hwnd_, kDismissTimerId, kAutoDismissTimeoutMs, nullptr);
 }
 
 void ToastWindow::measure_and_resize() {
@@ -829,7 +820,6 @@ HDWP ToastWindow::animate(HDWP hdwp, const ToastRect& work_area, int margin_x,
         ease_in_pos_ = ease_in_position(now - ease_in_start_, kEaseInDurationMs);
         if (ease_in_pos_ >= 1.0f) {
             ease_in_active_ = false;
-            if (interactive_ && !highlighted_) schedule_dismissal();
         }
     }
     if (ease_out_active_) {

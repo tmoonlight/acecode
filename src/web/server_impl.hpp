@@ -35,7 +35,6 @@
 #include "../skills/skill_registry.hpp"
 #include "../experts/expert_registry.hpp"
 #include "../skills/skill_metadata.hpp"
-#include "../tool/ace_browser_bridge/browser_tools.hpp"
 #include "../tool/tool_executor.hpp"
 #include "../upgrade/apply.hpp"
 #include "../upgrade/check.hpp"
@@ -160,8 +159,6 @@ nlohmann::json ui_preferences_to_json(const WebUiPreferencesConfig& cfg);
 nlohmann::json custom_instructions_to_json(const CustomInstructionsConfig& cfg);
 nlohmann::json upgrade_config_to_json(const UpgradeConfig& cfg);
 nlohmann::json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result);
-nlohmann::json ace_browser_bridge_settings_to_json(const AceBrowserBridgeConfig& cfg);
-
 bool cwd_is_directory(const std::string& cwd);
 bool has_non_whitespace(const std::string& value);
 std::string json_string_field(const nlohmann::json& object, const char* key);

@@ -134,6 +134,11 @@ Session list endpoints return arrays of objects shaped like:
   "deleted": false,
   "message_count": 12,
   "turn_count": 4,
+  "worktree": {
+    "name": "ses-session-id",
+    "branch": "worktree-ses-session-id",
+    "path": "C:/repo/.acecode/worktrees/ses-session-id"
+  },
   "permission_mode": "default",
   "token_usage": null,
   "session_token_usage": null,
@@ -150,7 +155,10 @@ Session list endpoints return arrays of objects shaped like:
 }
 ```
 
-Some fields are omitted when empty, especially `todos` and token usage.
+Some fields are omitted when empty, especially `worktree`, `todos`, and token
+usage. For a managed-worktree session, top-level `cwd` intentionally remains
+the workspace/session-storage root. `worktree.path` is the active absolute
+working root used by file, Git, LSP, and path-reference surfaces.
 
 ### Token usage
 
@@ -316,8 +324,6 @@ when known.
 | POST | `/api/update/start` | start explicit WebUI update job |
 | GET | `/api/update/job` | read latest WebUI update job |
 | GET | `/api/update/jobs/:id` | poll one WebUI update job |
-| GET | `/api/config/ace-browser-bridge` | read browser bridge settings |
-| PUT | `/api/config/ace-browser-bridge` | write browser bridge settings |
 | GET | `/api/mcp` | read MCP config |
 | PUT | `/api/mcp` | write MCP config |
 | POST | `/api/mcp/reload` | currently returns 501 |
@@ -890,6 +896,22 @@ Before enqueuing, the daemon creates (or fast-resumes) a worktree named
 `ses-<session id>` based on `base` (a local branch; empty
 falls back to the default `origin/<default-branch>` baseline) via the same
 machinery as the `EnterWorktree` tool, then switches the session cwd into it.
+The accepted response exposes the working root immediately:
+
+```json
+{
+  "queued": true,
+  "worktree": {
+    "name": "ses-session-id",
+    "branch": "worktree-ses-session-id",
+    "path": "C:/repo/.acecode/worktrees/ses-session-id"
+  }
+}
+```
+
+Ordinary message submissions without worktree creation keep returning
+`202 {"queued":true}`.
+
 Session storage location does not move. Failures abort the request without
 enqueuing: `404` unknown session, `409` session busy, `400` session already
 has messages / already in a worktree / invalid or missing base branch,
@@ -2054,46 +2076,6 @@ single-instance guard, and launch the newly installed desktop executable.
 Choosing restart later leaves the current process running. Normal browser and
 Edge-app compatibility clients do not own the desktop lifecycle, so they show
 manual full-exit-and-relaunch guidance instead of an automatic restart action.
-
-### `GET /api/config/ace-browser-bridge`
-
-Returns browser bridge tool settings:
-
-```json
-{
-  "enabled": true,
-  "tool_mode": "native",
-  "default_mode": "auto",
-  "pointer_speed": 1.0,
-  "status_cache_ttl_ms": 1000,
-  "tool_timeout_ms": 60000,
-  "os_pointer_enabled": true,
-  "tab_group_enabled": true,
-  "operation_overlay_enabled": true,
-  "operation_overlay_watchdog_ms": 10000,
-  "pointer_custom": {
-    "move_duration_ms_min": 80,
-    "move_duration_ms_max": 240,
-    "click_hold_ms_min": 40,
-    "click_hold_ms_max": 120,
-    "typing_delay_ms_min": 0,
-    "typing_delay_ms_max": 20,
-    "jitter_px": 1,
-    "max_path_points": 48
-  }
-}
-```
-
-### `PUT /api/config/ace-browser-bridge`
-
-Body:
-
-```json
-{"enabled":true}
-```
-
-Persists `enabled`, unregisters existing bridge tools, and registers them again
-when enabled. The response is the full bridge settings object.
 
 ### `GET /api/mcp`
 

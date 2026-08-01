@@ -317,37 +317,6 @@ struct RemoteControlConfig {
     std::map<std::string, ChannelPluginConfig> channels;
 };
 
-struct AceBrowserPointerCustomConfig {
-    int move_duration_ms_min = 180;
-    int move_duration_ms_max = 650;
-    int click_hold_ms_min = 45;
-    int click_hold_ms_max = 120;
-    int typing_delay_ms_min = 20;
-    int typing_delay_ms_max = 90;
-    double jitter_px = 2.0;
-    int max_path_points = 80;
-};
-
-struct AceBrowserBridgeConfig {
-    bool enabled = false;
-    // Deprecated compatibility override. New configs do not write this field;
-    // the client resolves ace-browser-host next to the acecode executable.
-    std::string host_path;
-    // "progressive" | "compact" | "full"
-    std::string tool_mode = "progressive";
-    // "auto" | "dom" | "cdp" | "os"
-    std::string default_mode = "auto";
-    // "fast" | "normal" | "slow" | "custom"
-    std::string pointer_speed = "normal";
-    AceBrowserPointerCustomConfig pointer_custom;
-    int status_cache_ttl_ms = 2000;
-    int tool_timeout_ms = 30000;
-    bool os_pointer_enabled = false;
-    bool tab_group_enabled = true;
-    bool operation_overlay_enabled = true;
-    int operation_overlay_watchdog_ms = 10000;
-};
-
 struct UpgradeConfig {
     std::string base_url = "http://2017studio.imwork.net:82/aupdate/";
     int timeout_ms = 30000;
@@ -458,7 +427,6 @@ struct AppConfig {
     WorktreeConfig worktree;                     // worktree 隔离(enter_worktree / --worktree)
     GitContextConfig git_context;                // git 感知(参见 add-git-context)
     RemoteControlConfig remote_control;          // TUI /remote-control channel 托管
-    AceBrowserBridgeConfig ace_browser_bridge;   // browser bridge tools integration
     UpgradeConfig upgrade;                       // explicit self-upgrade command config
     TuiConfig tui;                               // 终端渲染策略(legacy fallback 等)
     DesktopConfig desktop;                       // desktop shell 配置(系统通知等)

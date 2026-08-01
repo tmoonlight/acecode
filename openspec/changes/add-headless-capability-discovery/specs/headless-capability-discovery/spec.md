@@ -15,8 +15,8 @@ for a default headless invocation.
 
 #### Scenario: Configuration changes the default tool set
 
-- **WHEN** a configuration-controlled built-in capability such as web search,
-  LSP, or the browser bridge is disabled
+- **WHEN** a configuration-controlled built-in capability such as web search or
+  LSP is disabled, or a platform-only capability such as Agent Browser is unsupported
 - **THEN** its unregistered tool names are absent from `--list-tools`
 
 ### Requirement: Headless Skill discovery

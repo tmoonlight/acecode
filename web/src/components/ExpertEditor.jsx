@@ -6,9 +6,11 @@ import {
   collectExpertTags,
   expertPayloadFromForm,
   filterExperts,
+  groupBuiltinToolOptions,
   normalizeCapabilityCatalog,
   normalizeStringList,
   selectedTeamMemberRows,
+  setCapabilitySelectionBatch,
   setCapabilityScopeMode,
   singleExpertsForTeam,
   toggleCapabilitySelection,
@@ -324,7 +326,20 @@ function ToolScope({
   inherited,
   onToggleInherited,
   onToggle,
+  onToggleGroup,
 }) {
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const groups = useMemo(() => groupBuiltinToolOptions(options), [options]);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const toggleExpanded = (groupId) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
   return (
     <section className="rounded-lg border border-border bg-surface">
       <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2.5">
@@ -343,38 +358,105 @@ function ToolScope({
           />
         </label>
       </div>
-      <div className="grid grid-cols-1 gap-px bg-border sm:grid-cols-2">
-        {options.map((option) => {
-          const checked = selected.includes(option.id);
-          const canRemove = checked && !inherited;
-          const disabled = inherited
-            || (!canRemove && (!option.expert_selectable || !option.configurable));
-          const status = capabilityStatus(option);
+      <div role="tree" aria-label="ACECode 本地工具分类" data-expert-tool-tree="true">
+        {groups.length > 0 ? groups.map((group) => {
+          const expanded = expandedGroups.has(group.id);
+          const selectedOptions = group.options.filter((option) => selectedSet.has(option.id));
+          const mutableOptions = group.options.filter((option) => (
+            selectedSet.has(option.id) || (option.expert_selectable && option.configurable)
+          ));
+          const selectedMutableCount = mutableOptions.filter((option) => selectedSet.has(option.id)).length;
+          const checked = mutableOptions.length > 0 && selectedMutableCount === mutableOptions.length;
+          const indeterminate = selectedMutableCount > 0 && !checked;
+          const groupDisabled = inherited || mutableOptions.length === 0;
+          const selectableIds = group.options
+            .filter((option) => option.expert_selectable && option.configurable)
+            .map((option) => option.id);
+          const selectedIds = selectedOptions.map((option) => option.id);
           return (
-            <label
-              key={option.id}
-              className={clsx(
-                'flex min-h-[54px] items-start gap-2.5 bg-surface px-3 py-2',
-                disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer hover:bg-surface-hi',
-              )}
+            <div
+              key={group.id}
+              role="treeitem"
+              aria-expanded={expanded}
+              className="border-b border-border last:border-b-0"
             >
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={disabled}
-                onChange={() => onToggle(option.id)}
-                aria-label={`${checked ? '关闭' : '开启'}本地工具 ${option.label}`}
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--ace-accent)]"
-              />
-              <span className="min-w-0 flex-1">
-                <div className="truncate text-[11px] font-medium text-fg">{option.label}</div>
-                <div className={clsx('mt-0.5 truncate text-[9px]', status.className)}>
-                  {capabilityDisabledReason(option) || status.label}
+              <div className="flex min-h-10 items-center gap-2 px-2.5 py-1.5 hover:bg-surface-hi">
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(group.id)}
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? '收起' : '展开'}${group.label}`}
+                  className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
+                  <VsIcon
+                    name={expanded ? 'expandDown' : 'expandRight'}
+                    size={13}
+                    className="shrink-0 text-fg-mute"
+                  />
+                  <span className="truncate text-[11px] font-medium text-fg">{group.label}</span>
+                  <span className="shrink-0 text-[9px] text-fg-mute">
+                    {selectedOptions.length} / {group.options.length}
+                  </span>
+                </button>
+                <input
+                  ref={(element) => {
+                    if (element) element.indeterminate = indeterminate;
+                  }}
+                  type="checkbox"
+                  checked={checked}
+                  aria-checked={indeterminate ? 'mixed' : checked}
+                  disabled={groupDisabled}
+                  onChange={() => onToggleGroup(
+                    checked ? selectedIds : selectableIds,
+                    !checked,
+                  )}
+                  aria-label={`${checked ? '取消全选' : '全选'}${group.label}分组`}
+                  className="h-3.5 w-3.5 shrink-0 accent-[var(--ace-accent)] disabled:opacity-50"
+                />
+              </div>
+              {expanded && (
+                <div role="group" className="border-t border-border bg-surface-alt pl-6">
+                  {group.options.map((option) => {
+                    const optionChecked = selectedSet.has(option.id);
+                    const canRemove = optionChecked && !inherited;
+                    const disabled = inherited
+                      || (!canRemove && (!option.expert_selectable || !option.configurable));
+                    const status = capabilityStatus(option);
+                    return (
+                      <div key={option.id} role="treeitem" className="border-l border-border">
+                        <label
+                          className={clsx(
+                            'flex min-h-[48px] items-start gap-2.5 px-3 py-2 transition',
+                            disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer hover:bg-surface-hi',
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={optionChecked}
+                            disabled={disabled}
+                            onChange={() => onToggle(option.id)}
+                            aria-label={`${optionChecked ? '关闭' : '开启'}本地工具 ${option.label}`}
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--ace-accent)]"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[11px] font-medium text-fg">{option.label}</span>
+                            <span className={clsx('mt-0.5 block truncate text-[9px]', status.className)}>
+                              {capabilityDisabledReason(option) || status.label}
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    );
+                  })}
                 </div>
-              </span>
-            </label>
+              )}
+            </div>
           );
-        })}
+        }) : (
+          <div className="flex h-20 items-center justify-center text-[11px] text-fg-mute">
+            暂无可配置的本地工具
+          </div>
+        )}
       </div>
     </section>
   );
@@ -412,6 +494,9 @@ function AdvancedEditor({
     ));
   };
   const toggle = (kind, id) => updateCapabilities(toggleCapabilitySelection(capabilities, kind, id));
+  const toggleToolGroup = (ids, checked) => updateCapabilities(
+    setCapabilitySelectionBatch(capabilities, 'tools', ids, checked),
+  );
   const total = CAPABILITY_KINDS.reduce(
     (sum, kind) => sum + (inherited(kind) ? 0 : storedSelected(kind).length),
     0,
@@ -471,6 +556,7 @@ function AdvancedEditor({
             inherited={inherited('tools')}
             onToggleInherited={(on) => setInherited('tools', on)}
             onToggle={(id) => toggle('tools', id)}
+            onToggleGroup={toggleToolGroup}
           />
         </div>
       )}

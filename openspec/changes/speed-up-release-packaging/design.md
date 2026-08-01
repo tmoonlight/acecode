@@ -2,7 +2,7 @@
 
 The package workflow builds six current platform archives, two old-glibc Linux archives, debug symbols, a browser extension, GitHub Release assets, and npm packages. Recent runs show that dependency installation and native compilation dominate the critical path; compression and release upload take only seconds. The workflow currently relies on `run-vcpkg` setting the removed `x-gha` backend, rebuilds the Web UI in every native job, runs the full matrix for pull requests, `master`, and tags, and configures `amd64_arm64` tools on an ARM64 Windows runner.
 
-The published filenames, combined CLI/desktop/browser-host layout, old-Linux ABI checks, debug artifacts, npm package set, and tag release behavior are compatibility constraints.
+The published filenames, combined CLI/desktop layout, old-Linux ABI checks, debug artifacts, npm package set, and tag release behavior are compatibility constraints.
 
 ## Goals / Non-Goals
 
