@@ -139,6 +139,9 @@ struct ParsedSessionUserInputRequest {
     UserInput input;
     bool worktree_create = false;
     std::string worktree_base;
+    std::string worktree_path;
+    std::string worktree_name;
+    std::string worktree_branch;
     std::string expected_turn_id;
 };
 

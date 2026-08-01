@@ -1172,6 +1172,62 @@ body {
 .ace-composer-card {
   container-type: inline-size;
 }
+.ace-goal-status-bar {
+  position: relative;
+  z-index: 0;
+  min-width: 0;
+  margin-inline: 18px;
+  margin-bottom: -1px;
+  overflow: hidden;
+  border: 1px solid var(--ace-border);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--ace-surface);
+}
+.ace-goal-status-row {
+  min-height: 42px;
+  padding: 6px 8px 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ace-goal-status-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+.ace-goal-status-objective {
+  max-height: 120px;
+  overflow-y: auto;
+  border-top: 1px solid var(--ace-border-soft);
+  padding: 0 12px 9px 36px;
+  color: var(--ace-fg-mute);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+}
+.ace-goal-status-bar + .ace-composer-card {
+  z-index: 1;
+}
+@media (max-width: 560px) {
+  .ace-goal-status-bar {
+    margin-inline: 8px;
+  }
+  .ace-goal-status-row {
+    padding-left: 9px;
+    gap: 5px;
+  }
+  .ace-goal-status-actions {
+    gap: 1px;
+  }
+  .ace-goal-status-objective {
+    padding-left: 33px;
+  }
+}
 .ace-composer-session-footer {
   position: relative;
   display: grid;

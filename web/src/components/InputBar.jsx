@@ -16,6 +16,7 @@ import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { SelectionAnnotationBadge } from './SelectionAnnotationBadge.jsx';
 import { ComposerSessionControls } from './ComposerSessionControls.jsx';
 import { ExpertAvatar, compactExpertSummary } from './ExpertCatalog.jsx';
+import { GoalStatusBar } from './GoalStatusBar.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import { SwarmModeIcon } from './SwarmModeIcon.jsx';
 import { RichComposer } from './RichComposer.jsx';
@@ -126,7 +127,9 @@ function ComposerSelectionCard({
 }
 
 export const InputBar = forwardRef(function InputBar({
-  disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, goal = null, goalStopping = false, history = [], variant = 'default',
+  disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, goal = null,
+  onGoalEdit, onGoalStatusChange, onGoalClear,
+  history = [], variant = 'default',
   value: controlledValue, onChange,
   attachments = [], contexts = [], annotationPresentations = null,
   onMediaFiles, onRemoveAttachment, onRemoveContext,
@@ -756,7 +759,7 @@ export const InputBar = forwardRef(function InputBar({
   };
 
   const actionState = getInputBarActionState({ value, disabled, busy, hasExtras });
-  const stopControl = getGoalStopControlState({ goal, busy, stopping: goalStopping });
+  const stopControl = getGoalStopControlState({ busy });
   const composerSpacingClass = isHero ? 'px-4 pt-3 pb-1 text-[14px]' : 'px-3 pt-2 pb-1 text-[13px]';
   const hasInlineContexts = otherContextItems.length > 0 || fileAttachments.length > 0;
   const capabilityControl = (
@@ -1018,6 +1021,14 @@ export const InputBar = forwardRef(function InputBar({
         className="hidden"
         onChange={handleFiles}
       />
+      {!isHero && goal && (
+        <GoalStatusBar
+          goal={goal}
+          onEdit={onGoalEdit}
+          onStatusChange={onGoalStatusChange}
+          onClear={onGoalClear}
+        />
+      )}
       <div className={clsx(
         'ace-composer-card relative bg-surface border-[1.5px] border-border focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15 transition',
         isHero ? 'ace-inputbar-hero-card rounded-2xl' : 'rounded-xl',

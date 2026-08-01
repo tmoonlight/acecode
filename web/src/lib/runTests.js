@@ -37,6 +37,7 @@ import './selectionSourceDecorations.test.js';
 import './selectionAnnotationsArchitecture.test.js';
 import './inactiveSelection.test.js';
 import './goalControl.test.js';
+import './goalStatusBarArchitecture.test.js';
 import './chatInputQueue.test.js';
 import './chatScrollFollow.test.js';
 import './chatScrollFollowArchitecture.test.js';

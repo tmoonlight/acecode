@@ -6,34 +6,78 @@ export const PREVIEW_TAB_TYPES = Object.freeze({
   GIT_CHANGES: 'git-changes',
 });
 
-export function previewScopeKey({ cwd = '', workspaceHash = '' } = {}) {
-  return workspaceHash || cwd || '';
-}
-
 function normalizePreviewCwd(cwd = '') {
-  return String(cwd || '')
+  const normalized = String(cwd || '')
     .replace(/\\/g, '/')
     .replace(/^\/\/\?\//, '')
-    .replace(/\/+$/g, '');
+    .replace(/\/+/g, '/');
+  if (normalized === '/' || /^[A-Za-z]:\/$/.test(normalized)) return normalized;
+  return normalized.replace(/\/+$/g, '');
+}
+
+function isAbsolutePreviewPath(path = '') {
+  const normalized = normalizePreviewCwd(path);
+  return normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized);
+}
+
+function relativePathWithin(absolutePath, cwd) {
+  const target = normalizePreviewCwd(absolutePath);
+  const root = normalizePreviewCwd(cwd);
+  if (!target || !root) return null;
+  const caseInsensitive = /^[A-Za-z]:\//.test(target) && /^[A-Za-z]:\//.test(root);
+  const targetKey = caseInsensitive ? target.toLowerCase() : target;
+  const rootKey = caseInsensitive ? root.toLowerCase() : root;
+  if (targetKey === rootKey) return '';
+  const prefix = rootKey.endsWith('/') ? rootKey : `${rootKey}/`;
+  if (!targetKey.startsWith(prefix)) return null;
+  return target.slice(prefix.length);
+}
+
+export function sessionWorkingCwd({ worktree = null, cwd = '', fallbackCwd = '' } = {}) {
+  return normalizePreviewCwd(worktree?.path || cwd || fallbackCwd || '');
+}
+
+export function previewScopeKey({ cwd = '', workspaceHash = '', worktreePath = '' } = {}) {
+  const normalizedWorktree = normalizePreviewCwd(worktreePath);
+  if (normalizedWorktree) return `worktree:${normalizedWorktree}`;
+  return workspaceHash || normalizePreviewCwd(cwd) || '';
 }
 
 export function previewFileLocation({ cwd = '', path = '' } = {}) {
   const normalizedCwd = normalizePreviewCwd(cwd);
-  const normalizedPath = normalizeTreePath(path);
-  if (!normalizedPath) return { cwd: normalizedCwd, path: '' };
-  if (normalizedCwd) return { cwd: normalizedCwd, path: normalizedPath };
+  if (isAbsolutePreviewPath(path)) {
+    const absolutePath = normalizePreviewCwd(path);
+    const relativePath = relativePathWithin(absolutePath, normalizedCwd);
+    if (relativePath != null) {
+      return { cwd: normalizedCwd, path: normalizeTreePath(relativePath) };
+    }
 
-  if (/^[A-Za-z]:\//.test(normalizedPath)) {
-    const slash = normalizedPath.lastIndexOf('/');
-    if (slash > 2 && slash < normalizedPath.length - 1) {
-      return {
-        cwd: normalizedPath.slice(0, slash),
-        path: normalizedPath.slice(slash + 1),
-      };
+    const slash = absolutePath.lastIndexOf('/');
+    if (slash >= 0 && slash < absolutePath.length - 1) {
+      const parent = slash === 0
+        ? '/'
+        : (/^[A-Za-z]:\//.test(absolutePath) && slash === 2
+          ? absolutePath.slice(0, 3)
+          : absolutePath.slice(0, slash));
+      return { cwd: parent, path: absolutePath.slice(slash + 1) };
     }
   }
 
+  const normalizedPath = normalizeTreePath(path);
+  if (!normalizedPath) return { cwd: normalizedCwd, path: '' };
+  if (normalizedCwd) return { cwd: normalizedCwd, path: normalizedPath };
   return { cwd: normalizedCwd, path: normalizedPath };
+}
+
+export function previewAbsolutePath({ cwd = '', path = '' } = {}) {
+  if (isAbsolutePreviewPath(path)) return normalizePreviewCwd(path);
+  const normalizedCwd = normalizePreviewCwd(cwd);
+  const normalizedPath = normalizeTreePath(path);
+  if (!normalizedCwd) return normalizedPath;
+  if (!normalizedPath) return normalizedCwd;
+  return normalizedCwd.endsWith('/')
+    ? `${normalizedCwd}${normalizedPath}`
+    : `${normalizedCwd}/${normalizedPath}`;
 }
 
 export function visiblePreviewTabs(state, { scopeKey = '', sessionId = '' } = {}) {

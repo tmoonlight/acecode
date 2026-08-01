@@ -144,6 +144,9 @@ WebServer::Impl::parse_session_user_input_request(
             result.error = worktree.error;
             return result;
         }
+        result.worktree_path = worktree.worktree_path;
+        result.worktree_name = "ses-" + session_id;
+        result.worktree_branch = worktree.worktree_branch;
     }
 
     std::string original_text = text;
@@ -1021,8 +1024,16 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, std::move(r));
             }
 
+            json body{{"queued", true}};
+            if (!parsed.worktree_path.empty()) {
+                body["worktree"] = {
+                    {"name", parsed.worktree_name},
+                    {"branch", parsed.worktree_branch},
+                    {"path", parsed.worktree_path},
+                };
+            }
             crow::response r(202);
-            r.body = R"({"queued":true})";
+            r.body = body.dump();
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });

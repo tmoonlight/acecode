@@ -627,6 +627,11 @@ std::vector<std::string> WebServer::Impl::allowed_file_cwds() const {
             add(m.cwd);
         }
     }
+    if (deps.session_registry) {
+        for (const auto& session : deps.session_registry->list_active()) {
+            add(session.worktree_path);
+        }
+    }
     return out;
 }
 
@@ -693,6 +698,7 @@ void append_worktree_session(json& target, const WorktreeSessionInfo& worktree) 
     target["worktree"] = {
         {"name", worktree.worktree_name},
         {"branch", worktree.worktree_branch},
+        {"path", worktree.worktree_path},
     };
 }
 
@@ -765,8 +771,14 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
         token_usage_has_values(s.session_token_usage)
             ? s.session_token_usage
             : (m ? m->session_token_usage : TokenUsage{}));
+    WorktreeSessionInfo worktree = m ? m->worktree : WorktreeSessionInfo{};
+    if (!s.worktree_path.empty()) {
+        worktree.worktree_path = s.worktree_path;
+        if (!s.worktree_name.empty()) worktree.worktree_name = s.worktree_name;
+        if (!s.worktree_branch.empty()) worktree.worktree_branch = s.worktree_branch;
+    }
+    append_worktree_session(o, worktree);
     if (m) {
-        append_worktree_session(o, m->worktree);
         append_loop_execution(o, m->loop_id, m->loop_run_id);
     }
     if (!o.contains("loop_execution") && deps.session_registry) {

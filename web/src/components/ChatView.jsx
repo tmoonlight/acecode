@@ -170,6 +170,7 @@ import {
   previewScopeKey,
   refreshPreviewTab,
   reorderPreviewTab,
+  sessionWorkingCwd,
   updateGitChangesTab,
   updateSessionChangesTab,
   visiblePreviewTabs,
@@ -205,7 +206,6 @@ import {
   selectionRangeViewportRect,
 } from '../lib/selectionActionPopover.js';
 import { clearPreviewSelection } from '../lib/inactiveSelection.js';
-import { getGoalStopControlState } from '../lib/goalControl.js';
 import {
   CHANGE_DOCK_DISMISSALS_STORAGE_KEY,
   dismissChangeDockSignature,
@@ -749,7 +749,6 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const [modelRefreshing, setModelRefreshing] = useState(false);
   const [permissionMode, setPermissionMode] = useState('default');
   const [permissionSwitching, setPermissionSwitching] = useState(false);
-  const [goalStopping, setGoalStopping] = useState(false);
   const [reviewRequest, setReviewRequest] = useState(0);
   const [previewTabState, setPreviewTabState] = useState({});
   const [previewCloseConfirm, setPreviewCloseConfirm] = useState(null);
@@ -812,8 +811,20 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const handleGitPillIntentChange = useCallback((intent) => {
     gitPillIntentRef.current = intent || { worktreeChecked: false, selectedBase: '' };
   }, []);
-  // 本会话经首条消息创建的 worktree(客户端态,刷新后回落为分支展示)。
-  const [localWorktree, setLocalWorktree] = useState(null); // {sid, name}
+  // 本会话经首条消息创建的 worktree。响应直接带 path,侧栏刷新后再与
+  // ref.worktree 合并,避免消息已进入 worktree 但文件面板仍停在主工作区。
+  const [localWorktree, setLocalWorktree] = useState(null); // {sid, name, branch, path}
+  const sessionWorktree = localWorktree && localWorktree.sid === sid
+    ? { ...(ref?.worktree || {}), ...localWorktree }
+    : (ref?.worktree || null);
+  const sidePanelFilesEnabled = !(ref?.noWorkspace || ref?.no_workspace);
+  const sidePanelCwd = sidePanelFilesEnabled
+    ? sessionWorkingCwd({
+        worktree: sessionWorktree,
+        cwd: ref?.cwd || '',
+        fallbackCwd: health?.cwd || '',
+      })
+    : '';
   const drainRef = useRef(false);
   // 排队消息从 transcript 中分离出来,只喂给 InputBar 上方的 QueueCardList。
   // transcript 只渲染后端真实落库的消息,避免把"草稿/未发送"和"已发送"混在一起。
@@ -2477,9 +2488,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             const sendPayload = worktreeIntent
               ? { ...payload, worktree: worktreeIntent }
               : payload;
-            await sendInputOrBuiltin(id, sendPayload);
+            const queued = await sendInputOrBuiltin(id, sendPayload);
             if (worktreeIntent) {
-              setLocalWorktree({ sid: id, name: `ses-${id}` });
+              setLocalWorktree({
+                sid: id,
+                name: queued?.worktree?.name || `ses-${id}`,
+                branch: queued?.worktree?.branch || '',
+                path: queued?.worktree?.path || '',
+              });
               const noWorkspace = !!created?.target?.noWorkspace;
               notifySessionListChanged({
                 reason: 'worktree-created',
@@ -2530,9 +2546,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       ? { ...payload, worktree: sessionWorktreeIntent }
       : payload;
     sendInputOrBuiltin(targetSid, sessionSendPayload)
-      .then(() => {
+      .then((queued) => {
         if (sessionWorktreeIntent) {
-          setLocalWorktree({ sid: targetSid, name: `ses-${targetSid}` });
+          setLocalWorktree({
+            sid: targetSid,
+            name: queued?.worktree?.name || `ses-${targetSid}`,
+            branch: queued?.worktree?.branch || '',
+            path: queued?.worktree?.path || '',
+          });
           const noWorkspace = !!(ref?.noWorkspace || ref?.no_workspace);
           notifySessionListChanged({
             reason: 'worktree-created',
@@ -2649,25 +2670,46 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     connection.sendAbort(sid);
   }, [applyEvent, sid]);
 
-  const goalActive = goal?.status === 'active';
-
-  useEffect(() => {
-    if (!goalActive) setGoalStopping(false);
-  }, [goalActive, sid]);
-
   const stopCurrentWork = useCallback(() => {
-    if (!sid) return;
-    const stopControl = getGoalStopControlState({ goal, busy, stopping: goalStopping });
-    if (stopControl.action === 'abort') {
-      abort();
-      return;
+    if (!sid || !busy) return;
+    abort();
+  }, [abort, busy, sid]);
+
+  const runGoalCommand = useCallback(async (action, objective = '') => {
+    if (!sid) throw new Error('当前会话不可用');
+    const commandLabels = {
+      edit: '编辑目标',
+      pause: '暂停目标',
+      resume: '恢复目标',
+      clear: '清除目标',
+    };
+    const label = commandLabels[action];
+    if (!label) throw new Error('不支持的目标操作');
+    const args = action === 'edit' ? `edit ${objective}` : action;
+    try {
+      return await executeBuiltinCommand(sid, {
+        name: 'goal',
+        args,
+        display_text: `/goal ${args}`,
+      });
+    } catch (error) {
+      toast({ kind: 'err', text: `${label}失败：${error?.message || '未知错误'}` });
+      throw error;
     }
-    if (stopControl.action !== 'pause_goal' || goalStopping) return;
-    setGoalStopping(true);
-    api.executeCommand(sid, { name: 'goal', args: 'pause', display_text: '/goal pause' })
-      .catch((e) => toast({ kind: 'err', text: '停止 Goal 失败:' + (e?.message || '') }))
-      .finally(() => setGoalStopping(false));
-  }, [abort, api, busy, goal, goalStopping, sid]);
+  }, [executeBuiltinCommand, sid]);
+
+  const editGoal = useCallback(
+    (objective) => runGoalCommand('edit', objective),
+    [runGoalCommand],
+  );
+  const changeGoalStatus = useCallback(
+    (action) => runGoalCommand(action),
+    [runGoalCommand],
+  );
+  const clearGoal = useCallback(
+    () => runGoalCommand('clear'),
+    [runGoalCommand],
+  );
 
   const selectHomeModel = useCallback(async (name) => {
     const nextName = String(name || '');
@@ -2949,7 +2991,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
         toast({ kind: 'err', text: '无法获取文件路径' });
         return;
       }
-      const cwd = ref?.cwd || health?.cwd || '';
+      const cwd = sidePanelCwd;
       try {
         const text = await api.readFile(cwd, filePath);
         const context = createFileContext({
@@ -2979,7 +3021,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     };
     window.addEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
     return () => window.removeEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
-  }, [api, ref?.cwd, health?.cwd, pinSelectionContext]);
+  }, [api, pinSelectionContext, sidePanelCwd]);
 
   useEffect(() => {
     const handler = (event) => {
@@ -3638,8 +3680,6 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [onQuestionResolve]);
 
-  const sidePanelFilesEnabled = !(ref?.noWorkspace || ref?.no_workspace);
-  const sidePanelCwd = sidePanelFilesEnabled ? (ref?.cwd || health?.cwd || '') : '';
   const sidePanelMounted = showSidePanel && !!sid;
   const sidePanelNavigationCollapsed = sidePanelCollapsed || sidePanelListCollapsed;
   const previewScope = useMemo(
@@ -3648,9 +3688,10 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       return previewScopeKey({
         cwd: sidePanelCwd,
         workspaceHash: ref?.workspaceHash || '',
+        worktreePath: sessionWorktree?.path || '',
       });
     },
-    [ref?.workspaceHash, sid, sidePanelCwd, sidePanelFilesEnabled],
+    [ref?.workspaceHash, sessionWorktree?.path, sid, sidePanelCwd, sidePanelFilesEnabled],
   );
   const previewContext = useMemo(
     () => ({ scopeKey: previewScope, sessionId: sid }),
@@ -4216,7 +4257,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           {sid && (
             <LspIndicator
               api={api}
-              cwd={ref?.cwd || health?.cwd || ''}
+              cwd={sidePanelCwd}
               refreshKey={`${turns}:${busy ? 1 : 0}`}
             />
           )}
@@ -4555,7 +4596,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           <InputBar
             ref={inputRef}
             pathReferenceApi={api}
-            cwd={ref?.cwd || health?.cwd || ''}
+            cwd={sidePanelCwd}
             expertOptions={recentExperts}
             selectedExpertId={composerExpertId}
             selectedExpertName={composerExpert?.display_name || ''}
@@ -4568,7 +4609,9 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             onOpenExpertComponents={() => setExpertPickerOpen(true)}
             busy={busy}
             goal={goal}
-            goalStopping={goalStopping}
+            onGoalEdit={editGoal}
+            onGoalStatusChange={changeGoalStatus}
+            onGoalClear={clearGoal}
             history={composerHistory}
             value={composerValue}
             onChange={handleComposerChange}
@@ -4596,13 +4639,11 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           <GitSessionPill
             key={`session-${sid}`}
             api={api}
-            cwd={ref?.cwd || health?.cwd || ''}
+            cwd={sidePanelCwd}
             variant="bar"
             sessionLoaded={transcriptLoadState === 'loaded'}
             sessionStarted={rawItems.length > 0}
-            worktreeSession={localWorktree && localWorktree.sid === sid
-              ? { name: localWorktree.name }
-              : (ref?.worktree || null)}
+            worktreeSession={sessionWorktree}
             busy={busy}
             onIntentChange={handleGitPillIntentChange}
           />

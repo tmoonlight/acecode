@@ -1884,6 +1884,10 @@ std::vector<SessionInfo> SessionRegistry::list_active() const {
             info.turn_count = entry->sm->current_turn_count();
             info.last_token_usage = entry->sm->current_last_token_usage();
             info.session_token_usage = entry->sm->current_session_token_usage();
+            const WorktreeSessionInfo worktree = entry->sm->active_worktree();
+            info.worktree_path = worktree.worktree_path;
+            info.worktree_name = worktree.worktree_name;
+            info.worktree_branch = worktree.worktree_branch;
         }
         if (entry->perm) {
             info.permission_mode = PermissionManager::mode_name(entry->perm->mode());

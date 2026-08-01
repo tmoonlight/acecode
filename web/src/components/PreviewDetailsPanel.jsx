@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import { usePreference } from '../lib/usePreference.js';
 import { clsx } from '../lib/format.js';
-import { PREVIEW_TAB_TYPES } from '../lib/previewTabs.js';
+import { PREVIEW_TAB_TYPES, previewAbsolutePath } from '../lib/previewTabs.js';
 import { scrollLeftForVisibleTab } from '../lib/previewTabScroll.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 import { FilePreviewContent } from './FilePreviewContent.jsx';
@@ -635,7 +635,9 @@ export function PreviewDetailsPanel({
               const selected = active.key === tab.key;
               const label = tabLabel(tab);
               const isFileTab = tab.type === PREVIEW_TAB_TYPES.FILE;
-              const tabAbsolutePath = isFileTab ? ((tab.cwd || cwd || '') + '/' + (tab.path || '')) : '';
+              const tabAbsolutePath = isFileTab
+                ? previewAbsolutePath({ cwd: tab.cwd || cwd || '', path: tab.path || '' })
+                : '';
               return (
                 <button
                   key={tab.key}
