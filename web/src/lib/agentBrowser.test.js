@@ -98,6 +98,14 @@ await run('Agent Browser desktop bridge detection and JSON parsing are defensive
     aceDesktop_agentBrowserGetState() {},
     aceDesktop_agentBrowserSetLayout() {},
     aceDesktop_agentBrowserCreatePage() {},
+  }), true);
+  assert.equal(hasNativeAgentBrowser({
+    __ACECODE_DESKTOP_SHELL__: true,
+    __ACECODE_OS__: 'macos',
+    __ACECODE_AGENT_BROWSER_SUPPORTED__: false,
+    aceDesktop_agentBrowserGetState() {},
+    aceDesktop_agentBrowserSetLayout() {},
+    aceDesktop_agentBrowserCreatePage() {},
   }), false);
   assert.equal(hasNativeAgentBrowser({}), false);
   assert.deepEqual(parseAgentBrowserBridgeResult('{"ok":true}'), { ok: true });

@@ -45,8 +45,13 @@ AgentBrowserRuntimeManifest valid_manifest(const fs::path& root) {
         kAgentBrowserRuntimeProtocolVersion,
         4242,
         "desktop-instance-a",
+#ifdef __APPLE__
+        acecode::path_to_utf8(root / "agent-browser"),
+        acecode::path_to_utf8(root / "run" / "agent-browser.sock"),
+#else
         acecode::path_to_utf8(root / "agent-browser" / "webview2"),
         "\\\\.\\pipe\\ACECode-AgentBrowser-4242-desktop-instance-a",
+#endif
         "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG",
         1234567,
     };
@@ -58,6 +63,12 @@ TEST(AgentBrowserRuntime, PathsKeepPersistentProfileSeparateFromRuntimeFile) {
     TempDir dir;
     EXPECT_EQ(agent_browser_user_data_path(acecode::path_to_utf8(dir.path())),
               dir.path() / "agent-browser" / "webview2");
+    EXPECT_EQ(agent_browser_macos_profile_identifier_path(
+                  acecode::path_to_utf8(dir.path())),
+              dir.path() / "agent-browser" / "macos-profile-id");
+    EXPECT_EQ(agent_browser_proxy_socket_path(
+                  acecode::path_to_utf8(dir.path())),
+              dir.path() / "run" / "agent-browser.sock");
     EXPECT_EQ(agent_browser_runtime_manifest_path(acecode::path_to_utf8(dir.path())),
               dir.path() / "run" / "agent-browser.json");
 }
@@ -89,7 +100,7 @@ TEST(AgentBrowserRuntime, ManifestRoundTripsAndValidatesOwner) {
     std::ifstream manifest_file(agent_browser_runtime_manifest_path(root));
     nlohmann::json manifest_json;
     manifest_file >> manifest_json;
-    EXPECT_EQ(manifest_json.value("protocol_version", 0), 3);
+    EXPECT_EQ(manifest_json.value("protocol_version", 0), 4);
     EXPECT_FALSE(manifest_json.contains("page_id"));
 
     const auto actual = read_agent_browser_runtime_manifest(root);
@@ -119,10 +130,17 @@ TEST(AgentBrowserRuntime, ValidationRejectsStaleOrMalformedEndpoint) {
 
     manifest = valid_manifest(dir.path());
     manifest.pipe_name = "not-a-pipe";
+#ifdef __APPLE__
+    EXPECT_NE(validate_agent_browser_runtime_manifest(
+                  manifest, [](std::int64_t) { return true; })
+                  .find("proxy socket"),
+              std::string::npos);
+#else
     EXPECT_NE(validate_agent_browser_runtime_manifest(
                   manifest, [](std::int64_t) { return true; })
                   .find("proxy pipe"),
               std::string::npos);
+#endif
 }
 
 TEST(AgentBrowserRuntime, CleanupCannotDeleteNewerDesktopGeneration) {

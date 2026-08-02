@@ -222,6 +222,7 @@ set(ACECODE_DESKTOP_SUPPORT_SOURCES
 # 这样 acecode-desktop 不需要链接 acecode_testable。
 set(ACECODE_DESKTOP_BINARY_ONLY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
+    ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host_mac.mm
     ${CMAKE_SOURCE_DIR}/src/desktop/main.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/splash_screen.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp

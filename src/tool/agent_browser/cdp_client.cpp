@@ -8,9 +8,11 @@
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -21,6 +23,13 @@
 #    define NOMINMAX
 #  endif
 #  include <windows.h>
+#elif defined(__APPLE__)
+#  include <cerrno>
+#  include <fcntl.h>
+#  include <poll.h>
+#  include <sys/socket.h>
+#  include <sys/un.h>
+#  include <unistd.h>
 #endif
 
 namespace acecode::agent_browser {
@@ -142,6 +151,162 @@ bool pipe_transfer(HANDLE pipe,
     }
     return true;
 }
+#elif defined(__APPLE__)
+int bounded_poll_timeout(
+    std::chrono::steady_clock::time_point deadline) {
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+        deadline - std::chrono::steady_clock::now()).count();
+    return static_cast<int>((std::max)(
+        std::int64_t{0}, (std::min)(std::int64_t{50}, remaining)));
+}
+
+bool wait_for_socket(int socket_fd,
+                     short events,
+                     std::chrono::steady_clock::time_point deadline,
+                     const std::atomic<bool>* abort_flag,
+                     std::string& error) {
+    while (std::chrono::steady_clock::now() < deadline &&
+           !aborted(abort_flag)) {
+        pollfd descriptor{socket_fd, events, 0};
+        const int result = ::poll(
+            &descriptor, 1, bounded_poll_timeout(deadline));
+        if (result > 0) {
+            if ((descriptor.revents & events) != 0) return true;
+            if ((descriptor.revents & (POLLERR | POLLNVAL | POLLHUP)) != 0) {
+                error = "Agent Browser proxy socket closed";
+                return false;
+            }
+        } else if (result < 0 && errno != EINTR) {
+            error = "Agent Browser proxy socket poll failed (" +
+                    std::string(std::strerror(errno)) + ")";
+            return false;
+        }
+    }
+    error = aborted(abort_flag)
+        ? "Agent Browser operation aborted"
+        : "Agent Browser proxy I/O timed out";
+    return false;
+}
+
+int open_proxy_socket(const std::string& socket_path,
+                      std::chrono::steady_clock::time_point deadline,
+                      const std::atomic<bool>* abort_flag,
+                      std::string& error) {
+    if (socket_path.empty() ||
+        socket_path.size() >= sizeof(sockaddr_un::sun_path)) {
+        error = "Agent Browser proxy socket path is invalid";
+        return -1;
+    }
+    while (std::chrono::steady_clock::now() < deadline &&
+           !aborted(abort_flag)) {
+        const int socket_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (socket_fd < 0) {
+            error = "failed to create Agent Browser proxy socket (" +
+                    std::string(std::strerror(errno)) + ")";
+            return -1;
+        }
+        const int flags = ::fcntl(socket_fd, F_GETFL, 0);
+        if (flags < 0 ||
+            ::fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK) != 0) {
+            error = "failed to configure Agent Browser proxy socket";
+            ::close(socket_fd);
+            return -1;
+        }
+
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        address.sun_len = sizeof(address);
+        std::memcpy(address.sun_path, socket_path.c_str(), socket_path.size() + 1);
+        int connected = ::connect(
+            socket_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+        if (connected != 0 && errno == EINPROGRESS) {
+            std::string wait_error;
+            if (wait_for_socket(socket_fd, POLLOUT, deadline,
+                                abort_flag, wait_error)) {
+                int socket_error = 0;
+                socklen_t socket_error_size = sizeof(socket_error);
+                if (::getsockopt(socket_fd, SOL_SOCKET, SO_ERROR,
+                                 &socket_error, &socket_error_size) == 0 &&
+                    socket_error == 0) {
+                    connected = 0;
+                } else {
+                    errno = socket_error == 0 ? ECONNREFUSED : socket_error;
+                }
+            } else if (aborted(abort_flag) ||
+                       std::chrono::steady_clock::now() >= deadline) {
+                error = wait_error;
+                ::close(socket_fd);
+                return -1;
+            }
+        }
+        if (connected == 0) {
+            uid_t peer_uid = static_cast<uid_t>(-1);
+            gid_t peer_gid = static_cast<gid_t>(-1);
+            if (::getpeereid(socket_fd, &peer_uid, &peer_gid) != 0 ||
+                peer_uid != ::geteuid()) {
+                error = "Agent Browser proxy socket owner mismatch";
+                ::close(socket_fd);
+                return -1;
+            }
+            error.clear();
+            return socket_fd;
+        }
+
+        const int connect_error = errno;
+        ::close(socket_fd);
+        if (connect_error != ENOENT && connect_error != ECONNREFUSED &&
+            connect_error != EAGAIN && connect_error != EINTR) {
+            error = "failed to connect to Agent Browser proxy socket (" +
+                    std::string(std::strerror(connect_error)) + ")";
+            return -1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    error = aborted(abort_flag)
+        ? "Agent Browser operation aborted"
+        : "Agent Browser proxy is not ready";
+    return -1;
+}
+
+bool socket_transfer(int socket_fd,
+                     void* buffer,
+                     std::size_t size,
+                     bool write,
+                     std::chrono::steady_clock::time_point deadline,
+                     const std::atomic<bool>* abort_flag,
+                     std::string& error) {
+    std::size_t offset = 0;
+    while (offset < size) {
+        if (!wait_for_socket(socket_fd, write ? POLLOUT : POLLIN,
+                             deadline, abort_flag, error)) {
+            return false;
+        }
+        const std::size_t chunk = (std::min)(
+            size - offset, static_cast<std::size_t>(1024u * 1024u));
+        const ssize_t transferred = write
+            ? ::send(socket_fd,
+                     static_cast<const char*>(buffer) + offset,
+                     chunk, MSG_NOSIGNAL)
+            : ::recv(socket_fd,
+                     static_cast<char*>(buffer) + offset,
+                     chunk, 0);
+        if (transferred > 0) {
+            offset += static_cast<std::size_t>(transferred);
+            continue;
+        }
+        if (transferred == 0) {
+            error = "Agent Browser proxy connection closed";
+            return false;
+        }
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            error = std::string("Agent Browser proxy socket ") +
+                    (write ? "write" : "read") + " failed (" +
+                    std::strerror(errno) + ")";
+            return false;
+        }
+    }
+    return true;
+}
 #endif
 
 } // namespace
@@ -149,9 +314,14 @@ bool pipe_transfer(HANDLE pipe,
 struct AgentBrowserCdpClient::Impl {
 #ifdef _WIN32
     std::wstring pipe_name;
+#elif defined(__APPLE__)
+    std::string socket_path;
+#endif
+#if defined(_WIN32) || defined(__APPLE__)
     std::string auth_token;
 #endif
     std::string page_id;
+    std::string acecode_dir;
     bool ready = false;
 };
 
@@ -173,7 +343,10 @@ std::optional<AgentBrowserElementRef> parse_agent_browser_element_ref(
         : std::nullopt;
 }
 
-AgentBrowserCdpClient::AgentBrowserCdpClient() : impl_(new Impl) {}
+AgentBrowserCdpClient::AgentBrowserCdpClient(std::string acecode_dir)
+    : impl_(new Impl) {
+    impl_->acecode_dir = std::move(acecode_dir);
+}
 
 AgentBrowserCdpClient::~AgentBrowserCdpClient() {
     close();
@@ -185,10 +358,10 @@ bool AgentBrowserCdpClient::connect(
     const std::atomic<bool>* abort_flag,
     std::string& error) {
     close();
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     (void)timeout;
     (void)abort_flag;
-    error = "Agent Browser tools are currently available on Windows Desktop only";
+    error = "Agent Browser tools are available on Windows and macOS Desktop only";
     return false;
 #else
     const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -199,7 +372,8 @@ bool AgentBrowserCdpClient::connect(
             return false;
         }
         const auto manifest =
-            acecode::desktop::read_agent_browser_runtime_manifest();
+            acecode::desktop::read_agent_browser_runtime_manifest(
+                impl_->acecode_dir);
         if (!manifest) {
             last_error = "Open ACECode Desktop to use Agent Browser tools";
         } else {
@@ -212,10 +386,22 @@ bool AgentBrowserCdpClient::connect(
             if (!validation.empty()) {
                 last_error = validation;
             } else {
-                const std::wstring pipe_name =
+#ifdef _WIN32
+                const std::wstring endpoint =
                     acecode::utf8_to_wide(manifest->pipe_name);
-                if (::WaitNamedPipeW(pipe_name.c_str(), 100)) {
-                    impl_->pipe_name = pipe_name;
+                const bool endpoint_ready =
+                    ::WaitNamedPipeW(endpoint.c_str(), 100) != FALSE;
+#else
+                const std::string endpoint = manifest->pipe_name;
+                const bool endpoint_ready =
+                    ::access(endpoint.c_str(), F_OK) == 0;
+#endif
+                if (endpoint_ready) {
+#ifdef _WIN32
+                    impl_->pipe_name = endpoint;
+#else
+                    impl_->socket_path = endpoint;
+#endif
                     impl_->auth_token = manifest->auth_token;
                     impl_->ready = true;
                     error.clear();
@@ -235,6 +421,10 @@ void AgentBrowserCdpClient::close() {
     if (!impl_) return;
 #ifdef _WIN32
     impl_->pipe_name.clear();
+#elif defined(__APPLE__)
+    impl_->socket_path.clear();
+#endif
+#if defined(_WIN32) || defined(__APPLE__)
     impl_->auth_token.clear();
 #endif
     impl_->page_id.clear();
@@ -312,16 +502,17 @@ nlohmann::json AgentBrowserCdpClient::request(
         error = "Agent Browser proxy is not connected";
         return {};
     }
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     (void)operation;
     (void)method;
     (void)params;
     (void)timeout;
     (void)abort_flag;
-    error = "Agent Browser tools are currently available on Windows Desktop only";
+    error = "Agent Browser tools are available on Windows and macOS Desktop only";
     return {};
 #else
     const auto deadline = std::chrono::steady_clock::now() + timeout;
+#ifdef _WIN32
     HANDLE pipe = open_proxy_pipe(
         impl_->pipe_name, deadline, abort_flag, error);
     if (pipe == INVALID_HANDLE_VALUE) return {};
@@ -332,6 +523,17 @@ nlohmann::json AgentBrowserCdpClient::request(
             pipe = INVALID_HANDLE_VALUE;
         }
     };
+#else
+    int socket_fd = open_proxy_socket(
+        impl_->socket_path, deadline, abort_flag, error);
+    if (socket_fd < 0) return {};
+    const auto close_pipe = [&socket_fd] {
+        if (socket_fd >= 0) {
+            ::close(socket_fd);
+            socket_fd = -1;
+        }
+    };
+#endif
     const auto timeout_count = (std::max)(
         std::int64_t{100},
         (std::min)(std::int64_t{120000}, timeout.count()));
@@ -350,17 +552,34 @@ nlohmann::json AgentBrowserCdpClient::request(
         return {};
     }
     std::uint32_t request_size = static_cast<std::uint32_t>(request.size());
-    if (!pipe_transfer(pipe, &request_size, sizeof(request_size), true,
-                       deadline, abort_flag, error) ||
-        !pipe_transfer(pipe, request.data(), request.size(), true,
-                       deadline, abort_flag, error)) {
+#ifdef _WIN32
+    const auto transfer = [&pipe](void* buffer, std::size_t size, bool write,
+                                  auto transfer_deadline,
+                                  const std::atomic<bool>* flag,
+                                  std::string& transfer_error) {
+        return pipe_transfer(pipe, buffer, size, write, transfer_deadline,
+                             flag, transfer_error);
+    };
+#else
+    const auto transfer = [&socket_fd](void* buffer, std::size_t size,
+                                       bool write, auto transfer_deadline,
+                                       const std::atomic<bool>* flag,
+                                       std::string& transfer_error) {
+        return socket_transfer(socket_fd, buffer, size, write,
+                               transfer_deadline, flag, transfer_error);
+    };
+#endif
+    if (!transfer(&request_size, sizeof(request_size), true,
+                  deadline, abort_flag, error) ||
+        !transfer(request.data(), request.size(), true,
+                  deadline, abort_flag, error)) {
         close_pipe();
         return {};
     }
 
     std::uint32_t response_size = 0;
-    if (!pipe_transfer(pipe, &response_size, sizeof(response_size), false,
-                       deadline, abort_flag, error) ||
+    if (!transfer(&response_size, sizeof(response_size), false,
+                  deadline, abort_flag, error) ||
         response_size == 0 ||
         response_size > acecode::desktop::kAgentBrowserProxyMaxResponseBytes) {
         close_pipe();
@@ -368,16 +587,16 @@ nlohmann::json AgentBrowserCdpClient::request(
         return {};
     }
     std::string response_text(response_size, '\0');
-    if (!pipe_transfer(pipe, response_text.data(), response_text.size(), false,
-                       deadline, abort_flag, error)) {
+    if (!transfer(response_text.data(), response_text.size(), false,
+                  deadline, abort_flag, error)) {
         close_pipe();
         return {};
     }
     std::uint8_t acknowledgement =
         acecode::desktop::kAgentBrowserProxyResponseAck;
     std::string acknowledgement_error;
-    pipe_transfer(pipe, &acknowledgement, sizeof(acknowledgement), true,
-                  deadline, abort_flag, acknowledgement_error);
+    transfer(&acknowledgement, sizeof(acknowledgement), true,
+             deadline, abort_flag, acknowledgement_error);
     close_pipe();
 
     auto response = nlohmann::json::parse(response_text, nullptr, false);

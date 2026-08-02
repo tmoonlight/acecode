@@ -66,6 +66,54 @@ json integer_property(const std::string& description,
     };
 }
 
+void add_macos_input_mode_property(json& properties) {
+#ifdef __APPLE__
+    properties["input_mode"] = {
+        {"type", "string"},
+        {"enum", {"synthetic", "native"}},
+        {"default", "synthetic"},
+        {"description",
+         "macOS input backend. Start with synthetic (default, no permission). Choose native when a page rejects untrusted DOM events or needs real pointer/keyboard gestures; native requires macOS Accessibility permission."},
+    };
+#else
+    (void)properties;
+#endif
+}
+
+const char* interaction_description(const char* existing,
+                                    const char* macos) {
+#ifdef __APPLE__
+    (void)existing;
+    return macos;
+#else
+    (void)macos;
+    return existing;
+#endif
+}
+
+std::string selected_input_mode(const json& args) {
+#ifdef __APPLE__
+    return args.value("input_mode", "synthetic");
+#else
+    (void)args;
+    return {};
+#endif
+}
+
+void apply_input_mode(json& params, const json& args) {
+#ifdef __APPLE__
+    params["acecodeInputMode"] = selected_input_mode(args);
+#else
+    (void)params;
+    (void)args;
+#endif
+}
+
+json with_input_metadata(json value, const json& args) {
+    return agent_browser_input_result_metadata(
+        std::move(value), selected_input_mode(args));
+}
+
 bool parse_arguments(const std::string& text, json& args, std::string& error) {
     args = json::parse(text.empty() ? "{}" : text, nullptr, false);
     if (!args.is_object()) {
@@ -98,6 +146,20 @@ ToolResult failure_result(const std::string& code,
         false,
         "Browser",
         object);
+}
+
+ToolResult input_failure_result(const std::string& fallback_code,
+                                const std::string& error,
+                                const std::string& object = "Browser") {
+    if (error.rfind("native_input_permission_required", 0) == 0) {
+        return failure_result(
+            "native_input_permission_required", error, object);
+    }
+    if (error.rfind("native_input_requires_visible_active_page", 0) == 0) {
+        return failure_result(
+            "native_input_requires_visible_active_page", error, object);
+    }
+    return failure_result(fallback_code, error, object);
 }
 
 ToolResult success_result(json data,
@@ -233,7 +295,7 @@ std::string element_mutation_script(const json& args,
            " const role=(el)=>el.getAttribute('role')||({A:'link',BUTTON:'button',INPUT:'textbox',TEXTAREA:'textbox',SELECT:'combobox'}[el.tagName]||el.tagName.toLowerCase());\n"
            " let el=null;const ref=String(a.target||'');if(ref&&!/^@e\\d+$/.test(ref))return {ok:false,message:'Element target must be an @e reference from browser_read_page'};if(/^@e\\d+$/.test(ref)){const s=window.__aceAgentBrowserSnapshot;if(!s)return {ok:false,message:'Call browser_read_page before using @e refs'};if(!Number.isInteger(Number(a.revision))||Number(a.revision)<=0)return {ok:false,message:'Pass the revision returned by browser_read_page with every @e reference'};if(Number(a.revision)!==s.revision)return {ok:false,message:'Stale @e reference; call browser_read_page again'};el=s.nodes[Number(ref.slice(2))-1];}else if(a.selector){try{el=document.querySelector(a.selector)}catch(e){return {ok:false,message:String(e.message||e)}}}else{const wr=String(a.role||'').toLowerCase(),wn=String(a.name||'').toLowerCase();el=Array.from(document.querySelectorAll('a,button,input,textarea,select,summary,[role],[onclick],[tabindex]:not([tabindex=\"-1\"])')).filter(visible).filter(n=>(!wr||role(n).toLowerCase()===wr)&&(!wn||text(n).toLowerCase().includes(wn)))[Math.max(0,Number(a.nth||0))]||null;}\n"
            " if(!el||!el.isConnected)return {ok:false,message:'Could not resolve the requested page element'};el.scrollIntoView({block:'center',inline:'center'});if(!visible(el))return {ok:false,message:'The requested page element is not visible'};el.focus();\n"
-           " if(action==='fill'){const value=String(a.value??'');const proto=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:el instanceof HTMLInputElement?HTMLInputElement.prototype:null;const setter=proto&&Object.getOwnPropertyDescriptor(proto,'value')?.set;if(setter)setter.call(el,value);else if('value'in el)el.value=value;else el.textContent=value;el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:value}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true,value,tag:el.tagName.toLowerCase()};}\n"
+           " if(action==='fill'){const value=String(a.value==null?'':a.value);const proto=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:el instanceof HTMLInputElement?HTMLInputElement.prototype:null;const setter=proto&&Object.getOwnPropertyDescriptor(proto,'value')?.set;if(setter)setter.call(el,value);else if('value'in el)el.value=value;else el.textContent=value;el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:value}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true,value,tag:el.tagName.toLowerCase()};}\n"
            " return {ok:true,tag:el.tagName.toLowerCase()};\n"
            "})()";
 }
@@ -243,10 +305,12 @@ bool dispatch_mouse(AgentBrowserCdpClient& client,
                     double x,
                     double y,
                     const json& extra,
+                    const json& action_args,
                     const ToolContext& context,
                     std::string& error) {
     json params{{"type", type}, {"x", x}, {"y", y}};
     for (const auto& item : extra.items()) params[item.key()] = item.value();
+    apply_input_mode(params, action_args);
     client.command("Input.dispatchMouseEvent", params, kCommandTimeout,
                    context.abort_flag, error);
     return error.empty();
@@ -270,6 +334,16 @@ ToolImpl make_tool(const std::string& name,
         if (!parse_arguments(arguments, args, error)) {
             return failure_result("invalid_arguments", error, name);
         }
+#ifdef __APPLE__
+        if (args.contains("input_mode") &&
+            (!args["input_mode"].is_string() ||
+             (args["input_mode"] != "synthetic" &&
+              args["input_mode"] != "native"))) {
+            return failure_result(
+                "invalid_arguments",
+                "macOS input_mode must be synthetic or native", name);
+        }
+#endif
         LOG_INFO("[agent-browser-tool] " + name + " start");
         ToolResult result;
         try {
@@ -476,9 +550,12 @@ ToolImpl click_tool() {
         {"button", {{"type", "string"}, {"enum", {"left", "middle", "right"}}}},
         {"click_count", integer_property("Click count.", 1, 3)},
     });
+    add_macos_input_mode_property(properties);
     return make_tool(
         "browser_click",
-        "Click an element in the visible Browser using a real CDP pointer event. Prefer @eN plus revision from browser_read_page.",
+        interaction_description(
+            "Click an element in the visible Browser using a real CDP pointer event. Prefer @eN plus revision from browser_read_page.",
+            "Click an element in the visible Browser. Prefer @eN plus revision from browser_read_page. On macOS start with synthetic input and choose native only when the page rejects untrusted events or needs a real OS pointer gesture."),
         object_schema(std::move(properties)),
         false,
         [](const json& args, const ToolContext& context) {
@@ -497,17 +574,18 @@ ToolImpl click_tool() {
             const double y = rect.value("cy", 0.0);
             const std::string button = args.value("button", "left");
             const int count = args.value("click_count", 1);
-            if (!dispatch_mouse(client, "mouseMoved", x, y, json::object(), context, error) ||
+            if (!dispatch_mouse(client, "mouseMoved", x, y, json::object(), args, context, error) ||
                 !dispatch_mouse(client, "mousePressed", x, y,
-                                {{"button", button}, {"clickCount", count}}, context, error) ||
+                                {{"button", button}, {"clickCount", count}}, args, context, error) ||
                 !dispatch_mouse(client, "mouseReleased", x, y,
-                                {{"button", button}, {"clickCount", count}}, context, error)) {
-                return failure_result("click_failed", error);
+                                {{"button", button}, {"clickCount", count}}, args, context, error)) {
+                return input_failure_result("click_failed", error);
             }
             return success_result_with_page(
                 client,
                 context,
-                {{"target", target}, {"clicked", true}},
+                with_input_metadata(
+                    {{"target", target}, {"clicked", true}}, args),
                 "Clicked",
                 target.value("name", args.value("target", "element")));
         });
@@ -516,9 +594,12 @@ ToolImpl click_tool() {
 ToolImpl fill_tool() {
     json properties = target_properties();
     properties["value"] = string_property("Replacement field value.");
+    add_macos_input_mode_property(properties);
     return make_tool(
         "browser_fill",
-        "Replace an input, textarea, select-like, or editable element's value and dispatch input/change events.",
+        interaction_description(
+            "Replace an input, textarea, select-like, or editable element's value and dispatch input/change events.",
+            "Replace an input, textarea, or editable element's value. On macOS synthetic uses the native DOM value setter and input/change events; choose native when the page requires real Cmd+A and keyboard input."),
         object_schema(std::move(properties), {"value"}),
         false,
         [](const json& args, const ToolContext& context) {
@@ -530,12 +611,47 @@ ToolImpl fill_tool() {
             AgentBrowserCdpClient client;
             std::string error;
             if (!connect_client(client, context, error, &args)) return failure_result("desktop_browser_unavailable", error);
-            json value = evaluate(client, element_mutation_script(args, "fill"), context, error);
+            json value;
+#ifdef __APPLE__
+            if (selected_input_mode(args) == "native") {
+                value = evaluate(
+                    client, element_mutation_script(args, "focus"),
+                    context, error);
+                if (error.empty() && value.value("ok", false)) {
+                    json key_down{{"type", "keyDown"}, {"key", "a"},
+                                  {"code", "KeyA"}, {"modifiers", 4}};
+                    apply_input_mode(key_down, args);
+                    client.command("Input.dispatchKeyEvent", key_down,
+                                   kCommandTimeout, context.abort_flag, error);
+                    if (error.empty()) {
+                        key_down["type"] = "keyUp";
+                        client.command("Input.dispatchKeyEvent", key_down,
+                                       kCommandTimeout, context.abort_flag, error);
+                    }
+                    if (error.empty()) {
+                        json text_params{{"text", args.value("value", "")}};
+                        apply_input_mode(text_params, args);
+                        client.command("Input.insertText", text_params,
+                                       kCommandTimeout, context.abort_flag, error);
+                    }
+                    value = {{"ok", error.empty()},
+                             {"value", args.value("value", "")},
+                             {"tag", value.value("tag", "")}};
+                }
+            } else
+#endif
+            {
+                value = evaluate(
+                    client, element_mutation_script(args, "fill"),
+                    context, error);
+            }
             if (!error.empty() || !value.value("ok", false)) {
-                return failure_result("fill_failed", error.empty() ? value.value("message", "fill failed") : error);
+                return input_failure_result(
+                    "fill_failed",
+                    error.empty() ? value.value("message", "fill failed") : error);
             }
             return success_result_with_page(
-                client, context, value, "Filled",
+                client, context, with_input_metadata(value, args), "Filled",
                 args.value("target", args.value("name", "field")));
         });
 }
@@ -544,9 +660,12 @@ ToolImpl type_tool() {
     json properties = target_properties();
     properties["text"] = string_property("Text to type at the current caret.");
     properties["submit"] = {{"type", "boolean"}, {"description", "Press Enter after typing."}};
+    add_macos_input_mode_property(properties);
     return make_tool(
         "browser_type",
-        "Focus a target and type text through CDP input. Unlike browser_fill this preserves the current value/caret. Optionally press Enter.",
+        interaction_description(
+            "Focus a target and type text through CDP input. Unlike browser_fill this preserves the current value/caret. Optionally press Enter.",
+            "Focus a target and type text at the current caret. Optionally press Enter. On macOS choose native for sites that require trusted keyboard events; otherwise use synthetic."),
         object_schema(std::move(properties), {"text"}),
         false,
         [](const json& args, const ToolContext& context) {
@@ -562,22 +681,28 @@ ToolImpl type_tool() {
             if (!error.empty() || !focused.value("ok", false)) {
                 return failure_result("type_failed", error.empty() ? focused.value("message", "focus failed") : error);
             }
-            client.command("Input.insertText", {{"text", args.value("text", "")}},
+            json text_params{{"text", args.value("text", "")}};
+            apply_input_mode(text_params, args);
+            client.command("Input.insertText", text_params,
                            kCommandTimeout, context.abort_flag, error);
             if (error.empty() && args.value("submit", false)) {
-                client.command("Input.dispatchKeyEvent",
-                               {{"type", "keyDown"}, {"key", "Enter"}, {"code", "Enter"}, {"windowsVirtualKeyCode", 13}},
+                json enter{{"type", "keyDown"}, {"key", "Enter"},
+                           {"code", "Enter"}, {"windowsVirtualKeyCode", 13}};
+                apply_input_mode(enter, args);
+                client.command("Input.dispatchKeyEvent", enter,
                                kCommandTimeout, context.abort_flag, error);
                 if (error.empty()) {
-                    client.command("Input.dispatchKeyEvent",
-                                   {{"type", "keyUp"}, {"key", "Enter"}, {"code", "Enter"}, {"windowsVirtualKeyCode", 13}},
+                    enter["type"] = "keyUp";
+                    client.command("Input.dispatchKeyEvent", enter,
                                    kCommandTimeout, context.abort_flag, error);
                 }
             }
-            if (!error.empty()) return failure_result("type_failed", error);
+            if (!error.empty()) return input_failure_result("type_failed", error);
             return success_result_with_page(
                 client, context,
-                {{"typed", true}, {"characters", args.value("text", "").size()}},
+                with_input_metadata(
+                    {{"typed", true},
+                     {"characters", args.value("text", "").size()}}, args),
                 "Typed", args.value("target", args.value("name", "field")));
         });
 }
@@ -606,9 +731,12 @@ std::string final_key_part(const std::string& key) {
 ToolImpl press_tool() {
     json properties = target_properties();
     properties["key"] = string_property("Key or chord, e.g. Enter, Escape, Tab, Ctrl+A, Shift+Tab.");
+    add_macos_input_mode_property(properties);
     return make_tool(
         "browser_press",
-        "Focus an optional page target and press a keyboard key or modifier chord through CDP.",
+        interaction_description(
+            "Focus an optional page target and press a keyboard key or modifier chord through CDP.",
+            "Focus an optional page target and press a keyboard key or modifier chord. On macOS synthetic is the default; choose native for trusted shortcuts and browser-level key handling."),
         object_schema(std::move(properties), {"key"}),
         false,
         [](const json& args, const ToolContext& context) {
@@ -630,23 +758,30 @@ ToolImpl press_tool() {
                 : (key == "Enter" ? 13 : key == "Tab" ? 9 : key == "Escape" ? 27 : 0);
             json params{{"key", key}, {"code", key}, {"modifiers", modifiers}};
             if (virtual_key) params["windowsVirtualKeyCode"] = virtual_key;
+            apply_input_mode(params, args);
             params["type"] = "keyDown";
             client.command("Input.dispatchKeyEvent", params, kCommandTimeout, context.abort_flag, error);
             if (error.empty()) {
                 params["type"] = "keyUp";
                 client.command("Input.dispatchKeyEvent", params, kCommandTimeout, context.abort_flag, error);
             }
-            if (!error.empty()) return failure_result("press_failed", error);
+            if (!error.empty()) return input_failure_result("press_failed", error);
             return success_result_with_page(
-                client, context, {{"pressed", chord}}, "Pressed", chord);
+                client, context,
+                with_input_metadata({{"pressed", chord}}, args),
+                "Pressed", chord);
         });
 }
 
 ToolImpl hover_tool() {
+    json properties = target_properties();
+    add_macos_input_mode_property(properties);
     return make_tool(
         "browser_hover",
-        "Move the real Browser pointer over a page element.",
-        object_schema(target_properties()),
+        interaction_description(
+            "Move the real Browser pointer over a page element.",
+            "Move the Browser pointer over a page element. On macOS native moves the OS pointer and requires Accessibility permission; synthetic dispatches DOM mouse events."),
+        object_schema(std::move(properties)),
         false,
         [](const json& args, const ToolContext& context) {
             if (!has_target_descriptor(args)) {
@@ -661,24 +796,29 @@ ToolImpl hover_tool() {
             if (!error.empty()) return failure_result("target_not_found", error);
             const auto& rect = target["rect"];
             if (!dispatch_mouse(client, "mouseMoved", rect.value("cx", 0.0), rect.value("cy", 0.0),
-                                json::object(), context, error)) {
-                return failure_result("hover_failed", error);
+                                json::object(), args, context, error)) {
+                return input_failure_result("hover_failed", error);
             }
             return success_result_with_page(
-                client, context, {{"target", target}}, "Hovered",
+                client, context,
+                with_input_metadata({{"target", target}}, args), "Hovered",
                 target.value("name", "element"));
         });
 }
 
 ToolImpl drag_tool() {
+    json properties{
+        {"from", string_property("Source @eN reference.")},
+        {"to", string_property("Destination @eN reference.")},
+        {"revision", integer_property("Snapshot revision for both refs.", 1, 1000000000)},
+    };
+    add_macos_input_mode_property(properties);
     return make_tool(
         "browser_drag",
-        "Drag from one visible page element to another using real CDP pointer events.",
-        object_schema({
-            {"from", string_property("Source @eN reference.")},
-            {"to", string_property("Destination @eN reference.")},
-            {"revision", integer_property("Snapshot revision for both refs.", 1, 1000000000)},
-        }, {"from", "to", "revision"}),
+        interaction_description(
+            "Drag from one visible page element to another using real CDP pointer events.",
+            "Drag from one visible page element to another. On macOS try synthetic first; choose native for trusted HTML5 or application-specific pointer gestures."),
+        object_schema(std::move(properties), {"from", "to", "revision"}),
         false,
         [](const json& args, const ToolContext& context) {
             AgentBrowserCdpClient client;
@@ -696,19 +836,20 @@ ToolImpl drag_tool() {
             const double y2 = to["rect"].value("cy", 0.0);
             if (!dispatch_mouse(
                     client, "mouseMoved", x1, y1, json::object(),
-                    context, error) ||
+                    args, context, error) ||
                 !dispatch_mouse(
                     client, "mousePressed", x1, y1,
                     {{"button", "left"}, {"clickCount", 1}},
-                    context, error)) {
-                return failure_result("drag_failed", error);
+                    args, context, error)) {
+                return input_failure_result("drag_failed", error);
             }
             for (int step = 1; step <= 8 && error.empty(); ++step) {
                 const double ratio = static_cast<double>(step) / 8.0;
                 dispatch_mouse(client, "mouseMoved",
                                x1 + (x2 - x1) * ratio,
                                y1 + (y2 - y1) * ratio,
-                               {{"button", "left"}, {"buttons", 1}}, context, error);
+                               {{"button", "left"}, {"buttons", 1}},
+                               args, context, error);
             }
             if (!error.empty()) {
                 const std::string drag_error = error;
@@ -716,15 +857,17 @@ ToolImpl drag_tool() {
                 dispatch_mouse(
                     client, "mouseReleased", x2, y2,
                     {{"button", "left"}, {"clickCount", 1}},
-                    context, release_error);
-                return failure_result("drag_failed", drag_error);
+                    args, context, release_error);
+                return input_failure_result("drag_failed", drag_error);
             }
             dispatch_mouse(client, "mouseReleased", x2, y2,
-                           {{"button", "left"}, {"clickCount", 1}}, context, error);
-            if (!error.empty()) return failure_result("drag_failed", error);
+                           {{"button", "left"}, {"clickCount", 1}},
+                           args, context, error);
+            if (!error.empty()) return input_failure_result("drag_failed", error);
             return success_result_with_page(
                 client, context,
-                {{"from", from}, {"to", to}, {"dragged", true}},
+                with_input_metadata(
+                    {{"from", from}, {"to", to}, {"dragged", true}}, args),
                 "Dragged", "Browser element");
         });
 }
@@ -737,9 +880,12 @@ ToolImpl scroll_tool() {
         {"x", {{"type", "number"}, {"description", "Optional viewport X coordinate."}}},
         {"y", {{"type", "number"}, {"description", "Optional viewport Y coordinate."}}},
     });
+    add_macos_input_mode_property(properties);
     return make_tool(
         "browser_scroll",
-        "Scroll the visible Browser page or a target element area using a CDP mouse wheel event.",
+        interaction_description(
+            "Scroll the visible Browser page or a target element area using a CDP mouse wheel event.",
+            "Scroll the visible Browser page or a target element area. On macOS synthetic scrolls the DOM directly; choose native for a real trackpad-style wheel event."),
         object_schema(std::move(properties)),
         false,
         [](const json& args, const ToolContext& context) {
@@ -767,11 +913,14 @@ ToolImpl scroll_tool() {
             const double dx = args.value("delta_x", 0.0);
             const double dy = args.value("delta_y", 600.0);
             if (!dispatch_mouse(client, "mouseWheel", x, y,
-                                {{"deltaX", dx}, {"deltaY", dy}}, context, error)) {
-                return failure_result("scroll_failed", error);
+                                {{"deltaX", dx}, {"deltaY", dy}},
+                                args, context, error)) {
+                return input_failure_result("scroll_failed", error);
             }
             return success_result_with_page(
-                client, context, {{"delta_x", dx}, {"delta_y", dy}},
+                client, context,
+                with_input_metadata(
+                    {{"delta_x", dx}, {"delta_y", dy}}, args),
                 "Scrolled", "Browser page");
         });
 }
@@ -991,6 +1140,20 @@ ToolImpl close_tool() {
 
 } // namespace
 
+nlohmann::json agent_browser_input_result_metadata(
+    nlohmann::json value,
+    const std::string& input_mode) {
+#ifdef __APPLE__
+    if (!value.is_object()) value = {{"result", std::move(value)}};
+    const std::string mode = input_mode == "native" ? "native" : "synthetic";
+    value["input_mode"] = mode;
+    value["input_trust"] = mode;
+#else
+    (void)input_mode;
+#endif
+    return value;
+}
+
 std::string agent_browser_snapshot_script() {
     return R"JS(((options) => {
   const maxElements = Math.max(1, Math.min(500, Number(options.maxElements) || 300));
@@ -1073,7 +1236,7 @@ std::vector<std::string> agent_browser_tool_names() {
 }
 
 void register_agent_browser_tools(ToolExecutor& tools) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
     tools.register_tool(open_tool());
     tools.register_tool(navigate_tool());
     tools.register_tool(read_page_tool());

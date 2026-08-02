@@ -31,7 +31,8 @@ export function parseAgentBrowserBridgeResult(raw) {
 
 export function hasNativeAgentBrowser(win = globalThis.window) {
   return win?.__ACECODE_DESKTOP_SHELL__ === true
-    && win?.__ACECODE_OS__ === 'windows'
+    && (win?.__ACECODE_OS__ === 'windows' || win?.__ACECODE_OS__ === 'macos')
+    && win?.__ACECODE_AGENT_BROWSER_SUPPORTED__ !== false
     && typeof win.aceDesktop_agentBrowserGetState === 'function'
     && typeof win.aceDesktop_agentBrowserSetLayout === 'function'
     && typeof win.aceDesktop_agentBrowserCreatePage === 'function';

@@ -65,7 +65,8 @@ public:
                      std::int64_t desktop_pid,
                      std::string desktop_instance_id,
                      StateHandler state_handler = {},
-                     DispatchHandler dispatch_handler = {});
+                     DispatchHandler dispatch_handler = {},
+                     std::string acecode_dir = {});
     ~AgentBrowserHost();
 
     AgentBrowserHost(const AgentBrowserHost&) = delete;

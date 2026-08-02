@@ -568,6 +568,7 @@ struct AgentBrowserHost::Impl
     void* parent_window = nullptr;
     std::int64_t desktop_pid = 0;
     std::string desktop_instance_id;
+    std::string acecode_dir;
     StateHandler state_handler;
     DispatchHandler dispatch_handler;
     mutable std::mutex state_mutex;
@@ -631,17 +632,19 @@ struct AgentBrowserHost::Impl
          std::int64_t pid,
          std::string instance_id,
          StateHandler handler,
-         DispatchHandler dispatcher)
+         DispatchHandler dispatcher,
+         std::string data_dir)
         : parent_window(parent),
           desktop_pid(pid),
           desktop_instance_id(std::move(instance_id)),
+          acecode_dir(std::move(data_dir)),
           state_handler(std::move(handler)),
           dispatch_handler(std::move(dispatcher)) {
 #ifdef _WIN32
         host_state.supported = parent_window != nullptr;
 #else
         host_state.error =
-            "Agent Browser is currently available on Windows Desktop only";
+            "Agent Browser is available on Windows and macOS 14+ Desktop only";
 #endif
     }
 
@@ -664,7 +667,7 @@ struct AgentBrowserHost::Impl
         }
         browser_widget = nullptr;
 #endif
-        cleanup_agent_browser_runtime_manifest(desktop_instance_id);
+        cleanup_agent_browser_runtime_manifest(desktop_instance_id, acecode_dir);
     }
 
     void emit_state(const AgentBrowserState& state) const {
@@ -803,7 +806,7 @@ struct AgentBrowserHost::Impl
                  std::to_string(::GetLastError()) + ")");
             return;
         }
-        const auto user_data_path = agent_browser_user_data_path();
+        const auto user_data_path = agent_browser_user_data_path(acecode_dir);
         std::error_code ec;
         std::filesystem::create_directories(user_data_path, ec);
         if (ec) {
@@ -850,11 +853,11 @@ struct AgentBrowserHost::Impl
         manifest.desktop_pid = desktop_pid;
         manifest.desktop_instance_id = desktop_instance_id;
         manifest.user_data_dir = acecode::path_to_utf8(
-            agent_browser_user_data_path());
+            agent_browser_user_data_path(acecode_dir));
         manifest.pipe_name = proxy_pipe_name;
         manifest.auth_token = proxy_auth_token;
         manifest.ready_at_ms = now_unix_ms();
-        if (!write_agent_browser_runtime_manifest(manifest)) {
+        if (!write_agent_browser_runtime_manifest(manifest, acecode_dir)) {
             fail("failed to publish Agent Browser runtime endpoint");
             return false;
         }
@@ -2154,12 +2157,14 @@ AgentBrowserHost::AgentBrowserHost(void* parent_window,
                                    std::int64_t desktop_pid,
                                    std::string desktop_instance_id,
                                    StateHandler state_handler,
-                                   DispatchHandler dispatch_handler)
+                                   DispatchHandler dispatch_handler,
+                                   std::string acecode_dir)
     : impl_(std::make_shared<Impl>(parent_window,
                                   desktop_pid,
                                   std::move(desktop_instance_id),
                                   std::move(state_handler),
-                                  std::move(dispatch_handler))) {
+                                  std::move(dispatch_handler),
+                                  std::move(acecode_dir))) {
 #ifdef _WIN32
     impl_->start();
 #endif

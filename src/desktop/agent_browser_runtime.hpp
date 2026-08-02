@@ -8,7 +8,7 @@
 
 namespace acecode::desktop {
 
-inline constexpr int kAgentBrowserRuntimeProtocolVersion = 3;
+inline constexpr int kAgentBrowserRuntimeProtocolVersion = 4;
 inline constexpr std::uint32_t kAgentBrowserProxyMaxRequestBytes =
     8u * 1024u * 1024u;
 inline constexpr std::uint32_t kAgentBrowserProxyMaxResponseBytes =
@@ -28,6 +28,10 @@ struct AgentBrowserRuntimeManifest {
 std::filesystem::path agent_browser_root_path(
     const std::string& acecode_dir = std::string());
 std::filesystem::path agent_browser_user_data_path(
+    const std::string& acecode_dir = std::string());
+std::filesystem::path agent_browser_macos_profile_identifier_path(
+    const std::string& acecode_dir = std::string());
+std::filesystem::path agent_browser_proxy_socket_path(
     const std::string& acecode_dir = std::string());
 std::filesystem::path agent_browser_runtime_manifest_path(
     const std::string& acecode_dir = std::string());

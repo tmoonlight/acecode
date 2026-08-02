@@ -21,7 +21,7 @@ std::optional<AgentBrowserElementRef> parse_agent_browser_element_ref(
 
 class AgentBrowserCdpClient {
 public:
-    AgentBrowserCdpClient();
+    explicit AgentBrowserCdpClient(std::string acecode_dir = {});
     ~AgentBrowserCdpClient();
 
     AgentBrowserCdpClient(const AgentBrowserCdpClient&) = delete;

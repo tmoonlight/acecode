@@ -28,6 +28,16 @@ std::filesystem::path agent_browser_user_data_path(const std::string& acecode_di
     return agent_browser_root_path(acecode_dir) / "webview2";
 }
 
+std::filesystem::path agent_browser_macos_profile_identifier_path(
+    const std::string& acecode_dir) {
+    return agent_browser_root_path(acecode_dir) / "macos-profile-id";
+}
+
+std::filesystem::path agent_browser_proxy_socket_path(
+    const std::string& acecode_dir) {
+    return data_root(acecode_dir) / "run" / "agent-browser.sock";
+}
+
 std::filesystem::path agent_browser_runtime_manifest_path(
     const std::string& acecode_dir) {
     return data_root(acecode_dir) / "run" / "agent-browser.json";
@@ -131,9 +141,19 @@ std::string validate_agent_browser_runtime_manifest(
         !path_from_utf8(manifest.user_data_dir).is_absolute()) {
         return "agent browser user data directory is invalid";
     }
+#ifdef __APPLE__
+    const std::filesystem::path socket_path =
+        path_from_utf8(manifest.pipe_name);
+    if (!socket_path.is_absolute() ||
+        socket_path.filename() != "agent-browser.sock" ||
+        socket_path.parent_path().filename() != "run") {
+        return "agent browser proxy socket is invalid";
+    }
+#else
     if (manifest.pipe_name.rfind("\\\\.\\pipe\\ACECode-AgentBrowser-", 0) != 0) {
         return "agent browser proxy pipe is invalid";
     }
+#endif
     if (manifest.auth_token.size() < 32 || manifest.auth_token.size() > 256) {
         return "agent browser proxy token is invalid";
     }

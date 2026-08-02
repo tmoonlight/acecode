@@ -1069,9 +1069,10 @@ bool SessionManager::try_set_generated_session_title_for_session(
 }
 
 bool SessionManager::try_set_generated_session_title_locked(std::string title) {
-    if (title.empty() || is_generated_session_error_title(title)) return false;
     if (user_title_touched_) return false;
     if (!pending_title_.empty() && title_source_ != "generated") return false;
+    title = sanitize_generated_session_title(std::move(title));
+    if (title.empty()) return false;
     pending_title_ = std::move(title);
     title_source_ = "generated";
     if (created_) {

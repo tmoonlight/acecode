@@ -30,7 +30,7 @@ TEST(AgentBrowserTools, SnapshotContractUsesRevisionedRefsWithoutHostBindings) {
 }
 
 TEST(AgentBrowserTools, RejectsAmbiguousInteractionTargetsBeforeConnecting) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
     ToolExecutor tools;
     register_agent_browser_tools(tools);
 
@@ -47,10 +47,10 @@ TEST(AgentBrowserTools, RejectsAmbiguousInteractionTargetsBeforeConnecting) {
 #endif
 }
 
-TEST(AgentBrowserTools, RegistersStructuredWindowsToolSet) {
+TEST(AgentBrowserTools, RegistersStructuredDesktopToolSet) {
     ToolExecutor tools;
     register_agent_browser_tools(tools);
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
     for (const auto& name : agent_browser_tool_names()) {
         EXPECT_TRUE(tools.has_tool(name)) << name;
     }
@@ -70,6 +70,27 @@ TEST(AgentBrowserTools, RegistersStructuredWindowsToolSet) {
     EXPECT_TRUE(tools.is_read_only("browser_screenshot"));
     EXPECT_FALSE(tools.is_read_only("browser_click"));
     EXPECT_FALSE(tools.has_tool("browser_start"));
+    for (const char* name : {
+             "browser_click", "browser_fill", "browser_type",
+             "browser_press", "browser_hover", "browser_drag",
+             "browser_scroll"}) {
+        const auto definition = std::find_if(
+            definitions.begin(), definitions.end(),
+            [name](const ToolDef& candidate) {
+                return candidate.name == name;
+        });
+        ASSERT_NE(definition, definitions.end()) << name;
+        const auto& properties = definition->parameters["properties"];
+#ifdef __APPLE__
+        ASSERT_TRUE(properties.contains("input_mode")) << name;
+        EXPECT_EQ(properties["input_mode"]["enum"],
+                  nlohmann::json::array({"synthetic", "native"}))
+            << name;
+        EXPECT_EQ(properties["input_mode"]["default"], "synthetic") << name;
+#else
+        EXPECT_FALSE(properties.contains("input_mode")) << name;
+#endif
+    }
 #else
     for (const auto& name : agent_browser_tool_names()) {
         EXPECT_FALSE(tools.has_tool(name)) << name;
@@ -106,4 +127,20 @@ TEST(AgentBrowserTools, ReadsPngDimensionsDefensively) {
 
     png[0] = 0;
     EXPECT_FALSE(agent_browser_png_dimensions(png));
+}
+
+TEST(AgentBrowserTools, InteractionResultMetadataIsMacOnly) {
+    const nlohmann::json base{{"clicked", true}};
+#ifdef __APPLE__
+    EXPECT_EQ(agent_browser_input_result_metadata(base, "synthetic"),
+              nlohmann::json({{"clicked", true},
+                              {"input_mode", "synthetic"},
+                              {"input_trust", "synthetic"}}));
+    EXPECT_EQ(agent_browser_input_result_metadata(base, "native"),
+              nlohmann::json({{"clicked", true},
+                              {"input_mode", "native"},
+                              {"input_trust", "native"}}));
+#else
+    EXPECT_EQ(agent_browser_input_result_metadata(base, "native"), base);
+#endif
 }

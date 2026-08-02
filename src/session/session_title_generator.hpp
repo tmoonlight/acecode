@@ -12,6 +12,9 @@ namespace acecode {
 // legitimate titles such as "Error handling cleanup" remain valid.
 bool is_generated_session_error_title(const std::string& title);
 
+// Normalize model-generated title output. JSON and a single Markdown-wrapped
+// JSON object are accepted for compatibility; explanations, code blocks,
+// malformed structured output, and overlong text are rejected.
 std::string sanitize_generated_session_title(std::string raw);
 
 std::optional<std::string> generate_session_title(

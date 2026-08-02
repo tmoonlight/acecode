@@ -108,7 +108,7 @@ export function AgentBrowserPanel({ pageId, agentActive = false, onAddContext })
     if (!viewport) return;
     const layout = agentBrowserLayoutFromRect(
       viewport.getBoundingClientRect(),
-      window.devicePixelRatio || 1,
+      window.__ACECODE_OS__ === 'macos' ? 1 : (window.devicePixelRatio || 1),
       visible && nativePageVisible && !overlayBlocked,
     );
     void setAgentBrowserLayout(pageId, layout);

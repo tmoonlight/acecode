@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cctype>
 #include <nlohmann/json.hpp>
+#include <optional>
+#include <utility>
 #include <vector>
 
 namespace acecode {
@@ -47,7 +49,7 @@ std::string strip_wrapping_quotes(std::string s) {
     return s;
 }
 
-std::string title_from_json_or_raw(const std::string& raw) {
+std::optional<std::string> title_from_json(const std::string& raw) {
     try {
         auto j = nlohmann::json::parse(raw);
         if (j.is_object()) {
@@ -60,7 +62,79 @@ std::string title_from_json_or_raw(const std::string& raw) {
         if (j.is_string()) return j.get<std::string>();
     } catch (...) {
     }
-    return raw;
+    return std::nullopt;
+}
+
+std::optional<std::string> unwrap_markdown_json_fence(const std::string& raw) {
+    std::string text = trim_ascii(raw);
+    if (text.rfind("```", 0) != 0) return std::nullopt;
+
+    const std::size_t closing = text.rfind("```");
+    if (closing <= 3 || !trim_ascii(text.substr(closing + 3)).empty()) {
+        return std::nullopt;
+    }
+
+    std::string body = trim_ascii(text.substr(3, closing - 3));
+    if (body.empty()) return std::nullopt;
+
+    if (body.size() >= 4) {
+        std::string language = body.substr(0, 4);
+        std::transform(language.begin(), language.end(), language.begin(),
+                       [](unsigned char c) {
+                           return static_cast<char>(std::tolower(c));
+                       });
+        if (language == "json" &&
+            (body.size() == 4 ||
+             std::isspace(static_cast<unsigned char>(body[4])) != 0)) {
+            body = trim_ascii(body.substr(4));
+        }
+    }
+
+    if (body.empty() || (body.front() != '{' && body.front() != '"')) {
+        return std::nullopt;
+    }
+    return body;
+}
+
+bool contains_line_break(const std::string& text) {
+    return text.find('\n') != std::string::npos ||
+           text.find('\r') != std::string::npos;
+}
+
+bool contains_sentence_ending(const std::string& text) {
+    if (text.find("\xE3\x80\x82") != std::string::npos || // CJK full stop
+        text.find("\xEF\xBC\x81") != std::string::npos || // full-width exclamation
+        text.find("\xEF\xBC\x9F") != std::string::npos) { // full-width question mark
+        return true;
+    }
+    if (text.empty()) return false;
+    const char last = text.back();
+    return last == '.' || last == '!' || last == '?';
+}
+
+std::size_t whitespace_word_count(const std::string& text) {
+    std::size_t count = 0;
+    bool in_word = false;
+    for (unsigned char c : text) {
+        if (std::isspace(c) != 0) {
+            in_word = false;
+        } else if (!in_word) {
+            ++count;
+            in_word = true;
+        }
+    }
+    return count;
+}
+
+bool looks_like_generated_title(const std::string& title) {
+    if (title.empty() || title.size() > kMaxGeneratedTitleBytes) return false;
+    if (title.find("```") != std::string::npos ||
+        title.find("**") != std::string::npos ||
+        contains_line_break(title) ||
+        contains_sentence_ending(title)) {
+        return false;
+    }
+    return whitespace_word_count(title) <= 12;
 }
 
 std::string strip_common_prefix(std::string s) {
@@ -92,10 +166,32 @@ bool is_generated_session_error_title(const std::string& title) {
 }
 
 std::string sanitize_generated_session_title(std::string raw) {
-    std::string title = title_from_json_or_raw(ensure_utf8(raw));
+    std::string normalized = trim_ascii(ensure_utf8(raw));
+    if (normalized.empty() || is_generated_session_error_title(normalized)) return {};
+
+    bool fenced = false;
+    if (normalized.rfind("```", 0) == 0) {
+        auto payload = unwrap_markdown_json_fence(normalized);
+        if (!payload.has_value()) return {};
+        normalized = std::move(*payload);
+        fenced = true;
+    } else if (normalized.find("```") != std::string::npos) {
+        return {};
+    }
+
+    auto json_title = title_from_json(normalized);
+    if (!json_title.has_value() &&
+        (fenced || normalized.front() == '{' || normalized.front() == '[')) {
+        return {};
+    }
+
+    std::string title = json_title.has_value() ? std::move(*json_title) : normalized;
+    if (contains_line_break(title)) return {};
     title = strip_wrapping_quotes(strip_common_prefix(collapse_whitespace(title)));
-    if (title.empty()) return {};
-    title = truncate_utf8_prefix(title, kMaxGeneratedTitleBytes, "");
+    if (!looks_like_generated_title(title) ||
+        is_generated_session_error_title(title)) {
+        return {};
+    }
     std::string err;
     if (!sanitize_title(title, err)) return {};
     return trim_ascii(title);
@@ -116,7 +212,8 @@ std::optional<std::string> generate_session_title(
     system.role = "system";
     system.content =
         "Generate a concise title for this coding-agent session. "
-        "Return only JSON like {\"title\":\"...\"}. "
+        "Return only the title text, without JSON, Markdown, code fences, "
+        "quotes, prefixes, or explanation. "
         "Use at most 8 English words or 24 Chinese characters. "
         "Do not include punctuation unless needed for a file or symbol name.";
 

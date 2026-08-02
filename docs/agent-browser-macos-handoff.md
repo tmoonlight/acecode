@@ -1,8 +1,27 @@
 # macOS Agent Browser handoff
 
+## 实施状态（2026-08-02）
+
+本 handoff 的主体方案已经由 OpenSpec change
+`add-macos-agent-browser-input-backends` 落地。当前实现只在 macOS 14+ 激活，使用系统
+`WKWebView`、identifier data store 和鉴权 `AF_UNIX` socket，不引入 Tauri、Chromium、
+CEF、外部浏览器进程或 Safari 私有调试协议。
+
+交互同时提供两套 backend：Agent 默认选择 `synthetic` DOM 事件；遇到站点要求 trusted
+event 时可显式选择 `native` CGEvent。native 要求目标页可见/激活和 macOS 辅助功能权限，
+权限不足会返回稳定错误，不会静默降级。Windows schema 和 WebView2/CDP 路径保持原样，
+Linux 仍不注册 Browser 工具。
+
+已加入真实 `NSWindow`/`WKWebView` smoke，覆盖 page 创建与共享、协议 v4 manifest、同用户
+Unix socket、隔离世界 JS、synthetic 文本输入和 viewport PNG 截图。CGEvent 权限提示、
+多显示器坐标、Profile 重启登录态、复杂站点以及签名 app 行为仍属于发布前手工验收项。
+首版明确接受的折衷还包括：截图仅覆盖 viewport，元素附件支持高亮/单击而非 Windows 的
+拖拽共同祖先/closed-shadow 完整选择，跨源 iframe 不保证可操作，Web Inspector 按钮返回
+unsupported。
+
 ## 目标和不可变合同
 
-macOS 后续要复用 Windows 已完成的产品模型：详情栏中可并存多个用户可见 Browser
+macOS 实现复用 Windows 已完成的产品模型：详情栏中可并存多个用户可见 Browser
 页签，每个页签有独立页面，用户和 Agent 操作同一目标页，Agent 活动时只有该页显示
 彩虹边框。不要重新引入外部 Chrome、
 浏览器扩展、`ace-browser-host` 或 shell CLI 提示。
@@ -39,10 +58,9 @@ macOS 后续要复用 Windows 已完成的产品模型：详情栏中可并存�
   `aceDesktop_*` binding 或 daemon token。
 
 `web/src/components/AgentBrowserPanel.jsx`、`web/src/lib/agentBrowser.js`、
-`web/src/lib/previewTabs.js`、`ChatView.jsx` 和彩虹 CSS 可以直接复用。当前
-`hasNativeAgentBrowser()` 当前同时检查 Windows Desktop 标记和完整 native bridge；
-macOS backend 完成后，要把 OS gate 扩展到 macOS，并在 `src/desktop/main.cpp` 为
-`__APPLE__` 开启这些 bindings，不能只添加 bindings 而忘记入口 gate。
+`web/src/lib/previewTabs.js`、`ChatView.jsx` 和彩虹 CSS 已直接复用。
+`hasNativeAgentBrowser()` 已接受 Windows/macOS Desktop 标记并继续校验完整 native
+bridge；`src/desktop/main.cpp` 也已为 `__APPLE__` 开启相同 bindings。
 
 ## 推荐 native 实现
 
@@ -108,7 +126,7 @@ sequenceDiagram
 ```
 
 - 在 `<acecode-dir>/run/agent-browser.sock` 建 Unix domain socket，权限 `0600`。
-  当前 Windows runtime protocol 已是 v3，操作包含 `create_page`、`select_page`、
+  当前跨平台 runtime protocol 已提升到 v4，操作包含 `create_page`、`select_page`、
   `close_page` 和带 `page_id` 的 `cdp`。macOS 增加 transport discriminant 时记录
   `transport: "desktop-jsonrpc"`、socket path、随机 token、Desktop pid/instance id，
   并保持相同页面生命周期语义。不要监听公网或固定 TCP 端口。
@@ -124,15 +142,15 @@ sequenceDiagram
 ## 必须明确接受或补齐的能力差异
 
 公共 WKWebView API 能导航、执行隔离世界 JavaScript并截图，但没有 CDP
-`Input.dispatchMouseEvent`/`Input.dispatchKeyEvent` 的等价公开接口。因而 macOS 首版
-要在下面两种边界中明确选择，不能声称“完全等价”：
+`Input.dispatchMouseEvent`/`Input.dispatchKeyEvent` 的等价公开接口。macOS 首版因此同时
+实现下面两种显式边界，不能声称“完全等价”：
 
-- 推荐基础版：`click/fill/type/hover/drag/scroll` 通过 DOM focus、value setter、
+- 默认基础版 `synthetic`：`click/fill/type/hover/drag/scroll` 通过 DOM focus、value setter、
   `element.click()` 和合成事件实现。优点是不需要系统权限；缺点是事件
   `isTrusted=false`，部分站点会拒绝。
-- 严格真实输入版：把元素 rect 转成屏幕坐标后使用 CGEvent，但这通常涉及辅助功能
-  权限、窗口前台和用户鼠标干扰。只有产品明确接受权限提示后再做，并为每次操作
-  校验目标窗口仍是 ACECode。
+- 严格真实输入版 `native`：把元素 rect 转成屏幕坐标后使用 CGEvent，涉及辅助功能
+  权限、窗口前台和用户鼠标干扰。每次操作都校验目标 Browser 页仍可见且激活；权限不足
+  明确返回 `native_input_permission_required`。
 
 不要依赖私有 Safari Remote Inspector protocol；不要把 `isInspectable` 当成可供
 daemon attach 的生产 transport。Apple 的公开 WKWebView surface 提供导航、
@@ -143,18 +161,18 @@ Windows 的 Developer Tools 按钮使用 WebView2 `OpenDevToolsWindow`。WKWebVi
 公开的“打开/切换 Web Inspector”宿主 API；macOS 端不得调用私有 selector。首版应让
 `ToggleDevTools` 返回明确的 unsupported 错误，后续只有在 Apple 增加公开 API 时再接入。
 
-## 建议实施顺序
+## 已落地的实现分层
 
-1. 在 macOS 先实现多 WKWebView create/select/close/layout/show/hide/navigation/state，
-   验证连续点击产生独立页、逐页历史、关闭释放、resize、全屏和 Profile 重启保留。
-2. 加 Unix socket manifest v3 与一个双页 `create -> navigate -> read -> close` 往返
-   测试；保持 Windows 已有的鉴权、owner 校验、page-id 锁定、deadline 和错误语义。
-3. 抽 transport 接口并在 macOS 注册现有工具集合；先完成 open/navigate/read/wait/
-   screenshot/evaluate/close。
-4. 加 DOM interaction backend，并把 `input_trust: "synthetic"` 放进 macOS 动作结果，
-   让调用者能看到能力差异。
-5. 实现 dialog、popup 同页处理、取消/超时、断线重连和 stale revision。
-6. 最后才评估 CGEvent trusted-input 增强；不要让它阻塞可见同页闭环。
+1. `agent_browser_host_mac.mm` 管理多 WKWebView、布局、可见性、导航、history、dialog、
+   popup、console、favicon、元素选择、截图与两套输入 backend。
+2. runtime protocol v4 根据平台验证 Windows pipe 或 macOS socket；macOS endpoint 使用
+   `0600`、随机 token、同用户 peer 校验、有界帧、deadline 和 UI 主线程 dispatch。
+3. 现有 `browser_*` 工具与 revision/page-id 锁定语义继续复用；只有 macOS 交互 schema
+   增加 `input_mode`，并在结果中公开 `input_trust`。
+4. CMake 只在 Apple 选择 Objective-C++ host 并链接 AppKit、ApplicationServices、
+   CoreGraphics、WebKit；Windows 继续选择原 `.cpp`，Linux 保持 unsupported。
+5. 自动 smoke 不触发需授权的 CGEvent；发布前按下方清单完成 native/multi-display/
+   signed-app 手工验收。
 
 ## 验收清单
 

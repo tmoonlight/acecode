@@ -1434,7 +1434,7 @@ int main(int argc, char** argv) {
         return "null";
     });
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
     host.bind("aceDesktop_agentBrowserGetState",
               [&](const std::string& req) -> std::string {
         std::string page_id;
@@ -2012,6 +2012,8 @@ int main(int argc, char** argv) {
                                      "window.__ACECODE_FRAMELESS_WINDOW__=" +
                                      kFramelessWindowFlag + ";\n" +
                                      "window.__ACECODE_OS__=\"" + kHostOs + "\";\n" +
+                                     "window.__ACECODE_AGENT_BROWSER_SUPPORTED__=" +
+                                     (agent_browser.supported() ? "true" : "false") + ";\n" +
                                      "window.__ACECODE_NATIVE_FILE_DROP__=" +
                                      kNativeFileDrop + ";\n" + R"JS(
     (function () {
