@@ -55,12 +55,26 @@ import {
   parseNativeContextPickerResult,
 } from '../lib/desktopContextPicker.js';
 import {
+  desktopHostOs,
+  hasNativeFilesystemClipboard,
+  hasNativeFilesystemMaterializer,
+  insertAbsoluteFolderReferences,
+  localPathsFromDropPayload,
+  localPathsFromUriList,
+  materializeNativeFilesystemPaths,
+  nativeFileDropEnabled,
+  readNativeClipboardFilesystemItems,
+  uriListFromTransfer,
+} from '../lib/desktopFilesystemTransfer.js';
+import {
   nextExpertMenuItemIndex,
   placeExpertSubmenu,
 } from '../lib/expertMenuPosition.js';
 
 const MAX_ROWS = 8;
 const LINE_HEIGHT = 20; // 与 leading-[20px] 对齐
+const HOST_OS = desktopHostOs();
+const NATIVE_FILE_DROP = nativeFileDropEnabled();
 
 function composerAttachmentKey(item, index = 0) {
   return String(item?.local_id || item?.id || item?.name || index);
@@ -74,6 +88,7 @@ function composerAttachmentContext(item, index = 0) {
     name: item?.name || 'attachment',
     url: item?.preview_url || item?.blob_url || item?.url || '',
     path: item?.path || '',
+    sourcePath: item?.source_path || item?.metadata?.source_path || '',
   };
 }
 
@@ -174,6 +189,8 @@ export const InputBar = forwardRef(function InputBar({
   const isControlled = controlledValue != null;
   const [internalValue, setInternalValue] = useState('');
   const value = isControlled ? String(controlledValue || '') : internalValue;
+  const valueRef = useRef(value);
+  valueRef.current = value;
   const [histPtr, setHistPtr] = useState(-1);
   const [editedSinceHistory, setEditedSinceHistory] = useState(false);
   const [dropdownClosed, setDropdownClosed] = useState(false); // Esc 关闭后,直到首段变化或重新输入 / 才重开
@@ -196,6 +213,7 @@ export const InputBar = forwardRef(function InputBar({
   const fileMenuItemRef = useRef(null);
   const expertSubmenuRef = useRef(null);
   const dragDepthRef = useRef(0);
+  const nativeDropHoverRef = useRef({ active: false, ts: 0 });
   const composingRef = useRef(false);
   const justFinishedCompositionRef = useRef(false);
   const compositionGuardTimerRef = useRef(0);
@@ -218,6 +236,8 @@ export const InputBar = forwardRef(function InputBar({
   ));
   const hasExtras = attachmentItems.length > 0 || contextItems.length > 0;
   const nativeContextPickerAvailable = hasNativeContextPicker();
+  const nativeFilesystemMaterializerAvailable = hasNativeFilesystemMaterializer();
+  const nativeFilesystemClipboardAvailable = hasNativeFilesystemClipboard();
   const canChooseLocalContext = !!onMediaFiles || nativeContextPickerAvailable;
   const hasExpertHandlers = !!onSelectExpert || !!onOpenExpertComponents;
   const hasCapabilityHandlers = !!onSwarmModeChange || canChooseLocalContext || hasExpertHandlers;
@@ -516,6 +536,72 @@ export const InputBar = forwardRef(function InputBar({
     return true;
   }, [disabled, onMediaFiles, requestComposerCaretRestore]);
 
+  const addNativeFilesystemItems = useCallback((items, savedCursor = composerSelection.end) => {
+    const list = Array.from(items || []);
+    if (list.length === 0) return false;
+
+    const folders = list.filter((item) => item?.kind === 'folder' && item.path);
+    const files = list
+      .filter((item) => item?.kind === 'file')
+      .map((item) => nativePickedFileToFile(item));
+
+    if (folders.length > 0) {
+      const currentValue = valueRef.current;
+      const insertion = insertAbsoluteFolderReferences(currentValue, savedCursor, folders);
+      if (insertion.text !== currentValue) {
+        valueRef.current = insertion.text;
+        updateValue(insertion.text);
+        setEditedSinceHistory(true);
+        restorePathCaret(insertion.cursor);
+      }
+    }
+    if (files.length > 0) addMediaFiles(files);
+    return folders.length > 0 || files.length > 0;
+  }, [addMediaFiles, composerSelection.end, restorePathCaret, updateValue]);
+
+  const addMaterializedPaths = useCallback(async (paths, savedCursor) => {
+    const result = await materializeNativeFilesystemPaths(paths);
+    return addNativeFilesystemItems(result.items, savedCursor);
+  }, [addNativeFilesystemItems]);
+
+  const handleFilesystemPaste = useCallback(({ files = [], uriList = '' } = {}) => {
+    const fallbackFiles = Array.from(files || []);
+    const savedCursor = composerSelection.end;
+    const uriPaths = nativeFilesystemMaterializerAvailable
+      ? localPathsFromUriList(uriList, HOST_OS)
+      : [];
+
+    let request = null;
+    if (uriPaths.length > 0) {
+      request = materializeNativeFilesystemPaths(uriPaths);
+    } else if (nativeFilesystemClipboardAvailable) {
+      request = readNativeClipboardFilesystemItems();
+    }
+
+    if (!request) {
+      addMediaFiles(fallbackFiles);
+      return;
+    }
+
+    Promise.resolve(request)
+      .then((result) => {
+        if (result.items.length > 0) {
+          addNativeFilesystemItems(result.items, savedCursor);
+        } else {
+          addMediaFiles(fallbackFiles);
+        }
+      })
+      .catch((error) => {
+        toast({ kind: 'err', text: `粘贴文件或文件夹失败:${error?.message || '原生文件系统不可用'}` });
+      });
+  }, [
+    addMediaFiles,
+    addNativeFilesystemItems,
+    composerSelection.end,
+    nativeFilesystemClipboardAvailable,
+    nativeFilesystemMaterializerAvailable,
+  ]);
+
   const chooseLocalContext = useCallback(async () => {
     setCapabilityOpen(false);
     if (!nativeContextPickerAvailable) {
@@ -584,35 +670,72 @@ export const InputBar = forwardRef(function InputBar({
     setDragActive(false);
   }, []);
 
+  const markNativeDropHover = useCallback(() => {
+    nativeDropHoverRef.current = { active: true, ts: Date.now() };
+  }, []);
+
   const handleDragEnter = useCallback((event) => {
     if (disabled || !onMediaFiles || !hasFileTransfer(event.dataTransfer)) return;
-    event.preventDefault();
+    if (!NATIVE_FILE_DROP) event.preventDefault();
+    else markNativeDropHover();
     dragDepthRef.current += 1;
     setDragActive(true);
-  }, [disabled, onMediaFiles]);
+  }, [disabled, markNativeDropHover, onMediaFiles]);
 
   const handleDragOver = useCallback((event) => {
     if (disabled || !onMediaFiles || !hasFileTransfer(event.dataTransfer)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
+    if (!NATIVE_FILE_DROP) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    } else {
+      markNativeDropHover();
+    }
     setDragActive(true);
-  }, [disabled, onMediaFiles]);
+  }, [disabled, markNativeDropHover, onMediaFiles]);
 
   const handleDragLeave = useCallback((event) => {
     if (!dragActive) return;
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-    if (dragDepthRef.current === 0) setDragActive(false);
+    if (dragDepthRef.current === 0) {
+      setDragActive(false);
+      nativeDropHoverRef.current = { active: false, ts: 0 };
+    }
   }, [dragActive]);
 
   const handleDrop = useCallback((event) => {
     const files = disabled || !onMediaFiles ? [] : filesFromTransfer(event.dataTransfer, { source: 'drop' });
-    if (files.length > 0) {
+    if (NATIVE_FILE_DROP) {
+      markNativeDropHover();
+      return;
+    }
+    const uriPaths = nativeFilesystemMaterializerAvailable
+      ? localPathsFromUriList(uriListFromTransfer(event.dataTransfer), HOST_OS)
+      : [];
+    if (files.length > 0 || uriPaths.length > 0) {
       event.preventDefault();
       event.stopPropagation();
-      addMediaFiles(files);
+      if (uriPaths.length > 0) {
+        const savedCursor = composerSelection.end;
+        addMaterializedPaths(uriPaths, savedCursor)
+          .catch((error) => toast({
+            kind: 'err',
+            text: `拖入文件或文件夹失败:${error?.message || '原生文件系统不可用'}`,
+          }));
+      } else {
+        addMediaFiles(files);
+      }
     }
     resetDragState();
-  }, [addMediaFiles, disabled, onMediaFiles, resetDragState]);
+  }, [
+    addMaterializedPaths,
+    addMediaFiles,
+    composerSelection.end,
+    disabled,
+    markNativeDropHover,
+    nativeFilesystemMaterializerAvailable,
+    onMediaFiles,
+    resetDragState,
+  ]);
 
   useEffect(() => {
     if (!dragActive) return undefined;
@@ -625,6 +748,41 @@ export const InputBar = forwardRef(function InputBar({
       window.removeEventListener('blur', resetDragState);
     };
   }, [dragActive, resetDragState]);
+
+  useEffect(() => {
+    if (!NATIVE_FILE_DROP || !nativeFilesystemMaterializerAvailable) return undefined;
+    const handler = (payload) => {
+      let rawPaths = payload;
+      if (typeof rawPaths === 'string') {
+        try { rawPaths = JSON.parse(rawPaths); } catch { return; }
+      }
+      const hover = nativeDropHoverRef.current;
+      if (!Array.isArray(rawPaths) || rawPaths.length === 0 ||
+          !hover.active || Date.now() - hover.ts > 1500) return;
+
+      nativeDropHoverRef.current = { active: false, ts: 0 };
+      resetDragState();
+      const paths = localPathsFromDropPayload(rawPaths, HOST_OS);
+      if (paths.length === 0) return;
+      const savedCursor = composerSelection.end;
+      addMaterializedPaths(paths, savedCursor)
+        .catch((error) => toast({
+          kind: 'err',
+          text: `拖入文件或文件夹失败:${error?.message || '原生文件系统不可用'}`,
+        }));
+    };
+    window.__aceComposerAcceptFileDrop = handler;
+    return () => {
+      if (window.__aceComposerAcceptFileDrop !== handler) return;
+      try { delete window.__aceComposerAcceptFileDrop; }
+      catch { window.__aceComposerAcceptFileDrop = undefined; }
+    };
+  }, [
+    addMaterializedPaths,
+    composerSelection.end,
+    nativeFilesystemMaterializerAvailable,
+    resetDragState,
+  ]);
 
   useEffect(() => {
     if (!hasCapabilityHandlers && capabilityOpen) setCapabilityOpen(false);
@@ -969,7 +1127,7 @@ export const InputBar = forwardRef(function InputBar({
             data-desktop-attachment-preview-url={context.url || undefined}
             data-desktop-attachment-mutable="true"
             className="group h-7 max-w-[160px] min-w-0 shrink-0 rounded-md px-1.5 flex items-center gap-1 text-[12px] text-fg-mute hover:bg-surface-hi"
-            title={item.name}
+            title={context.sourcePath || item.name}
           >
             <VsIcon name="file" size={13} />
             <span className="truncate">{item.uploading ? `${item.name || '文件'} 上传中` : (item.name || '文件')}</span>
@@ -1104,6 +1262,7 @@ export const InputBar = forwardRef(function InputBar({
                     'group relative w-[86px] h-[86px] sm:w-24 sm:h-24 shrink-0 overflow-hidden rounded-lg border border-border bg-bg',
                     context.url ? 'cursor-zoom-in hover:border-accent-soft' : '',
                   )}
+                  title={context.sourcePath || context.name}
                   onClick={context.url ? () => setAttachmentPreview({ src: context.url, alt: context.name }) : undefined}
                 >
                   {item.preview_url ? (
@@ -1177,6 +1336,12 @@ export const InputBar = forwardRef(function InputBar({
             isComposingKeyEvent={isComposingKeyEvent}
             onSubmit={submit}
             onPasteFiles={addMediaFiles}
+            onPasteFilesystemItems={
+              nativeFilesystemClipboardAvailable || nativeFilesystemMaterializerAvailable
+                ? handleFilesystemPaste
+                : undefined
+            }
+            allowNativeFilesystemDrop={NATIVE_FILE_DROP}
             disabled={disabled}
             placeholder={placeholder}
             className={clsx(

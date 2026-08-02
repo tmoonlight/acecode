@@ -67,6 +67,30 @@ TEST(AttachmentStore, RejectsInvalidAttachmentId) {
     fs::remove_all(dir);
 }
 
+TEST(AttachmentStore, PersistsInitialSourcePathMetadata) {
+    auto dir = unique_tmp_dir("source_path");
+    const std::string project_dir = acecode::path_to_utf8(dir);
+    const std::string source_path = acecode::path_to_utf8(dir / "source.txt");
+
+    std::string error;
+    auto saved = acecode::save_attachment(
+        project_dir,
+        "session1",
+        "source.txt",
+        "text/plain",
+        std::string{"source bytes"},
+        &error,
+        nlohmann::json{{"source_path", source_path}});
+
+    ASSERT_TRUE(saved.has_value()) << error;
+    EXPECT_EQ(saved->metadata.value("source_path", ""), source_path);
+    auto loaded = acecode::load_attachment(project_dir, "session1", saved->id, &error);
+    ASSERT_TRUE(loaded.has_value()) << error;
+    EXPECT_EQ(loaded->metadata.value("source_path", ""), source_path);
+
+    fs::remove_all(dir);
+}
+
 TEST(AttachmentStore, RejectsLargeImageWhenNormalizationFails) {
     auto dir = unique_tmp_dir("large_image");
     const std::string project_dir = acecode::path_to_utf8(dir);

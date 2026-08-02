@@ -504,4 +504,10 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '仅 Windows Desktop': 'Desktop for Windows only',
   '默认附带最近的 desktop 与 daemon 日志。关联某个具体的会话记录将更有助于我们帮您排查问题。':
     'By default the most recent desktop and daemon logs are included. Linking a specific session will help us troubleshoot the issue.',
+  '粘贴文件或文件夹失败:{{p0}}': 'Failed to paste file or folder: {{p0}}',
+  '拖入文件或文件夹失败:{{p0}}': 'Failed to drop file or folder: {{p0}}',
+  '原生文件系统不可用': 'Native filesystem unavailable',
+  '原生文件系统返回无效结果': 'Native filesystem returned an invalid result',
+  '原生文件系统条目无效': 'Invalid native filesystem item',
+  '原生文件系统桥接不可用': 'Native filesystem bridge unavailable',
 });

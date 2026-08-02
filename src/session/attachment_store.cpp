@@ -157,7 +157,8 @@ std::optional<AttachmentRecord> save_attachment(
     const std::string& name,
     const std::string& supplied_mime_type,
     const std::string& bytes,
-    std::string* error) {
+    std::string* error,
+    const nlohmann::json& initial_metadata) {
     if (project_dir.empty() || session_id.empty()) {
         set_error(error, "session storage unavailable");
         return std::nullopt;
@@ -232,6 +233,9 @@ std::optional<AttachmentRecord> save_attachment(
     record.kind = attachment_kind_for_mime(record.mime_type, record.name);
     record.size_bytes = static_cast<std::uintmax_t>(stored_bytes.size());
     record.blob_url = attachment_blob_url(session_id, record.id);
+    if (initial_metadata.is_object()) {
+        record.metadata = initial_metadata;
+    }
     if (!normalization.empty()) {
         record.metadata["image_normalization"] = normalization;
     }

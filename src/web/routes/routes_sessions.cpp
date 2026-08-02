@@ -2,9 +2,11 @@
 #include "../server_impl.hpp"
 #include "../../session/compact_checkpoint.hpp"
 #include "../../session/session_user_message_search.hpp"
+#include "../../utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -42,6 +44,49 @@ int parse_search_limit(const char* raw) {
     } catch (...) {
         return 30;
     }
+}
+
+std::optional<std::string> verified_attachment_source_path(
+    const std::string& raw,
+    std::string& error) {
+    if (raw.empty()) return std::nullopt;
+    if (raw.size() > 32768) {
+        error = "attachment source path is too long";
+        return std::nullopt;
+    }
+
+    const std::filesystem::path input = path_from_utf8(raw);
+    if (!input.is_absolute()) {
+        error = "attachment source path must be absolute";
+        return std::nullopt;
+    }
+
+    std::error_code ec;
+    const std::filesystem::path canonical =
+        std::filesystem::weakly_canonical(input, ec);
+    if (ec || canonical.empty() ||
+        !std::filesystem::is_regular_file(canonical, ec) || ec) {
+        error = "attachment source path is unavailable";
+        return std::nullopt;
+    }
+    return path_to_utf8_generic(canonical);
+}
+
+std::optional<std::string> attachment_source_path(
+    const AttachmentRecord& record) {
+    if (!record.metadata.is_object()) return std::nullopt;
+    const auto it = record.metadata.find("source_path");
+    if (it == record.metadata.end() || !it->is_string()) return std::nullopt;
+    const std::string path = it->get<std::string>();
+    return path.empty() ? std::nullopt : std::optional<std::string>{path};
+}
+
+std::string attachment_source_context(const AttachmentRecord& record,
+                                      const std::string& source_path) {
+    return "[Local attachment source]\n" + json{
+        {"name", record.name},
+        {"absolute_path", source_path},
+    }.dump(2);
 }
 
 struct UserMessageSearchScope {
@@ -242,6 +287,12 @@ WebServer::Impl::parse_session_user_input_request(
 
             json metadata = attachment_to_json(*record);
             attachment_meta.push_back(metadata);
+            if (auto source_path = attachment_source_path(*record)) {
+                parts.push_back(json{
+                    {"type", "text"},
+                    {"text", attachment_source_context(*record, *source_path)},
+                });
+            }
             const std::string part_kind = attachment_kind_for_mime(
                 record->mime_type, record->name);
             parts.push_back(json{
@@ -910,6 +961,7 @@ void WebServer::Impl::register_sessions() {
             std::string name;
             std::string mime_type;
             std::string data_base64;
+            std::string source_path;
             try {
                 auto j = json::parse(req.body);
                 if (j.contains("name") && j["name"].is_string()) {
@@ -920,6 +972,15 @@ void WebServer::Impl::register_sessions() {
                 }
                 if (j.contains("data_base64") && j["data_base64"].is_string()) {
                     data_base64 = j["data_base64"].get<std::string>();
+                }
+                if (j.contains("source_path")) {
+                    if (!j["source_path"].is_string()) {
+                        crow::response r(400);
+                        r.body = R"({"error":"source_path must be a string"})";
+                        r.add_header("Content-Type", "application/json");
+                        return with_cors(req, std::move(r));
+                    }
+                    source_path = j["source_path"].get<std::string>();
                 }
             } catch (const std::exception& e) {
                 crow::response r(400);
@@ -938,7 +999,20 @@ void WebServer::Impl::register_sessions() {
 
             const std::string project_dir = SessionStorage::get_project_dir(entry->cwd);
             std::string error;
-            auto record = save_attachment(project_dir, id, name, mime_type, *decoded, &error);
+            json initial_metadata = json::object();
+            if (!source_path.empty()) {
+                auto verified = verified_attachment_source_path(source_path, error);
+                if (!verified.has_value()) {
+                    crow::response r(400);
+                    r.body = json{{"error", error.empty()
+                        ? "attachment source path is unavailable" : error}}.dump();
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+                initial_metadata["source_path"] = *verified;
+            }
+            auto record = save_attachment(
+                project_dir, id, name, mime_type, *decoded, &error, initial_metadata);
             if (!record.has_value()) {
                 crow::response r(400);
                 r.body = json{{"error", error.empty() ? "failed to save attachment" : error}}.dump();

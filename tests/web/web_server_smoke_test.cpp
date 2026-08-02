@@ -4379,6 +4379,91 @@ TEST(WebServerHttp, UploadAttachmentAndSubmitContentParts) {
     EXPECT_TRUE(found) << "attachment content_parts should be persisted";
 }
 
+TEST(WebServerHttp, SourceBackedAttachmentPersistsAbsolutePathForModelContext) {
+    WebServerFixture fx;
+    const auto source_file = fx.cwd_dir / "source notes.txt";
+    {
+        std::ofstream output(source_file, std::ios::binary);
+        output << "abc";
+    }
+    const auto canonical_source = std::filesystem::weakly_canonical(source_file);
+    const std::string source_path = acecode::path_to_utf8(canonical_source);
+    const std::string expected_source = acecode::path_to_utf8_generic(canonical_source);
+
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}},
+                          cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201);
+    const auto sid = json::parse(post.text)["session_id"].get<std::string>();
+
+    auto invalid = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"name", "source notes.txt"},
+            {"mime_type", "text/plain"},
+            {"data_base64", "YWJj"},
+            {"source_path", "relative/source notes.txt"},
+        }.dump()});
+    EXPECT_EQ(invalid.status_code, 400) << invalid.text;
+
+    auto upload = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"name", "source notes.txt"},
+            {"mime_type", "text/plain"},
+            {"data_base64", "YWJj"},
+            {"source_path", source_path},
+        }.dump()});
+    ASSERT_EQ(upload.status_code, 201) << upload.text;
+    const auto attachment = json::parse(upload.text)["attachment"];
+    EXPECT_EQ(attachment["metadata"].value("source_path", ""), expected_source);
+    EXPECT_NE(attachment.value("path", ""), expected_source);
+    const std::string attachment_id = attachment["id"].get<std::string>();
+
+    auto queued = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "inspect it"},
+            {"client_message_id", "source-path-message"},
+            {"attachments", json::array({json{{"id", attachment_id}}})},
+        }.dump()});
+    ASSERT_EQ(queued.status_code, 202) << queued.text;
+
+    bool found = false;
+    std::string last_messages;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline && !found) {
+        auto response = cpr::Get(cpr::Url{fx.url("/api/sessions/" + sid + "/messages")});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        last_messages = response.text;
+        const auto response_body = json::parse(response.text);
+        for (const auto& message : response_body["messages"]) {
+            if (message.value("role", "") != "user" ||
+                !message.contains("metadata") || !message["metadata"].is_object() ||
+                message["metadata"].value("client_message_id", "") != "source-path-message") {
+                continue;
+            }
+            const auto& parts = message["content_parts"];
+            ASSERT_TRUE(parts.is_array());
+            ASSERT_EQ(parts.size(), 3u) << parts.dump(2);
+            EXPECT_EQ(parts[0].value("text", ""), "inspect it");
+            EXPECT_EQ(parts[1].value("type", ""), "text");
+            EXPECT_NE(parts[1].value("text", "").find("absolute_path"), std::string::npos);
+            EXPECT_NE(parts[1].value("text", "").find(expected_source), std::string::npos);
+            EXPECT_EQ(parts[2].value("type", ""), "file");
+            EXPECT_EQ(parts[2]["attachment"].value("id", ""), attachment_id);
+            found = true;
+            break;
+        }
+        if (!found) std::this_thread::sleep_for(20ms);
+    }
+    EXPECT_TRUE(found) << "source-backed attachment context should be persisted: "
+                       << last_messages;
+}
+
 TEST(WebServerHttp, PostBuiltinCommandRejectsUnknownSession) {
     WebServerFixture fx;
     auto r = cpr::Post(cpr::Url{fx.url("/api/sessions/missing-session/commands")},

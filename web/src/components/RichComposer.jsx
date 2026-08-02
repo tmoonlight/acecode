@@ -204,6 +204,8 @@ function RichComposerShell({
   onCompositionEnd,
   onSubmit,
   onPasteFiles,
+  onPasteFilesystemItems,
+  allowNativeFilesystemDrop = false,
   isComposingKeyEvent,
   onSelectionChange,
 }, ref) {
@@ -398,12 +400,19 @@ function RichComposerShell({
     const files = filesFromClipboardEvent(event);
     const text = plainTextFromClipboardData(clipboardData);
     const hasRichText = clipboardHasRichText(clipboardData);
-    if (files.length === 0 && !text && !hasRichText) return;
+    const handlesFilesystemItems = typeof onPasteFilesystemItems === 'function';
+    if (files.length === 0 && !text && !hasRichText && !handlesFilesystemItems) return;
     event.preventDefault();
     event.stopPropagation();
-    if (files.length > 0) onPasteFiles?.(files);
+    if (handlesFilesystemItems) {
+      let uriList = '';
+      try { uriList = clipboardData?.getData?.('text/uri-list') || ''; } catch { /* ignored */ }
+      onPasteFilesystemItems({ files, uriList });
+    } else if (files.length > 0) {
+      onPasteFiles?.(files);
+    }
     if (text) insertPlainText(editor, text);
-  }, [disabled, editor, onPasteFiles]);
+  }, [disabled, editor, onPasteFiles, onPasteFilesystemItems]);
 
   const handleCopy = useCallback((event) => {
     writeSelectedPlainText(event, editor);
@@ -417,10 +426,13 @@ function RichComposerShell({
   const handleDrop = useCallback((event) => {
     const files = filesFromTransfer(event.dataTransfer);
     const types = Array.from(event.dataTransfer?.types || []);
-    if (files.length > 0 || types.includes('application/x-slate-fragment')) {
+    if (
+      types.includes('application/x-slate-fragment')
+      || (files.length > 0 && !allowNativeFilesystemDrop)
+    ) {
       event.preventDefault();
     }
-  }, []);
+  }, [allowNativeFilesystemDrop]);
 
   return (
     <Slate

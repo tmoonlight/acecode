@@ -16,6 +16,7 @@
 #include "daemon_pool.hpp"
 #include "agent_browser_host.hpp"
 #include "agent_browser_runtime.hpp"
+#include "context_items.hpp"
 #include "context_picker.hpp"
 #include "desktop_about.hpp"
 #include "desktop_restart.hpp"
@@ -55,12 +56,9 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -123,39 +121,32 @@ nlohmann::json agent_browser_state_json(
     return result;
 }
 
-std::string context_picker_mime_type(const fs::path& path) {
-    std::string extension = acecode::path_to_utf8(path.extension());
-    for (char& ch : extension) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+nlohmann::json context_item_json(const acecode::desktop::ContextItem& item) {
+    nlohmann::json value{
+        {"kind", item.kind == acecode::desktop::ContextItemKind::Folder
+            ? "folder" : "file"},
+        {"path", item.path},
+        {"name", item.name},
+    };
+    if (item.kind == acecode::desktop::ContextItemKind::File) {
+        value["mime_type"] = item.mime_type;
+        value["size_bytes"] = item.size_bytes;
+        value["data_base64"] = acecode::base64_encode(item.bytes);
     }
-    if (extension == ".png") return "image/png";
-    if (extension == ".jpg" || extension == ".jpeg") return "image/jpeg";
-    if (extension == ".gif") return "image/gif";
-    if (extension == ".webp") return "image/webp";
-    if (extension == ".bmp") return "image/bmp";
-    if (extension == ".svg") return "image/svg+xml";
-    if (extension == ".pdf") return "application/pdf";
-    if (extension == ".json") return "application/json";
-    if (extension == ".txt" || extension == ".md" || extension == ".log") {
-        return "text/plain";
-    }
-    return {};
+    return value;
 }
 
-std::optional<std::string> read_context_picker_file(const fs::path& path,
-                                                    std::string& error) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        error = "failed to read selected file: " + acecode::path_to_utf8(path.filename());
-        return std::nullopt;
+nlohmann::json context_items_json(const std::vector<std::string>& paths) {
+    auto materialized = acecode::desktop::materialize_context_items(paths);
+    if (!materialized) {
+        return nlohmann::json{{"ok", false}, {"error", materialized.error}};
     }
-    std::string bytes((std::istreambuf_iterator<char>(input)),
-                      std::istreambuf_iterator<char>());
-    if (!input.eof() && input.fail()) {
-        error = "failed to read selected file: " + acecode::path_to_utf8(path.filename());
-        return std::nullopt;
+
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& item : materialized.items) {
+        items.push_back(context_item_json(item));
     }
-    return bytes;
+    return nlohmann::json{{"ok", true}, {"items", std::move(items)}};
 }
 
 struct ContextPickerFolderReference {
@@ -1980,16 +1971,18 @@ int main(int argc, char** argv) {
     // navigate 前注入 JS: hook console + window 错误事件 → 全部转发回 native。
     // 故意不 hook console.log / console.info,避免噪音(可在前端代码里需要时
     // 显式调 aceDesktop_logFromWeb('info', ...))。
-    // 系统文件拖放(plan: 桌面控制台拖放文件 → 插入完整路径)。Windows/macOS 的
-    // native 拦截把拖入文件的路径回传到这里,eval 调前端控制台的全局接收函数;
-    // 落点是否在终端、命中哪个终端由前端判定。Linux 走前端 text/uri-list,不触发。
+    // 系统文件拖放。Windows/macOS 的 native 拦截把路径回传给终端和 composer
+    // 两个接收函数；各自用最近 hover 时间戳判定落点，不会互相抢占。Linux 由
+    // 前端 text/uri-list 进入同一个 filesystem-item materialize bridge。
     host.set_file_drop_handler([&host](std::vector<std::string> paths) {
         if (paths.empty()) return;
         nlohmann::json arr = nlohmann::json::array();
         for (const auto& p : paths) arr.push_back(p);
         const std::string js =
-            "(function(){try{if(window.__aceConsoleAcceptFileDrop){"
-            "window.__aceConsoleAcceptFileDrop(" + arr.dump() + ");}}catch(e){}})();";
+            "(function(){var p=" + arr.dump() + ";"
+            "try{if(window.__aceConsoleAcceptFileDrop){window.__aceConsoleAcceptFileDrop(p);}}catch(e){}"
+            "try{if(window.__aceComposerAcceptFileDrop){window.__aceComposerAcceptFileDrop(p);}}catch(e){}"
+            "})();";
         host.eval(js);
     });
 
@@ -2266,6 +2259,56 @@ int main(int argc, char** argv) {
         }
     });
 
+    // Native filesystem-item bridge shared by composer drag/drop and clipboard
+    // paste. Paths must come from the shell/native transfer layer; the bridge
+    // canonicalizes them and returns the same item schema as the context picker.
+    host.bind("aceDesktop_materializeContextItems", [&](const std::string& req) -> std::string {
+        try {
+            auto args = nlohmann::json::parse(req);
+            if (!args.is_array() || args.empty() || !args[0].is_array()) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", "expect [paths]"}
+                }.dump();
+            }
+            std::vector<std::string> paths;
+            for (const auto& value : args[0]) {
+                if (!value.is_string()) {
+                    return nlohmann::json{
+                        {"ok", false}, {"error", "filesystem path must be a string"}
+                    }.dump();
+                }
+                paths.push_back(value.get<std::string>());
+            }
+            return context_items_json(paths).dump();
+        } catch (const std::exception& e) {
+            return nlohmann::json{
+                {"ok", false}, {"error", std::string("filesystem items: ") + e.what()}
+            }.dump();
+        }
+    });
+
+    host.bind("aceDesktop_readClipboardContextItems", [&](const std::string&) -> std::string {
+        auto clipboard = acecode::read_system_clipboard_paths();
+        if (clipboard.status == acecode::ClipboardPathsReadResult::Status::TooMany) {
+            return nlohmann::json{
+                {"ok", false},
+                {"error", clipboard.detail.empty()
+                    ? "clipboard contains too many filesystem items"
+                    : clipboard.detail},
+            }.dump();
+        }
+        if (!clipboard) {
+            return nlohmann::json{
+                {"ok", true},
+                {"items", nlohmann::json::array()},
+                {"filesystem_items", false},
+            }.dump();
+        }
+        auto response = context_items_json(clipboard.paths);
+        response["filesystem_items"] = true;
+        return response.dump();
+    });
+
     // Composer context picker: one Windows common file dialog handles normal
     // file multi-selection plus a custom "select current folder" action.
 #ifdef _WIN32
@@ -2286,9 +2329,19 @@ int main(int argc, char** argv) {
             nlohmann::json result{{"ok", true}, {"cancelled", false}};
             result["items"] = nlohmann::json::array();
             if (picked.folder_path) {
+                auto materialized = acecode::desktop::materialize_context_items(
+                    {*picked.folder_path});
+                if (!materialized || materialized.items.size() != 1 ||
+                    materialized.items[0].kind != acecode::desktop::ContextItemKind::Folder) {
+                    return nlohmann::json{
+                        {"ok", false},
+                        {"error", materialized.error.empty()
+                            ? "selected folder is unavailable" : materialized.error},
+                    }.dump();
+                }
                 std::string folder_error;
                 auto folder = context_picker_folder_reference(
-                    default_folder, *picked.folder_path, folder_error);
+                    default_folder, materialized.items[0].path, folder_error);
                 if (!folder) {
                     return nlohmann::json{
                         {"ok", false}, {"error", folder_error}
@@ -2305,23 +2358,20 @@ int main(int argc, char** argv) {
                 return result.dump();
             }
 
-            for (const auto& raw_path : picked.file_paths) {
-                const fs::path path = acecode::path_from_utf8(raw_path);
-                std::string read_error;
-                auto bytes = read_context_picker_file(path, read_error);
-                if (!bytes) {
-                    return nlohmann::json{{"ok", false}, {"error", read_error}}.dump();
+            auto materialized = acecode::desktop::materialize_context_items(
+                picked.file_paths);
+            if (!materialized) {
+                return nlohmann::json{
+                    {"ok", false}, {"error", materialized.error}
+                }.dump();
+            }
+            for (const auto& item : materialized.items) {
+                if (item.kind != acecode::desktop::ContextItemKind::File) {
+                    return nlohmann::json{
+                        {"ok", false}, {"error", "selected item is not a regular file"}
+                    }.dump();
                 }
-                std::error_code size_error;
-                const auto size = fs::file_size(path, size_error);
-                result["items"].push_back({
-                    {"kind", "file"},
-                    {"path", acecode::path_to_utf8_generic(path)},
-                    {"name", acecode::path_to_utf8(path.filename())},
-                    {"mime_type", context_picker_mime_type(path)},
-                    {"size_bytes", size_error ? bytes->size() : size},
-                    {"data_base64", acecode::base64_encode(*bytes)},
-                });
+                result["items"].push_back(context_item_json(item));
             }
             if (picked.file_paths.empty()) result["cancelled"] = true;
             return result.dump();

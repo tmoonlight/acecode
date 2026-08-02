@@ -25,6 +25,7 @@ import './pathReference.test.js';
 import './dropdownPlacement.test.js';
 import './slashDropdownArchitecture.test.js';
 import './desktopContextPicker.test.js';
+import './desktopFilesystemTransfer.test.js';
 import './richComposerModel.test.js';
 import './slateComposerArchitecture.test.js';
 import './consoleDropPaths.test.js';

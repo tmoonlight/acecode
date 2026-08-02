@@ -8,6 +8,39 @@ const PASTE_IMAGE_NAMES = {
   'image/tiff': 'pasted-image.tiff',
 };
 
+const DESKTOP_SOURCE_PATH = Symbol.for('acecode.desktopSourcePath');
+
+function normalizedAbsoluteSourcePath(value) {
+  let path = String(value || '').trim().replaceAll('\\', '/');
+  if (!path) return '';
+  const unc = path.startsWith('//');
+  path = path.replace(/\/{2,}/g, '/');
+  if (unc) path = `/${path}`;
+  if (!/^(?:[A-Za-z]:\/|\/)/.test(path)) return '';
+  return path;
+}
+
+export function markFileSourcePath(file, sourcePath) {
+  const path = normalizedAbsoluteSourcePath(sourcePath);
+  if (!file || !path) return file;
+  try {
+    Object.defineProperty(file, DESKTOP_SOURCE_PATH, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: path,
+    });
+  } catch {
+    // Some host File implementations are non-extensible. The attachment can
+    // still upload; only the optional source-path enrichment is unavailable.
+  }
+  return file;
+}
+
+export function fileSourcePath(file) {
+  return normalizedAbsoluteSourcePath(file?.[DESKTOP_SOURCE_PATH]);
+}
+
 function listToArray(list) {
   if (!list) return [];
   try {

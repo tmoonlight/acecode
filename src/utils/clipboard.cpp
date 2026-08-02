@@ -20,6 +20,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <shellapi.h>
 #else
 #include <sys/wait.h>
 #endif
@@ -91,6 +92,16 @@ ClipboardImageReadResult image_result(ClipboardImageReadResult::Status status,
     r.status = status;
     r.bytes = std::move(bytes);
     r.mime_type = std::move(mime_type);
+    r.detail = std::move(detail);
+    return r;
+}
+
+ClipboardPathsReadResult paths_result(ClipboardPathsReadResult::Status status,
+                                      std::vector<std::string> paths = {},
+                                      std::string detail = {}) {
+    ClipboardPathsReadResult r;
+    r.status = status;
+    r.paths = std::move(paths);
     r.detail = std::move(detail);
     return r;
 }
@@ -218,6 +229,54 @@ ClipboardImageReadResult read_windows_clipboard_image(std::size_t max_bytes) {
     return image_result(ClipboardImageReadResult::Status::Success,
                         std::move(*decoded),
                         "image/png");
+}
+
+ClipboardPathsReadResult read_windows_clipboard_paths(std::size_t max_paths) {
+    if (!OpenClipboard(nullptr)) {
+        return paths_result(ClipboardPathsReadResult::Status::Unavailable,
+                            {},
+                            "OpenClipboard failed");
+    }
+
+    HANDLE handle = GetClipboardData(CF_HDROP);
+    if (!handle) {
+        CloseClipboard();
+        return paths_result(ClipboardPathsReadResult::Status::Empty);
+    }
+
+    const auto drop = static_cast<HDROP>(handle);
+    const UINT count = DragQueryFileW(drop, 0xFFFFFFFFu, nullptr, 0);
+    if (count == 0) {
+        CloseClipboard();
+        return paths_result(ClipboardPathsReadResult::Status::Empty);
+    }
+    if (count > max_paths) {
+        CloseClipboard();
+        return paths_result(ClipboardPathsReadResult::Status::TooMany,
+                            {},
+                            "clipboard contains too many filesystem items");
+    }
+
+    std::vector<std::string> paths;
+    paths.reserve(count);
+    for (UINT index = 0; index < count; ++index) {
+        const UINT length = DragQueryFileW(drop, index, nullptr, 0);
+        if (length == 0) continue;
+        std::wstring buffer(static_cast<std::size_t>(length) + 1, L'\0');
+        const UINT copied = DragQueryFileW(
+            drop, index, buffer.data(), static_cast<UINT>(buffer.size()));
+        if (copied == 0) continue;
+        buffer.resize(copied);
+        std::string path = wide_to_utf8(buffer);
+        if (!path.empty()) paths.push_back(std::move(path));
+    }
+    CloseClipboard();
+
+    if (paths.empty()) {
+        return paths_result(ClipboardPathsReadResult::Status::Empty);
+    }
+    return paths_result(ClipboardPathsReadResult::Status::Success,
+                        std::move(paths));
 }
 #endif
 
@@ -428,6 +487,17 @@ ClipboardImageReadResult read_system_clipboard_image(std::size_t max_bytes) {
         commands.push_back("xclip -selection clipboard -t image/png -o 2>/dev/null");
     }
     return read_system_clipboard_image_from_commands(commands, "image/png", max_bytes);
+#endif
+}
+
+ClipboardPathsReadResult read_system_clipboard_paths(std::size_t max_paths) {
+#ifdef _WIN32
+    return read_windows_clipboard_paths(max_paths);
+#else
+    (void)max_paths;
+    return paths_result(ClipboardPathsReadResult::Status::Unavailable,
+                        {},
+                        "filesystem clipboard paths are unsupported");
 #endif
 }
 

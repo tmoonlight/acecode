@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import {
+  fileSourcePath,
   filesFromClipboardEvent,
   filesFromTransfer,
   hasFileTransfer,
+  markFileSourcePath,
 } from './composerFileTransfer.js';
 
 function run(name, fn) {
@@ -77,4 +79,12 @@ run('unnamed pasted images get a stable filename when File is available', () => 
   assert.equal(files.length, 1);
   assert.equal(files[0].name, 'pasted-image.png');
   assert.equal(files[0].type, 'image/png');
+});
+
+run('native source paths are preserved separately from the browser filename', () => {
+  const file = fileLike('notes.txt', 'text/plain');
+  assert.equal(markFileSourcePath(file, 'C:\\work\\project\\notes.txt'), file);
+  assert.equal(fileSourcePath(file), 'C:/work/project/notes.txt');
+  assert.equal(Object.keys(file).includes('acecodeSourcePath'), false);
+  assert.equal(fileSourcePath(markFileSourcePath(fileLike('x'), 'relative/x')), '');
 });

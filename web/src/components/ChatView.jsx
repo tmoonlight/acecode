@@ -25,6 +25,7 @@ import { connection } from '../lib/connection.js';
 import { tr } from '../i18n/index.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
+import { fileSourcePath } from '../lib/composerFileTransfer.js';
 import { Message } from './Message.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
@@ -1243,6 +1244,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       const localId = `local-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
       const kind = String(file.type || '').startsWith('image/') ? 'image' : 'file';
       const previewUrl = kind === 'image' ? URL.createObjectURL(file) : '';
+      const sourcePath = fileSourcePath(file);
       const localItem = {
         local_id: localId,
         name: file.name || 'attachment',
@@ -1250,6 +1252,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
         mime_type: file.type || '',
         size_bytes: file.size || 0,
         preview_url: previewUrl,
+        source_path: sourcePath,
         uploading: true,
       };
       setComposerAttachments((items) => [...items, localItem]);
@@ -1269,13 +1272,20 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             name: uploadName,
             mime_type: uploadMime,
             data_base64: dataBase64,
+            ...(sourcePath ? { source_path: sourcePath } : {}),
           });
         })
         .then((result) => {
           const attachment = result?.attachment || {};
           setComposerAttachments((items) => items.map((item) => (
             item.local_id === localId
-              ? { ...attachment, local_id: localId, preview_url: previewUrl, uploading: false }
+              ? {
+                  ...attachment,
+                  local_id: localId,
+                  preview_url: previewUrl,
+                  source_path: attachment?.metadata?.source_path || sourcePath,
+                  uploading: false,
+                }
               : item
           )));
         })
