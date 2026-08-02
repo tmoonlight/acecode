@@ -147,7 +147,13 @@ import { fileTreeRefreshKeyFromItems } from '../lib/fileTreeRefresh.js';
 import { buildAssistantRunDirectives } from '../lib/assistantRunDirectives.js';
 import { activityChromeState } from '../lib/assistantAvatarDisplay.js';
 import { notifySessionListChanged } from '../lib/sessionListEvents.js';
-import { MIN_CHAT_WIDTH, solveSingleContentLayout } from '../lib/singleLayout.js';
+import {
+  DEFAULT_SUBAGENT_PANEL_WIDTH,
+  MIN_CHAT_WIDTH,
+  normalizeSubagentPanelWidth,
+  solveSingleContentLayout,
+  subagentPanelWidthRange,
+} from '../lib/singleLayout.js';
 import { completionSummaryMarkdown } from '../lib/taskCompleteSummary.js';
 import {
   activeConversationTurnIndex as resolveActiveConversationTurnIndex,
@@ -164,6 +170,7 @@ import {
   closePreviewTabsToRight,
   closeVisiblePreviewTabs,
   closeVisiblePreviewTabsConfirmationMessage,
+  defaultBrowserTabTitle,
   openFileTab,
   openBrowserTab,
   openGitChangesTab,
@@ -174,6 +181,7 @@ import {
   reorderPreviewTab,
   sessionWorkingCwd,
   updateGitChangesTab,
+  updateBrowserTabMetadata,
   updateSessionChangesTab,
   visiblePreviewTabs,
 } from '../lib/previewTabs.js';
@@ -575,7 +583,7 @@ function isRealWorkspaceHash(hash) {
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 
-export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
+export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const stagedExpertDraft = expertDispatchDraftFromRef(ref);
@@ -789,10 +797,14 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const previewAutoRefreshRef = useRef({ sid: '', busy: false, completedTurnKey: '' });
   const inputRef = useRef(null);
   const layoutRef = useRef(null);
+  const subagentSplitRef = useRef(null);
   const [layoutWidth, setLayoutWidth] = useState(0);
   const sidePanelResizeActiveRef = useRef(false);
   const previewPanelResizeActiveRef = useRef(false);
+  const subagentPanelResizeActiveRef = useRef(false);
+  const subagentPanelResizeCleanupRef = useRef(null);
   const renderedPreviewPanelWidthRef = useRef(previewPanelWidth);
+  const renderedSubagentPanelWidthRef = useRef(subagentPanelWidth);
   const [composerValue, setComposerValue] = useState(
     () => stagedExpertDraft.text,
   );
@@ -1305,6 +1317,27 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
 
   const removeComposerContext = useCallback((key) => {
     setComposerContexts((items) => items.filter((item) => (item.local_id || item.id || item.type) !== key));
+  }, []);
+
+  const addBrowserContext = useCallback((context) => {
+    const localId = context?.local_id || context?.id || `browser-${Date.now()}`;
+    const normalized = normalizeComposerContext({
+      ...context,
+      type: 'browser',
+      id: context?.id || localId,
+    });
+    if (!normalized?.content) return false;
+    const nextContext = {
+      ...normalized,
+      local_id: localId,
+      id: normalized.id || localId,
+    };
+    setComposerContexts((items) => [
+      ...items.filter((item) => (item.local_id || item.id) !== localId),
+      nextContext,
+    ]);
+    requestAnimationFrame(() => inputRef.current?.focus());
+    return true;
   }, []);
 
   const pinSelectionContext = useCallback((context) => {
@@ -2913,6 +2946,63 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     }
   }, [onPreviewPanelResize]);
 
+  const startSubagentPanelResize = useCallback((event) => {
+    if (!subagentPanelOpen || !sid || !onSubagentPanelResize) return;
+    if (event.button != null && event.button !== 0) return;
+    if (subagentPanelResizeActiveRef.current) return;
+    subagentPanelResizeActiveRef.current = true;
+    event.preventDefault();
+    const contentWidth = subagentSplitRef.current?.getBoundingClientRect().width || 0;
+    const startX = event.clientX;
+    const startWidth = renderedSubagentPanelWidthRef.current;
+    document.body.classList.add('ace-resizing');
+    if (event.pointerId != null) event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const onMove = (moveEvent) => {
+      onSubagentPanelResize(startWidth + startX - moveEvent.clientX, contentWidth);
+    };
+    const onStop = () => {
+      if (!subagentPanelResizeActiveRef.current) return;
+      subagentPanelResizeActiveRef.current = false;
+      subagentPanelResizeCleanupRef.current = null;
+      document.body.classList.remove('ace-resizing');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onStop);
+      window.removeEventListener('pointercancel', onStop);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onStop);
+    };
+    subagentPanelResizeCleanupRef.current = onStop;
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onStop, { once: true });
+    window.addEventListener('pointercancel', onStop, { once: true });
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onStop, { once: true });
+  }, [onSubagentPanelResize, sid, subagentPanelOpen]);
+
+  const onSubagentPanelHandleKeyDown = useCallback((event) => {
+    if (!onSubagentPanelResize) return;
+    const step = event.shiftKey ? 32 : 12;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      const delta = event.key === 'ArrowLeft' ? step : -step;
+      const contentWidth = subagentSplitRef.current?.getBoundingClientRect().width || 0;
+      onSubagentPanelResize(
+        renderedSubagentPanelWidthRef.current + delta,
+        contentWidth,
+      );
+    }
+  }, [onSubagentPanelResize]);
+
+  useEffect(() => {
+    if (!subagentPanelOpen) subagentPanelResizeCleanupRef.current?.();
+  }, [subagentPanelOpen]);
+
+  useEffect(() => () => {
+    subagentPanelResizeCleanupRef.current?.();
+  }, []);
+
   // fork: 调后端 POST /api/sessions/:id/fork,成功后切到新 session(同 ref)。
   // 失败弹 toast 不打断当前 session。新 session 不会自动启 turn,
   // 用户在新 session 自己输入消息才开始。
@@ -3765,7 +3855,16 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const effectiveChatWidth = layoutWidth > 0 ? contentLayout.chatWidth : 0;
   const effectivePreviewPanelWidth = layoutWidth > 0 ? contentLayout.previewPanelWidth : previewPanelWidth;
   const effectiveSidePanelWidth = layoutWidth > 0 ? contentLayout.sidePanelWidth : sidePanelWidth;
+  const renderedSubagentPanelWidth = normalizeSubagentPanelWidth(
+    subagentPanelWidth,
+    effectiveChatWidth,
+  );
+  const subagentPanelRange = subagentPanelWidthRange(effectiveChatWidth);
+  const subagentPanelAriaMax = Number.isFinite(subagentPanelRange.max)
+    ? subagentPanelRange.max
+    : Math.max(subagentPanelRange.min, renderedSubagentPanelWidth);
   renderedPreviewPanelWidthRef.current = effectivePreviewPanelWidth;
+  renderedSubagentPanelWidthRef.current = renderedSubagentPanelWidth;
 
   useEffect(() => {
     if (!sid) return;
@@ -3801,7 +3900,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     }));
   }, [previewScope, sid, sidePanelCwd, sidePanelCollapsed, onToggleSidePanel]);
 
-  const showBrowserPage = useCallback((pageId, title = '浏览器') => {
+  const showBrowserPage = useCallback((pageId, title, favicon) => {
     if (!sid || !pageId) return;
     if (sidePanelCollapsed) onToggleSidePanel?.();
     setPreviewTabState((prev) => openBrowserTab(prev, {
@@ -3809,6 +3908,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       sessionId: sid,
       pageId,
       title,
+      favicon,
     }));
   }, [onToggleSidePanel, previewScope, sid, sidePanelCollapsed]);
 
@@ -3817,7 +3917,11 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     if (sidePanelCollapsed) onToggleSidePanel?.();
     const created = await createAgentBrowserPage();
     if (created?.ok === false || !created?.page_id) return;
-    showBrowserPage(created.page_id, created.title || '浏览器');
+    showBrowserPage(
+      created.page_id,
+      created.title || defaultBrowserTabTitle(),
+      created.favicon,
+    );
   }, [onToggleSidePanel, showBrowserPage, sid, sidePanelCollapsed]);
 
   const agentBrowserActivationRef = useRef('');
@@ -3844,7 +3948,11 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     void getAgentBrowserState().then((state) => {
       if (!state?.page_id || state.closed) return;
       setAgentBrowserActivePageId(state.page_id);
-      showBrowserPage(state.page_id, state.title || '浏览器');
+      showBrowserPage(
+        state.page_id,
+        state.title || defaultBrowserTabTitle(),
+        state.favicon,
+      );
     });
   }, [
     agentBrowserActivity.active,
@@ -3870,12 +3978,26 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
         setAgentBrowserActivePageId((current) => (current === pageId ? '' : current));
         return;
       }
+      const hasTitle = Object.prototype.hasOwnProperty.call(detail, 'title');
+      const hasFavicon = Object.prototype.hasOwnProperty.call(detail, 'favicon');
+      if (hasTitle || hasFavicon) {
+        setPreviewTabState((prev) => updateBrowserTabMetadata(prev, {
+          sessionId: sid,
+          pageId,
+          ...(hasTitle ? { title: detail.title } : {}),
+          ...(hasFavicon ? { favicon: detail.favicon } : {}),
+        }));
+      }
       if (!agentBrowserActivity.active || !detail.active) return;
       const expected = agentBrowserActivity.pageId || agentBrowserActivePageId;
       if (expected && expected !== pageId) return;
       if (!expected && agentBrowserActivity.toolName === 'browser_close') return;
       setAgentBrowserActivePageId(pageId);
-      showBrowserPage(pageId, detail.title || '浏览器');
+      showBrowserPage(
+        pageId,
+        detail.title || defaultBrowserTabTitle(),
+        detail.favicon,
+      );
     };
     window.addEventListener(AGENT_BROWSER_STATE_EVENT, onBrowserState);
     return () => window.removeEventListener(AGENT_BROWSER_STATE_EVENT, onBrowserState);
@@ -4449,7 +4571,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
         </div>
       </div>
 
-      <div className="relative flex-1 min-h-0 flex">
+      <div ref={subagentSplitRef} className="relative flex-1 min-h-0 flex">
         <div className="relative flex-1 min-w-0 h-full">
         <div
           ref={scrollRef}
@@ -4686,8 +4808,26 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           />
         )}
         </div>
+        {subagentPanelOpen && (
+          <div
+            role="separator"
+            aria-label="调整后台任务面板宽度"
+            aria-orientation="vertical"
+            aria-valuemin={subagentPanelRange.min}
+            aria-valuemax={subagentPanelAriaMax}
+            aria-valuenow={renderedSubagentPanelWidth}
+            tabIndex={0}
+            className="ace-resize-handle ace-resize-handle-subagent"
+            data-subagent-splitter="true"
+            onPointerDown={startSubagentPanelResize}
+            onMouseDown={startSubagentPanelResize}
+            onKeyDown={onSubagentPanelHandleKeyDown}
+            title="拖动调整后台任务面板宽度"
+          />
+        )}
         <SubagentPanel
           open={subagentPanelOpen}
+          width={renderedSubagentPanelWidth}
           focus={subagentFocus}
           onClose={() => setSubagentPanelOpen(false)}
           tasks={subagentTasks.tasks}
@@ -4827,6 +4967,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
             onToggleSidePanelList={onToggleSidePanelList}
             onOpenBrowser={hasNativeAgentBrowser() ? openBrowserPreview : null}
             agentBrowserActive={agentBrowserActivity.active ? agentBrowserActivePageId : ''}
+            onAddBrowserContext={addBrowserContext}
             onSelectChangeFile={openSessionChangePreview}
             onSelectGitChangeFile={openGitChangePreview}
             onOpenFilePreview={openFilePreview}

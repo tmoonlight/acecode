@@ -2,15 +2,27 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { clsx } from '../lib/format.js';
 import {
   AGENT_BROWSER_STATE_EVENT,
-  agentBrowserErrorPresentation,
   agentBrowserLayoutFromRect,
+  getAgentBrowserConsoleLogs,
   getAgentBrowserState,
   normalizeAgentBrowserAddress,
   runAgentBrowserBridgeAction,
   selectAgentBrowserPage,
+  setAgentBrowserShared,
   setAgentBrowserLayout,
+  toggleAgentBrowserDevTools,
+  toggleAgentBrowserElementSelection,
 } from '../lib/agentBrowser.js';
+import {
+  createAgentBrowserConsoleContext,
+  createAgentBrowserElementContext,
+} from '../lib/agentBrowserChatContext.js';
+import {
+  agentBrowserShowsNativePage,
+  agentBrowserSurfacePresentation,
+} from '../lib/agentBrowserSurface.js';
 import { NavigationArrowIcon, RefreshIcon, VsIcon } from './Icon.jsx';
+import { toast } from './Toast.jsx';
 
 const INITIAL_STATE = Object.freeze({
   supported: true,
@@ -19,8 +31,14 @@ const INITIAL_STATE = Object.freeze({
   visible: false,
   can_go_back: false,
   can_go_forward: false,
+  shared_with_agent: false,
+  element_selection_active: false,
+  element_selection_serial: 0,
   url: 'about:blank',
   title: '',
+  favicon: '',
+  content_state: 'empty',
+  failure_kind: '',
   error: '',
 });
 
@@ -30,14 +48,15 @@ function modalIsOpen() {
   );
 }
 
-export function AgentBrowserPanel({ pageId, agentActive = false }) {
+export function AgentBrowserPanel({ pageId, agentActive = false, onAddContext }) {
   const viewportRef = useRef(null);
   const addressFocusedRef = useRef(false);
   const layoutFrameRef = useRef(0);
   const [state, setState] = useState(INITIAL_STATE);
   const [address, setAddress] = useState('');
-  const [localError, setLocalError] = useState('');
   const [overlayBlocked, setOverlayBlocked] = useState(false);
+  const nativePageVisible = agentBrowserShowsNativePage(state);
+  const surface = agentBrowserSurfacePresentation(state);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,14 +69,21 @@ export function AgentBrowserPanel({ pageId, agentActive = false }) {
     const onState = (event) => {
       if (!event?.detail || typeof event.detail !== 'object') return;
       if (event.detail.page_id !== pageId) return;
-      setState((previous) => ({ ...previous, ...event.detail }));
+      const { selected_element: selectedElement, ...nextState } = event.detail;
+      setState((previous) => ({ ...previous, ...nextState }));
+      if (selectedElement && typeof selectedElement === 'object') {
+        const context = createAgentBrowserElementContext(selectedElement, event.detail);
+        if (context && typeof onAddContext === 'function' && onAddContext(context) !== false) {
+          toast({ kind: 'ok', text: `已将 ${context.label} 添加到聊天` });
+        }
+      }
     };
     window.addEventListener(AGENT_BROWSER_STATE_EVENT, onState);
     return () => {
       cancelled = true;
       window.removeEventListener(AGENT_BROWSER_STATE_EVENT, onState);
     };
-  }, [pageId]);
+  }, [onAddContext, pageId]);
 
   useEffect(() => {
     if (addressFocusedRef.current) return;
@@ -83,10 +109,10 @@ export function AgentBrowserPanel({ pageId, agentActive = false }) {
     const layout = agentBrowserLayoutFromRect(
       viewport.getBoundingClientRect(),
       window.devicePixelRatio || 1,
-      visible && !overlayBlocked,
+      visible && nativePageVisible && !overlayBlocked,
     );
     void setAgentBrowserLayout(pageId, layout);
-  }, [overlayBlocked, pageId]);
+  }, [nativePageVisible, overlayBlocked, pageId]);
 
   const scheduleLayout = useCallback(() => {
     if (layoutFrameRef.current) cancelAnimationFrame(layoutFrameRef.current);
@@ -115,33 +141,70 @@ export function AgentBrowserPanel({ pageId, agentActive = false }) {
   }, [pageId, scheduleLayout]);
 
   useEffect(() => {
-    syncLayout(!overlayBlocked);
-  }, [overlayBlocked, syncLayout]);
+    syncLayout(true);
+  }, [syncLayout]);
 
   const runAction = useCallback(async (name) => {
-    setLocalError('');
     const result = await runAgentBrowserBridgeAction(name, pageId);
-    if (result?.ok === false) setLocalError(result.error || '浏览器操作失败');
+    if (result?.ok === false) {
+      toast({ kind: 'err', text: result.error || '浏览器操作失败' });
+    }
+    return result;
   }, [pageId]);
 
   const submitAddress = useCallback(async (event) => {
     event.preventDefault();
     const normalized = normalizeAgentBrowserAddress(address);
     if (!normalized) {
-      setLocalError('请输入 http 或 https 地址');
+      toast({ kind: 'err', text: '请输入 http 或 https 地址' });
       return;
     }
-    setLocalError('');
     const result = await runAgentBrowserBridgeAction(
       'aceDesktop_agentBrowserNavigate',
       { page_id: pageId, url: normalized },
     );
-    if (result?.ok === false) setLocalError(result.error || '无法打开该地址');
+    if (result?.ok === false) {
+      toast({ kind: 'err', text: result.error || '无法打开该地址' });
+    }
   }, [address, pageId]);
 
-  const effectiveError = localError || state.error || '';
-  const errorPresentation = agentBrowserErrorPresentation(effectiveError);
-  const unavailable = state.supported === false;
+  const toggleSharing = useCallback(async () => {
+    const shared = !state.shared_with_agent;
+    const result = await setAgentBrowserShared(pageId, shared);
+    if (result?.ok === false) {
+      toast({ kind: 'err', text: result.error || '无法更改共享状态' });
+    }
+  }, [pageId, state.shared_with_agent]);
+
+  const toggleElementSelection = useCallback(async () => {
+    const result = await toggleAgentBrowserElementSelection(pageId);
+    if (result?.ok === false) {
+      toast({ kind: 'err', text: result.error || '无法选择网页元素' });
+    }
+  }, [pageId]);
+
+  const addConsoleLogs = useCallback(async () => {
+    const result = await getAgentBrowserConsoleLogs(pageId);
+    if (result?.ok === false) {
+      toast({ kind: 'err', text: result.error || '无法读取控制台日志' });
+      return;
+    }
+    const context = createAgentBrowserConsoleContext(result);
+    if (!context) {
+      toast({ kind: 'info', text: '当前页面还没有控制台日志' });
+      return;
+    }
+    if (typeof onAddContext === 'function' && onAddContext(context) !== false) {
+      toast({ kind: 'ok', text: '已将控制台日志添加到聊天' });
+    }
+  }, [onAddContext, pageId]);
+
+  const openDevTools = useCallback(async () => {
+    const result = await toggleAgentBrowserDevTools(pageId);
+    if (result?.ok === false) {
+      toast({ kind: 'err', text: result.error || '无法打开开发者工具' });
+    }
+  }, [pageId]);
 
   return (
     <div
@@ -173,7 +236,7 @@ export function AgentBrowserPanel({ pageId, agentActive = false }) {
         <button
           type="button"
           className="ace-agent-browser-toolbar-button"
-          disabled={!state.ready}
+          disabled={!state.ready || surface.kind === 'empty'}
           title="刷新"
           aria-label="刷新"
           onClick={() => runAction('aceDesktop_agentBrowserReload')}
@@ -199,41 +262,105 @@ export function AgentBrowserPanel({ pageId, agentActive = false }) {
             }}
             onChange={(event) => setAddress(event.target.value)}
           />
+          <button
+            type="button"
+            className={clsx(
+              'ace-agent-browser-share-toggle',
+              state.shared_with_agent && 'is-shared',
+            )}
+            disabled={!state.ready}
+            aria-pressed={state.shared_with_agent ? 'true' : 'false'}
+            aria-label={state.shared_with_agent ? '停止与智能体共享' : '与智能体共享'}
+            title={state.shared_with_agent ? '停止与智能体共享' : '与智能体共享'}
+            onClick={toggleSharing}
+          >
+            {state.shared_with_agent && <span>正在与智能体共享</span>}
+            <VsIcon name="ShareWindow" size={16} />
+          </button>
         </form>
-        {agentActive && (
-          <span className="ace-agent-browser-shared-badge" title="AI 正在使用此浏览器">
-            正在与智能体共享
-          </span>
-        )}
-      </div>
-      {effectiveError && (
-        <div className="ace-agent-browser-error" role="status">
-          <VsIcon name="warning" size={14} mono={false} />
-          <span className="ace-agent-browser-error-message">{errorPresentation.message}</span>
-          {errorPresentation.retryable && (
-            <button
-              type="button"
-              className="ace-agent-browser-error-retry"
-              onClick={() => runAction('aceDesktop_agentBrowserReload')}
-            >
-              重试
-            </button>
-          )}
+        <div className="ace-agent-browser-toolbar-actions">
+          <button
+            type="button"
+            className={clsx(
+              'ace-agent-browser-toolbar-button',
+              state.element_selection_active && 'is-checked',
+            )}
+            disabled={!nativePageVisible}
+            aria-pressed={state.element_selection_active ? 'true' : 'false'}
+            title={state.element_selection_active ? '停止选择元素 (Esc)' : '将元素添加到聊天'}
+            aria-label="将元素添加到聊天"
+            onClick={toggleElementSelection}
+          >
+            <VsIcon name="Inspect" size={17} />
+          </button>
+          <button
+            type="button"
+            className="ace-agent-browser-toolbar-button"
+            disabled={!state.ready}
+            title="将控制台日志添加到聊天"
+            aria-label="将控制台日志添加到聊天"
+            onClick={addConsoleLogs}
+          >
+            <VsIcon name="Output" size={17} />
+          </button>
+          <button
+            type="button"
+            className="ace-agent-browser-toolbar-button"
+            disabled={!state.ready}
+            title="切换开发者工具"
+            aria-label="切换开发者工具"
+            onClick={openDevTools}
+          >
+            <VsIcon name="DeveloperTools" size={17} />
+          </button>
         </div>
-      )}
+      </div>
       <div className={clsx('ace-agent-browser-frame', agentActive && 'is-agent-active')}>
         <div ref={viewportRef} className="ace-agent-browser-native-viewport">
-          {(unavailable || !state.ready) && (
-            <div className="ace-agent-browser-placeholder">
-              <VsIcon name={unavailable ? 'warning' : 'globe'} size={46} />
-              <div className="ace-agent-browser-placeholder-title">
-                {unavailable ? '浏览器不可用' : '正在启动浏览器'}
+          {!nativePageVisible && (
+            <div
+              className="ace-agent-browser-status"
+              data-browser-surface={surface.kind}
+              data-tone={surface.tone}
+              role={surface.role}
+              aria-live={surface.role === 'alert' ? 'assertive' : 'polite'}
+            >
+              <VsIcon
+                name={surface.icon}
+                size={50}
+                className={clsx(
+                  'ace-agent-browser-status-icon',
+                  surface.kind === 'loading' && 'is-loading',
+                )}
+              />
+              <div className="ace-agent-browser-status-title">
+                {surface.title}
               </div>
-              <div className="ace-agent-browser-placeholder-detail">
-                {unavailable
-                  ? (state.error || '此功能仅支持 ACECode Windows Desktop')
-                  : '正在连接 Windows WebView2'}
+              <div className="ace-agent-browser-status-detail">
+                {surface.detail}
               </div>
+              {surface.canRetry && (
+                <div className="ace-agent-browser-status-actions">
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-medium text-white transition hover:opacity-90"
+                    onClick={() => runAction('aceDesktop_agentBrowserReload')}
+                  >
+                    <RefreshIcon size={14} />
+                    重试
+                  </button>
+                  {surface.canGoBack && (
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-3 text-[12px] font-medium text-fg-2 transition hover:bg-surface-hi hover:text-fg"
+                      onClick={() => runAction('aceDesktop_agentBrowserGoBack')}
+                    >
+                      <NavigationArrowIcon direction="back" size={14} />
+                      返回上一页
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

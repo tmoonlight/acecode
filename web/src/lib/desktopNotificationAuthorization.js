@@ -143,7 +143,7 @@ export function notificationAuthorizationPresentation(value) {
       return {
         ...state,
         label: '尚未授权',
-        description: '允许后才能收到会话完成和待处理提醒',
+        description: '允许后可在窗口失焦时收到主任务完成通知',
         tone: 'warn',
       };
     case 'unknown':

@@ -523,16 +523,16 @@ function SectionGeneral({
           ? 'err'
           : 'ok',
         text: !confirmed
-          ? '消息通知已关闭'
+          ? '任务完成通知已关闭'
           : (authorizationAfterEnable.status === 'denied'
-            ? '消息通知已打开，但 macOS 系统权限已拒绝'
+            ? '任务完成通知已打开，但 macOS 系统权限已拒绝'
             : (authorizationAfterEnable.status === 'requesting'
-              ? '消息通知已打开，请确认 macOS 系统授权'
-              : '消息通知已打开')),
+              ? '任务完成通知已打开，请确认 macOS 系统授权'
+              : '任务完成通知已打开')),
       });
     } catch (e) {
       setNotificationsEnabled(previous);
-      toast({ kind: 'err', text: '消息通知设置失败:' + (e?.message || '') });
+      toast({ kind: 'err', text: '任务完成通知设置失败:' + (e?.message || '') });
     } finally {
       setNotificationsBusy(false);
     }
@@ -798,8 +798,8 @@ function SectionGeneral({
         )}
       >
         <div>
-          <div className="text-[13px] font-medium">打开消息通知</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">会话完成、权限确认或需要回答时发送系统通知</div>
+          <div className="text-[13px] font-medium">打开任务完成通知</div>
+          <div className="text-[11px] text-fg-mute mt-0.5">仅在 ACECode 窗口失去焦点且主任务完成时发送系统通知</div>
         </div>
         <div onClick={(e) => e.stopPropagation()}>
           <Toggle

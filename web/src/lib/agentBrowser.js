@@ -53,29 +53,6 @@ export function normalizeAgentBrowserAddress(input = '') {
   return `https://${value}`;
 }
 
-const RETRYABLE_WEBVIEW2_ERRORS = new Map([
-  [6, '服务器不可达，请检查网络后重试'],
-  [7, '网页加载超时，请重试'],
-  [9, '连接被中断，请重试'],
-  [10, '连接被重置，请重试'],
-  [11, '网络连接已断开，请检查网络后重试'],
-  [12, '无法连接到服务器，请检查地址或网络后重试'],
-  [13, '无法解析主机名，请检查地址、网络或重试'],
-]);
-
-export function agentBrowserErrorPresentation(error = '') {
-  const raw = String(error || '');
-  const match = raw.match(/^navigation failed \(WebView2 status (\d+)\)$/i);
-  if (!match) return { message: raw, retryable: false };
-
-  const status = Number(match[1]);
-  const description = RETRYABLE_WEBVIEW2_ERRORS.get(status);
-  return {
-    message: `${description || '网页加载失败'}（WebView2 状态 ${status}）`,
-    retryable: RETRYABLE_WEBVIEW2_ERRORS.has(status),
-  };
-}
-
 export function agentBrowserLayoutFromRect(rect, devicePixelRatio = 1, visible = true) {
   const scale = Number.isFinite(Number(devicePixelRatio)) && Number(devicePixelRatio) > 0
     ? Number(devicePixelRatio)
@@ -139,6 +116,31 @@ export async function selectAgentBrowserPage(pageId, win = globalThis.window) {
 
 export async function closeAgentBrowserPage(pageId, win = globalThis.window) {
   return runAgentBrowserBridgeAction('aceDesktop_agentBrowserClosePage', pageId, win);
+}
+
+export async function setAgentBrowserShared(pageId, shared, win = globalThis.window) {
+  return runAgentBrowserBridgeAction('aceDesktop_agentBrowserSetShared', {
+    page_id: pageId,
+    shared: !!shared,
+  }, win);
+}
+
+export async function toggleAgentBrowserElementSelection(pageId, win = globalThis.window) {
+  return runAgentBrowserBridgeAction(
+    'aceDesktop_agentBrowserToggleElementSelection', pageId, win,
+  );
+}
+
+export async function getAgentBrowserConsoleLogs(pageId, win = globalThis.window) {
+  return runAgentBrowserBridgeAction(
+    'aceDesktop_agentBrowserGetConsoleLogs', pageId, win,
+  );
+}
+
+export async function toggleAgentBrowserDevTools(pageId, win = globalThis.window) {
+  return runAgentBrowserBridgeAction(
+    'aceDesktop_agentBrowserToggleDevTools', pageId, win,
+  );
 }
 
 export async function setAgentBrowserLayout(pageId, layout, win = globalThis.window) {

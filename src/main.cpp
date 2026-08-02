@@ -6071,14 +6071,15 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     }
                 }
 
-                // Drive re-render while waiting on LLM or while a live tool/
-                // subagent elapsed readout is visible,以及状态确认刚到清理期限时。
+                // Drive re-render while waiting on the LLM, while live tool/MCP
+                // progress is visible, or when status cleanup reaches its deadline.
+                // Subagent sidebar snapshots publish their own render event on each
+                // lifecycle update and no longer contain a ticking elapsed readout.
                 // 把读取留在同一把锁里,避免 ticker 与回调并发改 busy 字段。
                 should_post = requires_immediate_post ||
                     background_animation_visible ||
                     state.is_waiting ||
-                    state.tool_running ||
-                    !state.subagent_tasks.empty();
+                    state.tool_running;
             }
             if (requires_immediate_post) {
                 screen.PostEvent(Event::Custom);

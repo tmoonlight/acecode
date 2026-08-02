@@ -95,7 +95,7 @@ constexpr const char* kDesktopCloseRequestEvent =
 
 nlohmann::json agent_browser_state_json(
     const acecode::desktop::AgentBrowserState& state) {
-    return nlohmann::json{
+    nlohmann::json result{
         {"supported", state.supported},
         {"ready", state.ready},
         {"loading", state.loading},
@@ -104,11 +104,23 @@ nlohmann::json agent_browser_state_json(
         {"closed", state.closed},
         {"can_go_back", state.can_go_back},
         {"can_go_forward", state.can_go_forward},
+        {"shared_with_agent", state.shared_with_agent},
+        {"element_selection_active", state.element_selection_active},
+        {"element_selection_serial", state.element_selection_serial},
         {"url", state.url},
         {"title", state.title},
+        {"favicon", state.favicon},
+        {"content_state", state.content_state},
+        {"failure_kind", state.failure_kind},
         {"error", state.error},
         {"page_id", state.page_id},
     };
+    if (!state.selected_element_json.empty()) {
+        const auto selected = nlohmann::json::parse(
+            state.selected_element_json, nullptr, false);
+        if (!selected.is_discarded()) result["selected_element"] = selected;
+    }
+    return result;
 }
 
 std::string context_picker_mime_type(const fs::path& path) {
@@ -1540,6 +1552,58 @@ int main(int argc, char** argv) {
         }
     });
 
+    host.bind("aceDesktop_agentBrowserSetShared",
+              [&](const std::string& req) -> std::string {
+        const auto args = nlohmann::json::parse(req, nullptr, false);
+        if (!args.is_array() || args.empty() || !args[0].is_object()) {
+            return nlohmann::json{
+                {"ok", false}, {"error", "expect [{page_id,shared}]"}
+            }.dump();
+        }
+        const std::string page_id = args[0].value("page_id", "");
+        if (page_id.empty() || !args[0].contains("shared") ||
+            !args[0]["shared"].is_boolean()) {
+            return nlohmann::json{
+                {"ok", false},
+                {"error", "page_id and shared are required"}
+            }.dump();
+        }
+        std::string error;
+        const bool shared = args[0]["shared"].get<bool>();
+        if (!agent_browser.set_shared_with_agent(page_id, shared, &error)) {
+            return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+        }
+        return nlohmann::json{
+            {"ok", true},
+            {"page_id", page_id},
+            {"shared_with_agent", shared},
+        }.dump();
+    });
+
+    host.bind("aceDesktop_agentBrowserGetConsoleLogs",
+              [&](const std::string& req) -> std::string {
+        const auto args = nlohmann::json::parse(req, nullptr, false);
+        if (!args.is_array() || args.empty() || !args[0].is_string()) {
+            return nlohmann::json{
+                {"ok", false}, {"error", "expect [page_id:string]"}
+            }.dump();
+        }
+        const std::string page_id = args[0].get<std::string>();
+        std::string error;
+        const std::string logs = agent_browser.console_logs(page_id, &error);
+        if (!error.empty()) {
+            return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+        }
+        const auto page_state = agent_browser.state(page_id);
+        return nlohmann::json{
+            {"ok", true},
+            {"page_id", page_id},
+            {"url", page_state.url},
+            {"title", page_state.title},
+            {"logs", logs},
+        }.dump();
+    });
+
     auto bind_agent_browser_action =
         [&](const char* name,
             const std::function<bool(const std::string&, std::string*)>& action) {
@@ -1577,6 +1641,16 @@ int main(int argc, char** argv) {
         "aceDesktop_agentBrowserFocus",
         [&](const std::string& page_id, std::string* error) {
             return agent_browser.focus(page_id, error);
+        });
+    bind_agent_browser_action(
+        "aceDesktop_agentBrowserToggleElementSelection",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.toggle_element_selection(page_id, error);
+        });
+    bind_agent_browser_action(
+        "aceDesktop_agentBrowserToggleDevTools",
+        [&](const std::string& page_id, std::string* error) {
+            return agent_browser.open_developer_tools(page_id, error);
         });
     host.bind("aceDesktop_agentBrowserHide",
               [&](const std::string& req) -> std::string {

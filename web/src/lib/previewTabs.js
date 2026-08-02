@@ -7,6 +7,21 @@ export const PREVIEW_TAB_TYPES = Object.freeze({
   BROWSER: 'browser',
 });
 
+export function defaultBrowserTabTitle() {
+  return '新标签页';
+}
+
+export function normalizeBrowserTabTitle(title) {
+  const value = String(title ?? '');
+  return value.trim() ? value : defaultBrowserTabTitle();
+}
+
+export function normalizeBrowserTabFavicon(favicon) {
+  const value = String(favicon ?? '').trim();
+  if (!value || value.length > 256 * 1024) return '';
+  return /^(?:https?:\/\/|data:image\/)/i.test(value) ? value : '';
+}
+
 function normalizePreviewCwd(cwd = '') {
   let normalized = String(cwd || '').replace(/\\/g, '/');
   if (/^\/\/\?\/UNC\//i.test(normalized)) {
@@ -272,7 +287,8 @@ export function openBrowserTab(state, {
   scopeKey = '',
   sessionId = '',
   pageId = '',
-  title = '浏览器',
+  title,
+  favicon,
 } = {}) {
   if (!sessionId || !pageId) return state || {};
   const source = state && typeof state === 'object' ? state : {};
@@ -280,18 +296,32 @@ export function openBrowserTab(state, {
   const stored = source.browserTabsBySession?.[sessionId];
   const existingTabs = Array.isArray(stored) ? stored : (stored ? [stored] : []);
   const existing = existingTabs.find((tab) => tab.pageId === pageId || tab.key === key);
-  const tab = existing || {
-    key,
-    type: PREVIEW_TAB_TYPES.BROWSER,
-    sessionId,
-    pageId,
-    title,
-  };
+  const normalizedTitle = normalizeBrowserTabTitle(title);
+  const normalizedFavicon = normalizeBrowserTabFavicon(favicon);
+  const nextTabs = existing
+    ? (title === undefined && favicon === undefined
+      ? existingTabs
+      : existingTabs.map((tab) => {
+        if (tab !== existing) return tab;
+        const nextTitle = title === undefined ? tab.title : normalizedTitle;
+        const nextFavicon = favicon === undefined ? (tab.favicon || '') : normalizedFavicon;
+        return tab.title === nextTitle && (tab.favicon || '') === nextFavicon
+          ? tab
+          : { ...tab, title: nextTitle, favicon: nextFavicon };
+      }))
+    : [...existingTabs, {
+      key,
+      type: PREVIEW_TAB_TYPES.BROWSER,
+      sessionId,
+      pageId,
+      title: normalizedTitle,
+      favicon: normalizedFavicon,
+    }];
   return {
     ...source,
     browserTabsBySession: {
       ...(source.browserTabsBySession || {}),
-      [sessionId]: existing ? existingTabs : [...existingTabs, tab],
+      [sessionId]: nextTabs,
     },
     activeTabBySession: {
       ...(source.activeTabBySession || {}),
@@ -302,6 +332,51 @@ export function openBrowserTab(state, {
       [viewKey(scopeKey, sessionId)]: key,
     },
   };
+}
+
+export function updateBrowserTabMetadata(state, options = {}) {
+  const { sessionId = '', pageId = '', title, favicon } = options;
+  if (!sessionId || !pageId) return state || {};
+  const source = state && typeof state === 'object' ? state : {};
+  const stored = source.browserTabsBySession?.[sessionId];
+  const tabs = Array.isArray(stored) ? stored : (stored ? [stored] : []);
+  const key = browserTabKey(pageId);
+  const hasTitle = Object.prototype.hasOwnProperty.call(options, 'title');
+  const hasFavicon = Object.prototype.hasOwnProperty.call(options, 'favicon');
+  if (!hasTitle && !hasFavicon) return source;
+  const normalizedTitle = hasTitle ? normalizeBrowserTabTitle(title) : '';
+  const normalizedFavicon = hasFavicon ? normalizeBrowserTabFavicon(favicon) : '';
+  let changed = false;
+  const nextTabs = tabs.map((tab) => {
+    if (tab.pageId !== pageId && tab.key !== key) return tab;
+    const nextTitle = hasTitle ? normalizedTitle : tab.title;
+    const nextFavicon = hasFavicon ? normalizedFavicon : (tab.favicon || '');
+    if (tab.title === nextTitle && (tab.favicon || '') === nextFavicon) return tab;
+    changed = true;
+    return { ...tab, title: nextTitle, favicon: nextFavicon };
+  });
+  if (!changed) return source;
+  return {
+    ...source,
+    browserTabsBySession: {
+      ...(source.browserTabsBySession || {}),
+      [sessionId]: nextTabs,
+    },
+  };
+}
+
+export function updateBrowserTabTitle(state, options = {}) {
+  return updateBrowserTabMetadata(state, {
+    ...options,
+    title: options.title,
+  });
+}
+
+export function updateBrowserTabFavicon(state, options = {}) {
+  return updateBrowserTabMetadata(state, {
+    ...options,
+    favicon: options.favicon,
+  });
 }
 
 // git 级变更详情页签(仿 openSessionChangesTab):同一 session 单页签,

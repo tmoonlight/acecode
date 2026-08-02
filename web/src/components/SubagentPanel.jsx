@@ -1,10 +1,10 @@
 // 「后台任务」面板(spawn_subagent 子会话)。
 //
-// 归属主会话窗口:作为 ChatView transcript 区(flex 行)的一个静态 flex 兄弟项,
+// 归属主会话窗口:作为 ChatView transcript 区(flex 行)的可调 split pane,
 // 打开时**挤压**聊天消息区(而非浮层遮挡),关闭时返回 null 不占位;只影响
 // 聊天会话区,不动 Sidebar/右侧文件预览面板、也不压输入框(输入框在 transcript
-// 区之外仍占满宽)。数据与操作全部来自 useSubagentTasks(ChatView 持有),
-// 本组件只渲染。
+// 区之外仍占满宽)。splitter 与持久化宽度由 ChatView/App 持有,本组件只按
+// 已约束的 width 渲染内容。
 //
 // 两个视图:
 //   - 列表:运行中 / 已完成 分组卡片。运行中卡片右上有中止(stop);
@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
+import { DEFAULT_SUBAGENT_PANEL_WIDTH } from '../lib/singleLayout.js';
 import { useSessionTranscript } from '../lib/sessionTranscript.js';
 import {
   SUBAGENT_TASK_STATUS,
@@ -153,7 +154,7 @@ function SubagentTranscriptView({ task }) {
   );
 }
 
-export function SubagentPanel({ open, focus, onClose, tasks, onAbort, onClearSettled }) {
+export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, onAbort, onClearSettled }) {
   const [transcriptTaskId, setTranscriptTaskId] = useState('');
   const [clearing, setClearing] = useState(false);
 
@@ -198,7 +199,8 @@ export function SubagentPanel({ open, focus, onClose, tasks, onAbort, onClearSet
 
   return (
     <div
-      className="shrink-0 w-[380px] max-w-[85%] h-full flex flex-col bg-surface border-l border-border"
+      className="shrink-0 min-w-0 h-full flex flex-col bg-surface border-l border-border"
+      style={{ width }}
       data-subagent-panel="true"
     >
       <div className="h-10 px-3 flex items-center gap-2 border-b border-border shrink-0">

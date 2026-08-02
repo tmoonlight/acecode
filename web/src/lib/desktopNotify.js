@@ -5,15 +5,13 @@
 // 不存在 → 所有 notify 调用 no-op,这与 search palette 跨 workspace bridge 的
 // 降级模式一致。
 //
-// 抑制规则(决策 4):
-//   - cfg.enabled=false → 一律跳过
-//   - cfg.on_permission=false → permission 类型跳过
-//   - cfg.on_question=false → question 类型跳过
-//   - cfg.on_completion=false → completion 类型跳过
-//   - cfg.suppress_when_focused=true 且窗口正在被用户注视(hasFocus) + 事件
-//     session 就是当前聊天区打开的会话 → 跳过(页面内已有提问/权限 UI 与
-//     transcript,再弹右下角框是重复打扰)。workspace_hash 仅在两端都非空时
-//     才参与比对,避免前端未填 hash 时永远判成「不同 workspace」而漏抑。
+// 唯一弹窗规则:
+//   - master enabled 开启
+//   - 事件是主任务 completion
+//   - 整个 ACECode 窗口失焦
+// permission / question 一律留在页面内处理;窗口只要有焦点,无论当前打开
+// 哪个会话、workspace 或页面都不发 native completion 通知。旧的 per-type
+// 和 suppress_when_focused 配置字段仅保留后端兼容,不再参与运行时判定。
 //
 // payload 构造抽到 buildNotificationPayload — 长文本截断 80 字 + 省略号,
 // 空文本回退到默认占位,纯函数,可测。
@@ -42,26 +40,9 @@ function defaultCompletionBody() {
   return '(空白回合)';
 }
 
-function defaultCfg() {
-  return {
-    enabled: true,
-    on_permission: true,
-    on_question: true,
-    on_completion: true,
-    suppress_when_focused: true,
-  };
-}
-
-function normalizeCfg(cfg) {
-  const base = defaultCfg();
-  if (!cfg || typeof cfg !== 'object') return base;
-  return {
-    enabled: cfg.enabled !== false,
-    on_permission: cfg.on_permission !== false,
-    on_question: cfg.on_question !== false,
-    on_completion: cfg.on_completion !== false,
-    suppress_when_focused: cfg.suppress_when_focused !== false,
-  };
+function notificationsEnabled(cfg) {
+  if (!cfg || typeof cfg !== 'object') return true;
+  return cfg.enabled !== false;
 }
 
 // codepoint-aware 截断(避免在多字节字符中间断开)。
@@ -123,25 +104,28 @@ export function notificationBodyFromEvent(type, payload = {}) {
   );
 }
 
-export function shouldSuppress(payload, activeRef, hasFocus, cfg) {
-  const c = normalizeCfg(cfg);
-  if (!c.enabled) return true;
+// Completion toasts represent user-facing main sessions. A child session is
+// recognized either directly from its terminal event or through the App-owned
+// subagent directory; unknown ownership remains eligible rather than guessing.
+export function shouldNotifySessionCompletion({
+  sessionId,
+  parentSessionId = '',
+  ownerSessionId = '',
+} = {}) {
+  const sid = String(sessionId || '').trim();
+  if (!sid) return false;
+  const explicitParentId = String(parentSessionId || '').trim();
+  const registeredOwnerId = String(ownerSessionId || '').trim();
+  const resolvedOwnerId = explicitParentId || registeredOwnerId;
+  return !resolvedOwnerId || resolvedOwnerId === sid;
+}
+
+export function shouldSuppress(payload, hasFocus, cfg) {
+  if (!notificationsEnabled(cfg)) return true;
   // payload.id 形如 "question-..." / "completion-...",取首段判类型。
   const type = String(payload?.id || '').split('-')[0];
-  if (type === 'permission' && !c.on_permission) return true;
-  if (type === 'question' && !c.on_question) return true;
-  if (type === 'completion' && !c.on_completion) return true;
-  if (c.suppress_when_focused && hasFocus) {
-    // activeRef 为空 = 当前没有打开聊天区(设置页/首页等),不能抑制。
-    if (!activeRef?.sessionId || !payload?.session_id) return false;
-    const sameSession = activeRef.sessionId === payload.session_id;
-    // 只有两端都带上 workspace 时才比对;任一侧缺失视为同 workspace。
-    const payloadWs = String(payload.workspace_hash || '').trim();
-    const activeWs = String(activeRef.workspaceHash || '').trim();
-    const sameWorkspace = !payloadWs || !activeWs || payloadWs === activeWs;
-    if (sameSession && sameWorkspace) return true;
-  }
-  return false;
+  if (type !== 'completion') return true;
+  return hasFocus === true;
 }
 
 function bridgeAvailable() {
@@ -182,15 +166,14 @@ export function focusSession(workspaceHash, sessionId) {
 }
 
 // 一站式入口:构造 payload + 判抑制 + 投递。应用级 WS 监听器调这一个。
-// activeRef = { sessionId, workspaceHash }。hasFocus 可由调用方传入;省略时
-// 走 isHostWindowFocused()(document.hasFocus + focus/blur 兜底)。
+// hasFocus 可由调用方传入;省略时走 isHostWindowFocused()
+// (document.hasFocus + focus/blur 兜底)。
 export function maybeNotify({
   type,
   sessionId,
   workspaceHash,
   sessionTitle,
   bodyText,
-  activeRef,
   hasFocus,
   cfg,
 }) {
@@ -199,6 +182,6 @@ export function maybeNotify({
     type, sessionId, workspaceHash, sessionTitle, bodyText,
   });
   const focused = typeof hasFocus === 'boolean' ? hasFocus : isHostWindowFocused();
-  if (shouldSuppress(payload, activeRef, focused, cfg)) return false;
+  if (shouldSuppress(payload, focused, cfg)) return false;
   return notify(payload);
 }

@@ -137,12 +137,22 @@ int main() {
         const std::string instance_id =
             "agent-browser-smoke-" + std::to_string(GetCurrentProcessId());
         acecode::desktop::AgentBrowserState observed;
+        std::atomic<bool> element_payload_observed{false};
         acecode::desktop::AgentBrowserHost host(
             window,
             static_cast<std::int64_t>(GetCurrentProcessId()),
             instance_id,
-            [&observed](const acecode::desktop::AgentBrowserState& state) {
+            [&observed, &element_payload_observed](
+                const acecode::desktop::AgentBrowserState& state) {
                 observed = state;
+                if (!state.selected_element_json.empty()) {
+                    const auto selected = nlohmann::json::parse(
+                        state.selected_element_json, nullptr, false);
+                    element_payload_observed.store(
+                        !selected.is_discarded() && selected.is_object() &&
+                        selected.value("outerHTML", "").find('<') !=
+                            std::string::npos);
+                }
             },
             [window](std::function<void()> task) {
                 auto* pending = new std::function<void()>(std::move(task));
@@ -188,7 +198,47 @@ int main() {
                            },
                            std::chrono::seconds(20))) {
                 exit_code = fail("two WebView2 pages did not become ready");
+            } else if (host.state(first_page).shared_with_agent ||
+                       host.state(second_page).shared_with_agent) {
+                exit_code = fail("manually created Browser pages must start unshared");
             } else {
+                std::atomic<bool> rejection_done{false};
+                std::atomic<bool> unshared_rejected{false};
+                std::string rejection_error;
+                std::thread unshared_agent([&] {
+                    acecode::agent_browser::AgentBrowserCdpClient client;
+                    if (client.connect(
+                            std::chrono::seconds(10), nullptr,
+                            rejection_error)) {
+                        const bool claimed = client.claim_page(
+                            std::chrono::seconds(10), nullptr,
+                            rejection_error);
+                        unshared_rejected.store(
+                            !claimed && rejection_error.find(
+                                "page_not_shared_with_agent") !=
+                                    std::string::npos);
+                    }
+                    rejection_done.store(true);
+                });
+                const bool rejection_finished = pump_until(
+                    [&rejection_done] { return rejection_done.load(); },
+                    std::chrono::seconds(15));
+                unshared_agent.join();
+                if (!rejection_finished) {
+                    exit_code = fail(
+                        "unshared Browser proxy rejection timed out");
+                } else if (!unshared_rejected.load()) {
+                    exit_code = fail(rejection_error.empty()
+                        ? "Agent proxy did not reject an unshared Browser page"
+                        : rejection_error);
+                } else if (!host.set_shared_with_agent(
+                               first_page, true, &error) ||
+                           !host.set_shared_with_agent(
+                               second_page, true, &error)) {
+                    exit_code = fail(error);
+                }
+            }
+            if (exit_code == 0) {
                 HWND browser_widget = FindWindowExW(
                     window,
                     nullptr,
@@ -201,18 +251,40 @@ int main() {
             }
             if (exit_code == 0 &&
                 (!host.select_page(first_page, &error) ||
-                 !host.state(first_page).visible ||
+                 host.state(first_page).content_state !=
+                     acecode::desktop::kAgentBrowserContentStateEmpty ||
+                 host.state(first_page).visible ||
                  host.state(second_page).visible)) {
                 exit_code = fail(error.empty()
-                    ? "selecting the first page did not swap the visible controller"
+                    ? "empty Browser pages exposed a native controller"
                     : error);
+            }
+            if (exit_code == 0 &&
+                (!host.navigate(first_page, "http://127.0.0.1:1/", &error) ||
+                 !pump_until(
+                     [&host, &first_page] {
+                         const auto state = host.state(first_page);
+                         return !state.loading &&
+                                state.content_state ==
+                                    acecode::desktop::
+                                        kAgentBrowserContentStateNavigationError;
+                     },
+                     std::chrono::seconds(20)))) {
+                exit_code = fail(error.empty()
+                    ? "navigation failure did not enter the custom error state"
+                    : error);
+            } else if (exit_code == 0 &&
+                       (host.state(first_page).visible ||
+                        host.state(first_page).failure_kind.empty())) {
+                exit_code = fail(
+                    "navigation failure exposed the native WebView error page");
             }
             if (exit_code == 0 &&
                 (!host.select_page(second_page, &error) ||
                  host.state(first_page).visible ||
-                 !host.state(second_page).visible)) {
+                 host.state(second_page).visible)) {
                 exit_code = fail(error.empty()
-                    ? "selecting the second page did not swap the visible controller"
+                    ? "selecting an empty page exposed a native controller"
                     : error);
             }
             if (exit_code == 0 && (!host.navigate(
@@ -225,13 +297,49 @@ int main() {
                                const auto first = host.state(first_page);
                                const auto second = host.state(second_page);
                                return !first.loading && !second.loading &&
+                                      first.content_state ==
+                                          acecode::desktop::
+                                              kAgentBrowserContentStateLive &&
+                                      second.content_state ==
+                                          acecode::desktop::
+                                              kAgentBrowserContentStateLive &&
                                       first.url.find("example.com") !=
                                           std::string::npos &&
                                       second.url.find("example.org") !=
-                                          std::string::npos;
+                                          std::string::npos &&
+                                      first.title == "Example Domain" &&
+                                      second.title == "Example Domain";
                            },
                            std::chrono::seconds(20))) {
                 exit_code = fail("independent page navigation did not settle");
+            }
+            if (exit_code == 0 &&
+                (host.state(first_page).visible ||
+                 !host.state(second_page).visible)) {
+                exit_code = fail(
+                    "the active live Browser page did not become visible");
+            }
+            if (exit_code == 0 &&
+                (!host.select_page(first_page, &error) ||
+                 !host.state(first_page).visible ||
+                 host.state(second_page).visible)) {
+                exit_code = fail(error.empty()
+                    ? "selecting the first live page did not swap controllers"
+                    : error);
+            }
+            if (exit_code == 0 &&
+                (!host.select_page(second_page, &error) ||
+                 host.state(first_page).visible ||
+                 !host.state(second_page).visible)) {
+                exit_code = fail(error.empty()
+                    ? "selecting the second live page did not swap controllers"
+                    : error);
+            }
+            if (exit_code == 0 &&
+                (!host.toggle_element_selection(second_page, &error) ||
+                 !host.state(second_page).element_selection_active)) {
+                exit_code = fail(error.empty()
+                    ? "element selection did not become active" : error);
             }
             if (exit_code != 0) {
                 // Keep the rest of the smoke guarded while still unwinding the
@@ -292,6 +400,14 @@ int main() {
                                std::string::npos) {
                     agent_exit_code.store(
                         fail("CDP page-id routing crossed Browser pages"));
+                } else if (first.value("title", "") != "Example Domain" ||
+                           second.value("title", "") != "Example Domain" ||
+                           host.state(first_page).title !=
+                               first.value("title", "") ||
+                           host.state(second_page).title !=
+                               second.value("title", "")) {
+                    agent_exit_code.store(
+                        fail("native Browser document titles did not synchronize"));
                 } else if (!first.value(
                                 "bindings", nlohmann::json::array()).empty() ||
                            !second.value(
@@ -299,6 +415,93 @@ int main() {
                     agent_exit_code.store(
                         fail("the arbitrary page received ACECode host bindings"));
                 } else {
+                    client.select_page(
+                        second_page, std::chrono::seconds(10), nullptr,
+                        agent_error);
+                    client.command(
+                        "Runtime.evaluate",
+                        {{"expression",
+                          "(() => { let icon = document.querySelector("
+                          "'link[rel~=icon]'); if (!icon) { icon = "
+                          "document.createElement('link'); icon.rel = 'icon'; "
+                          "document.head.appendChild(icon); } icon.href = "
+                          "'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
+                          "CAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='; "
+                          "document.title = 'Example Domain favicon'; return true; })()"},
+                         {"returnByValue", true}},
+                        std::chrono::seconds(10),
+                        nullptr,
+                        agent_error);
+                    const bool favicon_captured = agent_error.empty() &&
+                        pump_until(
+                            [&host, &second_page] {
+                                const auto state = host.state(second_page);
+                                return state.title == "Example Domain favicon" &&
+                                    state.favicon.rfind("data:image/png", 0) == 0;
+                            },
+                            std::chrono::seconds(5));
+                    if (!agent_error.empty() || !favicon_captured) {
+                        agent_exit_code.store(fail(agent_error.empty()
+                            ? "WebView2 page favicon did not synchronize"
+                            : agent_error));
+                        agent_done.store(true);
+                        return;
+                    }
+                    client.command(
+                        "Runtime.evaluate",
+                        {{"expression",
+                          "(() => { const options = {clientX:40,clientY:40,"
+                          "button:0,bubbles:true};"
+                          "window.dispatchEvent(new PointerEvent('pointerdown',options));"
+                          "window.dispatchEvent(new PointerEvent('pointerup',options));"
+                          "return true; })()"},
+                         {"returnByValue", true}},
+                        std::chrono::seconds(10),
+                        nullptr,
+                        agent_error);
+                    const bool element_selected = agent_error.empty() &&
+                        pump_until(
+                            [&host, &second_page, &element_payload_observed] {
+                                return host.state(second_page)
+                                           .element_selection_serial > 0 &&
+                                       element_payload_observed.load();
+                            },
+                            std::chrono::seconds(5));
+                    if (!agent_error.empty() || !element_selected) {
+                        agent_exit_code.store(fail(agent_error.empty()
+                            ? "WebView2 element selection did not complete"
+                            : agent_error));
+                        agent_done.store(true);
+                        return;
+                    }
+                    client.command(
+                        "Runtime.evaluate",
+                        {{"expression",
+                          "console.log('acecode-browser-console-smoke')"},
+                         {"returnByValue", true}},
+                        std::chrono::seconds(10),
+                        nullptr,
+                        agent_error);
+                    std::string console_error;
+                    const bool console_captured = agent_error.empty() &&
+                        pump_until(
+                            [&host, &second_page, &console_error] {
+                                return host.console_logs(
+                                           second_page, &console_error)
+                                           .find(
+                                               "acecode-browser-console-smoke") !=
+                                       std::string::npos;
+                            },
+                            std::chrono::seconds(5));
+                    if (!agent_error.empty() || !console_error.empty() ||
+                        !console_captured) {
+                        agent_exit_code.store(fail(
+                            !agent_error.empty() ? agent_error :
+                            (!console_error.empty() ? console_error :
+                             "WebView2 console messages were not captured")));
+                        agent_done.store(true);
+                        return;
+                    }
                     const auto screenshot = client.command(
                         "Page.captureScreenshot",
                         {{"format", "png"}, {"fromSurface", true}},
@@ -339,11 +542,16 @@ int main() {
                                    {"second_page_id", second_page},
                                    {"first_url", first.value("url", "")},
                                    {"second_url", second.value("url", "")},
+                                   {"first_title", first.value("title", "")},
+                                   {"second_title", host.state(second_page).title},
                                    {"remaining_pages", host.states().size()},
                                    {"width", dimensions->first},
                                     {"height", dimensions->second},
                                     {"acecode_bindings", 0},
                                     {"native_widget_top", true},
+                                    {"console_log_captured", true},
+                                    {"element_selected", true},
+                                    {"favicon_captured", true},
                                 }).dump()
                             << '\n';
                     }

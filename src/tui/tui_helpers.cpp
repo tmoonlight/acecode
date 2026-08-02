@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
-#include <chrono>
 #include <iterator>
 #include <random>
 #include <string>
@@ -757,28 +756,17 @@ Element render_regular_sidebar(TuiState& state,
                 color(theme().ui.text_muted));
         }
 
-        // spawn_subagent 运行中任务:标题为空时退到 prompt 摘要,并持续显示耗时。
-        const auto now = std::chrono::steady_clock::now();
+        // spawn_subagent 运行中任务:标题为空时退到 prompt 摘要。动态耗时
+        // 由 transcript 内的运行中工具块统一展示,避免侧栏重复读秒。
         for (const auto& task : subagents) {
-            const auto secs =
-                std::chrono::duration_cast<std::chrono::seconds>(
-                    now - task.started)
-                    .count();
-            const std::string elapsed =
-                secs < 60 ? std::to_string(secs) + "s"
-                          : std::to_string(secs / 60) + "m" +
-                                std::to_string(secs % 60) + "s";
             const std::string label =
                 task.title.empty() ? task.prompt : task.title;
-            const int label_width =
-                std::max(1, content_width - 4 -
-                                static_cast<int>(elapsed.size()));
+            const int label_width = std::max(1, content_width - 4);
             bottom_rows.push_back(hbox({
                 text("  "),
                 text("\xE2\x97\x8F ") | color(theme().semantic.success),
                 text(truncate_end(label, label_width)) |
                     color(theme().ui.text_muted) | flex,
-                text(" " + elapsed) | readable_secondary(),
             }));
         }
         bottom_rows.push_back(text(""));

@@ -126,6 +126,29 @@ function ComposerSelectionCard({
   );
 }
 
+function ComposerBrowserContextCard({ item, onRemove }) {
+  const presentation = contextPresentation(item);
+  return (
+    <div
+      className="group h-6 max-w-[260px] shrink-0 rounded-md border border-border bg-surface px-1.5 flex items-center gap-1 text-[11px] font-sans leading-none text-fg"
+      title={presentation.title}
+    >
+      <button
+        type="button"
+        className="w-[14px] h-[14px] shrink-0 rounded-full flex items-center justify-center hover:bg-surface-hi text-fg-mute hover:text-fg"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onRemove}
+        title="移除引用"
+        aria-label={presentation.removeLabel}
+      >
+        <VsIcon name="close" size={11} className="ace-selection-context-icon" />
+      </button>
+      <VsIcon name={presentation.icon} size={11} className="ace-selection-context-icon" />
+      <span className="truncate text-fg">{presentation.label}</span>
+    </div>
+  );
+}
+
 export const InputBar = forwardRef(function InputBar({
   disabled, placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, goal = null,
   onGoalEdit, onGoalStatusChange, onGoalClear,
@@ -189,7 +212,10 @@ export const InputBar = forwardRef(function InputBar({
   const contextItems = Array.isArray(contexts) ? contexts : [];
   const recentExpertItems = Array.isArray(expertOptions) ? expertOptions.slice(0, 5) : [];
   const selectionContextItems = contextItems.filter((item) => item?.type === SELECTION_CONTEXT_TYPE);
-  const otherContextItems = contextItems.filter((item) => item?.type !== SELECTION_CONTEXT_TYPE);
+  const browserContextItems = contextItems.filter((item) => item?.type === 'browser');
+  const otherContextItems = contextItems.filter((item) => (
+    item?.type !== SELECTION_CONTEXT_TYPE && item?.type !== 'browser'
+  ));
   const hasExtras = attachmentItems.length > 0 || contextItems.length > 0;
   const nativeContextPickerAvailable = hasNativeContextPicker();
   const canChooseLocalContext = !!onMediaFiles || nativeContextPickerAvailable;
@@ -1102,7 +1128,7 @@ export const InputBar = forwardRef(function InputBar({
             })}
           </div>
         )}
-        {(selectionPreview || selectionContextItems.length > 0) && (
+        {(selectionPreview || selectionContextItems.length > 0 || browserContextItems.length > 0) && (
           <div className={clsx(
             'px-3 pt-2 flex flex-wrap items-center gap-1.5',
             isHero && 'px-4',
@@ -1122,6 +1148,16 @@ export const InputBar = forwardRef(function InputBar({
                   item={item}
                   annotationPresentations={annotationPresentations}
                   pinned
+                  onRemove={() => onRemoveContext?.(key)}
+                />
+              );
+            })}
+            {browserContextItems.map((item, index) => {
+              const key = composerContextKey(item, index);
+              return (
+                <ComposerBrowserContextCard
+                  key={key}
+                  item={item}
                   onRemove={() => onRemoveContext?.(key)}
                 />
               );

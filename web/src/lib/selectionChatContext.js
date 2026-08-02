@@ -360,11 +360,24 @@ export function createFileContext({ path = '', kind = '', text = '' } = {}) {
 export function normalizeComposerContext(ctx = {}) {
   if (!ctx || typeof ctx !== 'object') return null;
   if ((ctx.type || '') !== SELECTION_CONTEXT_TYPE) {
-    return {
+    const normalized = {
       type: ctx.type || 'browser',
       label: ctx.label || 'Browser',
       note: ctx.note || '',
     };
+    if (ctx.id) normalized.id = asString(ctx.id);
+    if (ctx.kind) normalized.kind = asString(ctx.kind);
+    if (ctx.content != null || ctx.value != null) {
+      normalized.content = asString(ctx.content ?? ctx.value);
+    }
+    if (ctx.source && typeof ctx.source === 'object') {
+      normalized.source = {
+        page_id: asString(ctx.source.page_id ?? ctx.source.pageId),
+        url: asString(ctx.source.url),
+        title: asString(ctx.source.title),
+      };
+    }
+    return normalized;
   }
 
   const source = ctx.source && typeof ctx.source === 'object' ? ctx.source : {};
@@ -477,7 +490,7 @@ export function contextPresentation(ctx = {}, annotationPresentations = null) {
     };
   }
   return {
-    icon: 'search',
+    icon: ctx.kind === 'console' ? 'terminal' : (ctx.kind === 'element' ? 'Inspect' : 'search'),
     label: ctx.label || '浏览器',
     note: ctx.note || '',
     title: ctx.label || '浏览器',

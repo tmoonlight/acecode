@@ -11,12 +11,29 @@ macOS 后续要复用 Windows 已完成的产品模型：详情栏中可并存�
 
 - React bridge 名称：`aceDesktop_agentBrowserCreatePage`、`GetState`、`SelectPage`、
   `ClosePage`、`SetLayout`、`Navigate`、`GoBack`、`GoForward`、`Reload`、`Focus`、
-  `Hide`。除 Create 外的页面动作都携带 `page_id`。
+  `Hide`、`SetShared`、`GetConsoleLogs`、`ToggleElementSelection`、
+  `ToggleDevTools`。除 Create 外的页面动作都携带 `page_id`。
 - state event：`acecode:agent-browser-state`；字段为 `supported`、`ready`、
   `loading`、`visible`、`can_go_back`、`can_go_forward`、`url`、`title`、
-  `error`、`page_id`、`active`、`closed`。
+  `favicon`、`content_state`、`failure_kind`、`error`、`page_id`、`active`、`closed`、`shared_with_agent`、
+  `element_selection_active`、`element_selection_serial`；一次性的
+  `selected_element` 只随完成选择的事件发送，不保存在后续 state snapshot 中。
+- `content_state` 固定为 `empty`、`loading`、`live`、`navigation_error` 或
+  `process_failed`。新页和所有失败状态由共用 React 状态层呈现；native WKWebView 只有
+  在 `live` 时才可见，不得显示 WebKit 自带空页、错误页或崩溃页。`failure_kind` 至少
+  覆盖网络/证书/超时、OOM、无响应和主页面进程退出的稳定分类。
 - 每次 Create 生成 Desktop 生命周期内唯一且稳定的 page id；重复状态事件不得重复
   创建 React 页签。
+- 新页默认标题为 `新标签页`；观察每个 WKWebView 的 `title`，按 `page_id` 更新对应
+  React 页签。后台页标题变化只更新标题，不能激活或重排页签，空标题回退默认值。
+- 每页同时上报经过 scheme/大小校验的 `favicon`。WKWebView 没有稳定公开 favicon
+  property 时，在导航完成后通过隔离脚本读取 `link[rel~=icon]`；新导航先清空旧值，
+  异步回调必须按 page id 和 generation 拒绝上一文档结果。React 的默认地球回退可直接复用。
+- 用户手工创建页默认 `shared_with_agent=false`，Agent proxy 创建页默认 `true`；
+  claim/select/close/页面命令必须在 native proxy 再校验，不允许只依赖 React 状态。
+- 保持 Windows 的聊天附件合同：元素结果和控制台快照只添加到 composer、可删除且
+  不自动发送，并显示在与 Pin/批注相同的 composer 上方引用区；页面加载错误不显示
+  网页内红色提示条。
 - 工具名、参数和结构化结果沿用 `src/tool/agent_browser/browser_tools.cpp`。
 - Profile 必须持久化且与 Safari/普通浏览器隔离；任意网页不得获得
   `aceDesktop_*` binding 或 daemon token。
@@ -44,19 +61,28 @@ macOS backend 完成后，要把 OS gate 扩展到 macOS，并在 `src/desktop/m
 3. 所有页面配置复用同一个隔离 persistent data store，但每页保留独立 history/DOM。
    设置 `WKNavigationDelegate`/`WKUIDelegate`，把 URL、title、loading、历史能力、
    新窗口和 JavaScript dialog 连同 page id 映射到现有 `AgentBrowserState`。
-   `target=_blank` 在发起请求的同一个 WKWebView 中加载。
+   `target=_blank` 在发起请求的同一个 WKWebView 中加载。保留 WKWebView 的标准网页
+   上下文菜单，不要把主 ACECode UI 的右键屏蔽策略带入独立 Browser 页面。
 4. `set_bounds` 把 React 传来的物理像素转换为 NSView 坐标。macOS 坐标原点和
    `backingScaleFactor` 与 Windows 不同：先将窗口 client rect 转换到 content view，
    再处理 Y 轴和 backing scale；不要直接照搬 WebView2 的矩形。
 5. 只有选中的 Browser 页可以 `hidden = NO`；其它页、窗口隐藏或 ACECode modal
-   打开时设置 `hidden = YES`。切换时先隐藏旧页再显示新页，关闭页签时解除 delegate、
-   移除 view 并释放该 WKWebView；只在主线程触碰 AppKit/WebKit。
+   打开时设置 `hidden = YES`，且还必须满足 `content_state == live`。导航开始即切到
+   `loading` 并隐藏 view；导航失败或 Web Content process 终止时映射稳定失败类型，
+   保持 view 隐藏。切换时先隐藏旧页再显示新页，关闭页签时解除 delegate、移除 view
+   并释放该 WKWebView；只在主线程触碰 AppKit/WebKit。
 6. 用一个命名 `WKContentWorld` 执行 snapshot/target-resolution 辅助脚本，避免与网页
    自己的 JS globals 冲突。Apple 明确说明 content world 隔离脚本命名空间，而 DOM
    变化仍对页面可见：
    <https://developer.apple.com/documentation/webkit/wkcontentworld>、
    <https://developer.apple.com/documentation/webkit/wkwebview/callasyncjavascript(_:arguments:in:contentworld:)>
 7. 截图使用 `takeSnapshotWithConfiguration`，不要把 WKWebView 画面绕回主 WebView。
+8. 元素选择复用 Windows 的 closed-shadow-root 高亮和结果结构，使用命名
+   `WKContentWorld` 执行；单击、拖拽共同祖先、`Esc` 取消和点击抑制行为保持一致。
+9. 控制台没有 WebView2 Runtime/Log 事件的公开等价 API。可用极小的 page-world
+   bootstrap 包装 console 并派发无权限 DOM event，再由命名 content world 转发到
+   只接收有界文本的 message handler；不要把有返回值或原生能力的 handler 暴露给网页。
+   同样按页保留最近 1000 条、每条 16 KiB，并在新主文档导航时清空。
 
 CMake 已在 Apple 平台启用 Objective-C++。加入 `.mm` 时必须按平台选择唯一实现：
 Windows 编译 `agent_browser_host.cpp`，Apple 编译 `agent_browser_host_mac.mm`，Linux
@@ -113,6 +139,10 @@ daemon attach 的生产 transport。Apple 的公开 WKWebView surface 提供导�
 `evaluateJavaScript`/`callAsyncJavaScript`、`takeSnapshot` 等能力，可从官方 API
 清单核对：<https://developer.apple.com/documentation/webkit/wkwebview/>。
 
+Windows 的 Developer Tools 按钮使用 WebView2 `OpenDevToolsWindow`。WKWebView 没有
+公开的“打开/切换 Web Inspector”宿主 API；macOS 端不得调用私有 selector。首版应让
+`ToggleDevTools` 返回明确的 unsupported 错误，后续只有在 Apple 增加公开 API 时再接入。
+
 ## 建议实施顺序
 
 1. 在 macOS 先实现多 WKWebView create/select/close/layout/show/hide/navigation/state，
@@ -132,7 +162,16 @@ daemon attach 的生产 transport。Apple 的公开 WKWebView surface 提供导�
   page id/WKWebView/详情页签；同一 page id 的重复事件只对应一个页签。
 - [ ] 两页可加载不同 URL 并保留独立 DOM/history；切换只显示目标页，关闭一页不影响
   其它页，关闭全部后没有遗留 WKWebView。
+- [ ] 新页标题为“新标签页”，页面 title/favicon 逐页同步且后台更新不抢焦点；缺失或
+  失败 favicon 回退地球图标；网页内容区保留 WKWebView 标准右键菜单。
+- [ ] 新页显示共用 React Browser welcome 而非 WKWebView 空白页；加载、网络错误、
+  OOM/无响应/Web Content process 退出均显示 ACECode 状态层，且 WebKit 内建页面不闪现。
 - [ ] 手工地址栏、后退/前进/刷新与 Agent 工具命中同一个 WKWebView 和 history。
+- [ ] 逐页共享开关生效；手工页默认不共享、Agent 页默认共享，撤销后 native proxy
+  拒绝已有 client 对该页的后续命令。
+- [ ] 元素选择结果和有界控制台快照可添加到聊天且不自动发送，并与 Pin/批注显示在同一
+  composer 上方引用区；加载失败不出现红色条。
+- [ ] `ToggleDevTools` 在没有公开 WebKit API 时返回明确 unsupported，不使用私有 API。
 - [ ] Profile 重启后登录保留，Safari Profile 和 ACECode 主 UI storage 不被复用。
 - [ ] 任意页面中不存在 `aceDesktop_*`、daemon token 或任意文件读取能力。
 - [ ] inactive tab、modal、窗口最小化/隐藏、resize、Retina/非 Retina 屏幕切换不遮挡 UI。

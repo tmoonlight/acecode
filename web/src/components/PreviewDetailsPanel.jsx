@@ -35,6 +35,29 @@ function tabLabel(tab) {
   return tab.title || fileName(tab.path);
 }
 
+function BrowserTabIcon({ favicon }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [favicon]);
+
+  if (!favicon || failed) {
+    return <VsIcon name="globe" size={17} className="ace-preview-details-tab-icon" />;
+  }
+  return (
+    <img
+      src={favicon}
+      alt=""
+      aria-hidden="true"
+      draggable="false"
+      referrerPolicy="no-referrer"
+      className="ace-preview-details-tab-icon ace-preview-details-tab-favicon"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function wheelDeltaForTabs(event, pageWidth) {
   const deltaX = Number(event.deltaX) || 0;
   const deltaY = Number(event.deltaY) || 0;
@@ -190,6 +213,7 @@ export function PreviewDetailsPanel({
   onToggleSidePanelList,
   onOpenBrowser,
   agentBrowserActive = false,
+  onAddBrowserContext,
   onSelectChangeFile,
   onSelectGitChangeFile,
   onOpenFilePreview,
@@ -242,6 +266,7 @@ export function PreviewDetailsPanel({
           key={active.pageId}
           pageId={active.pageId}
           agentActive={agentBrowserActive && active.pageId === agentBrowserActive}
+          onAddContext={onAddBrowserContext}
         />
       );
     }
@@ -291,7 +316,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, onAddBrowserContext, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -695,7 +720,7 @@ export function PreviewDetailsPanel({
                     />
                   )}
                   {isBrowserTab && (
-                    <VsIcon name="globe" size={17} className="ace-preview-details-tab-icon" />
+                    <BrowserTabIcon favicon={tab.favicon} />
                   )}
                   <span className="ace-preview-details-tab-label">{label}</span>
                   <span

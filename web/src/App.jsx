@@ -18,6 +18,7 @@ import {
   noteHostWindowFocus,
   isHostWindowFocused,
   notificationBodyFromEvent,
+  shouldNotifySessionCompletion,
 } from './lib/desktopNotify.js';
 import { createNewSessionForActiveWorkspace } from './lib/newSession.js';
 import { refreshWorkspaceGitInfo } from './lib/gitInfoCache.js';
@@ -87,6 +88,7 @@ import {
   normalizePreviewPanelWidth,
   normalizeSidePanelWidth,
   normalizeSidebarWidth,
+  normalizeSubagentPanelWidth,
   previewPanelWidthIsUserSized,
   validateLayoutWidths,
 } from './lib/singleLayout.js';
@@ -183,11 +185,11 @@ export function App() {
   const [permReqs,     setPermReqs]     = useState([]);
   const [questionReqs, setQuestionReqs] = useState([]);
   // 当前主会话的后台任务(spawn_subagent 子会话)索引,由 ChatView 上报。
-  // 用于:1) 子任务的 question_request 在主会话可见;2) 权限/问题弹窗的
+  // 用于:1) 子任务的 question_request 在主会话可见;2) 权限/问题卡片的
   // 「来自后台任务」来源标记。
   const [subagentIndex, setSubagentIndex] = useState({ parentId: '', titles: {} });
   // 已经发现过的 child -> parent/title 关系跨会话切换保留,供后台权限请求
-  // 在父会话不活跃时仍能把侧边栏提示和系统通知路由到父会话。
+  // 在父会话不活跃时仍能把侧边栏提示和 inline 请求路由到父会话。
   const [subagentDirectory, setSubagentDirectory] = useState({ owners: {}, titles: {} });
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [conversationFindRequest, setConversationFindRequest] = useState(0);
@@ -230,7 +232,6 @@ export function App() {
   const [previewPanelVisible, setPreviewPanelVisible] = useState(false);
   const activeRefRef = useRef(activeRef);
   const healthRef = useRef(health);
-  const visibleSessionRef = useRef(null);
   const subagentIndexRef = useRef(subagentIndex);
   const subagentDirectoryRef = useRef(subagentDirectory);
   const notificationContextRef = useRef({
@@ -318,33 +319,6 @@ export function App() {
   useEffect(() => { healthRef.current = health; }, [health]);
   useEffect(() => { subagentIndexRef.current = subagentIndex; }, [subagentIndex]);
   useEffect(() => { subagentDirectoryRef.current = subagentDirectory; }, [subagentDirectory]);
-  useEffect(() => {
-    const sessionId = activeRef?.sessionId || activeRef?.id || '';
-    const chatVisible = view === 'single'
-      && !!sessionId
-      && !activeRef?.loop
-      && !activeRef?.expertComponents
-      && !showSettings
-      && !searchOpen
-      && !updateDialogOpen
-      && !guidedTourPreparing
-      && !guidedTourRun;
-    visibleSessionRef.current = chatVisible
-      ? { sessionId, workspaceHash: activeRef?.workspaceHash || '' }
-      : null;
-  }, [
-    activeRef?.id,
-    activeRef?.loop,
-    activeRef?.expertComponents,
-    activeRef?.sessionId,
-    activeRef?.workspaceHash,
-    guidedTourPreparing,
-    guidedTourRun,
-    searchOpen,
-    showSettings,
-    updateDialogOpen,
-    view,
-  ]);
   useEffect(() => { navHistoryRef.current = navHistory; }, [navHistory]);
 
   const replaceActiveRef = useCallback((nextRefOrUpdater) => {
@@ -841,9 +815,6 @@ export function App() {
         workspaceHash,
         sessionTitle,
         bodyText: notificationBodyFromEvent(type, payload),
-        // visibleSessionRef is non-null only when the chat for that session is
-        // the on-screen active conversation — that is the suppress target.
-        activeRef: visibleSessionRef.current,
         hasFocus: isHostWindowFocused(),
         cfg: healthRef.current?.notifications,
       });
@@ -852,7 +823,15 @@ export function App() {
     const finishMonitoredSession = (sessionId, msg, payload) => {
       const outcome = String(payload.outcome || '');
       const assistantText = context.assistantText.get(sessionId) || '';
-      if ((!outcome || outcome === 'completed') && assistantText.trim()) {
+      const ownerSessionId = conversationOwnerForSession(sessionId, payload);
+      const completionNotificationAllowed = shouldNotifySessionCompletion({
+        sessionId,
+        parentSessionId: payload.parent_session_id || msg.parent_session_id || '',
+        ownerSessionId,
+      });
+      if (completionNotificationAllowed
+          && (!outcome || outcome === 'completed')
+          && assistantText.trim()) {
         sendDesktopNotification('completion', msg, {
           ...payload,
           session_id: sessionId,
@@ -942,10 +921,6 @@ export function App() {
         setPermReqs((prev) => pushPermissionRequest(prev, payload, {
           ownerSessionId: ownerSessionId !== sessionId ? ownerSessionId : '',
         }));
-        sendDesktopNotification('permission', msg, {
-          ...payload,
-          session_id: ownerSessionId || sessionId,
-        });
       }
       if (msg.type === 'permission_closed') {
         const ownerSessionId = conversationOwnerForSession(sessionId, payload);
@@ -959,10 +934,6 @@ export function App() {
         setQuestionReqs((prev) => addPendingQuestionRequest(prev, payload, {
           ownerSessionId: ownerSessionId !== sessionId ? ownerSessionId : '',
         }));
-        sendDesktopNotification('question', msg, {
-          ...payload,
-          session_id: ownerSessionId || sessionId,
-        });
       }
       if (msg.type === 'question_closed') {
         const ownerSessionId = conversationOwnerForSession(sessionId, payload);
@@ -1471,6 +1442,13 @@ export function App() {
     sidePanelNavigationCollapsed,
   ]);
 
+  const setSubagentPanelWidth = useCallback((nextWidth, contentWidth = 0) => {
+    setSingleLayout((prev) => {
+      const subagentPanel = normalizeSubagentPanelWidth(nextWidth, contentWidth);
+      return subagentPanel === prev.subagentPanel ? prev : { ...prev, subagentPanel };
+    });
+  }, [setSingleLayout]);
+
   const startSidebarResize = useCallback((event) => {
     if (view !== 'single') return;
     if (event.button != null && event.button !== 0) return;
@@ -1726,6 +1704,8 @@ export function App() {
                 previewPanelWidth={singleLayout.previewPanel}
                 previewPanelAutoFit={!previewPanelUserSized}
                 onPreviewPanelResize={setPreviewPanelWidth}
+                subagentPanelWidth={singleLayout.subagentPanel ?? DEFAULT_SINGLE_LAYOUT.subagentPanel}
+                onSubagentPanelResize={setSubagentPanelWidth}
                 onPreviewPanelVisibleChange={setPreviewPanelVisible}
                 sidePanelCollapsed={sidePanelCollapsed}
                 sidePanelListCollapsed={sidePanelListCollapsed}

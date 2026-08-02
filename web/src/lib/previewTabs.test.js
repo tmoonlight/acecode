@@ -5,6 +5,8 @@ import {
   closePreviewTab,
   closeVisiblePreviewTabs,
   closeVisiblePreviewTabsConfirmationMessage,
+  defaultBrowserTabTitle,
+  normalizeBrowserTabFavicon,
   openFileTab,
   openBrowserTab,
   openGitChangesTab,
@@ -15,6 +17,9 @@ import {
   refreshPreviewTab,
   reorderPreviewTab,
   sessionWorkingCwd,
+  updateBrowserTabFavicon,
+  updateBrowserTabMetadata,
+  updateBrowserTabTitle,
   updateGitChangesTab,
   updateSessionChangesTab,
   visiblePreviewTabs,
@@ -61,7 +66,91 @@ run('openBrowserTab keeps distinct page-backed Browser tabs and deduplicates sta
     'page-1', 'page-2',
   ]);
   assert.equal(activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).pageId, 'page-2');
+  assert.deepEqual(
+    tabs.filter((tab) => tab.type === 'browser').map((tab) => tab.title),
+    [defaultBrowserTabTitle(), defaultBrowserTabTitle()],
+  );
   assert.equal(state.browserTabsBySession.s1.length, 2);
+});
+
+run('Browser tab titles sync by page id without activating or reordering background tabs', () => {
+  let state = openBrowserTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-1', title: 'First page',
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-2', title: 'Second page',
+  });
+  const activeBefore = activePreviewTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1',
+  }).key;
+  const orderBefore = visiblePreviewTabs(state, {
+    scopeKey: 'workspace-a', sessionId: 's1',
+  }).map((tab) => tab.key);
+
+  state = updateBrowserTabTitle(state, {
+    sessionId: 's1', pageId: 'page-1', title: 'Updated first page',
+  });
+
+  const tabs = visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(tabs.find((tab) => tab.pageId === 'page-1').title, 'Updated first page');
+  assert.equal(tabs.find((tab) => tab.pageId === 'page-2').title, 'Second page');
+  assert.equal(activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).key, activeBefore);
+  assert.deepEqual(tabs.map((tab) => tab.key), orderBefore);
+});
+
+run('Browser tab title fallback is 新标签页 and activation without a title preserves the current title', () => {
+  let state = openBrowserTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-1', title: 'Example Domain',
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-1',
+  });
+  assert.equal(
+    activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).title,
+    'Example Domain',
+  );
+
+  state = updateBrowserTabTitle(state, {
+    sessionId: 's1', pageId: 'page-1', title: '  ',
+  });
+  assert.equal(
+    activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).title,
+    defaultBrowserTabTitle(),
+  );
+});
+
+run('Browser favicons sync by page id, reject unsafe schemes, and preserve tab order', () => {
+  const firstIcon = 'data:image/svg+xml;base64,PHN2Zy8+';
+  const secondIcon = 'https://example.org/favicon.ico';
+  let state = openBrowserTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-1', favicon: firstIcon,
+  });
+  state = openBrowserTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1', pageId: 'page-2', favicon: secondIcon,
+  });
+  const activeBefore = activePreviewTab(state, {
+    scopeKey: 'workspace-a', sessionId: 's1',
+  }).key;
+  const orderBefore = visiblePreviewTabs(state, {
+    scopeKey: 'workspace-a', sessionId: 's1',
+  }).map((tab) => tab.key);
+
+  state = updateBrowserTabMetadata(state, {
+    sessionId: 's1', pageId: 'page-1', title: 'Icon page', favicon: 'https://example.com/icon.png',
+  });
+  let tabs = visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(tabs.find((tab) => tab.pageId === 'page-1').favicon, 'https://example.com/icon.png');
+  assert.equal(tabs.find((tab) => tab.pageId === 'page-1').title, 'Icon page');
+  assert.equal(tabs.find((tab) => tab.pageId === 'page-2').favicon, secondIcon);
+  assert.equal(activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).key, activeBefore);
+  assert.deepEqual(tabs.map((tab) => tab.key), orderBefore);
+
+  state = updateBrowserTabFavicon(state, {
+    sessionId: 's1', pageId: 'page-1', favicon: 'javascript:alert(1)',
+  });
+  tabs = visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(tabs.find((tab) => tab.pageId === 'page-1').favicon, '');
+  assert.equal(normalizeBrowserTabFavicon('file:///favicon.ico'), '');
 });
 
 run('closing one Browser tab preserves sibling Browser and file tabs', () => {

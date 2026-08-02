@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import {
   agentBrowserActivityFromItems,
-  agentBrowserErrorPresentation,
   agentBrowserLayoutFromRect,
   createAgentBrowserPage,
+  getAgentBrowserConsoleLogs,
   hasNativeAgentBrowser,
   normalizeAgentBrowserAddress,
   parseAgentBrowserBridgeResult,
+  setAgentBrowserShared,
+  toggleAgentBrowserDevTools,
+  toggleAgentBrowserElementSelection,
 } from './agentBrowser.js';
 
 async function run(name, fn) {
@@ -33,20 +36,6 @@ await run('Agent Browser address normalization mirrors the native web-only polic
 await run('Agent Browser layout converts CSS viewport coordinates to physical pixels', () => {
   assert.deepEqual(agentBrowserLayoutFromRect({ left: 10.25, top: 20, width: 300.5, height: 200 }, 1.5), {
     x: 15, y: 30, width: 451, height: 300, visible: true,
-  });
-});
-
-await run('Agent Browser presents retryable WebView2 navigation failures in plain language', () => {
-  assert.deepEqual(
-    agentBrowserErrorPresentation('navigation failed (WebView2 status 13)'),
-    {
-      message: '无法解析主机名，请检查地址、网络或重试（WebView2 状态 13）',
-      retryable: true,
-    },
-  );
-  assert.deepEqual(agentBrowserErrorPresentation('browser URL is empty'), {
-    message: 'browser URL is empty',
-    retryable: false,
   });
 });
 
@@ -128,4 +117,36 @@ await run('Agent Browser page creation checks its dedicated desktop bridge', asy
     ok: true,
     page_id: 'browser-2',
   });
+});
+
+await run('Agent Browser collaboration actions target the exact page bridge', async () => {
+  const calls = [];
+  const win = {
+    aceDesktop_agentBrowserSetShared(value) {
+      calls.push(['share', value]);
+      return JSON.stringify({ ok: true, shared_with_agent: value.shared });
+    },
+    aceDesktop_agentBrowserToggleElementSelection(value) {
+      calls.push(['element', value]);
+      return '{"ok":true}';
+    },
+    aceDesktop_agentBrowserGetConsoleLogs(value) {
+      calls.push(['console', value]);
+      return '{"ok":true,"logs":"[log] ready"}';
+    },
+    aceDesktop_agentBrowserToggleDevTools(value) {
+      calls.push(['devtools', value]);
+      return '{"ok":true}';
+    },
+  };
+  await setAgentBrowserShared('page-2', true, win);
+  await toggleAgentBrowserElementSelection('page-2', win);
+  assert.equal((await getAgentBrowserConsoleLogs('page-2', win)).logs, '[log] ready');
+  await toggleAgentBrowserDevTools('page-2', win);
+  assert.deepEqual(calls, [
+    ['share', { page_id: 'page-2', shared: true }],
+    ['element', 'page-2'],
+    ['console', 'page-2'],
+    ['devtools', 'page-2'],
+  ]);
 });
