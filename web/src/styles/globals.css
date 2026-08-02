@@ -933,15 +933,22 @@ body {
   padding: 0;
   background: transparent;
   color: inherit;
-  cursor: help;
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
 }
 .ace-token-budget-button:hover,
 .ace-token-budget-button:focus-visible {
+  background: var(--ace-surface-hi);
   color: var(--ace-fg);
+  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.42);
   outline: none;
 }
 .ace-token-budget-button:focus-visible {
-  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.45);
+  box-shadow: 0 0 0 2px rgba(var(--ace-accent-rgb), 0.45);
+}
+.ace-token-budget-button[data-panel-mode="click"] {
+  background: var(--ace-accent-bg);
+  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.58);
 }
 .ace-context-usage-panel {
   position: fixed;
