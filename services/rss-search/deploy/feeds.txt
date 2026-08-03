@@ -1,0 +1,4 @@
+# Curated official technology feeds
+https://github.blog/feed/
+https://kubernetes.io/feed.xml
+https://blog.cloudflare.com/rss/
