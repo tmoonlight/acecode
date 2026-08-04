@@ -103,14 +103,18 @@ export function applyRemoteControlSessionSelection(sessions = [], selectedSessio
   return found ? cleared : upsertSidebarSession(cleared, selected);
 }
 
-export function projectRemoteControlBinding(sessions = [], selectedSession = null) {
-  const selectedKey = sessionKey(selectedSession);
-  if (!selectedKey) return Array.isArray(sessions) ? sessions : [];
-  return (Array.isArray(sessions) ? sessions : []).map((session) => ({
-    ...session,
-    remote_control_bound: sessionKey(session) === selectedKey,
-    remoteControlBound: sessionKey(session) === selectedKey,
-  }));
+export function nextRemoteControlSurgeRequest(currentRequest, targetKey, sequence) {
+  const normalizedTargetKey = String(targetKey || '').trim();
+  if (!normalizedTargetKey) return currentRequest || null;
+  if (currentRequest?.targetKey === normalizedTargetKey) return currentRequest;
+  return {
+    targetKey: normalizedTargetKey,
+    sequence: Math.max(1, Number(sequence) || 1),
+  };
+}
+
+export function completeRemoteControlSurgeRequest(currentRequest, sequence) {
+  return currentRequest?.sequence === sequence ? null : (currentRequest || null);
 }
 
 export function expandedSessionListsAfterWorkspaceCollapseAll(

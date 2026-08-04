@@ -32,7 +32,8 @@ test('Sidebar keeps selection state and one-shot surge logic separate from reduc
   const sidebar = source('components/Sidebar.jsx');
   const styles = source('styles/globals.css');
   assert.match(sidebar, /applyRemoteControlSessionSelection\(prev, session\)/);
-  assert.match(sidebar, /projectRemoteControlBinding\(/);
+  assert.doesNotMatch(sidebar, /remoteControlBoundTarget|projectRemoteControlBinding\(/);
+  assert.match(sidebar, /current\?\.targetKey === targetKey/);
   assert.match(sidebar, /detail\.reason === 'remote-control-unbound'/);
   assert.match(sidebar, /remote-control-session-selected/);
   assert.match(sidebar, /onRemoteControlSurgeCompleted/);

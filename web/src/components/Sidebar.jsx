@@ -59,10 +59,11 @@ import {
 } from '../lib/sessionStatus.js';
 import {
   applyRemoteControlSessionSelection,
+  completeRemoteControlSurgeRequest,
   expandedSessionListsAfterWorkspaceCollapseAll,
+  nextRemoteControlSurgeRequest,
   reconcileSidebarSessions,
   remoteControlSurgeTargetKey,
-  projectRemoteControlBinding,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
   shouldStartRemoteControlSurge,
@@ -1365,7 +1366,6 @@ export function Sidebar({
   const handledWorkspaceActivationRequestRef = useRef(0);
   const remoteControlSurgeSequenceRef = useRef(0);
   const [remoteControlSurgeRequest, setRemoteControlSurgeRequest] = useState(null);
-  const [remoteControlBoundTarget, setRemoteControlBoundTarget] = useState(null);
   const revealTarget = useMemo(() => sidebarRevealTarget(activeRef), [activeRef]);
 
   const updateExpanded = useCallback((updater) => {
@@ -2009,12 +2009,15 @@ export function Sidebar({
         if (remoteControlSelection) {
           const targetKey = remoteControlSurgeTargetKey(session);
           setSessions((prev) => applyRemoteControlSessionSelection(prev, session));
-          setRemoteControlBoundTarget(session);
           if (targetKey) {
-            remoteControlSurgeSequenceRef.current += 1;
-            setRemoteControlSurgeRequest({
-              targetKey,
-              sequence: remoteControlSurgeSequenceRef.current,
+            setRemoteControlSurgeRequest((current) => {
+              if (current?.targetKey === targetKey) return current;
+              remoteControlSurgeSequenceRef.current += 1;
+              return nextRemoteControlSurgeRequest(
+                current,
+                targetKey,
+                remoteControlSurgeSequenceRef.current,
+              );
             });
           }
         } else {
@@ -2027,7 +2030,6 @@ export function Sidebar({
         }));
       }
       if (detail.reason === 'remote-control-unbound') {
-        setRemoteControlBoundTarget(null);
         setRemoteControlSurgeRequest(null);
       }
       refresh(workspaceHash).catch(() => {});
@@ -2038,16 +2040,13 @@ export function Sidebar({
 
   const completeRemoteControlSurge = useCallback((sequence) => {
     setRemoteControlSurgeRequest((current) => (
-      current?.sequence === sequence ? null : current
+      completeRemoteControlSurgeRequest(current, sequence)
     ));
   }, []);
 
   const renderedSessions = useMemo(
-    () => withNewSessionDisplayTitles(projectRemoteControlBinding(
-      mergeSessionsWithStatus(sessions, statusBySession),
-      remoteControlBoundTarget,
-    )),
-    [remoteControlBoundTarget, sessions, statusBySession],
+    () => withNewSessionDisplayTitles(mergeSessionsWithStatus(sessions, statusBySession)),
+    [sessions, statusBySession],
   );
   const noWorkspaceSessions = useMemo(
     () => renderedSessions.filter(isNoWorkspaceSession).map(normalizeNoWorkspaceSession),

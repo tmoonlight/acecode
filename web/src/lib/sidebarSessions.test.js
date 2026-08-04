@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import {
   SIDEBAR_SESSION_COLLAPSE_LIMIT,
   applyRemoteControlSessionSelection,
+  completeRemoteControlSurgeRequest,
   expandedSessionListsAfterWorkspaceCollapseAll,
-  projectRemoteControlBinding,
+  nextRemoteControlSurgeRequest,
   reconcileSidebarSessions,
   remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
@@ -94,18 +95,41 @@ test('remote-control surge target key distinguishes workspace and no-workspace r
   );
 });
 
-test('remote-control binding projection survives a later session-list refresh', () => {
-  const result = projectRemoteControlBinding([
-    { id: 'old', workspace_hash: 'w1', remote_control_bound: true },
-    { id: 'target', workspace_hash: 'w2' },
+test('authoritative refresh replaces an optimistic remote-control selection', () => {
+  const optimistic = applyRemoteControlSessionSelection([
+    { id: 'a', workspace_hash: 'w1', remote_control_bound: false },
+    { id: 'b', workspace_hash: 'w2', remote_control_bound: true },
   ], {
-    id: 'target',
-    workspace_hash: 'w2',
+    id: 'a',
+    workspace_hash: 'w1',
   });
-  assert.deepEqual(result.map((session) => [session.id, session.remote_control_bound]), [
-    ['old', false],
-    ['target', true],
+  const surge = nextRemoteControlSurgeRequest(null, remoteControlSurgeTargetKey(optimistic[0]), 1);
+  const refreshed = reconcileSidebarSessions(optimistic, [
+    { id: 'a', workspace_hash: 'w1', remote_control_bound: false },
+    { id: 'b', workspace_hash: 'w2', remote_control_bound: true },
   ]);
+
+  assert.deepEqual(refreshed.map((session) => [session.id, session.remote_control_bound]), [
+    ['a', false],
+    ['b', true],
+  ]);
+  assert.equal(completeRemoteControlSurgeRequest(surge, 1), null);
+});
+
+test('duplicate same-target selection coalesces during one surge window', () => {
+  const first = nextRemoteControlSurgeRequest(null, 'workspace\u0000w1\u0000a', 4);
+  const duplicate = nextRemoteControlSurgeRequest(first, 'workspace\u0000w1\u0000a', 5);
+  const laterReplay = nextRemoteControlSurgeRequest(
+    completeRemoteControlSurgeRequest(first, 4),
+    'workspace\u0000w1\u0000a',
+    5,
+  );
+
+  assert.equal(duplicate, first);
+  assert.deepEqual(laterReplay, {
+    targetKey: 'workspace\u0000w1\u0000a',
+    sequence: 5,
+  });
 });
 
 test('five or fewer sidebar sessions are not collapsible', () => {
