@@ -71,7 +71,6 @@
 #include <sstream>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -155,7 +154,7 @@ std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
     std::vector<acecode::rc::RcSessionTarget> out;
     const auto scopes = rc_catalog_scopes(projects_dir, no_workspace_root);
     std::unordered_map<std::string, int> content_scores;
-    std::unordered_set<std::string> archived_session_ids;
+    std::vector<acecode::rc::RcSessionTarget> archived_targets;
 
     if (query.has_value() && !query->empty()) {
         for (const auto& scope : scopes) {
@@ -180,7 +179,15 @@ std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
             // Persisted metadata is the archive source of truth. Record it
             // before filtering so an in-memory active entry cannot resurrect
             // an archived conversation later in the merge.
-            if (meta.archived) archived_session_ids.insert(meta.id);
+            if (meta.archived) {
+                acecode::rc::RcSessionTarget archived;
+                archived.session_id = meta.id;
+                archived.workspace_hash =
+                    scope.no_workspace ? std::string{} : scope.workspace_hash;
+                archived.cwd = meta.cwd.empty() ? scope.cwd : meta.cwd;
+                archived.no_workspace = scope.no_workspace;
+                archived_targets.push_back(std::move(archived));
+            }
             if (meta.archived || !meta.parent_session_id.empty() ||
                 meta.no_workspace != scope.no_workspace) {
                 continue;
@@ -218,7 +225,7 @@ std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
         active_targets.push_back(std::move(target));
     }
     acecode::rc::merge_active_rc_session_targets(
-        out, active_targets, archived_session_ids);
+        out, active_targets, archived_targets);
     acecode::rc::sort_rc_session_targets(out, query.has_value());
     return out;
 }

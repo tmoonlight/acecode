@@ -111,7 +111,14 @@ conversation.
 The catalog contains persisted workspace and no-workspace conversations but
 excludes archived and child sessions. An inactive selection resumes with the
 recorded workspace context before replacing the binding. If preparation fails,
-the existing binding remains usable.
+the existing binding remains usable. Archive suppression is scoped by complete
+session identity and workspace context, so an equal session id in another
+storage scope is not hidden.
+
+Long lists are split only at UTF-8 codepoint boundaries. The production byte
+limit is therefore safe for multibyte text. If a caller supplies an artificial
+limit smaller than one codepoint, that one codepoint forms an over-limit chunk
+rather than being emitted as invalid UTF-8.
 
 Each queued command is scoped to the source session and binding generation.
 An `off` or rebind makes older queued work stale, and stale work is discarded
@@ -119,6 +126,18 @@ without sending a result or changing the new binding. Catalog/list/search work
 is coalesced to one operation per generation; the remaining control queue is
 fixed-size. Excess requests receive `Session navigation is already processing.`
 instead of growing daemon memory.
+
+Every control response is published while holding a lease on the context that
+owns it. Rebind/off first suspend new inbound submissions, wait for old leases,
+then drain and change the Hub route. Numeric-switch success is leased to the new
+target context, so neither old output nor switch confirmation can be attributed
+to a later binding.
+
+Binding persistence is the final preparation step before runtime replacement.
+Reload, merge, and save complete before the in-memory config is changed; a
+load/save exception leaves both configs and the live route unchanged. `/rc off`
+uses the same ordering and keeps the live binding when clearing persistence
+fails.
 
 After a successful numeric selection, ACECode broadcasts this secret-free
 WebSocket hint to every connected frontend:

@@ -163,6 +163,10 @@ struct SessionChannelBinderDeps {
     // 空 = acecode::load_config()(生产 config_path 即默认路径,读写同一份)。
     std::function<AppConfig()> load_disk_config;
 
+    // 持久化写入 seam。生产为空时按 config_path 调 save_config；测试可注入
+    // throwing writer 验证事务回滚。调用成功后 binder 才更新内存 config。
+    std::function<void(const AppConfig&)> save_disk_config;
+
     // 会话存在性探测:active = 当前在内存 registry 中;resumable = 可从磁盘
     // 恢复进 registry(rebuild 用,恢复成功即视为存在)。
     std::function<bool(const std::string&)> session_active;
@@ -178,6 +182,11 @@ struct SessionChannelBinderDeps {
     // Successful numeric selection notification. Descriptor is intentionally
     // limited to RcSessionTarget fields and cannot expose channel credentials.
     std::function<void(const RcSessionTarget&)> on_session_selected;
+
+    // 测试同步点：已取得有效 BindingContext lease、即将向 Hub 入队前调用。
+    // 生产不注入。不得从该回调重入 binder。
+    std::function<void(const std::string& source_session_id,
+                       const std::string& text)> before_control_publish;
 
     // 测试注入的插件进程 runner;空 = ChannelPluginHost::default_runner()。
     ChannelPluginHost::Runner plugin_runner;
@@ -254,6 +263,7 @@ private:
     struct ControlTask {
         RcSessionCommand command;
         RemoteControlHub* hub = nullptr;
+        std::shared_ptr<BindingContext> source_context;
         std::string source_session_id;
         std::uint64_t source_generation = 0;
         bool catalog_task = false;
@@ -267,10 +277,11 @@ private:
 
     CommandOutcome bind_session(const std::string& session_id,
                                 const std::string& expected_source_session = {},
-                                std::uint64_t expected_source_generation = 0);
+                                std::uint64_t expected_source_generation = 0,
+                                std::shared_ptr<BindingContext>* committed_context = nullptr);
     CommandOutcome select_session_target(const RcSessionTarget& target,
-                                         const std::string& source_session_id,
-                                         std::uint64_t source_generation);
+                                         const ControlTask& source,
+                                         std::shared_ptr<BindingContext>* target_context);
     CommandOutcome unbind_and_stop();
     std::string status_text() const;
     // deps_.config 的读写统一走这里(deps_.with_config_lock 持锁执行;未注入
@@ -285,11 +296,20 @@ private:
     void handle_rc_session_command(const ControlTask& task);
     bool control_source_is_current(const ControlTask& task) const;
     std::vector<RcSessionTarget> rebuild_catalog(const std::optional<std::string>& query);
-    void publish_control_text(RemoteControlHub* hub, const std::string& text) const;
+    bool publish_control_text(const std::shared_ptr<BindingContext>& context,
+                              RemoteControlHub* hub,
+                              const std::string& text) const;
+    void publish_control_text_under_lease(
+        const std::shared_ptr<BindingContext>& context,
+        RemoteControlHub* hub,
+        const std::string& text) const;
     ChannelPluginHost make_plugin_host() const;
     void deactivate_replaced_channel_best_effort(
         const std::optional<ActiveChannel>& previous,
         const ActiveChannel& current) const;
+    void rollback_prepared_channel_best_effort(
+        const std::optional<ActiveChannel>& previous,
+        const ActiveChannel& prepared);
     static void deactivate_context(
         const std::shared_ptr<BindingContext>& context);
     static void emit_question_texts(

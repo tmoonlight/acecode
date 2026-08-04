@@ -91,6 +91,10 @@ public:
     // 也不会让已接受消息的确认与实际提交分属两个会话。空 session 或空回调
     // 等价于 clear_inbound_route()。
     void set_inbound_route(std::string session_id, InboundSubmit fn);
+    // Stop accepting new inbound submissions while preserving the outbound
+    // session identity. Binder replacement uses this before draining the old
+    // BindingContext so leased control output cannot be retargeted or cleared.
+    void suspend_inbound_route();
     // 切断后续入站路由，并把调用瞬间之前已排队的出站消息作为一个
     // drain-through barrier：若 worker 和 sender 都可用，最多等待 5 秒，
     // 让该时刻的最后一条消息被 worker 从 FIFO 接管。这样紧随其后的

@@ -288,6 +288,7 @@ TEST(KeepaliveDecider, HealthProbeDueAfterInterval) {
 #include <fstream>
 #include <future>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -362,6 +363,71 @@ private:
     std::mutex mu_;
     std::condition_variable cv_;
     std::vector<acecode::rc::OutboundMessage> sent_;
+};
+
+class ControlPublishBarrier {
+public:
+    ~ControlPublishBarrier() { release(); }
+
+    void arm(std::string needle) {
+        std::lock_guard<std::mutex> lk(mu_);
+        needle_ = std::move(needle);
+        entered_ = false;
+        release_ = false;
+        source_session_.clear();
+    }
+
+    void hook(const std::string& source_session, const std::string& text) {
+        std::unique_lock<std::mutex> lk(mu_);
+        if (needle_.empty() || text.find(needle_) == std::string::npos || entered_) {
+            return;
+        }
+        source_session_ = source_session;
+        entered_ = true;
+        cv_.notify_all();
+        cv_.wait(lk, [&] { return release_; });
+    }
+
+    bool wait_until_entered(std::chrono::milliseconds timeout =
+                                std::chrono::seconds(5)) {
+        std::unique_lock<std::mutex> lk(mu_);
+        return cv_.wait_for(lk, timeout, [&] { return entered_; });
+    }
+
+    void release() {
+        std::lock_guard<std::mutex> lk(mu_);
+        release_ = true;
+        cv_.notify_all();
+    }
+
+    std::string source_session() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return source_session_;
+    }
+
+private:
+    mutable std::mutex mu_;
+    std::condition_variable cv_;
+    std::string needle_;
+    std::string source_session_;
+    bool entered_ = false;
+    bool release_ = false;
+};
+
+struct ThrowingConfigStore {
+    acecode::AppConfig disk;
+    bool throw_load = false;
+    bool throw_save = false;
+
+    acecode::AppConfig load() const {
+        if (throw_load) throw std::runtime_error("injected config load failure");
+        return disk;
+    }
+
+    void save(const acecode::AppConfig& next) {
+        if (throw_save) throw std::runtime_error("injected config save failure");
+        disk = next;
+    }
 };
 
 // 假 plugin runner 的共享记录:激活/解绑请求 + 计数,支持带超时等待。
@@ -1837,10 +1903,20 @@ TEST(SessionChannelBinderIntegration,
         std::unique_lock<std::mutex> lk(catalog_mu);
         ASSERT_TRUE(catalog_cv.wait_for(lk, 3s, [&] { return entered; }));
     }
-    for (int i = 0; i < 64; ++i) {
-        ASSERT_TRUE(hx.service.hub().handle_inbound(
-            "/sessions invalid", hx.cfg.remote_control.token).ok());
+    std::atomic<int> inbound_failures{0};
+    std::vector<std::thread> producers;
+    for (int producer = 0; producer < 4; ++producer) {
+        producers.emplace_back([&] {
+            for (int i = 0; i < 16; ++i) {
+                if (!hx.service.hub().handle_inbound(
+                        "/sessions invalid", hx.cfg.remote_control.token).ok()) {
+                    ++inbound_failures;
+                }
+            }
+        });
     }
+    for (auto& producer : producers) producer.join();
+    EXPECT_EQ(inbound_failures.load(), 0);
     {
         std::lock_guard<std::mutex> lk(catalog_mu);
         release = true;
@@ -1849,14 +1925,20 @@ TEST(SessionChannelBinderIntegration,
     ASSERT_TRUE(wait_for_outbound_text(
         sender, "Session navigation is already processing."));
     ASSERT_TRUE(wait_for_outbound_text(sender, "Recent sessions:"));
-    std::this_thread::sleep_for(200ms);
-    std::size_t usage_responses = 0;
-    for (const auto& message : sender->sent()) {
-        if (message.text.find("Usage: /sessions") != std::string::npos) {
-            ++usage_responses;
+    const auto usage_count = [&] {
+        std::size_t count = 0;
+        for (const auto& message : sender->sent()) {
+            if (message.text.find("Usage: /sessions") != std::string::npos) {
+                ++count;
+            }
         }
+        return count;
+    };
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (usage_count() < 8u && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
     }
-    EXPECT_LE(usage_responses, 8u);
+    EXPECT_EQ(usage_count(), 8u);
 
     binder.execute_command(session, "off");
     hx.registry.destroy(session);
@@ -1962,4 +2044,271 @@ TEST(SessionChannelBinderIntegration,
     hx.registry.destroy(first);
     hx.registry.destroy(replacement);
     hx.registry.destroy(stale_target);
+}
+
+TEST(SessionChannelBinderIntegration,
+     ListOutputLeasePreventsRebindFromRetargetingQueuedText) {
+    BinderHarness hx("session-output-list-rebind");
+    const auto first = hx.client.create_session({});
+    const auto second = hx.client.create_session({});
+    ControlPublishBarrier barrier;
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        return std::vector<acecode::rc::RcSessionTarget>{
+            {first, "workspace-first", "C:/first", "first", "", "first",
+             "2026-08-05T10:00:00Z", false, true, 0}};
+    };
+    deps.before_control_publish =
+        [&](const std::string& source, const std::string& text) {
+            barrier.hook(source, text);
+        };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(first, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    barrier.arm("Recent sessions:");
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(barrier.wait_until_entered());
+    EXPECT_EQ(barrier.source_session(), first);
+
+    auto rebound = std::async(std::launch::async, [&] {
+        return binder.execute_command(second, "");
+    });
+    ASSERT_TRUE(hx.runner_log->wait_for_activations(2, 3s));
+    EXPECT_EQ(rebound.wait_for(100ms), std::future_status::timeout);
+    barrier.release();
+    ASSERT_EQ(rebound.wait_for(5s), std::future_status::ready);
+    ASSERT_TRUE(rebound.get().ok);
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Recent sessions:"));
+    for (const auto& message : sender->sent()) {
+        if (message.text.find("Recent sessions:") != std::string::npos) {
+            EXPECT_EQ(message.session_id, first);
+        }
+    }
+
+    binder.execute_command(second, "off");
+    hx.registry.destroy(first);
+    hx.registry.destroy(second);
+}
+
+TEST(SessionChannelBinderIntegration,
+     ErrorOutputLeasePreventsOffFromStoppingItsOldRouteMidSend) {
+    BinderHarness hx("session-output-error-off");
+    const auto session = hx.client.create_session({});
+    ControlPublishBarrier barrier;
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [](const std::optional<std::string>&) {
+        return std::vector<acecode::rc::RcSessionTarget>{};
+    };
+    deps.before_control_publish =
+        [&](const std::string& source, const std::string& text) {
+            barrier.hook(source, text);
+        };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(session, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    barrier.arm("Invalid session number");
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/session 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(barrier.wait_until_entered());
+    auto stopped = std::async(std::launch::async, [&] {
+        return binder.execute_command(session, "off");
+    });
+    EXPECT_EQ(stopped.wait_for(100ms), std::future_status::timeout);
+    barrier.release();
+    ASSERT_EQ(stopped.wait_for(5s), std::future_status::ready);
+    ASSERT_TRUE(stopped.get().ok);
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Invalid session number"));
+    for (const auto& message : sender->sent()) {
+        if (message.text.find("Invalid session number") != std::string::npos) {
+            EXPECT_EQ(message.session_id, session);
+        }
+    }
+
+    hx.registry.destroy(session);
+}
+
+TEST(SessionChannelBinderIntegration,
+     SwitchSuccessOutputLeasePreventsThirdBindingFromClaimingIt) {
+    BinderHarness hx("session-output-success-rebind");
+    const auto first = hx.client.create_session({});
+    const auto target = hx.client.create_session({});
+    const auto third = hx.client.create_session({});
+    ControlPublishBarrier barrier;
+    auto sender = std::make_shared<CaptureSender>();
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        return std::vector<acecode::rc::RcSessionTarget>{
+            {target, "workspace-target", "C:/target", "target", "", "target",
+             "2026-08-05T10:00:00Z", false, true, 0}};
+    };
+    deps.before_control_publish =
+        [&](const std::string& source, const std::string& text) {
+            if (text.find("Remote connection switched to:") !=
+                std::string::npos) {
+                hx.service.hub().set_outbound_sender(sender);
+            }
+            barrier.hook(source, text);
+        };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(first, "").ok);
+    hx.service.hub().set_outbound_sender(sender);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Recent sessions:"));
+
+    barrier.arm("Remote connection switched to:");
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/resume 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(barrier.wait_until_entered());
+    EXPECT_EQ(barrier.source_session(), target);
+    auto rebound = std::async(std::launch::async, [&] {
+        return binder.execute_command(third, "");
+    });
+    ASSERT_TRUE(hx.runner_log->wait_for_activations(3, 3s));
+    EXPECT_EQ(rebound.wait_for(100ms), std::future_status::timeout);
+    barrier.release();
+    ASSERT_EQ(rebound.wait_for(5s), std::future_status::ready);
+    ASSERT_TRUE(rebound.get().ok);
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Remote connection switched to:"));
+    for (const auto& message : sender->sent()) {
+        if (message.text.find("Remote connection switched to:") !=
+            std::string::npos) {
+            EXPECT_EQ(message.session_id, target);
+        }
+    }
+    EXPECT_EQ(binder.bound_session_id(), third);
+
+    binder.execute_command(third, "off");
+    hx.registry.destroy(first);
+    hx.registry.destroy(target);
+    hx.registry.destroy(third);
+}
+
+TEST(SessionChannelBinderIntegration,
+     SwitchPersistenceFailureKeepsOldRuntimeConfigAndSelectionCallback) {
+    BinderHarness hx("session-switch-persist-failure");
+    const auto first = hx.client.create_session({});
+    const auto target = hx.client.create_session({});
+    auto store = std::make_shared<ThrowingConfigStore>();
+    store->disk = hx.cfg;
+    std::atomic<int> selected{0};
+    auto deps = hx.binder_deps();
+    deps.load_disk_config = [store] { return store->load(); };
+    deps.save_disk_config = [store](const acecode::AppConfig& config) {
+        store->save(config);
+    };
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        return std::vector<acecode::rc::RcSessionTarget>{
+            {target, "workspace-target", "C:/target", "target", "", "target",
+             "2026-08-05T10:00:00Z", false, true, 0}};
+    };
+    deps.on_session_selected = [&](const acecode::rc::RcSessionTarget&) {
+        ++selected;
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(first, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Recent sessions:"));
+
+    store->throw_save = true;
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_outbound_text(
+        sender, "Failed to persist remote control binding"));
+    EXPECT_EQ(binder.bound_session_id(), first);
+    EXPECT_TRUE(hx.service.running());
+    EXPECT_EQ(hx.cfg.remote_control.bound_session_id, first);
+    EXPECT_EQ(store->disk.remote_control.bound_session_id, first);
+    EXPECT_EQ(selected.load(), 0);
+    ASSERT_TRUE(hx.runner_log->wait_for_activations(3, 3s));
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        EXPECT_EQ(hx.runner_log->activations.back()["session_id"], first);
+    }
+
+    std::mutex delivered_mu;
+    std::condition_variable delivered_cv;
+    bool delivered = false;
+    const auto sub = hx.client.subscribe(first, [&](const acecode::SessionEvent& event) {
+        if (event.kind == acecode::SessionEventKind::Message &&
+            event.payload.value("role", std::string{}) == "user" &&
+            event.payload.value("content", std::string{}) ==
+                "still routed after failed switch") {
+            std::lock_guard<std::mutex> lk(delivered_mu);
+            delivered = true;
+            delivered_cv.notify_all();
+        }
+    });
+    ASSERT_NE(sub, 0u);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "still routed after failed switch", hx.cfg.remote_control.token).ok());
+    {
+        std::unique_lock<std::mutex> lk(delivered_mu);
+        EXPECT_TRUE(delivered_cv.wait_for(lk, 3s, [&] { return delivered; }));
+    }
+    hx.client.unsubscribe(first, sub);
+
+    store->throw_save = false;
+    binder.execute_command(first, "off");
+    hx.registry.destroy(first);
+    hx.registry.destroy(target);
+}
+
+TEST(SessionChannelBinderIntegration,
+     OffPersistenceFailureKeepsLiveBindingAndOldConfig) {
+    BinderHarness hx("session-off-persist-failure");
+    const auto session = hx.client.create_session({});
+    auto store = std::make_shared<ThrowingConfigStore>();
+    store->disk = hx.cfg;
+    auto deps = hx.binder_deps();
+    deps.load_disk_config = [store] { return store->load(); };
+    deps.save_disk_config = [store](const acecode::AppConfig& config) {
+        store->save(config);
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(session, "").ok);
+
+    store->throw_load = true;
+    const auto failed = binder.execute_command(session, "off");
+    EXPECT_FALSE(failed.ok);
+    EXPECT_NE(failed.message.find("Failed to persist remote control binding"),
+              std::string::npos);
+    EXPECT_EQ(binder.bound_session_id(), session);
+    EXPECT_TRUE(hx.service.running());
+    EXPECT_EQ(hx.cfg.remote_control.bound_session_id, session);
+    EXPECT_EQ(store->disk.remote_control.bound_session_id, session);
+
+    std::mutex delivered_mu;
+    std::condition_variable delivered_cv;
+    bool delivered = false;
+    const auto sub = hx.client.subscribe(session, [&](const acecode::SessionEvent& event) {
+        if (event.kind == acecode::SessionEventKind::Message &&
+            event.payload.value("role", std::string{}) == "user" &&
+            event.payload.value("content", std::string{}) ==
+                "still routed after failed off") {
+            std::lock_guard<std::mutex> lk(delivered_mu);
+            delivered = true;
+            delivered_cv.notify_all();
+        }
+    });
+    ASSERT_NE(sub, 0u);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "still routed after failed off", hx.cfg.remote_control.token).ok());
+    {
+        std::unique_lock<std::mutex> lk(delivered_mu);
+        EXPECT_TRUE(delivered_cv.wait_for(lk, 3s, [&] { return delivered; }));
+    }
+    hx.client.unsubscribe(session, sub);
+
+    store->throw_load = false;
+    binder.execute_command(session, "off");
+    hx.registry.destroy(session);
 }

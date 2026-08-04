@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <optional>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 namespace acecode::rc {
@@ -48,11 +47,12 @@ void sort_rc_session_targets(std::vector<RcSessionTarget>& targets,
                              bool prefer_content_matches = false);
 
 // Merge live registry state into the persisted catalog. Persisted archived
-// ids are authoritative: an active registry entry never resurrects one.
+// identities are authoritative within the same workspace/no-workspace scope;
+// the same session id in another scope remains independent.
 void merge_active_rc_session_targets(
     std::vector<RcSessionTarget>& persisted,
     const std::vector<RcSessionTarget>& active,
-    const std::unordered_set<std::string>& archived_session_ids);
+    const std::vector<RcSessionTarget>& archived);
 
 std::vector<RcSessionTarget> filter_rc_session_targets(
     const std::vector<RcSessionTarget>& targets,
@@ -62,6 +62,8 @@ std::vector<RcSessionTarget> filter_rc_session_targets(
 std::string format_rc_session_listing(const std::vector<RcSessionTarget>& targets,
                                       const std::string& heading);
 
+// Chunks are UTF-8 boundary safe. If max_bytes is artificially smaller than
+// one codepoint, that whole codepoint is returned as one over-limit chunk.
 std::vector<std::string> chunk_rc_session_output(const std::string& text,
                                                   std::size_t max_bytes = 3000);
 

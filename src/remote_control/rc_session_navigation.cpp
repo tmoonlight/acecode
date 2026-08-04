@@ -39,7 +39,7 @@ bool same_session_identity(const RcSessionTarget& left,
         left.no_workspace != right.no_workspace) {
         return false;
     }
-    if (left.no_workspace) return true;
+    if (left.no_workspace) return left.cwd == right.cwd;
     if (!left.workspace_hash.empty() && !right.workspace_hash.empty()) {
         return left.workspace_hash == right.workspace_hash;
     }
@@ -118,10 +118,14 @@ RcSessionCommand parse_rc_session_command(const std::string& text) {
 void merge_active_rc_session_targets(
     std::vector<RcSessionTarget>& persisted,
     const std::vector<RcSessionTarget>& active,
-    const std::unordered_set<std::string>& archived_session_ids) {
+    const std::vector<RcSessionTarget>& archived) {
     for (const auto& live : active) {
-        if (live.session_id.empty() ||
-            archived_session_ids.find(live.session_id) != archived_session_ids.end()) {
+        const bool archived_in_same_scope = std::any_of(
+            archived.begin(), archived.end(),
+            [&](const RcSessionTarget& candidate) {
+                return same_session_identity(candidate, live);
+            });
+        if (live.session_id.empty() || archived_in_same_scope) {
             continue;
         }
         auto found = std::find_if(

@@ -3,8 +3,6 @@
 #include "remote_control/rc_session_navigation.hpp"
 #include "web/remote_control_session_event.hpp"
 
-#include <unordered_set>
-
 namespace {
 
 using acecode::rc::RcSessionCommandKind;
@@ -73,18 +71,27 @@ TEST(RcSessionNavigation, ChunkingNeverSplitsUtf8Codepoints) {
 TEST(RcSessionNavigation, PersistedArchiveStateWinsOverActiveCatalogEntry) {
     auto persisted = std::vector<RcSessionTarget>{
         target("visible", "2026-08-05T10:00:00Z", "persisted title")};
+    persisted.front().workspace_hash = "workspace-visible";
+    auto archived = target("shared-id", "2026-08-05T09:00:00Z", "archived");
+    archived.workspace_hash = "workspace-a";
     std::vector<RcSessionTarget> active{
-        target("archived", "2026-08-05T12:00:00Z", "must stay hidden"),
+        target("shared-id", "2026-08-05T12:00:00Z", "same scope hidden"),
+        target("shared-id", "2026-08-05T11:30:00Z", "other scope visible"),
         target("visible", "2026-08-05T11:00:00Z", "active title"),
     };
-    active[0].active = true;
-    active[1].active = true;
+    active[0].workspace_hash = "workspace-a";
+    active[1].workspace_hash = "workspace-b";
+    active[2].workspace_hash = "workspace-visible";
+    for (auto& item : active) item.active = true;
     acecode::rc::merge_active_rc_session_targets(
-        persisted, active, std::unordered_set<std::string>{"archived"});
-    ASSERT_EQ(persisted.size(), 1u);
-    EXPECT_EQ(persisted.front().session_id, "visible");
-    EXPECT_EQ(persisted.front().title, "active title");
-    EXPECT_TRUE(persisted.front().active);
+        persisted, active, std::vector<RcSessionTarget>{archived});
+    ASSERT_EQ(persisted.size(), 2u);
+    EXPECT_EQ(persisted[0].session_id, "visible");
+    EXPECT_EQ(persisted[0].title, "active title");
+    EXPECT_TRUE(persisted[0].active);
+    EXPECT_EQ(persisted[1].session_id, "shared-id");
+    EXPECT_EQ(persisted[1].workspace_hash, "workspace-b");
+    EXPECT_EQ(persisted[1].title, "other scope visible");
 }
 
 TEST(RcSessionNavigation, RankingFilteringAndSnapshotAreStable) {

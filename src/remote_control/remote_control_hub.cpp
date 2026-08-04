@@ -66,6 +66,11 @@ void RemoteControlHub::set_inbound_route(std::string session_id,
     inbound_submit_ = std::move(fn);
 }
 
+void RemoteControlHub::suspend_inbound_route() {
+    std::lock_guard<std::mutex> lk(mu_);
+    inbound_submit_ = {};
+}
+
 void RemoteControlHub::clear_inbound_route() {
     std::unique_lock<std::mutex> lk(mu_);
     session_id_.clear();
