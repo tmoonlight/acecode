@@ -69,6 +69,50 @@ export function shouldStartRemoteControlSurge(previousBound, nextBound) {
   return !Boolean(previousBound) && Boolean(nextBound);
 }
 
+export function remoteControlSurgeTargetKey(session = {}) {
+  return sidebarRevealTargetKey(sidebarRevealTarget(session));
+}
+
+export function applyRemoteControlSessionSelection(sessions = [], selectedSession = null) {
+  const selectedId = sessionId(selectedSession);
+  if (!selectedId) return Array.isArray(sessions) ? sessions : [];
+
+  const selected = {
+    ...(selectedSession || {}),
+    id: selectedId,
+    remote_control_bound: true,
+    remoteControlBound: true,
+  };
+  const selectedKey = sessionKey(selected);
+  let found = false;
+  const cleared = (Array.isArray(sessions) ? sessions : []).map((session) => {
+    if (sessionKey(session) === selectedKey) {
+      found = true;
+      return { ...session, ...selected };
+    }
+    if (session?.remote_control_bound || session?.remoteControlBound) {
+      return {
+        ...session,
+        remote_control_bound: false,
+        remoteControlBound: false,
+      };
+    }
+    return session;
+  });
+
+  return found ? cleared : upsertSidebarSession(cleared, selected);
+}
+
+export function projectRemoteControlBinding(sessions = [], selectedSession = null) {
+  const selectedKey = sessionKey(selectedSession);
+  if (!selectedKey) return Array.isArray(sessions) ? sessions : [];
+  return (Array.isArray(sessions) ? sessions : []).map((session) => ({
+    ...session,
+    remote_control_bound: sessionKey(session) === selectedKey,
+    remoteControlBound: sessionKey(session) === selectedKey,
+  }));
+}
+
 export function expandedSessionListsAfterWorkspaceCollapseAll(
   currentExpanded = new Set(),
   workspaces = [],

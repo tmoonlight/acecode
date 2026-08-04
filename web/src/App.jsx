@@ -40,6 +40,7 @@ import {
 } from './lib/pendingQuestions.js';
 import { sessionDisplayTitle } from './lib/sessionTitle.js';
 import { notifySessionListChanged } from './lib/sessionListEvents.js';
+import { normalizeRemoteControlSessionSelected } from './lib/remoteControlSessionNavigation.js';
 import { usePreference } from './lib/usePreference.js';
 import {
   DEFAULT_RECENT_EXPERT_IDS,
@@ -711,6 +712,27 @@ export function App() {
       }
     };
   }, [resumeAndOpenSession]);
+
+  // Successful remote-control selections are authoritative on the daemon.
+  // The frontend follows as a best-effort hint and never feeds failures back
+  // into the already committed channel binding.
+  useEffect(() => {
+    if (authState !== 'ok') return undefined;
+    const handler = (event) => {
+      const selected = normalizeRemoteControlSessionSelected(event.detail || {});
+      if (!selected) return;
+      notifySessionListChanged({
+        reason: 'remote-control-session-selected',
+        sessionId: selected.sessionId,
+        workspaceHash: selected.workspaceHash,
+        noWorkspace: selected.noWorkspace,
+        session: selected.session,
+      });
+      resumeAndOpenSession(selected, { allowDesktopActivate: false }).catch(() => {});
+    };
+    connection.addEventListener('message', handler);
+    return () => connection.removeEventListener('message', handler);
+  }, [authState, resumeAndOpenSession]);
 
   // 全局 Ctrl/Cmd+K 切换搜索面板。matchShortcut 处理大小写与修饰键。
   useGlobalShortcut(

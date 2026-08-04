@@ -147,6 +147,8 @@ import './sidebarSessions.test.js';
 import './sessionHoverDetails.test.js';
 import './sessionHoverDetailsArchitecture.test.js';
 import './remoteControlSessionHighlightArchitecture.test.js';
+import './remoteControlSessionNavigation.test.js';
+import './remoteControlSessionNavigationArchitecture.test.js';
 import './sessionJump.test.js';
 import './sessionNavigationMaskArchitecture.test.js';
 import './sessionListEvents.test.js';

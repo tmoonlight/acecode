@@ -35,7 +35,9 @@ test('SessionRow removes the one-shot overlay after the surge completes', () => 
   const sidebar = source('components/Sidebar.jsx');
   assert.match(sidebar, /remoteControlSurging && \(/);
   assert.match(sidebar, /className="ace-session-remote-control-surge"/);
-  assert.match(sidebar, /onAnimationEnd=\{\(\) => setRemoteControlSurging\(false\)\}/);
+  assert.match(sidebar, /onAnimationEnd=\{finishRemoteControlSurge\}/);
+  assert.match(sidebar, /REMOTE_CONTROL_SURGE_FALLBACK_MS = 950/);
+  assert.match(sidebar, /onRemoteControlSurgeCompleted\?\.\(sequence\)/);
   assert.match(
     sidebar,
     /else if \(!remoteControlBound\) \{\s*setRemoteControlSurging\(false\);/,

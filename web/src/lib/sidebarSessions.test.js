@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   SIDEBAR_SESSION_COLLAPSE_LIMIT,
+  applyRemoteControlSessionSelection,
   expandedSessionListsAfterWorkspaceCollapseAll,
+  projectRemoteControlBinding,
   reconcileSidebarSessions,
+  remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
   shouldStartRemoteControlSurge,
@@ -57,6 +60,52 @@ test('remote-control surge starts only on a false-to-true binding transition', (
   assert.equal(shouldStartRemoteControlSurge(true, true), false);
   assert.equal(shouldStartRemoteControlSurge(true, false), false);
   assert.equal(shouldStartRemoteControlSurge(false, false), false);
+});
+
+test('remote-control selection clears old bindings and keeps the selected row bound', () => {
+  const result = applyRemoteControlSessionSelection([
+    { id: 'old', workspace_hash: 'w1', remote_control_bound: true },
+    { id: 'other', workspace_hash: 'w1' },
+  ], {
+    id: 'target',
+    workspace_hash: 'w2',
+    title: 'Target',
+  });
+
+  assert.deepEqual(result.map((session) => ({
+    id: session.id,
+    workspace: session.workspace_hash,
+    bound: session.remote_control_bound,
+  })), [
+    { id: 'old', workspace: 'w1', bound: false },
+    { id: 'other', workspace: 'w1', bound: undefined },
+    { id: 'target', workspace: 'w2', bound: true },
+  ]);
+});
+
+test('remote-control surge target key distinguishes workspace and no-workspace rows', () => {
+  assert.equal(
+    remoteControlSurgeTargetKey({ id: 's1', workspace_hash: 'w1' }),
+    'workspace\u0000w1\u0000s1',
+  );
+  assert.equal(
+    remoteControlSurgeTargetKey({ id: 's1', no_workspace: true }),
+    'no-workspace\u0000\u0000s1',
+  );
+});
+
+test('remote-control binding projection survives a later session-list refresh', () => {
+  const result = projectRemoteControlBinding([
+    { id: 'old', workspace_hash: 'w1', remote_control_bound: true },
+    { id: 'target', workspace_hash: 'w2' },
+  ], {
+    id: 'target',
+    workspace_hash: 'w2',
+  });
+  assert.deepEqual(result.map((session) => [session.id, session.remote_control_bound]), [
+    ['old', false],
+    ['target', true],
+  ]);
 });
 
 test('five or fewer sidebar sessions are not collapsible', () => {
