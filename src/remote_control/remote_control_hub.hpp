@@ -209,9 +209,9 @@ private:
     std::string token_;
     std::string session_id_;
     InboundSubmit inbound_submit_;
-    // Guard 持有独立共享 state 而非 Hub 裸指针：disable/析构等待所有其他
-    // 线程的 dispatch，只豁免当前线程调用栈中属于同一 fence 的深度；guard
-    // 因此仍能在 Hub 生命周期结束后安全完成计数收尾。
+    // Guard 持有独立共享 state 而非 Hub 裸指针：外部 disable/析构等待全部
+    // dispatch；回调内 disable 不等待以避免关闭环；回调内析构仅豁免当前
+    // 线程同一 fence 的深度。guard 可在 Hub 生命周期结束后安全完成收尾。
     std::shared_ptr<InboundDispatchFenceState> inbound_dispatch_fence_ =
         std::make_shared<InboundDispatchFenceState>();
     InboundFenceTestHooks inbound_fence_test_hooks_;

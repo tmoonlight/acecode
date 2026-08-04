@@ -558,15 +558,23 @@ TEST(RemoteControlHub, DisableInsideAcceptedCallbackDoesNotSelfWait) {
 TEST(RemoteControlHub,
      DestructionInsideAcceptedCallbackWaitsForOtherAcceptedCallbacks) {
     InboundCallbackGate other_callback;
+    ThreadRendezvous both_callbacks(2);
+    EventLatch other_disabled;
     EventLatch destruction_started;
     auto hub = std::make_unique<RemoteControlHub>();
     hub->enable("secret", "sess-1", nullptr);
     RemoteControlHub* const raw_hub = hub.get();
     hub->set_inbound_route("sess-1", [&](const std::string& text) {
+        both_callbacks.arrive_and_wait();
         if (text == "other-callback") {
-            other_callback.enter_and_wait();
             raw_hub->disable();
+            other_disabled.signal();
+            other_callback.enter_and_wait();
             return;
+        }
+        if (!other_disabled.wait(std::chrono::seconds(5))) {
+            throw std::runtime_error(
+                "foreign callback did not disable before destruction");
         }
         destruction_started.signal();
         hub.reset();
@@ -575,16 +583,11 @@ TEST(RemoteControlHub,
     auto other = std::async(std::launch::async, [raw_hub] {
         return raw_hub->handle_inbound("other-callback", "secret");
     });
-    if (!other_callback.wait_until_entered(std::chrono::seconds(5))) {
-        other_callback.release();
-        (void)other.get();
-        FAIL() << "other accepted callback did not enter its barrier";
-    }
-
     auto destroying = std::async(std::launch::async, [raw_hub] {
         return raw_hub->handle_inbound("destroy-from-callback", "secret");
     });
     ASSERT_TRUE(destruction_started.wait(std::chrono::seconds(5)));
+    ASSERT_TRUE(other_callback.wait_until_entered(std::chrono::seconds(5)));
     EXPECT_EQ(destroying.wait_for(std::chrono::milliseconds(0)),
               std::future_status::timeout);
 
@@ -721,6 +724,29 @@ TEST(RemoteControlHub, ReenableWaitsForAcceptedInboundCallback) {
     EXPECT_EQ(hub.token(), "new-token");
     EXPECT_EQ(hub.handle_inbound("old-token-rejected", "old-token").code,
               InboundResult::Code::BadToken);
+    hub.clear_inbound_route();
+    hub.disable();
+}
+
+// 场景:accepted callback 尝试直接重建 Hub 生命周期。期望:明确拒绝，且
+// 旧 token、启用状态和 route 均保持不变。
+TEST(RemoteControlHub, EnableInsideAcceptedCallbackFailsFast) {
+    RemoteControlHub hub;
+    hub.enable("old-token", "sess-1", nullptr);
+    std::atomic<int> rejected{0};
+    hub.set_inbound_route("sess-1", [&](const std::string&) {
+        try {
+            hub.enable("new-token", "sess-2", nullptr);
+        } catch (const std::logic_error&) {
+            ++rejected;
+        }
+    });
+
+    EXPECT_TRUE(hub.handle_inbound("first", "old-token").ok());
+    EXPECT_TRUE(hub.handle_inbound("second", "old-token").ok());
+    EXPECT_EQ(rejected.load(), 2);
+    EXPECT_TRUE(hub.enabled());
+    EXPECT_EQ(hub.token(), "old-token");
     hub.clear_inbound_route();
     hub.disable();
 }
