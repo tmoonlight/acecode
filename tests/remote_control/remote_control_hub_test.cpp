@@ -533,6 +533,148 @@ TEST(RemoteControlHub, DisableInsideAcceptedCallbackDoesNotSelfWait) {
     EXPECT_EQ(hub.stats().inbound_accepted, 1u);
 }
 
+// 场景:一个 accepted callback 正阻塞在别的线程，第二个 callback 在自身
+// 调用栈内销毁 Hub。期望:析构只豁免当前线程自己的 guard，仍等待另一个
+// callback 结束；最后两个 handle_inbound 都能安全返回。
+TEST(RemoteControlHub,
+     DestructionInsideAcceptedCallbackWaitsForOtherAcceptedCallbacks) {
+    InboundCallbackGate other_callback;
+    EventLatch destruction_started;
+    auto hub = std::make_unique<RemoteControlHub>();
+    hub->enable("secret", "sess-1", nullptr);
+    RemoteControlHub* const raw_hub = hub.get();
+    hub->set_inbound_route("sess-1", [&](const std::string& text) {
+        if (text == "other-callback") {
+            other_callback.enter_and_wait();
+            return;
+        }
+        destruction_started.signal();
+        hub.reset();
+    });
+
+    auto other = std::async(std::launch::async, [raw_hub] {
+        return raw_hub->handle_inbound("other-callback", "secret");
+    });
+    if (!other_callback.wait_until_entered(std::chrono::seconds(5))) {
+        other_callback.release();
+        (void)other.get();
+        FAIL() << "other accepted callback did not enter its barrier";
+    }
+
+    auto destroying = std::async(std::launch::async, [raw_hub] {
+        return raw_hub->handle_inbound("destroy-from-callback", "secret");
+    });
+    ASSERT_TRUE(destruction_started.wait(std::chrono::seconds(5)));
+    EXPECT_EQ(destroying.wait_for(std::chrono::milliseconds(0)),
+              std::future_status::timeout);
+
+    other_callback.release();
+    ASSERT_EQ(other.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    EXPECT_TRUE(other.get().ok());
+    ASSERT_EQ(destroying.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    EXPECT_TRUE(destroying.get().ok());
+    EXPECT_EQ(hub, nullptr);
+}
+
+// 场景:Hub A 的 callback 嵌套进入 Hub B，B 再尝试同步 suspend A。
+// 期望:线程内 fence 栈能识别非最内层的 A，立即报逻辑错误且不改 A route。
+TEST(RemoteControlHub, NestedHubCallbackCannotSuspendOuterHub) {
+    RemoteControlHub outer;
+    RemoteControlHub inner;
+    outer.enable("outer-token", "outer-session", nullptr);
+    inner.enable("inner-token", "inner-session", nullptr);
+
+    std::atomic<int> outer_submitted{0};
+    std::atomic<int> nested_rejections{0};
+    inner.set_inbound_route("inner-session", [&](const std::string&) {
+        try {
+            outer.suspend_inbound_route();
+        } catch (const std::logic_error&) {
+            ++nested_rejections;
+        }
+    });
+    outer.set_inbound_route("outer-session", [&](const std::string&) {
+        ++outer_submitted;
+        EXPECT_TRUE(inner.handle_inbound("nested", "inner-token").ok());
+    });
+
+    EXPECT_TRUE(outer.handle_inbound("first", "outer-token").ok());
+    EXPECT_TRUE(outer.handle_inbound("second", "outer-token").ok());
+    EXPECT_EQ(outer_submitted.load(), 2);
+    EXPECT_EQ(nested_rejections.load(), 2);
+
+    outer.clear_inbound_route();
+    inner.clear_inbound_route();
+    outer.disable();
+    inner.disable();
+}
+
+// 场景:Hub A callback 嵌套进入 Hub B，B 内部 disable A。期望:disable
+// 仅豁免当前线程栈里的 A 深度，不会等待自己，也不会遗漏外部线程。
+TEST(RemoteControlHub, NestedHubCallbackCanDisableOuterHubWithoutSelfWait) {
+    RemoteControlHub outer;
+    RemoteControlHub inner;
+    outer.enable("outer-token", "outer-session", nullptr);
+    inner.enable("inner-token", "inner-session", nullptr);
+    inner.set_inbound_route("inner-session",
+                            [&](const std::string&) { outer.disable(); });
+    outer.set_inbound_route("outer-session", [&](const std::string&) {
+        EXPECT_TRUE(inner.handle_inbound("nested", "inner-token").ok());
+    });
+
+    EXPECT_TRUE(outer.handle_inbound("disable-outer", "outer-token").ok());
+    EXPECT_FALSE(outer.enabled());
+    EXPECT_EQ(outer.handle_inbound("after-disable", "outer-token").code,
+              InboundResult::Code::Disabled);
+
+    inner.clear_inbound_route();
+    inner.disable();
+}
+
+// 场景:重复 enable 与一个已接受但尚未提交的旧生命周期回调并发。
+// 期望:新生命周期发布前先走同一 fence，旧回调完成后才交换 token。
+TEST(RemoteControlHub, ReenableWaitsForAcceptedInboundCallback) {
+    RemoteControlHub hub;
+    hub.enable("old-token", "sess-1", nullptr);
+
+    InboundCallbackGate before_dispatch;
+    EventLatch old_lifecycle_rejected;
+    RemoteControlHub::InboundFenceTestHooks hooks;
+    hooks.after_accept_before_dispatch = [&] { before_dispatch.enter_and_wait(); };
+    hooks.after_reject_before_wait = [&] { old_lifecycle_rejected.signal(); };
+    hub.set_inbound_fence_test_hooks(std::move(hooks));
+    ScopedInboundFenceHooks reset_hooks(hub);
+    hub.set_inbound_route("sess-1", [](const std::string&) {});
+
+    auto inbound = std::async(std::launch::async, [&] {
+        return hub.handle_inbound("old-lifecycle", "old-token");
+    });
+    ASSERT_TRUE(before_dispatch.wait_until_entered(std::chrono::seconds(5)));
+
+    auto reenabled = std::async(std::launch::async, [&] {
+        hub.enable("new-token", "sess-1", nullptr);
+    });
+    ASSERT_TRUE(old_lifecycle_rejected.wait(std::chrono::seconds(5)));
+    EXPECT_EQ(reenabled.wait_for(std::chrono::milliseconds(0)),
+              std::future_status::timeout);
+
+    before_dispatch.release();
+    ASSERT_EQ(inbound.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    EXPECT_TRUE(inbound.get().ok());
+    ASSERT_EQ(reenabled.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    reenabled.get();
+    EXPECT_TRUE(hub.enabled());
+    EXPECT_EQ(hub.token(), "new-token");
+    EXPECT_EQ(hub.handle_inbound("old-token-rejected", "old-token").code,
+              InboundResult::Code::BadToken);
+    hub.clear_inbound_route();
+    hub.disable();
+}
+
 // 场景:/rc off 前已有出站正在阻塞，使刚接受入站的 ack 仍留在 FIFO。
 // 期望:clear route 是 dequeue barrier，后续 disable 不会清掉该 ack；但
 // clear 本身不等待网络 send，send 的收尾由 disable 的 worker join 负责。

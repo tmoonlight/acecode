@@ -32,8 +32,8 @@ constexpr auto kInboundRouteDrainTimeout = std::chrono::seconds(5);
 
 } // namespace
 
-thread_local const RemoteControlHub::InboundDispatchFenceState*
-    RemoteControlHub::active_inbound_dispatch_state_ = nullptr;
+thread_local std::vector<const RemoteControlHub::InboundDispatchFenceState*>
+    RemoteControlHub::active_inbound_dispatch_stack_;
 
 nlohmann::json outbound_message_to_json(const OutboundMessage& msg) {
     nlohmann::json j{
@@ -64,23 +64,36 @@ RemoteControlHub::~RemoteControlHub() {
 void RemoteControlHub::InboundDispatchGuard::arm(
     std::shared_ptr<InboundDispatchFenceState> state) noexcept {
     state_ = std::move(state);
-    previous_state_ = active_inbound_dispatch_state_;
-    active_inbound_dispatch_state_ = state_.get();
+    active_inbound_dispatch_stack_.push_back(state_.get());
 }
 
 RemoteControlHub::InboundDispatchGuard::~InboundDispatchGuard() {
     if (!state_) return;
-    active_inbound_dispatch_state_ = previous_state_;
+    assert(!active_inbound_dispatch_stack_.empty());
+    assert(active_inbound_dispatch_stack_.back() == state_.get());
+    if (!active_inbound_dispatch_stack_.empty()) {
+        active_inbound_dispatch_stack_.pop_back();
+    }
     std::lock_guard<std::mutex> lk(state_->mu);
     assert(state_->in_flight > 0);
     if (state_->in_flight > 0) --state_->in_flight;
     state_->cv.notify_all();
 }
 
+std::size_t RemoteControlHub::active_inbound_dispatch_depth(
+    const InboundDispatchFenceState* state) noexcept {
+    return static_cast<std::size_t>(std::count(
+        active_inbound_dispatch_stack_.begin(),
+        active_inbound_dispatch_stack_.end(), state));
+}
+
 void RemoteControlHub::wait_for_inbound_dispatches(
-    const std::shared_ptr<InboundDispatchFenceState>& state) {
+    const std::shared_ptr<InboundDispatchFenceState>& state,
+    std::size_t allowed_current_thread_depth) {
     std::unique_lock<std::mutex> lk(state->mu);
-    state->cv.wait(lk, [&] { return state->in_flight == 0; });
+    state->cv.wait(lk, [&] {
+        return state->in_flight <= allowed_current_thread_depth;
+    });
 }
 
 void RemoteControlHub::set_inbound_submit(InboundSubmit fn) {
@@ -107,7 +120,7 @@ void RemoteControlHub::suspend_inbound_route() {
     // binder commands run on the owned control worker, so production
     // replacement never enters this branch.
     const auto fence = inbound_dispatch_fence_;
-    if (active_inbound_dispatch_state_ == fence.get()) {
+    if (active_inbound_dispatch_depth(fence.get()) != 0) {
         throw std::logic_error(
             "cannot suspend an inbound route from its own dispatch callback");
     }
@@ -168,8 +181,10 @@ void RemoteControlHub::set_inbound_fence_test_hooks(
 void RemoteControlHub::enable(std::string token,
                               std::string session_id,
                               std::shared_ptr<OutboundSender> sender) {
+    // Keep the documented repeat-enable contract: first reject and drain all
+    // dispatches accepted by the previous lifecycle, then publish the new one.
+    disable();
     std::unique_lock<std::mutex> lk(mu_);
-    stop_worker_locked(lk);
     enabled_ = true;
     stopping_ = false;
     token_ = std::move(token);
@@ -186,15 +201,14 @@ void RemoteControlHub::enable(std::string token,
 void RemoteControlHub::disable() {
     std::shared_ptr<InboundDispatchFenceState> fence;
     std::function<void()> after_reject;
-    bool called_from_accepted_dispatch = false;
+    std::size_t current_thread_depth = 0;
     {
         std::lock_guard<std::mutex> lk(mu_);
         // enabled_ participates in the same acceptance lock as handle_inbound,
         // so this is the disable-side linearization point for future inbound.
         enabled_ = false;
         fence = inbound_dispatch_fence_;
-        called_from_accepted_dispatch =
-            active_inbound_dispatch_state_ == fence.get();
+        current_thread_depth = active_inbound_dispatch_depth(fence.get());
         after_reject = inbound_fence_test_hooks_.after_reject_before_wait;
     }
 
@@ -207,11 +221,9 @@ void RemoteControlHub::disable() {
         }
     }
 
-    // A callback cannot wait for its own guard. The guard owns the shared fence
-    // state, so this path is also safe if the callback causes Hub destruction.
-    if (!called_from_accepted_dispatch) {
-        wait_for_inbound_dispatches(fence);
-    }
+    // Do not wait for guards on this thread's current call stack, but always
+    // wait for every concurrently accepted callback on other threads.
+    wait_for_inbound_dispatches(fence, current_thread_depth);
 
     std::unique_lock<std::mutex> lk(mu_);
     enabled_ = false;

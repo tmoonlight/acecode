@@ -31,6 +31,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace acecode::rc {
 
@@ -184,11 +185,13 @@ private:
 
     private:
         std::shared_ptr<InboundDispatchFenceState> state_;
-        const InboundDispatchFenceState* previous_state_ = nullptr;
     };
 
+    static std::size_t active_inbound_dispatch_depth(
+        const InboundDispatchFenceState* state) noexcept;
     static void wait_for_inbound_dispatches(
-        const std::shared_ptr<InboundDispatchFenceState>& state);
+        const std::shared_ptr<InboundDispatchFenceState>& state,
+        std::size_t allowed_current_thread_depth = 0);
 
     // 调用方须持 mu_ 且已完成 enabled/text 等校验。只负责构造
     // assistant_message 并放入既有有界 FIFO;允许 sender_ 暂为空,worker 会
@@ -205,14 +208,14 @@ private:
     std::string token_;
     std::string session_id_;
     InboundSubmit inbound_submit_;
-    // Guard 持有独立共享 state 而非 Hub 裸指针：disable/析构通常等待归零；
-    // 若由当前 accepted callback 自己触发 disable，则可跳过自等，guard 仍能
-    // 在 Hub 生命周期结束后安全完成计数收尾。
+    // Guard 持有独立共享 state 而非 Hub 裸指针：disable/析构等待所有其他
+    // 线程的 dispatch，只豁免当前线程调用栈中属于同一 fence 的深度；guard
+    // 因此仍能在 Hub 生命周期结束后安全完成计数收尾。
     std::shared_ptr<InboundDispatchFenceState> inbound_dispatch_fence_ =
         std::make_shared<InboundDispatchFenceState>();
     InboundFenceTestHooks inbound_fence_test_hooks_;
-    static thread_local const InboundDispatchFenceState*
-        active_inbound_dispatch_state_;
+    static thread_local std::vector<const InboundDispatchFenceState*>
+        active_inbound_dispatch_stack_;
     std::shared_ptr<OutboundSender> sender_;
     OutboundResultObserver outbound_result_observer_;
     std::deque<OutboundMessage> queue_;

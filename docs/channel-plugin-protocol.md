@@ -140,10 +140,12 @@ inbound work and waits for those callbacks (including exception unwinding) befor
 the binder deactivates the old context. Route-changing commands remain queued on
 the binder control worker; calling suspension synchronously from the accepted
 callback itself is rejected as a logic error rather than waiting on itself.
-`disable()` and Hub destruction use the same fence before releasing runtime
-state. The dispatch guard owns a shared fence state rather than a Hub pointer;
-therefore a callback-triggered disable skips only its impossible self-wait, and
-its guard can still finish safely even if the Hub owner is being torn down.
+`disable()`, repeated `enable()`, and Hub destruction use the same fence before
+releasing runtime state. The dispatch guard owns a shared fence state rather
+than a Hub pointer. A thread-local fence stack tracks nested callbacks across
+Hubs: callback-triggered shutdown waits for every other thread and exempts only
+the active depth on its own stack, whose guards can finish safely even if the
+Hub owner is being torn down.
 
 Binding persistence is the final preparation step before runtime replacement.
 Reload, merge, and save complete before the in-memory config is changed; a
