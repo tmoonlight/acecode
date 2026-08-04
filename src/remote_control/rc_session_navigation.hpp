@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace acecode::rc {
@@ -45,6 +46,13 @@ RcSessionCommand parse_rc_session_command(const std::string& text);
 // stable identity fields. The input may contain both disk and active entries.
 void sort_rc_session_targets(std::vector<RcSessionTarget>& targets,
                              bool prefer_content_matches = false);
+
+// Merge live registry state into the persisted catalog. Persisted archived
+// ids are authoritative: an active registry entry never resurrects one.
+void merge_active_rc_session_targets(
+    std::vector<RcSessionTarget>& persisted,
+    const std::vector<RcSessionTarget>& active,
+    const std::unordered_set<std::string>& archived_session_ids);
 
 std::vector<RcSessionTarget> filter_rc_session_targets(
     const std::vector<RcSessionTarget>& targets,

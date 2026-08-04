@@ -3,6 +3,8 @@
 #include "remote_control/rc_session_navigation.hpp"
 #include "web/remote_control_session_event.hpp"
 
+#include <unordered_set>
+
 namespace {
 
 using acecode::rc::RcSessionCommandKind;
@@ -35,6 +37,11 @@ TEST(RcSessionNavigation, SearchSelectAndInvalidCommands) {
     EXPECT_EQ(search.kind, RcSessionCommandKind::Search);
     EXPECT_EQ(search.query, "important fix");
 
+    const auto tab_search =
+        acecode::rc::parse_rc_session_command("/session search\t关键词");
+    EXPECT_EQ(tab_search.kind, RcSessionCommandKind::Search);
+    EXPECT_EQ(tab_search.query, "关键词");
+
     const auto select = acecode::rc::parse_rc_session_command("/resume 12");
     EXPECT_EQ(select.kind, RcSessionCommandKind::Select);
     EXPECT_EQ(select.selection, 12u);
@@ -47,6 +54,37 @@ TEST(RcSessionNavigation, SearchSelectAndInvalidCommands) {
               RcSessionCommandKind::UsageError);
     EXPECT_EQ(acecode::rc::parse_rc_session_command("ordinary agent text").kind,
               RcSessionCommandKind::NotCommand);
+}
+
+TEST(RcSessionNavigation, ChunkingNeverSplitsUtf8Codepoints) {
+    const std::string text = "你好吗世界";
+    const auto chunks = acecode::rc::chunk_rc_session_output(text, 4);
+    ASSERT_EQ(chunks.size(), 5u);
+    EXPECT_EQ(chunks[0], "你");
+    EXPECT_EQ(chunks[1], "好");
+    EXPECT_EQ(chunks[2], "吗");
+    EXPECT_EQ(chunks[3], "世");
+    EXPECT_EQ(chunks[4], "界");
+    std::string joined;
+    for (const auto& chunk : chunks) joined += chunk;
+    EXPECT_EQ(joined, text);
+}
+
+TEST(RcSessionNavigation, PersistedArchiveStateWinsOverActiveCatalogEntry) {
+    auto persisted = std::vector<RcSessionTarget>{
+        target("visible", "2026-08-05T10:00:00Z", "persisted title")};
+    std::vector<RcSessionTarget> active{
+        target("archived", "2026-08-05T12:00:00Z", "must stay hidden"),
+        target("visible", "2026-08-05T11:00:00Z", "active title"),
+    };
+    active[0].active = true;
+    active[1].active = true;
+    acecode::rc::merge_active_rc_session_targets(
+        persisted, active, std::unordered_set<std::string>{"archived"});
+    ASSERT_EQ(persisted.size(), 1u);
+    EXPECT_EQ(persisted.front().session_id, "visible");
+    EXPECT_EQ(persisted.front().title, "active title");
+    EXPECT_TRUE(persisted.front().active);
 }
 
 TEST(RcSessionNavigation, RankingFilteringAndSnapshotAreStable) {

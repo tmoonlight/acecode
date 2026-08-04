@@ -113,6 +113,13 @@ excludes archived and child sessions. An inactive selection resumes with the
 recorded workspace context before replacing the binding. If preparation fails,
 the existing binding remains usable.
 
+Each queued command is scoped to the source session and binding generation.
+An `off` or rebind makes older queued work stale, and stale work is discarded
+without sending a result or changing the new binding. Catalog/list/search work
+is coalesced to one operation per generation; the remaining control queue is
+fixed-size. Excess requests receive `Session navigation is already processing.`
+instead of growing daemon memory.
+
 After a successful numeric selection, ACECode broadcasts this secret-free
 WebSocket hint to every connected frontend:
 

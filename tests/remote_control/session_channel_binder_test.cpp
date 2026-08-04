@@ -514,6 +514,10 @@ struct BinderHarness {
         return root;
     }
 
+    std::string no_workspace_cache_root() const {
+        return (root / "cache" / "no-workspace").string();
+    }
+
     static acecode::SessionRegistryDeps make_deps(BinderHarness& self) {
         acecode::SessionRegistryDeps d;
         d.provider_accessor = [] {
@@ -521,7 +525,7 @@ struct BinderHarness {
         };
         d.tools = &self.tools;
         d.cwd = (self.root / "ws").string();
-        d.no_workspace_cache_root = (self.root / "cache" / "no-workspace").string();
+        d.no_workspace_cache_root = self.no_workspace_cache_root();
         d.config = nullptr;
         d.template_permissions = &self.permissions;
         return d;
@@ -539,7 +543,8 @@ struct BinderHarness {
         };
         d.session_resumable = [this](const std::string& id) {
             // 与 worker.cpp 的生产接线一致:常规 resume + no-workspace 兜底。
-            return acecode::rc::resume_session_with_no_workspace_fallback(client, id);
+            return acecode::rc::resume_session_with_no_workspace_fallback(
+                client, id, no_workspace_cache_root());
         };
         d.resume_session_target = [this](const acecode::rc::RcSessionTarget& target) {
             return acecode::rc::resume_session_target_exact(client, target);
@@ -1191,7 +1196,8 @@ TEST(SessionChannelBinderIntegration, NoWorkspaceSessionResumableAfterRestart) {
     EXPECT_FALSE(hx.client.resume_session(sid));
 
     // 兜底探测应命中缓存目录里的 meta 并以 no_workspace 选项恢复会话。
-    EXPECT_TRUE(acecode::rc::resume_session_with_no_workspace_fallback(hx.client, sid));
+    EXPECT_TRUE(acecode::rc::resume_session_with_no_workspace_fallback(
+        hx.client, sid, hx.no_workspace_cache_root()));
     auto* resumed = hx.registry.lookup(sid);
     ASSERT_NE(resumed, nullptr);
     EXPECT_TRUE(resumed->no_workspace);
@@ -1752,4 +1758,208 @@ TEST(SessionChannelBinderIntegration,
     binder.execute_command(first, "off");
     hx.registry.destroy(first);
     hx.registry.destroy(second);
+}
+
+TEST(SessionChannelBinderIntegration,
+     DuplicateCatalogCommandsAreCoalescedWhileOneIsRunning) {
+    BinderHarness hx("session-command-coalesce");
+    const auto session = hx.client.create_session({});
+    std::mutex catalog_mu;
+    std::condition_variable catalog_cv;
+    bool entered = false;
+    bool release = false;
+    std::atomic<int> catalog_calls{0};
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        ++catalog_calls;
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        entered = true;
+        catalog_cv.notify_all();
+        catalog_cv.wait(lk, [&] { return release; });
+        return std::vector<acecode::rc::RcSessionTarget>{};
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(session, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/session", hx.cfg.remote_control.token).ok());
+    {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        ASSERT_TRUE(catalog_cv.wait_for(lk, 3s, [&] { return entered; }));
+    }
+    for (int i = 0; i < 64; ++i) {
+        ASSERT_TRUE(hx.service.hub().handle_inbound(
+            i % 2 == 0 ? "/sessions all" : "/resume search build",
+            hx.cfg.remote_control.token).ok());
+    }
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu);
+        release = true;
+    }
+    catalog_cv.notify_all();
+    const bool reported_processing = wait_for_outbound_text(
+        sender, "Session navigation is already processing.");
+    EXPECT_TRUE(reported_processing);
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Recent sessions:"));
+    std::this_thread::sleep_for(200ms);
+    EXPECT_EQ(catalog_calls.load(), 1);
+
+    binder.execute_command(session, "off");
+    hx.registry.destroy(session);
+}
+
+TEST(SessionChannelBinderIntegration,
+     ControlQueueRejectsFloodBeyondFixedCapacity) {
+    BinderHarness hx("session-command-queue-cap");
+    const auto session = hx.client.create_session({});
+    std::mutex catalog_mu;
+    std::condition_variable catalog_cv;
+    bool entered = false;
+    bool release = false;
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        entered = true;
+        catalog_cv.notify_all();
+        catalog_cv.wait(lk, [&] { return release; });
+        return std::vector<acecode::rc::RcSessionTarget>{};
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(session, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/session", hx.cfg.remote_control.token).ok());
+    {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        ASSERT_TRUE(catalog_cv.wait_for(lk, 3s, [&] { return entered; }));
+    }
+    for (int i = 0; i < 64; ++i) {
+        ASSERT_TRUE(hx.service.hub().handle_inbound(
+            "/sessions invalid", hx.cfg.remote_control.token).ok());
+    }
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu);
+        release = true;
+    }
+    catalog_cv.notify_all();
+    ASSERT_TRUE(wait_for_outbound_text(
+        sender, "Session navigation is already processing."));
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Recent sessions:"));
+    std::this_thread::sleep_for(200ms);
+    std::size_t usage_responses = 0;
+    for (const auto& message : sender->sent()) {
+        if (message.text.find("Usage: /sessions") != std::string::npos) {
+            ++usage_responses;
+        }
+    }
+    EXPECT_LE(usage_responses, 8u);
+
+    binder.execute_command(session, "off");
+    hx.registry.destroy(session);
+}
+
+TEST(SessionChannelBinderIntegration,
+     QueuedSelectionFromUnboundGenerationIsSilentlyDropped) {
+    BinderHarness hx("session-command-stale-off");
+    const auto first = hx.client.create_session({});
+    const auto target = hx.client.create_session({});
+    std::mutex catalog_mu;
+    std::condition_variable catalog_cv;
+    bool entered = false;
+    bool release = false;
+    std::atomic<int> selected{0};
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        entered = true;
+        catalog_cv.notify_all();
+        catalog_cv.wait(lk, [&] { return release; });
+        return std::vector<acecode::rc::RcSessionTarget>{
+            {target, "workspace-target", "C:/target", "target", "", "target",
+             "2026-08-05T10:00:00Z", false, true, 0}};
+    };
+    deps.on_session_selected = [&](const acecode::rc::RcSessionTarget&) {
+        ++selected;
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(first, "").ok);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions", hx.cfg.remote_control.token).ok());
+    {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        ASSERT_TRUE(catalog_cv.wait_for(lk, 3s, [&] { return entered; }));
+    }
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(binder.execute_command(first, "off").ok);
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu);
+        release = true;
+    }
+    catalog_cv.notify_all();
+    const bool stale_activation =
+        hx.runner_log->wait_for_activations(2, std::chrono::seconds(7));
+    EXPECT_FALSE(stale_activation);
+    EXPECT_EQ(selected.load(), 0);
+    EXPECT_TRUE(binder.bound_session_id().empty());
+    EXPECT_FALSE(hx.service.running());
+
+    hx.registry.destroy(first);
+    hx.registry.destroy(target);
+}
+
+TEST(SessionChannelBinderIntegration,
+     QueuedSelectionFromReplacedGenerationCannotOverrideNewBinding) {
+    BinderHarness hx("session-command-stale-rebind");
+    const auto first = hx.client.create_session({});
+    const auto replacement = hx.client.create_session({});
+    const auto stale_target = hx.client.create_session({});
+    std::mutex catalog_mu;
+    std::condition_variable catalog_cv;
+    bool entered = false;
+    bool release = false;
+    std::atomic<int> selected{0};
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        entered = true;
+        catalog_cv.notify_all();
+        catalog_cv.wait(lk, [&] { return release; });
+        return std::vector<acecode::rc::RcSessionTarget>{
+            {stale_target, "workspace-stale", "C:/stale", "stale", "", "stale",
+             "2026-08-05T10:00:00Z", false, true, 0}};
+    };
+    deps.on_session_selected = [&](const acecode::rc::RcSessionTarget&) {
+        ++selected;
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(first, "").ok);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/session", hx.cfg.remote_control.token).ok());
+    {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        ASSERT_TRUE(catalog_cv.wait_for(lk, 3s, [&] { return entered; }));
+    }
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/resume 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(binder.execute_command(replacement, "").ok);
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu);
+        release = true;
+    }
+    catalog_cv.notify_all();
+    const bool stale_activation =
+        hx.runner_log->wait_for_activations(3, std::chrono::seconds(7));
+    EXPECT_FALSE(stale_activation);
+    EXPECT_EQ(selected.load(), 0);
+    EXPECT_EQ(binder.bound_session_id(), replacement);
+
+    binder.execute_command(replacement, "off");
+    hx.registry.destroy(first);
+    hx.registry.destroy(replacement);
+    hx.registry.destroy(stale_target);
 }

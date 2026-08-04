@@ -28,6 +28,38 @@ bool contains_folded(const std::string& value, const std::string& folded_query) 
     return ascii_lower_copy(value).find(folded_query) != std::string::npos;
 }
 
+bool is_ascii_space(unsigned char c) {
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n' ||
+           c == '\f' || c == '\v';
+}
+
+bool same_session_identity(const RcSessionTarget& left,
+                           const RcSessionTarget& right) {
+    if (left.session_id != right.session_id ||
+        left.no_workspace != right.no_workspace) {
+        return false;
+    }
+    if (left.no_workspace) return true;
+    if (!left.workspace_hash.empty() && !right.workspace_hash.empty()) {
+        return left.workspace_hash == right.workspace_hash;
+    }
+    return left.cwd == right.cwd;
+}
+
+bool is_utf8_continuation(unsigned char c) {
+    return (c & 0xC0) == 0x80;
+}
+
+std::size_t utf8_codepoint_end(const std::string& text, std::size_t pos) {
+    if (pos >= text.size()) return text.size();
+    const unsigned char lead = static_cast<unsigned char>(text[pos]);
+    std::size_t width = 1;
+    if ((lead & 0xE0) == 0xC0) width = 2;
+    else if ((lead & 0xF0) == 0xE0) width = 3;
+    else if ((lead & 0xF8) == 0xF0) width = 4;
+    return (std::min)(text.size(), pos + width);
+}
+
 bool is_positive_decimal(const std::string& text, std::size_t* value) {
     if (text.empty()) return false;
     std::size_t out = 0;
@@ -64,9 +96,11 @@ RcSessionCommand parse_rc_session_command(const std::string& text) {
         return {RcSessionCommandKind::UsageError, {}, 0,
                 "Usage: /sessions [more|all|search <query>|<number>]"};
     }
-    constexpr const char kSearchPrefix[] = "search ";
-    if (lowered.rfind(kSearchPrefix, 0) == 0) {
-        const std::string query = trim_copy(args.substr(sizeof(kSearchPrefix) - 1));
+    constexpr std::size_t kSearchLength = 6;
+    if (lowered.size() > kSearchLength &&
+        lowered.compare(0, kSearchLength, "search") == 0 &&
+        is_ascii_space(static_cast<unsigned char>(lowered[kSearchLength]))) {
+        const std::string query = trim_copy(args.substr(kSearchLength));
         if (query.empty()) {
             return {RcSessionCommandKind::UsageError, {}, 0,
                     "Usage: /sessions search <query>"};
@@ -79,6 +113,39 @@ RcSessionCommand parse_rc_session_command(const std::string& text) {
     }
     return {RcSessionCommandKind::UsageError, {}, 0,
             "Usage: /sessions [more|all|search <query>|<number>]"};
+}
+
+void merge_active_rc_session_targets(
+    std::vector<RcSessionTarget>& persisted,
+    const std::vector<RcSessionTarget>& active,
+    const std::unordered_set<std::string>& archived_session_ids) {
+    for (const auto& live : active) {
+        if (live.session_id.empty() ||
+            archived_session_ids.find(live.session_id) != archived_session_ids.end()) {
+            continue;
+        }
+        auto found = std::find_if(
+            persisted.begin(), persisted.end(),
+            [&](const RcSessionTarget& candidate) {
+                return same_session_identity(candidate, live);
+            });
+        if (found == persisted.end()) {
+            persisted.push_back(live);
+            persisted.back().active = true;
+            continue;
+        }
+        found->active = true;
+        if (!live.title.empty()) found->title = live.title;
+        if (!live.summary.empty()) found->summary = live.summary;
+        if (!live.cwd.empty()) found->cwd = live.cwd;
+        if (!live.workspace_hash.empty() && !live.no_workspace) {
+            found->workspace_hash = live.workspace_hash;
+        }
+        if (!live.workspace_label.empty()) {
+            found->workspace_label = live.workspace_label;
+        }
+        if (!live.updated_at.empty()) found->updated_at = live.updated_at;
+    }
 }
 
 void sort_rc_session_targets(std::vector<RcSessionTarget>& targets,
@@ -147,9 +214,16 @@ std::vector<std::string> chunk_rc_session_output(const std::string& text,
         std::size_t end = (std::min)(text.size(), pos + max_bytes);
         if (end < text.size()) {
             const std::size_t newline = text.rfind('\n', end);
-            if (newline != std::string::npos && newline > pos) end = newline;
+            if (newline != std::string::npos && newline > pos) {
+                end = newline;
+            } else {
+                while (end > pos &&
+                       is_utf8_continuation(static_cast<unsigned char>(text[end]))) {
+                    --end;
+                }
+            }
         }
-        if (end == pos) end = (std::min)(text.size(), pos + max_bytes);
+        if (end == pos) end = utf8_codepoint_end(text, pos);
         chunks.push_back(text.substr(pos, end - pos));
         pos = end;
         if (pos < text.size() && text[pos] == '\n') ++pos;

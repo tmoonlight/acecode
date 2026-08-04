@@ -300,11 +300,20 @@ void SessionChannelBinder::rebuild_from_config() {
 }
 
 SessionChannelBinder::CommandOutcome
-SessionChannelBinder::bind_session(const std::string& session_id) {
+SessionChannelBinder::bind_session(const std::string& session_id,
+                                   const std::string& expected_source_session,
+                                   std::uint64_t expected_source_generation) {
     std::lock_guard<std::mutex> op(op_mu_);
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (shut_down_) return {false, "remote control is shutting down"};
+        if (!expected_source_session.empty() &&
+            !binding_.accepts(expected_source_session,
+                              expected_source_generation)) {
+            // A queued numeric command lost its source binding while waiting
+            // for op_mu_. Empty message is the internal silent-stale marker.
+            return {false, {}};
+        }
     }
 
     // 共享 config 一次性快照(与 daemon 其它读写方同锁互斥),后续流程只用
@@ -538,9 +547,19 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
                 // numeric switch deactivate this context while its own lease is
                 // still held; the queued worker runs only after this callback
                 // returns.
-                if (!enqueue_control([this, command, hub] {
-                        handle_rc_session_command(command, hub);
-                    })) {
+                const auto queued = enqueue_control(ControlTask{
+                    command,
+                    hub,
+                    context->session_id,
+                    context->generation,
+                    command.kind == RcSessionCommandKind::Recent ||
+                        command.kind == RcSessionCommandKind::All ||
+                        command.kind == RcSessionCommandKind::Search,
+                });
+                if (queued == ControlEnqueueResult::Processing) {
+                    hub->notify_assistant_text(
+                        "Session navigation is already processing.");
+                } else if (queued == ControlEnqueueResult::Stopped) {
                     hub->notify_assistant_text("Remote control is shutting down.");
                 }
                 return;
@@ -670,6 +689,9 @@ void SessionChannelBinder::shutdown() {
         std::lock_guard<std::mutex> lk(control_mu_);
         control_stop_ = true;
         control_queue_.clear();
+        catalog_task_generations_.clear();
+        latest_session_snapshot_.clear();
+        latest_session_snapshot_generation_ = 0;
     }
     control_cv_.notify_all();
     if (control_thread_.joinable()) control_thread_.join();
@@ -742,15 +764,24 @@ std::string SessionChannelBinder::status_text() const {
     return oss.str();
 }
 
-bool SessionChannelBinder::enqueue_control(std::function<void()> task) {
-    if (!task) return false;
-    {
-        std::lock_guard<std::mutex> lk(control_mu_);
-        if (control_stop_) return false;
-        control_queue_.push_back(std::move(task));
+SessionChannelBinder::ControlEnqueueResult
+SessionChannelBinder::enqueue_control(ControlTask task) {
+    std::lock_guard<std::mutex> lk(control_mu_);
+    if (control_stop_) return ControlEnqueueResult::Stopped;
+    if (task.catalog_task &&
+        catalog_task_generations_.find(task.source_generation) !=
+            catalog_task_generations_.end()) {
+        return ControlEnqueueResult::Processing;
     }
+    if (control_queue_.size() >= kControlQueueCapacity) {
+        return ControlEnqueueResult::Processing;
+    }
+    if (task.catalog_task) {
+        catalog_task_generations_.insert(task.source_generation);
+    }
+    control_queue_.push_back(std::move(task));
     control_cv_.notify_one();
-    return true;
+    return ControlEnqueueResult::Queued;
 }
 
 void SessionChannelBinder::control_loop() {
@@ -758,18 +789,30 @@ void SessionChannelBinder::control_loop() {
     while (true) {
         control_cv_.wait(lk, [this] { return control_stop_ || !control_queue_.empty(); });
         if (control_stop_) return;
-        auto task = std::move(control_queue_.front());
+        ControlTask task = std::move(control_queue_.front());
         control_queue_.pop_front();
         lk.unlock();
-        try {
-            task();
-        } catch (const std::exception& e) {
-            LOG_WARN(std::string("[remote-control] session command failed: ") + e.what());
-        } catch (...) {
-            LOG_WARN("[remote-control] session command failed with an unknown error");
+        if (control_source_is_current(task)) {
+            try {
+                handle_rc_session_command(task);
+            } catch (const std::exception& e) {
+                LOG_WARN(std::string("[remote-control] session command failed: ") + e.what());
+            } catch (...) {
+                LOG_WARN("[remote-control] session command failed with an unknown error");
+            }
         }
         lk.lock();
+        if (task.catalog_task) {
+            catalog_task_generations_.erase(task.source_generation);
+        }
     }
+}
+
+bool SessionChannelBinder::control_source_is_current(
+    const ControlTask& task) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return !shut_down_ &&
+           binding_.accepts(task.source_session_id, task.source_generation);
 }
 
 std::vector<RcSessionTarget> SessionChannelBinder::rebuild_catalog(
@@ -789,14 +832,23 @@ void SessionChannelBinder::publish_control_text(RemoteControlHub* hub,
 }
 
 SessionChannelBinder::CommandOutcome
-SessionChannelBinder::select_session_target(const RcSessionTarget& target) {
+SessionChannelBinder::select_session_target(
+    const RcSessionTarget& target,
+    const std::string& source_session_id,
+    std::uint64_t source_generation) {
     if (target.session_id.empty()) return {false, "Selected session is invalid."};
+    ControlTask source;
+    source.source_session_id = source_session_id;
+    source.source_generation = source_generation;
+    if (!control_source_is_current(source)) return {false, {}};
     if (!target.active) {
         if (!deps_.resume_session_target || !deps_.resume_session_target(target)) {
             return {false, "Unable to resume the selected session; the current connection was kept."};
         }
+        if (!control_source_is_current(source)) return {false, {}};
     }
-    auto outcome = bind_session(target.session_id);
+    auto outcome = bind_session(
+        target.session_id, source_session_id, source_generation);
     if (!outcome.ok) return outcome;
     if (deps_.on_session_selected) {
         try {
@@ -810,8 +862,9 @@ SessionChannelBinder::select_session_target(const RcSessionTarget& target) {
     return outcome;
 }
 
-void SessionChannelBinder::handle_rc_session_command(RcSessionCommand command,
-                                                      RemoteControlHub* hub) {
+void SessionChannelBinder::handle_rc_session_command(const ControlTask& task) {
+    const RcSessionCommand& command = task.command;
+    RemoteControlHub* hub = task.hub;
     if (command.kind == RcSessionCommandKind::UsageError) {
         publish_control_text(hub, command.error);
         return;
@@ -825,6 +878,7 @@ void SessionChannelBinder::handle_rc_session_command(RcSessionCommand command,
                 ? std::optional<std::string>(command.query)
                 : std::nullopt;
         auto results = rebuild_catalog(query);
+        if (!control_source_is_current(task)) return;
         if (query.has_value()) {
             results = filter_rc_session_targets(results, *query, kRcSessionSearchLimit);
         } else if (command.kind == RcSessionCommandKind::Recent &&
@@ -834,6 +888,7 @@ void SessionChannelBinder::handle_rc_session_command(RcSessionCommand command,
         {
             std::lock_guard<std::mutex> lk(control_mu_);
             latest_session_snapshot_ = results;
+            latest_session_snapshot_generation_ = task.source_generation;
         }
         const std::string heading = command.kind == RcSessionCommandKind::Search
             ? "Session search results:"
@@ -847,21 +902,28 @@ void SessionChannelBinder::handle_rc_session_command(RcSessionCommand command,
     std::vector<RcSessionTarget> snapshot;
     {
         std::lock_guard<std::mutex> lk(control_mu_);
-        snapshot = latest_session_snapshot_;
+        if (latest_session_snapshot_generation_ == task.source_generation) {
+            snapshot = latest_session_snapshot_;
+        }
     }
     if (snapshot.empty()) {
         snapshot = rebuild_catalog(std::nullopt);
+        if (!control_source_is_current(task)) return;
         if (snapshot.size() > kRcSessionRecentLimit) snapshot.resize(kRcSessionRecentLimit);
         std::lock_guard<std::mutex> lk(control_mu_);
         latest_session_snapshot_ = snapshot;
+        latest_session_snapshot_generation_ = task.source_generation;
     }
     auto target = select_rc_session_snapshot(snapshot, command.selection);
     if (!target.has_value()) {
         publish_control_text(hub, "Invalid session number. Run /sessions first.");
         return;
     }
-    const auto outcome = select_session_target(*target);
+    if (!control_source_is_current(task)) return;
+    const auto outcome = select_session_target(
+        *target, task.source_session_id, task.source_generation);
     if (!outcome.ok) {
+        if (outcome.message.empty()) return;
         publish_control_text(hub, outcome.message);
         return;
     }

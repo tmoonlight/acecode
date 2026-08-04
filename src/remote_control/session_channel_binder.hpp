@@ -46,6 +46,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_set>
 
 namespace acecode::rc {
 
@@ -250,8 +251,26 @@ private:
         std::uint64_t generation = 0;
     };
 
-    CommandOutcome bind_session(const std::string& session_id);
-    CommandOutcome select_session_target(const RcSessionTarget& target);
+    struct ControlTask {
+        RcSessionCommand command;
+        RemoteControlHub* hub = nullptr;
+        std::string source_session_id;
+        std::uint64_t source_generation = 0;
+        bool catalog_task = false;
+    };
+
+    enum class ControlEnqueueResult {
+        Queued,
+        Processing,
+        Stopped,
+    };
+
+    CommandOutcome bind_session(const std::string& session_id,
+                                const std::string& expected_source_session = {},
+                                std::uint64_t expected_source_generation = 0);
+    CommandOutcome select_session_target(const RcSessionTarget& target,
+                                         const std::string& source_session_id,
+                                         std::uint64_t source_generation);
     CommandOutcome unbind_and_stop();
     std::string status_text() const;
     // deps_.config 的读写统一走这里(deps_.with_config_lock 持锁执行;未注入
@@ -261,10 +280,10 @@ private:
                          const std::string& token);
     void ensure_keepalive_thread();
     void keepalive_loop();
-    bool enqueue_control(std::function<void()> task);
+    ControlEnqueueResult enqueue_control(ControlTask task);
     void control_loop();
-    void handle_rc_session_command(RcSessionCommand command,
-                                   RemoteControlHub* hub);
+    void handle_rc_session_command(const ControlTask& task);
+    bool control_source_is_current(const ControlTask& task) const;
     std::vector<RcSessionTarget> rebuild_catalog(const std::optional<std::string>& query);
     void publish_control_text(RemoteControlHub* hub, const std::string& text) const;
     ChannelPluginHost make_plugin_host() const;
@@ -302,10 +321,13 @@ private:
     // only parses and queues. All disk/index/session operations run here.
     std::mutex control_mu_;
     std::condition_variable control_cv_;
-    std::deque<std::function<void()>> control_queue_;
+    static constexpr std::size_t kControlQueueCapacity = 8;
+    std::deque<ControlTask> control_queue_;
+    std::unordered_set<std::uint64_t> catalog_task_generations_;
     bool control_stop_ = false;
     std::thread control_thread_;
     std::vector<RcSessionTarget> latest_session_snapshot_;
+    std::uint64_t latest_session_snapshot_generation_ = 0;
 };
 
 } // namespace acecode::rc
