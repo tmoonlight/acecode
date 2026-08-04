@@ -143,9 +143,10 @@ callback itself is rejected as a logic error rather than waiting on itself.
 `disable()`, repeated `enable()`, and Hub destruction use the same fence before
 releasing runtime state. The dispatch guard owns a shared fence state rather
 than a Hub pointer. A thread-local fence stack tracks nested callbacks across
-Hubs: callback-triggered shutdown waits for every other thread and exempts only
-the active depth on its own stack, whose guards can finish safely even if the
-Hub owner is being torn down.
+Hubs. Public `disable()` inside an accepted callback never waits, so concurrent
+callbacks cannot form a wait cycle. External shutdown waits for all callbacks;
+callback-triggered destruction waits for every foreign callback and exempts only
+the active depth on its own stack, whose guards can finish safely after teardown.
 
 Binding persistence is the final preparation step before runtime replacement.
 Reload, merge, and save complete before the in-memory config is changed; a

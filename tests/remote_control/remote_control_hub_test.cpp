@@ -135,6 +135,25 @@ private:
     bool signaled_ = false;
 };
 
+class ThreadRendezvous {
+public:
+    explicit ThreadRendezvous(std::size_t participants)
+        : participants_(participants) {}
+
+    void arrive_and_wait() {
+        std::unique_lock<std::mutex> lk(mu_);
+        ++arrived_;
+        cv_.notify_all();
+        cv_.wait(lk, [&] { return arrived_ >= participants_; });
+    }
+
+private:
+    std::mutex mu_;
+    std::condition_variable cv_;
+    std::size_t participants_;
+    std::size_t arrived_ = 0;
+};
+
 class ScopedInboundFenceHooks {
 public:
     explicit ScopedInboundFenceHooks(RemoteControlHub& hub) : hub_(hub) {}
@@ -546,6 +565,7 @@ TEST(RemoteControlHub,
     hub->set_inbound_route("sess-1", [&](const std::string& text) {
         if (text == "other-callback") {
             other_callback.enter_and_wait();
+            raw_hub->disable();
             return;
         }
         destruction_started.signal();
@@ -611,8 +631,8 @@ TEST(RemoteControlHub, NestedHubCallbackCannotSuspendOuterHub) {
     inner.disable();
 }
 
-// 场景:Hub A callback 嵌套进入 Hub B，B 内部 disable A。期望:disable
-// 仅豁免当前线程栈里的 A 深度，不会等待自己，也不会遗漏外部线程。
+// 场景:Hub A callback 嵌套进入 Hub B，B 内部 disable A。期望:callback
+// 内关闭不等待 accepted guard，因此能立即结束而不等待自己的外层 A。
 TEST(RemoteControlHub, NestedHubCallbackCanDisableOuterHubWithoutSelfWait) {
     RemoteControlHub outer;
     RemoteControlHub inner;
@@ -631,6 +651,36 @@ TEST(RemoteControlHub, NestedHubCallbackCanDisableOuterHubWithoutSelfWait) {
 
     inner.clear_inbound_route();
     inner.disable();
+}
+
+// 场景:两个已经接受的回调在同一时刻都请求 disable。期望:回调内关闭不
+// 等待其他 accepted guard，双方都能返回；外部析构仍会在必要时负责等待。
+TEST(RemoteControlHub, ConcurrentAcceptedCallbacksCanBothDisableWithoutCycle) {
+    RemoteControlHub hub;
+    hub.enable("secret", "sess-1", nullptr);
+    ThreadRendezvous both_callbacks(2);
+    std::atomic<int> submitted{0};
+    hub.set_inbound_route("sess-1", [&](const std::string&) {
+        ++submitted;
+        both_callbacks.arrive_and_wait();
+        hub.disable();
+    });
+
+    auto first = std::async(std::launch::async, [&] {
+        return hub.handle_inbound("first", "secret");
+    });
+    auto second = std::async(std::launch::async, [&] {
+        return hub.handle_inbound("second", "secret");
+    });
+
+    ASSERT_EQ(first.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    ASSERT_EQ(second.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    EXPECT_TRUE(first.get().ok());
+    EXPECT_TRUE(second.get().ok());
+    EXPECT_EQ(submitted.load(), 2);
+    EXPECT_FALSE(hub.enabled());
 }
 
 // 场景:重复 enable 与一个已接受但尚未提交的旧生命周期回调并发。

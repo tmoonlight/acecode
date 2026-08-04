@@ -181,7 +181,7 @@ private:
         InboundDispatchGuard(const InboundDispatchGuard&) = delete;
         InboundDispatchGuard& operator=(const InboundDispatchGuard&) = delete;
 
-        void arm(std::shared_ptr<InboundDispatchFenceState> state) noexcept;
+        void arm(std::shared_ptr<InboundDispatchFenceState> state);
 
     private:
         std::shared_ptr<InboundDispatchFenceState> state_;
@@ -192,6 +192,7 @@ private:
     static void wait_for_inbound_dispatches(
         const std::shared_ptr<InboundDispatchFenceState>& state,
         std::size_t allowed_current_thread_depth = 0);
+    void disable_impl(bool destroying);
 
     // 调用方须持 mu_ 且已完成 enabled/text 等校验。只负责构造
     // assistant_message 并放入既有有界 FIFO;允许 sender_ 暂为空,worker 会

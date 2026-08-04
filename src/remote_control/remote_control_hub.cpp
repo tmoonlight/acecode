@@ -56,15 +56,26 @@ RemoteControlHub::~RemoteControlHub() {
     // accepted callback 触发，它跳过自等，而 guard 依靠共享 fence state
     // 在 Hub 已结束生命周期后安全收尾。
     try {
-        disable();
+        disable_impl(true);
     } catch (...) {
     }
 }
 
 void RemoteControlHub::InboundDispatchGuard::arm(
-    std::shared_ptr<InboundDispatchFenceState> state) noexcept {
+    std::shared_ptr<InboundDispatchFenceState> state) {
+    const auto* raw_state = state.get();
+    // Push may allocate and throw. Do it before publishing state_ or changing
+    // in_flight so a failed arm leaves no count or destructor cleanup behind.
+    active_inbound_dispatch_stack_.push_back(raw_state);
     state_ = std::move(state);
-    active_inbound_dispatch_stack_.push_back(state_.get());
+    try {
+        std::lock_guard<std::mutex> lk(state_->mu);
+        ++state_->in_flight;
+    } catch (...) {
+        active_inbound_dispatch_stack_.pop_back();
+        state_.reset();
+        throw;
+    }
 }
 
 RemoteControlHub::InboundDispatchGuard::~InboundDispatchGuard() {
@@ -181,6 +192,11 @@ void RemoteControlHub::set_inbound_fence_test_hooks(
 void RemoteControlHub::enable(std::string token,
                               std::string session_id,
                               std::shared_ptr<OutboundSender> sender) {
+    const auto fence = inbound_dispatch_fence_;
+    if (active_inbound_dispatch_depth(fence.get()) != 0) {
+        throw std::logic_error(
+            "cannot enable remote control from an inbound dispatch callback");
+    }
     // Keep the documented repeat-enable contract: first reject and drain all
     // dispatches accepted by the previous lifecycle, then publish the new one.
     disable();
@@ -199,6 +215,10 @@ void RemoteControlHub::enable(std::string token,
 }
 
 void RemoteControlHub::disable() {
+    disable_impl(false);
+}
+
+void RemoteControlHub::disable_impl(bool destroying) {
     std::shared_ptr<InboundDispatchFenceState> fence;
     std::function<void()> after_reject;
     std::size_t current_thread_depth = 0;
@@ -221,9 +241,14 @@ void RemoteControlHub::disable() {
         }
     }
 
-    // Do not wait for guards on this thread's current call stack, but always
-    // wait for every concurrently accepted callback on other threads.
-    wait_for_inbound_dispatches(fence, current_thread_depth);
+    // Public disable invoked from an accepted callback must not wait: two
+    // callbacks may request shutdown concurrently and would otherwise wait on
+    // each other's guards forever. External shutdown waits for all callbacks.
+    // Destruction from a callback is stricter: the owner is going away, so wait
+    // for every foreign callback while exempting only this call stack's depth.
+    if (current_thread_depth == 0 || destroying) {
+        wait_for_inbound_dispatches(fence, current_thread_depth);
+    }
 
     std::unique_lock<std::mutex> lk(mu_);
     enabled_ = false;
@@ -306,10 +331,6 @@ InboundResult RemoteControlHub::handle_inbound(const std::string& text,
         before_dispatch =
             inbound_fence_test_hooks_.after_accept_before_dispatch;
         auto fence = inbound_dispatch_fence_;
-        {
-            std::lock_guard<std::mutex> fence_lk(fence->mu);
-            ++fence->in_flight;
-        }
         dispatch_guard.arm(std::move(fence));
         ++stats_.inbound_accepted;
         // 必须在 submit 前进入同一出站 FIFO:submit 可能立即启动模型或做
