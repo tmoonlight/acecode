@@ -1,8 +1,8 @@
 # RC Session Navigation
 
 - Source of truth: `openspec/changes/add-rc-session-navigation/`
-- Delivery branch: `task/acecode-rc-session-navigation`
-- Isolation: `N:\Users\shao\.worktrees\acecode-rc-session-navigation`
+- Delivery branch: `task/acecode-rc-session-navigation-final`
+- Isolation: `N:\Users\shao\.worktrees\acecode-rc-session-navigation-final2`
 
 ## Develop
 
@@ -15,3 +15,4 @@
 
 - Independent review must inspect command routing, snapshot stability, cross-workspace/no-workspace resume, replacement rollback, callback lifetime, and frontend event trust boundaries.
 - Required gates: focused C++ tests, Web Node tests and production build, OpenSpec strict validation, provider-string boundary test, and the feasible full unit suite.
+- Completed gates: Web tests/build passed; the final RC/catalog/binder/boundary C++ filter passed 94/94; the independent lifecycle review passed with no Critical or Important findings.
