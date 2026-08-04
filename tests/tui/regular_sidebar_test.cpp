@@ -2,6 +2,7 @@
 
 #include "tui/todo_checklist_view.hpp"
 #include "tui/tui_helpers.hpp"
+#include "utils/stream_processing.hpp"
 
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -160,6 +161,36 @@ TEST(RegularSidebar, ExpandedModeRendersEveryFoldedItemInFlowOrder) {
     EXPECT_LT(files, todo);
     EXPECT_LT(todo, background);
     EXPECT_LT(background, footer);
+}
+
+TEST(RegularSidebar, SubagentSummaryOmitsDuplicateElapsedSuffix) {
+    TuiState state;
+    const std::string task_label = "sidebar elapsed sentinel";
+    state.subagent_tasks.push_back({
+        "subagent-timer",
+        task_label,
+        "unused prompt",
+        std::chrono::steady_clock::now() - std::chrono::hours(24),
+    });
+    SidebarRender rendered;
+    render_sidebar(state, 30, rendered);
+
+    EXPECT_NE(rendered.text.find("Background Tasks"), std::string::npos);
+    const auto label_pos = rendered.text.find(task_label);
+    ASSERT_NE(label_pos, std::string::npos);
+    const auto row_start_pos = rendered.text.rfind('\n', label_pos);
+    const auto row_start = row_start_pos == std::string::npos
+        ? 0
+        : row_start_pos + 1;
+    const auto row_end = rendered.text.find('\n', label_pos);
+    const std::string task_row = rendered.text.substr(
+        row_start,
+        row_end == std::string::npos ? std::string::npos
+                                     : row_end - row_start);
+    const std::string visible_task_row = acecode::strip_ansi(task_row);
+    EXPECT_EQ(visible_task_row.find_first_of("0123456789"),
+              std::string::npos)
+        << visible_task_row;
 }
 
 TEST(RegularSidebar, ExpandedOverflowPublishesAndPaintsIndependentScrollbar) {

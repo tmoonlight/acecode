@@ -5,7 +5,9 @@ import {
   nativeFolderReferencePath,
   nativePickedFileToFile,
   parseNativeContextPickerResult,
+  parseNativeFilesystemItemsResult,
 } from './desktopContextPicker.js';
+import { fileSourcePath } from './composerFileTransfer.js';
 
 function test(name, fn) {
   try { fn(); console.log('ok -', name); }
@@ -28,7 +30,7 @@ test('parses file, folder, and cancelled native results', () => {
   assert.equal(parseNativeContextPickerResult({ ok: true, cancelled: true, items: [] }).cancelled, true);
   assert.equal(parseNativeContextPickerResult({
     ok: true,
-    items: [{ kind: 'file', name: 'a.txt', data_base64: 'YQ==' }],
+    items: [{ kind: 'file', path: 'C:/repo/a.txt', name: 'a.txt', data_base64: 'YQ==' }],
   }).files.length, 1);
 });
 
@@ -37,7 +39,7 @@ test('rejects mixed native file and folder results', () => {
     ok: true,
     items: [
       { kind: 'folder', path: 'C:/repo/docs' },
-      { kind: 'file', name: 'a.txt', data_base64: 'YQ==' },
+      { kind: 'file', path: 'C:/repo/a.txt', name: 'a.txt', data_base64: 'YQ==' },
     ],
   }), /冲突/);
 });
@@ -52,6 +54,7 @@ test('restores native base64 bytes as a File-compatible object', () => {
   }
   const file = nativePickedFileToFile({
     kind: 'file',
+    path: 'C:/repo/图.png',
     name: '图.png',
     mime_type: 'image/png',
     data_base64: 'AP8Q',
@@ -61,7 +64,30 @@ test('restores native base64 bytes as a File-compatible object', () => {
   });
   assert.equal(file.name, '图.png');
   assert.equal(file.type, 'image/png');
+  assert.equal(fileSourcePath(file), 'C:/repo/图.png');
   assert.deepEqual([...file.parts[0]], [0, 255, 16]);
+});
+
+test('parses mixed native filesystem files and folders in transfer order', () => {
+  const parsed = parseNativeFilesystemItemsResult(JSON.stringify({
+    ok: true,
+    filesystem_items: true,
+    items: [
+      { kind: 'folder', path: 'C:/repo/docs', name: 'docs' },
+      { kind: 'file', path: 'C:/repo/a.txt', name: 'a.txt', data_base64: 'YQ==' },
+    ],
+  }));
+  assert.deepEqual(parsed.items.map((item) => item.kind), ['folder', 'file']);
+  assert.equal(parsed.folders.length, 1);
+  assert.equal(parsed.files.length, 1);
+  assert.equal(parsed.filesystemItems, true);
+});
+
+test('rejects malformed native filesystem items instead of silently dropping them', () => {
+  assert.throws(() => parseNativeFilesystemItemsResult({
+    ok: true,
+    items: [{ kind: 'file', name: 'missing-path.txt', data_base64: '' }],
+  }), /条目无效/);
 });
 
 test('converts an in-cwd native folder to a relative reference path', () => {

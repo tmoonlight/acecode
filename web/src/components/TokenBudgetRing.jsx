@@ -8,6 +8,7 @@ import {
 import { createPortal } from 'react-dom';
 import { clsx } from '../lib/format.js';
 import { computeTokenBudgetPanelLayout } from '../lib/tokenBudgetPanelLayout.js';
+import { resolveTokenBudgetPanelState } from '../lib/tokenBudgetPanelState.js';
 import { VsIcon } from './Icon.jsx';
 
 const RING_COLOR = {
@@ -83,10 +84,7 @@ export function TokenBudgetRing({ budget, className = '' }) {
         ? AGGREGATE_CONTEXT_PANEL_WIDTH_PX
         : FULL_CONTEXT_PANEL_WIDTH_PX,
     );
-    setPanel((current) => ({
-      ...geometry,
-      mode: current?.mode === 'click' && mode === 'hover' ? 'click' : mode,
-    }));
+    setPanel((current) => resolveTokenBudgetPanelState(current, geometry, mode));
   }, [aggregateOnly, clearCloseTimer]);
 
   const scheduleHoverClose = useCallback(() => {
@@ -151,6 +149,7 @@ export function TokenBudgetRing({ budget, className = '' }) {
             : null,
         );
       }}
+      data-panel-mode={panel?.mode || undefined}
       data-token-budget-severity={budget?.severity || 'unknown'}
     >
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className="block">

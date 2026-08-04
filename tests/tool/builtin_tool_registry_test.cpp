@@ -1,16 +1,15 @@
 #include <gtest/gtest.h>
 
 #include "config/config.hpp"
-#include "tool/ace_browser_bridge/browser_tools.hpp"
+#include "tool/agent_browser/browser_tools.hpp"
 #include "tool/builtin_tool_registry.hpp"
 #include "tool/tool_executor.hpp"
 
 using namespace acecode;
 
-TEST(BuiltinToolRegistry, BrowserToolsDisabledByDefaultInSharedSetupPath) {
+TEST(BuiltinToolRegistry, RegistersSharedCoreAndPlatformBrowserTools) {
     AppConfig config;
     config.web_search.enabled = false;
-    config.ace_browser_bridge.enabled = false;
     ToolExecutor tools;
 
     register_session_builtin_tools(tools, config);
@@ -27,55 +26,30 @@ TEST(BuiltinToolRegistry, BrowserToolsDisabledByDefaultInSharedSetupPath) {
     EXPECT_FALSE(tools.is_read_only("ExitPlanMode"));
     EXPECT_TRUE(tools.is_read_only("show_image"));
     EXPECT_FALSE(tools.has_tool("browser_start"));
+#ifdef _WIN32
+    EXPECT_TRUE(tools.has_tool("browser_open"));
+    EXPECT_TRUE(tools.has_tool("browser_read_page"));
+    EXPECT_TRUE(tools.has_tool("browser_click"));
+    EXPECT_TRUE(tools.has_tool("browser_screenshot"));
+#else
+    EXPECT_FALSE(tools.has_tool("browser_open"));
+#endif
 }
 
-TEST(BuiltinToolRegistry, BrowserToolsProgressiveModeRegistersOnlyStartInSharedSetupPath) {
+TEST(BuiltinToolRegistry, NativeBrowserToolsCanBeUnregisteredAsOneGroup) {
     AppConfig config;
     config.web_search.enabled = false;
-    config.ace_browser_bridge.enabled = true;
-    config.ace_browser_bridge.tool_mode = "progressive";
     ToolExecutor tools;
 
     register_session_builtin_tools(tools, config);
+    const std::size_t removed = agent_browser::unregister_agent_browser_tools(tools);
 
-    EXPECT_TRUE(tools.has_tool("browser_start"));
-    EXPECT_FALSE(tools.has_tool("browser_status"));
-    EXPECT_FALSE(tools.has_tool("browser_read_page"));
-    EXPECT_FALSE(tools.has_tool("browser_enable"));
-    EXPECT_FALSE(tools.has_tool("browser_click"));
-}
-
-TEST(BuiltinToolRegistry, BrowserToolsFullModeStillRegistersOnlyStartInSharedSetupPath) {
-    AppConfig config;
-    config.web_search.enabled = false;
-    config.ace_browser_bridge.enabled = true;
-    config.ace_browser_bridge.tool_mode = "full";
-    ToolExecutor tools;
-
-    register_session_builtin_tools(tools, config);
-
-    EXPECT_TRUE(tools.has_tool("browser_start"));
-    EXPECT_FALSE(tools.has_tool("browser_status"));
-    EXPECT_FALSE(tools.has_tool("browser_click"));
-    EXPECT_FALSE(tools.has_tool("browser_network"));
-}
-
-TEST(BuiltinToolRegistry, BrowserToolsCanBeUnregisteredForSessionToggle) {
-    AppConfig config;
-    config.web_search.enabled = false;
-    config.ace_browser_bridge.enabled = true;
-    config.ace_browser_bridge.tool_mode = "full";
-    ToolExecutor tools;
-
-    register_session_builtin_tools(tools, config);
-    ASSERT_TRUE(tools.has_tool("browser_start"));
-    ASSERT_FALSE(tools.has_tool("browser_click"));
-
-    const std::size_t removed =
-        ace_browser_bridge::unregister_ace_browser_bridge_tools(tools);
-
+#ifdef _WIN32
     EXPECT_GT(removed, 0u);
-    EXPECT_FALSE(tools.has_tool("browser_start"));
+#else
+    EXPECT_EQ(removed, 0u);
+#endif
+    EXPECT_FALSE(tools.has_tool("browser_open"));
     EXPECT_FALSE(tools.has_tool("browser_click"));
     EXPECT_TRUE(tools.has_tool("bash"));
 }

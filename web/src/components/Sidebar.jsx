@@ -65,14 +65,16 @@ import {
   shouldStartRemoteControlSurge,
   sidebarSessionMarker,
   sidebarRevealTarget,
+  sidebarRevealTargetKey,
   sidebarSessionProjection,
   upsertSidebarSession,
 } from '../lib/sidebarSessions.js';
 import {
   computeSessionHoverCardPosition,
-  createSessionHoverGitInfoCache,
   sessionHoverDetails,
 } from '../lib/sessionHoverDetails.js';
+// hover 卡片与 GitSessionPill 共用同一份 git info 缓存(见 gitInfoCache.js)。
+import { gitInfoCache, refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
 import {
   DEFAULT_SIDEBAR_CUSTOM_EXPANDED,
   DEFAULT_SIDEBAR_SECTION_EXPANSION,
@@ -105,9 +107,6 @@ const PINNED_DRAG_START_PX = 5;
 const PINNED_DRAG_EDGE_SCROLL_PX = 34;
 const PINNED_DRAG_EDGE_SCROLL_STEP = 16;
 const NO_WORKSPACE_SESSION_LIST_KEY = '__no_workspace__';
-const sessionHoverGitInfoCache = createSessionHoverGitInfoCache(
-  (cwd) => api.gitInfo(cwd),
-);
 
 function pinnedSessionKey(workspaceHash, sessionId) {
   const ws = String(workspaceHash || '');
@@ -450,10 +449,12 @@ function SessionHoverCard({
   session,
 }) {
   const cardRef = useRef(null);
-  const [gitInfo, setGitInfo] = useState(null);
-  const [position, setPosition] = useState(null);
   const baseDetails = sessionHoverDetails(session);
   const cwd = baseDetails?.cwd || '';
+  const [gitInfo, setGitInfo] = useState(
+    () => gitInfoCache.peek(api, cwd) ?? null,
+  );
+  const [position, setPosition] = useState(null);
   const details = sessionHoverDetails(session, gitInfo);
 
   useEffect(() => {
@@ -463,7 +464,7 @@ function SessionHoverCard({
     let requestVersion = 0;
     const load = () => {
       const version = ++requestVersion;
-      sessionHoverGitInfoCache.get(cwd)
+      gitInfoCache.get(api, cwd)
         .then((info) => {
           if (!cancelled && version === requestVersion) setGitInfo(info);
         })
@@ -471,10 +472,11 @@ function SessionHoverCard({
           if (!cancelled && version === requestVersion) setGitInfo(null);
         });
     };
+    setGitInfo(gitInfoCache.peek(api, cwd) ?? null);
     const handleGitStateChanged = (event) => {
       const changedCwd = String(event?.detail?.cwd || '');
       if (changedCwd && changedCwd !== cwd) return;
-      sessionHoverGitInfoCache.invalidate(changedCwd);
+      gitInfoCache.invalidate(api, changedCwd || cwd);
       setGitInfo(null);
       load();
     };
@@ -565,6 +567,7 @@ function SessionRow({
   const attention = s.attention_state || s.read_state || 'read';
   const meta = attentionMeta(attention);
   const workspaceHash = s.workspace_hash || s.workspaceHash || '';
+  const sessionPath = s.session_path || s.sessionPath || '';
   const rowKey = pinned ? pinnedSessionKey(workspaceHash, s.id) : '';
   const title = sessionDisplayTitle(s, s.name || '');
   const sessionMarker = sidebarSessionMarker(s);
@@ -642,6 +645,7 @@ function SessionRow({
       ref={rowRef}
       data-desktop-session-id={s.id || undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
+      data-desktop-session-path={sessionPath || undefined}
       data-desktop-session-pinned={pinned ? 'true' : 'false'}
       data-desktop-session-title={title || undefined}
       data-desktop-session-archive="true"
@@ -1295,6 +1299,8 @@ export function Sidebar({
   const [opencodeImportedHighlightKeys, setOpencodeImportedHighlightKeys] = useState(() => new Set());
   const opencodeImportedHighlightTimersRef = useRef(new Map());
   const revealedSectionTargetRef = useRef('');
+  const sessionRevealTargetRef = useRef('');
+  const revealedSessionTargetRef = useRef('');
   const handledWorkspaceActivationRequestRef = useRef(0);
   const revealTarget = useMemo(() => sidebarRevealTarget(activeRef), [activeRef]);
 
@@ -1970,7 +1976,16 @@ export function Sidebar({
   );
 
   useEffect(() => {
-    if (!revealTarget.sessionId) return undefined;
+    if (!revealTarget.sessionId) {
+      sessionRevealTargetRef.current = '';
+      revealedSessionTargetRef.current = '';
+      return undefined;
+    }
+    const targetKey = sidebarRevealTargetKey(revealTarget);
+    if (sessionRevealTargetRef.current !== targetKey) {
+      sessionRevealTargetRef.current = targetKey;
+      revealedSessionTargetRef.current = '';
+    }
     const pinnedTarget = pinnedSessions.some((session) => sessionMatchesRevealTarget(session, revealTarget));
     const targetSection = pinnedTarget
       ? SIDEBAR_SECTION_IDS.PINNED
@@ -2016,9 +2031,12 @@ export function Sidebar({
       });
     }
 
+    if (revealedSessionTargetRef.current === targetKey) return undefined;
     if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
     const frame = window.requestAnimationFrame(() => {
-      const rows = Array.from(document.querySelectorAll('.ace-sidebar-session-row[data-desktop-session-id]'));
+      const scrollRoot = sidebarScrollRef.current;
+      if (!scrollRoot) return;
+      const rows = Array.from(scrollRoot.querySelectorAll('.ace-sidebar-session-row[data-desktop-session-id]'));
       const matches = rows.filter((row) => {
         if (row.getAttribute('data-desktop-session-id') !== revealTarget.sessionId) return false;
         const rowWorkspace = row.getAttribute('data-desktop-session-workspace') || '';
@@ -2027,7 +2045,10 @@ export function Sidebar({
         return rowWorkspace === revealTarget.workspaceHash;
       });
       const row = matches.find((item) => item.getAttribute('data-desktop-session-pinned') !== 'true') || matches[0];
-      row?.scrollIntoView?.({ block: 'nearest' });
+      if (!row) return;
+      if (sessionRevealTargetRef.current !== targetKey) return;
+      revealedSessionTargetRef.current = targetKey;
+      row.scrollIntoView?.({ block: 'nearest' });
     });
     return () => window.cancelAnimationFrame?.(frame);
   }, [expandedSessionLists, noWorkspaceSessions, pinnedSessions, revealTarget, setSectionExpansion, updateExpanded, workspaceSessions]);
@@ -2354,6 +2375,7 @@ export function Sidebar({
               port: r.port,
               token: r.token,
               cwd: r.cwd || ws.cwd,
+              sessionPath: session.sessionPath || session.session_path || r.sessionPath || r.session_path || '',
               title: session.title,
               summary: session.summary,
               provider: session.provider,
@@ -2393,6 +2415,7 @@ export function Sidebar({
       port: ws?.port,
       token: ws?.token,
       cwd: noWorkspace ? '' : (session.cwd || ws?.cwd),
+      sessionPath: session.sessionPath || session.session_path || '',
       title: session.title,
       summary: session.summary,
       provider: session.provider,
@@ -2454,6 +2477,7 @@ export function Sidebar({
   const createSessionInWorkspace = async (ws) => {
     if (!ws?.hash) return;
     workspaceCollapseAllRef.current = false;
+    void refreshWorkspaceGitInfo(api, ws).catch(() => {});
     try {
       const r = ws.hash === '__local__'
         ? await api.createSession({})
@@ -2502,6 +2526,7 @@ export function Sidebar({
         port: ws.port,
         token: ws.token,
         cwd,
+        sessionPath: r.sessionPath || r.session_path || '',
         title: r.title,
         summary: r.summary,
         message_count: r.message_count,

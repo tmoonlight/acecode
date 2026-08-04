@@ -366,10 +366,9 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
         if (!meta.title.empty() && meta.title_source.empty()) {
             meta.title_source = "legacy";
         }
-        if (meta.title_source == "generated" &&
-            is_generated_session_error_title(meta.title)) {
-            meta.title.clear();
-            meta.title_source.clear();
+        if (meta.title_source == "generated") {
+            meta.title = sanitize_generated_session_title(std::move(meta.title));
+            if (meta.title.empty()) meta.title_source.clear();
         }
         meta.input_draft     = j.value("input_draft",     std::string{});
         meta.permission_mode = normalize_permission_mode_name(

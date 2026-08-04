@@ -1,9 +1,11 @@
 export const LEGACY_DEFAULT_SINGLE_LAYOUT = { sidebar: 200, sidePanel: 280 };
+export const DEFAULT_SUBAGENT_PANEL_WIDTH = 380;
 export const DEFAULT_SINGLE_LAYOUT = {
   sidebar: 270,
   sidePanel: 280,
   previewPanel: 640,
   previewPanelUserSized: false,
+  subagentPanel: DEFAULT_SUBAGENT_PANEL_WIDTH,
 };
 
 export const MIN_SIDEBAR_WIDTH = 160;
@@ -11,6 +13,8 @@ export const MAX_SIDEBAR_WIDTH = 360;
 export const MIN_SIDE_PANEL_WIDTH = 240;
 export const MIN_PREVIEW_PANEL_WIDTH = 420;
 export const MIN_CHAT_WIDTH = 350;
+export const MIN_SUBAGENT_PANEL_WIDTH = 260;
+export const MIN_SUBAGENT_PARENT_TRANSCRIPT_WIDTH = 280;
 export const MIN_SINGLE_CONTENT_WIDTH =
   MIN_CHAT_WIDTH + MIN_PREVIEW_PANEL_WIDTH + MIN_SIDE_PANEL_WIDTH;
 export const MIN_SINGLE_SHELL_WIDTH = MIN_SIDEBAR_WIDTH + MIN_SINGLE_CONTENT_WIDTH;
@@ -22,7 +26,9 @@ export function validateLayoutWidths(v) {
     && (v.previewPanel == null
       || (typeof v.previewPanel === 'number' && Number.isFinite(v.previewPanel)))
     && (v.previewPanelUserSized == null
-      || typeof v.previewPanelUserSized === 'boolean');
+      || typeof v.previewPanelUserSized === 'boolean')
+    && (v.subagentPanel == null
+      || (typeof v.subagentPanel === 'number' && Number.isFinite(v.subagentPanel)));
 }
 
 export function previewPanelWidthIsUserSized(layout) {
@@ -44,12 +50,18 @@ export function normalizeSingleLayoutPreference(layout) {
     ? DEFAULT_SINGLE_LAYOUT.previewPanel
     : current.previewPanel;
   const previewPanelUserSized = previewPanelWidthIsUserSized(current);
+  const subagentPanel = normalizeSubagentPanelWidth(
+    current.subagentPanel == null
+      ? DEFAULT_SINGLE_LAYOUT.subagentPanel
+      : current.subagentPanel,
+  );
 
   if (
     current.sidebar === sidebar
     && current.sidePanel === sidePanel
     && current.previewPanel === previewPanel
     && current.previewPanelUserSized === previewPanelUserSized
+    && current.subagentPanel === subagentPanel
   ) {
     return current;
   }
@@ -59,6 +71,7 @@ export function normalizeSingleLayoutPreference(layout) {
     sidePanel,
     previewPanel,
     previewPanelUserSized,
+    subagentPanel,
   };
 }
 
@@ -128,6 +141,35 @@ export function normalizePreviewPanelWidth(nextWidth, options = 0) {
     MIN_PREVIEW_PANEL_WIDTH,
     maxPreviewPanelWidthForContent(options),
   );
+}
+
+export function subagentPanelWidthRange(contentWidth = 0) {
+  const total = Math.max(0, finiteRoundedWidth(contentWidth));
+  if (!(total > 0)) {
+    return {
+      min: MIN_SUBAGENT_PANEL_WIDTH,
+      max: Number.POSITIVE_INFINITY,
+    };
+  }
+
+  // Normal desktop widths keep the parent transcript at its ordinary minimum.
+  // Below the combined minimum, reserve 40% for the parent so neither pane can
+  // consume the complete split container.
+  const ordinaryMinimum = MIN_SUBAGENT_PANEL_WIDTH
+    + MIN_SUBAGENT_PARENT_TRANSCRIPT_WIDTH;
+  const parentReserve = total >= ordinaryMinimum
+    ? MIN_SUBAGENT_PARENT_TRANSCRIPT_WIDTH
+    : Math.max(1, Math.floor(total * 0.4));
+  const max = Math.max(0, total - parentReserve);
+  return {
+    min: Math.min(MIN_SUBAGENT_PANEL_WIDTH, max),
+    max,
+  };
+}
+
+export function normalizeSubagentPanelWidth(nextWidth, contentWidth = 0) {
+  const range = subagentPanelWidthRange(contentWidth);
+  return clamp(finiteRoundedWidth(nextWidth), range.min, range.max);
 }
 
 export function maxPreviewPanelWidthForContent(options = 0) {

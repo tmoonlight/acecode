@@ -1,6 +1,9 @@
 #include "settings_mutations.hpp"
 
+#include "../web/remote_web.hpp"
+
 #include <algorithm>
+#include <optional>
 #include <utility>
 
 namespace acecode {
@@ -134,6 +137,29 @@ SettingsMutationResult set_native_notifications_enabled(
             return true;
         },
         options);
+}
+
+SettingsMutationResult set_remote_web_enabled(
+    bool enabled,
+    const SettingsMutationOptions& options) {
+    const std::optional<WebConfig> runtime_web = options.live_config
+        ? std::optional<WebConfig>(options.live_config->web)
+        : std::nullopt;
+    auto result = run_mutation(
+        [enabled](AppConfig& cfg, std::string&) {
+            const std::string bind =
+                web::remote_web_bind_for_enabled(enabled);
+            if (cfg.web.bind == bind) return false;
+            cfg.web.bind = bind;
+            return true;
+        },
+        options);
+    if (result.ok && runtime_web && options.live_config) {
+        const std::string saved_bind = options.live_config->web.bind;
+        options.live_config->web = *runtime_web;
+        options.live_config->web.bind = saved_bind;
+    }
+    return result;
 }
 
 SettingsMutationResult set_tui_theme(

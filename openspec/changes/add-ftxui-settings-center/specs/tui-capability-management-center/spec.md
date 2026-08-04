@@ -60,11 +60,7 @@ Connectors SHALL show configured connector name, description, enabled state, and
 - **THEN** the row exposes the failure without displaying credentials and offers the supported recovery action
 
 ### Requirement: Tool management
-Tools SHALL list registered tools and their built-in, Browser Bridge, or MCP source and SHALL expose persisted toggles only for configurable tool groups.
-
-#### Scenario: Toggle Browser Bridge tools
-- **WHEN** the user toggles the ACE Browser Bridge group
-- **THEN** the global default is persisted and the current registry applies the supported live change or clearly reports that restart is required
+Tools SHALL list registered tools and their built-in or MCP source without presenting persisted controls for immutable tool groups.
 
 #### Scenario: Inspect immutable tool
 - **WHEN** the user selects a built-in or MCP-provided tool without a direct toggle

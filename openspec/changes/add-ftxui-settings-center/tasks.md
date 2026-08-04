@@ -30,7 +30,7 @@
 - [x] 4.2 Implement Skills listing, scope/status metadata, filtering, details, name-based enable/disable, reload, and directory actions
 - [x] 4.3 Implement MCP server listing, state/details, enable/disable/reconnect/reload, and validated raw JSON editor
 - [x] 4.4 Implement Connectors listing, lifecycle status, enable/disable, refresh, and authentication-recovery presentation
-- [x] 4.5 Implement Tools source/status listing and Browser Bridge persisted/live toggle without presenting false controls for immutable tools
+- [x] 4.5 Implement Tools source/status listing without presenting false controls for immutable tools
 - [x] 4.6 Implement Hooks listing, details, diagnostics, trust confirmation, enable/disable, and refresh
 
 ## 5. Verification and Documentation

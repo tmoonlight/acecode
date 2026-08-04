@@ -38,7 +38,8 @@ std::optional<AttachmentRecord> save_attachment(
     const std::string& name,
     const std::string& supplied_mime_type,
     const std::string& bytes,
-    std::string* error = nullptr);
+    std::string* error = nullptr,
+    const nlohmann::json& initial_metadata = nlohmann::json::object());
 
 std::optional<AttachmentRecord> load_attachment(
     const std::string& project_dir,

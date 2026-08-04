@@ -22,6 +22,7 @@
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
 #include "permissions.hpp"
+#include "desktop/daemon_supervisor.hpp"
 #include "desktop/workspace_registry.hpp"
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_manager.hpp"
@@ -43,8 +44,10 @@
 #include "utils/state_file.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/server.hpp"
+#include "worktree/worktree_manager.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -65,12 +68,10 @@ using nlohmann::json;
 
 namespace {
 
-// 找一个未被占用的端口。简化做法: 用 cpr 试连 0(让 OS 分配)不可行 —
-// Crow bind 时要显式数字。这里用一个随机偏移的端口,失败重试几次。
-// 为避免和真 daemon/desktop 默认端口冲突,从高位端口起。
+// 让 OS 选择当前可用端口，再交给 Crow 绑定。端口探测与 Crow 绑定之间仍有
+// 极短竞态，但比固定递增端口可靠，且不会撞上机器已有的 HTTP.sys 监听。
 int pick_test_port() {
-    static std::atomic<int> next{46000};
-    return next.fetch_add(7);
+    return acecode::desktop::pick_free_loopback_port();
 }
 
 std::filesystem::path path_from_utf8(const std::string& s) {
@@ -211,6 +212,47 @@ private:
     bool released_ = false;
 };
 
+class BlockingResumeLocalSessionClient final
+    : public acecode::LocalSessionClient {
+public:
+    explicit BlockingResumeLocalSessionClient(
+        acecode::SessionRegistry& registry)
+        : acecode::LocalSessionClient(registry) {}
+
+    bool resume_session(
+        const std::string&,
+        const acecode::SessionOptions& = {}) override {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            started_ = true;
+        }
+        cv_.notify_all();
+
+        std::unique_lock<std::mutex> lock(mu_);
+        cv_.wait(lock, [this] { return released_; });
+        return true;
+    }
+
+    bool wait_for_started(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mu_);
+        return cv_.wait_for(lock, timeout, [this] { return started_; });
+    }
+
+    void release() {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            released_ = true;
+        }
+        cv_.notify_all();
+    }
+
+private:
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool started_ = false;
+    bool released_ = false;
+};
+
 class TurnSteeringProvider : public acecode::LlmProvider {
 public:
     acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>&,
@@ -294,6 +336,10 @@ private:
 };
 
 struct WebServerFixture {
+    using SessionClientFactory = std::function<
+        std::unique_ptr<acecode::LocalSessionClient>(
+            acecode::SessionRegistry&)>;
+
     acecode::ToolExecutor tools;
     acecode::PermissionManager template_perm;
     acecode::SkillRegistry skill_registry;
@@ -329,7 +375,10 @@ struct WebServerFixture {
         std::function<int(const acecode::AppConfig&,
                           acecode::upgrade::UpgradeProgressCallback,
                           std::string*)> run_update_command = {},
-        std::function<std::optional<std::string>(const std::string&)> open_in_explorer = {}) {
+        std::function<std::optional<std::string>(const std::string&)> open_in_explorer = {},
+        bool dangerous = false,
+        std::function<std::vector<std::string>()> remote_web_hosts = {},
+        SessionClientFactory session_client_factory = {}) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -381,7 +430,9 @@ struct WebServerFixture {
         deps.expert_registry = expert_registry.get();
         deps.template_permissions = &template_perm;
         registry = std::make_unique<acecode::SessionRegistry>(std::move(deps));
-        client = std::make_unique<acecode::LocalSessionClient>(*registry);
+        client = session_client_factory
+            ? session_client_factory(*registry)
+            : std::make_unique<acecode::LocalSessionClient>(*registry);
         hook_manager = std::make_unique<acecode::HookManager>(acecode::HookRegistrySnapshot{});
         loop_store = std::make_unique<acecode::loop::LoopStore>(tmp_dir / "loops.sqlite3");
         acecode::loop::StoreError loop_error;
@@ -414,9 +465,13 @@ struct WebServerFixture {
         wdeps.native_folder_picker_enabled = native_folder_picker_enabled;
         wdeps.native_folder_picker = std::move(native_folder_picker);
         wdeps.open_in_explorer = std::move(open_in_explorer);
+        wdeps.remote_web_hosts = std::move(remote_web_hosts);
+        wdeps.remote_web_computer_name = [] {
+            return std::optional<std::string>("ACE-TEST-PC");
+        };
         wdeps.run_update_command = std::move(run_update_command);
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
-        wdeps.dangerous = false;
+        wdeps.dangerous = dangerous;
         wdeps.loop_store = loop_store.get();
 
         server = std::make_unique<acecode::web::WebServer>(std::move(wdeps));
@@ -432,6 +487,31 @@ struct WebServerFixture {
         }
         // 起不来的话后续测试会失败 — 不在这里 throw,让 GTest 给清晰报错
     }
+
+    explicit WebServerFixture(
+        std::function<std::vector<std::string>()> remote_web_hosts,
+        bool dangerous = false)
+        : WebServerFixture(
+              true,
+              false,
+              {},
+              true,
+              {},
+              {},
+              dangerous,
+              std::move(remote_web_hosts)) {}
+
+    explicit WebServerFixture(SessionClientFactory session_client_factory)
+        : WebServerFixture(
+              true,
+              false,
+              {},
+              true,
+              {},
+              {},
+              false,
+              {},
+              std::move(session_client_factory)) {}
 
     ~WebServerFixture() {
         if (server) server->stop();
@@ -647,6 +727,201 @@ TEST(WebServerHttp, DesktopNotificationSettingRejectsInvalidPayload) {
     ASSERT_EQ(put.status_code, 400) << put.text;
     EXPECT_EQ(json::parse(put.text)["error"], "BAD_REQUEST");
     EXPECT_TRUE(fx.cfg.desktop.notifications.enabled);
+}
+
+TEST(WebServerHttp, RemoteWebModePersistsGeneratesTokenUrlAndRebindsInProcess) {
+    WebServerFixture fx(
+        std::function<std::vector<std::string>()>([] {
+            return std::vector<std::string>{
+                "192.168.50.20",
+                "192.168.50.20",
+                "127.0.0.1",
+            };
+        }));
+
+    auto initial = cpr::Get(
+        cpr::Url{fx.url("/api/config/remote-web")});
+    ASSERT_EQ(initial.status_code, 200) << initial.text;
+    EXPECT_EQ(response_header(initial, "Cache-Control"), "no-store");
+    auto initial_json = json::parse(initial.text);
+    EXPECT_FALSE(initial_json["enabled"].get<bool>());
+    EXPECT_FALSE(initial_json["effective_enabled"].get<bool>());
+    EXPECT_FALSE(initial_json["applying"].get<bool>());
+    EXPECT_TRUE(initial_json["connections"].empty());
+
+    auto enabled = cpr::Put(
+        cpr::Url{fx.url("/api/config/remote-web")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":true})"});
+    ASSERT_EQ(enabled.status_code, 200) << enabled.text;
+    EXPECT_EQ(response_header(enabled, "Cache-Control"), "no-store");
+    auto enabled_json = json::parse(enabled.text);
+    EXPECT_TRUE(enabled_json["enabled"].get<bool>());
+    EXPECT_TRUE(enabled_json["applying"].get<bool>());
+    EXPECT_EQ(enabled_json["configured_bind"], "0.0.0.0");
+
+    json effective;
+    const auto enabled_deadline =
+        std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < enabled_deadline) {
+        std::this_thread::sleep_for(50ms);
+        auto current = cpr::Get(
+            cpr::Url{fx.url("/api/config/remote-web")},
+            cpr::Timeout{500});
+        if (current.status_code != 200) continue;
+        effective = json::parse(current.text);
+        if (effective["effective_enabled"].get<bool>() &&
+            !effective["applying"].get<bool>()) {
+            break;
+        }
+    }
+    ASSERT_TRUE(effective.is_object());
+    ASSERT_TRUE(effective["effective_enabled"].get<bool>());
+    ASSERT_FALSE(effective["applying"].get<bool>());
+    EXPECT_EQ(effective["effective_bind"], "0.0.0.0");
+    ASSERT_EQ(effective["connections"].size(), 2u);
+    EXPECT_EQ(effective["connections"][0]["host"], "ACE-TEST-PC");
+    EXPECT_EQ(effective["connections"][0]["kind"], "computer_name");
+    EXPECT_EQ(
+        effective["connections"][0]["url"],
+        "http://ACE-TEST-PC:" + std::to_string(fx.port) +
+            "/?token=smoke-token");
+    EXPECT_EQ(effective["connections"][1]["host"], "192.168.50.20");
+    EXPECT_EQ(effective["connections"][1]["kind"], "network_address");
+    EXPECT_EQ(
+        effective["connections"][1]["url"],
+        "http://192.168.50.20:" + std::to_string(fx.port) +
+            "/?token=smoke-token");
+
+    auto health = cpr::Get(cpr::Url{fx.url("/api/health")});
+    ASSERT_EQ(health.status_code, 200) << health.text;
+    EXPECT_EQ(json::parse(health.text)["guid"], "test-guid-aaaa-bbbb");
+
+    std::ifstream persisted(fx.tmp_dir / "config.json");
+    ASSERT_TRUE(persisted.is_open());
+    EXPECT_EQ(json::parse(persisted)["web"]["bind"], "0.0.0.0");
+    persisted.close();
+
+    auto disabled = cpr::Put(
+        cpr::Url{fx.url("/api/config/remote-web")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":false})"});
+    ASSERT_EQ(disabled.status_code, 200) << disabled.text;
+    EXPECT_FALSE(json::parse(disabled.text)["enabled"].get<bool>());
+
+    bool disabled_effective = false;
+    const auto disabled_deadline =
+        std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < disabled_deadline) {
+        std::this_thread::sleep_for(50ms);
+        auto current = cpr::Get(
+            cpr::Url{fx.url("/api/config/remote-web")},
+            cpr::Timeout{500});
+        if (current.status_code != 200) continue;
+        const auto state = json::parse(current.text);
+        if (!state["effective_enabled"].get<bool>() &&
+            !state["applying"].get<bool>()) {
+            disabled_effective = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(disabled_effective);
+    EXPECT_EQ(fx.cfg.web.bind, "127.0.0.1");
+}
+
+TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
+    WebServerFixture fx(
+        std::function<std::vector<std::string>()>([] {
+            return std::vector<std::string>{"192.168.50.20"};
+        }));
+
+    // Desktop starts the daemon with a per-run port override while config.json
+    // can still contain the previous run's port. A bind-only mutation must not
+    // move the active listener back to that persisted port.
+    acecode::AppConfig persisted = fx.cfg;
+    persisted.web.port = 65530;
+    acecode::save_config(
+        persisted,
+        (fx.tmp_dir / "config.json").string());
+
+    const std::array<bool, 6> modes{
+        true,
+        false,
+        true,
+        false,
+        true,
+        false,
+    };
+    for (const bool enabled : modes) {
+        auto mutation = cpr::Put(
+            cpr::Url{fx.url("/api/config/remote-web")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{enabled
+                ? R"({"enabled":true})"
+                : R"({"enabled":false})"});
+        ASSERT_EQ(mutation.status_code, 200) << mutation.text;
+        EXPECT_EQ(
+            json::parse(mutation.text)["configured_enabled"],
+            enabled);
+
+        bool ready = false;
+        const auto deadline =
+            std::chrono::steady_clock::now() + 5s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(50ms);
+            auto current = cpr::Get(
+                cpr::Url{fx.url("/api/config/remote-web")},
+                cpr::Timeout{500});
+            if (current.status_code != 200) continue;
+            const auto state = json::parse(current.text);
+            if (state["effective_enabled"].get<bool>() == enabled &&
+                !state["applying"].get<bool>()) {
+                EXPECT_EQ(state["port"], fx.port);
+                ready = true;
+                break;
+            }
+        }
+        ASSERT_TRUE(ready)
+            << "listener did not return on runtime port " << fx.port;
+
+        auto health = cpr::Get(cpr::Url{fx.url("/api/health")});
+        ASSERT_EQ(health.status_code, 200) << health.text;
+        EXPECT_EQ(json::parse(health.text)["port"], fx.port);
+        EXPECT_EQ(fx.cfg.web.port, fx.port);
+    }
+
+    const auto saved = acecode::load_config_from_path(
+        (fx.tmp_dir / "config.json").string());
+    EXPECT_EQ(saved.web.port, 65530);
+    EXPECT_EQ(saved.web.bind, "127.0.0.1");
+}
+
+TEST(WebServerHttp, RemoteWebModeRejectsDangerousModeWithoutPersisting) {
+    WebServerFixture fx(
+        std::function<std::vector<std::string>()>([] {
+            return std::vector<std::string>{"192.168.50.20"};
+        }),
+        true);
+
+    auto response = cpr::Put(
+        cpr::Url{fx.url("/api/config/remote-web")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":true})"});
+    ASSERT_EQ(response.status_code, 409) << response.text;
+    EXPECT_EQ(
+        json::parse(response.text)["error"],
+        "DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN");
+    EXPECT_EQ(fx.cfg.web.bind, "127.0.0.1");
+    EXPECT_FALSE(std::filesystem::exists(fx.tmp_dir / "config.json"));
+}
+
+TEST(WebServerHttp, StaticDocumentPreventsTokenReferrerPropagation) {
+    WebServerFixture fx;
+    auto response = cpr::Get(cpr::Url{fx.url("/?token=smoke-token")});
+    ASSERT_EQ(response.status_code, 200);
+    EXPECT_EQ(
+        response_header(response, "Referrer-Policy"),
+        "no-referrer");
 }
 
 TEST(WebServerHttp, UiLocaleDefaultsChineseAndPersistsCanonicalPreference) {
@@ -1190,6 +1465,77 @@ TEST(WebServerHttp, CreateSessionThenListShowsActive) {
     EXPECT_EQ(occurrences, 1) << "active 与 disk meta 必须合并为同一条";
 }
 
+TEST(WebServerHttp, AttentionPersistenceRetriesFailedFlushAndDrainsOnShutdown) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    auto created_response = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(created_response.status_code, 201) << created_response.text;
+    const std::string sid =
+        json::parse(created_response.text).value("session_id", std::string{});
+    ASSERT_FALSE(sid.empty());
+
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->loop, nullptr);
+    ASSERT_EQ(entry->workspace_hash, hash);
+    fx.server->track_subagent(sid);
+
+    const auto state_path =
+        std::filesystem::path(fx.project_dir) / "session_read_state.json";
+    entry->loop->events().emit(
+        acecode::SessionEventKind::BusyChanged, json{{"busy", true}});
+    ASSERT_TRUE(std::filesystem::is_regular_file(state_path));
+
+    // 用非空目录占住最终文件名，使下一次 periodic flush 的 rename 必然失败。
+    // 清掉障碍后如果 dirty 标记仍在，后续周期会自动重试并写出 token 游标。
+    std::error_code ec;
+    std::filesystem::remove(state_path, ec);
+    ASSERT_FALSE(ec);
+    std::filesystem::create_directories(state_path);
+    write_text(state_path / "keep", "block rename");
+    entry->loop->events().emit(
+        acecode::SessionEventKind::Token, json{{"text", "first"}});
+
+    std::this_thread::sleep_for(1500ms);
+    ASSERT_TRUE(std::filesystem::is_directory(state_path));
+    std::filesystem::remove_all(state_path, ec);
+    ASSERT_FALSE(ec);
+
+    const auto retry_deadline = std::chrono::steady_clock::now() + 2500ms;
+    while (std::chrono::steady_clock::now() < retry_deadline &&
+           !std::filesystem::is_regular_file(state_path)) {
+        std::this_thread::sleep_for(50ms);
+    }
+    ASSERT_TRUE(std::filesystem::is_regular_file(state_path));
+
+    const auto read_state = [&] {
+        std::ifstream in(state_path, std::ios::binary);
+        EXPECT_TRUE(in.good());
+        return json::parse(in);
+    };
+    const auto retried = read_state();
+    const auto persisted_cursor =
+        retried["sessions"][sid].value("update_cursor", std::uint64_t{0});
+    EXPECT_GT(persisted_cursor, 0u);
+
+    // 再产生一个同状态 token 后立即销毁 WebServer。析构必须先拆 producer，
+    // 再做 final flush + join，确保最后的 dirty cursor 已落盘。
+    std::this_thread::sleep_for(2ms);
+    entry->loop->events().emit(
+        acecode::SessionEventKind::Token, json{{"text", "second"}});
+    fx.server->stop();
+    if (fx.server_thread.joinable()) fx.server_thread.join();
+    fx.server.reset();
+
+    const auto drained = read_state();
+    EXPECT_GT(
+        drained["sessions"][sid].value("update_cursor", std::uint64_t{0}),
+        persisted_cursor);
+}
+
 // /rc 的固定会话背景由 session list 的 remote_control_bound 字段恢复。
 // 只允许持久化绑定 id 命中的那一项为 true；off 清空后所有项都必须为 false。
 TEST(WebServerHttp, SessionListMarksOnlyRemoteControlBoundSession) {
@@ -1368,6 +1714,8 @@ TEST(WebServerHttp, ActiveWorktreeSessionListIncludesWorktreeState) {
     worktree.worktree_path = fx.cwd + "/.acecode/worktrees/ses-active-list";
     worktree.worktree_name = "ses-active-list";
     worktree.worktree_branch = "worktree-ses-active-list";
+    const auto worktree_path = path_from_utf8(worktree.worktree_path);
+    write_text(worktree_path / "docs" / "design.md", "# Worktree design\n");
     entry->sm->set_active_worktree(worktree);
 
     auto list = cpr::Get(cpr::Url{fx.url("/api/sessions")});
@@ -1378,9 +1726,91 @@ TEST(WebServerHttp, ActiveWorktreeSessionListIncludesWorktreeState) {
     });
     ASSERT_NE(found, sessions.end());
     EXPECT_TRUE((*found)["active"].get<bool>());
+    EXPECT_EQ((*found)["cwd"], fx.cwd);
     ASSERT_TRUE(found->contains("worktree"));
     EXPECT_EQ((*found)["worktree"]["name"], "ses-active-list");
     EXPECT_EQ((*found)["worktree"]["branch"], "worktree-ses-active-list");
+    EXPECT_EQ((*found)["worktree"]["path"], worktree.worktree_path);
+
+    auto content = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{
+            {"cwd", worktree.worktree_path},
+            {"path", "docs/design.md"},
+        });
+    ASSERT_EQ(content.status_code, 200) << content.text;
+    EXPECT_EQ(content.text, "# Worktree design\n");
+
+    const auto outside_path = fx.cwd_dir / "main-only.md";
+    write_text(outside_path, "main checkout only\n");
+    auto escaped = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{
+            {"cwd", worktree.worktree_path},
+            {"path", acecode::path_to_utf8(outside_path)},
+        });
+    ASSERT_EQ(escaped.status_code, 400) << escaped.text;
+    EXPECT_EQ(json::parse(escaped.text)["error"], "path outside workspace");
+
+    const auto unrelated_cwd = fx.tmp_dir / "unregistered-root";
+    write_text(unrelated_cwd / "unknown.md", "unknown\n");
+    auto unrelated = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{
+            {"cwd", acecode::path_to_utf8(unrelated_cwd)},
+            {"path", "unknown.md"},
+        });
+    ASSERT_EQ(unrelated.status_code, 400) << unrelated.text;
+    EXPECT_EQ(json::parse(unrelated.text)["error"], "unknown workspace");
+}
+
+// 首条消息创建 worktree 时,前端必须从 202 响应立即拿到真实路径；不能等下一次
+// session list 刷新,否则这一轮生成的文档链接仍会按主工作区 cwd 解析。
+TEST(WebServerHttp, FirstWorktreeMessageReturnsCreatedWorkingRoot) {
+    if (!acecode::worktree::run_git({"--version"}, "").ok()) {
+        GTEST_SKIP() << "git not available on this machine";
+    }
+
+    WebServerFixture fx;
+    ASSERT_TRUE(acecode::worktree::run_git({"init", "-b", "main"}, fx.cwd).ok());
+    ASSERT_TRUE(acecode::worktree::run_git(
+        {"config", "user.email", "t@acecode.local"}, fx.cwd).ok());
+    ASSERT_TRUE(acecode::worktree::run_git(
+        {"config", "user.name", "acecode-test"}, fx.cwd).ok());
+    write_text(fx.cwd_dir / "README.md", "worktree response fixture\n");
+    ASSERT_TRUE(acecode::worktree::run_git({"add", "."}, fx.cwd).ok());
+    ASSERT_TRUE(acecode::worktree::run_git(
+        {"commit", "-m", "initial fixture"}, fx.cwd).ok());
+
+    auto created = cpr::Post(
+        cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const auto sid = json::parse(created.text)["session_id"].get<std::string>();
+
+    auto queued = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + url_encode_component(sid) + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({
+            "text":"create a worktree document",
+            "worktree":{"create":true,"base":"main"}
+        })"});
+    ASSERT_EQ(queued.status_code, 202) << queued.text;
+    const auto response = json::parse(queued.text);
+    EXPECT_TRUE(response["queued"].get<bool>());
+    ASSERT_TRUE(response.contains("worktree"));
+    EXPECT_EQ(response["worktree"]["name"], "ses-" + sid);
+    EXPECT_EQ(response["worktree"]["branch"], "worktree-ses-" + sid);
+    const auto worktree_path = response["worktree"]["path"].get<std::string>();
+    EXPECT_FALSE(worktree_path.empty());
+    EXPECT_TRUE(std::filesystem::exists(path_from_utf8(worktree_path) / ".git"));
+
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    EXPECT_EQ(entry->cwd, fx.cwd);
+    EXPECT_EQ(entry->sm->active_worktree().worktree_path, worktree_path);
 }
 
 TEST(WebServerHttp, LoopSessionListIncludesOriginWhileActiveAndAfterDestroy) {
@@ -2106,6 +2536,62 @@ TEST(WebServerHttp, CreateNoWorkspaceSessionIsListedOutsideWorkspaces) {
     std::filesystem::remove_all(no_workspace_project_dir);
 }
 
+// 场景:会话列表只在规范 JSONL 已经实际落盘时暴露 session_path。
+// 活跃与 inactive 列表必须指向同一个由 SessionStorage 生成的文件。
+TEST(WebServerHttp, SessionListExposesOnlyExistingCanonicalJsonlPath) {
+    WebServerFixture fx;
+    const std::string workspace_hash = acecode::compute_cwd_hash(fx.cwd);
+
+    auto created = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + workspace_hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const std::string sid =
+        json::parse(created.text)["session_id"].get<std::string>();
+
+    auto find_session = [&](const json& sessions) -> const json* {
+        for (const auto& item : sessions) {
+            if (item.value("id", std::string{}) == sid) return &item;
+        }
+        return nullptr;
+    };
+    auto list_sessions = [&]() {
+        auto response = cpr::Get(cpr::Url{
+            fx.url("/api/workspaces/" + workspace_hash + "/sessions")});
+        EXPECT_EQ(response.status_code, 200) << response.text;
+        return json::parse(response.text);
+    };
+
+    auto before = list_sessions();
+    const json* before_item = find_session(before);
+    ASSERT_NE(before_item, nullptr);
+    EXPECT_EQ(before_item->value("session_path", std::string{}), "");
+
+    const std::string expected_path =
+        acecode::SessionStorage::session_path(fx.project_dir, sid);
+    acecode::ChatMessage message;
+    message.role = "user";
+    message.content = "persisted session";
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    entry->sm->on_message(message);
+    ASSERT_TRUE(std::filesystem::is_regular_file(expected_path));
+
+    auto active = list_sessions();
+    const json* active_item = find_session(active);
+    ASSERT_NE(active_item, nullptr);
+    EXPECT_EQ(active_item->value("session_path", std::string{}), expected_path);
+
+    fx.client->destroy_session(sid);
+    auto inactive = list_sessions();
+    const json* inactive_item = find_session(inactive);
+    ASSERT_NE(inactive_item, nullptr);
+    EXPECT_EQ(inactive_item->value("active", true), false);
+    EXPECT_EQ(inactive_item->value("session_path", std::string{}), expected_path);
+}
+
 // 场景:daemon 运行期间 TUI/其它进程改写 config.json 的默认模型和默认
 // 权限模式,后续 create-session 必须在解析前观察磁盘新值。
 TEST(WebServerHttp, CreateSessionRefreshesExternalDefaultPreferences) {
@@ -2821,6 +3307,42 @@ TEST(WebServerHttp, FilePreviewEndpointsAllowOnlyActiveNoWorkspaceArtifacts) {
         cpr::Parameters{{"cwd", preview_cwd}, {"path", "session-summary.md"}});
     ASSERT_EQ(stale.status_code, 400) << stale.text;
     EXPECT_EQ(json::parse(stale.text)["error"], "unknown workspace");
+}
+
+// 回归:无工作区会话变更里常出现 ~/.acecode/skills 下的绝对路径(全局 skill
+// 包)。前端拆成 parent+basename 后不在 workspace 白名单,预览应与
+// open-in-explorer 一样放行 ACECode 管理的 skills 根。
+TEST(WebServerHttp, FilePreviewEndpointsAllowAcecodeManagedSkillArtifacts) {
+    WebServerFixture fx;
+
+    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                             cpr::Header{{"Content-Type", "application/json"}},
+                             cpr::Body{R"({"no_workspace":true})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+
+    const auto skills_dir =
+        path_from_utf8(acecode::get_acecode_dir()) / "skills" /
+        ("preview-smoke-" + std::to_string(
+             std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto sdk_dir = skills_dir / "sdk";
+    write_text(sdk_dir / "todo-list.d.ts", "export type TodoStatus = \"pending\";\n");
+
+    const auto preview_cwd = acecode::path_to_utf8(sdk_dir);
+    auto content = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{{"cwd", preview_cwd}, {"path", "todo-list.d.ts"}});
+    EXPECT_EQ(content.status_code, 200) << content.text;
+    EXPECT_EQ(content.text, "export type TodoStatus = \"pending\";\n");
+
+    // 目录树仍不得借预览白名单开放全局 skills 根。
+    auto listing = cpr::Get(
+        cpr::Url{fx.url("/api/files")},
+        cpr::Parameters{{"cwd", preview_cwd}, {"path", ""}});
+    ASSERT_EQ(listing.status_code, 400) << listing.text;
+    EXPECT_EQ(json::parse(listing.text)["error"], "unknown workspace");
+
+    std::error_code ec;
+    std::filesystem::remove_all(skills_dir, ec);
 }
 
 // 场景:/api/files/blob 除图片外也允许浏览器原生可打开的 PDF,供详情面板内嵌预览。
@@ -3857,6 +4379,91 @@ TEST(WebServerHttp, UploadAttachmentAndSubmitContentParts) {
     EXPECT_TRUE(found) << "attachment content_parts should be persisted";
 }
 
+TEST(WebServerHttp, SourceBackedAttachmentPersistsAbsolutePathForModelContext) {
+    WebServerFixture fx;
+    const auto source_file = fx.cwd_dir / "source notes.txt";
+    {
+        std::ofstream output(source_file, std::ios::binary);
+        output << "abc";
+    }
+    const auto canonical_source = std::filesystem::weakly_canonical(source_file);
+    const std::string source_path = acecode::path_to_utf8(canonical_source);
+    const std::string expected_source = acecode::path_to_utf8_generic(canonical_source);
+
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}},
+                          cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201);
+    const auto sid = json::parse(post.text)["session_id"].get<std::string>();
+
+    auto invalid = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"name", "source notes.txt"},
+            {"mime_type", "text/plain"},
+            {"data_base64", "YWJj"},
+            {"source_path", "relative/source notes.txt"},
+        }.dump()});
+    EXPECT_EQ(invalid.status_code, 400) << invalid.text;
+
+    auto upload = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"name", "source notes.txt"},
+            {"mime_type", "text/plain"},
+            {"data_base64", "YWJj"},
+            {"source_path", source_path},
+        }.dump()});
+    ASSERT_EQ(upload.status_code, 201) << upload.text;
+    const auto attachment = json::parse(upload.text)["attachment"];
+    EXPECT_EQ(attachment["metadata"].value("source_path", ""), expected_source);
+    EXPECT_NE(attachment.value("path", ""), expected_source);
+    const std::string attachment_id = attachment["id"].get<std::string>();
+
+    auto queued = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "inspect it"},
+            {"client_message_id", "source-path-message"},
+            {"attachments", json::array({json{{"id", attachment_id}}})},
+        }.dump()});
+    ASSERT_EQ(queued.status_code, 202) << queued.text;
+
+    bool found = false;
+    std::string last_messages;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline && !found) {
+        auto response = cpr::Get(cpr::Url{fx.url("/api/sessions/" + sid + "/messages")});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        last_messages = response.text;
+        const auto response_body = json::parse(response.text);
+        for (const auto& message : response_body["messages"]) {
+            if (message.value("role", "") != "user" ||
+                !message.contains("metadata") || !message["metadata"].is_object() ||
+                message["metadata"].value("client_message_id", "") != "source-path-message") {
+                continue;
+            }
+            const auto& parts = message["content_parts"];
+            ASSERT_TRUE(parts.is_array());
+            ASSERT_EQ(parts.size(), 3u) << parts.dump(2);
+            EXPECT_EQ(parts[0].value("text", ""), "inspect it");
+            EXPECT_EQ(parts[1].value("type", ""), "text");
+            EXPECT_NE(parts[1].value("text", "").find("absolute_path"), std::string::npos);
+            EXPECT_NE(parts[1].value("text", "").find(expected_source), std::string::npos);
+            EXPECT_EQ(parts[2].value("type", ""), "file");
+            EXPECT_EQ(parts[2]["attachment"].value("id", ""), attachment_id);
+            found = true;
+            break;
+        }
+        if (!found) std::this_thread::sleep_for(20ms);
+    }
+    EXPECT_TRUE(found) << "source-backed attachment context should be persisted: "
+                       << last_messages;
+}
+
 TEST(WebServerHttp, PostBuiltinCommandRejectsUnknownSession) {
     WebServerFixture fx;
     auto r = cpr::Post(cpr::Url{fx.url("/api/sessions/missing-session/commands")},
@@ -4051,6 +4658,48 @@ TEST(WebServerHttp, ResumeDiskSessionActivatesIt) {
         }
     }
     EXPECT_TRUE(found);
+}
+
+TEST(WebServerHttp, ConfigReadCompletesWhileSessionResumeIsBlocked) {
+    BlockingResumeLocalSessionClient* blocking_client = nullptr;
+    WebServerFixture fx(WebServerFixture::SessionClientFactory{
+        [&blocking_client](acecode::SessionRegistry& registry)
+            -> std::unique_ptr<acecode::LocalSessionClient> {
+            auto client =
+                std::make_unique<BlockingResumeLocalSessionClient>(registry);
+            blocking_client = client.get();
+            return client;
+        }});
+    ASSERT_NE(blocking_client, nullptr);
+
+    std::optional<cpr::Response> resume_response;
+    std::thread resume_thread([&] {
+        resume_response = cpr::Post(
+            cpr::Url{fx.url("/api/sessions/blocked-resume/resume")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{R"({})"},
+            cpr::Timeout{2000});
+    });
+
+    if (!blocking_client->wait_for_started(1s)) {
+        blocking_client->release();
+        resume_thread.join();
+        FAIL() << "resume request did not reach the blocking session client";
+        return;
+    }
+
+    auto models = cpr::Get(
+        cpr::Url{fx.url("/api/models")},
+        cpr::Timeout{500});
+
+    blocking_client->release();
+    resume_thread.join();
+
+    ASSERT_EQ(models.status_code, 200)
+        << "config-read route waited for the blocked resume: "
+        << models.error.message;
+    ASSERT_TRUE(resume_response.has_value());
+    EXPECT_EQ(resume_response->status_code, 200) << resume_response->text;
 }
 
 TEST(WebServerHttp, ExpertCapabilityCatalogIsRuntimeBackedAndSanitized) {
@@ -4255,16 +4904,22 @@ TEST(WebServerHttp, ExpertCrudAndSessionBindingRoundTrip) {
         fx.url("/api/experts?workspace=" + hash)});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
     auto listed_body = json::parse(listed.text);
-    ASSERT_EQ(listed_body["experts"].size(), 1);
-    EXPECT_EQ(listed_body["experts"][0]["id"], "code-reviewer");
-    EXPECT_FALSE(listed_body["experts"][0]["agents"][0].contains("instructions"));
-    EXPECT_FALSE(listed_body["experts"][0].contains("author"));
-    EXPECT_EQ(listed_body["experts"][0]["tags"],
+    const auto& listed_experts = listed_body["experts"];
+    const auto listed_expert_it =
+        std::find_if(listed_experts.begin(), listed_experts.end(),
+                     [](const json& item) {
+                         return item.value("id", "") == "code-reviewer";
+                     });
+    ASSERT_NE(listed_expert_it, listed_experts.end());
+    const auto& listed_expert = *listed_expert_it;
+    EXPECT_FALSE(listed_expert["agents"][0].contains("instructions"));
+    EXPECT_FALSE(listed_expert.contains("author"));
+    EXPECT_EQ(listed_expert["tags"],
               json::array({"开发", "质量"}));
-    EXPECT_EQ(listed_body["experts"][0]["capabilities"]["tools"],
+    EXPECT_EQ(listed_expert["capabilities"]["tools"],
               json::array({"file_read", "ask_user_question"}));
-    EXPECT_FALSE(listed_body["experts"][0].contains("package_root"));
-    EXPECT_FALSE(listed_body["experts"][0].contains("skill_roots"));
+    EXPECT_FALSE(listed_expert.contains("package_root"));
+    EXPECT_FALSE(listed_expert.contains("skill_roots"));
 
     draft["display_name"] = "Updated Reviewer";
     auto updated = cpr::Put(
@@ -4337,8 +4992,14 @@ TEST(WebServerHttp, ExpertAvatarUsesContainedHttpEndpointAndSafeDto) {
         fx.url("/api/experts?workspace=" + hash)});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
     const auto list_body = json::parse(listed.text);
-    ASSERT_EQ(list_body["experts"].size(), 1u);
-    const auto& list_item = list_body["experts"][0];
+    const auto& listed_experts = list_body["experts"];
+    const auto list_item_it =
+        std::find_if(listed_experts.begin(), listed_experts.end(),
+                     [](const json& item) {
+                         return item.value("id", "") == "avatar-expert";
+                     });
+    ASSERT_NE(list_item_it, listed_experts.end());
+    const auto& list_item = *list_item_it;
     EXPECT_FALSE(list_item.contains("avatar_path"));
     const std::string avatar_url =
         list_item.value("avatar_url", "");
@@ -4494,9 +5155,15 @@ TEST(WebServerHttp, ExpertsRejectInvalidWorkspaceAndWorkspaceMutations) {
         fx.url("/api/experts?workspace=" + hash)});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
     const auto listed_body = json::parse(listed.text);
-    ASSERT_EQ(listed_body["experts"].size(), 1);
-    EXPECT_EQ(listed_body["experts"][0]["source"], "workspace");
-    EXPECT_FALSE(listed_body["experts"][0]["managed_global"].get<bool>());
+    const auto& listed_experts = listed_body["experts"];
+    const auto workspace_expert_it =
+        std::find_if(listed_experts.begin(), listed_experts.end(),
+                     [](const json& item) {
+                         return item.value("id", "") == "workspace-reviewer";
+                     });
+    ASSERT_NE(workspace_expert_it, listed_experts.end());
+    EXPECT_EQ((*workspace_expert_it)["source"], "workspace");
+    EXPECT_FALSE((*workspace_expert_it)["managed_global"].get<bool>());
 
     json replacement = {
         {"id", "workspace-reviewer"},
@@ -5006,6 +5673,83 @@ TEST(WebServerHttp, DesktopFeedbackUploadsLogOnlyWithoutSession) {
     EXPECT_TRUE(metadata["session_id"].is_null());
     EXPECT_TRUE(metadata["selected_session_id"].is_null());
     EXPECT_TRUE(metadata["log_available"].get<bool>());
+    std::error_code ec;
+    std::filesystem::remove(received_zip, ec);
+}
+
+TEST(WebServerHttp, DesktopFeedbackUploadsDaemonLogAlongsideDesktopLog) {
+    std::filesystem::path received_zip;
+    LocalUpdateServer upload_server([&](httplib::Server& s) {
+        s.Post("/", [&](const httplib::Request& req, httplib::Response& res) {
+            auto file = req.get_file_value("file");
+            received_zip = std::filesystem::temp_directory_path() /
+                           ("acecode_desktop_feedback_daemon_log_" +
+                            std::to_string(std::chrono::steady_clock::now()
+                                               .time_since_epoch()
+                                               .count()) + ".zip");
+            write_text(received_zip, file.content);
+            res.set_content(R"({"success":true})", "application/json");
+        });
+    });
+
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = upload_server.base_url();
+    write_text(fx.logs_dir / "desktop-2026-06-18.log", "desktop latest log");
+    write_text(fx.logs_dir / "daemon-2026-06-18.log", "daemon latest log");
+
+    auto r = cpr::Post(cpr::Url{fx.url("/api/feedback/desktop")},
+                       cpr::Header{{"Content-Type", "application/json"}},
+                       cpr::Body{json{{"feedback_text", "turn never finished"}}.dump()});
+    ASSERT_EQ(r.status_code, 200) << r.text;
+    auto body = json::parse(r.text);
+    EXPECT_TRUE(body["ok"].get<bool>());
+    ASSERT_EQ(body["logs"].size(), 2u);
+    EXPECT_EQ(body["logs"][1]["entry_name"], "logs/daemon.log.tail.txt");
+    EXPECT_TRUE(body["logs"][1]["available"].get<bool>());
+    EXPECT_EQ(read_zip_entry(received_zip, "logs/desktop.log.tail.txt"),
+              "desktop latest log");
+    EXPECT_EQ(read_zip_entry(received_zip, "logs/daemon.log.tail.txt"),
+              "daemon latest log");
+
+    auto metadata = json::parse(read_zip_entry(received_zip, "feedback.json"));
+    EXPECT_TRUE(metadata["log_available"].get<bool>());
+    ASSERT_EQ(metadata["logs"].size(), 2u);
+    EXPECT_EQ(metadata["logs"][1]["entry_name"], "logs/daemon.log.tail.txt");
+    std::error_code ec;
+    std::filesystem::remove(received_zip, ec);
+}
+
+TEST(WebServerHttp, DesktopFeedbackUploadsDaemonLogWhenDesktopShellIsAbsent) {
+    std::filesystem::path received_zip;
+    LocalUpdateServer upload_server([&](httplib::Server& s) {
+        s.Post("/", [&](const httplib::Request& req, httplib::Response& res) {
+            auto file = req.get_file_value("file");
+            received_zip = std::filesystem::temp_directory_path() /
+                           ("acecode_desktop_feedback_daemon_only_" +
+                            std::to_string(std::chrono::steady_clock::now()
+                                               .time_since_epoch()
+                                               .count()) + ".zip");
+            write_text(received_zip, file.content);
+            res.set_content(R"({"success":true})", "application/json");
+        });
+    });
+
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = upload_server.base_url();
+    write_text(fx.logs_dir / "daemon-2026-06-18.log", "daemon only log");
+
+    auto r = cpr::Post(cpr::Url{fx.url("/api/feedback/desktop")},
+                       cpr::Header{{"Content-Type", "application/json"}},
+                       cpr::Body{json{{"feedback_text", "browser only"}}.dump()});
+    ASSERT_EQ(r.status_code, 200) << r.text;
+    auto body = json::parse(r.text);
+    EXPECT_TRUE(body["ok"].get<bool>());
+    EXPECT_TRUE(body["log_included"].get<bool>());
+    ASSERT_EQ(body["logs"].size(), 1u);
+    EXPECT_EQ(body["logs"][0]["entry_name"], "logs/daemon.log.tail.txt");
+    EXPECT_FALSE(zip_entry_exists(received_zip, "logs/desktop.log.tail.txt"));
+    EXPECT_EQ(read_zip_entry(received_zip, "logs/daemon.log.tail.txt"),
+              "daemon only log");
     std::error_code ec;
     std::filesystem::remove(received_zip, ec);
 }

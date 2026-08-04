@@ -13,7 +13,6 @@
 #include "../../skills/skill_commands.hpp"
 #include "../../skills/skill_init.hpp"
 #include "../../skills/skill_registry.hpp"
-#include "../../tool/ace_browser_bridge/browser_tools.hpp"
 #include "../../tool/mcp_manager.hpp"
 #include "../../tool/tool_executor.hpp"
 #include "../../utils/utf8_path.hpp"
@@ -614,7 +613,6 @@ struct ManagementCenter::Impl {
         ToolDef definition;
         ToolSource source = ToolSource::Builtin;
         bool read_only = false;
-        bool browser_bridge = false;
     };
     std::string tool_filter;
     std::vector<ToolRow> tool_rows;
@@ -659,7 +657,6 @@ struct ManagementCenter::Impl {
     Component connectors_page;
     Component tool_filter_input;
     Component tool_menu;
-    Component tool_toggle_button;
     Component tools_page;
     Component hook_filter_input;
     Component hook_menu;
@@ -1088,7 +1085,6 @@ struct ManagementCenter::Impl {
                     definition,
                     ToolSource::Builtin,
                     deps.tools->is_read_only(definition.name),
-                    definition.name == "browser_start",
                 });
             }
             for (const auto& definition :
@@ -1098,7 +1094,6 @@ struct ManagementCenter::Impl {
                     definition,
                     ToolSource::Mcp,
                     deps.tools->is_read_only(definition.name),
-                    false,
                 });
             }
         }
@@ -1148,39 +1143,6 @@ struct ManagementCenter::Impl {
         const std::size_t index = visible_tool_indexes[
             static_cast<std::size_t>(tool_selected)];
         return index < tool_rows.size() ? &tool_rows[index] : nullptr;
-    }
-
-    void toggle_browser_tools() {
-        const ToolRow* row = selected_tool();
-        if (!row || !row->browser_bridge || !deps.tools || !deps.config) {
-            set_status(
-                "The selected tool is immutable. Only the Browser Bridge "
-                "tool group has a persisted runtime toggle.",
-                true);
-            return;
-        }
-        const bool enable = !deps.config->ace_browser_bridge.enabled;
-        const auto result = mutate(
-            [enable](AppConfig& config, std::string&) {
-                if (config.ace_browser_bridge.enabled == enable) {
-                    return false;
-                }
-                config.ace_browser_bridge.enabled = enable;
-                return true;
-            });
-        if (!result.ok) {
-            set_status(result.error, true);
-            return;
-        }
-        ace_browser_bridge::unregister_ace_browser_bridge_tools(*deps.tools);
-        if (enable) {
-            ace_browser_bridge::register_ace_browser_bridge_tools(
-                *deps.tools, deps.config->ace_browser_bridge);
-        }
-        refresh_tools();
-        set_status(
-            std::string(enable ? "Enabled" : "Disabled") +
-            " Browser Bridge tools for this session and future sessions.");
     }
 
     void refresh_hooks() {
@@ -1446,24 +1408,10 @@ struct ManagementCenter::Impl {
                 (row->read_only ? "read-only / automatic"
                                 : "subject to permission mode")),
         };
-        if (row->browser_bridge) {
-            content.push_back(text(
-                std::string("Browser Bridge   ") +
-                (deps.config &&
-                         deps.config->ace_browser_bridge.enabled
-                     ? "enabled"
-                     : "disabled")));
-            content.push_back(
-                paragraph(
-                    "This row controls the persisted Browser Bridge tool "
-                    "group. Other built-in and MCP tools are managed at their "
-                    "own source."));
-        } else {
-            content.push_back(
-                paragraph(
-                    "This tool is immutable in this view. Manage MCP tools "
-                    "from the MCP Servers tab or their owning server."));
-        }
+        content.push_back(
+            paragraph(
+                "This tool is immutable in this view. Manage MCP tools "
+                "from the MCP Servers tab or their owning server."));
         return vbox(std::move(content)) |
             color(theme().ui.text_muted) | border;
     }
@@ -1548,8 +1496,7 @@ struct ManagementCenter::Impl {
                 capabilities.toggle = selected_connector() != nullptr;
                 break;
             case ManagementTab::Tools: {
-                const ToolRow* row = selected_tool();
-                capabilities.toggle = row && row->browser_bridge;
+                capabilities.toggle = false;
                 break;
             }
             case ManagementTab::Hooks: {
@@ -1820,14 +1767,9 @@ struct ManagementCenter::Impl {
             &tool_filter, "/ to search tools",
             [this]() { rebuild_tool_entries(); });
         tool_menu = make_list(&tool_entries, &tool_selected);
-        tool_toggle_button = Button(
-            " Toggle Browser Bridge ",
-            [this]() { toggle_browser_tools(); },
-            ButtonOption::Animated());
         auto tool_container = Container::Vertical({
             tool_filter_input,
             tool_menu,
-            tool_toggle_button,
         });
         tools_page = Renderer(tool_container, [this]() {
             return vbox({
@@ -1850,7 +1792,6 @@ struct ManagementCenter::Impl {
                     separator(),
                     render_tool_details() | flex,
                 }) | flex,
-                tool_toggle_button->Render(),
             });
         });
 
@@ -2200,7 +2141,7 @@ struct ManagementCenter::Impl {
             case ManagementTab::Skills: toggle_skill(); break;
             case ManagementTab::McpServers: toggle_mcp(); break;
             case ManagementTab::Connectors: toggle_connector(); break;
-            case ManagementTab::Tools: toggle_browser_tools(); break;
+            case ManagementTab::Tools: break;
             case ManagementTab::Hooks: {
                 const NormalizedHook* hook = selected_hook();
                 if (hook) {

@@ -1,6 +1,3 @@
-import { effectiveLocale } from '../i18n/index.js';
-import { formatCompactNumber } from './format.js';
-
 function numberValue(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
@@ -32,9 +29,18 @@ function normalizeCommonBucket(raw = {}) {
   };
 }
 
-export function formatUsageTokens(value, locale = effectiveLocale()) {
+function compactTokenValue(value, divisor, suffix) {
+  const scaled = (value / divisor).toFixed(2).replace(/\.?0+$/, '');
+  return `${scaled}${suffix}`;
+}
+
+// Token units are technical labels and deliberately stay stable across UI
+// locales so the same usage value always communicates the same magnitude.
+export function formatUsageTokens(value) {
   const n = numberValue(value);
-  return formatCompactNumber(n, { maximumFractionDigits: 2 }, locale);
+  if (n >= 1_000_000) return compactTokenValue(n, 1_000_000, 'M');
+  if (n >= 1_000) return compactTokenValue(n, 1_000, 'K');
+  return String(n);
 }
 
 export function normalizeUsageStats(raw = {}) {

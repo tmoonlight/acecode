@@ -144,6 +144,20 @@ std::vector<std::string> append_allowed_open_root(
     return allowed_roots_utf8;
 }
 
+std::vector<std::string> append_acecode_managed_open_roots(
+    std::vector<std::string> allowed_roots_utf8,
+    const std::string& acecode_dir_utf8) {
+    if (acecode_dir_utf8.empty()) return allowed_roots_utf8;
+
+    const fs::path acecode_dir = acecode::path_from_utf8(acecode_dir_utf8);
+    allowed_roots_utf8 = append_allowed_open_root(
+        std::move(allowed_roots_utf8),
+        acecode::path_to_utf8(acecode_dir / "skills"));
+    return append_allowed_open_root(
+        std::move(allowed_roots_utf8),
+        acecode::path_to_utf8(acecode_dir / "projects"));
+}
+
 ValidatedOpenTarget validate_open_in_explorer_request(
     const std::string& path_utf8,
     const std::vector<std::string>& allowed_roots_utf8) {
@@ -197,7 +211,7 @@ ValidatedOpenTarget validate_open_in_explorer_request(
             false,
             {},
             OpenInExplorerTargetKind::Directory,
-            "path is outside registered workspaces",
+            "path is outside allowed roots",
         };
     }
     return {

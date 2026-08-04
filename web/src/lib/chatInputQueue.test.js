@@ -17,6 +17,7 @@ import {
   queuedInputsForSession,
   restoreUncommittedGuidanceForSession,
   retryQueuedInput,
+  shouldDrainQueuedInput,
 } from './chatInputQueue.js';
 
 function run(name, fn) {
@@ -278,4 +279,40 @@ run('backend user message 优先按 client id 完成而不是误配相同文本'
     queuedInputsForSession(state, 's1', { includeDone: true })[0].queued.state,
     QUEUED_INPUT_STATE.COMPLETED,
   );
+});
+
+run('shouldDrainQueuedInput: 切会话 loading 期间禁止 drain', () => {
+  assert.equal(shouldDrainQueuedInput({
+    sessionId: 's1',
+    busy: false,
+    loadState: 'loading',
+  }), false);
+  assert.equal(shouldDrainQueuedInput({
+    sessionId: 's1',
+    busy: false,
+    loadState: 'idle',
+  }), false);
+  assert.equal(shouldDrainQueuedInput({
+    sessionId: 's1',
+    busy: false,
+    loadState: 'error',
+  }), false);
+});
+
+run('shouldDrainQueuedInput: loaded 且非 busy 才允许 drain', () => {
+  assert.equal(shouldDrainQueuedInput({
+    sessionId: 's1',
+    busy: false,
+    loadState: 'loaded',
+  }), true);
+  assert.equal(shouldDrainQueuedInput({
+    sessionId: 's1',
+    busy: true,
+    loadState: 'loaded',
+  }), false);
+  assert.equal(shouldDrainQueuedInput({
+    sessionId: '',
+    busy: false,
+    loadState: 'loaded',
+  }), false);
 });

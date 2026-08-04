@@ -27,7 +27,7 @@ The Windows ARM64 package job SHALL run the ARM64 cross compiler on a native x64
 
 #### Scenario: Cross-compiled ARM64 package
 - **WHEN** the Windows ARM64 job finishes compiling and packaging
-- **THEN** `acecode.exe`, `acecode-desktop.exe`, and `ace-browser-host.exe` all report the ARM64 machine type before upload
+- **THEN** `acecode.exe` and `acecode-desktop.exe` both report the ARM64 machine type before upload
 
 ### Requirement: Single Web UI build per package workflow
 The package workflow SHALL build `web/dist` once and SHALL provide that identical output to every current and old-Linux native package job.

@@ -1,8 +1,9 @@
 #pragma once
 
-// Portable native-notification boundary. Windows uses WinToast, macOS Desktop
-// uses UserNotifications, and unsupported platforms retain a safe no-op
-// backend. The standalone macOS TUI intentionally does not initialize it.
+// Portable native-notification boundary. Windows uses the self-drawn layered
+// toast (custom_toast), macOS Desktop uses UserNotifications, and unsupported
+// platforms retain a safe no-op backend. The standalone macOS TUI intentionally
+// does not initialize it.
 
 #include <cstddef>
 #include <functional>
@@ -43,9 +44,6 @@ struct NotificationInitOptions {
     std::string application_id;
     // Windows: HWND. macOS Desktop: NSWindow*. Unsupported platforms: ignored.
     void* activation_window = nullptr;
-    // Windows only: "auto" | "system" | "custom", see
-    // notification_backend_policy.hpp. Other platforms ignore it.
-    std::string backend = "auto";
 };
 
 using ClickHandler = std::function<void(const NotifyPayload& payload)>;

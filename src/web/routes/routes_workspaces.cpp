@@ -496,7 +496,7 @@ void WebServer::Impl::register_workspaces() {
             opts.workspace_hash = ws->hash;
             std::string id;
             try {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 refresh_default_session_preferences_for_new_session_locked();
                 id = deps.session_client->create_session(opts);
             } catch (const std::invalid_argument& ex) {
@@ -566,7 +566,13 @@ void WebServer::Impl::register_workspaces() {
             }
             bool resumed = false;
             {
-                std::lock_guard<std::mutex> config_lock(app_config_mu);
+                // 共享锁而非独占:resume 只读 config(saved_models 解析、
+                // skill 目录、permission 模板),但要全量解析 jsonl,单次
+                // 574~824ms —— 独占持有会把整个 HTTP 面卡停近一秒,用户在
+                // 侧边栏连点几个会话就是一串锁车队。写方仍独占,见
+                // server_impl.hpp 的锁纪律说明;同 id 并发 resume 由
+                // SessionRegistry::resume 内的单飞守卫串行化。
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 resumed = deps.session_client->resume_session(id, opts);
             }
             if (!resumed) {

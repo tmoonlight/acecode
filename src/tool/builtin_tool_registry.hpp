@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../config/config.hpp"
-#include "ace_browser_bridge/browser_tools.hpp"
+#include "agent_browser/browser_tools.hpp"
 #include "bash_tool.hpp"
 #include "file_edit_tool.hpp"
 #include "file_read_tool.hpp"
@@ -47,8 +47,7 @@ inline void register_session_builtin_tools(ToolExecutor& tools, const AppConfig&
     if (config.lsp.enabled) {
         tools.register_tool(create_lsp_tool());
     }
-    ace_browser_bridge::register_ace_browser_bridge_tools(
-        tools, config.ace_browser_bridge);
+    agent_browser::register_agent_browser_tools(tools);
 }
 
 } // namespace acecode

@@ -51,6 +51,10 @@ SettingsMutationResult set_native_notifications_enabled(
     bool enabled,
     const SettingsMutationOptions& options = {});
 
+SettingsMutationResult set_remote_web_enabled(
+    bool enabled,
+    const SettingsMutationOptions& options = {});
+
 SettingsMutationResult set_tui_theme(
     const std::string& theme,
     const SettingsMutationOptions& options = {});

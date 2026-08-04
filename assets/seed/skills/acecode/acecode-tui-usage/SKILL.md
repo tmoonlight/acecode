@@ -192,7 +192,6 @@ include:
 - `/mcp`: inspect and manage configured MCP servers.
 - `/memory`: inspect or manage persistent memory in the TUI.
 - `/lsp`: inspect language-server integration.
-- `/browser`: start or inspect browser automation support.
 - `/websearch`: inspect web-search behavior.
 - `/remote-control` or `/rc`: manage remote-control access.
 - `/feedback`: submit product feedback.
@@ -217,12 +216,10 @@ Put each skill in its own directory with a `SKILL.md` file. Use `/skills reload`
 after adding or editing a skill while ACECode is running. Prefer a precise skill
 description so ACECode can select it for the right requests.
 
-## Use MCP and Browser Support
+## Use MCP Support
 
 - Configure MCP servers in ACECode configuration, then use `/mcp` to inspect their
   current state and available runtime actions.
-- Use `/browser` to start the browser bridge. Once started, the model interacts
-  with it through the ACE browser host tooling.
 - If an integration was changed outside the running process, reload it when the
   command supports reload; otherwise restart ACECode.
 

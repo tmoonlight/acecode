@@ -27,6 +27,7 @@ using acecode::web::FileErrorKind;
 using acecode::web::list_directory;
 using acecode::web::read_file_content;
 using acecode::web::validate_path_within;
+using acecode::web::validate_preview_path_within;
 
 namespace {
 
@@ -124,6 +125,59 @@ TEST(FilesHandler, PathValidatorAcceptsEmptyPath) {
     auto cwd = cwd_str(tmp);
     auto result = validate_path_within(cwd, "", {cwd});
     ASSERT_TRUE(std::holds_alternative<fs::path>(result));
+}
+
+// 回归:无工作区会话预览把绝对路径拆成 parent + basename 后,cwd 不在
+// workspace 白名单。目标若落在 extra roots(session cache / 全局 skills)
+// 仍应放行;越界路径继续拒绝。
+TEST(FilesHandler, PreviewPathAllowsExtraRootsAfterUnknownWorkspace) {
+    TempDir workspace;
+    TempDir skills_home;
+    const auto skill_dir = skills_home.path / "skills" / "canvas" / "sdk";
+    write_file(skill_dir / "todo-list.d.ts", "export type TodoStatus = \"pending\";\n");
+
+    const auto preview_cwd = path_to_utf8(skill_dir);
+    const auto skills_root = path_to_utf8(skills_home.path / "skills");
+    const auto workspace_cwd = cwd_str(workspace);
+
+    auto allowed = validate_preview_path_within(
+        preview_cwd,
+        "todo-list.d.ts",
+        {workspace_cwd},
+        {skills_root});
+    ASSERT_TRUE(std::holds_alternative<fs::path>(allowed)) << "expected managed skills root preview";
+    EXPECT_TRUE(fs::equivalent(std::get<fs::path>(allowed), skill_dir / "todo-list.d.ts"));
+
+    TempDir outsider;
+    write_file(outsider.path / "secret.txt", "nope");
+    auto rejected = validate_preview_path_within(
+        path_to_utf8(outsider.path),
+        "secret.txt",
+        {workspace_cwd},
+        {skills_root});
+    ASSERT_TRUE(std::holds_alternative<FileError>(rejected));
+    EXPECT_EQ(std::get<FileError>(rejected).kind, FileErrorKind::UnknownWorkspace);
+}
+
+// 回归:workspace cwd 合法但 path 是 workspace 外的绝对 skills 路径时,
+// extra roots 仍允许预览(agent 在危险模式下改过全局 skill 文件)。
+TEST(FilesHandler, PreviewPathAllowsExtraRootsAfterPathOutsideWorkspace) {
+    TempDir workspace;
+    TempDir skills_home;
+    const auto skill_file = skills_home.path / "skills" / "canvas" / "sdk" / "todo-list.d.ts";
+    write_file(skill_file, "export {};\n");
+
+    const auto workspace_cwd = cwd_str(workspace);
+    const auto skills_root = path_to_utf8(skills_home.path / "skills");
+    const auto absolute_skill = path_to_utf8(skill_file);
+
+    auto allowed = validate_preview_path_within(
+        workspace_cwd,
+        absolute_skill,
+        {workspace_cwd},
+        {skills_root});
+    ASSERT_TRUE(std::holds_alternative<fs::path>(allowed));
+    EXPECT_TRUE(fs::equivalent(std::get<fs::path>(allowed), skill_file));
 }
 
 // 场景:列出目录默认过滤 dot 开头的隐藏文件。

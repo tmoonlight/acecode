@@ -1028,6 +1028,28 @@ void SessionRegistry::restore_loop_history(
 
 bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) {
     if (id.empty()) return false;
+
+    // 同 id 单飞(声明处有背景):后到者阻塞等待首个 resume 完成,醒来后
+    // 走下面的 entries_ 快速路径直接返回,不重复做磁盘解析。RAII 保证
+    // 任何 return / 异常路径都摘除在途标记并唤醒等待者。
+    struct InflightGuard {
+        SessionRegistry& reg;
+        const std::string& id;
+        InflightGuard(SessionRegistry& r, const std::string& session_id)
+            : reg(r), id(session_id) {
+            std::unique_lock<std::mutex> lk(reg.resume_inflight_mu_);
+            reg.resume_inflight_cv_.wait(lk, [&] {
+                return reg.resume_inflight_.find(id) == reg.resume_inflight_.end();
+            });
+            reg.resume_inflight_.insert(id);
+        }
+        ~InflightGuard() {
+            std::lock_guard<std::mutex> lk(reg.resume_inflight_mu_);
+            reg.resume_inflight_.erase(id);
+            reg.resume_inflight_cv_.notify_all();
+        }
+    } inflight_guard(*this, id);
+
     SessionOptions resolved = with_resolved_workspace(deps_, opts, id);
 
     {
@@ -1862,6 +1884,10 @@ std::vector<SessionInfo> SessionRegistry::list_active() const {
             info.turn_count = entry->sm->current_turn_count();
             info.last_token_usage = entry->sm->current_last_token_usage();
             info.session_token_usage = entry->sm->current_session_token_usage();
+            const WorktreeSessionInfo worktree = entry->sm->active_worktree();
+            info.worktree_path = worktree.worktree_path;
+            info.worktree_name = worktree.worktree_name;
+            info.worktree_branch = worktree.worktree_branch;
         }
         if (entry->perm) {
             info.permission_mode = PermissionManager::mode_name(entry->perm->mode());

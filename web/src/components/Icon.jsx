@@ -35,7 +35,7 @@ const ICONS = {
   fork: 'Fork',
   glyphDown: 'GlyphDown',
   glyphUp: 'GlyphUp',
-  globe: 'Globe',
+  globe: 'BrowserGlobe',
   help: 'StatusHelp',
   hook: 'FishHook',
   info: 'StatusInformation',

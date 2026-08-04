@@ -66,6 +66,11 @@ public:
     // 当 webview run 中时,在主线程上 eval 一段 JS。线程安全(底层 webview_dispatch)。
     void eval(const std::string& js);
 
+    // Marshal arbitrary native work onto the WebView/UI thread. The Agent
+    // Browser proxy uses this to call CoreWebView2 CDP APIs from its pipe
+    // worker without violating COM apartment affinity.
+    void dispatch(std::function<void()> task);
+
     // 打开 WebView 开发者工具。Windows 会按需启用 DevTools;非 WebView2
     // 平台目前返回 false。
     bool open_dev_tools();

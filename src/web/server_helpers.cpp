@@ -101,31 +101,6 @@ json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result) {
     return out;
 }
 
-json ace_browser_bridge_settings_to_json(const AceBrowserBridgeConfig& cfg) {
-    json out;
-    out["enabled"] = cfg.enabled;
-    out["tool_mode"] = cfg.tool_mode;
-    out["default_mode"] = cfg.default_mode;
-    out["pointer_speed"] = cfg.pointer_speed;
-    out["status_cache_ttl_ms"] = cfg.status_cache_ttl_ms;
-    out["tool_timeout_ms"] = cfg.tool_timeout_ms;
-    out["os_pointer_enabled"] = cfg.os_pointer_enabled;
-    out["tab_group_enabled"] = cfg.tab_group_enabled;
-    out["operation_overlay_enabled"] = cfg.operation_overlay_enabled;
-    out["operation_overlay_watchdog_ms"] = cfg.operation_overlay_watchdog_ms;
-    out["pointer_custom"] = {
-        {"move_duration_ms_min", cfg.pointer_custom.move_duration_ms_min},
-        {"move_duration_ms_max", cfg.pointer_custom.move_duration_ms_max},
-        {"click_hold_ms_min", cfg.pointer_custom.click_hold_ms_min},
-        {"click_hold_ms_max", cfg.pointer_custom.click_hold_ms_max},
-        {"typing_delay_ms_min", cfg.pointer_custom.typing_delay_ms_min},
-        {"typing_delay_ms_max", cfg.pointer_custom.typing_delay_ms_max},
-        {"jitter_px", cfg.pointer_custom.jitter_px},
-        {"max_path_points", cfg.pointer_custom.max_path_points},
-    };
-    return out;
-}
-
 json custom_instructions_to_json(const CustomInstructionsConfig& cfg) {
     return json{{"text", cfg.text_snapshot()}};
 }
@@ -627,6 +602,11 @@ std::vector<std::string> WebServer::Impl::allowed_file_cwds() const {
             add(m.cwd);
         }
     }
+    if (deps.session_registry) {
+        for (const auto& session : deps.session_registry->list_active()) {
+            add(session.worktree_path);
+        }
+    }
     return out;
 }
 
@@ -679,7 +659,7 @@ bool WebServer::Impl::session_model_deleted(const std::string& model_name) const
     if (model_name.empty() || model_name.rfind("(session:", 0) == 0 || !deps.app_config) {
         return false;
     }
-    std::lock_guard<std::mutex> config_lock(app_config_mu);
+    std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
     for (const auto& entry : deps.app_config->saved_models) {
         if (entry.name == model_name) return false;
     }
@@ -693,6 +673,7 @@ void append_worktree_session(json& target, const WorktreeSessionInfo& worktree) 
     target["worktree"] = {
         {"name", worktree.worktree_name},
         {"branch", worktree.worktree_branch},
+        {"path", worktree.worktree_path},
     };
 }
 
@@ -706,6 +687,18 @@ void append_loop_execution(json& target,
     };
 }
 
+std::string existing_session_jsonl_path(const std::string& cwd,
+                                        const std::string& session_id) {
+    if (cwd.empty() || session_id.empty()) return {};
+    const std::string path = SessionStorage::session_path(
+        SessionStorage::get_project_dir(cwd), session_id);
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path_from_utf8(path), ec) || ec) {
+        return {};
+    }
+    return path;
+}
+
 } // namespace
 
 json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMeta* m) const {
@@ -717,7 +710,8 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     const std::string workspace_hash = no_workspace
         ? std::string{}
         : (!s.workspace_hash.empty() ? s.workspace_hash : (m ? compute_cwd_hash(m->cwd) : ""));
-    const std::string cwd = no_workspace ? std::string{} : (!s.cwd.empty() ? s.cwd : (m ? m->cwd : ""));
+    const std::string storage_cwd = !s.cwd.empty() ? s.cwd : (m ? m->cwd : "");
+    const std::string cwd = no_workspace ? std::string{} : storage_cwd;
     o["id"]            = s.id;
     o["active"]        = true;
     o["status"]        = s.busy ? "running" : "idle";
@@ -726,6 +720,7 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     }
     o["workspace_hash"] = workspace_hash;
     o["cwd"]           = cwd;
+    o["session_path"]  = existing_session_jsonl_path(storage_cwd, s.id);
     o["no_workspace"]  = no_workspace;
     o["title"]         = !s.title.empty() ? s.title : (m ? m->title : "");
     o["title_source"]  = !s.title_source.empty() ? s.title_source : (m ? m->title_source : "");
@@ -751,8 +746,14 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
         token_usage_has_values(s.session_token_usage)
             ? s.session_token_usage
             : (m ? m->session_token_usage : TokenUsage{}));
+    WorktreeSessionInfo worktree = m ? m->worktree : WorktreeSessionInfo{};
+    if (!s.worktree_path.empty()) {
+        worktree.worktree_path = s.worktree_path;
+        if (!s.worktree_name.empty()) worktree.worktree_name = s.worktree_name;
+        if (!s.worktree_branch.empty()) worktree.worktree_branch = s.worktree_branch;
+    }
+    append_worktree_session(o, worktree);
     if (m) {
-        append_worktree_session(o, m->worktree);
         append_loop_execution(o, m->loop_id, m->loop_run_id);
     }
     if (!o.contains("loop_execution") && deps.session_registry) {
@@ -811,6 +812,7 @@ json WebServer::Impl::session_meta_to_json(const SessionMeta& m, const std::stri
     o["status"]         = "idle";
     o["workspace_hash"] = effective_workspace_hash;
     o["cwd"]            = effective_cwd;
+    o["session_path"]   = existing_session_jsonl_path(m.cwd, m.id);
     o["no_workspace"]   = m.no_workspace;
     o["title"]          = m.title;
     o["title_source"]   = m.title_source;
@@ -1013,7 +1015,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
     // remote-control token / channel 配置暴露给前端。
     std::string remote_control_session_id;
     if (deps.app_config) {
-        std::lock_guard<std::mutex> config_lock(app_config_mu);
+        std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
         remote_control_session_id = deps.app_config->remote_control.bound_session_id;
     }
     for (auto& item : arr) {
@@ -1596,8 +1598,16 @@ void WebServer::Impl::load_attention_workspace_locked(const std::string& workspa
 }
 
 void WebServer::Impl::save_attention_workspace_locked(const std::string& workspace_hash) const {
+    // 直接调用者（例如 mark_session_read_status）同样需要失败重试语义。
+    // 先标脏，只有完整写出并 rename 成功后才摘掉。
+    attention_dirty_workspaces.insert(workspace_hash);
+
     auto cwd_it = attention_workspace_cwds.find(workspace_hash);
-    if (cwd_it == attention_workspace_cwds.end() || cwd_it->second.empty()) return;
+    if (cwd_it == attention_workspace_cwds.end() || cwd_it->second.empty()) {
+        // 没有 cwd 就无法推导持久化路径，继续重试没有意义。
+        attention_dirty_workspaces.erase(workspace_hash);
+        return;
+    }
 
     json root;
     root["version"] = 1;
@@ -1616,13 +1626,33 @@ void WebServer::Impl::save_attention_workspace_locked(const std::string& workspa
     const auto path = path_from_utf8(attention_store_path_for_cwd(cwd_it->second));
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) {
+        LOG_WARN("[web] failed to create session read state directory: " + ec.message());
+        return;
+    }
     auto tmp = path;
     tmp += ".tmp";
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return;
-        out << root.dump(2);
+        if (!out) {
+            LOG_WARN("[web] failed to open session read state temp file");
+            return;
+        }
+        // 机器读的状态文件,不需要缩进 —— dump(2) 会把体积放大近一倍。
+        out << root.dump();
         out << '\n';
+        if (!out) {
+            LOG_WARN("[web] failed to write session read state temp file");
+            out.close();
+            std::filesystem::remove(tmp, ec);
+            return;
+        }
+        out.close();
+        if (!out) {
+            LOG_WARN("[web] failed to close session read state temp file");
+            std::filesystem::remove(tmp, ec);
+            return;
+        }
     }
     std::filesystem::rename(tmp, path, ec);
     if (ec) {
@@ -1632,7 +1662,46 @@ void WebServer::Impl::save_attention_workspace_locked(const std::string& workspa
     }
     if (ec) {
         LOG_WARN("[web] failed to save session read state: " + ec.message());
+        return;
     }
+    attention_dirty_workspaces.erase(workspace_hash);
+}
+
+void WebServer::Impl::flush_dirty_attention_workspaces_locked() const {
+    if (attention_dirty_workspaces.empty()) return;
+    // save_attention_workspace_locked 成功时会从集合里删元素，失败时会保留，
+    // 所以先拷一份再遍历，不能在末尾无条件 clear。
+    const std::vector<std::string> pending(attention_dirty_workspaces.begin(),
+                                           attention_dirty_workspaces.end());
+    for (const auto& hash : pending) {
+        save_attention_workspace_locked(hash);
+    }
+}
+
+void WebServer::Impl::start_attention_flusher() {
+    attention_flush_thread = std::thread([this] {
+        std::unique_lock<std::mutex> lk(attention_mu);
+        while (!attention_flush_stop) {
+            attention_flush_cv.wait_for(
+                lk,
+                std::chrono::milliseconds(kAttentionFlushIntervalMs),
+                [this] { return attention_flush_stop; });
+            if (attention_flush_stop) break;
+            flush_dirty_attention_workspaces_locked();
+        }
+    });
+}
+
+void WebServer::Impl::stop_attention_flusher() {
+    if (!attention_flush_thread.joinable()) return;
+    {
+        std::lock_guard<std::mutex> lk(attention_mu);
+        attention_flush_stop = true;
+        // 正常退出路径把最后一个周期的脏数据落盘,别让 daemon 关闭吞掉未读态。
+        flush_dirty_attention_workspaces_locked();
+    }
+    attention_flush_cv.notify_all();
+    attention_flush_thread.join();
 }
 
 SessionAttentionRecord WebServer::Impl::attention_record_for_session(
@@ -1804,9 +1873,16 @@ void WebServer::Impl::note_session_event_for_attention(
             record.update_cursor != before_record.update_cursor ||
             record.updated_at_ms != before_record.updated_at_ms ||
             record.busy != before_record.busy) {
-            save_attention_workspace_locked(workspace_hash);
+            // 热路径:每个 token 都会走到这里,只标脏。见 Impl 里
+            // kAttentionFlushIntervalMs 附近对写放大的说明。
+            attention_dirty_workspaces.insert(workspace_hash);
         }
-        if (changed) payload = attention_payload_for_record(session_id, workspace_hash, cwd, record);
+        if (changed) {
+            // 状态跃迁 / busy 翻转 = 回合边界,一个回合只有几次,立即落盘
+            // 保证异常退出后未读态与实际一致。
+            flush_dirty_attention_workspaces_locked();
+            payload = attention_payload_for_record(session_id, workspace_hash, cwd, record);
+        }
     }
     if (changed) broadcast_session_status(payload);
 }
@@ -1873,7 +1949,7 @@ void WebServer::Impl::send_status_snapshot(crow::websocket::connection& conn,
 // =====================================================================
 
 void WebServer::Impl::refresh_saved_models_from_disk() {
-    std::lock_guard<std::mutex> lock(app_config_mu);
+    std::lock_guard<std::shared_mutex> lock(app_config_mu);
     if (!deps.app_config) return;
     try {
         AppConfig disk = load_config();
@@ -1889,7 +1965,7 @@ void WebServer::Impl::refresh_saved_models_from_disk() {
 // =====================================================================
 
 void WebServer::Impl::refresh_default_session_preferences_for_new_session() {
-    std::lock_guard<std::mutex> config_lock(app_config_mu);
+    std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
     refresh_default_session_preferences_for_new_session_locked();
 }
 

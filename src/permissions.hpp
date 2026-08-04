@@ -139,11 +139,29 @@ public:
         // permission prompt.
         if (tool_name == "TodoWrite") return true;
 
-        // Browser bridge tools are governed by their own config switch and
-        // runtime health checks. Marking mutating browser tools non-read-only
-        // keeps them sequential in AgentLoop without adding a confirmation
-        // prompt before every browser action.
-        if (tool_name.rfind("browser_", 0) == 0) return true;
+        // Native Agent Browser tools operate only on ACECode's isolated,
+        // user-visible browser page. Keep mutating browser work sequential
+        // without prompting before every pointer or navigation action.
+        static constexpr const char* kNativeAgentBrowserTools[] = {
+            "browser_open",
+            "browser_navigate",
+            "browser_read_page",
+            "browser_click",
+            "browser_fill",
+            "browser_type",
+            "browser_press",
+            "browser_hover",
+            "browser_drag",
+            "browser_scroll",
+            "browser_wait",
+            "browser_screenshot",
+            "browser_handle_dialog",
+            "browser_evaluate",
+            "browser_close",
+        };
+        for (const char* browser_tool : kNativeAgentBrowserTools) {
+            if (tool_name == browser_tool) return true;
+        }
 
         // Session-level always-allow for this tool
         {

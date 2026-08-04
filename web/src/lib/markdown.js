@@ -92,14 +92,24 @@ function isCompleteFence(token, env) {
 
 // 高亮结果缓存:流式渲染每个 delta 都会重渲全部块,已定稿代码块的内容
 // 不再变化,直接复用上次高亮结果,避免大代码块被反复重新高亮。
-const HIGHLIGHT_CACHE_MAX = 128;
+//
+// 淘汰策略是 LRU(命中即移到 Map 尾部,满了删最老的一条),不是整表清空:
+// 大会话的代码块数量很容易超过上限,整表清空会让每一轮渲染都从零重新
+// 高亮全部块 —— 缓存形同虚设,transcript 越大主线程烧得越狠。上限按
+// "条目数" 计,单条高亮结果通常几 KB,512 条约几 MB,可接受。
+const HIGHLIGHT_CACHE_MAX = 512;
 const highlightCache = new Map();
 
 function highlightCode(str, lang) {
   const norm = normalizeLang(lang);
   const cacheKey = `${norm} ${str}`;
   const cached = highlightCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    // Map 的迭代序 = 插入序;删掉再插回把该条移到"最近使用"端。
+    highlightCache.delete(cacheKey);
+    highlightCache.set(cacheKey, cached);
+    return cached;
+  }
 
   let result;
   if (norm && hljs.getLanguage(norm)) {
@@ -114,7 +124,9 @@ function highlightCode(str, lang) {
     result = { lang: norm && hljs.getLanguage(norm) ? norm : '', html: escapeHtml(str) };
   }
 
-  if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) highlightCache.clear();
+  if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
+    highlightCache.delete(highlightCache.keys().next().value);
+  }
   highlightCache.set(cacheKey, result);
   return result;
 }

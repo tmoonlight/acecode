@@ -42,6 +42,16 @@ export function SlashDropdown({ items, query, onSelect, onClose }) {
   const listRef = useRef(null);
   const rowRefs = useRef(new Map());
   const indicatorHeightRef = useRef(0);
+  const measuredPlacementRef = useRef(null);
+  const measureFrameRef = useRef(null);
+
+  const aboveCount = Math.max(0, Math.floor(scrollMetrics.scrollTop / ROW_HEIGHT));
+  const visibleEnd = scrollMetrics.clientHeight > 0
+    ? Math.ceil((scrollMetrics.scrollTop + scrollMetrics.clientHeight) / ROW_HEIGHT)
+    : aboveCount;
+  const belowCount = Math.max(0, ranked.length - visibleEnd);
+  const showsAboveIndicator = aboveCount > 0;
+  const showsBelowIndicator = belowCount > 0;
 
   const updateScrollMetrics = useCallback(() => {
     const list = listRef.current;
@@ -92,11 +102,20 @@ export function SlashDropdown({ items, query, onSelect, onClose }) {
       viewportTop,
       viewportHeight,
       preferredHeight,
+      previousPlacement: measuredPlacementRef.current,
     });
 
+    measuredPlacementRef.current = next.placement;
     setLayout((previous) => (sameLayout(previous, next) ? previous : next));
-    updateScrollMetrics();
-  }, [ranked.length, updateScrollMetrics]);
+  }, [ranked.length]);
+
+  const scheduleMeasureLayout = useCallback(() => {
+    if (measureFrameRef.current != null) return;
+    measureFrameRef.current = window.requestAnimationFrame(() => {
+      measureFrameRef.current = null;
+      measureLayout();
+    });
+  }, [measureLayout]);
 
   // 列表变化时把 selectedIndex 钉到 0(避免越界 / 滑出范围)。
   useEffect(() => { setSelectedIndex(0); }, [ranked.length, query]);
@@ -147,39 +166,51 @@ export function SlashDropdown({ items, query, onSelect, onClose }) {
     measureLayout();
 
     const visualViewport = window.visualViewport;
-    window.addEventListener('resize', measureLayout);
-    window.addEventListener('scroll', measureLayout, true);
-    visualViewport?.addEventListener?.('resize', measureLayout);
-    visualViewport?.addEventListener?.('scroll', measureLayout);
+    const handleCapturedScroll = (event) => {
+      if (event.target === listRef.current) return;
+      scheduleMeasureLayout();
+    };
+    window.addEventListener('resize', scheduleMeasureLayout);
+    window.addEventListener('scroll', handleCapturedScroll, true);
+    visualViewport?.addEventListener?.('resize', scheduleMeasureLayout);
+    visualViewport?.addEventListener?.('scroll', scheduleMeasureLayout);
 
     let resizeObserver = null;
     if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(measureLayout);
+      resizeObserver = new ResizeObserver(scheduleMeasureLayout);
       const anchor = popupRef.current?.parentElement;
       if (anchor) resizeObserver.observe(anchor);
-      if (listRef.current) resizeObserver.observe(listRef.current);
     }
 
     return () => {
-      window.removeEventListener('resize', measureLayout);
-      window.removeEventListener('scroll', measureLayout, true);
-      visualViewport?.removeEventListener?.('resize', measureLayout);
-      visualViewport?.removeEventListener?.('scroll', measureLayout);
+      window.removeEventListener('resize', scheduleMeasureLayout);
+      window.removeEventListener('scroll', handleCapturedScroll, true);
+      visualViewport?.removeEventListener?.('resize', scheduleMeasureLayout);
+      visualViewport?.removeEventListener?.('scroll', scheduleMeasureLayout);
       resizeObserver?.disconnect();
+      if (measureFrameRef.current != null) {
+        window.cancelAnimationFrame(measureFrameRef.current);
+        measureFrameRef.current = null;
+      }
     };
-  }, [measureLayout]);
+  }, [measureLayout, scheduleMeasureLayout]);
+
+  useLayoutEffect(() => {
+    updateScrollMetrics();
+  }, [
+    layout.maxHeight,
+    layout.placement,
+    ranked.length,
+    showsAboveIndicator,
+    showsBelowIndicator,
+    updateScrollMetrics,
+  ]);
 
   if (!items || items.length === 0) {
     // 命令清单还没加载,什么都不渲染(InputBar 应该等 commands 非空再挂载本组件)
     return null;
   }
 
-  // 滚动指示
-  const aboveCount = Math.max(0, Math.floor(scrollMetrics.scrollTop / ROW_HEIGHT));
-  const visibleEnd = scrollMetrics.clientHeight > 0
-    ? Math.ceil((scrollMetrics.scrollTop + scrollMetrics.clientHeight) / ROW_HEIGHT)
-    : aboveCount;
-  const belowCount = Math.max(0, ranked.length - visibleEnd);
   const opensBelow = layout.placement === 'below';
 
   return (

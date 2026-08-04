@@ -83,7 +83,7 @@ void WebServer::Impl::register_loops() {
             }
         }
         {
-            std::lock_guard<std::mutex> lock(app_config_mu);
+            std::shared_lock<std::shared_mutex> lock(app_config_mu);
             const bool exists = deps.app_config && std::any_of(
                 deps.app_config->saved_models.begin(), deps.app_config->saved_models.end(),
                 [&](const ModelProfile& model) { return model.name == value.model_name; });

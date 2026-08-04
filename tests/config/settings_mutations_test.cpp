@@ -153,6 +153,40 @@ TEST(SettingsMutations, UpgradeUrlIsNormalizedAndInstructionsAreBounded) {
         std::string::npos);
 }
 
+TEST(SettingsMutations, RemoteWebModePersistsCanonicalBindAndUpdatesLiveConfig) {
+    SettingsMutationTempDir temp;
+    acecode::AppConfig initial;
+    initial.web.bind = "192.168.1.99";
+    acecode::save_config(initial, temp.config_path());
+
+    acecode::AppConfig live = initial;
+    live.web.port = 45678; // Simulates a Desktop/CLI runtime port override.
+    const auto disabled = acecode::set_remote_web_enabled(
+        false,
+        options_for(temp, &live));
+    ASSERT_TRUE(disabled.ok) << disabled.error;
+    EXPECT_TRUE(disabled.persisted);
+    EXPECT_EQ(live.web.bind, "127.0.0.1");
+    EXPECT_EQ(live.web.port, 45678);
+    EXPECT_EQ(
+        acecode::load_config_from_path(temp.config_path()).web.bind,
+        "127.0.0.1");
+    EXPECT_EQ(
+        acecode::load_config_from_path(temp.config_path()).web.port,
+        initial.web.port);
+
+    const auto enabled = acecode::set_remote_web_enabled(
+        true,
+        options_for(temp, &live));
+    ASSERT_TRUE(enabled.ok) << enabled.error;
+    EXPECT_TRUE(enabled.persisted);
+    EXPECT_EQ(live.web.bind, "0.0.0.0");
+    EXPECT_EQ(live.web.port, 45678);
+    EXPECT_EQ(
+        acecode::load_config_from_path(temp.config_path()).web.bind,
+        "0.0.0.0");
+}
+
 TEST(SettingsMutations, SavedModelsReuseEditorAndHonorBusyDeleteGuard) {
     SettingsMutationTempDir temp;
     acecode::AppConfig initial;

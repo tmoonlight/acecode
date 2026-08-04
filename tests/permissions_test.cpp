@@ -30,6 +30,16 @@ TEST(Permissions, DefaultModeAllowsReadOnlyTools) {
     EXPECT_FALSE(pm.should_auto_allow("bash",       /*is_read_only=*/false));
 }
 
+TEST(Permissions, AllowsOnlyTheNativeAgentBrowserToolSetWithoutPrompt) {
+    PermissionManager pm;
+    pm.set_mode(PermissionMode::Default);
+
+    EXPECT_TRUE(pm.should_auto_allow("browser_click", false));
+    EXPECT_TRUE(pm.should_auto_allow("browser_evaluate", false));
+    EXPECT_TRUE(pm.should_auto_allow("browser_close", false));
+    EXPECT_FALSE(pm.should_auto_allow("browser_untrusted_plugin_action", false));
+}
+
 // 场景:Yolo 模式自动放行全部工具权限,包括 bash、file_write 这类高风险项。
 // AgentLoop 不得在此之上追加任何权限确认门。
 TEST(Permissions, YoloModeAllowsAll) {

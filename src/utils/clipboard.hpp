@@ -9,6 +9,7 @@ namespace acecode {
 
 inline constexpr std::size_t kMaxClipboardTextBytes = 5 * 1024 * 1024;
 inline constexpr std::size_t kMaxClipboardImageBytes = 25 * 1024 * 1024;
+inline constexpr std::size_t kMaxClipboardFilesystemPaths = 256;
 
 struct ClipboardTextReadResult {
     enum class Status {
@@ -60,6 +61,23 @@ struct ClipboardImageReadResult {
     }
 };
 
+struct ClipboardPathsReadResult {
+    enum class Status {
+        Success,
+        Empty,
+        Unavailable,
+        TooMany,
+    };
+
+    Status status = Status::Unavailable;
+    std::vector<std::string> paths;
+    std::string detail;
+
+    explicit operator bool() const noexcept {
+        return status == Status::Success;
+    }
+};
+
 std::vector<std::string> linux_clipboard_text_commands(bool has_wayland_display,
                                                        bool has_x11_display);
 
@@ -75,6 +93,12 @@ ClipboardTextWriteResult write_system_clipboard_text(
 
 ClipboardImageReadResult read_system_clipboard_image(
     std::size_t max_bytes = kMaxClipboardImageBytes);
+
+// Read filesystem items copied by the host file manager. Windows uses
+// CF_HDROP; unsupported platforms return Unavailable so callers can retain
+// their browser clipboard fallback.
+ClipboardPathsReadResult read_system_clipboard_paths(
+    std::size_t max_paths = kMaxClipboardFilesystemPaths);
 
 ClipboardTextReadResult read_system_clipboard_text_from_commands(
     const std::vector<std::string>& commands,

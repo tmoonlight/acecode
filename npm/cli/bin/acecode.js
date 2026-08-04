@@ -2,7 +2,7 @@
 'use strict';
 // acecode 启动垫片:按当前平台解析 @aceagent/<os>-<cpu> 平台包里的真实二进制并透传运行。
 //
-// 真实二进制会按「自身所在目录」定位 ace-browser-host / acecode-desktop 等同伴文件,
+// 真实二进制会按「自身所在目录」定位 acecode-desktop 等同伴文件,
 // 因此必须直接 spawn 平台包内的原始文件,不能把它拷贝或链接到别处再执行。
 
 const fs = require('fs');

@@ -933,15 +933,22 @@ body {
   padding: 0;
   background: transparent;
   color: inherit;
-  cursor: help;
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
 }
 .ace-token-budget-button:hover,
 .ace-token-budget-button:focus-visible {
+  background: var(--ace-surface-hi);
   color: var(--ace-fg);
+  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.42);
   outline: none;
 }
 .ace-token-budget-button:focus-visible {
-  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.45);
+  box-shadow: 0 0 0 2px rgba(var(--ace-accent-rgb), 0.45);
+}
+.ace-token-budget-button[data-panel-mode="click"] {
+  background: var(--ace-accent-bg);
+  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.58);
 }
 .ace-context-usage-panel {
   position: fixed;
@@ -1171,6 +1178,62 @@ body {
 }
 .ace-composer-card {
   container-type: inline-size;
+}
+.ace-goal-status-bar {
+  position: relative;
+  z-index: 0;
+  min-width: 0;
+  margin-inline: 18px;
+  margin-bottom: -1px;
+  overflow: hidden;
+  border: 1px solid var(--ace-border);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--ace-surface);
+}
+.ace-goal-status-row {
+  min-height: 42px;
+  padding: 6px 8px 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ace-goal-status-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+.ace-goal-status-objective {
+  max-height: 120px;
+  overflow-y: auto;
+  border-top: 1px solid var(--ace-border-soft);
+  padding: 0 12px 9px 36px;
+  color: var(--ace-fg-mute);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+}
+.ace-goal-status-bar + .ace-composer-card {
+  z-index: 1;
+}
+@media (max-width: 560px) {
+  .ace-goal-status-bar {
+    margin-inline: 8px;
+  }
+  .ace-goal-status-row {
+    padding-left: 9px;
+    gap: 5px;
+  }
+  .ace-goal-status-actions {
+    gap: 1px;
+  }
+  .ace-goal-status-objective {
+    padding-left: 33px;
+  }
 }
 .ace-composer-session-footer {
   position: relative;
@@ -1413,6 +1476,7 @@ body {
 .border-danger\/30 { border-color: rgba(var(--ace-danger-rgb), 0.30); }
 .border-danger\/40 { border-color: rgba(var(--ace-danger-rgb), 0.40); }
 .hover\:border-danger\/40:hover { border-color: rgba(var(--ace-danger-rgb), 0.40); }
+.border-warn\/30 { border-color: rgba(var(--ace-warn-rgb), 0.30); }
 .border-warn\/50 { border-color: rgba(var(--ace-warn-rgb), 0.50); }
 .text-accent\/60 { color: rgba(var(--ace-accent-rgb), 0.60); }
 .text-fg-mute\/70 { color: var(--ace-fg-mute); }
@@ -3358,6 +3422,12 @@ body {
 .ace-preview-details-tab-icon {
   flex: 0 0 auto;
 }
+.ace-preview-details-tab-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: contain;
+}
 .ace-preview-details-tab:hover {
   background: var(--ace-surface-alt);
   color: var(--ace-fg);
@@ -3424,6 +3494,253 @@ body {
   min-height: 0;
   display: flex;
   overflow: hidden;
+}
+
+/* Agent Browser: React owns the chrome, while the native WebView2 controller
+   is positioned exactly over .ace-agent-browser-native-viewport. The shared
+   border follows VS Code's BrowserView color sequence and two-stage timing. */
+@property --ace-browser-shared-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 135deg;
+}
+@keyframes ace-browser-shared-border-spin {
+  from { --ace-browser-shared-angle: 135deg; }
+  to { --ace-browser-shared-angle: 495deg; }
+}
+@keyframes ace-browser-toolbar-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes ace-browser-status-pulse {
+  0%, 100% { opacity: 0.48; }
+  50% { opacity: 1; }
+}
+.ace-agent-browser-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ace-surface);
+  overflow: hidden;
+}
+.ace-agent-browser-toolbar {
+  min-height: 44px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ace-border);
+  background: var(--ace-surface-hi);
+}
+.ace-agent-browser-toolbar-button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ace-fg-2);
+  cursor: pointer;
+}
+.ace-agent-browser-toolbar-button:hover:not(:disabled) {
+  background: var(--ace-surface-alt);
+  color: var(--ace-fg);
+}
+.ace-agent-browser-toolbar-button.is-checked {
+  color: var(--ace-fg);
+  background: rgba(81, 162, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(81, 162, 255, 0.28);
+}
+.ace-agent-browser-toolbar-button:disabled {
+  opacity: 0.34;
+  cursor: default;
+}
+.ace-agent-browser-toolbar-button .is-spinning {
+  animation: ace-browser-toolbar-spin 900ms linear infinite;
+}
+.ace-agent-browser-address-form {
+  flex: 1 1 auto;
+  min-width: 80px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 2px 0 10px;
+  border: 1px solid var(--ace-border);
+  border-radius: 7px;
+  background: var(--ace-surface);
+  overflow: hidden;
+}
+.ace-agent-browser-address-form:focus-within {
+  border-color: var(--ace-accent);
+  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.15);
+}
+.ace-agent-browser-address-icon {
+  flex: 0 0 auto;
+  color: var(--ace-fg-mute);
+}
+.ace-agent-browser-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ace-fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+.ace-agent-browser-address::placeholder {
+  color: var(--ace-fg-mute);
+}
+.ace-agent-browser-share-toggle {
+  min-width: 26px;
+  height: 26px;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  max-width: 175px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ace-fg-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ace-agent-browser-share-toggle > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ace-agent-browser-share-toggle:hover:not(:disabled) {
+  background: var(--ace-surface-alt);
+  color: var(--ace-fg);
+}
+.ace-agent-browser-share-toggle.is-shared {
+  color: var(--ace-fg);
+  background: linear-gradient(
+    135deg,
+    rgba(81, 162, 255, 0.18),
+    rgba(74, 240, 192, 0.16),
+    rgba(180, 74, 255, 0.18)
+  );
+}
+.ace-agent-browser-share-toggle.is-shared:hover:not(:disabled) {
+  background: linear-gradient(
+    135deg,
+    rgba(81, 162, 255, 0.27),
+    rgba(74, 240, 192, 0.24),
+    rgba(180, 74, 255, 0.27)
+  );
+}
+.ace-agent-browser-share-toggle:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.ace-agent-browser-toolbar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ace-agent-browser-frame {
+  --ace-browser-shared-angle: 135deg;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 6px;
+  padding: 1px;
+  border-radius: 7px;
+  background: var(--ace-border);
+  transition: padding 350ms cubic-bezier(0.2, 0, 0, 1);
+  overflow: hidden;
+}
+.ace-agent-browser-frame.is-agent-active {
+  padding: 3px;
+  background: conic-gradient(
+    from var(--ace-browser-shared-angle),
+    #b44aff,
+    #4af0c0,
+    #51a2ff,
+    #4af0c0,
+    #b44aff
+  );
+  animation:
+    ace-browser-shared-border-spin 1500ms cubic-bezier(0, 0.2, 0, 1) 1 forwards,
+    ace-browser-shared-border-spin 45s linear 1500ms infinite;
+}
+.ace-agent-browser-native-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 5px;
+  background: var(--ace-surface);
+  overflow: hidden;
+}
+.ace-agent-browser-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 24px;
+  background: var(--ace-surface);
+  color: var(--ace-fg-2);
+  text-align: center;
+}
+.ace-agent-browser-status-icon {
+  flex: 0 0 auto;
+  color: var(--ace-fg-mute);
+}
+.ace-agent-browser-status[data-tone="error"] .ace-agent-browser-status-icon {
+  color: var(--ace-warn);
+}
+.ace-agent-browser-status-icon.is-loading {
+  animation: ace-browser-status-pulse 1.4s ease-in-out infinite;
+}
+.ace-agent-browser-status-title {
+  color: var(--ace-fg);
+  font-size: 15px;
+  font-weight: 600;
+}
+.ace-agent-browser-status-detail {
+  max-width: 380px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.ace-agent-browser-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-agent-browser-frame.is-agent-active {
+    --ace-browser-shared-angle: 315deg;
+    animation: none;
+  }
+  .ace-agent-browser-toolbar-button .is-spinning {
+    animation: none;
+  }
+  .ace-agent-browser-status-icon.is-loading {
+    animation: none;
+  }
 }
 
 /* SidePanel — single 视图右侧工作区面板(变更 / 文件) */
@@ -4200,8 +4517,45 @@ body {
 }
 
 /* Queue card list (above InputBar): 排队中的待发送消息卡片栈。
- * 卡片左侧 3px 的状态指示条用 absolute 定位,颜色由 utility class 提供
- * (bg-fg-mute/60 / bg-danger),与亮/暗主题自动联动。 */
+ * 背景对齐「查看变更」玻璃 dock:半透明 + backdrop-filter 毛玻璃。
+ * 卡片左侧 3px 状态指示条 absolute 定位。 */
+.ace-queue-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgba(var(--ace-border-rgb), 0.58);
+  border-radius: 12px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: var(--ace-shadow);
+  overflow: hidden;
+  transform: translateZ(0);
+}
+.ace-queue-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  background: rgba(var(--ace-surface-rgb), 0.36);
+  pointer-events: none;
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ace-queue-card {
+    background: rgba(var(--ace-surface-rgb), 0.58);
+    -webkit-backdrop-filter: blur(8px) saturate(1.08);
+    backdrop-filter: blur(8px) saturate(1.08);
+  }
+  .ace-queue-card::before {
+    background: rgba(var(--ace-surface-rgb), 0.12);
+  }
+}
+.ace-queue-card > * {
+  position: relative;
+  z-index: 1;
+}
+.ace-queue-card-dimmed {
+  opacity: 0.6;
+}
 .ace-queue-card-indicator {
   position: absolute;
   left: 0;
@@ -4210,6 +4564,45 @@ body {
   width: 3px;
   border-top-left-radius: 6px;
   border-bottom-left-radius: 6px;
+  z-index: 1;
+}
+.ace-queue-card-indicator.is-queued {
+  background: rgba(var(--ace-fg-mute-rgb), 0.60);
+}
+.ace-queue-card-indicator.is-failed {
+  background: var(--ace-danger);
+}
+.ace-queue-card-content {
+  color: var(--ace-fg);
+}
+.ace-queue-card-status {
+  color: var(--ace-fg-mute);
+}
+.ace-queue-card-status.is-failed {
+  color: var(--ace-danger);
+}
+.ace-queue-card-action {
+  color: var(--ace-accent);
+  transition: background-color 0.12s ease;
+}
+.ace-queue-card-action:hover {
+  background: var(--ace-accent-bg);
+}
+.ace-queue-card-guide {
+  border: 1px solid rgba(var(--ace-accent-rgb), 0.40);
+  color: var(--ace-accent);
+  transition: background-color 0.12s ease;
+}
+.ace-queue-card-guide:hover:not(:disabled) {
+  background: var(--ace-accent-bg);
+}
+.ace-queue-card-close {
+  color: var(--ace-fg-mute);
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.ace-queue-card-close:hover {
+  color: var(--ace-fg);
+  background: rgba(var(--ace-surface-hi-rgb), 0.72);
 }
 
 /* App typography scale — align desktop readability with Codex-like UI. */

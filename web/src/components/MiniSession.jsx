@@ -154,6 +154,7 @@ export function MiniSession({ session, compact, onClick }) {
   const stateLabel = active ? 'running' : session.status;
   const sessionId = session.sessionId || session.id;
   const workspaceHash = session.workspaceHash || session.workspace_hash || '';
+  const sessionPath = session.sessionPath || session.session_path || '';
   const title = sessionDisplayTitle(session);
 
   useEffect(() => {
@@ -175,6 +176,7 @@ export function MiniSession({ session, compact, onClick }) {
       type="button"
       data-desktop-session-id={sessionId || undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
+      data-desktop-session-path={sessionPath || undefined}
       data-desktop-session-title={title || undefined}
       onClick={() => onClick?.(session)}
       className={clsx(

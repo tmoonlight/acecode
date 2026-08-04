@@ -108,6 +108,12 @@ import { RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 import { loadUiLocale, persistUiLocale } from '../lib/uiLocale.js';
 import {
+  normalizeRemoteWebState,
+  remoteWebOriginSurvivesLocalMode,
+  selectRemoteWebConnection,
+  waitForRemoteWebMode,
+} from '../lib/remoteWeb.js';
+import {
   WindowControls,
   isInteractiveTarget,
   nativePointerEvent,
@@ -333,6 +339,23 @@ function SectionGeneral({
   const [maxTurns, setMaxTurns] = useState(50);
   const [workMode, setWorkMode] = useState('coding');
   const [openTarget, setOpenTarget] = useState('vscode');
+  const [remoteWeb, setRemoteWeb] = useState(
+    () => normalizeRemoteWebState(null),
+  );
+  const [remoteWebLoaded, setRemoteWebLoaded] = useState(false);
+  const [remoteWebBusy, setRemoteWebBusy] = useState(false);
+  const remoteWebBusyRef = useRef(false);
+  const [remoteWebError, setRemoteWebError] = useState('');
+  const [remoteWebConnectionUrl, setRemoteWebConnectionUrl] = useState('');
+
+  const applyRemoteWebState = useCallback((value) => {
+    const normalized = normalizeRemoteWebState(value);
+    setRemoteWeb(normalized);
+    setRemoteWebConnectionUrl((current) => (
+      selectRemoteWebConnection(normalized, current)?.url || ''
+    ));
+    return normalized;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -372,6 +395,25 @@ function SectionGeneral({
       });
     return () => { cancelled = true; };
   }, [health?.notifications?.enabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getRemoteWeb()
+      .then((state) => {
+        if (cancelled) return;
+        applyRemoteWebState(state);
+        setRemoteWebError('');
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRemoteWebError(error?.message || '远程 Web 状态读取失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRemoteWebLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, [applyRemoteWebState]);
 
   useEffect(() => {
     if (!backgroundProcessAvailable) return undefined;
@@ -481,16 +523,16 @@ function SectionGeneral({
           ? 'err'
           : 'ok',
         text: !confirmed
-          ? '消息通知已关闭'
+          ? '任务完成通知已关闭'
           : (authorizationAfterEnable.status === 'denied'
-            ? '消息通知已打开，但 macOS 系统权限已拒绝'
+            ? '任务完成通知已打开，但 macOS 系统权限已拒绝'
             : (authorizationAfterEnable.status === 'requesting'
-              ? '消息通知已打开，请确认 macOS 系统授权'
-              : '消息通知已打开')),
+              ? '任务完成通知已打开，请确认 macOS 系统授权'
+              : '任务完成通知已打开')),
       });
     } catch (e) {
       setNotificationsEnabled(previous);
-      toast({ kind: 'err', text: '消息通知设置失败:' + (e?.message || '') });
+      toast({ kind: 'err', text: '任务完成通知设置失败:' + (e?.message || '') });
     } finally {
       setNotificationsBusy(false);
     }
@@ -554,6 +596,80 @@ function SectionGeneral({
     }
   };
 
+  const switchRemoteWeb = async (enabled) => {
+    const next = !!enabled;
+    const previous = remoteWeb;
+    let mutationAccepted = false;
+    if (remoteWebBusyRef.current
+        || remoteWebBusy
+        || next === previous.configuredEnabled) {
+      return;
+    }
+    remoteWebBusyRef.current = true;
+    setRemoteWebBusy(true);
+    setRemoteWebError('');
+    setRemoteWeb((current) => ({
+      ...current,
+      enabled: next,
+      configuredEnabled: next,
+      applying: true,
+    }));
+    try {
+      const pending = applyRemoteWebState(await api.setRemoteWeb(next));
+      mutationAccepted = true;
+      const confirmed = applyRemoteWebState(
+        await waitForRemoteWebMode(api, next, {
+          initialState: pending,
+          acceptDisconnectWhenDisabling: !next
+            && !remoteWebOriginSurvivesLocalMode(window.location.hostname),
+        }),
+      );
+      toast({
+        kind: 'ok',
+        text: confirmed.effectiveEnabled
+          ? '远程 Web 模式已开启'
+          : '远程 Web 模式已关闭，仅允许本机访问',
+      });
+    } catch (error) {
+      applyRemoteWebState(
+        mutationAccepted
+          ? (error?.state || {
+            ...previous,
+            enabled: next,
+            configuredEnabled: next,
+            applying: true,
+          })
+          : previous,
+      );
+      const message = error?.code === 'DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN'
+        ? '危险模式下不能开启远程 Web 模式'
+        : (error?.message || '设置失败');
+      setRemoteWebError(message);
+      toast({ kind: 'err', text: `远程 Web 模式设置失败：${message}` });
+    } finally {
+      remoteWebBusyRef.current = false;
+      setRemoteWebBusy(false);
+    }
+  };
+
+  const copyRemoteWebConnection = async () => {
+    const connection = selectRemoteWebConnection(
+      remoteWeb,
+      remoteWebConnectionUrl,
+    );
+    if (!connection) {
+      toast({ kind: 'err', text: '当前没有可复制的远程连接' });
+      return;
+    }
+    const result = await copyTextToSystemClipboard(connection.url);
+    toast({
+      kind: result?.ok ? 'ok' : 'err',
+      text: result?.ok
+        ? '连接已复制到剪贴板'
+        : `复制连接失败：${result?.error || '剪贴板不可用'}`,
+    });
+  };
+
   const switchUiLocale = async (next) => {
     const previous = uiLocale;
     if (uiLocaleBusy || next === previous) return;
@@ -594,6 +710,18 @@ function SectionGeneral({
       setCloseBehaviorBusy(false);
     }
   };
+
+  const selectedRemoteWebConnection = selectRemoteWebConnection(
+    remoteWeb,
+    remoteWebConnectionUrl,
+  );
+  const remoteWebStatus = !remoteWebLoaded
+    ? '正在读取状态'
+    : (remoteWebBusy || remoteWeb.applying
+      ? '正在应用监听地址'
+      : (remoteWeb.effectiveEnabled
+        ? `已监听 ${remoteWeb.effectiveBind}:${remoteWeb.port}`
+        : '仅本机访问'));
 
   return (
     <>
@@ -670,8 +798,8 @@ function SectionGeneral({
         )}
       >
         <div>
-          <div className="text-[13px] font-medium">打开消息通知</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">会话完成、权限确认或需要回答时发送系统通知</div>
+          <div className="text-[13px] font-medium">打开任务完成通知</div>
+          <div className="text-[11px] text-fg-mute mt-0.5">仅在 ACECode 窗口失去焦点且主任务完成时发送系统通知</div>
         </div>
         <div onClick={(e) => e.stopPropagation()}>
           <Toggle
@@ -890,6 +1018,112 @@ function SectionGeneral({
           </div>
         </div>
       )}
+
+      <div className="h-px bg-border my-5" />
+
+      <div
+        data-remote-web-settings
+        className="px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[13px] font-medium">远程 Web 模式</div>
+            <div className="text-[11px] text-fg-mute mt-0.5 max-w-lg">
+              开启后将 Web 监听地址从 127.0.0.1 切换为 0.0.0.0，允许其他设备连接
+            </div>
+          </div>
+          <Toggle
+            on={remoteWeb.configuredEnabled}
+            disabled={!remoteWebLoaded || remoteWebBusy}
+            onChange={switchRemoteWeb}
+            ariaLabel="远程 Web 模式"
+          />
+        </div>
+
+        <div className="h-px bg-border my-3" />
+
+        <div
+          aria-live="polite"
+          className={clsx(
+            'flex items-center gap-1.5 text-[12px]',
+            remoteWebError
+              ? 'text-danger'
+              : ((remoteWebBusy || remoteWeb.applying)
+                ? 'text-warn'
+                : (remoteWeb.effectiveEnabled ? 'text-ok' : 'text-fg-mute')),
+          )}
+        >
+          <span
+            className={clsx(
+              'w-2 h-2 rounded-full shrink-0',
+              remoteWebError
+                ? 'bg-danger'
+                : ((remoteWebBusy || remoteWeb.applying)
+                  ? 'bg-warn'
+                  : (remoteWeb.effectiveEnabled ? 'bg-ok' : 'bg-fg-mute')),
+            )}
+          />
+          {remoteWebError || remoteWebStatus}
+        </div>
+
+        {remoteWeb.effectiveEnabled && (
+          <div className="mt-3">
+            {remoteWeb.connections.length > 1 && (
+              <label className="block mb-2">
+                <span className="block text-[11px] text-fg-mute mb-1">
+                  连接网络
+                </span>
+                <select
+                  value={selectedRemoteWebConnection?.url || ''}
+                  onChange={(event) => setRemoteWebConnectionUrl(
+                    event.target.value,
+                  )}
+                  className="h-8 w-full px-2 text-[12px] rounded-md border border-border bg-surface-alt text-fg outline-none focus:border-accent transition"
+                >
+                  {remoteWeb.connections.map((connection) => (
+                    <option key={connection.url} value={connection.url}>
+                      {connection.kind === 'computer_name'
+                        ? `${connection.host}（计算机名）`
+                        : connection.host}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {selectedRemoteWebConnection ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <input
+                    aria-label="远程 Web 连接"
+                    readOnly
+                    value={selectedRemoteWebConnection.url}
+                    className="h-8 min-w-0 flex-1 px-2 text-[12px] rounded-md border border-border bg-surface-alt text-fg outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={copyRemoteWebConnection}
+                    className="h-8 shrink-0 px-3 rounded-md border border-border bg-surface-alt text-[12px] font-medium hover:bg-surface-hi transition"
+                  >
+                    复制连接
+                  </button>
+                </div>
+                <div className="mt-2 px-2.5 py-2 rounded-md border border-warn/30 bg-warn/10 text-[11px] text-warn">
+                  此连接包含访问 Token，请勿将此连接公开给别人。
+                </div>
+              </>
+            ) : (
+              <div className="text-[11px] text-warn">
+                未发现可用的非本机网络地址，请检查网卡连接。
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="text-[11px] text-fg-mute mt-3 leading-relaxed">
+          系统防火墙、路由器或云安全组可能仍需放行端口。公网访问建议使用可信 VPN 或 HTTPS 反向代理。
+        </div>
+      </div>
     </>
   );
 }
@@ -1344,7 +1578,7 @@ function SectionPersonalization() {
 // 真实接入:GET /api/skills(?workspace= 可选,带 source/enabled 全量元数据)、
 // PUT /api/skills/:name(?workspace= 供跨工作区校验)、GET /api/skills/root
 // (path / global_path)、GET /api/workspaces。
-// 结构:顶部全局技能(扁平列表 + 打开全局目录按钮),下方「工作区 Skill 目录」
+// 结构:顶部全局技能(响应式卡片网格 + 打开全局目录按钮),下方「工作区 Skill 目录」
 // 每个已注册工作区一个折叠组,默认折叠;mount 后台预取各工作区技能做计数,
 // 展开即渲染缓存,避免一次性渲染全部工作区的技能行。
 // 过滤 / 分组 / 计数逻辑在 lib/skillsSettings.js(有 Node 单测)。
@@ -1358,26 +1592,60 @@ function parseDesktopBridgeResult(value) {
   return JSON.parse(text);
 }
 
-function SkillRow({ skill, busy, onToggle }) {
+function SkillCard({ skill, busy, onToggle }) {
   return (
-    <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
-      <div
-        className={clsx(
-          'w-9 h-9 rounded-md border flex items-center justify-center shrink-0 transition',
-          skill.enabled
-            ? 'bg-accent-bg border-accent/40 text-accent'
-            : 'bg-surface-alt border-border text-fg-mute',
-        )}
-      >
-        <VsIcon name="lightbulb" size={18} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium truncate">{skill.name}</div>
-        <div className="text-[11px] text-fg-mute mt-0.5 truncate" title={skill.description || ''}>
-          {skill.description || '—'}
+    <article
+      data-skill-card="true"
+      className={clsx(
+        'flex min-h-[148px] flex-col rounded-lg border p-3.5 transition',
+        skill.enabled
+          ? 'border-accent/40 bg-accent-bg'
+          : 'border-border bg-surface hover:border-accent/50 hover:bg-surface-hi',
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={clsx(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition',
+            skill.enabled
+              ? 'border-accent/40 bg-surface text-accent'
+              : 'border-border bg-surface-alt text-fg-mute',
+          )}
+        >
+          <VsIcon name="lightbulb" size={18} />
         </div>
+        <div className="min-w-0 flex-1">
+          <div className="break-words text-[13px] font-semibold leading-5 text-fg">{skill.name}</div>
+          <div className="mt-0.5 text-[10px] text-fg-mute">
+            {skill.source === 'project' ? '工作区' : '全局'}
+          </div>
+        </div>
+        <Toggle
+          on={skill.enabled}
+          disabled={busy}
+          onChange={(value) => onToggle(skill.name, value)}
+          ariaLabel={`切换技能 ${skill.name}`}
+        />
       </div>
-      <Toggle on={skill.enabled} disabled={busy} onChange={(v) => onToggle(skill.name, v)} />
+      <p
+        className="mt-3 line-clamp-4 text-[11px] leading-[18px] text-fg-mute"
+        title={skill.description || ''}
+      >
+        {skill.description || '—'}
+      </p>
+    </article>
+  );
+}
+
+function SkillCardGrid({ skills, busy, onToggle }) {
+  return (
+    <div
+      data-skill-card-grid="true"
+      className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+    >
+      {skills.map((skill) => (
+        <SkillCard key={skill.name} skill={skill} busy={busy} onToggle={onToggle} />
+      ))}
     </div>
   );
 }
@@ -1441,9 +1709,9 @@ function WorkspaceSkillGroup({
               {hasQuery ? '无匹配技能' : '该工作区没有技能;放到项目的 .acecode/skills 目录即可被发现'}
             </div>
           )}
-          {shown.map((s) => (
-            <SkillRow key={s.name} skill={s} busy={busy} onToggle={onToggleSkill} />
-          ))}
+          {shown.length > 0 && (
+            <SkillCardGrid skills={shown} busy={busy} onToggle={onToggleSkill} />
+          )}
         </div>
       )}
     </div>
@@ -1621,9 +1889,9 @@ function SectionSkills() {
               {hasQuery ? '无匹配的全局技能' : '暂无全局技能'}
             </div>
           )}
-          {filteredGlobal.map((s) => (
-            <SkillRow key={s.name} skill={s} busy={!!savingName} onToggle={toggle} />
-          ))}
+          {filteredGlobal.length > 0 && (
+            <SkillCardGrid skills={filteredGlobal} busy={!!savingName} onToggle={toggle} />
+          )}
           <button
             type="button"
             onClick={() => openDir('global')}
@@ -2081,57 +2349,7 @@ function SectionConnectors() {
 // ─── 工具 ──────────────────────────────────────────────────────────────────
 
 function SectionTools() {
-  const [bridgeEnabled, setBridgeEnabled] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    api.getAceBrowserBridge()
-      .then((cfg) => {
-        if (!cancelled) setBridgeEnabled(!!cfg?.enabled);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message || String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  const setBridge = async (next) => {
-    const before = bridgeEnabled;
-    setBridgeEnabled(next);
-    setSaving(true);
-    setError('');
-    try {
-      const saved = await api.setAceBrowserBridge({ enabled: next });
-      setBridgeEnabled(!!saved?.enabled);
-      toast({ kind: 'ok', text: next ? 'ACE Browser Bridge 已启用' : 'ACE Browser Bridge 已关闭' });
-    } catch (e) {
-      setBridgeEnabled(before);
-      const message = e.message || String(e);
-      setError(message);
-      toast({ kind: 'err', text: message });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const tools = [
-    {
-      key: 'ace_browser_bridge',
-      name: 'ACE Browser Bridge',
-      desc: '启用 browser_start，并在打开后通过 user prompt 引导模型使用 ace-browser-host CLI。',
-      icon: <VsIcon name="globe" size={20} />,
-      on: bridgeEnabled,
-      toggle: setBridge,
-    },
-  ];
+  const nativeBrowserAvailable = typeof globalThis?.aceDesktop_agentBrowserGetState === 'function';
 
   return (
     <>
@@ -2139,29 +2357,23 @@ function SectionTools() {
 
       <div className="text-[14px] font-semibold mb-1">内置工具</div>
       <p className="text-[12px] text-fg-mute mb-3">
-        启用后 Agent 可在任务中自动调用；会写入 ace_browser_bridge 配置。
+        Agent 浏览器工具由 Windows Desktop 原生提供，模型需要浏览器时会自动打开并操作同一个可见页面。
       </p>
-      {error && (
-        <div className="mb-3 px-3 py-2 rounded-md border border-danger/40 bg-danger/10 text-danger text-[12px]">
-          {error}
-        </div>
-      )}
 
-      {tools.map((tool) => (
-        <div
-          key={tool.key}
-          className="flex items-center gap-3 px-3.5 py-3 rounded-md bg-surface border border-border mb-2"
-        >
-          <div className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
-            {tool.icon}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium">{tool.name}</div>
-            <div className="text-[11px] text-fg-mute mt-0.5">{tool.desc}</div>
-          </div>
-          <Toggle on={tool.on} onChange={tool.toggle} disabled={loading || saving} />
+      <div className="flex items-center gap-3 px-3.5 py-3 rounded-md bg-surface border border-border mb-2">
+        <div className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
+          <VsIcon name="globe" size={20} />
         </div>
-      ))}
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium">Agent 浏览器</div>
+          <div className="text-[11px] text-fg-mute mt-0.5">
+            使用独立 WebView2 配置与 CDP 代理；不会向网页注入 ACECode 桥接对象。
+          </div>
+        </div>
+        <span className={`text-[11px] px-2 py-1 rounded-full border border-border bg-surface-alt ${nativeBrowserAvailable ? 'text-success' : 'text-fg-mute'}`}>
+          {nativeBrowserAvailable ? '可用' : '仅 Windows Desktop'}
+        </span>
+      </div>
 
       {/* 占位:更多工具即将加入 */}
       <div className="px-3.5 py-3 rounded-md border border-dashed border-border text-[12px] text-fg-mute text-center mt-2">
@@ -3127,7 +3339,7 @@ function SectionFeedback() {
         <div className="px-4 py-3.5 border-b border-border">
           <div className="text-[14px] font-semibold mb-1">提交反馈</div>
           <p className="text-[12px] text-fg-mute">
-            默认只附带最近 desktop 日志。关联某个具体的会话记录将更有助于我们帮您排查问题。
+            默认附带最近的 desktop 与 daemon 日志。关联某个具体的会话记录将更有助于我们帮您排查问题。
           </p>
         </div>
 

@@ -24,20 +24,33 @@ run('slash dropdown applies measured anchored placement before paint', () => {
   assert.match(component, /computeAnchoredDropdownLayout\(\{/);
   assert.match(component, /anchorTop:\s*anchorRect\.top/);
   assert.match(component, /anchorBottom:\s*anchorRect\.bottom/);
+  assert.match(component, /previousPlacement:\s*measuredPlacementRef\.current/);
+  assert.match(component, /measuredPlacementRef\.current = next\.placement/);
   assert.match(component, /data-placement=\{layout\.placement\}/);
   assert.match(component, /top:\s*opensBelow \?/);
   assert.match(component, /bottom:\s*opensBelow \?/);
   assert.match(component, /maxHeight:\s*layout\.maxHeight/);
 });
 
-run('slash dropdown follows window visual viewport and anchor resizing', () => {
-  assert.match(component, /window\.addEventListener\('resize', measureLayout\)/);
-  assert.match(component, /window\.addEventListener\('scroll', measureLayout, true\)/);
-  assert.match(component, /visualViewport\?\.addEventListener\?\.\('resize', measureLayout\)/);
-  assert.match(component, /visualViewport\?\.addEventListener\?\.\('scroll', measureLayout\)/);
-  assert.match(component, /new ResizeObserver\(measureLayout\)/);
+run('slash dropdown coalesces viewport and anchor notifications', () => {
+  assert.match(component, /window\.requestAnimationFrame\(\(\) => \{/);
+  assert.match(component, /window\.addEventListener\('resize', scheduleMeasureLayout\)/);
+  assert.match(component, /window\.addEventListener\('scroll', handleCapturedScroll, true\)/);
+  assert.match(component, /visualViewport\?\.addEventListener\?\.\('resize', scheduleMeasureLayout\)/);
+  assert.match(component, /visualViewport\?\.addEventListener\?\.\('scroll', scheduleMeasureLayout\)/);
+  assert.match(component, /new ResizeObserver\(scheduleMeasureLayout\)/);
   assert.match(component, /resizeObserver\.observe\(anchor\)/);
-  assert.match(component, /resizeObserver\.observe\(listRef\.current\)/);
+  assert.match(component, /window\.cancelAnimationFrame\(measureFrameRef\.current\)/);
+});
+
+run('slash dropdown does not remeasure direction from its own list changes', () => {
+  assert.doesNotMatch(component, /resizeObserver\.observe\(listRef\.current\)/);
+  assert.match(component, /if \(event\.target === listRef\.current\) return;/);
+  assert.match(component, /onScroll=\{updateScrollMetrics\}/);
+  assert.match(
+    component,
+    /useLayoutEffect\(\(\) => \{\s*updateScrollMetrics\(\);\s*\}, \[[\s\S]*showsAboveIndicator,[\s\S]*showsBelowIndicator,/,
+  );
 });
 
 run('constrained menu shrinks its scrolling list inside the outer max height', () => {
@@ -45,5 +58,4 @@ run('constrained menu shrinks its scrolling list inside the outer max height', (
   assert.match(component, /className="min-h-0 flex-1 overflow-y-auto"/);
   assert.match(component, /clientHeight:\s*list\.clientHeight/);
   assert.match(component, /visibleEnd = scrollMetrics\.clientHeight > 0/);
-  assert.match(component, /onScroll=\{updateScrollMetrics\}/);
 });

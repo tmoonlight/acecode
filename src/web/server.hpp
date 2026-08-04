@@ -25,6 +25,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace acecode {
 class LlmProvider;
@@ -89,6 +90,12 @@ struct WebServerDeps {
     // std::nullopt,失败返回错误信息。null = 端点 501(与 native_folder_picker
     // 同款门控,仅 desktop 壳启动的 daemon 填入;webapp 兼容模式的右键菜单依赖它)。
     std::function<std::optional<std::string>(const std::string&)> open_in_explorer;
+    // Remote Web connection candidates. Empty uses live interface discovery;
+    // tests can inject deterministic non-loopback addresses.
+    std::function<std::vector<std::string>()> remote_web_hosts;
+    // Current computer name used as the first/default remote connection.
+    // Empty uses live OS discovery.
+    std::function<std::optional<std::string>()> remote_web_computer_name;
     std::function<int(const AppConfig&,
                       acecode::upgrade::UpgradeProgressCallback,
                       std::string*)> run_update_command;
@@ -127,7 +134,7 @@ public:
     // 连接器钩子改写磁盘 config.json 后,把 saved_models 重读进内存(线程安全)。
     void refresh_saved_models_from_disk();
 
-    // 持共享 AppConfig 锁(Impl::app_config_mu)执行 fn —— daemon 侧非 web
+    // 持 AppConfig 独占锁(Impl::app_config_mu)执行 fn —— daemon 侧非 web
     // 组件(remote-control binder 等)读写 cfg_mut 时,借这里与全部 HTTP
     // 路由 / 钩子刷新互斥。fn 内不得再调 WebServer 会拿该锁的方法(不可重入)。
     void with_app_config_lock(const std::function<void()>& fn) const;

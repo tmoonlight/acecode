@@ -86,9 +86,25 @@ run('normalizeUsageStats accepts flat snake_case usage buckets', () => {
   assert.equal(stats.workspaces[0].totals.totalTokens, 2500);
 });
 
-run('formatUsageTokens uses compact token units', () => {
-  assert.equal(formatUsageTokens(608, 'en-US'), '608');
-  assert.equal(formatUsageTokens(79_800, 'en-US'), '79.8K');
-  assert.equal(formatUsageTokens(2_847_563, 'en-US'), '2.85M');
-  assert.equal(formatUsageTokens(79_800, 'zh-CN'), '7.98万');
+run('formatUsageTokens keeps compact token units identical across locales', () => {
+  for (const locale of ['en-US', 'zh-CN']) {
+    assert.equal(formatUsageTokens(608, locale), '608');
+    assert.equal(formatUsageTokens(79_800, locale), '79.8K');
+    assert.equal(formatUsageTokens(2_847_563, locale), '2.85M');
+  }
+});
+
+run('formatUsageTokens keeps stable thresholds, precision, and safe inputs', () => {
+  assert.equal(formatUsageTokens(0), '0');
+  assert.equal(formatUsageTokens(999), '999');
+  assert.equal(formatUsageTokens(1_000), '1K');
+  assert.equal(formatUsageTokens(1_200), '1.2K');
+  assert.equal(formatUsageTokens(1_250), '1.25K');
+  assert.equal(formatUsageTokens(999_999), '1000K');
+  assert.equal(formatUsageTokens(1_000_000), '1M');
+  assert.equal(formatUsageTokens(1_500_000), '1.5M');
+  assert.equal(formatUsageTokens(1_000_000_000), '1000M');
+  assert.equal(formatUsageTokens(-10), '0');
+  assert.equal(formatUsageTokens('not-a-number'), '0');
+  assert.equal(formatUsageTokens(Number.POSITIVE_INFINITY), '0');
 });

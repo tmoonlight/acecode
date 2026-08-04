@@ -15,10 +15,21 @@ import {
 } from './lib/desktopNotificationMonitor.js';
 import {
   maybeNotify,
+  noteHostWindowFocus,
+  isHostWindowFocused,
   notificationBodyFromEvent,
+  shouldNotifySessionCompletion,
 } from './lib/desktopNotify.js';
 import { createNewSessionForActiveWorkspace } from './lib/newSession.js';
-import { goBack, goForward, pushNavigation } from './lib/navigationHistory.js';
+import { refreshWorkspaceGitInfo } from './lib/gitInfoCache.js';
+import {
+  goBack,
+  goForward,
+  navigationHistoryFromHash,
+  normalizeHistory,
+  pushNavigation,
+  stripNavigationHistoryHash,
+} from './lib/navigationHistory.js';
 import {
   addPendingQuestionRequest,
   clearResolvedQuestionRequests,
@@ -77,6 +88,7 @@ import {
   normalizePreviewPanelWidth,
   normalizeSidePanelWidth,
   normalizeSidebarWidth,
+  normalizeSubagentPanelWidth,
   previewPanelWidthIsUserSized,
   validateLayoutWidths,
 } from './lib/singleLayout.js';
@@ -128,6 +140,11 @@ import {
 
 const SINGLE_LAYOUT_STORAGE_KEY = 'acecode.singleLayoutWidths.v1';
 
+// 导航遮罩的最后兜底。要比 api.js 的 DEFAULT_REQUEST_TIMEOUT_MS 长 —— 正常
+// 情况下应该是请求先超时、上层收尾;这个计时器只负责接住「上层压根没收尾」
+// 的漏网路径,不该抢在请求超时之前触发。
+const SESSION_NAVIGATION_MASK_TIMEOUT_MS = 45000;
+
 // 控制台停靠区偏好(add-console-dock):开关 + 高度跨刷新持久化。
 const CONSOLE_DOCK_STORAGE_KEY = 'acecode.consoleDock.v1';
 const DEFAULT_CONSOLE_DOCK = { open: false, height: CONSOLE_DOCK_DEFAULT_HEIGHT };
@@ -152,7 +169,10 @@ export function App() {
   const [health,    setHealth]    = useState(null);
 
   const [activeRef,    setActiveRef]    = useState(null);
-  const [navHistory, setNavHistory] = useState({ back: [], forward: [] });
+  const [navHistory, setNavHistory] = useState(() => (
+    (typeof window !== 'undefined' && navigationHistoryFromHash(window.location.hash))
+    || { back: [], forward: [] }
+  ));
   const [commandWorkspaceHash, setCommandWorkspaceHash] = useState('');
   const [consoleCwd, setConsoleCwd] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -165,11 +185,11 @@ export function App() {
   const [permReqs,     setPermReqs]     = useState([]);
   const [questionReqs, setQuestionReqs] = useState([]);
   // 当前主会话的后台任务(spawn_subagent 子会话)索引,由 ChatView 上报。
-  // 用于:1) 子任务的 question_request 在主会话可见;2) 权限/问题弹窗的
+  // 用于:1) 子任务的 question_request 在主会话可见;2) 权限/问题卡片的
   // 「来自后台任务」来源标记。
   const [subagentIndex, setSubagentIndex] = useState({ parentId: '', titles: {} });
   // 已经发现过的 child -> parent/title 关系跨会话切换保留,供后台权限请求
-  // 在父会话不活跃时仍能把侧边栏提示和系统通知路由到父会话。
+  // 在父会话不活跃时仍能把侧边栏提示和 inline 请求路由到父会话。
   const [subagentDirectory, setSubagentDirectory] = useState({ owners: {}, titles: {} });
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [conversationFindRequest, setConversationFindRequest] = useState(0);
@@ -212,7 +232,6 @@ export function App() {
   const [previewPanelVisible, setPreviewPanelVisible] = useState(false);
   const activeRefRef = useRef(activeRef);
   const healthRef = useRef(health);
-  const visibleSessionRef = useRef(null);
   const subagentIndexRef = useRef(subagentIndex);
   const subagentDirectoryRef = useRef(subagentDirectory);
   const notificationContextRef = useRef({
@@ -236,6 +255,7 @@ export function App() {
   const startupNavigationStartedRef = useRef(false);
   const pendingSessionNavigationIdsRef = useRef(new Set());
   const nextSessionNavigationIdRef = useRef(0);
+  const sessionNavigationTimersRef = useRef(new Map());
   const [sessionNavigationPending, setSessionNavigationPending] = useState(
     () => !!startupOpenTargetRef.current,
   );
@@ -269,6 +289,24 @@ export function App() {
     document.documentElement.setAttribute('data-font-size', fontSize);
   }, [fontSize]);
   useEffect(() => { activeRefRef.current = activeRef; }, [activeRef]);
+  // Track host-window attention for suppress_when_focused. WebView2 can
+  // briefly report document.hasFocus()=false when native chrome steals focus;
+  // window focus/blur keeps a sticky attentive flag as fallback.
+  useEffect(() => {
+    const onFocus = () => noteHostWindowFocus(true);
+    const onBlur = () => noteHostWindowFocus(false);
+    noteHostWindowFocus(
+      typeof document !== 'undefined'
+        && typeof document.hasFocus === 'function'
+        && document.hasFocus(),
+    );
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
   useEffect(() => {
     const expertId = activeRef?.expertId || activeRef?.expert_id || activeRef?.expert?.id || '';
     if (expertId) rememberRecentExpert(expertId);
@@ -281,33 +319,6 @@ export function App() {
   useEffect(() => { healthRef.current = health; }, [health]);
   useEffect(() => { subagentIndexRef.current = subagentIndex; }, [subagentIndex]);
   useEffect(() => { subagentDirectoryRef.current = subagentDirectory; }, [subagentDirectory]);
-  useEffect(() => {
-    const sessionId = activeRef?.sessionId || activeRef?.id || '';
-    const chatVisible = view === 'single'
-      && !!sessionId
-      && !activeRef?.loop
-      && !activeRef?.expertComponents
-      && !showSettings
-      && !searchOpen
-      && !updateDialogOpen
-      && !guidedTourPreparing
-      && !guidedTourRun;
-    visibleSessionRef.current = chatVisible
-      ? { sessionId, workspaceHash: activeRef?.workspaceHash || '' }
-      : null;
-  }, [
-    activeRef?.id,
-    activeRef?.loop,
-    activeRef?.expertComponents,
-    activeRef?.sessionId,
-    activeRef?.workspaceHash,
-    guidedTourPreparing,
-    guidedTourRun,
-    searchOpen,
-    showSettings,
-    updateDialogOpen,
-    view,
-  ]);
   useEffect(() => { navHistoryRef.current = navHistory; }, [navHistory]);
 
   const replaceActiveRef = useCallback((nextRefOrUpdater) => {
@@ -331,47 +342,75 @@ export function App() {
     setActiveRef(next);
   }, []);
 
-  const goBackActiveRef = useCallback(() => {
-    const result = goBack(navHistoryRef.current, activeRefRef.current);
-    navHistoryRef.current = result.history;
-    activeRefRef.current = result.activeRef;
-    setNavHistory(result.history);
-    setActiveRef(result.activeRef);
-  }, []);
-
-  const goForwardActiveRef = useCallback(() => {
-    const result = goForward(navHistoryRef.current, activeRefRef.current);
-    navHistoryRef.current = result.history;
-    activeRefRef.current = result.activeRef;
-    setNavHistory(result.history);
-    setActiveRef(result.activeRef);
-  }, []);
-
-  const beginSessionNavigation = useCallback(() => {
-    const navigationId = ++nextSessionNavigationIdRef.current;
-    pendingSessionNavigationIdsRef.current.add(navigationId);
-    setSessionNavigationPending(true);
-    return navigationId;
+  const replaceNavigationState = useCallback((nextRef, nextHistory) => {
+    const normalized = normalizeHistory(nextHistory);
+    navHistoryRef.current = normalized;
+    activeRefRef.current = nextRef;
+    setNavHistory(normalized);
+    setActiveRef(nextRef);
   }, []);
 
   const finishSessionNavigation = useCallback((navigationId) => {
+    const timer = sessionNavigationTimersRef.current.get(navigationId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      sessionNavigationTimersRef.current.delete(navigationId);
+    }
     pendingSessionNavigationIdsRef.current.delete(navigationId);
     if (pendingSessionNavigationIdsRef.current.size === 0) {
       setSessionNavigationPending(false);
     }
   }, []);
 
+  // SessionNavigationMask 是全屏的、吞掉所有指针与键盘事件的遮罩。它只在
+  // finishSessionNavigation 里关闭,所以任何一条不 settle 的 resume 都会
+  // 让界面永久点不动(用户只能从托盘杀进程)。api.js 现在给 fetch 加了
+  // 超时,这里再兜一层:无论上层因为什么原因没能收尾,遮罩都必须自己散。
+  const beginSessionNavigation = useCallback(() => {
+    const navigationId = ++nextSessionNavigationIdRef.current;
+    pendingSessionNavigationIdsRef.current.add(navigationId);
+    setSessionNavigationPending(true);
+    const timer = setTimeout(() => {
+      if (!pendingSessionNavigationIdsRef.current.has(navigationId)) return;
+      toast({ kind: 'err', text: '打开会话超时,请重试' });
+      finishSessionNavigation(navigationId);
+    }, SESSION_NAVIGATION_MASK_TIMEOUT_MS);
+    sessionNavigationTimersRef.current.set(navigationId, timer);
+    return navigationId;
+  }, [finishSessionNavigation]);
+
+  // 用户主动取消(遮罩上按 Esc):清掉全部在途导航,立刻还回操作权。
+  const cancelSessionNavigation = useCallback(() => {
+    const pending = Array.from(pendingSessionNavigationIdsRef.current);
+    pending.forEach((id) => finishSessionNavigation(id));
+  }, [finishSessionNavigation]);
+
+  useEffect(() => {
+    const timers = sessionNavigationTimersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   const resumeAndOpenSession = useCallback(async (target, options = {}) => {
     const sessionId = sessionJumpId(target);
     if (!sessionId) return false;
     const navigationId = beginSessionNavigation();
+    const navigationIsPending = () =>
+      pendingSessionNavigationIdsRef.current.has(navigationId);
     let handedOffToPageLoad = false;
     try {
       const noWorkspace = sessionJumpNoWorkspace(target);
       const readOnly = sessionJumpReadOnly(target);
       const targetHash = sessionJumpWorkspaceHash(target);
       const shouldResume = !readOnly && (options.forceResume || target?.active !== true);
-      const commitRef = options.replace ? replaceActiveRef : navigateToRef;
+      const suppliedHistory = options.navigationHistory
+        ? normalizeHistory(options.navigationHistory)
+        : null;
+      const commitRef = suppliedHistory
+        ? (nextRef) => replaceNavigationState(nextRef, suppliedHistory)
+        : (options.replace ? replaceActiveRef : navigateToRef);
       const resumeWith = async (client, workspaceHash) => {
         if (!shouldResume) return {};
         if (noWorkspace || !workspaceHash) return client.resumeSession(sessionId);
@@ -386,14 +425,26 @@ export function App() {
           && typeof window.aceDesktop_activateWorkspace === 'function') {
         try {
           const r = parseDesktopBridgeResult(await window.aceDesktop_activateWorkspace(targetHash));
+          if (!navigationIsPending()) return false;
           if (r && !r.error && r.port && r.token) {
             let resumed = {};
             try {
               resumed = await resumeWith(createApi({ port: r.port, token: r.token }), targetHash);
             } catch (e) {
-              toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+              if (navigationIsPending()) {
+                toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+              }
               return false;
             }
+            if (!navigationIsPending()) return false;
+            const nextRef = sessionRefFromJumpTarget(target, resumed, {
+              workspaceHash: targetHash,
+            });
+            const redirectHistory = suppliedHistory || (
+              options.replace
+                ? normalizeHistory(navHistoryRef.current)
+                : pushNavigation(navHistoryRef.current, activeRefRef.current, nextRef)
+            );
             const url = desktopOpenSessionUrl({
               port: r.port,
               token: r.token,
@@ -401,6 +452,7 @@ export function App() {
               workspaceHash: targetHash,
               readOnly,
               messageOrdinal: sessionJumpMessageOrdinal(target),
+              navigationHistory: redirectHistory,
               protocol: window.location?.protocol || 'http:',
             });
             if (url) {
@@ -408,29 +460,60 @@ export function App() {
               handedOffToPageLoad = true;
               return true;
             }
-            commitRef(sessionRefFromJumpTarget(target, resumed, { workspaceHash: targetHash }));
+            commitRef(nextRef);
             return true;
           }
         } catch {
+          if (!navigationIsPending()) return false;
           // Bridge 不可用或返回格式异常时，降级到当前 daemon 的 workspace-scoped resume。
         }
       }
 
       try {
         const resumed = await resumeWith(api, targetHash);
+        if (!navigationIsPending()) return false;
         commitRef(sessionRefFromJumpTarget(target, resumed, {
           workspaceHash: targetHash,
           noWorkspace,
         }));
         return true;
       } catch (e) {
-        toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+        if (navigationIsPending()) {
+          toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
+        }
         return false;
       }
     } finally {
       if (!handedOffToPageLoad) finishSessionNavigation(navigationId);
     }
-  }, [beginSessionNavigation, finishSessionNavigation, navigateToRef, replaceActiveRef]);
+  }, [
+    beginSessionNavigation,
+    finishSessionNavigation,
+    navigateToRef,
+    replaceActiveRef,
+    replaceNavigationState,
+  ]);
+
+  const openHistoryDestination = useCallback((result) => {
+    if (!result?.activeRef) return Promise.resolve(false);
+    if (!sessionJumpId(result.activeRef)) {
+      replaceNavigationState(result.activeRef, result.history);
+      return Promise.resolve(true);
+    }
+    return resumeAndOpenSession(result.activeRef, {
+      forceResume: true,
+      navigationHistory: result.history,
+      replace: true,
+    });
+  }, [replaceNavigationState, resumeAndOpenSession]);
+
+  const goBackActiveRef = useCallback(() => (
+    openHistoryDestination(goBack(navHistoryRef.current, activeRefRef.current))
+  ), [openHistoryDestination]);
+
+  const goForwardActiveRef = useCallback(() => (
+    openHistoryDestination(goForward(navHistoryRef.current, activeRefRef.current))
+  ), [openHistoryDestination]);
 
   const openSettingsSection = useCallback((key = 'general') => {
     setSettingsNavKey(key || 'general');
@@ -564,7 +647,10 @@ export function App() {
     if (!target || startupNavigationStartedRef.current) return;
     startupNavigationStartedRef.current = true;
     const qs = stripOpenSessionParams(window.location.search);
-    const newUrl = window.location.pathname + (qs ? '?' + qs : '');
+    const hash = stripNavigationHistoryHash(window.location.hash);
+    const newUrl = window.location.pathname
+      + (qs ? '?' + qs : '')
+      + (hash ? '#' + hash : '');
     window.history.replaceState(null, '', newUrl);
     resumeAndOpenSession(target, { replace: true, allowDesktopActivate: false })
       .catch(() => {})
@@ -729,11 +815,7 @@ export function App() {
         workspaceHash,
         sessionTitle,
         bodyText: notificationBodyFromEvent(type, payload),
-        activeRef: visibleSessionRef.current,
-        hasFocus: typeof document !== 'undefined'
-          && typeof document.hasFocus === 'function'
-          ? document.hasFocus()
-          : true,
+        hasFocus: isHostWindowFocused(),
         cfg: healthRef.current?.notifications,
       });
     };
@@ -741,7 +823,15 @@ export function App() {
     const finishMonitoredSession = (sessionId, msg, payload) => {
       const outcome = String(payload.outcome || '');
       const assistantText = context.assistantText.get(sessionId) || '';
-      if ((!outcome || outcome === 'completed') && assistantText.trim()) {
+      const ownerSessionId = conversationOwnerForSession(sessionId, payload);
+      const completionNotificationAllowed = shouldNotifySessionCompletion({
+        sessionId,
+        parentSessionId: payload.parent_session_id || msg.parent_session_id || '',
+        ownerSessionId,
+      });
+      if (completionNotificationAllowed
+          && (!outcome || outcome === 'completed')
+          && assistantText.trim()) {
         sendDesktopNotification('completion', msg, {
           ...payload,
           session_id: sessionId,
@@ -831,10 +921,6 @@ export function App() {
         setPermReqs((prev) => pushPermissionRequest(prev, payload, {
           ownerSessionId: ownerSessionId !== sessionId ? ownerSessionId : '',
         }));
-        sendDesktopNotification('permission', msg, {
-          ...payload,
-          session_id: ownerSessionId || sessionId,
-        });
       }
       if (msg.type === 'permission_closed') {
         const ownerSessionId = conversationOwnerForSession(sessionId, payload);
@@ -848,10 +934,6 @@ export function App() {
         setQuestionReqs((prev) => addPendingQuestionRequest(prev, payload, {
           ownerSessionId: ownerSessionId !== sessionId ? ownerSessionId : '',
         }));
-        sendDesktopNotification('question', msg, {
-          ...payload,
-          session_id: ownerSessionId || sessionId,
-        });
       }
       if (msg.type === 'question_closed') {
         const ownerSessionId = conversationOwnerForSession(sessionId, payload);
@@ -1055,7 +1137,9 @@ export function App() {
 
   const openHomeForWorkspace = useCallback((workspace = null) => {
     const target = workspace == null ? noHomeWorkspaceOption() : workspace;
-    navigateToRef(homeRefFromWorkspace(target, activeRefRef.current, health));
+    const next = homeRefFromWorkspace(target, activeRefRef.current, health);
+    void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
+    navigateToRef(next);
   }, [health, navigateToRef]);
 
   const openLoopPage = useCallback(() => {
@@ -1077,6 +1161,7 @@ export function App() {
     if (!expertId) return false;
     const current = activeRefRef.current || {};
     const base = homeRefFromWorkspace(current, current, health);
+    void refreshWorkspaceGitInfo(createApi(base), base).catch(() => {});
     navigateToRef({
       ...base,
       expertId,
@@ -1115,7 +1200,11 @@ export function App() {
   }, [replaceActiveRef]);
 
   const replaceHomeWorkspace = useCallback((workspace) => {
-    replaceActiveRef((current) => homeRefFromWorkspace(workspace, current, health));
+    replaceActiveRef((current) => {
+      const next = homeRefFromWorkspace(workspace, current, health);
+      void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
+      return next;
+    });
   }, [health, replaceActiveRef]);
 
   const abortGuidedTour = useCallback(() => {
@@ -1224,6 +1313,7 @@ export function App() {
   const createDesktopTraySession = useCallback(async () => {
     try {
       const next = await createNewSessionForActiveWorkspace(api, activeRefRef.current, health);
+      void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
       const sessionId = next?.sessionId || next?.id || '';
       const noWorkspace = !!(next?.noWorkspace || next?.no_workspace);
       notifySessionListChanged({
@@ -1351,6 +1441,13 @@ export function App() {
     setSingleLayout,
     sidePanelNavigationCollapsed,
   ]);
+
+  const setSubagentPanelWidth = useCallback((nextWidth, contentWidth = 0) => {
+    setSingleLayout((prev) => {
+      const subagentPanel = normalizeSubagentPanelWidth(nextWidth, contentWidth);
+      return subagentPanel === prev.subagentPanel ? prev : { ...prev, subagentPanel };
+    });
+  }, [setSingleLayout]);
 
   const startSidebarResize = useCallback((event) => {
     if (view !== 'single') return;
@@ -1607,6 +1704,8 @@ export function App() {
                 previewPanelWidth={singleLayout.previewPanel}
                 previewPanelAutoFit={!previewPanelUserSized}
                 onPreviewPanelResize={setPreviewPanelWidth}
+                subagentPanelWidth={singleLayout.subagentPanel ?? DEFAULT_SINGLE_LAYOUT.subagentPanel}
+                onSubagentPanelResize={setSubagentPanelWidth}
                 onPreviewPanelVisibleChange={setPreviewPanelVisible}
                 sidePanelCollapsed={sidePanelCollapsed}
                 sidePanelListCollapsed={sidePanelListCollapsed}
@@ -1702,7 +1801,10 @@ export function App() {
         onDismiss={dismissGuidedTour}
         onAbort={abortGuidedTour}
       />
-      <SessionNavigationMask open={sessionNavigationPending} />
+      <SessionNavigationMask
+        open={sessionNavigationPending}
+        onCancel={cancelSessionNavigation}
+      />
       <Toaster />
     </div>
     </SlashCommandsProvider>

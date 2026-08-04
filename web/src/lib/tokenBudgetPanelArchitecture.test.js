@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeTokenBudgetPanelLayout } from './tokenBudgetPanelLayout.js';
+import { resolveTokenBudgetPanelState } from './tokenBudgetPanelState.js';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -40,6 +41,10 @@ run('token ring uses a fixed compact trigger and opens an accessible context pan
   assert.match(component, /budget\.categories\.map/);
   assert.match(component, /data-context-category=\{category\.tone\}/);
   assert.match(triggerStyles, /--ace-token-budget-size: 20px/);
+  assert.match(triggerStyles, /cursor: pointer/);
+  assert.match(triggerStyles, /background: var\(--ace-surface-hi\)/);
+  assert.match(triggerStyles, /\[data-panel-mode="click"\]/);
+  assert.match(triggerStyles, /background: var\(--ace-accent-bg\)/);
   assert.doesNotMatch(triggerStyles, /28px/);
 });
 
@@ -53,9 +58,42 @@ run('token panel anchors to pointer coordinates, bridges hover, and supports pin
   assert.match(component, /onMouseEnter=\{clearCloseTimer\}/);
   assert.match(component, /onMouseLeave=\{scheduleHoverClose\}/);
   assert.match(component, /showPanel\(\s*'click'/);
-  assert.match(component, /current\?\.mode === 'click'/);
+  assert.match(component, /resolveTokenBudgetPanelState\(current, geometry, mode\)/);
+  assert.match(component, /data-panel-mode=\{panel\?\.mode \|\| undefined\}/);
   assert.match(component, /event\.key === 'Escape'/);
   assert.match(component, /panelRef\.current\?\.contains\(event\.target\)/);
+});
+
+run('click pinning freezes the visible preview geometry', () => {
+  const preview = resolveTokenBudgetPanelState(null, {
+    placement: 'above',
+    left: 120,
+    bottom: 48,
+    width: 420,
+    maxHeight: 500,
+  }, 'hover');
+  const pinned = resolveTokenBudgetPanelState(preview, {
+    placement: 'above',
+    left: 132,
+    bottom: 45,
+    width: 420,
+    maxHeight: 503,
+  }, 'click');
+
+  assert.deepEqual(pinned, {
+    ...preview,
+    mode: 'click',
+  });
+
+  const afterPointerReturn = resolveTokenBudgetPanelState(pinned, {
+    placement: 'below',
+    left: 24,
+    top: 80,
+    width: 420,
+    maxHeight: 300,
+  }, 'hover');
+
+  assert.strictEqual(afterPointerReturn, pinned);
 });
 
 run('legacy aggregate usage renders one bar without category placeholder copy', () => {

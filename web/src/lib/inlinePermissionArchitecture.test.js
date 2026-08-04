@@ -98,12 +98,16 @@ run('permission is conversation-scoped and is not a global focus/search/tour blo
   assert.doesNotMatch(focusBlock, /permReq|visiblePermission/);
 });
 
-run('known subagent permission notifications and cards route through the parent', () => {
+run('known subagent permission and question cards route through the parent without native notifications', () => {
   const app = source('App.jsx');
   assert.match(app, /subagentDirectory/);
   assert.match(app, /conversationOwnerForSession\(sessionId, payload\)/);
-  assert.match(app, /session_id: ownerSessionId \|\| sessionId/);
+  assert.match(app, /pushPermissionRequest\(prev, payload, \{/);
+  assert.match(app, /addPendingQuestionRequest\(prev, payload, \{/);
+  assert.match(app, /ownerSessionId: ownerSessionId !== sessionId \? ownerSessionId : ''/);
   assert.match(app, /origin_label: permissionOriginLabel\(entry, permissionOwnership\)/);
+  assert.match(app, /origin_label: questionOriginLabel\(request, permissionOwnership\)/);
+  assert.doesNotMatch(app, /sendDesktopNotification\(['"](?:permission|question)['"]/);
 });
 
 console.log('inlinePermissionArchitecture tests passed');

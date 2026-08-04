@@ -300,3 +300,18 @@ export function completeQueuedInputForMessage(
 export function buildQueuedMessageItems(state, sessionId) {
   return queuedInputsForSession(state, sessionId).map((item) => ({ ...item }));
 }
+
+// 是否允许自动 drain 排队消息。
+// 切会话时 useSessionTranscript 会先把 busy 置 false、loadState=loading,
+// 若此时 drain 会把仍在等待的排队卡片立刻发出/消掉。必须等 transcript
+// 真正 loaded 后再根据 busy 决定是否 drain。
+export function shouldDrainQueuedInput({
+  sessionId = '',
+  busy = false,
+  loadState = 'loaded',
+} = {}) {
+  if (!String(sessionId || '').trim()) return false;
+  if (busy) return false;
+  if (loadState && loadState !== 'loaded') return false;
+  return true;
+}

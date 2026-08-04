@@ -238,6 +238,14 @@ TEST(SessionTitle, SanitizesJsonTitleOutput) {
     EXPECT_EQ(
         acecode::sanitize_generated_session_title(R"({"title":"  Refactor provider retry flow  "})"),
         "Refactor provider retry flow");
+    EXPECT_EQ(
+        acecode::sanitize_generated_session_title(
+            "```json\n{\"title\":\"Fix fenced title parsing\"}\n```"),
+        "Fix fenced title parsing");
+    EXPECT_EQ(
+        acecode::sanitize_generated_session_title(
+            "```JSON {\"title\":\"Chinese Greeting and Conversation Start\"} ```"),
+        "Chinese Greeting and Conversation Start");
     EXPECT_EQ(acecode::sanitize_generated_session_title("Title:   Build web session title API"),
               "Build web session title API");
     EXPECT_FALSE(acecode::is_generated_session_error_title(
@@ -246,6 +254,42 @@ TEST(SessionTitle, SanitizesJsonTitleOutput) {
         "  [Error] Connection failed"));
     EXPECT_TRUE(acecode::sanitize_generated_session_title(
         std::string("bad") + static_cast<char>(1) + "line").empty());
+}
+
+TEST(SessionTitle, RejectsVerboseOrMalformedGeneratedOutput) {
+    EXPECT_TRUE(acecode::sanitize_generated_session_title(
+        "I cannot browse the internet, but I can explain how to do it.").empty());
+    EXPECT_TRUE(acecode::sanitize_generated_session_title(
+        "我无法直接访问网站。让我解释一下可以怎样操作").empty());
+    EXPECT_TRUE(acecode::sanitize_generated_session_title(
+        "```python\nprint('not a title')\n```").empty());
+    EXPECT_TRUE(acecode::sanitize_generated_session_title(
+        "```json\n{\"message\":\"missing title\"}\n```").empty());
+    EXPECT_TRUE(acecode::sanitize_generated_session_title(
+        "Here is the title:\n```json\n{\"title\":\"Wrapped\"}\n```").empty());
+    EXPECT_TRUE(acecode::sanitize_generated_session_title(
+        "First title line\nSecond title line").empty());
+}
+
+TEST(SessionTitle, SessionManagerSanitizesGeneratedTitlesBeforePersisting) {
+    const auto cwd = temp_cwd("sanitize_before_persist");
+    ProjectCleanup cleanup(cwd.string());
+
+    acecode::SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model", "sanitize-title");
+
+    EXPECT_TRUE(sm.try_set_generated_session_title(
+        "```json {\"title\":\"Clean persisted title\"} ```"));
+    EXPECT_EQ(sm.current_title(), "Clean persisted title");
+    EXPECT_FALSE(sm.try_set_generated_session_title(
+        "This is a verbose explanation that should never become a title."));
+    EXPECT_EQ(sm.current_title(), "Clean persisted title");
+
+    ASSERT_EQ(sm.ensure_active_session_id(), "sanitize-title");
+    const auto meta = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(cleanup.project_dir, "sanitize-title"));
+    EXPECT_EQ(meta.title, "Clean persisted title");
+    EXPECT_EQ(meta.title_source, "generated");
 }
 
 TEST(SessionTitle, GeneratorRejectsProviderErrorsAndToolCalls) {

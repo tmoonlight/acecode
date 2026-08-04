@@ -2,10 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import { usePreference } from '../lib/usePreference.js';
 import { clsx } from '../lib/format.js';
-import { PREVIEW_TAB_TYPES } from '../lib/previewTabs.js';
+import { PREVIEW_TAB_TYPES, previewAbsolutePath } from '../lib/previewTabs.js';
 import { scrollLeftForVisibleTab } from '../lib/previewTabScroll.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 import { FilePreviewContent } from './FilePreviewContent.jsx';
+import { AgentBrowserPanel } from './AgentBrowserPanel.jsx';
 import { SessionChangeDetails } from './ChangeReview.jsx';
 import { GitChangeDetails } from './GitChangeReview.jsx';
 import { FileTypeIcon, PanelToggleIcon, VsIcon } from './Icon.jsx';
@@ -32,6 +33,29 @@ function tabLabel(tab) {
     return count > 0 ? `变更(${count} 文件)` : '变更';
   }
   return tab.title || fileName(tab.path);
+}
+
+function BrowserTabIcon({ favicon }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [favicon]);
+
+  if (!favicon || failed) {
+    return <VsIcon name="globe" size={17} className="ace-preview-details-tab-icon" />;
+  }
+  return (
+    <img
+      src={favicon}
+      alt=""
+      aria-hidden="true"
+      draggable="false"
+      referrerPolicy="no-referrer"
+      className="ace-preview-details-tab-icon ace-preview-details-tab-favicon"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 function wheelDeltaForTabs(event, pageWidth) {
@@ -187,6 +211,9 @@ export function PreviewDetailsPanel({
   onReorderTab,
   onToggleMaximize,
   onToggleSidePanelList,
+  onOpenBrowser,
+  agentBrowserActive = false,
+  onAddBrowserContext,
   onSelectChangeFile,
   onSelectGitChangeFile,
   onOpenFilePreview,
@@ -233,6 +260,16 @@ export function PreviewDetailsPanel({
 
   const renderedBody = useMemo(() => {
     if (!active) return null;
+    if (active.type === PREVIEW_TAB_TYPES.BROWSER) {
+      return (
+        <AgentBrowserPanel
+          key={active.pageId}
+          pageId={active.pageId}
+          agentActive={agentBrowserActive && active.pageId === agentBrowserActive}
+          onAddContext={onAddBrowserContext}
+        />
+      );
+    }
     if (active.type === PREVIEW_TAB_TYPES.SESSION_CHANGES) {
       return (
         <SessionChangeDetails
@@ -279,7 +316,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, api, busy, changeGroups, changeSummary, cwd, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, onAddBrowserContext, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -635,7 +672,10 @@ export function PreviewDetailsPanel({
               const selected = active.key === tab.key;
               const label = tabLabel(tab);
               const isFileTab = tab.type === PREVIEW_TAB_TYPES.FILE;
-              const tabAbsolutePath = isFileTab ? ((tab.cwd || cwd || '') + '/' + (tab.path || '')) : '';
+              const isBrowserTab = tab.type === PREVIEW_TAB_TYPES.BROWSER;
+              const tabAbsolutePath = isFileTab
+                ? previewAbsolutePath({ cwd: tab.cwd || cwd || '', path: tab.path || '' })
+                : '';
               return (
                 <button
                   key={tab.key}
@@ -678,6 +718,9 @@ export function PreviewDetailsPanel({
                       size={20}
                       className="ace-preview-details-tab-icon"
                     />
+                  )}
+                  {isBrowserTab && (
+                    <BrowserTabIcon favicon={tab.favicon} />
                   )}
                   <span className="ace-preview-details-tab-label">{label}</span>
                   <span
@@ -729,6 +772,18 @@ export function PreviewDetailsPanel({
           >
             <VsIcon name={maximized ? 'screenNormal' : 'screenFull'} size={14} />
           </button>
+          {onOpenBrowser && (
+            <button
+              type="button"
+              className="ace-preview-details-action"
+              onClick={onOpenBrowser}
+              title="打开浏览器"
+              aria-label="打开浏览器"
+              aria-pressed={active.type === PREVIEW_TAB_TYPES.BROWSER}
+            >
+              <VsIcon name="globe" size={15} />
+            </button>
+          )}
           <button
             type="button"
             className="ace-preview-details-action"

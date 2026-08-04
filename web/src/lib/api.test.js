@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   ApiError,
   createApi,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   expertCapabilitiesPath,
   mergeAllWorkspaceSessions,
   sessionDraftPath,
@@ -60,6 +61,67 @@ await run('expert capability client reads the sanitized runtime catalog endpoint
     assert.equal(calls[0].opts.body, undefined);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+await run('ordinary API requests abort with a structured timeout error', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  let scheduledDelay = null;
+  let clearedTimer = null;
+  globalThis.setTimeout = (callback, delay) => {
+    scheduledDelay = delay;
+    queueMicrotask(callback);
+    return 91;
+  };
+  globalThis.clearTimeout = (timer) => {
+    clearedTimer = timer;
+  };
+  globalThis.fetch = async (_url, opts) => new Promise((_resolve, reject) => {
+    opts.signal.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true });
+  });
+  try {
+    await assert.rejects(
+      createApi({ origin: 'http://acecode.test', token: '' }).health(),
+      (error) => error instanceof ApiError
+        && error.status === 408
+        && error.code === 'TIMEOUT',
+    );
+    assert.equal(scheduledDelay, DEFAULT_REQUEST_TIMEOUT_MS);
+    assert.equal(clearedTimer, 91);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});
+
+await run('native-dialog API requests remain exempt from the default timeout', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  let timerScheduled = false;
+  globalThis.setTimeout = () => {
+    timerScheduled = true;
+    return 92;
+  };
+  globalThis.fetch = async (_url, opts) => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => 'application/json' },
+    json: async () => ({ path: 'C:/workspace' }),
+    signal: opts.signal,
+  });
+  try {
+    await createApi({ origin: 'http://acecode.test', token: '' }).pickWorkspaceFolder();
+    assert.equal(timerScheduled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
   }
 });
 
@@ -291,6 +353,46 @@ await run('GUI locale API uses the authenticated config endpoint', async () => {
     assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
     assert.equal(calls[1].opts.method, 'PUT');
     assert.deepEqual(JSON.parse(calls[1].opts.body), { locale: 'auto' });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+await run('remote Web API reads and writes the authenticated mode endpoint', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        configured_enabled: true,
+        effective_enabled: true,
+        connections: [],
+      }),
+    };
+  };
+  try {
+    const client = createApi({
+      origin: 'http://127.0.0.1:4567',
+      token: 'remote-token',
+    });
+    await client.getRemoteWeb();
+    await client.setRemoteWeb(true);
+
+    assert.equal(
+      calls[0].url,
+      'http://127.0.0.1:4567/api/config/remote-web',
+    );
+    assert.equal(calls[0].opts.method, 'GET');
+    assert.equal(
+      calls[0].opts.headers['X-ACECode-Token'],
+      'remote-token',
+    );
+    assert.equal(calls[1].opts.method, 'PUT');
+    assert.deepEqual(JSON.parse(calls[1].opts.body), { enabled: true });
   } finally {
     globalThis.fetch = previousFetch;
   }
@@ -782,36 +884,6 @@ await run('Update API checks status and manages GUI update jobs', async () => {
     assert.equal(calls[2].opts.method, 'GET');
     assert.equal(calls[3].url, 'http://127.0.0.1:4567/api/update/jobs/job%201');
     assert.equal(calls[3].opts.method, 'GET');
-  } finally {
-    globalThis.fetch = previousFetch;
-  }
-});
-
-await run('ACE Browser Bridge API reads and writes daemon-backed enabled flag', async () => {
-  const previousFetch = globalThis.fetch;
-  const calls = [];
-  globalThis.fetch = async (url, opts = {}) => {
-    calls.push({ url, opts });
-    return {
-      ok: true,
-      status: 200,
-      headers: { get: () => 'application/json' },
-      json: async () => ({ enabled: true, tool_mode: 'progressive' }),
-    };
-  };
-  try {
-    const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
-    const got = await client.getAceBrowserBridge();
-    const saved = await client.setAceBrowserBridge({ enabled: true });
-
-    assert.equal(got.enabled, true);
-    assert.equal(saved.tool_mode, 'progressive');
-    assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/config/ace-browser-bridge');
-    assert.equal(calls[0].opts.method, 'GET');
-    assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
-    assert.equal(calls[1].url, 'http://127.0.0.1:4567/api/config/ace-browser-bridge');
-    assert.equal(calls[1].opts.method, 'PUT');
-    assert.deepEqual(JSON.parse(calls[1].opts.body), { enabled: true });
   } finally {
     globalThis.fetch = previousFetch;
   }

@@ -9,6 +9,7 @@ namespace fs = std::filesystem;
 
 using acecode::desktop::open_directory_in_file_manager;
 using acecode::desktop::open_path_in_file_manager;
+using acecode::desktop::append_acecode_managed_open_roots;
 using acecode::desktop::append_allowed_open_root;
 using acecode::desktop::OpenInExplorerTargetKind;
 using acecode::desktop::validate_open_directory_request;
@@ -135,6 +136,47 @@ TEST(DesktopOpenInExplorer, AppendsGlobalSkillsRootOnce) {
     std::error_code ec;
     fs::remove_all(root, ec);
     fs::remove_all(skills, ec);
+}
+
+TEST(DesktopOpenInExplorer, ManagedRootsAllowPersistedAttachmentsOnlyInsideManagedDirectories) {
+    auto acecode_dir = make_tmp_dir("acecode_open_explorer_managed");
+    auto skills = acecode_dir / "skills";
+    auto projects = acecode_dir / "projects";
+    auto attachment_dir =
+        projects / "0123456789abcdef" / "attachments" / "session-1";
+    auto logs = acecode_dir / "logs";
+    fs::create_directories(skills);
+    fs::create_directories(attachment_dir);
+    fs::create_directories(logs);
+
+    auto attachment = attachment_dir / "attachment.png";
+    std::ofstream(attachment.string()) << "png";
+    auto log = logs / "daemon.log";
+    std::ofstream(log.string()) << "log";
+
+    auto roots = append_acecode_managed_open_roots(
+        {},
+        path_string(acecode_dir));
+    ASSERT_EQ(roots.size(), 2u);
+    roots = append_acecode_managed_open_roots(
+        std::move(roots),
+        path_string(acecode_dir));
+    EXPECT_EQ(roots.size(), 2u);
+
+    auto allowed = validate_open_in_explorer_request(
+        path_string(attachment),
+        roots);
+    EXPECT_TRUE(allowed.ok) << allowed.error;
+    EXPECT_EQ(allowed.kind, OpenInExplorerTargetKind::File);
+
+    auto rejected = validate_open_in_explorer_request(
+        path_string(log),
+        roots);
+    EXPECT_FALSE(rejected.ok);
+    EXPECT_NE(rejected.error.find("outside"), std::string::npos);
+
+    std::error_code ec;
+    fs::remove_all(acecode_dir, ec);
 }
 
 TEST(DesktopOpenInExplorer, UsesInjectedLauncherAfterValidation) {

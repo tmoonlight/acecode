@@ -119,7 +119,7 @@ TEST(FeedbackUpload, BuildPackageIncludesSessionMetadataAndLogTail) {
     req.feedback_text = "third turn froze";
     req.session_id = "20260618-010203-abcd";
     req.session_jsonl_path = session;
-    req.log_path = log;
+    req.logs.push_back({log, "logs/acecode.log.tail.txt", 0});
     req.output_dir = tmp.root / "out";
     req.created_at = "2026-06-18T01:02:03Z";
     req.acecode_version = "test-version";
@@ -164,8 +164,7 @@ TEST(FeedbackUpload, BuildDesktopPackageCanBeLogOnly) {
     acecode::feedback::FeedbackPackageRequest req;
     req.source = "desktop";
     req.feedback_text = "settings pane froze";
-    req.log_path = log;
-    req.log_entry_name = "logs/desktop.log.tail.txt";
+    req.logs.push_back({log, "logs/desktop.log.tail.txt", 0});
     req.output_dir = tmp.root / "out";
     req.created_at = "2026-06-18T01:02:03Z";
     req.acecode_version = "test-version";
@@ -207,8 +206,7 @@ TEST(FeedbackUpload, BuildDesktopPackageMayIncludeSelectedSession) {
     req.session_id = "sid-selected";
     req.session_jsonl_path = session;
     req.workspace_hash = "workspace-a";
-    req.log_path = log;
-    req.log_entry_name = "logs/desktop.log.tail.txt";
+    req.logs.push_back({log, "logs/desktop.log.tail.txt", 0});
     req.output_dir = tmp.root / "out";
     req.created_at = "2026-06-18T01:02:03Z";
 
@@ -232,8 +230,7 @@ TEST(FeedbackUpload, BuildDesktopPackageSucceedsWhenLogIsMissing) {
 
     acecode::feedback::FeedbackPackageRequest req;
     req.source = "desktop";
-    req.log_path = tmp.root / "missing.log";
-    req.log_entry_name = "logs/desktop.log.tail.txt";
+    req.logs.push_back({tmp.root / "missing.log", "logs/desktop.log.tail.txt", 0});
     req.output_dir = tmp.root / "out";
     req.created_at = "2026-06-18T01:02:03Z";
 
@@ -245,6 +242,170 @@ TEST(FeedbackUpload, BuildDesktopPackageSucceedsWhenLogIsMissing) {
         read_zip_entry(result.package_path, "feedback.json"));
     EXPECT_FALSE(metadata["log_available"].get<bool>());
     EXPECT_TRUE(metadata["session_id"].is_null());
+}
+
+TEST(FeedbackUpload, BuildPackageIncludesDesktopAndDaemonLogs) {
+    TempDir tmp("acecode_feedback_multi_log");
+    const fs::path logs = tmp.root / "logs";
+    write_text(logs / "desktop-2026-06-18.log", "desktop line\n");
+    write_text(logs / "daemon-2026-06-18.log", "daemon line\n");
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.source = "desktop";
+    req.feedback_text = "turn hung";
+    req.logs = acecode::feedback::collect_runtime_log_sources(logs);
+    req.output_dir = tmp.root / "out";
+    req.created_at = "2026-06-18T01:02:03Z";
+
+    ASSERT_EQ(req.logs.size(), 2u);
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_TRUE(result.log_included);
+    EXPECT_EQ(result.log_tail_bytes, std::string("desktop line\n").size() +
+                                         std::string("daemon line\n").size());
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/desktop.log.tail.txt"),
+              "desktop line\n");
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/daemon.log.tail.txt"),
+              "daemon line\n");
+
+    ASSERT_EQ(result.logs.size(), 2u);
+    EXPECT_EQ(result.logs[0].entry_name, "logs/desktop.log.tail.txt");
+    EXPECT_TRUE(result.logs[0].included);
+    EXPECT_EQ(result.logs[1].entry_name, "logs/daemon.log.tail.txt");
+    EXPECT_TRUE(result.logs[1].included);
+
+    auto metadata = nlohmann::json::parse(
+        read_zip_entry(result.package_path, "feedback.json"));
+    EXPECT_TRUE(metadata["log_available"].get<bool>());
+    ASSERT_EQ(metadata["logs"].size(), 2u);
+    EXPECT_EQ(metadata["logs"][1]["entry_name"], "logs/daemon.log.tail.txt");
+    EXPECT_TRUE(metadata["logs"][1]["available"].get<bool>());
+    EXPECT_EQ(metadata["included_files"].size(), 3u);
+    EXPECT_EQ(metadata["included_files"][0], "logs/desktop.log.tail.txt");
+    EXPECT_EQ(metadata["included_files"][1], "logs/daemon.log.tail.txt");
+    EXPECT_EQ(metadata["included_files"][2], "feedback.json");
+}
+
+TEST(FeedbackUpload, CollectRuntimeLogSourcesKeepsDaemonWhenDesktopIsMissing) {
+    TempDir tmp("acecode_feedback_daemon_only");
+    const fs::path logs = tmp.root / "logs";
+    write_text(logs / "daemon-2026-06-17.log", "older daemon");
+    write_text(logs / "daemon-2026-06-18.log", "newer daemon");
+    write_text(logs / "headless-2026-06-18.log", "unrelated");
+    fs::last_write_time(logs / "daemon-2026-06-17.log",
+                        fs::file_time_type::clock::now() - std::chrono::hours(2));
+    fs::last_write_time(logs / "daemon-2026-06-18.log",
+                        fs::file_time_type::clock::now() - std::chrono::hours(1));
+
+    auto sources = acecode::feedback::collect_runtime_log_sources(logs);
+    ASSERT_EQ(sources.size(), 1u);
+    EXPECT_EQ(sources[0].entry_name, "logs/daemon.log.tail.txt");
+    EXPECT_EQ(sources[0].path.filename(), fs::path("daemon-2026-06-18.log"));
+}
+
+TEST(FeedbackUpload, CollectRuntimeLogSourcesIsEmptyWhenLogsDirIsMissing) {
+    TempDir tmp("acecode_feedback_no_logs_dir");
+    EXPECT_TRUE(acecode::feedback::collect_runtime_log_sources(tmp.root / "nope").empty());
+}
+
+TEST(FeedbackUpload, PartiallyMissingLogsStillPackageTheAvailableOnes) {
+    TempDir tmp("acecode_feedback_partial_logs");
+    const fs::path daemon_log = tmp.root / "daemon-2026-06-18.log";
+    write_text(daemon_log, "daemon only\n");
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.source = "desktop";
+    req.logs.push_back({tmp.root / "desktop-missing.log", "logs/desktop.log.tail.txt", 0});
+    req.logs.push_back({daemon_log, "logs/daemon.log.tail.txt", 0});
+    req.output_dir = tmp.root / "out";
+    req.created_at = "2026-06-18T01:02:03Z";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_TRUE(result.log_included);
+    EXPECT_FALSE(zip_entry_exists(result.package_path, "logs/desktop.log.tail.txt"));
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/daemon.log.tail.txt"),
+              "daemon only\n");
+    ASSERT_EQ(result.logs.size(), 2u);
+    EXPECT_FALSE(result.logs[0].included);
+    EXPECT_TRUE(result.logs[1].included);
+}
+
+TEST(FeedbackUpload, PerLogByteCapOverridesTheRequestDefault) {
+    TempDir tmp("acecode_feedback_per_log_cap");
+    const fs::path big = tmp.root / "desktop-2026-06-18.log";
+    const fs::path capped_log = tmp.root / "daemon-2026-06-18.log";
+    write_text(big, "0123456789");
+    write_text(capped_log, "abcdefghij");
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.source = "desktop";
+    req.max_log_bytes = 4;
+    req.logs.push_back({big, "logs/desktop.log.tail.txt", 0});
+    req.logs.push_back({capped_log, "logs/daemon.log.tail.txt", 2});
+    req.output_dir = tmp.root / "out";
+    req.created_at = "2026-06-18T01:02:03Z";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/desktop.log.tail.txt"), "6789");
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/daemon.log.tail.txt"), "ij");
+    EXPECT_EQ(result.log_tail_bytes, 6u);
+}
+
+TEST(FeedbackUpload, DuplicateLogEntryNamesDoNotOverwriteEachOther) {
+    TempDir tmp("acecode_feedback_dup_entry");
+    const fs::path a = tmp.root / "a.log";
+    const fs::path b = tmp.root / "b.log";
+    write_text(a, "first");
+    write_text(b, "second");
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.logs.push_back({a, "logs/daemon.log.tail.txt", 0});
+    req.logs.push_back({b, "logs/daemon.log.tail.txt", 0});
+    req.output_dir = tmp.root / "out";
+    req.created_at = "2026-06-18T01:02:03Z";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/daemon.log.tail.txt"), "first");
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/daemon.log.tail.txt.2"), "second");
+}
+
+TEST(FeedbackUpload, LogEntryNameDefaultsToTheSourceFilename) {
+    TempDir tmp("acecode_feedback_default_entry");
+    const fs::path log = tmp.root / "daemon-2026-06-18.log";
+    write_text(log, "daemon line");
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.logs.push_back({log, "", 0});
+    req.output_dir = tmp.root / "out";
+    req.created_at = "2026-06-18T01:02:03Z";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(read_zip_entry(result.package_path,
+                             "logs/daemon-2026-06-18.log.tail.txt"),
+              "daemon line");
+}
+
+TEST(FeedbackUpload, LatestRotatedLogPathPicksNewestMatchingBase) {
+    TempDir tmp("acecode_feedback_latest_rotated");
+    const fs::path logs = tmp.root / "logs";
+    write_text(logs / "daemon-2026-06-17.log", "older");
+    write_text(logs / "daemon-2026-06-18.log", "newer");
+    write_text(logs / "desktop-2026-06-19.log", "ignored");
+    fs::last_write_time(logs / "daemon-2026-06-17.log",
+                        fs::file_time_type::clock::now() - std::chrono::hours(2));
+    fs::last_write_time(logs / "daemon-2026-06-18.log",
+                        fs::file_time_type::clock::now() - std::chrono::hours(1));
+    fs::last_write_time(logs / "desktop-2026-06-19.log",
+                        fs::file_time_type::clock::now());
+
+    auto found = acecode::feedback::latest_rotated_log_path(logs, "daemon");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->filename(), fs::path("daemon-2026-06-18.log"));
+    EXPECT_FALSE(acecode::feedback::latest_rotated_log_path(logs, "headless").has_value());
 }
 
 TEST(FeedbackUpload, LatestDesktopLogPathPicksNewestDesktopLog) {
@@ -287,7 +448,7 @@ TEST(FeedbackUpload, BuildPackageSucceedsWhenLogIsMissing) {
     acecode::feedback::FeedbackPackageRequest req;
     req.session_id = "sid";
     req.session_jsonl_path = session;
-    req.log_path = tmp.root / "missing.log";
+    req.logs.push_back({tmp.root / "missing.log", "logs/acecode.log.tail.txt", 0});
     req.output_dir = tmp.root / "out";
     req.created_at = "2026-06-18T01:02:03Z";
 

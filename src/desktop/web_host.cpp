@@ -1813,6 +1813,10 @@ void WebHost::eval(const std::string& js) {
         w_ptr->eval(js_copy);
     });
 }
+void WebHost::dispatch(std::function<void()> task) {
+    if (!task) return;
+    impl_->w->dispatch(std::move(task));
+}
 bool WebHost::open_dev_tools() {
 #ifdef _WIN32
     auto controller_result = impl_->w->browser_controller();

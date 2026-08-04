@@ -40,6 +40,10 @@ std::vector<std::string> append_allowed_open_root(
     std::vector<std::string> allowed_roots_utf8,
     const std::string& extra_root_utf8);
 
+std::vector<std::string> append_acecode_managed_open_roots(
+    std::vector<std::string> allowed_roots_utf8,
+    const std::string& acecode_dir_utf8);
+
 ValidatedOpenTarget validate_open_in_explorer_request(
     const std::string& path_utf8,
     const std::vector<std::string>& allowed_roots_utf8 = {});

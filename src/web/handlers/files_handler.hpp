@@ -67,6 +67,17 @@ validate_path_within(const std::string& cwd,
                      const std::string& path,
                      const std::vector<std::string>& allowed_cwds);
 
+// 预览端点专用:先按 workspace 白名单校验;失败后再用 extra_preview_roots
+// (活动 no-workspace session 根、~/.acecode/skills 与 projects 等)做前缀放行。
+// 前端在无工作区会话下会把绝对路径拆成「所在目录 + basename」,该目录不在
+// workspace 白名单,但目标文件仍可能落在 session cache 或 ACECode 管理目录。
+// 目录树 / Git 路由不得调用此函数——它们只认 allowed_cwds。
+std::variant<std::filesystem::path, FileError>
+validate_preview_path_within(const std::string& cwd,
+                             const std::string& path,
+                             const std::vector<std::string>& allowed_cwds,
+                             const std::vector<std::string>& extra_preview_roots);
+
 // 列出 abs_dir 下的直接子项(不递归)。abs_dir 必须先经 validate_path_within。
 //
 // 行为:

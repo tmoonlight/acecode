@@ -7,6 +7,7 @@ import {
   sessionRefFromJumpTarget,
   stripOpenSessionParams,
 } from './sessionJump.js';
+import { navigationHistoryFromHash } from './navigationHistory.js';
 
 function test(name, fn) {
   try {
@@ -81,6 +82,7 @@ test('session ref from jump target merges resume result and search metadata', ()
       id: 's1',
       workspace_hash: 'w-search',
       display_title: 'Search title',
+      session_path: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
       message_count: 3,
       search_match: { kind: 'user_message', message_ordinal: 7, snippet: 'needle' },
     },
@@ -95,6 +97,7 @@ test('session ref from jump target merges resume result and search metadata', ()
   assert.equal(ref.workspaceHash, 'w-resumed');
   assert.equal(ref.cwd, 'N:/repo');
   assert.equal(ref.displayTitle, 'Search title');
+  assert.equal(ref.sessionPath, 'C:/Users/test/.acecode/projects/hash/s1.jsonl');
   assert.equal(ref.message_count, 3);
   assert.equal(ref.contextId, 'default');
   assert.equal(ref.searchMatch.messageOrdinal, 7);
@@ -122,4 +125,35 @@ test('desktop open session URL preserves matched message ordinal', () => {
     search_match: { kind: 'user_message', message_ordinal: 12, messageOrdinal: 12 },
   });
   assert.equal(stripOpenSessionParams('?token=t1&open=s1&workspace=w1&message_ordinal=12'), 'token=t1');
+});
+
+test('desktop open session URL transfers navigation history in a client-only fragment', () => {
+  const url = desktopOpenSessionUrl({
+    port: 4567,
+    token: 'tok',
+    sessionId: 's2',
+    workspaceHash: 'w2',
+    navigationHistory: {
+      back: [{
+        workspaceHash: 'w1',
+        sessionId: 's1',
+        displayTitle: 'Previous',
+        token: 'must-not-transfer',
+      }],
+      forward: [],
+    },
+  });
+  const parsed = new URL(url);
+
+  assert.equal(parsed.searchParams.get('open'), 's2');
+  assert.equal(parsed.searchParams.has('ace_nav'), false);
+  assert.doesNotMatch(parsed.hash, /must-not-transfer/);
+  assert.deepEqual(navigationHistoryFromHash(parsed.hash), {
+    back: [{
+      workspaceHash: 'w1',
+      sessionId: 's1',
+      displayTitle: 'Previous',
+    }],
+    forward: [],
+  });
 });

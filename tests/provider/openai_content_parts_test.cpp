@@ -91,6 +91,25 @@ TEST(OpenAiContentParts, VisionModelGetsImageUrl) {
     fs::remove_all(dir);
 }
 
+TEST(OpenAiContentParts, SourcePathTextRemainsVisibleBesideVisionImage) {
+    auto dir = temp_project("vision_source_path");
+    const std::string project_dir = acecode::path_to_utf8(dir);
+    auto record = save(project_dir, "shot.png", "image/png", "fake-png-bytes");
+    auto message = image_part_message(record);
+    message.content_parts.insert(message.content_parts.begin() + 1, nlohmann::json{
+        {"type", "text"},
+        {"text", "[Local attachment source]\n{\"absolute_path\":\"C:/repo/shot.png\"}"},
+    });
+
+    auto content = acecode::openai_content_for_message(
+        message, /*model_has_vision=*/true,
+        /*any_vision_model_available=*/false);
+
+    EXPECT_TRUE(has_image_url(content)) << content.dump(2);
+    EXPECT_NE(collect_text(content).find("C:/repo/shot.png"), std::string::npos);
+    fs::remove_all(dir);
+}
+
 // 场景:非视觉模型 + 存在其它视觉模型 → 无图片 payload,fallback 引导用 vision_analyze。
 TEST(OpenAiContentParts, NonVisionModelGetsHandlePointingToVisionAnalyze) {
     auto dir = temp_project("no_vision_but_available");

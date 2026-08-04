@@ -1,0 +1,7 @@
+packages:
+  - .
+
+allowBuilds:
+  core-js: true
+  esbuild: true
+  x-data-spreadsheet: true

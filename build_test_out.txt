@@ -1,0 +1,32 @@
+适用于 .NET Framework MSBuild 版本 17.9.8+b34f75857
+
+  Checking File Globs
+  mcp.vcxproj -> C:\Users\shao\acecode\build\external\cpp-mcp\src\Release\mcp.lib
+  winpty-agent.vcxproj -> C:\Users\shao\acecode\build\Release\winpty-agent.exe
+  winpty_static.vcxproj -> C:\Users\shao\acecode\build\Release\winpty_static.lib
+  files_handler.cpp
+  acecode_testable.vcxproj -> C:\Users\shao\acecode\build\acecode_testable.dir\Release\acecode_testable.lib
+d:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(531,5): warning MSB8028: 中间目录(acecode_native_bridge_support.dir\Release\)包含从另一个项目(acecode_native_bridge_support.vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。 [C:\Users\shao\acecode\build\acecode_native_bridge_support.vcxproj]
+  acecode_native_bridge_support.vcxproj -> C:\Users\shao\acecode\build\Release\acecode_native_bridge_support.lib
+d:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(531,5): warning MSB8028: 中间目录(acecode_desktop_support.dir\Release\)包含从另一个项目(acecode_desktop_support.vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。 [C:\Users\shao\acecode\build\acecode_desktop_support.vcxproj]
+  acecode_desktop_support.vcxproj -> C:\Users\shao\acecode\build\Release\acecode_desktop_support.lib
+d:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(531,5): warning MSB8028: 中间目录(concurrent_session_writer.dir\Release\)包含从另一个项目(concurrent_session_writer.vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。 [C:\Users\shao\acecode\build\tests\concurrent_session_writer.vcxproj]
+    正在创建库 C:/Users/shao/acecode/build/tests/Release/concurrent_session_writer.lib 和对象 C:/Users/shao/acecode/build/tests/Release/concurrent_session_writer.exp
+  concurrent_session_writer.vcxproj -> C:\Users\shao\acecode\build\tests\Release\concurrent_session_writer.exe
+  fake_lsp_server.vcxproj -> C:\Users\shao\acecode\build\tests\Release\fake_lsp_server.exe
+d:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(531,5): warning MSB8028: 中间目录(headless_jsonl_process_driver.dir\Release\)包含从另一个项目(headless_jsonl_process_driver.vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。 [C:\Users\shao\acecode\build\tests\headless_jsonl_process_driver.vcxproj]
+  headless_jsonl_process_driver.vcxproj -> C:\Users\shao\acecode\build\tests\Release\headless_jsonl_process_driver.exe
+d:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(531,5): warning MSB8028: 中间目录(mcp_stdio_test_server.dir\Release\)包含从另一个项目(mcp_stdio_test_server.vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。 [C:\Users\shao\acecode\build\tests\mcp_stdio_test_server.vcxproj]
+  mcp_stdio_test_server.vcxproj -> C:\Users\shao\acecode\build\tests\Release\mcp_stdio_test_server.exe
+    正在创建库 C:/Users/shao/acecode/build/tests/Release/state_file_claim_worker.lib 和对象 C:/Users/shao/acecode/build/tests/Release/state_file_claim_worker.exp
+  state_file_claim_worker.vcxproj -> C:\Users\shao\acecode\build\tests\Release\state_file_claim_worker.exe
+d:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(531,5): warning MSB8028: 中间目录(acecode_unit_tests.dir\Release\)包含从另一个项目(acecode_unit_tests.vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。 [C:\Users\shao\acecode\build\tests\acecode_unit_tests.vcxproj]
+  files_handler_test.cpp
+  selection_context_annotation_test.cpp
+  web_server_smoke_test.cpp
+  Please define _WIN32_WINNT or _WIN32_WINDOWS appropriately. For example:
+  - add -D_WIN32_WINNT=0x0601 to the compiler command line; or
+  - add _WIN32_WINNT=0x0601 to your project's Preprocessor Definitions.
+  Assuming _WIN32_WINNT=0x0601 (i.e. Windows 7 target).
+    正在创建库 C:/Users/shao/acecode/build/tests/Release/acecode_unit_tests.lib 和对象 C:/Users/shao/acecode/build/tests/Release/acecode_unit_tests.exp
+  acecode_unit_tests.vcxproj -> C:\Users\shao\acecode\build\tests\Release\acecode_unit_tests.exe

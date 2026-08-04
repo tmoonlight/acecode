@@ -65,6 +65,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
           const attachmentUrl = att.blob_url || att.preview_url || att.url || '';
           const canPreview = isImage && attachmentUrl;
           const mimeType = att.mime_type || att.mimeType || '';
+          const sourcePath = att.source_path || att.metadata?.source_path || '';
           return (
             <button
               key={key}
@@ -84,7 +85,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
                 align === 'right' ? 'border-accent-soft' : 'border-border',
                 compact && 'max-w-[180px]',
               )}
-              title={label}
+              title={sourcePath || label}
               onClick={() => {
                 if (canPreview) setPreview({ src: attachmentUrl, alt: label });
               }}

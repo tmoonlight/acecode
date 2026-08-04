@@ -5,13 +5,16 @@ import {
   MIN_SINGLE_SHELL_WIDTH,
   MIN_SIDEBAR_WIDTH,
   MIN_SIDE_PANEL_WIDTH,
+  DEFAULT_SUBAGENT_PANEL_WIDTH,
   DEFAULT_SINGLE_LAYOUT,
   normalizePreviewPanelWidth,
   normalizeSidebarWidth,
   normalizeSidePanelWidth,
   normalizeSingleLayoutPreference,
+  normalizeSubagentPanelWidth,
   previewPanelWidthIsUserSized,
   solveSingleContentLayout,
+  subagentPanelWidthRange,
   validateLayoutWidths,
 } from './singleLayout.js';
 
@@ -68,6 +71,19 @@ run('layout validation accepts legacy widths without previewPanel', () => {
   assert.equal(validateLayoutWidths(DEFAULT_SINGLE_LAYOUT), true);
 });
 
+run('layout validation accepts legacy widths without subagentPanel', () => {
+  assert.equal(validateLayoutWidths({
+    sidebar: 270,
+    sidePanel: 280,
+    previewPanel: 640,
+    previewPanelUserSized: false,
+  }), true);
+  assert.equal(validateLayoutWidths({
+    ...DEFAULT_SINGLE_LAYOUT,
+    subagentPanel: '380',
+  }), false);
+});
+
 run('layout validation only accepts a boolean preview sizing marker', () => {
   assert.equal(validateLayoutWidths({
     sidebar: 270,
@@ -86,6 +102,7 @@ run('layout preference migration keeps the default preview automatically managed
     sidePanel: 280,
     previewPanel: 640,
     previewPanelUserSized: false,
+    subagentPanel: DEFAULT_SUBAGENT_PANEL_WIDTH,
   });
 });
 
@@ -99,7 +116,33 @@ run('layout preference migration recognizes a legacy non-default preview width a
     sidePanel: 280,
     previewPanel: 500,
     previewPanelUserSized: true,
+    subagentPanel: DEFAULT_SUBAGENT_PANEL_WIDTH,
   });
+});
+
+run('layout preference migration preserves an existing subagent width', () => {
+  assert.deepEqual(normalizeSingleLayoutPreference({
+    sidebar: 270,
+    sidePanel: 320,
+    previewPanel: 640,
+    previewPanelUserSized: false,
+    subagentPanel: 456,
+  }), {
+    sidebar: 270,
+    sidePanel: 320,
+    previewPanel: 640,
+    previewPanelUserSized: false,
+    subagentPanel: 456,
+  });
+});
+
+run('layout preference migration clamps an invalid saved subagent width', () => {
+  assert.equal(normalizeSingleLayoutPreference({
+    sidebar: 270,
+    sidePanel: 320,
+    previewPanel: 640,
+    subagentPanel: -50,
+  }).subagentPanel, 260);
 });
 
 run('explicit preview sizing intent wins over legacy numeric inference', () => {
@@ -111,6 +154,28 @@ run('explicit preview sizing intent wins over legacy numeric inference', () => {
     previewPanel: 640,
     previewPanelUserSized: true,
   }), true);
+});
+
+run('subagent panel keeps its preferred width when both transcript panes fit', () => {
+  assert.deepEqual(subagentPanelWidthRange(1200), { min: 260, max: 920 });
+  assert.equal(normalizeSubagentPanelWidth(380, 1200), 380);
+});
+
+run('subagent panel clamps drag widths while reserving the parent transcript', () => {
+  assert.deepEqual(subagentPanelWidthRange(500), { min: 260, max: 300 });
+  assert.equal(normalizeSubagentPanelWidth(100, 500), 260);
+  assert.equal(normalizeSubagentPanelWidth(900, 500), 300);
+});
+
+run('subagent panel uses proportional bounds below the combined ordinary minimum', () => {
+  assert.deepEqual(subagentPanelWidthRange(400), { min: 240, max: 240 });
+  assert.equal(normalizeSubagentPanelWidth(380, 400), 240);
+});
+
+run('temporary width constraints do not alter the preferred width value', () => {
+  const preferredWidth = 380;
+  assert.equal(normalizeSubagentPanelWidth(preferredWidth, 600), 320);
+  assert.equal(normalizeSubagentPanelWidth(preferredWidth, 1200), preferredWidth);
 });
 
 run('sidebar resize reserves the side panel and chat minimum widths', () => {

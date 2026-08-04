@@ -233,6 +233,11 @@ struct SessionInfo {
     std::string expert_type;
     std::string expert_source;
     bool        expert_missing = false;
+    // Active managed worktree snapshot. `cwd` intentionally remains the
+    // workspace/session-storage root; this field is the current file/tool root.
+    std::string worktree_path;
+    std::string worktree_name;
+    std::string worktree_branch;
 };
 
 // ----- AskUserQuestion 回应(client→server) -----

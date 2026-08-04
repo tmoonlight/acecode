@@ -1,3 +1,5 @@
+import { markFileSourcePath } from './composerFileTransfer.js';
+
 function parseBridgeJson(raw) {
   if (typeof raw !== 'string') return raw;
   const text = raw.trim();
@@ -16,7 +18,9 @@ export function parseNativeContextPickerResult(raw) {
 
   const items = Array.isArray(body.items) ? body.items : [];
   const folders = items.filter((item) => item?.kind === 'folder' && item.path);
-  const files = items.filter((item) => item?.kind === 'file' && item.name && item.data_base64 != null);
+  const files = items.filter((item) => (
+    item?.kind === 'file' && item.path && item.name && item.data_base64 != null
+  ));
   if (folders.length > 1 || (folders.length > 0 && files.length > 0)) {
     throw new Error('原生选择器返回了冲突的文件和文件夹结果');
   }
@@ -24,6 +28,34 @@ export function parseNativeContextPickerResult(raw) {
     cancelled: items.length === 0,
     files,
     folder: folders[0] || null,
+  };
+}
+
+export function parseNativeFilesystemItemsResult(raw) {
+  const body = parseBridgeJson(raw);
+  if (!body || typeof body !== 'object') throw new Error('原生文件系统返回无效结果');
+  if (body.ok === false) throw new Error(String(body.error || '原生文件系统不可用'));
+
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  const items = rawItems.map((item) => {
+    if (item?.kind === 'folder' && typeof item.path === 'string' && item.path) {
+      return item;
+    }
+    if (
+      item?.kind === 'file'
+      && typeof item.path === 'string' && item.path
+      && typeof item.name === 'string' && item.name
+      && typeof item.data_base64 === 'string'
+    ) {
+      return item;
+    }
+    throw new Error('原生文件系统条目无效');
+  });
+  return {
+    items,
+    files: items.filter((item) => item.kind === 'file'),
+    folders: items.filter((item) => item.kind === 'folder'),
+    filesystemItems: body.filesystem_items === true || items.length > 0,
   };
 }
 
@@ -42,10 +74,11 @@ export function nativePickedFileToFile(item, {
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
-  return new FileCtor([bytes], String(item.name || 'attachment'), {
+  const file = new FileCtor([bytes], String(item.name || 'attachment'), {
     type: String(item.mime_type || ''),
     lastModified: Date.now(),
   });
+  return markFileSourcePath(file, item.path);
 }
 
 function normalizedAbsolutePath(value) {

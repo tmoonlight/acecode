@@ -37,7 +37,16 @@ FetchContent_MakeAvailable(webview)
 # desktop 目标自身只保留入口、splash 和 WebView host。其它 desktop/native
 # helper 由根 CMakeLists.txt 里的 focused support target 提供,避免链接
 # acecode_testable 把 agent/TUI/web assets 全部拖入桌面壳。
+if(APPLE)
+    set(ACECODE_AGENT_BROWSER_HOST_SOURCE
+        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host_mac.mm)
+else()
+    set(ACECODE_AGENT_BROWSER_HOST_SOURCE
+        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp)
+endif()
+
 set(ACECODE_DESKTOP_SOURCES
+    ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
     ${CMAKE_SOURCE_DIR}/src/desktop/main.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/splash_screen.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp
@@ -85,7 +94,12 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    target_link_libraries(acecode-desktop PRIVATE "-framework CoreGraphics")
+    target_link_libraries(acecode-desktop PRIVATE
+        "-framework AppKit"
+        "-framework ApplicationServices"
+        "-framework CoreGraphics"
+        "-framework WebKit"
+    )
 endif()
 
 if(APPLE)

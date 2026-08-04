@@ -201,6 +201,12 @@ export function buildDesktopContextMenuItems({
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE, sessionTarget, { enabled: !!sessionTarget.title });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID, sessionTarget);
       addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION, sessionTarget);
+      addAction(
+        items,
+        DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+        { path: sessionTarget.sessionPath, kind: 'file' },
+        { enabled: !!sessionTarget.sessionPath },
+      );
       addAction(items, sessionTarget.pinned ? DESKTOP_CONTEXT_ACTIONS.UNPIN_SESSION : DESKTOP_CONTEXT_ACTIONS.PIN_SESSION, sessionTarget);
       if (sessionTarget.canArchive) {
         addAction(items, DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION, sessionTarget, {
@@ -334,6 +340,15 @@ export function buildDesktopContextMenuItems({
         group: GROUPS.CONTENT,
         enabled: !!(attachmentTarget.url || attachmentTarget.path),
       });
+      addAction(
+        items,
+        DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+        { path: attachmentTarget.path, kind: 'file' },
+        {
+          group: GROUPS.CONTENT,
+          enabled: !!attachmentTarget.path,
+        },
+      );
       if (attachmentTarget.mutable) {
         addAction(items, DESKTOP_CONTEXT_ACTIONS.REMOVE_ATTACHMENT, attachmentTarget, {
           group: GROUPS.DANGER,
@@ -384,6 +399,7 @@ export function sessionTargetFromElement(target) {
     sessionId,
     workspaceHash: getAttr(el, 'data-desktop-session-workspace', 'desktopSessionWorkspace'),
     title: getAttr(el, 'data-desktop-session-title', 'desktopSessionTitle'),
+    sessionPath: getAttr(el, 'data-desktop-session-path', 'desktopSessionPath'),
     pinned: boolAttr(el, 'data-desktop-session-pinned', 'desktopSessionPinned'),
     canArchive: boolAttr(el, 'data-desktop-session-archive', 'desktopSessionArchive'),
   };

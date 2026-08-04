@@ -59,7 +59,7 @@ nlohmann::json build_commands_payload(const SkillRegistry& global_skills,
     });
     builtins.push_back({
         {"name", "feedback"},
-        {"description", "Send feedback with current-session Desktop diagnostics"},
+        {"description", "Send feedback with current-session desktop and daemon diagnostics"},
     });
     builtins.push_back({
         {"name", "goal"},

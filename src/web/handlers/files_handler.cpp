@@ -178,6 +178,42 @@ validate_path_within(const std::string& cwd,
     return abs_target;
 }
 
+std::variant<fs::path, FileError>
+validate_preview_path_within(const std::string& cwd,
+                             const std::string& path,
+                             const std::vector<std::string>& allowed_cwds,
+                             const std::vector<std::string>& extra_preview_roots) {
+    auto validated = validate_path_within(cwd, path, allowed_cwds);
+    if (std::holds_alternative<fs::path>(validated)) return validated;
+
+    const auto* error = std::get_if<FileError>(&validated);
+    if (!error ||
+        (error->kind != FileErrorKind::UnknownWorkspace &&
+         error->kind != FileErrorKind::PathOutsideWorkspace) ||
+        extra_preview_roots.empty()) {
+        return validated;
+    }
+
+    // 前端在无工作区会话下把绝对路径拆成 parent + basename;拼回完整目标后
+    // 按 extra roots 做前缀放行(session cache / ~/.acecode/skills / projects)。
+    std::error_code ec;
+    fs::path joined = path.empty()
+        ? path_from_utf8(cwd)
+        : (path_from_utf8(cwd) / path_from_utf8(path));
+    fs::path abs_target = fs::weakly_canonical(joined, ec);
+    if (ec) abs_target = joined.lexically_normal();
+    const std::string requested_utf8 = path_to_utf8_generic(abs_target);
+
+    for (const auto& root : extra_preview_roots) {
+        if (root.empty()) continue;
+        auto root_validated = validate_path_within(root, requested_utf8, {root});
+        if (std::holds_alternative<fs::path>(root_validated)) {
+            return root_validated;
+        }
+    }
+    return validated;
+}
+
 std::variant<std::vector<FileEntry>, FileError>
 list_directory(const fs::path& abs_dir,
                const fs::path& abs_cwd,

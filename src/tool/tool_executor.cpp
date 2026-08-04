@@ -328,23 +328,11 @@ std::string ToolExecutor::build_tool_call_preview(const std::string& tool_name,
                 return {};
             };
             std::string value;
-            if (tool_name == "browser_start") value = value_for("session");
-            else if (tool_name == "browser_open") value = value_for("url");
+            if (tool_name == "browser_open") value = value_for("url");
             else if (tool_name == "browser_navigate") {
-                value = value_for("operation");
+                value = value_for("action");
                 std::string url = value_for("url");
                 if (!url.empty()) value += " " + url;
-            } else if (tool_name == "browser_read_page") value = value_for("mode");
-            else if (tool_name == "browser_enable") {
-                if (j.contains("groups") && j["groups"].is_array()) {
-                    bool first = true;
-                    for (const auto& g : j["groups"]) {
-                        if (!g.is_string()) continue;
-                        if (!first) value += ",";
-                        value += g.get<std::string>();
-                        first = false;
-                    }
-                }
             } else if (tool_name == "browser_fill") {
                 value = value_for("target");
                 std::string fill_value = value_for("value");
@@ -357,13 +345,16 @@ std::string ToolExecutor::build_tool_call_preview(const std::string& tool_name,
                 if (!text.empty()) value += " = " + truncate_utf8_prefix(text, 40);
             } else if (tool_name == "browser_evaluate") {
                 value = truncate_utf8_prefix(value_for("code"), 60);
-            } else if (tool_name == "browser_network") {
-                value = value_for("cmd");
-                std::string filter = value_for("filter");
-                if (!filter.empty()) value += " " + filter;
+            } else if (tool_name == "browser_press") {
+                value = value_for("key");
+            } else if (tool_name == "browser_drag") {
+                value = value_for("from") + " -> " + value_for("to");
+            } else if (tool_name == "browser_wait") {
+                value = value_for("condition");
+            } else if (tool_name == "browser_screenshot") {
+                value = value_for("file_name");
             } else {
                 value = value_for("target");
-                if (value.empty()) value = value_for("session");
             }
             value = truncate_utf8_prefix(value, 60);
             return value.empty() ? tool_name : tool_name + "  " + value;

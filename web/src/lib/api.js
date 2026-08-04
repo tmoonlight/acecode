@@ -23,6 +23,12 @@ export class ApiError extends Error {
 let _baseOrigin = '';
 let _baseToken  = '';
 
+// Cache consumers need to recognize independently-created clients that resolve
+// to the same daemon without serializing credentials into a public key. Keep
+// the credential -> opaque object registry private to this module.
+const API_CONNECTION_SCOPE = Symbol('acecode.apiConnectionScope');
+const connectionScopesByOrigin = new Map();
+
 export function setBase({ port, token }) {
   if (port) _baseOrigin = `${location.protocol}//127.0.0.1:${port}`;
   if (token != null) _baseToken = token;
@@ -38,6 +44,30 @@ function baseOrigin(base) {
 function baseToken(base) {
   if (base && base.token != null) return base.token;
   return _baseToken || getToken() || '';
+}
+
+function connectionScopeForBase(base) {
+  const origin = String(baseOrigin(base) || '');
+  const token = String(baseToken(base) || '');
+  let scopesByToken = connectionScopesByOrigin.get(origin);
+  if (!scopesByToken) {
+    scopesByToken = new Map();
+    connectionScopesByOrigin.set(origin, scopesByToken);
+  }
+  let scope = scopesByToken.get(token);
+  if (!scope) {
+    scope = Object.freeze({});
+    scopesByToken.set(token, scope);
+  }
+  return scope;
+}
+
+export function apiConnectionScope(client) {
+  if (!client || (typeof client !== 'object' && typeof client !== 'function')) {
+    throw new TypeError('API client is required');
+  }
+  const resolveScope = client[API_CONNECTION_SCOPE];
+  return typeof resolveScope === 'function' ? resolveScope() : client;
 }
 
 function fullUrl(path, base) {
@@ -127,32 +157,68 @@ export function sessionTitlePath(id, workspaceHash = '') {
   return `/api/sessions/${sid}/title`;
 }
 
-async function request(method, path, body, base) {
+// 默认请求超时。裸 fetch 没有超时:daemon 只要有一次不返回(卡在全局
+// app_config_mu 上、卡在同步 SessionStart hook 上、TCP 半开),调用方的
+// promise 就永远不 settle。对持全屏导航遮罩的 resumeAndOpenSession 来说,
+// 这等于整个界面永久吃掉所有点击和按键,用户只能从托盘杀进程。
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+
+// timeoutMs = 0 表示不设超时。仅用于「合法地会阻塞很久」的端点:
+//   - 后端弹原生模态框、等用户操作(选目录 / 导出)
+//   - 后端跑一次完整的模型往返(side question)
+// 其余端点一律走默认超时。
+const NO_TIMEOUT = 0;
+const LLM_ROUNDTRIP_TIMEOUT_MS = 600000;
+
+async function request(method, path, body, base, options = {}) {
   const headers = {};
   const token = baseToken(base);
   if (token) headers['X-ACECode-Token'] = token;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  const resp = await fetch(fullUrl(path, base), {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const ctype = resp.headers.get('Content-Type') || '';
-  let parsed = null;
-  if (resp.status !== 204 && ctype.includes('application/json')) {
-    parsed = await resp.json().catch(() => null);
-  } else if (resp.status !== 204) {
-    parsed = await resp.text().catch(() => '');
+  const rawTimeout = options.timeoutMs;
+  const timeoutMs = rawTimeout === undefined
+    ? DEFAULT_REQUEST_TIMEOUT_MS
+    : Number(rawTimeout) || 0;
+
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = (controller && timeoutMs > 0)
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+
+  try {
+    const resp = await fetch(fullUrl(path, base), {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const ctype = resp.headers.get('Content-Type') || '';
+    let parsed = null;
+    if (resp.status !== 204 && ctype.includes('application/json')) {
+      parsed = await resp.json().catch(() => null);
+    } else if (resp.status !== 204) {
+      parsed = await resp.text().catch(() => '');
+    }
+    if (!resp.ok) throw new ApiError(resp.status, parsed);
+    return parsed;
+  } catch (e) {
+    // 超时统一转成 ApiError(408) 并带上 TIMEOUT code,让调用方能走既有的
+    // ApiError 分支(errors.js 查文案 + toast + 重试),而不是撞上一个语义
+    // 不明的 DOMException。
+    if (e && e.name === 'AbortError') {
+      throw new ApiError(408, { error: 'TIMEOUT', message: '请求超时,请重试' });
+    }
+    throw e;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
-  if (!resp.ok) throw new ApiError(resp.status, parsed);
-  return parsed;
 }
 
 export function createApi(base = null) {
-  return {
+  const client = {
     health:           ()             => request('GET',    '/api/health', undefined, base),
-    // 模型池负载快照(每 30s 轮询展示精确匹配 modelPoolName 的负载)。无需 token。
+    // 模型池负载快照(每 30s 轮询展示精确匹配 modelPoolName 的负载)。
     modelPoolStatus:  ()             => request('GET',    '/api/model-pool-status', undefined, base),
     // 控制台 PTY(add-console-dock):loopback-only,daemon 端 16 会话上限(429)。
     createPty:        (opts={})      => request('POST',   '/api/pty', opts, base),
@@ -182,7 +248,9 @@ export function createApi(base = null) {
     deleteLoop:       (id)           => request('DELETE', `/api/loops/${encodeURIComponent(id)}`, undefined, base),
     listLoopRuns:     (id, limit=100) => request('GET',   `/api/loops/${encodeURIComponent(id)}/runs?limit=${encodeURIComponent(String(limit))}`, undefined, base),
     registerWorkspace:(cwd)          => request('POST',   '/api/workspaces', {cwd}, base),
-    pickWorkspaceFolder:()           => request('POST',   '/api/workspaces/pick-folder', undefined, base),
+    // 后端弹原生目录选择框并阻塞到用户选完 —— 不能设超时。
+    pickWorkspaceFolder:()           => request('POST',   '/api/workspaces/pick-folder', undefined, base,
+      { timeoutMs: NO_TIMEOUT }),
     getProjectDefaults:()            => request('GET',    '/api/projects/defaults', undefined, base),
     createProject:(name, parentDir='') => request('POST', '/api/projects', {
       name,
@@ -270,13 +338,17 @@ export function createApi(base = null) {
     uploadSessionAttachment: (id, attachment) =>
       request('POST', `/api/sessions/${encodeURIComponent(id)}/attachments`, attachment, base),
     executeCommand:   (id, command)  => request('POST',   `/api/sessions/${encodeURIComponent(id)}/commands`, command, base),
-    askSideQuestion:  (id, question) => request('POST',   `/api/sessions/${encodeURIComponent(id)}/side-question`, { question }, base),
+    // 同步跑一次完整模型往返(SessionRegistry::ask_side_question),按 LLM 计时。
+    askSideQuestion:  (id, question) => request('POST',   `/api/sessions/${encodeURIComponent(id)}/side-question`, { question }, base,
+      { timeoutMs: LLM_ROUNDTRIP_TIMEOUT_MS }),
     getMessages:      (id, since=0)  => request('GET',    sessionMessagesPath(id, since, base), undefined, base),
+    // 同 pickWorkspaceFolder:后端弹原生目录选择框等用户操作,不设超时。
     exportSession:    (id, workspaceHash = '') => request(
       'POST',
       `/api/sessions/${encodeURIComponent(id)}/export-markdown`,
       { workspace_hash: workspaceHash || '' },
       base,
+      { timeoutMs: NO_TIMEOUT },
     ),
     listSkills:       (workspaceHash = '') => request('GET',
       '/api/skills' + (workspaceHash ? '?workspace=' + encodeURIComponent(workspaceHash) : ''),
@@ -316,6 +388,8 @@ export function createApi(base = null) {
     setDefaultPermissionMode: (mode) => request('PUT',    '/api/config/default-permission-mode', {mode}, base),
     getDesktopNotifications: ()      => request('GET',    '/api/config/desktop-notifications', undefined, base),
     setDesktopNotifications: (enabled) => request('PUT',  '/api/config/desktop-notifications', {enabled: !!enabled}, base),
+    getRemoteWeb:     ()             => request('GET',    '/api/config/remote-web', undefined, base),
+    setRemoteWeb:     (enabled)      => request('PUT',    '/api/config/remote-web', {enabled: !!enabled}, base),
     addModel:         (draft)        => request('POST',   '/api/models', draft, base),
     updateModel:      (name, draft)  => request('PUT',    `/api/models/${encodeURIComponent(name)}`, draft, base),
     removeModel:      (name)         => request('DELETE', `/api/models/${encodeURIComponent(name)}`, undefined, base),
@@ -343,8 +417,6 @@ export function createApi(base = null) {
     getUpdateJob: (jobId)            => request('GET',    `/api/update/jobs/${encodeURIComponent(jobId)}`, undefined, base),
     listDesktopFeedbackSessions: (limit=20) => request('GET', desktopFeedbackSessionsPath(limit), undefined, base),
     submitDesktopFeedback: (payload={}) => request('POST', '/api/feedback/desktop', payload, base),
-    getAceBrowserBridge: ()          => request('GET',    '/api/config/ace-browser-bridge', undefined, base),
-    setAceBrowserBridge: (cfg)       => request('PUT',    '/api/config/ace-browser-bridge', cfg, base),
     // git 感知(add-git-context / add-webui-git-session-pill /
     // redesign-sidepanel-git-changes)。失败(4xx/5xx)抛 ApiError,
     // 调用方经 .status/.body 分派(如 checkout 的 409 dirty 往返)。
@@ -445,6 +517,11 @@ export function createApi(base = null) {
       return resp.blob();
     },
   };
+  Object.defineProperty(client, API_CONNECTION_SCOPE, {
+    enumerable: false,
+    value: () => connectionScopeForBase(base),
+  });
+  return client;
 }
 
 export const api = createApi();

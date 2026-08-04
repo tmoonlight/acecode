@@ -615,9 +615,22 @@ function replaceAssistantItemWithFinal(item, payload, msg) {
   };
 }
 
-export function replaySinceForLiveCatchup({ isLive = false, loadedSeq = 0 } = {}) {
+// 决定 REST 历史加载后的事件补拉起点。返回 null = 不补拉。
+//
+// 关键成本约束:`GET messages?since=0`(初始加载)在 daemon 侧不回放任何
+// 事件(EventDispatcher 只在 since>0 时回放),所以 loadedSeq 在初始加载后
+// 恒为 0;此时补拉 since=1 会让 daemon 同步回放**整个 1024 条事件环形缓冲**
+//(实测 feedback IQSZ-D0668 的 daemon 日志:一天内 37 次 replayed=1024),
+// 前端还要逐条 reduce 消化 —— 主线程一次性烧几百毫秒到秒级,正是切会话
+// 卡顿的主要成本。而对**空闲**会话这份回放是纯冗余:磁盘历史已经完整,
+// 回放出来的 message 事件全部被 seenMessages 去重丢掉。
+//
+// 因此 loadedSeq=0 时只有 busy(有进行中的回合)才补拉:那是唯一需要从
+// 事件流重建"未落盘的流式草稿"的场景。
+export function replaySinceForLiveCatchup({ isLive = false, loadedSeq = 0, busy = false } = {}) {
   if (!isLive) return null;
-  return loadedSeq > 0 ? loadedSeq : 1;
+  if (loadedSeq > 0) return loadedSeq;
+  return busy ? 1 : null;
 }
 
 // 末尾 assistant 消息的文本(从尾部往前找第一条 assistant msg)。用于
@@ -1372,6 +1385,12 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const [state, setState] = useState(() => createTranscriptState({ title: initialTitle, isLive, loadState: sid ? 'loading' : 'idle' }));
   const stateRef = useRef(state);
   const optionsRef = useRef(options);
+  // 加载 effect 里只用 ref 取展示标题,不依赖它的对象身份 —— 见下方 deps 注释。
+  const sessionRefRef = useRef(ref);
+  // state 在 sid 切换后的首帧仍属于上一会话;在 reset effect 落地前不能把
+  // 旧会话的 loaded 状态当成新会话已加载。
+  const stateSessionIdRef = useRef(sid);
+  sessionRefRef.current = ref;
   const refreshSignatureRef = useRef('');
 
   useEffect(() => { optionsRef.current = options; }, [options]);
@@ -1408,7 +1427,8 @@ export function useSessionTranscript(sessionRef, options = {}) {
   }, []);
 
   useEffect(() => {
-    const baseTitle = sid ? sessionDisplayTitle(ref) : '';
+    stateSessionIdRef.current = sid;
+    const baseTitle = sid ? sessionDisplayTitle(sessionRefRef.current) : '';
     const reset = createTranscriptState({
       title: baseTitle,
       isLive,
@@ -1443,7 +1463,14 @@ export function useSessionTranscript(sessionRef, options = {}) {
       dispatchEffects(loaded.effects, sid, optionsRef.current);
 
       const loadedSeq = nextState.lastSeq || 0;
-      const replaySince = replaySinceForLiveCatchup({ isLive, loadedSeq });
+      // busy 取防回退保护之后的值:REST 快照说 idle 但实时 WS 已看到更新的
+      // busy 帧时,preserveLiveRuntimeOnLoad 会把 busy 提回 true —— 此时仍
+      // 需要补拉重建进行中的草稿。
+      const replaySince = replaySinceForLiveCatchup({
+        isLive,
+        loadedSeq,
+        busy: !!nextState.busy,
+      });
       if (replaySince !== null) {
         api.getMessages(sid, replaySince).then((replayData) => {
           if (off) return;
@@ -1486,7 +1513,13 @@ export function useSessionTranscript(sessionRef, options = {}) {
     });
 
     return () => { off = true; };
-  }, [api, isLive, ref, sid]);
+    // deps 刻意不含 ref(对象身份):App 侧 replaceActiveRef / 元数据更新会在
+    // sid 不变的情况下造出新的 ref 对象,如果 ref 在 deps 里,每次都会把
+    // transcript 整个重置回 loading 并重拉全量历史(feedback IQSZ-D0668 的
+    // desktop 日志里 "tail shrank via catchup: lastSeq 0→NNNN" 就是这条路径
+    // 的可见后果)。真正需要重载的输入只有:会话身份(sid)、连接目标(api,
+    // 已按 port/token/workspaceHash memo)、实时性(isLive)。
+  }, [api, isLive, sid]);
 
   useEffect(() => {
     if (!sid || refreshIntervalMs < 250) return undefined;
@@ -1548,7 +1581,9 @@ export function useSessionTranscript(sessionRef, options = {}) {
     ...state,
     title: state.title || initialTitle,
     isLive,
-    loadState: state.loadState,
+    loadState: stateSessionIdRef.current === sid
+      ? state.loadState
+      : (sid ? 'loading' : 'idle'),
     applyEvent,
     setTitle,
     getState,

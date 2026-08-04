@@ -21,27 +21,27 @@ function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
       role="listitem"
       data-queue-card-state={statusKind}
       className={clsx(
-        'ace-queue-card relative flex items-center gap-2 pl-4 pr-2 py-2 rounded-lg border bg-surface-hi border-border text-[13px]',
-        dimmed && 'opacity-60',
+        'ace-queue-card relative flex items-center gap-2 pl-4 pr-2 py-2 text-[13px]',
+        dimmed && 'ace-queue-card-dimmed',
       )}
     >
       <span
         aria-hidden="true"
         className={clsx(
           'ace-queue-card-indicator',
-          statusKind === 'failed' ? 'bg-danger' : 'bg-fg-mute/60',
+          statusKind === 'failed' ? 'is-failed' : 'is-queued',
         )}
       />
       <span
-        className="flex-1 min-w-0 truncate text-fg"
+        className="ace-queue-card-content flex-1 min-w-0 truncate"
         title={content}
       >
         {content}
       </span>
       <span
         className={clsx(
-          'shrink-0 text-[11px]',
-          statusKind === 'failed' ? 'text-danger' : 'text-fg-mute',
+          'ace-queue-card-status shrink-0 text-[11px]',
+          statusKind === 'failed' && 'is-failed',
         )}
         title={statusKind === 'failed' ? statusLabel : undefined}
       >
@@ -52,7 +52,7 @@ function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
           type="button"
           aria-label="重试发送"
           onClick={() => onRetry?.(queuedId)}
-          className="shrink-0 px-1.5 h-6 rounded text-[11px] text-accent hover:bg-accent-bg transition"
+          className="ace-queue-card-action shrink-0 px-1.5 h-6 rounded text-[11px]"
         >
           重试
         </button>
@@ -63,7 +63,7 @@ function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
           aria-label="将排队消息作为当前回合引导"
           onClick={() => onGuide?.(queuedId)}
           disabled={guideDisabled}
-          className="shrink-0 h-6 px-2 rounded-full border border-accent/40 flex items-center gap-1 text-[11px] text-accent hover:bg-accent-bg transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="ace-queue-card-guide shrink-0 h-6 px-2 rounded-full flex items-center gap-1 text-[11px] disabled:opacity-50 disabled:cursor-not-allowed"
           title="在当前回合的下一次模型调用前加入这条消息"
         >
           <span>引导</span>
@@ -74,7 +74,7 @@ function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
         type="button"
         aria-label="取消排队"
         onClick={() => onCancel?.(queuedId)}
-        className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-fg-mute hover:text-fg hover:bg-surface transition"
+        className="ace-queue-card-close shrink-0 w-6 h-6 rounded flex items-center justify-center"
         title="取消"
       >
         <VsIcon name="close" size={12} />
@@ -92,7 +92,7 @@ export function QueueCardList({ items, onCancel, onRetry, onGuide, guideDisabled
     <div
       role="list"
       aria-label="排队中的待发送消息"
-      className="ace-queue-card-strip flex flex-col gap-1 px-2.5 pt-2 max-h-[30vh] overflow-y-auto"
+      className="ace-queue-card-strip flex flex-col gap-1.5 px-2.5 pt-2 max-h-[30vh] overflow-y-auto"
     >
       {cards.map((card) => (
         <QueueCard

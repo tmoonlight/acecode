@@ -62,12 +62,8 @@ TEST(CustomToastEasing, StackCollapseMatchesEaseInCurve) {
     }
 }
 
-TEST(CustomToastDismissal, ClampsAbsurdSystemValues) {
-    EXPECT_EQ(clamp_auto_dismiss_seconds(0), 6u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(5), 6u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(7), 7u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(30), 30u);
-    EXPECT_EQ(clamp_auto_dismiss_seconds(3600), 30u);
+TEST(CustomToastDismissal, UsesFixedFiveSecondTimeout) {
+    EXPECT_EQ(kAutoDismissTimeoutMs, 5000u);
 }
 
 TEST(CustomToastPlacement, AnchorsToBottomRightOfWorkArea) {
@@ -139,4 +135,63 @@ TEST(CustomToastBody, FitsWholeLinesUpToTheCap) {
 TEST(CustomToastBody, DegenerateInputsReturnZero) {
     EXPECT_EQ(fit_body_lines(100, 0, 3), 0);
     EXPECT_EQ(fit_body_lines(100, 20, 0), 0);
+}
+
+TEST(CustomToastChrome, ExpandsAroundSurfaceWithoutMovingAnchor) {
+    const auto geometry =
+        compute_toast_chrome_geometry(1536, 928, 368, 96, 16);
+    EXPECT_EQ(geometry.window_x, 1520);
+    EXPECT_EQ(geometry.window_y, 912);
+    EXPECT_EQ(geometry.window_width, 400);
+    EXPECT_EQ(geometry.window_height, 128);
+    EXPECT_EQ(geometry.surface_left, 16);
+    EXPECT_EQ(geometry.surface_top, 16);
+    EXPECT_EQ(geometry.surface_width, 368);
+    EXPECT_EQ(geometry.surface_height, 96);
+    // Surface screen origin is preserved.
+    EXPECT_EQ(geometry.window_x + geometry.surface_left, 1536);
+    EXPECT_EQ(geometry.window_y + geometry.surface_top, 928);
+}
+
+TEST(CustomToastChrome, ZeroInsetLeavesSurfaceUnchanged) {
+    const auto geometry = compute_toast_chrome_geometry(10, 20, 100, 50, 0);
+    EXPECT_EQ(geometry.window_x, 10);
+    EXPECT_EQ(geometry.window_y, 20);
+    EXPECT_EQ(geometry.window_width, 100);
+    EXPECT_EQ(geometry.window_height, 50);
+    EXPECT_EQ(geometry.surface_left, 0);
+    EXPECT_EQ(geometry.surface_top, 0);
+}
+
+TEST(CustomToastShadow, CoverageIsOpaqueInsideAndTransparentOutside) {
+    // Center of a 40x40 rounded rect (radius 8) is fully inside.
+    EXPECT_EQ(toast_surface_coverage(
+                  toast_rounded_rect_distance(20.0, 20.0, 40, 40, 8)),
+              255);
+    // Far outside has zero coverage.
+    EXPECT_EQ(toast_surface_coverage(
+                  toast_rounded_rect_distance(100.0, 100.0, 40, 40, 8)),
+              0);
+}
+
+TEST(CustomToastShadow, AlphaFallsOffWithDistanceAndRespectsBlur) {
+    EXPECT_EQ(toast_shadow_alpha(0.0, 12, 46), 46);
+    EXPECT_EQ(toast_shadow_alpha(12.0, 12, 46), 0);
+    EXPECT_EQ(toast_shadow_alpha(13.0, 12, 46), 0);
+    EXPECT_EQ(toast_shadow_alpha(6.0, 12, 46), 12);  // 46 * (0.5)^2 = 11.5 -> 12
+    EXPECT_EQ(toast_shadow_alpha(0.0, 0, 46), 0);
+    EXPECT_EQ(toast_shadow_alpha(-2.0, 12, 46), 46);  // inside silhouette
+}
+
+TEST(CustomToastShadow, PlacementKeepsCardAnchoredWhenChromeExpands) {
+    const ToastRect work_area{0, 0, 1920, 1040};
+    const ToastPlacement surface =
+        compute_toast_placement(work_area, 16, 16, 368, 96, 0, 1.0f);
+    const auto chrome = compute_toast_chrome_geometry(
+        surface.x, surface.y, surface.width, surface.height, 16);
+    // Card surface still sits at the original bottom-right anchor.
+    EXPECT_EQ(chrome.window_x + chrome.surface_left + chrome.surface_width,
+              1920 - 16);
+    EXPECT_EQ(chrome.window_y + chrome.surface_top + chrome.surface_height,
+              1040 - 16);
 }

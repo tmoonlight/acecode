@@ -26,6 +26,8 @@ const TABLE = {
   COPILOT_MODELS_HTTP_ERROR: 'Copilot 模型服务返回错误',
   COPILOT_MODELS_BAD_JSON: 'Copilot 模型列表格式错误',
   DELETE_FAILED:     '删除凭据失败',
+  // api.js 的请求超时(见 DEFAULT_REQUEST_TIMEOUT_MS)。
+  TIMEOUT:           '请求超时,请重试',
 };
 
 export function lookupErrorMessage(code, fallback) {

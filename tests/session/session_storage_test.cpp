@@ -241,6 +241,38 @@ TEST(SessionStorage, GeneratedProviderErrorTitleReadsAsUntitled) {
     EXPECT_TRUE(out.title_source.empty());
 }
 
+TEST(SessionStorage, GeneratedFencedJsonTitleIsNormalizedOnRead) {
+    auto dir = make_unique_tmp_dir("generated_fenced_json_title");
+    auto meta_path = (dir / "generated-fenced-json.meta.json").string();
+
+    SessionMeta in;
+    in.id = "generated-fenced-json";
+    in.cwd = "/tmp/project";
+    in.title = "```json {\"title\":\"Recovered session title\"} ```";
+    in.title_source = "generated";
+    SessionStorage::write_meta(meta_path, in);
+
+    SessionMeta out = SessionStorage::read_meta(meta_path);
+    EXPECT_EQ(out.title, "Recovered session title");
+    EXPECT_EQ(out.title_source, "generated");
+}
+
+TEST(SessionStorage, GeneratedVerboseTitleReadsAsUntitled) {
+    auto dir = make_unique_tmp_dir("generated_verbose_title");
+    auto meta_path = (dir / "generated-verbose.meta.json").string();
+
+    SessionMeta in;
+    in.id = "generated-verbose";
+    in.cwd = "/tmp/project";
+    in.title = "I cannot browse the internet, but I can explain how to do it.";
+    in.title_source = "generated";
+    SessionStorage::write_meta(meta_path, in);
+
+    SessionMeta out = SessionStorage::read_meta(meta_path);
+    EXPECT_TRUE(out.title.empty());
+    EXPECT_TRUE(out.title_source.empty());
+}
+
 TEST(SessionStorage, UserProviderErrorShapedTitleIsPreserved) {
     auto dir = make_unique_tmp_dir("user_error_title");
     auto meta_path = (dir / "user-error.meta.json").string();

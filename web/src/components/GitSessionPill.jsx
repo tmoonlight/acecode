@@ -14,40 +14,62 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
-import { buildPillModel } from '../lib/gitSessionPill.js';
+import { gitInfoCache } from '../lib/gitInfoCache.js';
+import { buildPillModel, shouldLoadGitInfo } from '../lib/gitSessionPill.js';
 import { VsIcon } from './Icon.jsx';
 
 export function GitSessionPill({
   api,
   cwd,
   variant = 'bar',
+  sessionLoaded = true,
   sessionStarted = false,
   worktreeSession = null,
   busy = false,
   onIntentChange = null,
 }) {
-  const [gitInfo, setGitInfo] = useState(null);
+  const [gitInfo, setGitInfo] = useState(
+    () => gitInfoCache.peek(api, cwd) ?? null,
+  );
   const [open, setOpen] = useState(false);
   const [worktreeChecked, setWorktreeChecked] = useState(false);
   const [selectedBase, setSelectedBase] = useState('');
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;
 
-  const refreshInfo = useCallback(() => {
+  // 这个 pill 在 ChatView 上的 key 含 sid,每次切会话都整组件重挂。
+  // /api/git/info 在 daemon 侧要 spawn 5~7 个 git 子进程,所以:
+  //   1) 读取一律走共享缓存(30s TTL + 在途去重),与 Sidebar hover 卡片
+  //      共用同一份 —— 同 workspace 的会话 cwd 相同,命中率极高;
+  //   2) bar 变体等 transcript 加载完成,且只为真正的空会话请求;加载中、
+  //      已开始或已在 worktree 时整体 return null。否则每次切已有会话都会
+  //      在加载重置的空窗口白打一次 git.exe ×6。
+  const pillCouldRender = shouldLoadGitInfo({
+    variant,
+    sessionLoaded,
+    sessionStarted,
+    worktreeSession,
+  });
+
+  const refreshInfo = useCallback(({ force = false } = {}) => {
     const target = cwdRef.current;
     if (!target) { setGitInfo(null); return; }
-    api.gitInfo(target)
+    const request = force
+      ? gitInfoCache.refresh(api, target)
+      : gitInfoCache.get(api, target);
+    request
       .then((info) => { if (cwdRef.current === target) setGitInfo(info); })
       .catch(() => { if (cwdRef.current === target) setGitInfo(null); });
   }, [api]);
 
   // cwd 变化(切 workspace)重拉;非仓库时 pill 整体不渲染(零占位)。
   useEffect(() => {
-    setGitInfo(null);
+    setGitInfo(gitInfoCache.peek(api, cwdRef.current) ?? null);
     setWorktreeChecked(false);
     setSelectedBase('');
+    if (!pillCouldRender) return;
     refreshInfo();
-  }, [cwd, refreshInfo]);
+  }, [api, cwd, pillCouldRender, refreshInfo]);
 
   // 把待生效意图同步给父组件(首条消息发送时读取)。
   useEffect(() => {
@@ -99,8 +121,9 @@ export function GitSessionPill({
           disabled={!model.branchInteractive}
           onClick={() => {
             if (!model.branchInteractive) return;
-            // 打开下拉时重拉 info:外部新建/切换的分支即时可见。
-            if (!open) refreshInfo();
+            // 打开下拉时重拉 info:外部新建/切换的分支即时可见。这是显式的
+            // 用户动作,绕过缓存强制刷新。
+            if (!open) refreshInfo({ force: true });
             setOpen(!open);
           }}
           title={model.started

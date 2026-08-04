@@ -135,7 +135,7 @@ Persisted mutation and runtime application are separate steps with rollback-safe
 - theme swaps the active palette after persistence;
 - notification and default-permission snapshots update the current process's default/template state without changing the active session;
 - saved-model/default-model mutations refresh the TUI model list and model-pool watcher;
-- skill reload, MCP enable/disable/reconnect, connector enablement, Browser Bridge toggle, and hook enable/trust operations call their existing runtime managers;
+- skill reload, MCP enable/disable/reconnect, connector enablement, and hook enable/trust operations call their existing runtime managers;
 - failed runtime application leaves the persisted state visible with a precise “saved; restart required” or failure message rather than pretending the mutation was live.
 
 ### 9. Run async data work off the FTXUI thread

@@ -10,9 +10,12 @@ import assert from 'node:assert/strict';
 import {
   buildNotificationPayload,
   notificationBodyFromEvent,
+  shouldNotifySessionCompletion,
   shouldSuppress,
   truncateForNotification,
   maybeNotify,
+  noteHostWindowFocus,
+  isHostWindowFocused,
 } from './desktopNotify.js';
 
 function run(name, fn) {
@@ -121,6 +124,32 @@ run('buildNotificationPayload 未知 type 当 question', () => {
   assert.match(p.title, /^需要你回答/);
 });
 
+run('shouldNotifySessionCompletion 主会话与未知归属保持可通知', () => {
+  assert.equal(shouldNotifySessionCompletion({
+    sessionId: 'main-1',
+    ownerSessionId: 'main-1',
+  }), true);
+  assert.equal(shouldNotifySessionCompletion({ sessionId: 'main-2' }), true);
+});
+
+run('shouldNotifySessionCompletion 显式 parent_session_id 屏蔽子代理完成通知', () => {
+  assert.equal(shouldNotifySessionCompletion({
+    sessionId: 'child-1',
+    parentSessionId: 'parent-1',
+  }), false);
+});
+
+run('shouldNotifySessionCompletion 已登记 owner 屏蔽子代理完成通知', () => {
+  assert.equal(shouldNotifySessionCompletion({
+    sessionId: 'child-2',
+    ownerSessionId: 'parent-2',
+  }), false);
+});
+
+run('shouldNotifySessionCompletion 缺失 session id 不可通知', () => {
+  assert.equal(shouldNotifySessionCompletion({ ownerSessionId: 'parent-3' }), false);
+});
+
 // shouldSuppress 抑制规则
 const sampleQuestion = {
   id: 'question-s1-123',
@@ -142,51 +171,63 @@ const samplePermission = {
 };
 
 run('shouldSuppress: enabled=false 一律抑制', () => {
-  assert.equal(shouldSuppress(sampleQuestion, null, false, { enabled: false }), true);
-  assert.equal(shouldSuppress(sampleCompletion, null, false, { enabled: false }), true);
+  assert.equal(shouldSuppress(sampleQuestion, false, { enabled: false }), true);
+  assert.equal(shouldSuppress(sampleCompletion, false, { enabled: false }), true);
 });
 
-run('shouldSuppress: 默认 cfg + 窗口失焦 → 不抑制', () => {
-  assert.equal(shouldSuppress(sampleQuestion, { sessionId: 's1', workspaceHash: 'w1' }, false, null), false);
+run('shouldSuppress: permission 和 question 在窗口失焦时也不弹', () => {
+  assert.equal(shouldSuppress(samplePermission, false, null), true);
+  assert.equal(shouldSuppress(sampleQuestion, false, null), true);
 });
 
-run('shouldSuppress: on_question=false 抑制 question 但不抑制 completion', () => {
-  const cfg = { on_question: false };
-  assert.equal(shouldSuppress(sampleQuestion, null, false, cfg), true);
-  assert.equal(shouldSuppress(sampleCompletion, null, false, cfg), false);
+run('shouldSuppress: 主任务完成且窗口失焦时允许弹窗', () => {
+  assert.equal(shouldSuppress(sampleCompletion, false, null), false);
 });
 
-run('shouldSuppress: on_permission=false 只抑制 permission', () => {
-  const cfg = { on_permission: false };
-  assert.equal(shouldSuppress(samplePermission, null, false, cfg), true);
-  assert.equal(shouldSuppress(sampleQuestion, null, false, cfg), false);
+run('shouldSuppress: 窗口聚焦时一律抑制完成弹窗', () => {
+  assert.equal(shouldSuppress(sampleCompletion, true, null), true);
 });
 
-run('shouldSuppress: on_completion=false 抑制 completion 但不抑制 question', () => {
-  const cfg = { on_completion: false };
-  assert.equal(shouldSuppress(sampleQuestion, null, false, cfg), false);
-  assert.equal(shouldSuppress(sampleCompletion, null, false, cfg), true);
+run('shouldSuppress: 旧分项字段不能改变固定规则', () => {
+  const legacyCfg = {
+    on_permission: true,
+    on_question: true,
+    on_completion: false,
+    suppress_when_focused: false,
+  };
+  assert.equal(shouldSuppress(samplePermission, false, legacyCfg), true);
+  assert.equal(shouldSuppress(sampleQuestion, false, legacyCfg), true);
+  assert.equal(shouldSuppress(sampleCompletion, false, legacyCfg), false);
+  assert.equal(shouldSuppress(sampleCompletion, true, legacyCfg), true);
 });
 
-run('shouldSuppress: 窗口聚焦 + 同 session + suppress_when_focused 默认 → 抑制', () => {
-  const active = { sessionId: 's1', workspaceHash: 'w1' };
-  assert.equal(shouldSuppress(sampleQuestion, active, true, null), true);
+run('isHostWindowFocused: visibility=hidden 一律视为未聚焦', () => {
+  noteHostWindowFocus(true);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'hidden', hasFocus: () => true }),
+    false,
+  );
 });
 
-run('shouldSuppress: 窗口聚焦但不同 session → 不抑制', () => {
-  const active = { sessionId: 'other', workspaceHash: 'w1' };
-  assert.equal(shouldSuppress(sampleQuestion, active, true, null), false);
+run('isHostWindowFocused: hasFocus=true 优先于 sticky blur', () => {
+  noteHostWindowFocus(false);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'visible', hasFocus: () => true }),
+    true,
+  );
 });
 
-run('shouldSuppress: suppress_when_focused=false 即使聚焦也不抑制', () => {
-  const active = { sessionId: 's1', workspaceHash: 'w1' };
-  const cfg = { suppress_when_focused: false };
-  assert.equal(shouldSuppress(sampleQuestion, active, true, cfg), false);
-});
-
-run('shouldSuppress: 同 session 但 workspace 不同 → 不抑制', () => {
-  const active = { sessionId: 's1', workspaceHash: 'other-ws' };
-  assert.equal(shouldSuppress(sampleQuestion, active, true, null), false);
+run('isHostWindowFocused: hasFocus=false 时回退 sticky focus 标志', () => {
+  noteHostWindowFocus(true);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'visible', hasFocus: () => false }),
+    true,
+  );
+  noteHostWindowFocus(false);
+  assert.equal(
+    isHostWindowFocused({ visibilityState: 'visible', hasFocus: () => false }),
+    false,
+  );
 });
 
 // maybeNotify 在无桥时静默 no-op
@@ -198,7 +239,6 @@ run('maybeNotify 无 desktop 桥时返回 false 不抛错', () => {
     type: 'question',
     sessionId: 's1',
     bodyText: 'hello',
-    activeRef: null,
     hasFocus: false,
     cfg: null,
   });
@@ -218,8 +258,7 @@ run('maybeNotify 桥可用 + 抑制规则不命中 → 投递', () => {
     workspaceHash: 'w-x',
     sessionTitle: 'Test',
     bodyText: '完工了',
-    activeRef: { sessionId: 'other', workspaceHash: 'other-w' }, // 不同 session
-    hasFocus: true,
+    hasFocus: false,
     cfg: null,
   });
   assert.equal(ok, true);
@@ -229,18 +268,17 @@ run('maybeNotify 桥可用 + 抑制规则不命中 → 投递', () => {
   global.window = prev;
 });
 
-run('maybeNotify 桥可用 + 抑制规则命中 → 不投递', () => {
+run('maybeNotify 桥可用 + 窗口聚焦 → 不投递完成通知', () => {
   const prev = global.window;
   let called = 0;
   global.window = {
     aceDesktop_notify: () => { called += 1; },
   };
   const ok = maybeNotify({
-    type: 'question',
+    type: 'completion',
     sessionId: 's1',
     workspaceHash: 'w1',
-    bodyText: 'hi',
-    activeRef: { sessionId: 's1', workspaceHash: 'w1' }, // 同 session
+    bodyText: 'done',
     hasFocus: true,
     cfg: null,
   });

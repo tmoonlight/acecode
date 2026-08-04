@@ -6,6 +6,7 @@
 
 #include "auth.hpp"
 #include "origin.hpp"
+#include "remote_web.hpp"
 #include "static_assets.hpp"
 #include "../config/config.hpp"
 #include "../config/saved_models_editor.hpp"
@@ -34,7 +35,6 @@
 #include "../skills/skill_registry.hpp"
 #include "../experts/expert_registry.hpp"
 #include "../skills/skill_metadata.hpp"
-#include "../tool/ace_browser_bridge/browser_tools.hpp"
 #include "../tool/tool_executor.hpp"
 #include "../upgrade/apply.hpp"
 #include "../upgrade/check.hpp"
@@ -68,6 +68,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -75,6 +76,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -136,6 +138,9 @@ struct ParsedSessionUserInputRequest {
     UserInput input;
     bool worktree_create = false;
     std::string worktree_base;
+    std::string worktree_path;
+    std::string worktree_name;
+    std::string worktree_branch;
     std::string expected_turn_id;
 };
 
@@ -154,8 +159,6 @@ nlohmann::json ui_preferences_to_json(const WebUiPreferencesConfig& cfg);
 nlohmann::json custom_instructions_to_json(const CustomInstructionsConfig& cfg);
 nlohmann::json upgrade_config_to_json(const UpgradeConfig& cfg);
 nlohmann::json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result);
-nlohmann::json ace_browser_bridge_settings_to_json(const AceBrowserBridgeConfig& cfg);
-
 bool cwd_is_directory(const std::string& cwd);
 bool has_non_whitespace(const std::string& value);
 std::string json_string_field(const nlohmann::json& object, const char* key);
@@ -207,6 +210,10 @@ struct UpdateJobRuntime {
 // =====================================================================
 struct WebServer::Impl {
     WebServerDeps              deps;
+    // Captured after CLI/Desktop overrides are applied. Settings mutations
+    // persist config-file values, but a live bind change must never move the
+    // already-running daemon to a different port.
+    const int                  runtime_port;
     crow::SimpleApp            app;
 
     // 静态资源 source(EmbeddedAssetSource / FileSystemAssetSource),按
@@ -219,7 +226,27 @@ struct WebServer::Impl {
 
     // Crow runs HTTP handlers on multiple worker threads. deps.app_config is a
     // shared mutable object, so every web-side read/write must go through this.
-    mutable std::mutex app_config_mu;
+    //
+    // 读写纪律(fix session-switch lock convoy):只读/快照路径使用
+    // std::shared_lock<std::shared_mutex>,写路径使用
+    // std::lock_guard<std::shared_mutex> 独占。两条 resume 路由会全量解析
+    // jsonl + 扫 skill 目录 + 建 provider,实测单次 574~824ms;它们持共享锁
+    // 时必须允许模型列表、健康状态等 config 只读请求并发通过。settings
+    // 变更、refresh_default_session_preferences、saved_models 落盘等写方
+    // 必须保持独占。
+    mutable std::shared_mutex app_config_mu;
+
+    // A remote-mode change restarts only Crow's listener. Terminal shutdown
+    // always wins over a pending rebind, so the daemon cannot accidentally
+    // come back after its owner has requested exit.
+    std::atomic<bool> shutdown_requested{false};
+    std::atomic<bool> rebind_requested{false};
+    mutable std::mutex listener_state_mu;
+    std::string effective_bind;
+    int effective_port = 0;
+    std::mutex listener_stop_mu;
+    std::mutex rebind_thread_mu;
+    std::thread rebind_stop_thread;
 
     // 从磁盘重读 saved_models 合并进内存 —— 连接器钩子(外部登录器)会直接
     // 改写 config.json;不重读的话,下一次任何 save_config 都会把新写入的
@@ -230,6 +257,26 @@ struct WebServer::Impl {
     mutable std::unordered_set<std::string> loaded_attention_workspaces;
     mutable std::unordered_map<std::string, std::string> attention_workspace_cwds;
     mutable std::unordered_map<std::string, std::unordered_map<std::string, SessionAttentionRecord>> attention_by_workspace;
+
+    // Attention 落盘节流。
+    //
+    // note_session_event_for_attention 跑在**发射事件的 AgentLoop worker 线程**
+    // 上(EventDispatcher::emit 同步 drain 订阅者),而 Token / Reasoning /
+    // Tool* 事件全都会推进 update_cursor + updated_at_ms。改造前每个这样的
+    // 事件都会立刻整份重写 workspace 的 attention 文件(tmp + rename)——
+    // 实测流式期间事件峰值约 500/s(feedback IQSZ-D0668,日志里相邻两条
+    // lastSeq 差值 45 / 92ms),等于每秒几百次文件重写,还是在持 attention_mu
+    // 的情况下,并且多会话并发时写的是同一个文件。
+    //
+    // 现在热路径只标脏,真正落盘由后台 flusher 线程按 kAttentionFlushIntervalMs
+    // 合并;状态跃迁(read↔unread↔in_progress / busy 翻转)这种回合边界事件
+    // 仍然立即落盘。最坏情况是异常退出丢掉最多一个 flush 周期的游标推进,
+    // 下一个事件会重新标记,不影响正确性。
+    static constexpr int kAttentionFlushIntervalMs = 1000;
+    mutable std::unordered_set<std::string> attention_dirty_workspaces;
+    std::condition_variable attention_flush_cv;
+    bool attention_flush_stop = false;
+    std::thread attention_flush_thread;
 
     struct SubagentTrackerState {
         std::mutex mu;
@@ -246,10 +293,17 @@ struct WebServer::Impl {
     std::shared_ptr<UpdateJobRuntime> update_job_runtime =
         std::make_shared<UpdateJobRuntime>();
 
-    explicit Impl(WebServerDeps d) : deps(std::move(d)) {
+    explicit Impl(WebServerDeps d)
+        : deps(std::move(d)),
+          runtime_port(deps.web_cfg ? deps.web_cfg->port : 0) {
         subagent_tracker_state->impl = this;
+        start_attention_flusher();
     }
     ~Impl();
+
+    void request_listener_rebind();
+    void join_rebind_stop_thread();
+    nlohmann::json remote_web_state_json(const crow::request& req) const;
 
     // -----------------------------------------------------------------
     // 鉴权 helper  (defined in server_helpers.cpp)
@@ -359,7 +413,13 @@ struct WebServer::Impl {
     std::string attention_store_path_for_cwd(const std::string& cwd) const;
     void load_attention_workspace_locked(const std::string& workspace_hash,
                                           const std::string& cwd) const;
+    // 立即整份重写该 workspace 的 attention 文件。成功后清掉脏标记；
+    // 写失败则保留脏标记，交给 flusher 下个周期重试。调用方必须持 attention_mu。
     void save_attention_workspace_locked(const std::string& workspace_hash) const;
+    // 把当前所有脏 workspace 落盘。调用方必须持 attention_mu。
+    void flush_dirty_attention_workspaces_locked() const;
+    void start_attention_flusher();
+    void stop_attention_flusher();
     SessionAttentionRecord attention_record_for_session(const std::string& workspace_hash,
                                                          const std::string& cwd,
                                                          const std::string& session_id,

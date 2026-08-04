@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -49,7 +51,6 @@ constexpr int kIconSizeDip = 32;
 constexpr int kIconGapDip = 12;
 constexpr int kCloseSizeDip = 24;
 constexpr int kCloseInsetDip = 6;
-constexpr int kAccentBarDip = 4;
 constexpr int kCornerRadiusDip = 8;
 constexpr int kTitleBodyGapDip = 4;
 constexpr int kStackMarginDip = 12;
@@ -149,38 +150,6 @@ bool system_uses_dark_theme() {
                L"AppsUseLightTheme", 1) == 0;
 }
 
-COLORREF system_accent_color() {
-    // Same lookup Electron uses: DWM's AccentColor is RGBA, the older
-    // ColorizationColor is BGRA.
-    HKEY key = nullptr;
-    if (::RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Microsoft\\Windows\\DWM",
-                        0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS) {
-        DWORD value = 0;
-        DWORD type = 0;
-        DWORD size = sizeof(value);
-        const bool accent =
-            ::RegQueryValueExW(key, L"AccentColor", nullptr, &type,
-                               reinterpret_cast<BYTE*>(&value),
-                               &size) == ERROR_SUCCESS &&
-            type == REG_DWORD;
-        if (!accent) {
-            size = sizeof(value);
-            if (::RegQueryValueExW(key, L"ColorizationColor", nullptr, &type,
-                                   reinterpret_cast<BYTE*>(&value),
-                                   &size) == ERROR_SUCCESS &&
-                type == REG_DWORD) {
-                ::RegCloseKey(key);
-                return RGB(GetBValue(value), GetGValue(value), GetRValue(value));
-            }
-        } else {
-            ::RegCloseKey(key);
-            return RGB(GetRValue(value), GetGValue(value), GetBValue(value));
-        }
-        ::RegCloseKey(key);
-    }
-    return RGB(0x40, 0x7d, 0xd0);
-}
-
 struct ToastPalette {
     COLORREF background = RGB(0x2b, 0x2b, 0x2b);
     COLORREF background_hot = RGB(0x36, 0x36, 0x36);
@@ -188,12 +157,10 @@ struct ToastPalette {
     COLORREF body = RGB(0xc4, 0xc4, 0xc4);
     COLORREF close = RGB(0x9a, 0x9a, 0x9a);
     COLORREF close_hot = RGB(0xff, 0xff, 0xff);
-    COLORREF accent = RGB(0x40, 0x7d, 0xd0);
 };
 
-ToastPalette make_palette(bool dark, COLORREF accent) {
+ToastPalette make_palette(bool dark) {
     ToastPalette palette;
-    palette.accent = accent;
     if (dark) {
         palette.background = RGB(0x24, 0x24, 0x26);
         palette.background_hot = RGB(0x30, 0x30, 0x33);
@@ -210,42 +177,6 @@ ToastPalette make_palette(bool dark, COLORREF accent) {
         palette.close_hot = RGB(0x11, 0x11, 0x14);
     }
     return palette;
-}
-
-// Coverage (0..255) of one pixel against a rounded rectangle. Only the corner
-// boxes need supersampling; everything else is fully covered.
-int rounded_corner_coverage(int x, int y, int width, int height, int radius) {
-    if (radius <= 0) return 255;
-    int center_x = 0;
-    int center_y = 0;
-    if (x < radius) {
-        center_x = radius;
-    } else if (x >= width - radius) {
-        center_x = width - radius;
-    } else {
-        return 255;
-    }
-    if (y < radius) {
-        center_y = radius;
-    } else if (y >= height - radius) {
-        center_y = height - radius;
-    } else {
-        return 255;
-    }
-
-    constexpr int kSamples = 4;
-    const double radius_sq = static_cast<double>(radius) * radius;
-    int hits = 0;
-    for (int sy = 0; sy < kSamples; ++sy) {
-        const double py = y + (sy + 0.5) / kSamples;
-        for (int sx = 0; sx < kSamples; ++sx) {
-            const double px = x + (sx + 0.5) / kSamples;
-            const double dx = px - center_x;
-            const double dy = py - center_y;
-            if (dx * dx + dy * dy <= radius_sq) ++hits;
-        }
-    }
-    return hits * 255 / (kSamples * kSamples);
 }
 
 HICON load_app_icon(int size) {
@@ -329,7 +260,9 @@ public:
     }
 
     HWND hwnd() const { return hwnd_; }
-    int height() const { return static_cast<int>(size_.cy); }
+    // Stack spacing uses the visible card height, not the chrome that holds
+    // the soft drop shadow (shadows are allowed to overlap in the gap).
+    int height() const { return static_cast<int>(surface_size_.cy); }
     bool highlighted() const { return highlighted_; }
     bool finished() const { return finished_; }
     bool animation_active() const {
@@ -347,6 +280,7 @@ public:
         stack_collapse_pos_ = 1.0f;
         ease_in_start_ = ::GetTickCount();
         ease_in_active_ = true;
+        schedule_dismissal();
     }
 
     void set_vertical_position(int vertical_offset) {
@@ -369,16 +303,7 @@ public:
 
     // Starts the fade-out. Further input is ignored but mouse messages keep
     // flowing so the stack does not collapse under the cursor.
-    void dismiss() {
-        if (interactive_) {
-            interactive_ = false;
-            ::KillTimer(hwnd_, kDismissTimerId);
-            if (!ease_out_active_) {
-                ease_out_start_ = ::GetTickCount();
-                ease_out_active_ = true;
-            }
-        }
-    }
+    void dismiss();
 
     HDWP animate(HDWP hdwp, const ToastRect& work_area, int margin_x,
                  int margin_y);
@@ -393,10 +318,9 @@ private:
 
     void measure_and_resize();
     void draw();
-    void apply_rounded_alpha();
+    void apply_surface_and_shadow_alpha();
     void push_contents();
     void schedule_dismissal();
-    void cancel_dismissal();
     void on_mouse_move(POINT cursor);
     void on_mouse_leave();
     void on_click();
@@ -414,7 +338,13 @@ private:
     HICON icon_ = nullptr;
     int icon_size_ = 0;
 
+    // size_ is the full layered-window bitmap (card + shadow chrome).
+    // surface_size_ is the visible rounded card only.
     SIZE size_ = {0, 0};
+    SIZE surface_size_ = {0, 0};
+    int chrome_inset_ = 0;
+    int shadow_blur_ = 0;
+    int shadow_offset_y_ = 0;
     RECT close_rect_ = {0, 0, 0, 0};
     bool needs_redraw_ = true;
     bool layout_valid_ = false;
@@ -548,6 +478,20 @@ private:
 // ToastWindow implementation
 // ---------------------------------------------------------------------------
 
+void ToastWindow::dismiss() {
+    if (!interactive_) return;
+    interactive_ = false;
+    ::KillTimer(hwnd_, kDismissTimerId);
+    if (!ease_out_active_) {
+        ease_out_start_ = ::GetTickCount();
+        ease_out_active_ = true;
+    }
+    // The controller stops its animation timer once the entrance animation is
+    // complete. Restart it so timer-driven dismissal can actually fade out and
+    // remove the window.
+    controller_.start_animation();
+}
+
 LRESULT CALLBACK ToastWindow::wnd_proc(HWND hwnd, UINT message, WPARAM wparam,
                                        LPARAM lparam) {
     switch (message) {
@@ -600,8 +544,6 @@ void ToastWindow::on_mouse_move(POINT cursor) {
         close_hot_ = close_hot;
         changed = true;
     }
-    // Hovering holds the toast open; the countdown restarts on mouse leave.
-    if (interactive_) cancel_dismissal();
     if (changed) {
         // Hover only repaints — the measured layout is unaffected.
         draw();
@@ -614,7 +556,6 @@ void ToastWindow::on_mouse_leave() {
     close_hot_ = false;
     draw();
     push_contents();
-    if (interactive_ && !ease_in_active_) schedule_dismissal();
     controller_.start_animation();
 }
 
@@ -623,7 +564,6 @@ void ToastWindow::on_click() {
     const bool close_clicked = close_hot_;
     NotifyPayload payload = payload_;
     dismiss();
-    controller_.start_animation();
     if (!close_clicked) {
         // May run arbitrary application code. It never touches this object.
         dispatch_notification_activation(payload);
@@ -631,33 +571,25 @@ void ToastWindow::on_click() {
 }
 
 void ToastWindow::schedule_dismissal() {
-    ULONG duration = 0;
-    if (!::SystemParametersInfoW(SPI_GETMESSAGEDURATION, 0, &duration, 0)) {
-        duration = 0;
-    }
-    const unsigned seconds =
-        clamp_auto_dismiss_seconds(static_cast<unsigned>(duration));
-    ::SetTimer(hwnd_, kDismissTimerId, seconds * 1000, nullptr);
-}
-
-void ToastWindow::cancel_dismissal() {
-    ::KillTimer(hwnd_, kDismissTimerId);
+    ::SetTimer(hwnd_, kDismissTimerId, kAutoDismissTimeoutMs, nullptr);
 }
 
 void ToastWindow::measure_and_resize() {
     if (layout_valid_ || !hdc_) return;
 
     const int padding = controller_.dip(kPaddingDip);
-    const int bar = controller_.dip(kAccentBarDip);
     const int icon_size = controller_.dip(kIconSizeDip);
     const int icon_gap = controller_.dip(kIconGapDip);
     const int close_size = controller_.dip(kCloseSizeDip);
     const int close_inset = controller_.dip(kCloseInsetDip);
     const int title_gap = controller_.dip(kTitleBodyGapDip);
-    const int width = controller_.dip(kCardWidthDip);
+    const int surface_width = controller_.dip(kCardWidthDip);
+    chrome_inset_ = controller_.dip(kChromeInsetDip);
+    shadow_blur_ = controller_.dip(kShadowBlurDip);
+    shadow_offset_y_ = controller_.dip(kShadowOffsetYDip);
 
-    const int text_left = bar + padding + icon_size + icon_gap;
-    const int text_right = width - padding;
+    const int text_left = padding + icon_size + icon_gap;
+    const int text_right = surface_width - padding;
 
     TEXTMETRICW title_metrics = {};
     HGDIOBJ previous_font = ::SelectObject(hdc_, controller_.title_font());
@@ -682,22 +614,27 @@ void ToastWindow::measure_and_resize() {
     }
     if (previous_font) ::SelectObject(hdc_, previous_font);
 
-    int height = padding + static_cast<int>(title_metrics.tmHeight) + padding;
-    if (body_height > 0) height += title_gap + body_height;
-    height = std::max(height, padding * 2 + icon_size);
+    int surface_height =
+        padding + static_cast<int>(title_metrics.tmHeight) + padding;
+    if (body_height > 0) surface_height += title_gap + body_height;
+    surface_height = std::max(surface_height, padding * 2 + icon_size);
 
-    close_rect_.right = width - close_inset;
+    // close_rect_ is in window coordinates (surface + chrome inset).
+    close_rect_.right = chrome_inset_ + surface_width - close_inset;
     close_rect_.left = close_rect_.right - close_size;
-    close_rect_.top = close_inset;
+    close_rect_.top = chrome_inset_ + close_inset;
     close_rect_.bottom = close_rect_.top + close_size;
 
-    if (width != size_.cx || height != size_.cy) {
+    const int window_width = surface_width + chrome_inset_ * 2;
+    const int window_height = surface_height + chrome_inset_ * 2;
+
+    if (window_width != size_.cx || window_height != size_.cy) {
         BITMAPINFO info = {};
         info.bmiHeader.biSize = sizeof(info.bmiHeader);
-        info.bmiHeader.biWidth = width;
+        info.bmiHeader.biWidth = window_width;
         // Negative height keeps the DIB top-down so the alpha fix-up below can
         // walk rows in the obvious order.
-        info.bmiHeader.biHeight = -height;
+        info.bmiHeader.biHeight = -window_height;
         info.bmiHeader.biPlanes = 1;
         info.bmiHeader.biBitCount = 32;
         info.bmiHeader.biCompression = BI_RGB;
@@ -715,10 +652,12 @@ void ToastWindow::measure_and_resize() {
         if (bitmap_) ::DeleteObject(bitmap_);
         bitmap_ = bitmap;
         bits_ = bits;
-        size_.cx = width;
-        size_.cy = height;
+        size_.cx = window_width;
+        size_.cy = window_height;
         needs_redraw_ = true;
     }
+    surface_size_.cx = surface_width;
+    surface_size_.cy = surface_height;
 
     if (!icon_ || icon_size != icon_size_) {
         if (icon_) ::DestroyIcon(icon_);
@@ -729,32 +668,37 @@ void ToastWindow::measure_and_resize() {
 }
 
 void ToastWindow::draw() {
-    if (!hdc_ || !bits_ || size_.cx <= 0 || size_.cy <= 0) return;
+    if (!hdc_ || !bits_ || size_.cx <= 0 || size_.cy <= 0 ||
+        surface_size_.cx <= 0 || surface_size_.cy <= 0) {
+        return;
+    }
+
+    // Clear the full chrome bitmap first so shadow pixels start transparent.
+    const std::size_t byte_count = static_cast<std::size_t>(size_.cx) *
+                                   static_cast<std::size_t>(size_.cy) * 4u;
+    std::memset(bits_, 0, byte_count);
 
     const ToastPalette& palette = controller_.palette();
     const int padding = controller_.dip(kPaddingDip);
-    const int bar = controller_.dip(kAccentBarDip);
     const int icon_size = controller_.dip(kIconSizeDip);
     const int icon_gap = controller_.dip(kIconGapDip);
     const int title_gap = controller_.dip(kTitleBodyGapDip);
-    const int text_left = bar + padding + icon_size + icon_gap;
-    const int text_right = static_cast<int>(size_.cx) - padding;
+    const int inset = chrome_inset_;
+    const int surface_w = static_cast<int>(surface_size_.cx);
+    const int surface_h = static_cast<int>(surface_size_.cy);
+    const int text_left = inset + padding + icon_size + icon_gap;
+    const int text_right = inset + surface_w - padding;
 
-    RECT card = {0, 0, size_.cx, size_.cy};
+    RECT card = {inset, inset, inset + surface_w, inset + surface_h};
     if (HBRUSH brush = ::CreateSolidBrush(
             highlighted_ ? palette.background_hot : palette.background)) {
         ::FillRect(hdc_, &card, brush);
         ::DeleteObject(brush);
     }
-    RECT accent_bar = {0, 0, bar, size_.cy};
-    if (HBRUSH brush = ::CreateSolidBrush(palette.accent)) {
-        ::FillRect(hdc_, &accent_bar, brush);
-        ::DeleteObject(brush);
-    }
 
     if (icon_) {
-        ::DrawIconEx(hdc_, bar + padding, padding, icon_, icon_size, icon_size,
-                     0, nullptr, DI_NORMAL);
+        ::DrawIconEx(hdc_, inset + padding, inset + padding, icon_, icon_size,
+                     icon_size, 0, nullptr, DI_NORMAL);
     }
 
     ::SetBkMode(hdc_, TRANSPARENT);
@@ -763,8 +707,9 @@ void ToastWindow::draw() {
     HGDIOBJ previous_font = ::SelectObject(hdc_, controller_.title_font());
     ::GetTextMetricsW(hdc_, &title_metrics);
     ::SetTextColor(hdc_, palette.title);
-    RECT title_rect = {text_left, padding, close_rect_.left - padding / 2,
-                       padding + title_metrics.tmHeight};
+    RECT title_rect = {text_left, inset + padding,
+                       close_rect_.left - padding / 2,
+                       inset + padding + title_metrics.tmHeight};
     if (!title_.empty()) {
         ::DrawTextW(hdc_, title_.c_str(), static_cast<int>(title_.size()),
                     &title_rect,
@@ -775,7 +720,7 @@ void ToastWindow::draw() {
         ::SelectObject(hdc_, controller_.body_font());
         ::SetTextColor(hdc_, palette.body);
         RECT body_rect = {text_left, title_rect.bottom + title_gap, text_right,
-                          size_.cy - padding};
+                          inset + surface_h - padding};
         ::DrawTextW(hdc_, body_.c_str(), static_cast<int>(body_.size()),
                     &body_rect,
                     DT_LEFT | DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS |
@@ -790,37 +735,61 @@ void ToastWindow::draw() {
                 DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
     if (previous_font) ::SelectObject(hdc_, previous_font);
 
-    apply_rounded_alpha();
+    apply_surface_and_shadow_alpha();
     needs_redraw_ = false;
 }
 
-void ToastWindow::apply_rounded_alpha() {
+void ToastWindow::apply_surface_and_shadow_alpha() {
     if (!bits_) return;
-    // GDI drawing leaves the alpha byte undefined, so the layered window would
-    // composite garbage. Rewrite the whole alpha plane here: opaque inside the
-    // rounded rectangle, antialiased across the corner arcs, and premultiplied
-    // where coverage is partial because UpdateLayeredWindow expects that.
+    // GDI leaves alpha undefined. Rebuild the alpha plane like the tray
+    // popup: opaque antialiased card + soft drop shadow in the chrome padding,
+    // with premultiplied RGB for UpdateLayeredWindow.
     ::GdiFlush();
     const int width = static_cast<int>(size_.cx);
     const int height = static_cast<int>(size_.cy);
-    const int radius =
-        std::min({controller_.dip(kCornerRadiusDip), width / 2, height / 2});
-    auto* pixels = static_cast<BYTE*>(bits_);
-    for (int y = 0; y < height; ++y) {
-        BYTE* row = pixels + static_cast<size_t>(y) * width * 4;
-        for (int x = 0; x < width; ++x) {
-            BYTE* pixel = row + static_cast<size_t>(x) * 4;
-            const int coverage =
-                rounded_corner_coverage(x, y, width, height, radius);
-            if (coverage >= 255) {
-                pixel[3] = 255;
-                continue;
-            }
-            pixel[0] = static_cast<BYTE>(pixel[0] * coverage / 255);
-            pixel[1] = static_cast<BYTE>(pixel[1] * coverage / 255);
-            pixel[2] = static_cast<BYTE>(pixel[2] * coverage / 255);
-            pixel[3] = static_cast<BYTE>(coverage);
-        }
+    const int surface_w = static_cast<int>(surface_size_.cx);
+    const int surface_h = static_cast<int>(surface_size_.cy);
+    const int inset = chrome_inset_;
+    const int radius = std::min(
+        {controller_.dip(kCornerRadiusDip), surface_w / 2, surface_h / 2});
+    auto* pixels = static_cast<std::uint32_t*>(bits_);
+    const std::size_t pixel_count =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+
+    for (std::size_t i = 0; i < pixel_count; ++i) {
+        const int x = static_cast<int>(i % static_cast<std::size_t>(width));
+        const int y = static_cast<int>(i / static_cast<std::size_t>(width));
+        const double surface_x =
+            static_cast<double>(x - inset) + 0.5;
+        const double surface_y =
+            static_cast<double>(y - inset) + 0.5;
+        const double surface_distance = toast_rounded_rect_distance(
+            surface_x, surface_y, surface_w, surface_h, radius);
+        const unsigned surface_a =
+            toast_surface_coverage(surface_distance);
+
+        const double shadow_y =
+            surface_y - static_cast<double>(shadow_offset_y_);
+        const double shadow_distance = toast_rounded_rect_distance(
+            surface_x, shadow_y, surface_w, surface_h, radius);
+        const unsigned shadow_a =
+            toast_shadow_alpha(shadow_distance, shadow_blur_, kShadowMaxAlpha);
+
+        const unsigned alpha =
+            surface_a + (shadow_a * (255u - surface_a) + 127u) / 255u;
+
+        const std::uint32_t straight = pixels[i];
+        const unsigned blue = straight & 0xFFu;
+        const unsigned green = (straight >> 8u) & 0xFFu;
+        const unsigned red = (straight >> 16u) & 0xFFu;
+        // Shadow pixels have no RGB from GDI (bitmap was cleared). Surface
+        // pixels premultiply by surface coverage only so the card colour is
+        // not darkened by the blended shadow alpha.
+        const unsigned premul_blue = (blue * surface_a + 127u) / 255u;
+        const unsigned premul_green = (green * surface_a + 127u) / 255u;
+        const unsigned premul_red = (red * surface_a + 127u) / 255u;
+        pixels[i] = (alpha << 24u) | (premul_red << 16u) |
+                    (premul_green << 8u) | premul_blue;
     }
 }
 
@@ -851,7 +820,6 @@ HDWP ToastWindow::animate(HDWP hdwp, const ToastRect& work_area, int margin_x,
         ease_in_pos_ = ease_in_position(now - ease_in_start_, kEaseInDurationMs);
         if (ease_in_pos_ >= 1.0f) {
             ease_in_active_ = false;
-            if (interactive_ && !highlighted_) schedule_dismissal();
         }
     }
     if (ease_out_active_) {
@@ -869,11 +837,16 @@ HDWP ToastWindow::animate(HDWP hdwp, const ToastRect& work_area, int margin_x,
     const int vertical_offset = vertical_current_ + collapse_offset;
     if (stack_collapse_pos_ >= 1.0f) vertical_current_ = vertical_target_;
 
-    const ToastPlacement placement =
+    // Place the visible card surface, then expand by chrome so the soft
+    // shadow has room without shifting the card away from the work-area
+    // bottom-right anchor.
+    const ToastPlacement surface =
         compute_toast_placement(work_area, margin_x, margin_y,
-                                static_cast<int>(size_.cx),
-                                static_cast<int>(size_.cy), vertical_offset,
-                                ease_in_pos_);
+                                static_cast<int>(surface_size_.cx),
+                                static_cast<int>(surface_size_.cy),
+                                vertical_offset, ease_in_pos_);
+    const ToastChromeGeometry chrome = compute_toast_chrome_geometry(
+        surface.x, surface.y, surface.width, surface.height, chrome_inset_);
 
     UINT flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOREDRAW | SWP_NOCOPYBITS;
     const bool fading_done = !ease_out_active_ && ease_out_pos_ >= 1.0f;
@@ -884,13 +857,13 @@ HDWP ToastWindow::animate(HDWP hdwp, const ToastRect& work_area, int margin_x,
         highlighted_ = false;
     }
 
-    // Reveal the card from its right edge: the destination width grows while
-    // the source origin walks back toward zero, so the card looks like it
-    // slides out of the screen border instead of scaling in place.
-    POINT source = {size_.cx - placement.width, 0};
+    // Reveal from the right edge of the surface: destination width grows with
+    // chrome padding on both sides while the source origin walks back so the
+    // card still slides out of the screen border.
+    POINT source = {size_.cx - chrome.window_width, 0};
     if (source.x < 0) source.x = 0;
-    POINT destination = {placement.x, placement.y};
-    SIZE size = {placement.width, placement.height};
+    POINT destination = {chrome.window_x, chrome.window_y};
+    SIZE size = {chrome.window_width, chrome.window_height};
     BLENDFUNCTION blend = {AC_SRC_OVER, 0,
                            static_cast<BYTE>(std::lround(
                                255.0 * (1.0 - ease_out_pos_))),
@@ -973,7 +946,7 @@ void Controller::ensure_assets() {
         monitor = ::MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY);
     }
     dpi_ = monitor_dpi(monitor);
-    palette_ = make_palette(system_uses_dark_theme(), system_accent_color());
+    palette_ = make_palette(system_uses_dark_theme());
 
     if (body_font_ && !stock_body_font_) ::DeleteObject(body_font_);
     if (title_font_ && !stock_title_font_) ::DeleteObject(title_font_);
