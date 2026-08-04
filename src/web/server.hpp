@@ -139,6 +139,14 @@ public:
     // 路由 / 钩子刷新互斥。fn 内不得再调 WebServer 会拿该锁的方法(不可重入)。
     void with_app_config_lock(const std::function<void()>& fn) const;
 
+    void broadcast_remote_control_session_selected(
+        const std::string& session_id,
+        const std::string& workspace_hash,
+        const std::string& cwd,
+        bool no_workspace,
+        const std::string& title,
+        const std::string& updated_at);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

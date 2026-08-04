@@ -26,6 +26,8 @@
 #include "../loop/loop_store.hpp"
 #include "../session/local_session_client.hpp"
 #include "../session/session_registry.hpp"
+#include "../session/session_storage.hpp"
+#include "../session/session_user_message_search.hpp"
 #include "../skills/skill_registry.hpp"
 #include "../skills/skill_init.hpp"
 #include "../tool/ask_user_question_tool.hpp"
@@ -62,12 +64,17 @@
 #include <condition_variable>
 #include <csignal>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -99,6 +106,129 @@ struct JoiningThreadGroup {
 
     std::vector<std::thread> threads;
 };
+
+struct RcCatalogScope {
+    std::string project_dir;
+    std::string workspace_hash;
+    std::string cwd;
+    std::string workspace_label;
+    bool no_workspace = false;
+};
+
+std::string rc_catalog_key(const std::string& project_dir, const std::string& session_id) {
+    return project_dir + "|" + session_id;
+}
+
+std::vector<RcCatalogScope> rc_catalog_scopes(const std::string& projects_dir,
+                                              const std::string& no_workspace_root) {
+    namespace fs = std::filesystem;
+    std::vector<RcCatalogScope> scopes;
+    std::error_code ec;
+    const fs::path root = acecode::path_from_utf8(projects_dir);
+    for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_directory(ec)) continue;
+        const std::string project_dir = acecode::path_to_utf8(it->path());
+        const std::string hash = acecode::path_to_utf8(it->path().filename());
+        std::string cwd;
+        std::string label;
+        std::ifstream in(it->path() / "workspace.json");
+        if (in.is_open()) {
+            nlohmann::json json = nlohmann::json::parse(in, nullptr, false);
+            if (json.is_object()) {
+                cwd = json.value("cwd", std::string{});
+                label = json.value("name", std::string{});
+            }
+        }
+        scopes.push_back({project_dir, hash, cwd, label, false});
+    }
+    for (const auto& cwd : acecode::list_no_workspace_session_cwds(no_workspace_root)) {
+        scopes.push_back({acecode::SessionStorage::get_project_dir(cwd), {}, cwd, {}, true});
+    }
+    return scopes;
+}
+
+std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
+    const std::string& projects_dir,
+    const std::string& no_workspace_root,
+    acecode::SessionClient& client,
+    const std::optional<std::string>& query) {
+    std::vector<acecode::rc::RcSessionTarget> out;
+    const auto scopes = rc_catalog_scopes(projects_dir, no_workspace_root);
+    std::unordered_map<std::string, std::size_t> positions;
+    std::unordered_map<std::string, int> content_scores;
+
+    if (query.has_value() && !query->empty()) {
+        for (const auto& scope : scopes) {
+            acecode::SessionUserMessageIndex index(scope.project_dir);
+            std::string error;
+            if (!index.ensure_project_indexed(&error)) {
+                LOG_WARN("[remote-control] session catalog index unavailable: " + error);
+                continue;
+            }
+            for (const auto& match : index.search(*query, 100, &error)) {
+                const auto key = rc_catalog_key(scope.project_dir, match.session_id);
+                content_scores[key] = (std::max)(content_scores[key], match.score);
+            }
+            if (!error.empty()) {
+                LOG_WARN("[remote-control] session catalog content search failed: " + error);
+            }
+        }
+    }
+
+    for (const auto& scope : scopes) {
+        for (const auto& meta : acecode::SessionStorage::list_sessions(scope.project_dir)) {
+            if (meta.archived || !meta.parent_session_id.empty() ||
+                meta.no_workspace != scope.no_workspace) {
+                continue;
+            }
+            acecode::rc::RcSessionTarget target;
+            target.session_id = meta.id;
+            target.workspace_hash = scope.no_workspace ? std::string{} : scope.workspace_hash;
+            target.cwd = meta.cwd.empty() ? scope.cwd : meta.cwd;
+            target.title = meta.title;
+            target.summary = meta.summary;
+            target.workspace_label = scope.workspace_label.empty() && !target.cwd.empty()
+                ? acecode::desktop::default_workspace_name(target.cwd)
+                : scope.workspace_label;
+            target.updated_at = meta.updated_at;
+            target.no_workspace = scope.no_workspace;
+            target.content_match_score = content_scores[rc_catalog_key(scope.project_dir, meta.id)];
+            positions.emplace(rc_catalog_key(scope.project_dir, meta.id), out.size());
+            out.push_back(std::move(target));
+        }
+    }
+
+    for (const auto& active : client.list_sessions()) {
+        if (!active.parent_session_id.empty()) continue;
+        const std::string project_dir = acecode::SessionStorage::get_project_dir(active.cwd);
+        const auto key = rc_catalog_key(project_dir, active.id);
+        auto found = positions.find(key);
+        if (found == positions.end()) {
+            acecode::rc::RcSessionTarget target;
+            target.session_id = active.id;
+            target.workspace_hash = active.no_workspace ? std::string{} : active.workspace_hash;
+            target.cwd = active.cwd;
+            target.title = active.title;
+            target.summary = active.summary;
+            target.workspace_label = active.no_workspace ? std::string{} :
+                acecode::desktop::default_workspace_name(active.cwd);
+            target.no_workspace = active.no_workspace;
+            target.active = true;
+            out.push_back(std::move(target));
+            continue;
+        }
+        auto& target = out[found->second];
+        target.active = true;
+        if (!active.title.empty()) target.title = active.title;
+        if (!active.summary.empty()) target.summary = active.summary;
+        if (!active.cwd.empty()) target.cwd = active.cwd;
+        if (!active.workspace_hash.empty() && !active.no_workspace) {
+            target.workspace_hash = active.workspace_hash;
+        }
+    }
+    acecode::rc::sort_rc_session_targets(out, query.has_value());
+    return out;
+}
 
 void request_terminate() {
     g_term_requested.store(true);
@@ -606,6 +736,23 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         // 路由一致)—— 绑定的是「不使用工作区」会话时,默认 SessionOptions
         // 会把 cwd 解析成 daemon 自身 cwd,重启重建永远找不到该会话。
         return acecode::rc::resume_session_with_no_workspace_fallback(client, id);
+    };
+    const std::string rc_no_workspace_root = acecode::default_no_workspace_cache_root();
+    rc_binder_deps.session_catalog =
+        [projects_dir, rc_no_workspace_root, &client](const std::optional<std::string>& query) {
+            return build_rc_session_catalog(projects_dir, rc_no_workspace_root, client, query);
+        };
+    rc_binder_deps.resume_session_target = [&client](const acecode::rc::RcSessionTarget& target) {
+        return acecode::rc::resume_session_target_exact(client, target);
+    };
+    rc_binder_deps.on_session_selected = [&server](const acecode::rc::RcSessionTarget& target) {
+        server.broadcast_remote_control_session_selected(
+            target.session_id,
+            target.workspace_hash,
+            target.cwd,
+            target.no_workspace,
+            target.title,
+            target.updated_at);
     };
     acecode::rc::SessionChannelBinder rc_binder(std::move(rc_binder_deps));
 

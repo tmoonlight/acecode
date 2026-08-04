@@ -27,6 +27,7 @@
 
 #include "channel_plugin.hpp"
 #include "channel_question_bridge.hpp"
+#include "rc_session_navigation.hpp"
 #include "remote_control_service.hpp"
 
 #include "../config/config.hpp"
@@ -38,6 +39,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <memory>
@@ -82,6 +84,12 @@ bool should_rebuild_binding(const std::string& bound_session_id, bool session_ex
 bool resume_session_with_no_workspace_fallback(SessionClient& client,
                                                const std::string& id,
                                                const std::string& cache_root = {});
+
+// Resume a catalog target using the target's original execution identity.
+// This deliberately does not fall back to the daemon cwd: a cross-workspace
+// or no-workspace target must reopen in exactly the persisted location.
+bool resume_session_target_exact(SessionClient& client,
+                                 const RcSessionTarget& target);
 
 // ---- 纯逻辑:daemon 会话事件 → 出站动作 ----
 //
@@ -159,6 +167,17 @@ struct SessionChannelBinderDeps {
     std::function<bool(const std::string&)> session_active;
     std::function<bool(const std::string&)> session_resumable;
 
+    // Daemon-global catalog and exact resume seam. The worker owns filesystem
+    // discovery and index refresh; the binder only invokes them on its private
+    // control thread, never from the RC HTTP callback.
+    std::function<std::vector<RcSessionTarget>(const std::optional<std::string>& query)>
+        session_catalog;
+    std::function<bool(const RcSessionTarget&)> resume_session_target;
+
+    // Successful numeric selection notification. Descriptor is intentionally
+    // limited to RcSessionTarget fields and cannot expose channel credentials.
+    std::function<void(const RcSessionTarget&)> on_session_selected;
+
     // 测试注入的插件进程 runner;空 = ChannelPluginHost::default_runner()。
     ChannelPluginHost::Runner plugin_runner;
 
@@ -232,6 +251,7 @@ private:
     };
 
     CommandOutcome bind_session(const std::string& session_id);
+    CommandOutcome select_session_target(const RcSessionTarget& target);
     CommandOutcome unbind_and_stop();
     std::string status_text() const;
     // deps_.config 的读写统一走这里(deps_.with_config_lock 持锁执行;未注入
@@ -241,6 +261,12 @@ private:
                          const std::string& token);
     void ensure_keepalive_thread();
     void keepalive_loop();
+    bool enqueue_control(std::function<void()> task);
+    void control_loop();
+    void handle_rc_session_command(RcSessionCommand command,
+                                   RemoteControlHub* hub);
+    std::vector<RcSessionTarget> rebuild_catalog(const std::optional<std::string>& query);
+    void publish_control_text(RemoteControlHub* hub, const std::string& text) const;
     ChannelPluginHost make_plugin_host() const;
     void deactivate_replaced_channel_best_effort(
         const std::optional<ActiveChannel>& previous,
@@ -271,6 +297,15 @@ private:
     bool stop_requested_ = false;
     bool shut_down_ = false;
     std::thread keepalive_thread_;
+
+    // The callback attached to RemoteControlHub is deliberately shallow: it
+    // only parses and queues. All disk/index/session operations run here.
+    std::mutex control_mu_;
+    std::condition_variable control_cv_;
+    std::deque<std::function<void()>> control_queue_;
+    bool control_stop_ = false;
+    std::thread control_thread_;
+    std::vector<RcSessionTarget> latest_session_snapshot_;
 };
 
 } // namespace acecode::rc

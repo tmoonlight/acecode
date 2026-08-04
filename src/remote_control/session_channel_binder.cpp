@@ -101,6 +101,16 @@ bool resume_session_with_no_workspace_fallback(SessionClient& client,
     return client.resume_session(id, opts);
 }
 
+bool resume_session_target_exact(SessionClient& client,
+                                 const RcSessionTarget& target) {
+    if (target.session_id.empty()) return false;
+    SessionOptions opts;
+    opts.cwd = target.cwd;
+    opts.no_workspace = target.no_workspace;
+    opts.workspace_hash = target.no_workspace ? std::string{} : target.workspace_hash;
+    return client.resume_session(target.session_id, opts);
+}
+
 // ---------- classify_session_event ----------
 
 namespace {
@@ -204,7 +214,9 @@ void KeepaliveDecider::note_reactivated(Clock::time_point now) {
 
 SessionChannelBinder::SessionChannelBinder(SessionChannelBinderDeps deps)
     : deps_(std::move(deps)),
-      decider_(deps_.failure_threshold, deps_.health_interval) {}
+      decider_(deps_.failure_threshold, deps_.health_interval) {
+    control_thread_ = std::thread([this] { control_loop(); });
+}
 
 SessionChannelBinder::~SessionChannelBinder() {
     shutdown();
@@ -352,33 +364,16 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
     }
     const int port = service.status().port;
 
-    // 换绑:先切 generation 并撤销旧 context。旧回调只捕获 shared context，
-    // 不捕获 binder；deactivate 等待已线性化的入站/事件完成后再退订，既不
-    // 跨 session 投递，也不会在 unsubscribe 的在途窗口访问析构后的 this。
+    // First prepare the target while the old route remains authoritative.
+    // A failed subscribe/activation must not disturb the existing binding.
     std::string old_session;
     SessionClient::SubscriptionId old_sub = 0;
     std::shared_ptr<BindingContext> old_context;
     std::optional<ActiveChannel> old_active;
     std::uint64_t generation = 0;
-    // Hub route 是入站 generation 的线性化点：先切断后续接受，再更新 binder
-    // 状态。此前已由 handle_inbound 快照接受的 callback 仍按旧 session 完成。
-    service.hub().clear_inbound_route();
-    {
-        std::lock_guard<std::mutex> lk(mu_);
-        old_session = binding_.bound_session();
-        old_sub = sub_id_;
-        sub_id_ = 0;
-        old_context = std::move(binding_context_);
-        old_active = active_channel_;
-        active_channel_.reset();
-        generation = binding_.bind(session_id);
-    }
-    deactivate_context(old_context);
-    if (old_sub != 0) deps_.client->unsubscribe(old_session, old_sub);
 
     auto context = std::make_shared<BindingContext>();
     context->session_id = session_id;
-    context->generation = generation;
     auto* inbound_client = deps_.client;
     auto* hub = &service.hub();
 
@@ -452,12 +447,6 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
     auto sub = deps_.client->subscribe(session_id, listener, /*since_seq=*/0);
     if (sub == 0) {
         deactivate_context(context);
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            binding_.unbind();
-            active_channel_.reset();
-        }
-        service.hub().clear_inbound_route();
         if (started_now) service.stop();
         return {false, "Session " + session_id + " is not active; cannot bind."};
     }
@@ -485,16 +474,27 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
     if (!activation.ok) {
         deactivate_context(context);
         deps_.client->unsubscribe(session_id, sub);
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            binding_.unbind();
-            active_channel_.reset();
-        }
-        service.hub().clear_inbound_route();
-        service.hub().set_outbound_result_observer({});
         if (started_now) service.stop();
         return {false, "Failed to activate channel '" + channel_name + "': " + error};
     }
+
+    // Target subscribe + channel activation have completed. From here forward
+    // no fallible preparation remains, so replacement can safely become the
+    // linearization point without a rollback path.
+    service.hub().clear_inbound_route();
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        old_session = binding_.bound_session();
+        old_sub = sub_id_;
+        old_context = std::move(binding_context_);
+        old_active = active_channel_;
+        sub_id_ = 0;
+        active_channel_.reset();
+        generation = binding_.bind(session_id);
+        context->generation = generation;
+    }
+    deactivate_context(old_context);
+    if (old_sub != 0) deps_.client->unsubscribe(old_session, old_sub);
 
     ActiveChannel current_channel{
         channel_name,
@@ -504,6 +504,7 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
         timeout_ms,
         generation,
     };
+    service.hub().set_session_id(session_id);
     service.set_outbound_url(activation.status.outbound_url);
     {
         std::lock_guard<std::mutex> lk(mu_);
@@ -527,9 +528,23 @@ SessionChannelBinder::bind_session(const std::string& session_id) {
     }
     service.hub().set_inbound_route(
         session_id,
-        [context, inbound_client, hub](const std::string& text) {
+        [this, context, inbound_client, hub](const std::string& text) {
             ContextLease lease(context);
             if (!lease) return;
+
+            const RcSessionCommand command = parse_rc_session_command(text);
+            if (command.kind != RcSessionCommandKind::NotCommand) {
+                // Keep the HTTP callback shallow. In particular, do not let a
+                // numeric switch deactivate this context while its own lease is
+                // still held; the queued worker runs only after this callback
+                // returns.
+                if (!enqueue_control([this, command, hub] {
+                        handle_rc_session_command(command, hub);
+                    })) {
+                    hub->notify_assistant_text("Remote control is shutting down.");
+                }
+                return;
+            }
 
             ChannelQuestionAction action;
             {
@@ -651,6 +666,13 @@ void SessionChannelBinder::shutdown() {
         stop_requested_ = true;
         cv_.notify_all();
     }
+    {
+        std::lock_guard<std::mutex> lk(control_mu_);
+        control_stop_ = true;
+        control_queue_.clear();
+    }
+    control_cv_.notify_all();
+    if (control_thread_.joinable()) control_thread_.join();
     if (keepalive_thread_.joinable()) keepalive_thread_.join();
 
     // Bind/off/keepalive process calls are serialized by op_mu_. Join first so
@@ -718,6 +740,133 @@ std::string SessionChannelBinder::status_text() const {
         oss << "\nRun /rc in a session to bind it to the default channel.";
     }
     return oss.str();
+}
+
+bool SessionChannelBinder::enqueue_control(std::function<void()> task) {
+    if (!task) return false;
+    {
+        std::lock_guard<std::mutex> lk(control_mu_);
+        if (control_stop_) return false;
+        control_queue_.push_back(std::move(task));
+    }
+    control_cv_.notify_one();
+    return true;
+}
+
+void SessionChannelBinder::control_loop() {
+    std::unique_lock<std::mutex> lk(control_mu_);
+    while (true) {
+        control_cv_.wait(lk, [this] { return control_stop_ || !control_queue_.empty(); });
+        if (control_stop_) return;
+        auto task = std::move(control_queue_.front());
+        control_queue_.pop_front();
+        lk.unlock();
+        try {
+            task();
+        } catch (const std::exception& e) {
+            LOG_WARN(std::string("[remote-control] session command failed: ") + e.what());
+        } catch (...) {
+            LOG_WARN("[remote-control] session command failed with an unknown error");
+        }
+        lk.lock();
+    }
+}
+
+std::vector<RcSessionTarget> SessionChannelBinder::rebuild_catalog(
+    const std::optional<std::string>& query) {
+    if (!deps_.session_catalog) return {};
+    auto catalog = deps_.session_catalog(query);
+    sort_rc_session_targets(catalog, query.has_value());
+    return catalog;
+}
+
+void SessionChannelBinder::publish_control_text(RemoteControlHub* hub,
+                                                const std::string& text) const {
+    if (!hub) return;
+    for (const auto& chunk : chunk_rc_session_output(text)) {
+        if (!chunk.empty()) hub->notify_assistant_text(chunk);
+    }
+}
+
+SessionChannelBinder::CommandOutcome
+SessionChannelBinder::select_session_target(const RcSessionTarget& target) {
+    if (target.session_id.empty()) return {false, "Selected session is invalid."};
+    if (!target.active) {
+        if (!deps_.resume_session_target || !deps_.resume_session_target(target)) {
+            return {false, "Unable to resume the selected session; the current connection was kept."};
+        }
+    }
+    auto outcome = bind_session(target.session_id);
+    if (!outcome.ok) return outcome;
+    if (deps_.on_session_selected) {
+        try {
+            deps_.on_session_selected(target);
+        } catch (const std::exception& e) {
+            LOG_WARN(std::string("[remote-control] session selection notification failed: ") + e.what());
+        } catch (...) {
+            LOG_WARN("[remote-control] session selection notification failed");
+        }
+    }
+    return outcome;
+}
+
+void SessionChannelBinder::handle_rc_session_command(RcSessionCommand command,
+                                                      RemoteControlHub* hub) {
+    if (command.kind == RcSessionCommandKind::UsageError) {
+        publish_control_text(hub, command.error);
+        return;
+    }
+
+    if (command.kind == RcSessionCommandKind::Recent ||
+        command.kind == RcSessionCommandKind::All ||
+        command.kind == RcSessionCommandKind::Search) {
+        const std::optional<std::string> query =
+            command.kind == RcSessionCommandKind::Search
+                ? std::optional<std::string>(command.query)
+                : std::nullopt;
+        auto results = rebuild_catalog(query);
+        if (query.has_value()) {
+            results = filter_rc_session_targets(results, *query, kRcSessionSearchLimit);
+        } else if (command.kind == RcSessionCommandKind::Recent &&
+                   results.size() > kRcSessionRecentLimit) {
+            results.resize(kRcSessionRecentLimit);
+        }
+        {
+            std::lock_guard<std::mutex> lk(control_mu_);
+            latest_session_snapshot_ = results;
+        }
+        const std::string heading = command.kind == RcSessionCommandKind::Search
+            ? "Session search results:"
+            : (command.kind == RcSessionCommandKind::All ? "All sessions:" : "Recent sessions:");
+        publish_control_text(hub, format_rc_session_listing(results, heading));
+        return;
+    }
+
+    if (command.kind != RcSessionCommandKind::Select) return;
+
+    std::vector<RcSessionTarget> snapshot;
+    {
+        std::lock_guard<std::mutex> lk(control_mu_);
+        snapshot = latest_session_snapshot_;
+    }
+    if (snapshot.empty()) {
+        snapshot = rebuild_catalog(std::nullopt);
+        if (snapshot.size() > kRcSessionRecentLimit) snapshot.resize(kRcSessionRecentLimit);
+        std::lock_guard<std::mutex> lk(control_mu_);
+        latest_session_snapshot_ = snapshot;
+    }
+    auto target = select_rc_session_snapshot(snapshot, command.selection);
+    if (!target.has_value()) {
+        publish_control_text(hub, "Invalid session number. Run /sessions first.");
+        return;
+    }
+    const auto outcome = select_session_target(*target);
+    if (!outcome.ok) {
+        publish_control_text(hub, outcome.message);
+        return;
+    }
+    publish_control_text(hub, "Remote connection switched to: " +
+                                  (target->title.empty() ? target->session_id : target->title));
 }
 
 void SessionChannelBinder::persist_binding(const std::string& bound_session_id,

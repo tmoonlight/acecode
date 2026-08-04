@@ -94,6 +94,47 @@ Daemon shutdown intentionally stops only the local listener and retains the
 configured session for startup rebuild, so it does not send plugin
 deactivation.
 
+## Channel-Side Session Navigation
+
+While a channel is actively bound, the inbound control plane recognizes
+`/session`, `/sessions`, and `/resume` as equivalent aliases. These commands
+are consumed by the daemon and are never submitted to the selected agent
+conversation.
+
+- Bare alias lists the ten newest ordinary, unarchived user sessions.
+- `more` or `all` lists the complete catalog.
+- `search <query>` returns at most five deterministic matches, including
+  visible user-message content when the local index is available.
+- A positive number selects from the last result set; before any list, the
+  daemon first creates the default newest-ten snapshot.
+
+The catalog contains persisted workspace and no-workspace conversations but
+excludes archived and child sessions. An inactive selection resumes with the
+recorded workspace context before replacing the binding. If preparation fails,
+the existing binding remains usable.
+
+After a successful numeric selection, ACECode broadcasts this secret-free
+WebSocket hint to every connected frontend:
+
+```json
+{
+  "type": "remote_control_session_selected",
+  "payload": {
+    "session_id": "session-1",
+    "workspace_hash": "workspace-hash",
+    "cwd": "/workspace",
+    "no_workspace": false,
+    "title": "Example session",
+    "updated_at": "2026-08-05T10:20:00Z",
+    "remote_control_bound": true
+  }
+}
+```
+
+The hint never contains remote-control tokens, plugin configuration, or any
+other channel secret. Frontends may be closed; selection and routing do not
+depend on a listener being connected.
+
 ## Status Response Rules
 
 `state` must be one of:

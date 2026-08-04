@@ -437,6 +437,12 @@ struct WebServer::Impl {
         const std::string& session_id,
         const std::string& workspace_hash_hint = {}) const;
     void broadcast_session_status(const nlohmann::json& payload);
+    void broadcast_remote_control_session_selected(const std::string& session_id,
+                                                   const std::string& workspace_hash,
+                                                   const std::string& cwd,
+                                                   bool no_workspace,
+                                                   const std::string& title,
+                                                   const std::string& updated_at);
     void note_session_event_for_attention(const std::string& session_id,
                                            const std::string& workspace_hash,
                                            const std::string& cwd,

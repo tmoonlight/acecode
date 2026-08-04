@@ -4,6 +4,7 @@
 // multiple route TUs.
 
 #include "server_impl.hpp"
+#include "remote_control_session_event.hpp"
 #include "session_status_routing.hpp"
 #include "../prompt/context_usage_breakdown.hpp"
 #include "../session/session_user_message_search.hpp"
@@ -1804,6 +1805,24 @@ void WebServer::Impl::broadcast_session_status(const json& payload) {
         const bool wants_session = session_status_matches_subscriptions(
             state->status_sessions, session_id, parent_session_id);
         if (!wants_workspace && !wants_session) continue;
+        try { conn->send_text(text); } catch (...) {}
+    }
+}
+
+void WebServer::Impl::broadcast_remote_control_session_selected(
+    const std::string& session_id,
+    const std::string& workspace_hash,
+    const std::string& cwd,
+    bool no_workspace,
+    const std::string& title,
+    const std::string& updated_at) {
+    if (session_id.empty()) return;
+    const json msg = remote_control_session_selected_event_json(
+        session_id, workspace_hash, cwd, no_workspace, title, updated_at);
+    const auto text = msg.dump();
+    std::lock_guard<std::mutex> lk(ws_mu);
+    for (const auto& [conn, state] : ws_connections) {
+        if (!state) continue;
         try { conn->send_text(text); } catch (...) {}
     }
 }

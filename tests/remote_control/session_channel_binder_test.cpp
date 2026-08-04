@@ -373,6 +373,7 @@ struct RunnerLog {
     bool emit_binding_token = true;
     std::vector<std::string> activation_binding_tokens;
     std::size_t block_activation_number = 0;
+    std::size_t fail_activation_number = 0;
     bool blocked_activation_entered = false;
     bool release_blocked_activation = false;
     bool fail_deactivation_with_request_echo = false;
@@ -415,6 +416,7 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
             request.is_object() ? request.value("type", "") : "";
         std::string binding_token;
         bool fail_deactivation = false;
+        bool fail_activation = false;
         {
             std::unique_lock<std::mutex> lk(log->mu);
             if (type == "channel.activate") {
@@ -436,6 +438,7 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
                         return log->release_blocked_activation;
                     });
                 }
+                fail_activation = activation_number == log->fail_activation_number;
             }
             if (type == "channel.deactivate") {
                 log->deactivations.push_back(request);
@@ -447,11 +450,12 @@ acecode::rc::ChannelPluginHost::Runner make_fake_runner(
         if (type == "channel.activate") {
             nlohmann::json status{
                 {"type", "channel.status"},
-                {"state", "connected"},
+                {"state", fail_activation ? "failed" : "connected"},
                 {"already_running", false},
                 {"outbound",
                  nlohmann::json{{"mode", "webhook"}, {"url", outbound_url}}},
             };
+            if (fail_activation) status["message"] = "injected activation failure";
             if (!binding_token.empty()) {
                 status["binding_token"] = binding_token;
             }
@@ -517,6 +521,7 @@ struct BinderHarness {
         };
         d.tools = &self.tools;
         d.cwd = (self.root / "ws").string();
+        d.no_workspace_cache_root = (self.root / "cache" / "no-workspace").string();
         d.config = nullptr;
         d.template_permissions = &self.permissions;
         return d;
@@ -535,6 +540,9 @@ struct BinderHarness {
         d.session_resumable = [this](const std::string& id) {
             // 与 worker.cpp 的生产接线一致:常规 resume + no-workspace 兜底。
             return acecode::rc::resume_session_with_no_workspace_fallback(client, id);
+        };
+        d.resume_session_target = [this](const acecode::rc::RcSessionTarget& target) {
+            return acecode::rc::resume_session_target_exact(client, target);
         };
         d.plugin_runner = make_fake_runner(runner_log, outbound_url);
         return d;
@@ -1564,4 +1572,184 @@ TEST(SessionChannelBinderIntegration,
     binder.execute_command(first_sid, "off");
     hx.registry.destroy(first_sid);
     hx.registry.destroy(second_sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     RcSessionCommandsAreConsumedAndShareStableSnapshotAcrossAliases) {
+    BinderHarness hx("session-command-snapshot");
+    const auto first = hx.client.create_session({});
+    const auto second = hx.client.create_session({});
+    std::vector<acecode::rc::RcSessionTarget> catalog;
+    catalog.push_back({first, "workspace-a", "C:/workspace-a", "first", "", "A",
+                       "2026-08-01T01:00:00Z", false, true, 0});
+    catalog.push_back({second, "workspace-b", "C:/workspace-b", "second", "", "B",
+                       "2026-08-02T01:00:00Z", false, true, 0});
+    std::mutex selected_mu;
+    std::vector<acecode::rc::RcSessionTarget> selected;
+
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&catalog](const std::optional<std::string>&) { return catalog; };
+    deps.on_session_selected = [&selected_mu, &selected](const acecode::rc::RcSessionTarget& target) {
+        std::lock_guard<std::mutex> lk(selected_mu);
+        selected.push_back(target);
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(first, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    std::atomic<bool> command_reached_agent{false};
+    const auto sub = hx.client.subscribe(first, [&](const acecode::SessionEvent& event) {
+        if (event.kind == acecode::SessionEventKind::Message &&
+            event.payload.value("role", std::string{}) == "user" &&
+            event.payload.value("content", std::string{}) == "/sessions") {
+            command_reached_agent.store(true);
+        }
+    });
+    ASSERT_NE(sub, 0u);
+    ASSERT_TRUE(hx.service.hub().handle_inbound("/sessions", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Recent sessions:"));
+    std::this_thread::sleep_for(100ms);
+    EXPECT_FALSE(command_reached_agent.load());
+
+    ASSERT_TRUE(hx.service.hub().handle_inbound("/resume 1", hx.cfg.remote_control.token).ok());
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while ([&] {
+               std::lock_guard<std::mutex> lk(selected_mu);
+               return selected.empty();
+           }() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    {
+        std::lock_guard<std::mutex> lk(selected_mu);
+        ASSERT_EQ(selected.size(), 1u);
+        EXPECT_EQ(selected.front().session_id, second);
+    }
+    EXPECT_EQ(binder.bound_session_id(), second);
+    hx.client.unsubscribe(first, sub);
+    binder.execute_command(second, "off");
+    hx.registry.destroy(first);
+    hx.registry.destroy(second);
+}
+
+TEST(SessionChannelBinderIntegration,
+     ExactTargetResumeRestoresCrossWorkspaceAndNoWorkspaceIdentities) {
+    BinderHarness hx("session-target-resume");
+    const auto find_info = [&hx](const std::string& id) {
+        for (const auto& info : hx.client.list_sessions()) {
+            if (info.id == id) return info;
+        }
+        return acecode::SessionInfo{};
+    };
+
+    const auto other_cwd = (hx.root / "other-workspace").string();
+    fs::create_directories(other_cwd);
+    acecode::SessionOptions cross_workspace;
+    cross_workspace.cwd = other_cwd;
+    const auto cross_id = hx.client.create_session(cross_workspace);
+    const auto cross_info = find_info(cross_id);
+    ASSERT_FALSE(cross_info.id.empty());
+    auto* cross_entry = hx.registry.lookup(cross_id);
+    ASSERT_NE(cross_entry, nullptr);
+    ASSERT_EQ(cross_entry->sm->ensure_active_session_id(), cross_id);
+    hx.registry.destroy(cross_id);
+    acecode::rc::RcSessionTarget cross_target;
+    cross_target.session_id = cross_id;
+    cross_target.cwd = cross_info.cwd;
+    cross_target.workspace_hash = cross_info.workspace_hash;
+    ASSERT_TRUE(acecode::rc::resume_session_target_exact(hx.client, cross_target));
+    const auto restored_cross = hx.registry.acquire(cross_id);
+    ASSERT_NE(restored_cross, nullptr);
+    EXPECT_FALSE(restored_cross->no_workspace);
+    EXPECT_EQ(restored_cross->cwd, cross_info.cwd);
+    EXPECT_EQ(restored_cross->workspace_hash, cross_info.workspace_hash);
+
+    acecode::SessionOptions no_workspace;
+    no_workspace.no_workspace = true;
+    const auto no_workspace_id = hx.client.create_session(no_workspace);
+    const auto no_workspace_info = find_info(no_workspace_id);
+    ASSERT_FALSE(no_workspace_info.id.empty());
+    auto* no_workspace_entry = hx.registry.lookup(no_workspace_id);
+    ASSERT_NE(no_workspace_entry, nullptr);
+    ASSERT_EQ(no_workspace_entry->sm->ensure_active_session_id(), no_workspace_id);
+    hx.registry.destroy(no_workspace_id);
+    acecode::rc::RcSessionTarget no_workspace_target;
+    no_workspace_target.session_id = no_workspace_id;
+    no_workspace_target.cwd = no_workspace_info.cwd;
+    no_workspace_target.no_workspace = true;
+    ASSERT_TRUE(acecode::rc::resume_session_target_exact(hx.client, no_workspace_target));
+    const auto restored_no_workspace = hx.registry.acquire(no_workspace_id);
+    ASSERT_NE(restored_no_workspace, nullptr);
+    EXPECT_TRUE(restored_no_workspace->no_workspace);
+    EXPECT_EQ(restored_no_workspace->cwd, no_workspace_info.cwd);
+    EXPECT_TRUE(restored_no_workspace->workspace_hash.empty());
+
+    hx.registry.destroy(cross_id);
+    hx.registry.destroy(no_workspace_id);
+}
+
+TEST(SessionChannelBinderIntegration,
+     RcSessionCatalogWorkDoesNotBlockInboundCallback) {
+    BinderHarness hx("session-command-nonblocking");
+    const auto session = hx.client.create_session({});
+    std::mutex catalog_mu;
+    std::condition_variable catalog_cv;
+    bool entered = false;
+    bool release = false;
+    auto deps = hx.binder_deps();
+    deps.session_catalog = [&](const std::optional<std::string>&) {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        entered = true;
+        catalog_cv.notify_all();
+        catalog_cv.wait(lk, [&] { return release; });
+        return std::vector<acecode::rc::RcSessionTarget>{};
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(session, "").ok);
+    const auto before = std::chrono::steady_clock::now();
+    ASSERT_TRUE(hx.service.hub().handle_inbound("/session", hx.cfg.remote_control.token).ok());
+    const auto elapsed = std::chrono::steady_clock::now() - before;
+    EXPECT_LT(elapsed, 100ms);
+    {
+        std::unique_lock<std::mutex> lk(catalog_mu);
+        ASSERT_TRUE(catalog_cv.wait_for(lk, 3s, [&] { return entered; }));
+        release = true;
+    }
+    catalog_cv.notify_all();
+    binder.execute_command(session, "off");
+    hx.registry.destroy(session);
+}
+
+TEST(SessionChannelBinderIntegration,
+     FailedReplacementKeepsOldBindingUsable) {
+    BinderHarness hx("replacement-rollback");
+    const auto first = hx.client.create_session({});
+    const auto second = hx.client.create_session({});
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    ASSERT_TRUE(binder.execute_command(first, "").ok);
+    hx.runner_log->fail_activation_number = 2;
+    const auto failed = binder.execute_command(second, "");
+    EXPECT_FALSE(failed.ok);
+    EXPECT_EQ(binder.bound_session_id(), first);
+    EXPECT_TRUE(hx.service.running());
+
+    std::atomic<bool> delivered{false};
+    const auto sub = hx.client.subscribe(first, [&](const acecode::SessionEvent& event) {
+        if (event.kind == acecode::SessionEventKind::Message &&
+            event.payload.value("role", std::string{}) == "user" &&
+            event.payload.value("content", std::string{}) == "still routed") {
+            delivered.store(true);
+        }
+    });
+    ASSERT_NE(sub, 0u);
+    ASSERT_TRUE(hx.service.hub().handle_inbound("still routed", hx.cfg.remote_control.token).ok());
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (!delivered.load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    EXPECT_TRUE(delivered.load());
+    hx.client.unsubscribe(first, sub);
+    binder.execute_command(first, "off");
+    hx.registry.destroy(first);
+    hx.registry.destroy(second);
 }

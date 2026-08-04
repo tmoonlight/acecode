@@ -189,4 +189,16 @@ void WebServer::with_app_config_lock(const std::function<void()>& fn) const {
     fn();
 }
 
+void WebServer::broadcast_remote_control_session_selected(
+    const std::string& session_id,
+    const std::string& workspace_hash,
+    const std::string& cwd,
+    bool no_workspace,
+    const std::string& title,
+    const std::string& updated_at) {
+    if (!impl_) return;
+    impl_->broadcast_remote_control_session_selected(
+        session_id, workspace_hash, cwd, no_workspace, title, updated_at);
+}
+
 } // namespace acecode::web
