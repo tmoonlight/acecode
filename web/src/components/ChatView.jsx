@@ -94,6 +94,7 @@ import {
 import { usePreference } from '../lib/usePreference.js';
 import { pickExistingWorkspace } from '../lib/workspacePicker.js';
 import { refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
+import { homeComposerDraftText } from '../lib/homeComposerDrafts.js';
 import {
   DEFAULT_HOME_WORKSPACE_SELECTION,
   HOME_WORKSPACE_SELECTION_STORAGE_KEY,
@@ -584,7 +585,7 @@ function isRealWorkspaceHash(hash) {
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 
-export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
+export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const stagedExpertDraft = expertDispatchDraftFromRef(ref);
@@ -860,6 +861,18 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
   const visibleQueuedItems = useMemo(() => buildQueuedMessageItems(queueState, sid), [queueState, sid]);
   const draftWorkspaceHash = isRealWorkspaceHash(ref?.workspaceHash) ? ref.workspaceHash : '';
   const draftSessionKey = sid ? `${draftWorkspaceHash}:${sid}` : '';
+  const explicitHomeDraftWorkspaceHash = !sid && ref?.homeWorkspaceExplicit
+    ? (isRealWorkspaceHash(ref?.workspaceHash) ? ref.workspaceHash : '')
+    : null;
+  const homeDraftWorkspaceHash = sid
+    ? ''
+    : (explicitHomeDraftWorkspaceHash ?? (
+        isRealWorkspaceHash(homeWorkspaceHash) ? homeWorkspaceHash : ''
+      ));
+  const currentHomeDraftText = homeComposerDraftText(
+    homeComposerDrafts,
+    homeDraftWorkspaceHash,
+  );
   composerValueRef.current = composerValue;
   const rawItems = items;
   // GitSessionPill 的 sessionStarted 判定在 submit 回调里读(ref 免 dep churn)。
@@ -1156,7 +1169,8 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     draftEditVersionRef.current += 1;
     composerDirtyRef.current = true;
     setComposerValue(next);
-  }, []);
+    if (!sid) onHomeComposerDraftChange?.(homeDraftWorkspaceHash, next);
+  }, [homeDraftWorkspaceHash, onHomeComposerDraftChange, sid]);
 
   const clearComposerExtras = useCallback(({ preserveSwarm = false } = {}) => {
     setComposerAttachments((items) => {
@@ -1560,10 +1574,16 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
     setComposerSubmitting(false);
 
     if (!targetSid || !targetKey) {
-      composerDirtyRef.current = stagedExpertDraft.present;
-      setComposerValue(stagedExpertDraft.text);
+      const homeText = stagedExpertDraft.present
+        ? stagedExpertDraft.text
+        : currentHomeDraftText;
+      composerDirtyRef.current = !!homeText;
+      setComposerValue(homeText);
       draftLastSavedRef.current = { key: '', text: '' };
-      if (stagedExpertDraft.present) onInitialDraftConsumed?.();
+      if (stagedExpertDraft.present) {
+        onHomeComposerDraftChange?.(homeDraftWorkspaceHash, stagedExpertDraft.text);
+        onInitialDraftConsumed?.();
+      }
       return () => { cancelled = true; };
     }
 
@@ -1586,12 +1606,13 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       });
 
     return () => { cancelled = true; };
-  // stagedExpertDraft deliberately stays out of the dependency list. App
+  // stagedExpertDraft and currentHomeDraftText deliberately stay out of the
+  // dependency list. App
   // consumes the one-shot route payload after this effect applies it; that
-  // parent re-render must not immediately run this effect again and clear the
-  // composer. A real session/workspace transition still changes the existing
-  // dependencies and performs the normal draft reset/load.
-  }, [api, draftSessionKey, draftWorkspaceHash, onInitialDraftConsumed, sid]);
+  // parent re-render, as well as each home keystroke stored in App, must not
+  // immediately run this effect again. A real session/workspace transition
+  // still changes the scoped keys and performs the normal draft reset/load.
+  }, [api, draftSessionKey, draftWorkspaceHash, homeDraftWorkspaceHash, onHomeComposerDraftChange, onInitialDraftConsumed, sid]);
 
   useEffect(() => {
     const targetSid = sid;
@@ -2524,6 +2545,8 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
       // 空会话,再走专门 command endpoint。
       const trimmed = String(payload.text || '').trim();
       if ((!trimmed && !hasExtras) || homeSubmitting) return;
+      const submittedHomeDraftWorkspaceHash = homeDraftWorkspaceHash;
+      const submittedHomeDraftText = payload.text;
       // GitSessionPill 的 worktree 意图:命中时改走 auto_start:false +
       // 首条消息携带 worktree 字段(daemon 在入队前创建并切 cwd)。
       // builtin(/init 等)不带 worktree —— 意图只作用于普通消息。
@@ -2571,6 +2594,10 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
           if (!isBuiltin && (hasExtras || hasSwarmMode)) {
             clearComposerExtras();
           }
+          onHomeComposerDraftAccepted?.(
+            submittedHomeDraftWorkspaceHash,
+            submittedHomeDraftText,
+          );
         })
         .catch((e) => {
           if (explicitHomeSend) {
@@ -2634,7 +2661,7 @@ export function ChatView({ sessionRef, sessionId, modelProfileRevision = 0, onSe
         applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
       })
       .finally(() => setComposerSubmitting(false));
-  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmMode, clearComposerExtras, createHomeComposerSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash]);
+  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmMode, clearComposerExtras, createHomeComposerSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, homeDraftWorkspaceHash, onHomeComposerDraftAccepted, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash]);
 
   const drainQueuedInput = useCallback(() => {
     const targetSid = sidRef.current;

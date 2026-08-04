@@ -163,6 +163,7 @@ import './todoChecklist.test.js';
 import './transcriptProjection.test.js';
 import './transcriptWindow.test.js';
 import './homeWorkspaceSelection.test.js';
+import './homeComposerDrafts.test.js';
 import './projectCreation.test.js';
 import './workspacePicker.test.js';
 import './connectors.test.js';

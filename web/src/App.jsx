@@ -81,6 +81,10 @@ import {
   clampDockHeight,
   consoleCwdForContext,
 } from './lib/consoleDock.js';
+import {
+  clearHomeComposerDraftIfMatch,
+  updateHomeComposerDrafts,
+} from './lib/homeComposerDrafts.js';
 import { homeRefFromWorkspace, noHomeWorkspaceOption } from './lib/homeWorkspaceSelection.js';
 import {
   DEFAULT_SINGLE_LAYOUT,
@@ -169,6 +173,7 @@ export function App() {
   const [health,    setHealth]    = useState(null);
 
   const [activeRef,    setActiveRef]    = useState(null);
+  const [homeComposerDrafts, setHomeComposerDrafts] = useState({});
   const [navHistory, setNavHistory] = useState(() => (
     (typeof window !== 'undefined' && navigationHistoryFromHash(window.location.hash))
     || { back: [], forward: [] }
@@ -217,6 +222,16 @@ export function App() {
     if (!id) return;
     setRecentExpertIds((current) => recordRecentExpert(current, id));
   }, [setRecentExpertIds]);
+  const updateHomeComposerDraft = useCallback((workspaceHash, text) => {
+    setHomeComposerDrafts((current) => (
+      updateHomeComposerDrafts(current, workspaceHash, text)
+    ));
+  }, []);
+  const acceptHomeComposerDraft = useCallback((workspaceHash, submittedText) => {
+    setHomeComposerDrafts((current) => (
+      clearHomeComposerDraftIfMatch(current, workspaceHash, submittedText)
+    ));
+  }, []);
   // grid4/grid9 入口暂时隐藏:主界面固定单会话,避免旧 localStorage 把用户卡在未完善视图。
   const view = 'single';
   const fontSize = effectiveFontSize(uiPrefs);
@@ -1688,6 +1703,9 @@ export function App() {
             {view === 'single' && !activeRef?.loop && !activeRef?.expertComponents && (
               <ChatView
                 sessionRef={activeRef}
+                homeComposerDrafts={homeComposerDrafts}
+                onHomeComposerDraftChange={updateHomeComposerDraft}
+                onHomeComposerDraftAccepted={acceptHomeComposerDraft}
                 modelProfileRevision={modelProfileRevision}
                 onSessionPromoted={navigateToRef}
                 onSessionExpertChanged={replaceActiveSessionExpert}
