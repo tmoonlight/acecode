@@ -77,6 +77,13 @@ class RemoteControlHub {
 public:
     using InboundSubmit = std::function<void(const std::string& text)>;
 
+    // Deterministic test-only observation points for the accepted-dispatch
+    // fence. Production never installs these hooks.
+    struct InboundFenceTestHooks {
+        std::function<void()> after_accept_before_dispatch;
+        std::function<void()> after_reject_before_wait;
+    };
+
     RemoteControlHub() = default;
     ~RemoteControlHub();
 
@@ -91,9 +98,11 @@ public:
     // 也不会让已接受消息的确认与实际提交分属两个会话。空 session 或空回调
     // 等价于 clear_inbound_route()。
     void set_inbound_route(std::string session_id, InboundSubmit fn);
-    // Stop accepting new inbound submissions while preserving the outbound
-    // session identity. Binder replacement uses this before draining the old
-    // BindingContext so leased control output cannot be retargeted or cleared.
+    // Atomically stop accepting new inbound submissions, then wait for every
+    // dispatch already accepted against the old route to finish its callback.
+    // The outbound session identity is preserved. Calling this synchronously
+    // from that same Hub's inbound callback is a logic error; binder commands
+    // are queued onto a separate control worker and never take that path.
     void suspend_inbound_route();
     // 切断后续入站路由，并把调用瞬间之前已排队的出站消息作为一个
     // drain-through barrier：若 worker 和 sender 都可用，最多等待 5 秒，
@@ -102,6 +111,8 @@ public:
     // sender/worker 不可用时安全地立即返回；5 秒只约束额外的 barrier
     // 等待，worker join 仍依赖 OutboundSender 的“有限超时并返回”契约。
     void clear_inbound_route();
+
+    void set_inbound_fence_test_hooks(InboundFenceTestHooks hooks);
 
     // 启用:记录 token / session,启动出站 worker。sender 允许为 null(仅入站,
     // 出站 webhook 未配置时的形态)。重复 enable 会先 disable 再重建。
@@ -155,6 +166,30 @@ public:
     static constexpr std::size_t kMaxQueue = 256;
 
 private:
+    struct InboundDispatchFenceState {
+        std::mutex mu;
+        std::condition_variable cv;
+        std::size_t in_flight = 0;
+    };
+
+    class InboundDispatchGuard {
+    public:
+        InboundDispatchGuard() = default;
+        ~InboundDispatchGuard();
+
+        InboundDispatchGuard(const InboundDispatchGuard&) = delete;
+        InboundDispatchGuard& operator=(const InboundDispatchGuard&) = delete;
+
+        void arm(std::shared_ptr<InboundDispatchFenceState> state) noexcept;
+
+    private:
+        std::shared_ptr<InboundDispatchFenceState> state_;
+        const InboundDispatchFenceState* previous_state_ = nullptr;
+    };
+
+    static void wait_for_inbound_dispatches(
+        const std::shared_ptr<InboundDispatchFenceState>& state);
+
     // 调用方须持 mu_ 且已完成 enabled/text 等校验。只负责构造
     // assistant_message 并放入既有有界 FIFO;允许 sender_ 暂为空,worker 会
     // 在 set_outbound_sender 后异步投递。
@@ -170,6 +205,14 @@ private:
     std::string token_;
     std::string session_id_;
     InboundSubmit inbound_submit_;
+    // Guard 持有独立共享 state 而非 Hub 裸指针：disable/析构通常等待归零；
+    // 若由当前 accepted callback 自己触发 disable，则可跳过自等，guard 仍能
+    // 在 Hub 生命周期结束后安全完成计数收尾。
+    std::shared_ptr<InboundDispatchFenceState> inbound_dispatch_fence_ =
+        std::make_shared<InboundDispatchFenceState>();
+    InboundFenceTestHooks inbound_fence_test_hooks_;
+    static thread_local const InboundDispatchFenceState*
+        active_inbound_dispatch_state_;
     std::shared_ptr<OutboundSender> sender_;
     OutboundResultObserver outbound_result_observer_;
     std::deque<OutboundMessage> queue_;

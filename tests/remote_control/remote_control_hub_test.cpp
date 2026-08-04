@@ -6,7 +6,9 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <future>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -112,6 +114,36 @@ private:
     std::condition_variable cv_;
     bool entered_ = false;
     bool released_ = false;
+};
+
+class EventLatch {
+public:
+    void signal() {
+        std::lock_guard<std::mutex> lk(mu_);
+        signaled_ = true;
+        cv_.notify_all();
+    }
+
+    bool wait(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lk(mu_);
+        return cv_.wait_for(lk, timeout, [&] { return signaled_; });
+    }
+
+private:
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool signaled_ = false;
+};
+
+class ScopedInboundFenceHooks {
+public:
+    explicit ScopedInboundFenceHooks(RemoteControlHub& hub) : hub_(hub) {}
+    ~ScopedInboundFenceHooks() {
+        hub_.set_inbound_fence_test_hooks({});
+    }
+
+private:
+    RemoteControlHub& hub_;
 };
 
 } // namespace
@@ -305,6 +337,200 @@ TEST(RemoteControlHub, AcceptedInboundSurvivesImmediateRouteClear) {
     ASSERT_EQ(sent.size(), 1u);
     EXPECT_EQ(sent[0].session_id, "sess-1");
     EXPECT_EQ(sent[0].text, "思考中...");
+}
+
+// 场景:Hub 已完成 route 快照、accepted 统计和 ack 入队，但尚未调用提交
+// 回调；回调最终抛异常。期望:suspend 原子拒绝后续入站并等待该 dispatch，
+// RAII 收尾仍会减计数并唤醒等待者，不会因异常永久死锁。
+TEST(RemoteControlHub, ThrowingAcceptedCallbackReleasesSuspendFence) {
+    RemoteControlHub hub;
+    hub.enable("secret", "sess-1", nullptr);
+
+    InboundCallbackGate before_dispatch;
+    EventLatch suspend_started;
+    RemoteControlHub::InboundFenceTestHooks hooks;
+    hooks.after_accept_before_dispatch = [&] { before_dispatch.enter_and_wait(); };
+    hooks.after_reject_before_wait = [&] { suspend_started.signal(); };
+    hub.set_inbound_fence_test_hooks(std::move(hooks));
+    ScopedInboundFenceHooks reset_hooks(hub);
+    hub.set_inbound_route("sess-1", [](const std::string&) {
+        throw std::runtime_error("injected inbound callback failure");
+    });
+
+    std::atomic<bool> callback_threw{false};
+    std::exception_ptr callback_error;
+    std::thread inbound([&] {
+        try {
+            (void)hub.handle_inbound("accepted-before-throw", "secret");
+        } catch (...) {
+            callback_error = std::current_exception();
+            callback_threw = true;
+        }
+    });
+    if (!before_dispatch.wait_until_entered(std::chrono::seconds(5))) {
+        before_dispatch.release();
+        inbound.join();
+        FAIL() << "accepted inbound did not reach the pre-dispatch barrier";
+    }
+
+    auto suspended = std::async(std::launch::async, [&] {
+        hub.suspend_inbound_route();
+    });
+    const bool suspend_rejected_route =
+        suspend_started.wait(std::chrono::seconds(5));
+    EXPECT_EQ(suspended.wait_for(std::chrono::milliseconds(0)),
+              std::future_status::timeout);
+
+    before_dispatch.release();
+    inbound.join();
+    ASSERT_EQ(suspended.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    suspended.get();
+
+    EXPECT_TRUE(suspend_rejected_route);
+    EXPECT_TRUE(callback_threw.load());
+    ASSERT_NE(callback_error, nullptr);
+    EXPECT_THROW(std::rethrow_exception(callback_error), std::runtime_error);
+    EXPECT_EQ(hub.stats().inbound_accepted, 1u);
+    EXPECT_EQ(hub.handle_inbound("after-suspend", "secret").code,
+              InboundResult::Code::NoSession);
+    hub.clear_inbound_route();
+    hub.disable();
+}
+
+// 场景:错误的自定义回调尝试在自己的 accepted dispatch 内同步 suspend。
+// 期望:明确失败而不是等待自己，且异常前不改变 route。Binder 的正常切换
+// 由独立 control worker 执行，不走这个防御分支。
+TEST(RemoteControlHub, SuspendFromOwnInboundCallbackFailsFast) {
+    RemoteControlHub hub;
+    hub.enable("secret", "sess-1", nullptr);
+    bool rejected_self_wait = false;
+    hub.set_inbound_route("sess-1", [&](const std::string&) {
+        try {
+            hub.suspend_inbound_route();
+        } catch (const std::logic_error&) {
+            rejected_self_wait = true;
+        }
+    });
+
+    const auto result = hub.handle_inbound("self-suspend", "secret");
+    EXPECT_TRUE(result.ok()) << result.message;
+    EXPECT_TRUE(rejected_self_wait);
+    EXPECT_TRUE(hub.handle_inbound("after-self-suspend", "secret").ok());
+    hub.clear_inbound_route();
+    hub.disable();
+}
+
+// 场景:disable 与一个已经被 Hub 接受、但仍卡在提交前闸门的入站并发。
+// 期望:disable 先原子拒绝新入站，再等该回调完整结束；回调仍按旧 route
+// 提交一次，handle_inbound 返回成功，Hub 生命周期不会越过 guard。
+TEST(RemoteControlHub, DisableWaitsForAcceptedInboundCallback) {
+    RemoteControlHub hub;
+    hub.enable("secret", "sess-1", nullptr);
+
+    InboundCallbackGate before_dispatch;
+    EventLatch disable_rejected_route;
+    std::atomic<int> submitted{0};
+    RemoteControlHub::InboundFenceTestHooks hooks;
+    hooks.after_accept_before_dispatch = [&] { before_dispatch.enter_and_wait(); };
+    hooks.after_reject_before_wait = [&] { disable_rejected_route.signal(); };
+    hub.set_inbound_fence_test_hooks(std::move(hooks));
+    ScopedInboundFenceHooks reset_hooks(hub);
+    hub.set_inbound_route("sess-1", [&](const std::string&) { ++submitted; });
+
+    InboundResult inbound_result;
+    std::thread inbound([&] {
+        inbound_result = hub.handle_inbound("accepted-before-disable", "secret");
+    });
+    if (!before_dispatch.wait_until_entered(std::chrono::seconds(5))) {
+        before_dispatch.release();
+        inbound.join();
+        FAIL() << "accepted inbound did not reach the pre-dispatch barrier";
+    }
+
+    auto disabled = std::async(std::launch::async, [&] { hub.disable(); });
+    const bool route_rejected =
+        disable_rejected_route.wait(std::chrono::milliseconds(250));
+    const auto status_before_release =
+        disabled.wait_for(std::chrono::milliseconds(0));
+
+    before_dispatch.release();
+    inbound.join();
+    ASSERT_EQ(disabled.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    disabled.get();
+
+    EXPECT_TRUE(route_rejected);
+    EXPECT_EQ(status_before_release, std::future_status::timeout);
+    EXPECT_TRUE(inbound_result.ok()) << inbound_result.message;
+    EXPECT_EQ(submitted.load(), 1);
+    EXPECT_EQ(hub.stats().inbound_accepted, 1u);
+    EXPECT_EQ(hub.handle_inbound("after-disable", "secret").code,
+              InboundResult::Code::Disabled);
+}
+
+// 场景:Hub owner 与一个已接受、尚未进入提交回调的入站并发析构。
+// 期望:析构走 disable fence，直到 guard 完成才释放 Hub；guard 只持共享
+// fence state，不会在 Hub 生命周期结束后回调裸 this。
+TEST(RemoteControlHub, DestructorWaitsForAcceptedInboundCallback) {
+    InboundCallbackGate before_dispatch;
+    EventLatch destructor_rejected_route;
+    std::atomic<int> submitted{0};
+    auto hub = std::make_unique<RemoteControlHub>();
+    hub->enable("secret", "sess-1", nullptr);
+
+    RemoteControlHub::InboundFenceTestHooks hooks;
+    hooks.after_accept_before_dispatch = [&] { before_dispatch.enter_and_wait(); };
+    hooks.after_reject_before_wait = [&] { destructor_rejected_route.signal(); };
+    hub->set_inbound_fence_test_hooks(std::move(hooks));
+    hub->set_inbound_route("sess-1", [&](const std::string&) { ++submitted; });
+
+    RemoteControlHub* const raw_hub = hub.get();
+    InboundResult inbound_result;
+    std::thread inbound([&] {
+        inbound_result =
+            raw_hub->handle_inbound("accepted-before-destroy", "secret");
+    });
+    if (!before_dispatch.wait_until_entered(std::chrono::seconds(5))) {
+        before_dispatch.release();
+        inbound.join();
+        FAIL() << "accepted inbound did not reach the pre-dispatch barrier";
+    }
+
+    auto destroyed = std::async(std::launch::async, [&] { hub.reset(); });
+    const bool route_rejected =
+        destructor_rejected_route.wait(std::chrono::seconds(5));
+    const auto status_before_release =
+        destroyed.wait_for(std::chrono::milliseconds(0));
+
+    before_dispatch.release();
+    inbound.join();
+    ASSERT_EQ(destroyed.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    destroyed.get();
+
+    EXPECT_TRUE(route_rejected);
+    EXPECT_EQ(status_before_release, std::future_status::timeout);
+    EXPECT_TRUE(inbound_result.ok()) << inbound_result.message;
+    EXPECT_EQ(submitted.load(), 1);
+}
+
+// 场景:accepted callback 本身请求 disable。期望:不等待自己的 guard；
+// disable 立即完成生命周期清理，回调返回后共享 fence state 正常归零。
+TEST(RemoteControlHub, DisableInsideAcceptedCallbackDoesNotSelfWait) {
+    RemoteControlHub hub;
+    hub.enable("secret", "sess-1", nullptr);
+    std::atomic<int> submitted{0};
+    hub.set_inbound_route("sess-1", [&](const std::string&) {
+        ++submitted;
+        hub.disable();
+    });
+
+    const auto result = hub.handle_inbound("disable-from-callback", "secret");
+    EXPECT_TRUE(result.ok()) << result.message;
+    EXPECT_EQ(submitted.load(), 1);
+    EXPECT_FALSE(hub.enabled());
+    EXPECT_EQ(hub.stats().inbound_accepted, 1u);
 }
 
 // 场景:/rc off 前已有出站正在阻塞，使刚接受入站的 ack 仍留在 FIFO。

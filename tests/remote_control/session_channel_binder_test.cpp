@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <future>
 #include <string>
 #include <vector>
 
@@ -412,6 +413,101 @@ private:
     std::string source_session_;
     bool entered_ = false;
     bool release_ = false;
+};
+
+class InboundAcceptBarrier {
+public:
+    ~InboundAcceptBarrier() { release(); }
+
+    void enter_and_wait() {
+        std::unique_lock<std::mutex> lk(mu_);
+        entered_ = true;
+        cv_.notify_all();
+        cv_.wait(lk, [&] { return released_; });
+    }
+
+    bool wait_until_entered(std::chrono::milliseconds timeout =
+                                std::chrono::seconds(5)) {
+        std::unique_lock<std::mutex> lk(mu_);
+        return cv_.wait_for(lk, timeout, [&] { return entered_; });
+    }
+
+    void release() {
+        std::lock_guard<std::mutex> lk(mu_);
+        released_ = true;
+        cv_.notify_all();
+    }
+
+private:
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool entered_ = false;
+    bool released_ = false;
+};
+
+class InboundSuspendLatch {
+public:
+    void signal() {
+        std::lock_guard<std::mutex> lk(mu_);
+        signaled_ = true;
+        cv_.notify_all();
+    }
+
+    bool wait(std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+        std::unique_lock<std::mutex> lk(mu_);
+        return cv_.wait_for(lk, timeout, [&] { return signaled_; });
+    }
+
+private:
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool signaled_ = false;
+};
+
+class ScopedInboundFenceHooks {
+public:
+    explicit ScopedInboundFenceHooks(acecode::rc::RemoteControlHub& hub)
+        : hub_(hub) {}
+    ~ScopedInboundFenceHooks() {
+        hub_.set_inbound_fence_test_hooks({});
+    }
+
+private:
+    acecode::rc::RemoteControlHub& hub_;
+};
+
+class MatchingUserMessageCounter {
+public:
+    explicit MatchingUserMessageCounter(std::string expected)
+        : expected_(std::move(expected)) {}
+
+    void observe(const acecode::SessionEvent& event) {
+        if (event.kind != acecode::SessionEventKind::Message ||
+            event.payload.value("role", std::string{}) != "user" ||
+            event.payload.value("content", std::string{}) != expected_) {
+            return;
+        }
+        std::lock_guard<std::mutex> lk(mu_);
+        ++count_;
+        cv_.notify_all();
+    }
+
+    bool wait_for(std::size_t count,
+                  std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+        std::unique_lock<std::mutex> lk(mu_);
+        return cv_.wait_for(lk, timeout, [&] { return count_ >= count; });
+    }
+
+    std::size_t count() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return count_;
+    }
+
+private:
+    std::string expected_;
+    mutable std::mutex mu_;
+    std::condition_variable cv_;
+    std::size_t count_ = 0;
 };
 
 struct ThrowingConfigStore {
@@ -2047,6 +2143,143 @@ TEST(SessionChannelBinderIntegration,
 }
 
 TEST(SessionChannelBinderIntegration,
+     AcceptedInboundBeforeOffIsDeliveredExactlyOnceToOldSession) {
+    BinderHarness hx("accepted-inbound-off-fence");
+    const auto old_session = hx.client.create_session({});
+    const auto other_session = hx.client.create_session({});
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    ASSERT_TRUE(binder.execute_command(old_session, "").ok);
+
+    const std::string text = "accepted before off fence";
+    MatchingUserMessageCounter old_messages(text);
+    MatchingUserMessageCounter other_messages(text);
+    const auto old_sub = hx.client.subscribe(
+        old_session, [&](const acecode::SessionEvent& event) {
+            old_messages.observe(event);
+        });
+    const auto other_sub = hx.client.subscribe(
+        other_session, [&](const acecode::SessionEvent& event) {
+            other_messages.observe(event);
+        });
+    ASSERT_NE(old_sub, 0u);
+    ASSERT_NE(other_sub, 0u);
+
+    InboundAcceptBarrier accepted_barrier;
+    InboundSuspendLatch suspend_latch;
+    acecode::rc::RemoteControlHub::InboundFenceTestHooks hooks;
+    hooks.after_accept_before_dispatch = [&] {
+        accepted_barrier.enter_and_wait();
+    };
+    hooks.after_reject_before_wait = [&] { suspend_latch.signal(); };
+    hx.service.hub().set_inbound_fence_test_hooks(std::move(hooks));
+    ScopedInboundFenceHooks reset_hooks(hx.service.hub());
+
+    acecode::rc::InboundResult inbound_result;
+    std::thread inbound([&] {
+        inbound_result = hx.service.hub().handle_inbound(
+            text, hx.cfg.remote_control.token);
+    });
+    if (!accepted_barrier.wait_until_entered()) {
+        accepted_barrier.release();
+        inbound.join();
+        FAIL() << "accepted inbound did not reach the pre-dispatch barrier";
+    }
+
+    auto stopped = std::async(std::launch::async, [&] {
+        return binder.execute_command(old_session, "off");
+    });
+    const bool suspend_rejected_route = suspend_latch.wait();
+    EXPECT_TRUE(suspend_rejected_route);
+    EXPECT_EQ(stopped.wait_for(0ms), std::future_status::timeout);
+    EXPECT_EQ(old_messages.count(), 0u);
+    EXPECT_EQ(other_messages.count(), 0u);
+
+    accepted_barrier.release();
+    inbound.join();
+    ASSERT_TRUE(inbound_result.ok()) << inbound_result.message;
+    ASSERT_EQ(stopped.wait_for(7s), std::future_status::ready);
+    ASSERT_TRUE(stopped.get().ok);
+    ASSERT_TRUE(old_messages.wait_for(1));
+    EXPECT_EQ(old_messages.count(), 1u);
+    EXPECT_EQ(other_messages.count(), 0u);
+    EXPECT_TRUE(binder.bound_session_id().empty());
+
+    hx.client.unsubscribe(old_session, old_sub);
+    hx.client.unsubscribe(other_session, other_sub);
+    hx.registry.destroy(old_session);
+    hx.registry.destroy(other_session);
+}
+
+TEST(SessionChannelBinderIntegration,
+     AcceptedInboundBeforeRebindIsDeliveredExactlyOnceToOldSession) {
+    BinderHarness hx("accepted-inbound-rebind-fence");
+    const auto old_session = hx.client.create_session({});
+    const auto target_session = hx.client.create_session({});
+    acecode::rc::SessionChannelBinder binder(hx.binder_deps());
+    ASSERT_TRUE(binder.execute_command(old_session, "").ok);
+
+    const std::string text = "accepted before rebind fence";
+    MatchingUserMessageCounter old_messages(text);
+    MatchingUserMessageCounter target_messages(text);
+    const auto old_sub = hx.client.subscribe(
+        old_session, [&](const acecode::SessionEvent& event) {
+            old_messages.observe(event);
+        });
+    const auto target_sub = hx.client.subscribe(
+        target_session, [&](const acecode::SessionEvent& event) {
+            target_messages.observe(event);
+        });
+    ASSERT_NE(old_sub, 0u);
+    ASSERT_NE(target_sub, 0u);
+
+    InboundAcceptBarrier accepted_barrier;
+    InboundSuspendLatch suspend_latch;
+    acecode::rc::RemoteControlHub::InboundFenceTestHooks hooks;
+    hooks.after_accept_before_dispatch = [&] {
+        accepted_barrier.enter_and_wait();
+    };
+    hooks.after_reject_before_wait = [&] { suspend_latch.signal(); };
+    hx.service.hub().set_inbound_fence_test_hooks(std::move(hooks));
+    ScopedInboundFenceHooks reset_hooks(hx.service.hub());
+
+    acecode::rc::InboundResult inbound_result;
+    std::thread inbound([&] {
+        inbound_result = hx.service.hub().handle_inbound(
+            text, hx.cfg.remote_control.token);
+    });
+    if (!accepted_barrier.wait_until_entered()) {
+        accepted_barrier.release();
+        inbound.join();
+        FAIL() << "accepted inbound did not reach the pre-dispatch barrier";
+    }
+
+    auto rebound = std::async(std::launch::async, [&] {
+        return binder.execute_command(target_session, "");
+    });
+    const bool suspend_rejected_route = suspend_latch.wait();
+    EXPECT_TRUE(suspend_rejected_route);
+    EXPECT_EQ(rebound.wait_for(0ms), std::future_status::timeout);
+    EXPECT_EQ(old_messages.count(), 0u);
+    EXPECT_EQ(target_messages.count(), 0u);
+
+    accepted_barrier.release();
+    inbound.join();
+    ASSERT_TRUE(inbound_result.ok()) << inbound_result.message;
+    ASSERT_EQ(rebound.wait_for(7s), std::future_status::ready);
+    ASSERT_TRUE(rebound.get().ok);
+    ASSERT_TRUE(old_messages.wait_for(1));
+    EXPECT_EQ(old_messages.count(), 1u);
+    EXPECT_EQ(target_messages.count(), 0u);
+    EXPECT_EQ(binder.bound_session_id(), target_session);
+
+    hx.client.unsubscribe(old_session, old_sub);
+    hx.client.unsubscribe(target_session, target_sub);
+    binder.execute_command(target_session, "off");
+    hx.registry.destroy(old_session);
+    hx.registry.destroy(target_session);
+}
+
+TEST(SessionChannelBinderIntegration,
      ListOutputLeasePreventsRebindFromRetargetingQueuedText) {
     BinderHarness hx("session-output-list-rebind");
     const auto first = hx.client.create_session({});
@@ -2140,6 +2373,9 @@ TEST(SessionChannelBinderIntegration,
     const auto third = hx.client.create_session({});
     ControlPublishBarrier barrier;
     auto sender = std::make_shared<CaptureSender>();
+    std::atomic<int> selected_count{0};
+    std::mutex selected_mu;
+    std::string selected_session;
     auto deps = hx.binder_deps();
     deps.session_catalog = [&](const std::optional<std::string>&) {
         return std::vector<acecode::rc::RcSessionTarget>{
@@ -2154,6 +2390,13 @@ TEST(SessionChannelBinderIntegration,
             }
             barrier.hook(source, text);
         };
+    deps.on_session_selected = [&](const acecode::rc::RcSessionTarget& selected) {
+        {
+            std::lock_guard<std::mutex> lk(selected_mu);
+            selected_session = selected.session_id;
+        }
+        ++selected_count;
+    };
     acecode::rc::SessionChannelBinder binder(std::move(deps));
     ASSERT_TRUE(binder.execute_command(first, "").ok);
     hx.service.hub().set_outbound_sender(sender);
@@ -2166,6 +2409,11 @@ TEST(SessionChannelBinderIntegration,
         "/resume 1", hx.cfg.remote_control.token).ok());
     ASSERT_TRUE(barrier.wait_until_entered());
     EXPECT_EQ(barrier.source_session(), target);
+    EXPECT_EQ(selected_count.load(), 1);
+    {
+        std::lock_guard<std::mutex> lk(selected_mu);
+        EXPECT_EQ(selected_session, target);
+    }
     auto rebound = std::async(std::launch::async, [&] {
         return binder.execute_command(third, "");
     });
@@ -2182,6 +2430,7 @@ TEST(SessionChannelBinderIntegration,
         }
     }
     EXPECT_EQ(binder.bound_session_id(), third);
+    EXPECT_EQ(selected_count.load(), 1);
 
     binder.execute_command(third, "off");
     hx.registry.destroy(first);

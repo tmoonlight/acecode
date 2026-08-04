@@ -133,6 +133,18 @@ then drain and change the Hub route. Numeric-switch success is leased to the new
 target context, so neither old output nor switch confirmation can be attributed
 to a later binding.
 
+Hub suspension also fences accepted inbound dispatches. Acceptance snapshots
+the route, queues the immediate acknowledgement, and increments an in-flight
+dispatch count before releasing the Hub lock. Suspension atomically rejects new
+inbound work and waits for those callbacks (including exception unwinding) before
+the binder deactivates the old context. Route-changing commands remain queued on
+the binder control worker; calling suspension synchronously from the accepted
+callback itself is rejected as a logic error rather than waiting on itself.
+`disable()` and Hub destruction use the same fence before releasing runtime
+state. The dispatch guard owns a shared fence state rather than a Hub pointer;
+therefore a callback-triggered disable skips only its impossible self-wait, and
+its guard can still finish safely even if the Hub owner is being torn down.
+
 Binding persistence is the final preparation step before runtime replacement.
 Reload, merge, and save complete before the in-memory config is changed; a
 load/save exception leaves both configs and the live route unchanged. `/rc off`

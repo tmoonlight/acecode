@@ -4,8 +4,11 @@
 #include "utils/logger.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <chrono>
+#include <exception>
+#include <stdexcept>
 
 namespace acecode::rc {
 
@@ -29,6 +32,9 @@ constexpr auto kInboundRouteDrainTimeout = std::chrono::seconds(5);
 
 } // namespace
 
+thread_local const RemoteControlHub::InboundDispatchFenceState*
+    RemoteControlHub::active_inbound_dispatch_state_ = nullptr;
+
 nlohmann::json outbound_message_to_json(const OutboundMessage& msg) {
     nlohmann::json j{
         {"type", msg.type},
@@ -46,7 +52,35 @@ nlohmann::json outbound_message_to_json(const OutboundMessage& msg) {
 }
 
 RemoteControlHub::~RemoteControlHub() {
-    disable();
+    // 析构不能抛异常。disable 会先 fence 已接受的入站；若析构恰由当前
+    // accepted callback 触发，它跳过自等，而 guard 依靠共享 fence state
+    // 在 Hub 已结束生命周期后安全收尾。
+    try {
+        disable();
+    } catch (...) {
+    }
+}
+
+void RemoteControlHub::InboundDispatchGuard::arm(
+    std::shared_ptr<InboundDispatchFenceState> state) noexcept {
+    state_ = std::move(state);
+    previous_state_ = active_inbound_dispatch_state_;
+    active_inbound_dispatch_state_ = state_.get();
+}
+
+RemoteControlHub::InboundDispatchGuard::~InboundDispatchGuard() {
+    if (!state_) return;
+    active_inbound_dispatch_state_ = previous_state_;
+    std::lock_guard<std::mutex> lk(state_->mu);
+    assert(state_->in_flight > 0);
+    if (state_->in_flight > 0) --state_->in_flight;
+    state_->cv.notify_all();
+}
+
+void RemoteControlHub::wait_for_inbound_dispatches(
+    const std::shared_ptr<InboundDispatchFenceState>& state) {
+    std::unique_lock<std::mutex> lk(state->mu);
+    state->cv.wait(lk, [&] { return state->in_flight == 0; });
 }
 
 void RemoteControlHub::set_inbound_submit(InboundSubmit fn) {
@@ -67,8 +101,30 @@ void RemoteControlHub::set_inbound_route(std::string session_id,
 }
 
 void RemoteControlHub::suspend_inbound_route() {
-    std::lock_guard<std::mutex> lk(mu_);
+    std::unique_lock<std::mutex> lk(mu_);
+    // A synchronous wait from inside this Hub's own callback can only wait on
+    // itself forever. Reject that misuse before changing the route; normal
+    // binder commands run on the owned control worker, so production
+    // replacement never enters this branch.
+    const auto fence = inbound_dispatch_fence_;
+    if (active_inbound_dispatch_state_ == fence.get()) {
+        throw std::logic_error(
+            "cannot suspend an inbound route from its own dispatch callback");
+    }
     inbound_submit_ = {};
+
+    auto after_reject = inbound_fence_test_hooks_.after_reject_before_wait;
+    lk.unlock();
+    std::exception_ptr hook_error;
+    if (after_reject) {
+        try {
+            after_reject();
+        } catch (...) {
+            hook_error = std::current_exception();
+        }
+    }
+    wait_for_inbound_dispatches(fence);
+    if (hook_error) std::rethrow_exception(hook_error);
 }
 
 void RemoteControlHub::clear_inbound_route() {
@@ -103,6 +159,12 @@ void RemoteControlHub::clear_inbound_route() {
     }
 }
 
+void RemoteControlHub::set_inbound_fence_test_hooks(
+    InboundFenceTestHooks hooks) {
+    std::lock_guard<std::mutex> lk(mu_);
+    inbound_fence_test_hooks_ = std::move(hooks);
+}
+
 void RemoteControlHub::enable(std::string token,
                               std::string session_id,
                               std::shared_ptr<OutboundSender> sender) {
@@ -122,12 +184,43 @@ void RemoteControlHub::enable(std::string token,
 }
 
 void RemoteControlHub::disable() {
+    std::shared_ptr<InboundDispatchFenceState> fence;
+    std::function<void()> after_reject;
+    bool called_from_accepted_dispatch = false;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        // enabled_ participates in the same acceptance lock as handle_inbound,
+        // so this is the disable-side linearization point for future inbound.
+        enabled_ = false;
+        fence = inbound_dispatch_fence_;
+        called_from_accepted_dispatch =
+            active_inbound_dispatch_state_ == fence.get();
+        after_reject = inbound_fence_test_hooks_.after_reject_before_wait;
+    }
+
+    std::exception_ptr hook_error;
+    if (after_reject) {
+        try {
+            after_reject();
+        } catch (...) {
+            hook_error = std::current_exception();
+        }
+    }
+
+    // A callback cannot wait for its own guard. The guard owns the shared fence
+    // state, so this path is also safe if the callback causes Hub destruction.
+    if (!called_from_accepted_dispatch) {
+        wait_for_inbound_dispatches(fence);
+    }
+
     std::unique_lock<std::mutex> lk(mu_);
     enabled_ = false;
     stop_worker_locked(lk);
     sender_.reset();
     queue_.clear();
     drain_through_seq_ = 0;
+    lk.unlock();
+    if (hook_error) std::rethrow_exception(hook_error);
 }
 
 void RemoteControlHub::stop_worker_locked(std::unique_lock<std::mutex>& lk) {
@@ -170,7 +263,9 @@ void RemoteControlHub::set_outbound_result_observer(OutboundResultObserver obser
 
 InboundResult RemoteControlHub::handle_inbound(const std::string& text,
                                                const std::string& provided_token) {
+    InboundDispatchGuard dispatch_guard;
     InboundSubmit submit;
+    std::function<void()> before_dispatch;
     std::string route_session_id;
     {
         std::lock_guard<std::mutex> lk(mu_);
@@ -196,6 +291,14 @@ InboundResult RemoteControlHub::handle_inbound(const std::string& text,
         }
         route_session_id = session_id_;
         submit = inbound_submit_;
+        before_dispatch =
+            inbound_fence_test_hooks_.after_accept_before_dispatch;
+        auto fence = inbound_dispatch_fence_;
+        {
+            std::lock_guard<std::mutex> fence_lk(fence->mu);
+            ++fence->in_flight;
+        }
+        dispatch_guard.arm(std::move(fence));
         ++stats_.inbound_accepted;
         // 必须在 submit 前进入同一出站 FIFO:submit 可能立即启动模型或做
         // 协调工作,但确认不能被这些工作拖延。sender 尚未就绪时也保留在
@@ -203,6 +306,9 @@ InboundResult RemoteControlHub::handle_inbound(const std::string& text,
         enqueue_assistant_text_locked(kInboundAcknowledgement, route_session_id);
     }
     // 锁外调用:submit 内部会拿 TUI state.mu,持 mu_ 调用有死锁风险。
+    // dispatch_guard 覆盖测试闸门和 submit 整段；submit 抛异常时析构仍会
+    // 递减 accepted-dispatch 计数并唤醒 suspend 等待者。
+    if (before_dispatch) before_dispatch();
     submit(text);
     return InboundResult{};
 }
