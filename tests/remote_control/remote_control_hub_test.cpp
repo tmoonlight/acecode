@@ -561,9 +561,15 @@ TEST(RemoteControlHub,
     ThreadRendezvous both_callbacks(2);
     EventLatch other_disabled;
     EventLatch destruction_started;
+    std::atomic<int> shutdown_entries{0};
     auto hub = std::make_unique<RemoteControlHub>();
     hub->enable("secret", "sess-1", nullptr);
     RemoteControlHub* const raw_hub = hub.get();
+    RemoteControlHub::InboundFenceTestHooks hooks;
+    hooks.after_reject_before_wait = [&] {
+        if (++shutdown_entries == 2) destruction_started.signal();
+    };
+    hub->set_inbound_fence_test_hooks(std::move(hooks));
     hub->set_inbound_route("sess-1", [&](const std::string& text) {
         both_callbacks.arrive_and_wait();
         if (text == "other-callback") {
@@ -576,7 +582,6 @@ TEST(RemoteControlHub,
             throw std::runtime_error(
                 "foreign callback did not disable before destruction");
         }
-        destruction_started.signal();
         hub.reset();
     });
 
