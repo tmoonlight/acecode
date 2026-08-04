@@ -117,6 +117,16 @@ export function completeRemoteControlSurgeRequest(currentRequest, sequence) {
   return currentRequest?.sequence === sequence ? null : (currentRequest || null);
 }
 
+export function shouldRunRemoteControlForcedSurge(
+  remoteControlBound,
+  scheduledSequence,
+  currentSequence,
+) {
+  const scheduled = Number(scheduledSequence) || 0;
+  const current = Number(currentSequence) || 0;
+  return Boolean(remoteControlBound) && scheduled > 0 && scheduled === current;
+}
+
 export function expandedSessionListsAfterWorkspaceCollapseAll(
   currentExpanded = new Set(),
   workspaces = [],

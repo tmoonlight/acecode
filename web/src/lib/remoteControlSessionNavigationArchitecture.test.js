@@ -34,6 +34,11 @@ test('Sidebar keeps selection state and one-shot surge logic separate from reduc
   assert.match(sidebar, /applyRemoteControlSessionSelection\(prev, session\)/);
   assert.doesNotMatch(sidebar, /remoteControlBoundTarget|projectRemoteControlBinding\(/);
   assert.match(sidebar, /current\?\.targetKey === targetKey/);
+  assert.match(sidebar, /remoteControlBound,\s*remoteControlSurgeSequence,/);
+  assert.match(sidebar, /latestRemoteControlBoundRef\.current,\s*scheduledSequence,\s*latestRemoteControlSurgeSequenceRef\.current/);
+  assert.match(sidebar, /if \(!remoteControlBound\) \{[\s\S]*onRemoteControlSurgeCompleted\?\.\(remoteControlSurgeSequence\)/);
+  assert.match(sidebar, /window\.cancelAnimationFrame\(frame\)/);
+  assert.match(sidebar, /window\.clearTimeout\(remoteControlSurgeTimerRef\.current\)/);
   assert.match(sidebar, /detail\.reason === 'remote-control-unbound'/);
   assert.match(sidebar, /remote-control-session-selected/);
   assert.match(sidebar, /onRemoteControlSurgeCompleted/);

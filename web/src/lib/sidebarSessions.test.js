@@ -9,6 +9,7 @@ import {
   remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
+  shouldRunRemoteControlForcedSurge,
   shouldStartRemoteControlSurge,
   sidebarSessionHasWorktree,
   sidebarSessionMarker,
@@ -130,6 +131,48 @@ test('duplicate same-target selection coalesces during one surge window', () => 
     targetKey: 'workspace\u0000w1\u0000a',
     sequence: 5,
   });
+});
+
+test('authoritative refresh to another binding blocks a stale pre-RAF surge', () => {
+  const optimistic = applyRemoteControlSessionSelection([
+    { id: 'a', workspace_hash: 'w1', remote_control_bound: false },
+    { id: 'b', workspace_hash: 'w2', remote_control_bound: false },
+  ], {
+    id: 'a',
+    workspace_hash: 'w1',
+  });
+  const scheduled = nextRemoteControlSurgeRequest(
+    null,
+    remoteControlSurgeTargetKey(optimistic[0]),
+    7,
+  );
+  const refreshed = reconcileSidebarSessions(optimistic, [
+    { id: 'a', workspace_hash: 'w1', remote_control_bound: false },
+    { id: 'b', workspace_hash: 'w2', remote_control_bound: true },
+  ]);
+  const refreshedA = refreshed.find((session) => session.id === 'a');
+
+  assert.equal(
+    shouldRunRemoteControlForcedSurge(
+      refreshedA.remote_control_bound,
+      scheduled.sequence,
+      scheduled.sequence,
+    ),
+    false,
+  );
+  assert.equal(shouldRunRemoteControlForcedSurge(true, scheduled.sequence, 8), false);
+  assert.equal(shouldRunRemoteControlForcedSurge(true, scheduled.sequence, scheduled.sequence), true);
+  assert.deepEqual(refreshed.map((session) => [session.id, session.remote_control_bound]), [
+    ['a', false],
+    ['b', true],
+  ]);
+});
+
+test('stale surge completion cannot clear a newer target sequence', () => {
+  const newer = nextRemoteControlSurgeRequest(null, 'workspace\u0000w2\u0000b', 8);
+
+  assert.equal(completeRemoteControlSurgeRequest(newer, 7), newer);
+  assert.equal(completeRemoteControlSurgeRequest(newer, 8), null);
 });
 
 test('five or fewer sidebar sessions are not collapsible', () => {

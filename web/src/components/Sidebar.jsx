@@ -66,6 +66,7 @@ import {
   remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
+  shouldRunRemoteControlForcedSurge,
   shouldStartRemoteControlSurge,
   sidebarSessionMarker,
   sidebarRevealTarget,
@@ -595,13 +596,21 @@ function SessionRow({
   const remoteControlSurgeSequence = remoteControlSurgeRequest?.targetKey === remoteControlSurgeTargetKey(s)
     ? Number(remoteControlSurgeRequest.sequence) || 0
     : 0;
+  const latestRemoteControlBoundRef = useRef(remoteControlBound);
+  const latestRemoteControlSurgeSequenceRef = useRef(remoteControlSurgeSequence);
+  latestRemoteControlBoundRef.current = remoteControlBound;
+  latestRemoteControlSurgeSequenceRef.current = remoteControlSurgeSequence;
 
-  const finishRemoteControlSurge = useCallback(() => {
+  const finishRemoteControlSurge = useCallback((requestedSequence = 0) => {
+    const sequence = Number(requestedSequence) || 0;
+    if (sequence && activeRemoteControlSurgeSequenceRef.current !== sequence) {
+      onRemoteControlSurgeCompleted?.(sequence);
+      return;
+    }
     if (remoteControlSurgeTimerRef.current) {
       window.clearTimeout(remoteControlSurgeTimerRef.current);
       remoteControlSurgeTimerRef.current = null;
     }
-    const sequence = activeRemoteControlSurgeSequenceRef.current;
     activeRemoteControlSurgeSequenceRef.current = 0;
     setRemoteControlSurging(false);
     if (sequence) onRemoteControlSurgeCompleted?.(sequence);
@@ -626,13 +635,30 @@ function SessionRow({
   // one-shot request and replay the existing surge explicitly.
   useEffect(() => {
     if (!remoteControlSurgeSequence) return undefined;
+    if (!remoteControlBound) {
+      if (remoteControlSurgeTimerRef.current) {
+        window.clearTimeout(remoteControlSurgeTimerRef.current);
+        remoteControlSurgeTimerRef.current = null;
+      }
+      if (activeRemoteControlSurgeSequenceRef.current === remoteControlSurgeSequence) {
+        activeRemoteControlSurgeSequenceRef.current = 0;
+      }
+      setRemoteControlSurging(false);
+      onRemoteControlSurgeCompleted?.(remoteControlSurgeSequence);
+      return undefined;
+    }
     let cancelled = false;
+    const scheduledSequence = remoteControlSurgeSequence;
     const frame = window.requestAnimationFrame(() => {
-      if (cancelled) return;
-      activeRemoteControlSurgeSequenceRef.current = remoteControlSurgeSequence;
+      if (cancelled || !shouldRunRemoteControlForcedSurge(
+        latestRemoteControlBoundRef.current,
+        scheduledSequence,
+        latestRemoteControlSurgeSequenceRef.current,
+      )) return;
+      activeRemoteControlSurgeSequenceRef.current = scheduledSequence;
       setRemoteControlSurging(true);
       remoteControlSurgeTimerRef.current = window.setTimeout(
-        finishRemoteControlSurge,
+        () => finishRemoteControlSurge(scheduledSequence),
         REMOTE_CONTROL_SURGE_FALLBACK_MS,
       );
     });
@@ -643,8 +669,15 @@ function SessionRow({
         window.clearTimeout(remoteControlSurgeTimerRef.current);
         remoteControlSurgeTimerRef.current = null;
       }
+      // Completion stays in the unbound branch so a cross-workspace remount
+      // can consume the same one-shot request instead of losing its surge.
     };
-  }, [finishRemoteControlSurge, remoteControlSurgeSequence]);
+  }, [
+    finishRemoteControlSurge,
+    onRemoteControlSurgeCompleted,
+    remoteControlBound,
+    remoteControlSurgeSequence,
+  ]);
 
   useEffect(() => () => {
     if (remoteControlSurgeTimerRef.current) {
@@ -738,7 +771,7 @@ function SessionRow({
         <span
           aria-hidden="true"
           className="ace-session-remote-control-surge"
-          onAnimationEnd={finishRemoteControlSurge}
+          onAnimationEnd={() => finishRemoteControlSurge(activeRemoteControlSurgeSequenceRef.current)}
         />
       )}
       <span className="relative flex w-6 h-7 items-center justify-center shrink-0">
