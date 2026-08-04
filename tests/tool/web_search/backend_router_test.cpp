@@ -100,7 +100,8 @@ MockPair install_mocks(BackendRouter& r,
 
 // 场景:cfg=auto + region=Global → active = duckduckgo
 TEST_F(BackendRouterTest, AutoGlobalSelectsDdg) {
-    WebSearchConfig cfg;          // backend = "auto"
+    WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Global);
@@ -110,6 +111,7 @@ TEST_F(BackendRouterTest, AutoGlobalSelectsDdg) {
 // 场景:cfg=auto + region=Cn → active = bing_cn
 TEST_F(BackendRouterTest, AutoCnSelectsBing) {
     WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Cn);
@@ -119,10 +121,106 @@ TEST_F(BackendRouterTest, AutoCnSelectsBing) {
 // 场景:cfg=auto + region=Unknown → 悲观默认 bing_cn
 TEST_F(BackendRouterTest, AutoUnknownSelectsBing) {
     WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Unknown);
     EXPECT_EQ(r.active_name(), "bing_cn");
+}
+
+TEST_F(BackendRouterTest, DefaultConfigSelectsRss) {
+    WebSearchConfig cfg;
+    BackendRouter r(cfg);
+    install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
+    r.register_backend(std::make_unique<MockBackend>("rss", make_resp("rss", 2)));
+    r.resolve_active(Region::Global);
+    EXPECT_EQ(r.active_name(), "rss");
+}
+
+TEST_F(BackendRouterTest, EmptyRssFallsBackByRegionWithoutChangingActive) {
+    WebSearchConfig cfg;
+    BackendRouter r(cfg);
+    auto mocks = install_mocks(r, make_resp("duckduckgo", 2), make_resp("bing_cn", 2));
+    auto rss = std::make_unique<MockBackend>("rss", make_resp("rss", 0));
+    auto* rss_raw = rss.get();
+    r.register_backend(std::move(rss));
+    r.resolve_active(Region::Global);
+
+    auto out = r.search_with_fallback("broad query", 2, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
+    EXPECT_EQ(std::get<SearchResponse>(out).backend_name, "duckduckgo");
+    EXPECT_EQ(rss_raw->call_count, 1);
+    EXPECT_EQ(mocks.ddg->call_count, 1);
+    EXPECT_EQ(mocks.bing->call_count, 0);
+    EXPECT_EQ(r.active_name(), "rss");
+}
+
+TEST_F(BackendRouterTest, RssNetworkErrorFallsBackToBingInChinaWithoutChangingActive) {
+    WebSearchConfig cfg;
+    BackendRouter r(cfg);
+    auto mocks = install_mocks(r, make_resp("duckduckgo", 2), make_resp("bing_cn", 2));
+    r.register_backend(std::make_unique<MockBackend>(
+        "rss", SearchError{SearchError::Kind::Network, "service down", "rss"}));
+    r.resolve_active(Region::Cn);
+
+    auto out = r.search_with_fallback("query", 2, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
+    EXPECT_EQ(std::get<SearchResponse>(out).backend_name, "bing_cn");
+    EXPECT_EQ(mocks.ddg->call_count, 0);
+    EXPECT_EQ(mocks.bing->call_count, 1);
+    EXPECT_EQ(r.active_name(), "rss");
+}
+
+TEST_F(BackendRouterTest, RssParseErrorDoesNotFallback) {
+    WebSearchConfig cfg;
+    BackendRouter r(cfg);
+    auto mocks = install_mocks(r, make_resp("duckduckgo", 1), make_resp("bing_cn", 1));
+    r.register_backend(std::make_unique<MockBackend>(
+        "rss", SearchError{SearchError::Kind::Parse, "bad payload", "rss"}));
+    r.resolve_active(Region::Global);
+
+    auto out = r.search_with_fallback("q", 5, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchError>(out));
+    EXPECT_EQ(std::get<SearchError>(out).kind, SearchError::Kind::Parse);
+    EXPECT_EQ(mocks.ddg->call_count, 0);
+}
+
+TEST_F(BackendRouterTest, RssRateLimitFallsBackWithoutChangingActive) {
+    WebSearchConfig cfg;
+    BackendRouter r(cfg);
+    auto mocks = install_mocks(r, make_resp("duckduckgo", 1), make_resp("bing_cn", 1));
+    r.register_backend(std::make_unique<MockBackend>(
+        "rss", SearchError{SearchError::Kind::RateLimited, "limited", "rss"}));
+    r.resolve_active(Region::Global);
+
+    auto out = r.search_with_fallback("q", 5, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
+    EXPECT_EQ(std::get<SearchResponse>(out).backend_name, "duckduckgo");
+    EXPECT_EQ(mocks.ddg->call_count, 1);
+    EXPECT_EQ(r.active_name(), "rss");
+}
+
+TEST_F(BackendRouterTest, StickyLegacyFallbackUpdatesRssFallbackRegion) {
+    WebSearchConfig cfg;
+    cfg.backend = "auto";
+    BackendRouter r(cfg);
+    auto mocks = install_mocks(
+        r,
+        SearchError{SearchError::Kind::Network, "blocked", "duckduckgo"},
+        make_resp("bing_cn", 1));
+    r.register_backend(std::make_unique<MockBackend>("rss", make_resp("rss", 0)));
+    r.resolve_active(Region::Global);
+
+    auto legacy = r.search_with_fallback("q", 5, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchResponse>(legacy));
+    ASSERT_EQ(r.active_name(), "bing_cn");
+    ASSERT_TRUE(r.set_active("rss"));
+
+    auto rss = r.search_with_fallback("q", 5, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchResponse>(rss));
+    EXPECT_EQ(std::get<SearchResponse>(rss).backend_name, "bing_cn");
+    EXPECT_EQ(mocks.ddg->call_count, 1);
+    EXPECT_EQ(mocks.bing->call_count, 2);
 }
 
 // 场景:显式 backend=bing_cn,region=Global → 仍选 bing_cn(显式覆盖 region)
@@ -147,7 +245,8 @@ TEST_F(BackendRouterTest, UnimplementedBackendFallsBackToAuto) {
 
 // 场景:Network 错误触发 fallback,成功后 active 切到对侧 + 缓存更新 + notify
 TEST_F(BackendRouterTest, NetworkErrorFallbackToOpposite) {
-    WebSearchConfig cfg; // auto
+    WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     auto mocks = install_mocks(
         r,
@@ -174,6 +273,7 @@ TEST_F(BackendRouterTest, NetworkErrorFallbackToOpposite) {
 // 场景:Parse 错误不 fallback,直接返回 — 对侧 backend 不应被调用
 TEST_F(BackendRouterTest, ParseErrorDoesNotFallback) {
     WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     auto mocks = install_mocks(
         r,
@@ -195,6 +295,7 @@ TEST_F(BackendRouterTest, ParseErrorDoesNotFallback) {
 // 场景:RateLimited 同样不 fallback
 TEST_F(BackendRouterTest, RateLimitedDoesNotFallback) {
     WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     auto mocks = install_mocks(
         r,
@@ -210,6 +311,7 @@ TEST_F(BackendRouterTest, RateLimitedDoesNotFallback) {
 // 场景:双 fail 返回最后一次错误(fallback 的错误),active 不变,无 notify
 TEST_F(BackendRouterTest, BothFailReturnsLastError) {
     WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     auto mocks = install_mocks(
         r,
@@ -232,6 +334,7 @@ TEST_F(BackendRouterTest, BothFailReturnsLastError) {
 // 场景:set_active 接受已注册名,拒绝未注册名
 TEST_F(BackendRouterTest, SetActiveValidatesRegistration) {
     WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Global);
@@ -244,6 +347,7 @@ TEST_F(BackendRouterTest, SetActiveValidatesRegistration) {
 // 场景:status_snapshot 包含必要字段
 TEST_F(BackendRouterTest, StatusSnapshotShape) {
     WebSearchConfig cfg;
+    cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Global);

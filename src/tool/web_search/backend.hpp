@@ -22,6 +22,8 @@ struct SearchHit {
     std::string title;
     std::string url;
     std::string snippet;
+    std::string source;        // Optional publisher/feed name.
+    std::string published_at;  // Optional ISO-8601 publication time.
 };
 
 struct SearchResponse {

@@ -83,6 +83,7 @@ SearchResponse make_resp(const std::string& backend, std::size_t n) {
 // 场景:成功调用 → markdown 文本 + ToolSummary metrics
 TEST_F(WebSearchToolTest, SuccessfulCallProducesMarkdownAndSummary) {
     WebSearchConfig cfg;
+    cfg.backend = "duckduckgo";
     BackendRouter router(cfg);
     auto mock = std::make_unique<MockBackend>("duckduckgo", make_resp("duckduckgo", 3));
     router.register_backend(std::move(mock));
@@ -115,6 +116,7 @@ TEST_F(WebSearchToolTest, SuccessfulCallProducesMarkdownAndSummary) {
 // 场景:query 缺失 / 空串 → Disabled 错误,router 不被调用
 TEST_F(WebSearchToolTest, EmptyQueryRejectedBeforeRouter) {
     WebSearchConfig cfg;
+    cfg.backend = "duckduckgo";
     BackendRouter router(cfg);
     auto mock = std::make_unique<MockBackend>("duckduckgo", make_resp("duckduckgo", 1));
     auto* mock_raw = mock.get();
@@ -131,9 +133,30 @@ TEST_F(WebSearchToolTest, EmptyQueryRejectedBeforeRouter) {
     EXPECT_EQ(mock_raw->last_limit, -1); // 未调
 }
 
+TEST_F(WebSearchToolTest, QueryOver200UnicodeCharactersRejectedBeforeRouter) {
+    WebSearchConfig cfg;
+    cfg.backend = "duckduckgo";
+    BackendRouter router(cfg);
+    auto mock = std::make_unique<MockBackend>("duckduckgo", make_resp("duckduckgo", 1));
+    auto* mock_raw = mock.get();
+    router.register_backend(std::move(mock));
+    router.resolve_active(Region::Global);
+
+    std::string query;
+    for (int i = 0; i < 201; ++i) query += u8"搜";
+    auto tool = create_web_search_tool(router, cfg);
+    EXPECT_EQ(tool.definition.parameters["properties"]["query"]["maxLength"], 200);
+    ToolContext ctx;
+    auto r = tool.execute(nlohmann::json{{"query", query}}.dump(), ctx);
+    EXPECT_FALSE(r.success);
+    EXPECT_NE(r.output.find("200 characters"), std::string::npos);
+    EXPECT_EQ(mock_raw->last_limit, -1);
+}
+
 // 场景:limit 超过配置 max_results → clamp 到 cfg.max_results
 TEST_F(WebSearchToolTest, LimitClampedToConfigMaxResults) {
     WebSearchConfig cfg;
+    cfg.backend = "duckduckgo";
     cfg.max_results = 3;
     BackendRouter router(cfg);
     auto mock = std::make_unique<MockBackend>("duckduckgo", make_resp("duckduckgo", 3));
@@ -153,6 +176,7 @@ TEST_F(WebSearchToolTest, LimitClampedToConfigMaxResults) {
 // 场景:limit 超过 hard cap 10 也被 clamp(即使 cfg.max_results 允许更大)
 TEST_F(WebSearchToolTest, LimitHardCappedAt10) {
     WebSearchConfig cfg;
+    cfg.backend = "duckduckgo";
     cfg.max_results = 10; // 上限 10(load_config 已校验)
     BackendRouter router(cfg);
     auto mock = std::make_unique<MockBackend>("duckduckgo", make_resp("duckduckgo", 5));
@@ -172,6 +196,7 @@ TEST_F(WebSearchToolTest, LimitHardCappedAt10) {
 // 场景:失败文本格式包含 kind / backend / message
 TEST_F(WebSearchToolTest, ErrorTextFormat) {
     WebSearchConfig cfg;
+    cfg.backend = "duckduckgo";
     BackendRouter router(cfg);
     router.register_backend(std::make_unique<MockBackend>(
         "duckduckgo",
@@ -202,6 +227,18 @@ TEST(WebSearchFormat, SnippetNewlineCollapsed) {
     EXPECT_EQ(out.find("Line one.\nLine two."), std::string::npos);
 }
 
+TEST(WebSearchFormat, RssMetadataRenderedWhenPresent) {
+    SearchResponse resp;
+    resp.backend_name = "rss";
+    SearchHit hit{"T", "https://x", "Summary"};
+    hit.source = "Kubernetes Blog";
+    hit.published_at = "2026-07-31T16:00:00Z";
+    resp.hits.push_back(std::move(hit));
+    auto out = format_results_markdown("q", resp);
+    EXPECT_NE(out.find("Kubernetes Blog"), std::string::npos);
+    EXPECT_NE(out.find("2026-07-31T16:00:00Z"), std::string::npos);
+}
+
 // 场景:format_error_text 在有 fallback_err 时输出两行
 TEST(WebSearchFormat, ErrorTextWithFallback) {
     SearchError primary{SearchError::Kind::Network, "ddg-fail", "duckduckgo"};
@@ -215,6 +252,7 @@ TEST(WebSearchFormat, ErrorTextWithFallback) {
 // 场景:中文 query 进入 ToolSummary 时按 UTF-8 codepoint 截断,不能截断到半个字节序列。
 TEST_F(WebSearchToolTest, SummaryTruncationKeepsUtf8ValidityForChineseQuery) {
     WebSearchConfig cfg;
+    cfg.backend = "bing_cn";
     BackendRouter router(cfg);
     auto mock = std::make_unique<MockBackend>("bing_cn", make_resp("bing_cn", 1));
     router.register_backend(std::move(mock));
@@ -248,6 +286,7 @@ TEST_F(WebSearchToolTest, SummaryTruncationKeepsUtf8ValidityForChineseQuery) {
 // 场景:错误摘要里的中文错误文本同样按 UTF-8 安全截断,不能在 JSON dump 时炸掉。
 TEST_F(WebSearchToolTest, ErrorSummaryTruncationKeepsUtf8Validity) {
     WebSearchConfig cfg;
+    cfg.backend = "bing_cn";
     BackendRouter router(cfg);
     const std::string long_error =
         u8"搜索服务返回了很长的中文错误消息用于验证截断不会破坏UTF8编码并且仍然可以安全序列化到JSON中";

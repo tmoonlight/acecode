@@ -5,6 +5,7 @@
 #include "../utils/constants.hpp"
 #include "../utils/atomic_file.hpp"
 #include "../utils/logger.hpp"
+#include "../utils/http_url_validation.hpp"
 #include "../utils/paths.hpp"
 #include "../utils/utf8_path.hpp"
 
@@ -926,18 +927,18 @@ AppConfig load_config_from_path(
                     std::exit(1);
                 }
             }
-            // 联网搜索段。缺省 → 默认值(enabled=true, backend=auto)。
-            // 参见 openspec/changes/add-web-search-tool/specs/.../spec.md。
+            // 联网搜索段。缺省 → hosted RSS backend,无需 API key。
+            // 参见 openspec/changes/integrate-rss-web-search/。
             if (j.contains("web_search") && j["web_search"].is_object()) {
                 const auto& wsj = j["web_search"];
                 if (wsj.contains("enabled") && wsj["enabled"].is_boolean())
                     cfg.web_search.enabled = wsj["enabled"].get<bool>();
                 if (wsj.contains("backend") && wsj["backend"].is_string()) {
                     std::string b = wsj["backend"].get<std::string>();
-                    if (b != "auto" && b != "duckduckgo" && b != "bing_cn" &&
+                    if (b != "rss" && b != "auto" && b != "duckduckgo" && b != "bing_cn" &&
                         b != "bochaai" && b != "tavily") {
                         std::cerr << "[config] fatal: web_search.backend='" << b
-                                  << "' invalid; expected one of: auto, duckduckgo, "
+                                  << "' invalid; expected one of: rss, auto, duckduckgo, "
                                   << "bing_cn, bochaai, tavily" << std::endl;
                         LOG_ERROR("[config] web_search.backend invalid: " + b);
                         std::exit(1);
@@ -946,6 +947,17 @@ AppConfig load_config_from_path(
                 }
                 if (wsj.contains("api_key") && wsj["api_key"].is_string())
                     cfg.web_search.api_key = wsj["api_key"].get<std::string>();
+                if (wsj.contains("rss_base_url") && wsj["rss_base_url"].is_string()) {
+                    const std::string url = wsj["rss_base_url"].get<std::string>();
+                    if (!utils::is_valid_http_base_url(url)) {
+                        std::cerr << "[config] fatal: web_search.rss_base_url must be an "
+                                     "HTTPS base URL (HTTP is allowed only for loopback)"
+                                  << std::endl;
+                        LOG_ERROR("[config] invalid web_search.rss_base_url");
+                        std::exit(1);
+                    }
+                    cfg.web_search.rss_base_url = url;
+                }
                 if (wsj.contains("max_results") && wsj["max_results"].is_number_integer()) {
                     int v = wsj["max_results"].get<int>();
                     if (v < 1 || v > 10) {
@@ -1714,12 +1726,19 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
 
         WebSearchConfig ws_d;
         nlohmann::json wsj = nlohmann::json::object();
+        if (!utils::is_valid_http_base_url(cfg.web_search.rss_base_url)) {
+            throw std::runtime_error(
+                "web_search.rss_base_url must be HTTPS (or loopback HTTP) without "
+                "credentials, query, or fragment");
+        }
         if (cfg.web_search.enabled != ws_d.enabled)
             wsj["enabled"] = cfg.web_search.enabled;
         if (cfg.web_search.backend != ws_d.backend)
             wsj["backend"] = cfg.web_search.backend;
         if (cfg.web_search.api_key != ws_d.api_key)
             wsj["api_key"] = cfg.web_search.api_key;
+        if (cfg.web_search.rss_base_url != ws_d.rss_base_url)
+            wsj["rss_base_url"] = cfg.web_search.rss_base_url;
         if (cfg.web_search.max_results != ws_d.max_results)
             wsj["max_results"] = cfg.web_search.max_results;
         if (cfg.web_search.timeout_ms != ws_d.timeout_ms)

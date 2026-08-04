@@ -1,9 +1,10 @@
 #pragma once
 
 // Backend 路由器:管理已注册的 backend、根据 cfg + region 决定 active backend、
-// 在 Network 错误时自动 fallback 到对侧。线程安全(内部互斥锁)。
+// RSS 对空结果、Network/RateLimited 做单次区域 fallback;HTML backend 仅在
+// Network 错误时粘性切到对侧。线程安全(内部互斥锁 + shared backend ownership)。
 //
-// 详见 openspec/changes/add-web-search-tool/design.md Decision 3-4。
+// 详见 openspec/changes/integrate-rss-web-search/design.md。
 
 #include "backend.hpp"
 #include "region_detector.hpp"
@@ -30,12 +31,11 @@ public:
     explicit BackendRouter(const WebSearchConfig& cfg);
 
     // 注册一个 backend(name 即 backend->name())。生产代码通常在构造后立即
-    // 调 register_default_backends(...) 一次性注入 DDG + Bing CN。
+    // 调 register_default_backends(...) 一次性注入 RSS + DDG + Bing CN。
     void register_backend(std::unique_ptr<WebSearchBackend> b);
 
-    // 根据 cfg + region 选定 active backend。region == Unknown 时悲观选 bing_cn。
-    // 有效 backend 名:auto / duckduckgo / bing_cn / bochaai / tavily;后两个
-    // 当前未注册时 LOG_WARN 并 fallback 到 auto。
+    // 根据 cfg + region 选定 active backend。默认 rss;显式 auto 才按 region
+    // 选择 duckduckgo / bing_cn。
     void resolve_active(Region region);
 
     // 显式切 active backend(/websearch use)— 不持久化。未知 / 未注册的
@@ -48,8 +48,8 @@ public:
     // 当前 active backend 名(线程安全)。无 active 时返回空字符串。
     std::string active_name() const;
 
-    // 一次搜索 + 失败 fallback。Network 错误 → 试对侧;成功后 set_active +
-    // 更新 region 缓存 + notify 回调。Parse / RateLimited / Disabled 直接返回。
+    // 一次搜索 + fallback。RSS fallback 每次请求独立且不改变 active;HTML
+    // Network fallback 成功后切 active、更新 region 缓存并 notify。
     std::variant<SearchResponse, SearchError> search_with_fallback(
         std::string_view query,
         int limit,
@@ -70,16 +70,17 @@ private:
     // 取对侧的 backend 名(duckduckgo ↔ bing_cn)。其他 backend 名返回空。
     std::string opposite_of(const std::string& name) const;
 
-    // 找 backend 实例,未找到返回 nullptr。需调用方持锁。
-    WebSearchBackend* find_unlocked(const std::string& name);
+    // 复制 backend 的共享所有权,未找到返回 nullptr。需调用方持锁。
+    std::shared_ptr<WebSearchBackend> find_unlocked(const std::string& name);
 
     const WebSearchConfig& cfg_;
     mutable std::mutex mu_;
-    std::map<std::string, std::unique_ptr<WebSearchBackend>> backends_;
+    std::map<std::string, std::shared_ptr<WebSearchBackend>> backends_;
     std::string active_;
+    Region resolved_region_ = Region::Unknown;
 };
 
-// 便利函数:创建 DDG + Bing CN backend 并注册到 router。bochaai/tavily 占位
+// 便利函数:创建 RSS + DDG + Bing CN backend 并注册到 router。bochaai/tavily 占位
 // — 配置命中时 LOG_WARN 提示未实现,不抛出。
 void register_default_backends(BackendRouter& router, const WebSearchConfig& cfg);
 

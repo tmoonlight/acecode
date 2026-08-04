@@ -338,7 +338,9 @@ Installed skills also register slash commands by skill name.
 | `AskUserQuestion` | Prompt in UI | Ask the user a structured follow-up question. |
 | `skills_list`, `skill_view` | Auto | Discover and load skill instructions. |
 | `memory_read`, `memory_write` | Auto / constrained write | Read and update persistent memory. |
-| `web_search` | Auto | Search the web when enabled in config. |
+| `web_search` | Auto | Search AceCode's hosted RSS index, with regional web fallback. |
+
+By default, `web_search` sends query text (maximum 200 Unicode characters) to `https://ge.bigjuan.xyz/rss-search`. Set `web_search.backend` to `auto`, `duckduckgo`, or `bing_cn` to bypass the hosted RSS service, or override `web_search.rss_base_url` for a self-hosted deployment. Custom endpoints require HTTPS; plaintext HTTP is accepted only for loopback addresses.
 
 MCP servers can add more tools at runtime.
 
@@ -418,7 +420,7 @@ Important config areas:
 | `agent_loop.max_iterations` | Hard cap for one agent turn; `0` or omitted means unlimited. |
 | `daemon`, `web` | Daemon heartbeat, service, bind, port, and static asset settings. |
 | `network` | System/manual proxy behavior, proxy probing, and TLS options. |
-| `web_search` | Web-search tool enablement and backend choice. |
+| `web_search` | Web-search enablement, hosted RSS endpoint, and backend choice (`rss` by default). |
 | `remote_control` | Channel hand-over: listener `port` (default `28190`), persisted `token`, manual outbound `outbound_url`, `default_channel`, and external plugin `channels`. |
 | `tui.alt_screen_mode` | Terminal rendering mode; `auto` starts fullscreen, `never` restores terminal-output mode. |
 | `desktop.notifications` | Desktop shell notification behavior. |

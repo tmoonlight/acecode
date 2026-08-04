@@ -2,6 +2,7 @@
 
 #include "bing_cn_backend.hpp"
 #include "duckduckgo_backend.hpp"
+#include "rss_search_backend.hpp"
 #include "utils/logger.hpp"
 #include "utils/state_file.hpp"
 
@@ -14,7 +15,7 @@ namespace acecode::web_search {
 namespace {
 
 bool is_known_backend_name(const std::string& name) {
-    return name == "duckduckgo" || name == "bing_cn" ||
+    return name == "rss" || name == "duckduckgo" || name == "bing_cn" ||
            name == "bochaai" || name == "tavily";
 }
 
@@ -52,6 +53,7 @@ std::string BackendRouter::compute_active_name(Region region) const {
 void BackendRouter::resolve_active(Region region) {
     std::string desired = compute_active_name(region);
     std::lock_guard<std::mutex> lk(mu_);
+    resolved_region_ = region;
     if (backends_.find(desired) == backends_.end()) {
         // 没注册(比如 cfg=tavily 但只注册了 ddg/bing_cn,且 compute 已 fallback,
         // 但又恰好 ddg/bing_cn 也没注册)→ 用任意一个已注册的兜底
@@ -92,9 +94,10 @@ std::string BackendRouter::opposite_of(const std::string& name) const {
     return {};
 }
 
-WebSearchBackend* BackendRouter::find_unlocked(const std::string& name) {
+std::shared_ptr<WebSearchBackend>
+BackendRouter::find_unlocked(const std::string& name) {
     auto it = backends_.find(name);
-    return (it == backends_.end()) ? nullptr : it->second.get();
+    return (it == backends_.end()) ? nullptr : it->second;
 }
 
 std::variant<SearchResponse, SearchError>
@@ -103,10 +106,12 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
                                      const NotifyFn& notify) {
     // snapshot 当前 active + 拿到 backend 指针;mutex 持有时间最短。
     std::string primary;
-    WebSearchBackend* primary_be = nullptr;
+    Region region = Region::Unknown;
+    std::shared_ptr<WebSearchBackend> primary_be;
     {
         std::lock_guard<std::mutex> lk(mu_);
         primary = active_;
+        region = resolved_region_;
         primary_be = find_unlocked(primary);
     }
     if (!primary_be) {
@@ -116,32 +121,55 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
     }
 
     auto first = primary_be->search(query, limit, abort);
+    const bool rss_primary = primary == "rss";
+    std::string rss_fallback_reason;
     if (std::holds_alternative<SearchResponse>(first)) {
-        return first;
-    }
-    const SearchError& err = std::get<SearchError>(first);
-    if (err.kind != SearchError::Kind::Network) {
-        // Parse / RateLimited / Disabled 不 fallback
-        return first;
+        const auto& response = std::get<SearchResponse>(first);
+        if (!rss_primary || !response.hits.empty()) return first;
+        rss_fallback_reason = "no matching RSS items";
+    } else {
+        const auto& err = std::get<SearchError>(first);
+        if (abort && abort->load()) return first;
+        if (!rss_primary && err.kind != SearchError::Kind::Network) {
+            // Legacy HTML backends only fall back on network errors.
+            return first;
+        }
+        if (rss_primary && err.kind != SearchError::Kind::Network &&
+            err.kind != SearchError::Kind::RateLimited) {
+            return first;
+        }
+        if (rss_primary) rss_fallback_reason = err.message;
     }
 
-    // Network → 试对侧
-    std::string fallback_name = opposite_of(primary);
-    WebSearchBackend* fallback_be = nullptr;
+    // RSS uses a per-request regional fallback for outages and corpus misses.
+    // Legacy HTML backends keep their sticky opposite-backend fallback.
+    std::string fallback_name = rss_primary
+        ? (region == Region::Global ? "duckduckgo" : "bing_cn")
+        : opposite_of(primary);
+    std::shared_ptr<WebSearchBackend> fallback_be;
     {
         std::lock_guard<std::mutex> lk(mu_);
         fallback_be = fallback_name.empty() ? nullptr : find_unlocked(fallback_name);
     }
     if (!fallback_be) {
-        return first; // 没对侧或对侧未注册,只能返回原错误
+        return first;
     }
 
     auto second = fallback_be->search(query, limit, abort);
     if (std::holds_alternative<SearchResponse>(second)) {
-        // 切 active + 更新缓存 + notify
+        if (rss_primary) {
+            if (notify) {
+                notify("RSS search had no usable result; used " + fallback_name +
+                       " for this request (" + rss_fallback_reason + ")");
+            }
+            return second;
+        }
+        // Legacy fallback is sticky and updates the region cache.
         {
             std::lock_guard<std::mutex> lk(mu_);
             active_ = fallback_name;
+            resolved_region_ = (fallback_name == "duckduckgo")
+                ? Region::Global : Region::Cn;
         }
         WebSearchRegionCache cache;
         // primary 失败 → 推断 region 与 fallback 对应:bing_cn ⇒ cn;duckduckgo ⇒ global
@@ -150,8 +178,9 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
         write_web_search_region_cache(cache);
 
         if (notify) {
+            const auto& primary_error = std::get<SearchError>(first);
             notify("\xE2\x9A\xA0 Switched to " + fallback_name +
-                   " (" + primary + " unreachable: " + err.message + ")");
+                   " (" + primary + " unreachable: " + primary_error.message + ")");
         }
         return second;
     }
@@ -181,6 +210,8 @@ std::vector<std::string> BackendRouter::registered_names_for_test() const {
 }
 
 void register_default_backends(BackendRouter& router, const WebSearchConfig& cfg) {
+    router.register_backend(
+        std::make_unique<RssSearchBackend>(cfg.rss_base_url, cfg.timeout_ms));
     router.register_backend(
         std::make_unique<DuckDuckGoBackend>(cfg.timeout_ms));
     router.register_backend(
