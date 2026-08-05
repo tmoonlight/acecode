@@ -109,6 +109,7 @@ import './filePreviewScroll.test.js';
 import './officePreview.test.js';
 import './api.test.js';
 import './externalUrl.test.js';
+import './desktopExternalLinkArchitecture.test.js';
 import './systemClipboard.test.js';
 import './searchSessions.test.js';
 import './searchExperienceArchitecture.test.js';

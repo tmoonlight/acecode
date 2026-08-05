@@ -110,6 +110,7 @@ import {
   stripOpenSessionParams,
 } from './lib/sessionJump.js';
 import { desktopUiMode } from './lib/desktopShellMode.js';
+import { installDesktopExternalLinkRouter } from './lib/externalUrl.js';
 import { shouldAutoFocusDesktopComposer } from './lib/composerCaretRestore.js';
 import { requestDesktopAppExit, showDesktopAboutDialog } from './lib/desktopAppActions.js';
 import {
@@ -169,7 +170,7 @@ export function App() {
   // Static product copy is marked at build time. Subscribing the shell to the
   // i18n instance refreshes mounted descendants immediately, while compiled
   // module-scope metadata resolves translations lazily on the rerender.
-  useTranslation();
+  const { t } = useTranslation();
   const [authState, setAuthState] = useState('checking'); // 'checking' | 'ok' | 'need-token'
   const [health,    setHealth]    = useState(null);
 
@@ -293,6 +294,16 @@ export function App() {
     || questionReqs.length > 0;
 
   useEffect(() => initInactiveSelection(), []);
+  useEffect(() => installDesktopExternalLinkRouter({
+    onError: (error) => {
+      toast({
+        kind: 'err',
+        text: t('desktop.externalBrowserOpenFailed', {
+          error: error || t('common.unknown'),
+        }),
+      });
+    },
+  }), [t]);
   useEffect(() => subscribeDesktopCloseRequest(() => {
     setRememberDesktopCloseChoice(false);
     setDesktopCloseBusy(false);

@@ -55,6 +55,7 @@ export const enUS = {
   desktop: {
     compatibilityTitle: 'ACECode (running in compatibility mode; install WebView2 for the best experience.)',
     javascriptRequired: 'This app requires JavaScript. Use a modern browser with ES Modules support (Chrome 100+ / Firefox 100+ / Safari 16+ / Edge 100+).',
+    externalBrowserOpenFailed: 'Failed to open the external browser: {{error}}',
   },
   format: {
     now: 'just now',

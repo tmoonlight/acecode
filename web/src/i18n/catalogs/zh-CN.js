@@ -55,6 +55,7 @@ export const zhCN = {
   desktop: {
     compatibilityTitle: 'ACECode（正以兼容模式运行，建议安装 WebView2 后再运行 ACECode 以获得更好的体验。）',
     javascriptRequired: '本应用需要 JavaScript。请使用支持 ES Modules 的现代浏览器（Chrome 100+ / Firefox 100+ / Safari 16+ / Edge 100+）。',
+    externalBrowserOpenFailed: '外部浏览器打开失败：{{error}}',
   },
   format: {
     now: '刚刚',

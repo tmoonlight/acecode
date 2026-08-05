@@ -1,5 +1,6 @@
 #include "web_host.hpp"
 
+#include "external_url.hpp"
 #include "web_host_close_policy.hpp"
 #include "webview2_runtime_probe.hpp"
 #include "window_background.hpp"
@@ -875,11 +876,12 @@ void apply_window_background(webview::webview& host,
     apply_webview2_default_background(host, color);
 }
 
-// ── Windows 系统文件拖放接管 ───────────────────────────────────────────
+// ── Windows 系统文件拖放 + 外部新窗口接管 ─────────────────────────────
 // 拖文件到非可放下区时,WebView2(默认 AllowExternalDrop)会试图导航 / 新窗口
 // 打开 file://。这里拦截这两条路径:命中 file: scheme → 取消默认动作(防整页
 // 跳转 / 打开文件)+ 把原始 file:// URI 回传给 handler(前端纯函数再归一化)。
-// http(s) 等正常导航放行,不受影响。
+// 新窗口中的 http(s) 则交给系统默认浏览器,主 WebView 不创建弹窗。普通同页导航
+// 仍然放行,不受影响。
 bool win_is_file_uri(const std::wstring& uri) {
     if (uri.size() < 5) return false;
     auto lower = [](wchar_t c) { return static_cast<wchar_t>(::towlower(c)); };
@@ -893,7 +895,7 @@ void dispatch_file_uri(const std::wstring& uri) {
     }
 }
 
-void install_win_file_drop(webview::webview& host) {
+void install_win_webview_navigation_handlers(webview::webview& host) {
     auto controller_result = host.browser_controller();
     if (!controller_result.ok()) return;
     auto* controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
@@ -933,6 +935,19 @@ void install_win_file_drop(webview::webview& host) {
                     if (win_is_file_uri(u)) {
                         args->put_Handled(TRUE);
                         dispatch_file_uri(u);
+                        return S_OK;
+                    }
+
+                    const std::string external_url = acecode::wide_to_utf8(u);
+                    if (is_safe_external_url(external_url)) {
+                        // Fail closed: once this is an external new-page request,
+                        // never fall back to an embedded WebView popup.
+                        args->put_Handled(TRUE);
+                        auto result = open_external_url(external_url);
+                        if (!result.ok) {
+                            LOG_WARN("[desktop] failed to open new-window URL in the "
+                                     "system browser: " + result.error);
+                        }
                     }
                 }
                 return S_OK;
@@ -2056,7 +2071,7 @@ void WebHost::set_close_request_handler(std::function<bool()> handler) {
 void WebHost::set_file_drop_handler(FileDropHandler handler) {
     g_file_drop_handler = std::move(handler);
 #ifdef _WIN32
-    install_win_file_drop(*impl_->w);
+    install_win_webview_navigation_handlers(*impl_->w);
 #elif defined(__APPLE__)
     install_mac_file_drop(*impl_->w);
 #endif
