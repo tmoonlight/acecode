@@ -136,6 +136,31 @@ if(APPLE)
         COMMENT "Copying acecode daemon into ACECode.app bundle"
         VERBATIM
     )
+
+    add_executable(acecode-user-installer MACOSX_BUNDLE
+        ${CMAKE_SOURCE_DIR}/src/macos_installer/main.mm
+        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.cpp
+        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.hpp
+        ${ACECODE_MACOS_ICON}
+    )
+    target_include_directories(acecode-user-installer PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+    )
+    target_link_libraries(acecode-user-installer PRIVATE
+        "-framework AppKit"
+        "-framework Foundation"
+    )
+    set_target_properties(acecode-user-installer PROPERTIES
+        RUNTIME_OUTPUT_NAME "Install ACECode"
+        MACOSX_BUNDLE_BUNDLE_NAME "Install ACECode"
+        MACOSX_BUNDLE_ICON_FILE "acecode.icns"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "dev.acecode.installer"
+        MACOSX_BUNDLE_INFO_PLIST
+            "${CMAKE_SOURCE_DIR}/cmake/macos/ACECodeUserInstallerInfo.plist.in"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${ACECODE_BUILD_VERSION}"
+        MACOSX_BUNDLE_COPYRIGHT "ACECode contributors"
+    )
 endif()
 
 if(MSVC)
