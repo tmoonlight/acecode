@@ -330,7 +330,9 @@ acecode service uninstall
 | `AskUserQuestion` | UI 中确认 | 向用户提出结构化追问。 |
 | `skills_list`, `skill_view` | 自动执行 | 发现并加载技能指令。 |
 | `memory_read`, `memory_write` | 自动 / 受限写入 | 读取和更新持久化记忆。 |
-| `web_search` | 自动执行 | 在配置启用时执行联网搜索。 |
+| `web_search` | 自动执行 | 并发搜索 RSS、DuckDuckGo 和 Bing CN，再合并结果。 |
+
+默认情况下，`web_search` 会把每个查询（最多 200 个 Unicode 字符）同时发送到 `https://ge.bigjuan.xyz/rss-search`、DuckDuckGo 和 Bing CN。结果按来源交错合并、按 URL 去重，并受请求的总 `limit` 限制；某个来源失败时，仍会返回其他来源的结果并附带警告。如需显式使用单一来源或旧的区域选择行为，可将 `web_search.backend` 设为 `rss`、`auto`、`duckduckgo` 或 `bing_cn`；自托管部署则可覆盖 `web_search.rss_base_url`。自定义地址必须使用 HTTPS，只有回环地址允许明文 HTTP。
 
 MCP servers 可以在运行时添加更多工具。
 
@@ -350,7 +352,7 @@ MCP servers 可以在运行时添加更多工具。
 | `agent_loop.max_iterations` | 单次 agent 回合硬上限；`0` 或省略表示无限制。 |
 | `daemon`, `web` | Daemon 心跳、服务、bind、port 和静态资源设置。 |
 | `network` | 系统/手动代理、代理探测和 TLS 选项。 |
-| `web_search` | 联网搜索工具开关和 backend 选择。 |
+| `web_search` | 联网搜索工具开关、托管 RSS 地址和 backend 选择（默认 `parallel`）。 |
 | `tui.alt_screen_mode` | 终端渲染模式；`auto` 默认全屏，`never` 恢复 terminal-output 模式。 |
 | `desktop.notifications` | 桌面壳通知行为。 |
 | `mcp_servers` | Stdio、SSE 或 Streamable HTTP MCP server 定义。 |

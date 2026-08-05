@@ -62,11 +62,14 @@ std::string format_iso8601(long long epoch_ms) {
 }
 
 bool is_known_backend_name(const std::string& s) {
-    return s == "duckduckgo" || s == "bing_cn" || s == "bochaai" || s == "tavily";
+    return s == "parallel" || s == "rss" ||
+           s == "duckduckgo" || s == "bing_cn" ||
+           s == "bochaai" || s == "tavily";
 }
 
 bool is_implemented_backend_name(const std::string& s) {
-    return s == "duckduckgo" || s == "bing_cn";
+    return s == "parallel" || s == "rss" ||
+           s == "duckduckgo" || s == "bing_cn";
 }
 
 void cmd_websearch(CommandContext& ctx, const std::string& args) {
@@ -126,15 +129,16 @@ std::string dispatch_websearch_subcommand(const std::string& sub) {
         std::string rest = trim(sub.size() > 3 ? sub.substr(3) : "");
         if (rest.empty()) {
             return "Usage: /websearch use <backend>\n"
-                   "Available: duckduckgo, bing_cn";
+                   "Available: parallel, rss, duckduckgo, bing_cn";
         }
         if (!is_known_backend_name(rest)) {
             return "Unknown backend '" + rest +
-                   "'. Valid: duckduckgo, bing_cn (bochaai/tavily not implemented yet)";
+                   "'. Valid: parallel, rss, duckduckgo, bing_cn "
+                   "(bochaai/tavily not implemented yet)";
         }
         if (!is_implemented_backend_name(rest)) {
             return "Backend '" + rest +
-                   "' is not implemented yet. Use duckduckgo or bing_cn.";
+                   "' is not implemented yet. Use parallel, rss, duckduckgo, or bing_cn.";
         }
         if (!rt.router().set_active(rest)) {
             return "Backend '" + rest + "' is not registered in this process.";
@@ -158,7 +162,7 @@ std::string dispatch_websearch_subcommand(const std::string& sub) {
 void register_websearch_command(CommandRegistry& registry) {
     registry.register_command({
         "websearch",
-        "Show or switch the web search backend (DuckDuckGo / Bing CN)",
+        "Show or switch web search (parallel / RSS / DuckDuckGo / Bing CN)",
         cmd_websearch,
     });
 }

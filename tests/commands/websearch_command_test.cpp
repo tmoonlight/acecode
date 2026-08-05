@@ -73,11 +73,12 @@ protected:
     std::string path_;
 };
 
-// 把 detector 替换为脚本化探针,并把 ddg/bing mock backend 注入 router。
+// 把 detector 替换为脚本化探针,并把 rss/ddg/bing mock backend 注入 router。
 void install_runtime_with_mocks(const WebSearchConfig& cfg,
                                 std::vector<ProbeResult> probe_script) {
     web_search::init(cfg);
     auto& rt = web_search::runtime();
+    rt.router().register_backend(std::make_unique<MockBackend>("rss"));
     rt.router().register_backend(std::make_unique<MockBackend>("duckduckgo"));
     rt.router().register_backend(std::make_unique<MockBackend>("bing_cn"));
     auto idx = std::make_shared<std::size_t>(0);
@@ -135,7 +136,7 @@ TEST_F(WebSearchCommandTest, BareCommandShowsStatus) {
     rt.router().resolve_active(Region::Global);
 
     auto out = dispatch_websearch_subcommand("");
-    EXPECT_NE(out.find("Active backend  : duckduckgo"), std::string::npos);
+    EXPECT_NE(out.find("Active backend  : parallel"), std::string::npos);
     EXPECT_NE(out.find("Region          : global"), std::string::npos);
 }
 
@@ -151,8 +152,8 @@ TEST_F(WebSearchCommandTest, RefreshReDetectsAndShowsBeforeAfter) {
     EXPECT_NE(out.find("re-detected"), std::string::npos);
     EXPECT_NE(out.find("Before:"), std::string::npos);
     EXPECT_NE(out.find("After"), std::string::npos);
-    // 重测后 region = cn → active = bing_cn
-    EXPECT_EQ(rt.router().active_name(), "bing_cn");
+    // Parallel remains active; region only affects explicit auto/single fallback.
+    EXPECT_EQ(rt.router().active_name(), "parallel");
 }
 
 TEST_F(WebSearchCommandTest, UseValidBackendSucceeds) {
@@ -167,6 +168,18 @@ TEST_F(WebSearchCommandTest, UseValidBackendSucceeds) {
     EXPECT_EQ(rt.router().active_name(), "bing_cn");
 }
 
+TEST_F(WebSearchCommandTest, UseParallelBackendSucceeds) {
+    WebSearchConfig cfg;
+    install_runtime_with_mocks(cfg, {{200, ""}});
+    auto& rt = web_search::runtime();
+    rt.router().resolve_active(Region::Global);
+    ASSERT_TRUE(rt.router().set_active("bing_cn"));
+
+    auto out = dispatch_websearch_subcommand("use parallel");
+    EXPECT_NE(out.find("switched to parallel"), std::string::npos);
+    EXPECT_EQ(rt.router().active_name(), "parallel");
+}
+
 TEST_F(WebSearchCommandTest, UseUnknownBackendRejected) {
     WebSearchConfig cfg;
     install_runtime_with_mocks(cfg, {{200, ""}});
@@ -175,7 +188,7 @@ TEST_F(WebSearchCommandTest, UseUnknownBackendRejected) {
     auto out = dispatch_websearch_subcommand("use yandex");
     EXPECT_NE(out.find("Unknown backend"), std::string::npos);
     EXPECT_NE(out.find("yandex"), std::string::npos);
-    EXPECT_EQ(rt.router().active_name(), "duckduckgo"); // 未变
+    EXPECT_EQ(rt.router().active_name(), "parallel"); // 未变
 }
 
 TEST_F(WebSearchCommandTest, UseUnimplementedBackendRejected) {
@@ -185,7 +198,7 @@ TEST_F(WebSearchCommandTest, UseUnimplementedBackendRejected) {
     rt.router().resolve_active(Region::Global);
     auto out = dispatch_websearch_subcommand("use tavily");
     EXPECT_NE(out.find("not implemented"), std::string::npos);
-    EXPECT_EQ(rt.router().active_name(), "duckduckgo");
+    EXPECT_EQ(rt.router().active_name(), "parallel");
 }
 
 TEST_F(WebSearchCommandTest, UseWithoutArgShowsUsage) {
@@ -207,7 +220,7 @@ TEST_F(WebSearchCommandTest, ResetRevertsToConfig) {
 
     auto out = dispatch_websearch_subcommand("reset");
     EXPECT_NE(out.find("reset to config"), std::string::npos);
-    EXPECT_EQ(rt.router().active_name(), "duckduckgo"); // 回到 region=global 推导
+    EXPECT_EQ(rt.router().active_name(), "parallel"); // 回到默认三源并行
 }
 
 TEST_F(WebSearchCommandTest, UnknownSubcommandShowsHelp) {

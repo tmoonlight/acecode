@@ -1,0 +1,17 @@
+[Unit]
+Description=Refresh AceCode RSS Search index
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=rss-search
+Group=rss-search
+WorkingDirectory=/var/lib/acecode-rss-search
+Environment=RSS_SEARCH_DB_PATH=/var/lib/acecode-rss-search/rss-search.db
+ExecStart=/opt/acecode-rss-search/.venv/bin/rss-search ingest --feeds-file /etc/acecode-rss-search/feeds.txt
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/acecode-rss-search

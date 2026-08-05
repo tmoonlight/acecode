@@ -18,6 +18,15 @@ namespace acecode::web_search {
 namespace {
 
 constexpr const char* kToolName = "web_search";
+constexpr std::size_t kMaxQueryCodepoints = 200;
+
+std::size_t utf8_codepoint_count(std::string_view text) {
+    std::size_t count = 0;
+    for (unsigned char c : text) {
+        if ((c & 0xC0) != 0x80) ++count;
+    }
+    return count;
+}
 
 std::string trim(const std::string& s) {
     std::size_t start = 0;
@@ -96,6 +105,13 @@ ToolResult execute_search(const std::string& arguments_json,
         r.summary = make_error_summary("", err);
         return r;
     }
+    if (utf8_codepoint_count(query) > kMaxQueryCodepoints) {
+        SearchError err{SearchError::Kind::Disabled,
+                        "query exceeds 200 characters", ""};
+        ToolResult r{format_error_text(err, nullptr), false};
+        r.summary = make_error_summary(query, err);
+        return r;
+    }
 
     int hard_max = std::max(1, std::min(cfg->max_results, 10));
     int limit = requested_limit > 0 ? requested_limit : 5;
@@ -131,11 +147,22 @@ std::string format_results_markdown(const std::string& query,
     for (const auto& h : resp.hits) {
         std::string snippet = collapse_whitespace(h.snippet); // 双保险:折叠 newline
         oss << "\n" << idx << ". **" << h.title << "** \xE2\x80\x94 " << h.url;
+        if (!h.backend_name.empty()) {
+            oss << "\n   Backend: " << h.backend_name;
+        }
+        if (!h.source.empty()) oss << "\n   Source: " << h.source;
+        if (!h.published_at.empty()) oss << "\n   Published: " << h.published_at;
         if (!snippet.empty()) {
             oss << "\n   " << snippet;
         }
         oss << "\n";
         ++idx;
+    }
+    if (!resp.warnings.empty()) {
+        oss << "\nWarnings:\n";
+        for (const auto& warning : resp.warnings) {
+            oss << "- " << warning << "\n";
+        }
     }
     return oss.str();
 }
@@ -173,7 +200,8 @@ ToolImpl create_web_search_tool(BackendRouter& router,
         {"properties", {
             {"query", {
                 {"type", "string"},
-                {"description", "The search query"}
+                {"description", "The search query (maximum 200 characters)"},
+                {"maxLength", 200}
             }},
             {"limit", {
                 {"type", "integer"},

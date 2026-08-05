@@ -245,18 +245,20 @@ struct TuiConfig {
 // see openspec/changes/respect-system-proxy. proxy_mode is the only field
 // callers SHOULD branch on at runtime; the rest are passively consumed by
 // network::ProxyResolver.
-// Web search tool tunables. See openspec/changes/add-web-search-tool/.
-// `backend = "auto"` 走启动时探测的 region 决定(global → duckduckgo,cn →
-// bing_cn);显式名字直接使用并跳过探测(但运行时 fallback 仍生效)。
-// `bochaai` / `tavily` 为后续 API backend 占位,本期未实现 — 命中时启动
-// LOG_WARN 并回退到 auto。
+// Web search tool tunables. See openspec/changes/integrate-rss-web-search/.
+// `backend = "parallel"` concurrently searches RSS, DuckDuckGo, and Bing CN.
+// `backend = "rss"` uses AceCode's hosted curated index and falls back per
+// request to the region-appropriate HTML backend when unavailable or empty.
+// `backend = "auto"` preserves the legacy region choice(global → duckduckgo,
+// cn/unknown → bing_cn). Explicit names skip backend selection.
 struct WebSearchConfig {
     bool enabled = true;
-    // "auto" | "duckduckgo" | "bing_cn" | "bochaai" | "tavily"
-    std::string backend = "auto";
-    std::string api_key;        // 给将来 API backend 用,本期不读
-    int max_results = 5;        // 工具入参 limit 上限(min(limit, max_results, 10))
-    int timeout_ms = 8000;      // 单次 backend HTTP 请求超时
+    // "parallel" | "rss" | "auto" | "duckduckgo" | "bing_cn" | ...
+    std::string backend = "parallel";
+    std::string api_key;        // Reserved for future API backends.
+    std::string rss_base_url = "https://ge.bigjuan.xyz/rss-search";
+    int max_results = 5;        // Tool limit cap(min(limit, max_results, 10)).
+    int timeout_ms = 8000;      // Per-backend HTTP timeout.
 };
 
 // 单个 LSP server 的 config 条目(openspec add-lsp-service)。

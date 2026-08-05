@@ -122,7 +122,7 @@ Detailed behavior is in [docs/desktop-shell/multi-workspace.md](docs/desktop-she
 
 `/proxy` shows or changes the session-level effective proxy state without persisting changes.
 
-[src/tool/web_search/](src/tool/web_search) provides optional HTML-backed search with backend auto-detection and fallback. `/websearch` shows status, refreshes region detection, or switches backend for the current session. If `config.web_search.enabled=false`, the tool is not registered.
+[src/tool/web_search/](src/tool/web_search) provides parallel RSS, DuckDuckGo, and Bing CN search plus explicit single-backend and regional fallback modes. `/websearch` shows status, refreshes region detection, or switches backend for the current session. If `config.web_search.enabled=false`, the tool is not registered.
 
 ## Model Profiles And Context Windows
 
@@ -337,17 +337,19 @@ Both `main.cpp` and `daemon/worker.cpp` call `proxy_resolver().init(cfg.network)
 
 ### Web Search
 
-`src/tool/web_search/` 提供 LLM 可调的 `web_search(query, limit)` 工具,默认零配置:启动时 HEAD 探一次 `duckduckgo.com`(2s 超时,过 ProxyResolver),通 → 选 DuckDuckGo backend(海外/挂梯子)、不通 → 选 必应中国 backend(国内裸连)。探测结果缓存到 `~/.acecode/state.json` 的 `web_search.region_detected`,永不自动过期。
+`src/tool/web_search/` provides the LLM-callable `web_search(query, limit)` tool. Its default virtual backend is `parallel`: every request starts AceCode's hosted curated RSS index at `https://ge.bigjuan.xyz/rss-search`, DuckDuckGo, and Bing CN concurrently. The router interleaves results in stable RSS/DDG/Bing order, normalizes and deduplicates URLs, and applies `limit` to the merged total. Each hit records its backend; RSS hits also preserve source and publication metadata. One or two failed sources become bounded warnings while successful results remain usable; only failure of all three returns an aggregate error.
 
-两个 backend 都是 HTML 爬取,零外部 API key。`backend_router.cpp::search_with_fallback` 在当前 backend 出 Network 错误时自动试对侧并切 active(同时更新缓存的 region 推断),Parse / RateLimited / Disabled 直接返回不 fallback。`HttpFetchFn` / `RegionProbeFn` 注入式设计让 unit test 不打真实网络。
+The existing region detector still probes DuckDuckGo once at startup through `ProxyResolver` and caches the result in `~/.acecode/state.json` under `web_search.region_detected`. Parallel mode does not mutate this state. Explicit `backend = "auto"` preserves the legacy direct regional selection; explicit `backend = "rss"` retains the per-request regional fallback used when RSS is empty or temporarily unavailable.
+
+`backend_router.cpp::search_with_fallback` has three policies: parallel fan-out is concurrent and non-sticky; explicit RSS fallback is per-request and non-sticky for empty results and recoverable service failures; explicit DuckDuckGo/Bing network fallback switches the active backend and updates the region cache. `HttpFetchFn` / `RegionProbeFn` injection keeps unit tests offline.
 
 `/websearch` slash command:
-- `/websearch` — 显示 Active backend / Config backend / Region (+ detected_at) / Registered
-- `/websearch refresh` — 失效缓存 + 立即重测,输出 before/after
-- `/websearch use <name>` — 本会话临时切(只接受 `duckduckgo` / `bing_cn`,`bochaai` / `tavily` 是后续 PR 占位)
-- `/websearch reset` — 回到 cfg + 缓存推导的 backend
+- `/websearch` — show active/config backend, region, detection time, and registered backends
+- `/websearch refresh` — invalidate and rerun region detection
+- `/websearch use <name>` — temporarily select `parallel`, `rss`, `duckduckgo`, or `bing_cn`
+- `/websearch reset` — restore the configured backend
 
-`config.web_search` 可选字段:`enabled`(默认 true)、`backend`(`auto` / `duckduckgo` / `bing_cn` / `bochaai` / `tavily`,后两个本期未实现)、`api_key`(future)、`max_results`(1..10,默认 5)、`timeout_ms`(1000..30000,默认 8000)。`enabled = false` 时工具完全不注册到 ToolExecutor,LLM 看不到。Bing CN 的 `bing.com/ck/a?u=a1<base64>` 跳转链会自动 base64 解码到真实 URL,decode 失败或非 http(s) 静默回退到原 href。Daemon 与 TUI 共享同一份 state.json 缓存。
+`config.web_search` fields: `enabled` (default true), `backend` (`parallel` default; or `rss`, `auto`, `duckduckgo`, `bing_cn`, `bochaai`, `tavily`), `rss_base_url` (default hosted endpoint; HTTPS required except loopback HTTP), `api_key` (future), `max_results` (1..10, default 5), and `timeout_ms` (1000..30000, default 8000). Queries are limited to 200 Unicode code points to match the hosted API. Setting `enabled = false` prevents tool registration. `bochaai` and `tavily` remain placeholders. Daemon, headless, and TUI paths share the same runtime and region cache.
 
 ### LSP(openspec add-lsp-service,仿 opencode)
 
@@ -413,7 +415,7 @@ Both `main.cpp` and `daemon/worker.cpp` call `proxy_resolver().init(cfg.network)
   },
   "web_search": {
     "enabled": true,
-    "backend": "auto",
+    "backend": "parallel",
     "api_key": "",
     "max_results": 5,
     "timeout_ms": 8000

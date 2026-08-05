@@ -1,0 +1,8 @@
+# Inside the existing ge.bigjuan.xyz site block:
+handle /rss-search {
+	redir * /rss-search/ 308
+}
+
+handle_path /rss-search/* {
+	reverse_proxy 127.0.0.1:47778
+}

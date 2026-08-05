@@ -1,14 +1,14 @@
 #pragma once
 
-// 联网搜索 backend 抽象。所有搜索源(本期 DuckDuckGo / 必应中国 HTML 爬取,
-// 后续 Tavily / 博查 API)都实现这个接口,让 BackendRouter 可统一驱动。
+// 联网搜索 backend 抽象。RSS、DuckDuckGo、必应中国以及后续 API 搜索源
+// 都实现这个接口,让 BackendRouter 可统一驱动。
 //
 // 设计:
 //   - search() 返回 std::variant<SearchResponse, SearchError>,与既有工具
 //     ToolResult 风格(success bool + 可选错误)保持兼容,且强制调用方两路都处理
 //   - abort 是非拥有指针,实现要 ≤100ms 内观察并返回(参考 bash_tool ctx.abort)
 //   - SearchError::Kind 区分 Network / Parse / RateLimited / Disabled,让上层
-//     的 BackendRouter 可以决定要不要 fallback(只在 Network 错误上 fallback)
+//     的 BackendRouter 可以决定 fallback 或并行部分成功策略
 
 #include <atomic>
 #include <string>
@@ -22,12 +22,16 @@ struct SearchHit {
     std::string title;
     std::string url;
     std::string snippet;
+    std::string source;        // Optional publisher/feed name.
+    std::string published_at;  // Optional ISO-8601 publication time.
+    std::string backend_name;  // Backend that produced this hit.
 };
 
 struct SearchResponse {
     std::vector<SearchHit> hits;
-    std::string backend_name;   // "duckduckgo" / "bing_cn" / ...
+    std::string backend_name;   // "parallel" / "duckduckgo" / "bing_cn" / ...
     int duration_ms = 0;        // 单次 search() 实际耗时
+    std::vector<std::string> warnings; // Non-fatal per-backend failures.
 };
 
 struct SearchError {

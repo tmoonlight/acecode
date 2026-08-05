@@ -1,0 +1,23 @@
+[Unit]
+Description=AceCode RSS Search API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rss-search
+Group=rss-search
+WorkingDirectory=/var/lib/acecode-rss-search
+Environment=RSS_SEARCH_DB_PATH=/var/lib/acecode-rss-search/rss-search.db
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/acecode-rss-search/.venv/bin/uvicorn rss_search_service.api.app:app --host 127.0.0.1 --port 47778 --workers 1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/acecode-rss-search
+
+[Install]
+WantedBy=multi-user.target

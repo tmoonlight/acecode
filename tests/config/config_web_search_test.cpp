@@ -5,10 +5,10 @@
 // 复刻到 apply_web_search_section() 以便正常用例 + 错误用例同表测试。
 //
 // 覆盖项:
-//   - WebSearchConfig 默认值(enabled=true / backend="auto" / max_results=5 /
-//     timeout_ms=8000 / api_key="")
+//   - WebSearchConfig 默认值(enabled=true / backend="parallel" / max_results=5 /
+//     timeout_ms=8000 / api_key="" / hosted rss_base_url)
 //   - 缺失段 → 默认值
-//   - 5 个合法 backend 字符串都被接受
+//   - 7 个合法 backend 字符串都被接受
 //   - 非法 backend 名报错并列出可选值
 //   - max_results 越界(0 / 11)报错
 //   - timeout_ms 越界(999 / 30001)报错
@@ -18,8 +18,11 @@
 #include <gtest/gtest.h>
 
 #include "config/config.hpp"
+#include "utils/http_url_validation.hpp"
 
 #include <nlohmann/json.hpp>
+#include <cstdlib>
+#include <filesystem>
 #include <string>
 
 using namespace acecode;
@@ -39,15 +42,23 @@ std::string apply_web_search_section(const nlohmann::json& j_with_web_search,
         out.enabled = wsj["enabled"].get<bool>();
     if (wsj.contains("backend") && wsj["backend"].is_string()) {
         std::string b = wsj["backend"].get<std::string>();
-        if (b != "auto" && b != "duckduckgo" && b != "bing_cn" &&
+        if (b != "parallel" && b != "rss" && b != "auto" &&
+            b != "duckduckgo" && b != "bing_cn" &&
             b != "bochaai" && b != "tavily") {
             return "web_search.backend='" + b +
-                   "' invalid; expected one of: auto, duckduckgo, bing_cn, bochaai, tavily";
+                   "' invalid; expected one of: parallel, rss, auto, duckduckgo, bing_cn, bochaai, tavily";
         }
         out.backend = std::move(b);
     }
     if (wsj.contains("api_key") && wsj["api_key"].is_string())
         out.api_key = wsj["api_key"].get<std::string>();
+    if (wsj.contains("rss_base_url") && wsj["rss_base_url"].is_string()) {
+        const auto url = wsj["rss_base_url"].get<std::string>();
+        if (!utils::is_valid_http_base_url(url)) {
+            return "web_search.rss_base_url invalid";
+        }
+        out.rss_base_url = url;
+    }
     if (wsj.contains("max_results") && wsj["max_results"].is_number_integer()) {
         int v = wsj["max_results"].get<int>();
         if (v < 1 || v > 10) {
@@ -72,8 +83,9 @@ std::string apply_web_search_section(const nlohmann::json& j_with_web_search,
 TEST(ConfigWebSearchDefaults, StructDefault) {
     WebSearchConfig c;
     EXPECT_TRUE(c.enabled);
-    EXPECT_EQ(c.backend, "auto");
+    EXPECT_EQ(c.backend, "parallel");
     EXPECT_EQ(c.api_key, "");
+    EXPECT_EQ(c.rss_base_url, "https://ge.bigjuan.xyz/rss-search");
     EXPECT_EQ(c.max_results, 5);
     EXPECT_EQ(c.timeout_ms, 8000);
 }
@@ -82,7 +94,7 @@ TEST(ConfigWebSearchDefaults, StructDefault) {
 TEST(ConfigWebSearchDefaults, NestedInAppConfig) {
     AppConfig cfg;
     EXPECT_TRUE(cfg.web_search.enabled);
-    EXPECT_EQ(cfg.web_search.backend, "auto");
+    EXPECT_EQ(cfg.web_search.backend, "parallel");
     EXPECT_EQ(cfg.web_search.max_results, 5);
     EXPECT_EQ(cfg.web_search.timeout_ms, 8000);
 }
@@ -92,12 +104,13 @@ TEST(ConfigWebSearchLoader, MissingBlockKeepsDefault) {
     WebSearchConfig c;
     nlohmann::json j = nlohmann::json::object();
     EXPECT_EQ(apply_web_search_section(j, c), "");
-    EXPECT_EQ(c.backend, "auto");
+    EXPECT_EQ(c.backend, "parallel");
 }
 
-// 场景:5 个合法 backend 名都被原样接受
+// 场景:7 个合法 backend 名都被原样接受
 TEST(ConfigWebSearchLoader, AcceptsAllValidBackends) {
-    for (const std::string& v : {"auto", "duckduckgo", "bing_cn", "bochaai", "tavily"}) {
+    for (const std::string& v : {"parallel", "rss", "auto", "duckduckgo",
+                                 "bing_cn", "bochaai", "tavily"}) {
         WebSearchConfig c;
         nlohmann::json j = {{"web_search", {{"backend", v}}}};
         EXPECT_EQ(apply_web_search_section(j, c), "") << "backend=" << v;
@@ -111,6 +124,8 @@ TEST(ConfigWebSearchLoader, InvalidBackendRejected) {
     nlohmann::json j = {{"web_search", {{"backend", "google"}}}};
     auto err = apply_web_search_section(j, c);
     EXPECT_NE(err.find("google"), std::string::npos);
+    EXPECT_NE(err.find("parallel"), std::string::npos);
+    EXPECT_NE(err.find("rss"), std::string::npos);
     EXPECT_NE(err.find("auto"), std::string::npos);
     EXPECT_NE(err.find("duckduckgo"), std::string::npos);
     EXPECT_NE(err.find("bing_cn"), std::string::npos);
@@ -184,13 +199,27 @@ TEST(ConfigWebSearchLoader, ApiKeyAccepted) {
     EXPECT_EQ(c.api_key, "secret-token-12345");
 }
 
+TEST(ConfigWebSearchLoader, RssBaseUrlAccepted) {
+    WebSearchConfig c;
+    nlohmann::json j = {{"web_search", {{"rss_base_url", "https://search.example/api"}}}};
+    EXPECT_EQ(apply_web_search_section(j, c), "");
+    EXPECT_EQ(c.rss_base_url, "https://search.example/api");
+}
+
+TEST(ConfigWebSearchLoader, UnsafeRssBaseUrlRejected) {
+    WebSearchConfig c;
+    nlohmann::json j = {{"web_search", {
+        {"rss_base_url", "https://user:secret@example.com/api?token=x"}}}};
+    EXPECT_NE(apply_web_search_section(j, c), "");
+}
+
 // 场景:web_search 不是对象(数组 / 字符串 / 数字)→ 静默忽略,默认值不变
 TEST(ConfigWebSearchLoader, NonObjectSectionIgnored) {
     WebSearchConfig c;
     {
         nlohmann::json j = {{"web_search", "auto"}};
         EXPECT_EQ(apply_web_search_section(j, c), "");
-        EXPECT_EQ(c.backend, "auto");
+        EXPECT_EQ(c.backend, "parallel");
     }
     {
         nlohmann::json j = {{"web_search", 42}};
@@ -200,4 +229,33 @@ TEST(ConfigWebSearchLoader, NonObjectSectionIgnored) {
         nlohmann::json j = {{"web_search", nlohmann::json::array({"x"})}};
         EXPECT_EQ(apply_web_search_section(j, c), "");
     }
+}
+
+TEST(ConfigWebSearchProduction, RssBaseUrlSaveLoadRoundTrip) {
+    namespace fs = std::filesystem;
+    const auto dir = fs::temp_directory_path() /
+        ("acecode_web_search_config_" + std::to_string(std::rand()));
+    const auto path = (dir / "config.json").string();
+
+    AppConfig cfg;
+    cfg.web_search.backend = "rss";
+    cfg.web_search.rss_base_url = "https://search.example/custom";
+    save_config(cfg, path);
+    const auto loaded = load_config_from_path(path);
+    EXPECT_EQ(loaded.web_search.backend, "rss");
+    EXPECT_EQ(loaded.web_search.rss_base_url, "https://search.example/custom");
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+TEST(ConfigWebSearchProduction, InvalidRssBaseUrlCannotBeSaved) {
+    namespace fs = std::filesystem;
+    const auto path = (fs::temp_directory_path() /
+        ("acecode_invalid_web_search_" + std::to_string(std::rand()) + ".json")).string();
+    AppConfig cfg;
+    cfg.web_search.rss_base_url = "https://user:secret@example.com/api?token=x";
+    EXPECT_THROW(save_config(cfg, path), std::runtime_error);
+    std::error_code ec;
+    fs::remove(path, ec);
 }
