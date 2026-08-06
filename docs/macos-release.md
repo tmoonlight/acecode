@@ -77,9 +77,10 @@ The optional Actions variable `MACOS_CODESIGN_IDENTITY` can contain the full
 identity name, for example `Developer ID Application: Name (TEAMID)`. When it is
 set, the workflow uses it to verify that the imported `.p12` is the expected
 identity. Signing itself always uses the unique certificate fingerprint found
-in the temporary keychain, avoiding name-resolution failures in `codesign`.
-Leave the variable unset when the exported `.p12` contains only one Developer
-ID Application identity and this extra guard is not needed.
+in the temporary keychain, and the workflow adds that temporary keychain to the
+runner user's keychain search list before invoking `codesign`. Leave the
+variable unset when the exported `.p12` contains only one Developer ID
+Application identity and this extra guard is not needed.
 
 ## Local Notarization Credentials
 

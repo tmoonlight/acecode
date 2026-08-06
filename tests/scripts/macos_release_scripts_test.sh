@@ -42,6 +42,7 @@ grep -Fq -- '--keychain-profile <name>' "$notarize_script"
 grep -Fq 'Install ACECode.app' "$dmg_script"
 grep -Fq 'identity_fingerprint=' "$package_workflow"
 grep -Fq 'echo "identity=$identity_fingerprint"' "$package_workflow"
+grep -Fq 'security list-keychains -d user -s' "$package_workflow"
 
 if grep -Fq 'identity="$MACOS_CODESIGN_IDENTITY"' "$package_workflow"; then
     echo "macOS signing must use the imported identity fingerprint, not a configured name" >&2
