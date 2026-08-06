@@ -121,8 +121,8 @@ The version in `CMakeLists.txt` is authoritative. The tag must match it exactly:
 ```bash
 git switch master
 git pull --ff-only
-git tag -a v0.8.7 -m "ACECode v0.8.7"
-git push origin v0.8.7
+git tag -a v0.8.8 -m "ACECode v0.8.8"
+git push origin v0.8.8
 ```
 
 The tag starts the full package workflow. After every platform build succeeds,
