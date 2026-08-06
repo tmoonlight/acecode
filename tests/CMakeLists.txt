@@ -7,6 +7,13 @@ if(UNIX)
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/macos_release_scripts_test.sh
     )
     set_tests_properties(macos_release_scripts_contract PROPERTIES LABELS "unit")
+
+    add_test(
+        NAME macos_dmg_layout_contract
+        COMMAND /bin/bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/macos_dmg_layout_test.sh
+    )
+    set_tests_properties(macos_dmg_layout_contract PROPERTIES LABELS "unit")
 endif()
 
 file(GLOB_RECURSE ACECODE_TEST_SOURCES CONFIGURE_DEPENDS
