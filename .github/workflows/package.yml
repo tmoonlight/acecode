@@ -113,6 +113,55 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Resolve package version
+        id: package-version
+        shell: bash
+        run: |
+          declared_version="$(awk '$1 == "project(acecode" && $2 == "VERSION" { print $3; exit }' CMakeLists.txt)"
+          if [ -z "$declared_version" ]; then
+            echo "::error::Unable to read the ACECode version from CMakeLists.txt"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$declared_version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match CMake version $declared_version"
+            exit 1
+          fi
+          echo "version=$declared_version" >> "$GITHUB_OUTPUT"
+
+      - name: Check macOS release credentials
+        if: runner.os == 'macOS'
+        id: macos-release
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          missing=()
+          for name in \
+            MACOS_CERTIFICATE_BASE64 \
+            MACOS_CERTIFICATE_PASSWORD \
+            APPLE_ID \
+            APPLE_TEAM_ID \
+            APPLE_APP_SPECIFIC_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -ne 0 ]; then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::Tagged macOS releases require secrets: ${missing[*]}"
+              exit 1
+            fi
+            echo "::notice::macOS signing/notarization disabled; missing: ${missing[*]}"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure MSVC
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
@@ -162,6 +211,11 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
+      - name: Build current-user installer (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cmake --build build --config MinSizeRel --target acecode-user-installer
+
       - name: Extract debug symbols (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -191,6 +245,7 @@ jobs:
         run: |
           app_exec="build/ACECode.app/Contents/MacOS/ACECode"
           app_daemon="build/ACECode.app/Contents/MacOS/acecode-daemon"
+          installer_exec="build/Install ACECode.app/Contents/MacOS/Install ACECode"
           if [ ! -f "$app_exec" ]; then
             echo "Missing desktop app executable: $app_exec" >&2
             exit 1
@@ -199,10 +254,90 @@ jobs:
             echo "Missing desktop app daemon: $app_daemon" >&2
             exit 1
           fi
+          if [ ! -f "$installer_exec" ]; then
+            echo "Missing current-user installer: $installer_exec" >&2
+            exit 1
+          fi
           dsymutil "$app_exec" -o "build/ACECode.app.dSYM"
           strip "$app_exec"
           dsymutil "$app_daemon" -o "build/acecode-daemon.dSYM"
           strip "$app_daemon"
+          dsymutil "$installer_exec" -o "build/Install ACECode.app.dSYM"
+          strip "$installer_exec"
+
+      - name: Import Developer ID certificate (macOS)
+        if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
+        id: macos-keychain
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ vars.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          set +x
+          certificate_path="$RUNNER_TEMP/acecode-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/acecode-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$certificate_path"
+          chmod 600 "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+
+          existing_user_keychains=()
+          while IFS= read -r existing_keychain; do
+            if [ -n "$existing_keychain" ]; then
+              existing_user_keychains+=("$existing_keychain")
+            fi
+          done < <(
+            security list-keychains -d user |
+              sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//'
+          )
+          security list-keychains -d user -s \
+            "$keychain_path" \
+            "${existing_user_keychains[@]}"
+
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -f pkcs12 \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+
+          identity_record="$(security find-identity -v -p codesigning "$keychain_path" |
+            awk '/Developer ID Application:/ { print; exit }')"
+          identity_fingerprint="$(printf '%s\n' "$identity_record" | awk '{ print $2 }')"
+          identity_name="$(printf '%s\n' "$identity_record" | awk -F '"' '{ print $2 }')"
+          if [[ ! "$identity_fingerprint" =~ ^[[:xdigit:]]{40}$ ]] || [ -z "$identity_name" ]; then
+            echo "::error::No Developer ID Application identity found in the imported certificate"
+            exit 1
+          fi
+          if [ -n "$MACOS_CODESIGN_IDENTITY" ] && [ "$identity_name" != "$MACOS_CODESIGN_IDENTITY" ]; then
+            echo "::error::Imported signing identity does not match MACOS_CODESIGN_IDENTITY"
+            exit 1
+          fi
+
+          echo "keychain=$keychain_path" >> "$GITHUB_OUTPUT"
+          # Sign by the certificate fingerprint. codesign can fail to resolve a
+          # human-readable identity name inside an isolated temporary keychain.
+          echo "identity=$identity_fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Sign macOS release payloads
+        if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          scripts/macos_codesign.sh \
+            --identity "${{ steps.macos-keychain.outputs.identity }}" \
+            --keychain "${{ steps.macos-keychain.outputs.keychain }}" \
+            --binary "build/${{ matrix.executable }}" \
+            --bundle "build/Install ACECode.app" \
+            --app "build/ACECode.app"
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -240,6 +375,53 @@ jobs:
             exit 1
           fi
           tar -C dist -czf "acecode-${{ matrix.id }}.tar.gz" "acecode-${{ matrix.id }}"
+
+      - name: Create macOS DMG
+        if: runner.os == 'macOS'
+        id: macos-dmg
+        shell: bash
+        run: |
+          unsigned_suffix=""
+          if [ "${{ steps.macos-release.outputs.enabled }}" != "true" ]; then
+            unsigned_suffix="-unsigned"
+          fi
+          dmg_path="ACECode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}${unsigned_suffix}.dmg"
+          scripts/macos_create_dmg.sh \
+            --app "build/ACECode.app" \
+            --installer "build/Install ACECode.app" \
+            --output "$dmg_path" \
+            --volume-name "ACECode ${{ steps.package-version.outputs.version }}"
+          echo "path=$dmg_path" >> "$GITHUB_OUTPUT"
+
+      - name: Sign macOS DMG
+        if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          /usr/bin/codesign \
+            --force \
+            --timestamp \
+            --sign "${{ steps.macos-keychain.outputs.identity }}" \
+            --keychain "${{ steps.macos-keychain.outputs.keychain }}" \
+            "${{ steps.macos-dmg.outputs.path }}"
+          /usr/bin/codesign --verify --strict --verbose=2 \
+            "${{ steps.macos-dmg.outputs.path }}"
+
+      - name: Notarize and validate macOS DMG
+        if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: scripts/macos_notarize.sh --file "${{ steps.macos-dmg.outputs.path }}"
+
+      - name: Clean up macOS signing material
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set +e
+          security delete-keychain "$RUNNER_TEMP/acecode-signing.keychain-db" 2>/dev/null
+          rm -f -- "$RUNNER_TEMP/acecode-developer-id.p12"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -308,6 +490,14 @@ jobs:
           path: acecode-${{ matrix.id }}.${{ matrix.archive_extension }}
           if-no-files-found: error
 
+      - name: Upload macOS DMG
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: acecode-${{ matrix.id }}-dmg
+          path: ${{ steps.macos-dmg.outputs.path }}
+          if-no-files-found: error
+
       - name: Upload PDB
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -356,6 +546,7 @@ jobs:
           path: |
             build/ACECode.app.dSYM
             build/acecode-daemon.dSYM
+            build/Install ACECode.app.dSYM
           if-no-files-found: warn
 
   build-linux-old-package:
@@ -563,7 +754,7 @@ jobs:
         run: |
           mkdir -p release-assets
 
-          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 |
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.dmg' \) -print0 |
             while IFS= read -r -d '' file; do
               cp "$file" "release-assets/$(basename "$file")"
             done
@@ -583,6 +774,14 @@ jobs:
               dsym_name="$(basename "$dsym")"
               tar -czf "release-assets/[dev_only]${artifact_name}-${dsym_name}.tar.gz" -C "$(dirname "$dsym")" "$dsym_name"
             done
+
+          (
+            cd release-assets
+            LC_ALL=C find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 |
+              sort -z |
+              xargs -0 sha256sum |
+              sed 's#  \./#  #' > SHA256SUMS.txt
+          )
 
           ls -lh release-assets/
 
