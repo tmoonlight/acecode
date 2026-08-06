@@ -296,18 +296,23 @@ jobs:
             -k "$keychain_password" \
             "$keychain_path"
 
-          identity="$MACOS_CODESIGN_IDENTITY"
-          if [ -z "$identity" ]; then
-            identity="$(security find-identity -v -p codesigning "$keychain_path" |
-              awk -F '"' '/Developer ID Application:/ { print $2; exit }')"
-          fi
-          if [ -z "$identity" ]; then
+          identity_record="$(security find-identity -v -p codesigning "$keychain_path" |
+            awk '/Developer ID Application:/ { print; exit }')"
+          identity_fingerprint="$(printf '%s\n' "$identity_record" | awk '{ print $2 }')"
+          identity_name="$(printf '%s\n' "$identity_record" | awk -F '"' '{ print $2 }')"
+          if [[ ! "$identity_fingerprint" =~ ^[[:xdigit:]]{40}$ ]] || [ -z "$identity_name" ]; then
             echo "::error::No Developer ID Application identity found in the imported certificate"
+            exit 1
+          fi
+          if [ -n "$MACOS_CODESIGN_IDENTITY" ] && [ "$identity_name" != "$MACOS_CODESIGN_IDENTITY" ]; then
+            echo "::error::Imported signing identity does not match MACOS_CODESIGN_IDENTITY"
             exit 1
           fi
 
           echo "keychain=$keychain_path" >> "$GITHUB_OUTPUT"
-          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          # Sign by the certificate fingerprint. codesign can fail to resolve a
+          # human-readable identity name inside an isolated temporary keychain.
+          echo "identity=$identity_fingerprint" >> "$GITHUB_OUTPUT"
 
       - name: Sign macOS release payloads
         if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'

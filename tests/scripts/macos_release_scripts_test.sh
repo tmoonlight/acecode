@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 sign_script="$repo_root/scripts/macos_codesign.sh"
 dmg_script="$repo_root/scripts/macos_create_dmg.sh"
 notarize_script="$repo_root/scripts/macos_notarize.sh"
+package_workflow="$repo_root/.github/workflows/package.yml"
 
 temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/acecode-release-scripts.XXXXXX")"
 cleanup() {
@@ -39,6 +40,13 @@ done
 grep -Fq -- '--bundle <path>' "$sign_script"
 grep -Fq -- '--keychain-profile <name>' "$notarize_script"
 grep -Fq 'Install ACECode.app' "$dmg_script"
+grep -Fq 'identity_fingerprint=' "$package_workflow"
+grep -Fq 'echo "identity=$identity_fingerprint"' "$package_workflow"
+
+if grep -Fq 'identity="$MACOS_CODESIGN_IDENTITY"' "$package_workflow"; then
+    echo "macOS signing must use the imported identity fingerprint, not a configured name" >&2
+    exit 1
+fi
 
 if grep -Eq 'ln[[:space:]].*/Applications|ln[[:space:]]+-s[[:space:]]+/Applications' "$dmg_script"; then
     echo "DMG helper must not create a system /Applications link" >&2

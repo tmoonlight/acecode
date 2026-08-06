@@ -74,9 +74,12 @@ created, but the npm job reports a failure. This token is separate from macOS
 signing.
 
 The optional Actions variable `MACOS_CODESIGN_IDENTITY` can contain the full
-identity name, for example `Developer ID Application: Name (TEAMID)`. Leave it
-unset when the exported `.p12` contains only one Developer ID Application
-identity; the workflow discovers it automatically.
+identity name, for example `Developer ID Application: Name (TEAMID)`. When it is
+set, the workflow uses it to verify that the imported `.p12` is the expected
+identity. Signing itself always uses the unique certificate fingerprint found
+in the temporary keychain, avoiding name-resolution failures in `codesign`.
+Leave the variable unset when the exported `.p12` contains only one Developer
+ID Application identity and this extra guard is not needed.
 
 ## Local Notarization Credentials
 
