@@ -8,6 +8,7 @@
 #include <vector>
 #include <array>
 #include <cstddef>
+#include <optional>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/box.hpp>
@@ -70,13 +71,55 @@ void set_mcp_sidebar_servers_locked(TuiState& state, std::vector<TuiState::McpSi
 ftxui::Element render_tool_result_lines_preserving_breaks(const std::string& display_content);
 
 // ---- Input text wrapping ----
+struct InputTextHitRegion {
+    ftxui::Box box{0, -1, 0, -1};
+    size_t byte_begin = 0;
+    size_t byte_end = 0;
+};
+
+struct InputTextHitLayout {
+    ftxui::Box box{0, -1, 0, -1};
+    std::vector<InputTextHitRegion> regions;
+    std::string input_value;
+};
+
+enum class InputPointerTarget {
+    None,
+    Composer,
+    AskOther,
+};
+
+struct InputPointerPressResult {
+    bool cursor_placed = false;
+    bool event_consumed = false;
+    InputPointerTarget target = InputPointerTarget::None;
+    size_t cursor_bytes = 0;
+};
+
 bool is_space_glyph(const std::string& glyph);
 bool is_narrow_glyph(const std::string& glyph);
 bool is_opening_cjk_punctuation(const std::string& glyph);
 bool is_closing_cjk_punctuation(const std::string& glyph);
 void flush_ascii_run(std::string* ascii_run, std::string* pending_prefix, std::vector<std::string>* output);
 std::vector<std::string> tokenize_wrapped_input(const std::string& text);
-ftxui::Element render_wrapped_input_text(const std::string& input_value, size_t cursor_bytes);
+ftxui::Element render_wrapped_input_text(
+    const std::string& input_value,
+    size_t cursor_bytes,
+    std::vector<InputTextHitRegion>* hit_regions = nullptr);
+ftxui::Element render_empty_input_prompt(
+    std::vector<InputTextHitRegion>* hit_regions = nullptr);
+std::optional<size_t> input_cursor_from_point(
+    const std::string& input_value,
+    const ftxui::Box& input_box,
+    const std::vector<InputTextHitRegion>& hit_regions,
+    int mouse_x,
+    int mouse_y);
+InputPointerTarget input_pointer_target(const TuiState& state);
+InputPointerPressResult resolve_input_pointer_press(
+    const TuiState& state,
+    const InputTextHitLayout& hit_layout,
+    int mouse_x,
+    int mouse_y);
 
 // ---- Model load global ----
 extern std::atomic<int> g_model_load_percent;

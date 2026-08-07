@@ -427,6 +427,8 @@ TEST_F(SystemPromptTest, PromptUsesClaudeStyleReadFailureGuidanceAndGuidesScratc
     EXPECT_NE(out.find("Do not call file_read again for the same file/range"), std::string::npos);
     EXPECT_NE(out.find("Do not re-read a file only to verify a successful edit/write"), std::string::npos);
     EXPECT_NE(out.find("ACECODE_TMPDIR"), std::string::npos);
+    EXPECT_NE(out.find("only as the leading path component"), std::string::npos);
+    EXPECT_NE(out.find("Never embed the alias inside another path"), std::string::npos);
     EXPECT_EQ(out.find("Before editing or overwriting an existing non-empty file, read the target file first"), std::string::npos);
     EXPECT_EQ(out.find("partial reads are only enough for range edits"), std::string::npos);
     EXPECT_EQ(out.find("start_line/end_line/expected_hash"), std::string::npos);

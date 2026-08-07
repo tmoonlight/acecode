@@ -3,6 +3,7 @@
 #include "utils/logger.hpp"
 #include "utils/encoding.hpp"
 #include "utils/stream_processing.hpp"
+#include "utils/tool_errors.hpp"
 #include "utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -201,6 +202,20 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
         return s;
     };
 
+    const std::string scratch_dir = ctx.scratch_dir;
+    if (scratch_dir.empty() &&
+        ToolContext::references_scratch_path_alias(command)) {
+        ToolResult r{
+            ToolErrors::invalid_parameter(
+                "command",
+                "references ACECODE_TMPDIR, but no session scratch directory is available. "
+                "Retry in an active session or use an explicit path."),
+            false};
+        r.summary = make_summary(command, 0, 0, -1, false,
+                                 false, false, false);
+        return r;
+    }
+
     LOG_INFO("bash: cmd=" + log_truncate(command, 200) + " cwd=" + cwd +
              " timeout=" + std::to_string(timeout_ms) +
              " stdin_inputs=" + std::to_string(stdin_inputs.size()));
@@ -225,7 +240,6 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
         : cwd_path;
     const auto root_scripts_before = list_root_script_files(root_for_script_warning);
 
-    std::string scratch_dir = ctx.scratch_dir;
     if (!scratch_dir.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(path_from_utf8(scratch_dir), ec);

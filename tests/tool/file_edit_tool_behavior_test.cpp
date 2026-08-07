@@ -2,6 +2,7 @@
 
 #include "tool/file_edit_tool.hpp"
 #include "tool/file_read_tool.hpp"
+#include "tool/file_write_tool.hpp"
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/text_file_buffer.hpp"
@@ -22,6 +23,7 @@ using acecode::ToolImpl;
 using acecode::ToolResult;
 using acecode::create_file_edit_tool;
 using acecode::create_file_read_tool;
+using acecode::create_file_write_tool;
 
 namespace {
 
@@ -61,9 +63,63 @@ TEST(FileEditToolBehavior, DescriptionUsesClaudeStyleReadFailureGuidance) {
     EXPECT_NE(tool.definition.description.find(
                   "This tool will error if you attempt an edit without reading the file"),
               std::string::npos);
+    EXPECT_NE(tool.definition.description.find(
+                  "ACECODE_TMPDIR alias may be the leading component"),
+              std::string::npos);
     EXPECT_EQ(tool.definition.description.find(
                   "Read existing non-empty files with file_read before editing"),
               std::string::npos);
+}
+
+TEST(FileEditToolBehavior, ScratchAliasesShareOneResolvedPathAcrossFileTools) {
+    auto root = temp_file("_scratch_alias_root");
+    fs::create_directories(root);
+    const auto scratch_dir = root / ".acecode" / "tmp" / "session-test";
+    const auto scratch_file = scratch_dir / "helper.txt";
+
+    ToolContext ctx;
+    ctx.cwd = root.string();
+    ctx.scratch_dir = scratch_dir.string();
+
+    ToolImpl write_tool = create_file_write_tool();
+    ToolResult write_result = write_tool.execute(nlohmann::json({
+        {"file_path", "%ACECODE_TMPDIR%\\helper.txt"},
+        {"content", "alpha\n"}
+    }).dump(), ctx);
+    ASSERT_TRUE(write_result.success) << write_result.output;
+    ASSERT_TRUE(write_result.summary.has_value());
+    EXPECT_EQ(write_result.summary->object, scratch_file.string());
+    EXPECT_EQ(read_file(scratch_file), "alpha\n");
+    EXPECT_FALSE(fs::exists(root / "%ACECODE_TMPDIR%"));
+
+    ToolImpl read_tool = create_file_read_tool();
+    ToolResult read_result = read_tool.execute(nlohmann::json({
+        {"file_path", "$ACECODE_TMPDIR/helper.txt"}
+    }).dump(), ctx);
+    ASSERT_TRUE(read_result.success) << read_result.output;
+    EXPECT_NE(read_result.output.find("alpha\n"), std::string::npos);
+
+    ToolImpl edit_tool = create_file_edit_tool();
+    ToolResult edit_result = edit_tool.execute(nlohmann::json({
+        {"file_path", "${ACECODE_TMPDIR}/helper.txt"},
+        {"old_string", "alpha"},
+        {"new_string", "beta"}
+    }).dump(), ctx);
+    ASSERT_TRUE(edit_result.success) << edit_result.output;
+    ASSERT_TRUE(edit_result.summary.has_value());
+    EXPECT_EQ(edit_result.summary->object, scratch_file.string());
+    EXPECT_EQ(read_file(scratch_file), "beta\n");
+
+    const auto embedded_alias = root / "%ACECODE_TMPDIR%" / "bad.txt";
+    ToolResult rejected = write_tool.execute(nlohmann::json({
+        {"file_path", embedded_alias.string()},
+        {"content", "bad\n"}
+    }).dump(), ctx);
+    EXPECT_FALSE(rejected.success);
+    EXPECT_NE(rejected.output.find("first path component"), std::string::npos);
+    EXPECT_FALSE(fs::exists(root / "%ACECODE_TMPDIR%"));
+
+    fs::remove_all(root);
 }
 
 TEST(FileEditToolBehavior, RejectsExistingFileWithoutReadBaseline) {

@@ -943,8 +943,16 @@ std::vector<std::string> tokenize_wrapped_input(const std::string& text) {
 
         if (is_space_glyph(glyph)) {
             flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
-            if (!tokens.empty()) {
-                tokens.back() += " ";
+            // An unresolved opening-punctuation run is logically after every
+            // emitted token. Keep following whitespace with that run so token
+            // concatenation cannot move the whitespace ahead of the opening
+            // punctuation. Preserve the original glyph (including a tab).
+            if (!pending_prefix.empty()) {
+                pending_prefix += glyph;
+            } else if (!tokens.empty()) {
+                tokens.back() += glyph;
+            } else {
+                tokens.push_back(glyph);
             }
             continue;
         }
@@ -957,10 +965,14 @@ std::vector<std::string> tokenize_wrapped_input(const std::string& text) {
 
         if (is_closing_cjk_punctuation(glyph)) {
             flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
-            if (!tokens.empty()) {
-                tokens.back() += glyph;
-            } else if (!pending_prefix.empty()) {
+            // pending_prefix comes after all emitted tokens. Resolve closing
+            // punctuation there first; appending it to tokens.back() would
+            // cross the pending opening run and visibly reverse text such as
+            // full-width nested parentheses.
+            if (!pending_prefix.empty()) {
                 pending_prefix += glyph;
+            } else if (!tokens.empty()) {
+                tokens.back() += glyph;
             } else {
                 tokens.push_back(glyph);
             }
@@ -993,7 +1005,10 @@ std::vector<std::string> tokenize_wrapped_input(const std::string& text) {
     return tokens;
 }
 
-Element render_wrapped_input_text(const std::string& input_value, size_t cursor_bytes) {
+Element render_wrapped_input_text(
+    const std::string& input_value,
+    size_t cursor_bytes,
+    std::vector<InputTextHitRegion>* hit_regions) {
     if (cursor_bytes > input_value.size()) cursor_bytes = input_value.size();
 
     std::string head = input_value.substr(0, cursor_bytes);
@@ -1012,8 +1027,43 @@ Element render_wrapped_input_text(const std::string& input_value, size_t cursor_
     auto tokens_head = tokenize_wrapped_input(head);
     auto tokens_tail = tokenize_wrapped_input(tail);
 
-    auto cursor_elem = text(cursor_glyph.empty() ? std::string(" ") : cursor_glyph)
-                       | focusCursorBlock;
+    std::vector<std::pair<size_t, size_t>> head_ranges;
+    head_ranges.reserve(tokens_head.size());
+    size_t byte_offset = 0;
+    for (const auto& token : tokens_head) {
+        const size_t next_offset = byte_offset + token.size();
+        head_ranges.emplace_back(byte_offset, next_offset);
+        byte_offset = next_offset;
+    }
+
+    std::vector<std::pair<size_t, size_t>> tail_ranges;
+    tail_ranges.reserve(tokens_tail.size());
+    byte_offset = cursor_bytes + cursor_glyph.size();
+    for (const auto& token : tokens_tail) {
+        const size_t next_offset = byte_offset + token.size();
+        tail_ranges.emplace_back(byte_offset, next_offset);
+        byte_offset = next_offset;
+    }
+
+    if (hit_regions) {
+        hit_regions->clear();
+        hit_regions->reserve(
+            tokens_head.size() + tokens_tail.size() + 1);
+    }
+
+    auto track = [&](Element element, size_t begin, size_t end) {
+        if (!hit_regions) {
+            return element;
+        }
+        hit_regions->push_back({Box{0, -1, 0, -1}, begin, end});
+        return std::move(element) | reflect(hit_regions->back().box);
+    };
+
+    auto cursor_elem = track(
+        text(cursor_glyph.empty() ? std::string(" ") : cursor_glyph)
+            | focusCursorBlock,
+        cursor_bytes,
+        cursor_bytes + cursor_glyph.size());
 
     if (tokens_head.empty() && tokens_tail.empty()) {
         return cursor_elem;
@@ -1023,27 +1073,173 @@ Element render_wrapped_input_text(const std::string& input_value, size_t cursor_
     parts.reserve(tokens_head.size() + tokens_tail.size() + 1);
 
     for (size_t i = 0; i + 1 < tokens_head.size(); ++i) {
-        parts.push_back(text(std::move(tokens_head[i])));
+        parts.push_back(track(
+            text(std::move(tokens_head[i])),
+            head_ranges[i].first,
+            head_ranges[i].second));
     }
 
     Elements compound;
     if (!tokens_head.empty()) {
-        compound.push_back(text(std::move(tokens_head.back())));
+        compound.push_back(track(
+            text(std::move(tokens_head.back())),
+            head_ranges.back().first,
+            head_ranges.back().second));
     }
     compound.push_back(cursor_elem);
     size_t tail_start = 0;
     if (!tokens_tail.empty()) {
-        compound.push_back(text(std::move(tokens_tail[0])));
+        compound.push_back(track(
+            text(std::move(tokens_tail[0])),
+            tail_ranges[0].first,
+            tail_ranges[0].second));
         tail_start = 1;
     }
     parts.push_back(hbox(std::move(compound)));
 
     for (size_t i = tail_start; i < tokens_tail.size(); ++i) {
-        parts.push_back(text(std::move(tokens_tail[i])));
+        parts.push_back(track(
+            text(std::move(tokens_tail[i])),
+            tail_ranges[i].first,
+            tail_ranges[i].second));
     }
 
     static const auto config = FlexboxConfig().SetGap(0, 0);
     return flexbox(std::move(parts), config);
+}
+
+Element render_empty_input_prompt(
+    std::vector<InputTextHitRegion>* hit_regions) {
+    Element row = hbox({
+        text(" ") | focusCursorBar,
+        text("Type your prompt here...") | readable_secondary(),
+    });
+    if (hit_regions) {
+        hit_regions->clear();
+        hit_regions->reserve(1);
+        hit_regions->push_back({Box{0, -1, 0, -1}, 0, 0});
+        row = std::move(row) | reflect(hit_regions->back().box);
+    }
+
+    // The surrounding input uses vertical flex. Keep the reflected empty row
+    // at one rendered line so blank space allocated below it is not clickable.
+    return vbox({std::move(row)});
+}
+
+std::optional<size_t> input_cursor_from_point(
+    const std::string& input_value,
+    const Box& input_box,
+    const std::vector<InputTextHitRegion>& hit_regions,
+    int mouse_x,
+    int mouse_y) {
+    if (input_box.IsEmpty() || !input_box.Contain(mouse_x, mouse_y)) {
+        return std::nullopt;
+    }
+    std::vector<const InputTextHitRegion*> row_regions;
+    row_regions.reserve(hit_regions.size());
+    for (const auto& region : hit_regions) {
+        if (!region.box.IsEmpty() &&
+            region.box.y_min <= mouse_y && mouse_y <= region.box.y_max &&
+            region.byte_begin <= region.byte_end &&
+            region.byte_end <= input_value.size()) {
+            row_regions.push_back(&region);
+        }
+    }
+    if (row_regions.empty()) {
+        return std::nullopt;
+    }
+
+    if (input_value.empty()) {
+        return size_t{0};
+    }
+
+    std::sort(
+        row_regions.begin(), row_regions.end(),
+        [](const InputTextHitRegion* lhs, const InputTextHitRegion* rhs) {
+            if (lhs->box.x_min != rhs->box.x_min) {
+                return lhs->box.x_min < rhs->box.x_min;
+            }
+            return lhs->byte_begin < rhs->byte_begin;
+        });
+
+    if (mouse_x < row_regions.front()->box.x_min) {
+        return row_regions.front()->byte_begin;
+    }
+
+    for (const auto* region : row_regions) {
+        if (mouse_x < region->box.x_min) {
+            return region->byte_begin;
+        }
+        if (mouse_x > region->box.x_max) {
+            continue;
+        }
+
+        int remaining_cells = mouse_x - region->box.x_min;
+        size_t cursor = region->byte_begin;
+        const std::string fragment = input_value.substr(
+            region->byte_begin, region->byte_end - region->byte_begin);
+        for (const auto& glyph : Utf8ToGlyphs(fragment)) {
+            if (glyph.empty()) {
+                continue;
+            }
+            if (remaining_cells <= 0) {
+                break;
+            }
+            remaining_cells -= std::max(0, string_width(glyph));
+            cursor += glyph.size();
+        }
+        return std::min(cursor, region->byte_end);
+    }
+
+    return row_regions.back()->byte_end;
+}
+
+InputPointerTarget input_pointer_target(const TuiState& state) {
+    if (state.confirm_pending ||
+        state.rewind_picker_active ||
+        state.resume_picker_active ||
+        state.model_picker_open ||
+        state.mode_picker_open) {
+        return InputPointerTarget::None;
+    }
+    if (state.ask_pending) {
+        return state.ask_other_input_active
+            ? InputPointerTarget::AskOther
+            : InputPointerTarget::None;
+    }
+    return InputPointerTarget::Composer;
+}
+
+InputPointerPressResult resolve_input_pointer_press(
+    const TuiState& state,
+    const InputTextHitLayout& hit_layout,
+    int mouse_x,
+    int mouse_y) {
+    const auto target = input_pointer_target(state);
+    if (target == InputPointerTarget::None ||
+        state.input_text != hit_layout.input_value) {
+        return {};
+    }
+
+    const auto cursor = input_cursor_from_point(
+        state.input_text,
+        hit_layout.box,
+        hit_layout.regions,
+        mouse_x,
+        mouse_y);
+    if (!cursor.has_value()) {
+        return {};
+    }
+
+    // Like grok-build's textarea mouse-down path, caret placement and drag
+    // selection startup share the same press. FTXUI owns the selection anchor,
+    // so the caller must leave this event unconsumed after applying the cursor.
+    return InputPointerPressResult{
+        true,
+        false,
+        target,
+        *cursor,
+    };
 }
 
 }} // namespace acecode::tui

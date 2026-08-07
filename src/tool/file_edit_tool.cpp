@@ -404,6 +404,11 @@ static ToolResult execute_file_edit(const std::string& arguments_json, const Too
     if (file_path.empty()) {
         return ToolResult{ToolErrors::missing_parameter("file_path"), false};
     }
+    const auto resolved_path = ctx.resolve_scratch_path_alias(file_path);
+    if (!resolved_path.success) {
+        return ToolResult{resolved_path.error, false};
+    }
+    file_path = resolved_path.path;
     if (has_legacy_range_args) {
         return ToolResult{ToolErrors::legacy_range_edit_arguments(file_path), false};
     }
@@ -509,13 +514,13 @@ ToolImpl create_file_edit_tool() {
                       "Use empty old_string only to create a missing file or fill a blank file. "
                       "Include surrounding context lines to ensure uniqueness. "
                       "Existing text files preserve their original encoding and line endings; unsafe encoding changes are rejected. "
-                      "Always use absolute paths.";
+                      "Always use absolute paths, except a supported ACECODE_TMPDIR alias may be the leading component for a temporary file.";
     def.parameters = nlohmann::json({
         {"type", "object"},
         {"properties", {
             {"file_path", {
                 {"type", "string"},
-                {"description", "Absolute path to the file to edit"}
+                {"description", "Absolute path to the file to edit, or an ACECODE_TMPDIR-prefixed temporary file path"}
             }},
             {"old_string", {
                 {"type", "string"},

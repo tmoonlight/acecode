@@ -59,6 +59,9 @@ TEST(FileWriteToolSummary, DescriptionUsesClaudeStyleReadFailureGuidance) {
     EXPECT_NE(tool.definition.description.find(
                   "This tool will fail if you did not read the file first"),
               std::string::npos);
+    EXPECT_NE(tool.definition.description.find(
+                  "ACECODE_TMPDIR alias may be the leading component"),
+              std::string::npos);
     EXPECT_EQ(tool.definition.description.find(
                   "overwrites it if it does after the existing file has been read"),
               std::string::npos);

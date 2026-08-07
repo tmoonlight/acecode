@@ -114,6 +114,34 @@ TEST(BashToolSummary, ExposesAcecodeTmpdirWhenScratchDirProvided) {
     std::filesystem::remove_all(root, ec);
 }
 
+TEST(BashToolSummary, RejectsScratchAliasWhenScratchDirUnavailable) {
+    ToolImpl tool = create_bash_tool();
+    auto root = unique_temp_dir("acecode_bash_missing_scratch_env");
+
+#ifdef _WIN32
+    const std::string command =
+        "echo ran> marker.txt & mkdir \"%ACECODE_TMPDIR%\"";
+#else
+    const std::string command =
+        "touch marker.txt && mkdir \"$ACECODE_TMPDIR\"";
+#endif
+
+    ToolContext ctx;
+    ctx.cwd = acecode::path_to_utf8(root);
+    ToolResult r = tool.execute(nlohmann::json({
+        {"command", command},
+        {"cwd", ctx.cwd},
+    }).dump(), ctx);
+
+    EXPECT_FALSE(r.success);
+    EXPECT_NE(r.output.find("no session scratch directory"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(root / "marker.txt"));
+    EXPECT_FALSE(std::filesystem::exists(root / "%ACECODE_TMPDIR%"));
+
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+}
+
 TEST(BashToolSummary, WarnsWhenRootScriptFileIsCreated) {
     ToolImpl tool = create_bash_tool();
     auto root = unique_temp_dir("acecode_bash_root_script_warning");

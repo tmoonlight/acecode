@@ -28,6 +28,12 @@ static ToolResult execute_file_write(const std::string& arguments_json, const To
         return ToolResult{ToolErrors::missing_parameter("file_path"), false};
     }
 
+    const auto resolved_path = ctx.resolve_scratch_path_alias(file_path);
+    if (!resolved_path.success) {
+        return ToolResult{resolved_path.error, false};
+    }
+    file_path = resolved_path.path;
+
     LOG_DEBUG("file_write: path=" + file_path + " content_len=" + std::to_string(content.size()));
 
     auto write_guard = MtimeTracker::instance().acquire_write_guard(file_path);
@@ -135,13 +141,13 @@ ToolImpl create_file_write_tool() {
                       "Creates parent directories as needed. "
                       "When overwriting an existing text file, preserves its detected encoding and line endings; "
                       "new files default to UTF-8 without BOM. "
-                      "Always use absolute paths.";
+                      "Always use absolute paths, except a supported ACECODE_TMPDIR alias may be the leading component for a temporary file.";
     def.parameters = nlohmann::json({
         {"type", "object"},
         {"properties", {
             {"file_path", {
                 {"type", "string"},
-                {"description", "Absolute path to the file to write"}
+                {"description", "Absolute path to the file to write, or an ACECODE_TMPDIR-prefixed temporary file path"}
             }},
             {"content", {
                 {"type", "string"},

@@ -2,12 +2,15 @@
 #include "../session/output_attachments.hpp"
 #include "utils/logger.hpp"
 #include "utils/encoding.hpp"
+#include "utils/tool_errors.hpp"
 #include "utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <filesystem>
 #include <sstream>
+#include <string_view>
 
 namespace acecode {
 
@@ -41,6 +44,62 @@ std::string normalized_path_for_scope(const std::string& raw,
     });
 #endif
     return text;
+}
+
+constexpr std::array<std::string_view, 3> kScratchPathAliases = {
+    "%ACECODE_TMPDIR%",
+    "${ACECODE_TMPDIR}",
+    "$ACECODE_TMPDIR",
+};
+
+char ascii_lower(char value) {
+    if (value >= 'A' && value <= 'Z') {
+        return static_cast<char>(value - 'A' + 'a');
+    }
+    return value;
+}
+
+size_t find_ascii_case_insensitive(const std::string& value,
+                                   std::string_view needle) {
+    if (needle.empty() || value.size() < needle.size()) {
+        return std::string::npos;
+    }
+    const size_t limit = value.size() - needle.size();
+    for (size_t offset = 0; offset <= limit; ++offset) {
+        bool matches = true;
+        for (size_t i = 0; i < needle.size(); ++i) {
+            if (ascii_lower(value[offset + i]) != ascii_lower(needle[i])) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) return offset;
+    }
+    return std::string::npos;
+}
+
+struct ScratchAliasMatch {
+    size_t offset = std::string::npos;
+    size_t length = 0;
+};
+
+ScratchAliasMatch find_first_scratch_alias(const std::string& value) {
+    ScratchAliasMatch first;
+    for (const auto alias : kScratchPathAliases) {
+        const size_t offset = find_ascii_case_insensitive(value, alias);
+        if (offset < first.offset) {
+            first.offset = offset;
+            first.length = alias.size();
+        }
+    }
+    return first;
+}
+
+ScratchPathResolution scratch_path_error(const std::string& message) {
+    ScratchPathResolution result;
+    result.success = false;
+    result.error = ToolErrors::invalid_parameter("file_path", message);
+    return result;
 }
 
 bool tool_allowed_by_policy(const ToolImpl& impl,
@@ -79,6 +138,89 @@ bool ToolContext::is_workspace_scratch_path(const std::string& file_path) const 
         (file.size() > root.size() &&
          file.compare(0, root.size(), root) == 0 &&
          file[root.size()] == '/');
+}
+
+bool ToolContext::references_scratch_path_alias(const std::string& value) {
+    return find_first_scratch_alias(value).offset != std::string::npos;
+}
+
+ScratchPathResolution ToolContext::resolve_scratch_path_alias(
+    const std::string& file_path) const {
+    const ScratchAliasMatch alias = find_first_scratch_alias(file_path);
+    if (alias.offset == std::string::npos) {
+        ScratchPathResolution result;
+        result.path = file_path;
+        return result;
+    }
+    if (alias.offset != 0) {
+        return scratch_path_error(
+            "ACECODE_TMPDIR must be the first path component when used with file tools.");
+    }
+    if (scratch_dir.empty()) {
+        return scratch_path_error(
+            "ACECODE_TMPDIR is unavailable for this tool call; use an absolute path or retry in an active session.");
+    }
+
+    size_t suffix_offset = alias.length;
+    if (suffix_offset >= file_path.size() ||
+        (file_path[suffix_offset] != '/' && file_path[suffix_offset] != '\\')) {
+        return scratch_path_error(
+            "ACECODE_TMPDIR file paths must include a file name after the alias prefix.");
+    }
+    while (suffix_offset < file_path.size() &&
+           (file_path[suffix_offset] == '/' || file_path[suffix_offset] == '\\')) {
+        ++suffix_offset;
+    }
+    if (suffix_offset >= file_path.size()) {
+        return scratch_path_error(
+            "ACECODE_TMPDIR file paths must include a file name after the alias prefix.");
+    }
+
+    std::string suffix = file_path.substr(suffix_offset);
+    if (references_scratch_path_alias(suffix)) {
+        return scratch_path_error(
+            "ACECODE_TMPDIR may appear only once as the leading file-tool path component.");
+    }
+    // File-tool aliases accept either shell's separator spelling. Forward
+    // slashes are understood by std::filesystem on Windows and POSIX.
+    std::replace(suffix.begin(), suffix.end(), '\\', '/');
+
+    namespace fs = std::filesystem;
+    const fs::path relative = path_from_utf8(suffix);
+    if (relative.is_absolute() || relative.has_root_name() ||
+        relative.has_root_directory()) {
+        return scratch_path_error(
+            "ACECODE_TMPDIR file paths must remain relative to the session scratch directory.");
+    }
+    for (const auto& component : relative) {
+        if (component == "..") {
+            return scratch_path_error(
+                "ACECODE_TMPDIR file paths cannot contain parent traversal components.");
+        }
+    }
+    if (relative.filename().empty() || relative.filename() == ".") {
+        return scratch_path_error(
+            "ACECODE_TMPDIR file paths must identify a file beneath the session scratch directory.");
+    }
+
+    fs::path root = path_from_utf8(scratch_dir);
+    if (root.is_relative()) {
+        if (cwd.empty()) {
+            return scratch_path_error(
+                "ACECODE_TMPDIR cannot be resolved without an absolute scratch directory or working directory.");
+        }
+        root = path_from_utf8(cwd) / root;
+    }
+    root = root.lexically_normal();
+    if (root.is_relative()) {
+        return scratch_path_error(
+            "ACECODE_TMPDIR cannot be resolved without an absolute scratch directory or working directory.");
+    }
+
+    ScratchPathResolution result;
+    result.used_alias = true;
+    result.path = path_to_utf8((root / relative).lexically_normal());
+    return result;
 }
 
 void mark_workspace_scratch_change(ToolResult& result, const ToolContext& ctx) {

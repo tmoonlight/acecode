@@ -65,6 +65,9 @@ TEST(FileReadToolSummary, DescriptionWarnsAgainstRedundantSameRangeReads) {
               std::string::npos);
     EXPECT_NE(tool.definition.description.find("repeated unchanged reads return a compact stub"),
               std::string::npos);
+    EXPECT_NE(tool.definition.description.find(
+                  "ACECODE_TMPDIR alias may be the leading component"),
+              std::string::npos);
 }
 
 // 场景 1: 读几百字节的小文件,summary 应有 verb/object/lines/size,但没有 hint。

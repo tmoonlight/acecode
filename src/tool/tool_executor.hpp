@@ -78,6 +78,13 @@ struct ToolResult {
     }
 };
 
+struct ScratchPathResolution {
+    bool success = true;
+    bool used_alias = false;
+    std::string path;
+    std::string error;
+};
+
 // Runtime context passed into a tool invocation. Optional: if left
 // default-constructed, tools behave as if no streaming/abort is available.
 // Populated by AgentLoop before each tool call so the tool can push
@@ -110,6 +117,17 @@ struct ToolContext {
     // root is derived from scratch_dir (its parent), so callers never duplicate
     // the `.acecode/tmp` path contract.
     bool is_workspace_scratch_path(const std::string& file_path) const;
+
+    // Recognizes the explicit ACECODE_TMPDIR spellings accepted by shell and
+    // structured file tools. This intentionally does not expand arbitrary
+    // environment variables.
+    static bool references_scratch_path_alias(const std::string& value);
+
+    // Resolves a leading ACECODE_TMPDIR path component to scratch_dir. Invalid
+    // placement, unavailable context, and parent traversal fail closed before
+    // a file tool reaches filesystem APIs.
+    ScratchPathResolution resolve_scratch_path_alias(
+        const std::string& file_path) const;
 
     // Optional async channel for AskUserQuestion. Daemon path injects an impl
     // backed by AskUserQuestionPrompter; TUI path keeps it null and registers

@@ -651,14 +651,19 @@ std::string large_legacy_materialization_error(
 
 ToolResult execute_file_read(
     const std::string& arguments_json,
-    const ToolContext& /*ctx*/
+    const ToolContext& ctx
 ) {
     std::string parse_error;
     auto parsed_request = parse_read_request(arguments_json, parse_error);
     if (!parsed_request.has_value()) {
         return ToolResult{parse_error, false};
     }
-    const ReadRequest request = *parsed_request;
+    ReadRequest request = *parsed_request;
+    const auto resolved_path = ctx.resolve_scratch_path_alias(request.file_path);
+    if (!resolved_path.success) {
+        return ToolResult{resolved_path.error, false};
+    }
+    request.file_path = resolved_path.path;
 
     LOG_DEBUG(
         "file_read: path=" + request.file_path +
@@ -989,13 +994,13 @@ ToolImpl create_file_read_tool() {
         "next_byte_offset in truncated result metadata. Do not re-read the "
         "same file/range or byte window if its contents are already current in the "
         "conversation; repeated unchanged reads return a compact stub. "
-        "Always use absolute paths.";
+        "Always use absolute paths, except a supported ACECODE_TMPDIR alias may be the leading component for a temporary file.";
     def.parameters = nlohmann::json({
         {"type", "object"},
         {"properties", {
             {"file_path", {
                 {"type", "string"},
-                {"description", "Absolute path to the file to read"}
+                {"description", "Absolute path to the file to read, or an ACECODE_TMPDIR-prefixed temporary file path"}
             }},
             {"start_line", {
                 {"type", "integer"},

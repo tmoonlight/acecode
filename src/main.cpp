@@ -620,175 +620,6 @@ static Element render_tool_result_lines_preserving_breaks(
 }
 
 
-bool is_space_glyph(const std::string& glyph) {
-    return glyph == " " || glyph == "\t";
-}
-
-bool is_narrow_glyph(const std::string& glyph) {
-    return ftxui::string_width(glyph) == 1;
-}
-
-bool is_opening_cjk_punctuation(const std::string& glyph) {
-    static constexpr std::array<std::string_view, 8> kOpening = {
-        "（", "《", "「", "【", "‘", "“", "〈", "『"
-    };
-    for (const auto& candidate : kOpening) {
-        if (glyph == candidate) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool is_closing_cjk_punctuation(const std::string& glyph) {
-    static constexpr std::array<std::string_view, 15> kClosing = {
-        "，", "。", "！", "？", "；", "：", "、", "）",
-        "》", "」", "】", "’", "”", "〉", "』"
-    };
-    for (const auto& candidate : kClosing) {
-        if (glyph == candidate) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void flush_ascii_run(std::string* ascii_run,
-                     std::string* pending_prefix,
-                     std::vector<std::string>* output) {
-    if (ascii_run->empty()) {
-        return;
-    }
-
-    std::string token = std::move(*ascii_run);
-    ascii_run->clear();
-    if (!pending_prefix->empty()) {
-        token = std::move(*pending_prefix) + token;
-        pending_prefix->clear();
-    }
-    output->push_back(std::move(token));
-}
-
-std::vector<std::string> tokenize_wrapped_input(const std::string& text) {
-    std::vector<std::string> tokens;
-    std::string ascii_run;
-    std::string pending_prefix;
-
-    for (const auto& glyph : ftxui::Utf8ToGlyphs(text)) {
-        if (glyph.empty()) {
-            continue;
-        }
-
-        if (is_space_glyph(glyph)) {
-            flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
-            if (!tokens.empty()) {
-                tokens.back() += " ";
-            }
-            continue;
-        }
-
-        if (is_opening_cjk_punctuation(glyph)) {
-            flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
-            pending_prefix += glyph;
-            continue;
-        }
-
-        if (is_closing_cjk_punctuation(glyph)) {
-            flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
-            if (!tokens.empty()) {
-                tokens.back() += glyph;
-            } else if (!pending_prefix.empty()) {
-                pending_prefix += glyph;
-            } else {
-                tokens.push_back(glyph);
-            }
-            continue;
-        }
-
-        if (is_narrow_glyph(glyph)) {
-            ascii_run += glyph;
-            continue;
-        }
-
-        flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
-        std::string token = glyph;
-        if (!pending_prefix.empty()) {
-            token = std::move(pending_prefix) + token;
-            pending_prefix.clear();
-        }
-        tokens.push_back(std::move(token));
-    }
-
-    flush_ascii_run(&ascii_run, &pending_prefix, &tokens);
-    if (!pending_prefix.empty()) {
-        if (!tokens.empty()) {
-            tokens.back() += pending_prefix;
-        } else {
-            tokens.push_back(std::move(pending_prefix));
-        }
-    }
-
-    return tokens;
-}
-
-Element render_wrapped_input_text(const std::string& input_value, size_t cursor_bytes) {
-    if (cursor_bytes > input_value.size()) cursor_bytes = input_value.size();
-
-    // Split input into head/cursor_glyph/tail so the caret block can be drawn
-    // over the glyph under the caret (or a space when the caret sits at end).
-    std::string head = input_value.substr(0, cursor_bytes);
-    std::string cursor_glyph;
-    std::string tail;
-    if (cursor_bytes < input_value.size()) {
-        size_t next = cursor_bytes + 1;
-        while (next < input_value.size() &&
-               (static_cast<unsigned char>(input_value[next]) & 0xC0) == 0x80) {
-            next++;
-        }
-        cursor_glyph = input_value.substr(cursor_bytes, next - cursor_bytes);
-        tail = input_value.substr(next);
-    }
-
-    auto tokens_head = tokenize_wrapped_input(head);
-    auto tokens_tail = tokenize_wrapped_input(tail);
-
-    auto cursor_elem = ftxui::text(cursor_glyph.empty() ? std::string(" ") : cursor_glyph)
-                       | focusCursorBlock;
-
-    if (tokens_head.empty() && tokens_tail.empty()) {
-        return cursor_elem;
-    }
-
-    Elements parts;
-    parts.reserve(tokens_head.size() + tokens_tail.size() + 1);
-
-    // Emit all but the last head token as standalone flex items.
-    for (size_t i = 0; i + 1 < tokens_head.size(); ++i) {
-        parts.push_back(ftxui::text(std::move(tokens_head[i])));
-    }
-
-    // Fuse (last_head_token, cursor_elem, first_tail_token) into one hbox so
-    // the caret never lands at a natural wrap boundary.
-    Elements compound;
-    if (!tokens_head.empty()) {
-        compound.push_back(ftxui::text(std::move(tokens_head.back())));
-    }
-    compound.push_back(cursor_elem);
-    size_t tail_start = 0;
-    if (!tokens_tail.empty()) {
-        compound.push_back(ftxui::text(std::move(tokens_tail[0])));
-        tail_start = 1;
-    }
-    parts.push_back(hbox(std::move(compound)));
-
-    for (size_t i = tail_start; i < tokens_tail.size(); ++i) {
-        parts.push_back(ftxui::text(std::move(tokens_tail[i])));
-    }
-
-    static const auto config = FlexboxConfig().SetGap(0, 0);
-    return flexbox(std::move(parts), config);
-}
-
 }  // namespace
 
 // ---- Get current working directory ----
@@ -3288,6 +3119,7 @@ struct TuiRendererContext {
     Box& sidebar_content_box;
     Box& sidebar_viewport_box;
     Box& sidebar_scrollbar_box;
+    acecode::tui::InputTextHitLayout& input_hit_layout;
     std::vector<Box>& message_boxes;
     std::vector<Box>& path_reference_boxes;
     acecode::markdown::MarkdownLinkRegionCollector& chat_link_regions;
@@ -3320,6 +3152,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& sidebar_content_box = ctx.sidebar_content_box;
     auto& sidebar_viewport_box = ctx.sidebar_viewport_box;
     auto& sidebar_scrollbar_box = ctx.sidebar_scrollbar_box;
+    auto& input_hit_layout = ctx.input_hit_layout;
     auto& message_boxes = ctx.message_boxes;
     auto& path_reference_boxes = ctx.path_reference_boxes;
     auto& chat_link_regions = ctx.chat_link_regions;
@@ -3339,6 +3172,9 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& sync_chat_line_counts_from_layout = ctx.sync_chat_line_counts_from_layout;
 
     std::lock_guard<std::mutex> lk(state.mu);
+    input_hit_layout.box = Box{0, -1, 0, -1};
+    input_hit_layout.regions.clear();
+    input_hit_layout.input_value.clear();
     auto compat_horizontal_line = [] {
         const int cols = Terminal::Size().dimx;
         const int safe_cols = std::max(1, cols > 4 ? cols - 4 : cols);
@@ -4494,7 +4330,8 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         if (state.ask_other_input_active) {
             prompt_line = hbox({
                 text(" ? ") | bold | color(tui::theme().ui.accent),
-                input_with_esc->Render() | flex,
+                input_with_esc->Render() | flex |
+                    reflect(input_hit_layout.box),
             });
         } else {
             Elements ask_prompt_parts;
@@ -4527,7 +4364,9 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         } else {
             prompt_parts.push_back(text(" > ") | bold | color(tui::theme().ui.border));
         }
-        prompt_parts.push_back(input_with_esc->Render() | flex);
+        prompt_parts.push_back(
+            input_with_esc->Render() | flex |
+                reflect(input_hit_layout.box));
         if (!state.pending_queue.empty()) {
             prompt_parts.push_back(
                 text(" QUEUED " + std::to_string(state.pending_queue.size()) + " ") |
@@ -4817,6 +4656,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     Box sidebar_content_box;
     Box sidebar_viewport_box;
     Box sidebar_scrollbar_box;
+    // The active prompt and its rendered UTF-8 fragments are reflected each
+    // frame so mouse presses follow the exact flexbox wrapping on screen.
+    acecode::tui::InputTextHitLayout input_hit_layout;
 
     // drag-autoscroll: 每帧渲染时由 reflect 回填每条消息的屏幕 box,
     // 下一帧 (事件线程 / anim_thread) 读这里算每条消息的行数,供
@@ -6105,17 +5947,18 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // component_active=true on the element, so the input's cursor always
     // wins focus priority over message_view's | focus (which has
     // component_active=false and cursor_shape=Hidden).
-    auto input_renderer = Renderer([&state](bool) {
+    auto input_renderer = Renderer([&state, &input_hit_layout](bool) {
         std::string display_text = state.input_text;
         size_t cursor = state.input_cursor;
         if (cursor > display_text.size()) cursor = display_text.size();
+        input_hit_layout.input_value = display_text;
+        input_hit_layout.regions.clear();
         if (display_text.empty()) {
-            return hbox({
-                text(" ") | focusCursorBar,
-                text("Type your prompt here...") | tui::readable_secondary(),
-            });
+            return acecode::tui::render_empty_input_prompt(
+                &input_hit_layout.regions);
         }
-        return render_wrapped_input_text(display_text, cursor);
+        return acecode::tui::render_wrapped_input_text(
+            display_text, cursor, &input_hit_layout.regions);
     });
 
     auto cancel_ctrl_c_exit_locked = [&state]() {
@@ -6148,7 +5991,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
         if (event != Event::Custom &&
             !event.is_mouse() &&
             !event.is_cursor_position() &&
@@ -6280,6 +6123,31 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
         if (handle_pending_attachment_focus_event(event)) {
             return true;
+        }
+
+        if (event.is_mouse()) {
+            const auto& mouse = event.mouse();
+            if (mouse.button == Mouse::Left &&
+                mouse.motion == Mouse::Pressed) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                const auto press =
+                    acecode::tui::resolve_input_pointer_press(
+                        state, input_hit_layout, mouse.x, mouse.y);
+                if (press.cursor_placed) {
+                    state.input_cursor = press.cursor_bytes;
+                    state.pending_attachment_focus =
+                        acecode::tui::kNoPendingAttachmentFocus;
+                    if (press.target ==
+                        acecode::tui::InputPointerTarget::Composer) {
+                        refresh_input_suggestions(
+                            state, cmd_registry, agent_loop.cwd());
+                    }
+                    screen.PostEvent(Event::Custom);
+                    // FTXUI must see the same Pressed event to establish the
+                    // anchor used by its existing drag-selection state machine.
+                    return press.event_consumed;
+                }
+            }
         }
 
         // AskUserQuestion overlay guard:active 时抢占键盘,所有非导航键被吞掉,
@@ -8477,6 +8345,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         sidebar_content_box,
         sidebar_viewport_box,
         sidebar_scrollbar_box,
+        input_hit_layout,
         message_boxes,
         path_reference_boxes,
         chat_link_regions,

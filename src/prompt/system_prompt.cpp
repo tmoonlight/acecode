@@ -69,7 +69,7 @@ static std::string get_shell_guidance(bool bash_allowed,
     out << "- Sequencing: `&&` (run if previous succeeded) and `||` (run if previous failed) work. "
         << "Use `&` for unconditional sequencing (not `;`).\n"
         << "- Lookups: `where X` (not `which`), `dir` (not `ls`), `type` (not `cat`).\n"
-        << "- For temporary scripts, use `%ACECODE_TMPDIR%` when it is available; do not drop helper scripts in the workspace root.\n";
+        << "- In `bash` commands, use `%ACECODE_TMPDIR%` for temporary scripts; ACECode rejects this placeholder if no active session scratch directory is available.\n";
     if (file_write_allowed) {
         out << "- For complex persistent scripts, prefer creating a real `.bat` or `.ps1` via `file_write` and "
             << "running that, rather than fighting cmd.exe's quoting in a one-liner.\n";
@@ -154,7 +154,7 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     oss << "# Using your tools\n\n"
         << "- Prefer dedicated tools over shell commands when an appropriate tool exists.\n";
     if (file_read_allowed || file_edit_allowed || file_write_allowed) {
-        oss << "- Always use absolute file paths with file tools.\n"
+        oss << "- Always use absolute file paths with file tools, except a supported ACECODE_TMPDIR alias may be the leading path component for a temporary file.\n"
             << "- Built-in file tools decode supported text to UTF-8/LF internally and preserve existing encoding/line endings on write.\n";
     }
     if (file_read_allowed) {
@@ -177,7 +177,7 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     if (file_read_allowed && file_edit_allowed) {
         oss << "- If file_edit reports an encoding or old_string failure, re-read the current content and retry with a corrected exact old_string instead of bypassing with shell, Python, or PowerShell writes.\n";
     }
-    oss << "- Temporary helper scripts belong under ACECODE_TMPDIR, which resolves to .acecode/tmp/session-<id> for active sessions. Do not create throwaway scripts in the workspace root.\n"
+    oss << "- Temporary helper scripts belong under ACECODE_TMPDIR, which resolves to .acecode/tmp/session-<id> for active sessions. In shell commands use the platform variable syntax; with file tools use `%ACECODE_TMPDIR%\\helper.ps1`, `$ACECODE_TMPDIR/helper.sh`, or `${ACECODE_TMPDIR}/helper.sh` only as the leading path component. Never embed the alias inside another path.\n"
         << "- Avoid interactive shell programs.\n"
         << "- When multiple independent tool calls are useful, especially read-only calls, batch them in the same assistant message so they can run in parallel.\n"
         << "- Do not add a progress sentence before each individual tool call. If a batch is obvious, emit the tool calls without preceding text.\n";
