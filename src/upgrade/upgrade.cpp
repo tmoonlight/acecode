@@ -12,6 +12,7 @@
 #endif
 #include "../network/proxy_resolver.hpp"
 #include "../utils/sha256.hpp"
+#include "../utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -26,9 +27,9 @@ namespace fs = std::filesystem;
 namespace acecode::upgrade {
 namespace {
 
-fs::path unique_update_dir() {
+fs::path unique_update_workspace_dir() {
     const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
-    return fs::temp_directory_path() /
+    return upgrade_workspace_base_dir() /
            ("acecode-update-" + std::to_string(current_process_id()) + "-" +
             std::to_string(ticks));
 }
@@ -157,6 +158,10 @@ private:
 };
 
 } // namespace
+
+fs::path upgrade_workspace_base_dir() {
+    return acecode::path_from_utf8(acecode::get_acecode_dir()) / "updates";
+}
 
 bool apply_upgrade_server_override(AppConfig& config,
                                    const std::string& server,
@@ -375,14 +380,15 @@ int run_upgrade_command(const AppConfig& config,
         out << "  Size    : " << format_bytes(*selected.package.size) << "\n";
     }
 
-    fs::path temp_dir = unique_update_dir();
-    fs::path package_path = temp_dir / selected.package.file;
-    fs::path staging_dir = temp_dir / "staging";
-    fs::path backup_dir = temp_dir / "backup";
+    fs::path workspace_dir = unique_update_workspace_dir();
+    fs::path package_path = workspace_dir / selected.package.file;
+    fs::path staging_dir = workspace_dir / "staging";
+    fs::path backup_dir = workspace_dir / "backup";
     std::error_code ec;
     fs::create_directories(package_path.parent_path(), ec);
     if (ec) {
-        err << "acecode upgrade: failed to create temp directory: " << ec.message() << "\n";
+        err << "acecode upgrade: failed to create update workspace: "
+            << ec.message() << "\n";
         return 1;
     }
 

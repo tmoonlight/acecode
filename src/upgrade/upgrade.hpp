@@ -3,6 +3,7 @@
 #include "../config/config.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <iosfwd>
 #include <optional>
@@ -35,6 +36,8 @@ struct UpgradeProgress {
 using UpgradeProgressCallback = std::function<void(const UpgradeProgress&)>;
 
 const char* upgrade_phase_name(UpgradePhase phase);
+
+std::filesystem::path upgrade_workspace_base_dir();
 
 int run_upgrade_command(const AppConfig& config,
                         const std::string& argv0,

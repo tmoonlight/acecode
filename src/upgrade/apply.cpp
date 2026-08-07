@@ -3,6 +3,7 @@
 #include "console.hpp"
 #include "package.hpp"
 #include "../config/config.hpp"
+#include "../utils/utf8_path.hpp"
 
 #include <chrono>
 #include <array>
@@ -66,6 +67,27 @@ void sort_paths_shallow_first(std::vector<fs::path>& paths) {
         if (da != db) return da < db;
         return a.generic_string() < b.generic_string();
     });
+}
+
+bool staged_paths_avoid_user_data(const fs::path& install_dir,
+                                  const fs::path& data_dir,
+                                  const StagedPathSet& paths,
+                                  std::string* error) {
+    auto target_is_safe = [&](const fs::path& rel) {
+        const fs::path target = install_dir / rel;
+        if (!is_same_or_inside(target, data_dir) &&
+            !is_same_or_inside(data_dir, target)) {
+            return true;
+        }
+        if (error) {
+            *error = "refusing to update a package path that overlaps "
+                     "ACECode user data: " + target.string();
+        }
+        return false;
+    };
+
+    return std::all_of(paths.dirs.begin(), paths.dirs.end(), target_is_safe) &&
+           std::all_of(paths.files.begin(), paths.files.end(), target_is_safe);
 }
 
 bool collect_staged_paths(const fs::path& content_root,
@@ -430,16 +452,21 @@ bool apply_staged_update(const fs::path& staging_dir,
                          const fs::path& backup_dir,
                          const std::string& target,
                          std::string* error) {
-    const fs::path data_dir = acecode::get_acecode_dir();
-    if (is_same_or_inside(install_dir, data_dir) || is_same_or_inside(data_dir, install_dir)) {
-        if (error) *error = "refusing to update an install directory that overlaps ACECode user data";
-        return false;
-    }
-
     std::string stage_error;
     auto staged = validate_staged_package(staging_dir, target, &stage_error);
     if (!staged) {
         if (error) *error = stage_error;
+        return false;
+    }
+
+    StagedPathSet staged_paths;
+    if (!collect_staged_paths(staged->content_root, staged_paths, error)) {
+        return false;
+    }
+    const fs::path data_dir =
+        acecode::path_from_utf8(acecode::get_acecode_dir());
+    if (!staged_paths_avoid_user_data(
+            install_dir, data_dir, staged_paths, error)) {
         return false;
     }
 
@@ -453,11 +480,6 @@ bool apply_staged_update(const fs::path& staging_dir,
     fs::create_directories(install_dir, ec);
     if (ec) {
         if (error) *error = "failed to create install directory: " + ec.message();
-        return false;
-    }
-
-    StagedPathSet staged_paths;
-    if (!collect_staged_paths(staged->content_root, staged_paths, error)) {
         return false;
     }
 

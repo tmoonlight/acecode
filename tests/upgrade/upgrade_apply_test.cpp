@@ -1,10 +1,13 @@
 #include "upgrade/apply.hpp"
 #include "upgrade/package.hpp"
+#include "upgrade/upgrade.hpp"
+#include "utils/paths.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -22,6 +25,50 @@ namespace fs = std::filesystem;
 using namespace acecode::upgrade;
 
 namespace {
+
+#ifdef _WIN32
+constexpr const char* kHomeEnvName = "USERPROFILE";
+void set_home_env(const std::string& value) {
+    _putenv_s(kHomeEnvName, value.c_str());
+}
+void clear_home_env() {
+    _putenv_s(kHomeEnvName, "");
+}
+#else
+constexpr const char* kHomeEnvName = "HOME";
+void set_home_env(const std::string& value) {
+    setenv(kHomeEnvName, value.c_str(), 1);
+}
+void clear_home_env() {
+    unsetenv(kHomeEnvName);
+}
+#endif
+
+class ScopedHomeOverride {
+public:
+    explicit ScopedHomeOverride(const fs::path& home) {
+        acecode::reset_run_mode_for_test();
+        if (const char* current = std::getenv(kHomeEnvName)) {
+            previous_ = current;
+            had_previous_ = true;
+        }
+        fs::create_directories(home);
+        set_home_env(home.string());
+    }
+
+    ~ScopedHomeOverride() {
+        if (had_previous_) {
+            set_home_env(previous_);
+        } else {
+            clear_home_env();
+        }
+        acecode::reset_run_mode_for_test();
+    }
+
+private:
+    std::string previous_;
+    bool had_previous_ = false;
+};
 
 fs::path temp_root(const std::string& name) {
     auto p = fs::temp_directory_path() /
@@ -83,6 +130,18 @@ TEST(UpgradeApply, ResolvesCurrentExecutableWithoutArgvZeroFallback) {
     EXPECT_TRUE(fs::is_regular_file(executable, ec)) << executable << ": " << ec.message();
 }
 
+TEST(UpgradeApply, UsesAcecodeDataDirectoryForUpgradeWorkspace) {
+    const fs::path root = temp_root("acecode-workspace-base");
+    const fs::path home = root / "home";
+    {
+        ScopedHomeOverride scoped_home(home);
+        EXPECT_EQ(upgrade_workspace_base_dir(), home / ".acecode" / "updates");
+    }
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
 TEST(UpgradeApply, BuildsAndParsesRunnerArguments) {
     ApplyOptions opts;
     opts.parent_pid = 1234;
@@ -131,6 +190,78 @@ TEST(UpgradeApply, AppliesStagedUpdateAndKeepsBackup) {
     EXPECT_EQ(read_file(install / "old.txt"), "old unrelated");
     EXPECT_EQ(read_file(backup / "acecode.exe"), "old exe");
     EXPECT_FALSE(fs::exists(backup / "old.txt"));
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
+TEST(UpgradeApply, AllowsSafeUpdateWhenInstallContainsUserDataDirectory) {
+    const fs::path root = temp_root("acecode-apply-home-install");
+    const fs::path home = root / "home";
+    const fs::path staging = root / "staging";
+    const fs::path backup = home / ".acecode" / "updates" / "test" / "backup";
+    {
+        ScopedHomeOverride scoped_home(home);
+        write_file(home / "acecode.exe", "old exe");
+        write_file(home / ".acecode" / "config.json", "user config");
+        write_file(staging / "acecode.exe", "new exe");
+
+        std::string err;
+        ASSERT_TRUE(apply_staged_update(
+            staging, home, backup, "windows-x64", &err)) << err;
+        EXPECT_EQ(read_file(home / "acecode.exe"), "new exe");
+        EXPECT_EQ(read_file(home / ".acecode" / "config.json"), "user config");
+        EXPECT_EQ(read_file(backup / "acecode.exe"), "old exe");
+    }
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
+TEST(UpgradeApply, RejectsPackageTargetInsideUserDataDirectory) {
+    const fs::path root = temp_root("acecode-apply-user-data-target");
+    const fs::path home = root / "home";
+    const fs::path staging = root / "staging";
+    const fs::path backup = home / ".acecode" / "updates" / "test" / "backup";
+    {
+        ScopedHomeOverride scoped_home(home);
+        write_file(home / "acecode.exe", "old exe");
+        write_file(home / ".acecode" / "config.json", "user config");
+        write_file(backup / "keep.txt", "keep backup");
+        write_file(staging / "acecode.exe", "new exe");
+        write_file(staging / ".acecode" / "config.json", "malicious config");
+
+        std::string err;
+        EXPECT_FALSE(apply_staged_update(
+            staging, home, backup, "windows-x64", &err));
+        EXPECT_NE(err.find("ACECode user data"), std::string::npos) << err;
+        EXPECT_EQ(read_file(home / "acecode.exe"), "old exe");
+        EXPECT_EQ(read_file(home / ".acecode" / "config.json"), "user config");
+        EXPECT_EQ(read_file(backup / "keep.txt"), "keep backup");
+    }
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
+TEST(UpgradeApply, RejectsInstallInsideUserDataDirectory) {
+    const fs::path root = temp_root("acecode-apply-user-data-install");
+    const fs::path home = root / "home";
+    const fs::path install = home / ".acecode" / "bin";
+    const fs::path staging = root / "staging";
+    const fs::path backup = home / ".acecode" / "updates" / "test" / "backup";
+    {
+        ScopedHomeOverride scoped_home(home);
+        write_file(install / "acecode.exe", "old exe");
+        write_file(staging / "acecode.exe", "new exe");
+
+        std::string err;
+        EXPECT_FALSE(apply_staged_update(
+            staging, install, backup, "windows-x64", &err));
+        EXPECT_NE(err.find("ACECode user data"), std::string::npos) << err;
+        EXPECT_EQ(read_file(install / "acecode.exe"), "old exe");
+        EXPECT_FALSE(fs::exists(backup));
+    }
 
     std::error_code ec;
     fs::remove_all(root, ec);
