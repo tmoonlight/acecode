@@ -1,9 +1,10 @@
 # macOS DMG Release Guide
 
 ACECode's `package` GitHub Actions workflow builds separate Intel (`macos-x64`)
-and Apple silicon (`macos-arm64`) disk images. Tagged releases require a
-Developer ID signature and Apple notarization; the workflow will fail instead
-of publishing an unsigned DMG when any required credential is missing.
+and Apple silicon (`macos-arm64`) disk images and self-update ZIPs. Tagged
+releases require a Developer ID signature and Apple notarization; the workflow
+will fail instead of publishing an unsigned macOS artifact when any required
+credential is missing.
 
 ## What Users Install
 
@@ -29,6 +30,40 @@ The installer is deliberately current-user only:
 
 Users can remove ACECode by quitting it and deleting
 `~/Applications/ACECode.app`. No privileged uninstaller is required.
+
+After the first DMG installation, the desktop's existing **Check for updates**
+flow can replace this per-user app in place. Self-update is deliberately limited
+to the exact `~/Applications/ACECode.app` installation; an app launched from the
+DMG, `/Applications`, or another copied location asks the user to install with
+the signed DMG first.
+
+## Self-Update Trust And Replacement
+
+The update service still uses `aceupdate.json`, package size, and SHA-256. On
+macOS those checks are followed by an independent native trust check before the
+installed app is touched:
+
+- The archive must contain one complete top-level (or single-wrapper)
+  `ACECode.app` and no symbolic-link or special-file ZIP entries. Release ZIPs
+  also carry a root `acecode` copied from the notarized bundle so standalone CLI
+  installations keep their flat upgrade behavior.
+- The app and all nested code must pass strict Apple code-signature validation.
+- The candidate must use bundle identifier `dev.acecode.desktop`, report the
+  manifest's exact version, and use the same non-empty Apple Developer Team ID
+  as the installed app.
+- `~/Applications` and `ACECode.app` must not be symlinks or resolve outside the
+  supported current-user destination.
+
+The updater copies and validates the new app as a hidden sibling, moves the old
+app to `~/Applications/.ACECode.previous.app`, then switches the new bundle into
+place. If the switch or final validation fails, it restores the previous app.
+The desktop's normal restart action stops its daemons and tray resources before
+launching the new executable.
+
+Only one previous app is retained. After confirming the new release works, the
+hidden backup may be deleted manually. If a new release cannot launch, quit all
+ACECode processes and restore that bundle from Terminal or Finder before trying
+the update again.
 
 ## One-Time GitHub Setup
 
@@ -105,10 +140,12 @@ and [app-specific passwords](https://support.apple.com/zh-cn/102654).
 After the workflow changes are on GitHub, open **Actions > package > Run
 workflow** and leave `npm_version` empty.
 
-- With all five macOS secrets configured, the two DMGs are signed, notarized,
-  stapled, Gatekeeper-checked, and uploaded as workflow artifacts.
+- With all five macOS secrets configured, the apps and two DMGs are signed,
+  notarized, stapled, Gatekeeper-checked, and uploaded together with verified
+  `*-update.zip` artifacts.
 - Without those secrets, a manual run still creates artifacts whose filenames
-  end in `-unsigned.dmg`, for packaging inspection only.
+  end in `-unsigned.dmg` or `-update-unsigned.zip`, for packaging inspection
+  only. Never place those ZIPs on the update service.
 - A `v*` tag never permits the unsigned fallback.
 
 Download both DMG artifacts and test the matching architecture on a clean Mac
@@ -126,9 +163,58 @@ git push origin v0.8.8
 ```
 
 The tag starts the full package workflow. After every platform build succeeds,
-GitHub creates a Release containing the versioned x64 and arm64 DMGs, platform
-archives, debug symbols, and `SHA256SUMS.txt`. Do not reuse a failed public tag;
-fix the cause, increment the version, and create a new tag.
+GitHub creates a Release containing the versioned x64 and arm64 DMGs, matching
+`ACECode-<version>-macos-<arch>-update.zip` files, platform archives, debug
+symbols, and `SHA256SUMS.txt`. Do not reuse a failed public tag; fix the cause,
+increment the version, and create a new tag.
+
+## Publish To The Update Service
+
+Upload both final update ZIPs beside `aceupdate.json` under the configured
+upgrade base URL. Do not point macOS records at a DMG, the npm tar archive, or an
+unsigned dry-run ZIP. Calculate the exact metadata from the files that were
+uploaded:
+
+```bash
+shasum -a 256 ACECode-0.8.9-macos-*-update.zip
+stat -f '%N %z' ACECode-0.8.9-macos-*-update.zip
+```
+
+Add both architecture records to the release. Replace the illustrative hashes
+and sizes below with the command output:
+
+```json
+{
+  "schema_version": 1,
+  "latest": "0.8.9",
+  "releases": [
+    {
+      "version": "0.8.9",
+      "published_at": "2026-08-06T20:00:00Z",
+      "notes": "macOS self-update support.",
+      "packages": [
+        {
+          "target": "macos-x64",
+          "file": "ACECode-0.8.9-macos-x64-update.zip",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "size": 12345678
+        },
+        {
+          "target": "macos-arm64",
+          "file": "ACECode-0.8.9-macos-arm64-update.zip",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "size": 12345678
+        }
+      ]
+    }
+  ]
+}
+```
+
+Publish ZIPs before changing the manifest so clients never observe a release
+whose package is missing. HTTPS is strongly recommended. Bundled-app updates
+also pin the Developer ID Team during native preflight; standalone CLI updates
+retain the existing manifest, size, and checksum trust contract.
 
 ## Local Build And DMG Check
 
@@ -144,6 +230,15 @@ scripts/macos_codesign.sh \
   --bundle "build/Install ACECode.app" \
   --app build/ACECode.app
 
+scripts/macos_notarize_app.sh \
+  --app build/ACECode.app \
+  --keychain-profile "ACECode-notary"
+
+scripts/macos_create_update_zip.sh \
+  --app build/ACECode.app \
+  --output dist/ACECode-local-macos-arm64-update.zip \
+  --require-trusted
+
 scripts/macos_create_dmg.sh \
   --app build/ACECode.app \
   --installer "build/Install ACECode.app" \
@@ -156,6 +251,8 @@ scripts/macos_notarize.sh \
   --keychain-profile "ACECode-notary"
 ```
 
-The notarization helper waits for Apple's result, requires `Accepted`, staples
-and validates the ticket, and runs a Gatekeeper assessment. GitHub Actions runs
-the same helper using secrets.
+The notarization helpers wait for Apple's result, require `Accepted`, staple and
+validate the app or DMG ticket, and run a Gatekeeper assessment. The update ZIP
+helper follows Apple's `ditto --keepParent` workflow and verifies a clean
+extraction before publishing. GitHub Actions runs the same helpers using
+secrets.

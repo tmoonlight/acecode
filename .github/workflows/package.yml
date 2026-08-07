@@ -339,6 +339,34 @@ jobs:
             --bundle "build/Install ACECode.app" \
             --app "build/ACECode.app"
 
+      - name: Notarize and staple macOS app
+        if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: scripts/macos_notarize_app.sh --app "build/ACECode.app"
+
+      - name: Create macOS self-update archive
+        if: runner.os == 'macOS'
+        id: macos-update
+        shell: bash
+        run: |
+          unsigned_suffix=""
+          trust_args=()
+          if [ "${{ steps.macos-release.outputs.enabled }}" = "true" ]; then
+            trust_args+=(--require-trusted)
+          else
+            unsigned_suffix="-unsigned"
+          fi
+          update_path="ACECode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}-update${unsigned_suffix}.zip"
+          scripts/macos_create_update_zip.sh \
+            --app "build/ACECode.app" \
+            --output "$update_path" \
+            "${trust_args[@]}"
+          echo "path=$update_path" >> "$GITHUB_OUTPUT"
+
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -496,6 +524,14 @@ jobs:
         with:
           name: acecode-${{ matrix.id }}-dmg
           path: ${{ steps.macos-dmg.outputs.path }}
+          if-no-files-found: error
+
+      - name: Upload macOS self-update archive
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: acecode-${{ matrix.id }}-update
+          path: ${{ steps.macos-update.outputs.path }}
           if-no-files-found: error
 
       - name: Upload PDB

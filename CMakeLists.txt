@@ -363,6 +363,13 @@ add_library(acecode_testable OBJECT
 )
 if(APPLE)
     enable_language(OBJCXX)
+    target_sources(acecode_testable PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/upgrade/macos_app_installer.mm
+    )
+    target_link_libraries(acecode_testable PUBLIC
+        "-framework Foundation"
+        "-framework Security"
+    )
 endif()
 target_include_directories(acecode_testable PUBLIC
     ${CMAKE_SOURCE_DIR}/src

@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <iterator>
 #include <set>
+#include <utility>
+#include <vector>
 #include <zip.h>
 
 namespace fs = std::filesystem;
@@ -27,6 +30,73 @@ std::string trim_trailing_slashes(std::string s) {
         s.pop_back();
     }
     return s;
+}
+
+constexpr zip_uint32_t kUnixFileTypeMask = 0170000u;
+constexpr zip_uint32_t kUnixRegularFile = 0100000u;
+constexpr zip_uint32_t kUnixDirectory = 0040000u;
+constexpr zip_uint32_t kUnixSymbolicLink = 0120000u;
+constexpr zip_uint32_t kUnixPermissionMask = 0777u;
+
+struct ArchiveEntryMode {
+    bool has_unix_mode = false;
+    zip_uint32_t file_type = 0;
+    fs::perms permissions = fs::perms::unknown;
+};
+
+bool read_archive_entry_mode(zip_t* archive,
+                             zip_uint64_t index,
+                             ArchiveEntryMode& out,
+                             std::string* error) {
+    zip_uint8_t operating_system = 0;
+    zip_uint32_t attributes = 0;
+    if (zip_file_get_external_attributes(
+            archive, index, 0, &operating_system, &attributes) != 0) {
+        if (error) *error = "failed to read zip entry attributes";
+        return false;
+    }
+    if (operating_system != ZIP_OPSYS_UNIX && operating_system != ZIP_OPSYS_OS_X) {
+        return true;
+    }
+
+    const zip_uint32_t mode = attributes >> 16u;
+    if (mode == 0) return true;
+    out.has_unix_mode = true;
+    out.file_type = mode & kUnixFileTypeMask;
+    out.permissions = static_cast<fs::perms>(mode & kUnixPermissionMask);
+    return true;
+}
+
+bool validate_archive_entry_type(const std::string& name,
+                                 bool is_directory,
+                                 const ArchiveEntryMode& mode,
+                                 std::string* error) {
+    if (!mode.has_unix_mode || mode.file_type == 0) return true;
+    if (mode.file_type == kUnixSymbolicLink) {
+        if (error) *error = "zip entry is a symbolic link: " + name;
+        return false;
+    }
+    const zip_uint32_t expected = is_directory ? kUnixDirectory : kUnixRegularFile;
+    if (mode.file_type != expected) {
+        if (error) *error = "zip entry has unsupported filesystem type: " + name;
+        return false;
+    }
+    return true;
+}
+
+bool apply_archive_permissions(const fs::path& path,
+                               fs::perms permissions,
+                               std::string* error) {
+    std::error_code ec;
+    fs::permissions(path, permissions, fs::perm_options::replace, ec);
+    if (ec) {
+        if (error) {
+            *error = "failed to restore zip entry permissions for " +
+                     path.string() + ": " + ec.message();
+        }
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -89,6 +159,7 @@ bool extract_zip_to_staging(const fs::path& zip_path,
 
     const zip_int64_t count = zip_get_num_entries(archive, 0);
     std::array<char, 64 * 1024> buf{};
+    std::vector<std::pair<fs::path, fs::perms>> directory_permissions;
     for (zip_uint64_t i = 0; i < static_cast<zip_uint64_t>(count); ++i) {
         zip_stat_t st;
         zip_stat_init(&st);
@@ -114,12 +185,21 @@ bool extract_zip_to_staging(const fs::path& zip_path,
         }
 
         const bool is_dir = !name.empty() && (name.back() == '/' || name.back() == '\\');
+        ArchiveEntryMode entry_mode;
+        if (!read_archive_entry_mode(archive, i, entry_mode, error) ||
+            !validate_archive_entry_type(name, is_dir, entry_mode, error)) {
+            zip_close(archive);
+            return false;
+        }
         if (is_dir) {
             fs::create_directories(dest, ec);
             if (ec) {
                 if (error) *error = "failed to create directory from zip: " + ec.message();
                 zip_close(archive);
                 return false;
+            }
+            if (entry_mode.has_unix_mode) {
+                directory_permissions.emplace_back(dest, entry_mode.permissions);
             }
             continue;
         }
@@ -161,11 +241,25 @@ bool extract_zip_to_staging(const fs::path& zip_path,
             return false;
         }
         zip_fclose(zf);
+        if (entry_mode.has_unix_mode &&
+            !apply_archive_permissions(dest, entry_mode.permissions, error)) {
+            zip_close(archive);
+            return false;
+        }
     }
 
     if (zip_close(archive) != 0) {
         if (error) *error = "failed to close zip package";
         return false;
+    }
+    std::sort(directory_permissions.begin(), directory_permissions.end(),
+              [](const auto& lhs, const auto& rhs) {
+                  const auto lhs_depth = std::distance(lhs.first.begin(), lhs.first.end());
+                  const auto rhs_depth = std::distance(rhs.first.begin(), rhs.first.end());
+                  return lhs_depth > rhs_depth;
+              });
+    for (const auto& [path, permissions] : directory_permissions) {
+        if (!apply_archive_permissions(path, permissions, error)) return false;
     }
     return true;
 }
