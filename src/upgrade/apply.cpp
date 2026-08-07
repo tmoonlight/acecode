@@ -24,6 +24,9 @@
 #include <csignal>
 #include <sys/types.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 namespace fs = std::filesystem;
@@ -233,6 +236,21 @@ fs::path current_executable_path(const std::string& argv0) {
     }
     if (n > 0) {
         return fs::weakly_canonical(fs::path(std::string(buf.data(), n)), ec);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 1024;
+    std::vector<char> buf(size);
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) {
+        buf.assign(static_cast<size_t>(size) + 1, '\0');
+        if (_NSGetExecutablePath(buf.data(), &size) != 0) {
+            buf.clear();
+        }
+    }
+    if (!buf.empty()) {
+        fs::path resolved = fs::weakly_canonical(fs::path(buf.data()), ec);
+        if (!ec) return resolved;
+        ec.clear();
+        return fs::absolute(fs::path(buf.data()), ec).lexically_normal();
     }
 #else
     std::array<char, 4096> buf{};

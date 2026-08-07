@@ -4,8 +4,12 @@
 #include "check.hpp"
 #include "console.hpp"
 #include "http.hpp"
+#include "macos_bundle.hpp"
 #include "manifest.hpp"
 #include "package.hpp"
+#ifdef __APPLE__
+#include "macos_app_installer.hpp"
+#endif
 #include "../network/proxy_resolver.hpp"
 #include "../utils/sha256.hpp"
 
@@ -290,6 +294,12 @@ int run_upgrade_command(const AppConfig& config,
         return 1;
     }
 
+    const fs::path current_exe = current_executable_path(argv0);
+#ifdef __APPLE__
+    const auto installed_app_bundle =
+        macos_app_bundle_from_executable(current_exe);
+#endif
+
     network::proxy_resolver().init(config.network);
 
     const std::string base_url = normalize_update_base_url(config.upgrade.base_url);
@@ -435,18 +445,51 @@ int run_upgrade_command(const AppConfig& config,
         return 1;
     }
     std::string stage_error;
+#ifdef __APPLE__
+    std::optional<fs::path> staged_app_bundle;
+    if (installed_app_bundle) {
+        staged_app_bundle = find_staged_macos_app_bundle(staging_dir, &stage_error);
+        if (!staged_app_bundle) {
+            err << "acecode upgrade: invalid macOS application package: "
+                << stage_error << "\n";
+            return 1;
+        }
+        if (!preflight_macos_app_update(*installed_app_bundle,
+                                        *staged_app_bundle,
+                                        selected.version,
+                                        &stage_error)) {
+            err << "acecode upgrade: untrusted macOS application package: "
+                << stage_error << "\n";
+            return 1;
+        }
+    } else
+#endif
     if (!validate_staged_package(staging_dir, target, &stage_error)) {
         err << "acecode upgrade: invalid package: " << stage_error << "\n";
         return 1;
     }
     out << "  Package : " << styled(out, ConsoleStyle::Green, "OK") << "\n";
 
-    fs::path current_exe = current_executable_path(argv0);
     fs::path install_dir = current_exe.parent_path();
     progress_state.phase = UpgradePhase::Installing;
     publish_progress();
     out << "  Install : applying update\n";
     std::string apply_error;
+#ifdef __APPLE__
+    if (installed_app_bundle) {
+        fs::path app_backup;
+        if (!install_macos_app_update(*installed_app_bundle,
+                                      *staged_app_bundle,
+                                      selected.version,
+                                      &app_backup,
+                                      &apply_error)) {
+            err << "acecode upgrade: failed to apply macOS application update: "
+                << apply_error << "\n";
+            return 1;
+        }
+        backup_dir = std::move(app_backup);
+    } else
+#endif
     if (!apply_staged_update(staging_dir, install_dir, backup_dir,
                              target, &apply_error)) {
         err << "acecode upgrade: failed to apply update: " << apply_error << "\n"

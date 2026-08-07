@@ -7,7 +7,7 @@ if(CMAKE_HOST_WIN32 AND DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MA
     set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet" FORCE)
 endif()
 
-project(acecode VERSION 0.8.7 LANGUAGES C CXX)
+project(acecode VERSION 0.8.8 LANGUAGES C CXX)
 
 option(ACECODE_TUI_INPUT_TRACE "Enable verbose TUI input event trace logging." OFF)
 
@@ -363,6 +363,13 @@ add_library(acecode_testable OBJECT
 )
 if(APPLE)
     enable_language(OBJCXX)
+    target_sources(acecode_testable PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/upgrade/macos_app_installer.mm
+    )
+    target_link_libraries(acecode_testable PUBLIC
+        "-framework Foundation"
+        "-framework Security"
+    )
 endif()
 target_include_directories(acecode_testable PUBLIC
     ${CMAKE_SOURCE_DIR}/src

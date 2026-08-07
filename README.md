@@ -195,6 +195,11 @@ Windows builds use UTF-8 compilation flags and default to a static vcpkg triplet
 
 Download a prebuilt binary from [Releases](https://github.com/shaohaozhi286/acecode/releases), then run:
 
+For the macOS desktop app, download the DMG matching the Mac architecture, open
+it, and double-click `Install ACECode.app`. The installer copies ACECode only to
+`~/Applications/ACECode.app` and never requests administrator privileges. See
+the [macOS release and installation guide](docs/macos-release.md).
+
 ```bash
 ./acecode configure
 cd /path/to/your/project

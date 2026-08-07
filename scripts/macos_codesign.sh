@@ -5,10 +5,11 @@ usage() {
     cat <<'USAGE'
 Usage:
   scripts/macos_codesign.sh --identity <codesign identity> [--keychain <path>] \
-      [--binary <path> ...] [--app <ACECode.app>]
+      [--binary <path> ...] [--bundle <path> ...] [--app <ACECode.app>]
 
 Signs macOS command-line binaries and app bundles with hardened runtime enabled.
-Nested app executables are signed before the app bundle itself.
+Generic bundles must not contain unsigned nested code. ACECode nested executables
+are signed before the app bundle itself.
 USAGE
 }
 
@@ -16,6 +17,7 @@ identity=""
 keychain=""
 app_path=""
 declare -a binaries=()
+declare -a bundles=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -41,6 +43,14 @@ while [[ $# -gt 0 ]]; do
                 exit 2
             fi
             binaries+=("$2")
+            shift 2
+            ;;
+        --bundle)
+            if [[ $# -lt 2 || -z "${2:-}" ]]; then
+                echo "Missing value for --bundle" >&2
+                exit 2
+            fi
+            bundles+=("$2")
             shift 2
             ;;
         --app)
@@ -74,8 +84,8 @@ if [[ -z "$identity" ]]; then
     exit 2
 fi
 
-if [[ ${#binaries[@]} -eq 0 && -z "$app_path" ]]; then
-    echo "Nothing to sign. Pass at least one --binary or --app." >&2
+if [[ ${#binaries[@]} -eq 0 && ${#bundles[@]} -eq 0 && -z "$app_path" ]]; then
+    echo "Nothing to sign. Pass at least one --binary, --bundle, or --app." >&2
     usage >&2
     exit 2
 fi
@@ -120,6 +130,13 @@ verify_app() {
     /usr/bin/codesign --verify --deep --strict --verbose=2 "$path"
 }
 
+verify_bundle() {
+    local path="$1"
+
+    echo "Verifying $path"
+    /usr/bin/codesign --verify --deep --strict --verbose=2 "$path"
+}
+
 sign_app_executable() {
     local path="$1"
 
@@ -152,10 +169,19 @@ sign_extra_app_code() {
     )
 }
 
-for binary in "${binaries[@]}"; do
-    sign_path "$binary"
-    verify_binary "$binary"
-done
+if [[ ${#binaries[@]} -gt 0 ]]; then
+    for binary in "${binaries[@]}"; do
+        sign_path "$binary"
+        verify_binary "$binary"
+    done
+fi
+
+if [[ ${#bundles[@]} -gt 0 ]]; then
+    for bundle in "${bundles[@]}"; do
+        sign_path "$bundle"
+        verify_bundle "$bundle"
+    done
+fi
 
 if [[ -n "$app_path" ]]; then
     if [[ ! -d "$app_path" ]]; then
@@ -165,10 +191,10 @@ if [[ -n "$app_path" ]]; then
 
     app_main="$app_path/Contents/MacOS/ACECode"
     app_daemon="$app_path/Contents/MacOS/acecode-daemon"
-    sign_app_executable "$app_main"
     sign_app_executable "$app_daemon"
     sign_extra_app_code "$app_path/Contents/MacOS" "$app_main" "$app_daemon"
     sign_extra_app_code "$app_path/Contents/Frameworks"
+    sign_app_executable "$app_main"
     sign_path "$app_path"
     verify_app "$app_path"
 fi

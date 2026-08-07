@@ -76,6 +76,13 @@ private:
 
 } // namespace
 
+TEST(UpgradeApply, ResolvesCurrentExecutableWithoutArgvZeroFallback) {
+    const fs::path executable = current_executable_path("");
+    EXPECT_TRUE(executable.is_absolute());
+    std::error_code ec;
+    EXPECT_TRUE(fs::is_regular_file(executable, ec)) << executable << ": " << ec.message();
+}
+
 TEST(UpgradeApply, BuildsAndParsesRunnerArguments) {
     ApplyOptions opts;
     opts.parent_pid = 1234;
@@ -128,6 +135,39 @@ TEST(UpgradeApply, AppliesStagedUpdateAndKeepsBackup) {
     std::error_code ec;
     fs::remove_all(root, ec);
 }
+
+#ifndef _WIN32
+TEST(UpgradeApply, PreservesExecutableModeForFlatMacPackage) {
+    fs::path root = temp_root("acecode-apply-macos-mode");
+    fs::path install = root / "install";
+    fs::path staging = root / "staging";
+    fs::path backup = root / "backup";
+
+    write_file(install / "acecode", "old executable");
+    write_file(staging / "acecode", "new executable");
+    std::error_code ec;
+    fs::permissions(staging / "acecode",
+                    fs::perms::owner_read | fs::perms::owner_write |
+                        fs::perms::owner_exec | fs::perms::group_read |
+                        fs::perms::group_exec | fs::perms::others_read |
+                        fs::perms::others_exec,
+                    fs::perm_options::replace, ec);
+    ASSERT_FALSE(ec) << ec.message();
+
+    std::string err;
+    ASSERT_TRUE(apply_staged_update(staging, install, backup,
+                                    "macos-x64", &err))
+        << err;
+    EXPECT_EQ(read_file(install / "acecode"), "new executable");
+    const fs::perms installed_mode = fs::status(install / "acecode", ec).permissions();
+    ASSERT_FALSE(ec) << ec.message();
+    EXPECT_NE(installed_mode & fs::perms::owner_exec, fs::perms::none);
+    EXPECT_NE(installed_mode & fs::perms::group_exec, fs::perms::none);
+    EXPECT_NE(installed_mode & fs::perms::others_exec, fs::perms::none);
+
+    fs::remove_all(root, ec);
+}
+#endif
 
 TEST(UpgradeApply, KeepsRunnerDirectoryInInstallDir) {
     fs::path root = temp_root("acecode-apply-runner-dir");
