@@ -98,6 +98,7 @@
 #include "cli/interactive_options.hpp"
 #include "commands/configure.hpp"
 #include "daemon/cli.hpp"
+#include "web/remote_web_proxy.hpp"
 #ifdef _WIN32
 #  include "daemon/service_win.hpp"
 #endif
@@ -2405,6 +2406,11 @@ static void print_top_level_help() {
 
 static std::optional<int> dispatch_non_tui_command(int argc, char* argv[]) {
     const std::string exe_path = executable_path_from_argv(argc, argv);
+
+    if (argc >= 2 && std::string(argv[1]) == "--remote-web-proxy") {
+        return acecode::web::run_remote_web_proxy_command(
+            argv_tail(argc, argv, 2), std::cout, std::cerr);
+    }
 
     if (argc >= 2 && is_version_command_arg(argv[1] ? std::string(argv[1]) : std::string())) {
         std::cout << "acecode v" ACECODE_VERSION << "\n";

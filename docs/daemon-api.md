@@ -53,14 +53,16 @@ current process.
 
 ### Bind and auth
 
-Default bind is `127.0.0.1:28080` (`config.web.bind` / `config.web.port`).
-The daemon is fail-fast on port collision.
+The daemon always uses the canonical loopback bind `127.0.0.1` and defaults to
+port `28080` (`config.web.port`). It is fail-fast on a daemon-port collision.
+Remote Web access uses a distinct supervised proxy process configured by
+`config.web.remote_enabled` / `config.web.remote_port`.
 
 | Bind | Token required? |
 |---|---|
 | Loopback (`127.0.0.1`, `localhost`, `::1`) | Optional for same-origin loopback requests |
-| Non-loopback | Required; startup is rejected without a token |
-| Cross-origin loopback | Explicit token required |
+| Proxy-originated loopback (`127.0.0.2`) | Explicit token required |
+| Non-loopback remote client | Explicit token required |
 
 Token locations:
 
@@ -316,7 +318,7 @@ when known.
 | PUT | `/api/config/connectors` | write connector settings |
 | GET | `/api/config/default-permission-mode` | read default permission mode |
 | PUT | `/api/config/default-permission-mode` | write default permission mode |
-| GET | `/api/config/remote-web` | read remote Web bind state and connection URLs |
+| GET | `/api/config/remote-web` | read remote Web proxy state and connection URLs |
 | PUT | `/api/config/remote-web` | enable or disable remote Web mode |
 | GET | `/api/config/upgrade` | read update service config |
 | PUT | `/api/config/upgrade` | write update service config |
@@ -1796,21 +1798,34 @@ returns HTTP `500` with `error:"PERSIST_FAILED"`.
 Returns:
 
 ```json
-{"show_acecode_avatar":false}
+{
+  "show_acecode_avatar": false,
+  "theme": "system",
+  "color_theme": "blue",
+  "font_size": "medium"
+}
 ```
 
-The avatar preference is kept for compatibility and is always normalized to
-`false`.
+`theme` accepts `system`, `light`, or `dark`; `color_theme` accepts `blue` or
+`orange`; and `font_size` accepts `small`, `medium`, or `large`. These values
+are stored in `~/.acecode/config.json`, so Desktop restores them even when its
+managed daemon uses a different loopback port. The avatar preference is kept
+for compatibility and is always normalized to `false`.
 
 ### `PUT /api/config/ui-preferences`
 
 Body:
 
 ```json
-{"show_acecode_avatar":false}
+{"theme":"dark","color_theme":"orange","font_size":"large"}
 ```
 
-Validates the field, persists config, and echoes the normalized response.
+The body may contain one or more supported fields. Every supplied field is
+validated before mutation; omitted fields keep their current values. Legacy
+`{"show_acecode_avatar":false}` requests remain valid. On success the endpoint
+persists the configuration and echoes the complete normalized response shown
+above; a write failure returns `500` with `error:"PERSIST_FAILED"` and restores
+the in-memory values.
 
 ### `GET /api/config/ui-locale`
 
@@ -1840,7 +1855,7 @@ in-memory value and returns HTTP `500` with `error:"PERSIST_FAILED"`.
 
 ### `GET /api/config/remote-web`
 
-Returns the configured and currently effective listener state. Because
+Returns configured intent plus the currently effective daemon/proxy state. Because
 `connections` contains bearer-token URLs, the route uses normal daemon auth
 and always sends `Cache-Control: no-store`.
 
@@ -1849,20 +1864,27 @@ and always sends `Cache-Control: no-store`.
   "enabled": true,
   "configured_enabled": true,
   "effective_enabled": true,
-  "configured_bind": "0.0.0.0",
+  "configured_bind": "127.0.0.1",
   "effective_bind": "0.0.0.0",
+  "daemon_bind": "127.0.0.1",
+  "daemon_port": 28080,
+  "proxy_bind": "0.0.0.0",
+  "proxy_pid": 4242,
+  "proxy_state": "running",
+  "proxy_ipv6": true,
+  "error": "",
   "applying": false,
-  "port": 28080,
+  "port": 28081,
   "connections": [
     {
       "host": "ACE-PC",
       "kind": "computer_name",
-      "url": "http://ACE-PC:28080/?token=<encoded-token>"
+      "url": "http://ACE-PC:28081/?token=<encoded-token>"
     },
     {
       "host": "192.168.1.20",
       "kind": "network_address",
-      "url": "http://192.168.1.20:28080/?token=<encoded-token>"
+      "url": "http://192.168.1.20:28081/?token=<encoded-token>"
     }
   ]
 }
@@ -1870,7 +1892,7 @@ and always sends `Cache-Control: no-store`.
 
 The current computer name is the first/default connection candidate when it is
 a valid hostname. Active non-loopback interface addresses follow it and match
-the effective listener's IP address family. Unspecified, loopback, multicast,
+the proxy listener's available IP address families. Unspecified, loopback, multicast,
 and link-local destinations are omitted; `0.0.0.0` is never returned as a
 destination. Multiple Wi-Fi, Ethernet, VPN, or VM adapter addresses may be
 present. An empty `connections` array means neither a usable computer name nor
@@ -1884,12 +1906,25 @@ Body:
 {"enabled":true}
 ```
 
-Enabling persists `web.bind` as `0.0.0.0`; disabling persists
-`127.0.0.1`. A successful change restarts only the Crow HTTP/WebSocket
-listener on the same port and in the same daemon process, preserving the
-token, sessions, and active Agent work. During the short transition the
-response has `applying:true`; clients should tolerate connection failures and
-poll the GET route until configured and effective state agree.
+Enabling starts a separate ACECode reverse-proxy child and waits until its
+external listener is ready before persisting `web.remote_enabled:true`.
+Disabling persists false and stops only that child. Crow remains continuously
+bound to `127.0.0.1:web.port`, preserving the daemon PID, token, sessions,
+consoles, and active Agent work. A local page receives the mutation response
+without listener downtime. A page opened through the remote proxy naturally
+disconnects when it disables that proxy.
+
+`web.remote_port:0` first tries the port adjacent to `web.port`, then falls back
+to an OS-selected wildcard port. A non-zero value is fixed: a collision returns
+HTTP `502` with `error:"REMOTE_WEB_PROXY_START_FAILED"` and the newly enabled
+intent is not persisted. The actual external port is always returned as `port`.
+If a configured proxy later exits, `configured_enabled` stays true while
+`effective_enabled` becomes false, `proxy_state` is `failed`, and `error`
+contains a sanitized diagnostic.
+
+Legacy configurations that set a non-loopback `web.bind` without an explicit
+`web.remote_enabled` are loaded as remote-enabled and normalized to the
+loopback daemon plus proxy representation on the next save.
 
 Enabling while the daemon is in dangerous mode returns HTTP `409` with
 `error:"DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN"` and does not change the

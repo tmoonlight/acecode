@@ -69,7 +69,7 @@ bool is_known_backend_name(const std::string& s) {
 
 bool is_implemented_backend_name(const std::string& s) {
     return s == "parallel" || s == "rss" ||
-           s == "duckduckgo" || s == "bing_cn";
+           s == "duckduckgo";
 }
 
 void cmd_websearch(CommandContext& ctx, const std::string& args) {
@@ -129,16 +129,20 @@ std::string dispatch_websearch_subcommand(const std::string& sub) {
         std::string rest = trim(sub.size() > 3 ? sub.substr(3) : "");
         if (rest.empty()) {
             return "Usage: /websearch use <backend>\n"
-                   "Available: parallel, rss, duckduckgo, bing_cn";
+                   "Available: parallel, rss, duckduckgo";
         }
         if (!is_known_backend_name(rest)) {
             return "Unknown backend '" + rest +
-                   "'. Valid: parallel, rss, duckduckgo, bing_cn "
+                   "'. Valid: parallel, rss, duckduckgo "
                    "(bochaai/tavily not implemented yet)";
+        }
+        if (rest == "bing_cn") {
+            return "Backend 'bing_cn' is disabled because its result quality is too low. "
+                   "Use parallel, rss, or duckduckgo.";
         }
         if (!is_implemented_backend_name(rest)) {
             return "Backend '" + rest +
-                   "' is not implemented yet. Use parallel, rss, duckduckgo, or bing_cn.";
+                   "' is not implemented yet. Use parallel, rss, or duckduckgo.";
         }
         if (!rt.router().set_active(rest)) {
             return "Backend '" + rest + "' is not registered in this process.";
@@ -162,7 +166,7 @@ std::string dispatch_websearch_subcommand(const std::string& sub) {
 void register_websearch_command(CommandRegistry& registry) {
     registry.register_command({
         "websearch",
-        "Show or switch web search (parallel / RSS / DuckDuckGo / Bing CN)",
+        "Show or switch web search (parallel / RSS / DuckDuckGo)",
         cmd_websearch,
     });
 }

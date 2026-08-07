@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -16,6 +17,14 @@ inline constexpr const char kAgentBrowserContentStateNavigationError[] =
     "navigation_error";
 inline constexpr const char kAgentBrowserContentStateProcessFailed[] =
     "process_failed";
+inline constexpr std::size_t kAgentBrowserMaxOcclusionRects = 64;
+
+struct AgentBrowserOcclusionRect {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
 
 struct AgentBrowserBounds {
     int x = 0;
@@ -23,6 +32,8 @@ struct AgentBrowserBounds {
     int width = 0;
     int height = 0;
     bool visible = false;
+    std::uint64_t layout_revision = 0;
+    std::vector<AgentBrowserOcclusionRect> occlusion_rects;
 };
 
 struct AgentBrowserState {
@@ -99,6 +110,8 @@ public:
                              std::string* error = nullptr) const;
     bool open_developer_tools(const std::string& page_id,
                               std::string* error = nullptr);
+    void set_parent_visible(bool visible);
+    void refresh_layout();
     void hide(const std::string& page_id = {});
 
 private:

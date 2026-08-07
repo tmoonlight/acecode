@@ -121,3 +121,78 @@ run('Agent Browser hides WebView2 blank and failure documents behind React surfa
     /\.ace-agent-browser-native-viewport\s*\{[^}]*background:\s*#ffffff/,
   );
 });
+
+run('application state explicitly gates the native Agent Browser surface', () => {
+  const app = source('web/src/App.jsx');
+  const chatView = source('web/src/components/ChatView.jsx');
+  const preview = source('web/src/components/PreviewDetailsPanel.jsx');
+  const panel = source('web/src/components/AgentBrowserPanel.jsx');
+
+  assert.match(app, /const nativeSurfacesVisible = !showSettings/);
+  assert.match(app, /&& !searchOpen/);
+  assert.match(app, /&& !updateDialogOpen/);
+  assert.match(app, /&& !desktopCloseDialogOpen/);
+  assert.match(app, /nativeSurfacesVisible=\{nativeSurfacesVisible\}/);
+  assert.match(chatView, /nativeSurfacesVisible = true/);
+  assert.match(chatView, /<PreviewDetailsPanel[\s\S]*nativeSurfacesVisible=\{nativeSurfacesVisible\}/);
+  assert.match(preview, /surfaceEnabled=\{nativeSurfacesVisible\}/);
+  assert.match(panel, /applicationVisible: surfaceEnabled/);
+});
+
+run('local overlays use declared blocking and overlap semantics', () => {
+  const modal = source('web/src/components/Modal.jsx');
+  const contextMenu = source('web/src/components/DesktopContextMenu.jsx');
+  const findOverlay = source('web/src/components/GlobalFindOverlay.jsx');
+  const imageLightbox = source('web/src/components/ImageLightbox.jsx');
+  const settings = source('web/src/components/SettingsPage.jsx');
+  const tokenBudget = source('web/src/components/TokenBudgetRing.jsx');
+  const inputBar = source('web/src/components/InputBar.jsx');
+  const message = source('web/src/components/Message.jsx');
+  const panel = source('web/src/components/AgentBrowserPanel.jsx');
+
+  assert.match(modal, /data-ace-native-overlay="blocking"/);
+  assert.match(contextMenu, /data-ace-native-overlay="overlap"/);
+  assert.match(findOverlay, /data-ace-native-overlay="overlap"/);
+  assert.match(imageLightbox, /data-ace-native-overlay="blocking"/);
+  assert.match(settings, /data-ace-native-overlay="blocking"/);
+  assert.match(tokenBudget, /ace-context-usage-panel[\s\S]*data-ace-native-overlay="overlap"/);
+  assert.match(inputBar, /data-composer-capability-menu="true"[\s\S]*data-ace-native-overlay="overlap"/);
+  assert.match(message, /ace-cmd-token-tip[\s\S]*data-ace-native-overlay="overlap"/);
+  assert.match(modal, /notifyNativeSurfaceOverlayChange/);
+  assert.match(contextMenu, /notifyNativeSurfaceOverlayChange/);
+  assert.match(panel, /nativeSurfaceOverlayGeometryByDocument/);
+  assert.match(panel, /nativeSurfaceOcclusionRectsFromClientRects/);
+  assert.match(panel, /supportsLocalOcclusion/);
+  assert.match(panel, /layout\.occlusion_rects/);
+  assert.match(panel, /NATIVE_SURFACE_OVERLAY_EVENT/);
+  assert.match(panel, /new MutationObserver\(scheduleLayout\)/);
+  assert.match(panel, /new IntersectionObserver\(scheduleLayout\)/);
+  assert.match(panel, /window\.visualViewport/);
+  assert.doesNotMatch(panel, /modalIsOpen|\.ace-desktop-context-menu/);
+});
+
+run('native Agent Browser layouts reject stale revisions and unsafe windows', () => {
+  const header = source('src/desktop/agent_browser_host.hpp');
+  const host = source('src/desktop/agent_browser_host.cpp');
+  const desktop = source('src/desktop/main.cpp');
+  const webHost = source('src/desktop/web_host.cpp');
+  const panel = source('web/src/components/AgentBrowserPanel.jsx');
+
+  assert.match(header, /std::uint64_t layout_revision = 0/);
+  assert.match(header, /std::vector<AgentBrowserOcclusionRect> occlusion_rects/);
+  assert.match(desktop, /value\.find\("layout_revision"\)/);
+  assert.match(desktop, /value\.find\("occlusion_rects"\)/);
+  assert.match(host, /bounds\.layout_revision < page->requested_bounds\.layout_revision/);
+  assert.match(host, /apply_agent_browser_widget_region/);
+  assert.match(host, /::SetWindowRgn/);
+  assert.match(host, /::CombineRgn\(visible_region, visible_region, hole, RGN_DIFF\)/);
+  assert.match(host, /page->requested_bounds\.occlusion_rects/);
+  assert.match(host, /::IsWindowVisible\(parent\)/);
+  assert.match(host, /!::IsIconic\(parent\)/);
+  assert.match(host, /hide_agent_browser_widget\(browser_widget\)/);
+  assert.match(webHost, /notify_window_visibility\(wparam != SIZE_MINIMIZED\)/);
+  assert.match(desktop, /agent_browser\.set_parent_visible\(visible\)/);
+  assert.match(panel, /allocateRevision: allocateAgentBrowserLayoutRevision/);
+  assert.match(panel, /nextAgentBrowserLayoutRequest/);
+  assert.match(panel, /syncNativeSurface\(\{ forceHidden: true, force: true \}\)/);
+});

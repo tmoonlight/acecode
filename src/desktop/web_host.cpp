@@ -541,6 +541,14 @@ constexpr UINT kRequestQuitMsg = WM_USER + 0x10;
 // 也照样会通过 aceDesktop_isWindowMaximized 拿初始态;两者最终一致。
 std::function<void(bool)> g_window_state_handler;
 bool g_last_known_maximized = false;
+std::function<void(bool)> g_window_visibility_handler;
+bool g_last_known_window_visible = true;
+
+void notify_window_visibility(bool visible) {
+    if (visible == g_last_known_window_visible) return;
+    g_last_known_window_visible = visible;
+    if (g_window_visibility_handler) g_window_visibility_handler(visible);
+}
 
 // WebView2 does not reliably turn a native top-level activation into a DOM
 // window.focus event. The Desktop main process uses this callback to dispatch
@@ -1040,6 +1048,7 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             return frameless_hit_test(hwnd, lparam);
         case WM_SIZE:
             resize_webview_widget(hwnd);
+            notify_window_visibility(wparam != SIZE_MINIMIZED);
             if (g_window_state_handler) {
                 const bool maximized = ::IsZoomed(hwnd) != FALSE;
                 if (maximized != g_last_known_maximized) {
@@ -1048,6 +1057,12 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
                 }
             }
             return call_host_default_proc(hwnd, msg, wparam, lparam);
+        case WM_SHOWWINDOW: {
+            const LRESULT result =
+                call_host_default_proc(hwnd, msg, wparam, lparam);
+            notify_window_visibility(wparam != FALSE && !::IsIconic(hwnd));
+            return result;
+        }
         case WM_DPICHANGED:
             if (previous_host_window_proc(hwnd)) {
                 ::CallWindowProcW(previous_host_window_proc(hwnd), hwnd, msg, wparam, lparam);
@@ -2024,6 +2039,13 @@ void WebHost::set_window_state_change_handler(WindowStateHandler handler) {
 #else
     g_mac_window_state_handler = std::move(handler);
 #endif
+#endif
+}
+void WebHost::set_window_visibility_handler(WindowVisibilityHandler handler) {
+#ifdef _WIN32
+    g_window_visibility_handler = std::move(handler);
+#else
+    (void)handler;
 #endif
 }
 void WebHost::set_window_focus_handler(WindowFocusHandler handler) {

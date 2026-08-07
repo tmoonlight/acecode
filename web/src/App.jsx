@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, createApi } from './lib/api.js';
+import { useTheme } from './theme.jsx';
 import { setToken } from './lib/auth.js';
 import { connection } from './lib/connection.js';
 import { loadUiLocale } from './lib/uiLocale.js';
@@ -43,6 +44,12 @@ import { notifySessionListChanged } from './lib/sessionListEvents.js';
 import { normalizeRemoteControlSessionSelected } from './lib/remoteControlSessionNavigation.js';
 import { usePreference } from './lib/usePreference.js';
 import {
+  appearanceBootstrapPreferences,
+  createAppearancePersistenceController,
+  effectiveAppearanceTheme,
+  initialAppearancePreferences,
+} from './lib/appearancePreferences.js';
+import {
   DEFAULT_RECENT_EXPERT_IDS,
   RECENT_EXPERTS_STORAGE_KEY,
   recordRecentExpert,
@@ -50,10 +57,8 @@ import {
 } from './lib/recentExperts.js';
 import {
   DEFAULT_UI_PREFS,
-  DEFAULT_FONT_SIZE,
   effectiveFontSize,
   effectiveSidePanelListCollapsed,
-  FONT_SIZE_VALUES,
   UI_PREFS_STORAGE_KEY,
   validateUiPrefs,
 } from './lib/uiPrefs.js';
@@ -171,6 +176,14 @@ export function App() {
   // i18n instance refreshes mounted descendants immediately, while compiled
   // module-scope metadata resolves translations lazily on the rerender.
   const { t } = useTranslation();
+  const {
+    theme,
+    colorTheme,
+    set: setTheme,
+    setColorTheme,
+  } = useTheme();
+  const initialAppearance = useMemo(() => initialAppearancePreferences(), []);
+  const bootstrapAppearance = useMemo(() => appearanceBootstrapPreferences(), []);
   const [authState, setAuthState] = useState('checking'); // 'checking' | 'ok' | 'need-token'
   const [health,    setHealth]    = useState(null);
 
@@ -210,8 +223,12 @@ export function App() {
   const [singleLayout, setSingleLayout] = usePreference(
     SINGLE_LAYOUT_STORAGE_KEY, DEFAULT_SINGLE_LAYOUT, validateLayoutWidths);
   const previewPanelUserSized = previewPanelWidthIsUserSized(singleLayout);
+  const initialUiPrefs = useMemo(() => ({
+    ...DEFAULT_UI_PREFS,
+    fontSize: initialAppearance.fontSize,
+  }), [initialAppearance]);
   const [uiPrefs, setUiPrefs] = usePreference(
-    UI_PREFS_STORAGE_KEY, DEFAULT_UI_PREFS, validateUiPrefs);
+    UI_PREFS_STORAGE_KEY, initialUiPrefs, validateUiPrefs);
   const [consoleDock, setConsoleDock] = usePreference(
     CONSOLE_DOCK_STORAGE_KEY, DEFAULT_CONSOLE_DOCK, validateConsoleDock);
   const [recentExpertIds, setRecentExpertIds] = usePreference(
@@ -237,6 +254,38 @@ export function App() {
   // grid4/grid9 入口暂时隐藏:主界面固定单会话,避免旧 localStorage 把用户卡在未完善视图。
   const view = 'single';
   const fontSize = effectiveFontSize(uiPrefs);
+  const applyAppearance = useCallback((next) => {
+    setTheme(effectiveAppearanceTheme(next.theme));
+    setColorTheme(next.colorTheme);
+    setUiPrefs({ fontSize: next.fontSize });
+  }, [setColorTheme, setTheme, setUiPrefs]);
+  const appearanceControllerRef = useRef(null);
+  if (!appearanceControllerRef.current) {
+    appearanceControllerRef.current = createAppearancePersistenceController({
+      initial: {
+        theme: bootstrapAppearance?.theme || theme,
+        colorTheme,
+        fontSize,
+      },
+      apply: applyAppearance,
+      save: (payload) => api.setUiPreferences(payload),
+      onError: (error) => {
+        toast({
+          kind: 'err',
+          text: '外观设置保存失败，已恢复上次配置：' + (error?.message || '未知错误'),
+        });
+      },
+    });
+  }
+  const changeAppearance = useCallback((patch) => (
+    appearanceControllerRef.current.change(patch)
+  ), []);
+  const toggleAppearanceTheme = useCallback(() => {
+    const current = appearanceControllerRef.current.current();
+    return appearanceControllerRef.current.change({
+      theme: effectiveAppearanceTheme(current.theme) === 'dark' ? 'light' : 'dark',
+    });
+  }, []);
   // sidePanelCollapsed 是列表 + 详情的总开关;listCollapsed 只隐藏最右导航列表。
   const sidePanelCollapsed = uiPrefs.sidePanelCollapsed;
   const sidePanelListCollapsed = effectiveSidePanelListCollapsed(uiPrefs);
@@ -575,6 +624,11 @@ export function App() {
     // soon as authentication succeeds; localStorage is only a paint cache.
     loadUiLocale(api).catch(() => {
       // Older/offline daemons keep the injected or cached locale usable.
+    });
+    api.getUiPreferences().then((preferences) => {
+      appearanceControllerRef.current.restore(preferences);
+    }).catch(() => {
+      // Older/offline daemons keep the injected or cached appearance usable.
     });
   }, [authState]);
 
@@ -1057,13 +1111,6 @@ export function App() {
     setUiPrefs((prev) => ({
       ...prev,
       sidebarCollapsed: !prev.sidebarCollapsed,
-    }));
-  }, [setUiPrefs]);
-
-  const setFontSize = useCallback((nextFontSize) => {
-    setUiPrefs((prev) => ({
-      ...prev,
-      fontSize: FONT_SIZE_VALUES.includes(nextFontSize) ? nextFontSize : DEFAULT_FONT_SIZE,
     }));
   }, [setUiPrefs]);
 
@@ -1617,6 +1664,14 @@ export function App() {
           : null;
       })()
     : null;
+  const nativeSurfacesVisible = !showSettings
+    && !searchOpen
+    && !updateDialogOpen
+    && !desktopCloseDialogOpen
+    && !guidedTourPreparing
+    && !guidedTourRun
+    && !sessionNavigationPending
+    && !visibleQuestionReq;
   const resolveVisibleQuestion = () => {
     if (!visibleQuestionReq?.request_id) return;
     setQuestionReqs((prev) => closePendingQuestionRequest(prev, visibleQuestionReq, {
@@ -1657,6 +1712,7 @@ export function App() {
         onOpenSearch={() => setSearchOpen(true)}
         onAbout={showAboutAceCode}
         onExit={exitAceCode}
+        onThemeToggle={toggleAppearanceTheme}
         onToggleConsole={toggleConsoleDock}
         consoleAvailable={consoleAvailable}
         consoleOpen={consoleDock.open}
@@ -1774,6 +1830,7 @@ export function App() {
                 recentExpertIds={recentExpertIds}
                 onRememberExpert={rememberRecentExpert}
                 onInitialDraftConsumed={consumeInitialDraftText}
+                nativeSurfacesVisible={nativeSurfacesVisible}
               />
             )}
           </div>
@@ -1800,7 +1857,11 @@ export function App() {
               ? replayGuidedTour
               : undefined}
             fontSize={fontSize}
-            onFontSizeChange={setFontSize}
+            onThemeChange={(nextTheme) => changeAppearance({ theme: nextTheme })}
+            onColorThemeChange={(nextColorTheme) => (
+              changeAppearance({ colorTheme: nextColorTheme })
+            )}
+            onFontSizeChange={(nextFontSize) => changeAppearance({ fontSize: nextFontSize })}
           />
         )}
         <SearchPalette

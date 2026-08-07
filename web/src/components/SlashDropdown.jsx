@@ -217,6 +217,7 @@ export function SlashDropdown({ items, query, onSelect, onClose }) {
     <div
       ref={popupRef}
       role="listbox"
+      data-ace-native-overlay="overlap"
       aria-label="斜杠命令"
       data-placement={layout.placement}
       data-constrained={layout.constrained ? 'true' : 'false'}

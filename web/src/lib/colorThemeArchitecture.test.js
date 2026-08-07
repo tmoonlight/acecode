@@ -35,7 +35,11 @@ run('ThemeProvider adds color theme without changing the dark-mode contract', ()
   assert.match(theme, /const STORAGE_KEY = 'ace\.theme';/);
   assert.match(
     theme,
-    /usePreference\(STORAGE_KEY, systemThemeFallback\(\), isValidTheme\)/,
+    /initialAppearancePreferences\(\)/,
+  );
+  assert.match(
+    theme,
+    /usePreference\(\s*STORAGE_KEY,\s*effectiveAppearanceTheme\(initialAppearance\.theme\),\s*isValidTheme,?\s*\)/,
   );
   assert.match(
     theme,
@@ -46,6 +50,10 @@ run('ThemeProvider adds color theme without changing the dark-mode contract', ()
     /setTheme\(t === 'dark' \? 'dark' : 'light'\)/,
   );
   assert.match(theme, /COLOR_THEME_STORAGE_KEY,[\s\S]*DEFAULT_COLOR_THEME,[\s\S]*isValidColorTheme/);
+  assert.match(
+    theme,
+    /COLOR_THEME_STORAGE_KEY,\s*initialAppearance\.colorTheme,\s*isValidColorTheme/,
+  );
   assert.match(
     theme,
     /value=\{\{ theme, colorTheme, toggle, set, setColorTheme \}\}/,

@@ -120,13 +120,13 @@ function sessionUserMessageSearchPath(query = '', limit = 50) {
   return `/api/session-search/user-messages?${qs.toString()}`;
 }
 
-function sessionMessagesPath(id, since = 0, base = null) {
+function sessionMessagesPath(id, since = 0, base = null, workspaceHash = '') {
   const params = new URLSearchParams();
   params.set('since', String(since));
-  const workspaceHash = String(
-    base?.workspaceHash || base?.workspace_hash || '',
+  const effectiveWorkspaceHash = String(
+    workspaceHash || base?.workspaceHash || base?.workspace_hash || '',
   ).trim();
-  if (workspaceHash) params.set('workspace', workspaceHash);
+  if (effectiveWorkspaceHash) params.set('workspace', effectiveWorkspaceHash);
   return `/api/sessions/${encodeURIComponent(id)}/messages?${params.toString()}`;
 }
 
@@ -341,7 +341,12 @@ export function createApi(base = null) {
     // 同步跑一次完整模型往返(SessionRegistry::ask_side_question),按 LLM 计时。
     askSideQuestion:  (id, question) => request('POST',   `/api/sessions/${encodeURIComponent(id)}/side-question`, { question }, base,
       { timeoutMs: LLM_ROUNDTRIP_TIMEOUT_MS }),
-    getMessages:      (id, since=0)  => request('GET',    sessionMessagesPath(id, since, base), undefined, base),
+    getMessages:      (id, since=0, workspaceHash='')  => request(
+      'GET',
+      sessionMessagesPath(id, since, base, workspaceHash),
+      undefined,
+      base,
+    ),
     // 同 pickWorkspaceFolder:后端弹原生目录选择框等用户操作,不设超时。
     exportSession:    (id, workspaceHash = '') => request(
       'POST',

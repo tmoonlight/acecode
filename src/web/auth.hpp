@@ -25,6 +25,11 @@ enum class AuthResult {
 // IPv4 形如 "127.0.0.1",IPv6 形如 "::1" 或 "::ffff:127.0.0.1"。
 bool is_loopback_address(std::string_view ip);
 
+// Only the canonical local endpoints receive the token-optional UX. Other
+// loopback sources (notably 127.0.0.2 used by the remote reverse proxy) are
+// deliberately untrusted and must present the daemon token.
+bool is_trusted_local_client_address(std::string_view ip);
+
 // 启动期检查:web_bind 配置 + dangerous 标记下能否启动。
 // 返回空字符串 = 允许;非空 = 拒启理由(由调用方打印 + 非零退出)。
 //

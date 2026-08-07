@@ -49,6 +49,8 @@ class WorkspaceRegistry;
 
 namespace acecode::web {
 
+class RemoteWebProxyController;
+
 struct WebServerDeps {
     const WebConfig*           web_cfg = nullptr;
     const DaemonConfig*        daemon_cfg = nullptr;
@@ -96,6 +98,9 @@ struct WebServerDeps {
     // Current computer name used as the first/default remote connection.
     // Empty uses live OS discovery.
     std::function<std::optional<std::string>()> remote_web_computer_name;
+    // Daemon-owned reverse proxy lifecycle. Null means proxy-backed remote Web
+    // mode is unavailable (primarily legacy/test embeddings).
+    RemoteWebProxyController* remote_web_proxy = nullptr;
     std::function<int(const AppConfig&,
                       acecode::upgrade::UpgradeProgressCallback,
                       std::string*)> run_update_command;

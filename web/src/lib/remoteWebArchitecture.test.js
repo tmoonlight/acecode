@@ -29,19 +29,20 @@ run('general settings keeps remote Web mode as its final card', () => {
   assert.ok(remoteIndex > backgroundIndex);
   assert.ok(appearanceIndex > remoteIndex);
   assert.match(page, />远程 Web 模式</);
-  assert.match(page, /127\.0\.0\.1 切换为 0\.0\.0\.0/);
+  assert.match(page, /启动独立的反向代理进程/);
+  assert.match(page, /daemon 仍仅监听 127\.0\.0\.1/);
   assert.match(page, />\s*复制连接\s*</);
 });
 
 run('remote Web card preserves token warning and network safety guidance', () => {
   const page = source('components/SettingsPage.jsx');
   assert.match(page, /此连接包含访问 Token，请勿将此连接公开给别人。/);
-  assert.match(page, /系统防火墙、路由器或云安全组可能仍需放行端口/);
-  assert.match(page, /可信 VPN 或 HTTPS 反向代理/);
+  assert.match(page, /系统防火墙、路由器或云安全组可能仍需放行代理端口/);
+  assert.match(page, /可信 VPN，并在上游配置 HTTPS/);
   assert.match(page, /copyTextToSystemClipboard\(connection\.url\)/);
 });
 
-run('remote Web UI uses normalized state and listener rebind polling', () => {
+run('remote Web UI uses normalized state and proxy readiness polling', () => {
   const page = source('components/SettingsPage.jsx');
   const api = source('lib/api.js');
   assert.match(page, /normalizeRemoteWebState/);

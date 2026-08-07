@@ -142,7 +142,11 @@ export function SelectionAnnotationOverlay({
           >
             <span className="ace-selection-annotation-bubble-number">{marker.number}</span>
             <span className="ace-selection-annotation-bubble-tail" aria-hidden="true" />
-            <span className="ace-selection-annotation-bubble-tooltip" role="tooltip">
+            <span
+              className="ace-selection-annotation-bubble-tooltip"
+              data-ace-native-overlay="overlap"
+              role="tooltip"
+            >
               <span className="ace-selection-annotation-bubble-title">
                 {marker.stale ? `${marker.number} · 原文已变化` : `批注 ${marker.number}`}
               </span>

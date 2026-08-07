@@ -153,10 +153,11 @@ TEST(SettingsMutations, UpgradeUrlIsNormalizedAndInstructionsAreBounded) {
         std::string::npos);
 }
 
-TEST(SettingsMutations, RemoteWebModePersistsCanonicalBindAndUpdatesLiveConfig) {
+TEST(SettingsMutations, RemoteWebModePersistsProxyIntentAndKeepsDaemonLocal) {
     SettingsMutationTempDir temp;
     acecode::AppConfig initial;
     initial.web.bind = "192.168.1.99";
+    initial.web.remote_enabled = true;
     acecode::save_config(initial, temp.config_path());
 
     acecode::AppConfig live = initial;
@@ -167,6 +168,7 @@ TEST(SettingsMutations, RemoteWebModePersistsCanonicalBindAndUpdatesLiveConfig) 
     ASSERT_TRUE(disabled.ok) << disabled.error;
     EXPECT_TRUE(disabled.persisted);
     EXPECT_EQ(live.web.bind, "127.0.0.1");
+    EXPECT_FALSE(live.web.remote_enabled);
     EXPECT_EQ(live.web.port, 45678);
     EXPECT_EQ(
         acecode::load_config_from_path(temp.config_path()).web.bind,
@@ -180,11 +182,12 @@ TEST(SettingsMutations, RemoteWebModePersistsCanonicalBindAndUpdatesLiveConfig) 
         options_for(temp, &live));
     ASSERT_TRUE(enabled.ok) << enabled.error;
     EXPECT_TRUE(enabled.persisted);
-    EXPECT_EQ(live.web.bind, "0.0.0.0");
+    EXPECT_EQ(live.web.bind, "127.0.0.1");
+    EXPECT_TRUE(live.web.remote_enabled);
     EXPECT_EQ(live.web.port, 45678);
-    EXPECT_EQ(
-        acecode::load_config_from_path(temp.config_path()).web.bind,
-        "0.0.0.0");
+    const auto saved = acecode::load_config_from_path(temp.config_path());
+    EXPECT_EQ(saved.web.bind, "127.0.0.1");
+    EXPECT_TRUE(saved.web.remote_enabled);
 }
 
 TEST(SettingsMutations, SavedModelsReuseEditorAndHonorBusyDeleteGuard) {

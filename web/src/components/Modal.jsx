@@ -4,6 +4,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
+import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 
 export function Modal({
   children,
@@ -21,6 +22,7 @@ export function Modal({
   dismissOnEscapeRef.current = dismissOnEscape;
 
   useLayoutEffect(() => {
+    notifyNativeSurfaceOverlayChange();
     const previouslyFocused = document.activeElement;
     const focusableSelector = [
       'button:not([disabled])',
@@ -68,6 +70,7 @@ export function Modal({
     return () => {
       document.removeEventListener('keydown', onKey);
       previouslyFocused?.focus?.();
+      notifyNativeSurfaceOverlayChange();
     };
   }, []);
 
@@ -75,6 +78,7 @@ export function Modal({
 
   return (
     <div
+      data-ace-native-overlay="blocking"
       className={clsx('fixed inset-0 flex items-center justify-center p-4', layerClassName)}
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.35)' }}
       onClick={() => dismissOnBackdrop && handleClose()}
@@ -108,6 +112,11 @@ export function SlideOver({ children, onClose, width = 380 }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useLayoutEffect(() => {
+    notifyNativeSurfaceOverlayChange();
+    return () => notifyNativeSurfaceOverlayChange();
+  }, []);
+
   const handleClose = () => {
     setShow(false);
     setTimeout(() => onClose?.(), 240);
@@ -115,6 +124,7 @@ export function SlideOver({ children, onClose, width = 380 }) {
 
   return (
     <div
+      data-ace-native-overlay="blocking"
       className="fixed inset-0 z-[250] transition-colors duration-250"
       style={{ backgroundColor: show ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0)' }}
       onClick={handleClose}

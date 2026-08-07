@@ -93,6 +93,7 @@ function TodoChecklistPopover({ checklist, anchorRef, open, onPointerEnter, onPo
   return createPortal(
     <div
       className="ace-change-glass-todo-popover is-open"
+      data-ace-native-overlay="overlap"
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       style={{

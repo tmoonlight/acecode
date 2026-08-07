@@ -200,6 +200,7 @@ export function TokenBudgetRing({ budget, className = '' }) {
                 'ace-context-usage-panel',
                 aggregateOnly && 'ace-context-usage-panel-aggregate',
               )}
+              data-ace-native-overlay="overlap"
               data-placement={panel.placement}
               data-mode={panel.mode}
               data-severity={budget?.severity || 'unknown'}

@@ -74,6 +74,7 @@ export function SelectionAnnotationBadge({
             <span
               id={tooltipId}
               className="ace-selection-annotation-tooltip"
+              data-ace-native-overlay="overlap"
               role="tooltip"
               data-placement={position.placement}
               style={{

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   buildDesktopContextMenuItems,
   clampContextMenuPosition,
@@ -13,6 +13,7 @@ import { exportMermaidAsset } from '../lib/mermaidExport.js';
 import { selectionContextFromWindowSelection } from '../lib/selectionChatContext.js';
 import { copyImageToSystemClipboard, copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { isDesktopShell, isWebappCompat } from '../lib/desktopShellMode.js';
+import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { api } from '../lib/api.js';
 import { toast } from './Toast.jsx';
 
@@ -47,8 +48,8 @@ const ACTION_LABELS = {
   [DESKTOP_CONTEXT_ACTIONS.CLOSE_ALL_PREVIEW_TABS]: '全部关闭',
   [DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH]: '复制相对路径',
   [DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH]: '复制绝对路径',
-  [DESKTOP_CONTEXT_ACTIONS.ADD_FILE_CONTEXT]: '加入输入上下文',
-  [DESKTOP_CONTEXT_ACTIONS.ADD_DIRECTORY_CONTEXT]: '加入输入上下文',
+  [DESKTOP_CONTEXT_ACTIONS.ADD_FILE_CONTEXT]: '添加到会话',
+  [DESKTOP_CONTEXT_ACTIONS.ADD_DIRECTORY_CONTEXT]: '添加到会话',
   [DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT]: '引用到聊天',
   [DESKTOP_CONTEXT_ACTIONS.REFRESH_FILE_TREE]: '刷新文件树',
   [DESKTOP_CONTEXT_ACTIONS.EXPAND_DIRECTORY]: '展开目录',
@@ -523,11 +524,17 @@ export function DesktopContextMenu() {
     };
   }, [clearReopenTimer, close, desktop, openWithSwitchGap]);
 
+  useLayoutEffect(() => {
+    notifyNativeSurfaceOverlayChange();
+    return () => notifyNativeSurfaceOverlayChange();
+  }, [menu]);
+
   if (!menu) return null;
 
   return (
     <div
       className="ace-desktop-context-menu"
+      data-ace-native-overlay="overlap"
       style={{ left: menu.left, top: menu.top }}
       role="menu"
       onMouseDown={(event) => event.stopPropagation()}

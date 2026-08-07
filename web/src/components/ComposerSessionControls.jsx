@@ -280,6 +280,7 @@ export function ComposerSessionControls({
           {openMenu === 'permission' && (
             <div
               role="menu"
+              data-ace-native-overlay="overlap"
               aria-label="选择权限模式"
               className="ace-composer-popup ace-composer-permission-menu"
             >
@@ -361,7 +362,10 @@ export function ComposerSessionControls({
           </button>
 
           {openMenu === 'model' && (
-            <div className="ace-composer-popup ace-composer-model-menu">
+            <div
+              className="ace-composer-popup ace-composer-model-menu"
+              data-ace-native-overlay="overlap"
+            >
               <div className="ace-composer-model-menu-header">
                 <button
                   type="button"

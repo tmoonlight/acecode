@@ -113,6 +113,36 @@ TEST_F(WebSearchToolTest, SuccessfulCallProducesMarkdownAndSummary) {
     EXPECT_TRUE(found_backend);
 }
 
+TEST_F(WebSearchToolTest, DefaultParallelOutputNeverContainsRegisteredBing) {
+    WebSearchConfig cfg;
+    BackendRouter router(cfg);
+    auto rss_response = make_resp("rss", 1);
+    rss_response.hits[0].url = "https://rss.example/item";
+    auto ddg_response = make_resp("duckduckgo", 1);
+    ddg_response.hits[0].url = "https://ddg.example/item";
+    auto bing_response = make_resp("bing_cn", 1);
+    bing_response.hits[0].url = "https://bing.example/item";
+
+    router.register_backend(std::make_unique<MockBackend>(
+        "rss", std::move(rss_response)));
+    router.register_backend(std::make_unique<MockBackend>(
+        "duckduckgo", std::move(ddg_response)));
+    auto bing = std::make_unique<MockBackend>("bing_cn", std::move(bing_response));
+    auto* bing_raw = bing.get();
+    router.register_backend(std::move(bing));
+    router.resolve_active(Region::Cn);
+
+    auto tool = create_web_search_tool(router, cfg);
+    ToolContext ctx;
+    auto result = tool.execute(R"({"query": "current news", "limit": 3})", ctx);
+    ASSERT_TRUE(result.success);
+    EXPECT_NE(result.output.find("Backend: rss"), std::string::npos);
+    EXPECT_NE(result.output.find("Backend: duckduckgo"), std::string::npos);
+    EXPECT_EQ(result.output.find("bing_cn"), std::string::npos);
+    EXPECT_EQ(result.output.find("bing.example"), std::string::npos);
+    EXPECT_EQ(bing_raw->last_limit, -1);
+}
+
 // 场景:query 缺失 / 空串 → Disabled 错误,router 不被调用
 TEST_F(WebSearchToolTest, EmptyQueryRejectedBeforeRouter) {
     WebSearchConfig cfg;
@@ -201,9 +231,11 @@ TEST_F(WebSearchToolTest, ErrorTextFormat) {
     router.register_backend(std::make_unique<MockBackend>(
         "duckduckgo",
         SearchError{SearchError::Kind::Network, "ddg unreachable", "duckduckgo"}));
-    router.register_backend(std::make_unique<MockBackend>(
+    auto bing = std::make_unique<MockBackend>(
         "bing_cn",
-        SearchError{SearchError::Kind::Network, "bing unreachable", "bing_cn"}));
+        SearchError{SearchError::Kind::Network, "bing unreachable", "bing_cn"});
+    auto* bing_raw = bing.get();
+    router.register_backend(std::move(bing));
     router.resolve_active(Region::Global);
 
     auto tool = create_web_search_tool(router, cfg);
@@ -212,7 +244,9 @@ TEST_F(WebSearchToolTest, ErrorTextFormat) {
     EXPECT_FALSE(r.success);
     EXPECT_NE(r.output.find("Web search failed"), std::string::npos);
     EXPECT_NE(r.output.find("Network"), std::string::npos);
-    EXPECT_NE(r.output.find("bing_cn"), std::string::npos); // 双 fail 时返回 fallback 错误
+    EXPECT_NE(r.output.find("duckduckgo"), std::string::npos);
+    EXPECT_EQ(r.output.find("bing_cn"), std::string::npos);
+    EXPECT_EQ(bing_raw->last_limit, -1);
     ASSERT_TRUE(r.summary.has_value());
     EXPECT_EQ(r.summary->verb, "web_search");
 }
@@ -246,31 +280,32 @@ TEST(WebSearchFormat, ParallelResultRendersBackendProvenanceAndWarnings) {
     hit.backend_name = "rss";
     hit.source = "Kubernetes Blog";
     resp.hits.push_back(std::move(hit));
-    resp.warnings.push_back("bing_cn: HTTP 429");
+    resp.warnings.push_back("duckduckgo: HTTP 429");
 
     auto out = format_results_markdown("q", resp);
     EXPECT_NE(out.find("Backend: rss"), std::string::npos);
     EXPECT_NE(out.find("Source: Kubernetes Blog"), std::string::npos);
     EXPECT_NE(out.find("Warnings:"), std::string::npos);
-    EXPECT_NE(out.find("bing_cn: HTTP 429"), std::string::npos);
+    EXPECT_NE(out.find("duckduckgo: HTTP 429"), std::string::npos);
 }
 
 // 场景:format_error_text 在有 fallback_err 时输出两行
 TEST(WebSearchFormat, ErrorTextWithFallback) {
-    SearchError primary{SearchError::Kind::Network, "ddg-fail", "duckduckgo"};
-    SearchError fb{SearchError::Kind::Network, "bing-fail", "bing_cn"};
+    SearchError primary{SearchError::Kind::Network, "rss-fail", "rss"};
+    SearchError fb{SearchError::Kind::Network, "ddg-fail", "duckduckgo"};
     auto out = format_error_text(primary, &fb);
-    EXPECT_NE(out.find("Web search failed: Network error from duckduckgo: ddg-fail"),
+    EXPECT_NE(out.find("Web search failed: Network error from rss: rss-fail"),
               std::string::npos);
-    EXPECT_NE(out.find("Tried fallback bing_cn: bing-fail"), std::string::npos);
+    EXPECT_NE(out.find("Tried fallback duckduckgo: ddg-fail"), std::string::npos);
 }
 
 // 场景:中文 query 进入 ToolSummary 时按 UTF-8 codepoint 截断,不能截断到半个字节序列。
 TEST_F(WebSearchToolTest, SummaryTruncationKeepsUtf8ValidityForChineseQuery) {
     WebSearchConfig cfg;
-    cfg.backend = "bing_cn";
+    cfg.backend = "duckduckgo";
     BackendRouter router(cfg);
-    auto mock = std::make_unique<MockBackend>("bing_cn", make_resp("bing_cn", 1));
+    auto mock = std::make_unique<MockBackend>(
+        "duckduckgo", make_resp("duckduckgo", 1));
     router.register_backend(std::move(mock));
     router.resolve_active(Region::Cn);
 
@@ -302,13 +337,13 @@ TEST_F(WebSearchToolTest, SummaryTruncationKeepsUtf8ValidityForChineseQuery) {
 // 场景:错误摘要里的中文错误文本同样按 UTF-8 安全截断,不能在 JSON dump 时炸掉。
 TEST_F(WebSearchToolTest, ErrorSummaryTruncationKeepsUtf8Validity) {
     WebSearchConfig cfg;
-    cfg.backend = "bing_cn";
+    cfg.backend = "duckduckgo";
     BackendRouter router(cfg);
     const std::string long_error =
         u8"搜索服务返回了很长的中文错误消息用于验证截断不会破坏UTF8编码并且仍然可以安全序列化到JSON中";
     router.register_backend(std::make_unique<MockBackend>(
-        "bing_cn",
-        SearchError{SearchError::Kind::Network, long_error, "bing_cn"}));
+        "duckduckgo",
+        SearchError{SearchError::Kind::Network, long_error, "duckduckgo"}));
     router.resolve_active(Region::Cn);
 
     auto tool = create_web_search_tool(router, cfg);

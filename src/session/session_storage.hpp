@@ -49,8 +49,9 @@ struct SessionMeta {
     std::string model;
     std::string model_preset;  // optional saved_models name for this session
     std::string title;  // optional window title; empty = unset
-    // "user" = explicit rename, "generated" = hidden title generator,
-    // "legacy" = pre-provenance metadata that already had a title.
+    // "user" = explicit rename, "user-cleared" = explicit empty title,
+    // "generated" = hidden title generator, "legacy" = pre-provenance
+    // metadata that already had a title.
     std::string title_source;
     std::string input_draft;  // optional unsubmitted chat input draft; empty = unset
     std::string permission_mode = "default";  // default | accept-edits | plan | yolo

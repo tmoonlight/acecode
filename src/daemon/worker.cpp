@@ -57,6 +57,8 @@
 #include "../utils/utf8_path.hpp"
 #include "../web/auth.hpp"
 #include "../web/pty/pty_session_registry.hpp"
+#include "../web/remote_web.hpp"
+#include "../web/remote_web_proxy.hpp"
 #include "../web/server.hpp"
 
 #include <atomic>
@@ -360,17 +362,6 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         return 13;
     }
 
-    // 启动前硬安全校验(spec 11.3)。token 还没生成,这里先做 dangerous 检查;
-    // 非 loopback 缺 token 的检查放在 token 生成后,因为我们生成 token = 总是
-    // 满足。但若用户后续传入外部配置开关禁用 token,应在那里失败。当前 v1
-    // 总是生成 token → 非 loopback 也通过 preflight。
-    auto preflight_dangerous_only = acecode::web::preflight_bind_check(
-        cfg.web.bind, /*server_token=*/"placeholder", opts.dangerous);
-    if (!preflight_dangerous_only.empty()) {
-        std::cerr << preflight_dangerous_only << "\n";
-        return 2;
-    }
-
     auto reject = validate_can_start(opts, cfg.daemon.heartbeat_timeout_ms);
     if (!reject.empty()) {
         std::cerr << "[daemon] refuse to start: " << reject << "\n";
@@ -405,7 +396,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         acecode::model_pool_status_service().start();
     }
 
-    ensure_run_dir();
+    const std::string runtime_dir = ensure_run_dir();
 
     // GUID: supervised 用 launcher 派的;standalone 自己生成。
     std::string guid = opts.supervised ? opts.guid : generate_daemon_guid();
@@ -415,6 +406,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // desktop 父进程注入的 port_override 也要写。原本只服务前者,现在两用合一,
     // 后续所有引用都从 cfg_mut 取(原代码部分位置仍引用 const cfg,见底部 web_deps)。
     AppConfig cfg_mut = cfg;
+    // Remote access is owned by a separate proxy process. The daemon itself
+    // never inherits a legacy or manually supplied wildcard bind.
+    cfg_mut.web.bind = acecode::web::kRemoteWebLoopbackBind;
     if (opts.port_override > 0) {
         cfg_mut.web.port = opts.port_override;
     }
@@ -706,6 +700,32 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     web_deps.loop_store         = loop_store_ready ? &loop_store : nullptr;
     web_deps.on_loops_changed   = [&loop_scheduler] { loop_scheduler.notify_changed(); };
 
+    acecode::web::ManagedRemoteWebProxyController remote_web_proxy(
+        current_executable_path(), runtime_dir, pid);
+    if (cfg_mut.web.remote_enabled) {
+        if (opts.dangerous) {
+            LOG_WARN(
+                "[remote-web] configured proxy was not started because "
+                "dangerous mode is active; daemon remains loopback-only");
+        } else {
+            const auto proxy = remote_web_proxy.start(
+                cfg_mut.web.remote_port,
+                cfg_mut.web.port);
+            if (proxy.running) {
+                LOG_INFO(
+                    "[remote-web] proxy ready pid=" +
+                    std::to_string(proxy.pid) + " bind=" +
+                    acecode::web::kRemoteWebProxyBind + ":" +
+                    std::to_string(proxy.port));
+            } else {
+                LOG_ERROR(
+                    "[remote-web] proxy failed to start; daemon remains "
+                    "loopback-only: " + proxy.error);
+            }
+        }
+    }
+    web_deps.remote_web_proxy = &remote_web_proxy;
+
     acecode::web::WebServer server(std::move(web_deps));
 
     // ---- daemon 托管 remote control(/rc 绑定 Web 会话到 channel 插件)----
@@ -909,6 +929,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     });
 
     int rc = server.run();
+    // Remove the external listener before any daemon-owned service begins
+    // teardown. The controller destructor is a second, idempotent safety net.
+    remote_web_proxy.stop();
     // 行为⑥:teardown 第一步先停 remote-control(不再接受 channel 入站,
     // 也避免静态析构阶段才停 rc 监听的顺序问题 —— 镜像 TUI teardown)。
     // 随后 handler 不会再被 HTTP 调到(server 已停),清空防悬垂。

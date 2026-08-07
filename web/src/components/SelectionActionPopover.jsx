@@ -81,6 +81,7 @@ export function SelectionActionPopover({
     <div
       ref={rootRef}
       className="ace-selection-action-popover"
+      data-ace-native-overlay="overlap"
       data-mode={mode}
       data-anchor={snapshot.anchor || 'selection'}
       data-placement={position?.placement || 'below'}

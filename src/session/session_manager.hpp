@@ -262,9 +262,11 @@ private:
     std::string auto_title_input_;
     std::string auto_title_session_id_;
     int auto_title_generation_attempts_ = 0;
+    int auto_title_cycle_turn_count_ = 0;
     bool auto_title_generation_in_flight_ = false;
     bool auto_title_retry_pending_ = false;
     bool auto_title_first_turn_completed_ = false;
+    bool auto_title_cycle_exhausted_ = false;
     bool user_title_touched_ = false;
     std::string input_draft_;
     std::string permission_mode_ = "default";

@@ -1,14 +1,13 @@
 // 覆盖 src/tool/web_search/backend_router.{hpp,cpp}。
 //
 // 用 mock backend(继承 WebSearchBackend)注入受控响应,断言:
-//   - resolve_active 在 cfg=auto 下根据 region 选 ddg/bing
-//   - 显式 backend(bing_cn)覆盖 region(即使 region=Global 仍选 bing)
+//   - resolve_active 在 cfg=auto 下始终选择 DuckDuckGo
+//   - 旧 bing_cn 配置安全降级到 DuckDuckGo
 //   - bochaai / tavily 占位 → fallback 到 auto 行为(注意 cfg 字段是 string,
 //     非法名会被 load_config 挡掉,这里只测占位 backend 的 fallback 行为)
-//   - search_with_fallback:Network 错误 → 试对侧;成功后 active 切换 + 缓存更新 + notify
-//   - Parse 错误不 fallback,直接返回
-//   - 双 fail 返回最后一次错误,不 notify
-//   - set_active 拒绝未注册 backend
+//   - parallel 只并发 RSS + DuckDuckGo,从不调用/合并 Bing CN
+//   - RSS 可回退 DuckDuckGo;DuckDuckGo 错误不再回退 Bing CN
+//   - set_active 拒绝 Bing CN 和未注册 backend
 
 #include <gtest/gtest.h>
 
@@ -57,7 +56,7 @@ public:
             ++gate_->arrived;
             gate_->cv.notify_all();
             if (!gate_->cv.wait_for(lk, std::chrono::seconds(1),
-                                    [&] { return gate_->arrived == 3; })) {
+                                    [&] { return gate_->arrived == 2; })) {
                 return SearchError{SearchError::Kind::Network,
                                    "parallel fan-out did not overlap", name_};
             }
@@ -131,23 +130,23 @@ TEST_F(BackendRouterTest, AutoGlobalSelectsDdg) {
 }
 
 // 场景:cfg=auto + region=Cn → active = bing_cn
-TEST_F(BackendRouterTest, AutoCnSelectsBing) {
+TEST_F(BackendRouterTest, AutoCnSelectsDdg) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Cn);
-    EXPECT_EQ(r.active_name(), "bing_cn");
+    EXPECT_EQ(r.active_name(), "duckduckgo");
 }
 
 // 场景:cfg=auto + region=Unknown → 悲观默认 bing_cn
-TEST_F(BackendRouterTest, AutoUnknownSelectsBing) {
+TEST_F(BackendRouterTest, AutoUnknownSelectsDdg) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Unknown);
-    EXPECT_EQ(r.active_name(), "bing_cn");
+    EXPECT_EQ(r.active_name(), "duckduckgo");
 }
 
 TEST_F(BackendRouterTest, DefaultConfigSelectsParallel) {
@@ -178,7 +177,7 @@ TEST_F(BackendRouterTest, EmptyRssFallsBackByRegionWithoutChangingActive) {
     EXPECT_EQ(r.active_name(), "rss");
 }
 
-TEST_F(BackendRouterTest, RssNetworkErrorFallsBackToBingInChinaWithoutChangingActive) {
+TEST_F(BackendRouterTest, RssNetworkErrorFallsBackToDdgInChinaWithoutChangingActive) {
     WebSearchConfig cfg;
     cfg.backend = "rss";
     BackendRouter r(cfg);
@@ -189,9 +188,9 @@ TEST_F(BackendRouterTest, RssNetworkErrorFallsBackToBingInChinaWithoutChangingAc
 
     auto out = r.search_with_fallback("query", 2, nullptr, nullptr);
     ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
-    EXPECT_EQ(std::get<SearchResponse>(out).backend_name, "bing_cn");
-    EXPECT_EQ(mocks.ddg->call_count, 0);
-    EXPECT_EQ(mocks.bing->call_count, 1);
+    EXPECT_EQ(std::get<SearchResponse>(out).backend_name, "duckduckgo");
+    EXPECT_EQ(mocks.ddg->call_count, 1);
+    EXPECT_EQ(mocks.bing->call_count, 0);
     EXPECT_EQ(r.active_name(), "rss");
 }
 
@@ -226,7 +225,7 @@ TEST_F(BackendRouterTest, RssRateLimitFallsBackWithoutChangingActive) {
     EXPECT_EQ(r.active_name(), "rss");
 }
 
-TEST_F(BackendRouterTest, StickyLegacyFallbackUpdatesRssFallbackRegion) {
+TEST_F(BackendRouterTest, DuckDuckGoNetworkErrorNeverFallsBackToBing) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
@@ -234,29 +233,25 @@ TEST_F(BackendRouterTest, StickyLegacyFallbackUpdatesRssFallbackRegion) {
         r,
         SearchError{SearchError::Kind::Network, "blocked", "duckduckgo"},
         make_resp("bing_cn", 1));
-    r.register_backend(std::make_unique<MockBackend>("rss", make_resp("rss", 0)));
-    r.resolve_active(Region::Global);
+    r.resolve_active(Region::Cn);
 
-    auto legacy = r.search_with_fallback("q", 5, nullptr, nullptr);
-    ASSERT_TRUE(std::holds_alternative<SearchResponse>(legacy));
-    ASSERT_EQ(r.active_name(), "bing_cn");
-    ASSERT_TRUE(r.set_active("rss"));
-
-    auto rss = r.search_with_fallback("q", 5, nullptr, nullptr);
-    ASSERT_TRUE(std::holds_alternative<SearchResponse>(rss));
-    EXPECT_EQ(std::get<SearchResponse>(rss).backend_name, "bing_cn");
+    auto out = r.search_with_fallback("q", 5, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchError>(out));
+    EXPECT_EQ(std::get<SearchError>(out).backend_name, "duckduckgo");
+    EXPECT_EQ(r.active_name(), "duckduckgo");
     EXPECT_EQ(mocks.ddg->call_count, 1);
-    EXPECT_EQ(mocks.bing->call_count, 2);
+    EXPECT_EQ(mocks.bing->call_count, 0);
+    EXPECT_FALSE(read_web_search_region_cache().has_value());
 }
 
-TEST_F(BackendRouterTest, ParallelStartsAllThreeBackendsConcurrently) {
+TEST_F(BackendRouterTest, ParallelStartsRssAndDdgConcurrentlyWithoutBing) {
     WebSearchConfig cfg;
     BackendRouter r(cfg);
     auto gate = std::make_shared<ParallelGate>();
     auto rss = std::make_unique<MockBackend>("rss", make_resp("rss", 1), gate);
     auto ddg = std::make_unique<MockBackend>(
         "duckduckgo", make_resp("duckduckgo", 1), gate);
-    auto bing = std::make_unique<MockBackend>("bing_cn", make_resp("bing_cn", 1), gate);
+    auto bing = std::make_unique<MockBackend>("bing_cn", make_resp("bing_cn", 1));
     auto* rss_raw = rss.get();
     auto* ddg_raw = ddg.get();
     auto* bing_raw = bing.get();
@@ -269,11 +264,11 @@ TEST_F(BackendRouterTest, ParallelStartsAllThreeBackendsConcurrently) {
     ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
     const auto& response = std::get<SearchResponse>(out);
     EXPECT_EQ(response.backend_name, "parallel");
-    EXPECT_EQ(response.hits.size(), 3u);
-    EXPECT_EQ(gate->arrived, 3);
+    EXPECT_EQ(response.hits.size(), 2u);
+    EXPECT_EQ(gate->arrived, 2);
     EXPECT_EQ(rss_raw->call_count, 1);
     EXPECT_EQ(ddg_raw->call_count, 1);
-    EXPECT_EQ(bing_raw->call_count, 1);
+    EXPECT_EQ(bing_raw->call_count, 0);
 }
 
 TEST_F(BackendRouterTest, ParallelInterleavesDeduplicatesAndEnforcesTotalLimit) {
@@ -291,6 +286,7 @@ TEST_F(BackendRouterTest, ParallelInterleavesDeduplicatesAndEnforcesTotalLimit) 
     ddg.hits = {
         {"ddg-duplicate", "https://example.com/shared#top", "duplicate"},
         {"ddg-second", "https://ddg.example/second", "ddg second"},
+        {"ddg-third", "https://ddg.example/third", "ddg third"},
     };
     SearchResponse bing;
     bing.backend_name = "bing_cn";
@@ -300,21 +296,24 @@ TEST_F(BackendRouterTest, ParallelInterleavesDeduplicatesAndEnforcesTotalLimit) 
     };
     r.register_backend(std::make_unique<MockBackend>("rss", std::move(rss)));
     r.register_backend(std::make_unique<MockBackend>("duckduckgo", std::move(ddg)));
-    r.register_backend(std::make_unique<MockBackend>("bing_cn", std::move(bing)));
+    auto bing_backend = std::make_unique<MockBackend>("bing_cn", std::move(bing));
+    auto* bing_raw = bing_backend.get();
+    r.register_backend(std::move(bing_backend));
     r.resolve_active(Region::Global);
 
-    auto out = r.search_with_fallback("query", 5, nullptr, nullptr);
+    auto out = r.search_with_fallback("query", 4, nullptr, nullptr);
     ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
     const auto& hits = std::get<SearchResponse>(out).hits;
-    ASSERT_EQ(hits.size(), 5u);
+    ASSERT_EQ(hits.size(), 4u);
     EXPECT_EQ(hits[0].title, "rss-shared");
     EXPECT_EQ(hits[1].title, "ddg-second");
-    EXPECT_EQ(hits[2].title, "bing-first");
-    EXPECT_EQ(hits[3].title, "rss-second");
-    EXPECT_EQ(hits[4].title, "bing-second");
+    EXPECT_EQ(hits[2].title, "rss-second");
+    EXPECT_EQ(hits[3].title, "ddg-third");
     EXPECT_EQ(hits[0].backend_name, "rss");
     EXPECT_EQ(hits[1].backend_name, "duckduckgo");
-    EXPECT_EQ(hits[2].backend_name, "bing_cn");
+    EXPECT_EQ(hits[2].backend_name, "rss");
+    EXPECT_EQ(hits[3].backend_name, "duckduckgo");
+    EXPECT_EQ(bing_raw->call_count, 0);
 }
 
 TEST_F(BackendRouterTest, ParallelPartialFailureReturnsResultsAndWarnings) {
@@ -324,8 +323,10 @@ TEST_F(BackendRouterTest, ParallelPartialFailureReturnsResultsAndWarnings) {
         "rss", SearchError{SearchError::Kind::Network, "rss down", "rss"}));
     r.register_backend(std::make_unique<MockBackend>(
         "duckduckgo", make_resp("duckduckgo", 2)));
-    r.register_backend(std::make_unique<MockBackend>(
-        "bing_cn", SearchError{SearchError::Kind::RateLimited, "bing 429", "bing_cn"}));
+    auto bing = std::make_unique<MockBackend>(
+        "bing_cn", SearchError{SearchError::Kind::RateLimited, "bing 429", "bing_cn"});
+    auto* bing_raw = bing.get();
+    r.register_backend(std::move(bing));
     r.resolve_active(Region::Global);
 
     std::string notification;
@@ -335,11 +336,11 @@ TEST_F(BackendRouterTest, ParallelPartialFailureReturnsResultsAndWarnings) {
     ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
     const auto& response = std::get<SearchResponse>(out);
     EXPECT_EQ(response.hits.size(), 2u);
-    ASSERT_EQ(response.warnings.size(), 2u);
+    ASSERT_EQ(response.warnings.size(), 1u);
     EXPECT_NE(response.warnings[0].find("rss"), std::string::npos);
-    EXPECT_NE(response.warnings[1].find("bing_cn"), std::string::npos);
     EXPECT_NE(notification.find("rss"), std::string::npos);
-    EXPECT_NE(notification.find("bing_cn"), std::string::npos);
+    EXPECT_EQ(notification.find("bing_cn"), std::string::npos);
+    EXPECT_EQ(bing_raw->call_count, 0);
     EXPECT_EQ(r.active_name(), "parallel");
 }
 
@@ -350,8 +351,10 @@ TEST_F(BackendRouterTest, ParallelAllFailuresReturnAggregateError) {
         "rss", SearchError{SearchError::Kind::Parse, "bad json", "rss"}));
     r.register_backend(std::make_unique<MockBackend>(
         "duckduckgo", SearchError{SearchError::Kind::Network, "ddg down", "duckduckgo"}));
-    r.register_backend(std::make_unique<MockBackend>(
-        "bing_cn", SearchError{SearchError::Kind::RateLimited, "bing 429", "bing_cn"}));
+    auto bing = std::make_unique<MockBackend>(
+        "bing_cn", make_resp("bing_cn", 2));
+    auto* bing_raw = bing.get();
+    r.register_backend(std::move(bing));
     r.resolve_active(Region::Cn);
 
     auto out = r.search_with_fallback("query", 5, nullptr, nullptr);
@@ -360,18 +363,24 @@ TEST_F(BackendRouterTest, ParallelAllFailuresReturnAggregateError) {
     EXPECT_EQ(error.backend_name, "parallel");
     EXPECT_NE(error.message.find("rss"), std::string::npos);
     EXPECT_NE(error.message.find("duckduckgo"), std::string::npos);
-    EXPECT_NE(error.message.find("bing_cn"), std::string::npos);
+    EXPECT_EQ(error.message.find("bing_cn"), std::string::npos);
+    EXPECT_EQ(bing_raw->call_count, 0);
     EXPECT_EQ(r.active_name(), "parallel");
 }
 
-// 场景:显式 backend=bing_cn,region=Global → 仍选 bing_cn(显式覆盖 region)
-TEST_F(BackendRouterTest, ExplicitBackendOverridesRegion) {
+// 场景:旧 bing_cn 配置仍可加载,但运行时安全降级到 DuckDuckGo
+TEST_F(BackendRouterTest, LegacyBingConfigResolvesToDdgWithoutCallingBing) {
     WebSearchConfig cfg;
     cfg.backend = "bing_cn";
     BackendRouter r(cfg);
-    install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
-    r.resolve_active(Region::Global);
-    EXPECT_EQ(r.active_name(), "bing_cn");
+    auto mocks = install_mocks(r, make_resp("duckduckgo", 1), make_resp("bing_cn", 1));
+    r.resolve_active(Region::Cn);
+    EXPECT_EQ(r.active_name(), "duckduckgo");
+    auto out = r.search_with_fallback("q", 1, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
+    EXPECT_EQ(std::get<SearchResponse>(out).backend_name, "duckduckgo");
+    EXPECT_EQ(mocks.ddg->call_count, 1);
+    EXPECT_EQ(mocks.bing->call_count, 0);
 }
 
 // 场景:配置 backend=tavily(未实现),fallback 到 auto 行为
@@ -384,8 +393,8 @@ TEST_F(BackendRouterTest, UnimplementedBackendFallsBackToAuto) {
     EXPECT_EQ(r.active_name(), "duckduckgo"); // tavily 未实现,看作 auto
 }
 
-// 场景:Network 错误触发 fallback,成功后 active 切到对侧 + 缓存更新 + notify
-TEST_F(BackendRouterTest, NetworkErrorFallbackToOpposite) {
+// 场景:DuckDuckGo Network 错误也不回退 Bing CN
+TEST_F(BackendRouterTest, NetworkErrorReturnsWithoutBingFallback) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
@@ -395,20 +404,16 @@ TEST_F(BackendRouterTest, NetworkErrorFallbackToOpposite) {
         make_resp("bing_cn", 3));
     r.resolve_active(Region::Global); // active=ddg
 
-    std::string captured_notify;
-    auto notify = [&](const std::string& m) { captured_notify = m; };
-
-    auto out = r.search_with_fallback("rust", 3, nullptr, notify);
-    ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
-    EXPECT_EQ(std::get<SearchResponse>(out).backend_name, "bing_cn");
+    bool notify_fired = false;
+    auto out = r.search_with_fallback(
+        "rust", 3, nullptr,
+        [&](const std::string&) { notify_fired = true; });
+    ASSERT_TRUE(std::holds_alternative<SearchError>(out));
+    EXPECT_EQ(std::get<SearchError>(out).backend_name, "duckduckgo");
     EXPECT_EQ(mocks.ddg->call_count, 1);
-    EXPECT_EQ(mocks.bing->call_count, 1);
-    EXPECT_EQ(r.active_name(), "bing_cn");
-    EXPECT_NE(captured_notify.find("Switched to bing_cn"), std::string::npos);
-
-    auto cache = read_web_search_region_cache();
-    ASSERT_TRUE(cache.has_value());
-    EXPECT_EQ(cache->region, "cn");
+    EXPECT_EQ(mocks.bing->call_count, 0);
+    EXPECT_EQ(r.active_name(), "duckduckgo");
+    EXPECT_FALSE(notify_fired);
 }
 
 // 场景:Parse 错误不 fallback,直接返回 — 对侧 backend 不应被调用
@@ -449,38 +454,32 @@ TEST_F(BackendRouterTest, RateLimitedDoesNotFallback) {
     EXPECT_EQ(mocks.bing->call_count, 0);
 }
 
-// 场景:双 fail 返回最后一次错误(fallback 的错误),active 不变,无 notify
-TEST_F(BackendRouterTest, BothFailReturnsLastError) {
+// 场景:即使已注册 Bing CN,也不能通过 set_active 旁路选择
+TEST_F(BackendRouterTest, RegisteredBingCannotBeSelected) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
-    auto mocks = install_mocks(
-        r,
-        SearchError{SearchError::Kind::Network, "ddg-fail", "duckduckgo"},
-        SearchError{SearchError::Kind::Network, "bing-fail", "bing_cn"});
+    auto mocks = install_mocks(r, make_resp("duckduckgo", 1), make_resp("bing_cn", 1));
     r.resolve_active(Region::Global);
-
-    bool notify_fired = false;
-    auto out = r.search_with_fallback("x", 3, nullptr,
-                                       [&](const std::string&) { notify_fired = true; });
-    ASSERT_TRUE(std::holds_alternative<SearchError>(out));
-    EXPECT_EQ(std::get<SearchError>(out).backend_name, "bing_cn");
-    EXPECT_EQ(std::get<SearchError>(out).message, "bing-fail");
-    EXPECT_FALSE(notify_fired);
-    EXPECT_EQ(r.active_name(), "duckduckgo"); // 没切
+    EXPECT_FALSE(r.set_active("bing_cn"));
+    EXPECT_EQ(r.active_name(), "duckduckgo");
+    auto out = r.search_with_fallback("x", 1, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchResponse>(out));
     EXPECT_EQ(mocks.ddg->call_count, 1);
-    EXPECT_EQ(mocks.bing->call_count, 1);
+    EXPECT_EQ(mocks.bing->call_count, 0);
 }
 
-// 场景:set_active 接受已注册名和虚拟 parallel 模式,拒绝未知名
+// 场景:set_active 接受 DuckDuckGo 和虚拟 parallel,拒绝 Bing 与未知名
 TEST_F(BackendRouterTest, SetActiveValidatesRegistration) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
     r.resolve_active(Region::Global);
-    EXPECT_TRUE(r.set_active("bing_cn"));
-    EXPECT_EQ(r.active_name(), "bing_cn");
+    EXPECT_TRUE(r.set_active("duckduckgo"));
+    EXPECT_EQ(r.active_name(), "duckduckgo");
+    EXPECT_FALSE(r.set_active("bing_cn"));
+    EXPECT_EQ(r.active_name(), "duckduckgo");
     EXPECT_TRUE(r.set_active("parallel"));
     EXPECT_EQ(r.active_name(), "parallel");
     EXPECT_FALSE(r.set_active("yandex")); // 未注册
@@ -501,4 +500,12 @@ TEST_F(BackendRouterTest, StatusSnapshotShape) {
     EXPECT_TRUE(j["enabled"].get<bool>());
     ASSERT_TRUE(j["registered"].is_array());
     EXPECT_EQ(j["registered"].size(), 2u);
+}
+
+TEST_F(BackendRouterTest, DefaultRegistrationExcludesBingCn) {
+    WebSearchConfig cfg;
+    BackendRouter r(cfg);
+    register_default_backends(r, cfg);
+    EXPECT_EQ(r.registered_names_for_test(),
+              (std::vector<std::string>{"duckduckgo", "rss"}));
 }

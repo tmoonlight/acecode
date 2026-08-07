@@ -322,6 +322,28 @@ TEST(SessionStorage, EmptyTitleIsOmittedOnWrite) {
         << "empty LOOP provenance should be omitted from the serialized JSON; got: " << content;
 }
 
+TEST(SessionStorage, ExplicitClearSourcePersistsWithoutTitle) {
+    auto dir = make_unique_tmp_dir("cleared_title_source");
+    auto meta_path = (dir / "cleared.meta.json").string();
+
+    SessionMeta in;
+    in.id = "cleared-title";
+    in.cwd = "/tmp/project";
+    in.title_source = "user-cleared";
+    SessionStorage::write_meta(meta_path, in);
+
+    std::ifstream ifs(meta_path);
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    EXPECT_EQ(content.find("\"title\""), std::string::npos);
+    EXPECT_NE(content.find("\"title_source\": \"user-cleared\""),
+              std::string::npos);
+
+    SessionMeta out = SessionStorage::read_meta(meta_path);
+    EXPECT_TRUE(out.title.empty());
+    EXPECT_EQ(out.title_source, "user-cleared");
+}
+
 // 场景:pre_plan_permission_mode 只能保存非 Plan mode。坏值和 "plan"
 // 都会被折回 default,避免 resume 后出现 "Plan 的前一个 mode 还是 Plan"。
 TEST(SessionStorage, PrePlanPermissionModeNormalizesInvalidValues) {

@@ -634,6 +634,7 @@ export function ConsoleDock({ open, height, onHeightChange, onToggle, consoleInf
             {shellMenuOpen && shellMenuPos && createPortal(
               <div
                 className="ace-console-shell-menu"
+                data-ace-native-overlay="overlap"
                 data-ace-focus-region="terminal"
                 data-collapsed={!open}
                 role="menu"

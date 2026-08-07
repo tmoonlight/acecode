@@ -174,6 +174,7 @@ export function GitSessionPill({
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute bottom-full left-0 mb-1.5 min-w-[200px] max-w-[300px] max-h-[40vh] overflow-y-auto bg-surface border border-border ace-shadow rounded-xl z-50 py-1.5 ace-scrollbar"
+               data-ace-native-overlay="overlap"
                data-placement={variant === 'hero' ? 'below' : 'above'}
                style={variant === 'hero' ? { bottom: 'auto', top: '100%', marginBottom: 0, marginTop: 6 } : undefined}>
             <div className="px-3 pb-1 mb-1 text-[11px] font-semibold text-fg-mute border-b border-border/50 uppercase tracking-wider">

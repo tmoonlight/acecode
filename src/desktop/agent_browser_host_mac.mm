@@ -519,6 +519,8 @@ bool request_native_input_permission() {
 struct AgentBrowserHost::Impl final
     : public MacAgentBrowserDelegateSink,
       public std::enable_shared_from_this<AgentBrowserHost::Impl> {
+    bool parent_surface_visible = true;
+
     struct PendingProxyCall {
         std::mutex mutex;
         std::condition_variable ready;
@@ -859,7 +861,8 @@ struct AgentBrowserHost::Impl final
         [page->webview setFrame:NSMakeRect(
             bounds.x, y, bounds.width, bounds.height)];
         const AgentBrowserState snapshot = state(page->id);
-        const bool show = bounds.visible && snapshot.active &&
+        const bool show = parent_surface_visible && bounds.visible &&
+            snapshot.active &&
             snapshot.content_state == kAgentBrowserContentStateLive &&
             bounds.width > 0 && bounds.height > 0;
         [page->webview setHidden:show ? NO : YES];
@@ -2126,10 +2129,27 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
         assign_error(error, "Agent Browser bounds are invalid");
         return false;
     }
+    if (bounds.occlusion_rects.size() > kAgentBrowserMaxOcclusionRects) {
+        assign_error(error, "Agent Browser has too many occlusion rectangles");
+        return false;
+    }
+    for (const auto& rect : bounds.occlusion_rects) {
+        if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
+            rect.x > 32768 || rect.y > 32768 ||
+            rect.width > 32768 || rect.height > 32768) {
+            assign_error(error, "Agent Browser occlusion rectangle is invalid");
+            return false;
+        }
+    }
     auto page = impl_->find_page(page_id);
     if (!page) {
         assign_error(error, "Agent Browser page was not found");
         return false;
+    }
+    if (bounds.layout_revision != 0 &&
+        page->requested_bounds.layout_revision != 0 &&
+        bounds.layout_revision < page->requested_bounds.layout_revision) {
+        return true;
     }
     page->requested_bounds = bounds;
     impl_->apply_bounds(page);
@@ -2222,6 +2242,21 @@ bool AgentBrowserHost::open_developer_tools(const std::string& page_id,
     assign_error(error,
         "WKWebView has no public API to open Web Inspector programmatically");
     return false;
+}
+
+void AgentBrowserHost::refresh_layout() {
+    if (!impl_) return;
+    for (const auto& state : impl_->states()) {
+        if (auto page = impl_->find_page(state.page_id)) {
+            impl_->apply_bounds(page);
+        }
+    }
+}
+
+void AgentBrowserHost::set_parent_visible(bool visible) {
+    if (!impl_) return;
+    impl_->parent_surface_visible = visible;
+    refresh_layout();
 }
 
 void AgentBrowserHost::hide(const std::string& page_id) {

@@ -29,7 +29,7 @@ struct SearchHit {
 
 struct SearchResponse {
     std::vector<SearchHit> hits;
-    std::string backend_name;   // "parallel" / "duckduckgo" / "bing_cn" / ...
+    std::string backend_name;   // "parallel" / "rss" / "duckduckgo" / ...
     int duration_ms = 0;        // 单次 search() 实际耗时
     std::vector<std::string> warnings; // Non-fatal per-backend failures.
 };

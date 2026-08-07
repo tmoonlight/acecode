@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   clampLightboxTransform,
@@ -12,6 +12,7 @@ import {
   registerMermaidExportTarget,
   unregisterMermaidExportTarget,
 } from '../lib/mermaidExport.js';
+import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { VsIcon } from './Icon.jsx';
 
 const FIT_TRANSFORM = Object.freeze({ scale: 1, x: 0, y: 0 });
@@ -200,6 +201,12 @@ export function ImageLightbox({ preview, onClose, contextMenuAttrs }) {
     return () => unregisterMermaidExportTarget(element);
   }, [mermaidExport]);
 
+  useLayoutEffect(() => {
+    if (!previewSource) return undefined;
+    notifyNativeSurfaceOverlayChange();
+    return () => notifyNativeSurfaceOverlayChange();
+  }, [previewSource]);
+
   if (!previewSource) return null;
 
   const canPan = lightboxCanPan(transform, metrics);
@@ -211,6 +218,7 @@ export function ImageLightbox({ preview, onClose, contextMenuAttrs }) {
     <div
       ref={lightboxRef}
       className="fixed inset-0 z-[80] bg-black/70"
+      data-ace-native-overlay="blocking"
       data-mermaid-export-target={mermaidExport ? 'true' : undefined}
       role="dialog"
       aria-modal="true"

@@ -158,6 +158,12 @@ struct WebConfig {
     bool enabled = true;
     std::string bind = "127.0.0.1";
     int port = 28080;
+    // Remote access is provided by a separately supervised reverse proxy.
+    // The daemon listener itself remains on the canonical loopback bind.
+    bool remote_enabled = false;
+    // 0 = choose an available external port at runtime. A non-zero value is
+    // fixed and enablement fails rather than silently substituting another.
+    int remote_port = 0;
     // Empty = serve embedded assets; non-empty = serve from this filesystem path
     // (development mode for the front-end change).
     std::string static_dir;
@@ -165,6 +171,11 @@ struct WebConfig {
 
 struct WebUiPreferencesConfig {
     bool show_acecode_avatar = false;
+    // Stable Desktop/WebUI appearance preferences. `system` is resolved by
+    // the frontend so a legacy first launch keeps following the OS mode.
+    std::string theme = "system";       // system | light | dark
+    std::string color_theme = "blue";   // blue | orange
+    std::string font_size = "medium";   // small | medium | large
 };
 
 struct ModelsDevConfig {
@@ -246,14 +257,14 @@ struct TuiConfig {
 // callers SHOULD branch on at runtime; the rest are passively consumed by
 // network::ProxyResolver.
 // Web search tool tunables. See openspec/changes/integrate-rss-web-search/.
-// `backend = "parallel"` concurrently searches RSS, DuckDuckGo, and Bing CN.
+// `backend = "parallel"` concurrently searches RSS and DuckDuckGo.
 // `backend = "rss"` uses AceCode's hosted curated index and falls back per
-// request to the region-appropriate HTML backend when unavailable or empty.
-// `backend = "auto"` preserves the legacy region choice(global → duckduckgo,
-// cn/unknown → bing_cn). Explicit names skip backend selection.
+// request to DuckDuckGo when unavailable or empty. `backend = "auto"` also
+// selects DuckDuckGo. Legacy "bing_cn" remains parseable but is disabled and
+// resolves to DuckDuckGo at runtime.
 struct WebSearchConfig {
     bool enabled = true;
-    // "parallel" | "rss" | "auto" | "duckduckgo" | "bing_cn" | ...
+    // "parallel" | "rss" | "auto" | "duckduckgo" | legacy "bing_cn" | ...
     std::string backend = "parallel";
     std::string api_key;        // Reserved for future API backends.
     std::string rss_base_url = "https://ge.bigjuan.xyz/rss-search";
@@ -457,6 +468,12 @@ bool is_valid_upgrade_base_url(const std::string& raw);
 
 // GUI locale preference accepted by config and the authenticated daemon API.
 bool is_valid_ui_locale(const std::string& locale);
+
+// Desktop/WebUI appearance values accepted by config and the authenticated
+// UI-preferences API.
+bool is_valid_web_ui_theme(const std::string& theme);
+bool is_valid_web_ui_color_theme(const std::string& color_theme);
+bool is_valid_web_ui_font_size(const std::string& font_size);
 
 nlohmann::json connectors_to_json(const std::vector<ConnectorConfig>& connectors);
 bool parse_connectors_json(const nlohmann::json& value,

@@ -1673,6 +1673,93 @@ body {
 .ace-sidebar-session-row {
   position: relative;
 }
+.ace-sidebar-session-title-viewport {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+.ace-sidebar-session-title-content {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  white-space: nowrap;
+  transform: translate3d(0, 0, 0);
+}
+.ace-sidebar-session-title-viewport.is-overflowing {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 18px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 18px),
+    transparent 100%
+  );
+}
+.ace-sidebar-session-row:hover .ace-sidebar-session-title-viewport.is-overflowing,
+.ace-sidebar-session-title-button:focus-visible .ace-sidebar-session-title-viewport.is-overflowing {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 8px,
+    #000 calc(100% - 12px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 8px,
+    #000 calc(100% - 12px),
+    transparent 100%
+  );
+}
+.ace-sidebar-session-row:hover .ace-sidebar-session-title-viewport.is-overflowing.is-marquee-ready .ace-sidebar-session-title-content,
+.ace-sidebar-session-title-button:focus-visible .ace-sidebar-session-title-viewport.is-overflowing.is-marquee-ready .ace-sidebar-session-title-content {
+  animation: ace-sidebar-session-title-marquee
+    var(--ace-sidebar-title-marquee-duration)
+    linear
+    1
+    forwards;
+  will-change: transform;
+}
+@keyframes ace-sidebar-session-title-marquee {
+  0%,
+  8.8235% {
+    transform: translate3d(0, 0, 0);
+  }
+  91.1765%,
+  100% {
+    transform: translate3d(var(--ace-sidebar-title-marquee-distance), 0, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-sidebar-session-row:hover .ace-sidebar-session-title-viewport.is-overflowing,
+  .ace-sidebar-session-title-button:focus-visible .ace-sidebar-session-title-viewport.is-overflowing {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(100% - 18px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(100% - 18px),
+      transparent 100%
+    );
+  }
+  .ace-sidebar-session-row:hover .ace-sidebar-session-title-content,
+  .ace-sidebar-session-title-button:focus-visible .ace-sidebar-session-title-content {
+    animation: none;
+    transform: translate3d(0, 0, 0);
+    will-change: auto;
+  }
+}
 .ace-session-hover-card {
   position: fixed;
   z-index: 240;

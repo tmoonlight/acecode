@@ -40,3 +40,15 @@
   user documentation, and fix the Windows `min` macro compilation failure.
 - [x] 5.6 Run focused tests, the complete unit suite, production build, live
   RSS smoke, strict OpenSpec validation, and final diff/status checks.
+
+## 6. Suppress Bing CN Results
+
+- [x] 6.1 Revise the proposal, design, and capability requirements so WebSearch
+  uses only RSS and DuckDuckGo and safely migrates legacy Bing CN settings.
+- [x] 6.2 Add router and command tests proving Bing CN is not registered,
+  called, selected, used as fallback, or rendered by production WebSearch.
+- [ ] 6.3 Remove Bing CN from parallel fan-out, automatic selection, fallback,
+  production registration, and session selection while retaining safe config
+  compatibility.
+- [ ] 6.4 Update user documentation and run focused/full tests, production
+  build, live RSS smoke, strict OpenSpec validation, and final status checks.

@@ -122,6 +122,11 @@ public:
     using WindowStateHandler = std::function<void(bool maximized)>;
     void set_window_state_change_handler(WindowStateHandler handler);
 
+    // Windows host visibility changes include minimize/restore and native
+    // hide/show transitions that do not change the maximized state.
+    using WindowVisibilityHandler = std::function<void(bool visible)>;
+    void set_window_visibility_handler(WindowVisibilityHandler handler);
+
     // Windows host activation is not guaranteed to surface as a DOM window.focus
     // event in WebView2. Register a native activation callback so the frontend can
     // explicitly restore the chat composer focus after the Desktop window returns.

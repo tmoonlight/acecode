@@ -165,7 +165,10 @@ export function GitChangesPanel({
             {baseOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setBaseOpen(false)} />
-                <div className="absolute top-full left-0 mt-1 min-w-[160px] bg-surface border border-border ace-shadow rounded-lg z-50 py-1">
+                <div
+                  className="absolute top-full left-0 mt-1 min-w-[160px] bg-surface border border-border ace-shadow rounded-lg z-50 py-1"
+                  data-ace-native-overlay="overlap"
+                >
                   {candidates.map((c) => (
                     <button
                       key={c}

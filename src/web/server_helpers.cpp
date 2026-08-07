@@ -69,8 +69,13 @@ json chat_message_to_json(const ChatMessage& m) {
     return chat_message_to_payload_json(m);
 }
 
-json ui_preferences_to_json(const WebUiPreferencesConfig&) {
-    return json{{"show_acecode_avatar", false}};
+json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
+    return json{
+        {"show_acecode_avatar", false},
+        {"theme", cfg.theme},
+        {"color_theme", cfg.color_theme},
+        {"font_size", cfg.font_size},
+    };
 }
 
 json upgrade_config_to_json(const UpgradeConfig& cfg) {
@@ -1384,7 +1389,7 @@ crow::response WebServer::Impl::set_session_title_response(
 
     SessionMeta meta = *maybe_meta;
     meta.title = title;
-    meta.title_source = title.empty() ? std::string{} : "user";
+    meta.title_source = title.empty() ? "user-cleared" : "user";
     const auto project_dir = SessionStorage::get_project_dir(
         meta.no_workspace && !meta.cwd.empty() ? meta.cwd : ws.cwd);
     SessionStorage::write_meta(SessionStorage::meta_path(project_dir, id), meta);

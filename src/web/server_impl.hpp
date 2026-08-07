@@ -7,6 +7,7 @@
 #include "auth.hpp"
 #include "origin.hpp"
 #include "remote_web.hpp"
+#include "remote_web_proxy.hpp"
 #include "static_assets.hpp"
 #include "../config/config.hpp"
 #include "../config/saved_models_editor.hpp"
@@ -236,17 +237,15 @@ struct WebServer::Impl {
     // 必须保持独占。
     mutable std::shared_mutex app_config_mu;
 
-    // A remote-mode change restarts only Crow's listener. Terminal shutdown
-    // always wins over a pending rebind, so the daemon cannot accidentally
-    // come back after its owner has requested exit.
     std::atomic<bool> shutdown_requested{false};
-    std::atomic<bool> rebind_requested{false};
     mutable std::mutex listener_state_mu;
     std::string effective_bind;
     int effective_port = 0;
     std::mutex listener_stop_mu;
-    std::mutex rebind_thread_mu;
-    std::thread rebind_stop_thread;
+    // Serializes start/persist and persist/stop transactions from concurrent
+    // settings requests without holding the broader app-config lock while a
+    // child process reaches readiness.
+    std::mutex remote_web_proxy_mu;
 
     // 从磁盘重读 saved_models 合并进内存 —— 连接器钩子(外部登录器)会直接
     // 改写 config.json;不重读的话,下一次任何 save_config 都会把新写入的
@@ -301,8 +300,6 @@ struct WebServer::Impl {
     }
     ~Impl();
 
-    void request_listener_rebind();
-    void join_rebind_stop_thread();
     nlohmann::json remote_web_state_json(const crow::request& req) const;
 
     // -----------------------------------------------------------------

@@ -59,6 +59,7 @@ export function TopBar({
   onAbout,
   onCheckUpdates,
   onExit,
+  onThemeToggle,
   onToggleConsole,
   consoleAvailable = false,
   consoleOpen = false,
@@ -81,6 +82,7 @@ export function TopBar({
   appVersion = '',
 }) {
   const { theme, toggle } = useTheme();
+  const toggleTheme = onThemeToggle || toggle;
   const { framelessDesktop, isMaximized } = useFramelessWindowState();
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const quickActionsRef = useRef(null);
@@ -166,6 +168,7 @@ export function TopBar({
           <div
             id="topbar-quick-actions-menu"
             role="menu"
+            data-ace-native-overlay="overlap"
             aria-label="快捷操作"
             className="fixed left-0 top-11 rounded-b-lg border-x border-b border-border bg-surface p-1 ace-shadow-lg z-50"
             style={{ width: topBarQuickActionsMenuWidth(sidebarWidth) }}
@@ -214,6 +217,9 @@ export function TopBar({
       <QuickBtn title="前进" onClick={onGoForward} disabled={!canGoForward}>
         <NavigationArrowIcon direction="forward" size={16} />
       </QuickBtn>
+      <QuickBtn title="搜索任务" onClick={onOpenSearch}>
+        <VsIcon name="search" size={16} />
+      </QuickBtn>
       {updateAvailable && (
         <button
           type="button"
@@ -240,7 +246,7 @@ export function TopBar({
             <VsIcon name="terminal" size={15} />
           </QuickBtn>
         )}
-        <QuickBtn title={theme === 'dark' ? '切到浅色' : '切到深色'} onClick={toggle}>
+        <QuickBtn title={theme === 'dark' ? '切到浅色' : '切到深色'} onClick={toggleTheme}>
           <VsIcon name={theme === 'dark' ? 'brightness' : 'darkTheme'} size={14} />
         </QuickBtn>
         {rightPanelAvailable && onToggleRightPanel && (

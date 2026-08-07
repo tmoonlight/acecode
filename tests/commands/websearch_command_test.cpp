@@ -7,7 +7,7 @@
 // 覆盖项:
 //   - bare 命令显示状态行(active backend / region / config backend)
 //   - refresh 重新探测后输出 before/after 对比
-//   - use 切到合法 backend(成功)
+//   - use 切到合法 backend(成功),拒绝质量不合格的 Bing CN
 //   - use 拒绝未实现 backend(bochaai/tavily)
 //   - use 拒绝未知 backend
 //   - reset 回 cfg 推导
@@ -73,7 +73,7 @@ protected:
     std::string path_;
 };
 
-// 把 detector 替换为脚本化探针,并把 rss/ddg/bing mock backend 注入 router。
+// 把 detector 替换为脚本化探针,并注入 mock backend。
 void install_runtime_with_mocks(const WebSearchConfig& cfg,
                                 std::vector<ProbeResult> probe_script) {
     web_search::init(cfg);
@@ -101,7 +101,7 @@ TEST(WebSearchFormat, StatusContainsAllFields) {
     snap.config_backend = "auto";
     snap.region = "global";
     snap.detected_at_ms = 1714521600000LL;
-    snap.registered = {"bing_cn", "duckduckgo"};
+    snap.registered = {"duckduckgo", "rss"};
     auto out = format_websearch_status(snap);
     EXPECT_NE(out.find("Web Search"), std::string::npos);
     EXPECT_NE(out.find("Enabled         : yes"), std::string::npos);
@@ -109,7 +109,7 @@ TEST(WebSearchFormat, StatusContainsAllFields) {
     EXPECT_NE(out.find("Config backend  : auto"), std::string::npos);
     EXPECT_NE(out.find("Region          : global"), std::string::npos);
     EXPECT_NE(out.find("detected"), std::string::npos);
-    EXPECT_NE(out.find("bing_cn"), std::string::npos);
+    EXPECT_EQ(out.find("bing_cn"), std::string::npos);
 }
 
 TEST(WebSearchFormat, StatusWithoutDetectionTime) {
@@ -163,9 +163,21 @@ TEST_F(WebSearchCommandTest, UseValidBackendSucceeds) {
     rt.detector().detect_now();
     rt.router().resolve_active(Region::Global);
 
+    auto out = dispatch_websearch_subcommand("use duckduckgo");
+    EXPECT_NE(out.find("switched to duckduckgo"), std::string::npos);
+    EXPECT_EQ(rt.router().active_name(), "duckduckgo");
+}
+
+TEST_F(WebSearchCommandTest, UseBingCnRejectedForResultQuality) {
+    WebSearchConfig cfg;
+    install_runtime_with_mocks(cfg, {{200, ""}});
+    auto& rt = web_search::runtime();
+    rt.router().resolve_active(Region::Global);
+
     auto out = dispatch_websearch_subcommand("use bing_cn");
-    EXPECT_NE(out.find("switched to bing_cn"), std::string::npos);
-    EXPECT_EQ(rt.router().active_name(), "bing_cn");
+    EXPECT_NE(out.find("disabled"), std::string::npos);
+    EXPECT_NE(out.find("result quality"), std::string::npos);
+    EXPECT_EQ(rt.router().active_name(), "parallel");
 }
 
 TEST_F(WebSearchCommandTest, UseParallelBackendSucceeds) {
@@ -173,7 +185,7 @@ TEST_F(WebSearchCommandTest, UseParallelBackendSucceeds) {
     install_runtime_with_mocks(cfg, {{200, ""}});
     auto& rt = web_search::runtime();
     rt.router().resolve_active(Region::Global);
-    ASSERT_TRUE(rt.router().set_active("bing_cn"));
+    ASSERT_TRUE(rt.router().set_active("duckduckgo"));
 
     auto out = dispatch_websearch_subcommand("use parallel");
     EXPECT_NE(out.find("switched to parallel"), std::string::npos);
@@ -206,6 +218,7 @@ TEST_F(WebSearchCommandTest, UseWithoutArgShowsUsage) {
     install_runtime_with_mocks(cfg, {{200, ""}});
     auto out = dispatch_websearch_subcommand("use");
     EXPECT_NE(out.find("Usage:"), std::string::npos);
+    EXPECT_EQ(out.find("bing_cn"), std::string::npos);
 }
 
 TEST_F(WebSearchCommandTest, ResetRevertsToConfig) {
@@ -215,12 +228,12 @@ TEST_F(WebSearchCommandTest, ResetRevertsToConfig) {
     rt.detector().detect_now();
     rt.router().resolve_active(Region::Global);
 
-    rt.router().set_active("bing_cn"); // /websearch use bing_cn
-    EXPECT_EQ(rt.router().active_name(), "bing_cn");
+    rt.router().set_active("duckduckgo");
+    EXPECT_EQ(rt.router().active_name(), "duckduckgo");
 
     auto out = dispatch_websearch_subcommand("reset");
     EXPECT_NE(out.find("reset to config"), std::string::npos);
-    EXPECT_EQ(rt.router().active_name(), "parallel"); // 回到默认三源并行
+    EXPECT_EQ(rt.router().active_name(), "parallel"); // 回到默认两源并行
 }
 
 TEST_F(WebSearchCommandTest, UnknownSubcommandShowsHelp) {

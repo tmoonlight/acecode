@@ -17,6 +17,11 @@ bool is_loopback_address(std::string_view ip) {
     return false;
 }
 
+bool is_trusted_local_client_address(std::string_view ip) {
+    return ip == "127.0.0.1" || ip == "::1" ||
+        ip == "::ffff:127.0.0.1";
+}
+
 std::string preflight_bind_check(const std::string& bind,
                                    const std::string& server_token,
                                    bool dangerous) {
@@ -35,7 +40,9 @@ AuthResult check_request_auth(std::string_view client_ip,
                                 std::string_view server_token,
                                 std::string_view header_token,
                                 std::string_view query_token) {
-    if (is_loopback_address(client_ip)) return AuthResult::Allowed;
+    if (is_trusted_local_client_address(client_ip)) {
+        return AuthResult::Allowed;
+    }
     // 非 loopback: 强制 token
     if (header_token.empty() && query_token.empty()) return AuthResult::NoToken;
     if (!server_token.empty() &&

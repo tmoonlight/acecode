@@ -962,6 +962,7 @@ export const InputBar = forwardRef(function InputBar({
       {capabilityOpen && hasCapabilityHandlers && (
         <div
           data-composer-capability-menu="true"
+          data-ace-native-overlay="overlap"
           role="menu"
           className="absolute left-0 bottom-8 z-50 w-52 py-1 rounded-lg border border-border bg-surface ace-shadow"
         >
@@ -1014,6 +1015,7 @@ export const InputBar = forwardRef(function InputBar({
               <div
                 ref={expertSubmenuRef}
                 data-expert-components-submenu="true"
+                data-ace-native-overlay="overlap"
                 role="menu"
                 aria-label="最近使用的专家组件"
                 onKeyDown={handleExpertSubmenuKeyDown}

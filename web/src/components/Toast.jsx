@@ -32,7 +32,10 @@ export function Toaster() {
   }, []);
 
   return (
-    <div className="fixed bottom-4 right-4 z-[1000] flex flex-col gap-2 pointer-events-none">
+    <div
+      className="fixed bottom-4 right-4 z-[1000] flex flex-col gap-2 pointer-events-none"
+      data-ace-native-overlay="overlap"
+    >
       {items.map((it) => (
         <div
           key={it.id}

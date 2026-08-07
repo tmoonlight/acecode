@@ -213,6 +213,7 @@ export function PreviewDetailsPanel({
   onToggleSidePanelList,
   onOpenBrowser,
   agentBrowserActive = false,
+  nativeSurfacesVisible = true,
   onAddBrowserContext,
   onSelectChangeFile,
   onSelectGitChangeFile,
@@ -266,6 +267,7 @@ export function PreviewDetailsPanel({
           key={active.pageId}
           pageId={active.pageId}
           agentActive={agentBrowserActive && active.pageId === agentBrowserActive}
+          surfaceEnabled={nativeSurfacesVisible}
           onAddContext={onAddBrowserContext}
         />
       );
@@ -316,7 +318,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, onAddBrowserContext, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -801,6 +803,7 @@ export function PreviewDetailsPanel({
       {tabDragGhost && createPortal(
         <div
           className="ace-preview-details-tab-drag-ghost"
+          data-ace-native-overlay="overlap"
           style={{
             left: tabDragGhost.left,
             top: tabDragGhost.top,

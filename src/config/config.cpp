@@ -41,6 +41,29 @@ std::string trim_ascii_copy(const std::string& s) {
     return s.substr(first, last - first);
 }
 
+std::string normalized_web_bind(std::string value) {
+    value = trim_ascii_copy(value);
+    std::transform(
+        value.begin(), value.end(), value.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    if (value.size() >= 2 && value.front() == '[' && value.back() == ']') {
+        value = value.substr(1, value.size() - 2);
+    }
+    return value;
+}
+
+bool web_bind_is_loopback(const std::string& raw_bind) {
+    const std::string bind = normalized_web_bind(raw_bind);
+    if (bind == "localhost" || bind == "::1") return true;
+    if (bind.rfind("127.", 0) == 0) return true;
+    constexpr const char* kMappedPrefix = "::ffff:";
+    if (bind.rfind(kMappedPrefix, 0) == 0) {
+        return bind.substr(std::char_traits<char>::length(kMappedPrefix))
+            .rfind("127.", 0) == 0;
+    }
+    return false;
+}
+
 bool is_one_of(const std::string& value, std::initializer_list<const char*> allowed) {
     for (const char* item : allowed) {
         if (value == item) return true;
@@ -157,6 +180,19 @@ bool is_valid_upgrade_base_url(const std::string& raw) {
 
 bool is_valid_ui_locale(const std::string& locale) {
     return locale == "auto" || locale == "zh-CN" || locale == "en-US";
+}
+
+bool is_valid_web_ui_theme(const std::string& theme) {
+    return theme == "system" || theme == "light" || theme == "dark";
+}
+
+bool is_valid_web_ui_color_theme(const std::string& color_theme) {
+    return color_theme == "blue" || color_theme == "orange";
+}
+
+bool is_valid_web_ui_font_size(const std::string& font_size) {
+    return font_size == "small" || font_size == "medium" ||
+           font_size == "large";
 }
 
 nlohmann::json connectors_to_json(const std::vector<ConnectorConfig>& connectors) {
@@ -431,6 +467,25 @@ std::vector<std::string> validate_config(const AppConfig& cfg) {
     }
     if (cfg.web.bind.empty()) {
         errors.push_back("web.bind is empty; expected an IP address (e.g. 127.0.0.1)");
+    }
+    if (!is_valid_web_ui_theme(cfg.web_ui.theme)) {
+        errors.push_back("web_ui.theme must be one of: system, light, dark");
+    }
+    if (!is_valid_web_ui_color_theme(cfg.web_ui.color_theme)) {
+        errors.push_back("web_ui.color_theme must be one of: blue, orange");
+    }
+    if (!is_valid_web_ui_font_size(cfg.web_ui.font_size)) {
+        errors.push_back("web_ui.font_size must be one of: small, medium, large");
+    }
+    if (cfg.web.remote_port < 0 || cfg.web.remote_port > 65535) {
+        errors.push_back(
+            "web.remote_port out of range (0-65535): " +
+            std::to_string(cfg.web.remote_port));
+    } else if (cfg.web.remote_port != 0 &&
+               cfg.web.remote_port == cfg.web.port) {
+        errors.push_back(
+            "web.remote_port must differ from web.port because the reverse "
+            "proxy and daemon cannot share a wildcard port");
     }
     if (cfg.daemon.heartbeat_interval_ms <= 0) {
         errors.push_back("daemon.heartbeat_interval_ms must be > 0");
@@ -836,12 +891,31 @@ AppConfig load_config_from_path(
             }
             if (j.contains("web") && j["web"].is_object()) {
                 const auto& wj = j["web"];
+                const bool remote_enabled_explicit =
+                    wj.contains("remote_enabled") &&
+                    wj["remote_enabled"].is_boolean();
                 if (wj.contains("enabled") && wj["enabled"].is_boolean())
                     cfg.web.enabled = wj["enabled"].get<bool>();
                 if (wj.contains("bind") && wj["bind"].is_string())
                     cfg.web.bind = wj["bind"].get<std::string>();
                 if (wj.contains("port") && wj["port"].is_number_integer())
                     cfg.web.port = wj["port"].get<int>();
+                if (remote_enabled_explicit)
+                    cfg.web.remote_enabled = wj["remote_enabled"].get<bool>();
+                if (wj.contains("remote_port") && wj["remote_port"].is_number_integer())
+                    cfg.web.remote_port = wj["remote_port"].get<int>();
+                // Legacy remote-Web mode used a non-loopback daemon bind as
+                // the persisted flag. Migrate intent only when the new flag
+                // is absent, then keep the daemon canonical and local.
+                if (!cfg.web.bind.empty()) {
+                    if (!web_bind_is_loopback(cfg.web.bind) &&
+                        !remote_enabled_explicit) {
+                        cfg.web.remote_enabled = true;
+                    }
+                    // All accepted legacy loopback aliases and external binds
+                    // converge on the one daemon runtime address.
+                    cfg.web.bind = "127.0.0.1";
+                }
                 // static_dir is intentionally optional. null/missing -> embedded assets;
                 // string -> filesystem path. Empty string is treated the same as null.
                 if (wj.contains("static_dir") && wj["static_dir"].is_string())
@@ -850,6 +924,36 @@ AppConfig load_config_from_path(
             if (j.contains("web_ui")) {
                 if (!j["web_ui"].is_object()) {
                     LOG_WARN("[config] 'web_ui' must be an object, ignoring");
+                } else {
+                    const auto& uij = j["web_ui"];
+                    if (uij.contains("theme")) {
+                        if (uij["theme"].is_string() &&
+                            is_valid_web_ui_theme(uij["theme"].get<std::string>())) {
+                            cfg.web_ui.theme = uij["theme"].get<std::string>();
+                        } else {
+                            LOG_WARN("[config] invalid 'web_ui.theme', using 'system'");
+                        }
+                    }
+                    if (uij.contains("color_theme")) {
+                        if (uij["color_theme"].is_string() &&
+                            is_valid_web_ui_color_theme(
+                                uij["color_theme"].get<std::string>())) {
+                            cfg.web_ui.color_theme =
+                                uij["color_theme"].get<std::string>();
+                        } else {
+                            LOG_WARN("[config] invalid 'web_ui.color_theme', using 'blue'");
+                        }
+                    }
+                    if (uij.contains("font_size")) {
+                        if (uij["font_size"].is_string() &&
+                            is_valid_web_ui_font_size(
+                                uij["font_size"].get<std::string>())) {
+                            cfg.web_ui.font_size =
+                                uij["font_size"].get<std::string>();
+                        } else {
+                            LOG_WARN("[config] invalid 'web_ui.font_size', using 'medium'");
+                        }
+                    }
                 }
             }
             if (j.contains("models_dev") && j["models_dev"].is_object()) {
@@ -927,7 +1031,7 @@ AppConfig load_config_from_path(
                     std::exit(1);
                 }
             }
-            // 联网搜索段。缺省 → RSS + DuckDuckGo + Bing CN 并行搜索。
+            // 联网搜索段。缺省 → RSS + DuckDuckGo 并行搜索。
             // 参见 openspec/changes/integrate-rss-web-search/。
             if (j.contains("web_search") && j["web_search"].is_object()) {
                 const auto& wsj = j["web_search"];
@@ -1562,13 +1666,27 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         nlohmann::json wj = nlohmann::json::object();
         if (cfg.web.enabled != wd.enabled)
             wj["enabled"] = cfg.web.enabled;
-        if (cfg.web.bind != wd.bind)
-            wj["bind"] = cfg.web.bind;
+        // web.bind is a legacy input only. New writes rely on the canonical
+        // 127.0.0.1 default and persist remote proxy intent separately.
         if (cfg.web.port != wd.port)
             wj["port"] = cfg.web.port;
+        if (cfg.web.remote_enabled != wd.remote_enabled)
+            wj["remote_enabled"] = cfg.web.remote_enabled;
+        if (cfg.web.remote_port != wd.remote_port)
+            wj["remote_port"] = cfg.web.remote_port;
         if (!cfg.web.static_dir.empty())
             wj["static_dir"] = cfg.web.static_dir;
         if (!wj.empty()) j["web"] = wj;
+
+        WebUiPreferencesConfig web_ui_d;
+        nlohmann::json web_uij = nlohmann::json::object();
+        if (cfg.web_ui.theme != web_ui_d.theme)
+            web_uij["theme"] = cfg.web_ui.theme;
+        if (cfg.web_ui.color_theme != web_ui_d.color_theme)
+            web_uij["color_theme"] = cfg.web_ui.color_theme;
+        if (cfg.web_ui.font_size != web_ui_d.font_size)
+            web_uij["font_size"] = cfg.web_ui.font_size;
+        if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
         MemoryConfig mem_d;
         nlohmann::json memj = nlohmann::json::object();

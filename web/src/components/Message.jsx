@@ -96,6 +96,7 @@ function CommandToken({ token, name, kind, description }) {
         ? createPortal(
             <span
               className="ace-cmd-token-tip"
+              data-ace-native-overlay="overlap"
               role="tooltip"
               data-placement={tip.placement}
               style={{

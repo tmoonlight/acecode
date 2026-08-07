@@ -279,9 +279,9 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     }
     if (!meta.title.empty()) {
         j["title"] = meta.title;
-        if (!meta.title_source.empty()) {
-            j["title_source"] = meta.title_source;
-        }
+    }
+    if (!meta.title_source.empty()) {
+        j["title_source"] = meta.title_source;
     }
     if (!meta.input_draft.empty()) {
         j["input_draft"] = meta.input_draft;

@@ -141,6 +141,24 @@ target_include_directories(state_file_claim_worker PRIVATE
 )
 add_dependencies(acecode_unit_tests state_file_claim_worker)
 
+# Real child used by remote-Web proxy controller tests. It dispatches the same
+# hidden command as the production executable without linking the TUI main.
+add_executable(remote_web_proxy_test_child
+    ${CMAKE_CURRENT_SOURCE_DIR}/web/helpers/remote_web_proxy_child.cpp
+)
+target_link_libraries(remote_web_proxy_test_child PRIVATE
+    acecode_testable
+    acecode_native_bridge_support
+    ftxui::screen
+    ftxui::dom
+    ftxui::component
+)
+target_include_directories(remote_web_proxy_test_child PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+add_dependencies(acecode_unit_tests remote_web_proxy_test_child)
+
 # 测试辅助 MCP stdio server: 用于 McpManager 异步启动测试走真实
 # stdio JSON-RPC 路径,避免依赖外部 node/python。
 add_executable(mcp_stdio_test_server
@@ -180,6 +198,7 @@ add_dependencies(acecode_unit_tests headless_jsonl_process_driver)
 target_compile_definitions(acecode_unit_tests PRIVATE
     ACECODE_CONCURRENT_SESSION_WRITER_PATH="$<TARGET_FILE:concurrent_session_writer>"
     ACECODE_STATE_FILE_CLAIM_WORKER_PATH="$<TARGET_FILE:state_file_claim_worker>"
+    ACECODE_REMOTE_WEB_PROXY_CHILD_PATH="$<TARGET_FILE:remote_web_proxy_test_child>"
     ACECODE_MCP_STDIO_TEST_SERVER_PATH="$<TARGET_FILE:mcp_stdio_test_server>"
     ACECODE_FAKE_LSP_SERVER_PATH="$<TARGET_FILE:fake_lsp_server>"
     ACECODE_HEADLESS_JSONL_DRIVER_PATH="$<TARGET_FILE:headless_jsonl_process_driver>"

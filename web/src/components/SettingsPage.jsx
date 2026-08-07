@@ -159,14 +159,18 @@ export function SettingsPage({
   onReplayGuidedTour,
   initialNavKey = 'general',
   fontSize = 'medium',
+  onThemeChange,
+  onColorThemeChange,
   onFontSizeChange = () => {},
 }) {
   const {
     theme,
     colorTheme,
-    set: setTheme,
-    setColorTheme,
+    set: setThemeCache,
+    setColorTheme: setColorThemeCache,
   } = useTheme();
+  const setTheme = onThemeChange || setThemeCache;
+  const setColorTheme = onColorThemeChange || setColorThemeCache;
   const [activeNav, setActiveNav] = useState(
     () => settingsNavIndexForKey(initialNavKey),
   );
@@ -192,6 +196,7 @@ export function SettingsPage({
 
   return (
     <div
+      data-ace-native-overlay="blocking"
       className={clsx(
         'fixed inset-0 z-[300] bg-bg flex flex-col transition-all duration-250',
         show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
@@ -599,6 +604,8 @@ function SectionGeneral({
   const switchRemoteWeb = async (enabled) => {
     const next = !!enabled;
     const previous = remoteWeb;
+    const remoteOriginWillDisconnect = !next
+      && !remoteWebOriginSurvivesLocalMode(window.location.hostname);
     let mutationAccepted = false;
     if (remoteWebBusyRef.current
         || remoteWebBusy
@@ -620,8 +627,7 @@ function SectionGeneral({
       const confirmed = applyRemoteWebState(
         await waitForRemoteWebMode(api, next, {
           initialState: pending,
-          acceptDisconnectWhenDisabling: !next
-            && !remoteWebOriginSurvivesLocalMode(window.location.hostname),
+          acceptDisconnectWhenDisabling: remoteOriginWillDisconnect,
         }),
       );
       toast({
@@ -631,6 +637,26 @@ function SectionGeneral({
           : '远程 Web 模式已关闭，仅允许本机访问',
       });
     } catch (error) {
+      if (remoteOriginWillDisconnect
+          && !Number.isInteger(error?.status)
+          && !error?.state?.error) {
+        applyRemoteWebState({
+          ...previous,
+          enabled: false,
+          configuredEnabled: false,
+          effectiveEnabled: false,
+          effectiveBind: previous.daemonBind || '127.0.0.1',
+          proxyBind: '',
+          proxyState: 'stopped',
+          proxyPid: 0,
+          error: '',
+          applying: false,
+          port: 0,
+          connections: [],
+        });
+        toast({ kind: 'ok', text: '远程 Web 模式已关闭，仅允许本机访问' });
+        return;
+      }
       applyRemoteWebState(
         mutationAccepted
           ? (error?.state || {
@@ -718,10 +744,11 @@ function SectionGeneral({
   const remoteWebStatus = !remoteWebLoaded
     ? '正在读取状态'
     : (remoteWebBusy || remoteWeb.applying
-      ? '正在应用监听地址'
+      ? '正在启动或停止反向代理'
       : (remoteWeb.effectiveEnabled
-        ? `已监听 ${remoteWeb.effectiveBind}:${remoteWeb.port}`
-        : '仅本机访问'));
+        ? `反向代理已监听 ${remoteWeb.effectiveBind}:${remoteWeb.port}`
+        : `仅本机访问 · daemon ${remoteWeb.daemonBind}:${remoteWeb.daemonPort}`));
+  const remoteWebProblem = remoteWebError || remoteWeb.error;
 
   return (
     <>
@@ -1029,7 +1056,7 @@ function SectionGeneral({
           <div>
             <div className="text-[13px] font-medium">远程 Web 模式</div>
             <div className="text-[11px] text-fg-mute mt-0.5 max-w-lg">
-              开启后将 Web 监听地址从 127.0.0.1 切换为 0.0.0.0，允许其他设备连接
+              开启后会启动独立的反向代理进程，daemon 仍仅监听 127.0.0.1
             </div>
           </div>
           <Toggle
@@ -1046,7 +1073,7 @@ function SectionGeneral({
           aria-live="polite"
           className={clsx(
             'flex items-center gap-1.5 text-[12px]',
-            remoteWebError
+            remoteWebProblem
               ? 'text-danger'
               : ((remoteWebBusy || remoteWeb.applying)
                 ? 'text-warn'
@@ -1056,14 +1083,14 @@ function SectionGeneral({
           <span
             className={clsx(
               'w-2 h-2 rounded-full shrink-0',
-              remoteWebError
+              remoteWebProblem
                 ? 'bg-danger'
                 : ((remoteWebBusy || remoteWeb.applying)
                   ? 'bg-warn'
                   : (remoteWeb.effectiveEnabled ? 'bg-ok' : 'bg-fg-mute')),
             )}
           />
-          {remoteWebError || remoteWebStatus}
+          {remoteWebProblem || remoteWebStatus}
         </div>
 
         {remoteWeb.effectiveEnabled && (
@@ -1121,7 +1148,7 @@ function SectionGeneral({
         )}
 
         <div className="text-[11px] text-fg-mute mt-3 leading-relaxed">
-          系统防火墙、路由器或云安全组可能仍需放行端口。公网访问建议使用可信 VPN 或 HTTPS 反向代理。
+          系统防火墙、路由器或云安全组可能仍需放行代理端口。公网访问仍建议使用可信 VPN，并在上游配置 HTTPS。
         </div>
       </div>
     </>

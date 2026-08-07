@@ -1503,6 +1503,52 @@ int main(int argc, char** argv) {
             bounds.width = value.value("width", 0);
             bounds.height = value.value("height", 0);
             bounds.visible = value.value("visible", false);
+            if (const auto occlusions = value.find("occlusion_rects");
+                occlusions != value.end()) {
+                if (!occlusions->is_array() ||
+                    occlusions->size() > kAgentBrowserMaxOcclusionRects) {
+                    return nlohmann::json{
+                        {"ok", false},
+                        {"error", "occlusion_rects must be a bounded array"},
+                    }.dump();
+                }
+                bounds.occlusion_rects.reserve(occlusions->size());
+                for (const auto& item : *occlusions) {
+                    if (!item.is_object()) {
+                        return nlohmann::json{
+                            {"ok", false},
+                            {"error", "occlusion rectangle must be an object"},
+                        }.dump();
+                    }
+                    AgentBrowserOcclusionRect rect;
+                    rect.x = item.value("x", -1);
+                    rect.y = item.value("y", -1);
+                    rect.width = item.value("width", 0);
+                    rect.height = item.value("height", 0);
+                    bounds.occlusion_rects.push_back(rect);
+                }
+            }
+            if (const auto revision = value.find("layout_revision");
+                revision != value.end()) {
+                if (revision->is_number_unsigned()) {
+                    bounds.layout_revision = revision->get<std::uint64_t>();
+                } else if (revision->is_number_integer()) {
+                    const auto signed_revision = revision->get<std::int64_t>();
+                    if (signed_revision < 0) {
+                        return nlohmann::json{
+                            {"ok", false},
+                            {"error", "layout_revision must be non-negative"},
+                        }.dump();
+                    }
+                    bounds.layout_revision =
+                        static_cast<std::uint64_t>(signed_revision);
+                } else {
+                    return nlohmann::json{
+                        {"ok", false},
+                        {"error", "layout_revision must be an integer"},
+                    }.dump();
+                }
+            }
             std::string error;
             if (!agent_browser.set_bounds(page_id, bounds, &error)) {
                 return nlohmann::json{{"ok", false}, {"error", error}}.dump();
@@ -1832,7 +1878,8 @@ int main(int argc, char** argv) {
     // WM_SIZE 时如果最大化状态变化(被 web_host.cpp 内部 g_last_known_maximized 去重过),
     // eval 一段 JS 调前端 window.aceDesktop_onMaximizeStateChanged(bool),让 TopBar 切换
     // 图标。前端没注册回调时静默吞,避免 webview 异常 ts 上报。
-    host.set_window_state_change_handler([&host](bool maximized) {
+    host.set_window_state_change_handler([&host, &agent_browser](bool maximized) {
+        agent_browser.refresh_layout();
         const std::string js = std::string(
             "(function(){try{if(window.aceDesktop_onMaximizeStateChanged){"
             "window.aceDesktop_onMaximizeStateChanged(") + (maximized ? "true" : "false") +
@@ -1840,10 +1887,15 @@ int main(int argc, char** argv) {
         host.eval(js);
     });
 
+    host.set_window_visibility_handler([&agent_browser](bool visible) {
+        agent_browser.set_parent_visible(visible);
+    });
+
     // Native window activation does not consistently reach WebView2 as a DOM
     // focus event. Send an explicit event after WM_ACTIVATE so a visible chat
     // composer can restore keyboard focus without requiring another click.
-    host.set_window_focus_handler([&host]() {
+    host.set_window_focus_handler([&host, &agent_browser]() {
+        agent_browser.set_parent_visible(true);
         host.eval("(function(){try{window.dispatchEvent(new Event("
                   "'acecode:desktop-window-focus'));}catch(e){}})();");
     });
@@ -1997,8 +2049,15 @@ int main(int argc, char** argv) {
     constexpr const char* kHostOs = "linux";
     constexpr const char* kNativeFileDrop = "false";
 #endif
+    const std::string appearance_bootstrap = nlohmann::json{
+        {"theme", desktop_cfg.web_ui.theme},
+        {"color_theme", desktop_cfg.web_ui.color_theme},
+        {"font_size", desktop_cfg.web_ui.font_size},
+    }.dump();
     host.init_script(acecode::desktop::locale_bootstrap_script(
                          desktop_cfg.ui.locale, desktop_effective_locale) +
+                                     "window.__ACECODE_APPEARANCE__=" +
+                                     appearance_bootstrap + ";\n" +
                                      "window.__ACECODE_DESKTOP_SHELL__=true;\n" +
                                      "window.__ACECODE_DESKTOP_DEBUG__=" +
                                      (desktop_debug ? "true" : "false") + ";\n" +

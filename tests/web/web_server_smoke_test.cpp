@@ -43,6 +43,7 @@
 #include "utils/cwd_hash.hpp"
 #include "utils/state_file.hpp"
 #include "utils/utf8_path.hpp"
+#include "web/remote_web_proxy.hpp"
 #include "web/server.hpp"
 #include "worktree/worktree_manager.hpp"
 
@@ -335,6 +336,46 @@ private:
     std::vector<std::vector<acecode::ChatMessage>> requests_;
 };
 
+class FakeRemoteWebProxyController final
+    : public acecode::web::RemoteWebProxyController {
+public:
+    acecode::web::RemoteWebProxyStatus status() override {
+        return status_;
+    }
+
+    acecode::web::RemoteWebProxyStatus start(
+        int configured_port,
+        int target_port) override {
+        ++start_calls;
+        status_ = {};
+        status_.configured = true;
+        if (fail_start) {
+            status_.error = "test proxy bind failed";
+            return status_;
+        }
+        status_.running = true;
+        status_.ipv6 = true;
+        status_.pid = 4242;
+        status_.port = configured_port != 0
+            ? configured_port
+            : (target_port < 65535 ? target_port + 1 : target_port - 1);
+        return status_;
+    }
+
+    acecode::web::RemoteWebProxyStatus stop() override {
+        ++stop_calls;
+        status_ = {};
+        return status_;
+    }
+
+    bool fail_start = false;
+    int start_calls = 0;
+    int stop_calls = 0;
+
+private:
+    acecode::web::RemoteWebProxyStatus status_;
+};
+
 struct WebServerFixture {
     using SessionClientFactory = std::function<
         std::unique_ptr<acecode::LocalSessionClient>(
@@ -353,6 +394,7 @@ struct WebServerFixture {
     std::unique_ptr<acecode::LocalSessionClient> client;
     std::unique_ptr<acecode::HookManager> hook_manager;
     std::unique_ptr<acecode::loop::LoopStore> loop_store;
+    std::unique_ptr<FakeRemoteWebProxyController> remote_web_proxy;
     std::unique_ptr<acecode::web::WebServer> server;
 
     std::thread server_thread;
@@ -469,6 +511,9 @@ struct WebServerFixture {
         wdeps.remote_web_computer_name = [] {
             return std::optional<std::string>("ACE-TEST-PC");
         };
+        remote_web_proxy =
+            std::make_unique<FakeRemoteWebProxyController>();
+        wdeps.remote_web_proxy = remote_web_proxy.get();
         wdeps.run_update_command = std::move(run_update_command);
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
         wdeps.dangerous = dangerous;
@@ -729,7 +774,7 @@ TEST(WebServerHttp, DesktopNotificationSettingRejectsInvalidPayload) {
     EXPECT_TRUE(fx.cfg.desktop.notifications.enabled);
 }
 
-TEST(WebServerHttp, RemoteWebModePersistsGeneratesTokenUrlAndRebindsInProcess) {
+TEST(WebServerHttp, RemoteWebModeControlsProxyAndKeepsDaemonListenerAlive) {
     WebServerFixture fx(
         std::function<std::vector<std::string>()>([] {
             return std::vector<std::string>{
@@ -747,6 +792,9 @@ TEST(WebServerHttp, RemoteWebModePersistsGeneratesTokenUrlAndRebindsInProcess) {
     EXPECT_FALSE(initial_json["enabled"].get<bool>());
     EXPECT_FALSE(initial_json["effective_enabled"].get<bool>());
     EXPECT_FALSE(initial_json["applying"].get<bool>());
+    EXPECT_EQ(initial_json["daemon_bind"], "127.0.0.1");
+    EXPECT_EQ(initial_json["daemon_port"], fx.port);
+    EXPECT_EQ(initial_json["proxy_state"], "stopped");
     EXPECT_TRUE(initial_json["connections"].empty());
 
     auto enabled = cpr::Put(
@@ -757,76 +805,77 @@ TEST(WebServerHttp, RemoteWebModePersistsGeneratesTokenUrlAndRebindsInProcess) {
     EXPECT_EQ(response_header(enabled, "Cache-Control"), "no-store");
     auto enabled_json = json::parse(enabled.text);
     EXPECT_TRUE(enabled_json["enabled"].get<bool>());
-    EXPECT_TRUE(enabled_json["applying"].get<bool>());
-    EXPECT_EQ(enabled_json["configured_bind"], "0.0.0.0");
-
-    json effective;
-    const auto enabled_deadline =
-        std::chrono::steady_clock::now() + 5s;
-    while (std::chrono::steady_clock::now() < enabled_deadline) {
-        std::this_thread::sleep_for(50ms);
-        auto current = cpr::Get(
-            cpr::Url{fx.url("/api/config/remote-web")},
-            cpr::Timeout{500});
-        if (current.status_code != 200) continue;
-        effective = json::parse(current.text);
-        if (effective["effective_enabled"].get<bool>() &&
-            !effective["applying"].get<bool>()) {
-            break;
-        }
-    }
-    ASSERT_TRUE(effective.is_object());
-    ASSERT_TRUE(effective["effective_enabled"].get<bool>());
-    ASSERT_FALSE(effective["applying"].get<bool>());
-    EXPECT_EQ(effective["effective_bind"], "0.0.0.0");
-    ASSERT_EQ(effective["connections"].size(), 2u);
-    EXPECT_EQ(effective["connections"][0]["host"], "ACE-TEST-PC");
-    EXPECT_EQ(effective["connections"][0]["kind"], "computer_name");
+    EXPECT_TRUE(enabled_json["effective_enabled"].get<bool>());
+    EXPECT_FALSE(enabled_json["applying"].get<bool>());
+    EXPECT_EQ(enabled_json["configured_bind"], "127.0.0.1");
+    EXPECT_EQ(enabled_json["daemon_bind"], "127.0.0.1");
+    EXPECT_EQ(enabled_json["daemon_port"], fx.port);
+    EXPECT_EQ(enabled_json["effective_bind"], "0.0.0.0");
+    EXPECT_EQ(enabled_json["proxy_state"], "running");
+    EXPECT_EQ(enabled_json["proxy_pid"], 4242);
+    const int proxy_port = fx.port < 65535 ? fx.port + 1 : fx.port - 1;
+    EXPECT_EQ(enabled_json["port"], proxy_port);
+    ASSERT_EQ(enabled_json["connections"].size(), 2u);
+    EXPECT_EQ(enabled_json["connections"][0]["host"], "ACE-TEST-PC");
+    EXPECT_EQ(enabled_json["connections"][0]["kind"], "computer_name");
     EXPECT_EQ(
-        effective["connections"][0]["url"],
-        "http://ACE-TEST-PC:" + std::to_string(fx.port) +
+        enabled_json["connections"][0]["url"],
+        "http://ACE-TEST-PC:" + std::to_string(proxy_port) +
             "/?token=smoke-token");
-    EXPECT_EQ(effective["connections"][1]["host"], "192.168.50.20");
-    EXPECT_EQ(effective["connections"][1]["kind"], "network_address");
+    EXPECT_EQ(enabled_json["connections"][1]["host"], "192.168.50.20");
+    EXPECT_EQ(enabled_json["connections"][1]["kind"], "network_address");
     EXPECT_EQ(
-        effective["connections"][1]["url"],
-        "http://192.168.50.20:" + std::to_string(fx.port) +
+        enabled_json["connections"][1]["url"],
+        "http://192.168.50.20:" + std::to_string(proxy_port) +
             "/?token=smoke-token");
 
     auto health = cpr::Get(cpr::Url{fx.url("/api/health")});
     ASSERT_EQ(health.status_code, 200) << health.text;
     EXPECT_EQ(json::parse(health.text)["guid"], "test-guid-aaaa-bbbb");
 
-    std::ifstream persisted(fx.tmp_dir / "config.json");
-    ASSERT_TRUE(persisted.is_open());
-    EXPECT_EQ(json::parse(persisted)["web"]["bind"], "0.0.0.0");
-    persisted.close();
+    const auto persisted = acecode::load_config_from_path(
+        (fx.tmp_dir / "config.json").string());
+    EXPECT_EQ(persisted.web.bind, "127.0.0.1");
+    EXPECT_TRUE(persisted.web.remote_enabled);
 
     auto disabled = cpr::Put(
         cpr::Url{fx.url("/api/config/remote-web")},
         cpr::Header{{"Content-Type", "application/json"}},
         cpr::Body{R"({"enabled":false})"});
     ASSERT_EQ(disabled.status_code, 200) << disabled.text;
-    EXPECT_FALSE(json::parse(disabled.text)["enabled"].get<bool>());
-
-    bool disabled_effective = false;
-    const auto disabled_deadline =
-        std::chrono::steady_clock::now() + 5s;
-    while (std::chrono::steady_clock::now() < disabled_deadline) {
-        std::this_thread::sleep_for(50ms);
-        auto current = cpr::Get(
-            cpr::Url{fx.url("/api/config/remote-web")},
-            cpr::Timeout{500});
-        if (current.status_code != 200) continue;
-        const auto state = json::parse(current.text);
-        if (!state["effective_enabled"].get<bool>() &&
-            !state["applying"].get<bool>()) {
-            disabled_effective = true;
-            break;
-        }
-    }
-    EXPECT_TRUE(disabled_effective);
+    const auto disabled_json = json::parse(disabled.text);
+    EXPECT_FALSE(disabled_json["enabled"].get<bool>());
+    EXPECT_FALSE(disabled_json["effective_enabled"].get<bool>());
+    EXPECT_EQ(disabled_json["daemon_port"], fx.port);
+    EXPECT_EQ(disabled_json["proxy_state"], "stopped");
+    EXPECT_EQ(fx.remote_web_proxy->start_calls, 1);
+    EXPECT_EQ(fx.remote_web_proxy->stop_calls, 1);
     EXPECT_EQ(fx.cfg.web.bind, "127.0.0.1");
+
+    auto health_after_disable = cpr::Get(cpr::Url{fx.url("/api/health")});
+    ASSERT_EQ(health_after_disable.status_code, 200)
+        << health_after_disable.text;
+}
+
+TEST(WebServerHttp, RealProxyRequiresTokenAndForwardsAuthenticatedHealth) {
+    WebServerFixture fx;
+    acecode::web::RemoteWebTcpProxy proxy;
+    std::string proxy_error;
+    ASSERT_TRUE(proxy.start(0, fx.port, &proxy_error)) << proxy_error;
+    const int proxy_port = proxy.port();
+    std::thread proxy_thread([&] { proxy.run(); });
+
+    const auto unauthenticated = cpr::Get(cpr::Url{
+        "http://127.0.0.1:" + std::to_string(proxy_port) + "/api/health"});
+    const auto authenticated = cpr::Get(cpr::Url{
+        "http://127.0.0.1:" + std::to_string(proxy_port) +
+        "/api/health?token=smoke-token"});
+
+    proxy.stop();
+    if (proxy_thread.joinable()) proxy_thread.join();
+    EXPECT_EQ(unauthenticated.status_code, 401) << unauthenticated.text;
+    ASSERT_EQ(authenticated.status_code, 200) << authenticated.text;
+    EXPECT_EQ(json::parse(authenticated.text)["guid"], "test-guid-aaaa-bbbb");
 }
 
 TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
@@ -836,8 +885,8 @@ TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
         }));
 
     // Desktop starts the daemon with a per-run port override while config.json
-    // can still contain the previous run's port. A bind-only mutation must not
-    // move the active listener back to that persisted port.
+    // can still contain the previous run's port. A proxy-only mutation must
+    // not move the local listener back to that persisted port.
     acecode::AppConfig persisted = fx.cfg;
     persisted.web.port = 65530;
     acecode::save_config(
@@ -864,25 +913,12 @@ TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
             json::parse(mutation.text)["configured_enabled"],
             enabled);
 
-        bool ready = false;
-        const auto deadline =
-            std::chrono::steady_clock::now() + 5s;
-        while (std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(50ms);
-            auto current = cpr::Get(
-                cpr::Url{fx.url("/api/config/remote-web")},
-                cpr::Timeout{500});
-            if (current.status_code != 200) continue;
-            const auto state = json::parse(current.text);
-            if (state["effective_enabled"].get<bool>() == enabled &&
-                !state["applying"].get<bool>()) {
-                EXPECT_EQ(state["port"], fx.port);
-                ready = true;
-                break;
-            }
-        }
-        ASSERT_TRUE(ready)
-            << "listener did not return on runtime port " << fx.port;
+        const auto state = json::parse(mutation.text);
+        EXPECT_EQ(state["effective_enabled"], enabled);
+        EXPECT_EQ(state["daemon_port"], fx.port);
+        EXPECT_EQ(
+            state["port"],
+            enabled ? (fx.port < 65535 ? fx.port + 1 : fx.port - 1) : 0);
 
         auto health = cpr::Get(cpr::Url{fx.url("/api/health")});
         ASSERT_EQ(health.status_code, 200) << health.text;
@@ -894,6 +930,47 @@ TEST(WebServerHttp, RemoteWebModeRepeatedTogglesPreserveRuntimePortOverride) {
         (fx.tmp_dir / "config.json").string());
     EXPECT_EQ(saved.web.port, 65530);
     EXPECT_EQ(saved.web.bind, "127.0.0.1");
+    EXPECT_FALSE(saved.web.remote_enabled);
+}
+
+TEST(WebServerHttp, RemoteWebProxyStartFailureDoesNotPersistOrRebindDaemon) {
+    WebServerFixture fx;
+    fx.remote_web_proxy->fail_start = true;
+
+    auto response = cpr::Put(
+        cpr::Url{fx.url("/api/config/remote-web")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"enabled":true})"});
+    ASSERT_EQ(response.status_code, 502) << response.text;
+    EXPECT_EQ(
+        json::parse(response.text)["error"],
+        "REMOTE_WEB_PROXY_START_FAILED");
+    EXPECT_FALSE(fx.cfg.web.remote_enabled);
+    EXPECT_EQ(fx.cfg.web.bind, "127.0.0.1");
+    EXPECT_FALSE(std::filesystem::exists(fx.tmp_dir / "config.json"));
+
+    auto health = cpr::Get(cpr::Url{fx.url("/api/health")});
+    ASSERT_EQ(health.status_code, 200) << health.text;
+}
+
+TEST(WebServerHttp, ConfiguredButFailedProxyReportsSplitRuntimeState) {
+    WebServerFixture fx;
+    fx.remote_web_proxy->fail_start = true;
+    const auto proxy = fx.remote_web_proxy->start(0, fx.port);
+    ASSERT_FALSE(proxy.running);
+    fx.server->with_app_config_lock([&] {
+        fx.cfg.web.remote_enabled = true;
+    });
+
+    auto response = cpr::Get(
+        cpr::Url{fx.url("/api/config/remote-web")});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto state = json::parse(response.text);
+    EXPECT_TRUE(state["configured_enabled"].get<bool>());
+    EXPECT_FALSE(state["effective_enabled"].get<bool>());
+    EXPECT_EQ(state["proxy_state"], "failed");
+    EXPECT_EQ(state["error"], "test proxy bind failed");
+    EXPECT_TRUE(state["connections"].empty());
 }
 
 TEST(WebServerHttp, RemoteWebModeRejectsDangerousModeWithoutPersisting) {
@@ -912,6 +989,8 @@ TEST(WebServerHttp, RemoteWebModeRejectsDangerousModeWithoutPersisting) {
         json::parse(response.text)["error"],
         "DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN");
     EXPECT_EQ(fx.cfg.web.bind, "127.0.0.1");
+    EXPECT_FALSE(fx.cfg.web.remote_enabled);
+    EXPECT_EQ(fx.remote_web_proxy->start_calls, 0);
     EXPECT_FALSE(std::filesystem::exists(fx.tmp_dir / "config.json"));
 }
 
@@ -5405,14 +5484,16 @@ TEST(WebServerHttp, DismissDesktopOnboardingReportsPersistenceFailure) {
     EXPECT_FALSE(acecode::read_state_flag("desktop_guided_tour_v1_dismissed"));
 }
 
-// 场景:GET /api/config/ui-preferences 返回固定隐藏头像的兼容值。
-TEST(WebServerHttp, GetUiPreferencesReturnsAvatarDefault) {
+// 场景:GET /api/config/ui-preferences 返回稳定外观默认值及兼容头像字段。
+TEST(WebServerHttp, GetUiPreferencesReturnsAppearanceDefaults) {
     WebServerFixture fx;
     auto r = cpr::Get(cpr::Url{fx.url("/api/config/ui-preferences")});
     ASSERT_EQ(r.status_code, 200) << r.text;
     auto j = json::parse(r.text);
-    ASSERT_TRUE(j.contains("show_acecode_avatar"));
     EXPECT_EQ(j["show_acecode_avatar"], false);
+    EXPECT_EQ(j["theme"], "system");
+    EXPECT_EQ(j["color_theme"], "blue");
+    EXPECT_EQ(j["font_size"], "medium");
 }
 
 // 场景:PUT /api/config/ui-preferences 保持兼容,但头像显示固定为 false。
@@ -5425,6 +5506,9 @@ TEST(WebServerHttp, PutUiPreferencesNormalizesAvatarSettingToFalse) {
     ASSERT_EQ(put.status_code, 200) << put.text;
     auto body = json::parse(put.text);
     EXPECT_EQ(body["show_acecode_avatar"], false);
+    EXPECT_EQ(body["theme"], "system");
+    EXPECT_EQ(body["color_theme"], "blue");
+    EXPECT_EQ(body["font_size"], "medium");
     EXPECT_FALSE(fx.cfg.web_ui.show_acecode_avatar);
 
     std::ifstream ifs(fx.tmp_dir / "config.json");
@@ -5444,6 +5528,89 @@ TEST(WebServerHttp, PutUiPreferencesRejectsInvalidAvatarPayload) {
     auto j = json::parse(r.text);
     EXPECT_EQ(j["error"], "BAD_REQUEST");
     EXPECT_FALSE(fx.cfg.web_ui.show_acecode_avatar);
+}
+
+TEST(WebServerHttp, PutUiPreferencesPersistsCompleteAppearance) {
+    WebServerFixture fx;
+    json req = {
+        {"show_acecode_avatar", false},
+        {"theme", "dark"},
+        {"color_theme", "orange"},
+        {"font_size", "large"},
+    };
+    auto put = cpr::Put(cpr::Url{fx.url("/api/config/ui-preferences")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{req.dump()});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    const auto body = json::parse(put.text);
+    EXPECT_EQ(body["show_acecode_avatar"], false);
+    EXPECT_EQ(body["theme"], "dark");
+    EXPECT_EQ(body["color_theme"], "orange");
+    EXPECT_EQ(body["font_size"], "large");
+    EXPECT_EQ(fx.cfg.web_ui.theme, "dark");
+    EXPECT_EQ(fx.cfg.web_ui.color_theme, "orange");
+    EXPECT_EQ(fx.cfg.web_ui.font_size, "large");
+
+    const auto saved = acecode::load_config_from_path(
+        (fx.tmp_dir / "config.json").string());
+    EXPECT_EQ(saved.web_ui.theme, "dark");
+    EXPECT_EQ(saved.web_ui.color_theme, "orange");
+    EXPECT_EQ(saved.web_ui.font_size, "large");
+}
+
+TEST(WebServerHttp, PutUiPreferencesPartialUpdatePreservesOtherAppearanceFields) {
+    WebServerFixture fx;
+    fx.server->with_app_config_lock([&] {
+        fx.cfg.web_ui.theme = "light";
+        fx.cfg.web_ui.color_theme = "orange";
+        fx.cfg.web_ui.font_size = "small";
+    });
+
+    auto put = cpr::Put(
+        cpr::Url{fx.url("/api/config/ui-preferences")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"font_size":"large"})"});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    const auto body = json::parse(put.text);
+    EXPECT_EQ(body["theme"], "light");
+    EXPECT_EQ(body["color_theme"], "orange");
+    EXPECT_EQ(body["font_size"], "large");
+}
+
+TEST(WebServerHttp, PutUiPreferencesRejectsInvalidAppearanceWithoutMutation) {
+    WebServerFixture fx;
+    const std::vector<std::string> invalid_bodies = {
+        R"({"theme":"sepia"})",
+        R"({"color_theme":"green"})",
+        R"({"font_size":"huge"})",
+    };
+    for (const auto& request_body : invalid_bodies) {
+        auto response = cpr::Put(
+            cpr::Url{fx.url("/api/config/ui-preferences")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{request_body});
+        ASSERT_EQ(response.status_code, 400) << response.text;
+        EXPECT_EQ(json::parse(response.text)["error"], "BAD_REQUEST");
+    }
+    EXPECT_EQ(fx.cfg.web_ui.theme, "system");
+    EXPECT_EQ(fx.cfg.web_ui.color_theme, "blue");
+    EXPECT_EQ(fx.cfg.web_ui.font_size, "medium");
+    EXPECT_FALSE(std::filesystem::exists(fx.tmp_dir / "config.json"));
+}
+
+TEST(WebServerHttp, PutUiPreferencesRollsBackWhenPersistenceFails) {
+    WebServerFixture fx;
+    std::filesystem::create_directories(fx.tmp_dir / "config.json");
+
+    auto response = cpr::Put(
+        cpr::Url{fx.url("/api/config/ui-preferences")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"theme":"dark","color_theme":"orange","font_size":"large"})"});
+    ASSERT_EQ(response.status_code, 500) << response.text;
+    EXPECT_EQ(json::parse(response.text)["error"], "PERSIST_FAILED");
+    EXPECT_EQ(fx.cfg.web_ui.theme, "system");
+    EXPECT_EQ(fx.cfg.web_ui.color_theme, "blue");
+    EXPECT_EQ(fx.cfg.web_ui.font_size, "medium");
 }
 
 TEST(WebServerHttp, GetCustomInstructionsReturnsCurrentText) {

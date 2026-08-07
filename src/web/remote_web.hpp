@@ -8,12 +8,6 @@
 namespace acecode::web {
 
 inline constexpr const char* kRemoteWebLoopbackBind = "127.0.0.1";
-inline constexpr const char* kRemoteWebWildcardBind = "0.0.0.0";
-
-// Remote Web mode intentionally has no second persisted flag. A loopback bind
-// is local-only; every other configured bind is treated as remotely reachable.
-bool remote_web_enabled_for_bind(std::string_view bind);
-std::string remote_web_bind_for_enabled(bool enabled);
 
 // Parses a request Host header into a destination host. The returned value has
 // no port or IPv6 brackets and is safe to interpolate into an HTTP URL.

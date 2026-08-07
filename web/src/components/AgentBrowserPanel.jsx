@@ -21,6 +21,15 @@ import {
   agentBrowserShowsNativePage,
   agentBrowserSurfacePresentation,
 } from '../lib/agentBrowserSurface.js';
+import {
+  NATIVE_SURFACE_OVERLAY_EVENT,
+  allocateAgentBrowserLayoutRevision,
+  nativeSurfaceOcclusionRectsFromClientRects,
+  nativeSurfaceOverlayGeometryByDocument,
+  nativeSurfaceShouldShow,
+  nativeSurfaceViewportRect,
+  nextAgentBrowserLayoutRequest,
+} from '../lib/agentBrowserSurfaceCoordinator.js';
 import { NavigationArrowIcon, RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
@@ -42,19 +51,19 @@ const INITIAL_STATE = Object.freeze({
   error: '',
 });
 
-function modalIsOpen() {
-  return !!document.querySelector(
-    '[data-ace-modal-dialog="true"], .ace-desktop-context-menu',
-  );
-}
-
-export function AgentBrowserPanel({ pageId, agentActive = false, onAddContext }) {
+export function AgentBrowserPanel({
+  pageId,
+  agentActive = false,
+  surfaceEnabled = true,
+  onAddContext,
+}) {
   const viewportRef = useRef(null);
   const addressFocusedRef = useRef(false);
   const layoutFrameRef = useRef(0);
+  const layoutStateRef = useRef({ signature: '', revision: 0 });
+  const lastSurfaceRectRef = useRef({ left: 0, top: 0, width: 0, height: 0 });
   const [state, setState] = useState(INITIAL_STATE);
   const [address, setAddress] = useState('');
-  const [overlayBlocked, setOverlayBlocked] = useState(false);
   const nativePageVisible = agentBrowserShowsNativePage(state);
   const surface = agentBrowserSurfacePresentation(state);
 
@@ -91,58 +100,127 @@ export function AgentBrowserPanel({ pageId, agentActive = false, onAddContext })
     setAddress(nextUrl);
   }, [state.url]);
 
-  useEffect(() => {
-    const update = () => setOverlayBlocked(modalIsOpen() || document.hidden);
-    update();
-    const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: true });
-    document.addEventListener('visibilitychange', update);
-    return () => {
-      observer.disconnect();
-      document.removeEventListener('visibilitychange', update);
-    };
-  }, []);
-
-  const syncLayout = useCallback((visible = true) => {
+  const syncNativeSurface = useCallback(({ forceHidden = false, force = false } = {}) => {
     const viewport = viewportRef.current;
-    if (!viewport) return;
-    const layout = agentBrowserLayoutFromRect(
-      viewport.getBoundingClientRect(),
-      window.__ACECODE_OS__ === 'macos' ? 1 : (window.devicePixelRatio || 1),
-      visible && nativePageVisible && !overlayBlocked,
-    );
-    void setAgentBrowserLayout(pageId, layout);
-  }, [nativePageVisible, overlayBlocked, pageId]);
-
-  const scheduleLayout = useCallback(() => {
-    if (layoutFrameRef.current) cancelAnimationFrame(layoutFrameRef.current);
-    layoutFrameRef.current = requestAnimationFrame(() => {
-      layoutFrameRef.current = 0;
-      syncLayout(true);
+    const surfaceRect = viewport?.getBoundingClientRect?.() || lastSurfaceRectRef.current;
+    if (viewport) lastSurfaceRectRef.current = surfaceRect;
+    const documentVisible = document.visibilityState !== 'hidden' && !document.hidden;
+    const overlayGeometry = forceHidden
+      ? { blocking: false, occlusionRects: [] }
+      : nativeSurfaceOverlayGeometryByDocument(surfaceRect, document, window);
+    const supportsLocalOcclusion = window.__ACECODE_OS__ === 'windows';
+    const overlayBlocked = overlayGeometry.blocking
+      || (!supportsLocalOcclusion && overlayGeometry.occlusionRects.length > 0);
+    const visible = !forceHidden && nativeSurfaceShouldShow({
+      applicationVisible: surfaceEnabled,
+      detailsVisible: true,
+      tabActive: true,
+      pageLive: nativePageVisible,
+      documentVisible,
+      surfaceRect,
+      viewportRect: nativeSurfaceViewportRect(window),
+      overlayBlocked,
     });
-  }, [syncLayout]);
+    const scale = window.__ACECODE_OS__ === 'macos' ? 1 : (window.devicePixelRatio || 1);
+    const layout = agentBrowserLayoutFromRect(
+      surfaceRect,
+      scale,
+      visible,
+    );
+    layout.occlusion_rects = visible && supportsLocalOcclusion
+      ? nativeSurfaceOcclusionRectsFromClientRects(
+          surfaceRect,
+          overlayGeometry.occlusionRects,
+          scale,
+        )
+      : [];
+    const next = nextAgentBrowserLayoutRequest(layout, layoutStateRef.current, {
+      force,
+      allocateRevision: allocateAgentBrowserLayoutRevision,
+    });
+    if (!next.changed) return;
+    layoutStateRef.current = { signature: next.signature, revision: next.revision };
+    void setAgentBrowserLayout(pageId, next.request);
+  }, [nativePageVisible, pageId, surfaceEnabled]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return undefined;
+    let disposed = false;
+    const scheduleLayout = () => {
+      if (disposed || layoutFrameRef.current) return;
+      layoutFrameRef.current = requestAnimationFrame(sampleLayout);
+    };
+    const sampleLayout = () => {
+      layoutFrameRef.current = 0;
+      if (disposed) return;
+      syncNativeSurface();
+      if (surfaceEnabled
+          && nativePageVisible
+          && document.visibilityState !== 'hidden'
+          && !document.hidden) {
+        scheduleLayout();
+      }
+    };
+
     scheduleLayout();
-    const resizeObserver = new ResizeObserver(scheduleLayout);
-    resizeObserver.observe(viewport);
+    const resizeObserver = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(scheduleLayout)
+      : null;
+    resizeObserver?.observe(viewport);
+    const intersectionObserver = typeof IntersectionObserver === 'function'
+      ? new IntersectionObserver(scheduleLayout)
+      : null;
+    intersectionObserver?.observe(viewport);
+    const mutationObserver = typeof MutationObserver === 'function'
+      ? new MutationObserver(scheduleLayout)
+      : null;
+    mutationObserver?.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        'aria-hidden',
+        'class',
+        'data-ace-native-overlay',
+        'hidden',
+        'style',
+      ],
+    });
+
+    const visualViewport = window.visualViewport;
+    const documentEvents = [
+      'animationcancel',
+      'animationend',
+      'animationstart',
+      'transitioncancel',
+      'transitionend',
+      'transitionrun',
+      'visibilitychange',
+    ];
     window.addEventListener('resize', scheduleLayout);
     window.addEventListener('scroll', scheduleLayout, true);
+    window.addEventListener(NATIVE_SURFACE_OVERLAY_EVENT, scheduleLayout);
+    visualViewport?.addEventListener('resize', scheduleLayout);
+    visualViewport?.addEventListener('scroll', scheduleLayout);
+    documentEvents.forEach((name) => document.addEventListener(name, scheduleLayout, true));
+
     return () => {
-      resizeObserver.disconnect();
+      disposed = true;
+      resizeObserver?.disconnect();
+      intersectionObserver?.disconnect();
+      mutationObserver?.disconnect();
       window.removeEventListener('resize', scheduleLayout);
       window.removeEventListener('scroll', scheduleLayout, true);
+      window.removeEventListener(NATIVE_SURFACE_OVERLAY_EVENT, scheduleLayout);
+      visualViewport?.removeEventListener('resize', scheduleLayout);
+      visualViewport?.removeEventListener('scroll', scheduleLayout);
+      documentEvents.forEach((name) => document.removeEventListener(name, scheduleLayout, true));
       if (layoutFrameRef.current) cancelAnimationFrame(layoutFrameRef.current);
       layoutFrameRef.current = 0;
-      void runAgentBrowserBridgeAction('aceDesktop_agentBrowserHide', pageId);
+      syncNativeSurface({ forceHidden: true, force: true });
     };
-  }, [pageId, scheduleLayout]);
-
-  useEffect(() => {
-    syncLayout(true);
-  }, [syncLayout]);
+  }, [nativePageVisible, surfaceEnabled, syncNativeSurface]);
 
   const runAction = useCallback(async (name) => {
     const result = await runAgentBrowserBridgeAction(name, pageId);

@@ -64,6 +64,7 @@ export function PathReferenceDropdown({
   return (
     <div
       role="listbox"
+      data-ace-native-overlay="overlap"
       aria-label="文件和文件夹引用"
       className="absolute bottom-full left-0 w-[400px] max-w-full mb-2 bg-surface border border-border rounded-lg ace-shadow-lg overflow-hidden font-sans"
       style={{ zIndex: 62 }}

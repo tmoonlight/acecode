@@ -1,6 +1,5 @@
 #include "remote_web.hpp"
 
-#include "auth.hpp"
 #include "../utils/url_encoding.hpp"
 
 #include <algorithm>
@@ -234,17 +233,6 @@ std::optional<std::string> numeric_host(const sockaddr* address) {
 }
 
 } // namespace
-
-bool remote_web_enabled_for_bind(std::string_view bind) {
-    const std::string normalized = ascii_lower_copy(
-        strip_ipv6_brackets(trim_ascii(bind)));
-    return normalized != "localhost" &&
-        !is_loopback_address(normalized);
-}
-
-std::string remote_web_bind_for_enabled(bool enabled) {
-    return enabled ? kRemoteWebWildcardBind : kRemoteWebLoopbackBind;
-}
 
 std::optional<std::string> remote_web_host_from_header(
     std::string_view host_header) {

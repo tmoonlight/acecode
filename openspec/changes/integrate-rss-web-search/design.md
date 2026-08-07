@@ -1,6 +1,9 @@
 ## Context
 
-The existing `BackendRouter` owns DuckDuckGo and Bing CN backends and selects one from configuration plus detected region. RSS is a curated search source, not a complete web index, so treating it as an ordinary mutually exclusive backend would make zero-result queries look like definitive web misses.
+The existing `BackendRouter` owns RSS, DuckDuckGo, and Bing CN implementations.
+RSS is a curated search source, not a complete web index, while Bing CN result
+quality is too low to include in model context. Production routing therefore
+needs RSS breadth plus DuckDuckGo coverage without any Bing CN result path.
 
 ## Decisions
 
@@ -8,36 +11,41 @@ The existing `BackendRouter` owns DuckDuckGo and Bing CN backends and selects on
 
 The integration keeps the existing `web_search` tool name and schema. A separate `rss_search` tool would expose overlapping choices to the model and would not satisfy the goal of providing a built-in default search path.
 
-### 2. Three-source parallel search is the default
+### 2. Two-source parallel search is the default
 
 `WebSearchConfig::backend` defaults to `parallel`. A search snapshots the RSS,
-DuckDuckGo, and Bing CN backends and starts all three with `std::async` using
-`std::launch::async`. Explicit `auto` continues selecting DuckDuckGo for global
-regions and Bing CN for China/unknown regions. Explicit `rss`, `duckduckgo`,
-and `bing_cn` remain available for debugging and controlled deployments.
+and DuckDuckGo backends and starts both with `std::async` using
+`std::launch::async`. Explicit `auto` resolves to DuckDuckGo regardless of the
+cached region. Explicit `rss` and `duckduckgo` remain available for debugging
+and controlled deployments.
+
+Bing CN remains source-compatible code but is not registered by production,
+cannot be selected by `/websearch`, and is never an automatic fallback. A
+persisted `backend = "bing_cn"` value remains parseable for upgrade
+compatibility but resolves to DuckDuckGo with a warning.
 
 ### 3. Parallel aggregation is bounded and source-balanced
 
 Each backend receives the requested limit, but the combined response still
 returns at most that many hits. Results are consumed one at a time in stable
-round-robin order (`rss`, `duckduckgo`, `bing_cn`) and deduplicated by a
-normalized URL key. This ensures a default limit of five can represent all
-three sources instead of being filled by whichever future completes first.
+round-robin order (`rss`, `duckduckgo`) and deduplicated by a normalized URL
+key. This prevents either source from filling the model context merely because
+its future completes first.
 
 Every merged hit records its originating backend. RSS publisher and
 publication metadata remain separate from backend provenance.
 
 If at least one backend succeeds, its available results are returned and
-failures from the other sources become bounded warnings. Only when all three
+failure from the other source becomes a bounded warning. Only when both
 backends fail does the tool return an aggregate error. Parallel searches never
 change the active backend or rewrite the region cache.
 
 ### 4. Explicit single-source fallback remains compatible
 
-When the configured/session-selected backend is `rss`, its existing empty or
-recoverable-error regional fallback remains per-request and non-sticky. The
-legacy DuckDuckGo/Bing network fallback remains sticky as before. `auto`
-continues to use the cached region.
+When the configured/session-selected backend is `rss`, an empty or recoverable
+error falls back to DuckDuckGo per request and non-sticky. DuckDuckGo failure
+does not fall back to Bing CN. `auto` resolves directly to DuckDuckGo; region
+detection may remain for state compatibility but cannot select Bing CN.
 
 ### 5. Validate external JSON at the boundary
 
@@ -54,10 +62,10 @@ The router stores backends with shared ownership and snapshots a `shared_ptr` be
 ## Risks
 
 - Hosted-service privacy: search queries are sent to the configured RSS endpoint. This matches the behavior of all remote search backends and must be documented clearly.
-- Corpus coverage: mitigated by always combining the curated RSS source with
-  both public web engines in the default mode.
+- Corpus coverage: mitigated by combining the curated RSS source with
+  DuckDuckGo in the default mode.
 - Source outage: mitigated by partial-success semantics; one failed source does
-  not discard usable results from the other two.
-- Parallel fan-out increases request count to three per tool call, accepted to
+  not discard usable results from the other source.
+- Parallel fan-out makes two requests per tool call, accepted to
   improve domestic and global coverage. The hosted RSS service owns its
   server-side rate limiting and corpus operations.

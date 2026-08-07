@@ -270,7 +270,7 @@ The three discovery flags require no prompt and can be combined. They only build
 ./acecode daemon stop
 ```
 
-The daemon serves the API and bundled web UI at `http://127.0.0.1:28080` by default. Configure `web.bind`, `web.port`, and `web.static_dir` in `~/.acecode/config.json`.
+The daemon serves the API and bundled web UI at `http://127.0.0.1:28080` by default. Configure `web.port` and `web.static_dir` in `~/.acecode/config.json`. Remote Web mode keeps that daemon listener on loopback and starts a separately supervised reverse-proxy process; use `web.remote_enabled` and optional `web.remote_port` (`0` selects a port automatically).
 
 Runtime files live under `<data_dir>/run/`. Each daemon start writes a token file; loopback clients can connect without it, while non-loopback clients must pass `X-ACECode-Token` or a `?token=` query parameter. See [docs/daemon-api.md](docs/daemon-api.md) for the protocol.
 

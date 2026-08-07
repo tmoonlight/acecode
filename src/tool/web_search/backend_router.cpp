@@ -1,10 +1,8 @@
 #include "backend_router.hpp"
 
-#include "bing_cn_backend.hpp"
 #include "duckduckgo_backend.hpp"
 #include "rss_search_backend.hpp"
 #include "utils/logger.hpp"
-#include "utils/state_file.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,8 +23,8 @@ bool is_known_backend_name(const std::string& name) {
            name == "bochaai" || name == "tavily";
 }
 
-constexpr std::array<const char*, 3> kParallelBackendNames = {
-    "rss", "duckduckgo", "bing_cn"
+constexpr std::array<const char*, 2> kParallelBackendNames = {
+    "rss", "duckduckgo"
 };
 
 std::string normalize_url_for_dedup(std::string url) {
@@ -64,12 +62,6 @@ std::string bounded_warning(const std::string& backend,
     return warning;
 }
 
-long long now_ms() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
-        .count();
-}
-
 } // namespace
 
 BackendRouter::BackendRouter(const WebSearchConfig& cfg) : cfg_(cfg) {}
@@ -82,17 +74,12 @@ void BackendRouter::register_backend(std::unique_ptr<WebSearchBackend> b) {
     }
 }
 
-std::string BackendRouter::compute_active_name(Region region) const {
-    if (cfg_.backend == "auto") {
-        if (region == Region::Global) return "duckduckgo";
-        return "bing_cn"; // Cn 或 Unknown 都走悲观默认
+std::string BackendRouter::compute_active_name(Region /*region*/) const {
+    if (cfg_.backend == "auto" || cfg_.backend == "bing_cn" ||
+        cfg_.backend == "bochaai" || cfg_.backend == "tavily") {
+        return "duckduckgo";
     }
-    if (cfg_.backend == "bochaai" || cfg_.backend == "tavily") {
-        // 占位 backend 未实现 → fallback 到 auto
-        if (region == Region::Global) return "duckduckgo";
-        return "bing_cn";
-    }
-    return cfg_.backend; // parallel / rss / duckduckgo / bing_cn(配置已校验)
+    return cfg_.backend; // parallel / rss / duckduckgo(配置已校验)
 }
 
 void BackendRouter::resolve_active(Region region) {
@@ -109,8 +96,7 @@ void BackendRouter::resolve_active(Region region) {
         return;
     }
     if (backends_.find(desired) == backends_.end()) {
-        // 没注册(比如 cfg=tavily 但只注册了 ddg/bing_cn,且 compute 已 fallback,
-        // 但又恰好 ddg/bing_cn 也没注册)→ 用任意一个已注册的兜底
+        // 没注册(比如 DDG 未注入)→ 用任意一个已注册的兜底。
         if (!backends_.empty()) {
             active_ = backends_.begin()->first;
             LOG_WARN("[web_search] desired backend '" + desired +
@@ -126,6 +112,9 @@ void BackendRouter::resolve_active(Region region) {
 
 bool BackendRouter::set_active(const std::string& name) {
     std::lock_guard<std::mutex> lk(mu_);
+    if (name == "bing_cn") {
+        return false;
+    }
     if (name == "parallel") {
         for (const char* backend_name : kParallelBackendNames) {
             if (backends_.find(backend_name) != backends_.end()) {
@@ -151,12 +140,6 @@ std::string BackendRouter::active_name() const {
     return active_;
 }
 
-std::string BackendRouter::opposite_of(const std::string& name) const {
-    if (name == "duckduckgo") return "bing_cn";
-    if (name == "bing_cn") return "duckduckgo";
-    return {};
-}
-
 std::shared_ptr<WebSearchBackend>
 BackendRouter::find_unlocked(const std::string& name) {
     auto it = backends_.find(name);
@@ -170,7 +153,7 @@ BackendRouter::search_parallel(std::string_view query, int limit,
     using Outcome = std::variant<SearchResponse, SearchError>;
     const auto started = std::chrono::steady_clock::now();
 
-    std::array<std::shared_ptr<WebSearchBackend>, 3> backends;
+    std::array<std::shared_ptr<WebSearchBackend>, 2> backends;
     {
         std::lock_guard<std::mutex> lk(mu_);
         for (std::size_t i = 0; i < kParallelBackendNames.size(); ++i) {
@@ -178,8 +161,8 @@ BackendRouter::search_parallel(std::string_view query, int limit,
         }
     }
 
-    std::array<std::future<Outcome>, 3> futures;
-    std::array<bool, 3> launched{};
+    std::array<std::future<Outcome>, 2> futures;
+    std::array<bool, 2> launched{};
     for (std::size_t i = 0; i < backends.size(); ++i) {
         if (!backends[i]) continue;
         auto backend = backends[i];
@@ -203,10 +186,9 @@ BackendRouter::search_parallel(std::string_view query, int limit,
             });
     }
 
-    std::array<Outcome, 3> outcomes = {
+    std::array<Outcome, 2> outcomes = {
         SearchError{SearchError::Kind::Disabled, "backend is not registered", "rss"},
         SearchError{SearchError::Kind::Disabled, "backend is not registered", "duckduckgo"},
-        SearchError{SearchError::Kind::Disabled, "backend is not registered", "bing_cn"},
     };
     for (std::size_t i = 0; i < futures.size(); ++i) {
         if (launched[i]) outcomes[i] = futures[i].get();
@@ -214,7 +196,7 @@ BackendRouter::search_parallel(std::string_view query, int limit,
 
     SearchResponse combined;
     combined.backend_name = "parallel";
-    std::array<const SearchResponse*, 3> successful{};
+    std::array<const SearchResponse*, 2> successful{};
     std::size_t success_count = 0;
     for (std::size_t i = 0; i < outcomes.size(); ++i) {
         if (std::holds_alternative<SearchResponse>(outcomes[i])) {
@@ -237,7 +219,7 @@ BackendRouter::search_parallel(std::string_view query, int limit,
 
     const std::size_t result_limit = limit > 0
         ? static_cast<std::size_t>(limit) : 0;
-    std::array<std::size_t, 3> positions{};
+    std::array<std::size_t, 2> positions{};
     std::unordered_set<std::string> seen_urls;
     while (combined.hits.size() < result_limit) {
         bool made_progress = false;
@@ -281,12 +263,10 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
                                      const NotifyFn& notify) {
     // snapshot 当前 active + 拿到 backend 指针;mutex 持有时间最短。
     std::string primary;
-    Region region = Region::Unknown;
     std::shared_ptr<WebSearchBackend> primary_be;
     {
         std::lock_guard<std::mutex> lk(mu_);
         primary = active_;
-        region = resolved_region_;
         primary_be = find_unlocked(primary);
     }
     if (primary == "parallel") {
@@ -308,10 +288,7 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
     } else {
         const auto& err = std::get<SearchError>(first);
         if (abort && abort->load()) return first;
-        if (!rss_primary && err.kind != SearchError::Kind::Network) {
-            // Legacy HTML backends only fall back on network errors.
-            return first;
-        }
+        if (!rss_primary) return first;
         if (rss_primary && err.kind != SearchError::Kind::Network &&
             err.kind != SearchError::Kind::RateLimited) {
             return first;
@@ -319,11 +296,9 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
         if (rss_primary) rss_fallback_reason = err.message;
     }
 
-    // RSS uses a per-request regional fallback for outages and corpus misses.
-    // Legacy HTML backends keep their sticky opposite-backend fallback.
-    std::string fallback_name = rss_primary
-        ? (region == Region::Global ? "duckduckgo" : "bing_cn")
-        : opposite_of(primary);
+    // RSS always uses DuckDuckGo as its per-request fallback. Bing CN is
+    // intentionally excluded from every automatic path.
+    const std::string fallback_name = "duckduckgo";
     std::shared_ptr<WebSearchBackend> fallback_be;
     {
         std::lock_guard<std::mutex> lk(mu_);
@@ -335,34 +310,13 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
 
     auto second = fallback_be->search(query, limit, abort);
     if (std::holds_alternative<SearchResponse>(second)) {
-        if (rss_primary) {
-            if (notify) {
-                notify("RSS search had no usable result; used " + fallback_name +
-                       " for this request (" + rss_fallback_reason + ")");
-            }
-            return second;
-        }
-        // Legacy fallback is sticky and updates the region cache.
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            active_ = fallback_name;
-            resolved_region_ = (fallback_name == "duckduckgo")
-                ? Region::Global : Region::Cn;
-        }
-        WebSearchRegionCache cache;
-        // primary 失败 → 推断 region 与 fallback 对应:bing_cn ⇒ cn;duckduckgo ⇒ global
-        cache.region = (fallback_name == "duckduckgo") ? "global" : "cn";
-        cache.detected_at_ms = now_ms();
-        write_web_search_region_cache(cache);
-
         if (notify) {
-            const auto& primary_error = std::get<SearchError>(first);
-            notify("\xE2\x9A\xA0 Switched to " + fallback_name +
-                   " (" + primary + " unreachable: " + primary_error.message + ")");
+            notify("RSS search had no usable result; used " + fallback_name +
+                   " for this request (" + rss_fallback_reason + ")");
         }
         return second;
     }
-    // 双 fail:返回第二次的错误(更近的事实),不 notify
+    // RSS + DDG 都失败:返回第二次的错误(更近的事实),不 notify。
     return second;
 }
 
@@ -392,12 +346,13 @@ void register_default_backends(BackendRouter& router, const WebSearchConfig& cfg
         std::make_unique<RssSearchBackend>(cfg.rss_base_url, cfg.timeout_ms));
     router.register_backend(
         std::make_unique<DuckDuckGoBackend>(cfg.timeout_ms));
-    router.register_backend(
-        std::make_unique<BingCnBackend>(cfg.timeout_ms));
 
-    if (cfg.backend == "bochaai" || cfg.backend == "tavily") {
+    if (cfg.backend == "bing_cn") {
+        LOG_WARN("[web_search] backend 'bing_cn' is disabled due to result quality; "
+                 "using duckduckgo");
+    } else if (cfg.backend == "bochaai" || cfg.backend == "tavily") {
         LOG_WARN("[web_search] backend '" + cfg.backend +
-                 "' not implemented yet; falling back to auto behavior");
+                 "' not implemented yet; using duckduckgo");
     }
     if (!is_known_backend_name(cfg.backend) && cfg.backend != "auto") {
         // load_config 应该已挡住,这里只是双保险。

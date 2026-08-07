@@ -263,7 +263,7 @@ Print 模式默认值是确定的：新会话使用配置的默认模型（恢�
 ./acecode daemon stop
 ```
 
-Daemon 默认在 `http://127.0.0.1:28080` 提供 API 和内置 Web UI。可在 `~/.acecode/config.json` 中配置 `web.bind`、`web.port` 和 `web.static_dir`。
+Daemon 默认在 `http://127.0.0.1:28080` 提供 API 和内置 Web UI。可在 `~/.acecode/config.json` 中配置 `web.port` 和 `web.static_dir`。远程 Web 模式会保持 daemon 仅监听 loopback，另外启动受托管的反向代理进程；可使用 `web.remote_enabled` 和可选的 `web.remote_port`（`0` 表示自动选端口）。
 
 运行时文件位于 `<data_dir>/run/`。每次 daemon 启动都会写入 token 文件；loopback 客户端可以省略 token，非 loopback 客户端必须传入 `X-ACECode-Token` 请求头或 `?token=` 查询参数。协议详见 [docs/daemon-api.md](docs/daemon-api.md)。
 

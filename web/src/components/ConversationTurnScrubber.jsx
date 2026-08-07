@@ -523,6 +523,7 @@ export function ConversationTurnScrubber({
           id={previewId}
           ref={previewRef}
           className="ace-conversation-turn-preview"
+          data-ace-native-overlay="overlap"
           style={{ '--ace-conversation-turn-preview-y': `${previewTop}px` }}
           role="tooltip"
         >

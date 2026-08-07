@@ -81,7 +81,14 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ backgroundColor: 'rgba(0, 0, 0, 0.55)' }} role="dialog" aria-modal="true" aria-label={loop ? '编辑循环' : '添加循环'}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3"
+      data-ace-native-overlay="blocking"
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.55)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={loop ? '编辑循环' : '添加循环'}
+    >
       <div className="w-full max-w-[620px] max-h-[calc(100vh-24px)] overflow-y-auto rounded-xl border border-border bg-surface shadow-2xl">
         <div className="sticky top-0 z-10 h-12 px-5 flex items-center justify-between border-b border-border bg-surface">
           <h2 className="text-[16px] font-semibold">{loop ? '编辑循环' : '添加循环'}</h2>

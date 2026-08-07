@@ -443,6 +443,61 @@ void park_agent_browser_widget(HWND widget) {
                    SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
+void hide_agent_browser_widget(HWND widget) {
+    if (!widget || !::IsWindow(widget)) return;
+    ::SetWindowPos(widget,
+                   nullptr,
+                   0,
+                   0,
+                   0,
+                   0,
+                   SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE |
+                       SWP_NOZORDER | SWP_HIDEWINDOW);
+}
+
+bool apply_agent_browser_widget_region(
+    HWND widget,
+    int width,
+    int height,
+    const std::vector<AgentBrowserOcclusionRect>& occlusions) {
+    if (!widget || !::IsWindow(widget)) return false;
+    if (occlusions.empty()) {
+        return ::SetWindowRgn(widget, nullptr, TRUE) != 0;
+    }
+
+    HRGN visible_region = ::CreateRectRgn(0, 0, width, height);
+    if (!visible_region) return false;
+    for (const auto& occlusion : occlusions) {
+        const int left = (std::max)(0, (std::min)(width, occlusion.x));
+        const int top = (std::max)(0, (std::min)(height, occlusion.y));
+        const int right = (std::max)(left, (std::min)(
+            width, occlusion.x + occlusion.width));
+        const int bottom = (std::max)(top, (std::min)(
+            height, occlusion.y + occlusion.height));
+        if (right <= left || bottom <= top) continue;
+
+        HRGN hole = ::CreateRectRgn(left, top, right, bottom);
+        if (!hole) {
+            ::DeleteObject(visible_region);
+            return false;
+        }
+        const int combine_result =
+            ::CombineRgn(visible_region, visible_region, hole, RGN_DIFF);
+        ::DeleteObject(hole);
+        if (combine_result == ERROR) {
+            ::DeleteObject(visible_region);
+            return false;
+        }
+    }
+
+    // SetWindowRgn takes ownership only on success.
+    if (::SetWindowRgn(widget, visible_region, TRUE) == 0) {
+        ::DeleteObject(visible_region);
+        return false;
+    }
+    return true;
+}
+
 std::string hresult_text(HRESULT result) {
     return "HRESULT 0x" + [] (unsigned long value) {
         constexpr char digits[] = "0123456789ABCDEF";
@@ -573,6 +628,7 @@ struct AgentBrowserHost::Impl
     DispatchHandler dispatch_handler;
     mutable std::mutex state_mutex;
     AgentBrowserState host_state;
+    bool parent_surface_visible = true;
 
 #ifdef _WIN32
     struct QueuedCdpCall {
@@ -1599,7 +1655,7 @@ struct AgentBrowserHost::Impl
                 std::string ignored;
                 select_page_on_ui(next_active, &ignored);
             } else {
-                park_agent_browser_widget(browser_widget);
+                hide_agent_browser_widget(browser_widget);
             }
         }
         if (closed_page_id) *closed_page_id = page_id;
@@ -1611,21 +1667,34 @@ struct AgentBrowserHost::Impl
         if (!page) return;
         const int width = (std::max)(0, page->requested_bounds.width);
         const int height = (std::max)(0, page->requested_bounds.height);
+        const auto parent = static_cast<HWND>(parent_window);
+        const bool parent_visible = parent && ::IsWindow(parent) &&
+                                    ::IsWindowVisible(parent) &&
+                                    !::IsIconic(parent);
         const bool requested_show = page->controller && page->state.active &&
                                     page->state.content_state ==
                                         kAgentBrowserContentStateLive &&
                                     page->requested_bounds.visible &&
+                                    parent_surface_visible &&
+                                    parent_visible &&
                                     width > 0 && height > 0;
         bool show = false;
         if (page->controller) {
-            if (requested_show && browser_widget &&
+            const bool positioned = requested_show && browser_widget &&
                 ::SetWindowPos(browser_widget,
                                HWND_TOP,
                                page->requested_bounds.x,
                                page->requested_bounds.y,
                                width,
                                height,
-                               SWP_NOACTIVATE | SWP_SHOWWINDOW)) {
+                               SWP_NOACTIVATE | SWP_SHOWWINDOW) != FALSE;
+            const bool region_applied = positioned &&
+                apply_agent_browser_widget_region(
+                    browser_widget,
+                    width,
+                    height,
+                    page->requested_bounds.occlusion_rects);
+            if (region_applied) {
                 const RECT controller_bounds{0, 0, width, height};
                 const HRESULT bounds_result =
                     page->controller->put_Bounds(controller_bounds);
@@ -1641,10 +1710,14 @@ struct AgentBrowserHost::Impl
                 }
             } else {
                 page->controller->put_IsVisible(FALSE);
+                if (positioned) {
+                    LOG_WARN("[agent-browser] failed to apply native occlusion "
+                             "region for page " + page->id);
+                }
             }
         }
         if (page->state.active && !show) {
-            park_agent_browser_widget(browser_widget);
+            hide_agent_browser_widget(browser_widget);
         }
         if (page->state.visible != show) {
             update_page(page, [&](AgentBrowserState& state) {
@@ -2231,11 +2304,28 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
         assign_error(error, "Agent Browser bounds are invalid");
         return false;
     }
+    if (bounds.occlusion_rects.size() > kAgentBrowserMaxOcclusionRects) {
+        assign_error(error, "Agent Browser has too many occlusion rectangles");
+        return false;
+    }
+    for (const auto& rect : bounds.occlusion_rects) {
+        if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
+            rect.x > 32768 || rect.y > 32768 ||
+            rect.width > 32768 || rect.height > 32768) {
+            assign_error(error, "Agent Browser occlusion rectangle is invalid");
+            return false;
+        }
+    }
 #ifdef _WIN32
     auto page = impl_->find_page(page_id);
     if (!page) {
         assign_error(error, "Agent Browser page was not found");
         return false;
+    }
+    if (bounds.layout_revision != 0 &&
+        page->requested_bounds.layout_revision != 0 &&
+        bounds.layout_revision < page->requested_bounds.layout_revision) {
+        return true;
     }
     page->requested_bounds = bounds;
     impl_->apply_bounds(page);
@@ -2358,6 +2448,23 @@ bool AgentBrowserHost::open_developer_tools(const std::string& page_id,
     assign_error(error, "Agent Browser is unavailable on this platform");
     return false;
 #endif
+}
+
+void AgentBrowserHost::refresh_layout() {
+    if (!impl_) return;
+#ifdef _WIN32
+    for (const auto& state : impl_->states()) {
+        if (auto page = impl_->find_page(state.page_id)) {
+            impl_->apply_bounds(page);
+        }
+    }
+#endif
+}
+
+void AgentBrowserHost::set_parent_visible(bool visible) {
+    if (!impl_) return;
+    impl_->parent_surface_visible = visible;
+    refresh_layout();
 }
 
 void AgentBrowserHost::hide(const std::string& page_id) {

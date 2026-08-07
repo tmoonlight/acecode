@@ -30,6 +30,14 @@ TEST(IsLoopback, EntireIPv4LoopbackBlock) {
     EXPECT_TRUE(is_loopback_address("127.0.0.0"));
 }
 
+TEST(TrustedLocalClient, ProxyLoopbackSourceRequiresToken) {
+    EXPECT_TRUE(is_trusted_local_client_address("127.0.0.1"));
+    EXPECT_TRUE(is_trusted_local_client_address("::1"));
+    EXPECT_TRUE(is_trusted_local_client_address("::ffff:127.0.0.1"));
+    EXPECT_FALSE(is_trusted_local_client_address("127.0.0.2"));
+    EXPECT_FALSE(is_trusted_local_client_address("::ffff:127.0.0.2"));
+}
+
 // 场景: 标准 IPv6 loopback。Crow 在 IPv6 socket 上 accept 时给的就是 "::1"。
 TEST(IsLoopback, StandardIPv6) {
     EXPECT_TRUE(is_loopback_address("::1"));
@@ -112,6 +120,17 @@ TEST(CheckAuth, LoopbackAlwaysAllowed) {
     EXPECT_EQ(check_request_auth("::1", "server-tk", "wrong-tk", ""),
               AuthResult::Allowed) << "loopback 即使 token 错也放行";
     EXPECT_EQ(check_request_auth("::ffff:127.0.0.1", "", "", ""),
+              AuthResult::Allowed);
+}
+
+TEST(CheckAuth, RemoteProxyLoopbackSourceNeedsExplicitToken) {
+    EXPECT_EQ(check_request_auth("127.0.0.2", "server-tk", "", ""),
+              AuthResult::NoToken);
+    EXPECT_EQ(check_request_auth(
+                  "127.0.0.2", "server-tk", "wrong", ""),
+              AuthResult::BadToken);
+    EXPECT_EQ(check_request_auth(
+                  "127.0.0.2", "server-tk", "server-tk", ""),
               AuthResult::Allowed);
 }
 

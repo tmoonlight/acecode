@@ -1,7 +1,5 @@
 #include "settings_mutations.hpp"
 
-#include "../web/remote_web.hpp"
-
 #include <algorithm>
 #include <optional>
 #include <utility>
@@ -147,17 +145,26 @@ SettingsMutationResult set_remote_web_enabled(
         : std::nullopt;
     auto result = run_mutation(
         [enabled](AppConfig& cfg, std::string&) {
-            const std::string bind =
-                web::remote_web_bind_for_enabled(enabled);
-            if (cfg.web.bind == bind) return false;
-            cfg.web.bind = bind;
-            return true;
+            bool changed = false;
+            if (cfg.web.bind != "127.0.0.1") {
+                cfg.web.bind = "127.0.0.1";
+                changed = true;
+            }
+            if (cfg.web.remote_enabled != enabled) {
+                cfg.web.remote_enabled = enabled;
+                changed = true;
+            }
+            return changed;
         },
         options);
     if (result.ok && runtime_web && options.live_config) {
-        const std::string saved_bind = options.live_config->web.bind;
+        const bool saved_remote_enabled =
+            options.live_config->web.remote_enabled;
+        const int saved_remote_port = options.live_config->web.remote_port;
         options.live_config->web = *runtime_web;
-        options.live_config->web.bind = saved_bind;
+        options.live_config->web.bind = "127.0.0.1";
+        options.live_config->web.remote_enabled = saved_remote_enabled;
+        options.live_config->web.remote_port = saved_remote_port;
     }
     return result;
 }

@@ -28,8 +28,14 @@ test('shared SessionRow gates the portal on workspace hover or focus', () => {
 
   assert.match(row, /const hoverDetails = sessionHoverDetails\(s\);/);
   assert.match(row, /const hoverCardVisible = !!hoverDetails && \(hovered \|\| focusWithin\);/);
-  assert.match(row, /onMouseEnter=\{hoverDetails \? \(\) => setHovered\(true\) : undefined\}/);
-  assert.match(row, /onFocusCapture=\{hoverDetails \? \(\) => setFocusWithin\(true\) : undefined\}/);
+  assert.match(
+    row,
+    /onMouseEnter=\{\(\) => \{\s*if \(hoverDetails\) setHovered\(true\);[\s\S]*?ensureCompleteMarqueeTitle\(\);\s*\}\}/,
+  );
+  assert.match(
+    row,
+    /onFocusCapture=\{\(\) => \{\s*if \(hoverDetails\) setFocusWithin\(true\);[\s\S]*?ensureCompleteMarqueeTitle\(\);\s*\}\}/,
+  );
   assert.match(row, /\{hoverCardVisible && \(\s*<SessionHoverCard/);
   assert.match(row, /aria-describedby=\{hoverCardVisible \? hoverCardId : undefined\}/);
 });

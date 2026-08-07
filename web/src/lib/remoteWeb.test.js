@@ -28,34 +28,45 @@ run('remote Web state normalizes booleans and safe connection candidates', () =>
   const state = normalizeRemoteWebState({
     enabled: true,
     effective_enabled: true,
-    configured_bind: '0.0.0.0',
+    configured_bind: '127.0.0.1',
     effective_bind: '0.0.0.0',
-    port: 28080,
+    daemon_bind: '127.0.0.1',
+    daemon_port: 28080,
+    proxy_bind: '0.0.0.0',
+    proxy_state: 'running',
+    proxy_pid: 4242,
+    proxy_ipv6: true,
+    port: 28081,
     connections: [
       {
         host: 'ACE-PC',
         kind: 'computer_name',
-        url: 'http://ACE-PC:28080/?token=abc',
+        url: 'http://ACE-PC:28081/?token=abc',
       },
-      { host: '192.168.1.8', url: 'http://192.168.1.8:28080/?token=abc' },
-      { host: 'duplicate', url: 'http://192.168.1.8:28080/?token=abc' },
+      { host: '192.168.1.8', url: 'http://192.168.1.8:28081/?token=abc' },
+      { host: 'duplicate', url: 'http://192.168.1.8:28081/?token=abc' },
       { host: 'bad', url: 'javascript:alert(1)' },
     ],
   });
 
   assert.equal(state.configuredEnabled, true);
   assert.equal(state.effectiveEnabled, true);
-  assert.equal(state.port, 28080);
+  assert.equal(state.port, 28081);
+  assert.equal(state.daemonBind, '127.0.0.1');
+  assert.equal(state.daemonPort, 28080);
+  assert.equal(state.proxyState, 'running');
+  assert.equal(state.proxyPid, 4242);
+  assert.equal(state.proxyIpv6, true);
   assert.deepEqual(state.connections, [
     {
       host: 'ACE-PC',
       kind: 'computer_name',
-      url: 'http://ACE-PC:28080/?token=abc',
+      url: 'http://ACE-PC:28081/?token=abc',
     },
     {
       host: '192.168.1.8',
       kind: 'network_address',
-      url: 'http://192.168.1.8:28080/?token=abc',
+      url: 'http://192.168.1.8:28081/?token=abc',
     },
   ]);
 });
@@ -91,7 +102,7 @@ run('remote Web connection defaults to the first computer-name URL', () => {
   assert.equal(remoteWebOriginSurvivesLocalMode('192.168.1.8'), false);
 });
 
-await run('remote Web polling tolerates listener downtime and waits for effective bind', async () => {
+await run('remote Web polling waits for effective proxy readiness', async () => {
   const responses = [
     new Error('connection refused'),
     {
@@ -143,6 +154,24 @@ await run('remote disable treats the expected remote-origin disconnect as ready'
   );
   assert.equal(remoteWebModeReady(state, false), true);
   assert.equal(state.effectiveBind, '127.0.0.1');
+});
+
+await run('remote Web polling surfaces the proxy runtime error', async () => {
+  await assert.rejects(
+    waitForRemoteWebMode(
+      {
+        getRemoteWeb: async () => ({
+          configured_enabled: false,
+          effective_enabled: true,
+          proxy_state: 'failed',
+          error: 'failed to stop remote Web proxy process',
+        }),
+      },
+      false,
+      { attempts: 1, intervalMs: 0, wait: async () => {} },
+    ),
+    /failed to stop remote Web proxy process/,
+  );
 });
 
 console.log('remoteWeb tests passed');

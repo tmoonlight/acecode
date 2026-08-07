@@ -33,6 +33,7 @@ export function SessionNavigationMask({ open = false, onCancel }) {
       aria-live="polite"
       aria-busy="true"
       aria-label={label}
+      data-ace-native-overlay="blocking"
       data-session-navigation-mask="true"
       tabIndex={0}
       autoFocus

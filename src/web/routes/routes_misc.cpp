@@ -987,32 +987,40 @@ void WebServer::Impl::register_static() {
 
 json WebServer::Impl::remote_web_state_json(
     const crow::request& req) const {
-    std::string configured_bind = kRemoteWebLoopbackBind;
+    std::string daemon_bind = kRemoteWebLoopbackBind;
+    bool configured_enabled = false;
     {
         std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
         if (deps.app_config) {
-            configured_bind = deps.app_config->web.bind;
+            daemon_bind = deps.app_config->web.bind;
+            configured_enabled = deps.app_config->web.remote_enabled;
         } else if (deps.web_cfg) {
-            configured_bind = deps.web_cfg->bind;
+            daemon_bind = deps.web_cfg->bind;
+            configured_enabled = deps.web_cfg->remote_enabled;
         }
     }
 
     std::string listener_bind;
-    int listener_port = 0;
+    int daemon_port = 0;
     {
         std::lock_guard<std::mutex> listener_lock(listener_state_mu);
         listener_bind = effective_bind;
-        listener_port = effective_port;
+        daemon_port = effective_port;
     }
     if (listener_bind.empty()) {
-        listener_bind = configured_bind;
-        listener_port = runtime_port;
+        listener_bind = daemon_bind;
+        daemon_port = runtime_port;
     }
 
-    const bool configured_enabled =
-        remote_web_enabled_for_bind(configured_bind);
-    const bool effective_enabled =
-        remote_web_enabled_for_bind(listener_bind);
+    RemoteWebProxyStatus proxy;
+    proxy.configured = configured_enabled;
+    if (deps.remote_web_proxy) proxy = deps.remote_web_proxy->status();
+    proxy.configured = configured_enabled;
+    if (configured_enabled && deps.dangerous && proxy.error.empty()) {
+        proxy.error =
+            "remote Web proxy is disabled while dangerous mode is active";
+    }
+    const bool effective_enabled = proxy.running && proxy.port > 0;
     json connections = json::array();
     if (effective_enabled && !deps.token.empty()) {
         const auto discovered = deps.remote_web_hosts
@@ -1026,7 +1034,8 @@ json WebServer::Impl::remote_web_state_json(
         for (const auto& host : rank_remote_web_hosts(
                  discovered,
                  preferred,
-                 listener_bind,
+                 proxy.ipv6 ? std::string_view{} :
+                     std::string_view{kRemoteWebProxyBind},
                  computer_name)) {
             connections.push_back({
                 {"host", host},
@@ -1035,7 +1044,7 @@ json WebServer::Impl::remote_web_state_json(
                     : "network_address"},
                 {"url", build_remote_web_url(
                     host,
-                    listener_port,
+                    proxy.port,
                     deps.token)},
             });
         }
@@ -1045,11 +1054,25 @@ json WebServer::Impl::remote_web_state_json(
         {"enabled", configured_enabled},
         {"configured_enabled", configured_enabled},
         {"effective_enabled", effective_enabled},
-        {"configured_bind", configured_bind},
-        {"effective_bind", listener_bind},
-        {"applying",
-         rebind_requested.load() || configured_bind != listener_bind},
-        {"port", listener_port},
+        {"configured_bind", daemon_bind},
+        {"effective_bind", effective_enabled
+            ? std::string(kRemoteWebProxyBind)
+            : listener_bind},
+        {"daemon_bind", listener_bind},
+        {"daemon_port", daemon_port},
+        {"proxy_bind", effective_enabled
+            ? std::string(kRemoteWebProxyBind)
+            : std::string{}},
+        {"proxy_pid", proxy.pid},
+        {"proxy_state", proxy.starting
+            ? "starting"
+            : (effective_enabled
+                ? "running"
+                : (!proxy.error.empty() ? "failed" : "stopped"))},
+        {"proxy_ipv6", proxy.ipv6},
+        {"error", proxy.error},
+        {"applying", proxy.starting},
+        {"port", effective_enabled ? proxy.port : 0},
         {"connections", std::move(connections)},
     };
 }
@@ -1670,9 +1693,8 @@ void WebServer::Impl::register_ui_preferences() {
             return with_cors(req, std::move(r));
         });
 
-        // PUT /api/config/remote-web body {enabled:boolean}. Persist first,
-        // return the applying state, then stop only the Crow listener after a
-        // short response-flush delay.
+        // PUT /api/config/remote-web body {enabled:boolean}. The daemon's Crow
+        // listener stays on loopback; only the supervised proxy child changes.
         CROW_ROUTE(app, "/api/config/remote-web").methods(crow::HTTPMethod::PUT)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -1718,26 +1740,53 @@ void WebServer::Impl::register_ui_preferences() {
                     "DANGEROUS_MODE_REMOTE_WEB_FORBIDDEN",
                     "remote Web mode is unavailable while dangerous mode is active");
             }
+            if (!deps.remote_web_proxy) {
+                return json_err(
+                    503,
+                    "REMOTE_WEB_PROXY_UNAVAILABLE",
+                    "remote Web proxy control is unavailable");
+            }
 
+            std::lock_guard<std::mutex> proxy_lock(remote_web_proxy_mu);
             SettingsMutationResult result;
-            {
+            if (enabled) {
+                int configured_port = 0;
+                {
+                    std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
+                    configured_port = deps.app_config->web.remote_port;
+                }
+                const auto proxy = deps.remote_web_proxy->start(
+                    configured_port,
+                    runtime_port);
+                if (!proxy.running || !proxy.error.empty() ||
+                    (configured_port != 0 &&
+                     proxy.port != configured_port)) {
+                    return json_err(
+                        502,
+                        "REMOTE_WEB_PROXY_START_FAILED",
+                        proxy.error.empty()
+                            ? "remote Web proxy did not become ready"
+                            : proxy.error);
+                }
+
                 std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
                 SettingsMutationOptions options;
                 options.config_path = deps.config_path;
                 options.live_config = deps.app_config;
-                result = set_remote_web_enabled(enabled, options);
+                result = set_remote_web_enabled(true, options);
+                if (!result.ok) deps.remote_web_proxy->stop();
+            } else {
+                {
+                    std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
+                    SettingsMutationOptions options;
+                    options.config_path = deps.config_path;
+                    options.live_config = deps.app_config;
+                    result = set_remote_web_enabled(false, options);
+                }
+                if (result.ok) deps.remote_web_proxy->stop();
             }
             if (!result.ok) {
                 return json_err(500, "PERSIST_FAILED", result.error);
-            }
-
-            std::string listener_bind;
-            {
-                std::lock_guard<std::mutex> listener_lock(listener_state_mu);
-                listener_bind = effective_bind;
-            }
-            if (listener_bind != result.config.web.bind) {
-                request_listener_rebind();
             }
 
             crow::response r(200);
@@ -1887,9 +1936,9 @@ void WebServer::Impl::register_ui_preferences() {
             }
         });
 
-        // PUT /api/config/ui-preferences body {show_acecode_avatar:boolean}.
-        // Kept for older web clients; ACECode avatar display is now permanently
-        // disabled and the persisted value is normalized to false.
+        // PUT /api/config/ui-preferences accepts partial legacy or appearance
+        // fields. Avatar display remains disabled; appearance values are the
+        // stable, daemon-backed source of truth across loopback origins.
         CROW_ROUTE(app, "/api/config/ui-preferences").methods(crow::HTTPMethod::PUT)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -1907,16 +1956,65 @@ void WebServer::Impl::register_ui_preferences() {
             catch (const std::exception& e) {
                 return json_err(400, "BAD_JSON", std::string("invalid JSON body: ") + e.what());
             }
-            if (!body.is_object() ||
-                !body.contains("show_acecode_avatar") ||
-                !body["show_acecode_avatar"].is_boolean()) {
+            if (!body.is_object()) {
                 return json_err(400, "BAD_REQUEST",
-                                "expected {show_acecode_avatar: boolean}");
+                                "expected a UI preferences object");
+            }
+
+            bool has_supported_field = false;
+            if (body.contains("show_acecode_avatar")) {
+                has_supported_field = true;
+                if (!body["show_acecode_avatar"].is_boolean()) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "show_acecode_avatar must be a boolean");
+                }
+            }
+            if (body.contains("theme")) {
+                has_supported_field = true;
+                if (!body["theme"].is_string() ||
+                    !is_valid_web_ui_theme(body["theme"].get<std::string>())) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "theme must be system, light, or dark");
+                }
+            }
+            if (body.contains("color_theme")) {
+                has_supported_field = true;
+                if (!body["color_theme"].is_string() ||
+                    !is_valid_web_ui_color_theme(
+                        body["color_theme"].get<std::string>())) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "color_theme must be blue or orange");
+                }
+            }
+            if (body.contains("font_size")) {
+                has_supported_field = true;
+                if (!body["font_size"].is_string() ||
+                    !is_valid_web_ui_font_size(
+                        body["font_size"].get<std::string>())) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "font_size must be small, medium, or large");
+                }
+            }
+            if (!has_supported_field) {
+                return json_err(400, "BAD_REQUEST",
+                                "no supported UI preference field was provided");
             }
 
             std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             const auto before = deps.app_config->web_ui;
             deps.app_config->web_ui.show_acecode_avatar = false;
+            if (body.contains("theme")) {
+                deps.app_config->web_ui.theme =
+                    body["theme"].get<std::string>();
+            }
+            if (body.contains("color_theme")) {
+                deps.app_config->web_ui.color_theme =
+                    body["color_theme"].get<std::string>();
+            }
+            if (body.contains("font_size")) {
+                deps.app_config->web_ui.font_size =
+                    body["font_size"].get<std::string>();
+            }
             try {
                 if (!deps.config_path.empty()) {
                     save_config(*deps.app_config, deps.config_path);

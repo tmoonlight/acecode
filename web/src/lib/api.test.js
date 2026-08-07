@@ -562,7 +562,7 @@ await run('Copilot auth API methods use expected endpoints', async () => {
   }
 });
 
-await run('UI preference API keeps legacy avatar preference endpoint compatible', async () => {
+await run('UI preference API carries the complete appearance contract', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, opts = {}) => {
@@ -571,22 +571,33 @@ await run('UI preference API keeps legacy avatar preference endpoint compatible'
       ok: true,
       status: 200,
       headers: { get: () => 'application/json' },
-      json: async () => ({ show_acecode_avatar: false }),
+      json: async () => ({
+        show_acecode_avatar: false,
+        theme: 'dark',
+        color_theme: 'orange',
+        font_size: 'large',
+      }),
     };
   };
   try {
     const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
+    const payload = {
+      show_acecode_avatar: false,
+      theme: 'dark',
+      color_theme: 'orange',
+      font_size: 'large',
+    };
     const got = await client.getUiPreferences();
-    const saved = await client.setUiPreferences({ show_acecode_avatar: false });
+    const saved = await client.setUiPreferences(payload);
 
-    assert.deepEqual(got, { show_acecode_avatar: false });
-    assert.deepEqual(saved, { show_acecode_avatar: false });
+    assert.deepEqual(got, payload);
+    assert.deepEqual(saved, payload);
     assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/config/ui-preferences');
     assert.equal(calls[0].opts.method, 'GET');
     assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
     assert.equal(calls[1].url, 'http://127.0.0.1:4567/api/config/ui-preferences');
     assert.equal(calls[1].opts.method, 'PUT');
-    assert.deepEqual(JSON.parse(calls[1].opts.body), { show_acecode_avatar: false });
+    assert.deepEqual(JSON.parse(calls[1].opts.body), payload);
   } finally {
     globalThis.fetch = previousFetch;
   }
@@ -953,6 +964,35 @@ await run('workspace-scoped transcript reads carry the workspace hash', async ()
       workspaceHash: 'workspace/hash',
     });
     await client.getMessages('session id', 0);
+
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0].url,
+      'http://127.0.0.1:4567/api/sessions/session%20id/messages?since=0&workspace=workspace%2Fhash',
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+await run('transcript reads accept a per-session workspace override', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ messages: [] }),
+    };
+  };
+  try {
+    const client = createApi({
+      origin: 'http://127.0.0.1:4567',
+      token: 'tok',
+    });
+    await client.getMessages('session id', 0, 'workspace/hash');
 
     assert.equal(calls.length, 1);
     assert.equal(

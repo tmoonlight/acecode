@@ -10,6 +10,7 @@ import {
   scrollFindMatchIntoView,
   selectFindMatch,
 } from '../lib/globalFind.js';
+import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 
 export const CONVERSATION_FIND_ROOT_SELECTOR = '[data-conversation-find-root="true"]';
 
@@ -98,6 +99,11 @@ export function GlobalFindOverlay({
       window.clearTimeout(timer);
     };
   }, [focusFindInput, focusNonce, open]);
+
+  useLayoutEffect(() => {
+    notifyNativeSurfaceOverlayChange();
+    return () => notifyNativeSurfaceOverlayChange();
+  }, [open]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -207,6 +213,7 @@ export function GlobalFindOverlay({
     <div
       ref={overlayRef}
       className="ace-global-find"
+      data-ace-native-overlay="overlap"
       role="search"
       aria-label="当前对话内容查找"
     >

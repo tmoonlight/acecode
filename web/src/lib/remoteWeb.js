@@ -4,6 +4,13 @@ const DEFAULT_REMOTE_WEB_STATE = Object.freeze({
   effectiveEnabled: false,
   configuredBind: '127.0.0.1',
   effectiveBind: '127.0.0.1',
+  daemonBind: '127.0.0.1',
+  daemonPort: 0,
+  proxyBind: '',
+  proxyState: 'stopped',
+  proxyPid: 0,
+  proxyIpv6: false,
+  error: '',
   applying: false,
   port: 0,
   connections: [],
@@ -34,6 +41,8 @@ export function normalizeRemoteWebState(value) {
     ? configuredEnabled
     : effectiveValue === true;
   const portValue = Number(value.port);
+  const daemonPortValue = Number(value.daemon_port ?? value.daemonPort);
+  const proxyPidValue = Number(value.proxy_pid ?? value.proxyPid);
   const seen = new Set();
   const connections = [];
   for (const item of Array.isArray(value.connections) ? value.connections : []) {
@@ -52,6 +61,19 @@ export function normalizeRemoteWebState(value) {
     effectiveBind: String(
       value.effective_bind || value.effectiveBind || '127.0.0.1',
     ),
+    daemonBind: String(
+      value.daemon_bind || value.daemonBind || '127.0.0.1',
+    ),
+    daemonPort: Number.isInteger(daemonPortValue) && daemonPortValue > 0
+      ? daemonPortValue
+      : 0,
+    proxyBind: String(value.proxy_bind || value.proxyBind || ''),
+    proxyState: String(value.proxy_state || value.proxyState || 'stopped'),
+    proxyPid: Number.isInteger(proxyPidValue) && proxyPidValue > 0
+      ? proxyPidValue
+      : 0,
+    proxyIpv6: (value.proxy_ipv6 ?? value.proxyIpv6) === true,
+    error: String(value.error || value.proxy_error || value.proxyError || ''),
     applying: value.applying === true,
     port: Number.isInteger(portValue) && portValue > 0 ? portValue : 0,
     connections,
@@ -67,9 +89,16 @@ export function selectRemoteWebConnection(state, selectedUrl = '') {
 
 export function remoteWebModeReady(state, expectedEnabled) {
   const normalized = normalizeRemoteWebState(state);
-  return !normalized.applying
+  return !normalized.error
+    && !normalized.applying
     && normalized.configuredEnabled === !!expectedEnabled
     && normalized.effectiveEnabled === !!expectedEnabled;
+}
+
+function remoteWebRuntimeError(state) {
+  const error = new Error(state.error);
+  error.state = state;
+  return error;
 }
 
 export function remoteWebOriginSurvivesLocalMode(hostname) {
@@ -94,7 +123,10 @@ export async function waitForRemoteWebMode(
   } = {},
 ) {
   let latest = normalizeRemoteWebState(initialState);
-  if (remoteWebModeReady(latest, expectedEnabled)) return latest;
+  if (latest.error) throw remoteWebRuntimeError(latest);
+  if (initialState != null && remoteWebModeReady(latest, expectedEnabled)) {
+    return latest;
+  }
 
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -102,15 +134,17 @@ export async function waitForRemoteWebMode(
     try {
       latest = normalizeRemoteWebState(await apiClient.getRemoteWeb());
       lastError = null;
+      if (latest.error) throw remoteWebRuntimeError(latest);
       if (remoteWebModeReady(latest, expectedEnabled)) return latest;
     } catch (error) {
-      // The listener is briefly absent between the old and new bind.
+      if (error?.state?.error) throw error;
+      // A page opened through the proxy disconnects when that proxy is stopped.
       lastError = error;
       if (!expectedEnabled
           && acceptDisconnectWhenDisabling
           && !Number.isInteger(error?.status)) {
-        // A page opened through the remote address becomes unreachable by
-        // design as soon as the listener moves back to loopback.
+        // The daemon remains on loopback, but this remote origin is expected
+        // to disappear as soon as its dedicated proxy exits.
         return normalizeRemoteWebState({
           ...latest,
           enabled: false,
@@ -126,7 +160,9 @@ export async function waitForRemoteWebMode(
   }
 
   const timeout = new Error(
-    lastError?.message || '远程 Web 监听地址切换超时',
+    latest.error
+      || lastError?.message
+      || '远程 Web 代理启动或停止超时',
   );
   timeout.state = latest;
   throw timeout;

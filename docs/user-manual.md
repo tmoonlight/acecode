@@ -217,7 +217,7 @@ ACECode 是一个运行在终端里的 AI 编程助手，基于 FTXUI 提供交�
 
 Desktop 的“添加上下文”菜单使用一个“添加图片、文件或文件夹”入口。它打开同一个系统文件窗口：正常选择一个或多个文件会继续走现有附件上传；在 Windows 窗口中进入目标目录并点击“选择当前文件夹”，会把地址栏当前目录插入原光标处。目录在 cwd 内时使用相对 `@folder/`，在 cwd 外或当前没有 cwd 时使用绝对路径引用（例如 `@D:/shared/`），不会递归上传目录内容。浏览器直连模式没有 Desktop 原生 bridge 时仍只支持普通文件选择。
 
-Desktop 文件树中也可以右键文件夹并选择“加入输入上下文”。该动作不强制要求 cwd，会在输入框当前光标处插入可用的相对或绝对 `@folder/` 引用，不会读取或上传文件夹内容；文件的同名右键动作仍按原有方式引用文件内容。
+Desktop 文件树中也可以右键文件夹并选择“添加到会话”。该动作不强制要求 cwd，会在输入框当前光标处插入可用的相对或绝对 `@folder/` 引用，不会读取或上传文件夹内容；文件的同名右键动作仍按原有方式引用文件内容。
 
 ---
 
@@ -900,7 +900,7 @@ daemon already running (pid=18204); stop it first or check `acecode daemon statu
 | 场景 | 是否需要 token |
 |---|---|
 | `127.0.0.1` / `::1`（loopback）客户端 | 可选 — 本机进程已经在信任域内 |
-| 任何非 loopback 客户端 | **必须**。无 token 配非 loopback 启动会被直接拒（rc=2） |
+| 通过远程 Web 反向代理到达的客户端 | **必须**，包括 `/api/health` 和 WebSocket |
 
 携带方式：
 
@@ -914,40 +914,48 @@ curl -sH "X-ACECode-Token: $TOKEN" http://127.0.0.1:28080/api/health
 wscat -c "ws://127.0.0.1:28080/ws/sessions/<sid>?token=$TOKEN"
 ```
 
-YOLO / `-dangerous` + 非 loopback 是硬拒绝组合，启动期会被 `preflight_bind_check`
-直接挡掉 — 永远不会让远程客户端跳过权限确认。
+YOLO / `-dangerous` 下不会启动远程反向代理；daemon 仍可以本地启动，
+但始终只监听 `127.0.0.1`。
 
 ### 16.5 端口配置
 
-默认 `127.0.0.1:28080`。改 `~/.acecode/config.json`（service 模式下是
-`%PROGRAMDATA%\acecode\config.json`）的 `web.port` / `web.bind`：
+默认 daemon 地址为 `127.0.0.1:28080`。改 `~/.acecode/config.json`（service
+模式下是 `%PROGRAMDATA%\acecode\config.json`）的 `web.port` 及远程代理配置：
 
 ```json
 {
   "web": {
     "enabled": true,
     "bind": "127.0.0.1",
-    "port": 28080
+    "port": 28080,
+    "remote_enabled": false,
+    "remote_port": 0
   }
 }
 ```
 
 Desktop/Web 管理界面的“设置 > 常规”底部提供“远程 Web 模式”。开启后，
-ACECode 会把 `web.bind` 持久化为 `0.0.0.0`，并只重启 Web 监听器；daemon
-进程、端口、token、现有会话和正在执行的任务都不会重启。界面的连接下拉框
+ACECode 会启动一个独立的反向代理子进程，把外部连接转发到仍在
+`127.0.0.1` 上的 daemon。切换时不会重绑 Crow，daemon 进程、本地端口、token、
+现有会话和正在执行的任务都不受影响。界面的连接下拉框
 会把当前计算机名放在第一项并默认选中，其余可用网卡 IP 地址继续作为备选；
-然后可使用“复制连接”复制完整的 token URL。关闭后会恢复为 `127.0.0.1`。
+然后可使用“复制连接”复制完整的 token URL。关闭时只停止代理子进程。
 
-复制出的连接包含 daemon 访问 Token，**请勿将其公开给别人**。绑定到
-`0.0.0.0` 只表示 ACECode 接受外部连接，不会自动修改 Windows/macOS/Linux
+`web.remote_port` 为 `0` 时会先尝试 daemon 端口的相邻端口，再由系统选择
+可用端口；设为非零值时则是固定代理端口，被占用会导致开启失败。因为
+本地 daemon 已经监听 `127.0.0.1:web.port`，外部 wildcard 代理不能与它共用
+同一端口。
+
+复制出的连接包含 daemon 访问 Token，**请勿将此连接公开给别人**。代理绑定到
+`0.0.0.0` / `::` 只表示 ACECode 接受外部连接，不会自动修改 Windows/macOS/Linux
 防火墙、路由器端口转发、云安全组或 NAT。跨公网使用时，优先通过可信 VPN，
-或在 ACECode 前配置 HTTPS 反向代理；直接使用 HTTP 会让同一网络中的监听者
+并在上游配置 HTTPS；直接使用 HTTP 会让同一网络中的监听者
 有机会看到 bearer token。
 
 远程客户端访问 `/api/health`、其他 API 和 WebSocket 时都必须携带正确
 token。危险模式（`--yolo` / `-dangerous`）下不能开启远程 Web 模式。
 
-**端口被占直接拒启**，不 retry / 不 fallback。日志会提示：
+**daemon 端口被占仍会直接拒启**，不 retry / 不 fallback。日志会提示：
 ```
 [web] port 28080 may be in use — change web.port in config.json
 or stop the conflicting process; daemon will not retry

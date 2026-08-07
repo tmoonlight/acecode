@@ -98,6 +98,17 @@ bool is_visible_user_turn_message(const acecode::ChatMessage& msg) {
            !is_hidden_goal_context_message(msg);
 }
 
+std::string first_visible_user_message_text(
+    const std::vector<acecode::ChatMessage>& messages) {
+    for (const auto& msg : messages) {
+        if (is_visible_user_turn_message(msg) &&
+            msg.content.find_first_not_of(" \t\r\n") != std::string::npos) {
+            return msg.content;
+        }
+    }
+    return {};
+}
+
 void log_user_message_index_error(const std::string& action,
                                   const std::string& session_id,
                                   const std::string& error) {
@@ -537,6 +548,10 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     created_ = true;
     finalized_ = false;
     archived_ = false;
+    pending_title_.clear();
+    title_source_.clear();
+    user_title_touched_ = false;
+    reset_auto_title_state_locked();
     checkpoint_store_.load_from_messages(project_dir_, session_id_, messages);
 
     // Restore persisted display/model metadata when present.
@@ -546,7 +561,9 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         last_user_summary_ = meta.summary;
         pending_title_ = meta.title;
         title_source_ = meta.title_source;
-        user_title_touched_ = title_source_ == "user" || title_source_ == "legacy";
+        user_title_touched_ = title_source_ == "user" ||
+                              title_source_ == "user-cleared" ||
+                              title_source_ == "legacy";
         input_draft_ = meta.input_draft;
         permission_mode_ = normalize_permission_mode_name(meta.permission_mode);
         pre_plan_permission_mode_ =
@@ -575,6 +592,12 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     if (turn_count_ <= 0) {
         for (const auto& msg : messages) {
             if (is_visible_user_turn_message(msg)) turn_count_++;
+        }
+    }
+    if (pending_title_.empty() && !user_title_touched_) {
+        auto_title_input_ = first_visible_user_message_text(messages);
+        if (!auto_title_input_.empty()) {
+            auto_title_session_id_ = session_id_;
         }
     }
     update_meta();
@@ -1048,7 +1071,7 @@ bool SessionManager::update_meta() {
 void SessionManager::set_session_title(std::string title) {
     std::lock_guard<std::mutex> lk(mu_);
     pending_title_ = std::move(title);
-    title_source_ = pending_title_.empty() ? std::string{} : "user";
+    title_source_ = pending_title_.empty() ? "user-cleared" : "user";
     user_title_touched_ = true;
     if (created_) {
         update_meta();
@@ -1085,9 +1108,11 @@ void SessionManager::reset_auto_title_state_locked() {
     auto_title_input_.clear();
     auto_title_session_id_.clear();
     auto_title_generation_attempts_ = 0;
+    auto_title_cycle_turn_count_ = 0;
     auto_title_generation_in_flight_ = false;
     auto_title_retry_pending_ = false;
     auto_title_first_turn_completed_ = false;
+    auto_title_cycle_exhausted_ = false;
 }
 
 std::optional<std::string>
@@ -1098,13 +1123,20 @@ SessionManager::begin_auto_title_generation(std::string visible_input) {
     if (auto_title_generation_in_flight_) return std::nullopt;
 
     if (auto_title_generation_attempts_ == 0) {
-        if (turn_count_ > 0) return std::nullopt;
-        auto_title_input_ = std::move(visible_input);
-        auto_title_session_id_ = session_id_;
+        if (auto_title_cycle_exhausted_ &&
+            turn_count_ <= auto_title_cycle_turn_count_) {
+            return std::nullopt;
+        }
+        if (auto_title_session_id_ != session_id_ || auto_title_input_.empty()) {
+            auto_title_input_ = std::move(visible_input);
+            auto_title_session_id_ = session_id_;
+        }
         auto_title_generation_attempts_ = 1;
+        auto_title_cycle_turn_count_ = turn_count_;
         auto_title_generation_in_flight_ = true;
         auto_title_retry_pending_ = false;
         auto_title_first_turn_completed_ = false;
+        auto_title_cycle_exhausted_ = false;
         return auto_title_input_;
     }
 
@@ -1134,12 +1166,20 @@ SessionManager::finish_auto_title_generation_for_session(
     }
 
     auto_title_generation_in_flight_ = false;
-    if (succeeded ||
-        user_title_touched_ ||
-        !pending_title_.empty() ||
-        auto_title_generation_attempts_ >= 2) {
+    if (succeeded || user_title_touched_ || !pending_title_.empty()) {
         auto_title_retry_pending_ = false;
         auto_title_input_.clear();
+        auto_title_cycle_exhausted_ = false;
+        return std::nullopt;
+    }
+
+    if (auto_title_generation_attempts_ >= 2) {
+        // End this bounded cycle, but retain the original visible seed so a
+        // later user turn can start a fresh cycle for a still-untitled session.
+        auto_title_generation_attempts_ = 0;
+        auto_title_retry_pending_ = false;
+        auto_title_first_turn_completed_ = false;
+        auto_title_cycle_exhausted_ = true;
         return std::nullopt;
     }
 

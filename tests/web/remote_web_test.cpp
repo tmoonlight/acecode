@@ -10,21 +10,7 @@ namespace {
 
 using acecode::web::build_remote_web_url;
 using acecode::web::rank_remote_web_hosts;
-using acecode::web::remote_web_bind_for_enabled;
-using acecode::web::remote_web_enabled_for_bind;
 using acecode::web::remote_web_host_from_header;
-
-TEST(RemoteWeb, BindModeUsesCanonicalValues) {
-    EXPECT_FALSE(remote_web_enabled_for_bind("127.0.0.1"));
-    EXPECT_FALSE(remote_web_enabled_for_bind("127.5.6.7"));
-    EXPECT_FALSE(remote_web_enabled_for_bind(" ::1 "));
-    EXPECT_FALSE(remote_web_enabled_for_bind("::ffff:127.0.0.1"));
-    EXPECT_FALSE(remote_web_enabled_for_bind("LOCALHOST"));
-    EXPECT_TRUE(remote_web_enabled_for_bind("0.0.0.0"));
-    EXPECT_TRUE(remote_web_enabled_for_bind("192.168.1.10"));
-    EXPECT_EQ(remote_web_bind_for_enabled(false), "127.0.0.1");
-    EXPECT_EQ(remote_web_bind_for_enabled(true), "0.0.0.0");
-}
 
 TEST(RemoteWeb, HostHeaderParserRejectsUnsafeAndLoopbackValues) {
     EXPECT_EQ(

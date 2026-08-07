@@ -10,6 +10,10 @@ import { createContext, useCallback, useContext, useEffect } from 'react';
 import { usePreference } from './lib/usePreference.js';
 import { pushWindowBackgroundColor } from './lib/desktopWindowBackground.js';
 import {
+  effectiveAppearanceTheme,
+  initialAppearancePreferences,
+} from './lib/appearancePreferences.js';
+import {
   COLOR_THEME_STORAGE_KEY,
   DEFAULT_COLOR_THEME,
   effectiveColorTheme,
@@ -27,20 +31,18 @@ const ThemeCtx = createContext({
 
 function isValidTheme(v) { return v === 'light' || v === 'dark'; }
 
-function systemThemeFallback() {
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-    return 'dark';
-  }
-  return 'light';
-}
-
 export function ThemeProvider({ children }) {
-  // 默认值在用户从未选择时按系统偏好,选过后由 usePreference 的 storage 路径
-  // 锁定。readWithFallback 校验通过的字符串原样返回,不会被默认值覆盖。
-  const [theme, setTheme] = usePreference(STORAGE_KEY, systemThemeFallback(), isValidTheme);
+  // Desktop 会在模块执行前注入稳定配置;普通 WebUI 则以系统/默认值起步。
+  // 当前 origin 的 localStorage 仍作为首帧缓存,认证后由 App 用 daemon 配置校正。
+  const initialAppearance = initialAppearancePreferences();
+  const [theme, setTheme] = usePreference(
+    STORAGE_KEY,
+    effectiveAppearanceTheme(initialAppearance.theme),
+    isValidTheme,
+  );
   const [colorTheme, setColorThemePreference] = usePreference(
     COLOR_THEME_STORAGE_KEY,
-    DEFAULT_COLOR_THEME,
+    initialAppearance.colorTheme,
     isValidColorTheme,
   );
 

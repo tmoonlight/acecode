@@ -49,11 +49,14 @@ run('File tree and Git/non-Git review rows expose shared Explorer reveal metadat
   assert.match(sharedDetails, /data-desktop-review-can-reveal=\{(?:status|row\.status) === 'D' \? 'false' : 'true'\}/);
 });
 
-run('Top bar keeps quick actions but has no direct search, new-conversation, or loop buttons', () => {
+run('Top bar keeps direct task search while new-conversation and loop stay in quick actions', () => {
   const topBar = source('TopBar.jsx');
   assert.doesNotMatch(topBar, /<QuickBtn[^>]*title="新对话"/);
   assert.doesNotMatch(topBar, /<QuickBtn[^>]*title="循环"/);
-  assert.doesNotMatch(topBar, /<QuickBtn[^>]*onClick=\{onOpenSearch\}/);
+  assert.match(
+    topBar,
+    /<QuickBtn title="前进"[\s\S]*?<\/QuickBtn>\s*<QuickBtn title="搜索任务" onClick=\{onOpenSearch\}>/,
+  );
   assert.match(topBar, /invokeTopBarQuickAction/);
 });
 

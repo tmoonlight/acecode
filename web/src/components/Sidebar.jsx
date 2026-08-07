@@ -75,6 +75,12 @@ import {
   upsertSidebarSession,
 } from '../lib/sidebarSessions.js';
 import {
+  loadSidebarFullTitle,
+  sidebarFullTitleRequestKey,
+  sidebarTitleHydrationState,
+} from '../lib/sidebarFullTitle.js';
+import { sidebarTitleMarqueeMetrics } from '../lib/sidebarTitleMarquee.js';
+import {
   computeSessionHoverCardPosition,
   sessionHoverDetails,
 } from '../lib/sessionHoverDetails.js';
@@ -530,6 +536,7 @@ function SessionHoverCard({
       id={cardId}
       role="tooltip"
       className="ace-session-hover-card"
+      data-ace-native-overlay="overlap"
       data-placement={position?.placement || 'right'}
       data-session-hover-details="true"
       style={{
@@ -551,6 +558,72 @@ function SessionHoverCard({
       )}
     </div>,
     document.body,
+  );
+}
+
+function SidebarSessionTitle({ title, marqueeReady = true }) {
+  const viewportRef = useRef(null);
+  const contentRef = useRef(null);
+  const [metrics, setMetrics] = useState(() => sidebarTitleMarqueeMetrics(0, 0));
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) return undefined;
+
+    let cancelled = false;
+    const measure = () => {
+      if (cancelled) return;
+      const next = sidebarTitleMarqueeMetrics(content.scrollWidth, viewport.clientWidth);
+      setMetrics((previous) => (
+        previous.overflowing === next.overflowing
+          && previous.distancePx === next.distancePx
+          && previous.durationMs === next.durationMs
+          ? previous
+          : next
+      ));
+    };
+
+    measure();
+    const observer = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(measure)
+      : null;
+    observer?.observe(viewport);
+    observer?.observe(content);
+
+    const fontsReady = typeof document !== 'undefined' ? document.fonts?.ready : null;
+    fontsReady?.then(measure, () => {});
+
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
+  }, [title]);
+
+  const marqueeStyle = metrics.overflowing
+    ? {
+      '--ace-sidebar-title-marquee-distance': `-${metrics.distancePx}px`,
+      '--ace-sidebar-title-marquee-duration': `${metrics.durationMs}ms`,
+    }
+    : undefined;
+
+  return (
+    <span
+      ref={viewportRef}
+      className={clsx(
+        'ace-sidebar-session-title-viewport',
+        metrics.overflowing && 'is-overflowing',
+        metrics.overflowing && marqueeReady && 'is-marquee-ready',
+      )}
+      data-sidebar-session-title-overflow={metrics.overflowing ? 'true' : 'false'}
+      data-sidebar-session-title-complete={marqueeReady ? 'true' : 'false'}
+      title={metrics.overflowing && marqueeReady ? title : undefined}
+      style={marqueeStyle}
+    >
+      <span ref={contentRef} className="ace-sidebar-session-title-content">
+        {title}
+      </span>
+    </span>
   );
 }
 
@@ -578,6 +651,21 @@ function SessionRow({
   const sessionPath = s.session_path || s.sessionPath || '';
   const rowKey = pinned ? pinnedSessionKey(workspaceHash, s.id) : '';
   const title = sessionDisplayTitle(s, s.name || '');
+  const titleHydration = useMemo(
+    () => sidebarTitleHydrationState(s, title),
+    [s.summary, s.title, s.title_source, s.titleSource, title],
+  );
+  const fullTitleRequestKey = sidebarFullTitleRequestKey(s);
+  const [resolvedFullTitle, setResolvedFullTitle] = useState({ key: '', title: '' });
+  const [fullTitleLoadingKey, setFullTitleLoadingKey] = useState('');
+  const latestFullTitleRequestKeyRef = useRef(fullTitleRequestKey);
+  latestFullTitleRequestKeyRef.current = fullTitleRequestKey;
+  const hydratedTitle = titleHydration.needsFullTitle
+    && resolvedFullTitle.key === fullTitleRequestKey
+    ? resolvedFullTitle.title
+    : '';
+  const marqueeTitle = hydratedTitle || titleHydration.displayTitle;
+  const marqueeReady = !titleHydration.needsFullTitle || Boolean(hydratedTitle);
   const sessionMarker = sidebarSessionMarker(s);
   const remoteControlBound = Boolean(s.remote_control_bound ?? s.remoteControlBound);
   const hoverDetails = sessionHoverDetails(s);
@@ -600,6 +688,33 @@ function SessionRow({
   const latestRemoteControlSurgeSequenceRef = useRef(remoteControlSurgeSequence);
   latestRemoteControlBoundRef.current = remoteControlBound;
   latestRemoteControlSurgeSequenceRef.current = remoteControlSurgeSequence;
+
+  const ensureCompleteMarqueeTitle = useCallback(() => {
+    if (!titleHydration.needsFullTitle
+        || hydratedTitle
+        || !fullTitleRequestKey
+        || fullTitleLoadingKey === fullTitleRequestKey) {
+      return;
+    }
+
+    const requestedKey = fullTitleRequestKey;
+    setFullTitleLoadingKey(requestedKey);
+    loadSidebarFullTitle(api, s)
+      .then((fullTitle) => {
+        if (!fullTitle || latestFullTitleRequestKeyRef.current !== requestedKey) return;
+        setResolvedFullTitle({ key: requestedKey, title: fullTitle });
+      })
+      .catch(() => {})
+      .finally(() => {
+        setFullTitleLoadingKey((current) => current === requestedKey ? '' : current);
+      });
+  }, [
+    fullTitleLoadingKey,
+    fullTitleRequestKey,
+    hydratedTitle,
+    s,
+    titleHydration.needsFullTitle,
+  ]);
 
   const finishRemoteControlSurge = useCallback((requestedSequence = 0) => {
     const sequence = Number(requestedSequence) || 0;
@@ -754,9 +869,15 @@ function SessionRow({
           : 'text-fg hover:bg-surface-hi',
         attention === 'unread' && !active && 'font-semibold',
       )}
-      onMouseEnter={hoverDetails ? () => setHovered(true) : undefined}
+      onMouseEnter={() => {
+        if (hoverDetails) setHovered(true);
+        ensureCompleteMarqueeTitle();
+      }}
       onMouseLeave={hoverDetails ? () => setHovered(false) : undefined}
-      onFocusCapture={hoverDetails ? () => setFocusWithin(true) : undefined}
+      onFocusCapture={() => {
+        if (hoverDetails) setFocusWithin(true);
+        ensureCompleteMarqueeTitle();
+      }}
       onBlurCapture={hoverDetails ? (event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setFocusWithin(false);
       } : undefined}
@@ -849,9 +970,10 @@ function SessionRow({
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSelect(s); }}
           aria-describedby={hoverCardVisible ? hoverCardId : undefined}
-          className="min-w-0 py-[5px] bg-transparent text-left cursor-pointer"
+          aria-label={marqueeTitle || title}
+          className="ace-sidebar-session-title-button min-w-0 w-full py-[5px] bg-transparent text-left cursor-pointer"
         >
-          <span className="block min-w-0 truncate">{title}</span>
+          <SidebarSessionTitle title={marqueeTitle} marqueeReady={marqueeReady} />
         </button>
       )}
       <span className="flex min-w-0 items-center justify-end gap-1">
@@ -971,7 +1093,10 @@ function OpencodeImportDialog({
   const partlySelected = !allSelected && sessions.some((session) => selectedSet.has(session.id));
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[rgba(0,0,0,0.2)]">
+    <div
+      data-ace-native-overlay="blocking"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-[rgba(0,0,0,0.2)]"
+    >
       <div className="w-[min(520px,calc(100vw-32px))] rounded-lg border border-border bg-surface shadow-xl px-5 py-4">
         <div className="text-[14px] font-medium text-fg">
           {opencodeImportConfirmationText(selectedCount)}
@@ -2854,6 +2979,7 @@ export function Sidebar({
           {pinnedDragGhost && (
             <div
               className="ace-sidebar-pinned-drag-ghost"
+              data-ace-native-overlay="overlap"
               style={{
                 left: pinnedDragGhost.left,
                 top: pinnedDragGhost.top,

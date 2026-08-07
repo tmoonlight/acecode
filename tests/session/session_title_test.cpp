@@ -89,8 +89,35 @@ TEST(SessionTitle, UserTitleBlocksGeneratedOverwrite) {
 
     sm.set_session_title("");
     EXPECT_EQ(sm.current_title(), "");
-    EXPECT_EQ(sm.current_title_source(), "");
+    EXPECT_EQ(sm.current_title_source(), "user-cleared");
     EXPECT_FALSE(sm.try_set_generated_session_title("Generated after clear"));
+}
+
+TEST(SessionTitle, ExplicitClearRemainsUserOwnedAfterResume) {
+    const auto cwd = temp_cwd("cleared_resume");
+    ProjectCleanup cleanup(cwd.string());
+    const std::string session_id = "20260610-020305-abcd";
+
+    {
+        acecode::SessionManager writer;
+        writer.start_session(cwd.string(), "test-provider", "test-model", session_id);
+        acecode::ChatMessage user;
+        user.role = "user";
+        user.content = "original task";
+        writer.on_message(user);
+        writer.set_session_title("Manual title");
+        writer.set_session_title("");
+        EXPECT_EQ(writer.current_title_source(), "user-cleared");
+        writer.finalize();
+    }
+
+    acecode::SessionManager reader;
+    reader.start_session(cwd.string(), "test-provider", "test-model");
+    ASSERT_FALSE(reader.resume_session(session_id).empty());
+    EXPECT_TRUE(reader.current_title().empty());
+    EXPECT_EQ(reader.current_title_source(), "user-cleared");
+    EXPECT_FALSE(reader.begin_auto_title_generation("later user message").has_value());
+    reader.finalize();
 }
 
 TEST(SessionTitle, GeneratedTitleForSessionRequiresActiveSessionMatch) {
@@ -185,6 +212,32 @@ TEST(SessionTitle, MainCompletionBeforeTitleFailureStartsOnlyOneRetry) {
     EXPECT_FALSE(sm.begin_auto_title_generation("ignored").has_value());
 }
 
+TEST(SessionTitle, ExhaustedAttemptsRestartOnLaterTurnWithOriginalInput) {
+    const auto cwd = temp_cwd("retry_later_turn");
+    ProjectCleanup cleanup(cwd.string());
+
+    acecode::SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model", "20260610-050608-abcd");
+
+    ASSERT_EQ(sm.begin_auto_title_generation("original session intent"),
+              std::optional<std::string>{"original session intent"});
+    acecode::ChatMessage first_user;
+    first_user.role = "user";
+    first_user.content = "original session intent";
+    sm.on_message(first_user);
+
+    EXPECT_FALSE(sm.mark_auto_title_turn_finished("completed").has_value());
+    auto retry = sm.finish_auto_title_generation_for_session(
+        "20260610-050608-abcd", false);
+    ASSERT_EQ(retry,
+              std::optional<std::string>{"original session intent"});
+    EXPECT_FALSE(sm.finish_auto_title_generation_for_session(
+        "20260610-050608-abcd", false).has_value());
+
+    EXPECT_EQ(sm.begin_auto_title_generation("later visible input"),
+              std::optional<std::string>{"original session intent"});
+}
+
 TEST(SessionTitle, FailedOrAbortedTurnDoesNotStartEventRetry) {
     const auto cwd = temp_cwd("generated_error_outcome");
     ProjectCleanup cleanup(cwd.string());
@@ -232,6 +285,54 @@ TEST(SessionTitle, DelayedFailureDoesNotMutateReplacementSession) {
     EXPECT_TRUE(sm.current_title().empty());
     EXPECT_EQ(sm.begin_auto_title_generation("session b input"),
               std::optional<std::string>{"session b input"});
+}
+
+TEST(SessionTitle, ResumedUntitledSessionUsesFirstVisibleMessageForRecovery) {
+    const auto cwd = temp_cwd("historical_resume");
+    ProjectCleanup cleanup(cwd.string());
+    const std::string session_id = "20260610-080910-abcd";
+
+    {
+        acecode::SessionManager writer;
+        writer.start_session(cwd.string(), "test-provider", "test-model", session_id);
+
+        acecode::ChatMessage hidden;
+        hidden.role = "user";
+        hidden.content = "hidden goal context";
+        hidden.metadata = {{"hidden_goal_context", true}};
+        writer.on_message(hidden);
+
+        acecode::ChatMessage first_user;
+        first_user.role = "user";
+        first_user.content = "original session intent";
+        writer.on_message(first_user);
+
+        acecode::ChatMessage assistant;
+        assistant.role = "assistant";
+        assistant.content = "done";
+        writer.on_message(assistant);
+
+        acecode::ChatMessage latest_user;
+        latest_user.role = "user";
+        latest_user.content = "latest sidebar fallback";
+        writer.on_message(latest_user);
+        writer.finalize();
+    }
+
+    acecode::SessionManager reader;
+    reader.start_session(cwd.string(), "test-provider", "test-model");
+    ASSERT_EQ(reader.resume_session(session_id).size(), 4u);
+    EXPECT_EQ(reader.current_turn_count(), 2);
+    EXPECT_TRUE(reader.current_title().empty());
+    EXPECT_EQ(reader.begin_auto_title_generation("message after resume"),
+              std::optional<std::string>{"original session intent"});
+    ASSERT_TRUE(reader.try_set_generated_session_title_for_session(
+        session_id, "Original session title"));
+    EXPECT_FALSE(reader.finish_auto_title_generation_for_session(
+        session_id, true).has_value());
+    EXPECT_EQ(reader.current_title(), "Original session title");
+    EXPECT_EQ(reader.current_title_source(), "generated");
+    reader.finalize();
 }
 
 TEST(SessionTitle, SanitizesJsonTitleOutput) {
