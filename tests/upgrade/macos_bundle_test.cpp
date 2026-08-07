@@ -121,6 +121,7 @@ TEST(MacosBundleInstaller, UnsupportedInstallPathFailsWithoutMutation) {
     EXPECT_FALSE(acecode::upgrade::preflight_macos_app_update(
         installed, candidate, "9.9.9", &error));
     EXPECT_NE(error.find("~/Applications/ACECode.app"), std::string::npos);
+    EXPECT_NE(error.find("/Applications/ACECode.app"), std::string::npos);
     EXPECT_TRUE(fs::is_regular_file(installed / "sentinel.txt"));
     EXPECT_TRUE(fs::is_directory(candidate));
 }

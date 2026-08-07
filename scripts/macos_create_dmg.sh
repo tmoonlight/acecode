@@ -4,21 +4,17 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  scripts/macos_create_dmg.sh --app <ACECode.app> \
-      --installer <Install ACECode.app> --output <ACECode.dmg> \
-      [--volume-name <name>] [--instructions <path>] [--background <path>]
+  scripts/macos_create_dmg.sh --app <ACECode.app> --output <ACECode.dmg> \
+      [--volume-name <name>] [--background <path>]
 
-Creates a styled compressed read-only DMG with ACECode.app on the left and the
-current-user installer on the right. The installer writes only to
-~/Applications; the image never contains a link to system /Applications.
+Creates a styled compressed read-only DMG with ACECode.app on the left and a
+standard Applications link on the right.
 USAGE
 }
 
 app_path=""
-installer_path=""
 output_path=""
 volume_name="ACECode"
-instructions_path=""
 background_path=""
 
 while [[ $# -gt 0 ]]; do
@@ -26,11 +22,6 @@ while [[ $# -gt 0 ]]; do
         --app)
             [[ $# -ge 2 && -n "${2:-}" ]] || { echo "Missing value for --app" >&2; exit 2; }
             app_path="$2"
-            shift 2
-            ;;
-        --installer)
-            [[ $# -ge 2 && -n "${2:-}" ]] || { echo "Missing value for --installer" >&2; exit 2; }
-            installer_path="$2"
             shift 2
             ;;
         --output)
@@ -41,11 +32,6 @@ while [[ $# -gt 0 ]]; do
         --volume-name)
             [[ $# -ge 2 && -n "${2:-}" ]] || { echo "Missing value for --volume-name" >&2; exit 2; }
             volume_name="$2"
-            shift 2
-            ;;
-        --instructions)
-            [[ $# -ge 2 && -n "${2:-}" ]] || { echo "Missing value for --instructions" >&2; exit 2; }
-            instructions_path="$2"
             shift 2
             ;;
         --background)
@@ -70,8 +56,8 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 1
 fi
 
-if [[ -z "$app_path" || -z "$installer_path" || -z "$output_path" ]]; then
-    echo "--app, --installer, and --output are required." >&2
+if [[ -z "$app_path" || -z "$output_path" ]]; then
+    echo "--app and --output are required." >&2
     usage >&2
     exit 2
 fi
@@ -85,24 +71,12 @@ if [[ ! -d "$app_path" ]]; then
     echo "Missing ACECode app bundle: $app_path" >&2
     exit 1
 fi
-if [[ ! -d "$installer_path" ]]; then
-    echo "Missing installer app bundle: $installer_path" >&2
-    exit 1
-fi
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -z "$instructions_path" ]]; then
-    instructions_path="$script_dir/../assets/macos/DMG_INSTALL.txt"
-fi
 if [[ -z "$background_path" ]]; then
     background_path="$script_dir/../assets/macos/acecode-dmg-background.svg"
 fi
 volume_icon_path="$script_dir/../assets/macos/acecode.icns"
 
-if [[ ! -f "$instructions_path" ]]; then
-    echo "Missing DMG instructions: $instructions_path" >&2
-    exit 1
-fi
 if [[ ! -f "$background_path" ]]; then
     echo "Missing DMG background: $background_path" >&2
     exit 1
@@ -139,13 +113,13 @@ background_root="$staging_root/.background"
 mkdir -p "$staging_root" "$background_root"
 
 /usr/bin/ditto "$app_path" "$staging_root/ACECode.app"
-/usr/bin/ditto "$installer_path" "$staging_root/Install ACECode.app"
-/usr/bin/ditto "$instructions_path" "$staging_root/README 安装说明.txt"
+/bin/ln -s /Applications "$staging_root/Applications"
 /usr/bin/sips -s format png "$background_path" \
     --out "$background_root/ACECode-DMG.png" >/dev/null
 
-if [[ -e "$staging_root/Applications" || -L "$staging_root/Applications" ]]; then
-    echo "Refusing to package a system /Applications link." >&2
+if [[ ! -L "$staging_root/Applications" ]] || \
+   [[ "$(/usr/bin/readlink "$staging_root/Applications")" != "/Applications" ]]; then
+    echo "DMG Applications link must point exactly to /Applications." >&2
     exit 1
 fi
 
@@ -212,19 +186,18 @@ on run argv
             set toolbar visible of dmgWindow to false
             set statusbar visible of dmgWindow to false
             set pathbar visible of dmgWindow to false
-            set bounds of dmgWindow to {100, 100, 820, 620}
+            set bounds of dmgWindow to {100, 100, 760, 500}
 
             set iconOptions to icon view options of dmgWindow
             set arrangement of iconOptions to not arranged
-            set icon size of iconOptions to 104
+            set icon size of iconOptions to 112
             set text size of iconOptions to 13
             set label position of iconOptions to bottom
             set shows icon preview of iconOptions to false
             set background picture of iconOptions to file ".background:ACECode-DMG.png"
 
-            set position of item "ACECode.app" of dmgWindow to {170, 220}
-            set position of item "Install ACECode.app" of dmgWindow to {550, 220}
-            set position of item "README 安装说明.txt" of dmgWindow to {360, 365}
+            set position of item "ACECode.app" of dmgWindow to {160, 215}
+            set position of item "Applications" of dmgWindow to {500, 215}
 
             update without registering applications
             delay 2

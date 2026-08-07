@@ -24,6 +24,13 @@ UserInstallPaths macos_user_install_paths(const fs::path& home_directory) {
     return paths;
 }
 
+SystemInstallPaths macos_system_install_paths() {
+    SystemInstallPaths paths;
+    paths.applications = fs::path("/Applications");
+    paths.destination = paths.applications / "ACECode.app";
+    return paths;
+}
+
 bool macos_user_install_destination_is_safe(
     const fs::path& resolved_home,
     const fs::path& resolved_applications,
@@ -38,6 +45,29 @@ bool macos_user_install_destination_is_safe(
     const UserInstallPaths expected = macos_user_install_paths(home);
     return applications == expected.applications &&
            destination == expected.destination;
+}
+
+MacosInstallLocation macos_self_update_install_location(
+    const fs::path& resolved_home,
+    const fs::path& resolved_applications,
+    const fs::path& resolved_destination) {
+    const fs::path applications = normalize_absolute(resolved_applications);
+    const fs::path destination = normalize_absolute(resolved_destination);
+    if (applications.empty() || destination.empty()) {
+        return MacosInstallLocation::unsupported;
+    }
+
+    const SystemInstallPaths system = macos_system_install_paths();
+    if (applications == system.applications &&
+        destination == system.destination) {
+        return MacosInstallLocation::system_applications;
+    }
+
+    if (macos_user_install_destination_is_safe(
+            resolved_home, applications, destination)) {
+        return MacosInstallLocation::user_applications;
+    }
+    return MacosInstallLocation::unsupported;
 }
 
 } // namespace acecode::desktop

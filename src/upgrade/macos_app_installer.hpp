@@ -5,8 +5,9 @@
 
 namespace acecode::upgrade {
 
-// Validate the supported per-user installation and authenticate a candidate
-// application bundle. Implemented with Foundation/Security.framework on macOS.
+// Validate a supported user or system Applications installation and
+// authenticate a candidate bundle. Implemented with
+// Foundation/Security.framework on macOS.
 bool preflight_macos_app_update(
     const std::filesystem::path& installed_bundle,
     const std::filesystem::path& candidate_bundle,

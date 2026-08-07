@@ -97,17 +97,34 @@ bool validate_safe_install_path(const fs::path& installed_bundle,
         set_error(error, "current user's home directory is unavailable");
         return false;
     }
-    const auto paths = desktop::macos_user_install_paths(fs::path(home_bytes));
-    if (paths.home.empty() || installed_bundle.lexically_normal() != paths.destination) {
+    const auto user_paths =
+        desktop::macos_user_install_paths(fs::path(home_bytes));
+    const auto system_paths = desktop::macos_system_install_paths();
+    const fs::path normalized_bundle = installed_bundle.lexically_normal();
+
+    fs::path applications_path;
+    desktop::MacosInstallLocation expected_location =
+        desktop::MacosInstallLocation::unsupported;
+    if (!user_paths.home.empty() &&
+        normalized_bundle == user_paths.destination) {
+        applications_path = user_paths.applications;
+        expected_location =
+            desktop::MacosInstallLocation::user_applications;
+    } else if (normalized_bundle == system_paths.destination) {
+        applications_path = system_paths.applications;
+        expected_location =
+            desktop::MacosInstallLocation::system_applications;
+    } else {
         set_error(error,
-                  "macOS self-update requires ~/Applications/ACECode.app; "
+                  "macOS self-update requires ~/Applications/ACECode.app or "
+                  "/Applications/ACECode.app; "
                   "reinstall ACECode with the signed DMG first");
         return false;
     }
 
-    NSURL* home_url = file_url(paths.home, YES);
-    NSURL* applications_url = file_url(paths.applications, YES);
-    NSURL* installed_url = file_url(installed_bundle, YES);
+    NSURL* home_url = file_url(user_paths.home, YES);
+    NSURL* applications_url = file_url(applications_path, YES);
+    NSURL* installed_url = file_url(normalized_bundle, YES);
     if (!home_url || !applications_url || !installed_url) {
         set_error(error, "the macOS installation path cannot be represented safely");
         return false;
@@ -117,14 +134,16 @@ bool validate_safe_install_path(const fs::path& installed_bundle,
     BOOL is_directory = NO;
     if (![file_manager fileExistsAtPath:[applications_url path]
                             isDirectory:&is_directory] || is_directory == NO) {
-        set_error(error, "~/Applications is missing or is not a directory");
+        set_error(error, applications_path.string() +
+                             " is missing or is not a directory");
         return false;
     }
     bool is_symlink = false;
     if (!resource_flag(applications_url, NSURLIsSymbolicLinkKey,
                        &is_symlink, error) || is_symlink) {
         if (is_symlink) {
-            set_error(error, "~/Applications must not be a symbolic link");
+            set_error(error, applications_path.string() +
+                                 " must not be a symbolic link");
         }
         return false;
     }
@@ -149,14 +168,33 @@ bool validate_safe_install_path(const fs::path& installed_bundle,
     NSURL* resolved_destination =
         [resolved_applications URLByAppendingPathComponent:@"ACECode.app"
                                                isDirectory:YES];
-    if (!desktop::macos_user_install_destination_is_safe(
+    const auto resolved_location =
+        desktop::macos_self_update_install_location(
             filesystem_path(resolved_home),
             filesystem_path(resolved_applications),
-            filesystem_path(resolved_destination)) ||
+            filesystem_path(resolved_destination));
+    if (resolved_location != expected_location ||
         filesystem_path([installed_url URLByResolvingSymlinksInPath]) !=
             filesystem_path(resolved_destination)) {
         set_error(error,
-                  "the resolved ACECode.app path is outside the safe user installation");
+                  "the resolved ACECode.app path is outside the supported installation locations");
+        return false;
+    }
+
+    const fs::path resolved_applications_path =
+        filesystem_path(resolved_applications);
+    if (::access(resolved_applications_path.c_str(), W_OK | X_OK) != 0) {
+        if (expected_location ==
+            desktop::MacosInstallLocation::system_applications) {
+            set_error(error,
+                      "ACECode cannot modify /Applications. Install the update "
+                      "manually by dragging ACECode.app from the signed DMG to "
+                      "Applications");
+        } else {
+            set_error(error,
+                      "ACECode cannot modify ~/Applications: " +
+                          std::string(std::strerror(errno)));
+        }
         return false;
     }
     return true;

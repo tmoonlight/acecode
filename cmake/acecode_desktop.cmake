@@ -104,28 +104,8 @@ endif()
 
 if(APPLE)
     set(ACECODE_MACOS_ICON "${CMAKE_SOURCE_DIR}/assets/macos/acecode.icns")
-    set(ACECODE_MACOS_INSTALLER_ICON_SOURCE
-        "${CMAKE_SOURCE_DIR}/assets/macos/acecode-installer.svg")
-    set(ACECODE_MACOS_INSTALLER_ICON
-        "${CMAKE_BINARY_DIR}/generated/macos/acecode-installer.icns")
-    add_custom_command(
-        OUTPUT "${ACECODE_MACOS_INSTALLER_ICON}"
-        COMMAND /bin/bash
-            "${CMAKE_SOURCE_DIR}/scripts/macos_generate_icns.sh"
-            --source "${ACECODE_MACOS_INSTALLER_ICON_SOURCE}"
-            --output "${ACECODE_MACOS_INSTALLER_ICON}"
-        DEPENDS
-            "${ACECODE_MACOS_INSTALLER_ICON_SOURCE}"
-            "${CMAKE_SOURCE_DIR}/scripts/macos_generate_icns.sh"
-        COMMENT "Generating ACECode current-user installer icon"
-        VERBATIM
-    )
     target_sources(acecode-desktop PRIVATE "${ACECODE_MACOS_ICON}")
     set_source_files_properties("${ACECODE_MACOS_ICON}" PROPERTIES
-        MACOSX_PACKAGE_LOCATION "Resources"
-    )
-    set_source_files_properties("${ACECODE_MACOS_INSTALLER_ICON}" PROPERTIES
-        GENERATED TRUE
         MACOSX_PACKAGE_LOCATION "Resources"
     )
     set_target_properties(acecode-desktop PROPERTIES
@@ -155,31 +135,6 @@ if(APPLE)
             "$<TARGET_BUNDLE_DIR:acecode-desktop>/../acecode-desktop.app"
         COMMENT "Copying acecode daemon into ACECode.app bundle"
         VERBATIM
-    )
-
-    add_executable(acecode-user-installer MACOSX_BUNDLE
-        ${CMAKE_SOURCE_DIR}/src/macos_installer/main.mm
-        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.cpp
-        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.hpp
-        ${ACECODE_MACOS_INSTALLER_ICON}
-    )
-    target_include_directories(acecode-user-installer PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-    )
-    target_link_libraries(acecode-user-installer PRIVATE
-        "-framework AppKit"
-        "-framework Foundation"
-    )
-    set_target_properties(acecode-user-installer PROPERTIES
-        RUNTIME_OUTPUT_NAME "Install ACECode"
-        MACOSX_BUNDLE_BUNDLE_NAME "Install ACECode"
-        MACOSX_BUNDLE_ICON_FILE "acecode-installer.icns"
-        MACOSX_BUNDLE_GUI_IDENTIFIER "dev.acecode.installer"
-        MACOSX_BUNDLE_INFO_PLIST
-            "${CMAKE_SOURCE_DIR}/cmake/macos/ACECodeUserInstallerInfo.plist.in"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${ACECODE_BUILD_VERSION}"
-        MACOSX_BUNDLE_COPYRIGHT "ACECode contributors"
     )
 endif()
 

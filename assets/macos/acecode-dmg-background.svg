@@ -1,66 +1,44 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg
   xmlns="http://www.w3.org/2000/svg"
-  width="720"
-  height="520"
-  viewBox="0 0 720 520"
+  width="660"
+  height="400"
+  viewBox="0 0 660 400"
   fill="none"
   role="img"
   aria-labelledby="title description"
 >
   <title id="title">ACECode DMG installation background</title>
-  <desc id="description">A branded left-to-right drag guide for installing ACECode for the current user.</desc>
+  <desc id="description">A minimal branded background with a left-to-right drag arrow.</desc>
 
   <defs>
-    <linearGradient id="canvas" x1="45" y1="18" x2="674" y2="447" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#F8FCFF"/>
-      <stop offset="0.52" stop-color="#EDF7FF"/>
-      <stop offset="1" stop-color="#DDEBFF"/>
+    <linearGradient id="canvas" x1="44" y1="12" x2="616" y2="388" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBFDFF"/>
+      <stop offset="0.55" stop-color="#F2F7FF"/>
+      <stop offset="1" stop-color="#E8F0FC"/>
     </linearGradient>
-    <radialGradient id="glow-left" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(124 190) rotate(18) scale(264 210)">
-      <stop stop-color="#38D5F7" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#38D5F7" stop-opacity="0"/>
+    <radialGradient id="glow-left" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(75 75) rotate(24) scale(250 190)">
+      <stop stop-color="#35C9F2" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#35C9F2" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="glow-right" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(592 232) rotate(158) scale(244 210)">
-      <stop stop-color="#2563EB" stop-opacity="0.18"/>
+    <radialGradient id="glow-right" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(600 315) rotate(158) scale(270 220)">
+      <stop stop-color="#316FEA" stop-opacity="0.12"/>
       <stop offset="1" stop-color="#2563EB" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="arrow" x1="287" y1="218" x2="433" y2="218" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#20BCE8"/>
-      <stop offset="1" stop-color="#2563EB"/>
+    <linearGradient id="arrow" x1="268" y1="215" x2="392" y2="215" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4ABEDB"/>
+      <stop offset="1" stop-color="#3975E7"/>
     </linearGradient>
-    <filter id="panel-shadow" x="-14%" y="-14%" width="128%" height="136%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#194379" flood-opacity="0.12"/>
-    </filter>
   </defs>
 
-  <rect width="720" height="520" fill="url(#canvas)"/>
-  <rect width="720" height="520" fill="url(#glow-left)"/>
-  <rect width="720" height="520" fill="url(#glow-right)"/>
-  <path d="M0 468C116 432 206 439 302 474C412 515 562 510 720 450V520H0V468Z" fill="#2563EB" fill-opacity="0.055"/>
+  <rect width="660" height="400" fill="url(#canvas)"/>
+  <rect width="660" height="400" fill="url(#glow-left)"/>
+  <rect width="660" height="400" fill="url(#glow-right)"/>
+  <path d="M0 355C118 325 216 336 311 365C414 397 536 393 660 348V400H0V355Z" fill="#326FE3" fill-opacity="0.035"/>
 
-  <text x="360" y="48" text-anchor="middle" fill="#0B2850" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="25" font-weight="700">
-    Install ACECode · 安装 ACECode
+  <text x="330" y="62" text-anchor="middle" fill="#17375E" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="24" font-weight="650" letter-spacing="0.2">
+    ACECode
   </text>
-  <text x="360" y="78" text-anchor="middle" fill="#46627F" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="14" font-weight="500">
-    Installs to ~/Applications · 当前用户安装 · No administrator password
-  </text>
-
-  <g filter="url(#panel-shadow)">
-    <rect x="74" y="113" width="192" height="225" rx="34" fill="white" fill-opacity="0.62" stroke="white" stroke-width="2"/>
-    <rect x="454" y="113" width="192" height="225" rx="34" fill="white" fill-opacity="0.72" stroke="#2B73E8" stroke-opacity="0.34" stroke-width="2" stroke-dasharray="8 8"/>
-  </g>
-
-  <text x="170" y="139" text-anchor="middle" fill="#3C5A78" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="13" font-weight="600">
-    ACECode.app
-  </text>
-  <text x="550" y="139" text-anchor="middle" fill="#235AAE" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="13" font-weight="700">
-    Drag here · 拖到这里
-  </text>
-
-  <path d="M292 218H421" stroke="url(#arrow)" stroke-width="11" stroke-linecap="round"/>
-  <path d="M398 190L430 218L398 246" stroke="#2563EB" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="292" cy="218" r="7" fill="#20BCE8"/>
-
-  <rect x="212" y="315" width="296" height="185" rx="24" fill="white" fill-opacity="0.52" stroke="#6F9BD6" stroke-opacity="0.22"/>
+  <path d="M268 215H384" stroke="url(#arrow)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M371 200L390 215L371 230" stroke="#3975E7" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

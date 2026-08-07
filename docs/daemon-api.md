@@ -2089,13 +2089,15 @@ Returns `409 NO_UPDATE` when no compatible update is available.
 Returns `409 UPDATE_IN_PROGRESS` when another job is pending or running. The
 response includes that job under `job`, so another WebUI tab can attach to it.
 
-On macOS, a daemon running from
+On macOS, a daemon running from either
+`/Applications/ACECode.app/Contents/MacOS/acecode-daemon` or the legacy
 `~/Applications/ACECode.app/Contents/MacOS/acecode-daemon` installs a complete
 `ACECode.app` update ZIP rather than copying files into `Contents/MacOS`. Before
-replacement, the daemon requires the exact safe per-user install path, a strict
-nested Apple signature, bundle identifier `dev.acecode.desktop`, the selected
-manifest version, and the same Developer Team ID as the installed app. An app
-running from any other location fails the job without mutating that bundle.
+replacement, the daemon requires one of those exact non-symlinked install paths,
+a writable containing directory, a strict nested Apple signature, bundle
+identifier `dev.acecode.desktop`, the selected manifest version, and the same
+Developer Team ID as the installed app. An app running from any other location
+fails the job without mutating that bundle.
 
 ### `GET /api/update/job`
 
