@@ -33,7 +33,8 @@ bool is_complete_bundle_layout(const fs::path& bundle) {
 
 std::optional<fs::path> macos_app_bundle_from_executable(
     const fs::path& executable) {
-    if (executable.empty() || !executable.is_absolute()) return std::nullopt;
+    const auto generic = executable.generic_string();
+    if (generic.empty() || generic.front() != '/') return std::nullopt;
 
     const fs::path normalized = executable.lexically_normal();
     if (normalized.filename() != "acecode-daemon") return std::nullopt;

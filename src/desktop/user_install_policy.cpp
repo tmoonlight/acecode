@@ -7,7 +7,8 @@ namespace {
 namespace fs = std::filesystem;
 
 fs::path normalize_absolute(const fs::path& path) {
-    if (path.empty() || !path.is_absolute()) return {};
+    const auto generic = path.generic_string();
+    if (generic.empty() || generic.front() != '/') return {};
     return path.lexically_normal();
 }
 
