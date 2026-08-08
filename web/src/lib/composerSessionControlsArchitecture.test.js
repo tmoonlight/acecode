@@ -101,7 +101,7 @@ run('composer footer preserves required left-to-right control order', () => {
   assert.doesNotMatch(footer, /openMenu === 'expert'|onExpertChange|expertLocked/);
 });
 
-run('swarm mode uses the shared composer menu and a one-turn payload lifecycle', () => {
+run('swarm and expert selections survive submission until explicitly changed', () => {
   const chatView = source('components/ChatView.jsx');
   const inputBar = source('components/InputBar.jsx');
   const icon = source('components/SwarmModeIcon.jsx');
@@ -120,8 +120,35 @@ run('swarm mode uses the shared composer menu and a one-turn payload lifecycle',
   assert.match(chatView, /swarmMode: composerSwarmMode/);
   assert.match(chatView, /const explicitHomeSend = !isBuiltin && \(hasExtras \|\| hasSwarmMode/);
   assert.match(chatView, /preserveExtras: hasSwarmMode/);
-  assert.match(chatView, /if \(!preserveSwarm\) setComposerSwarmMode\(false\)/);
-  assert.match(chatView, /clearComposerExtras\(\{ preserveSwarm: isBuiltin \}\)/);
+  assert.match(
+    chatView,
+    /const expertOptions = homeExpertId \? \{ expert_id: homeExpertId, expertId: homeExpertId \} : \{\}/,
+  );
+  assert.match(chatView, /if \(sid\) \{[\s\S]{0,80}setSessionExpertId\(expertId\)/);
+  assert.match(inputBar, /onDisableSwarm=\{\(\) => onSwarmModeChange\?\.\(false\)\}/);
+
+  const cleanupStart = chatView.indexOf('const clearComposerExtras = useCallback');
+  const resetStart = chatView.indexOf('const resetComposerContextSelections = useCallback');
+  const createStart = chatView.indexOf('const createHomeComposerSession = useCallback');
+  assert.ok(cleanupStart >= 0 && resetStart > cleanupStart && createStart > resetStart);
+  const submissionCleanup = chatView.slice(cleanupStart, resetStart);
+  assert.doesNotMatch(
+    submissionCleanup,
+    /setComposerSwarmMode|setHomeExpertId|setSessionExpertId|onSessionExpertChanged/,
+  );
+  const contextReset = chatView.slice(resetStart, createStart);
+  assert.match(contextReset, /clearComposerExtras\(\)/);
+  assert.match(contextReset, /setComposerSwarmMode\(false\)/);
+  assert.match(chatView, /resetComposerContextSelections\(\)/);
+  assert.doesNotMatch(chatView, /clearComposerExtras\(\{[^)]*preserveSwarm/);
+
+  const submitStart = chatView.indexOf('const submit = useCallback');
+  const drainStart = chatView.indexOf('const drainQueuedInput = useCallback');
+  assert.ok(submitStart >= 0 && drainStart > submitStart);
+  assert.doesNotMatch(
+    chatView.slice(submitStart, drainStart),
+    /resetComposerContextSelections|setHomeExpertId|setSessionExpertId/,
+  );
 });
 
 run('selected contexts remain accessible while the composer footer stays on one row', () => {

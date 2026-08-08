@@ -1172,7 +1172,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
     if (!sid) onHomeComposerDraftChange?.(homeDraftWorkspaceHash, next);
   }, [homeDraftWorkspaceHash, onHomeComposerDraftChange, sid]);
 
-  const clearComposerExtras = useCallback(({ preserveSwarm = false } = {}) => {
+  const clearComposerExtras = useCallback(() => {
     setComposerAttachments((items) => {
       for (const item of items) {
         if (item?.preview_url && item.preview_url.startsWith('blob:')) {
@@ -1182,12 +1182,16 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
       return [];
     });
     setComposerContexts([]);
-    if (!preserveSwarm) setComposerSwarmMode(false);
     setSelectionAction(null);
     selectionPreviewFingerprintRef.current = '';
     setSelectionPreview(null);
     clearPreviewSelection();
   }, []);
+
+  const resetComposerContextSelections = useCallback(() => {
+    clearComposerExtras();
+    setComposerSwarmMode(false);
+  }, [clearComposerExtras]);
 
   const createHomeComposerSession = useCallback(async (text, {
     createOptions = null,
@@ -1534,8 +1538,8 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
       preserveComposerExtrasOnSessionChangeRef.current = false;
       return;
     }
-    clearComposerExtras();
-  }, [clearComposerExtras, draftSessionKey]);
+    resetComposerContextSelections();
+  }, [draftSessionKey, resetComposerContextSelections]);
 
   const persistDraftValue = useCallback((targetSid, targetWorkspaceHash, targetKey, text) => {
     if (!targetSid || !targetKey) return Promise.resolve(null);
@@ -2487,7 +2491,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
       });
       if (started) {
         clearCurrentSessionDraft();
-        clearComposerExtras({ preserveSwarm: true });
+        clearComposerExtras();
         restoreChatInputFocusSoon(false);
       }
       return;
@@ -2654,7 +2658,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
         if (payload.text.trim()) recordInputHistory(payload.text);
         if (!ref?.title) setTranscriptTitle(payload.text || composerAttachments[0]?.name || '附件消息');
         clearCurrentSessionDraft();
-        clearComposerExtras({ preserveSwarm: isBuiltin });
+        clearComposerExtras();
       })
       .catch((e) => {
         toast({ kind: 'err', text: '发送失败:' + (e.message || '') });
