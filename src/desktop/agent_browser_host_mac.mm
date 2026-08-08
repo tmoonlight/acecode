@@ -95,6 +95,37 @@ bool valid_favicon(const std::string& value) {
         value.rfind("data:image/", 0) == 0;
 }
 
+NSString* safari_compatible_application_name() {
+    NSString* safari_version = nil;
+    NSURL* safari_url = [[NSWorkspace sharedWorkspace]
+        URLForApplicationWithBundleIdentifier:@"com.apple.Safari"];
+    if (safari_url) {
+        NSBundle* safari_bundle = [NSBundle bundleWithURL:safari_url];
+        id version = [safari_bundle
+            objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+        if ([version isKindOfClass:[NSString class]] &&
+            [(NSString*)version length] > 0) {
+            NSCharacterSet* invalid = [[NSCharacterSet
+                characterSetWithCharactersInString:@"0123456789."]
+                invertedSet];
+            if ([(NSString*)version rangeOfCharacterFromSet:invalid].location ==
+                NSNotFound) {
+                safari_version = (NSString*)version;
+            }
+        }
+    }
+
+    // WKWebView uses the system WebKit engine but omits Safari product tokens
+    // from its default user agent. Some sites consequently serve legacy
+    // downgrade pages that can loop under WebKit's HTTPS upgrade policy.
+    // Preserve WebKit's generated platform/engine fields and append the local
+    // Safari identity through the public configuration API.
+    return safari_version
+        ? [NSString stringWithFormat:@"Version/%@ Safari/605.1.15",
+                                     safari_version]
+        : @"Safari/605.1.15";
+}
+
 const char* favicon_expression() {
     return R"JS((() => {
   const links = [...document.querySelectorAll('link[rel][href]')];
@@ -897,6 +928,8 @@ struct AgentBrowserHost::Impl final
         WKWebViewConfiguration* configuration =
             [[[WKWebViewConfiguration alloc] init] autorelease];
         configuration.websiteDataStore = data_store;
+        configuration.applicationNameForUserAgent =
+            safari_compatible_application_name();
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = YES;
         WKUserContentController* content =
             [[[WKUserContentController alloc] init] autorelease];

@@ -227,6 +227,7 @@ int main() {
 
             std::atomic<bool> worker_done{false};
             std::string worker_error;
+            bool safari_compatible_user_agent = false;
             bool synthetic_ok = false;
             bool screenshot_ok = false;
             std::thread worker;
@@ -240,6 +241,19 @@ int main() {
                             worker_error)) {
                         worker_done.store(true);
                         return;
+                    }
+                    const auto user_agent = client.command(
+                        "Runtime.evaluate",
+                        {{"expression", "navigator.userAgent"},
+                         {"awaitPromise", true}, {"returnByValue", true}},
+                        std::chrono::seconds(10), nullptr, worker_error);
+                    if (worker_error.empty()) {
+                        const std::string value = user_agent
+                            .value("result", nlohmann::json::object())
+                            .value("value", "");
+                        safari_compatible_user_agent =
+                            value.find(" Version/") != std::string::npos &&
+                            value.find(" Safari/") != std::string::npos;
                     }
                     client.command(
                         "Runtime.evaluate",
@@ -286,6 +300,10 @@ int main() {
                 worker.join();
                 if (exit_code == 0 && !worker_error.empty()) {
                     exit_code = fail(worker_error);
+                } else if (exit_code == 0 &&
+                           !safari_compatible_user_agent) {
+                    exit_code = fail(
+                        "WKWebView user agent omitted Safari product tokens");
                 } else if (exit_code == 0 && !synthetic_ok) {
                     exit_code = fail("synthetic input did not update the field");
                 } else if (exit_code == 0 && !screenshot_ok) {
@@ -317,7 +335,8 @@ int main() {
             }
             if (exit_code == 0) {
                 std::cout << "SMOKE_OK page_id=" << page_id
-                          << " pages=2 synthetic=true screenshot=true\n";
+                          << " pages=2 safari_ua=true synthetic=true"
+                          << " screenshot=true\n";
             }
         }
         [window close];

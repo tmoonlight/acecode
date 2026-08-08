@@ -47,6 +47,8 @@ flowchart LR
   决定）；ACECode 主 UI 的自定义/屏蔽右键策略不会影响 Browser 页面。
 - Browser 页签之间共享专用 Profile 的 Cookie/登录状态，行为与普通浏览器多个标签页
   一致；切换页签只显示对应 controller，关闭页签立即释放对应页面。
+- macOS 页面保留系统 WKWebView 生成的平台和 WebKit UA 字段，并补齐当前系统 Safari
+  的产品标识，避免网站因把 WKWebView 误判为不支持 HTTPS 的旧浏览器而进入降级循环。
 - 切换到文件/变更页签、关闭浏览器页签、隐藏窗口或打开 ACECode 模态框时，
   native 页面会隐藏，避免覆盖主 WebView UI。
 - Agent 正在调用浏览器工具时，网页内容区出现与 VS Code Browser View 相同
