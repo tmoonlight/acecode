@@ -3937,6 +3937,41 @@ body {
   outline-offset: 1px;
 }
 
+.ace-change-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 1px;
+  border: 1px solid var(--ace-border);
+  border-radius: 6px;
+  background: var(--ace-surface-alt);
+}
+.ace-change-view-toggle-btn {
+  width: 23px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ace-fg-mute);
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease;
+}
+.ace-change-view-toggle-btn:hover {
+  color: var(--ace-fg);
+  background: var(--ace-surface-hi);
+}
+.ace-change-view-toggle-btn[aria-pressed="true"] {
+  color: var(--ace-accent);
+  background: var(--ace-accent-bg);
+}
+.ace-change-view-toggle-btn:focus-visible {
+  outline: 2px solid var(--ace-accent);
+  outline-offset: -2px;
+}
+
 /* tab/侧边栏右端的刷新/折叠按钮,vsCode 风格的 splitter icon。 */
 .ace-sidebar-section-actions {
   opacity: 0;
@@ -4027,6 +4062,11 @@ body {
 .ace-change-compact-row.is-selected {
   color: var(--ace-accent);
 }
+.ace-change-compact-row:focus-visible,
+.ace-change-tree-directory-row:focus-visible {
+  outline: 2px solid var(--ace-accent);
+  outline-offset: -2px;
+}
 .ace-change-compact-file {
   min-width: 0;
   display: flex;
@@ -4056,6 +4096,59 @@ body {
   gap: 5px;
   font-size: 11px;
   white-space: nowrap;
+}
+
+.ace-change-status-badge {
+  width: 14px;
+  flex: 0 0 14px;
+  overflow: hidden;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.ace-change-tree-list {
+  padding: 4px 0;
+}
+.ace-change-tree-directory-row {
+  width: 100%;
+  min-height: 27px;
+  display: flex;
+  align-items: center;
+  padding: 3px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ace-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ace-change-tree-directory-row:hover {
+  background: var(--ace-surface-hi);
+}
+.ace-change-compact-row.ace-change-tree-file-row {
+  min-height: 27px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.ace-change-tree-entry {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  padding-left: calc(var(--ace-change-tree-depth, 0) * 10px);
+}
+.ace-change-tree-arrow-spacer {
+  width: 10px;
+  flex: 0 0 10px;
+}
+.ace-change-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 /* 变更文件行的行内动作按钮(转到文件):hover / 选中 / 键盘聚焦时浮现,

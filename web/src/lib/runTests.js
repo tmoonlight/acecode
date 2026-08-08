@@ -165,6 +165,7 @@ import './modelManager.test.js';
 import './modelLoad.test.js';
 import './fileTreeRefresh.test.js';
 import './fileTreeChangeStatus.test.js';
+import './changeFileTree.test.js';
 import './sidePanelContextActions.test.js';
 import './assistantRunDirectives.test.js';
 import './assistantAvatarDisplay.test.js';

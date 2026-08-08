@@ -12,6 +12,7 @@
 // 不请求。纯状态逻辑在 lib/gitChanges.js(Node 单测),这里做编排与渲染。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DEFAULT_CHANGE_LIST_VIEW } from '../lib/changeFileTree.js';
 import {
   buildBaseCandidates,
   buildChangeRow,
@@ -19,19 +20,9 @@ import {
 } from '../lib/gitChanges.js';
 import { changesCache } from '../lib/gitChangesCache.js';
 import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
-import { normalizeTreePath } from '../lib/fileTreeChangeStatus.js';
-import { joinWorkspacePath } from '../lib/desktopContextMenu.js';
 import { clsx } from '../lib/format.js';
+import { ChangeFileList } from './ChangeFileList.jsx';
 import { VsIcon } from './Icon.jsx';
-
-function statusBadgeClass(status) {
-  switch (status) {
-    case 'A': return 'text-ok';
-    case 'D': return 'text-danger';
-    case 'R': return 'text-warn';
-    default:  return 'text-fg-mute';
-  }
-}
 
 export function GitChangesPanel({
   api,
@@ -39,6 +30,7 @@ export function GitChangesPanel({
   gitInfo,
   busy = false,
   visible = true,
+  viewMode = DEFAULT_CHANGE_LIST_VIEW,
   selectedFile = '',
   onOpenFile,
   onOpenFilePreview,
@@ -61,7 +53,6 @@ export function GitChangesPanel({
   listRef.current = list;
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
-  const selectedNormalized = normalizeTreePath(selectedFile);
 
   // cwd / gitInfo 变化时重置基线选择。
   useEffect(() => { setBase(initial); }, [cwd, initial]);
@@ -139,7 +130,7 @@ export function GitChangesPanel({
 
   if (!gitInfo?.is_repo) return null;
 
-  const rows = (list?.files || []).map(buildChangeRow);
+  const rows = useMemo(() => (list?.files || []).map(buildChangeRow), [list]);
   const summaryLabel = buildSummaryLabel(list);
 
   return (
@@ -211,7 +202,8 @@ export function GitChangesPanel({
         </div>
       )}
 
-      <div className="ace-change-compact-list">
+      {(error || !list || rows.length === 0) ? (
+        <div className="ace-change-compact-list">
         {error === 'timeout' && (
           <div className="ace-empty-state">
             <div>git 响应超时(仓库可能很大)</div>
@@ -230,65 +222,19 @@ export function GitChangesPanel({
         {!error && list && rows.length === 0 && (
           <div className="ace-empty-state">工作区相对 {base} 无变更</div>
         )}
-        {!error && rows.map((row) => (
-          <button
-            key={row.path}
-            type="button"
-            data-change-compact-file={row.path}
-            data-desktop-review-kind="file"
-            data-desktop-review-file={row.path || undefined}
-            data-desktop-review-absolute-path={cwd ? joinWorkspacePath(cwd, row.path) : undefined}
-            data-desktop-review-can-reveal={row.status === 'D' ? 'false' : 'true'}
-            className={clsx(
-              'ace-change-compact-row',
-              selectedNormalized && normalizeTreePath(row.path) === selectedNormalized && 'is-selected',
-            )}
-            onClick={() => openFile(row.path)}
-            title={row.path}
-          >
-            <span className={clsx('text-[10px] font-bold w-3 shrink-0', statusBadgeClass(row.status))}>
-              {row.status}
-            </span>
-            <span className="ace-change-compact-file">
-              <span className="ace-change-compact-name">{row.path.split(/[\\/]/).pop()}</span>
-              {row.path.includes('/') && (
-                <span className="ace-change-compact-parent">
-                  {row.path.slice(0, row.path.lastIndexOf('/'))}
-                </span>
-              )}
-            </span>
-            <span className="ace-change-file-counts">
-              {row.statLabel.startsWith('+')
-                ? (
-                  <>
-                    <span className="ace-change-add">{row.statLabel.split(' ')[0]}</span>
-                    <span className="ace-change-del">{row.statLabel.split(' ')[1]}</span>
-                  </>
-                )
-                : <span className="text-fg-mute">{row.statLabel}</span>}
-            </span>
-            {!!onOpenFilePreview && (
-              // 已删除文件磁盘上不存在,按钮隐形占位保持各行 ± 计数对齐。
-              <span
-                role="button"
-                tabIndex={-1}
-                className={clsx('ace-change-row-action', row.status === 'D' && 'is-hidden')}
-                title="转到文件"
-                aria-label={`转到文件 ${row.path}`}
-                onPointerDown={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (row.status !== 'D') onOpenFilePreview(row.path);
-                }}
-              >
-                <VsIcon name="openFile" size={13} />
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <ChangeFileList
+          rows={rows}
+          viewMode={viewMode}
+          cwd={cwd}
+          selectedFile={selectedFile}
+          showStatus
+          onOpenFile={openFile}
+          onOpenFilePreview={onOpenFilePreview}
+          guardDeletedPreview
+        />
+      )}
     </div>
   );
 }

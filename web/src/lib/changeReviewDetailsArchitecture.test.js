@@ -39,14 +39,42 @@ run('File tree and Git/non-Git review rows expose shared Explorer reveal metadat
   const fileTree = source('SidePanel.jsx');
   const gitList = source('GitChangesPanel.jsx');
   const sessionReview = source('ChangeReview.jsx');
+  const compactList = source('ChangeFileList.jsx');
   const sharedDetails = source('ChangeReviewDetails.jsx');
 
   assert.match(fileTree, /data-desktop-file-absolute-path=\{absolutePath \|\| undefined\}/);
-  assert.match(gitList, /data-desktop-review-absolute-path=\{cwd \? joinWorkspacePath\(cwd, row\.path\) : undefined\}/);
-  assert.match(gitList, /data-desktop-review-can-reveal=\{row\.status === 'D' \? 'false' : 'true'\}/);
-  assert.match(sessionReview, /data-desktop-review-absolute-path=\{cwd \? joinWorkspacePath\(cwd, group\.file\) : undefined\}/);
+  assert.match(gitList, /<ChangeFileList[\s\S]*?guardDeletedPreview/);
+  assert.match(sessionReview, /<ChangeFileList/);
+  assert.match(compactList, /data-desktop-review-absolute-path=\{absolutePath\}/);
+  assert.match(compactList, /data-desktop-review-can-reveal=\{canReveal == null \? undefined : String\(canReveal\)\}/);
+  assert.match(compactList, /data-desktop-review-additions=\{additions\}/);
+  assert.match(compactList, /data-desktop-review-deletions=\{deletions\}/);
   assert.match(sharedDetails, /data-desktop-review-absolute-path=\{cwd \? joinWorkspacePath\(cwd, row\.path\) : undefined\}/);
   assert.match(sharedDetails, /data-desktop-review-can-reveal=\{(?:status|row\.status) === 'D' \? 'false' : 'true'\}/);
+});
+
+run('Git and session compact changes share one flat/tree renderer and one preference owner', () => {
+  const sidePanel = source('SidePanel.jsx');
+  const gitList = source('GitChangesPanel.jsx');
+  const sessionReview = source('ChangeReview.jsx');
+  const compactList = source('ChangeFileList.jsx');
+
+  assert.match(gitList, /import \{ ChangeFileList \} from '\.\/ChangeFileList\.jsx';/);
+  assert.match(sessionReview, /import \{ ChangeFileList \} from '\.\/ChangeFileList\.jsx';/);
+  assert.match(gitList, /<ChangeFileList[\s\S]*?viewMode=\{viewMode\}/);
+  assert.match(sessionReview, /<ChangeFileList[\s\S]*?viewMode=\{viewMode\}/);
+
+  assert.match(sidePanel, /usePreference\(\s*CHANGE_LIST_VIEW_STORAGE_KEY,/);
+  assert.match(sidePanel, /role="group" aria-label="变更文件展示方式"/);
+  assert.match(sidePanel, /aria-pressed=\{changeListView === option\.key\}/);
+  assert.equal((sidePanel.match(/CHANGE_LIST_VIEW_STORAGE_KEY/g) || []).length, 2);
+  assert.doesNotMatch(gitList, /usePreference\(/);
+  assert.doesNotMatch(sessionReview, /usePreference\(/);
+
+  assert.match(compactList, /role=\{treeMode \? 'tree' : undefined\}/);
+  assert.match(compactList, /aria-expanded=\{!collapsed\}/);
+  assert.match(compactList, /changeTreeAncestorPaths\(selectedFile, cwd\)/);
+  assert.match(compactList, /data-change-compact-file=\{row\.path\}/);
 });
 
 run('Top bar keeps direct task search while new-conversation and loop stay in quick actions', () => {

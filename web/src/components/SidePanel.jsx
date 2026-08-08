@@ -17,6 +17,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ApiError, createApi } from '../lib/api.js';
 import { aggregateHunksFromMessages, summarizeChangeGroups } from '../lib/sessionChanges.js';
 import {
+  CHANGE_LIST_VIEW_FLAT,
+  CHANGE_LIST_VIEW_STORAGE_KEY,
+  CHANGE_LIST_VIEW_TREE,
+  DEFAULT_CHANGE_LIST_VIEW,
+  effectiveChangeListView,
+  validateChangeListView,
+} from '../lib/changeFileTree.js';
+import {
   containingWorkspacePath,
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
@@ -47,10 +55,16 @@ import { ChangeCompactList } from './ChangeReview.jsx';
 import { GitChangesPanel } from './GitChangesPanel.jsx';
 import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
 import { gitInfoCache } from '../lib/gitInfoCache.js';
+import { usePreference } from '../lib/usePreference.js';
 
 const TABS = [
   { key: 'changes', label: '变更' },
   { key: 'files',   label: '文件' },
+];
+
+const CHANGE_VIEW_OPTIONS = [
+  { key: CHANGE_LIST_VIEW_FLAT, label: '扁平列表', icon: 'list' },
+  { key: CHANGE_LIST_VIEW_TREE, label: '树状目录', icon: 'folder' },
 ];
 
 // 切 cwd / 没有 cwd 时给 FileTree 传一个稳定的空 Map / Set,避免每次渲染
@@ -411,6 +425,7 @@ function ChangesList({
   groups,
   summary,
   cwd,
+  viewMode,
   selectedFile,
   selectedFileRevision = 0,
   onOpenFile,
@@ -423,6 +438,7 @@ function ChangesList({
       groups={reviewGroups}
       summary={reviewSummary}
       cwd={cwd}
+      viewMode={viewMode}
       selectedFile={selectedFile}
       selectedFileRevision={selectedFileRevision}
       onOpenFile={onOpenFile}
@@ -457,6 +473,12 @@ export function SidePanel({
 }) {
   const api = useMemo(() => createApi(sessionRef || null), [sessionRef?.port, sessionRef?.token, sessionRef?.workspaceHash]);
   const [activeTab,    setActiveTab]    = useState(filesEnabled ? 'files' : 'changes');
+  const [storedChangeListView, setStoredChangeListView] = usePreference(
+    CHANGE_LIST_VIEW_STORAGE_KEY,
+    DEFAULT_CHANGE_LIST_VIEW,
+    validateChangeListView,
+  );
+  const changeListView = effectiveChangeListView(storedChangeListView);
   const [selectedPath, setSelectedPath] = useState(null);
   const [fileRefreshToken, setFileRefreshToken] = useState(0);
   // git 仓库检测(redesign-sidepanel-git-changes):is_repo 时「变更」tab
@@ -641,6 +663,23 @@ export function SidePanel({
             </button>
           ))}
         </div>
+        {activeTab === 'changes' && (
+          <div className="ace-change-view-toggle" role="group" aria-label="变更文件展示方式">
+            {CHANGE_VIEW_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className="ace-change-view-toggle-btn"
+                title={option.label}
+                aria-label={option.label}
+                aria-pressed={changeListView === option.key}
+                onClick={() => setStoredChangeListView(option.key)}
+              >
+                <VsIcon name={option.icon} size={14} />
+              </button>
+            ))}
+          </div>
+        )}
         {filesEnabled && activeTab === 'files' && (
           <button
             type="button"
@@ -700,6 +739,7 @@ export function SidePanel({
             gitInfo={gitInfo}
             busy={busy}
             visible={!collapsed && activeTab === 'changes'}
+            viewMode={changeListView}
             selectedFile={selectedGitChangeFile}
             onOpenFile={onOpenGitChangePreview}
             onOpenFilePreview={onOpenFilePreview}
@@ -711,6 +751,7 @@ export function SidePanel({
             groups={effectiveChangeGroups}
             summary={effectiveChangeSummary}
             cwd={cwd}
+            viewMode={changeListView}
             selectedFile={selectedChangeFile}
             selectedFileRevision={selectedChangeFileRevision}
             onOpenFile={onOpenSessionChangePreview}

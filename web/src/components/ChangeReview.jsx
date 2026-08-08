@@ -2,12 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import * as Diff2Html from 'diff2html';
 import { hunksToUnifiedDiff } from '../lib/diff.js';
+import { DEFAULT_CHANGE_LIST_VIEW } from '../lib/changeFileTree.js';
 import { joinWorkspacePath } from '../lib/desktopContextMenu.js';
 import { summarizeChangeGroups } from '../lib/sessionChanges.js';
 import { normalizeTreePath } from '../lib/fileTreeChangeStatus.js';
 import { todoChecklistPresentation } from '../lib/todoChecklist.js';
 import { clsx, formatCount } from '../lib/format.js';
 import { ChangeReviewDetails } from './ChangeReviewDetails.jsx';
+import { ChangeFileList } from './ChangeFileList.jsx';
 import { VsIcon } from './Icon.jsx';
 
 function safeGroups(groups) {
@@ -202,39 +204,23 @@ function ChangeFileButton({ group, open, onClick, selected = false, cwd = '' }) 
   );
 }
 
-function splitPath(path) {
-  const parts = String(path || '').split(/[\\/]/).filter(Boolean);
-  const name = parts.pop() || String(path || '');
-  return {
-    name,
-    parent: parts.join('/'),
-  };
-}
-
 export function ChangeCompactList({
   groups,
   summary,
   cwd = '',
+  viewMode = DEFAULT_CHANGE_LIST_VIEW,
   selectedFile = '',
   selectedFileRevision = 0,
   onOpenFile,
 }) {
   const list = safeGroups(groups);
   const changeSummary = normalizedSummary(list, summary);
-  const listRef = useRef(null);
-  const selectedNormalizedFile = normalizeTreePath(selectedFile);
-
-  useLayoutEffect(() => {
-    if (!selectedNormalizedFile) return;
-    const el = listRef.current;
-    if (!el) return;
-    const row = Array.from(el.querySelectorAll('[data-change-compact-file]'))
-      .find((node) => normalizeTreePath(node.getAttribute('data-change-compact-file')) === selectedNormalizedFile);
-    if (!row) return;
-    const listRect = el.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
-    el.scrollTop = Math.max(0, el.scrollTop + rowRect.top - listRect.top);
-  }, [selectedNormalizedFile, selectedFileRevision]);
+  const rows = useMemo(() => list.map((group) => ({
+    path: group.file,
+    status: group.status || 'M',
+    additions: Number(group.totalAdditions || 0),
+    deletions: Number(group.totalDeletions || 0),
+  })), [list]);
 
   if (!changeSummary.hasChanges) {
     return (
@@ -260,38 +246,14 @@ export function ChangeCompactList({
         </div>
         <ChangeTotals summary={changeSummary} compact />
       </div>
-      <div className="ace-change-compact-list" ref={listRef}>
-        {list.map((group) => {
-          const pathParts = splitPath(group.file);
-          const selected = selectedNormalizedFile
-            && normalizeTreePath(group.file) === selectedNormalizedFile;
-          return (
-            <button
-              key={group.file}
-              type="button"
-              data-change-compact-file={group.file}
-              data-desktop-review-kind="file"
-              data-desktop-review-file={group.file || undefined}
-              data-desktop-review-absolute-path={cwd ? joinWorkspacePath(cwd, group.file) : undefined}
-              data-desktop-review-additions={String(group.totalAdditions || 0)}
-              data-desktop-review-deletions={String(group.totalDeletions || 0)}
-              className={clsx('ace-change-compact-row', selected && 'is-selected')}
-              onClick={() => onOpenFile?.(group.file)}
-              title={group.file}
-            >
-              <VsIcon name="file" size={14} mono={false} />
-              <span className="ace-change-compact-file">
-                <span className="ace-change-compact-name">{pathParts.name}</span>
-                {pathParts.parent && <span className="ace-change-compact-parent">{pathParts.parent}</span>}
-              </span>
-              <span className="ace-change-file-counts">
-                {group.totalAdditions > 0 && <span className="ace-change-add">+{group.totalAdditions}</span>}
-                {group.totalDeletions > 0 && <span className="ace-change-del">-{group.totalDeletions}</span>}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <ChangeFileList
+        rows={rows}
+        viewMode={viewMode}
+        cwd={cwd}
+        selectedFile={selectedFile}
+        selectedFileRevision={selectedFileRevision}
+        onOpenFile={onOpenFile}
+      />
     </div>
   );
 }
