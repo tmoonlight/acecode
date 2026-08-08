@@ -31,6 +31,10 @@ function finiteNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+export function nativeSurfaceSupportsLocalOcclusion(os = '') {
+  return os === 'windows' || os === 'macos';
+}
+
 export function normalizedClientRect(rect = {}) {
   const left = finiteNumber(rect.left);
   const top = finiteNumber(rect.top);

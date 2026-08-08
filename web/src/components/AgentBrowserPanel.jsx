@@ -27,6 +27,7 @@ import {
   nativeSurfaceOcclusionRectsFromClientRects,
   nativeSurfaceOverlayGeometryByDocument,
   nativeSurfaceShouldShow,
+  nativeSurfaceSupportsLocalOcclusion,
   nativeSurfaceViewportRect,
   nextAgentBrowserLayoutRequest,
 } from '../lib/agentBrowserSurfaceCoordinator.js';
@@ -108,7 +109,9 @@ export function AgentBrowserPanel({
     const overlayGeometry = forceHidden
       ? { blocking: false, occlusionRects: [] }
       : nativeSurfaceOverlayGeometryByDocument(surfaceRect, document, window);
-    const supportsLocalOcclusion = window.__ACECODE_OS__ === 'windows';
+    const supportsLocalOcclusion = nativeSurfaceSupportsLocalOcclusion(
+      window.__ACECODE_OS__,
+    );
     const overlayBlocked = overlayGeometry.blocking
       || (!supportsLocalOcclusion && overlayGeometry.occlusionRects.length > 0);
     const visible = !forceHidden && nativeSurfaceShouldShow({

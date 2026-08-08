@@ -80,6 +80,7 @@ if(APPLE)
         "-framework AppKit"
         "-framework ApplicationServices"
         "-framework CoreGraphics"
+        "-framework QuartzCore"
         "-framework WebKit"
     )
     target_include_directories(agent_browser_host_mac_smoke PRIVATE

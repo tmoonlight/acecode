@@ -8,6 +8,7 @@ import {
   nativeSurfaceOverlayGeometryByDocument,
   nativeSurfaceOverlayBlocks,
   nativeSurfaceShouldShow,
+  nativeSurfaceSupportsLocalOcclusion,
   nextAgentBrowserLayoutRequest,
 } from './agentBrowserSurfaceCoordinator.js';
 
@@ -23,6 +24,13 @@ function run(name, fn) {
 
 const browserRect = { left: 600, top: 120, width: 700, height: 500 };
 const viewportRect = { left: 0, top: 0, width: 1600, height: 900 };
+
+run('Windows and macOS native surfaces support local occlusion', () => {
+  assert.equal(nativeSurfaceSupportsLocalOcclusion('windows'), true);
+  assert.equal(nativeSurfaceSupportsLocalOcclusion('macos'), true);
+  assert.equal(nativeSurfaceSupportsLocalOcclusion('linux'), false);
+  assert.equal(nativeSurfaceSupportsLocalOcclusion(''), false);
+});
 
 run('native surface rectangle helpers distinguish overlap from adjacency', () => {
   assert.equal(clientRectsOverlap(browserRect, {
@@ -222,6 +230,14 @@ run('DPR layout requests are monotonic and deduplicate identical frames', () => 
     ],
   }, clipped);
   assert.equal(reorderedDuplicate.changed, false);
+
+  const restored = nextAgentBrowserLayoutRequest({
+    ...layout,
+    occlusion_rects: [],
+  }, clipped);
+  assert.equal(restored.changed, true);
+  assert.deepEqual(restored.request.occlusion_rects, []);
+  assert.ok(restored.revision > clipped.revision);
 });
 
 run('layout revisions remain newer after a Browser panel remount', () => {

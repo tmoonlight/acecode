@@ -22,8 +22,11 @@ function run(name, fn) {
 
 run('Agent Browser keeps the native webpage context menu enabled', () => {
   const host = source('src/desktop/agent_browser_host.cpp');
+  const macHost = source('src/desktop/agent_browser_host_mac.mm');
   assert.match(host, /put_AreDefaultContextMenusEnabled\(TRUE\)/);
   assert.doesNotMatch(host, /put_AreDefaultContextMenusEnabled\(FALSE\)/);
+  assert.match(macHost, /addEventListener\('contextmenu', suppress, true\)/);
+  assert.match(macHost, /removeEventListener\('contextmenu', suppress, true\)/);
 });
 
 run('native document titles and favicons update matching tabs before Agent-activity filtering', () => {
@@ -149,6 +152,7 @@ run('local overlays use declared blocking and overlap semantics', () => {
   const inputBar = source('web/src/components/InputBar.jsx');
   const message = source('web/src/components/Message.jsx');
   const panel = source('web/src/components/AgentBrowserPanel.jsx');
+  const coordinator = source('web/src/lib/agentBrowserSurfaceCoordinator.js');
 
   assert.match(modal, /data-ace-native-overlay="blocking"/);
   assert.match(contextMenu, /data-ace-native-overlay="overlap"/);
@@ -163,7 +167,9 @@ run('local overlays use declared blocking and overlap semantics', () => {
   assert.match(panel, /nativeSurfaceOverlayGeometryByDocument/);
   assert.match(panel, /nativeSurfaceOcclusionRectsFromClientRects/);
   assert.match(panel, /supportsLocalOcclusion/);
+  assert.match(panel, /nativeSurfaceSupportsLocalOcclusion/);
   assert.match(panel, /layout\.occlusion_rects/);
+  assert.match(coordinator, /os === 'windows' \|\| os === 'macos'/);
   assert.match(panel, /NATIVE_SURFACE_OVERLAY_EVENT/);
   assert.match(panel, /new MutationObserver\(scheduleLayout\)/);
   assert.match(panel, /new IntersectionObserver\(scheduleLayout\)/);
@@ -174,9 +180,12 @@ run('local overlays use declared blocking and overlap semantics', () => {
 run('native Agent Browser layouts reject stale revisions and unsafe windows', () => {
   const header = source('src/desktop/agent_browser_host.hpp');
   const host = source('src/desktop/agent_browser_host.cpp');
+  const macHost = source('src/desktop/agent_browser_host_mac.mm');
   const desktop = source('src/desktop/main.cpp');
   const webHost = source('src/desktop/web_host.cpp');
   const panel = source('web/src/components/AgentBrowserPanel.jsx');
+  const desktopCmake = source('cmake/acecode_desktop.cmake');
+  const testCmake = source('tests/CMakeLists.txt');
 
   assert.match(header, /std::uint64_t layout_revision = 0/);
   assert.match(header, /std::vector<AgentBrowserOcclusionRect> occlusion_rects/);
@@ -187,6 +196,15 @@ run('native Agent Browser layouts reject stale revisions and unsafe windows', ()
   assert.match(host, /::SetWindowRgn/);
   assert.match(host, /::CombineRgn\(visible_region, visible_region, hole, RGN_DIFF\)/);
   assert.match(host, /page->requested_bounds\.occlusion_rects/);
+  assert.match(macHost, /ACECodeAgentBrowserSurfaceView/);
+  assert.match(macHost, /CAShapeLayer\* mask/);
+  assert.match(macHost, /kCAFillRuleEvenOdd/);
+  assert.match(macHost, /NSPointInRect\(local, \[value rectValue\]\)/);
+  assert.match(macHost, /\[layer setMask:nil\]/);
+  assert.match(macHost, /bounds\.layout_revision < page->requested_bounds\.layout_revision/);
+  assert.match(macHost, /bounds\.occlusion_rects/);
+  assert.match(desktopCmake, /-framework QuartzCore/);
+  assert.match(testCmake, /-framework QuartzCore/);
   assert.match(host, /::IsWindowVisible\(parent\)/);
   assert.match(host, /!::IsIconic\(parent\)/);
   assert.match(host, /hide_agent_browser_widget\(browser_widget\)/);

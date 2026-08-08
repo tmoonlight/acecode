@@ -14,6 +14,7 @@
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <QuartzCore/QuartzCore.h>
 #import <WebKit/WebKit.h>
 
 #include <algorithm>
@@ -263,6 +264,97 @@ public:
 
 } // namespace
 } // namespace acecode::desktop
+
+@interface ACECodeAgentBrowserSurfaceView : NSView {
+@private
+    NSArray<NSValue*>* occlusion_rects_;
+}
+- (void)setOcclusionRects:(NSArray<NSValue*>*)rects;
+@end
+
+@implementation ACECodeAgentBrowserSurfaceView
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        occlusion_rects_ = [[NSArray alloc] init];
+        [self setWantsLayer:YES];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [occlusion_rects_ release];
+    [super dealloc];
+}
+
+- (BOOL)isFlipped {
+    return YES;
+}
+
+- (void)updateOcclusionMask {
+    CALayer* layer = [self layer];
+    if (!layer) return;
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if ([occlusion_rects_ count] == 0) {
+        [layer setMask:nil];
+        [CATransaction commit];
+        return;
+    }
+
+    const NSRect bounds = [self bounds];
+    const CGFloat width = NSWidth(bounds);
+    const CGFloat height = NSHeight(bounds);
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathAddRect(path, nullptr, CGRectMake(0, 0, width, height));
+    for (NSValue* value in occlusion_rects_) {
+        const NSRect rect = [value rectValue];
+        // Occlusion rectangles use the flipped, top-left Browser contract.
+        // CAShapeLayer paths use bottom-left coordinates, so flip only here.
+        const CGFloat x = NSMinX(rect) - NSMinX(bounds);
+        const CGFloat top = NSMinY(rect) - NSMinY(bounds);
+        const CGFloat y = height - top - NSHeight(rect);
+        CGPathAddRect(path, nullptr,
+                      CGRectMake(x, y, NSWidth(rect), NSHeight(rect)));
+    }
+
+    CAShapeLayer* mask = [CAShapeLayer layer];
+    [mask setFrame:CGRectMake(0, 0, width, height)];
+    [mask setPath:path];
+    [mask setFillRule:kCAFillRuleEvenOdd];
+    [mask setFillColor:CGColorGetConstantColor(kCGColorBlack)];
+    [mask setAllowsEdgeAntialiasing:NO];
+    [layer setMask:mask];
+    CGPathRelease(path);
+    [CATransaction commit];
+}
+
+- (void)setFrameSize:(NSSize)newSize {
+    [super setFrameSize:newSize];
+    [self updateOcclusionMask];
+}
+
+- (void)setOcclusionRects:(NSArray<NSValue*>*)rects {
+    NSArray<NSValue*>* next = rects ? [rects copy] : [[NSArray alloc] init];
+    [occlusion_rects_ release];
+    occlusion_rects_ = next;
+    [self updateOcclusionMask];
+}
+
+- (NSView*)hitTest:(NSPoint)point {
+    NSView* superview = [self superview];
+    const NSPoint local = superview
+        ? [self convertPoint:point fromView:superview]
+        : point;
+    for (NSValue* value in occlusion_rects_) {
+        if (NSPointInRect(local, [value rectValue])) return nil;
+    }
+    return [super hitTest:point];
+}
+
+@end
 
 @interface ACECodeAgentBrowserDelegate
     : NSObject <WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler> {
@@ -532,6 +624,7 @@ struct AgentBrowserHost::Impl final
         std::string id;
         AgentBrowserState state;
         AgentBrowserBounds requested_bounds;
+        ACECodeAgentBrowserSurfaceView* surface = nil;
         WKWebView* webview = nil;
         ACECodeAgentBrowserDelegate* delegate = nil;
         std::vector<std::string> console_logs;
@@ -781,6 +874,11 @@ struct AgentBrowserHost::Impl final
             [page->webview release];
             page->webview = nil;
         }
+        if (page->surface) {
+            [page->surface removeFromSuperview];
+            [page->surface release];
+            page->surface = nil;
+        }
         if (page->delegate) {
             page->delegate->owner_ = nullptr;
             [page->delegate release];
@@ -817,6 +915,8 @@ struct AgentBrowserHost::Impl final
 
         page->webview = [[WKWebView alloc]
             initWithFrame:NSZeroRect configuration:configuration];
+        page->surface = [[ACECodeAgentBrowserSurfaceView alloc]
+            initWithFrame:NSZeroRect];
         page->webview.navigationDelegate = page->delegate;
         page->webview.UIDelegate = page->delegate;
         for (NSString* key_path in
@@ -828,11 +928,21 @@ struct AgentBrowserHost::Impl final
         }
         page->observing_state = true;
         [page->webview setHidden:YES];
-        [page->webview setAutoresizingMask:NSViewNotSizable];
-        [[static_cast<NSWindow*>(parent_window) contentView]
-            addSubview:page->webview positioned:NSWindowAbove relativeTo:nil];
-        page->state.ready = page->webview != nil;
-        if (!page->webview) page->state.error = "failed to create WKWebView page";
+        [page->webview setAutoresizingMask:
+            NSViewWidthSizable | NSViewHeightSizable];
+        [page->surface setHidden:YES];
+        [page->surface setAutoresizingMask:NSViewNotSizable];
+        if (page->surface && page->webview) {
+            [page->surface addSubview:page->webview];
+            [[static_cast<NSWindow*>(parent_window) contentView]
+                addSubview:page->surface
+                positioned:NSWindowAbove
+                relativeTo:nil];
+        }
+        page->state.ready = page->webview != nil && page->surface != nil;
+        if (!page->state.ready) {
+            page->state.error = "failed to create WKWebView page surface";
+        }
 
         {
             std::lock_guard<std::mutex> lock(state_mutex);
@@ -846,7 +956,7 @@ struct AgentBrowserHost::Impl final
     }
 
     void apply_bounds(const std::shared_ptr<Page>& page) {
-        if (!page || !page->webview) return;
+        if (!page || !page->surface || !page->webview) return;
         NSView* content = [static_cast<NSWindow*>(parent_window) contentView];
         const auto bounds = page->requested_bounds;
         // The Desktop shell's contentView is itself a WKWebView, whose native
@@ -858,16 +968,34 @@ struct AgentBrowserHost::Impl final
         const CGFloat y = [content isFlipped]
             ? bounds.y
             : NSHeight([content bounds]) - bounds.y - bounds.height;
-        [page->webview setFrame:NSMakeRect(
+        [page->surface setFrame:NSMakeRect(
             bounds.x, y, bounds.width, bounds.height)];
+        [page->webview setFrame:[page->surface bounds]];
+
+        NSMutableArray<NSValue*>* occlusion_rects =
+            [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
+        for (const auto& occlusion : bounds.occlusion_rects) {
+            const int left = std::max(0, std::min(bounds.width, occlusion.x));
+            const int top = std::max(0, std::min(bounds.height, occlusion.y));
+            const int right = std::max(left, std::min(
+                bounds.width, occlusion.x + occlusion.width));
+            const int bottom = std::max(top, std::min(
+                bounds.height, occlusion.y + occlusion.height));
+            if (right > left && bottom > top) {
+                [occlusion_rects addObject:[NSValue valueWithRect:NSMakeRect(
+                    left, top, right - left, bottom - top)]];
+            }
+        }
+        [page->surface setOcclusionRects:occlusion_rects];
         const AgentBrowserState snapshot = state(page->id);
         const bool show = parent_surface_visible && bounds.visible &&
             snapshot.active &&
             snapshot.content_state == kAgentBrowserContentStateLive &&
             bounds.width > 0 && bounds.height > 0;
+        [page->surface setHidden:show ? NO : YES];
         [page->webview setHidden:show ? NO : YES];
         if (show) {
-            [content addSubview:page->webview
+            [content addSubview:page->surface
                      positioned:NSWindowAbove relativeTo:nil];
         }
         update_page(page, [&](AgentBrowserState& value) {
@@ -2263,7 +2391,8 @@ void AgentBrowserHost::hide(const std::string& page_id) {
     if (!impl_) return;
     if (!page_id.empty()) {
         auto page = impl_->find_page(page_id);
-        if (page && page->webview) {
+        if (page && page->surface && page->webview) {
+            [page->surface setHidden:YES];
             [page->webview setHidden:YES];
             impl_->update_page(page, [](AgentBrowserState& value) {
                 value.visible = false;
@@ -2273,7 +2402,8 @@ void AgentBrowserHost::hide(const std::string& page_id) {
     }
     for (const auto& state : impl_->states()) {
         auto page = impl_->find_page(state.page_id);
-        if (page && page->webview) {
+        if (page && page->surface && page->webview) {
+            [page->surface setHidden:YES];
             [page->webview setHidden:YES];
             impl_->update_page(page, [](AgentBrowserState& value) {
                 value.visible = false;

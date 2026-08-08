@@ -154,6 +154,52 @@ int main() {
                 exit_code = fail("about:blank did not finish loading");
             }
             if (exit_code == 0) {
+                acecode::desktop::AgentBrowserBounds occluded_bounds;
+                occluded_bounds.x = 20;
+                occluded_bounds.y = 20;
+                occluded_bounds.width = 860;
+                occluded_bounds.height = 580;
+                occluded_bounds.visible = true;
+                occluded_bounds.layout_revision = 2;
+                occluded_bounds.occlusion_rects.push_back({100, 80, 180, 120});
+                if (!host.set_bounds(page_id, occluded_bounds, &error)) {
+                    exit_code = fail(error.empty()
+                        ? "failed to apply WKWebView occlusion" : error);
+                } else {
+                    NSView* surface = [[[window contentView] subviews] firstObject];
+                    const NSPoint hole_point = NSMakePoint(20 + 150, 20 + 100);
+                    const NSPoint page_point = NSMakePoint(20 + 20, 20 + 20);
+                    if (![[surface layer] mask]) {
+                        exit_code = fail("WKWebView surface did not install a mask");
+                    } else if ([surface hitTest:hole_point] != nil) {
+                        exit_code = fail("WKWebView occlusion still captured mouse hits");
+                    } else if ([surface hitTest:page_point] == nil) {
+                        exit_code = fail("visible WKWebView stopped accepting mouse hits");
+                    }
+
+                    auto stale_bounds = occluded_bounds;
+                    stale_bounds.layout_revision = 1;
+                    stale_bounds.occlusion_rects.clear();
+                    if (exit_code == 0 &&
+                        (!host.set_bounds(page_id, stale_bounds, &error) ||
+                         ![[surface layer] mask])) {
+                        exit_code = fail(error.empty()
+                            ? "stale layout cleared WKWebView occlusion" : error);
+                    }
+
+                    auto restored_bounds = occluded_bounds;
+                    restored_bounds.layout_revision = 3;
+                    restored_bounds.occlusion_rects.clear();
+                    if (exit_code == 0 &&
+                        (!host.set_bounds(page_id, restored_bounds, &error) ||
+                         [[surface layer] mask] != nil ||
+                         [surface hitTest:hole_point] == nil)) {
+                        exit_code = fail(error.empty()
+                            ? "WKWebView occlusion did not fully restore" : error);
+                    }
+                }
+            }
+            if (exit_code == 0) {
                 secondary_page_id = host.create_page(&error);
                 if (secondary_page_id.empty() ||
                     secondary_page_id == page_id ||

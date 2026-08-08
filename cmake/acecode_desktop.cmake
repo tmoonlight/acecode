@@ -98,6 +98,7 @@ if(APPLE)
         "-framework AppKit"
         "-framework ApplicationServices"
         "-framework CoreGraphics"
+        "-framework QuartzCore"
         "-framework WebKit"
     )
 endif()
