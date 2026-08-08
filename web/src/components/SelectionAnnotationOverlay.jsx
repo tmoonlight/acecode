@@ -67,6 +67,7 @@ export function SelectionAnnotationOverlay({
   contexts = [],
   sourcePath = '',
   sourceText = '',
+  contentRevision = '',
   rendered = false,
 }) {
   const frameRef = useRef(0);
@@ -83,13 +84,14 @@ export function SelectionAnnotationOverlay({
       contexts,
       sourcePath,
       sourceText,
+      contentRevision,
       rendered,
     });
     setAppliedGroups(groups);
     return () => {
       clearSelectionSourceDecorations(host);
     };
-  }, [contexts, hostRef, rendered, sourcePath, sourceText]);
+  }, [contentRevision, contexts, hostRef, rendered, sourcePath, sourceText]);
 
   useLayoutEffect(() => {
     const host = hostRef?.current;

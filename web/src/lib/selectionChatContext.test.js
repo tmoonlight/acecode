@@ -117,11 +117,35 @@ run('selection contexts preserve source offsets, rendered view, and persisted an
     endLine: 3,
     startOffset: 15,
     endOffset: 27,
+    contentRevision: 'content-v1:c:1234567890abcdef',
   });
   assert.equal(ctx.selected_text, 'first\nsecond');
   assert.equal(ctx.source.view, 'rendered');
   assert.equal(ctx.source.start_offset, 15);
   assert.equal(ctx.source.end_offset, 27);
+  assert.equal(ctx.source.content_revision, 'content-v1:c:1234567890abcdef');
+});
+
+run('selection locations stay separate across document revisions', () => {
+  const first = createSelectionContext({
+    text: 'selected',
+    path: 'src/a.js',
+    startLine: 7,
+    endLine: 7,
+    startOffset: 20,
+    endOffset: 28,
+    contentRevision: 'content-v1:first',
+  });
+  const second = createSelectionContext({
+    text: 'selected',
+    path: 'src/a.js',
+    startLine: 7,
+    endLine: 7,
+    startOffset: 20,
+    endOffset: 28,
+    contentRevision: 'content-v1:second',
+  });
+  assert.notEqual(selectionContextLocationKey(first), selectionContextLocationKey(second));
 });
 
 run('selection location keys match the same file range despite text changes', () => {
@@ -225,11 +249,17 @@ run('annotated contexts survive composer normalization and expose hover presenta
   const payload = normalizeComposerContext({
     type: 'selection',
     selected_text: 'persisted selection',
-    source: { path: 'src/a.js', start_line: 3, end_line: 3 },
+    source: {
+      path: 'src/a.js',
+      start_line: 3,
+      end_line: 3,
+      content_revision: 'content-v1:p:1234567890abcdef',
+    },
     annotations: [{ id: 'ann-1', text: 'Check the fallback' }],
   });
   assert.equal(payload.text, 'persisted selection');
   assert.equal(payload.selected_text, 'persisted selection');
+  assert.equal(payload.source.content_revision, 'content-v1:p:1234567890abcdef');
   assert.equal(payload.annotations.length, 1);
   const presentation = contextPresentation(payload);
   assert.equal(presentation.annotationCount, 1);

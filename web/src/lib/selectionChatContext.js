@@ -2,6 +2,7 @@ export const SELECTION_CONTEXT_TYPE = 'selection';
 export const SELECTION_PREVIEW_SELECTOR = '[data-desktop-preview-path]';
 export const MAX_SELECTION_CONTEXT_CHARS = 40000;
 export const MAX_SELECTION_ANNOTATION_CHARS = 4000;
+export const MAX_SELECTION_CONTENT_REVISION_CHARS = 128;
 
 let annotationSequence = 0;
 
@@ -161,6 +162,7 @@ export function selectionContextFingerprint(ctx = {}) {
     source.path || ctx.path || '',
     source.start_line || source.startLine || '',
     source.end_line || source.endLine || '',
+    source.content_revision || source.contentRevision || '',
     asString(ctx.text),
   ].join('\u001f');
 }
@@ -174,6 +176,9 @@ export function selectionContextLocationKey(ctx = {}) {
   const endOffset = offsetInt(source.end_offset ?? source.endOffset);
   const start = positiveInt(source.start_line ?? source.startLine);
   const end = positiveInt(source.end_line ?? source.endLine) || start;
+  const contentRevision = asString(
+    source.content_revision ?? source.contentRevision,
+  ).slice(0, MAX_SELECTION_CONTENT_REVISION_CHARS);
   if (!path || (startOffset < 0 && !start)) return '';
   if (startOffset >= 0 && endOffset > startOffset) {
     return [
@@ -182,6 +187,7 @@ export function selectionContextLocationKey(ctx = {}) {
       view,
       startOffset,
       endOffset,
+      contentRevision,
     ].join('\u001f');
   }
   return [
@@ -190,6 +196,7 @@ export function selectionContextLocationKey(ctx = {}) {
     view,
     start,
     end,
+    contentRevision,
   ].join('\u001f');
 }
 
@@ -302,6 +309,7 @@ export function createSelectionContext({
   lineCount = 0,
   startOffset = -1,
   endOffset = -1,
+  contentRevision = '',
   annotations = [],
 } = {}) {
   const clippedText = truncateSelectionText(text);
@@ -323,6 +331,9 @@ export function createSelectionContext({
     source.start_offset = safeStartOffset;
     source.end_offset = safeEndOffset;
   }
+  const safeContentRevision = asString(contentRevision)
+    .slice(0, MAX_SELECTION_CONTENT_REVISION_CHARS);
+  if (safeContentRevision) source.content_revision = safeContentRevision;
 
   const context = {
     type: SELECTION_CONTEXT_TYPE,
@@ -394,6 +405,7 @@ export function normalizeComposerContext(ctx = {}) {
     lineCount: source.line_count ?? source.lineCount,
     startOffset: source.start_offset ?? source.startOffset,
     endOffset: source.end_offset ?? source.endOffset,
+    contentRevision: source.content_revision ?? source.contentRevision,
     annotations: ctx.annotations ?? ctx.annotation ?? [],
   });
   if (!normalized.text.trim()) return null;
@@ -636,6 +648,7 @@ export function selectionContextFromWindowSelection({
   if (!path) return null;
   const kind = preview.getAttribute('data-desktop-preview-kind') || '';
   if (!selectionPreviewKindSupportsActions(kind)) return null;
+  const contentRevision = preview.getAttribute('data-selection-source-revision') || '';
 
   let startLine = 0;
   let endLine = 0;
@@ -666,5 +679,6 @@ export function selectionContextFromWindowSelection({
     lineCount: selectionLineCount(text),
     startOffset: offsets.startOffset,
     endOffset: offsets.endOffset,
+    contentRevision,
   });
 }

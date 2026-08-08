@@ -5,6 +5,7 @@ import {
   resolveSelectionAnchor,
   sameSelectionSourcePath,
   selectionAnnotationBubbleLeft,
+  selectionSourceContentRevision,
   sourceLineStartOffset,
 } from './selectionSourceDecorations.js';
 import { createSelectionContext } from './selectionChatContext.js';
@@ -206,4 +207,55 @@ run('plain references create a decoration group without an annotation bubble num
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].annotations, []);
   assert.equal(groups[0].annotationNumber, 0);
+});
+
+run('unchanged document revisions keep existing annotations visible', () => {
+  const source = 'header\nannotated passage\nfooter';
+  const contentRevision = selectionSourceContentRevision(source);
+  const context = createSelectionContext({
+    id: 'unchanged',
+    text: 'annotated passage',
+    path: 'C:/repo/a.txt',
+    view: 'source',
+    startLine: 2,
+    endLine: 2,
+    startOffset: 7,
+    endOffset: 24,
+    contentRevision,
+    annotations: [{ id: 'ann-unchanged', text: 'Still current' }],
+  });
+
+  const groups = groupSelectionDecorations(
+    [context],
+    'C:/repo/a.txt',
+    'source',
+    selectionSourceContentRevision(source),
+  );
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].annotations[0].text, 'Still current');
+});
+
+run('any document content change silently hides old annotations', () => {
+  const original = 'header\nannotated passage\nfooter';
+  const changedElsewhere = 'changed header\nannotated passage\nfooter';
+  const context = createSelectionContext({
+    id: 'old-revision',
+    text: 'annotated passage',
+    path: 'C:/repo/a.txt',
+    view: 'source',
+    startLine: 2,
+    endLine: 2,
+    startOffset: 7,
+    endOffset: 24,
+    contentRevision: selectionSourceContentRevision(original),
+    annotations: [{ id: 'ann-old', text: 'Must stay hidden' }],
+  });
+
+  const groups = groupSelectionDecorations(
+    [context],
+    'C:/repo/a.txt',
+    'source',
+    selectionSourceContentRevision(changedElsewhere),
+  );
+  assert.deepEqual(groups, []);
 });

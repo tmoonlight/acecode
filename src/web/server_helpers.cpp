@@ -234,6 +234,7 @@ std::string selection_line_suffix(const json& source) {
 }
 
 std::optional<json> sanitized_selection_context_meta(const json& ctx) {
+    constexpr std::size_t kMaxContentRevisionBytes = 128;
     if (!ctx.is_object() || json_string_field(ctx, "type") != "selection") {
         return std::nullopt;
     }
@@ -263,6 +264,13 @@ std::optional<json> sanitized_selection_context_meta(const json& ctx) {
             *end_offset > *start_offset) {
             source["start_offset"] = *start_offset;
             source["end_offset"] = *end_offset;
+        }
+        const std::string content_revision = truncate_utf8_prefix(
+            json_string_field(raw_source, "content_revision"),
+            kMaxContentRevisionBytes,
+            "");
+        if (has_non_whitespace(content_revision)) {
+            source["content_revision"] = content_revision;
         }
     }
 

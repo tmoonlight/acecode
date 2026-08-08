@@ -134,20 +134,20 @@ Newly sent selection content parts SHALL preserve a sanitized selected-text anch
 - **WHEN** a historical selection content part has no selected-text anchor or annotations
 - **THEN** its existing chat card still renders without failing
 
-### Requirement: File changes use conservative re-anchoring
-The preview SHALL first validate stored offsets against the selected text, then fall back to the nearest exact selected-text occurrence using the stored offset or line range. It MUST NOT attach an annotation to non-matching text.
+### Requirement: File changes silently hide old annotations
+New annotated contexts SHALL record a stable revision of the complete source document. The preview SHALL compare that stored revision with the freshly loaded document content before applying source decorations. It MUST silently omit revision-mismatched annotations without deleting their session history, showing stale indicators, or asking the user for confirmation. Matching revisions SHALL continue through the existing exact-anchor resolution path.
 
-#### Scenario: Stored offset still matches
-- **WHEN** the file content at the stored offsets still equals the selected text
-- **THEN** the decoration uses that exact range
+#### Scenario: Unchanged document keeps annotations
+- **WHEN** the freshly loaded document revision equals the revision stored with an annotation
+- **THEN** the existing source mark, numbered bubble, and annotation content are displayed normally
 
-#### Scenario: Text moved after edits
-- **WHEN** the selected text still exists exactly but moved away from the stored range
-- **THEN** the decoration follows the nearest exact occurrence
+#### Scenario: Change elsewhere hides an old annotation
+- **WHEN** any document content changes while the annotated passage itself still exists exactly
+- **THEN** the old annotation produces no source mark, bubble, stale notice, prompt, or confirmation when the user switches back to that document
 
-#### Scenario: Original text no longer exists
-- **WHEN** no exact occurrence of the selected text exists in the current preview
-- **THEN** the annotation is marked `原文已变化` at the preview edge and no unrelated text is decorated
+#### Scenario: Change inside the passage hides an old annotation
+- **WHEN** the annotated passage or any other document content changes
+- **THEN** all annotations recorded against the previous document revision are silently absent from the preview
 
 ### Requirement: Model context includes annotation intent
 The daemon SHALL include each normalized annotation immediately with its selected text in the hidden augmented request context while preserving the user's visible prompt. It SHALL sanitize annotation metadata and enforce server-side size limits.

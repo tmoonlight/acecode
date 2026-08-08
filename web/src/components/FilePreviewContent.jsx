@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import hljs from 'highlight.js/lib/core';
 import { renderAsync } from 'docx-preview';
 import 'x-data-spreadsheet/dist/xspreadsheet.css';
@@ -12,7 +12,10 @@ import {
   DESKTOP_CONTEXT_ACTIONS,
 } from '../lib/desktopContextMenu.js';
 import { resolveSelectionSourcePath } from '../lib/selectionChatContext.js';
-import { normalizeSelectionSourceText } from '../lib/selectionSourceDecorations.js';
+import {
+  normalizeSelectionSourceText,
+  selectionSourceContentRevision,
+} from '../lib/selectionSourceDecorations.js';
 import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { clsx, formatBytes } from '../lib/format.js';
 import { filePreviewKind, isBlobFilePreview } from '../lib/filePreviewKind.js';
@@ -68,6 +71,12 @@ export function FilePreviewContent({
   const loadedIdentityRef = useRef('');
   const pendingScrollSnapshotRef = useRef(null);
   const handledFocusRequestRef = useRef('');
+  const sourceContentRevision = useMemo(
+    () => (state.status === 'ok' && (state.kind === 'text' || state.kind === 'markdown')
+      ? selectionSourceContentRevision(state.text)
+      : ''),
+    [state.kind, state.status, state.text],
+  );
 
   useEffect(() => {
     const handler = (event) => {
@@ -274,6 +283,7 @@ export function FilePreviewContent({
     'data-desktop-preview-size': Number.isFinite(state.size) ? String(state.size) : undefined,
     'data-desktop-preview-content-type': state.contentType || undefined,
     'data-desktop-preview-copy-image-url': state.kind === 'image' ? state.previewUrl || undefined : undefined,
+    'data-selection-source-revision': sourceContentRevision || undefined,
   };
   if (state.status === 'loading') {
     return <div className="ace-empty-state" {...previewAttrs}>加载中...</div>;
@@ -416,6 +426,7 @@ export function FilePreviewContent({
               contexts={selectionContexts}
               sourcePath={sourcePath}
               sourceText={normalizedSourceText}
+              contentRevision={sourceContentRevision}
               rendered
             />
           </>
@@ -431,6 +442,7 @@ export function FilePreviewContent({
               contexts={selectionContexts}
               sourcePath={sourcePath}
               sourceText={normalizedSourceText}
+              contentRevision={sourceContentRevision}
             />
           </>
         )}

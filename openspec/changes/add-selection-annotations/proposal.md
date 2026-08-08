@@ -8,7 +8,7 @@ ACECode can already pin selected preview text into the chat composer, but the ac
 - Let `批注` open a focused multiline editor and pin the selected text together with a required annotation into the existing composer-context flow.
 - Render theme-colored source decorations for referenced selections and numbered annotation bubbles whose hover card exposes all annotations anchored at that location.
 - Preserve sent annotations in session message metadata so reopening a session can restore source decorations and bubbles without sharing them across unrelated sessions.
-- Re-anchor sent annotations after file changes by combining the stored source range with selected-text matching; surface stale annotations without attaching them to the wrong passage.
+- Record the source document content revision with each new annotation and silently hide that annotation in previews after any document content change.
 - Reuse the existing composer and sent-message selection cards, adding a compact annotation indicator and hover content instead of introducing a second attachment surface.
 - Send both the selected text and annotation content to the model as hidden request context while keeping the user's visible prompt unchanged.
 
@@ -16,7 +16,7 @@ ACECode can already pin selected preview text into the chat composer, but the ac
 
 ### New Capabilities
 
-- `selection-annotations`: Selection toolbar, annotation editor, source decorations, session-scoped persistence, re-anchoring, and annotated chat-context presentation.
+- `selection-annotations`: Selection toolbar, annotation editor, source decorations, session-scoped persistence, document-revision gating, and annotated chat-context presentation.
 
 ### Modified Capabilities
 

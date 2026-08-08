@@ -17,7 +17,7 @@ Annotations need to survive selection loss, message send, file switching, and se
 - Expose selection actions directly beside a live preview selection.
 - Carry one or more user annotations with a selection through composer, prompt expansion, session persistence, and sent-message rendering.
 - Restore referenced-text marks and numbered annotation bubbles from the current session.
-- Re-anchor against changed content conservatively and represent unresolved annotations as stale.
+- Keep annotations visible while the source document content is unchanged and silently hide old annotations after any content change.
 - Keep the existing selection card and context-menu behavior recognizable.
 
 **Non-Goals:**
@@ -81,9 +81,9 @@ Plain reference pinning preserves the existing location-based deduplication. Ann
 
 Historical sent messages remain immutable. A later annotation of the same passage creates a new context in the new user message; source rendering groups all current-session contexts at the same anchor into one bubble containing all annotations.
 
-### 4. Persist a sanitized anchor and annotations in the selection content part
+### 4. Persist a sanitized anchor, document revision, and annotations in the selection content part
 
-The daemon will continue to read the unsent `text` field when constructing the hidden prompt. Sanitized session metadata will additionally retain capped `selected_text`, source offsets, and normalized annotations. Arbitrary client fields are not copied.
+The daemon will continue to read the unsent `text` field when constructing the hidden prompt. Sanitized session metadata will additionally retain capped `selected_text`, source offsets, the bounded full-document `content_revision`, and normalized annotations. Arbitrary client fields are not copied.
 
 Prompt expansion will place each annotation immediately after its selected text so the model receives both as one context unit. The visible `display_text` behavior is unchanged.
 
@@ -97,17 +97,18 @@ Because the list is derived from the active session transcript, changing session
 
 Within a file, contexts are grouped by anchored passage. Groups with annotations receive stable 1-based numbers in first-appearance order. Plain references create marks but no bubble.
 
-### 6. Resolve anchors conservatively and apply DOM marks after preview render
+### 6. Gate annotations by document revision, then resolve anchors and apply DOM marks
 
-A focused `selectionSourceDecorations` helper will provide pure anchor resolution plus DOM application:
+A focused `selectionSourceDecorations` helper will provide document-revision gating, pure anchor resolution, and DOM application:
 
-1. Prefer the stored offsets when the text at that range still matches.
-2. Otherwise find exact selected-text occurrences and choose the one nearest the stored offset or line.
-3. If no exact occurrence exists, return a stale result instead of guessing.
+1. Compute a stable revision from the complete raw document and expose it on the selectable preview surface.
+2. Capture that revision with a new annotation and preserve it through composer normalization and session metadata sanitization.
+3. When a document is opened or refreshed, omit every annotated context whose stored revision differs from the freshly loaded document revision. This omission is silent and does not delete the historical context.
+4. For matching revisions, prefer the stored offsets when the text at that range still matches, then use the existing exact selected-text fallback without fuzzy matching.
 
 For code/text/Markdown source mode, raw-source offsets map to text nodes inside each `.ace-line-code` cell. For rendered Markdown, a selectable text-node index is built from the rendered DOM and matched against the selected visible text.
 
-The helper wraps only matched text-node fragments with semantic `<mark>` elements. A React overlay measures the first mark in each annotated group and keeps its numbered bubble aligned during scroll and resize. Unresolved groups appear in a compact stale stack at the preview edge with `原文已变化`; they never point at arbitrary text.
+The helper wraps only matched text-node fragments with semantic `<mark>` elements. A React overlay measures the first mark in each annotated group and keeps its numbered bubble aligned during scroll and resize. Revision-mismatched groups never reach the overlay, so they produce no mark, bubble, stale notice, prompt, or confirmation. Legacy contexts that predate `content_revision` retain their existing exact-anchor behavior so unchanged historical annotations are not hidden unconditionally.
 
 DOM marks are cleared before each application and during unmount so they do not leak across `dangerouslySetInnerHTML` refreshes. Annotation bubbles live in a separate overlay and therefore do not pollute copy or selection text.
 
@@ -132,7 +133,7 @@ Hovering or focusing the indicator reveals the annotations grouped at that ancho
 ## Risks / Trade-offs
 
 - **[Risk] DOM mark mutation can conflict with transient inactive-selection marks.** → Clear only the dedicated persistent mark class before reapplying, export an explicit inactive-selection reset for completed actions, and cover both classes in architecture tests.
-- **[Risk] Repeated source text can produce an ambiguous fallback match.** → Prefer stored offsets/line proximity and never use a fuzzy match; unresolved content is stale.
+- **[Risk] Repeated source text can produce an ambiguous fallback match.** → Compare the complete document revision first; only matching or legacy contexts reach stored-offset/exact-text resolution, which never uses a fuzzy match.
 - **[Risk] Large selections and comments could inflate session records.** → Keep the existing selected-text cap, add a separate annotation cap, deduplicate annotations, and store only sanitized fields.
 - **[Risk] Rendered Markdown text does not map one-to-one to source Markdown.** → Treat rendered mode as a rendered-text anchor and resolve it against the rendered DOM; source mode continues to use raw-source offsets.
 - **[Risk] Overlay positions can drift after wrapping, zoom, or resize.** → Re-measure on scroll, resize, `ResizeObserver`, and decoration changes.
@@ -143,7 +144,7 @@ Hovering or focusing the indicator reveals the annotations grouped at that ancho
 
 1. Deploy the backward-compatible Web and daemon schema extension together.
 2. Existing content parts continue to display through the old fields.
-3. Newly sent contexts record anchor text, offsets, and annotations.
+3. Newly sent contexts record anchor text, offsets, the full-document content revision, and annotations.
 4. Rollback is safe: older clients ignore the additional JSON fields and still show the selection card.
 
 ## Open Questions

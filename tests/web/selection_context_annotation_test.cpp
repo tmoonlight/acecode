@@ -30,6 +30,7 @@ json annotated_selection() {
             {"line_count", 1},
             {"start_offset", 0},
             {"end_offset", 18},
+            {"content_revision", "content-v1:i:5ce15b0fd1726f2a"},
             {"ignored", "drop me"},
         }},
         {"annotations", json::array({
@@ -53,6 +54,8 @@ TEST(SelectionContextAnnotation, SanitizesPersistedAnchorAndAnnotations) {
     EXPECT_EQ((*meta)["source"]["view"], "source");
     EXPECT_EQ((*meta)["source"]["start_offset"], 0);
     EXPECT_EQ((*meta)["source"]["end_offset"], 18);
+    EXPECT_EQ((*meta)["source"]["content_revision"],
+              "content-v1:i:5ce15b0fd1726f2a");
     EXPECT_FALSE((*meta)["source"].contains("ignored"));
     ASSERT_TRUE((*meta).contains("annotations"));
     ASSERT_EQ((*meta)["annotations"].size(), 1u);
@@ -62,6 +65,20 @@ TEST(SelectionContextAnnotation, SanitizesPersistedAnchorAndAnnotations) {
               "2026-07-26T08:00:00.000Z");
     EXPECT_FALSE((*meta)["annotations"][0].contains("ignored"));
     EXPECT_FALSE((*meta).contains("ignored"));
+}
+
+// 场景：文档版本只作为有界元数据持久化，不能用超长客户端字段膨胀会话。
+TEST(SelectionContextAnnotation, BoundsPersistedContentRevision) {
+    auto selection = annotated_selection();
+    selection["source"]["content_revision"] = std::string(300, 'r');
+
+    auto meta = sanitized_selection_context_meta(selection);
+    ASSERT_TRUE(meta.has_value());
+    ASSERT_TRUE((*meta).contains("source"));
+    ASSERT_TRUE((*meta)["source"].contains("content_revision"));
+    EXPECT_EQ(
+        (*meta)["source"]["content_revision"].get<std::string>().size(),
+        128u);
 }
 
 // 场景：恶意或损坏的批注数组受单条长度和总条数上限约束，并按 id 去重。

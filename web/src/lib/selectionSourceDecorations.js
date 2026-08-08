@@ -2,6 +2,7 @@ import { unwrapMarks, wrapTextNodeRange } from './domTextMarks.js';
 import {
   groupSelectionAnnotationContexts,
   normalizeSelectionSourcePath,
+  normalizeSelectionAnnotations,
   sameSelectionSourcePath,
   selectionAnchorText,
 } from './selectionChatContext.js';
@@ -51,6 +52,45 @@ function positiveInt(value) {
 
 export function normalizeSelectionSourceText(value) {
   return asString(value).replace(/\r\n|\r/g, '\n');
+}
+
+// Fast deterministic fingerprint of the complete decoded document. Two
+// independently mixed 32-bit lanes plus the exact length make accidental
+// collisions negligible without requiring async Web Crypto during selection.
+export function selectionSourceContentRevision(value) {
+  const text = asString(value);
+  let forward = 2166136261;
+  let reverse = 2246822519 ^ text.length;
+  for (let index = 0; index < text.length; index += 1) {
+    forward = Math.imul(forward ^ text.charCodeAt(index), 16777619);
+    reverse = Math.imul(
+      reverse ^ text.charCodeAt(text.length - index - 1),
+      3266489917,
+    );
+  }
+  const hex = (number) => (number >>> 0).toString(16).padStart(8, '0');
+  return `content-v1:${text.length.toString(36)}:${hex(forward)}${hex(reverse)}`;
+}
+
+function contextContentRevision(context = {}) {
+  const source = context?.source && typeof context.source === 'object'
+    ? context.source
+    : {};
+  return asString(source.content_revision ?? source.contentRevision);
+}
+
+export function selectionContextsForContentRevision(contexts = [], contentRevision = '') {
+  const currentRevision = asString(contentRevision);
+  const list = Array.isArray(contexts) ? contexts : [];
+  if (!currentRevision) return list;
+  return list.filter((context) => {
+    const annotations = normalizeSelectionAnnotations(
+      context?.annotations ?? context?.annotation,
+    );
+    if (annotations.length === 0) return true;
+    const storedRevision = contextContentRevision(context);
+    return !storedRevision || storedRevision === currentRevision;
+  });
 }
 
 export function sourceLineStartOffset(text, lineNumber) {
@@ -130,8 +170,16 @@ export function resolveSelectionAnchor(sourceText, context = {}) {
   };
 }
 
-export function groupSelectionDecorations(contexts = [], sourcePath = '', view = '') {
-  return groupSelectionAnnotationContexts(contexts, { sourcePath, view });
+export function groupSelectionDecorations(
+  contexts = [],
+  sourcePath = '',
+  view = '',
+  contentRevision = '',
+) {
+  return groupSelectionAnnotationContexts(
+    selectionContextsForContentRevision(contexts, contentRevision),
+    { sourcePath, view },
+  );
 }
 
 function textNodeParts(root, start, end) {
@@ -279,11 +327,17 @@ export function applySelectionSourceDecorations(root, {
   contexts = [],
   sourcePath = '',
   sourceText = '',
+  contentRevision = '',
   rendered = false,
 } = {}) {
   clearSelectionSourceDecorations(root);
   const currentView = rendered ? 'rendered' : 'source';
-  const groups = groupSelectionDecorations(contexts, sourcePath, currentView);
+  const groups = groupSelectionDecorations(
+    contexts,
+    sourcePath,
+    currentView,
+    contentRevision,
+  );
   const normalizedSource = normalizeSelectionSourceText(sourceText);
   const renderedIndex = rendered ? renderedPreviewTextIndex(root) : null;
   const targetText = rendered ? renderedIndex.text : normalizedSource;

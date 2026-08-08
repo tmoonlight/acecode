@@ -52,6 +52,10 @@ run('file previews expose precise source offsets and both supported decoration s
   assert.match(preview, /data-source-line=/);
   assert.match(preview, /data-source-start=/);
   assert.match(preview, /data-source-length=/);
+  assert.match(preview, /data-selection-source-revision/);
+  assert.match(preview, /selectionSourceContentRevision\(state\.text\)/);
+  const contexts = source('lib/selectionChatContext.js');
+  assert.match(contexts, /getAttribute\('data-selection-source-revision'\)/);
   assert.equal((preview.match(/<SelectionAnnotationOverlay/g) || []).length, 2);
   assert.match(preview, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
   assert.match(preview, /className="h-full overflow-auto text-\[11px\] ace-preview"/);
@@ -84,7 +88,9 @@ run('plain references get source marks while only annotated groups get bubbles',
   const styles = source('styles/globals.css');
   assert.match(decorations, /SELECTION_REFERENCE_MARK_CLASS/);
   assert.match(decorations, /dataset\.selectionAnnotated = annotated/);
-  assert.match(decorations, /groupSelectionAnnotationContexts\(contexts, \{ sourcePath, view \}\)/);
+  assert.match(decorations, /selectionContextsForContentRevision\(contexts, contentRevision\)/);
+  assert.match(decorations, /storedRevision === currentRevision/);
+  assert.match(overlay, /contentRevision/);
   assert.match(contexts, /group\.annotationNumber = annotationNumber/);
   assert.match(overlay, /if \(!group\.annotations\?\.length \|\| !group\.annotationNumber\) continue/);
   assert.match(overlay, /selectionAnnotationBubbleLeft\(rect, frameRect\)/);

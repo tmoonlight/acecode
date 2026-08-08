@@ -72,3 +72,19 @@
 - `openspec validate add-selection-annotations --strict` — passed.
 - Real Web UI — loaded three sent annotations for `1.log` lines 4, 8, and 12; details and chat both displayed `1`, `2`, and `3`, all three source anchors resolved, and no stale annotation was reported.
 - Card tooltip — focusing the chat marker `2` rendered a fixed top-level tooltip with `第二处批注：检查 grep 工具注册`; computed visibility was `visible` with opacity `1`.
+
+## 8. Hide annotations after document changes
+
+- [x] 8.1 Capture and persist a bounded full-document content revision with new selection annotations, then gate preview decorations by the freshly loaded revision without adding any interaction.
+- [x] 8.2 Add focused regressions proving unchanged documents still display annotations while any content change silently hides old annotations.
+- [x] 8.3 Run the focused Web and C++ tests, the full Web suite/build, strict OpenSpec validation, and `git diff --check`.
+
+## Document-change hiding verification
+
+- Focused selection-context, source-decoration, and annotation-architecture JavaScript suites — passed, including unchanged-document display and changed-elsewhere hiding.
+- `cmake --build build --target acecode_unit_tests --config Release -- /m:1 /nodeReuse:false` — passed.
+- `build\tests\Release\acecode_unit_tests.exe --gtest_filter=SelectionContextAnnotation.*` — 7 tests passed.
+- `pnpm test` — passed.
+- `pnpm build` — passed.
+- `openspec validate add-selection-annotations --strict` — passed.
+- `git diff --check` — passed.
