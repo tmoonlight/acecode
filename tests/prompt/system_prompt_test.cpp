@@ -385,7 +385,8 @@ TEST_F(SystemPromptTest, EffectiveToolPolicyOmitsDisabledToolGuidance) {
     const std::string out = acecode::build_system_prompt(
         tools, temp_home.string(), nullptr, nullptr, nullptr, nullptr, &policy);
 
-    EXPECT_NE(out.find("file_read"), std::string::npos);
+    EXPECT_NE(out.find("`read`"), std::string::npos);
+    EXPECT_EQ(out.find("file_read"), std::string::npos);
     for (const char* denied : {
              "file_edit", "file_write", "grep", "glob",
              "AskUserQuestion", "task_complete", "skill_view", "skills_list"}) {
@@ -412,7 +413,7 @@ TEST_F(SystemPromptTest, PromptEncouragesBatchedToolCallsWithoutPerCallNarration
               std::string::npos);
     EXPECT_NE(out.find("prefer silent batches of tool calls"),
               std::string::npos);
-    EXPECT_NE(out.find("\"Let me read this file.\" followed by one file_read"),
+    EXPECT_NE(out.find("\"Let me read this file.\" followed by one `read`"),
               std::string::npos);
     EXPECT_EQ(out.find("you will produce many assistant messages between tool calls"),
               std::string::npos);
@@ -422,9 +423,9 @@ TEST_F(SystemPromptTest, PromptUsesClaudeStyleReadFailureGuidanceAndGuidesScratc
     acecode::ToolExecutor tools;
     std::string out = acecode::build_system_prompt(tools, temp_home.string());
 
-    EXPECT_NE(out.find("file_edit will error if you attempt an edit without reading the file"), std::string::npos);
-    EXPECT_NE(out.find("file_write will fail if you did not read the file first"), std::string::npos);
-    EXPECT_NE(out.find("Do not call file_read again for the same file/range"), std::string::npos);
+    EXPECT_NE(out.find("`edit` will error if you attempt an edit without reading the file"), std::string::npos);
+    EXPECT_NE(out.find("`write` will fail if you did not read the file first"), std::string::npos);
+    EXPECT_NE(out.find("Do not call `read` again for the same file/range"), std::string::npos);
     EXPECT_NE(out.find("Do not re-read a file only to verify a successful edit/write"), std::string::npos);
     EXPECT_NE(out.find("ACECODE_TMPDIR"), std::string::npos);
     EXPECT_NE(out.find("only as the leading path component"), std::string::npos);
@@ -433,6 +434,9 @@ TEST_F(SystemPromptTest, PromptUsesClaudeStyleReadFailureGuidanceAndGuidesScratc
     EXPECT_EQ(out.find("partial reads are only enough for range edits"), std::string::npos);
     EXPECT_EQ(out.find("start_line/end_line/expected_hash"), std::string::npos);
     EXPECT_EQ(out.find("metadata/range edit"), std::string::npos);
+    EXPECT_EQ(out.find("file_read"), std::string::npos);
+    EXPECT_EQ(out.find("file_edit"), std::string::npos);
+    EXPECT_EQ(out.find("file_write"), std::string::npos);
 }
 
 // 场景:Windows 平台 build prompt 必须注入 "# Shell Command Guidance (Windows)" 段。

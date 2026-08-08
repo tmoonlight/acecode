@@ -1264,14 +1264,14 @@ TEST(ExpertRegistry,
     };
     EXPECT_EQ(tool_names(provider->tools_for_turn(0)),
               std::vector<std::string>({
-                  "file_read",
+                  "read",
                   "mcp_review_probe",
                   "skill_view",
                   "skills_list",
               }));
     EXPECT_EQ(tool_names(provider->tools_for_turn(1)),
               std::vector<std::string>({
-                  "file_write",
+                  "write",
                   "mcp_write_probe",
                   "skill_view",
                   "skills_list",

@@ -7,6 +7,7 @@
 #include "../memory/memory_registry.hpp"
 #include "../project_instructions/instructions_loader.hpp"
 #include "../skills/skill_registry.hpp"
+#include "../tool/tool_protocol_names.hpp"
 #include "../utils/encoding.hpp"
 #include "../utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>
@@ -51,6 +52,8 @@ static std::string get_shell_guidance(bool bash_allowed,
                                       bool file_write_allowed) {
 #ifdef _WIN32
     if (!bash_allowed) return "";
+    const std::string file_write_name =
+        model_tool_name_for_native("file_write");
     std::ostringstream out;
     out << "# Shell Command Guidance (Windows)\n\n"
         << "The `bash` tool runs commands through `cmd.exe /c`, NOT through a POSIX shell. "
@@ -64,14 +67,16 @@ static std::string get_shell_guidance(bool bash_allowed,
         << "- Quoting: use double quotes for arguments containing spaces; cmd.exe does NOT strip "
         << "single quotes — they become literal characters.\n";
     if (file_write_allowed) {
-        out << "- No heredocs. To write multi-line content, prefer the `file_write` tool.\n";
+        out << "- No heredocs. To write multi-line content, prefer the `"
+            << file_write_name << "` tool.\n";
     }
     out << "- Sequencing: `&&` (run if previous succeeded) and `||` (run if previous failed) work. "
         << "Use `&` for unconditional sequencing (not `;`).\n"
         << "- Lookups: `where X` (not `which`), `dir` (not `ls`), `type` (not `cat`).\n"
         << "- In `bash` commands, use `%ACECODE_TMPDIR%` for temporary scripts; ACECode rejects this placeholder if no active session scratch directory is available.\n";
     if (file_write_allowed) {
-        out << "- For complex persistent scripts, prefer creating a real `.bat` or `.ps1` via `file_write` and "
+        out << "- For complex persistent scripts, prefer creating a real `.bat` or `.ps1` via `"
+            << file_write_name << "` and "
             << "running that, rather than fighting cmd.exe's quoting in a one-liner.\n";
     }
     out << "\n";
@@ -115,6 +120,12 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     const bool bash_allowed = guidance_allows("bash");
     const bool skill_view_allowed = guidance_allows("skill_view");
     const bool skills_list_allowed = guidance_allows("skills_list");
+    const std::string file_read_name =
+        model_tool_name_for_native("file_read");
+    const std::string file_edit_name =
+        model_tool_name_for_native("file_edit");
+    const std::string file_write_name =
+        model_tool_name_for_native("file_write");
 
     std::ostringstream oss;
 
@@ -158,32 +169,47 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
             << "- Built-in file tools decode supported text to UTF-8/LF internally and preserve existing encoding/line endings on write.\n";
     }
     if (file_read_allowed) {
-        oss << "- Do not call file_read again for the same file/range when that content is already current in the conversation; repeated unchanged reads return a compact stub.\n"
-            << "- Tool results wrapped in <persisted-output> are previews; read the saved path with file_read if you need the full output.\n";
+        oss << "- Do not call `" << file_read_name
+            << "` again for the same file/range when that content is already current in the conversation; repeated unchanged reads return a compact stub.\n"
+            << "- Tool results wrapped in <persisted-output> are previews; read the saved path with `"
+            << file_read_name << "` if you need the full output.\n";
     }
     if (file_read_allowed && file_edit_allowed) {
-        oss << "- You must use your file_read tool at least once in the conversation before editing. file_edit will error if you attempt an edit without reading the file.\n";
+        oss << "- You must use your `" << file_read_name
+            << "` tool at least once in the conversation before editing. `"
+            << file_edit_name
+            << "` will error if you attempt an edit without reading the file.\n";
     }
     if (file_read_allowed && file_write_allowed) {
-        oss << "- If this is an existing file, you MUST use the file_read tool first to read the file's contents before file_write. file_write will fail if you did not read the file first.\n";
+        oss << "- If this is an existing file, you MUST use the `"
+            << file_read_name
+            << "` tool first to read the file's contents before `"
+            << file_write_name << "`. `" << file_write_name
+            << "` will fail if you did not read the file first.\n";
     }
     if (file_edit_allowed) {
-        oss << "- Use file_edit with exact old_string/new_string replacements. Include enough surrounding context to uniquely identify the target, or set replace_all=true when every occurrence should change.\n"
-            << "- Use file_edit with empty old_string only to create a missing file or fill a blank file.\n";
+        oss << "- Use `" << file_edit_name
+            << "` with exact old_string/new_string replacements. Include enough surrounding context to uniquely identify the target, or set replace_all=true when every occurrence should change.\n"
+            << "- Use `" << file_edit_name
+            << "` with empty old_string only to create a missing file or fill a blank file.\n";
     }
     if (file_read_allowed && (file_edit_allowed || file_write_allowed)) {
         oss << "- If an available edit/write tool reports that the file has not been read or has changed since it was read, use the available read tool and retry. Do not re-read a file only to verify a successful edit/write; the tool will fail if it did not work.\n";
     }
     if (file_read_allowed && file_edit_allowed) {
-        oss << "- If file_edit reports an encoding or old_string failure, re-read the current content and retry with a corrected exact old_string instead of bypassing with shell, Python, or PowerShell writes.\n";
+        oss << "- If `" << file_edit_name
+            << "` reports an encoding or old_string failure, re-read the current content and retry with a corrected exact old_string instead of bypassing with shell, Python, or PowerShell writes.\n";
     }
     oss << "- Temporary helper scripts belong under ACECODE_TMPDIR, which resolves to .acecode/tmp/session-<id> for active sessions. In shell commands use the platform variable syntax; with file tools use `%ACECODE_TMPDIR%\\helper.ps1`, `$ACECODE_TMPDIR/helper.sh`, or `${ACECODE_TMPDIR}/helper.sh` only as the leading path component. Never embed the alias inside another path.\n"
         << "- Avoid interactive shell programs.\n"
         << "- When multiple independent tool calls are useful, especially read-only calls, batch them in the same assistant message so they can run in parallel.\n"
         << "- Do not add a progress sentence before each individual tool call. If a batch is obvious, emit the tool calls without preceding text.\n";
     if (file_read_allowed) {
-        oss << "  Good: emit file_read for several files plus an available search operation in the same assistant message, with no narration before each call.\n"
-            << "  Bad:  \"Let me read this file.\" then exactly one file_read, then \"Now let me search.\" then exactly one search.\n";
+        oss << "  Good: emit `" << file_read_name
+            << "` for several files plus an available search operation in the same assistant message, with no narration before each call.\n"
+            << "  Bad:  \"Let me read this file.\" then exactly one `"
+            << file_read_name
+            << "`, then \"Now let me search.\" then exactly one search.\n";
     }
     oss << "\n";
 
@@ -199,13 +225,16 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "about to perform a non-obvious action. Keep progress updates "
         << "**extremely short** - 10 words or fewer:\n\n";
     if (file_read_allowed) {
-        oss << "  Good: emit several independent file_read and available search calls together with no preceding text.\n";
+        oss << "  Good: emit several independent `" << file_read_name
+            << "` and available search calls together with no preceding text.\n";
     }
     oss
         << "  Good: \"Checking the test results.\"\n"
         << "  Good: \"Found the issue, fixing now.\"\n";
     if (file_read_allowed) {
-        oss << "  Bad:  \"Let me read this file.\" followed by one file_read, then another progress sentence before the next read.\n";
+        oss << "  Bad:  \"Let me read this file.\" followed by one `"
+            << file_read_name
+            << "`, then another progress sentence before the next read.\n";
     }
     oss
         << "  Bad:  \"I've analyzed the error in src/foo.cpp and determined that the "

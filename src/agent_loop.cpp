@@ -23,6 +23,7 @@
 #include "session/turn_timing.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/mtime_tracker.hpp"
+#include "tool/tool_protocol_names.hpp"
 #include "web/message_payload.hpp"
 #include "web/tool_event_payload.hpp"
 #include "hooks/hook_config.hpp"
@@ -1792,12 +1793,12 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     }
     LOG_DEBUG("System prompt length: " + std::to_string(system_prompt.size()));
     bundle.tool_defs =
-        tools_.get_tool_definitions(&tool_capability_policy_);
+        tools_.get_model_tool_definitions(&tool_capability_policy_);
     const auto builtin_tool_defs =
-        tools_.get_tool_definitions_by_source(
+        tools_.get_model_tool_definitions_by_source(
             ToolSource::Builtin, &tool_capability_policy_);
     const auto mcp_tool_defs =
-        tools_.get_tool_definitions_by_source(
+        tools_.get_model_tool_definitions_by_source(
             ToolSource::Mcp, &tool_capability_policy_);
     LOG_DEBUG("Registered tools: " + std::to_string(bundle.tool_defs.size()));
 
@@ -1818,6 +1819,7 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
 
     // Prepare provider-facing messages with system prompt at front.
     auto api_messages = recovered_provider_messages(messages_, "provider-request");
+    rewrite_tool_calls_for_model(api_messages);
     PromptContextCategoryBytes context_category_bytes;
     const bool skill_view_available =
         tools_.is_allowed("skill_view", &tool_capability_policy_);
@@ -2074,7 +2076,9 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             break;
         case StreamEventType::ToolCallDelta:
             {
-                const std::string tool_name = evt.tool_call.function_name;
+                const std::string tool_name =
+                    tools_.resolve_model_tool_name_to_native(
+                        evt.tool_call.function_name);
                 const std::string label = tool_name.empty()
                     ? "正在准备工具调用"
                     : "正在准备调用 " + tool_name;
@@ -2085,8 +2089,12 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             break;
         case StreamEventType::ToolCall:
             {
+                ToolCall native_call = evt.tool_call;
+                native_call.function_name =
+                    tools_.resolve_model_tool_name_to_native(
+                        native_call.function_name);
                 std::lock_guard<std::mutex> lk(resp_mu);
-                result.accumulated.tool_calls.push_back(evt.tool_call);
+                result.accumulated.tool_calls.push_back(std::move(native_call));
             }
             break;
         case StreamEventType::Done:

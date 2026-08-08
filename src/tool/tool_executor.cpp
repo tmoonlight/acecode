@@ -1,4 +1,5 @@
 #include "tool_executor.hpp"
+#include "tool_protocol_names.hpp"
 #include "../session/output_attachments.hpp"
 #include "utils/logger.hpp"
 #include "utils/encoding.hpp"
@@ -237,6 +238,13 @@ void mark_workspace_scratch_change(ToolResult& result, const ToolContext& ctx) {
 
 bool ToolExecutor::register_tool(const ToolImpl& tool) {
     std::lock_guard<std::mutex> lk(tools_mu_);
+    std::string mapping_error;
+    if (!validate_model_tool_name_mappings(&mapping_error)) {
+        LOG_ERROR("Refusing tool registration because model tool name mappings are invalid: " +
+                  mapping_error);
+        return false;
+    }
+
     const auto existing = tools_.find(tool.definition.name);
     if (existing != tools_.end() &&
         (existing->second.source != tool.source ||
@@ -245,6 +253,20 @@ bool ToolExecutor::register_tool(const ToolImpl& tool) {
                  tool.definition.name);
         return false;
     }
+
+    const std::string public_name =
+        model_tool_name_for_native(tool.definition.name);
+    for (const auto& [registered_name, impl] : tools_) {
+        (void)impl;
+        if (registered_name == tool.definition.name) continue;
+        if (model_tool_name_for_native(registered_name) == public_name) {
+            LOG_WARN("Refusing model-facing tool name collision for " +
+                     tool.definition.name + " and " + registered_name +
+                     " (public name: " + public_name + ")");
+            return false;
+        }
+    }
+
     LOG_INFO("Registering tool: " + tool.definition.name);
     tools_[tool.definition.name] = tool;
     return true;
@@ -291,6 +313,43 @@ std::vector<ToolDef> ToolExecutor::get_tool_definitions_by_source(
         }
     }
     return defs;
+}
+
+std::vector<ToolDef> ToolExecutor::get_model_tool_definitions(
+    const ToolCapabilityPolicy* policy) const {
+    std::vector<ToolDef> definitions;
+    std::string error;
+    if (!translate_tool_definitions_for_model(
+            get_tool_definitions(policy), definitions, &error)) {
+        LOG_ERROR("Unable to build model-facing tool definitions: " + error);
+        return {};
+    }
+    return definitions;
+}
+
+std::vector<ToolDef> ToolExecutor::get_model_tool_definitions_by_source(
+    ToolSource source,
+    const ToolCapabilityPolicy* policy) const {
+    std::vector<ToolDef> definitions;
+    std::string error;
+    if (!translate_tool_definitions_for_model(
+            get_tool_definitions_by_source(source, policy), definitions, &error)) {
+        LOG_ERROR("Unable to build model-facing tool definitions by source: " + error);
+        return {};
+    }
+    return definitions;
+}
+
+std::string ToolExecutor::resolve_model_tool_name_to_native(
+    const std::string& model_name) const {
+    std::lock_guard<std::mutex> lk(tools_mu_);
+    if (tools_.find(model_name) != tools_.end()) return model_name;
+
+    const auto native_alias = native_tool_name_for_public_alias(model_name);
+    if (native_alias && tools_.find(*native_alias) != tools_.end()) {
+        return *native_alias;
+    }
+    return model_name;
 }
 
 std::vector<RegisteredToolInfo> ToolExecutor::get_registered_tools() const {

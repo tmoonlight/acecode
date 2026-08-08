@@ -245,6 +245,20 @@ public:
         ToolSource source,
         const ToolCapabilityPolicy* policy = nullptr) const;
 
+    // Get tool definitions translated to the public names exposed to models.
+    // Internal callers should continue using the native definition methods.
+    std::vector<ToolDef> get_model_tool_definitions(
+        const ToolCapabilityPolicy* policy = nullptr) const;
+
+    std::vector<ToolDef> get_model_tool_definitions_by_source(
+        ToolSource source,
+        const ToolCapabilityPolicy* policy = nullptr) const;
+
+    // Accept an exact registered native name first, then resolve a compatible
+    // public alias only when its native handler is registered.
+    std::string resolve_model_tool_name_to_native(
+        const std::string& model_name) const;
+
     // Sanitized registration metadata for runtime-backed capability catalogs.
     std::vector<RegisteredToolInfo> get_registered_tools() const;
 
