@@ -168,13 +168,54 @@ run('local overlays use declared blocking and overlap semantics', () => {
   assert.match(panel, /nativeSurfaceOcclusionRectsFromClientRects/);
   assert.match(panel, /supportsLocalOcclusion/);
   assert.match(panel, /nativeSurfaceSupportsLocalOcclusion/);
-  assert.match(panel, /layout\.occlusion_rects/);
+  assert.match(panel, /desiredLayout\.occlusion_rects/);
   assert.match(coordinator, /os === 'windows' \|\| os === 'macos'/);
+  assert.match(coordinator, /\[role="menu"\]/);
+  assert.match(coordinator, /NATIVE_SURFACE_IMPLICIT_OVERLAY_SELECTOR/);
   assert.match(panel, /NATIVE_SURFACE_OVERLAY_EVENT/);
   assert.match(panel, /new MutationObserver\(scheduleLayout\)/);
   assert.match(panel, /new IntersectionObserver\(scheduleLayout\)/);
   assert.match(panel, /window\.visualViewport/);
   assert.doesNotMatch(panel, /modalIsOpen|\.ace-desktop-context-menu/);
+});
+
+run('every current floating-surface owner participates in the native overlay contract', () => {
+  const floatingSurfaceOwners = [
+    'ChangeReview.jsx',
+    'ChatView.jsx',
+    'ComposerSessionControls.jsx',
+    'ConsoleDock.jsx',
+    'ConversationTurnScrubber.jsx',
+    'DesktopContextMenu.jsx',
+    'GitChangesPanel.jsx',
+    'GitSessionPill.jsx',
+    'GlobalFindOverlay.jsx',
+    'ImageLightbox.jsx',
+    'InputBar.jsx',
+    'LoopPage.jsx',
+    'Message.jsx',
+    'Modal.jsx',
+    'PathReferenceDropdown.jsx',
+    'PreviewDetailsPanel.jsx',
+    'SearchPalette.jsx',
+    'SelectionActionPopover.jsx',
+    'SelectionAnnotationBadge.jsx',
+    'SelectionAnnotationOverlay.jsx',
+    'SessionNavigationMask.jsx',
+    'SettingsPage.jsx',
+    'Sidebar.jsx',
+    'SlashDropdown.jsx',
+    'Toast.jsx',
+    'TokenBudgetRing.jsx',
+    'TopBar.jsx',
+  ];
+  for (const file of floatingSurfaceOwners) {
+    assert.match(
+      source(`web/src/components/${file}`),
+      /data-ace-native-overlay="(?:overlap|blocking)"/,
+      file,
+    );
+  }
 });
 
 run('native Agent Browser layouts reject stale revisions and unsafe windows', () => {
@@ -191,6 +232,7 @@ run('native Agent Browser layouts reject stale revisions and unsafe windows', ()
   assert.match(header, /std::vector<AgentBrowserOcclusionRect> occlusion_rects/);
   assert.match(desktop, /value\.find\("layout_revision"\)/);
   assert.match(desktop, /value\.find\("occlusion_rects"\)/);
+  assert.match(desktop, /"occlusion_rect_count"/);
   assert.match(host, /bounds\.layout_revision < page->requested_bounds\.layout_revision/);
   assert.match(host, /apply_agent_browser_widget_region/);
   assert.match(host, /::SetWindowRgn/);
@@ -198,9 +240,10 @@ run('native Agent Browser layouts reject stale revisions and unsafe windows', ()
   assert.match(host, /page->requested_bounds\.occlusion_rects/);
   assert.match(macHost, /ACECodeAgentBrowserSurfaceView/);
   assert.match(macHost, /CAShapeLayer\* mask/);
+  assert.match(macHost, /\[subview_layer setMask:subview_mask\]/);
   assert.match(macHost, /kCAFillRuleEvenOdd/);
   assert.match(macHost, /NSPointInRect\(local, \[value rectValue\]\)/);
-  assert.match(macHost, /\[layer setMask:nil\]/);
+  assert.match(macHost, /\[surface_layer setMask:nil\]/);
   assert.match(macHost, /bounds\.layout_revision < page->requested_bounds\.layout_revision/);
   assert.match(macHost, /bounds\.occlusion_rects/);
   assert.match(desktopCmake, /-framework QuartzCore/);
@@ -212,5 +255,7 @@ run('native Agent Browser layouts reject stale revisions and unsafe windows', ()
   assert.match(desktop, /agent_browser\.set_parent_visible\(visible\)/);
   assert.match(panel, /allocateRevision: allocateAgentBrowserLayoutRevision/);
   assert.match(panel, /nextAgentBrowserLayoutRequest/);
+  assert.match(panel, /failedNativeSurfaceOcclusionSignature/);
+  assert.match(panel, /nativeSurfaceLayoutWithOcclusionFallback/);
   assert.match(panel, /syncNativeSurface\(\{ forceHidden: true, force: true \}\)/);
 });

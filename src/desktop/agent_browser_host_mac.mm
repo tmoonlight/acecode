@@ -300,7 +300,7 @@ public:
 @private
     NSArray<NSValue*>* occlusion_rects_;
 }
-- (void)setOcclusionRects:(NSArray<NSValue*>*)rects;
+- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects;
 @end
 
 @implementation ACECodeAgentBrowserSurfaceView
@@ -323,19 +323,7 @@ public:
     return YES;
 }
 
-- (void)updateOcclusionMask {
-    CALayer* layer = [self layer];
-    if (!layer) return;
-
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    if ([occlusion_rects_ count] == 0) {
-        [layer setMask:nil];
-        [CATransaction commit];
-        return;
-    }
-
-    const NSRect bounds = [self bounds];
+- (CAShapeLayer*)newOcclusionMaskForBounds:(NSRect)bounds {
     const CGFloat width = NSWidth(bounds);
     const CGFloat height = NSHeight(bounds);
     CGMutablePathRef path = CGPathCreateMutable();
@@ -351,15 +339,55 @@ public:
                       CGRectMake(x, y, NSWidth(rect), NSHeight(rect)));
     }
 
-    CAShapeLayer* mask = [CAShapeLayer layer];
+    CAShapeLayer* mask = [[CAShapeLayer alloc] init];
     [mask setFrame:CGRectMake(0, 0, width, height)];
     [mask setPath:path];
     [mask setFillRule:kCAFillRuleEvenOdd];
     [mask setFillColor:CGColorGetConstantColor(kCGColorBlack)];
     [mask setAllowsEdgeAntialiasing:NO];
-    [layer setMask:mask];
     CGPathRelease(path);
+    return mask;
+}
+
+- (BOOL)updateOcclusionMask {
+    CALayer* surface_layer = [self layer];
+    if (!surface_layer) return [occlusion_rects_ count] == 0;
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if ([occlusion_rects_ count] == 0) {
+        [surface_layer setMask:nil];
+        for (NSView* subview in [self subviews]) {
+            [[subview layer] setMask:nil];
+        }
+        [CATransaction commit];
+        return YES;
+    }
+
+    CAShapeLayer* surface_mask =
+        [self newOcclusionMaskForBounds:[self bounds]];
+    [surface_layer setMask:surface_mask];
+    [surface_mask release];
+
+    BOOL applied = [surface_layer mask] != nil;
+    // WKWebView content is hosted by WebKit's remote layer tree. Mask both the
+    // wrapper and the concrete child layer so future compositor changes cannot
+    // let Browser pixels escape the wrapper's local occlusion contract.
+    for (NSView* subview in [self subviews]) {
+        [subview setWantsLayer:YES];
+        CALayer* subview_layer = [subview layer];
+        if (!subview_layer) {
+            applied = NO;
+            continue;
+        }
+        CAShapeLayer* subview_mask =
+            [self newOcclusionMaskForBounds:[subview bounds]];
+        [subview_layer setMask:subview_mask];
+        [subview_mask release];
+        applied = applied && [subview_layer mask] != nil;
+    }
     [CATransaction commit];
+    return applied;
 }
 
 - (void)setFrameSize:(NSSize)newSize {
@@ -367,11 +395,11 @@ public:
     [self updateOcclusionMask];
 }
 
-- (void)setOcclusionRects:(NSArray<NSValue*>*)rects {
+- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects {
     NSArray<NSValue*>* next = rects ? [rects copy] : [[NSArray alloc] init];
     [occlusion_rects_ release];
     occlusion_rects_ = next;
-    [self updateOcclusionMask];
+    return [self updateOcclusionMask];
 }
 
 - (NSView*)hitTest:(NSPoint)point {
@@ -988,8 +1016,8 @@ struct AgentBrowserHost::Impl final
         return page->id;
     }
 
-    void apply_bounds(const std::shared_ptr<Page>& page) {
-        if (!page || !page->surface || !page->webview) return;
+    bool apply_bounds(const std::shared_ptr<Page>& page) {
+        if (!page || !page->surface || !page->webview) return false;
         NSView* content = [static_cast<NSWindow*>(parent_window) contentView];
         const auto bounds = page->requested_bounds;
         // The Desktop shell's contentView is itself a WKWebView, whose native
@@ -1019,11 +1047,13 @@ struct AgentBrowserHost::Impl final
                     left, top, right - left, bottom - top)]];
             }
         }
-        [page->surface setOcclusionRects:occlusion_rects];
+        const bool occlusion_ready =
+            [page->surface setOcclusionRects:occlusion_rects] == YES;
         const AgentBrowserState snapshot = state(page->id);
         const bool show = parent_surface_visible && bounds.visible &&
             snapshot.active &&
             snapshot.content_state == kAgentBrowserContentStateLive &&
+            occlusion_ready &&
             bounds.width > 0 && bounds.height > 0;
         [page->surface setHidden:show ? NO : YES];
         [page->webview setHidden:show ? NO : YES];
@@ -1034,6 +1064,7 @@ struct AgentBrowserHost::Impl final
         update_page(page, [&](AgentBrowserState& value) {
             value.visible = show;
         });
+        return occlusion_ready;
     }
 
     bool select_page_on_ui(const std::string& page_id, std::string* error) {
@@ -2313,7 +2344,10 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
         return true;
     }
     page->requested_bounds = bounds;
-    impl_->apply_bounds(page);
+    if (!impl_->apply_bounds(page)) {
+        assign_error(error, "Agent Browser failed to apply overlay occlusion");
+        return false;
+    }
     return true;
 }
 

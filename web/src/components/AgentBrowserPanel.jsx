@@ -24,7 +24,9 @@ import {
 import {
   NATIVE_SURFACE_OVERLAY_EVENT,
   allocateAgentBrowserLayoutRevision,
+  failedNativeSurfaceOcclusionSignature,
   nativeSurfaceOcclusionRectsFromClientRects,
+  nativeSurfaceLayoutWithOcclusionFallback,
   nativeSurfaceOverlayGeometryByDocument,
   nativeSurfaceShouldShow,
   nativeSurfaceSupportsLocalOcclusion,
@@ -62,6 +64,7 @@ export function AgentBrowserPanel({
   const addressFocusedRef = useRef(false);
   const layoutFrameRef = useRef(0);
   const layoutStateRef = useRef({ signature: '', revision: 0 });
+  const occlusionFailureRef = useRef({ pageId: '', signature: '' });
   const lastSurfaceRectRef = useRef({ left: 0, top: 0, width: 0, height: 0 });
   const [state, setState] = useState(INITIAL_STATE);
   const [address, setAddress] = useState('');
@@ -125,25 +128,87 @@ export function AgentBrowserPanel({
       overlayBlocked,
     });
     const scale = window.__ACECODE_OS__ === 'macos' ? 1 : (window.devicePixelRatio || 1);
-    const layout = agentBrowserLayoutFromRect(
+    const desiredLayout = agentBrowserLayoutFromRect(
       surfaceRect,
       scale,
       visible,
     );
-    layout.occlusion_rects = visible && supportsLocalOcclusion
+    desiredLayout.occlusion_rects = visible && supportsLocalOcclusion
       ? nativeSurfaceOcclusionRectsFromClientRects(
           surfaceRect,
           overlayGeometry.occlusionRects,
           scale,
         )
       : [];
-    const next = nextAgentBrowserLayoutRequest(layout, layoutStateRef.current, {
+    if (occlusionFailureRef.current.pageId !== pageId) {
+      occlusionFailureRef.current = { pageId, signature: '' };
+    }
+    let delivery = nativeSurfaceLayoutWithOcclusionFallback(
+      desiredLayout,
+      occlusionFailureRef.current.signature,
+    );
+    if (occlusionFailureRef.current.signature
+        && occlusionFailureRef.current.signature !== delivery.idealSignature) {
+      occlusionFailureRef.current = { pageId, signature: '' };
+      delivery = nativeSurfaceLayoutWithOcclusionFallback(desiredLayout);
+    }
+    const next = nextAgentBrowserLayoutRequest(delivery.layout, layoutStateRef.current, {
       force,
       allocateRevision: allocateAgentBrowserLayoutRevision,
     });
     if (!next.changed) return;
     layoutStateRef.current = { signature: next.signature, revision: next.revision };
-    void setAgentBrowserLayout(pageId, next.request);
+    const request = next.request;
+    void setAgentBrowserLayout(pageId, request).then((result) => {
+      const failedSignature = failedNativeSurfaceOcclusionSignature({
+        result,
+        request,
+        requestSignature: delivery.idealSignature,
+        currentRevision: layoutStateRef.current.revision,
+      });
+      if (!failedSignature) {
+        if (result?.ok !== true && request.layout_revision === layoutStateRef.current.revision) {
+          console.warn('[agent-browser] native layout was not acknowledged', result?.error || '');
+        }
+        return;
+      }
+
+      occlusionFailureRef.current = { pageId, signature: failedSignature };
+      console.warn(
+        '[agent-browser] local overlay occlusion failed; hiding Browser until overlay changes',
+        result?.error || '',
+      );
+      const fallback = nextAgentBrowserLayoutRequest(
+        { ...request, visible: false, occlusion_rects: [] },
+        layoutStateRef.current,
+        { force: true, allocateRevision: allocateAgentBrowserLayoutRevision },
+      );
+      layoutStateRef.current = {
+        signature: fallback.signature,
+        revision: fallback.revision,
+      };
+      void setAgentBrowserLayout(pageId, fallback.request).then((fallbackResult) => {
+        if (fallbackResult?.ok !== true) {
+          console.warn(
+            '[agent-browser] native overlay fallback was not acknowledged',
+            fallbackResult?.error || '',
+          );
+        }
+      }).catch((error) => {
+        console.warn('[agent-browser] native overlay fallback failed', error);
+      });
+    }).catch((error) => {
+      const failedSignature = failedNativeSurfaceOcclusionSignature({
+        result: { ok: false },
+        request,
+        requestSignature: delivery.idealSignature,
+        currentRevision: layoutStateRef.current.revision,
+      });
+      if (failedSignature) {
+        occlusionFailureRef.current = { pageId, signature: failedSignature };
+      }
+      console.warn('[agent-browser] native layout failed', error);
+    });
   }, [nativePageVisible, pageId, surfaceEnabled]);
 
   useLayoutEffect(() => {

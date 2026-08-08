@@ -1553,7 +1553,11 @@ int main(int argc, char** argv) {
             if (!agent_browser.set_bounds(page_id, bounds, &error)) {
                 return nlohmann::json{{"ok", false}, {"error", error}}.dump();
             }
-            return nlohmann::json{{"ok", true}}.dump();
+            return nlohmann::json{
+                {"ok", true},
+                {"layout_revision", bounds.layout_revision},
+                {"occlusion_rect_count", bounds.occlusion_rects.size()},
+            }.dump();
         } catch (const std::exception& e) {
             return nlohmann::json{
                 {"ok", false}, {"error", std::string("layout: ") + e.what()}

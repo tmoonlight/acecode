@@ -7,6 +7,7 @@ import {
   hasNativeAgentBrowser,
   normalizeAgentBrowserAddress,
   parseAgentBrowserBridgeResult,
+  setAgentBrowserLayout,
   setAgentBrowserShared,
   toggleAgentBrowserDevTools,
   toggleAgentBrowserElementSelection,
@@ -124,6 +125,41 @@ await run('Agent Browser page creation checks its dedicated desktop bridge', asy
   }), {
     ok: true,
     page_id: 'browser-2',
+  });
+});
+
+await run('Agent Browser layout requires a matching native acknowledgement', async () => {
+  const layout = {
+    x: 10,
+    y: 20,
+    width: 300,
+    height: 200,
+    visible: true,
+    layout_revision: 77,
+    occlusion_rects: [{ x: 20, y: 30, width: 80, height: 60 }],
+  };
+  const desktop = {
+    __ACECODE_DESKTOP_SHELL__: true,
+    __ACECODE_OS__: 'macos',
+    aceDesktop_agentBrowserGetState() {},
+    aceDesktop_agentBrowserCreatePage() {},
+    aceDesktop_agentBrowserSetLayout() {
+      return JSON.stringify({
+        ok: true,
+        layout_revision: 77,
+        occlusion_rect_count: 1,
+      });
+    },
+  };
+  assert.equal((await setAgentBrowserLayout('page-1', layout, desktop)).ok, true);
+  desktop.aceDesktop_agentBrowserSetLayout = () => JSON.stringify({
+    ok: true,
+    layout_revision: 76,
+    occlusion_rect_count: 1,
+  });
+  assert.deepEqual(await setAgentBrowserLayout('page-1', layout, desktop), {
+    ok: false,
+    error: 'Agent Browser layout acknowledgement did not match the request',
   });
 });
 

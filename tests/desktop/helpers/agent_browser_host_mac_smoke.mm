@@ -162,17 +162,27 @@ int main() {
                 occluded_bounds.visible = true;
                 occluded_bounds.layout_revision = 2;
                 occluded_bounds.occlusion_rects.push_back({100, 80, 180, 120});
+                occluded_bounds.occlusion_rects.push_back({520, 320, 160, 100});
                 if (!host.set_bounds(page_id, occluded_bounds, &error)) {
                     exit_code = fail(error.empty()
                         ? "failed to apply WKWebView occlusion" : error);
                 } else {
                     NSView* surface = [[[window contentView] subviews] firstObject];
+                    NSView* webview = [[surface subviews] firstObject];
                     const NSPoint hole_point = NSMakePoint(20 + 150, 20 + 100);
+                    const NSPoint second_hole_point =
+                        NSMakePoint(20 + 560, 20 + 350);
                     const NSPoint page_point = NSMakePoint(20 + 20, 20 + 20);
                     if (![[surface layer] mask]) {
                         exit_code = fail("WKWebView surface did not install a mask");
+                    } else if (!webview || ![[webview layer] mask]) {
+                        exit_code = fail(
+                            "WKWebView content layer did not install a mask");
                     } else if ([surface hitTest:hole_point] != nil) {
                         exit_code = fail("WKWebView occlusion still captured mouse hits");
+                    } else if ([surface hitTest:second_hole_point] != nil) {
+                        exit_code = fail(
+                            "second WKWebView occlusion captured mouse hits");
                     } else if ([surface hitTest:page_point] == nil) {
                         exit_code = fail("visible WKWebView stopped accepting mouse hits");
                     }
@@ -182,7 +192,8 @@ int main() {
                     stale_bounds.occlusion_rects.clear();
                     if (exit_code == 0 &&
                         (!host.set_bounds(page_id, stale_bounds, &error) ||
-                         ![[surface layer] mask])) {
+                         ![[surface layer] mask] ||
+                         ![[webview layer] mask])) {
                         exit_code = fail(error.empty()
                             ? "stale layout cleared WKWebView occlusion" : error);
                     }
@@ -193,7 +204,9 @@ int main() {
                     if (exit_code == 0 &&
                         (!host.set_bounds(page_id, restored_bounds, &error) ||
                          [[surface layer] mask] != nil ||
-                         [surface hitTest:hole_point] == nil)) {
+                         [[webview layer] mask] != nil ||
+                         [surface hitTest:hole_point] == nil ||
+                         [surface hitTest:second_hole_point] == nil)) {
                         exit_code = fail(error.empty()
                             ? "WKWebView occlusion did not fully restore" : error);
                     }

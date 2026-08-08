@@ -1,5 +1,13 @@
 export const NATIVE_SURFACE_OVERLAY_EVENT = 'acecode:native-surface-overlay-change';
-export const NATIVE_SURFACE_OVERLAY_SELECTOR = '[data-ace-native-overlay]';
+export const NATIVE_SURFACE_IMPLICIT_OVERLAY_SELECTOR = [
+  '[role="menu"]',
+  '[role="listbox"]',
+  '[role="tooltip"]',
+].join(',');
+export const NATIVE_SURFACE_OVERLAY_SELECTOR = [
+  '[data-ace-native-overlay]',
+  NATIVE_SURFACE_IMPLICIT_OVERLAY_SELECTOR,
+].join(',');
 const LAYOUT_REVISION_CLOCK_MULTIPLIER = 1024;
 const LAYOUT_REVISION_STORAGE_KEY = 'acecode.agentBrowserLayoutRevision.v1';
 
@@ -33,6 +41,45 @@ function finiteNumber(value, fallback = 0) {
 
 export function nativeSurfaceSupportsLocalOcclusion(os = '') {
   return os === 'windows' || os === 'macos';
+}
+
+function occlusionRectRight(rect) {
+  return rect.x + rect.width;
+}
+
+function occlusionRectBottom(rect) {
+  return rect.y + rect.height;
+}
+
+function occlusionRectContains(outer, inner) {
+  return outer.x <= inner.x
+    && outer.y <= inner.y
+    && occlusionRectRight(outer) >= occlusionRectRight(inner)
+    && occlusionRectBottom(outer) >= occlusionRectBottom(inner);
+}
+
+function mergeCompatibleOcclusionRects(first, second) {
+  if (occlusionRectContains(first, second)) return first;
+  if (occlusionRectContains(second, first)) return second;
+
+  const sameVerticalSpan = first.y === second.y && first.height === second.height;
+  const horizontallyConnected = first.x <= occlusionRectRight(second)
+    && second.x <= occlusionRectRight(first);
+  if (sameVerticalSpan && horizontallyConnected) {
+    const x = Math.min(first.x, second.x);
+    const right = Math.max(occlusionRectRight(first), occlusionRectRight(second));
+    return { x, y: first.y, width: right - x, height: first.height };
+  }
+
+  const sameHorizontalSpan = first.x === second.x && first.width === second.width;
+  const verticallyConnected = first.y <= occlusionRectBottom(second)
+    && second.y <= occlusionRectBottom(first);
+  if (sameHorizontalSpan && verticallyConnected) {
+    const y = Math.min(first.y, second.y);
+    const bottom = Math.max(occlusionRectBottom(first), occlusionRectBottom(second));
+    return { x: first.x, y, width: first.width, height: bottom - y };
+  }
+  return null;
 }
 
 export function normalizedClientRect(rect = {}) {
@@ -93,7 +140,7 @@ export function nativeSurfaceOverlayBlocks({
 }
 
 export function normalizeAgentBrowserOcclusionRects(rects = []) {
-  const normalized = (Array.isArray(rects) ? rects : [])
+  const pending = (Array.isArray(rects) ? rects : [])
     .map((rect) => ({
       x: Math.max(0, Math.round(finiteNumber(rect?.x))),
       y: Math.max(0, Math.round(finiteNumber(rect?.y))),
@@ -107,14 +154,29 @@ export function normalizeAgentBrowserOcclusionRects(rects = []) {
       || a.width - b.width
       || a.height - b.height
     ));
-  return normalized.filter((rect, index) => {
-    if (index === 0) return true;
-    const previous = normalized[index - 1];
-    return rect.x !== previous.x
-      || rect.y !== previous.y
-      || rect.width !== previous.width
-      || rect.height !== previous.height;
-  });
+  const merged = [];
+  for (const rect of pending) {
+    let candidate = rect;
+    let mergedAnother = true;
+    while (mergedAnother) {
+      mergedAnother = false;
+      for (let index = 0; index < merged.length; index += 1) {
+        const combined = mergeCompatibleOcclusionRects(merged[index], candidate);
+        if (!combined) continue;
+        merged.splice(index, 1);
+        candidate = combined;
+        mergedAnother = true;
+        break;
+      }
+    }
+    merged.push(candidate);
+  }
+  return merged.sort((a, b) => (
+    a.x - b.x
+    || a.y - b.y
+    || a.width - b.width
+    || a.height - b.height
+  ));
 }
 
 export function nativeSurfaceOcclusionRectsFromClientRects(
@@ -197,6 +259,39 @@ export function agentBrowserLayoutSignature(layout = {}) {
   return `${bounds}:${occlusions}`;
 }
 
+export function nativeSurfaceLayoutWithOcclusionFallback(
+  layout = {},
+  failedOcclusionSignature = '',
+) {
+  const normalizedLayout = {
+    ...layout,
+    occlusion_rects: normalizeAgentBrowserOcclusionRects(layout.occlusion_rects),
+  };
+  const idealSignature = agentBrowserLayoutSignature(normalizedLayout);
+  const fallback = !!normalizedLayout.visible
+    && normalizedLayout.occlusion_rects.length > 0
+    && idealSignature === failedOcclusionSignature;
+  return {
+    fallback,
+    idealSignature,
+    layout: fallback
+      ? { ...normalizedLayout, visible: false, occlusion_rects: [] }
+      : normalizedLayout,
+  };
+}
+
+export function failedNativeSurfaceOcclusionSignature({
+  result,
+  request,
+  requestSignature = '',
+  currentRevision = 0,
+} = {}) {
+  if (!request || request.layout_revision !== currentRevision) return '';
+  if (result?.ok === true || !request.visible) return '';
+  if (normalizeAgentBrowserOcclusionRects(request.occlusion_rects).length === 0) return '';
+  return requestSignature || agentBrowserLayoutSignature(request);
+}
+
 export function allocateAgentBrowserLayoutRevision(minimum = 0) {
   const clockRevision = Math.trunc(Date.now()) * LAYOUT_REVISION_CLOCK_MULTIPLIER;
   lastAllocatedLayoutRevision = Math.max(
@@ -265,27 +360,6 @@ function overlayElementIsVisible(element, win) {
   return true;
 }
 
-function intersectionSamplePoints(rect) {
-  const insetX = Math.min(1, rect.width / 4);
-  const insetY = Math.min(1, rect.height / 4);
-  return [
-    [rect.left + (rect.width / 2), rect.top + (rect.height / 2)],
-    [rect.left + insetX, rect.top + insetY],
-    [rect.right - insetX, rect.top + insetY],
-    [rect.left + insetX, rect.bottom - insetY],
-    [rect.right - insetX, rect.bottom - insetY],
-  ];
-}
-
-function overlayIsTopmostAtIntersection(element, intersection, doc, win) {
-  if (win?.getComputedStyle?.(element)?.pointerEvents === 'none') return true;
-  if (typeof doc?.elementFromPoint !== 'function') return true;
-  return intersectionSamplePoints(intersection).some(([x, y]) => {
-    const hit = doc.elementFromPoint(x, y);
-    return !!hit && (hit === element || element.contains?.(hit));
-  });
-}
-
 export function nativeSurfaceOverlayGeometryByDocument(
   surfaceRect,
   doc = globalThis.document,
@@ -295,16 +369,21 @@ export function nativeSurfaceOverlayGeometryByDocument(
   if (!doc?.querySelectorAll) return result;
   const overlays = doc.querySelectorAll(NATIVE_SURFACE_OVERLAY_SELECTOR);
   for (const overlay of overlays) {
-    const mode = overlay.getAttribute?.('data-ace-native-overlay') || '';
+    const declaredMode = overlay.getAttribute?.('data-ace-native-overlay') || '';
+    const implicitOverlap = !declaredMode
+      && overlay.matches?.(NATIVE_SURFACE_IMPLICIT_OVERLAY_SELECTOR);
+    const mode = declaredMode || (implicitOverlap ? 'overlap' : '');
     if (!overlayElementIsVisible(overlay, win)) continue;
     if (mode === 'blocking') return { blocking: true, occlusionRects: [] };
     if (mode !== 'overlap') continue;
     const overlayRect = overlay.getBoundingClientRect?.();
     const intersection = intersectClientRects(surfaceRect, overlayRect);
     if (!intersection) continue;
-    if (overlayIsTopmostAtIntersection(overlay, intersection, doc, win)) {
-      result.occlusionRects.push(intersection);
-    }
+    // Registration is authoritative. The Browser is a separate native view and
+    // has no faithful representative in document.elementFromPoint(), so DOM
+    // hit testing must not veto a floating surface that explicitly promises to
+    // appear above it.
+    result.occlusionRects.push(intersection);
   }
   return result;
 }

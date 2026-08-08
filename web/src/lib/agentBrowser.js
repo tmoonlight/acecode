@@ -146,10 +146,23 @@ export async function toggleAgentBrowserDevTools(pageId, win = globalThis.window
 
 export async function setAgentBrowserLayout(pageId, layout, win = globalThis.window) {
   if (!hasNativeAgentBrowser(win)) return { ok: false, supported: false };
-  return parseAgentBrowserBridgeResult(await win.aceDesktop_agentBrowserSetLayout({
+  const result = parseAgentBrowserBridgeResult(await win.aceDesktop_agentBrowserSetLayout({
     ...layout,
     page_id: pageId,
   }));
+  if (result.ok !== true) return result;
+  const expectedRevision = Number(layout?.layout_revision) || 0;
+  const expectedOcclusionCount = Array.isArray(layout?.occlusion_rects)
+    ? layout.occlusion_rects.length
+    : 0;
+  if (Number(result.layout_revision) !== expectedRevision
+      || Number(result.occlusion_rect_count) !== expectedOcclusionCount) {
+    return {
+      ok: false,
+      error: 'Agent Browser layout acknowledgement did not match the request',
+    };
+  }
+  return result;
 }
 
 export async function runAgentBrowserBridgeAction(name, value, win = globalThis.window) {

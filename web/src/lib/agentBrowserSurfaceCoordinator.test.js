@@ -3,8 +3,10 @@ import { agentBrowserLayoutFromRect } from './agentBrowser.js';
 import {
   allocateAgentBrowserLayoutRevision,
   clientRectsOverlap,
+  failedNativeSurfaceOcclusionSignature,
   intersectClientRects,
   nativeSurfaceOcclusionRectsFromClientRects,
+  nativeSurfaceLayoutWithOcclusionFallback,
   nativeSurfaceOverlayGeometryByDocument,
   nativeSurfaceOverlayBlocks,
   nativeSurfaceShouldShow,
@@ -80,7 +82,7 @@ run('overlap-only menus outside the browser do not block it', () => {
   }), true);
 });
 
-run('document overlay inspection returns intersecting topmost geometry', () => {
+run('document overlay inspection treats registered floating surfaces as authoritative', () => {
   const child = {};
   const overlay = {
     hidden: false,
@@ -112,9 +114,9 @@ run('document overlay inspection returns intersecting topmost geometry', () => {
     }],
   });
   doc.elementFromPoint = () => ({});
-  assert.deepEqual(
-    nativeSurfaceOverlayGeometryByDocument(browserRect, doc, win).occlusionRects,
-    [],
+  assert.equal(
+    nativeSurfaceOverlayGeometryByDocument(browserRect, doc, win).occlusionRects.length,
+    1,
   );
   win.getComputedStyle = () => ({
     display: 'block',
@@ -138,6 +140,35 @@ run('document overlay inspection returns intersecting topmost geometry', () => {
   });
 });
 
+run('standard floating accessibility roles join the overlay contract automatically', () => {
+  const overlay = {
+    hidden: false,
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ left: 700, top: 200, width: 180, height: 120 }),
+    matches: (selector) => selector.includes('[role="menu"]'),
+  };
+  const doc = { querySelectorAll: () => [overlay] };
+  const win = {
+    getComputedStyle: () => ({
+      display: 'block',
+      visibility: 'visible',
+      opacity: '1',
+      pointerEvents: 'auto',
+    }),
+  };
+  assert.deepEqual(nativeSurfaceOverlayGeometryByDocument(browserRect, doc, win), {
+    blocking: false,
+    occlusionRects: [{
+      left: 700,
+      top: 200,
+      right: 880,
+      bottom: 320,
+      width: 180,
+      height: 120,
+    }],
+  });
+});
+
 run('overlap geometry converts to deterministic Browser-local DPR rectangles', () => {
   assert.deepEqual(nativeSurfaceOcclusionRectsFromClientRects(
     browserRect,
@@ -148,6 +179,71 @@ run('overlap geometry converts to deterministic Browser-local DPR rectangles', (
     ],
     1.25,
   ), [{ x: 375, y: 225, width: 270, height: 375 }]);
+});
+
+run('compatible occlusion rectangles merge without filling uncovered corners', () => {
+  assert.deepEqual(nativeSurfaceOcclusionRectsFromClientRects(
+    { left: 0, top: 0, width: 800, height: 600 },
+    [
+      { left: 10, top: 20, width: 100, height: 40 },
+      { left: 110, top: 20, width: 80, height: 40 },
+      { left: 20, top: 100, width: 60, height: 50 },
+      { left: 20, top: 150, width: 60, height: 30 },
+      { left: 300, top: 200, width: 100, height: 80 },
+      { left: 350, top: 240, width: 100, height: 80 },
+    ],
+    1,
+  ), [
+    { x: 10, y: 20, width: 180, height: 40 },
+    { x: 20, y: 100, width: 60, height: 80 },
+    { x: 300, y: 200, width: 100, height: 80 },
+    { x: 350, y: 240, width: 100, height: 80 },
+  ]);
+});
+
+run('failed current occlusion layouts fail closed until overlay geometry changes', () => {
+  const desired = {
+    x: 600,
+    y: 120,
+    width: 700,
+    height: 500,
+    visible: true,
+    occlusion_rects: [{ x: 100, y: 80, width: 180, height: 120 }],
+  };
+  const initial = nativeSurfaceLayoutWithOcclusionFallback(desired);
+  const request = { ...initial.layout, layout_revision: 41 };
+  const failedSignature = failedNativeSurfaceOcclusionSignature({
+    result: { ok: false, error: 'mask unavailable' },
+    request,
+    requestSignature: initial.idealSignature,
+    currentRevision: 41,
+  });
+  assert.equal(failedSignature, initial.idealSignature);
+
+  const fallback = nativeSurfaceLayoutWithOcclusionFallback(desired, failedSignature);
+  assert.equal(fallback.fallback, true);
+  assert.equal(fallback.layout.visible, false);
+  assert.deepEqual(fallback.layout.occlusion_rects, []);
+
+  const movedOverlay = nativeSurfaceLayoutWithOcclusionFallback({
+    ...desired,
+    occlusion_rects: [{ x: 120, y: 80, width: 180, height: 120 }],
+  }, failedSignature);
+  assert.equal(movedOverlay.fallback, false);
+  assert.equal(movedOverlay.layout.visible, true);
+
+  assert.equal(failedNativeSurfaceOcclusionSignature({
+    result: { ok: false },
+    request,
+    requestSignature: initial.idealSignature,
+    currentRevision: 42,
+  }), '');
+  assert.equal(failedNativeSurfaceOcclusionSignature({
+    result: { ok: true },
+    request,
+    requestSignature: initial.idealSignature,
+    currentRevision: 41,
+  }), '');
 });
 
 run('native surface visibility requires every application and geometry gate', () => {
