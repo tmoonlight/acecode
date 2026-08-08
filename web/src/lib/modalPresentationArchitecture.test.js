@@ -71,3 +71,21 @@ run('update dialog keeps release history bounded and renders notes as plain text
   assert.match(updateDialog, /mode === 'up_to_date'/);
   assert.doesNotMatch(updateDialog, /dangerouslySetInnerHTML/);
 });
+
+run('update progress is monotonic, accessible, striped, and reduced-motion safe', () => {
+  const updateDialog = source('components/UpdateDialog.jsx');
+  const styles = source('styles/globals.css');
+
+  assert.match(updateDialog, /nondecreasingUpdateProgress/);
+  assert.match(updateDialog, /key=\{job\?\.job_id \|\| 'starting'\}/);
+  assert.match(updateDialog, /role="progressbar"/);
+  assert.match(updateDialog, /aria-label="ACECode 升级"/);
+  assert.match(updateDialog, /aria-valuenow=\{renderedProgress\}/);
+  assert.match(updateDialog, /ace-update-progress-fill/);
+  assert.match(styles, /@keyframes ace-update-progress-stripes/);
+  assert.match(styles, /\.ace-update-progress-fill \{[\s\S]*transition: width 260ms/);
+  assert.match(
+    styles,
+    /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.ace-update-progress-fill \{[\s\S]*animation: none;[\s\S]*transition: none;/,
+  );
+});

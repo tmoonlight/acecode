@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   desktopUpdateRestartAvailable,
   formatUpdatePublishedDate,
+  nondecreasingUpdateProgress,
   normalizeUpdateReleases,
   requestDesktopUpdateRestart,
   updateDialogMode,
@@ -33,6 +34,14 @@ await test('download progress occupies the visible middle of the full lifecycle'
   assert.equal(updateJobProgress({ phase: 'verifying', state: 'running' }), 78);
   assert.equal(updateJobProgress({ phase: 'installing', state: 'running' }), 95);
   assert.equal(updateJobProgress({ phase: 'complete', state: 'succeeded' }), 100);
+});
+
+await test('rendered update progress never regresses within the same job', () => {
+  assert.equal(nondecreasingUpdateProgress(40, 55), 55);
+  assert.equal(nondecreasingUpdateProgress(55, 42), 55);
+  assert.equal(nondecreasingUpdateProgress(95, 101), 100);
+  assert.equal(nondecreasingUpdateProgress(-8, '12'), 12);
+  assert.equal(nondecreasingUpdateProgress(12, 'not-a-number'), 12);
 });
 
 await test('phase labels and terminal dialog modes are stable', () => {

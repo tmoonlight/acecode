@@ -2018,6 +2018,40 @@ body {
   box-shadow: 0 0 4px rgba(var(--ace-accent-rgb), 0.35);
 }
 
+/* Upgrade progress is deliberately quicker than the 350ms status polling interval,
+   so each target settles promptly while the striped surface keeps activity visible. */
+.ace-update-progress-track {
+  box-shadow: inset 0 0 0 1px rgba(var(--ace-border-rgb), 0.45);
+}
+.ace-update-progress-fill {
+  background-color: var(--ace-accent);
+  background-image: linear-gradient(
+    45deg,
+    rgba(var(--ace-surface-rgb), 0.14) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(var(--ace-surface-rgb), 0.14) 50%,
+    rgba(var(--ace-surface-rgb), 0.14) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 16px 16px;
+  box-shadow: 0 0 8px rgba(var(--ace-accent-rgb), 0.24);
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: ace-update-progress-stripes 1.2s linear infinite;
+  will-change: width;
+}
+@keyframes ace-update-progress-stripes {
+  to { background-position: 16px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-update-progress-fill {
+    animation: none;
+    transition: none;
+    will-change: auto;
+  }
+}
+
 /* Codex-style new task home */
 .ace-home-panel {
   min-height: 0;
@@ -2039,6 +2073,8 @@ body {
 .ace-home-logo {
   align-self: center;
   margin-bottom: 4px;
+  transform: scale(1.2);
+  transform-origin: center;
 }
 .ace-home-title {
   margin: 0 0 16px;

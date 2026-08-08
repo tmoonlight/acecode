@@ -1,6 +1,8 @@
+import { useRef } from 'react';
 import { formatBytes } from '../lib/format.js';
 import {
   formatUpdatePublishedDate,
+  nondecreasingUpdateProgress,
   normalizeUpdateReleases,
   updateDialogMode,
   updateJobIsActive,
@@ -9,6 +11,38 @@ import {
   updateRestartMessage,
 } from '../lib/updateJob.js';
 import { Modal } from './Modal.jsx';
+
+function UpdateProgressBar({ phaseLabel, progress }) {
+  const renderedProgressRef = useRef(0);
+  const renderedProgress = nondecreasingUpdateProgress(
+    renderedProgressRef.current,
+    progress,
+  );
+  renderedProgressRef.current = renderedProgress;
+
+  return (
+    <>
+      <div className="flex items-center justify-between text-[12px]">
+        <span className="text-fg">{phaseLabel}</span>
+        <span className="text-fg-mute tabular-nums">{renderedProgress}%</span>
+      </div>
+      <div
+        className="ace-update-progress-track mt-2 h-2 overflow-hidden rounded-full bg-surface-hi"
+        role="progressbar"
+        aria-label="ACECode 升级"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={renderedProgress}
+        aria-valuetext={`${phaseLabel}，${renderedProgress}%`}
+      >
+        <div
+          className="ace-update-progress-fill h-full rounded-full"
+          style={{ width: `${renderedProgress}%` }}
+        />
+      </div>
+    </>
+  );
+}
 
 function versionText(value) {
   const text = String(value || '').trim();
@@ -130,16 +164,11 @@ export function UpdateDialog({
 
         {(mode === 'running' || starting) && (
           <div className="mt-5">
-            <div className="flex items-center justify-between text-[12px]">
-              <span className="text-fg">{phaseLabel}</span>
-              <span className="text-fg-mute tabular-nums">{progress}%</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-hi">
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-300"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
+            <UpdateProgressBar
+              key={job?.job_id || 'starting'}
+              phaseLabel={phaseLabel}
+              progress={progress}
+            />
             {job?.phase === 'downloading' && Number(job?.bytes_total) > 0 && (
               <div className="mt-2 text-[11px] text-fg-mute tabular-nums">
                 {formatBytes(Number(job.bytes_downloaded || 0))} / {formatBytes(Number(job.bytes_total))}

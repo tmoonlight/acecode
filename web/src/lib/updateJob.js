@@ -38,6 +38,15 @@ export function updateJobProgress(job) {
   return PHASE_PROGRESS[job.phase] ?? 0;
 }
 
+function boundedUpdateProgress(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : 0;
+}
+
+export function nondecreasingUpdateProgress(previous, next) {
+  return Math.max(boundedUpdateProgress(previous), boundedUpdateProgress(next));
+}
+
 export function updateRestartMessage(job) {
   if (job?.state !== 'succeeded' || !job?.restart_required) return '';
   return '升级已安装。请完全退出并重新启动 ACECode；当前窗口仍在运行旧版本。';
