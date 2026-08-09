@@ -921,7 +921,7 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
     EXPECT_TRUE(state["completed"].get<bool>());
-    EXPECT_EQ(state["bundle_version"], "2026-07-27.1");
+    EXPECT_EQ(state["bundle_version"], "2026-08-09.1");
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);

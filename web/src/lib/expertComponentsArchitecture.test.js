@@ -56,6 +56,36 @@ test('standalone expert page dispatches to the real new-task composer without re
   assert.match(styles, /\.ace-expert-components-shell > \.ace-resize-handle-left/);
 });
 
+test('new expert split control stages Expert Manager without sending and keeps the editor advanced-only', () => {
+  const page = source('components/ExpertComponentsPage.jsx');
+  const app = source('App.jsx');
+  const conversationalCreation = between(
+    app,
+    'const startConversationalExpertCreation =',
+    'const dispatchExpertToNewTask =',
+  );
+
+  assert.match(app, /const EXPERT_MANAGER_CREATION_DRAFT = '\/expert-manager ';/);
+  assert.match(conversationalCreation, /homeRefFromWorkspace\(current, current, health\)/);
+  assert.match(conversationalCreation, /refreshWorkspaceGitInfo\(createApi\(base\), base\)/);
+  assert.match(conversationalCreation, /initialDraftText: EXPERT_MANAGER_CREATION_DRAFT/);
+  assert.doesNotMatch(conversationalCreation, /expertId|expert_id|createSession|sendInput/);
+  assert.match(app, /onStartConversationalCreation=\{startConversationalExpertCreation\}/);
+
+  assert.match(page, /onClick=\{onStartConversationalCreation\}/);
+  assert.match(page, /aria-haspopup="menu"/);
+  assert.match(page, /aria-expanded=\{creationMenuOpen\}/);
+  assert.match(page, /role="menu"/);
+  assert.equal((page.match(/role="menuitem"/g) || []).length, 1);
+  assert.match(page, />\s*高级模式\s*</);
+  assert.match(page, /data-ace-native-overlay="overlap"/);
+  assert.match(page, /event\.key === 'Escape'/);
+  assert.match(page, /creationMenuButtonRef\.current\?\.focus\(\)/);
+  assert.match(page, /document\.addEventListener\('pointerdown'/);
+  assert.match(page, /setEditor\(\{ editing: false, form: emptyExpertForm\('agent'\) \}\)/);
+  assert.doesNotMatch(page, /createSession|sendInput/);
+});
+
 test('catalog uses type tabs plus dynamic non-exclusive Tags and cards show expertise only', () => {
   const catalog = source('components/ExpertCatalog.jsx');
   const card = between(catalog, 'function ExpertCard', 'function DetailSection');
@@ -88,6 +118,8 @@ test('detail keeps opening prompts separate and uses accessible, focus-restoring
 
 test('editor provides basic, advanced, and inline team-member workflows backed by runtime APIs', () => {
   const editor = source('components/ExpertEditor.jsx');
+  const basic = between(editor, 'function BasicEditor', 'function capabilityStatus');
+  const save = between(editor, 'const save = async () => {', 'const tabs =');
   const toolScope = between(editor, 'function ToolScope', 'function AdvancedEditor');
   const api = source('lib/api.js');
   assert.match(editor, /基础信息/);
@@ -126,6 +158,16 @@ test('editor provides basic, advanced, and inline team-member workflows backed b
   assert.match(editor, />\s*移除\s*</);
   assert.match(editor, /放弃未保存的更改/);
   assert.match(api, /\/api\/experts\/capabilities/);
+  assert.match(basic, /data-expert-state-avatars="true"/);
+  assert.match(basic, /EXPERT_AVATAR_STATES\.map/);
+  assert.match(basic, /form\.stateAvatars/);
+  assert.match(basic, /form\.stateAvatarUrls/);
+  assert.match(basic, /GIF 会保留原始动画/);
+  assert.match(basic, /<img[\s\S]*src=\{previewUrl\}/);
+  assert.match(basic, /updateStateAvatar\(state\.id, ''\)/);
+  assert.doesNotMatch(basic, /type="file"|upload|上传文件/);
+  assert.match(save, /setSaveError\(error\?\.message/);
+  assert.doesNotMatch(save, /setForm\(/);
 });
 
 test('all real composers host the picker in place and opening prompts use atomic expert draft dispatch', () => {

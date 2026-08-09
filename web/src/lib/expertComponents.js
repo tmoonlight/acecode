@@ -11,6 +11,11 @@ export const EXPERT_SORTS = Object.freeze([
   Object.freeze({ id: 'created', label: '最近创建' }),
 ]);
 export const CAPABILITY_KINDS = Object.freeze(['skills', 'mcp_servers', 'tools']);
+export const EXPERT_AVATAR_STATES = Object.freeze([
+  Object.freeze({ id: 'working', label: '工作中', description: '执行、编程或处理任务时使用' }),
+  Object.freeze({ id: 'needs_attention', label: '需要关注', description: '向用户提问或等待确认时使用' }),
+  Object.freeze({ id: 'idle', label: '空闲', description: '没有操作或等待下一项任务时使用' }),
+]);
 
 const BUILTIN_TOOL_GROUP_RULES = Object.freeze([
   Object.freeze({
@@ -120,6 +125,37 @@ export function safeExpertAvatarUrl(value) {
   return '';
 }
 
+export function normalizeExpertStateAvatars(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return Object.fromEntries(EXPERT_AVATAR_STATES.flatMap(({ id }) => {
+    if (typeof source[id] !== 'string') return [];
+    const path = source[id].trim();
+    return path ? [[id, path]] : [];
+  }));
+}
+
+export function normalizeExpertStateAvatarUrls(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return Object.fromEntries(EXPERT_AVATAR_STATES.flatMap(({ id }) => {
+    const url = safeExpertAvatarUrl(source[id]);
+    return url ? [[id, url]] : [];
+  }));
+}
+
+export function expertStateAvatarPathError(value) {
+  const path = String(value || '').trim();
+  if (!path) return '';
+  const portable = path.replaceAll('\\', '/');
+  if (/^(?:\/|[a-z]:\/)/i.test(portable)
+      || portable.split('/').includes('..')) {
+    return '请填写专家包内的相对路径';
+  }
+  if (!/\.(?:png|jpe?g|gif|webp|bmp|ico)$/i.test(portable)) {
+    return '仅支持 PNG、JPEG、GIF、WebP、BMP 或 ICO';
+  }
+  return '';
+}
+
 function normalizeAgent(value) {
   if (!value || typeof value !== 'object') return null;
   return {
@@ -146,6 +182,8 @@ export function normalizeExperts(value) {
       source: item.source === 'workspace' ? 'workspace' : 'global',
       managed_global: item.managed_global === true,
       avatar_url: safeExpertAvatarUrl(item.avatar_url),
+      state_avatars: normalizeExpertStateAvatars(item.state_avatars),
+      state_avatar_urls: normalizeExpertStateAvatarUrls(item.state_avatar_urls),
       tags: normalizeStringList(item.tags),
       expertise: normalizeStringList(item.expertise),
       quick_prompts: normalizeStringList(item.quick_prompts),
@@ -245,6 +283,8 @@ export function emptyExpertForm(type = 'agent', initialExpertId = '') {
     instructions: '',
     quickPromptsText: '',
     capabilities: {},
+    stateAvatars: {},
+    stateAvatarUrls: {},
     selectedExpertIds,
     leadExpertId: selectedExpertIds[0] || '',
   };
@@ -271,6 +311,8 @@ export function expertFormFromDetail(expert) {
     instructions: normalized.type === 'agent' ? String(lead.instructions || '') : '',
     quickPromptsText: (normalized.quick_prompts || []).join('\n'),
     capabilities: normalizeExpertCapabilities(normalized.capabilities),
+    stateAvatars: normalizeExpertStateAvatars(normalized.state_avatars),
+    stateAvatarUrls: normalizeExpertStateAvatarUrls(normalized.state_avatar_urls),
     selectedExpertIds,
     leadExpertId: normalized.lead_expert_id || selectedExpertIds[0] || '',
   };
@@ -302,6 +344,13 @@ export function validateExpertFormFields(form, selectableExperts) {
   } else if (!String(form?.instructions || '').trim()) {
     errors.instructions = '请填写这个专家的工作方式';
   }
+  const stateAvatarErrors = Object.fromEntries(EXPERT_AVATAR_STATES.flatMap(({ id }) => {
+    const error = expertStateAvatarPathError(form?.stateAvatars?.[id]);
+    return error ? [[id, error]] : [];
+  }));
+  if (Object.keys(stateAvatarErrors).length > 0) {
+    errors.stateAvatars = stateAvatarErrors;
+  }
   return errors;
 }
 
@@ -315,6 +364,7 @@ function capabilitiesPayload(form) {
 }
 
 export function expertPayloadFromForm(form) {
+  const stateAvatarsPresent = Object.prototype.hasOwnProperty.call(form || {}, 'stateAvatars');
   const common = {
     id: String(form.id || '').trim(),
     type: form.type === 'team' ? 'team' : 'agent',
@@ -324,6 +374,9 @@ export function expertPayloadFromForm(form) {
     tags: normalizeStringList(form.tags),
     expertise: parseLineList(form.expertiseText),
     quick_prompts: parseLineList(form.quickPromptsText),
+    ...(stateAvatarsPresent
+      ? { state_avatars: normalizeExpertStateAvatars(form.stateAvatars) }
+      : {}),
   };
   if (common.type === 'team') {
     const selected = normalizeStringList(form.selectedExpertIds);

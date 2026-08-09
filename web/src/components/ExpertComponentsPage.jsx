@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import {
   emptyExpertForm,
@@ -15,11 +15,39 @@ export function ExpertComponentsPage({
   recentExpertIds = [],
   onRememberExpert,
   onDispatchToNewTask,
+  onStartConversationalCreation,
 }) {
   const catalog = useExpertCatalogData(workspaceHash);
   const [editor, setEditor] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [creationMenuOpen, setCreationMenuOpen] = useState(false);
+  const creationMenuRootRef = useRef(null);
+  const creationMenuButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!creationMenuOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!creationMenuRootRef.current?.contains(event.target)) {
+        setCreationMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setCreationMenuOpen(false);
+        creationMenuButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [creationMenuOpen]);
 
   const editExpert = async (expert) => {
     if (!expert.managed_global) return;
@@ -77,14 +105,49 @@ export function ExpertComponentsPage({
               <VsIcon name="extension" size={14} />
               组建专家团
             </button>
-            <button
-              type="button"
-              onClick={() => setEditor({ editing: false, form: emptyExpertForm('agent') })}
-              className="flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-medium text-white hover:opacity-90"
-            >
-              <VsIcon name="add" size={14} />
-              新建专家
-            </button>
+            <div ref={creationMenuRootRef} className="relative flex h-8 shrink-0 items-stretch">
+              <button
+                type="button"
+                onClick={onStartConversationalCreation}
+                className="flex h-8 items-center gap-1.5 rounded-l-md bg-accent px-3 text-[12px] font-medium text-white transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg"
+              >
+                <VsIcon name="add" size={14} />
+                新建专家
+              </button>
+              <button
+                ref={creationMenuButtonRef}
+                type="button"
+                aria-label="打开高级模式菜单"
+                aria-haspopup="menu"
+                aria-expanded={creationMenuOpen}
+                aria-controls="expert-creation-menu"
+                onClick={() => setCreationMenuOpen((open) => !open)}
+                className="flex h-8 w-8 items-center justify-center rounded-r-md border-l border-accent-bg bg-accent text-white transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg"
+              >
+                <VsIcon name="glyphDown" size={12} />
+              </button>
+              {creationMenuOpen && (
+                <div
+                  id="expert-creation-menu"
+                  role="menu"
+                  aria-label="新建专家选项"
+                  data-ace-native-overlay="overlap"
+                  className="ace-shadow-lg absolute right-0 top-full z-[100] mt-1 min-w-32 rounded-md border border-border bg-surface p-1 text-fg"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setCreationMenuOpen(false);
+                      setEditor({ editing: false, form: emptyExpertForm('agent') });
+                    }}
+                    className="flex h-8 w-full items-center rounded px-2.5 text-left text-[12px] font-medium transition hover:bg-surface-hi focus-visible:outline-none focus-visible:bg-surface-hi"
+                  >
+                    高级模式
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

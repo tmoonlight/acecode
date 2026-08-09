@@ -150,8 +150,9 @@ TEST(ExpertRegistry, TeamReferencesExistingExpertsWithoutCopyingDefinitions) {
     EXPECT_EQ(found->selected_agent("tester")->instructions,
               "Test the implementation.");
 
-    std::ifstream manifest_input(
-        temp.path / "global" / "delivery-team" / "expert.json");
+    const fs::path team_package =
+        temp.path / "global" / "delivery-team";
+    std::ifstream manifest_input(team_package / "expert.json");
     auto manifest = nlohmann::json::parse(manifest_input);
     manifest_input.close();
     EXPECT_FALSE(manifest.contains("agents"));
@@ -160,8 +161,15 @@ TEST(ExpertRegistry, TeamReferencesExistingExpertsWithoutCopyingDefinitions) {
     manifest["teamInfo"]["future_extension"] = {
         {"nested", "preserve-team-data"},
     };
-    std::ofstream(temp.path / "global" / "delivery-team" / "expert.json")
-        << manifest.dump(2) << '\n';
+    const std::string team_idle_gif = "GIF89a\x01\x00\x01\x00team-idle";
+    std::ofstream(team_package / "idle.gif", std::ios::binary)
+        << team_idle_gif;
+    manifest["stateAvatars"] = {{"idle", "idle.gif"}};
+    std::ofstream(team_package / "expert.json") << manifest.dump(2) << '\n';
+
+    found = registry.find(acecode::path_to_utf8(temp.path), "delivery-team");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->state_avatar_refs.at("idle"), "idle.gif");
 
     const fs::path stale_agents =
         temp.path / "global" / "delivery-team" / "agents";
@@ -170,11 +178,17 @@ TEST(ExpertRegistry, TeamReferencesExistingExpertsWithoutCopyingDefinitions) {
     team.description = "Updated without copied member documents.";
     ASSERT_TRUE(registry.update_global("delivery-team", team, &error)) << error;
     EXPECT_TRUE(fs::exists(stale_agents));
-    std::ifstream updated_team_input(
-        temp.path / "global" / "delivery-team" / "expert.json");
+    std::ifstream updated_team_input(team_package / "expert.json");
     const auto updated_team = nlohmann::json::parse(updated_team_input);
     EXPECT_EQ(updated_team["teamInfo"]["future_extension"]["nested"],
               "preserve-team-data");
+    EXPECT_EQ(updated_team["stateAvatars"]["idle"], "idle.gif");
+    {
+        std::ifstream idle_input(team_package / "idle.gif", std::ios::binary);
+        EXPECT_EQ(std::string(std::istreambuf_iterator<char>(idle_input),
+                              std::istreambuf_iterator<char>()),
+                  team_idle_gif);
+    }
 
     tester.display_name = "Senior Tester";
     tester.lead.instructions = "Run the current acceptance plan.";
@@ -384,6 +398,46 @@ TEST(ExpertRegistry, DraftJsonRejectsInvalidIdentifiersAndToolFieldsDoNotMatter)
     }, &error);
     ASSERT_TRUE(valid.has_value()) << error;
     EXPECT_EQ(valid->lead.instructions, "Act safely.");
+
+    auto states = acecode::ExpertRegistry::draft_from_json({
+        {"id", "stateful"},
+        {"display_name", "Stateful"},
+        {"instructions", "Use state images safely."},
+        {"state_avatars", {
+            {"working", "avatars/working.gif"},
+            {"idle", "avatars/idle.png"},
+        }},
+    }, &error);
+    ASSERT_TRUE(states.has_value()) << error;
+    EXPECT_TRUE(states->state_avatars_present);
+    EXPECT_EQ(states->state_avatars.at("working"),
+              "avatars/working.gif");
+    EXPECT_EQ(states->state_avatars.at("idle"), "avatars/idle.png");
+
+    auto explicit_empty = acecode::ExpertRegistry::draft_from_json({
+        {"id", "clear-states"},
+        {"display_name", "Clear States"},
+        {"instructions", "Clear state images safely."},
+        {"stateAvatars", nlohmann::json::object()},
+    }, &error);
+    ASSERT_TRUE(explicit_empty.has_value()) << error;
+    EXPECT_TRUE(explicit_empty->state_avatars_present);
+    EXPECT_TRUE(explicit_empty->state_avatars.empty());
+
+    for (const auto& invalid_states : std::vector<nlohmann::json>{
+             {{"future", "avatars/future.png"}},
+             {{"working", 42}},
+             {{"working", "../outside.png"}},
+             {{"working", "avatars/working.svg"}},
+         }) {
+        auto invalid_state = acecode::ExpertRegistry::draft_from_json({
+            {"id", "invalid-state"},
+            {"display_name", "Invalid State"},
+            {"instructions", "Reject invalid state images."},
+            {"state_avatars", invalid_states},
+        }, &error);
+        EXPECT_FALSE(invalid_state.has_value()) << invalid_states.dump();
+    }
 }
 
 TEST(ExpertRegistry, NormalizesMetadataAndPreservesOptionalCapabilityStates) {
@@ -546,6 +600,160 @@ TEST(ExpertRegistry, UpdateMergesManagedFieldsWithoutLosingPackageData) {
     const auto scoped = nlohmann::json::parse(scoped_input);
     EXPECT_FALSE(scoped["capabilities"].contains("mcp_servers"));
     EXPECT_EQ(scoped["capabilities"]["future_scope"][0], "keep");
+}
+
+TEST(ExpertRegistry, StateAvatarsRoundTripAndExplicitUpdatesPreservePackageData) {
+    TempDir temp;
+    const fs::path global_root = temp.path / "global";
+    acecode::ExpertRegistry registry(global_root);
+    std::string error;
+    auto initial = make_agent("stateful", "Stateful");
+    ASSERT_TRUE(registry.create_global(initial, &error)) << error;
+
+    const fs::path package = global_root / "stateful";
+    fs::create_directories(package / "avatars");
+    const std::string gif_bytes = "GIF89a\x01\x00\x01\x00animated";
+    std::ofstream(package / "avatars" / "working.gif", std::ios::binary)
+        << gif_bytes;
+    std::ofstream(package / "avatars" / "attention.png", std::ios::binary)
+        << "\x89PNG\r\n\x1a\nattention";
+    std::ofstream(package / "avatars" / "idle.png", std::ios::binary)
+        << "\x89PNG\r\n\x1a\nidle";
+    std::ofstream(package / "avatars" / "future.bin", std::ios::binary)
+        << "future";
+    {
+        std::ifstream input(package / "expert.json");
+        auto manifest = nlohmann::json::parse(input);
+        manifest["stateAvatars"] = {
+            {"working", "avatars/working.gif"},
+            {"needs_attention", "avatars/attention.png"},
+            {"idle", "avatars/idle.png"},
+            {"future_state", "avatars/future.bin"},
+        };
+        std::ofstream(package / "expert.json") << manifest.dump(2) << '\n';
+    }
+
+    auto found = registry.find(acecode::path_to_utf8(temp.path), "stateful");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->state_avatar_refs.at("working"),
+              "avatars/working.gif");
+    EXPECT_TRUE(fs::is_regular_file(
+        acecode::path_from_utf8(found->state_avatar_paths.at("working"))));
+    const auto detail = acecode::expert_definition_to_json(*found, true);
+    EXPECT_EQ(detail["state_avatars"]["needs_attention"],
+              "avatars/attention.png");
+    EXPECT_EQ(detail.dump().find(acecode::path_to_utf8(package)),
+              std::string::npos);
+
+    auto omitted = initial;
+    omitted.description = "State references are preserved.";
+    ASSERT_FALSE(omitted.state_avatars_present);
+    ASSERT_TRUE(registry.update_global("stateful", omitted, &error)) << error;
+    {
+        std::ifstream input(package / "expert.json");
+        const auto manifest = nlohmann::json::parse(input);
+        EXPECT_EQ(manifest["stateAvatars"]["working"],
+                  "avatars/working.gif");
+        EXPECT_EQ(manifest["stateAvatars"]["future_state"],
+                  "avatars/future.bin");
+    }
+    {
+        std::ifstream preserved_gif(package / "avatars" / "working.gif",
+                                    std::ios::binary);
+        EXPECT_EQ(std::string(std::istreambuf_iterator<char>(preserved_gif),
+                              std::istreambuf_iterator<char>()),
+                  gif_bytes);
+    }
+
+    auto authoritative = omitted;
+    authoritative.state_avatars_present = true;
+    authoritative.state_avatars = {
+        {"working", "avatars/working.gif"},
+        {"idle", "avatars/idle.png"},
+    };
+    ASSERT_TRUE(registry.update_global("stateful", authoritative, &error))
+        << error;
+    {
+        std::ifstream input(package / "expert.json");
+        const auto manifest = nlohmann::json::parse(input);
+        EXPECT_FALSE(manifest["stateAvatars"].contains("needs_attention"));
+        EXPECT_EQ(manifest["stateAvatars"]["future_state"],
+                  "avatars/future.bin");
+    }
+
+    auto clear = omitted;
+    clear.state_avatars_present = true;
+    clear.state_avatars.clear();
+    ASSERT_TRUE(registry.update_global("stateful", clear, &error)) << error;
+    {
+        std::ifstream input(package / "expert.json");
+        const auto manifest = nlohmann::json::parse(input);
+        ASSERT_TRUE(manifest["stateAvatars"].is_object());
+        EXPECT_EQ(manifest["stateAvatars"].size(), 1u);
+        EXPECT_EQ(manifest["stateAvatars"]["future_state"],
+                  "avatars/future.bin");
+    }
+    EXPECT_TRUE(fs::is_regular_file(package / "avatars" / "working.gif"));
+    EXPECT_TRUE(fs::is_regular_file(package / "avatars" / "attention.png"));
+    EXPECT_TRUE(fs::is_regular_file(package / "avatars" / "idle.png"));
+
+    auto invalid_update = omitted;
+    invalid_update.display_name = "Must Roll Back";
+    invalid_update.state_avatars_present = true;
+    invalid_update.state_avatars = {{"working", "avatars/missing.png"}};
+    EXPECT_FALSE(registry.update_global("stateful", invalid_update, &error));
+    found = registry.find(acecode::path_to_utf8(temp.path), "stateful");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->display_name, "Stateful");
+    EXPECT_TRUE(found->state_avatar_refs.empty());
+}
+
+TEST(ExpertRegistry, RejectsUnsafeOrUnsupportedConfiguredStateAvatars) {
+    TempDir temp;
+    const fs::path root = temp.path / "global";
+    acecode::ExpertRegistry registry(root);
+    std::string error;
+    ASSERT_TRUE(registry.create_global(make_agent("unsafe-state", "Unsafe"),
+                                       &error)) << error;
+    const fs::path package = root / "unsafe-state";
+    std::ofstream(temp.path / "outside.png", std::ios::binary) << "outside";
+    std::ofstream(package / "state.svg", std::ios::binary) << "<svg/>";
+
+    auto set_states = [&](const nlohmann::json& value) {
+        std::ifstream input(package / "expert.json");
+        auto manifest = nlohmann::json::parse(input);
+        input.close();
+        manifest["stateAvatars"] = value;
+        std::ofstream(package / "expert.json") << manifest.dump(2) << '\n';
+    };
+    auto diagnostic_for = [&]() {
+        std::vector<acecode::ExpertDiagnostic> diagnostics;
+        const auto experts =
+            registry.list(acecode::path_to_utf8(temp.path), &diagnostics);
+        EXPECT_TRUE(experts.empty());
+        EXPECT_EQ(diagnostics.size(), 1u);
+        return diagnostics.empty() ? std::string{} : diagnostics.front().message;
+    };
+
+    set_states({{"working", "../../outside.png"}});
+    EXPECT_NE(diagnostic_for().find("escapes"), std::string::npos);
+    set_states({{"working", "avatars/missing.png"}});
+    EXPECT_NE(diagnostic_for().find("does not exist"), std::string::npos);
+    set_states({{"working", "state.svg"}});
+    EXPECT_NE(diagnostic_for().find("unsupported"), std::string::npos);
+    {
+        std::ofstream oversized(package / "oversized.gif", std::ios::binary);
+        oversized.seekp(
+            static_cast<std::streamoff>(acecode::kMaxExpertAvatarBytes));
+        oversized.put('\0');
+    }
+    set_states({{"working", "oversized.gif"}});
+    EXPECT_NE(diagnostic_for().find("size limit"), std::string::npos);
+
+    set_states({{"future_state", "future.bin"}});
+    auto found = registry.find(acecode::path_to_utf8(temp.path), "unsafe-state");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_TRUE(found->state_avatar_refs.empty());
 }
 
 TEST(ExpertRegistry, RecoversMissingTargetFromDurableBackupTransaction) {

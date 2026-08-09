@@ -1091,7 +1091,7 @@ const std::vector<DefaultSkillSeed>& default_skill_seeds() {
          "codex-system:skill-creator@2026-04-30",
          fs::path("skill-management") / "skill-creator"},
         {"expert-manager",
-         "acecode:expert-manager@2026-07-27",
+         "acecode:expert-manager@2026-08-09",
          fs::path("expert-management") / "expert-manager"},
         {"native-mcp",
          "hermes-agent:mcp/native-mcp@4eecaf06e48834e105cbd989ae0bae5a2a618c1d",

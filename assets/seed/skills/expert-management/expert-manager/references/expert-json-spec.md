@@ -9,7 +9,8 @@
 - 展示字段优先使用普通字符串。ACECode 可以读取本地化对象，但当前界面只需要
   一个最终展示值。
 - `quickPrompts` 最多 24 条，每条不超过 4096 字节。
-- `avatar`、Agent 路径和 Skill 路径必须是包内相对路径，且目标真实存在。
+- `avatar`、`stateAvatars`、Agent 路径和 Skill 路径必须是包内相对路径，
+  且目标真实存在。
 - Agent frontmatter 不声明工具、权限或 MCP。Agent 清单可以通过
   `capabilities` 引用 ACECode 已知的 Skill、MCP 服务器和本地工具，但不保存
   凭据、连接器配置或权限模式。
@@ -55,6 +56,11 @@
     "tools": ["file_read", "grep"]
   },
   "avatar": "avatars/researcher.png",
+  "stateAvatars": {
+    "working": "avatars/researcher-working.gif",
+    "needs_attention": "avatars/researcher-attention.png",
+    "idle": "avatars/researcher-idle.png"
+  },
   "license": "Apache-2.0",
   "homepage": "https://example.com"
 }
@@ -121,9 +127,24 @@ ACECode 的标准专家团引用已经存在的 Agent 型专家：
 
 ```json
 {
-  "avatar": "avatars/team.png"
+  "avatar": "avatars/team.png",
+  "stateAvatars": {
+    "working": "avatars/team-working.gif",
+    "needs_attention": "avatars/team-attention.png",
+    "idle": "avatars/team-idle.png"
+  }
 }
 ```
+
+### 状态头像
+
+- `stateAvatars` 只允许 `working`、`needs_attention`、`idle` 三个可选键。
+- `working` 用于执行、编程或处理任务；`needs_attention` 用于向用户提问或等待
+  确认；`idle` 用于无操作或等待下一项任务。
+- 任一状态未配置时使用主 `avatar`；主头像也不存在时沿用无头像表现。
+- 支持 PNG、JPEG、GIF、WebP、BMP 和 ICO，单文件不得超过 8 MiB。
+- GIF 按原始字节保存和提供，不缩放、转码、抽帧或静态化。
+- 只有真实图片文件已经位于包内时才能写路径；不得生成占位文件或失效引用。
 
 ### Team 规则
 

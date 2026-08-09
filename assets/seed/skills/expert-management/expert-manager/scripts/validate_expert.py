@@ -27,6 +27,9 @@ MAX_AGENTS = 32
 MAX_CAPABILITIES_PER_CLASS = 256
 MAX_CAPABILITY_ID_BYTES = 256
 CAPABILITY_KEYS = ("skills", "mcp_servers", "tools")
+MAX_AVATAR_BYTES = 8 * 1024 * 1024
+STATE_AVATAR_KEYS = ("working", "needs_attention", "idle")
+AVATAR_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico")
 ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 
 
@@ -213,6 +216,42 @@ def validate_avatar_and_skills(
     avatar = manifest.get("avatar")
     if avatar is not None:
         contained_path(package_root, avatar, result, "expert.json: avatar", False)
+
+    state_avatars = manifest.get("stateAvatars")
+    if state_avatars is not None:
+        if not isinstance(state_avatars, dict):
+            result.error("expert.json: stateAvatars must be an object")
+        else:
+            unknown = sorted(set(state_avatars) - set(STATE_AVATAR_KEYS))
+            if unknown:
+                result.error(
+                    "expert.json: unknown stateAvatars keys: " + ", ".join(unknown)
+                )
+            for state in STATE_AVATAR_KEYS:
+                if state not in state_avatars:
+                    continue
+                path = contained_path(
+                    package_root,
+                    state_avatars[state],
+                    result,
+                    f"expert.json: stateAvatars.{state}",
+                    False,
+                )
+                if not path:
+                    continue
+                if path.suffix.lower() not in AVATAR_EXTENSIONS:
+                    result.error(
+                        f"expert.json: stateAvatars.{state} uses an unsupported image type"
+                    )
+                try:
+                    if path.stat().st_size > MAX_AVATAR_BYTES:
+                        result.error(
+                            f"expert.json: stateAvatars.{state} exceeds {MAX_AVATAR_BYTES} bytes"
+                        )
+                except OSError as exc:
+                    result.error(
+                        f"expert.json: stateAvatars.{state} size cannot be read: {exc}"
+                    )
 
     skills = manifest.get("skills", [])
     if not isinstance(skills, list):

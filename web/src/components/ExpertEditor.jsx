@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
 import {
   CAPABILITY_KINDS,
+  EXPERT_AVATAR_STATES,
   capabilityOptionsWithSaved,
   collectExpertTags,
   expertPayloadFromForm,
@@ -103,6 +104,11 @@ function TagEditor({ value, suggestions, onChange }) {
 
 function BasicEditor({ form, errors, tagSuggestions, update }) {
   const isTeam = form.type === 'team';
+  const stateAvatars = form.stateAvatars || {};
+  const stateAvatarUrls = form.stateAvatarUrls || {};
+  const updateStateAvatar = (state, value) => {
+    update('stateAvatars', { ...stateAvatars, [state]: value });
+  };
   return (
     <div data-expert-editor-basic="true" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Field label={isTeam ? '专家团名称' : '专家名称'} error={errors.displayName} required>
@@ -165,6 +171,67 @@ function BasicEditor({ form, errors, tagSuggestions, update }) {
           />
         </Field>
       )}
+      <section
+        data-expert-state-avatars="true"
+        className="rounded-lg border border-border bg-surface p-3.5 lg:col-span-2"
+      >
+        <div className="text-[13px] font-semibold text-fg">状态头像（可选）</div>
+        <p className="mt-1 text-[11px] leading-5 text-fg-mute">
+          填写专家包内已经存在的图片相对路径；这里不会上传、生成或转换文件。未配置的状态会使用主头像，GIF 会保留原始动画。
+        </p>
+        <div className="mt-3 space-y-2">
+          {EXPERT_AVATAR_STATES.map((state) => {
+            const value = String(stateAvatars[state.id] || '');
+            const previewUrl = stateAvatarUrls[state.id] || '';
+            const error = errors.stateAvatars?.[state.id] || '';
+            return (
+              <div
+                key={state.id}
+                className="rounded-md border border-border bg-surface-alt px-3.5 py-2.5"
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium text-fg">{state.label}</div>
+                    <div className="mt-0.5 text-[11px] text-fg-mute">{state.description}</div>
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 sm:w-[430px]">
+                    {previewUrl ? (
+                      <img
+                        src={previewUrl}
+                        alt={`${state.label}当前生效头像`}
+                        className="h-8 w-8 shrink-0 rounded-md border border-border bg-surface object-cover"
+                      />
+                    ) : (
+                      <div
+                        aria-label={`${state.label}暂无生效头像`}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-dashed border-border bg-surface text-fg-mute"
+                      >
+                        <VsIcon name="eye" size={13} />
+                      </div>
+                    )}
+                    <input
+                      value={value}
+                      onChange={(event) => updateStateAvatar(state.id, event.target.value)}
+                      className="h-7 min-w-0 flex-1 rounded-md border border-border bg-surface px-2 text-[12px] text-fg outline-none transition placeholder:text-fg-mute focus:border-accent"
+                      placeholder={`avatars/${state.id}.gif`}
+                      aria-label={`${state.label}头像相对路径`}
+                    />
+                    <button
+                      type="button"
+                      disabled={!value}
+                      onClick={() => updateStateAvatar(state.id, '')}
+                      className="h-7 shrink-0 rounded-md border border-border px-2 text-[11px] text-fg-2 transition hover:bg-surface-hi disabled:opacity-40"
+                    >
+                      清除
+                    </button>
+                  </div>
+                </div>
+                {error && <p className="mt-1 text-[10px] text-danger">{error}</p>}
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

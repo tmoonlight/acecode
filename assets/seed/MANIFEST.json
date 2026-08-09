@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-07-27.1",
+  "bundle_version": "2026-08-09.1",
   "description": "Versioned default ACECode global Skill and expert seed bundle reconciled at startup.",
   "skills": [
     {
@@ -22,9 +22,9 @@
     },
     {
       "name": "expert-manager",
-      "source_id": "acecode:expert-manager@2026-07-27",
+      "source_id": "acecode:expert-manager@2026-08-09",
       "relative_path": "expert-management/expert-manager",
-      "skill_md_sha256": "35f0536c35a1b18948a20c3bdf0b5d59d6c0cde72aa25aedb3f2fedbbcd12326"
+      "skill_md_sha256": "804fbfefb9cfb49a047182b82f1f6b6f42eb3ba1f42abb87e412fcaf24ef20a8"
     },
     {
       "name": "native-mcp",
