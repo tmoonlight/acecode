@@ -51,6 +51,9 @@ export function PathReferenceDropdown({
   const sessions = Array.isArray(sessionItems) ? sessionItems : [];
   const filesLoading = fileLoading == null ? loading : !!fileLoading;
   const filesError = fileError == null ? error : fileError;
+  const showFileGroup = filesLoading || !!filesError || files.length > 0;
+  const showSessionGroup = sessionLoading || !!sessionError || sessions.length > 0;
+  const showEmptyReferenceState = !showFileGroup && !showSessionGroup;
   const selectableItems = useMemo(() => [
     ...files.map((item) => ({ type: 'file', item })),
     ...sessions.map((item) => ({ type: 'session', item })),
@@ -209,116 +212,118 @@ export function PathReferenceDropdown({
         className="min-h-0 flex-1 overflow-y-auto"
         style={{ maxHeight: MAX_LIST_HEIGHT }}
       >
-        <div role="group" aria-label={t('pathReference.files')}>
-          <div className="px-2 pt-2 pb-1 text-[12px] text-fg-mute">
-            {t('pathReference.files')}
-          </div>
-          {filesLoading && files.length === 0 ? (
-            <div className="px-3 py-3 text-center text-fg-mute text-[12px]">
-              {t('pathReference.loadingFiles')}
+        {showFileGroup && (
+          <div role="group" aria-label={t('pathReference.files')}>
+            <div className="border-y border-border bg-surface-alt px-3 py-1.5 text-[12px] font-semibold text-fg-2">
+              {t('pathReference.files')}
             </div>
-          ) : filesError ? (
-            <div className="px-3 py-3 text-center text-danger text-[12px]">{filesError}</div>
-          ) : files.length === 0 ? (
-            <div className="px-3 py-3 text-center text-fg-mute text-[12px]">
-              {t('pathReference.noFiles')}
-            </div>
-          ) : files.map((item, index) => {
-            const isDirectory = item.kind === 'dir';
-            const active = index === selected;
-            return (
-              <div
-                key={`${item.kind}:${item.path}`}
-                ref={(element) => {
-                  if (element) rowRefs.current.set(index, element);
-                  else rowRefs.current.delete(index);
-                }}
-                role="option"
-                aria-selected={active}
-                aria-label={`${isDirectory ? t('pathReference.folder') : t('pathReference.file')} ${item.path}`}
-                className={clsx(
-                  'flex items-center gap-2 px-2 text-[13px]',
-                  active ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
-                )}
-                style={{ height: ROW_HEIGHT }}
-                onMouseEnter={() => setSelected(index)}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 h-full flex items-center gap-2 text-left"
-                  onMouseDown={(event) => { event.preventDefault(); onReference?.(item); }}
-                  title={isDirectory ? t('pathReference.referenceFolder') : t('pathReference.referenceFile')}
+            {filesLoading && files.length === 0 ? (
+              <div className="px-3 py-3 text-center text-fg-mute text-[12px]">
+                {t('pathReference.loadingFiles')}
+              </div>
+            ) : filesError ? (
+              <div className="px-3 py-3 text-center text-danger text-[12px]">{filesError}</div>
+            ) : files.map((item, index) => {
+              const isDirectory = item.kind === 'dir';
+              const active = index === selected;
+              return (
+                <div
+                  key={`${item.kind}:${item.path}`}
+                  ref={(element) => {
+                    if (element) rowRefs.current.set(index, element);
+                    else rowRefs.current.delete(index);
+                  }}
+                  role="option"
+                  aria-selected={active}
+                  aria-label={`${isDirectory ? t('pathReference.folder') : t('pathReference.file')} ${item.path}`}
+                  className={clsx(
+                    'flex items-center gap-2 px-2 text-[13px]',
+                    active ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
+                  )}
+                  style={{ height: ROW_HEIGHT }}
+                  onMouseEnter={() => setSelected(index)}
                 >
-                  {isDirectory ? <VsIcon name="folder" size={14} /> : <FileTypeIcon path={item.path} size={14} />}
-                  <span className="truncate">{item.path}{isDirectory ? '/' : ''}</span>
-                </button>
-                {isDirectory && (
                   <button
                     type="button"
-                    className="shrink-0 h-6 px-2 rounded text-[11px] text-fg-mute hover:bg-bg hover:text-fg"
-                    aria-label={t('pathReference.enterFolderLabel', { path: item.path })}
-                    onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); onEnterDirectory?.(item); }}
+                    className="min-w-0 flex-1 h-full flex items-center gap-2 text-left"
+                    onMouseDown={(event) => { event.preventDefault(); onReference?.(item); }}
+                    title={isDirectory ? t('pathReference.referenceFolder') : t('pathReference.referenceFile')}
                   >
-                    {t('pathReference.enter')}
+                    {isDirectory ? <VsIcon name="folder" size={14} /> : <FileTypeIcon path={item.path} size={14} />}
+                    <span className="truncate">{item.path}{isDirectory ? '/' : ''}</span>
                   </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div role="group" aria-label={t('pathReference.sessions')}>
-          <div className="px-2 pt-2 pb-1 text-[12px] text-fg-mute">
-            {t('pathReference.sessions')}
+                  {isDirectory && (
+                    <button
+                      type="button"
+                      className="shrink-0 h-6 px-2 rounded text-[11px] text-fg-mute hover:bg-bg hover:text-fg"
+                      aria-label={t('pathReference.enterFolderLabel', { path: item.path })}
+                      onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); onEnterDirectory?.(item); }}
+                    >
+                      {t('pathReference.enter')}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          {sessionLoading && sessions.length === 0 ? (
-            <div className="px-3 py-3 text-center text-fg-mute text-[12px]">
-              {t('pathReference.loadingSessions')}
+        )}
+
+        {showSessionGroup && (
+          <div role="group" aria-label={t('pathReference.sessions')}>
+            <div className="border-y border-border bg-surface-alt px-3 py-1.5 text-[12px] font-semibold text-fg-2">
+              {t('pathReference.sessions')}
             </div>
-          ) : sessionError ? (
-            <div className="px-3 py-3 text-center text-danger text-[12px]">{sessionError}</div>
-          ) : sessions.length === 0 ? (
-            <div className="px-3 py-3 text-center text-fg-mute text-[12px]">
-              {t('pathReference.noSessions')}
-            </div>
-          ) : sessions.map((item, index) => {
-            const selectableIndex = files.length + index;
-            const active = selectableIndex === selected;
-            return (
-              <div
-                key={`session:${item.workspace_hash || (item.no_workspace ? 'task' : '')}:${item.id}`}
-                ref={(element) => {
-                  if (element) rowRefs.current.set(selectableIndex, element);
-                  else rowRefs.current.delete(selectableIndex);
-                }}
-                role="option"
-                aria-selected={active}
-                aria-label={`${t('pathReference.session')} ${item.title}`}
-                className={clsx(
-                  'flex items-center gap-2 px-2 text-[13px]',
-                  active ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
-                )}
-                style={{ height: ROW_HEIGHT }}
-                onMouseEnter={() => setSelected(selectableIndex)}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 h-full flex items-center gap-2 text-left"
-                  onMouseDown={(event) => { event.preventDefault(); onReferenceSession?.(item); }}
-                  title={item.title}
-                >
-                  <VsIcon name="newSession" size={14} />
-                  <span className="min-w-0 flex-1 flex items-baseline gap-2">
-                    <span className="min-w-0 truncate">{item.title}</span>
-                    <span className="max-w-[40%] shrink-0 truncate text-fg-mute">
-                      {item.workspaceName}
-                    </span>
-                  </span>
-                </button>
+            {sessionLoading && sessions.length === 0 ? (
+              <div className="px-3 py-3 text-center text-fg-mute text-[12px]">
+                {t('pathReference.loadingSessions')}
               </div>
-            );
-          })}
-        </div>
+            ) : sessionError ? (
+              <div className="px-3 py-3 text-center text-danger text-[12px]">{sessionError}</div>
+            ) : sessions.map((item, index) => {
+              const selectableIndex = files.length + index;
+              const active = selectableIndex === selected;
+              return (
+                <div
+                  key={`session:${item.workspace_hash || (item.no_workspace ? 'task' : '')}:${item.id}`}
+                  ref={(element) => {
+                    if (element) rowRefs.current.set(selectableIndex, element);
+                    else rowRefs.current.delete(selectableIndex);
+                  }}
+                  role="option"
+                  aria-selected={active}
+                  aria-label={`${t('pathReference.session')} ${item.title}`}
+                  className={clsx(
+                    'flex items-center gap-2 px-2 text-[13px]',
+                    active ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
+                  )}
+                  style={{ height: ROW_HEIGHT }}
+                  onMouseEnter={() => setSelected(selectableIndex)}
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 h-full flex items-center gap-2 text-left"
+                    onMouseDown={(event) => { event.preventDefault(); onReferenceSession?.(item); }}
+                    title={item.title}
+                  >
+                    <VsIcon name="newSession" size={14} />
+                    <span className="min-w-0 flex-1 flex items-baseline gap-2">
+                      <span className="min-w-0 truncate">{item.title}</span>
+                      <span className="max-w-[40%] shrink-0 truncate text-fg-mute">
+                        {item.workspaceName}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {showEmptyReferenceState && (
+          <div className="px-3 py-3 text-center text-fg-mute text-[12px]">
+            {t('pathReference.noReferences')}
+          </div>
+        )}
       </div>
       <div
         data-path-reference-footer

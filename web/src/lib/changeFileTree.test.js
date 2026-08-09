@@ -84,6 +84,31 @@ run('Changes view preference keeps working-directory selections isolated', () =>
   });
 });
 
+run('Changes view default follows workspace context while saved choices win', () => {
+  const noSavedPreference = DEFAULT_CHANGE_LIST_VIEW_BY_CWD;
+  assert.equal(
+    changeListViewForCwd(noSavedPreference, '', CHANGE_LIST_VIEW_FLAT),
+    CHANGE_LIST_VIEW_FLAT,
+  );
+  assert.equal(
+    changeListViewForCwd(noSavedPreference, 'C:\\Repo', CHANGE_LIST_VIEW_TREE),
+    CHANGE_LIST_VIEW_TREE,
+  );
+
+  const savedPreferences = {
+    '': CHANGE_LIST_VIEW_TREE,
+    'c:/repo': CHANGE_LIST_VIEW_FLAT,
+  };
+  assert.equal(
+    changeListViewForCwd(savedPreferences, '', CHANGE_LIST_VIEW_FLAT),
+    CHANGE_LIST_VIEW_TREE,
+  );
+  assert.equal(
+    changeListViewForCwd(savedPreferences, 'C:\\Repo', CHANGE_LIST_VIEW_TREE),
+    CHANGE_LIST_VIEW_FLAT,
+  );
+});
+
 run('buildChangeFileTree groups nested and root files without losing rows', () => {
   const rows = [
     { path: 'README.md', status: 'M' },

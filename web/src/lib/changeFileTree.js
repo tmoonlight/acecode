@@ -18,8 +18,9 @@ export function validateChangeListView(value) {
   return CHANGE_LIST_VIEWS.has(value);
 }
 
-export function effectiveChangeListView(value) {
-  return validateChangeListView(value) ? value : DEFAULT_CHANGE_LIST_VIEW;
+export function effectiveChangeListView(value, fallbackView = DEFAULT_CHANGE_LIST_VIEW) {
+  if (validateChangeListView(value)) return value;
+  return validateChangeListView(fallbackView) ? fallbackView : DEFAULT_CHANGE_LIST_VIEW;
 }
 
 export function normalizeChangeListViewCwd(cwd = '') {
@@ -49,9 +50,11 @@ export function validateChangeListViewByCwd(value) {
     && Object.values(value).every(validateChangeListView);
 }
 
-export function changeListViewForCwd(value, cwd = '') {
-  if (!validateChangeListViewByCwd(value)) return DEFAULT_CHANGE_LIST_VIEW;
-  return effectiveChangeListView(value[normalizeChangeListViewCwd(cwd)]);
+export function changeListViewForCwd(value, cwd = '', fallbackView = DEFAULT_CHANGE_LIST_VIEW) {
+  const storedView = validateChangeListViewByCwd(value)
+    ? value[normalizeChangeListViewCwd(cwd)]
+    : undefined;
+  return effectiveChangeListView(storedView, fallbackView);
 }
 
 export function updateChangeListViewForCwd(value, cwd, viewMode) {

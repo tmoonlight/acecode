@@ -479,7 +479,14 @@ export function SidePanel({
     DEFAULT_CHANGE_LIST_VIEW_BY_CWD,
     validateChangeListViewByCwd,
   );
-  const changeListView = changeListViewForCwd(storedChangeListViewsByCwd, cwd);
+  const defaultChangeListView = filesEnabled
+    ? CHANGE_LIST_VIEW_TREE
+    : CHANGE_LIST_VIEW_FLAT;
+  const changeListView = changeListViewForCwd(
+    storedChangeListViewsByCwd,
+    cwd,
+    defaultChangeListView,
+  );
   const setCurrentChangeListView = useCallback((viewMode) => {
     setStoredChangeListViewsByCwd((current) => (
       updateChangeListViewForCwd(current, cwd, viewMode)

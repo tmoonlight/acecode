@@ -21,6 +21,15 @@ assert.match(source, /data-placement=\{layout\.placement\}/);
 assert.match(source, /top: opensBelow \?/);
 assert.match(source, /bottom: opensBelow \?/);
 assert.match(source, /maxHeight: layout\.maxHeight/);
+assert.match(source, /const showFileGroup = filesLoading \|\| !!filesError \|\| files\.length > 0;/);
+assert.match(source, /const showSessionGroup = sessionLoading \|\| !!sessionError \|\| sessions\.length > 0;/);
+assert.match(source, /const showEmptyReferenceState = !showFileGroup && !showSessionGroup;/);
+assert.match(source, /\{showFileGroup && \(/);
+assert.match(source, /\{showSessionGroup && \(/);
+assert.match(source, /\{showEmptyReferenceState && \(/);
+assert.match(source, /border-y border-border bg-surface-alt px-3 py-1\.5 text-\[12px\] font-semibold text-fg-2/);
+assert.match(source, /t\('pathReference\.noReferences'\)/);
+assert.doesNotMatch(source, /pathReference\.noFiles|pathReference\.noSessions/);
 
 const fileGroup = source.indexOf("t('pathReference.files')");
 const sessionGroup = source.indexOf("t('pathReference.sessions')");

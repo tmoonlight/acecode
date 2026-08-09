@@ -131,6 +131,7 @@ export const enUS = {
     loadSessionsFailed: 'Failed to load sessions',
     noFiles: 'No matching files or folders',
     noSessions: 'No matching sessions',
+    noReferences: 'No matching files, folders, or sessions',
     referenceFile: 'Reference this file',
     referenceFolder: 'Reference this folder',
     enter: 'Enter',

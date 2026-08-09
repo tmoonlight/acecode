@@ -131,6 +131,7 @@ export const zhCN = {
     loadSessionsFailed: '会话读取失败',
     noFiles: '没有匹配的文件或文件夹',
     noSessions: '没有匹配的会话',
+    noReferences: '没有匹配的文件、文件夹或会话',
     referenceFile: '引用此文件',
     referenceFolder: '引用此文件夹',
     enter: '进入',

@@ -68,7 +68,14 @@ run('Git and session compact changes share one flat/tree renderer and one cwd-sc
     sidePanel,
     /usePreference\(\s*CHANGE_LIST_VIEW_BY_CWD_STORAGE_KEY,\s*DEFAULT_CHANGE_LIST_VIEW_BY_CWD,\s*validateChangeListViewByCwd,/,
   );
-  assert.match(sidePanel, /changeListViewForCwd\(storedChangeListViewsByCwd, cwd\)/);
+  assert.match(
+    sidePanel,
+    /const defaultChangeListView = filesEnabled\s*\? CHANGE_LIST_VIEW_TREE\s*:\s*CHANGE_LIST_VIEW_FLAT;/,
+  );
+  assert.match(
+    sidePanel,
+    /changeListViewForCwd\(\s*storedChangeListViewsByCwd,\s*cwd,\s*defaultChangeListView,\s*\)/,
+  );
   assert.match(
     sidePanel,
     /setStoredChangeListViewsByCwd\(\(current\) => \([\s\S]*?updateChangeListViewForCwd\(current, cwd, viewMode\)/,

@@ -27,9 +27,11 @@ assert.match(chatView, /Array\.isArray\(payload\?\.session_references\)/);
 assert.equal(zhCN.pathReference.files, '文件');
 assert.equal(zhCN.pathReference.sessions, '会话');
 assert.equal(zhCN.pathReference.task, '任务');
+assert.equal(zhCN.pathReference.noReferences, '没有匹配的文件、文件夹或会话');
 assert.equal(enUS.pathReference.files, 'Files');
 assert.equal(enUS.pathReference.sessions, 'Sessions');
 assert.equal(enUS.pathReference.task, 'Task');
+assert.equal(enUS.pathReference.noReferences, 'No matching files, folders, or sessions');
 assert.notEqual(zhCN.pathReference.sessions, '会话/Session');
 
 console.log('ok - composer session references use localized grouped search and stable insertion');
