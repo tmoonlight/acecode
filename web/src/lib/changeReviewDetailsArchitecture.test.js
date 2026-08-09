@@ -53,7 +53,7 @@ run('File tree and Git/non-Git review rows expose shared Explorer reveal metadat
   assert.match(sharedDetails, /data-desktop-review-can-reveal=\{(?:status|row\.status) === 'D' \? 'false' : 'true'\}/);
 });
 
-run('Git and session compact changes share one flat/tree renderer and one preference owner', () => {
+run('Git and session compact changes share one flat/tree renderer and one cwd-scoped preference owner', () => {
   const sidePanel = source('SidePanel.jsx');
   const gitList = source('GitChangesPanel.jsx');
   const sessionReview = source('ChangeReview.jsx');
@@ -64,10 +64,18 @@ run('Git and session compact changes share one flat/tree renderer and one prefer
   assert.match(gitList, /<ChangeFileList[\s\S]*?viewMode=\{viewMode\}/);
   assert.match(sessionReview, /<ChangeFileList[\s\S]*?viewMode=\{viewMode\}/);
 
-  assert.match(sidePanel, /usePreference\(\s*CHANGE_LIST_VIEW_STORAGE_KEY,/);
+  assert.match(
+    sidePanel,
+    /usePreference\(\s*CHANGE_LIST_VIEW_BY_CWD_STORAGE_KEY,\s*DEFAULT_CHANGE_LIST_VIEW_BY_CWD,\s*validateChangeListViewByCwd,/,
+  );
+  assert.match(sidePanel, /changeListViewForCwd\(storedChangeListViewsByCwd, cwd\)/);
+  assert.match(
+    sidePanel,
+    /setStoredChangeListViewsByCwd\(\(current\) => \([\s\S]*?updateChangeListViewForCwd\(current, cwd, viewMode\)/,
+  );
   assert.match(sidePanel, /role="group" aria-label="变更文件展示方式"/);
   assert.match(sidePanel, /aria-pressed=\{changeListView === option\.key\}/);
-  assert.equal((sidePanel.match(/CHANGE_LIST_VIEW_STORAGE_KEY/g) || []).length, 2);
+  assert.equal((sidePanel.match(/CHANGE_LIST_VIEW_BY_CWD_STORAGE_KEY/g) || []).length, 2);
   assert.doesNotMatch(gitList, /usePreference\(/);
   assert.doesNotMatch(sessionReview, /usePreference\(/);
 

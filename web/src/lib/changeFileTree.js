@@ -3,10 +3,11 @@ import {
   normalizeWorkspaceRelativePath,
 } from './fileTreeChangeStatus.js';
 
-export const CHANGE_LIST_VIEW_STORAGE_KEY = 'acecode.changeListView.v1';
+export const CHANGE_LIST_VIEW_BY_CWD_STORAGE_KEY = 'acecode.changeListViewByCwd.v1';
 export const CHANGE_LIST_VIEW_FLAT = 'flat';
 export const CHANGE_LIST_VIEW_TREE = 'tree';
-export const DEFAULT_CHANGE_LIST_VIEW = CHANGE_LIST_VIEW_FLAT;
+export const DEFAULT_CHANGE_LIST_VIEW = CHANGE_LIST_VIEW_TREE;
+export const DEFAULT_CHANGE_LIST_VIEW_BY_CWD = Object.freeze({});
 
 const CHANGE_LIST_VIEWS = new Set([
   CHANGE_LIST_VIEW_FLAT,
@@ -19,6 +20,49 @@ export function validateChangeListView(value) {
 
 export function effectiveChangeListView(value) {
   return validateChangeListView(value) ? value : DEFAULT_CHANGE_LIST_VIEW;
+}
+
+export function normalizeChangeListViewCwd(cwd = '') {
+  const raw = typeof cwd === 'string' ? cwd.trim() : '';
+  if (!raw) return '';
+
+  const slashPath = raw.replace(/\\/g, '/');
+  const rootPrefix = slashPath.startsWith('//')
+    ? '//'
+    : (slashPath.startsWith('/') ? '/' : '');
+  const body = slashPath
+    .slice(rootPrefix.length)
+    .replace(/\/{2,}/g, '/')
+    .replace(/\/+$/, '');
+  let normalized = `${rootPrefix}${body}` || rootPrefix;
+
+  if (/^[A-Za-z]:(?:\/|$)/.test(normalized) || normalized.startsWith('//')) {
+    normalized = normalized.toLowerCase();
+  }
+  return normalized;
+}
+
+export function validateChangeListViewByCwd(value) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.values(value).every(validateChangeListView);
+}
+
+export function changeListViewForCwd(value, cwd = '') {
+  if (!validateChangeListViewByCwd(value)) return DEFAULT_CHANGE_LIST_VIEW;
+  return effectiveChangeListView(value[normalizeChangeListViewCwd(cwd)]);
+}
+
+export function updateChangeListViewForCwd(value, cwd, viewMode) {
+  const current = validateChangeListViewByCwd(value)
+    ? value
+    : DEFAULT_CHANGE_LIST_VIEW_BY_CWD;
+  if (!validateChangeListView(viewMode)) return current;
+
+  const cwdKey = normalizeChangeListViewCwd(cwd);
+  if (current[cwdKey] === viewMode) return current;
+  return { ...current, [cwdKey]: viewMode };
 }
 
 export function normalizeChangeTreePath(path, cwd = '') {

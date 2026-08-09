@@ -4,10 +4,10 @@ The Changes tab currently presents every changed file as a flat row, so repeated
 
 ## What Changes
 
-- Add a persistent flat/tree view switch to the right-side Changes tab.
+- Add a persistent flat/tree view switch to the right-side Changes tab, with the selection stored independently for each working directory.
 - Build a directory hierarchy from both Git-level change rows and session-level structured change rows.
 - Let users expand and collapse directory rows while keeping changed-file selection, navigation, line counts, and Git status badges available on file rows.
-- Keep the current flat list as the default and preserve existing loading, empty, error, refresh, base-selection, and file-preview behavior.
+- Use the directory tree as the default for working directories without a stored selection, keep the flat list available, and preserve existing loading, empty, error, refresh, base-selection, and file-preview behavior.
 
 ## Capabilities
 

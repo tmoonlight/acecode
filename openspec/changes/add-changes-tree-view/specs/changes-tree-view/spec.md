@@ -1,19 +1,27 @@
 ## ADDED Requirements
 
 ### Requirement: Changes view mode selection
-The Changes tab SHALL offer flat-list and directory-tree presentation modes through an accessible view control. Flat mode SHALL remain the default when no valid stored preference exists, and a user selection SHALL be restored after the WebUI reloads.
+The Changes tab SHALL offer flat-list and directory-tree presentation modes through an accessible view control. Tree mode SHALL be the default when the current working directory has no valid stored preference. A user selection SHALL be persisted for the current working directory and restored independently after a WebUI reload or working-directory change.
 
 #### Scenario: Existing user opens Changes
-- **WHEN** the user has never selected a Changes presentation mode
-- **THEN** the changed files are rendered with the existing flat-list presentation
+- **WHEN** the current working directory has no stored Changes presentation mode
+- **THEN** the changed files are rendered with the directory-tree presentation
 
-#### Scenario: User selects tree mode
-- **WHEN** the user activates the tree-view control and later reloads the WebUI
-- **THEN** the Changes tab renders in tree mode and the tree control remains selected
+#### Scenario: User selects flat mode for one workspace
+- **WHEN** the user activates the flat-list control in working directory A and later reloads the WebUI in working directory A
+- **THEN** the Changes tab renders in flat mode and the flat-list control remains selected
+
+#### Scenario: A different workspace has no selection
+- **WHEN** working directory A is stored as flat and the user opens working directory B for the first time
+- **THEN** working directory B renders in the default tree mode without changing A's selection
+
+#### Scenario: User returns to a workspace
+- **WHEN** the user returns from working directory B to working directory A
+- **THEN** the Changes tab restores A's flat mode independently of B's selection
 
 #### Scenario: User returns to flat mode
-- **WHEN** the user activates the flat-list control
-- **THEN** the same changed files return to the flat filename and parent-path presentation
+- **WHEN** the current working directory is in tree mode and the user activates the flat-list control
+- **THEN** the same changed files return to the flat filename and parent-path presentation and that directory's preference is updated
 
 ### Requirement: Shared hierarchy for change sources
 Tree mode SHALL project both Git-level changes and session-level structured changes into directories derived from normalized path segments while retaining each file's original path for actions and diff lookup.

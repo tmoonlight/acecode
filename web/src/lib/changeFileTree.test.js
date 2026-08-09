@@ -3,12 +3,17 @@ import {
   CHANGE_LIST_VIEW_FLAT,
   CHANGE_LIST_VIEW_TREE,
   DEFAULT_CHANGE_LIST_VIEW,
+  DEFAULT_CHANGE_LIST_VIEW_BY_CWD,
   buildChangeFileTree,
+  changeListViewForCwd,
   changeTreeAncestorPaths,
   effectiveChangeListView,
   flattenVisibleChangeTree,
+  normalizeChangeListViewCwd,
   normalizeChangeTreePath,
+  updateChangeListViewForCwd,
   validateChangeListView,
+  validateChangeListViewByCwd,
 } from './changeFileTree.js';
 
 function run(name, fn) {
@@ -25,12 +30,58 @@ function child(node, name, type) {
   return node.find((entry) => entry.name === name && entry.type === type);
 }
 
-run('Changes view preference accepts flat/tree and falls back to flat', () => {
+run('Changes view preference accepts flat/tree and falls back to tree', () => {
   assert.equal(validateChangeListView(CHANGE_LIST_VIEW_FLAT), true);
   assert.equal(validateChangeListView(CHANGE_LIST_VIEW_TREE), true);
   assert.equal(validateChangeListView('grid'), false);
+  assert.equal(DEFAULT_CHANGE_LIST_VIEW, CHANGE_LIST_VIEW_TREE);
   assert.equal(effectiveChangeListView('grid'), DEFAULT_CHANGE_LIST_VIEW);
   assert.equal(effectiveChangeListView(CHANGE_LIST_VIEW_TREE), CHANGE_LIST_VIEW_TREE);
+});
+
+run('Changes view preference validates cwd-keyed persisted values', () => {
+  assert.equal(validateChangeListViewByCwd(DEFAULT_CHANGE_LIST_VIEW_BY_CWD), true);
+  assert.equal(validateChangeListViewByCwd({ 'c:/repo': CHANGE_LIST_VIEW_FLAT }), true);
+  assert.equal(validateChangeListViewByCwd({ 'c:/repo': 'grid' }), false);
+  assert.equal(validateChangeListViewByCwd([]), false);
+  assert.equal(validateChangeListViewByCwd(null), false);
+});
+
+run('Changes view preference normalizes equivalent Windows cwd spellings', () => {
+  assert.equal(normalizeChangeListViewCwd('C:\\Repo\\Project\\'), 'c:/repo/project');
+  assert.equal(normalizeChangeListViewCwd('c:/repo//project'), 'c:/repo/project');
+  assert.equal(normalizeChangeListViewCwd('\\\\Server\\Share\\Repo\\'), '//server/share/repo');
+  assert.equal(normalizeChangeListViewCwd('/Work/Repo/'), '/Work/Repo');
+});
+
+run('Changes view preference keeps working-directory selections isolated', () => {
+  let preferences = DEFAULT_CHANGE_LIST_VIEW_BY_CWD;
+  assert.equal(changeListViewForCwd(preferences, 'C:\\Repo'), CHANGE_LIST_VIEW_TREE);
+  assert.equal(changeListViewForCwd(preferences, 'D:\\Other'), CHANGE_LIST_VIEW_TREE);
+
+  preferences = updateChangeListViewForCwd(
+    preferences,
+    'C:\\Repo\\',
+    CHANGE_LIST_VIEW_FLAT,
+  );
+  assert.equal(changeListViewForCwd(preferences, 'c:/repo'), CHANGE_LIST_VIEW_FLAT);
+  assert.equal(changeListViewForCwd(preferences, 'D:\\Other'), CHANGE_LIST_VIEW_TREE);
+
+  preferences = updateChangeListViewForCwd(
+    preferences,
+    'D:\\Other',
+    CHANGE_LIST_VIEW_TREE,
+  );
+  const samePreferences = updateChangeListViewForCwd(
+    preferences,
+    'd:/other/',
+    CHANGE_LIST_VIEW_TREE,
+  );
+  assert.equal(samePreferences, preferences);
+  assert.deepEqual(preferences, {
+    'c:/repo': CHANGE_LIST_VIEW_FLAT,
+    'd:/other': CHANGE_LIST_VIEW_TREE,
+  });
 });
 
 run('buildChangeFileTree groups nested and root files without losing rows', () => {

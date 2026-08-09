@@ -17,12 +17,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ApiError, createApi } from '../lib/api.js';
 import { aggregateHunksFromMessages, summarizeChangeGroups } from '../lib/sessionChanges.js';
 import {
+  CHANGE_LIST_VIEW_BY_CWD_STORAGE_KEY,
   CHANGE_LIST_VIEW_FLAT,
-  CHANGE_LIST_VIEW_STORAGE_KEY,
   CHANGE_LIST_VIEW_TREE,
-  DEFAULT_CHANGE_LIST_VIEW,
-  effectiveChangeListView,
-  validateChangeListView,
+  DEFAULT_CHANGE_LIST_VIEW_BY_CWD,
+  changeListViewForCwd,
+  updateChangeListViewForCwd,
+  validateChangeListViewByCwd,
 } from '../lib/changeFileTree.js';
 import {
   containingWorkspacePath,
@@ -473,12 +474,17 @@ export function SidePanel({
 }) {
   const api = useMemo(() => createApi(sessionRef || null), [sessionRef?.port, sessionRef?.token, sessionRef?.workspaceHash]);
   const [activeTab,    setActiveTab]    = useState(filesEnabled ? 'files' : 'changes');
-  const [storedChangeListView, setStoredChangeListView] = usePreference(
-    CHANGE_LIST_VIEW_STORAGE_KEY,
-    DEFAULT_CHANGE_LIST_VIEW,
-    validateChangeListView,
+  const [storedChangeListViewsByCwd, setStoredChangeListViewsByCwd] = usePreference(
+    CHANGE_LIST_VIEW_BY_CWD_STORAGE_KEY,
+    DEFAULT_CHANGE_LIST_VIEW_BY_CWD,
+    validateChangeListViewByCwd,
   );
-  const changeListView = effectiveChangeListView(storedChangeListView);
+  const changeListView = changeListViewForCwd(storedChangeListViewsByCwd, cwd);
+  const setCurrentChangeListView = useCallback((viewMode) => {
+    setStoredChangeListViewsByCwd((current) => (
+      updateChangeListViewForCwd(current, cwd, viewMode)
+    ));
+  }, [cwd, setStoredChangeListViewsByCwd]);
   const [selectedPath, setSelectedPath] = useState(null);
   const [fileRefreshToken, setFileRefreshToken] = useState(0);
   // git 仓库检测(redesign-sidepanel-git-changes):is_repo 时「变更」tab
@@ -673,7 +679,7 @@ export function SidePanel({
                 title={option.label}
                 aria-label={option.label}
                 aria-pressed={changeListView === option.key}
-                onClick={() => setStoredChangeListView(option.key)}
+                onClick={() => setCurrentChangeListView(option.key)}
               >
                 <VsIcon name={option.icon} size={14} />
               </button>

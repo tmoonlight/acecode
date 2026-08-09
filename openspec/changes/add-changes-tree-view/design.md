@@ -8,8 +8,8 @@ The backend already returns the complete path and Git status/stat data required 
 
 **Goals:**
 
-- Preserve the current flat Changes list and make it the default.
-- Offer one persistent flat/tree choice shared by Git and session-level Changes data.
+- Preserve the current flat Changes list while making the tree the default.
+- Offer one persistent flat/tree choice per working directory, shared by Git and session-level Changes data within that directory.
 - Represent every path segment as a named directory or file row, with directory-first deterministic ordering and expandable directories.
 - Preserve file selection, open-review/open-preview actions, desktop context metadata, line counts, and Git status presentation.
 - Keep the hierarchy logic pure and covered independently of React rendering.
@@ -25,7 +25,9 @@ The backend already returns the complete path and Git status/stat data required 
 
 ### One preference owner at the SidePanel boundary
 
-`SidePanel` will own a dedicated `usePreference` value with `flat` as the validated default and pass the selected mode to both Changes adapters. This follows the repository rule that a storage key has one hook owner and avoids duplicate Git/session preferences. A compact two-button group in the existing SidePanel toolbar will use the same token colors, focus treatment, and `aria-pressed` convention as other view controls.
+`SidePanel` will own one dedicated `usePreference` map keyed by normalized working directory and pass the current directory's selected mode to both Changes adapters. A missing or invalid entry resolves to `tree`. This follows the repository rule that a storage key has one hook owner, prevents one workspace's choice from leaking into another, and avoids duplicate Git/session preferences. A compact two-button group in the existing SidePanel toolbar will use the same token colors, focus treatment, and `aria-pressed` convention as other view controls.
+
+Working-directory keys normalize path separators and trailing separators, and compare Windows drive/UNC paths case-insensitively. This keeps equivalent spellings in one cache bucket without attempting filesystem canonicalization or symlink resolution.
 
 An alternative was adding this field to the global `uiPrefs` object in `App`. That would require plumbing through `App` and `ChatView` even though only `SidePanel` consumes it, increasing the change surface without improving synchronization.
 
@@ -54,7 +56,7 @@ New styles will be scoped to the Changes list, reuse existing CSS variables, inh
 
 ## Migration Plan
 
-No data migration is needed. Existing installations have no view preference and therefore resolve to `flat`; selecting a mode writes the new dedicated key. Rollback removes the renderer and ignores the harmless stored key.
+The working-directory map uses a new dedicated storage-key version because the previous scalar preference cannot be assigned reliably to one workspace. Existing unscoped values are ignored, so every workspace starts from the new `tree` default until the user chooses a mode there. Rollback ignores the harmless scoped map.
 
 ## Open Questions
 

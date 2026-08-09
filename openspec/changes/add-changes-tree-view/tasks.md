@@ -13,3 +13,10 @@
 
 - [x] 3.1 Update architecture coverage to require the shared Git/session renderer, single preference owner, accessible toggle, and retained desktop review metadata.
 - [x] 3.2 Run focused tests, the full Web test suite and production build, strict OpenSpec validation, and Git whitespace/scope checks.
+
+## 4. Tree default and working-directory preference
+
+- [x] 4.1 Make tree mode the validated default and replace the scalar preference with a working-directory-keyed persistent model.
+- [x] 4.2 Wire `SidePanel` to read and update only the current working directory's mode while retaining one preference owner for Git and session changes.
+- [x] 4.3 Extend pure-model and architecture tests for default-tree fallback, normalized directory buckets, workspace isolation, and scoped persistence wiring.
+- [x] 4.4 Run focused tests, the full Web test/build/i18n gates, strict OpenSpec validation, and Git scope checks for the follow-up.
