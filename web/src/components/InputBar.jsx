@@ -9,6 +9,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { clsx } from '../lib/format.js';
 import { getGoalStopControlState } from '../lib/goalControl.js';
 import { getInputBarActionState } from '../lib/inputBarState.js';
@@ -48,6 +49,11 @@ import {
   splitPathReferenceQuery,
   unsafeReferencePath,
 } from '../lib/pathReference.js';
+import {
+  loadSessionReferenceData,
+  rankSessionReferenceCandidates,
+  replaceQueryWithSessionReference,
+} from '../lib/sessionReference.js';
 import {
   hasNativeContextPicker,
   nativeFolderReferencePath,
@@ -183,9 +189,10 @@ export const InputBar = forwardRef(function InputBar({
   onRemoveExpert,
   onOpenExpertComponents,
   selectionPreview = null, onPinSelectionPreview,
-  pathReferenceApi = null, cwd = '',
+  pathReferenceApi = null, cwd = '', currentSessionId = '',
   sessionControls = null,
 }, ref) {
+  const { t } = useTranslation();
   const isControlled = controlledValue != null;
   const [internalValue, setInternalValue] = useState('');
   const value = isControlled ? String(controlledValue || '') : internalValue;
@@ -456,55 +463,114 @@ export const InputBar = forwardRef(function InputBar({
     },
   }), [composerSelection.end, restorePathCaret, updateValue, value]);
 
-  // Claude Code-style @ mention: only visible text is inserted. Directory
-  // contents are never uploaded or preloaded here.
+  // `@` reference menu: files keep the existing visible-path behavior, while
+  // sessions use a stable inline token that is expanded only when submitted.
+  // Directory contents and session transcripts are never preloaded here.
   useEffect(() => {
     const cursor = composerSelection.end;
     const token = pathReferenceTokenAtCursor(value, cursor);
     const signature = pathReferenceSignature(token, cursor, cwd);
-    const unavailable = disabled || !pathReferenceApi || !cwd || composerComposing || showDropdown || !token;
+    const unavailable = disabled || !pathReferenceApi || composerComposing || showDropdown || !token;
     if (unavailable || dismissedPathSignatureRef.current === signature) {
       mentionGenerationRef.current += 1;
       setPathMention(null);
       return undefined;
     }
     dismissedPathSignatureRef.current = '';
-    if (unsafeReferencePath(token.path)) {
-      setPathMention({ token, signature, items: [], loading: false, error: '路径必须位于当前工作目录内' });
-      return undefined;
-    }
     const { directory, filter } = splitPathReferenceQuery(token.path);
+    const pathUnsafe = unsafeReferencePath(token.path);
+    const canLoadFiles = !!cwd && !pathUnsafe && typeof pathReferenceApi.listFiles === 'function';
+    const canLoadSessions = typeof pathReferenceApi.listAllWorkspaceSessions === 'function';
     const generation = ++mentionGenerationRef.current;
-    setPathMention({ token, signature, items: [], loading: true, error: '' });
-    Promise.resolve(pathReferenceApi.listFiles(cwd, directory, true, true))
-      .then((entries) => {
-        if (mentionGenerationRef.current !== generation) return;
-        setPathMention({
-          token,
-          signature,
-          items: normalizePathReferenceCandidates(entries, filter),
-          loading: false,
-          error: '',
+    setPathMention({
+      token,
+      signature,
+      fileItems: [],
+      sessionItems: [],
+      fileLoading: canLoadFiles,
+      sessionLoading: canLoadSessions,
+      fileError: pathUnsafe ? t('pathReference.pathOutside') : '',
+      sessionError: '',
+    });
+
+    const updateMention = (patch) => {
+      if (mentionGenerationRef.current !== generation) return;
+      setPathMention((current) => (
+        current?.signature === signature ? { ...current, ...patch } : current
+      ));
+    };
+
+    if (canLoadFiles) {
+      Promise.resolve(pathReferenceApi.listFiles(cwd, directory, true, true))
+        .then((entries) => {
+          updateMention({
+            fileItems: normalizePathReferenceCandidates(entries, filter),
+            fileLoading: false,
+            fileError: '',
+          });
+        })
+        .catch((error) => {
+          updateMention({
+            fileItems: [],
+            fileLoading: false,
+            fileError: error?.message || t('pathReference.loadFilesFailed'),
+          });
         });
-      })
-      .catch((error) => {
-        if (mentionGenerationRef.current !== generation) return;
-        setPathMention({
-          token,
-          signature,
-          items: [],
-          loading: false,
-          error: error?.message || '目录读取失败',
-        });
-      });
-    return () => { mentionGenerationRef.current += 1; };
-  }, [composerComposing, composerSelection.end, cwd, disabled, pathReferenceApi, showDropdown, value]);
+    }
+
+    let sessionTimer = 0;
+    if (canLoadSessions) {
+      const query = String(token.path || '').trim();
+      sessionTimer = window.setTimeout(() => {
+        const listPromise = loadSessionReferenceData(pathReferenceApi);
+        const contentPromise = query && typeof pathReferenceApi.searchSessionUserMessages === 'function'
+          ? Promise.resolve(pathReferenceApi.searchSessionUserMessages(query, 100))
+          : Promise.resolve({ matches: [] });
+        Promise.all([listPromise, contentPromise])
+          .then(([data, content]) => {
+            updateMention({
+              sessionItems: rankSessionReferenceCandidates({
+                sessions: data?.sessions || [],
+                contentMatches: Array.isArray(content?.matches) ? content.matches : [],
+                query,
+                currentSessionId,
+                noWorkspaceLabel: t('pathReference.task'),
+              }),
+              sessionLoading: false,
+              sessionError: '',
+            });
+          })
+          .catch((error) => {
+            updateMention({
+              sessionItems: [],
+              sessionLoading: false,
+              sessionError: error?.message || t('pathReference.loadSessionsFailed'),
+            });
+          });
+      }, query ? 120 : 0);
+    }
+
+    return () => {
+      if (sessionTimer) window.clearTimeout(sessionTimer);
+      mentionGenerationRef.current += 1;
+    };
+  }, [
+    composerComposing,
+    composerSelection.end,
+    currentSessionId,
+    cwd,
+    disabled,
+    pathReferenceApi,
+    showDropdown,
+    t,
+    value,
+  ]);
 
   useEffect(() => {
-    if (!disabled && pathReferenceApi && cwd) return;
+    if (!disabled && pathReferenceApi) return;
     mentionGenerationRef.current += 1;
     setPathMention(null);
-  }, [cwd, disabled, pathReferenceApi]);
+  }, [disabled, pathReferenceApi]);
 
   const closePathDropdown = useCallback(() => {
     if (pathMention?.signature) dismissedPathSignatureRef.current = pathMention.signature;
@@ -518,6 +584,16 @@ export const InputBar = forwardRef(function InputBar({
       directory: item.kind === 'dir',
       enterDirectory,
     });
+    mentionGenerationRef.current += 1;
+    setPathMention(null);
+    updateValue(replacement.text);
+    setEditedSinceHistory(true);
+    restorePathCaret(replacement.cursor);
+  }, [pathMention?.token, restorePathCaret, updateValue, value]);
+
+  const applySessionMentionItem = useCallback((item) => {
+    if (!pathMention?.token || !item) return;
+    const replacement = replaceQueryWithSessionReference(value, pathMention.token, item);
     mentionGenerationRef.current += 1;
     setPathMention(null);
     updateValue(replacement.text);
@@ -1228,10 +1304,14 @@ export const InputBar = forwardRef(function InputBar({
       >
         {activePathDropdown && (
           <PathReferenceDropdown
-            items={activePathDropdown.items || []}
-            loading={!!activePathDropdown.loading}
-            error={activePathDropdown.error || ''}
+            fileItems={activePathDropdown.fileItems || []}
+            sessionItems={activePathDropdown.sessionItems || []}
+            fileLoading={!!activePathDropdown.fileLoading}
+            sessionLoading={!!activePathDropdown.sessionLoading}
+            fileError={activePathDropdown.fileError || ''}
+            sessionError={activePathDropdown.sessionError || ''}
             onReference={(item) => applyMentionItem(item, false)}
+            onReferenceSession={applySessionMentionItem}
             onEnterDirectory={(item) => applyMentionItem(item, true)}
             onClose={closePathDropdown}
           />

@@ -53,12 +53,16 @@ TEST(TuiPathReferenceInput, EnterReferencesDirectoryAndClosesDropdown) {
     acecode::TuiState state;
     state.input_text = "check @do later";
     state.input_cursor = 9;
+    state.input_selection_anchor = 0;
+    state.input_vertical_goal_column = 3;
     acecode::tui::refresh_path_reference_state(state, tmp.cwd());
     ASSERT_TRUE(state.path_reference_active);
     ASSERT_TRUE(state.path_reference_items[state.path_reference_selected].is_directory);
     ASSERT_TRUE(acecode::tui::commit_path_reference_selection(state, false));
     EXPECT_EQ(state.input_text, "check @docs/  later");
     EXPECT_FALSE(state.path_reference_active);
+    EXPECT_FALSE(state.input_selection_anchor.has_value());
+    EXPECT_FALSE(state.input_vertical_goal_column.has_value());
 }
 
 TEST(TuiPathReferenceInput, TabEntersDirectoryAndRefreshesChildren) {

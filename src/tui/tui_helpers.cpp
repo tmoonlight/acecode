@@ -28,6 +28,7 @@
 #include "tui/unclipped_reflect.hpp"
 #include "tui/vertical_scroll.hpp"
 #include "utils/token_tracker.hpp"
+#include "utils/text_input_ops.hpp"
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"
 
@@ -1008,8 +1009,11 @@ std::vector<std::string> tokenize_wrapped_input(const std::string& text) {
 Element render_wrapped_input_text(
     const std::string& input_value,
     size_t cursor_bytes,
-    std::vector<InputTextHitRegion>* hit_regions) {
-    if (cursor_bytes > input_value.size()) cursor_bytes = input_value.size();
+    std::vector<InputTextHitRegion>* hit_regions,
+    std::optional<size_t> selection_anchor) {
+    cursor_bytes = clamp_utf8_boundary(input_value, cursor_bytes);
+    const auto selection = text_selection_range(
+        input_value, cursor_bytes, selection_anchor);
 
     std::string head = input_value.substr(0, cursor_bytes);
     std::string cursor_glyph;
@@ -1048,7 +1052,7 @@ Element render_wrapped_input_text(
     if (hit_regions) {
         hit_regions->clear();
         hit_regions->reserve(
-            tokens_head.size() + tokens_tail.size() + 1);
+            (tokens_head.size() + tokens_tail.size()) * 3 + 1);
     }
 
     auto track = [&](Element element, size_t begin, size_t end) {
@@ -1059,9 +1063,54 @@ Element render_wrapped_input_text(
         return std::move(element) | reflect(hit_regions->back().box);
     };
 
+    auto decorate_selection = [](Element element, bool selected) {
+        if (!selected) {
+            return element;
+        }
+        return std::move(element) |
+            color(theme().ui.selection_fg) |
+            bgcolor(theme().ui.selection_bg);
+    };
+
+    auto render_token = [&](const std::string& token,
+                            size_t begin,
+                            size_t end) {
+        if (!selection.has_value() ||
+            end <= selection->begin || begin >= selection->end) {
+            return track(text(token), begin, end);
+        }
+
+        Elements fragments;
+        const size_t selected_begin = std::max(begin, selection->begin);
+        const size_t selected_end = std::min(end, selection->end);
+        auto append_fragment = [&](size_t fragment_begin,
+                                   size_t fragment_end,
+                                   bool selected) {
+            if (fragment_begin >= fragment_end) {
+                return;
+            }
+            auto fragment = text(input_value.substr(
+                fragment_begin, fragment_end - fragment_begin));
+            fragments.push_back(track(
+                decorate_selection(std::move(fragment), selected),
+                fragment_begin,
+                fragment_end));
+        };
+        append_fragment(begin, selected_begin, false);
+        append_fragment(selected_begin, selected_end, true);
+        append_fragment(selected_end, end, false);
+        return hbox(std::move(fragments));
+    };
+
+    const bool cursor_glyph_selected =
+        selection.has_value() && !cursor_glyph.empty() &&
+        cursor_bytes < selection->end &&
+        cursor_bytes + cursor_glyph.size() > selection->begin;
+    auto cursor_element =
+        text(cursor_glyph.empty() ? std::string(" ") : cursor_glyph) |
+        focusCursorBlock;
     auto cursor_elem = track(
-        text(cursor_glyph.empty() ? std::string(" ") : cursor_glyph)
-            | focusCursorBlock,
+        decorate_selection(std::move(cursor_element), cursor_glyph_selected),
         cursor_bytes,
         cursor_bytes + cursor_glyph.size());
 
@@ -1073,24 +1122,24 @@ Element render_wrapped_input_text(
     parts.reserve(tokens_head.size() + tokens_tail.size() + 1);
 
     for (size_t i = 0; i + 1 < tokens_head.size(); ++i) {
-        parts.push_back(track(
-            text(std::move(tokens_head[i])),
+        parts.push_back(render_token(
+            tokens_head[i],
             head_ranges[i].first,
             head_ranges[i].second));
     }
 
     Elements compound;
     if (!tokens_head.empty()) {
-        compound.push_back(track(
-            text(std::move(tokens_head.back())),
+        compound.push_back(render_token(
+            tokens_head.back(),
             head_ranges.back().first,
             head_ranges.back().second));
     }
     compound.push_back(cursor_elem);
     size_t tail_start = 0;
     if (!tokens_tail.empty()) {
-        compound.push_back(track(
-            text(std::move(tokens_tail[0])),
+        compound.push_back(render_token(
+            tokens_tail[0],
             tail_ranges[0].first,
             tail_ranges[0].second));
         tail_start = 1;
@@ -1098,8 +1147,8 @@ Element render_wrapped_input_text(
     parts.push_back(hbox(std::move(compound)));
 
     for (size_t i = tail_start; i < tokens_tail.size(); ++i) {
-        parts.push_back(track(
-            text(std::move(tokens_tail[i])),
+        parts.push_back(render_token(
+            tokens_tail[i],
             tail_ranges[i].first,
             tail_ranges[i].second));
     }
@@ -1111,7 +1160,7 @@ Element render_wrapped_input_text(
 Element render_empty_input_prompt(
     std::vector<InputTextHitRegion>* hit_regions) {
     Element row = hbox({
-        text(" ") | focusCursorBar,
+        text(" ") | focusCursorBlock,
         text("Type your prompt here...") | readable_secondary(),
     });
     if (hit_regions) {
@@ -1192,6 +1241,95 @@ std::optional<size_t> input_cursor_from_point(
     }
 
     return row_regions.back()->byte_end;
+}
+
+std::optional<ShiftArrowDirection> shift_arrow_direction(
+    const Event& event) {
+    if (event == Event::Special("\x1B[1;2A")) {
+        return ShiftArrowDirection::Up;
+    }
+    if (event == Event::Special("\x1B[1;2B")) {
+        return ShiftArrowDirection::Down;
+    }
+    if (event == Event::Special("\x1B[1;2C")) {
+        return ShiftArrowDirection::Right;
+    }
+    if (event == Event::Special("\x1B[1;2D")) {
+        return ShiftArrowDirection::Left;
+    }
+    return std::nullopt;
+}
+
+std::optional<size_t> input_cursor_vertical_target(
+    const std::string& input_value,
+    const Box& input_box,
+    const std::vector<InputTextHitRegion>& hit_regions,
+    size_t cursor_bytes,
+    ShiftArrowDirection direction,
+    std::optional<int>* goal_column) {
+    if (direction != ShiftArrowDirection::Up &&
+        direction != ShiftArrowDirection::Down) {
+        return std::nullopt;
+    }
+    if (input_box.IsEmpty() || hit_regions.empty()) {
+        return std::nullopt;
+    }
+
+    cursor_bytes = clamp_utf8_boundary(input_value, cursor_bytes);
+    const InputTextHitRegion* cursor_region = nullptr;
+    for (const auto& region : hit_regions) {
+        if (!region.box.IsEmpty() && region.byte_begin == cursor_bytes) {
+            cursor_region = &region;
+            break;
+        }
+    }
+    if (!cursor_region) {
+        return std::nullopt;
+    }
+
+    std::vector<int> rows;
+    rows.reserve(hit_regions.size());
+    for (const auto& region : hit_regions) {
+        if (!region.box.IsEmpty() &&
+            region.byte_begin <= region.byte_end &&
+            region.byte_end <= input_value.size()) {
+            rows.push_back(region.box.y_min);
+        }
+    }
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+
+    const auto current_row = std::find(
+        rows.begin(), rows.end(), cursor_region->box.y_min);
+    if (current_row == rows.end()) {
+        return std::nullopt;
+    }
+    auto target_row = current_row;
+    if (direction == ShiftArrowDirection::Up) {
+        if (target_row == rows.begin()) {
+            return cursor_bytes;
+        }
+        --target_row;
+    } else {
+        ++target_row;
+        if (target_row == rows.end()) {
+            return cursor_bytes;
+        }
+    }
+
+    int desired_column = cursor_region->box.x_min - input_box.x_min;
+    if (goal_column) {
+        if (!goal_column->has_value()) {
+            *goal_column = desired_column;
+        }
+        desired_column = **goal_column;
+    }
+    const int mouse_x = std::clamp(
+        input_box.x_min + desired_column,
+        input_box.x_min,
+        input_box.x_max);
+    return input_cursor_from_point(
+        input_value, input_box, hit_regions, mouse_x, *target_row);
 }
 
 InputPointerTarget input_pointer_target(const TuiState& state) {

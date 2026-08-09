@@ -3,7 +3,8 @@
 //   内联消耗。本测试验证:
 //     - 字符事件 → 按 UTF-8 字节插入到 TuiState::input_text,cursor 推进;
 //     - Backspace / Delete / ArrowLeft / ArrowRight 按 glyph 生效;
-//     - Home / End 及其 ESC-sequence 和 Ctrl+A/E 等价键把 cursor 跳到端点;
+//     - Home / End 及其 ESC-sequence 把 cursor 跳到端点,Ctrl+A 全选;
+//     - Shift+左右扩选,普通左右收拢,输入 / 删除替换选区;
 //     - MUST NOT 产生副作用:首字符 '!' 不误触 Shell 模式、'/' 不弹
 //       slash-dropdown、`history_index` 保持 -1、未识别按键被吞掉;
 //     - helper 永远返回 true(事件被消耗),调用方照样 return 这个值。
@@ -37,12 +38,25 @@ void init_other_mode_state(TuiState& s) {
     s.ask_other_input_active = true;
     s.input_text.clear();
     s.input_cursor = 0;
+    s.input_selection_anchor.reset();
+    s.input_vertical_goal_column.reset();
     s.input_mode = InputMode::Normal;
     s.history_index = -1;
     s.slash_dropdown_active = false;
 }
 
 } // namespace
+
+TEST(AskOverlayInputTest, SelectionRuntimeFieldsInitializeAndReset) {
+    TuiState s;
+    EXPECT_FALSE(s.input_selection_anchor.has_value());
+    EXPECT_FALSE(s.input_vertical_goal_column.has_value());
+    s.input_selection_anchor = 1;
+    s.input_vertical_goal_column = 2;
+    s.clear_input_selection();
+    EXPECT_FALSE(s.input_selection_anchor.has_value());
+    EXPECT_FALSE(s.input_vertical_goal_column.has_value());
+}
 
 // 场景:连按两个字符 'h' 'i' → input_text=="hi" / cursor==2,helper 返回 true。
 TEST(AskOverlayInputTest, CharacterInsertionAccumulates) {
@@ -103,14 +117,54 @@ TEST(AskOverlayInputTest, Vt220HomeEscapeAlsoWorks) {
     EXPECT_EQ(s.input_cursor, 0u);
 }
 
-// 场景:Ctrl+A(readline-style)等价于 Home → cursor=0。
-TEST(AskOverlayInputTest, CtrlAEquivalentToHome) {
+// 场景:Ctrl+A 全选,anchor=0 且 active cursor 位于 buffer 末尾。
+TEST(AskOverlayInputTest, CtrlASelectsCompleteBuffer) {
     TuiState s;
     init_other_mode_state(s);
     s.input_text = "hello";
     s.input_cursor = 4;
     EXPECT_TRUE(try_handle_ask_other_input(s, Event::Special(std::string(1, '\x01'))));
-    EXPECT_EQ(s.input_cursor, 0u);
+    EXPECT_EQ(s.input_cursor, 5u);
+    EXPECT_EQ(s.input_selection_anchor, 0u);
+}
+
+TEST(AskOverlayInputTest, ShiftLeftSelectsUtf8GlyphsAndPlainRightCollapses) {
+    TuiState s;
+    init_other_mode_state(s);
+    s.input_text = "A\xE4\xB8\xAD" "B"; // "A中B"
+    s.input_cursor = s.input_text.size();
+
+    EXPECT_TRUE(try_handle_ask_other_input(
+        s, Event::Special("\x1B[1;2D")));
+    EXPECT_TRUE(try_handle_ask_other_input(
+        s, Event::Special("\x1B[1;2D")));
+    EXPECT_EQ(s.input_cursor, 1u);
+    EXPECT_EQ(s.input_selection_anchor, s.input_text.size());
+
+    EXPECT_TRUE(try_handle_ask_other_input(s, Event::ArrowRight));
+    EXPECT_EQ(s.input_cursor, s.input_text.size());
+    EXPECT_FALSE(s.input_selection_anchor.has_value());
+}
+
+TEST(AskOverlayInputTest, CharacterAndDeleteReplaceSelection) {
+    TuiState s;
+    init_other_mode_state(s);
+    s.input_text = "hello";
+    s.input_cursor = 1;
+    s.input_selection_anchor = 4;
+
+    EXPECT_TRUE(try_handle_ask_other_input(s, Event::Character("X")));
+    EXPECT_EQ(s.input_text, "hXo");
+    EXPECT_EQ(s.input_cursor, 2u);
+    EXPECT_FALSE(s.input_selection_anchor.has_value());
+
+    s.input_text = "abcdef";
+    s.input_cursor = 4;
+    s.input_selection_anchor = 2;
+    EXPECT_TRUE(try_handle_ask_other_input(s, Event::Delete));
+    EXPECT_EQ(s.input_text, "abef");
+    EXPECT_EQ(s.input_cursor, 2u);
+    EXPECT_FALSE(s.input_selection_anchor.has_value());
 }
 
 // 场景:Ctrl+E(readline-style)等价于 End → cursor=text.size();

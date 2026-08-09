@@ -2394,7 +2394,7 @@ function SectionTools() {
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-medium">Agent 浏览器</div>
           <div className="text-[11px] text-fg-mute mt-0.5">
-            使用独立 WebView2 配置与 CDP 代理；不会向网页注入 ACECode 桥接对象。
+            这是一个内嵌浏览器。
           </div>
         </div>
         <span className={`text-[11px] px-2 py-1 rounded-full border border-border bg-surface-alt ${nativeBrowserAvailable ? 'text-success' : 'text-fg-mute'}`}>

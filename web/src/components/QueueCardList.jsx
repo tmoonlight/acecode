@@ -60,13 +60,13 @@ function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
       {canGuide && (
         <button
           type="button"
-          aria-label="将排队消息作为当前回合引导"
+          aria-label="将排队消息插入当前回合"
           onClick={() => onGuide?.(queuedId)}
           disabled={guideDisabled}
           className="ace-queue-card-guide shrink-0 h-6 px-2 rounded-full flex items-center gap-1 text-[11px] disabled:opacity-50 disabled:cursor-not-allowed"
           title="在当前回合的下一次模型调用前加入这条消息"
         >
-          <span>引导</span>
+          <span>插话</span>
           <VsIcon name="glyphUp" size={10} />
         </button>
       )}

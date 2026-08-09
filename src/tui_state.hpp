@@ -97,6 +97,15 @@ struct TuiState {
     // (history navigation, slash commit, clear on submit) the cursor is
     // reset to 0 or size() accordingly.
     size_t input_cursor = 0;
+    // Keyboard selection keeps a stable anchor while input_cursor is the
+    // active edge. Offsets are UTF-8 byte positions and are runtime-only.
+    std::optional<size_t> input_selection_anchor;
+    // Visual column retained across repeated Shift+ArrowUp/Down moves.
+    std::optional<int> input_vertical_goal_column;
+    void clear_input_selection() {
+        input_selection_anchor.reset();
+        input_vertical_goal_column.reset();
+    }
     InputMode input_mode = InputMode::Normal;
 
     // 多行粘贴折叠（fix-multiline-paste-input change）。bracketed paste 状态机

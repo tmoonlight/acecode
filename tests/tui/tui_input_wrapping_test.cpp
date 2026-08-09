@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
 #include "tui/tui_helpers.hpp"
+#include "tui/theme_palette.hpp"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -34,11 +36,13 @@ void render_hit_layout(
     size_t cursor,
     int width,
     ftxui::Box* input_box,
-    std::vector<acecode::tui::InputTextHitRegion>* hit_regions) {
+    std::vector<acecode::tui::InputTextHitRegion>* hit_regions,
+    std::optional<size_t> selection_anchor = std::nullopt) {
     *input_box = ftxui::Box{0, -1, 0, -1};
     ftxui::Screen screen(width, 8);
     auto element = acecode::tui::render_wrapped_input_text(
-        input, cursor, hit_regions) | ftxui::reflect(*input_box);
+        input, cursor, hit_regions, selection_anchor) |
+        ftxui::reflect(*input_box);
     ftxui::Render(screen, element);
 }
 
@@ -101,6 +105,116 @@ TEST(TuiInputWrappingTest, RendersNestedFullWidthParenthesesInAuthoredOrder) {
     const std::string rendered = screen.ToString();
     EXPECT_EQ(rendered.find(input), 0u) << rendered;
     EXPECT_EQ(rendered.find(reversed), std::string::npos) << rendered;
+}
+
+TEST(TuiInputCursorTest, UsesBlockAtUtf8CharacterBoundaries) {
+    const std::string input = "A" + kCjkA + "B";
+
+    for (const auto& [cursor_bytes, expected_x] :
+         std::vector<std::pair<size_t, int>>{
+             {1u, 1},
+             {1u + kCjkA.size(), 3},
+         }) {
+        SCOPED_TRACE(cursor_bytes);
+        ftxui::Screen screen(12, 1);
+
+        ftxui::Render(
+            screen,
+            acecode::tui::render_wrapped_input_text(input, cursor_bytes));
+
+        EXPECT_EQ(screen.cursor().shape, ftxui::Screen::Cursor::Block);
+        EXPECT_EQ(screen.cursor().x, expected_x);
+        EXPECT_EQ(screen.cursor().y, 0);
+        EXPECT_EQ(screen.ToString().find(input), 0u) << screen.ToString();
+    }
+}
+
+TEST(TuiInputCursorTest, UsesBlockForEmptyPrompt) {
+    ftxui::Screen screen(32, 1);
+
+    ftxui::Render(screen, acecode::tui::render_empty_input_prompt());
+
+    EXPECT_EQ(screen.cursor().shape, ftxui::Screen::Cursor::Block);
+    EXPECT_EQ(screen.cursor().x, 0);
+    EXPECT_EQ(screen.cursor().y, 0);
+}
+
+TEST(TuiInputSelectionTest, RecognizesStandardShiftArrowSequences) {
+    using Direction = acecode::tui::ShiftArrowDirection;
+    EXPECT_EQ(acecode::tui::shift_arrow_direction(
+                  ftxui::Event::Special("\x1B[1;2A")),
+              Direction::Up);
+    EXPECT_EQ(acecode::tui::shift_arrow_direction(
+                  ftxui::Event::Special("\x1B[1;2B")),
+              Direction::Down);
+    EXPECT_EQ(acecode::tui::shift_arrow_direction(
+                  ftxui::Event::Special("\x1B[1;2C")),
+              Direction::Right);
+    EXPECT_EQ(acecode::tui::shift_arrow_direction(
+                  ftxui::Event::Special("\x1B[1;2D")),
+              Direction::Left);
+    EXPECT_FALSE(acecode::tui::shift_arrow_direction(
+        ftxui::Event::ArrowLeft).has_value());
+}
+
+TEST(TuiInputSelectionTest, HighlightsRangeAndKeepsBlockAtActiveEdge) {
+    acecode::tui::init_theme_palette("dark");
+    ftxui::Screen screen(8, 1);
+    ftxui::Render(
+        screen,
+        acecode::tui::render_wrapped_input_text(
+            "abc", 1, nullptr, std::size_t{3}));
+
+    EXPECT_NE(screen.CellAt(0, 0).background_color,
+              acecode::tui::theme().ui.selection_bg);
+    EXPECT_EQ(screen.CellAt(1, 0).background_color,
+              acecode::tui::theme().ui.selection_bg);
+    EXPECT_EQ(screen.CellAt(2, 0).background_color,
+              acecode::tui::theme().ui.selection_bg);
+    EXPECT_EQ(screen.CellAt(1, 0).foreground_color,
+              acecode::tui::theme().ui.selection_fg);
+    EXPECT_EQ(screen.cursor().shape, ftxui::Screen::Cursor::Block);
+    EXPECT_EQ(screen.cursor().x, 1);
+}
+
+TEST(TuiInputSelectionTest, FindsVerticalTargetOnWrappedVisualRow) {
+    const std::string input = "one two three";
+    ftxui::Box input_box;
+    std::vector<acecode::tui::InputTextHitRegion> regions;
+    render_hit_layout(input, 1, 7, &input_box, &regions);
+    std::optional<int> goal_column;
+
+    const auto target = acecode::tui::input_cursor_vertical_target(
+        input,
+        input_box,
+        regions,
+        1,
+        acecode::tui::ShiftArrowDirection::Down,
+        &goal_column);
+
+    ASSERT_TRUE(target.has_value());
+    EXPECT_EQ(*target, 5u);
+    EXPECT_EQ(goal_column, 1);
+}
+
+TEST(TuiInputSelectionTest, VerticalTargetClampsToShortWrappedRowEnd) {
+    const std::string input = "abcdef x";
+    ftxui::Box input_box;
+    std::vector<acecode::tui::InputTextHitRegion> regions;
+    render_hit_layout(input, 5, 7, &input_box, &regions);
+    std::optional<int> goal_column;
+
+    const auto target = acecode::tui::input_cursor_vertical_target(
+        input,
+        input_box,
+        regions,
+        5,
+        acecode::tui::ShiftArrowDirection::Down,
+        &goal_column);
+
+    ASSERT_TRUE(target.has_value());
+    EXPECT_EQ(*target, input.size());
+    EXPECT_EQ(goal_column, 5);
 }
 
 TEST(TuiInputWrappingTest, ReconstructsMixedAndBoundaryInputsByteForByte) {
@@ -241,6 +355,7 @@ TEST(TuiInputPointerTest, PlacesCaretWithoutConsumingSelectionPress) {
     acecode::TuiState state;
     state.input_text = input;
     state.input_cursor = input.size();
+    state.input_selection_anchor = 0;
     const auto press = acecode::tui::resolve_input_pointer_press(
         state,
         layout,

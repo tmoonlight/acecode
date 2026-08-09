@@ -39,9 +39,10 @@ struct TuiState;
 //   可打印字符 → 在 input_cursor 位置插入到 input_text,推进 cursor
 //   Backspace  → 按 UTF-8 glyph 回退删除
 //   Delete     → 按 UTF-8 glyph 向右删除
-//   ArrowLeft / ArrowRight → 按 UTF-8 glyph 移动 cursor
+//   ArrowLeft / ArrowRight → 按 UTF-8 glyph 移动 cursor / 收拢选区
+//   Shift+ArrowLeft / Shift+ArrowRight → 按 UTF-8 glyph 扩展选区
 //   Home / End(含 ESC-sequence 变体 `ESC [1~` `[7~` `[4~` `[8~`)及
-//   Ctrl+A / Ctrl+E → cursor 跳到 buffer 首 / 尾
+//   Ctrl+E → cursor 跳到 buffer 首 / 尾;Ctrl+A → 全选 buffer
 //
 // 调用方需要保证 state.ask_pending && state.ask_other_input_active;
 // Return / Escape 留给 main.cpp 的 ask 分支上层处理(它们有 submit / 退出

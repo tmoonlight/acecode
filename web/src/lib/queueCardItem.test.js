@@ -78,10 +78,10 @@ run('buildQueueCardItem FAILED 缺 error 时回退默认文案', () => {
   assert.equal(card.showRetry, true);
 });
 
-run('buildQueueCardItem GUIDING 显示引导中且不重复显示按钮', () => {
+run('buildQueueCardItem GUIDING 显示插话中且不重复显示按钮', () => {
   const card = buildQueueCardItem(makeItem(QUEUED_INPUT_STATE.GUIDING, 'hi'));
   assert.equal(card.statusKind, 'guiding');
-  assert.equal(card.statusLabel, '正在提交引导…');
+  assert.equal(card.statusLabel, '正在提交插话…');
   assert.equal(card.dimmed, true);
   assert.equal(card.canGuide, false);
 

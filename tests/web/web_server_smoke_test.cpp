@@ -4285,6 +4285,192 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
         << "ordinary follow-up should not inherit swarm metadata";
 }
 
+TEST(WebServerHttp, PostMessageWithoutSessionReferencesKeepsTextUnchanged) {
+    WebServerFixture fx;
+    auto create = cpr::Post(
+        cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(create.status_code, 201) << create.text;
+    const std::string session_id =
+        json::parse(create.text)["session_id"].get<std::string>();
+
+    auto queued = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + session_id + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "reference-free message"},
+            {"client_message_id", "reference-free-route-1"},
+        }.dump()});
+    ASSERT_EQ(queued.status_code, 202) << queued.text;
+
+    bool found = false;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline && !found) {
+        auto response = cpr::Get(cpr::Url{
+            fx.url("/api/sessions/" + session_id + "/messages")});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        const auto body = json::parse(response.text);
+        for (const auto& message : body["messages"]) {
+            if (message.value("role", "") != "user" ||
+                !message.contains("metadata") ||
+                !message["metadata"].is_object() ||
+                message["metadata"].value("client_message_id", "") !=
+                    "reference-free-route-1") {
+                continue;
+            }
+            EXPECT_EQ(message.value("content", ""), "reference-free message");
+            EXPECT_FALSE(message["metadata"].contains("session_references"));
+            found = true;
+            break;
+        }
+        if (!found) std::this_thread::sleep_for(20ms);
+    }
+    EXPECT_TRUE(found)
+        << "reference-free payload should retain the existing message behavior";
+}
+
+TEST(WebServerHttp, PostMessageExpandsValidatedSessionReferences) {
+    WebServerFixture fx;
+    auto create_source = cpr::Post(
+        cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(create_source.status_code, 201) << create_source.text;
+    const std::string source_id =
+        json::parse(create_source.text)["session_id"].get<std::string>();
+    auto source_entry = fx.registry->acquire(source_id);
+    ASSERT_TRUE(source_entry);
+    ASSERT_TRUE(source_entry->sm);
+    source_entry->sm->set_session_title("Source session");
+
+    acecode::ChatMessage source_user;
+    source_user.role = "user";
+    source_user.content = "the source requirement";
+    source_entry->sm->on_message(source_user);
+    acecode::ChatMessage source_assistant;
+    source_assistant.role = "assistant";
+    source_assistant.content = "the source answer";
+    source_entry->sm->on_message(source_assistant);
+
+    auto create_target = cpr::Post(
+        cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(create_target.status_code, 201) << create_target.text;
+    const std::string target_id =
+        json::parse(create_target.text)["session_id"].get<std::string>();
+    const std::string workspace_hash = acecode::compute_cwd_hash(fx.cwd);
+
+    auto malformed = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + target_id + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "bad"},
+            {"session_references", json::object()},
+        }.dump()});
+    ASSERT_EQ(malformed.status_code, 400) << malformed.text;
+    EXPECT_EQ(
+        json::parse(malformed.text)["error"],
+        "session_references must be an array");
+
+    auto self_reference = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + target_id + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "self"},
+            {"session_references", json::array({json{
+                {"session_id", target_id},
+                {"workspace_hash", workspace_hash},
+                {"no_workspace", false},
+                {"title", "Self"},
+                {"workspace_name", "fixture"},
+            }})},
+        }.dump()});
+    ASSERT_EQ(self_reference.status_code, 400) << self_reference.text;
+    EXPECT_EQ(
+        json::parse(self_reference.text)["error"],
+        "cannot reference the current session");
+
+    auto missing = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + target_id + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "missing"},
+            {"session_references", json::array({json{
+                {"session_id", "missing-session"},
+                {"workspace_hash", workspace_hash},
+                {"no_workspace", false},
+                {"title", "Missing"},
+                {"workspace_name", "fixture"},
+            }})},
+        }.dump()});
+    ASSERT_EQ(missing.status_code, 404) << missing.text;
+    EXPECT_EQ(
+        json::parse(missing.text)["error"],
+        "referenced session not found");
+
+    auto queued = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + target_id + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "Compare @Source session"},
+            {"client_message_id", "session-reference-route-1"},
+            {"session_references", json::array({json{
+                {"session_id", source_id},
+                {"workspace_hash", workspace_hash},
+                {"no_workspace", false},
+                {"title", "Client title"},
+                {"workspace_name", "Client workspace"},
+            }})},
+        }.dump()});
+    ASSERT_EQ(queued.status_code, 202) << queued.text;
+
+    bool found = false;
+    auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline && !found) {
+        auto response = cpr::Get(cpr::Url{
+            fx.url("/api/sessions/" + target_id + "/messages")});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        const auto body = json::parse(response.text);
+        for (const auto& message : body["messages"]) {
+            if (message.value("role", "") != "user" ||
+                !message.contains("metadata") ||
+                !message["metadata"].is_object() ||
+                message["metadata"].value("client_message_id", "") !=
+                    "session-reference-route-1") {
+                continue;
+            }
+            const std::string content = message.value("content", "");
+            EXPECT_NE(
+                content.find("Referenced ACECode session context follows"),
+                std::string::npos);
+            EXPECT_NE(content.find("Title: Source session"), std::string::npos);
+            EXPECT_NE(content.find("User:\nthe source requirement"), std::string::npos);
+            EXPECT_NE(content.find("Assistant:\nthe source answer"), std::string::npos);
+            EXPECT_NE(
+                content.find("Current user request:\nCompare @Source session"),
+                std::string::npos);
+            EXPECT_EQ(
+                message["metadata"].value("display_text", ""),
+                "Compare @Source session");
+            ASSERT_TRUE(message["metadata"].contains("session_references"));
+            const auto& references =
+                message["metadata"]["session_references"];
+            ASSERT_EQ(references.size(), 1u);
+            EXPECT_EQ(references[0]["session_id"], source_id);
+            EXPECT_EQ(references[0]["workspace_hash"], workspace_hash);
+            EXPECT_EQ(references[0]["title"], "Source session");
+            EXPECT_NE(references[0]["workspace_name"], "Client workspace");
+            found = true;
+            break;
+        }
+        if (!found) std::this_thread::sleep_for(20ms);
+    }
+    EXPECT_TRUE(found)
+        << "valid reference should preserve display text and expand model context";
+}
+
 TEST(WebServerHttp, TurnSteerValidatesIdentityAndCommitsAcceptedInput) {
     WebServerFixture fx;
     auto create = cpr::Post(

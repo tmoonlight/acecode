@@ -33,6 +33,8 @@ TEST(InputHistoryNavigation, ArrowUpCancelsLatestMatchingQueuedMessage) {
     state.input_history = {"A", "B"};
     state.input_text = "draft";
     state.input_cursor = state.input_text.size();
+    state.input_selection_anchor = 0;
+    state.input_vertical_goal_column = 2;
 
     ASSERT_TRUE(navigate_input_history_up(state));
 
@@ -40,6 +42,8 @@ TEST(InputHistoryNavigation, ArrowUpCancelsLatestMatchingQueuedMessage) {
     EXPECT_EQ(state.input_cursor, 1u);
     EXPECT_EQ(state.saved_input, "draft");
     EXPECT_EQ(pending(state), std::vector<std::string>({"A"}));
+    EXPECT_FALSE(state.input_selection_anchor.has_value());
+    EXPECT_FALSE(state.input_vertical_goal_column.has_value());
 }
 
 // 场景:多条 queued 消息连续按 ArrowUp,按最新到最早依次取消并召回。

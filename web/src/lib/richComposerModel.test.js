@@ -3,6 +3,7 @@ import { flattenCommands } from './slashCommands.js';
 import {
   COMPOSER_COMMAND_TAG,
   COMPOSER_PATH_TAG,
+  COMPOSER_SESSION_TAG,
   clipboardHasRichText,
   composerAdjacentTagDeletionRange,
   composerDocumentFromText,
@@ -17,6 +18,7 @@ import {
   richComposerModelFromText,
   richComposerTextFromModel,
 } from './richComposerModel.js';
+import { formatSessionReferenceToken } from './sessionReference.js';
 
 function run(name, fn) {
   try {
@@ -89,6 +91,41 @@ run('Slate composer document round-trips command, path tags, and multiline text'
   assert.equal(absolute.token, '@"C:/Outside Folder/"');
   assert.equal(absolute.path, 'C:/Outside Folder/');
   assert.equal(absolute.directory, true);
+});
+
+run('Slate composer document round-trips a stable session tag', () => {
+  const token = formatSessionReferenceToken({
+    id: 'session-1',
+    title: '修复引用菜单',
+    workspace_hash: 'workspace-a',
+    workspaceName: 'ACECode',
+  }, { trailingSpace: false });
+  const text = `compare ${token} now`;
+  const document = composerDocumentFromText(text, COMMANDS);
+  assert.equal(composerTextFromDocument(document), text);
+  const tag = document[0].children.find((child) => child.type === COMPOSER_SESSION_TAG);
+  assert.ok(tag);
+  assert.equal(tag.sessionId, 'session-1');
+  assert.equal(tag.workspaceHash, 'workspace-a');
+  assert.equal(tag.title, '修复引用菜单');
+  assert.equal(tag.workspaceName, 'ACECode');
+});
+
+run('session tags use the existing atomic deletion behavior', () => {
+  const token = formatSessionReferenceToken({
+    id: 'session-2',
+    title: '上下文来源',
+    no_workspace: true,
+    workspace_name: '任务',
+  }, { trailingSpace: false });
+  const text = `use ${token} next`;
+  const document = composerDocumentFromText(text, COMMANDS);
+  const start = text.indexOf(token);
+  const before = composerSelectionFromPlainTextRange(document, start, start);
+  assert.deepEqual(composerAdjacentTagDeletionRange(document, before, 'forward'), {
+    start,
+    end: start + token.length + 1,
+  });
 });
 
 run('Slate composer keeps unfinished directory queries and non-reference at-signs editable', () => {

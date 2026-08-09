@@ -36,11 +36,11 @@ run('composer runtime depends on Slate and no longer depends on Lexical', () => 
   assert.doesNotMatch(composer, /lexical/i);
 });
 
-run('command and path tags are Slate inline void elements with fixed order', () => {
+run('command, path, and session tags are Slate inline void elements with fixed order', () => {
   const composer = source('components/RichComposer.jsx');
   assert.match(composer, /editor\.isInline = \(element\) => \(\s+isComposerInlineTag\(element\) \? true : isInline\(element\)/s);
   assert.match(composer, /editor\.isVoid = \(element\) => \(\s+isComposerInlineTag\(element\) \? true : isVoid\(element\)/s);
-  assert.equal((composer.match(/draggable=\{false\}/g) || []).length, 2);
+  assert.equal((composer.match(/draggable=\{false\}/g) || []).length, 3);
   assert.match(composer, /types\.includes\('application\/x-slate-fragment'\)/);
 });
 
@@ -64,6 +64,13 @@ run('path tags keep canonical text while using the compact badge surface', () =>
   assert.match(composer, /className="ace-cmd-token ace-slate-inline-tag ace-slate-path-tag"/);
   assert.match(composer, /element\?\.directory\s+\? <VsIcon name="folder"/s);
   assert.match(composer, /<FileTypeIcon path=\{path\} size=\{12\}/);
+});
+
+run('session tags keep stable identity while reusing the compact badge surface', () => {
+  const composer = source('components/RichComposer.jsx');
+  assert.match(composer, /data-composer-inline-tag="session"/);
+  assert.match(composer, /className="ace-cmd-token ace-slate-inline-tag ace-slate-session-tag"/);
+  assert.match(composer, /<VsIcon name="newSession" size=\{12\}/);
 });
 
 run('atomic deletion is routed through the plain-text tag range helper', () => {

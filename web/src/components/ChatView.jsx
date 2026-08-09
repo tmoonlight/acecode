@@ -95,6 +95,7 @@ import { usePreference } from '../lib/usePreference.js';
 import { pickExistingWorkspace } from '../lib/workspacePicker.js';
 import { refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
 import { homeComposerDraftText } from '../lib/homeComposerDrafts.js';
+import { extractSessionReferences } from '../lib/sessionReference.js';
 import {
   DEFAULT_HOME_WORKSPACE_SELECTION,
   HOME_WORKSPACE_SELECTION_STORAGE_KEY,
@@ -273,20 +274,25 @@ function fileToBase64(file) {
 }
 
 function normalizeComposerPayload(text, attachments = [], contexts = [], swarmMode = false) {
+  const sessionReferences = extractSessionReferences(String(text || ''));
   const payload = {
-    text: String(text || ''),
+    text: sessionReferences.displayText,
     attachments: attachments
       .filter((item) => item && !item.uploading && item.id)
       .map((item) => ({ id: item.id })),
     contexts: contexts.map(normalizeComposerContext).filter(Boolean),
   };
+  if (sessionReferences.references.length > 0) {
+    payload.session_references = sessionReferences.references;
+  }
   if (swarmMode) payload.swarm_mode = true;
   return payload;
 }
 
 function payloadHasExtras(payload) {
   return (Array.isArray(payload?.attachments) && payload.attachments.length > 0) ||
-    (Array.isArray(payload?.contexts) && payload.contexts.length > 0);
+    (Array.isArray(payload?.contexts) && payload.contexts.length > 0) ||
+    (Array.isArray(payload?.session_references) && payload.session_references.length > 0);
 }
 
 function payloadText(payload) {
@@ -2356,7 +2362,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
     const targetSid = sidRef.current;
     const expectedTurnId = String(activeTurnId || '');
     if (!targetSid || !busy || !expectedTurnId) {
-      toast({ kind: 'err', text: '当前没有可引导的运行中回合' });
+      toast({ kind: 'err', text: '当前没有可插话的运行中回合' });
       return null;
     }
     const queuedItem = queueStateRef.current.items.find(
@@ -2391,7 +2397,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
           queuedId,
           { succeeded: false },
         ));
-        toast({ kind: 'err', text: '引导提交失败:' + (e?.message || '未知错误') });
+        toast({ kind: 'err', text: '插话提交失败:' + (e?.message || '未知错误') });
         return false;
       });
   }, [activeTurnId, api, busy, updateQueueState]);
@@ -2502,11 +2508,11 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
         return;
       }
       if (!busy || !activeTurnId) {
-        toast({ kind: 'err', text: '当前没有可引导的运行中回合' });
+        toast({ kind: 'err', text: '当前没有可插话的运行中回合' });
         return;
       }
       if (!route.guidance && !hasExtras) {
-        toast({ kind: 'err', text: '用法：/turn <引导内容>' });
+        toast({ kind: 'err', text: '用法：/turn <插话内容>' });
         return;
       }
       if (composerSubmitting) return;
@@ -2526,10 +2532,10 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
           recordInputHistory(route.display_text);
           clearCurrentSessionDraft();
           clearComposerExtras();
-          toast({ kind: 'ok', text: '引导已提交，等待当前回合接收' });
+          toast({ kind: 'ok', text: '插话已提交，等待当前回合接收' });
         })
         .catch((e) => {
-          toast({ kind: 'err', text: '引导提交失败:' + (e?.message || '未知错误') });
+          toast({ kind: 'err', text: '插话提交失败:' + (e?.message || '未知错误') });
         })
         .finally(() => {
           setComposerSubmitting(false);
@@ -4219,6 +4225,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
                 ref={inputRef}
                 variant="hero"
                 pathReferenceApi={api}
+                currentSessionId=""
                 cwd={selectedHomeWorkspace?.cwd || ''}
                 expertOptions={recentExperts}
                 selectedExpertId={composerExpertId}
@@ -4916,6 +4923,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
           <InputBar
             ref={inputRef}
             pathReferenceApi={api}
+            currentSessionId={sid}
             cwd={sidePanelCwd}
             expertOptions={recentExperts}
             selectedExpertId={composerExpertId}

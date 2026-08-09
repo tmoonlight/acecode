@@ -164,6 +164,7 @@
 #include "utils/clipboard.hpp"
 #include "utils/drag_scroll.hpp"
 #include "utils/terminal_title.hpp"
+#include "utils/text_input_ops.hpp"
 #include "session/attachment_store.hpp"
 #include "session/session_storage.hpp"
 #include "session/compact_notice.hpp"
@@ -1490,9 +1491,15 @@ static void cancel_ctrl_c_exit_locked(TuiState& state) {
 static void insert_pasted_text_at_cursor_locked(TuiState& state,
                                                 const std::string& normalized) {
     cancel_ctrl_c_exit_locked(state);
-    if (state.input_cursor > state.input_text.size()) {
-        state.input_cursor = state.input_text.size();
-    }
+    acecode::erase_text_selection(
+        state.input_text,
+        state.input_cursor,
+        state.input_selection_anchor);
+    acecode::tui::prune_unreferenced(
+        state.pasted_texts, state.input_text);
+    state.input_cursor = acecode::clamp_utf8_boundary(
+        state.input_text, state.input_cursor);
+    state.input_vertical_goal_column.reset();
     state.pending_attachment_focus =
         acecode::tui::kNoPendingAttachmentFocus;
     std::string to_insert;
@@ -1504,8 +1511,8 @@ static void insert_pasted_text_at_cursor_locked(TuiState& state,
     } else {
         to_insert = normalized;
     }
-    state.input_text.insert(state.input_cursor, to_insert);
-    state.input_cursor += to_insert.size();
+    acecode::insert_at_cursor(
+        state.input_text, state.input_cursor, to_insert);
     state.history_index = -1;
 }
 
@@ -1733,6 +1740,7 @@ static bool handle_confirm_overlay_event(
         state.input_text.clear();
         state.pasted_texts.clear();
         state.input_cursor = 0;
+        state.clear_input_selection();
         state.confirm_pending = false;
         if (!state.confirm_remote_session_id.empty()) {
             const std::string sid = state.confirm_remote_session_id;
@@ -1864,6 +1872,7 @@ static void commit_rewind_mode_locked(
     state.input_text.clear();
     state.pasted_texts.clear();
     state.input_cursor = 0;
+    state.clear_input_selection();
     if (cb) cb(std::move(item), mode);
     clamp_chat_focus();
     screen.PostEvent(Event::Custom);
@@ -2020,6 +2029,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
             state.slash_dropdown_items[state.slash_dropdown_selected];
         state.input_text = "/" + item.name + " ";
         state.input_cursor = state.input_text.size();
+        state.clear_input_selection();
         state.slash_dropdown_active = false;
         state.slash_dropdown_items.clear();
         state.slash_dropdown_selected = 0;
@@ -5958,7 +5968,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 &input_hit_layout.regions);
         }
         return acecode::tui::render_wrapped_input_text(
-            display_text, cursor, &input_hit_layout.regions);
+            display_text,
+            cursor,
+            &input_hit_layout.regions,
+            state.input_selection_anchor);
     });
 
     auto cancel_ctrl_c_exit_locked = [&state]() {
@@ -6135,6 +6148,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state, input_hit_layout, mouse.x, mouse.y);
                 if (press.cursor_placed) {
                     state.input_cursor = press.cursor_bytes;
+                    state.input_selection_anchor.reset();
+                    state.input_vertical_goal_column.reset();
                     state.pending_attachment_focus =
                         acecode::tui::kNoPendingAttachmentFocus;
                     if (press.target ==
@@ -6288,6 +6303,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.input_text.clear();
                     state.pasted_texts.clear();
                     state.input_cursor = 0;
+                    state.clear_input_selection();
                     reset_ask_page_scroll_state();
                     clamp_ask_scroll();
                 };
@@ -6303,6 +6319,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.input_text.clear();
                     state.pasted_texts.clear();
                     state.input_cursor = 0;
+                    state.clear_input_selection();
                     reset_ask_page_scroll_state();
                     clamp_ask_scroll();
                 };
@@ -6748,6 +6765,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_other_input_active = false;
                         state.input_text.clear(); state.pasted_texts.clear();
                         state.input_cursor = 0;
+                        state.input_selection_anchor.reset();
+                        state.input_vertical_goal_column.reset();
                     } else {
                         close_ask_overlay(false);
                     }
@@ -6798,10 +6817,37 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 }
 
                 if (state.ask_other_input_active) {
+                    const auto shifted =
+                        acecode::tui::shift_arrow_direction(event);
+                    if (shifted == acecode::tui::ShiftArrowDirection::Up ||
+                        shifted == acecode::tui::ShiftArrowDirection::Down) {
+                        if (input_hit_layout.input_value == state.input_text) {
+                            const auto target =
+                                acecode::tui::input_cursor_vertical_target(
+                                    state.input_text,
+                                    input_hit_layout.box,
+                                    input_hit_layout.regions,
+                                    state.input_cursor,
+                                    *shifted,
+                                    &state.input_vertical_goal_column);
+                            if (target.has_value()) {
+                                acecode::move_cursor_with_selection(
+                                    state.input_text,
+                                    state.input_cursor,
+                                    state.input_selection_anchor,
+                                    *target,
+                                    true);
+                            }
+                        }
+                        screen.PostEvent(Event::Custom);
+                        return true;
+                    }
                     if (event == Event::Return) {
                         std::string answer = state.input_text;
                         state.input_text.clear(); state.pasted_texts.clear();
                         state.input_cursor = 0;
+                        state.input_selection_anchor.reset();
+                        state.input_vertical_goal_column.reset();
                         state.ask_other_input_active = false;
                         commit_current_answer(answer, true);
 
@@ -6905,6 +6951,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_other_input_active = true;
                         state.input_text.clear(); state.pasted_texts.clear();
                         state.input_cursor = 0;
+                        state.input_selection_anchor.reset();
+                        state.input_vertical_goal_column.reset();
                         state.ask_scroll_to_focus_requested = true;
                         screen.PostEvent(Event::Custom);
                         return true;
@@ -7000,6 +7048,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.resume_callback = nullptr;
                     state.input_text.clear(); state.pasted_texts.clear();
                     state.input_cursor = 0;
+                    state.clear_input_selection();
                     const size_t before_resume_messages =
                         state.conversation.size();
                     if (cb) cb(sid);
@@ -7077,6 +7126,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             state.pending_attachment_focus =
                 acecode::tui::kNoPendingAttachmentFocus;
             state.input_cursor = 0;
+            state.clear_input_selection();
             refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
 
             // 统一入口：内存 push + 磁盘 append。空白 / 相邻重复被抑制，保持磁盘与内存
@@ -7107,6 +7157,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         "Image attachments are only supported in normal prompt mode");
                     state.input_text = expanded_prompt;
                     state.input_cursor = state.input_text.size();
+                    state.clear_input_selection();
                     state.pending_attachments = attachments;
                     acecode::tui::clamp_pending_attachment_focus(
                         state.pending_attachment_focus,
@@ -7415,6 +7466,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.resume_callback = nullptr;
                 state.input_text.clear(); state.pasted_texts.clear();
                 state.input_cursor = 0;
+                state.clear_input_selection();
                 state.conversation.push_back({"system", "Resume cancelled.", false});
                 state.chat_follow_tail = true;
                 clamp_chat_focus();
@@ -7453,6 +7505,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.input_mode = InputMode::Normal;
                 state.input_text.clear(); state.pasted_texts.clear();
                 state.input_cursor = 0;
+                state.clear_input_selection();
                 return true;
             }
             if (!state.pending_attachments.empty() && state.input_text.empty()) {
@@ -7999,8 +8052,68 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
         }
+        if (const auto shifted =
+                acecode::tui::shift_arrow_direction(event)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active || state.model_picker_open ||
+                state.mode_picker_open || state.rewind_picker_active ||
+                state.confirm_pending) {
+                return true;
+            }
+
+            std::optional<size_t> target;
+            if (*shifted == acecode::tui::ShiftArrowDirection::Up ||
+                *shifted == acecode::tui::ShiftArrowDirection::Down) {
+                if (input_hit_layout.input_value == state.input_text) {
+                    target = acecode::tui::input_cursor_vertical_target(
+                        state.input_text,
+                        input_hit_layout.box,
+                        input_hit_layout.regions,
+                        state.input_cursor,
+                        *shifted,
+                        &state.input_vertical_goal_column);
+                }
+            } else {
+                size_t next = acecode::clamp_utf8_boundary(
+                    state.input_text, state.input_cursor);
+                if (*shifted == acecode::tui::ShiftArrowDirection::Left) {
+                    if (auto span = acecode::tui::placeholder_ending_at(
+                            state.input_text, state.pasted_texts, next)) {
+                        next = span->begin;
+                    } else {
+                        acecode::move_cursor_left_utf8(
+                            state.input_text, next);
+                    }
+                } else if (auto span =
+                               acecode::tui::placeholder_starting_at(
+                                   state.input_text,
+                                   state.pasted_texts,
+                                   next)) {
+                    next = span->end;
+                } else {
+                    acecode::move_cursor_right_utf8(
+                        state.input_text, next);
+                }
+                state.input_vertical_goal_column.reset();
+                target = next;
+            }
+
+            if (target.has_value()) {
+                acecode::move_cursor_with_selection(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor,
+                    *target,
+                    true);
+                state.pending_attachment_focus =
+                    acecode::tui::kNoPendingAttachmentFocus;
+            }
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
         if (event == Event::ArrowUp) {
             std::lock_guard<std::mutex> lk(state.mu);
+            state.input_vertical_goal_column.reset();
             if (state.resume_picker_active) {
                 if (state.resume_selected > 0) state.resume_selected--;
                 state.resume_view_offset = acecode::tui::scroll_to_keep_visible(
@@ -8033,6 +8146,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
         if (event == Event::ArrowDown) {
             std::lock_guard<std::mutex> lk(state.mu);
+            state.input_vertical_goal_column.reset();
             if (state.resume_picker_active) {
                 if (state.resume_selected < static_cast<int>(state.resume_items.size()) - 1)
                     state.resume_selected++;
@@ -8075,9 +8189,15 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
             if (state.mode_picker_open) return true;
-            if (state.input_cursor > state.input_text.size()) {
-                state.input_cursor = state.input_text.size();
+            state.input_vertical_goal_column.reset();
+            if (acecode::collapse_selection_left(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
+                return true;
             }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
             if (state.input_cursor == 0) return true;
             // 已知 [Pasted text #N] 占位符整体跨越（atomic span）。
             if (auto span = acecode::tui::placeholder_ending_at(
@@ -8085,11 +8205,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.input_cursor = span->begin;
                 return true;
             }
-            size_t pos = state.input_cursor - 1;
-            while (pos > 0 && (static_cast<unsigned char>(state.input_text[pos]) & 0xC0) == 0x80) {
-                pos--;
-            }
-            state.input_cursor = pos;
+            acecode::move_cursor_left_utf8(
+                state.input_text, state.input_cursor);
             return true;
         }
         if (event == Event::ArrowRight) {
@@ -8097,22 +8214,24 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
             if (state.mode_picker_open) return true;
-            if (state.input_cursor >= state.input_text.size()) {
-                state.input_cursor = state.input_text.size();
+            state.input_vertical_goal_column.reset();
+            if (acecode::collapse_selection_right(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
                 return true;
             }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
+            if (state.input_cursor >= state.input_text.size()) return true;
             // 已知 [Pasted text #N] 占位符整体跨越（atomic span）。
             if (auto span = acecode::tui::placeholder_starting_at(
                     state.input_text, state.pasted_texts, state.input_cursor)) {
                 state.input_cursor = span->end;
                 return true;
             }
-            size_t pos = state.input_cursor + 1;
-            while (pos < state.input_text.size() &&
-                   (static_cast<unsigned char>(state.input_text[pos]) & 0xC0) == 0x80) {
-                pos++;
-            }
-            state.input_cursor = pos;
+            acecode::move_cursor_right_utf8(
+                state.input_text, state.input_cursor);
             return true;
         }
         // Home / End: jump caret to start/end of the input buffer.
@@ -8120,12 +8239,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // variants) to Event::Home / Event::End. Several terminals emit VT220-
         // style `ESC [ 1 ~` / `ESC [ 4 ~` or rxvt-style `ESC [ 7 ~` / `ESC [ 8 ~`
         // instead — those arrive as raw Special events, so match them here.
-        // Ctrl+A / Ctrl+E are also honoured as the readline-style fallback.
+        // Ctrl+E is also honoured as the readline-style End fallback. Ctrl+A
+        // follows conventional text fields and selects the complete buffer.
         auto is_home_event = [](const Event& e) {
             return e == Event::Home
                 || e == Event::Special("\x1B[1~")
-                || e == Event::Special("\x1B[7~")
-                || e == Event::Special(std::string(1, '\x01')); // Ctrl+A
+                || e == Event::Special("\x1B[7~");
         };
         auto is_end_event = [](const Event& e) {
             return e == Event::End
@@ -8133,10 +8252,28 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 || e == Event::Special("\x1B[8~")
                 || e == Event::Special(std::string(1, '\x05')); // Ctrl+E
         };
+        if (event == Event::Special(std::string(1, '\x01'))) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active || state.model_picker_open ||
+                state.mode_picker_open) {
+                return true;
+            }
+            acecode::select_all_text(
+                state.input_text,
+                state.input_cursor,
+                state.input_selection_anchor);
+            state.input_vertical_goal_column.reset();
+            state.pending_attachment_focus =
+                acecode::tui::kNoPendingAttachmentFocus;
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
         if (is_home_event(event)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active) return true;
             state.input_cursor = 0;
+            state.input_selection_anchor.reset();
+            state.input_vertical_goal_column.reset();
             return true;
         }
         // Ctrl+O:全局展开/收起所有工具输出(Claude Code 风格 verbose 开关)。
@@ -8189,15 +8326,27 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active) return true;
             state.input_cursor = state.input_text.size();
+            state.input_selection_anchor.reset();
+            state.input_vertical_goal_column.reset();
             return true;
         }
         // Delete: remove UTF-8 glyph at the caret (to the right)
         if (event == Event::Delete) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.mode_picker_open) return true;
-            if (state.input_cursor > state.input_text.size()) {
-                state.input_cursor = state.input_text.size();
+            state.input_vertical_goal_column.reset();
+            if (acecode::erase_text_selection(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
+                acecode::tui::prune_unreferenced(
+                    state.pasted_texts, state.input_text);
+                refresh_input_suggestions(
+                    state, cmd_registry, agent_loop.cwd());
+                return true;
             }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
             if (state.input_cursor >= state.input_text.size()) return true;
             // 已知 [Pasted text #N] 占位符整体删除：连同 store 条目一起回收。
             if (auto span = acecode::tui::placeholder_starting_at(
@@ -8221,9 +8370,19 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (event == Event::Backspace) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.mode_picker_open) return true;
-            if (state.input_cursor > state.input_text.size()) {
-                state.input_cursor = state.input_text.size();
+            state.input_vertical_goal_column.reset();
+            if (acecode::erase_text_selection(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
+                acecode::tui::prune_unreferenced(
+                    state.pasted_texts, state.input_text);
+                refresh_input_suggestions(
+                    state, cmd_registry, agent_loop.cwd());
+                return true;
             }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
             if (state.input_text.empty()) {
                 // On empty buffer, Backspace exits Shell mode back to Normal.
                 if (state.input_mode == InputMode::Shell) {
@@ -8272,6 +8431,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.resume_callback = nullptr;
                         state.input_text.clear(); state.pasted_texts.clear();
                         state.input_cursor = 0;
+                        state.clear_input_selection();
                         if (cb) cb(sid);
                         clamp_chat_focus();
                         screen.PostEvent(Event::Custom);
@@ -8320,11 +8480,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.history_index = -1;
                 return true;
             }
-            if (state.input_cursor > state.input_text.size()) {
-                state.input_cursor = state.input_text.size();
-            }
-            state.input_text.insert(state.input_cursor, ch);
-            state.input_cursor += ch.size();
+            acecode::insert_replacing_selection(
+                state.input_text,
+                state.input_cursor,
+                state.input_selection_anchor,
+                ch);
+            acecode::tui::prune_unreferenced(
+                state.pasted_texts, state.input_text);
+            state.input_vertical_goal_column.reset();
             // Reset history browsing on new input
             state.history_index = -1;
             refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());

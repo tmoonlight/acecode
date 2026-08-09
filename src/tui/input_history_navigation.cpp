@@ -33,6 +33,7 @@ bool clear_current_input_for_history_restore(TuiState& state) {
     state.input_mode = InputMode::Normal;
     state.input_text.clear();
     state.input_cursor = 0;
+    state.clear_input_selection();
     return true;
 }
 
@@ -42,6 +43,7 @@ bool navigate_input_history_up(TuiState& state) {
         state.input_mode = saved_mode;
         state.input_text = std::move(saved_text);
         state.input_cursor = state.input_text.size();
+        state.clear_input_selection();
         state.history_index = -1;
         state.saved_input.clear();
         return true;
@@ -73,6 +75,7 @@ bool navigate_input_history_up(TuiState& state) {
     state.input_mode = hist_mode;
     state.input_text = std::move(hist_text);
     state.input_cursor = state.input_text.size();
+    state.clear_input_selection();
     return true;
 }
 
@@ -89,6 +92,7 @@ bool navigate_input_history_down(TuiState& state) {
         state.input_mode = saved_mode;
         state.input_text = std::move(saved_text);
         state.input_cursor = state.input_text.size();
+        state.clear_input_selection();
         return true;
     }
 
@@ -106,6 +110,7 @@ bool navigate_input_history_down(TuiState& state) {
     }
 
     state.input_cursor = state.input_text.size();
+    state.clear_input_selection();
     return true;
 }
 

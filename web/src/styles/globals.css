@@ -1706,14 +1706,14 @@ body {
   -webkit-mask-image: linear-gradient(
     to right,
     transparent 0,
-    #000 8px,
+    #000 2px,
     #000 calc(100% - 12px),
     transparent 100%
   );
   mask-image: linear-gradient(
     to right,
     transparent 0,
-    #000 8px,
+    #000 2px,
     #000 calc(100% - 12px),
     transparent 100%
   );

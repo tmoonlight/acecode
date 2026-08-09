@@ -15,10 +15,20 @@
 #include <string>
 
 using acecode::backspace_utf8;
+using acecode::backspace_replacing_selection;
+using acecode::collapse_selection_left;
+using acecode::collapse_selection_right;
 using acecode::delete_utf8;
+using acecode::delete_replacing_selection;
+using acecode::erase_text_selection;
 using acecode::insert_at_cursor;
+using acecode::insert_replacing_selection;
 using acecode::move_cursor_left_utf8;
 using acecode::move_cursor_right_utf8;
+using acecode::move_cursor_with_selection;
+using acecode::select_all_text;
+using acecode::TextSelectionRange;
+using acecode::text_selection_range;
 
 // 场景:空串从 cursor=0 位置插入单字节字符 'a',结果 "a" / cursor=1。
 TEST(TextInputOpsInsertTest, InsertSingleCharIntoEmptyBuffer) {
@@ -145,4 +155,94 @@ TEST(TextInputOpsArrowTest, ClampsOutOfRangeCursor) {
     move_cursor_right_utf8(text, cursor);
     // clamp 到 3(末尾),ArrowRight no-op → 仍为 3
     EXPECT_EQ(cursor, 3u);
+}
+
+TEST(TextInputOpsSelectionTest, NormalizesForwardAndReversedUtf8Ranges) {
+    const std::string text = "A\xE4\xB8\xAD" "B"; // "A中B"
+
+    EXPECT_EQ(text_selection_range(text, 5, std::size_t{1}),
+              TextSelectionRange({1, 5}));
+    EXPECT_EQ(text_selection_range(text, 1, std::size_t{5}),
+              TextSelectionRange({1, 5}));
+
+    // Offset 3 lies inside 中 and must retreat to its first byte at 1.
+    EXPECT_EQ(text_selection_range(text, 5, std::size_t{3}),
+              TextSelectionRange({1, 5}));
+}
+
+TEST(TextInputOpsSelectionTest, ShiftMovementKeepsAnchorWhenDirectionReverses) {
+    const std::string text = "A\xE4\xB8\xAD" "B";
+    std::size_t cursor = text.size();
+    std::optional<std::size_t> anchor;
+
+    move_cursor_with_selection(text, cursor, anchor, 4, true);
+    move_cursor_with_selection(text, cursor, anchor, 1, true);
+    ASSERT_EQ(anchor, text.size());
+    EXPECT_EQ(text_selection_range(text, cursor, anchor),
+              TextSelectionRange({1, 5}));
+
+    move_cursor_with_selection(text, cursor, anchor, 4, true);
+    EXPECT_EQ(anchor, text.size());
+    EXPECT_EQ(text_selection_range(text, cursor, anchor),
+              TextSelectionRange({4, 5}));
+}
+
+TEST(TextInputOpsSelectionTest, TypingReplacesReversedSelection) {
+    std::string text = "abcdef";
+    std::size_t cursor = 2;
+    std::optional<std::size_t> anchor = 5;
+
+    insert_replacing_selection(text, cursor, anchor, "X");
+
+    EXPECT_EQ(text, "abXf");
+    EXPECT_EQ(cursor, 3u);
+    EXPECT_FALSE(anchor.has_value());
+}
+
+TEST(TextInputOpsSelectionTest, BackspaceAndDeleteRemoveSelectionOnly) {
+    for (const bool backspace : {false, true}) {
+        SCOPED_TRACE(backspace);
+        std::string text = "abcdef";
+        std::size_t cursor = 4;
+        std::optional<std::size_t> anchor = 2;
+
+        if (backspace) {
+            backspace_replacing_selection(text, cursor, anchor);
+        } else {
+            delete_replacing_selection(text, cursor, anchor);
+        }
+
+        EXPECT_EQ(text, "abef");
+        EXPECT_EQ(cursor, 2u);
+        EXPECT_FALSE(anchor.has_value());
+    }
+}
+
+TEST(TextInputOpsSelectionTest, PlainArrowsCollapseToCorrespondingBoundary) {
+    const std::string text = "abcdef";
+    std::size_t cursor = 4;
+    std::optional<std::size_t> anchor = 2;
+
+    EXPECT_TRUE(collapse_selection_left(text, cursor, anchor));
+    EXPECT_EQ(cursor, 2u);
+    EXPECT_FALSE(anchor.has_value());
+
+    cursor = 2;
+    anchor = 4;
+    EXPECT_TRUE(collapse_selection_right(text, cursor, anchor));
+    EXPECT_EQ(cursor, 4u);
+    EXPECT_FALSE(anchor.has_value());
+}
+
+TEST(TextInputOpsSelectionTest, CtrlASelectsCompleteBuffer) {
+    const std::string text = "hello";
+    std::size_t cursor = 2;
+    std::optional<std::size_t> anchor;
+
+    select_all_text(text, cursor, anchor);
+
+    EXPECT_EQ(cursor, text.size());
+    EXPECT_EQ(anchor, 0u);
+    EXPECT_EQ(text_selection_range(text, cursor, anchor),
+              TextSelectionRange({0, text.size()}));
 }

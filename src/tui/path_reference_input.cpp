@@ -109,6 +109,7 @@ bool commit_path_reference_selection(TuiState& state, bool enter_directory) {
         item.is_directory, enter_directory);
     state.input_text = std::move(replacement.text);
     state.input_cursor = replacement.cursor;
+    state.clear_input_selection();
     clear_path_reference_state(state, true);
     return true;
 }

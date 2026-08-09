@@ -35,6 +35,7 @@ import {
   isComposerCommandTag,
   isComposerInlineTag,
   isComposerPathTag,
+  isComposerSessionTag,
   normalizeComposerPlainText,
   plainTextFromClipboardData,
 } from '../lib/richComposerModel.js';
@@ -102,9 +103,30 @@ function PathTagElement({ attributes, children, element }) {
   );
 }
 
+function SessionTagElement({ attributes, children, element }) {
+  const title = String(element?.title || element?.sessionId || '');
+  const workspaceName = String(element?.workspaceName || '');
+  return (
+    <span
+      {...attributes}
+      contentEditable={false}
+      draggable={false}
+      data-composer-inline-tag="session"
+      className="ace-cmd-token ace-slate-inline-tag ace-slate-session-tag"
+      title={workspaceName ? `${title} · ${workspaceName}` : title}
+      onDragStart={(event) => event.preventDefault()}
+    >
+      {children}
+      <VsIcon name="newSession" size={12} className="ace-cmd-token-glyph" />
+      <span className="ace-cmd-token-name">{title}</span>
+    </span>
+  );
+}
+
 function ComposerElement(props) {
   if (isComposerCommandTag(props.element)) return <CommandTagElement {...props} />;
   if (isComposerPathTag(props.element)) return <PathTagElement {...props} />;
+  if (isComposerSessionTag(props.element)) return <SessionTagElement {...props} />;
   return (
     <div {...props.attributes} className="ace-slate-composer-paragraph">
       {props.children}

@@ -1,5 +1,6 @@
 // routes_sessions.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
+#include "../session_reference_context.hpp"
 #include "../../session/compact_checkpoint.hpp"
 #include "../../session/session_user_message_search.hpp"
 #include "../../utils/utf8_path.hpp"
@@ -109,6 +110,7 @@ WebServer::Impl::parse_session_user_input_request(
     std::string client_message_id;
     json attachment_refs = json::array();
     json contexts = json::array();
+    std::vector<SessionReferenceDescriptor> session_references;
     bool swarm_mode = false;
 
     try {
@@ -126,6 +128,15 @@ WebServer::Impl::parse_session_user_input_request(
         }
         if (payload.contains("contexts") && payload["contexts"].is_array()) {
             contexts = payload["contexts"];
+        }
+        if (payload.contains("session_references")) {
+            auto parsed_references = parse_session_reference_descriptors(
+                payload["session_references"]);
+            if (!parsed_references.ok) {
+                result.error = std::move(parsed_references.error);
+                return result;
+            }
+            session_references = std::move(parsed_references.references);
         }
         if (payload.contains("swarm_mode")) {
             if (!payload["swarm_mode"].is_boolean()) {
@@ -168,7 +179,8 @@ WebServer::Impl::parse_session_user_input_request(
         result.error = "worktree creation is not allowed for turn steering";
         return result;
     }
-    if (text.empty() && attachment_refs.empty() && contexts.empty()) {
+    if (text.empty() && attachment_refs.empty() && contexts.empty() &&
+        session_references.empty()) {
         result.error = "text or attachment required";
         return result;
     }
@@ -200,6 +212,118 @@ WebServer::Impl::parse_session_user_input_request(
         build_selection_prompt_context(contexts);
     const bool selection_expanded = !selection_context.prompt.empty();
 
+    std::vector<ResolvedSessionReference> resolved_references;
+    resolved_references.reserve(session_references.size());
+    for (const auto& reference : session_references) {
+        if (reference.session_id == session_id) {
+            result.error = "cannot reference the current session";
+            return result;
+        }
+
+        ResolvedSessionReference resolved;
+        resolved.descriptor = reference;
+        bool found = false;
+
+        if (deps.session_registry) {
+            if (auto entry = deps.session_registry->acquire(
+                    reference.session_id)) {
+                const std::string actual_workspace_hash = entry->no_workspace
+                    ? std::string{}
+                    : (!entry->workspace_hash.empty()
+                        ? entry->workspace_hash
+                        : SessionStorage::compute_project_hash(entry->cwd));
+                if (entry->no_workspace != reference.no_workspace ||
+                    (!reference.no_workspace &&
+                     actual_workspace_hash != reference.workspace_hash)) {
+                    result.error = "referenced session scope mismatch";
+                    return result;
+                }
+
+                if (entry->sm) {
+                    resolved.messages = entry->sm->load_active_messages();
+                    const std::string title = entry->sm->current_title();
+                    if (!title.empty()) resolved.descriptor.title = title;
+                }
+                if (reference.no_workspace) {
+                    if (resolved.descriptor.workspace_name.empty()) {
+                        resolved.descriptor.workspace_name = "Task";
+                    }
+                } else if (auto workspace =
+                               resolve_workspace(actual_workspace_hash)) {
+                    resolved.descriptor.workspace_hash = workspace->hash;
+                    resolved.descriptor.workspace_name = workspace->name.empty()
+                        ? acecode::desktop::default_workspace_name(workspace->cwd)
+                        : workspace->name;
+                } else if (resolved.descriptor.workspace_name.empty()) {
+                    resolved.descriptor.workspace_name =
+                        acecode::desktop::default_workspace_name(entry->cwd);
+                }
+                found = true;
+            }
+        }
+
+        if (!found && reference.no_workspace) {
+            if (auto meta = find_no_workspace_session_meta(
+                    reference.session_id)) {
+                if (!meta->no_workspace || meta->cwd.empty()) {
+                    result.error = "referenced session scope mismatch";
+                    return result;
+                }
+                const auto candidates = SessionStorage::find_session_files(
+                    SessionStorage::get_project_dir(meta->cwd),
+                    reference.session_id);
+                if (!candidates.empty()) {
+                    resolved.messages = SessionStorage::load_messages(
+                        candidates.front().jsonl_path);
+                    if (!meta->title.empty()) {
+                        resolved.descriptor.title = meta->title;
+                    }
+                    if (resolved.descriptor.workspace_name.empty()) {
+                        resolved.descriptor.workspace_name = "Task";
+                    }
+                    found = true;
+                }
+            }
+        }
+
+        if (!found && !reference.no_workspace) {
+            if (auto workspace = resolve_workspace(reference.workspace_hash)) {
+                const auto candidates = SessionStorage::find_session_files(
+                    SessionStorage::get_project_dir(workspace->cwd),
+                    reference.session_id);
+                if (!candidates.empty()) {
+                    resolved.messages = SessionStorage::load_messages(
+                        candidates.front().jsonl_path);
+                    const auto meta = SessionStorage::read_meta(
+                        candidates.front().meta_path);
+                    if (!meta.id.empty() && meta.no_workspace) {
+                        result.error = "referenced session scope mismatch";
+                        return result;
+                    }
+                    if (!meta.title.empty()) {
+                        resolved.descriptor.title = meta.title;
+                    }
+                    resolved.descriptor.workspace_hash = workspace->hash;
+                    resolved.descriptor.workspace_name = workspace->name.empty()
+                        ? acecode::desktop::default_workspace_name(workspace->cwd)
+                        : workspace->name;
+                    found = true;
+                }
+            }
+        }
+
+        if (!found) {
+            result.status = 404;
+            result.error = "referenced session not found";
+            return result;
+        }
+        resolved_references.push_back(std::move(resolved));
+    }
+    const auto session_reference_context =
+        build_session_reference_prompt_context(resolved_references);
+    const bool session_references_expanded =
+        !session_reference_context.prompt.empty();
+
     if (attachment_refs.empty() && contexts.empty() &&
         deps.session_registry && deps.app_config) {
         if (auto entry = deps.session_registry->acquire(session_id)) {
@@ -229,9 +353,13 @@ WebServer::Impl::parse_session_user_input_request(
         text = build_selection_augmented_prompt(
             selection_context, original_text);
     }
+    if (session_references_expanded) {
+        text = build_session_reference_augmented_prompt(
+            session_reference_context, text);
+    }
 
     result.input.text = text;
-    if (expanded || selection_expanded) {
+    if (expanded || selection_expanded || session_references_expanded) {
         result.input.display_text = original_text;
     }
     if (!client_message_id.empty()) {
@@ -239,6 +367,11 @@ WebServer::Impl::parse_session_user_input_request(
     }
     if (swarm_mode) {
         result.input.metadata["swarm_mode"] = true;
+    }
+    if (session_references_expanded) {
+        result.input.metadata["session_references"] =
+            session_reference_context.meta;
+        result.input.metadata["display_text"] = original_text;
     }
 
     if (!attachment_refs.empty() || !contexts.empty()) {

@@ -11,6 +11,7 @@
 #include <optional>
 
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/component/event.hpp>
 #include <ftxui/screen/box.hpp>
 #include <ftxui/screen/string.hpp>
 
@@ -89,6 +90,13 @@ enum class InputPointerTarget {
     AskOther,
 };
 
+enum class ShiftArrowDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+};
+
 struct InputPointerPressResult {
     bool cursor_placed = false;
     bool event_consumed = false;
@@ -105,7 +113,8 @@ std::vector<std::string> tokenize_wrapped_input(const std::string& text);
 ftxui::Element render_wrapped_input_text(
     const std::string& input_value,
     size_t cursor_bytes,
-    std::vector<InputTextHitRegion>* hit_regions = nullptr);
+    std::vector<InputTextHitRegion>* hit_regions = nullptr,
+    std::optional<size_t> selection_anchor = std::nullopt);
 ftxui::Element render_empty_input_prompt(
     std::vector<InputTextHitRegion>* hit_regions = nullptr);
 std::optional<size_t> input_cursor_from_point(
@@ -114,6 +123,15 @@ std::optional<size_t> input_cursor_from_point(
     const std::vector<InputTextHitRegion>& hit_regions,
     int mouse_x,
     int mouse_y);
+std::optional<ShiftArrowDirection> shift_arrow_direction(
+    const ftxui::Event& event);
+std::optional<size_t> input_cursor_vertical_target(
+    const std::string& input_value,
+    const ftxui::Box& input_box,
+    const std::vector<InputTextHitRegion>& hit_regions,
+    size_t cursor_bytes,
+    ShiftArrowDirection direction,
+    std::optional<int>* goal_column);
 InputPointerTarget input_pointer_target(const TuiState& state);
 InputPointerPressResult resolve_input_pointer_press(
     const TuiState& state,

@@ -34,6 +34,13 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '调整后台任务面板宽度': 'Resize background task panel',
   '拖动调整后台任务面板宽度': 'Drag to resize background task panel',
   '旁路提问': 'Side question',
+  '插话': 'Interject',
+  '插话已提交，等待当前回合接收': 'Interjection submitted; waiting for the active turn to accept it',
+  '正在提交插话…': 'Submitting interjection…',
+  '当前没有可插话的运行中回合': 'There is no running turn to interject into',
+  '将排队消息插入当前回合': 'Interject queued message into the active turn',
+  '插话提交失败:': 'Failed to submit interjection:',
+  '用法：/turn <插话内容>': 'Usage: /turn <interjection>',
   '无工作区': 'No workspace',
   '当前工作区': 'Current workspace',
   '工作空间': 'Workspace',
@@ -515,8 +522,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   'Agent 浏览器': 'Agent Browser',
   'Agent 浏览器工具由 Windows Desktop 原生提供，模型需要浏览器时会自动打开并操作同一个可见页面。':
     'Agent Browser tools are built into Desktop for Windows. When the model needs a browser, it opens and operates the same visible page.',
-  '使用独立 WebView2 配置与 CDP 代理；不会向网页注入 ACECode 桥接对象。':
-    'Uses an isolated WebView2 profile and CDP proxy without injecting ACECode bridge objects into web pages.',
+  '这是一个内嵌浏览器。': 'This is an embedded browser.',
   '服务器不可达，请检查网络后重试': 'Server unreachable. Check your network and retry',
   '网页加载超时，请重试': 'Page load timed out. Retry',
   '连接被中断，请重试': 'Connection interrupted. Retry',

@@ -82,6 +82,11 @@ test('overflow styling clips with a fade and animates only measured overflow', (
   );
   assert.match(
     titleStyles,
+    /\.ace-sidebar-session-row:hover \.ace-sidebar-session-title-viewport\.is-overflowing,[\s\S]*transparent 0,[\s\S]*#000 2px,[\s\S]*#000 calc\(100% - 12px\)/,
+  );
+  assert.doesNotMatch(titleStyles, /transparent 0,\s*#000 8px/);
+  assert.match(
+    titleStyles,
     /animation: ace-sidebar-session-title-marquee[\s\S]*linear\s+1\s+forwards;/,
   );
   assert.doesNotMatch(titleStyles, /\binfinite\b|\balternate\b/);

@@ -1759,6 +1759,7 @@ static void open_rewind_picker(
                 state.input_mode = InputMode::Normal;
                 state.input_text = std::move(prefill);
                 state.input_cursor = state.input_text.size();
+                state.clear_input_selection();
                 state.history_index = -1;
                 state.pending_queue.clear();
                 state.pending_structured_queue.clear();

@@ -1,9 +1,11 @@
 import { resolveLeadingSlashCommand } from './slashCommands.js';
 import { normalizeReferencePath } from './pathReference.js';
+import { sessionReferenceTokenAt } from './sessionReference.js';
 
 export const COMPOSER_PARAGRAPH = 'paragraph';
 export const COMPOSER_COMMAND_TAG = 'command-tag';
 export const COMPOSER_PATH_TAG = 'path-tag';
+export const COMPOSER_SESSION_TAG = 'session-tag';
 
 export function normalizeComposerPlainText(value = '') {
   return String(value ?? '').replace(/\r\n?/g, '\n');
@@ -17,8 +19,12 @@ export function isComposerPathTag(value) {
   return !!value && value.type === COMPOSER_PATH_TAG;
 }
 
+export function isComposerSessionTag(value) {
+  return !!value && value.type === COMPOSER_SESSION_TAG;
+}
+
 export function isComposerInlineTag(value) {
-  return isComposerCommandTag(value) || isComposerPathTag(value);
+  return isComposerCommandTag(value) || isComposerPathTag(value) || isComposerSessionTag(value);
 }
 
 function composerCommandTag(command) {
@@ -39,6 +45,19 @@ function composerPathTag(token, path) {
     token,
     path: normalizedPath,
     directory: normalizedPath.endsWith('/'),
+    children: [{ text: '' }],
+  };
+}
+
+function composerSessionTag(token, reference) {
+  return {
+    type: COMPOSER_SESSION_TAG,
+    token,
+    sessionId: reference?.session_id || '',
+    workspaceHash: reference?.workspace_hash || '',
+    noWorkspace: !!reference?.no_workspace,
+    title: reference?.title || reference?.session_id || '',
+    workspaceName: reference?.workspace_name || '',
     children: [{ text: '' }],
   };
 }
@@ -101,7 +120,14 @@ function appendTokenizedLine(children, text, options = {}) {
   let cursor = 0;
   let plainStart = 0;
   while (cursor < text.length) {
-    const parsed = text[cursor] === '@' ? pathTagAt(text, cursor, options) : null;
+    const session = text[cursor] === '@' ? sessionReferenceTokenAt(text, cursor) : null;
+    const parsed = session
+      ? {
+          begin: session.begin,
+          end: session.end,
+          tag: composerSessionTag(session.token, session.reference),
+        }
+      : (text[cursor] === '@' ? pathTagAt(text, cursor, options) : null);
     if (!parsed) {
       cursor += 1;
       continue;

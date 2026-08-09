@@ -212,7 +212,6 @@ export function buildDesktopContextMenuItems({
         addAction(items, DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION, sessionTarget, {
           group: GROUPS.DANGER,
           danger: true,
-          confirm: '确认归档这个会话？',
         });
       }
     } else if (sessionPinTarget) {
