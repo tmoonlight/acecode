@@ -323,18 +323,24 @@ public:
     return YES;
 }
 
-- (CAShapeLayer*)newOcclusionMaskForBounds:(NSRect)bounds {
+- (CAShapeLayer*)newOcclusionMaskForView:(NSView*)target_view {
+    CALayer* target_layer = [target_view layer];
+    const NSRect bounds = [target_view bounds];
     const CGFloat width = NSWidth(bounds);
     const CGFloat height = NSHeight(bounds);
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathAddRect(path, nullptr, CGRectMake(0, 0, width, height));
     for (NSValue* value in occlusion_rects_) {
         const NSRect rect = [value rectValue];
-        // Occlusion rectangles use the flipped, top-left Browser contract.
-        // CAShapeLayer paths use bottom-left coordinates, so flip only here.
+        // Occlusion rectangles use the DOM's top-left Browser contract.
+        // Backing layers for flipped AppKit views already use that orientation;
+        // converting them again mirrors top overlays to the bottom. Convert Y
+        // only when a target layer actually uses bottom-left coordinates.
         const CGFloat x = NSMinX(rect) - NSMinX(bounds);
         const CGFloat top = NSMinY(rect) - NSMinY(bounds);
-        const CGFloat y = height - top - NSHeight(rect);
+        const CGFloat y = [target_view isFlipped]
+            ? top
+            : height - top - NSHeight(rect);
         CGPathAddRect(path, nullptr,
                       CGRectMake(x, y, NSWidth(rect), NSHeight(rect)));
     }
@@ -365,7 +371,7 @@ public:
     }
 
     CAShapeLayer* surface_mask =
-        [self newOcclusionMaskForBounds:[self bounds]];
+        [self newOcclusionMaskForView:self];
     [surface_layer setMask:surface_mask];
     [surface_mask release];
 
@@ -381,7 +387,7 @@ public:
             continue;
         }
         CAShapeLayer* subview_mask =
-            [self newOcclusionMaskForBounds:[subview bounds]];
+            [self newOcclusionMaskForView:subview];
         [subview_layer setMask:subview_mask];
         [subview_mask release];
         applied = applied && [subview_layer mask] != nil;

@@ -43,6 +43,8 @@ This fallback may temporarily hide the whole Browser only when the native bridge
 
 The macOS wrapper owns both the Core Animation mask and hit-test exclusions. It rebuilds the mask when bounds or occlusion rectangles change, clips all rectangles to current bounds, and supports multiple holes. Browser content outside holes remains interactive; points inside holes fall through to the React shell.
 
+Occlusion rectangles use a top-left contract. AppKit views report their coordinate orientation through `isFlipped`; their backing layer's `geometryFlipped` flag does not reliably mirror that view contract. Mask paths therefore use the reported `top` directly for flipped target views and convert it only for an unflipped target view. This avoids mirroring a top overlay to the bottom of Browser content.
+
 ## Risks / Trade-offs
 
 - [An overlay is not registered] -> Add the shared attribute at the floating surface root and cover it with an architecture test.
@@ -54,4 +56,5 @@ The macOS wrapper owns both the Core Animation mask and hit-test exclusions. It 
 
 - Unit-test discovery, clipping, merging, blocking behavior, and acknowledgement fallback.
 - Extend the macOS smoke helper to apply multiple holes and verify mask plus hit testing.
+- Assert that the mask path excludes the requested top-left point rather than its vertically mirrored point.
 - Build and run web tests, web production assets, the macOS smoke target, and the Desktop bundle.

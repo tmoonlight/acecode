@@ -240,6 +240,8 @@ run('native Agent Browser layouts reject stale revisions and unsafe windows', ()
   assert.match(host, /page->requested_bounds\.occlusion_rects/);
   assert.match(macHost, /ACECodeAgentBrowserSurfaceView/);
   assert.match(macHost, /CAShapeLayer\* mask/);
+  assert.match(macHost, /\[target_view isFlipped\]/);
+  assert.match(macHost, /\? top[\s\S]*: height - top - NSHeight\(rect\)/);
   assert.match(macHost, /\[subview_layer setMask:subview_mask\]/);
   assert.match(macHost, /kCAFillRuleEvenOdd/);
   assert.match(macHost, /NSPointInRect\(local, \[value rectValue\]\)/);

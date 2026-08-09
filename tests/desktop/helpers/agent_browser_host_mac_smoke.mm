@@ -2,6 +2,7 @@
 #include "tool/agent_browser/cdp_client.hpp"
 
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <atomic>
 #include <chrono>
@@ -173,8 +174,25 @@ int main() {
                     const NSPoint second_hole_point =
                         NSMakePoint(20 + 560, 20 + 350);
                     const NSPoint page_point = NSMakePoint(20 + 20, 20 + 20);
-                    if (![[surface layer] mask]) {
+                    CAShapeLayer* surface_mask =
+                        (CAShapeLayer*)[[surface layer] mask];
+                    const CGPoint requested_mask_hole = CGPointMake(150, 100);
+                    const CGPoint mirrored_mask_point = CGPointMake(150, 400);
+                    if (![surface isFlipped]) {
+                        exit_code = fail(
+                            "Browser surface did not retain its flipped view contract");
+                    } else if (!surface_mask) {
                         exit_code = fail("WKWebView surface did not install a mask");
+                    } else if (CGPathContainsPoint(
+                                   [surface_mask path], nullptr,
+                                   requested_mask_hole, true)) {
+                        exit_code = fail(
+                            "WKWebView mask kept the requested top occlusion visible");
+                    } else if (!CGPathContainsPoint(
+                                   [surface_mask path], nullptr,
+                                   mirrored_mask_point, true)) {
+                        exit_code = fail(
+                            "WKWebView mask mirrored a top occlusion to the bottom");
                     } else if (!webview || ![[webview layer] mask]) {
                         exit_code = fail(
                             "WKWebView content layer did not install a mask");
