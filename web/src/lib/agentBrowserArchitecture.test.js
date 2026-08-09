@@ -29,6 +29,19 @@ run('Agent Browser keeps the native webpage context menu enabled', () => {
   assert.match(macHost, /removeEventListener\('contextmenu', suppress, true\)/);
 });
 
+run('Agent Browser grants local file navigation on macOS and Windows', () => {
+  const host = source('src/desktop/agent_browser_host.cpp');
+  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+  const runtime = source('src/desktop/agent_browser_runtime.cpp');
+
+  assert.match(host, /--allow-file-access-from-files/);
+  assert.match(macHost, /\[scheme_value isEqualToString:@"file"\]/);
+  assert.match(macHost, /forKey:@"allowFileAccessFromFileURLs"/);
+  assert.match(macHost, /fileURLWithPath:@"\/" isDirectory:YES/);
+  assert.match(macHost, /loadFileURL:request\.URL[\s\S]*allowingReadAccessToURL:root_read_access/);
+  assert.match(runtime, /windows_drive_path\(value\) \|\| unc_path\(value\)/);
+});
+
 run('native document titles and favicons update matching tabs before Agent-activity filtering', () => {
   const header = source('src/desktop/agent_browser_host.hpp');
   const host = source('src/desktop/agent_browser_host.cpp');

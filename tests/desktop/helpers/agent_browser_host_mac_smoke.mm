@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -75,6 +76,35 @@ int main() {
         TempDir isolated;
         if (isolated.path().empty()) {
             return fail("failed to create isolated runtime directory");
+        }
+
+        const auto local_page_dir = isolated.path() / "local-page";
+        const auto local_asset_dir = isolated.path() / "local-assets";
+        const auto local_page = local_page_dir / "index.html";
+        std::error_code file_error;
+        std::filesystem::create_directories(local_page_dir, file_error);
+        if (!file_error) {
+            std::filesystem::create_directories(local_asset_dir, file_error);
+        }
+        if (file_error) {
+            return fail("failed to create local-file smoke fixtures");
+        }
+        {
+            std::ofstream asset(local_asset_dir / "value.txt");
+            std::ofstream page(local_page);
+            asset << "local-file-read-ok\n";
+            page << "<!doctype html><meta charset=utf-8>"
+                    "<title>ACECode local file smoke</title>"
+                    "<body>local file smoke</body>"
+                    "<script>fetch('../local-assets/value.txt')"
+                    ".then(response=>response.text())"
+                    ".then(value=>document.documentElement.dataset."
+                    "acecodeLocalFileRead=value.trim())"
+                    ".catch(error=>document.documentElement.dataset."
+                    "acecodeLocalFileRead='error:'+error)</script>";
+            if (!asset.good() || !page.good()) {
+                return fail("failed to write local-file smoke fixtures");
+            }
         }
 
         [NSApplication sharedApplication];
@@ -231,6 +261,24 @@ int main() {
                 }
             }
             if (exit_code == 0) {
+                if (!host.navigate(page_id, local_page.string(), &error)) {
+                    exit_code = fail(error.empty()
+                        ? "failed to navigate to an absolute local path" : error);
+                }
+            }
+            if (exit_code == 0 &&
+                !pump_until(
+                    [&host, &page_id] {
+                        const auto state = host.state(page_id);
+                        return state.content_state ==
+                                acecode::desktop::kAgentBrowserContentStateLive &&
+                            state.url.rfind("file:", 0) == 0 &&
+                            state.url.find("index.html") != std::string::npos;
+                    },
+                    std::chrono::seconds(15))) {
+                exit_code = fail("absolute local path did not finish loading");
+            }
+            if (exit_code == 0) {
                 secondary_page_id = host.create_page(&error);
                 if (secondary_page_id.empty() ||
                     secondary_page_id == page_id ||
@@ -259,6 +307,7 @@ int main() {
             std::atomic<bool> worker_done{false};
             std::string worker_error;
             bool safari_compatible_user_agent = false;
+            bool local_file_read_ok = false;
             bool synthetic_ok = false;
             bool screenshot_ok = false;
             std::thread worker;
@@ -285,6 +334,18 @@ int main() {
                         safari_compatible_user_agent =
                             value.find(" Version/") != std::string::npos &&
                             value.find(" Safari/") != std::string::npos;
+                    }
+                    if (worker_error.empty()) {
+                        const auto local_value = client.command(
+                            "Runtime.evaluate",
+                            {{"expression",
+                              "(async()=>{for(let i=0;i<100;i++){const value=document.documentElement.dataset.acecodeLocalFileRead;if(value)return value;await new Promise(resolve=>setTimeout(resolve,20));}return '';})()"},
+                             {"awaitPromise", true},
+                             {"returnByValue", true}},
+                            std::chrono::seconds(10), nullptr, worker_error);
+                        local_file_read_ok = local_value
+                            .value("result", nlohmann::json::object())
+                            .value("value", "") == "local-file-read-ok";
                     }
                     client.command(
                         "Runtime.evaluate",
@@ -335,6 +396,9 @@ int main() {
                            !safari_compatible_user_agent) {
                     exit_code = fail(
                         "WKWebView user agent omitted Safari product tokens");
+                } else if (exit_code == 0 && !local_file_read_ok) {
+                    exit_code = fail(
+                        "WKWebView local page could not read another local file");
                 } else if (exit_code == 0 && !synthetic_ok) {
                     exit_code = fail("synthetic input did not update the field");
                 } else if (exit_code == 0 && !screenshot_ok) {
@@ -366,7 +430,7 @@ int main() {
             }
             if (exit_code == 0) {
                 std::cout << "SMOKE_OK page_id=" << page_id
-                          << " pages=2 safari_ua=true synthetic=true"
+                          << " pages=2 safari_ua=true local_file=true synthetic=true"
                           << " screenshot=true\n";
             }
         }

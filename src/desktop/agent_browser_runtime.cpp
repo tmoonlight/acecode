@@ -18,6 +18,84 @@ std::filesystem::path data_root(const std::string& acecode_dir) {
     return path_from_utf8(acecode_dir.empty() ? get_acecode_dir() : acecode_dir);
 }
 
+bool ascii_unreserved(unsigned char ch) {
+    return std::isalnum(ch) != 0 || ch == '-' || ch == '_' || ch == '.' ||
+        ch == '~';
+}
+
+char hex_digit(unsigned int value) {
+    return value < 10 ? static_cast<char>('0' + value)
+                      : static_cast<char>('A' + value - 10);
+}
+
+bool hex_byte_at(const std::string& value, std::size_t offset) {
+    if (offset + 2 >= value.size() || value[offset] != '%') return false;
+    return std::isxdigit(static_cast<unsigned char>(value[offset + 1])) != 0 &&
+        std::isxdigit(static_cast<unsigned char>(value[offset + 2])) != 0;
+}
+
+std::string percent_encode_file_value(const std::string& value,
+                                      bool preserve_url_delimiters) {
+    std::string encoded;
+    encoded.reserve(value.size());
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        const unsigned char ch = static_cast<unsigned char>(value[index]);
+        if (ascii_unreserved(ch) || ch == '/' || ch == ':' ||
+            (preserve_url_delimiters &&
+             std::string("?#[]@!$&'()*+,;=").find(static_cast<char>(ch)) !=
+                 std::string::npos)) {
+            encoded.push_back(static_cast<char>(ch));
+            continue;
+        }
+        if (preserve_url_delimiters && ch == '%' &&
+            hex_byte_at(value, index)) {
+            encoded.append(value, index, 3);
+            index += 2;
+            continue;
+        }
+        encoded.push_back('%');
+        encoded.push_back(hex_digit((ch >> 4) & 0xF));
+        encoded.push_back(hex_digit(ch & 0xF));
+    }
+    return encoded;
+}
+
+bool windows_drive_path(const std::string& value) {
+    return value.size() >= 3 &&
+        std::isalpha(static_cast<unsigned char>(value[0])) != 0 &&
+        value[1] == ':' && (value[2] == '/' || value[2] == '\\');
+}
+
+bool unc_path(const std::string& value) {
+    return value.size() >= 3 &&
+        ((value[0] == '\\' && value[1] == '\\') ||
+         (value[0] == '/' && value[1] == '/'));
+}
+
+std::string local_path_to_file_url(std::string value) {
+    std::replace(value.begin(), value.end(), '\\', '/');
+    if (value.rfind("//", 0) == 0) {
+        return "file://" + percent_encode_file_value(value.substr(2), false);
+    }
+    if (windows_drive_path(value)) {
+        return "file:///" + percent_encode_file_value(value, false);
+    }
+    return "file://" + percent_encode_file_value(value, false);
+}
+
+std::string normalize_file_url(std::string value) {
+    std::replace(value.begin(), value.end(), '\\', '/');
+    std::string rest = value.substr(5);
+    if (rest.rfind("//", 0) == 0) {
+        return "file:" + percent_encode_file_value(rest, true);
+    }
+    if (!rest.empty() && rest.front() == '/') {
+        return "file://" + percent_encode_file_value(rest, true);
+    }
+    if (windows_drive_path(rest)) return local_path_to_file_url(rest);
+    return "file:///" + percent_encode_file_value(rest, true);
+}
+
 } // namespace
 
 std::filesystem::path agent_browser_root_path(const std::string& acecode_dir) {
@@ -67,10 +145,14 @@ std::optional<std::string> normalize_agent_browser_url(
     if (lower.rfind("http://", 0) == 0 || lower.rfind("https://", 0) == 0) {
         return value;
     }
+    if (lower.rfind("file:", 0) == 0) return normalize_file_url(value);
+    if ((!value.empty() && value.front() == '/') ||
+        windows_drive_path(value) || unc_path(value)) {
+        return local_path_to_file_url(value);
+    }
     if (lower.find("://") != std::string::npos ||
         lower.rfind("javascript:", 0) == 0 ||
         lower.rfind("data:", 0) == 0 ||
-        lower.rfind("file:", 0) == 0 ||
         lower.rfind("edge:", 0) == 0 ||
         lower.rfind("devtools:", 0) == 0) {
         if (error) *error = "browser URL scheme is not allowed";

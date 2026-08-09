@@ -870,6 +870,14 @@ struct AgentBrowserHost::Impl
             return;
         }
         auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
+        const HRESULT browser_arguments_result =
+            options->put_AdditionalBrowserArguments(
+                L"--allow-file-access-from-files");
+        if (FAILED(browser_arguments_result)) {
+            fail("failed to enable Agent Browser local-file access (" +
+                 hresult_text(browser_arguments_result) + ")");
+            return;
+        }
         const auto weak = weak_from_this();
         auto completed = Microsoft::WRL::Callback<
             ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(

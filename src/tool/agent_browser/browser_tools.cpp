@@ -398,9 +398,9 @@ void merge_properties(json& destination, const json& source) {
 ToolImpl open_tool() {
     return make_tool(
         "browser_open",
-        "Create a new visible ACECode Desktop Browser tab. Optionally navigate that new page to an HTTP(S) URL. Reuse the returned page_id for precise later browser tools.",
+        "Create a new visible ACECode Desktop Browser tab. Optionally navigate that new page to an HTTP(S) URL, file URL, or absolute local path. Reuse the returned page_id for precise later browser tools.",
         object_schema({
-            {"url", string_property("Optional HTTP(S) URL. Bare hostnames are promoted to HTTPS.")},
+            {"url", string_property("Optional HTTP(S) URL, file URL, or absolute POSIX/Windows path. Bare hostnames are promoted to HTTPS.")},
         }),
         false,
         [](const json& args, const ToolContext& context) {
@@ -439,7 +439,7 @@ ToolImpl navigate_tool() {
         "browser_navigate",
         "Navigate the Browser page locked at tool start, or move through that page's history. Pass page_id for an exact tab and use browser_read_page after navigation.",
         object_schema({
-            {"url", string_property("HTTP(S) URL for action=goto.")},
+            {"url", string_property("HTTP(S) URL, file URL, or absolute POSIX/Windows path for action=goto.")},
             {"action", {{"type", "string"}, {"enum", {"goto", "back", "forward", "reload"}}}},
         }),
         false,

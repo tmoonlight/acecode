@@ -73,7 +73,7 @@ TEST(AgentBrowserRuntime, PathsKeepPersistentProfileSeparateFromRuntimeFile) {
               dir.path() / "run" / "agent-browser.json");
 }
 
-TEST(AgentBrowserRuntime, NormalizesOnlySafeWebAddresses) {
+TEST(AgentBrowserRuntime, NormalizesWebAndAbsoluteLocalAddresses) {
     std::string error;
     EXPECT_EQ(normalize_agent_browser_url(" example.com/path ", &error),
               std::optional<std::string>("https://example.com/path"));
@@ -84,9 +84,29 @@ TEST(AgentBrowserRuntime, NormalizesOnlySafeWebAddresses) {
     EXPECT_EQ(normalize_agent_browser_url("webview2 agent browser", &error),
               std::optional<std::string>(
                   "https://www.bing.com/search?q=webview2%20agent%20browser"));
-    EXPECT_FALSE(normalize_agent_browser_url("file:///C:/secret.txt", &error));
-    EXPECT_EQ(error, "browser URL scheme is not allowed");
+    EXPECT_EQ(
+        normalize_agent_browser_url(
+            "file:///C:/Program Files/page.html", &error),
+        std::optional<std::string>(
+            "file:///C:/Program%20Files/page.html"));
+    EXPECT_EQ(
+        normalize_agent_browser_url(
+            R"(C:\Users\Test User\page.html)", &error),
+        std::optional<std::string>(
+            "file:///C:/Users/Test%20User/page.html"));
+    EXPECT_EQ(
+        normalize_agent_browser_url(
+            R"(\\server\share\page one.html)", &error),
+        std::optional<std::string>(
+            "file://server/share/page%20one.html"));
+    EXPECT_EQ(
+        normalize_agent_browser_url("/Users/test/本地 page.html", &error),
+        std::optional<std::string>(
+            "file:///Users/test/%E6%9C%AC%E5%9C%B0%20page.html"));
+    EXPECT_EQ(normalize_agent_browser_url("file:/tmp/page.html", &error),
+              std::optional<std::string>("file:///tmp/page.html"));
     EXPECT_FALSE(normalize_agent_browser_url("javascript:alert(1)", &error));
+    EXPECT_EQ(error, "browser URL scheme is not allowed");
     EXPECT_FALSE(normalize_agent_browser_url("   ", &error));
     EXPECT_EQ(error, "browser URL is empty");
 }

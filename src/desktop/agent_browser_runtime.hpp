@@ -36,8 +36,8 @@ std::filesystem::path agent_browser_proxy_socket_path(
 std::filesystem::path agent_browser_runtime_manifest_path(
     const std::string& acecode_dir = std::string());
 // Browser address-bar policy shared by the Desktop bridge and tests. Bare
-// hosts are promoted to HTTPS; privileged/local schemes are intentionally
-// rejected because arbitrary pages run without ACECode bindings.
+// hosts are promoted to HTTPS; file URLs and absolute local paths are accepted
+// while executable/browser-internal schemes remain rejected.
 std::optional<std::string> normalize_agent_browser_url(
     const std::string& input,
     std::string* error = nullptr);

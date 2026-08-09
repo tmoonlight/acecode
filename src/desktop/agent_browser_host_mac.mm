@@ -273,8 +273,21 @@ bool safe_navigation_url(NSURL* url) {
     if (!scheme_value) return true;
     return [scheme_value isEqualToString:@"http"] ||
         [scheme_value isEqualToString:@"https"] ||
+        [scheme_value isEqualToString:@"file"] ||
         ([scheme_value isEqualToString:@"about"] &&
          [[[url absoluteString] lowercaseString] isEqualToString:@"about:blank"]);
+}
+
+void load_agent_browser_request(WKWebView* webview, NSURLRequest* request) {
+    if (!webview || !request.URL) return;
+    if ([request.URL isFileURL]) {
+        NSURL* root_read_access =
+            [NSURL fileURLWithPath:@"/" isDirectory:YES];
+        [webview loadFileURL:request.URL
+            allowingReadAccessToURL:root_read_access];
+        return;
+    }
+    [webview loadRequest:request];
 }
 
 class MacAgentBrowserDelegateSink {
@@ -965,6 +978,8 @@ struct AgentBrowserHost::Impl final
         configuration.applicationNameForUserAgent =
             safari_compatible_application_name();
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = YES;
+        [configuration.preferences setValue:@YES
+                                     forKey:@"allowFileAccessFromFileURLs"];
         WKUserContentController* content =
             [[[WKUserContentController alloc] init] autorelease];
         configuration.userContentController = content;
@@ -1172,7 +1187,8 @@ struct AgentBrowserHost::Impl final
                 assign_error(error, "Agent Browser URL is invalid");
                 return false;
             }
-            [page->webview loadRequest:[NSURLRequest requestWithURL:url]];
+            load_agent_browser_request(
+                page->webview, [NSURLRequest requestWithURL:url]);
         }
         return true;
     }
@@ -1360,7 +1376,7 @@ struct AgentBrowserHost::Impl final
                             NSURLRequest* request) override {
         auto page = find_page(page_id);
         if (page && request.URL && safe_navigation_url(request.URL)) {
-            [page->webview loadRequest:request];
+            load_agent_browser_request(page->webview, request);
         }
     }
 

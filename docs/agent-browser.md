@@ -121,8 +121,11 @@ Browser 工具出现时，Web UI 会自动打开当前任务的 Browser 页签�
 - Agent Browser 不注册 `aceDesktop_*` binding、host object 或 web-message
   handler。任意网页无法取得主 ACECode UI 的 daemon token、localStorage 或
   native bridge。
-- 顶层地址只允许 HTTP(S) 与 `about:blank`；`file:`、`javascript:`、`data:`、
-  `edge:`、`devtools:` 以及其他显式 scheme 会在 React 和 native 两层拒绝。
+- 顶层地址允许 HTTP(S)、`about:blank`、`file:` URL，以及 POSIX、Windows 盘符和
+  UNC 绝对路径。macOS 以 `/` 作为 WKWebView 本地读取根目录，Windows Agent Browser
+  Profile 启用 file-origin 读取，因此本地页面可引用任意其它本地文件，不做工作区限制、
+  白名单或确认。`javascript:`、`data:`、`edge:`、`devtools:` 及其它显式 scheme 仍会
+  在 React 和 native 两层拒绝。
 - `browser_evaluate` 能改变当前网页，因此仍应视为网页操作能力，而不是 ACECode
   本机代码执行能力。它没有主 UI 的特权上下文。
 - 控制台按页保存最近 1000 条、每条最多 16 KiB，并在新的主文档导航时清空。Windows

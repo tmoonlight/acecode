@@ -23,14 +23,29 @@ async function run(name, fn) {
   }
 }
 
-await run('Agent Browser address normalization mirrors the native web-only policy', () => {
+await run('Agent Browser address normalization accepts web and absolute local paths', () => {
   assert.equal(normalizeAgentBrowserAddress(' example.com/a '), 'https://example.com/a');
   assert.equal(normalizeAgentBrowserAddress('HTTP://localhost:3000'), 'HTTP://localhost:3000');
   assert.equal(
     normalizeAgentBrowserAddress('webview2 agent browser'),
     'https://www.bing.com/search?q=webview2%20agent%20browser',
   );
-  assert.equal(normalizeAgentBrowserAddress('file:///C:/secret.txt'), '');
+  assert.equal(
+    normalizeAgentBrowserAddress('file:///C:/Program Files/page.html'),
+    'file:///C:/Program%20Files/page.html',
+  );
+  assert.equal(
+    normalizeAgentBrowserAddress('C:\\Users\\Test User\\page.html'),
+    'file:///C:/Users/Test%20User/page.html',
+  );
+  assert.equal(
+    normalizeAgentBrowserAddress('\\\\server\\share\\page one.html'),
+    'file://server/share/page%20one.html',
+  );
+  assert.equal(
+    normalizeAgentBrowserAddress('/Users/test/本地 page.html'),
+    'file:///Users/test/%E6%9C%AC%E5%9C%B0%20page.html',
+  );
   assert.equal(normalizeAgentBrowserAddress('javascript:alert(1)'), '');
 });
 

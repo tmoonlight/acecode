@@ -38,6 +38,35 @@ export function hasNativeAgentBrowser(win = globalThis.window) {
     && typeof win.aceDesktop_agentBrowserCreatePage === 'function';
 }
 
+function localPathToFileUrl(value) {
+  const normalized = value.replaceAll('\\', '/');
+  const encodedPath = encodeURIComponent(normalized)
+    .replaceAll('%2F', '/')
+    .replaceAll('%3A', ':');
+  const candidate = normalized.startsWith('//')
+    ? `file:${encodedPath}`
+    : (/^[a-z]:\//i.test(normalized) ? `file:///${encodedPath}` : `file://${encodedPath}`);
+  try {
+    return new URL(candidate).href;
+  } catch {
+    return '';
+  }
+}
+
+function normalizeFileAddress(value) {
+  if (/^file:/i.test(value)) {
+    try {
+      return new URL(value.replaceAll('\\', '/')).href;
+    } catch {
+      return '';
+    }
+  }
+  if (value.startsWith('/') || /^[a-z]:[\\/]/i.test(value) || /^\\\\/.test(value)) {
+    return localPathToFileUrl(value);
+  }
+  return '';
+}
+
 export function normalizeAgentBrowserAddress(input = '') {
   const value = String(input || '').trim();
   if (!value) return '';
@@ -45,7 +74,9 @@ export function normalizeAgentBrowserAddress(input = '') {
   if (lower === 'about:blank' || lower.startsWith('http://') || lower.startsWith('https://')) {
     return value;
   }
-  if (lower.includes('://') || /^(?:javascript|data|file|edge|devtools):/.test(lower)) {
+  const fileAddress = normalizeFileAddress(value);
+  if (fileAddress) return fileAddress;
+  if (lower.includes('://') || /^(?:javascript|data|edge|devtools):/.test(lower)) {
     return '';
   }
   if (/\s/.test(value)) {
