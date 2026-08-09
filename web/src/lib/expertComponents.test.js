@@ -4,6 +4,7 @@ import {
   collectExpertTags,
   createExpertInternalId,
   emptyExpertForm,
+  expertStateAvatarPathError,
   expertDispatchDraftFromRef,
   expertFormFromDetail,
   expertPayloadFromForm,
@@ -11,6 +12,8 @@ import {
   groupBuiltinToolOptions,
   normalizeCapabilityCatalog,
   normalizeExpertCapabilities,
+  normalizeExpertStateAvatars,
+  normalizeExpertStateAvatarUrls,
   normalizeExpertSwitchReceipt,
   normalizeExperts,
   parseLineList,
@@ -81,6 +84,23 @@ test('expert avatars accept controlled URLs and reject local filesystem paths', 
     avatar_path: 'C:\\Users\\name\\avatar.png',
   }]);
   assert.equal(normalized.avatar_url, '');
+  assert.deepEqual(normalizeExpertStateAvatars({
+    working: ' avatars/working.gif ',
+    needs_attention: '',
+    future: 'avatars/future.png',
+  }), { working: 'avatars/working.gif' });
+  assert.deepEqual(normalizeExpertStateAvatarUrls({
+    working: '/api/experts/reviewer/avatar?state=working',
+    idle: 'file:///private/idle.gif',
+  }), { working: '/api/experts/reviewer/avatar?state=working' });
+});
+
+test('state avatar paths accept package images and reject unsafe or unsupported values', () => {
+  assert.equal(expertStateAvatarPathError('avatars/working.gif'), '');
+  assert.equal(expertStateAvatarPathError('avatars\\idle.PNG'), '');
+  assert.match(expertStateAvatarPathError('../outside.png'), /相对路径/);
+  assert.match(expertStateAvatarPathError('C:\\outside.png'), /相对路径/);
+  assert.match(expertStateAvatarPathError('avatars/working.svg'), /仅支持/);
 });
 
 test('Tag membership is non-exclusive and combines with plain-language search', () => {
@@ -161,6 +181,7 @@ test('expert payload keeps Tags, expertise, prompts and optional scopes separate
     tags: ['开发', 'OPC-一人公司'],
     expertise: ['架构设计', '代码质量'],
     quick_prompts: ['审查当前改动', '给出重构建议'],
+    state_avatars: {},
     capabilities: {
       skills: ['code-review'],
       mcp_servers: [],
@@ -279,11 +300,49 @@ test('expert detail form round-trips optional scopes', () => {
     expertise: ['架构'],
     quick_prompts: ['审查'],
     capabilities: { tools: [] },
+    state_avatars: {
+      working: 'avatars/working.gif',
+      idle: 'avatars/idle.png',
+    },
+    state_avatar_urls: {
+      working: '/api/experts/reviewer/avatar?state=working',
+      needs_attention: '/api/experts/reviewer/avatar?state=needs_attention',
+    },
     agents: [{ id: 'lead', instructions: '严格检查' }],
   });
   assert.equal(form.expertiseText, '架构');
   assert.equal(form.quickPromptsText, '审查');
   assert.deepEqual(form.capabilities, { tools: [] });
+  assert.deepEqual(form.stateAvatars, {
+    working: 'avatars/working.gif',
+    idle: 'avatars/idle.png',
+  });
+  assert.deepEqual(form.stateAvatarUrls, {
+    working: '/api/experts/reviewer/avatar?state=working',
+    needs_attention: '/api/experts/reviewer/avatar?state=needs_attention',
+  });
+  assert.deepEqual(expertPayloadFromForm(form).state_avatars, {
+    working: 'avatars/working.gif',
+    idle: 'avatars/idle.png',
+  });
+});
+
+test('state avatar payload distinguishes legacy omission from explicit clear', () => {
+  const legacy = {
+    id: 'legacy',
+    type: 'agent',
+    displayName: 'Legacy',
+    instructions: 'Keep package-owned state data.',
+  };
+  assert.equal(Object.hasOwn(expertPayloadFromForm(legacy), 'state_avatars'), false);
+
+  const explicit = emptyExpertForm('agent');
+  explicit.displayName = 'Explicit';
+  explicit.instructions = 'Clear known state data.';
+  assert.deepEqual(expertPayloadFromForm(explicit).state_avatars, {});
+
+  explicit.stateAvatars = { working: '../outside.gif' };
+  assert.match(validateExpertFormFields(explicit).stateAvatars.working, /相对路径/);
 });
 
 test('expert team payload references selected existing experts and one lead', () => {
@@ -307,6 +366,7 @@ test('expert team payload references selected existing experts and one lead', ()
     tags: ['项目质量'],
     expertise: ['需求拆解', '体验验收'],
     quick_prompts: ['推进这个需求'],
+    state_avatars: {},
     lead_expert_id: 'reviewer',
     member_expert_ids: ['tester'],
   });

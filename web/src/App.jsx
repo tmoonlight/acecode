@@ -159,6 +159,7 @@ const SESSION_NAVIGATION_MASK_TIMEOUT_MS = 45000;
 // 控制台停靠区偏好(add-console-dock):开关 + 高度跨刷新持久化。
 const CONSOLE_DOCK_STORAGE_KEY = 'acecode.consoleDock.v1';
 const DEFAULT_CONSOLE_DOCK = { open: false, height: CONSOLE_DOCK_DEFAULT_HEIGHT };
+const EXPERT_MANAGER_CREATION_DRAFT = '/expert-manager ';
 function validateConsoleDock(value) {
   return !!value && typeof value === 'object'
     && typeof value.open === 'boolean'
@@ -1251,6 +1252,17 @@ export function App() {
     });
   }, [health, navigateToRef]);
 
+  const startConversationalExpertCreation = useCallback(() => {
+    const current = activeRefRef.current || {};
+    const base = homeRefFromWorkspace(current, current, health);
+    void refreshWorkspaceGitInfo(createApi(base), base).catch(() => {});
+    navigateToRef({
+      ...base,
+      initialDraftText: EXPERT_MANAGER_CREATION_DRAFT,
+    });
+    return true;
+  }, [health, navigateToRef]);
+
   const dispatchExpertToNewTask = useCallback((expert, prompt = '') => {
     const expertId = String(expert?.id || '');
     if (!expertId) return false;
@@ -1787,6 +1799,7 @@ export function App() {
                 recentExpertIds={recentExpertIds}
                 onRememberExpert={rememberRecentExpert}
                 onDispatchToNewTask={dispatchExpertToNewTask}
+                onStartConversationalCreation={startConversationalExpertCreation}
               />
             )}
             {view === 'single' && !activeRef?.loop && !activeRef?.expertComponents && (

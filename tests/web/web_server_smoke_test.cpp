@@ -5066,6 +5066,19 @@ TEST(WebServerHttp, ExpertAvatarUsesContainedHttpEndpointAndSafeDto) {
         write_text(package / "expert.json", manifest.dump(2) + "\n");
     };
     set_avatar("avatar.png");
+    const std::string working_gif =
+        "GIF89a\x01\x00\x01\x00working-animation";
+    write_text(package / "working.gif", working_gif);
+    write_text(package / "idle.png", "\x89PNG\r\n\x1a\nidle");
+    {
+        std::ifstream input(package / "expert.json");
+        auto manifest = json::parse(input);
+        manifest["stateAvatars"] = {
+            {"working", "working.gif"},
+            {"idle", "idle.png"},
+        };
+        write_text(package / "expert.json", manifest.dump(2) + "\n");
+    }
 
     auto listed = cpr::Get(cpr::Url{
         fx.url("/api/experts?workspace=" + hash)});
@@ -5085,6 +5098,14 @@ TEST(WebServerHttp, ExpertAvatarUsesContainedHttpEndpointAndSafeDto) {
     EXPECT_EQ(
         avatar_url,
         "/api/experts/avatar-expert/avatar?workspace=" + hash);
+    EXPECT_FALSE(list_item.contains("state_avatars"));
+    ASSERT_TRUE(list_item["state_avatar_urls"].is_object());
+    EXPECT_EQ(list_item["state_avatar_urls"]["working"],
+              avatar_url + "&state=working");
+    EXPECT_EQ(list_item["state_avatar_urls"]["needs_attention"],
+              avatar_url + "&state=needs_attention");
+    EXPECT_EQ(list_item["state_avatar_urls"]["idle"],
+              avatar_url + "&state=idle");
 
     auto detail = cpr::Get(cpr::Url{fx.url(
         "/api/experts/avatar-expert?workspace=" + hash)});
@@ -5092,6 +5113,10 @@ TEST(WebServerHttp, ExpertAvatarUsesContainedHttpEndpointAndSafeDto) {
     const auto detail_body = json::parse(detail.text);
     EXPECT_FALSE(detail_body.contains("avatar_path"));
     EXPECT_EQ(detail_body["avatar_url"], avatar_url);
+    EXPECT_EQ(detail_body["state_avatars"]["working"], "working.gif");
+    EXPECT_EQ(detail_body["state_avatars"]["idle"], "idle.png");
+    EXPECT_EQ(detail_body.dump().find(acecode::path_to_utf8(package)),
+              std::string::npos);
 
     auto avatar = cpr::Get(cpr::Url{fx.url(avatar_url)});
     ASSERT_EQ(avatar.status_code, 200) << avatar.text;
@@ -5107,6 +5132,33 @@ TEST(WebServerHttp, ExpertAvatarUsesContainedHttpEndpointAndSafeDto) {
                    ? content_type_upper->second
                    : std::string{});
     EXPECT_EQ(content_type, "image/png");
+
+    auto working = cpr::Get(cpr::Url{
+        fx.url(avatar_url + "&state=working")});
+    ASSERT_EQ(working.status_code, 200) << working.text;
+    EXPECT_EQ(working.text, working_gif);
+    const auto working_content_type_lower =
+        working.header.find("content-type");
+    const auto working_content_type_upper =
+        working.header.find("Content-Type");
+    const std::string working_content_type =
+        working_content_type_lower != working.header.end()
+            ? working_content_type_lower->second
+            : (working_content_type_upper != working.header.end()
+                   ? working_content_type_upper->second
+                   : std::string{});
+    EXPECT_EQ(working_content_type, "image/gif");
+
+    auto attention = cpr::Get(cpr::Url{
+        fx.url(avatar_url + "&state=needs_attention")});
+    ASSERT_EQ(attention.status_code, 200) << attention.text;
+    EXPECT_EQ(attention.text, "\x89PNG\r\n\x1a\nfixture");
+
+    auto unknown_state = cpr::Get(cpr::Url{
+        fx.url(avatar_url + "&state=unknown")});
+    ASSERT_EQ(unknown_state.status_code, 400) << unknown_state.text;
+    EXPECT_EQ(json::parse(unknown_state.text)["error"],
+              "INVALID_AVATAR_STATE");
 
     set_avatar("missing.png");
     auto missing = cpr::Get(cpr::Url{fx.url(

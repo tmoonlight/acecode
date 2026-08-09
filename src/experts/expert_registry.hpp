@@ -1,9 +1,13 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <filesystem>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -14,6 +18,20 @@ enum class ExpertType {
     Agent,
     Team,
 };
+
+inline constexpr std::array<std::string_view, 3> kExpertAvatarStates = {
+    "working",
+    "needs_attention",
+    "idle",
+};
+inline constexpr std::uintmax_t kMaxExpertAvatarBytes = 8 * 1024 * 1024;
+
+using ExpertStateAvatars = std::map<std::string, std::string>;
+
+bool is_known_expert_avatar_state(std::string_view state);
+bool is_supported_expert_avatar_mime(std::string_view mime);
+bool validate_expert_avatar_file(const std::filesystem::path& path,
+                                 std::string* error = nullptr);
 
 // Each capability class is independently optional:
 //   nullopt      -> inherit the globally available capability set
@@ -47,6 +65,10 @@ struct ExpertDefinition {
     std::string profession;
     std::string description;
     std::string avatar_path;
+    // Package-relative values are safe for managed-detail DTOs. Resolved
+    // values are validated contained files and never leave the process.
+    ExpertStateAvatars state_avatar_refs;
+    ExpertStateAvatars state_avatar_paths;
     std::string default_init_prompt;
     std::vector<std::string> tags;
     std::vector<std::string> expertise;
@@ -106,6 +128,10 @@ struct ExpertDraft {
     // authoritative either way: omitted managed scope keys mean inheritance,
     // while unknown capability extension keys remain package-owned data.
     bool capabilities_present = false;
+    ExpertStateAvatars state_avatars;
+    // Omitted preserves package-owned state data; a present object is
+    // authoritative for the three known state keys, including explicit clear.
+    bool state_avatars_present = false;
     ExpertAgentDraft lead;
     std::string lead_expert_id;
     std::vector<std::string> member_expert_ids;

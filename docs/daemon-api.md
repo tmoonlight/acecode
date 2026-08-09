@@ -269,7 +269,7 @@ when known.
 | POST | `/api/experts` | create a managed global expert component |
 | GET | `/api/experts/capabilities` | list sanitized expert capability choices |
 | GET | `/api/experts/:id` | read one expert component |
-| GET | `/api/experts/:id/avatar` | read a contained expert avatar image |
+| GET | `/api/experts/:id/avatar` | read a contained expert avatar image, optionally for a fixed state |
 | PUT | `/api/experts/:id` | update a managed global expert component |
 | DELETE | `/api/experts/:id` | delete a managed global expert component |
 | GET | `/api/sessions/:id/permissions` | read session permission mode |
@@ -1402,6 +1402,11 @@ the builtin-only response and omits both `commands` and `skills`.
       "profession": "Review engineer",
       "description": "Reviews changes before delivery.",
       "avatar_url": "/api/experts/code-reviewer/avatar?workspace=abc123",
+      "state_avatar_urls": {
+        "working": "/api/experts/code-reviewer/avatar?workspace=abc123&state=working",
+        "needs_attention": "/api/experts/code-reviewer/avatar?workspace=abc123&state=needs_attention",
+        "idle": "/api/experts/code-reviewer/avatar?workspace=abc123&state=idle"
+      },
       "default_init_prompt": "Review the active change.",
       "tags": ["开发", "质量"],
       "expertise": ["架构审查", "回归风险"],
@@ -1437,23 +1442,38 @@ the builtin-only response and omits both `commands` and `skills`.
 ```
 
 `GET /api/experts/:id?workspace=<hash>` returns the same definition and adds
-the selected Agent's `instructions`. List responses intentionally omit
-instructions. Neither response exposes the package root, avatar filesystem
-path, or Skill-root paths. `avatar_url` is empty when no avatar is configured.
-Otherwise it points to
-`GET /api/experts/:id/avatar?workspace=<hash>`, which serves only a supported
-image contained inside that resolved expert package (maximum 8 MiB) and
-returns `404` for missing, escaped, unsupported, or oversized files.
+the selected Agent's `instructions` plus a `state_avatars` object containing
+only safe package-relative paths for the configured `working`,
+`needs_attention`, and `idle` images. List responses intentionally omit
+instructions and `state_avatars`. Neither response exposes the package root,
+resolved avatar filesystem paths, or Skill-root paths. `avatar_url` is empty
+when no main avatar is configured. `state_avatar_urls` contains each state
+that has an effective image: the configured state image, or the main avatar
+when that state is not configured.
+
+`GET /api/experts/:id/avatar?workspace=<hash>` serves the main avatar.
+Appending `&state=working`, `&state=needs_attention`, or `&state=idle` serves
+that state image and falls back to the main avatar if the state file becomes
+unavailable during the read. Unknown state names return
+`400 INVALID_AVATAR_STATE`. The endpoint serves only PNG, JPEG, GIF, WebP,
+BMP, or ICO images contained inside the resolved expert package (maximum
+8 MiB), returns `404` for missing, escaped, unsupported, or oversized files,
+and preserves GIF response bytes with `Content-Type: image/gif`.
 
 `POST /api/experts?workspace=<hash>` creates a managed global component;
 `PUT /api/experts/:id?workspace=<hash>` updates one. Both accept the fields
 above using snake-case request names. A single expert supplies
 `instructions` (or a `lead` object). A team supplies one
 `lead_expert_id` and a non-empty `member_expert_ids` array referencing
-installed single experts. Workspace-sourced packages are read-only through
-these routes. Updates merge managed fields into the existing package and keep
-avatar configuration, packaged Skills, resources, and unknown manifest
-fields, including unknown nested Agent and `teamInfo` fields. The managed
+installed single experts. Both types may supply `state_avatars` with any of
+the three fixed state keys and existing package-relative image paths. Omitting
+`state_avatars` preserves all state-avatar data; a supplied object
+authoritatively replaces the three known keys, and an empty object clears
+their references while retaining image files and unknown manifest extension
+keys. Workspace-sourced packages are read-only through these routes. Updates
+merge managed fields into the existing package and keep avatar configuration,
+packaged Skills, resources, and unknown manifest fields, including unknown
+nested Agent and `teamInfo` fields. The managed
 capability keys are authoritative on update: an omitted key means inherit, an
 empty array means allow none, and a non-empty array is an exact allowlist;
 unknown keys under `capabilities` are preserved. The

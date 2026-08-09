@@ -35,9 +35,27 @@ constexpr std::size_t kMaxTagBytes = 512;
 constexpr std::size_t kMaxExpertiseBytes = 4096;
 constexpr std::size_t kMaxCapabilityIdBytes = 256;
 constexpr std::size_t kMaxAgents = 32;
+constexpr std::size_t kMaxStateAvatarPathBytes = 4096;
 
 void set_error(std::string* error, const std::string& value) {
     if (error) *error = value;
+}
+
+std::string lowercase_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) {
+                       return static_cast<char>(std::tolower(ch));
+                   });
+    return value;
+}
+
+bool supported_expert_avatar_extension(const fs::path& path) {
+    const std::string extension =
+        lowercase_ascii(path_to_utf8(path.extension()));
+    return extension == ".png" || extension == ".jpg" ||
+           extension == ".jpeg" || extension == ".gif" ||
+           extension == ".webp" || extension == ".bmp" ||
+           extension == ".ico";
 }
 
 std::optional<std::string> read_bounded_file(const fs::path& path,
@@ -258,6 +276,13 @@ ExpertDraft normalize_draft(ExpertDraft draft) {
     if (has_any_capability_scope(draft.capabilities)) {
         draft.capabilities_present = true;
     }
+    for (auto& [state, path] : draft.state_avatars) {
+        (void)state;
+        path = trim_copy(std::move(path));
+    }
+    if (!draft.state_avatars.empty()) {
+        draft.state_avatars_present = true;
+    }
     return draft;
 }
 
@@ -350,6 +375,32 @@ std::optional<ExpertDefinition> load_package(const fs::path& package_root,
     expert.created_at = json_text(manifest, "created_at");
     expert.updated_at = json_text(manifest, "updated_at");
     expert.avatar_path = json_text(manifest, "avatar");
+    const auto state_avatars_it = manifest.find("stateAvatars");
+    if (state_avatars_it != manifest.end()) {
+        if (!state_avatars_it->is_object()) {
+            set_error(error, "stateAvatars must be an object");
+            return std::nullopt;
+        }
+        for (const auto state : kExpertAvatarStates) {
+            const std::string key(state);
+            const auto item = state_avatars_it->find(key);
+            if (item == state_avatars_it->end()) continue;
+            if (!item->is_string()) {
+                set_error(error, "stateAvatars." + key +
+                                     " must be a non-empty relative path");
+                return std::nullopt;
+            }
+            const std::string path = item->get<std::string>();
+            if (trim_copy(path).empty() ||
+                path.size() > kMaxStateAvatarPathBytes ||
+                !is_valid_utf8(path)) {
+                set_error(error, "stateAvatars." + key +
+                                     " must be a non-empty relative path");
+                return std::nullopt;
+            }
+            expert.state_avatar_refs.emplace(key, path);
+        }
+    }
     expert.package_root = package_root;
     expert.source = source;
     expert.managed_global = managed;
@@ -560,6 +611,23 @@ std::optional<ExpertDefinition> load_package(const fs::path& package_root,
         }
         expert.avatar_path = path_to_utf8(avatar);
     }
+    for (const auto& [state, reference] : expert.state_avatar_refs) {
+        fs::path avatar;
+        std::string path_error;
+        if (!is_contained_existing_path(package_root,
+                                        path_from_utf8(reference), false,
+                                        &avatar, &path_error)) {
+            set_error(error, "invalid state avatar path for " + state +
+                                 ": " + path_error);
+            return std::nullopt;
+        }
+        if (!validate_expert_avatar_file(avatar, &path_error)) {
+            set_error(error, "invalid state avatar file for " + state +
+                                 ": " + path_error);
+            return std::nullopt;
+        }
+        expert.state_avatar_paths.emplace(state, path_to_utf8(avatar));
+    }
     return expert;
 }
 
@@ -683,6 +751,44 @@ bool validate_draft(const ExpertDraft& draft, std::string* error) {
                   "expert teams inherit each referenced member's capabilities");
         return false;
     }
+    for (const auto& [state, raw_path] : draft.state_avatars) {
+        if (!is_known_expert_avatar_state(state)) {
+            set_error(error, "state_avatars contains an unknown state: " +
+                                 state);
+            return false;
+        }
+        if (raw_path.empty() || raw_path.size() > kMaxStateAvatarPathBytes ||
+            !is_valid_utf8(raw_path)) {
+            set_error(error, "state_avatars." + state +
+                                 " must be a non-empty relative path");
+            return false;
+        }
+        const bool windows_absolute =
+            raw_path.size() >= 2 &&
+            std::isalpha(static_cast<unsigned char>(raw_path[0])) &&
+            raw_path[1] == ':';
+        if (raw_path.front() == '/' || raw_path.front() == '\\' ||
+            windows_absolute) {
+            set_error(error, "state_avatars." + state +
+                                 " must be a package-relative path");
+            return false;
+        }
+        std::string portable = raw_path;
+        std::replace(portable.begin(), portable.end(), '\\', '/');
+        const fs::path relative = path_from_utf8(portable);
+        for (const auto& part : relative) {
+            if (part == "..") {
+                set_error(error, "state_avatars." + state +
+                                     " escapes the expert package");
+                return false;
+            }
+        }
+        if (!supported_expert_avatar_extension(relative)) {
+            set_error(error, "state_avatars." + state +
+                                 " uses an unsupported image type");
+            return false;
+        }
+    }
     if (draft_manifest(draft).dump().size() > kMaxManifestBytes) {
         set_error(error, "generated expert manifest exceeds size limit");
         return false;
@@ -718,6 +824,9 @@ json draft_manifest(const ExpertDraft& draft) {
         has_any_capability_scope(draft.capabilities)) {
         result["capabilities"] =
             capability_scopes_to_json(draft.capabilities);
+    }
+    if (draft.state_avatars_present || !draft.state_avatars.empty()) {
+        result["stateAvatars"] = draft.state_avatars;
     }
     if (draft.type == ExpertType::Agent) {
         result["agentName"] = draft.lead.id;
@@ -955,6 +1064,22 @@ bool materialize_draft(const fs::path& root,
         else manifest["capabilities"] = std::move(capabilities);
     } else {
         manifest.erase("capabilities");
+    }
+
+    if (materialized.state_avatars_present) {
+        json state_avatars = json::object();
+        const auto existing = manifest.find("stateAvatars");
+        if (existing != manifest.end() && existing->is_object()) {
+            state_avatars = *existing;
+        }
+        for (const auto state : kExpertAvatarStates) {
+            state_avatars.erase(std::string(state));
+        }
+        for (const auto& [state, path] : materialized.state_avatars) {
+            state_avatars[state] = path;
+        }
+        if (state_avatars.empty()) manifest.erase("stateAvatars");
+        else manifest["stateAvatars"] = std::move(state_avatars);
     }
 
     const std::string manifest_text = manifest.dump(2) + "\n";
@@ -1287,6 +1412,38 @@ bool validate_team_reference_targets(
 
 } // namespace
 
+bool is_known_expert_avatar_state(std::string_view state) {
+    return std::find(kExpertAvatarStates.begin(), kExpertAvatarStates.end(),
+                     state) != kExpertAvatarStates.end();
+}
+
+bool is_supported_expert_avatar_mime(std::string_view mime) {
+    return mime == "image/png" || mime == "image/jpeg" ||
+           mime == "image/gif" || mime == "image/webp" ||
+           mime == "image/bmp" || mime == "image/x-icon";
+}
+
+bool validate_expert_avatar_file(const std::filesystem::path& path,
+                                 std::string* error) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec) || ec) {
+        set_error(error, "avatar file does not exist");
+        return false;
+    }
+    if (!supported_expert_avatar_extension(path)) {
+        set_error(error, "unsupported avatar image type");
+        return false;
+    }
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec || size > kMaxExpertAvatarBytes) {
+        set_error(error,
+                  ec ? "cannot read avatar file size"
+                     : "avatar file exceeds size limit");
+        return false;
+    }
+    return true;
+}
+
 const ExpertAgent* ExpertDefinition::agent(const std::string& agent_id) const {
     const auto it = std::find_if(agents.begin(), agents.end(), [&](const ExpertAgent& item) {
         return item.id == agent_id;
@@ -1600,6 +1757,44 @@ std::optional<ExpertDraft> ExpertRegistry::draft_from_json(const json& value,
         }
     }
 
+    const auto state_avatars_snake = value.find("state_avatars");
+    const auto state_avatars_camel = value.find("stateAvatars");
+    if (state_avatars_snake != value.end() &&
+        state_avatars_camel != value.end()) {
+        set_error(error,
+                  "provide only one of state_avatars or stateAvatars");
+        return std::nullopt;
+    }
+    const auto state_avatars = state_avatars_snake != value.end()
+                                   ? state_avatars_snake
+                                   : state_avatars_camel;
+    if (state_avatars != value.end()) {
+        draft.state_avatars_present = true;
+        if (!state_avatars->is_object()) {
+            set_error(error, "state_avatars must be an object");
+            return std::nullopt;
+        }
+        for (const auto& [state, item] : state_avatars->items()) {
+            if (!is_known_expert_avatar_state(state)) {
+                set_error(error,
+                          "state_avatars contains an unknown state: " + state);
+                return std::nullopt;
+            }
+            if (!item.is_string()) {
+                set_error(error, "state_avatars." + state +
+                                     " must be a non-empty relative path");
+                return std::nullopt;
+            }
+            const std::string path = trim_copy(item.get<std::string>());
+            if (path.empty()) {
+                set_error(error, "state_avatars." + state +
+                                     " must be a non-empty relative path");
+                return std::nullopt;
+            }
+            draft.state_avatars.emplace(state, path);
+        }
+    }
+
     if (draft.type == ExpertType::Agent) {
         const auto lead_it = value.find("lead");
         if (lead_it != value.end()) {
@@ -1677,6 +1872,9 @@ json expert_definition_to_json(const ExpertDefinition& expert,
         has_any_capability_scope(expert.capabilities)) {
         result["capabilities"] =
             capability_scopes_to_json(expert.capabilities);
+    }
+    if (include_instructions) {
+        result["state_avatars"] = expert.state_avatar_refs;
     }
     return result;
 }

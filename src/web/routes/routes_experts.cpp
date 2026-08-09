@@ -52,17 +52,31 @@ json expert_response_json(const ExpertDefinition& expert,
                           const std::string& workspace_hash) {
     json result =
         expert_definition_to_json(expert, include_instructions);
+    const std::string avatar_base =
+        "/api/experts/" + expert.id +
+        "/avatar?workspace=" + workspace_hash;
     result["avatar_url"] =
         expert.avatar_path.empty()
             ? std::string{}
-            : "/api/experts/" + expert.id +
-                  "/avatar?workspace=" + workspace_hash;
+            : avatar_base;
+    json state_avatar_urls = json::object();
+    for (const auto state : kExpertAvatarStates) {
+        const std::string key(state);
+        if (expert.state_avatar_paths.find(key) ==
+                expert.state_avatar_paths.end() &&
+            expert.avatar_path.empty()) {
+            continue;
+        }
+        state_avatar_urls[key] = avatar_base + "&state=" + key;
+    }
+    result["state_avatar_urls"] = std::move(state_avatar_urls);
     return result;
 }
 
 std::optional<std::filesystem::path> safe_avatar_path(
-    const ExpertDefinition& expert) {
-    if (expert.avatar_path.empty() || expert.package_root.empty()) {
+    const ExpertDefinition& expert,
+    const std::string& resolved_path) {
+    if (resolved_path.empty() || expert.package_root.empty()) {
         return std::nullopt;
     }
     std::error_code ec;
@@ -70,7 +84,7 @@ std::optional<std::filesystem::path> safe_avatar_path(
         std::filesystem::weakly_canonical(expert.package_root, ec);
     if (ec) return std::nullopt;
     const auto avatar = std::filesystem::weakly_canonical(
-        path_from_utf8(expert.avatar_path), ec);
+        path_from_utf8(resolved_path), ec);
     if (ec || !std::filesystem::is_regular_file(avatar, ec)) {
         return std::nullopt;
     }
@@ -82,10 +96,52 @@ std::optional<std::filesystem::path> safe_avatar_path(
     return avatar;
 }
 
-bool supported_avatar_mime(const std::string& mime) {
-    return mime == "image/png" || mime == "image/jpeg" ||
-           mime == "image/gif" || mime == "image/webp" ||
-           mime == "image/bmp" || mime == "image/x-icon";
+struct ExpertAvatarPayload {
+    std::string bytes;
+    std::string mime;
+};
+
+std::optional<ExpertAvatarPayload> read_avatar_payload(
+    const ExpertDefinition& expert,
+    const std::string& resolved_path) {
+    const auto avatar = safe_avatar_path(expert, resolved_path);
+    if (!avatar) return std::nullopt;
+    const auto mime = preview_blob_mime(path_to_utf8(*avatar));
+    if (!mime || !is_supported_expert_avatar_mime(*mime)) {
+        return std::nullopt;
+    }
+
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(*avatar, ec);
+    if (ec || size > kMaxExpertAvatarBytes) return std::nullopt;
+    std::ifstream input(*avatar, std::ios::binary);
+    if (!input) return std::nullopt;
+    std::string bytes(static_cast<std::size_t>(size), '\0');
+    if (size > 0) {
+        input.read(bytes.data(), static_cast<std::streamsize>(size));
+        if (input.gcount() != static_cast<std::streamsize>(size)) {
+            return std::nullopt;
+        }
+    }
+    if (input.peek() != std::char_traits<char>::eof()) {
+        return std::nullopt;
+    }
+    return ExpertAvatarPayload{std::move(bytes), *mime};
+}
+
+std::optional<ExpertAvatarPayload> effective_avatar_payload(
+    const ExpertDefinition& expert,
+    const std::string& state) {
+    if (!state.empty()) {
+        const auto configured = expert.state_avatar_paths.find(state);
+        if (configured != expert.state_avatar_paths.end()) {
+            if (auto payload =
+                    read_avatar_payload(expert, configured->second)) {
+                return payload;
+            }
+        }
+    }
+    return read_avatar_payload(expert, expert.avatar_path);
 }
 
 } // namespace
@@ -301,33 +357,27 @@ void WebServer::Impl::register_experts() {
         if (!workspace) {
             return with_cors(req, crow::response(404));
         }
+        const char* raw_state = req.url_params.get("state");
+        const std::string state = raw_state ? std::string(raw_state)
+                                            : std::string{};
+        if (raw_state && !is_known_expert_avatar_state(state)) {
+            crow::response response(400);
+            response.body = json{
+                {"error", "INVALID_AVATAR_STATE"},
+                {"message", "unknown expert avatar state"},
+            }.dump();
+            response.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(response));
+        }
         const auto expert =
             deps.expert_registry->find(workspace->cwd, id);
         if (!expert) return with_cors(req, crow::response(404));
 
-        const auto avatar = safe_avatar_path(*expert);
+        auto avatar = effective_avatar_payload(*expert, state);
         if (!avatar) return with_cors(req, crow::response(404));
-        const auto mime = preview_blob_mime(path_to_utf8(*avatar));
-        if (!mime || !supported_avatar_mime(*mime)) {
-            return with_cors(req, crow::response(404));
-        }
 
-        std::error_code ec;
-        constexpr std::uintmax_t kMaxAvatarBytes = 8 * 1024 * 1024;
-        const auto size = std::filesystem::file_size(*avatar, ec);
-        if (ec || size > kMaxAvatarBytes) {
-            return with_cors(req, crow::response(404));
-        }
-        std::ifstream input(*avatar, std::ios::binary);
-        if (!input) return with_cors(req, crow::response(404));
-        std::string bytes(static_cast<std::size_t>(size), '\0');
-        if (size > 0) {
-            input.read(bytes.data(), static_cast<std::streamsize>(size));
-            if (!input) return with_cors(req, crow::response(404));
-        }
-
-        crow::response response(std::move(bytes));
-        response.add_header("Content-Type", *mime);
+        crow::response response(std::move(avatar->bytes));
+        response.add_header("Content-Type", avatar->mime);
         response.add_header("Cache-Control", "private, max-age=300");
         response.add_header("X-Content-Type-Options", "nosniff");
         return with_cors(req, std::move(response));

@@ -12,7 +12,7 @@ description: 创建、导入、修改、校验和打包 ACECode 专家组件；�
 
 生成可以被 ACECode 立即发现的专家组件：
 
-- Agent 型：一个可单独选择的专家，可带自己的 Skill 和头像。
+- Agent 型：一个可单独选择的专家，可带自己的 Skill、主头像和状态头像。
 - Team 型：从已经存在的 Agent 型专家中选择主理人和成员，不复制成员定义。
 
 最终组件固定放在 ACECode 全局专家目录：
@@ -164,8 +164,11 @@ Team 包只需要：
 
 ### 4. 生成头像
 
-头像是可选项。只有文件真实存在时才写 `avatar` 字段。使用图像生成工具时，
-根据角色指令构建头像，不使用无差别的通用人物模板。
+主头像与状态头像都是可选项。只有文件真实存在并通过校验时才写 `avatar` 或
+`stateAvatars`。状态头像固定为 `working`、`needs_attention`、`idle`，分别
+表示工作中、需要用户关注和空闲；未配置的状态自动回退主头像。使用图像生成
+工具时，根据角色指令构建头像，不使用无差别的通用人物模板。GIF 必须保留
+原始文件，不转码、不抽帧，确保相应状态下仍可播放动画。
 
 ### 5. 校验
 
@@ -195,7 +198,9 @@ python scripts/package_expert.py ~/.acecode/experts/<expert-id> <output-dir>
 ## 批量创建
 
 批量任务使用 `scripts/batch_create.py`，输入完整定义，逐个串行创建、填写、
-校验和确认可发现。任何一个专家失败时保留错误信息，不把失败组件报告为成功。
+校验和确认可发现。头像路径相对于批量配置文件所在目录；脚本会原样复制图片到
+专家包中的同一相对路径。任何一个专家失败时保留错误信息，不把失败组件报告为
+成功。
 
 示例配置：
 
@@ -214,6 +219,11 @@ python scripts/package_expert.py ~/.acecode/experts/<expert-id> <output-dir>
         "skills": ["web-research"],
         "mcp_servers": [],
         "tools": ["file_read", "grep"]
+      },
+      "stateAvatars": {
+        "working": "avatars/researcher-working.gif",
+        "needs_attention": "avatars/researcher-attention.png",
+        "idle": "avatars/researcher-idle.png"
       }
     },
     {
