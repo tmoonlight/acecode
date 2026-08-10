@@ -47,6 +47,8 @@ struct SkillIndexRenderReport {
 
 struct SkillIndexRenderResult {
     std::string content;
+    // Optional Codex-style root alias table rendered before Available skills.
+    std::vector<std::string> skill_root_lines;
     SkillIndexRenderReport report;
 };
 
@@ -87,8 +89,9 @@ PromptContextBlock build_custom_instructions_context_prompt(
     const CustomInstructionsConfig* cfg);
 
 // Skill index injection (openspec/changes/adopt-codex-skill-catalog):
-// push a compact name+description index into the per-request session context
-// so the model can pattern-match user requests against installed skills.
+// push a compact name+description+source-locator index into a dedicated,
+// request-local high-priority context message so the model can pattern-match
+// user requests against installed skills.
 // Without this the model has zero visibility into the skill set and never
 // calls skills_list proactively.
 
@@ -96,9 +99,11 @@ PromptContextBlock build_custom_instructions_context_prompt(
 // Unknown windows (<=0) fall back to 8000 Unicode characters.
 SkillMetadataBudget skills_index_budget(int context_window_tokens);
 
-// Render the index grouped by category. Combined descriptions are capped at
-// 1024 Unicode code points. If the full index does not fit, description space
-// is allocated round-robin across every skill before any skill is omitted.
+// Render Codex-compatible flat entries containing name, description, and a
+// `file:` locator. Descriptions are capped at 1024 Unicode code points. If the
+// full index does not fit, description space is allocated round-robin across
+// every skill before any skill is omitted; a root-alias form is selected only
+// when it improves the bounded result.
 SkillIndexRenderResult format_skills_index_within_budget(
     const std::vector<SkillMetadata>& skills,
     SkillMetadataBudget budget,

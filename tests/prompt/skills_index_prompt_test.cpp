@@ -1,8 +1,8 @@
 // 覆盖 src/prompt/system_prompt.{hpp,cpp} 的 skill 索引注入逻辑
 // (openspec/changes/adopt-codex-skill-catalog):
-// - 索引格式化:category 分组 / whenToUse 拼接 / 单条 1024 字符 UTF-8 安全截断
+// - 索引格式化:Codex 单行来源定位 / 单条 1024 字符 UTF-8 安全截断
 // - Codex 预算:已知窗口 2% token / 未知窗口 8000 字符
-// - 公平退化:先保留所有名称,再 round-robin 分配描述,极端时才省略条目
+// - 公平退化:先保留所有名称+路径,再 round-robin 分配描述,极端时才省略条目
 // - PromptContextBlock 装配:空 registry 不发块,cache_key 跟随 skill 集变化
 // - session context 隔离:skills 块不再进入 user-role system-reminder
 // - 静态 system prompt 措辞:指向索引而非 skills_list 枚举
@@ -38,6 +38,8 @@ acecode::SkillMetadata make_skill(const std::string& name,
     meta.description = description;
     meta.category = category;
     meta.when_to_use = when_to_use;
+    meta.skill_md_path = fs::path("C:/skills") /
+                         acecode::path_from_utf8(name) / "SKILL.md";
     return meta;
 }
 
@@ -126,10 +128,9 @@ TEST(SkillsIndexFormatTest, EmptyListRendersEmpty) {
     EXPECT_EQ(result.report.total_count, 0u);
 }
 
-// 触发场景:无 category 与有 category 的 skill 混合。
-// 期望:无 category 条目顶格在前;有 category 的按 "<category>:" 标题分组、
-// 条目缩进两格 —— 与 hermes <available_skills> 的分组结构一致。
-TEST(SkillsIndexFormatTest, GroupsByCategoryWithFlatEntriesFirst) {
+// 触发场景:带/不带旧 category 元数据的 Skill 混合。
+// 期望:Codex 目录保持 registry 输入顺序,每条扁平显示绝对来源定位。
+TEST(SkillsIndexFormatTest, UsesFlatCodexEntriesWithSourceLocators) {
     std::vector<acecode::SkillMetadata> skills = {
         make_skill("review-pr", "Review pull requests", "review"),
         make_skill("standalone", "A flat skill"),
@@ -137,23 +138,22 @@ TEST(SkillsIndexFormatTest, GroupsByCategoryWithFlatEntriesFirst) {
     auto rendered = acecode::format_skills_index_within_budget(
         skills, char_budget(8000));
     EXPECT_EQ(rendered.content,
-              "- standalone: A flat skill\n"
-              "review:\n"
-              "  - review-pr: Review pull requests");
+              "- review-pr: Review pull requests (file: C:/skills/review-pr/SKILL.md)\n"
+              "- standalone: A flat skill (file: C:/skills/standalone/SKILL.md)");
     EXPECT_EQ(rendered.report.included_count, 2u);
     EXPECT_EQ(rendered.report.omitted_count, 0u);
 }
 
-// 触发场景:skill 带 whenToUse 触发条件。
-// 期望:渲染为 "description — whenToUse"(em-dash 分隔),让模型一眼看到
-// "什么时候该用" —— 这是主动触发率的关键信息。
-TEST(SkillsIndexFormatTest, AppendsWhenToUseAfterDescription) {
+// 触发场景:兼容 loader 仍保留旧 whenToUse 元数据。
+// 期望:Codex 生产目录只使用标准 description,不拼接私有字段。
+TEST(SkillsIndexFormatTest, UsesStandardDescriptionWithoutWhenToUseSuffix) {
     std::vector<acecode::SkillMetadata> skills = {
         make_skill("commit", "Create a git commit", "", "Use when the user asks to commit changes"),
     };
     auto rendered = acecode::format_skills_index_within_budget(
         skills, char_budget(8000));
-    EXPECT_EQ(rendered.content, "- commit: Create a git commit \xE2\x80\x94 Use when the user asks to commit changes");
+    EXPECT_EQ(rendered.content,
+              "- commit: Create a git commit (file: C:/skills/commit/SKILL.md)");
 }
 
 // 触发场景:描述(含 whenToUse)超过 Codex 的 1024 Unicode 字符上限。
@@ -168,7 +168,10 @@ TEST(SkillsIndexFormatTest, TruncatesLongDescriptionOnUtf8Boundary) {
     const std::string& out = rendered.content;
 
     ASSERT_TRUE(out.rfind("- s: ", 0) == 0);
-    std::string desc_part = out.substr(5);
+    const std::string locator = " (file: C:/skills/s/SKILL.md)";
+    ASSERT_GT(out.size(), locator.size() + 5);
+    ASSERT_EQ(out.substr(out.size() - locator.size()), locator);
+    std::string desc_part = out.substr(5, out.size() - 5 - locator.size());
     EXPECT_EQ(utf8_chars(desc_part), 1024u);
     EXPECT_EQ(desc_part.substr(desc_part.size() - 3), "...");
     // 截断后仍是合法 UTF-8:省略号前每个 "中" 完整保留。
@@ -184,9 +187,10 @@ TEST(SkillsIndexFormatTest, OverBudgetDistributesDescriptionsRoundRobin) {
         skills.push_back(make_skill("skill-" + std::to_string(i),
                                     std::string(100, 'd')));
     }
-    // 每条最小成本 10 字符(含换行),39 字符预算刚好让每条得到 1 个 d。
+    // 来源定位提高了最小成本;200 字符仍低于完整目录,但足以让三条
+    // 都得到 description 字符。
     auto rendered = acecode::format_skills_index_within_budget(
-        skills, char_budget(39));
+        skills, char_budget(200));
     EXPECT_NE(rendered.content.find("- skill-0: d"), std::string::npos);
     EXPECT_NE(rendered.content.find("- skill-1: d"), std::string::npos);
     EXPECT_NE(rendered.content.find("- skill-2: d"), std::string::npos);
@@ -198,13 +202,13 @@ TEST(SkillsIndexFormatTest, OverBudgetDistributesDescriptionsRoundRobin) {
 // 触发场景:token 预算下只剩一个近似 token 可分配给描述。
 // 期望:成本按 ceil(UTF-8 bytes / 4)计算,零成本的同 token 字符仍可保留。
 TEST(SkillsIndexFormatTest, TokenBudgetUsesApproximateUtf8ByteCost) {
-    std::vector<acecode::SkillMetadata> skills = {
-        make_skill("alpha", std::string(20, 'd')),
-    };
+    auto skill = make_skill("alpha", std::string(20, 'd'));
+    skill.skill_md_path = fs::path("x");
+    std::vector<acecode::SkillMetadata> skills = {skill};
     auto rendered = acecode::format_skills_index_within_budget(
-        skills, {acecode::SkillMetadataBudgetUnit::Tokens, 3});
+        skills, {acecode::SkillMetadataBudgetUnit::Tokens, 6});
 
-    EXPECT_EQ(rendered.content, "- alpha: dd");
+    EXPECT_EQ(rendered.content, "- alpha: dddd (file: x)");
     EXPECT_EQ(rendered.report.included_count, 1u);
     EXPECT_EQ(rendered.report.omitted_count, 0u);
 }
@@ -217,7 +221,7 @@ TEST(SkillsIndexFormatTest, MaterialDescriptionShorteningProducesWarning) {
         make_skill("b", std::string(300, 'b')),
     };
     auto rendered = acecode::format_skills_index_within_budget(
-        skills, char_budget(30));
+        skills, char_budget(120));
 
     EXPECT_EQ(rendered.report.included_count, 2u);
     EXPECT_EQ(rendered.report.omitted_count, 0u);
@@ -227,9 +231,9 @@ TEST(SkillsIndexFormatTest, MaterialDescriptionShorteningProducesWarning) {
 }
 
 // 触发场景:最小名称条目仍超预算(极端:海量 skill + 极小窗口)。
-// 期望:截尾保留放得下的条目,末尾追加 "(+N more skills — call skills_list
-// to see all)" marker,让模型知道清单不完整且有兜底工具。
-TEST(SkillsIndexFormatTest, ExtremeOverflowCutsTailWithMarker) {
+// 期望:按 Codex host 目录语义只保留放得下的最小条目,诊断记录省略数,
+// 模型可见目录不伪造 omission marker。
+TEST(SkillsIndexFormatTest, ExtremeOverflowOmitsWithoutModelVisibleMarker) {
     std::vector<acecode::SkillMetadata> skills;
     for (int i = 0; i < 50; ++i) {
         skills.push_back(make_skill("very-long-skill-name-" + std::to_string(i),
@@ -239,9 +243,47 @@ TEST(SkillsIndexFormatTest, ExtremeOverflowCutsTailWithMarker) {
         skills, char_budget(150));
     EXPECT_LE(utf8_chars(rendered.content), 150u);
     EXPECT_GT(rendered.report.omitted_count, 0u);
-    EXPECT_NE(rendered.content.find("additional skills omitted"), std::string::npos);
-    EXPECT_NE(rendered.content.find("skills_list"), std::string::npos);
+    EXPECT_EQ(rendered.content.find("additional skills omitted"), std::string::npos);
+    EXPECT_EQ(rendered.content.find("skills_list"), std::string::npos);
     EXPECT_FALSE(rendered.report.warning_message().empty());
+}
+
+// 触发场景:前一条最小记录过长放不下,后一条较短记录仍可容纳。
+// 期望:Codex 的逐条 greedy 策略不会因为前一条被省略就截断整个尾部。
+TEST(SkillsIndexFormatTest, ExtremeOverflowStillKeepsLaterShortEntry) {
+    auto long_skill = make_skill(std::string(100, 'l'), "long");
+    long_skill.skill_md_path = fs::path(std::string(100, 'p'));
+    auto short_skill = make_skill("s", "short");
+    short_skill.skill_md_path = fs::path("x");
+
+    auto rendered = acecode::format_skills_index_within_budget(
+        {long_skill, short_skill}, char_budget(20));
+
+    EXPECT_EQ(rendered.report.included_count, 1u);
+    EXPECT_EQ(rendered.report.omitted_count, 1u);
+    EXPECT_NE(rendered.content.find("- s: (file: x)"), std::string::npos);
+}
+
+// 触发场景:多个 Skill 共享很长的扫描根,绝对路径目录在预算内会省略。
+// 期望:root alias 表成本计入预算后仍能改善结果,因此选择 r0 短路径。
+TEST(SkillsIndexFormatTest, UsesRootAliasesWhenTheyImproveBoundedCatalog) {
+    const fs::path root = fs::path("C:/") / std::string(120, 'r');
+    std::vector<acecode::SkillMetadata> skills;
+    for (const std::string& name : {"alpha", "beta", "gamma"}) {
+        auto skill = make_skill(name, "A useful skill description");
+        skill.scan_root = root;
+        skill.skill_md_path = root / name / "SKILL.md";
+        skills.push_back(std::move(skill));
+    }
+
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, char_budget(300));
+
+    ASSERT_FALSE(rendered.skill_root_lines.empty());
+    EXPECT_EQ(rendered.report.included_count, 3u);
+    EXPECT_NE(rendered.skill_root_lines.front().find("`r0`"), std::string::npos);
+    EXPECT_NE(rendered.content.find("(file: r0/alpha/SKILL.md)"),
+              std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +309,7 @@ TEST_F(SkillsIndexRegistryTest, EmptyRegistryYieldsEmptyBlock) {
 }
 
 // 触发场景:registry 有 skill(含 whenToUse)。
-// 期望:块含 "### Available skills" 标题、skill_view 指引、索引条目与触发条件;
+// 期望:块含 "### Available skills" 标题、skill_view 指引、来源定位与标准描述;
 // cache_key 非空且带 "skills:" 前缀(进 session context 复合 key)。
 TEST_F(SkillsIndexRegistryTest, PopulatedRegistryRendersBlock) {
     write_skill_md(temp_root, "review", "review-pr", "Review pull requests",
@@ -284,8 +326,25 @@ TEST_F(SkillsIndexRegistryTest, PopulatedRegistryRendersBlock) {
     EXPECT_NE(block.content.find("Multiple mentions mean use them all"),
               std::string::npos);
     EXPECT_NE(block.content.find("review-pr: Review pull requests"), std::string::npos);
-    EXPECT_NE(block.content.find("Use when the user mentions a PR"), std::string::npos);
+    EXPECT_NE(block.content.find("(file: "), std::string::npos);
+    EXPECT_EQ(block.content.find("Use when the user mentions a PR"), std::string::npos);
     EXPECT_EQ(block.cache_key.rfind("skills:", 0), 0u);
+}
+
+// Codex 的目录发现不依赖专用 skill_view 工具；有 file locator 时即使该
+// 工具被策略隐藏,目录仍应进入模型上下文并指导使用普通文件读取能力。
+TEST_F(SkillsIndexRegistryTest, CatalogRemainsVisibleWithoutSkillViewTool) {
+    write_skill_md(temp_root, "", "alpha", "First description");
+    acecode::SkillRegistry registry;
+    registry.set_scan_roots({temp_root});
+    registry.scan();
+
+    auto block = acecode::build_skills_index_context_prompt(
+        &registry, 128000, /*skill_view_available=*/false,
+        /*skills_list_available=*/false);
+    EXPECT_NE(block.content.find("alpha: First description"), std::string::npos);
+    EXPECT_NE(block.content.find("open the listed `SKILL.md` path"),
+              std::string::npos);
 }
 
 // 触发场景:同一 skill 集合构建两次 / 改动描述后再构建。

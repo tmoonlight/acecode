@@ -48,7 +48,8 @@ SkillExpansionResult try_expand_skill_command(const std::string& original_text,
         return {false, original_text, head};
     }
     const auto& meta = *meta_opt;
-    // 轻量提示;LLM 按需用 skill_view tool 加载 SKILL.md。详见 skill_activation.hpp 注释。
+    // Linked mention;AgentLoop injects the complete SKILL.md through the same
+    // explicit-selection path used by direct `$SkillName` input.
     std::string expanded = build_skill_invocation_hint(meta, args);
 
     return {true, std::move(expanded), meta.name};

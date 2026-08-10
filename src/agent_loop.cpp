@@ -21,6 +21,7 @@
 #include "session/thread_goal_store.hpp"
 #include "session/todo_state.hpp"
 #include "session/turn_timing.hpp"
+#include "skills/skill_activation.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_protocol_names.hpp"
@@ -1729,12 +1730,49 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
     const std::string& display_text = input.display_text;
     LOG_INFO("=== submit() user_message: " + log_truncate(user_message, 200));
 
+    ExplicitSkillPromptExpansion skill_expansion;
+    skill_expansion.prompt = user_message;
+    if (!hidden_goal_context && skill_registry_ && !user_message.empty()) {
+        skill_expansion = inject_explicit_skill_instructions(
+            user_message, *skill_registry_);
+        if (!skill_expansion.injected_skill_names.empty()) {
+            LOG_INFO("[skills] Injected " +
+                     std::to_string(skill_expansion.injected_skill_names.size()) +
+                     " explicitly selected Skill prompt(s) for this turn");
+        }
+    }
+    const std::string& model_user_message = skill_expansion.prompt;
+
     // Add user message
     ChatMessage& user_msg = info.user_msg;
     user_msg.role = "user";
-    user_msg.content = user_message;
+    user_msg.content = model_user_message;
     if (input.has_content_parts()) {
         user_msg.content_parts = input.content_parts;
+        if (model_user_message != user_message) {
+            bool replaced_text = false;
+            for (auto& part : user_msg.content_parts) {
+                if (!part.is_object() ||
+                    part.value("type", std::string{}) != "text") {
+                    continue;
+                }
+                if (part.value("text", std::string{}) == user_message) {
+                    part["text"] = model_user_message;
+                    replaced_text = true;
+                    break;
+                }
+            }
+            if (!replaced_text) {
+                const std::string suffix =
+                    model_user_message.rfind(user_message, 0) == 0
+                        ? model_user_message.substr(user_message.size())
+                        : model_user_message;
+                if (!suffix.empty()) {
+                    user_msg.content_parts.push_back(nlohmann::json{
+                        {"type", "text"}, {"text", suffix}});
+                }
+            }
+        }
     }
     if (input.metadata.is_object() && !input.metadata.empty()) {
         user_msg.metadata = input.metadata;
@@ -1744,6 +1782,14 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
         // session_serializer 会把 metadata 全字段持久化,resume 后恢复。
         if (!user_msg.metadata.is_object()) user_msg.metadata = nlohmann::json::object();
         user_msg.metadata["display_text"] = display_text;
+    } else if (model_user_message != user_message) {
+        // Explicit Skill instructions are model context, not user-authored UI
+        // text. Keep the original mention/request visible in the transcript.
+        if (!user_msg.metadata.is_object()) user_msg.metadata = nlohmann::json::object();
+        if (!user_msg.metadata.contains("display_text") ||
+            !user_msg.metadata["display_text"].is_string()) {
+            user_msg.metadata["display_text"] = user_message;
+        }
     }
     if (hidden_goal_context) {
         if (!user_msg.metadata.is_object()) user_msg.metadata = nlohmann::json::object();
@@ -1765,7 +1811,7 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
     }
     if (!hidden_goal_context) {
         nlohmann::json msg_event = {
-            {"role", "user"}, {"content", user_message},
+            {"role", "user"}, {"content", model_user_message},
             {"is_tool", false}, {"id", user_msg.uuid},
         };
         if (!user_msg.content_parts.is_null() && user_msg.content_parts.is_array() &&

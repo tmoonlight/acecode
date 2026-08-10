@@ -56,6 +56,11 @@ public:
     // Read the full SKILL.md body (post-frontmatter) for a skill.
     std::string read_skill_body(const std::string& name) const;
 
+    // Read the complete SKILL.md, including frontmatter. Explicit Skill
+    // selection uses this to build Codex-compatible `<skill>` instructions.
+    // nullopt distinguishes an unreadable/missing file from a valid empty file.
+    std::optional<std::string> read_skill_text(const std::string& name) const;
+
     // Return relative paths of supporting files under references/, templates/,
     // scripts/, assets/ (in that order). Empty when none exist.
     std::vector<std::string> list_supporting_files(const std::string& name) const;

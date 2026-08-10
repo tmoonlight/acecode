@@ -1,9 +1,9 @@
 // 覆盖 src/web/handlers/skill_command_expander.cpp::try_expand_skill_command。
 //
 // 这个函数是 daemon 端 sendInput 路径上的关键 hook — 把 `/<skill-name> args`
-// 形式的 user message rewrite 成 build_activation_message 的输出,与 TUI 行为
+// 形式的 user message rewrite 成 Codex linked Skill mention,与 TUI 行为
 // 一致。回归点:
-//   - 已知 skill 命中后 expanded=true 且 text 含 activation 模板特征
+//   - 已知 skill 命中后 expanded=true 且 text 含 name + SKILL.md locator
 //   - 未知 skill 透传(不是 builtin 也不是 SKILL.md)
 //   - 不以 / 开头透传
 //   - args 解析:多空格 / tab / CJK / 空 args
@@ -65,8 +65,8 @@ protected:
 
 } // namespace
 
-// 场景:已知 skill `/calculator 33*44` → expanded=true,text 含轻量 invocation 模板特征
-// **不**注入 SKILL.md body — 重复调用不会膨胀 context
+// 场景:已知 skill `/calculator 33*44` → expanded=true,text 只含 linked mention
+// 与参数;完整正文由 AgentLoop 的统一显式选择路径注入。
 TEST_F(SkillCommandExpanderTest, KnownSkillExpands) {
     write_skill_md(tmp_root / ".agent" / "skills",
                    "calculator", "Simple calc skill",
@@ -76,15 +76,12 @@ TEST_F(SkillCommandExpanderTest, KnownSkillExpands) {
     auto r = acecode::web::try_expand_skill_command("/calculator 33*44是多少", registry);
     EXPECT_TRUE(r.expanded);
     EXPECT_EQ(r.skill_name, "calculator");
-    // 轻量提示特征:[SYSTEM: ...]、skill 名、description、skill_view 提示、user args
-    EXPECT_NE(r.text.find("[SYSTEM:"), std::string::npos);
-    EXPECT_NE(r.text.find("calculator"), std::string::npos);
-    EXPECT_NE(r.text.find("Simple calc skill"), std::string::npos);
-    EXPECT_NE(r.text.find("skill_view"), std::string::npos);
+    EXPECT_EQ(r.text.rfind("[$calculator](", 0), 0u);
+    EXPECT_NE(r.text.find("SKILL.md)"), std::string::npos);
     EXPECT_NE(r.text.find("33*44是多少"), std::string::npos);
-    // 关键:SKILL.md body 不应出现在 expanded text
+    // command expander 本身不复制正文;AgentLoop 负责一次性注入。
     EXPECT_EQ(r.text.find("This is the SKILL.md body"), std::string::npos)
-        << "body 不应被注入 — 让 LLM 用 skill_view 按需加载";
+        << "command rewrite 只应产生 linked mention";
     EXPECT_EQ(r.text.find("## Body section"), std::string::npos);
 }
 
@@ -140,7 +137,7 @@ TEST_F(SkillCommandExpanderTest, BuiltinNamesPassThrough) {
     EXPECT_EQ(r2.text, "/compact 解释下");
 }
 
-// 场景:已知 skill 但无 args(只有命令名) → expanded=true,invocation hint 仍生成
+// 场景:已知 skill 但无 args(只有命令名) → expanded=true,linked mention 仍生成
 TEST_F(SkillCommandExpanderTest, KnownSkillEmptyArgsExpands) {
     write_skill_md(tmp_root / ".agent" / "skills", "find-skills",
                    "List skills", "Body content not injected.");
@@ -149,10 +146,9 @@ TEST_F(SkillCommandExpanderTest, KnownSkillEmptyArgsExpands) {
     auto r = acecode::web::try_expand_skill_command("/find-skills", registry);
     EXPECT_TRUE(r.expanded);
     EXPECT_EQ(r.skill_name, "find-skills");
-    EXPECT_NE(r.text.find("List skills"), std::string::npos); // description
-    EXPECT_NE(r.text.find("skill_view"), std::string::npos);  // 提示按需加载
-    // 无 args 时 "User's request:" 段省略
-    EXPECT_EQ(r.text.find("User's request:"), std::string::npos);
+    EXPECT_EQ(r.text.rfind("[$find-skills](", 0), 0u);
+    EXPECT_NE(r.text.find("SKILL.md)"), std::string::npos);
+    EXPECT_EQ(r.text.find("\n\n"), std::string::npos);
 }
 
 // 场景:CJK args 与多空白分隔 — UTF-8 不被破坏,头尾空白吃掉

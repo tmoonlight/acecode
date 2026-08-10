@@ -12,7 +12,8 @@
 //     wait=false 点火即返(fire-and-forget),用于流水线接力 —— 阶段 A 结束
 //     时点火阶段 B 的会话,父会话不吃任何 B 的输出。
 //   - prompt 支持 `/skill-name args` 形式:与 Web 输入框一致地走
-//     try_expand_skill_command 展开为轻量 activation 提示。
+//     try_expand_skill_command 生成 linked Skill mention,再由子会话 AgentLoop
+//     自动注入完整 SKILL.md。
 //   - wait_subagent(session_id):等待某个已点火的子会话空闲并取回其最新
 //     答复。配合 spawn(wait=false) 实现「并行 fan-out 再逐个 join」。
 //

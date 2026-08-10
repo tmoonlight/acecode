@@ -4262,7 +4262,11 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
     ASSERT_EQ(ordinary.status_code, 202) << ordinary.text;
 
     bool ordinary_found = false;
-    deadline = std::chrono::steady_clock::now() + 2s;
+    // The first queued turn still has to finish before the same AgentLoop can
+    // persist this follow-up. On loaded Windows builders that teardown path can
+    // exceed two seconds even though the queue is healthy, so use the fixture's
+    // normal integration-test allowance rather than a scheduler-sensitive bound.
+    deadline = std::chrono::steady_clock::now() + 10s;
     while (std::chrono::steady_clock::now() < deadline && !ordinary_found) {
         auto r = cpr::Get(
             cpr::Url{fx.url("/api/sessions/" + sid + "/messages")});

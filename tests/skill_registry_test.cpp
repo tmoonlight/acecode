@@ -392,8 +392,9 @@ TEST_F(SkillRegistryCompatTest, CommandDispatchInvokesNewSkillWithoutReloadingCo
     EXPECT_NE(state.conversation[0].content.find("[Invoking skill: fresh-skill]"),
               std::string::npos);
     ASSERT_EQ(state.pending_queue.size(), 1u);
-    EXPECT_NE(state.pending_queue[0].find("Use skill_view(name=\"fresh-skill\")"),
+    EXPECT_NE(state.pending_queue[0].find("[$fresh-skill]("),
               std::string::npos);
+    EXPECT_NE(state.pending_queue[0].find("SKILL.md)"), std::string::npos);
     EXPECT_NE(state.pending_queue[0].find("run this"), std::string::npos);
 }
 

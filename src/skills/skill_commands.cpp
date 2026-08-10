@@ -53,10 +53,12 @@ std::vector<std::string> register_skill_commands(CommandRegistry& cmd_registry,
                 return;
             }
 
-            // openspec/changes/expand-webui-skill-commands:轻量调用提示。
-            // 不再注入 SKILL.md body — 多次调用同名 skill 会让 context 成倍膨胀。
-            // 让 LLM 按需用 skill_view tool 一次性加载 SKILL.md。
+            // Map slash selection to Codex's linked Skill mention. AgentLoop
+            // resolves that mention and injects the complete SKILL.md through
+            // the same path used by Web and subagent input.
             std::string message = build_skill_invocation_hint(*found, args);
+            std::string display = "/" + found->command_key;
+            if (!args.empty()) display += " " + args;
 
             {
                 std::lock_guard<std::mutex> lk(ctx.state.mu);
@@ -76,7 +78,7 @@ std::vector<std::string> register_skill_commands(CommandRegistry& cmd_registry,
                 ctx.state.is_waiting = true;
             }
 
-            ctx.agent_loop.submit(message);
+            ctx.agent_loop.submit(message, display);
         };
 
         cmd_registry.register_command(cmd);

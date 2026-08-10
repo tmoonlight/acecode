@@ -20,3 +20,25 @@
 - [x] 4.1 更新 Skill prompt 单元测试，覆盖 2% token/8000 字符预算、1024 字符 UTF-8 截断、公平分配、极端省略和独立指令块。
 - [x] 4.2 增加或更新请求装配/Provider 回归测试，证明独立 Skill system 消息在 OpenAI-compatible 与 Anthropic 路径中不会被丢弃或持久化。
 - [x] 4.3 运行针对性单元测试、相关完整测试、代码质量检查、构建及 `openspec validate --strict`，修复全部回归。
+
+## 5. Codex 来源目录完全对齐
+
+- [x] 5.1 把目录条目改为 Codex 的 `name + description + (file: SKILL.md)` 单行格式，移除 category 标题与 `whenToUse` 拼接，并让最小条目始终保留来源定位。
+- [x] 5.2 按 Codex 规则在绝对路径目录被截断时评估 root alias 版本，并以包含数、描述保留量、成本决定是否采用。
+- [x] 5.3 对齐极端预算行为：逐条尝试保留可放入的最小条目，host/local 模型可见目录不追加省略 marker，诊断仍报告准确数量。
+- [x] 5.4 更新高优先级 Skill 使用说明与静态提示，使来源定位、自然语言匹配和 `skill_view` 兜底语义一致。
+
+## 6. Codex 显式 Skill 选择与自动注入
+
+- [x] 6.1 移植 `$SkillName` / `[$SkillName](path)` 解析、常见环境变量排除、路径优先、registry 顺序与去重规则。
+- [x] 6.2 为 SkillRegistry 增加完整 `SKILL.md` 读取能力，并生成 Codex 兼容的 user-role `<skill>` 指令片段。
+- [x] 6.3 在 AgentLoop 建立本轮 user message 时自动注入显式 Skill，同时通过 `display_text` 保留原文并避免工具循环重复注入。
+- [x] 6.4 将 TUI、Web 与子 Agent 的 `/<skill-name>` 展开改为规范 `$SkillName` mention，统一走同一注入路径。
+- [x] 6.5 增加 mention、完整正文注入、Windows/Unix 路径、环境变量、重复 mention、逐轮行为及 command 展开的回归测试。
+
+## 7. 完整验证与主分支交付
+
+- [x] 7.1 运行新增及相关 Skill/Prompt/Provider/Session 单元测试，并修复回归。
+- [x] 7.2 运行 Release 全量构建、完整 `ctest`、代码质量检查与 `openspec validate --strict`。
+- [x] 7.3 审计 Codex 生产召回主链差异，确认 shadow selector 未被误作生产逻辑，验证无关 dirty patch 未变化。
+- [x] 7.4 在当前 `master` 提交目标文件、推送并确认本地与 `origin/master` 一致。

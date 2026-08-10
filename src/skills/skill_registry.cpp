@@ -139,15 +139,23 @@ std::optional<SkillMetadata> SkillRegistry::find(const std::string& name_or_key)
 }
 
 std::string SkillRegistry::read_skill_body(const std::string& name) const {
-    auto meta = find(name);
-    if (!meta) return "";
-    std::ifstream ifs(meta->skill_md_path, std::ios::binary);
-    if (!ifs.is_open()) return "";
-    std::ostringstream oss;
-    oss << ifs.rdbuf();
-    auto [fm, body] = parse_frontmatter(ensure_utf8(oss.str()));
+    auto text = read_skill_text(name);
+    if (!text) return "";
+    auto [fm, body] = parse_frontmatter(*text);
     (void)fm;
     return body;
+}
+
+std::optional<std::string> SkillRegistry::read_skill_text(
+    const std::string& name) const {
+    auto meta = find(name);
+    if (!meta) return std::nullopt;
+    std::ifstream ifs(meta->skill_md_path, std::ios::binary);
+    if (!ifs.is_open()) return std::nullopt;
+    std::ostringstream oss;
+    oss << ifs.rdbuf();
+    if (ifs.bad()) return std::nullopt;
+    return ensure_utf8(oss.str());
 }
 
 std::vector<std::string> SkillRegistry::list_supporting_files(const std::string& name) const {
