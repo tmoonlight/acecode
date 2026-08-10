@@ -2988,12 +2988,42 @@ bool AgentLoop::execute_tool_calls(
                              (ctx_path.empty() ? std::string{} : " path=" + ctx_path));
                 }
 
+                nlohmann::json permission_hook_input = nlohmann::json::object();
+                bool permission_request_dispatched = false;
+                bool permission_resolution_dispatched = false;
+                auto report_permission_resolved =
+                    [&](const std::string& decision,
+                        const std::string& source) {
+                        if (!hook_manager_ || !permission_request_dispatched ||
+                            permission_resolution_dispatched) {
+                            return;
+                        }
+                        permission_resolution_dispatched = true;
+                        auto fields = build_hook_common_fields(
+                            kCodexHookEventPermissionResolved);
+                        auto payload = build_permission_resolved_hook_payload(
+                            fields,
+                            effective_tc.function_name,
+                            permission_hook_input,
+                            decision,
+                            source);
+                        auto outcome = dispatch_codex_hook(
+                            kCodexHookEventPermissionResolved,
+                            effective_tc.function_name,
+                            payload);
+                        apply_hook_side_effects(outcome, false);
+                    };
+
                 if (!auto_allow && hook_manager_) {
+                    permission_hook_input =
+                        parse_tool_args_for_permission_payload(
+                            effective_tc.function_arguments);
+                    permission_request_dispatched = true;
                     auto fields = build_hook_common_fields(kCodexHookEventPermissionRequest);
                     auto payload = build_tool_hook_payload(
                         fields,
                         effective_tc.function_name,
-                        parse_tool_args_for_permission_payload(effective_tc.function_arguments));
+                        permission_hook_input);
                     auto outcome = dispatch_codex_hook(
                         kCodexHookEventPermissionRequest,
                         effective_tc.function_name,
@@ -3003,10 +3033,12 @@ bool AgentLoop::execute_tool_calls(
                         const std::string reason = outcome.reason.empty()
                             ? "Permission denied by hook."
                             : outcome.reason;
+                        report_permission_resolved("deny", "hook");
                         return ToolResult{"[Hook denied permission] " + reason, false};
                     }
                     if (outcome.allowed) {
                         auto_allow = true;
+                        report_permission_resolved("allow", "hook");
                     }
                 }
 
@@ -3021,12 +3053,14 @@ bool AgentLoop::execute_tool_calls(
                 if (!auto_allow && headless::active()) {
                     if (permissions_.is_dangerous()) {
                         auto_allow = true;
+                        report_permission_resolved("allow", "headless");
                         LOG_INFO("[headless] yolo auto-approve: " +
                                  effective_tc.function_name +
                                  (ctx_path.empty() ? std::string{} : " path=" + ctx_path));
                     } else {
                         LOG_INFO("[headless] denied (needs confirmation): " +
                                  effective_tc.function_name);
+                        report_permission_resolved("deny", "headless");
                         return ToolResult{
                             "[Headless mode] This tool call requires interactive "
                             "user confirmation, which is unavailable in print (-p) "
@@ -3049,8 +3083,14 @@ bool AgentLoop::execute_tool_calls(
                         ? prompter_->prompt(effective_tc.function_name, permission_args, &abort_requested_)
                         : callbacks_.on_tool_confirm(effective_tc.function_name, permission_args);
                     if (perm == PermissionResult::Deny) {
+                        report_permission_resolved("deny", "interactive");
                         return ToolResult{"[User denied tool execution]", false};
                     }
+                    report_permission_resolved(
+                        perm == PermissionResult::AlwaysAllow
+                            ? "always_allow"
+                            : "allow",
+                        "interactive");
                     emit_progress("tool_running", "正在调用工具 " + effective_tc.function_name,
                         effective_tc.function_name, effective_tc.function_name, effective_tc.id,
                         static_cast<int>(entry.original_index), true);
@@ -3060,6 +3100,14 @@ bool AgentLoop::execute_tool_calls(
                         effective_tc.function_name != "ExitPlanMode") {
                         permissions_.add_session_allow(effective_tc.function_name);
                     }
+                }
+
+                // A non-interactive embedding may intentionally omit a
+                // prompter while still allowing execution. Close the paired
+                // lifecycle event before the tool starts in that case.
+                if (!auto_allow && permission_request_dispatched &&
+                    !permission_resolution_dispatched) {
+                    report_permission_resolved("allow", "implicit");
                 }
 
                 ToolResult tool_result = execute_single_tool(effective_tc.function_name, effective_tc.function_arguments,

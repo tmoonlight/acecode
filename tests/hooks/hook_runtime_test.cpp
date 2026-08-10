@@ -109,6 +109,18 @@ TEST(HookRuntime, EventPayloadBuildersIncludeEventSpecificFields) {
     EXPECT_EQ(tool["tool_input"]["command"], "echo hi");
     EXPECT_EQ(tool["tool_response"]["output"], "hi");
 
+    fields.hook_event_name = acecode::kCodexHookEventPermissionResolved;
+    auto resolved = acecode::build_permission_resolved_hook_payload(
+        fields,
+        "bash",
+        nlohmann::json{{"command", "echo hi"}},
+        "allow",
+        "interactive");
+    EXPECT_EQ(resolved["hook_event_name"], "PermissionResolved");
+    EXPECT_EQ(resolved["tool_name"], "bash");
+    EXPECT_EQ(resolved["permission_decision"], "allow");
+    EXPECT_EQ(resolved["permission_source"], "interactive");
+
     auto compact = acecode::build_compact_hook_payload(fields, "manual");
     EXPECT_EQ(compact["trigger"], "manual");
 

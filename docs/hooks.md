@@ -207,6 +207,20 @@ Runs only when ACECode would otherwise ask the user for permission. Deny wins ov
 }
 ```
 
+### `PermissionResolved`
+
+ACECode extension that runs once after a previously emitted `PermissionRequest`
+has been resolved and before the tool starts or the denial result returns to the
+model. It is observational: hook output cannot change the completed permission
+decision.
+
+The payload includes the normal `tool_name` and `tool_input` fields plus:
+
+- `permission_decision`: `allow`, `always_allow`, or `deny`
+- `permission_source`: `hook`, `interactive`, `headless`, or `implicit`
+
+This paired event is useful for generic status integrations and audit logging.
+
 ### `PostToolUse`
 
 Runs after supported tools complete. Input includes `tool_response`.
@@ -317,3 +331,8 @@ Legacy hooks use direct `command + args` process execution, not shell command st
 - Hooks are not a sandbox. They run as local user code after trust review.
 - `PreToolUse` covers the normal agent tool path and supported manual shell `!cmd` paths, but future tools that bypass ACECode's tool executor need explicit wiring.
 - Manual shell `!cmd` has `PreToolUse` and `PostToolUse` coverage where feasible, but no `PermissionRequest` event because that path does not show the normal approval prompt.
+
+## Integration Examples
+
+- [Herdr custom-agent hook](herdr-hooks.md): optional, cross-platform lifecycle
+  reporting implemented entirely as local hook configuration.
