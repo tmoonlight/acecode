@@ -273,6 +273,18 @@ nlohmann::json build_tool_hook_payload(const HookCommonPayloadFields& fields,
     return payload;
 }
 
+nlohmann::json build_permission_resolved_hook_payload(
+    const HookCommonPayloadFields& fields,
+    const std::string& tool_name,
+    const nlohmann::json& tool_input,
+    const std::string& permission_decision,
+    const std::string& permission_source) {
+    auto payload = build_tool_hook_payload(fields, tool_name, tool_input);
+    payload["permission_decision"] = permission_decision;
+    payload["permission_source"] = permission_source;
+    return payload;
+}
+
 nlohmann::json build_compact_hook_payload(const HookCommonPayloadFields& fields,
                                           const std::string& trigger) {
     auto payload = build_hook_common_payload(fields);

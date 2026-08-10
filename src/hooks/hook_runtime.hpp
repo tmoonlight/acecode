@@ -15,6 +15,7 @@ constexpr const char* kCodexHookEventSessionStart = "SessionStart";
 constexpr const char* kCodexHookEventUserPromptSubmit = "UserPromptSubmit";
 constexpr const char* kCodexHookEventPreToolUse = "PreToolUse";
 constexpr const char* kCodexHookEventPermissionRequest = "PermissionRequest";
+constexpr const char* kCodexHookEventPermissionResolved = "PermissionResolved";
 constexpr const char* kCodexHookEventPostToolUse = "PostToolUse";
 constexpr const char* kCodexHookEventPreCompact = "PreCompact";
 constexpr const char* kCodexHookEventPostCompact = "PostCompact";
@@ -80,6 +81,12 @@ nlohmann::json build_tool_hook_payload(const HookCommonPayloadFields& fields,
                                        const std::string& tool_name,
                                        const nlohmann::json& tool_input,
                                        const nlohmann::json& tool_response = nullptr);
+nlohmann::json build_permission_resolved_hook_payload(
+    const HookCommonPayloadFields& fields,
+    const std::string& tool_name,
+    const nlohmann::json& tool_input,
+    const std::string& permission_decision,
+    const std::string& permission_source);
 nlohmann::json build_compact_hook_payload(const HookCommonPayloadFields& fields,
                                           const std::string& trigger);
 nlohmann::json build_stop_hook_payload(const HookCommonPayloadFields& fields,

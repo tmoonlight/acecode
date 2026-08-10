@@ -453,6 +453,120 @@ TEST(HookAgentLoop, PermissionRequestNoDecisionPreservesNormalPrompt) {
     EXPECT_EQ(h.confirm_count.load(), 1);
 }
 
+TEST(HookAgentLoop, PermissionResolvedReportsInteractiveDecision) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_tool_call("write_probe", "{}", "call-1");
+    LoopHarness h(provider);
+    std::atomic<int> calls{0};
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+    std::mutex payload_mu;
+    nlohmann::json captured;
+
+    acecode::HookManager hooks(
+        registry_with({make_codex_hook(
+            "perm-resolved",
+            acecode::kCodexHookEventPermissionResolved,
+            "write_probe")}),
+        acecode::HookProcessRunner{},
+        [&payload_mu, &captured](const std::string&,
+                                const std::string& stdin_text,
+                                int,
+                                const std::string&) {
+            std::lock_guard<std::mutex> lock(payload_mu);
+            captured = nlohmann::json::parse(stdin_text);
+            return hook_json("{}");
+        });
+    h.loop->set_hook_manager(&hooks);
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(calls.load(), 0);
+    EXPECT_EQ(h.confirm_count.load(), 1);
+    std::lock_guard<std::mutex> lock(payload_mu);
+    ASSERT_TRUE(captured.is_object());
+    EXPECT_EQ(captured["hook_event_name"], "PermissionResolved");
+    EXPECT_EQ(captured["tool_name"], "write_probe");
+    EXPECT_EQ(captured["permission_decision"], "deny");
+    EXPECT_EQ(captured["permission_source"], "interactive");
+}
+
+TEST(HookAgentLoop, PermissionResolvedPairsWithHookApprovalExactlyOnce) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_tool_call("write_probe", "{}", "call-1");
+    LoopHarness h(provider);
+    std::atomic<int> calls{0};
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+    std::atomic<int> resolved_count{0};
+    nlohmann::json resolved_payload;
+
+    acecode::HookManager hooks(
+        registry_with({
+            make_codex_hook(
+                "perm-allow",
+                acecode::kCodexHookEventPermissionRequest,
+                "write_probe"),
+            make_codex_hook(
+                "perm-resolved",
+                acecode::kCodexHookEventPermissionResolved,
+                "write_probe"),
+        }),
+        acecode::HookProcessRunner{},
+        [&resolved_count, &resolved_payload](const std::string&,
+                                             const std::string& stdin_text,
+                                             int,
+                                             const std::string&) {
+            auto payload = nlohmann::json::parse(stdin_text);
+            if (payload["hook_event_name"] ==
+                acecode::kCodexHookEventPermissionRequest) {
+                return hook_json(
+                    R"({"hookSpecificOutput":{"permissionDecision":"allow"}})");
+            }
+            if (payload["hook_event_name"] ==
+                acecode::kCodexHookEventPermissionResolved) {
+                resolved_payload = payload;
+                resolved_count.fetch_add(1);
+            }
+            return hook_json("{}");
+        });
+    h.loop->set_hook_manager(&hooks);
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(calls.load(), 1);
+    EXPECT_EQ(h.confirm_count.load(), 0);
+    EXPECT_EQ(resolved_count.load(), 1);
+    EXPECT_EQ(resolved_payload["permission_decision"], "allow");
+    EXPECT_EQ(resolved_payload["permission_source"], "hook");
+}
+
+TEST(HookAgentLoop, PermissionResolvedDoesNotRunWithoutPermissionRequest) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_tool_call("write_probe", "{}", "call-1");
+    LoopHarness h(provider);
+    std::atomic<int> calls{0};
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+    h.permissions.add_session_allow("write_probe");
+    std::atomic<int> resolved_count{0};
+
+    acecode::HookManager hooks(
+        registry_with({make_codex_hook(
+            "perm-resolved",
+            acecode::kCodexHookEventPermissionResolved,
+            "write_probe")}),
+        acecode::HookProcessRunner{},
+        [&resolved_count](const std::string&,
+                          const std::string&,
+                          int,
+                          const std::string&) {
+            resolved_count.fetch_add(1);
+            return hook_json("{}");
+        });
+    h.loop->set_hook_manager(&hooks);
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(calls.load(), 1);
+    EXPECT_EQ(h.confirm_count.load(), 0);
+    EXPECT_EQ(resolved_count.load(), 0);
+}
+
 TEST(HookAgentLoop, PermissionRequestDenySkipsNormalPromptAndTool) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
