@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "hooks/hook_registry.hpp"
+#include "skills/default_skill_seeder.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <chrono>
@@ -32,6 +33,22 @@ void write_text(const fs::path& path, const std::string& text) {
     fs::create_directories(path.parent_path());
     std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
     ofs << text;
+}
+
+std::string read_text(const fs::path& path) {
+    std::ifstream ifs(path, std::ios::binary);
+    return std::string(
+        std::istreambuf_iterator<char>(ifs),
+        std::istreambuf_iterator<char>());
+}
+
+fs::path packaged_hook_seed_path() {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const auto& seed = acecode::default_hook_seeds().front();
+    return repository_root / "assets" / "seed" / "hooks" /
+        seed.relative_path / "hooks.json";
 }
 
 acecode::HookSource source_for(const std::string& path,
@@ -325,6 +342,83 @@ TEST(HookRegistry, SourceDiscoveryReportsMalformedSources) {
     }
     EXPECT_TRUE(saw_parse);
     EXPECT_TRUE(saw_missing);
+}
+
+TEST(HookRegistry, OfficialSeedHookLoadsManagedWithoutRewritingUserConfig) {
+    TempTree tmp;
+    const fs::path ace_home = tmp.root / "ace-home";
+    const auto& seed = acecode::default_hook_seeds().front();
+    const fs::path managed_path =
+        ace_home / "hooks" / seed.relative_path / "hooks.json";
+    write_text(managed_path, read_text(packaged_hook_seed_path()));
+
+    const fs::path user_path = ace_home / "hooks.json";
+    const std::string user_config = R"({
+        "hooks": {
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "user-hook"}]}
+            ]
+        }
+    })";
+    write_text(user_path, user_config);
+
+    acecode::HookLoadOptions opts;
+    opts.acecode_home = acecode::path_to_utf8(ace_home);
+    opts.codex_home = acecode::path_to_utf8(tmp.root / "missing-codex");
+    opts.include_project_sources = false;
+
+    const auto first = acecode::load_hook_registry(opts);
+    const auto second = acecode::load_hook_registry(opts);
+
+    EXPECT_EQ(read_text(user_path), user_config);
+    ASSERT_EQ(first.hooks.size(), 9u);
+    ASSERT_EQ(second.hooks.size(), first.hooks.size());
+    std::size_t managed_count = 0;
+    std::size_t pending_count = 0;
+    for (std::size_t i = 0; i < first.hooks.size(); ++i) {
+        EXPECT_EQ(first.hooks[i].id, second.hooks[i].id);
+        if (first.hooks[i].trust_status ==
+            acecode::HookTrustStatus::ManagedTrusted) {
+            ++managed_count;
+            EXPECT_TRUE(first.hooks[i].managed);
+        }
+        if (first.hooks[i].trust_status ==
+            acecode::HookTrustStatus::PendingReview) {
+            ++pending_count;
+        }
+    }
+    EXPECT_EQ(managed_count, 8u);
+    EXPECT_EQ(pending_count, 1u);
+}
+
+TEST(HookRegistry, ModifiedSeedHookIsPreservedButNotAutomaticallyTrusted) {
+    TempTree tmp;
+    const fs::path ace_home = tmp.root / "ace-home";
+    const auto& seed = acecode::default_hook_seeds().front();
+    const fs::path managed_path =
+        ace_home / "hooks" / seed.relative_path / "hooks.json";
+    auto modified = read_text(packaged_hook_seed_path());
+    const auto command_pos = modified.find("--state idle");
+    ASSERT_NE(command_pos, std::string::npos);
+    modified.replace(command_pos, std::string("--state idle").size(),
+                     "--state blocked");
+    write_text(managed_path, modified);
+
+    acecode::HookLoadOptions opts;
+    opts.acecode_home = acecode::path_to_utf8(ace_home);
+    opts.codex_home = acecode::path_to_utf8(tmp.root / "missing-codex");
+    opts.include_project_sources = false;
+    const auto registry = acecode::load_hook_registry(opts);
+
+    EXPECT_EQ(read_text(managed_path), modified);
+    EXPECT_TRUE(registry.hooks.empty());
+    bool saw_mismatch = false;
+    for (const auto& d : registry.diagnostics) {
+        if (d.code == "MANAGED_SEED_HOOK_DEFINITION_MISMATCH") {
+            saw_mismatch = true;
+        }
+    }
+    EXPECT_TRUE(saw_mismatch);
 }
 
 TEST(HookRegistry, TrustStoreHandlesPendingTrustedChangedDisabledAndManaged) {

@@ -71,6 +71,7 @@ void reconcile_default_skills_on_startup(const std::string& argv0_dir) {
     };
     count_outcomes(result.outcomes);
     count_outcomes(result.expert_outcomes);
+    count_outcomes(result.hook_outcomes);
     if (!result.error.empty()) {
         LOG_WARN("[seed] Default resource reconciliation issue: " + result.error);
     }

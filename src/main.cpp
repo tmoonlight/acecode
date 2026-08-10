@@ -666,6 +666,7 @@ static void reconcile_default_skills_on_startup(const std::string& argv0_dir) {
     };
     count_outcomes(result.outcomes);
     count_outcomes(result.expert_outcomes);
+    count_outcomes(result.hook_outcomes);
     if (!result.error.empty()) {
         LOG_WARN("[seed] Default resource reconciliation issue: " + result.error);
     }
@@ -2993,6 +2994,7 @@ static AppConfig load_tui_config_and_runtime(HookManager& hook_manager,
                                              const std::string& working_dir,
                                              const std::string& argv0_dir) {
     AppConfig config = load_config();
+    reconcile_default_skills_on_startup(argv0_dir);
     {
         std::string trust_error;
         HookTrustStore trust_store =
@@ -3007,7 +3009,6 @@ static AppConfig load_tui_config_and_runtime(HookManager& hook_manager,
         hook_load.project_trusted = true;
         hook_manager.refresh_registry(load_hook_registry(hook_load, &trust_store));
     }
-    reconcile_default_skills_on_startup(argv0_dir);
     initialize_proxy_runtime(config);
     initialize_models_registry_runtime(config, argv0_dir);
     return config;

@@ -1,6 +1,6 @@
 {
-  "bundle_version": "2026-08-09.1",
-  "description": "Versioned default ACECode global Skill and expert seed bundle reconciled at startup.",
+  "bundle_version": "2026-08-10.1",
+  "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
       "name": "find-skills",
@@ -48,7 +48,7 @@
       "name": "acecode-desktop-usage",
       "source_id": "acecode:acecode-desktop-usage@2026-07-20",
       "relative_path": "acecode/acecode-desktop-usage",
-      "skill_md_sha256": "4b5464470b3321128bb3e76eaaea51246342da5ee42e7f8b2c9baaf75e34e556"
+      "skill_md_sha256": "6f9cd7c39a49b4583a64224599acd3a31701d3aa9ae7491149df364ed8c0881a"
     },
     {
       "name": "vision-image-reader",
@@ -117,6 +117,14 @@
       "source_id": "acecode:opc-expert/opc-value-designer@2026-07-27",
       "relative_path": "opc-value-designer",
       "expert_json_sha256": "a8855db067eac7f3bb9d4f2d67902a93b55b0b2b7ebdba03a432a1fa9eab2b1a"
+    }
+  ],
+  "hooks": [
+    {
+      "name": "agent-reporting",
+      "source_id": "acecode:managed-hook/agent-reporting@2026-08-10",
+      "relative_path": "agent-reporting",
+      "definition_sha256": "b731118b927bb32a5c43083f5d3279ecd4ce3d96137b351c2d105ac3548d9f2f"
     }
   ]
 }

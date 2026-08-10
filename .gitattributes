@@ -5,3 +5,4 @@ assets/seed/MANIFEST.json text eol=lf
 assets/seed/seed.version text eol=lf
 assets/seed/skills/**/SKILL.md text eol=lf
 assets/seed/skills/**/openai.yaml text eol=lf
+assets/seed/hooks/**/hooks.json text eol=lf

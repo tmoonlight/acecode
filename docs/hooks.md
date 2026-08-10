@@ -334,5 +334,5 @@ Legacy hooks use direct `command + args` process execution, not shell command st
 
 ## Integration Examples
 
-- [Herdr custom-agent hook](herdr-hooks.md): optional, cross-platform lifecycle
-  reporting implemented entirely as local hook configuration.
+- [Herdr custom-agent hook](herdr-hooks.md): default-seeded, cross-platform
+  lifecycle reporting implemented entirely as managed hook configuration.

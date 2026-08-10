@@ -8,9 +8,10 @@ embedding a Herdr reporter in AceCode runtime code.
 The final architecture is:
 
 1. AceCode adds one generic lifecycle extension, `PermissionResolved`.
-2. An optional, standalone hook file maps generic lifecycle events to Herdr CLI
-   commands: [`examples/herdr-hooks.json`](examples/herdr-hooks.json).
-3. Users who do not install that JSON get no Herdr-specific behavior.
+2. A versioned default hook seed maps generic lifecycle events to Herdr CLI
+   commands: [`../assets/seed/hooks/agent-reporting/hooks.json`](../assets/seed/hooks/agent-reporting/hooks.json).
+3. Default startup reconciliation installs the hook under
+   `~/.acecode/hooks/agent-reporting/`; outside Herdr its guards make it a no-op.
 
 Explicit non-goals:
 
@@ -50,12 +51,19 @@ additional context and allow/deny output are ignored.
 No resolution event is emitted for tools that were auto-allowed without a
 `PermissionRequest`.
 
-### Herdr hook JSON
+### Herdr hook JSON and default seed
 
 Files:
 
+- `assets/seed/hooks/agent-reporting/hooks.json`
 - `docs/examples/herdr-hooks.json`
 - `docs/herdr-hooks.md`
+
+The seed transaction installs, upgrades, and recovers this hook alongside the
+default Skills and Experts without rewriting user hook files. The registry only
+marks the installed source `ManagedTrusted` while its parsed definition matches
+the official built-in fingerprint; a modified copy is preserved but not run as
+a managed hook.
 
 The single JSON file contains both POSIX `command` and Windows
 `commandWindows` handlers. Every command requires the complete Herdr pane
@@ -153,9 +161,9 @@ ctest --test-dir build/<preset> --output-on-failure
 cmake --build build/<preset> --target acecode
 ```
 
-On a Windows machine, additionally install and trust
-`docs/examples/herdr-hooks.json` in a Herdr pane and verify the
-`commandWindows` handlers with a real Herdr executable.
+On a Windows machine, additionally start a build containing the new seed in a
+Herdr pane and verify the seeded `commandWindows` handlers with a real Herdr
+executable.
 
 ## Review checklist
 
@@ -163,7 +171,8 @@ On a Windows machine, additionally install and trust
   permission paths.
 - Confirm outputs from the observational event cannot change a decision.
 - Confirm the Herdr example remains entirely outside `src/`.
-- Confirm existing hook trust review is required before local commands run.
+- Confirm only the fingerprint-matched default seed is managed-trusted; user
+  hook sources retain normal trust review.
 - Confirm the one-second synchronous CLI timeout is acceptable; async Codex
   command hooks are currently unsupported.
 - Keep the documented limitation: custom Herdr sources do not provide native

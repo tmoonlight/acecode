@@ -1,0 +1,101 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-metadata \"$HERDR_PANE_ID\" --source custom:acecode-metadata --agent acecode --applies-to-source custom:acecode --display-agent AceCode --state-label idle=Ready --state-label working=Working --state-label blocked=Waiting >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-metadata \"%HERDR_PANE_ID%\" --source custom:acecode-metadata --agent acecode --applies-to-source custom:acecode --display-agent AceCode --state-label idle=Ready --state-label working=Working --state-label blocked=Waiting >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          },
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-agent \"$HERDR_PANE_ID\" --source custom:acecode --agent acecode --state idle >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-agent \"%HERDR_PANE_ID%\" --source custom:acecode --agent acecode --state idle >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-agent \"$HERDR_PANE_ID\" --source custom:acecode --agent acecode --state working >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-agent \"%HERDR_PANE_ID%\" --source custom:acecode --agent acecode --state working >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-agent \"$HERDR_PANE_ID\" --source custom:acecode --agent acecode --state blocked >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-agent \"%HERDR_PANE_ID%\" --source custom:acecode --agent acecode --state blocked >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "PermissionResolved": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-agent \"$HERDR_PANE_ID\" --source custom:acecode --agent acecode --state working >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-agent \"%HERDR_PANE_ID%\" --source custom:acecode --agent acecode --state working >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-agent \"$HERDR_PANE_ID\" --source custom:acecode --agent acecode --state blocked >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-agent \"%HERDR_PANE_ID%\" --source custom:acecode --agent acecode --state blocked >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-agent \"$HERDR_PANE_ID\" --source custom:acecode --agent acecode --state working >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-agent \"%HERDR_PANE_ID%\" --source custom:acecode --agent acecode --state working >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_PANE_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${HERDR_BIN_PATH:-}\" ] && \"$HERDR_BIN_PATH\" pane report-agent \"$HERDR_PANE_ID\" --source custom:acecode --agent acecode --state idle >/dev/null 2>&1 || true",
+            "commandWindows": "if \"%HERDR_ENV%\"==\"1\" if not \"%HERDR_PANE_ID%\"==\"\" if not \"%HERDR_SOCKET_PATH%\"==\"\" if not \"%HERDR_BIN_PATH%\"==\"\" \"%HERDR_BIN_PATH%\" pane report-agent \"%HERDR_PANE_ID%\" --source custom:acecode --agent acecode --state idle >nul 2>&1 & exit /b 0",
+            "timeout": 1
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 #include "hook_registry.hpp"
 
 #include "../config/config.hpp"
+#include "../skills/default_skill_seeder.hpp"
 #include "../utils/atomic_file.hpp"
 #include "../utils/encoding.hpp"
 #include "../utils/paths.hpp"
@@ -738,6 +739,52 @@ HookRegistrySnapshot load_hook_registry(const HookLoadOptions& options,
         bool project_local = false;
     };
     std::vector<Candidate> candidates;
+    for (const auto& seed : default_hook_seeds()) {
+        const fs::path path =
+            path_from_utf8(ace_home) / "hooks" /
+            seed.relative_path / "hooks.json";
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec)) continue;
+
+        HookSource source = make_source(
+            HookSourceScope::Managed,
+            HookSourceFormat::CodexJson,
+            path_to_utf8(path),
+            true);
+        source.label = seed.source_id;
+
+        std::string error;
+        auto root = load_json_file(source.path, &error);
+        if (!root.has_value()) {
+            auto d = diag(
+                HookDiagnosticSeverity::Error,
+                "MANAGED_SEED_HOOK_PARSE_FAILED",
+                "failed to parse managed seed hook: " + error,
+                source);
+            source.diagnostics.push_back(d);
+            snapshot.sources.push_back(std::move(source));
+            snapshot.diagnostics.push_back(std::move(d));
+            continue;
+        }
+
+        const std::string definition_sha256 = sha256_hex(root->dump());
+        if (definition_sha256 != seed.definition_sha256) {
+            auto d = diag(
+                HookDiagnosticSeverity::Warning,
+                "MANAGED_SEED_HOOK_DEFINITION_MISMATCH",
+                "managed seed hook differs from the bundled definition; "
+                "automatic trust was withheld",
+                source);
+            source.diagnostics.push_back(d);
+            snapshot.sources.push_back(std::move(source));
+            snapshot.diagnostics.push_back(std::move(d));
+            continue;
+        }
+
+        merge_snapshot(snapshot, parse_codex_hooks_json_source(
+            *root, std::move(source)));
+    }
+
     candidates.push_back({
         make_source(HookSourceScope::Legacy, HookSourceFormat::Unknown,
                     path_to_utf8(path_from_utf8(ace_home) / "hooks.json")),

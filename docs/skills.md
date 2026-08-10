@@ -22,10 +22,11 @@ Skills live under built-in roots `~/.acecode/skills/` and compatible `~/.agent/s
 ## Default seeded resources
 
 At startup, ACECode compares the packaged `assets/seed/seed.version` revision with
-`~/.acecode/seed.version` before the first Skill and expert registry scans. The revision uses
+`~/.acecode/seed.version` before the first Skill, expert, and hook registry scans. The revision uses
 `YYYY-MM-DD.N`, where `N` is a numeric revision for that date. A missing, invalid,
 or older user marker triggers an offline reconciliation of bundled Skills into
-`~/.acecode/skills/` and bundled experts into `~/.acecode/experts/`. An equal marker is a no-op, and a newer user marker prevents
+`~/.acecode/skills/`, bundled experts into `~/.acecode/experts/`, and managed hook
+packages into `~/.acecode/hooks/`. An equal marker is a no-op, and a newer user marker prevents
 an older installation from downgrading the bundle.
 
 The default Skill bundle contains:
@@ -43,12 +44,21 @@ The default Skill bundle contains:
 The expert bundle contains the OPC one-person-company team, its lead, and eight
 stage experts under the `opc-*` package IDs.
 
-Missing resources are installed. A previously seeded Skill or expert is updated
+The managed hook bundle contains `agent-reporting`, which connects the generic
+ACECode lifecycle events to Herdr when ACECode is launched inside a Herdr pane.
+It is a guarded no-op elsewhere. Seed reconciliation does not rewrite
+`~/.acecode/hooks.json`, `~/.codex/hooks.json`, or project hook files.
+
+Missing resources are installed. A previously seeded Skill, expert, or hook is updated
 only when its complete installed directory still matches the ACECode-owned hash recorded in
 `~/.acecode/.seed_skills_state.json`. Unknown directories and user-modified seeded
 resources are preserved. ACECode atomically records the detailed reconciliation state
 before advancing `~/.acecode/seed.version`, so an interrupted or failed run can be
 retried on the next startup.
+
+Managed seed hooks receive automatic trust only while their parsed JSON definition
+matches the official fingerprint built into ACECode. Modified or malformed seed hook
+files remain on disk but are not executed as managed hooks.
 
 When the packaged seed bundle changes, update `assets/seed/seed.version` and keep
 the same revision in `assets/seed/MANIFEST.json`.

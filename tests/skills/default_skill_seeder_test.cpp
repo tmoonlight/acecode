@@ -1,11 +1,13 @@
 #include "skills/default_skill_seeder.hpp"
 #include "skills/skill_registry.hpp"
 #include "experts/expert_registry.hpp"
+#include "hooks/hook_registry.hpp"
 #include "utils/sha256.hpp"
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -110,6 +112,29 @@ void write_expert_package(const fs::path& dir,
     write_file(dir / "expert.json", manifest.dump(2) + "\n");
 }
 
+void write_hook_package(const fs::path& dir,
+                        const std::string& command = "seeded-hook") {
+    nlohmann::json config = {
+        {"hooks",
+         {
+             {"SessionStart",
+              nlohmann::json::array({
+                  {
+                      {"matcher", "*"},
+                      {"hooks",
+                       nlohmann::json::array({
+                           {
+                               {"type", "command"},
+                               {"command", command},
+                           },
+                       })},
+                  },
+              })},
+         }},
+    };
+    write_file(dir / "hooks.json", config.dump(2) + "\n");
+}
+
 void write_seed_bundle(const fs::path& seed_root,
                        const std::string& version = kSeedVersion1,
                        const std::string& description_prefix = "seeded ") {
@@ -123,6 +148,10 @@ void write_seed_bundle(const fs::path& seed_root,
         write_expert_package(
             seed_root.parent_path() / "experts" / seed.relative_path,
             seed);
+    }
+    for (const auto& seed : acecode::default_hook_seeds()) {
+        write_hook_package(
+            seed_root.parent_path() / "hooks" / seed.relative_path);
     }
     write_seed_version(seed_root, version);
 }
@@ -200,6 +229,16 @@ std::size_t count_expert_outcome(
     return count;
 }
 
+std::size_t count_hook_outcome(
+    const acecode::DefaultSkillSeedInstallResult& result,
+    const std::string& value) {
+    std::size_t count = 0;
+    for (const auto& outcome : result.hook_outcomes) {
+        if (outcome.result == value) ++count;
+    }
+    return count;
+}
+
 const acecode::DefaultSkillSeedOutcome* find_outcome(
     const acecode::DefaultSkillSeedInstallResult& result,
     const std::string& name) {
@@ -213,6 +252,15 @@ const acecode::DefaultSkillSeedOutcome* find_expert_outcome(
     const acecode::DefaultSkillSeedInstallResult& result,
     const std::string& name) {
     for (const auto& outcome : result.expert_outcomes) {
+        if (outcome.name == name) return &outcome;
+    }
+    return nullptr;
+}
+
+const acecode::DefaultSkillSeedOutcome* find_hook_outcome(
+    const acecode::DefaultSkillSeedInstallResult& result,
+    const std::string& name) {
+    for (const auto& outcome : result.hook_outcomes) {
         if (outcome.name == name) return &outcome;
     }
     return nullptr;
@@ -254,6 +302,9 @@ TEST_F(DefaultSkillSeederTest, ExistingHomeWithoutMarkerReceivesAllDefaults) {
         count_expert_outcome(result, "installed"),
         acecode::default_expert_seeds().size());
     EXPECT_EQ(
+        count_hook_outcome(result, "installed"),
+        acecode::default_hook_seeds().size());
+    EXPECT_EQ(
         trim_ascii(read_file(
             acecode::default_skill_seed_version_path(home))),
         kSeedVersion1);
@@ -266,10 +317,14 @@ TEST_F(DefaultSkillSeederTest, ExistingHomeWithoutMarkerReceivesAllDefaults) {
         EXPECT_TRUE(fs::is_regular_file(
             home / "experts" / seed.relative_path / "expert.json"));
     }
+    for (const auto& seed : acecode::default_hook_seeds()) {
+        EXPECT_TRUE(fs::is_regular_file(
+            home / "hooks" / seed.relative_path / "hooks.json"));
+    }
 
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
-    EXPECT_EQ(state["schema_version"], 3);
+    EXPECT_EQ(state["schema_version"], 4);
     EXPECT_EQ(state["bundle_version"], kSeedVersion1);
     EXPECT_TRUE(state["completed"].get<bool>());
     ASSERT_EQ(
@@ -292,6 +347,34 @@ TEST_F(DefaultSkillSeederTest, ExistingHomeWithoutMarkerReceivesAllDefaults) {
             item["installed_tree_sha256"].get<std::string>().size(),
             64u);
     }
+    ASSERT_EQ(
+        state["hooks"].size(),
+        acecode::default_hook_seeds().size());
+    for (const auto& item : state["hooks"]) {
+        EXPECT_TRUE(item["acecode_owned"].get<bool>());
+        EXPECT_EQ(item["source_tree_sha256"].get<std::string>().size(), 64u);
+        EXPECT_EQ(
+            item["installed_tree_sha256"].get<std::string>().size(),
+            64u);
+    }
+}
+
+TEST_F(DefaultSkillSeederTest, HookSeedDoesNotRewriteUserHookFiles) {
+    const fs::path user_hooks = home / "hooks.json";
+    const std::string user_config =
+        "{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\","
+        "\"command\":\"user-hook\"}]}]}}\n";
+    write_file(user_hooks, user_config);
+
+    const auto result =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    ASSERT_TRUE(result.version_written);
+    EXPECT_EQ(read_file(user_hooks), user_config);
+    ASSERT_EQ(result.hook_outcomes.size(), 1u);
+    EXPECT_EQ(result.hook_outcomes[0].result, "installed");
+    EXPECT_TRUE(fs::is_regular_file(
+        home / "hooks" / "agent-reporting" / "hooks.json"));
 }
 
 TEST_F(DefaultSkillSeederTest, SeededSkillsAreVisibleInSameRegistryScan) {
@@ -375,6 +458,7 @@ TEST_F(DefaultSkillSeederTest, EqualVersionIsANoOp) {
     EXPECT_FALSE(second.version_written);
     EXPECT_TRUE(second.outcomes.empty());
     EXPECT_TRUE(second.expert_outcomes.empty());
+    EXPECT_TRUE(second.hook_outcomes.empty());
     EXPECT_NE(
         read_file(target / "SKILL.md").find(
             "changed after reconciliation"),
@@ -491,6 +575,55 @@ TEST_F(DefaultSkillSeederTest, UpdatesPristineAcecodeOwnedExpert) {
             home / "experts" / seed.relative_path / "expert.json")
             ["displayName"],
         "new bundled expert");
+}
+
+TEST_F(DefaultSkillSeederTest, UpdatesPristineAcecodeOwnedHook) {
+    auto first =
+        acecode::reconcile_default_global_skills(home, seed_root);
+    ASSERT_TRUE(first.version_written);
+
+    const auto& seed = acecode::default_hook_seeds().front();
+    write_hook_package(
+        seed_root.parent_path() / "hooks" / seed.relative_path,
+        "new-bundled-hook");
+    write_seed_version(seed_root, kSeedVersion2);
+
+    auto second =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    ASSERT_TRUE(second.version_written);
+    EXPECT_EQ(count_hook_outcome(second, "updated"), 1u);
+    EXPECT_NE(
+        read_file(
+            home / "hooks" / seed.relative_path / "hooks.json")
+            .find("new-bundled-hook"),
+        std::string::npos);
+}
+
+TEST_F(DefaultSkillSeederTest, PreservesModifiedAcecodeOwnedHook) {
+    auto first =
+        acecode::reconcile_default_global_skills(home, seed_root);
+    ASSERT_TRUE(first.version_written);
+
+    const auto& seed = acecode::default_hook_seeds().front();
+    const fs::path target = home / "hooks" / seed.relative_path;
+    write_hook_package(target, "user-modified-hook");
+    write_hook_package(
+        seed_root.parent_path() / "hooks" / seed.relative_path,
+        "new-bundled-hook");
+    write_seed_version(seed_root, kSeedVersion2);
+
+    auto second =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    ASSERT_TRUE(second.version_written);
+    const auto* outcome = find_hook_outcome(second, seed.name);
+    ASSERT_NE(outcome, nullptr);
+    EXPECT_EQ(outcome->result, "preserved_user_modified");
+    EXPECT_FALSE(outcome->acecode_owned);
+    EXPECT_NE(
+        read_file(target / "hooks.json").find("user-modified-hook"),
+        std::string::npos);
 }
 
 TEST_F(DefaultSkillSeederTest, PreservesModifiedAcecodeOwnedSeed) {
@@ -790,6 +923,9 @@ TEST_F(DefaultSkillSeederTest, ConcurrentCallsProduceOneConsistentState) {
         state["experts"].size(),
         acecode::default_expert_seeds().size());
     EXPECT_EQ(
+        state["hooks"].size(),
+        acecode::default_hook_seeds().size());
+    EXPECT_EQ(
         trim_ascii(read_file(
             acecode::default_skill_seed_version_path(home))),
         kSeedVersion1);
@@ -882,6 +1018,47 @@ TEST(DefaultSkillSeedRegistryTest, PackagedManifestVersionAndHashesAgree) {
         EXPECT_EQ(manifest_expert_names.count(seed.name), 1u)
             << seed.name;
     }
+
+    ASSERT_TRUE(manifest["hooks"].is_array());
+    EXPECT_EQ(
+        manifest["hooks"].size(),
+        acecode::default_hook_seeds().size());
+    std::set<std::string> manifest_hook_names;
+    for (const auto& item : manifest["hooks"]) {
+        const std::string name = item["name"].get<std::string>();
+        const std::string relative_path =
+            item["relative_path"].get<std::string>();
+        const fs::path hooks_json =
+            seed_root / "hooks" / relative_path / "hooks.json";
+        manifest_hook_names.insert(name);
+        ASSERT_TRUE(fs::is_regular_file(hooks_json)) << hooks_json;
+        EXPECT_EQ(
+            acecode::sha256_hex(read_json(hooks_json).dump()),
+            item["definition_sha256"].get<std::string>())
+            << name;
+    }
+    for (const auto& seed : acecode::default_hook_seeds()) {
+        EXPECT_EQ(manifest_hook_names.count(seed.name), 1u) << seed.name;
+        auto item = std::find_if(
+            manifest["hooks"].begin(),
+            manifest["hooks"].end(),
+            [&](const nlohmann::json& value) {
+                return value.value("name", std::string{}) == seed.name;
+            });
+        ASSERT_NE(item, manifest["hooks"].end());
+        EXPECT_EQ(
+            (*item)["definition_sha256"].get<std::string>(),
+            seed.definition_sha256);
+    }
+    ASSERT_EQ(manifest["hooks"].size(), 1u);
+    const auto& packaged_hook = manifest["hooks"][0];
+    EXPECT_EQ(
+        read_json(
+            seed_root / "hooks" /
+            packaged_hook["relative_path"].get<std::string>() /
+            "hooks.json"),
+        read_json(repository_root / "docs" / "examples" /
+                  "herdr-hooks.json"));
 }
 
 TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
@@ -903,6 +1080,9 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     EXPECT_EQ(
         count_expert_outcome(result, "installed"),
         acecode::default_expert_seeds().size());
+    EXPECT_EQ(
+        count_hook_outcome(result, "installed"),
+        acecode::default_hook_seeds().size());
 
     acecode::SkillRegistry skill_registry;
     skill_registry.set_scan_roots({home / "skills"});
@@ -918,10 +1098,23 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     EXPECT_TRUE(
         expert_registry.find(temp_root.string(), "opc-team").has_value());
 
+    acecode::HookLoadOptions hook_options;
+    hook_options.acecode_home = home.string();
+    hook_options.codex_home = (temp_root / "missing-codex").string();
+    hook_options.include_project_sources = false;
+    const auto hook_registry = acecode::load_hook_registry(hook_options);
+    ASSERT_EQ(hook_registry.hooks.size(), 8u);
+    for (const auto& hook : hook_registry.hooks) {
+        EXPECT_TRUE(hook.managed);
+        EXPECT_EQ(
+            hook.trust_status,
+            acecode::HookTrustStatus::ManagedTrusted);
+    }
+
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
     EXPECT_TRUE(state["completed"].get<bool>());
-    EXPECT_EQ(state["bundle_version"], "2026-08-09.1");
+    EXPECT_EQ(state["bundle_version"], "2026-08-10.1");
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);

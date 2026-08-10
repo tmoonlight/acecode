@@ -17,3 +17,11 @@
 - [x] 3.1 运行 hook runtime 与 agent-loop 测试。
 - [x] 3.2 构建相关测试目标与 ACECode 目标。
 - [x] 3.3 运行格式/diff 检查，并审查最终范围是否引入 Herdr runtime coupling。
+
+## 4. 默认 seed 集成
+
+- [x] 4.1 为 hook seed 安装、版本升级、幂等、用户改动保护与用户配置隔离补测试。
+- [x] 4.2 把默认 hook 纳入通用 seed reconcile，并在首次 registry 加载前完成启动接线。
+- [x] 4.3 对 seed hook 做官方定义指纹校验，只把匹配内容标记为 `ManagedTrusted`。
+- [x] 4.4 同步 `MANIFEST.json`、`seed.version`、默认资源文档与打包元数据。
+- [x] 4.5 运行 focused tests、构建、严格 OpenSpec 校验与跨平台假 Herdr 验证。

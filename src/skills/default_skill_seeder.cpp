@@ -68,6 +68,7 @@ struct PreviousSeedState {
 struct PreviousSeedStates {
     std::unordered_map<std::string, PreviousSeedState> skills;
     std::unordered_map<std::string, PreviousSeedState> experts;
+    std::unordered_map<std::string, PreviousSeedState> hooks;
 };
 
 std::mutex g_seed_reconciliation_mutex;
@@ -201,6 +202,15 @@ bool seed_dir_has_all_resources(const fs::path& skills_dir) {
     for (const auto& seed : default_expert_seeds()) {
         if (!fs::is_regular_file(
                 experts_dir / seed.relative_path / "expert.json", ec)) {
+            return false;
+        }
+    }
+
+    const fs::path hooks_dir = skills_dir.parent_path() / "hooks";
+    if (!fs::is_directory(hooks_dir, ec)) return false;
+    for (const auto& seed : default_hook_seeds()) {
+        if (!fs::is_regular_file(
+                hooks_dir / seed.relative_path / "hooks.json", ec)) {
             return false;
         }
     }
@@ -430,12 +440,14 @@ PreviousSeedStates read_previous_seed_state(const fs::path& state_path) {
         const nlohmann::json state = nlohmann::json::parse(ifs);
         read_previous_seed_group(state, "skills", previous.skills);
         read_previous_seed_group(state, "experts", previous.experts);
+        read_previous_seed_group(state, "hooks", previous.hooks);
     } catch (const std::exception& e) {
         LOG_WARN(
             std::string("[seed] Ignoring unreadable legacy seed state: ") +
             e.what());
         previous.skills.clear();
         previous.experts.clear();
+        previous.hooks.clear();
     }
     return previous;
 }
@@ -616,6 +628,7 @@ bool recover_interrupted_seed_update(
     const fs::path& acecode_home,
     const fs::path& skill_target_root,
     const fs::path& expert_target_root,
+    const fs::path& hook_target_root,
     DefaultSkillSeedInstallResult& result) {
     const fs::path staging_root = acecode_home / kSeedStagingDir;
     const fs::path backup_root = acecode_home / kSeedBackupDir;
@@ -629,7 +642,7 @@ bool recover_interrupted_seed_update(
 
     // Releases before schema 3 stored skill backups directly below the
     // backup root. Restore those first, then handle namespaced resource
-    // backups used by the unified Skill + expert seed transaction.
+    // backups used by the unified Skill + expert + hook seed transaction.
     if (!recover_seed_group(
             default_skill_seeds(),
             backup_root,
@@ -646,10 +659,18 @@ bool recover_interrupted_seed_update(
             result)) {
         return false;
     }
-    return recover_seed_group(
+    if (!recover_seed_group(
         default_expert_seeds(),
         backup_root / "experts",
         expert_target_root,
+        backup_root,
+        result)) {
+        return false;
+    }
+    return recover_seed_group(
+        default_hook_seeds(),
+        backup_root / "hooks",
+        hook_target_root,
         backup_root,
         result);
 }
@@ -700,7 +721,7 @@ bool publish_staged_seed(const fs::path& stage_dir,
 
     fs::remove_all(backup_dir, ec);
     if (ec) {
-        LOG_WARN("[skills] Failed to remove seed update backup: " +
+        LOG_WARN("[seed] Failed to remove seed update backup: " +
                  ec.message());
     }
     return true;
@@ -759,20 +780,25 @@ bool write_seed_state(
     bool completed,
     const PreviousSeedStates& previous) {
     nlohmann::json state;
-    state["schema_version"] = 3;
+    state["schema_version"] = 4;
     state["bundle_version"] = result.bundle_version;
     state["completed"] = completed;
     state["seed_skills_dir"] =
         path_to_utf8_generic(result.seed_skills_dir);
     state["seed_experts_dir"] =
         path_to_utf8_generic(result.seed_experts_dir);
+    state["seed_hooks_dir"] =
+        path_to_utf8_generic(result.seed_hooks_dir);
     state["target_root"] = path_to_utf8_generic(result.target_root);
     state["expert_target_root"] =
         path_to_utf8_generic(result.expert_target_root);
+    state["hook_target_root"] =
+        path_to_utf8_generic(result.hook_target_root);
     state["generated_at_unix"] =
         static_cast<long long>(std::time(nullptr));
     state["skills"] = nlohmann::json::array();
     state["experts"] = nlohmann::json::array();
+    state["hooks"] = nlohmann::json::array();
 
     append_seed_state_group(
         state["skills"], result.outcomes, previous.skills, true);
@@ -780,6 +806,11 @@ bool write_seed_state(
         state["experts"],
         result.expert_outcomes,
         previous.experts,
+        false);
+    append_seed_state_group(
+        state["hooks"],
+        result.hook_outcomes,
+        previous.hooks,
         false);
 
     if (!atomic_write_file(
@@ -1148,6 +1179,16 @@ const std::vector<DefaultExpertSeed>& default_expert_seeds() {
     return seeds;
 }
 
+const std::vector<DefaultHookSeed>& default_hook_seeds() {
+    static const std::vector<DefaultHookSeed> seeds = {
+        {"agent-reporting",
+         "acecode:managed-hook/agent-reporting@2026-08-10",
+         "agent-reporting",
+         "b731118b927bb32a5c43083f5d3279ecd4ce3d96137b351c2d105ac3548d9f2f"},
+    };
+    return seeds;
+}
+
 std::optional<fs::path> find_default_skill_seed_dir(
     const std::string& argv0_dir) {
     const std::string env = getenv_utf8("ACECODE_SEED_SKILLS_DIR");
@@ -1210,8 +1251,11 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
     result.seed_skills_dir = normalized_path(seed_skills_dir);
     result.seed_experts_dir =
         result.seed_skills_dir.parent_path() / "experts";
+    result.seed_hooks_dir =
+        result.seed_skills_dir.parent_path() / "hooks";
     result.target_root = acecode_home / "skills";
     result.expert_target_root = acecode_home / "experts";
+    result.hook_target_root = acecode_home / "hooks";
     result.state_path = default_skill_seed_state_path(acecode_home);
     result.version_path = default_skill_seed_version_path(acecode_home);
 
@@ -1223,6 +1267,7 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
                 acecode_home,
                 result.target_root,
                 result.expert_target_root,
+                result.hook_target_root,
                 result)) {
             result.attempted = true;
             return result;
@@ -1279,6 +1324,13 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
                 "failed to create global experts root: " + ec.message());
             return result;
         }
+        fs::create_directories(result.hook_target_root, ec);
+        if (ec) {
+            append_error(
+                result,
+                "failed to create global hooks root: " + ec.message());
+            return result;
+        }
 
         const auto previous =
             read_previous_seed_state(result.state_path);
@@ -1310,6 +1362,19 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
             "expert",
             previous.experts,
             result.expert_outcomes,
+            result,
+            completed);
+        reconcile_seed_group(
+            default_hook_seeds(),
+            result.seed_hooks_dir,
+            result.hook_target_root,
+            staging_root,
+            backup_root,
+            "hooks",
+            "hooks.json",
+            "hook",
+            previous.hooks,
+            result.hook_outcomes,
             result,
             completed);
 
@@ -1347,6 +1412,7 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills_on_startup(
     DefaultSkillSeedInstallResult result;
     result.target_root = acecode_home / "skills";
     result.expert_target_root = acecode_home / "experts";
+    result.hook_target_root = acecode_home / "hooks";
     result.state_path = default_skill_seed_state_path(acecode_home);
     result.version_path = default_skill_seed_version_path(acecode_home);
 
