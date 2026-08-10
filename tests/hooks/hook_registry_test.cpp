@@ -127,6 +127,31 @@ TEST(HookRegistry, ParsesCodexCommandFieldsAndDefaultTimeout) {
     EXPECT_FALSE(hook.skipped);
 }
 
+TEST(HookRegistry, DetectsBarePermissionResolvedObjectAsCodexHooks) {
+    auto j = nlohmann::json::parse(R"({
+        "PermissionResolved": [
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {"type": "command", "command": "python resolved.py"}
+                ]
+            }
+        ]
+    })");
+
+    auto registry = acecode::parse_hook_source_json(
+        j,
+        source_for("/repo/.acecode/hooks.json",
+                   acecode::HookSourceScope::UserGlobal,
+                   acecode::HookSourceFormat::Unknown),
+        true);
+
+    ASSERT_EQ(registry.hooks.size(), 1u);
+    EXPECT_EQ(registry.hooks[0].event_name, "PermissionResolved");
+    EXPECT_EQ(registry.hooks[0].matcher, "Bash");
+    EXPECT_EQ(registry.hooks[0].command.command, "python resolved.py");
+}
+
 TEST(HookRegistry, ParsesUnsupportedAndAsyncHandlersAsSkipped) {
     auto j = nlohmann::json::parse(R"({
         "hooks": {

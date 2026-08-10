@@ -1,50 +1,51 @@
 ## ADDED Requirements
 
-### Requirement: Permission request resolution is observable
+### Requirement: 权限请求的解决过程可观测
 
-When AceCode dispatches `PermissionRequest`, it SHALL dispatch exactly one
-`PermissionResolved` event after the permission decision is finalized.
+ACECode 在派发 `PermissionRequest` 后，MUST 在授权决定确定后恰好派发一次 `PermissionResolved`。
 
-#### Scenario: Interactive denial
+#### Scenario: 交互拒绝
 
-- **WHEN** a tool requires confirmation and the user denies it
-- **THEN** `PermissionResolved` runs with decision `deny` and source `interactive`
-- **AND** it runs before the denial result returns to the model
+- **WHEN** 工具需要确认且用户拒绝
+- **THEN** `PermissionResolved` 以决定 `deny`、来源 `interactive` 运行
+- **AND** 该事件在拒绝结果返回模型前运行
 
-#### Scenario: Interactive approval
+#### Scenario: 交互授权
 
-- **WHEN** a tool requires confirmation and the user approves it
-- **THEN** `PermissionResolved` runs with decision `allow` or `always_allow`
-- **AND** it runs before tool execution starts
+- **WHEN** 工具需要确认且用户授权
+- **THEN** `PermissionResolved` 以决定 `allow` 或 `always_allow` 运行
+- **AND** 该事件在工具开始执行前运行
 
-#### Scenario: Hook decision
+#### Scenario: 钩子决定
 
-- **WHEN** `PermissionRequest` itself allows or denies the tool
-- **THEN** `PermissionResolved` runs with source `hook`
+- **WHEN** `PermissionRequest` 自身允许或拒绝工具
+- **THEN** `PermissionResolved` 以来源 `hook` 运行
 
-#### Scenario: No request was emitted
+#### Scenario: 未派发请求
 
-- **WHEN** policy auto-allows a tool without dispatching `PermissionRequest`
-- **THEN** AceCode does not dispatch `PermissionResolved`
+- **WHEN** 策略自动允许工具且未派发 `PermissionRequest`
+- **THEN** ACECode 不派发 `PermissionResolved`
 
-### Requirement: PermissionResolved is generic and observational
+### Requirement: PermissionResolved 保持通用且只用于观测
 
-The event SHALL expose common hook fields, tool identity/input,
-`permission_decision`, and `permission_source`. Hook output SHALL NOT change the
-already finalized permission decision.
+事件 MUST 公开公共 hook 字段、工具标识与输入、`permission_decision` 和 `permission_source`。hook 输出不得更改已经确定的授权决定。
 
-### Requirement: Herdr support is optional hook configuration
+#### Scenario: 仅配置解决事件
 
-The repository SHALL provide a single cross-platform hook JSON example that
-reports AceCode lifecycle state through Herdr's custom-agent CLI.
+- **WHEN** Codex hook 源采用只含 `PermissionResolved` 的裸事件对象
+- **THEN** ACECode 将其识别为 Codex hook 配置并加载 handler
 
-#### Scenario: Running outside Herdr
+### Requirement: Herdr 支持采用可选 hook 配置
 
-- **WHEN** any example hook runs without complete Herdr pane environment
-- **THEN** it exits successfully without invoking Herdr
+仓库 MUST 提供一个跨平台 hook JSON 示例，通过 Herdr custom-agent CLI 上报 ACECode 生命周期状态。
 
-#### Scenario: Running inside Herdr
+#### Scenario: 在 Herdr 外运行
 
-- **WHEN** the example is installed and trusted in a Herdr pane
-- **THEN** it reports `idle`, `working`, and `blocked` from generic lifecycle events
-- **AND** AceCode core contains no Herdr-specific runtime detection or reporter
+- **WHEN** 任一示例 hook 在缺少完整 Herdr pane 环境时运行
+- **THEN** 它成功退出且不调用 Herdr
+
+#### Scenario: 在 Herdr 内运行
+
+- **WHEN** 示例已安装并在 Herdr pane 中受信任
+- **THEN** 它通过通用生命周期事件上报 `idle`、`working` 与 `blocked`
+- **AND** ACECode core 不包含 Herdr 专属的运行时检测或 reporter

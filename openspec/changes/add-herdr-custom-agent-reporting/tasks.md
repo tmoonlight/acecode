@@ -1,17 +1,19 @@
-## 1. Generic lifecycle event
+## 1. 通用生命周期事件
 
-- [x] 1.1 Add failing payload and agent-loop tests for `PermissionResolved`.
-- [x] 1.2 Add the event constant and generic payload builder.
-- [x] 1.3 Dispatch exactly one resolution for hook, interactive, headless, and implicit decisions.
+- [x] 1.1 为 `PermissionResolved` 新增先失败的载荷与 agent-loop 测试。
+- [x] 1.2 新增事件常量与通用载荷构造器。
+- [x] 1.3 对 hook、interactive、headless 与 implicit 决定恰好派发一次解决事件。
+- [x] 1.4 将 `PermissionResolved` 注册到裸 Codex hook 对象识别逻辑，并补回归测试。
+- [x] 1.5 覆盖 interactive always-allow、headless deny 与 implicit allow 的来源归因。
 
-## 2. Optional configuration
+## 2. 可选配置
 
-- [x] 2.1 Add one cross-platform Herdr hooks JSON example.
-- [x] 2.2 Document installation, trust review, state mapping, and limitations.
-- [ ] 2.3 Validate the example through a fake Herdr executable.
+- [x] 2.1 新增一个跨平台 Herdr hooks JSON 示例。
+- [x] 2.2 记录安装、信任审查、状态映射与限制。
+- [x] 2.3 通过假 Herdr 可执行文件验证示例。
 
-## 3. Verification
+## 3. 验证
 
-- [ ] 3.1 Run hook runtime and agent-loop tests.
-- [ ] 3.2 Build the relevant test and AceCode targets.
-- [ ] 3.3 Run formatting/diff checks and inspect the final scope for Herdr runtime coupling.
+- [x] 3.1 运行 hook runtime 与 agent-loop 测试。
+- [x] 3.2 构建相关测试目标与 ACECode 目标。
+- [x] 3.3 运行格式/diff 检查，并审查最终范围是否引入 Herdr runtime coupling。

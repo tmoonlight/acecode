@@ -65,6 +65,7 @@ bool is_known_codex_event(const std::string& key) {
     return key == "SessionStart" ||
         key == "PreToolUse" ||
         key == "PermissionRequest" ||
+        key == "PermissionResolved" ||
         key == "PostToolUse" ||
         key == "PreCompact" ||
         key == "PostCompact" ||
