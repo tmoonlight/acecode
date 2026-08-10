@@ -605,6 +605,8 @@ private:
     std::atomic<bool> git_snapshot_stale_{false};
     std::string session_context_cache_key_;
     std::string session_context_cache_content_;
+    std::string skill_context_cache_key_;
+    std::string skill_context_cache_content_;
     // Worker-thread-only flag derived from the current root UserInput. It
     // remains active across all provider iterations in that turn.
     bool active_turn_swarm_mode_ = false;

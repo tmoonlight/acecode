@@ -21,6 +21,33 @@ struct PromptContextBlock {
     // Stable key for session-local caching and diagnostics. Empty when content
     // is empty.
     std::string cache_key;
+    // Optional diagnostic emitted when a new cached revision is installed.
+    std::string warning;
+};
+
+enum class SkillMetadataBudgetUnit {
+    Tokens,
+    Characters,
+};
+
+struct SkillMetadataBudget {
+    SkillMetadataBudgetUnit unit = SkillMetadataBudgetUnit::Characters;
+    std::size_t limit = 0;
+};
+
+struct SkillIndexRenderReport {
+    std::size_t total_count = 0;
+    std::size_t included_count = 0;
+    std::size_t omitted_count = 0;
+    std::size_t truncated_description_chars = 0;
+    std::size_t truncated_description_count = 0;
+
+    std::string warning_message() const;
+};
+
+struct SkillIndexRenderResult {
+    std::string content;
+    SkillIndexRenderReport report;
 };
 
 struct PromptCacheDiagnostics {
@@ -59,23 +86,22 @@ PromptContextBlock build_user_memory_context_prompt(
 PromptContextBlock build_custom_instructions_context_prompt(
     const CustomInstructionsConfig* cfg);
 
-// Skill index injection (openspec/changes/inject-skill-index-into-context):
+// Skill index injection (openspec/changes/adopt-codex-skill-catalog):
 // push a compact name+description index into the per-request session context
 // so the model can pattern-match user requests against installed skills.
 // Without this the model has zero visibility into the skill set and never
 // calls skills_list proactively.
 
-// Character budget for the rendered index: 1% of the context window at an
-// estimated 4 chars/token. Unknown window (<=0) falls back to 8000 chars.
-std::size_t skills_index_char_budget(int context_window_tokens);
+// Codex-compatible metadata budget: 2% of a known context window in tokens.
+// Unknown windows (<=0) fall back to 8000 Unicode characters.
+SkillMetadataBudget skills_index_budget(int context_window_tokens);
 
-// Render the index grouped by category. Each entry is
-// "- <name>: <description> — <when_to_use>" capped at 250 chars (UTF-8 safe).
-// Over budget → all entries degrade to names-only; still over → the tail is
-// cut and a "(+N more skills — call skills_list to see all)" marker appended.
-std::string format_skills_index_within_budget(
+// Render the index grouped by category. Combined descriptions are capped at
+// 1024 Unicode code points. If the full index does not fit, description space
+// is allocated round-robin across every skill before any skill is omitted.
+SkillIndexRenderResult format_skills_index_within_budget(
     const std::vector<SkillMetadata>& skills,
-    std::size_t char_budget,
+    SkillMetadataBudget budget,
     bool skills_list_available = true);
 
 // Wrap the rendered index in a titled block with a content-hash cache key.
@@ -111,7 +137,8 @@ PromptContextBlock build_session_context_prompt(
     PromptContextCategoryBytes* category_bytes = nullptr,
     bool skill_view_available = true,
     bool skills_list_available = true,
-    bool spawn_subagent_available = true);
+    bool spawn_subagent_available = true,
+    bool include_skill_index = false);
 
 // Build one-turn proactive delegation guidance. Empty output means swarm mode
 // is disabled or the effective tool policy cannot expose spawn_subagent.

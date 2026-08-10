@@ -1,9 +1,10 @@
 // 覆盖 src/prompt/system_prompt.{hpp,cpp} 的 skill 索引注入逻辑
-// (openspec/changes/inject-skill-index-into-context):
-// - 索引格式化:category 分组 / whenToUse 拼接 / 单条 250 字符 UTF-8 安全截断
-// - 预算退化:超预算 → names-only → 截尾 + "(+N more)" marker
+// (openspec/changes/adopt-codex-skill-catalog):
+// - 索引格式化:category 分组 / whenToUse 拼接 / 单条 1024 字符 UTF-8 安全截断
+// - Codex 预算:已知窗口 2% token / 未知窗口 8000 字符
+// - 公平退化:先保留所有名称,再 round-robin 分配描述,极端时才省略条目
 // - PromptContextBlock 装配:空 registry 不发块,cache_key 跟随 skill 集变化
-// - session context 集成:skills 块进 system-reminder
+// - session context 隔离:skills 块不再进入 user-role system-reminder
 // - 静态 system prompt 措辞:指向索引而非 skills_list 枚举
 //
 // 背景 bug:此前 skill 清单从不进入模型上下文,模型对已安装 skill 零可见,
@@ -38,6 +39,18 @@ acecode::SkillMetadata make_skill(const std::string& name,
     meta.category = category;
     meta.when_to_use = when_to_use;
     return meta;
+}
+
+acecode::SkillMetadataBudget char_budget(std::size_t limit) {
+    return {acecode::SkillMetadataBudgetUnit::Characters, limit};
+}
+
+std::size_t utf8_chars(const std::string& text) {
+    std::size_t count = 0;
+    for (unsigned char byte : text) {
+        if ((byte & 0xC0) != 0x80) ++count;
+    }
+    return count;
 }
 
 void write_skill_md(const fs::path& root,
@@ -76,21 +89,29 @@ protected:
 };
 
 // ---------------------------------------------------------------------------
-// skills_index_char_budget
+// skills_index_budget
 // ---------------------------------------------------------------------------
 
 // 触发场景:已知 context window(128k tokens)。
-// 期望:预算 = 1% × 4 chars/token = 128000 * 4 / 100 = 5120 字符。
-TEST(SkillsIndexBudgetTest, KnownWindowGivesOnePercentInChars) {
-    EXPECT_EQ(acecode::skills_index_char_budget(128000), 5120u);
-    EXPECT_EQ(acecode::skills_index_char_budget(200000), 8000u);
+// 期望:预算 = 2% tokens = 2560 tokens。
+TEST(SkillsIndexBudgetTest, KnownWindowGivesTwoPercentInTokens) {
+    const auto budget128k = acecode::skills_index_budget(128000);
+    EXPECT_EQ(budget128k.unit, acecode::SkillMetadataBudgetUnit::Tokens);
+    EXPECT_EQ(budget128k.limit, 2560u);
+
+    const auto budget200k = acecode::skills_index_budget(200000);
+    EXPECT_EQ(budget200k.unit, acecode::SkillMetadataBudgetUnit::Tokens);
+    EXPECT_EQ(budget200k.limit, 4000u);
 }
 
 // 触发场景:context window 未知(0 或负数,如 provider 探测失败)。
-// 期望:退回 8000 字符兜底(≈ 200k 窗口的 1%),与 claude-code 默认一致。
-TEST(SkillsIndexBudgetTest, UnknownWindowFallsBackTo8000) {
-    EXPECT_EQ(acecode::skills_index_char_budget(0), 8000u);
-    EXPECT_EQ(acecode::skills_index_char_budget(-1), 8000u);
+// 期望:退回 Codex 的 8000 Unicode 字符兜底。
+TEST(SkillsIndexBudgetTest, UnknownWindowFallsBackTo8000Characters) {
+    for (int window : {0, -1}) {
+        const auto budget = acecode::skills_index_budget(window);
+        EXPECT_EQ(budget.unit, acecode::SkillMetadataBudgetUnit::Characters);
+        EXPECT_EQ(budget.limit, 8000u);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +120,10 @@ TEST(SkillsIndexBudgetTest, UnknownWindowFallsBackTo8000) {
 
 // 触发场景:无 skill。期望:空串(调用方据此跳过整个块)。
 TEST(SkillsIndexFormatTest, EmptyListRendersEmpty) {
-    EXPECT_EQ(acecode::format_skills_index_within_budget({}, 8000), "");
+    const auto result =
+        acecode::format_skills_index_within_budget({}, char_budget(8000));
+    EXPECT_TRUE(result.content.empty());
+    EXPECT_EQ(result.report.total_count, 0u);
 }
 
 // 触发场景:无 category 与有 category 的 skill 混合。
@@ -110,11 +134,14 @@ TEST(SkillsIndexFormatTest, GroupsByCategoryWithFlatEntriesFirst) {
         make_skill("review-pr", "Review pull requests", "review"),
         make_skill("standalone", "A flat skill"),
     };
-    std::string out = acecode::format_skills_index_within_budget(skills, 8000);
-    EXPECT_EQ(out,
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, char_budget(8000));
+    EXPECT_EQ(rendered.content,
               "- standalone: A flat skill\n"
               "review:\n"
               "  - review-pr: Review pull requests");
+    EXPECT_EQ(rendered.report.included_count, 2u);
+    EXPECT_EQ(rendered.report.omitted_count, 0u);
 }
 
 // 触发场景:skill 带 whenToUse 触发条件。
@@ -124,46 +151,82 @@ TEST(SkillsIndexFormatTest, AppendsWhenToUseAfterDescription) {
     std::vector<acecode::SkillMetadata> skills = {
         make_skill("commit", "Create a git commit", "", "Use when the user asks to commit changes"),
     };
-    std::string out = acecode::format_skills_index_within_budget(skills, 8000);
-    EXPECT_EQ(out, "- commit: Create a git commit \xE2\x80\x94 Use when the user asks to commit changes");
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, char_budget(8000));
+    EXPECT_EQ(rendered.content, "- commit: Create a git commit \xE2\x80\x94 Use when the user asks to commit changes");
 }
 
-// 触发场景:描述(含 whenToUse)超过 250 字符单条上限。
-// 期望:UTF-8 边界安全截断 + "..." 收尾,整行描述部分 ≤ 250 字节。
-// 250 来自 claude-code 的 MAX_LISTING_DESC_CHARS —— 索引只做发现,
-// 全文靠 skill_view 加载,冗长描述只浪费 token 不提高匹配率。
+// 触发场景:描述(含 whenToUse)超过 Codex 的 1024 Unicode 字符上限。
+// 期望:UTF-8 边界安全截断 + "..." 收尾,描述部分恰好不超过 1024 字符。
 TEST(SkillsIndexFormatTest, TruncatesLongDescriptionOnUtf8Boundary) {
-    // 用 3 字节中文字符构造 300 字节描述,截断点大概率落在多字节中间。
+    // 用 3 字节中文字符验证上限按字符而不是 UTF-8 byte 计算。
     std::string long_desc;
-    for (int i = 0; i < 100; ++i) long_desc += "\xE4\xB8\xAD"; // "中" × 100
+    for (int i = 0; i < 1100; ++i) long_desc += "\xE4\xB8\xAD"; // "中" × 1100
     std::vector<acecode::SkillMetadata> skills = {make_skill("s", long_desc)};
-    std::string out = acecode::format_skills_index_within_budget(skills, 8000);
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, char_budget(2000));
+    const std::string& out = rendered.content;
 
     ASSERT_TRUE(out.rfind("- s: ", 0) == 0);
     std::string desc_part = out.substr(5);
-    EXPECT_LE(desc_part.size(), 250u);
+    EXPECT_EQ(utf8_chars(desc_part), 1024u);
     EXPECT_EQ(desc_part.substr(desc_part.size() - 3), "...");
-    // 截断后仍是合法 UTF-8:每个 "中" 完整保留,无孤立的延续字节。
+    // 截断后仍是合法 UTF-8:省略号前每个 "中" 完整保留。
     std::string body = desc_part.substr(0, desc_part.size() - 3);
     EXPECT_EQ(body.size() % 3, 0u);
 }
 
-// 触发场景:全量渲染超出预算,但 names-only 放得下。
-// 期望:整体退化为纯名字清单(保留 category 结构),不再含任何描述。
-TEST(SkillsIndexFormatTest, OverBudgetDegradesToNamesOnly) {
+// 触发场景:全量描述超预算,但三个最小名称条目都放得下。
+// 期望:剩余预算 round-robin 分给全部 Skill,而不是第一个条目吃完。
+TEST(SkillsIndexFormatTest, OverBudgetDistributesDescriptionsRoundRobin) {
     std::vector<acecode::SkillMetadata> skills;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 3; ++i) {
         skills.push_back(make_skill("skill-" + std::to_string(i),
-                                    std::string(100, 'd'), "cat"));
+                                    std::string(100, 'd')));
     }
-    // 预算 200:全量(10 × ~110 字符)放不下,names-only(10 × ~14)放得下。
-    std::string out = acecode::format_skills_index_within_budget(skills, 200);
-    EXPECT_NE(out.find("- skill-0"), std::string::npos);
-    EXPECT_EQ(out.find("ddd"), std::string::npos);
-    EXPECT_LE(out.size(), 200u);
+    // 每条最小成本 10 字符(含换行),39 字符预算刚好让每条得到 1 个 d。
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, char_budget(39));
+    EXPECT_NE(rendered.content.find("- skill-0: d"), std::string::npos);
+    EXPECT_NE(rendered.content.find("- skill-1: d"), std::string::npos);
+    EXPECT_NE(rendered.content.find("- skill-2: d"), std::string::npos);
+    EXPECT_EQ(rendered.report.included_count, 3u);
+    EXPECT_EQ(rendered.report.omitted_count, 0u);
+    EXPECT_EQ(rendered.report.truncated_description_count, 3u);
 }
 
-// 触发场景:names-only 仍超预算(极端:海量 skill + 极小窗口)。
+// 触发场景:token 预算下只剩一个近似 token 可分配给描述。
+// 期望:成本按 ceil(UTF-8 bytes / 4)计算,零成本的同 token 字符仍可保留。
+TEST(SkillsIndexFormatTest, TokenBudgetUsesApproximateUtf8ByteCost) {
+    std::vector<acecode::SkillMetadata> skills = {
+        make_skill("alpha", std::string(20, 'd')),
+    };
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, {acecode::SkillMetadataBudgetUnit::Tokens, 3});
+
+    EXPECT_EQ(rendered.content, "- alpha: dd");
+    EXPECT_EQ(rendered.report.included_count, 1u);
+    EXPECT_EQ(rendered.report.omitted_count, 0u);
+}
+
+// 触发场景:全部名称可容纳,但每个描述平均要截掉超过 100 字符。
+// 期望:不遗漏任何 Skill,并生成 Codex 风格的描述缩短警告。
+TEST(SkillsIndexFormatTest, MaterialDescriptionShorteningProducesWarning) {
+    std::vector<acecode::SkillMetadata> skills = {
+        make_skill("a", std::string(300, 'a')),
+        make_skill("b", std::string(300, 'b')),
+    };
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, char_budget(30));
+
+    EXPECT_EQ(rendered.report.included_count, 2u);
+    EXPECT_EQ(rendered.report.omitted_count, 0u);
+    EXPECT_GT(rendered.report.truncated_description_chars / 2, 100u);
+    EXPECT_NE(rendered.report.warning_message().find("descriptions were shortened"),
+              std::string::npos);
+}
+
+// 触发场景:最小名称条目仍超预算(极端:海量 skill + 极小窗口)。
 // 期望:截尾保留放得下的条目,末尾追加 "(+N more skills — call skills_list
 // to see all)" marker,让模型知道清单不完整且有兜底工具。
 TEST(SkillsIndexFormatTest, ExtremeOverflowCutsTailWithMarker) {
@@ -172,10 +235,13 @@ TEST(SkillsIndexFormatTest, ExtremeOverflowCutsTailWithMarker) {
         skills.push_back(make_skill("very-long-skill-name-" + std::to_string(i),
                                     "desc"));
     }
-    std::string out = acecode::format_skills_index_within_budget(skills, 150);
-    EXPECT_LE(out.size(), 150u);
-    EXPECT_NE(out.find("more skills"), std::string::npos);
-    EXPECT_NE(out.find("skills_list"), std::string::npos);
+    auto rendered = acecode::format_skills_index_within_budget(
+        skills, char_budget(150));
+    EXPECT_LE(utf8_chars(rendered.content), 150u);
+    EXPECT_GT(rendered.report.omitted_count, 0u);
+    EXPECT_NE(rendered.content.find("additional skills omitted"), std::string::npos);
+    EXPECT_NE(rendered.content.find("skills_list"), std::string::npos);
+    EXPECT_FALSE(rendered.report.warning_message().empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +257,7 @@ TEST(SkillsIndexBlockTest, NullRegistryYieldsEmptyBlock) {
 }
 
 // 触发场景:registry 扫描了一个空目录(用户没装任何 skill)。
-// 期望:空块,不发 "# Available Skills" 标题。
+// 期望:空块,不发 "### Available skills" 标题。
 TEST_F(SkillsIndexRegistryTest, EmptyRegistryYieldsEmptyBlock) {
     acecode::SkillRegistry registry;
     registry.set_scan_roots({temp_root});
@@ -201,7 +267,7 @@ TEST_F(SkillsIndexRegistryTest, EmptyRegistryYieldsEmptyBlock) {
 }
 
 // 触发场景:registry 有 skill(含 whenToUse)。
-// 期望:块含 "# Available Skills" 标题、skill_view 指引、索引条目与触发条件;
+// 期望:块含 "### Available skills" 标题、skill_view 指引、索引条目与触发条件;
 // cache_key 非空且带 "skills:" 前缀(进 session context 复合 key)。
 TEST_F(SkillsIndexRegistryTest, PopulatedRegistryRendersBlock) {
     write_skill_md(temp_root, "review", "review-pr", "Review pull requests",
@@ -211,8 +277,12 @@ TEST_F(SkillsIndexRegistryTest, PopulatedRegistryRendersBlock) {
     registry.scan();
 
     auto block = acecode::build_skills_index_context_prompt(&registry, 128000);
-    EXPECT_NE(block.content.find("# Available Skills"), std::string::npos);
+    EXPECT_EQ(block.content.rfind("<skills_instructions>", 0), 0u);
+    EXPECT_NE(block.content.find("### Available skills"), std::string::npos);
     EXPECT_NE(block.content.find("skill_view"), std::string::npos);
+    EXPECT_NE(block.content.find("task clearly matches"), std::string::npos);
+    EXPECT_NE(block.content.find("Multiple mentions mean use them all"),
+              std::string::npos);
     EXPECT_NE(block.content.find("review-pr: Review pull requests"), std::string::npos);
     EXPECT_NE(block.content.find("Use when the user mentions a PR"), std::string::npos);
     EXPECT_EQ(block.cache_key.rfind("skills:", 0), 0u);
@@ -238,13 +308,12 @@ TEST_F(SkillsIndexRegistryTest, CacheKeyTracksSkillSetChanges) {
 }
 
 // ---------------------------------------------------------------------------
-// build_session_context_prompt 集成
+// build_session_context_prompt 隔离
 // ---------------------------------------------------------------------------
 
-// 触发场景:带 skill registry 构建 session context(memory/project 均关闭)。
-// 期望:skills 索引出现在 <system-reminder> 包裹内 —— 与 memory index、
-// project instructions 同载体,每请求重建、不落盘、天然幂等。
-TEST_F(SkillsIndexRegistryTest, SessionContextIncludesSkillsBlock) {
+// 触发场景:带 skill registry 构建通用 session context(memory/project 均关闭)。
+// 期望:默认不再把 Skill 目录塞进 user-role <system-reminder>。
+TEST_F(SkillsIndexRegistryTest, SessionContextExcludesSkillsBlockByDefault) {
     write_skill_md(temp_root, "", "alpha", "First skill");
     acecode::SkillRegistry registry;
     registry.set_scan_roots({temp_root});
@@ -252,11 +321,7 @@ TEST_F(SkillsIndexRegistryTest, SessionContextIncludesSkillsBlock) {
 
     auto block = acecode::build_session_context_prompt(
         temp_root.string(), nullptr, nullptr, nullptr, &registry, 128000);
-    ASSERT_FALSE(block.content.empty());
-    EXPECT_EQ(block.content.rfind("<system-reminder>", 0), 0u);
-    EXPECT_NE(block.content.find("# Available Skills"), std::string::npos);
-    EXPECT_NE(block.content.find("alpha: First skill"), std::string::npos);
-    EXPECT_NE(block.content.find("</system-reminder>"), std::string::npos);
+    EXPECT_TRUE(block.content.empty());
 }
 
 // 触发场景:不传 registry(旧调用方 / skill 功能关闭)。
@@ -272,14 +337,14 @@ TEST_F(SkillsIndexRegistryTest, SessionContextWithoutRegistryUnchanged) {
 // ---------------------------------------------------------------------------
 
 // 触发场景:构建静态 system prompt。
-// 期望:# Skills 段指向 system-reminder 内的索引("# Available Skills"),
+// 期望:# Skills 段指向独立高优先级 <skills_instructions> system 消息,
 // 含 "err on the side of loading" 强化措辞;不再把 skills_list 当作主发现
 // 路径("Call `skills_list` to enumerate" 旧文案应删除)。
 TEST(SkillsIndexSystemPromptTest, SkillsSectionPointsAtInContextIndex) {
     acecode::ToolExecutor tools;
     std::string prompt = acecode::build_system_prompt(tools, ".");
 
-    EXPECT_NE(prompt.find("# Available Skills"), std::string::npos);
+    EXPECT_NE(prompt.find("<skills_instructions>"), std::string::npos);
     EXPECT_NE(prompt.find("err on the side of loading"), std::string::npos);
     EXPECT_NE(prompt.find("BLOCKING REQUIREMENT"), std::string::npos);
     EXPECT_EQ(prompt.find("Call `skills_list` to enumerate"), std::string::npos);

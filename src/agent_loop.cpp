@@ -953,13 +953,27 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
         tools_.is_allowed("skills_list", &tool_capability_policy_);
     const bool spawn_subagent_available =
         tools_.is_allowed("spawn_subagent", &tool_capability_policy_);
+    PromptContextBlock skill_context = build_skills_index_context_prompt(
+        skill_registry_, context_window_.load(std::memory_order_relaxed),
+        skill_view_available, skills_list_available);
+    if (!skill_context.content.empty()) {
+        ChatMessage skill_system;
+        skill_system.role = "system";
+        skill_system.content = std::move(skill_context.content);
+        skill_system.metadata = nlohmann::json{
+            {"compact_initial_context", true},
+            {"request_local_skill_context", true},
+        };
+        context.push_back(std::move(skill_system));
+    }
     std::string mutable_context = build_session_context_prompt(
         cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
         skill_registry_, context_window_.load(std::memory_order_relaxed),
         custom_instructions_cfg_, git_snapshot, expert_, expert_member_id_,
         /*category_bytes=*/nullptr,
         skill_view_available, skills_list_available,
-        spawn_subagent_available).content;
+        spawn_subagent_available,
+        /*include_skill_index=*/false).content;
     if (!mutable_context.empty()) {
         ChatMessage user;
         user.role = "user";
@@ -1827,6 +1841,17 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
         tools_.is_allowed("skills_list", &tool_capability_policy_);
     const bool spawn_subagent_available =
         tools_.is_allowed("spawn_subagent", &tool_capability_policy_);
+    PromptContextBlock skill_context_block = build_skills_index_context_prompt(
+        skill_registry_, context_window_.load(std::memory_order_relaxed),
+        skill_view_available, skills_list_available);
+    const bool skill_context_changed =
+        skill_context_block.cache_key != skill_context_cache_key_;
+    std::string skill_context = cached_context_for_api(
+        skill_context_block,
+        skill_context_cache_key_, skill_context_cache_content_);
+    if (skill_context_changed && !skill_context_block.warning.empty()) {
+        LOG_WARN("[skills] " + skill_context_block.warning);
+    }
     std::string session_context = cached_context_for_api(
         build_session_context_prompt(
             cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
@@ -1835,8 +1860,10 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
             *git_snapshot_cache_, expert_, expert_member_id_,
             &context_category_bytes,
             skill_view_available, skills_list_available,
-            spawn_subagent_available),
+            spawn_subagent_available,
+            /*include_skill_index=*/false),
         session_context_cache_key_, session_context_cache_content_);
+    context_category_bytes.skills = skill_context.size();
     std::vector<ChatMessage> mutable_context_messages;
     append_request_context_for_api(mutable_context_messages, session_context);
     std::string swarm_mode_context = build_swarm_mode_context_prompt(
@@ -1857,10 +1884,24 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
         session_manager_ ? session_manager_->current_todos() : std::vector<TodoItem>{};
     append_todo_context_for_api(mutable_context_messages, todo_context_items);
 
+    ChatMessage skill_system_message;
+    if (!skill_context.empty()) {
+        skill_system_message.role = "system";
+        skill_system_message.content = skill_context;
+        skill_system_message.metadata =
+            nlohmann::json{{"request_local_skill_context", true}};
+    }
+    std::vector<ChatMessage> estimated_context_messages =
+        mutable_context_messages;
+    if (!skill_system_message.content.empty()) {
+        estimated_context_messages.insert(
+            estimated_context_messages.begin(), skill_system_message);
+    }
+
     bundle.context_usage_estimate = estimate_context_usage_breakdown(
         system_prompt,
         api_messages,
-        mutable_context_messages,
+        estimated_context_messages,
         context_category_bytes.project_rules,
         context_category_bytes.skills,
         builtin_tool_defs,
@@ -1873,12 +1914,15 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     sys_msg.role = "system";
     sys_msg.content = system_prompt;
     bundle.messages_with_system.push_back(sys_msg);
+    if (!skill_system_message.content.empty()) {
+        bundle.messages_with_system.push_back(std::move(skill_system_message));
+    }
     bundle.messages_with_system.insert(bundle.messages_with_system.end(),
                                        api_messages.begin(), api_messages.end());
 
     auto prompt_diag = build_prompt_cache_diagnostics(
         system_prompt,
-        session_context + "\n" + swarm_mode_context + "\n" +
+        skill_context + "\n" + session_context + "\n" + swarm_mode_context + "\n" +
             plan_mode_context + "\n" + hook_context + "\n" +
             format_todo_injection(todo_context_items),
         bundle.tool_defs);

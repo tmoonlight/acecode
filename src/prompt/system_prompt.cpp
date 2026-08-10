@@ -1,6 +1,7 @@
 #include "system_prompt.hpp"
 
 #include "../experts/expert_registry.hpp"
+#include "../commands/compact.hpp"
 #include "system_datetime.hpp"
 #include "../config/config.hpp"
 #include "../gitinfo/git_context_collector.hpp"
@@ -15,6 +16,7 @@
 #include <cctype>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <filesystem>
@@ -334,9 +336,9 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     if (skill_view_allowed || skills_list_allowed) {
         oss << "# Skills\n\n"
             << "Skills provide specialized capabilities, domain knowledge, and the user's "
-            << "preferred workflows. The index of installed skills (name, description, when "
-            << "to use) is provided in a system-reminder context block under \"# Available "
-            << "Skills\" — scan it before replying to any task.\n\n"
+            << "preferred workflows. The index of installed skills is provided in a "
+            << "separate high-priority <skills_instructions> system message — scan it "
+            << "before replying to any task.\n\n"
             << "When users reference a \"slash command\" or \"/<something>\" (e.g., \"/commit\", \"/review-pr\"), they are referring to a skill.\n\n";
         if (skill_view_allowed) {
             oss << "How to invoke:\n"
@@ -450,110 +452,327 @@ PromptContextBlock build_custom_instructions_context_prompt(
     return block;
 }
 
-std::size_t skills_index_char_budget(int context_window_tokens) {
-    // 与 claude-code 对齐:context window 的 1%,按 4 chars/token 估算。
-    // 窗口未知时退回 8000 字符(≈ 200k 窗口的 1%)。
-    constexpr std::size_t kCharsPerToken = 4;
-    constexpr std::size_t kFallbackBudget = 8000;
-    if (context_window_tokens <= 0) return kFallbackBudget;
-    return static_cast<std::size_t>(context_window_tokens) * kCharsPerToken / 100;
+SkillMetadataBudget skills_index_budget(int context_window_tokens) {
+    constexpr std::size_t kContextWindowPercent = 2;
+    constexpr std::size_t kFallbackCharacterBudget = 8000;
+    if (context_window_tokens <= 0) {
+        return {SkillMetadataBudgetUnit::Characters, kFallbackCharacterBudget};
+    }
+    const std::size_t window = static_cast<std::size_t>(context_window_tokens);
+    return {
+        SkillMetadataBudgetUnit::Tokens,
+        (std::max)(window * kContextWindowPercent / 100, std::size_t{1}),
+    };
 }
 
 namespace {
 
-// 单条描述(description — when_to_use)的硬上限。索引只负责"发现",全文靠
-// skill_view 按需加载;超长描述只浪费 turn-1 token,不提高匹配率。
-constexpr std::size_t kMaxIndexDescChars = 250;
+constexpr std::size_t kMaxCatalogDescriptionChars = 1024;
+constexpr std::size_t kDescriptionWarningThresholdChars = 100;
+constexpr const char* kTruncationSuffix = "...";
 
-std::string skill_index_line(const SkillMetadata& s, bool names_only,
-                             const std::string& indent) {
-    if (names_only) return indent + "- " + s.name;
-    std::string desc = s.description;
-    if (!s.when_to_use.empty()) {
-        desc += desc.empty() ? s.when_to_use : (" \xE2\x80\x94 " + s.when_to_use);
+std::size_t saturating_add(std::size_t lhs, std::size_t rhs) {
+    if (lhs > (std::numeric_limits<std::size_t>::max)() - rhs) {
+        return (std::numeric_limits<std::size_t>::max)();
     }
-    desc = truncate_utf8_prefix(desc, kMaxIndexDescChars);
-    if (desc.empty()) return indent + "- " + s.name;
-    return indent + "- " + s.name + ": " + desc;
+    return lhs + rhs;
 }
 
-// 渲染整个索引:无 category 的条目顶格在前,有 category 的按字典序分组缩进。
-std::string render_skills_index(const std::vector<SkillMetadata>& skills,
-                                bool names_only) {
+bool is_utf8_continuation(unsigned char byte) {
+    return (byte & 0xC0) == 0x80;
+}
+
+std::vector<std::size_t> utf8_char_offsets(const std::string& text) {
+    std::vector<std::size_t> offsets{0};
+    for (std::size_t i = 1; i < text.size(); ++i) {
+        if (!is_utf8_continuation(static_cast<unsigned char>(text[i]))) {
+            offsets.push_back(i);
+        }
+    }
+    if (offsets.back() != text.size()) offsets.push_back(text.size());
+    return offsets;
+}
+
+std::size_t utf8_char_count(const std::string& text) {
+    const auto offsets = utf8_char_offsets(text);
+    return offsets.empty() ? 0 : offsets.size() - 1;
+}
+
+std::string truncate_catalog_description(const std::string& description) {
+    const auto offsets = utf8_char_offsets(description);
+    const std::size_t count = offsets.empty() ? 0 : offsets.size() - 1;
+    if (count <= kMaxCatalogDescriptionChars) return description;
+
+    const std::size_t suffix_chars = utf8_char_count(kTruncationSuffix);
+    const std::size_t prefix_chars =
+        kMaxCatalogDescriptionChars > suffix_chars
+            ? kMaxCatalogDescriptionChars - suffix_chars
+            : 0;
+    return description.substr(0, offsets[prefix_chars]) + kTruncationSuffix;
+}
+
+std::size_t metadata_line_cost(SkillMetadataBudget budget,
+                               const std::string& line) {
+    const std::string with_newline = line + "\n";
+    if (budget.unit == SkillMetadataBudgetUnit::Tokens) {
+        return approx_token_count(with_newline);
+    }
+    return utf8_char_count(with_newline);
+}
+
+struct SkillIndexLine {
+    const SkillMetadata* skill = nullptr;
+    std::string category;
+    std::string indent;
+    std::string description;
+    std::vector<std::size_t> description_offsets;
+
+    std::size_t description_char_count() const {
+        return description_offsets.empty() ? 0 : description_offsets.size() - 1;
+    }
+
+    std::string render(std::size_t description_chars) const {
+        std::string result = indent + "- " + skill->name;
+        if (description_chars == 0 || description.empty()) return result;
+        const std::size_t bounded =
+            (std::min)(description_chars, description_char_count());
+        result += ": ";
+        result += description.substr(0, description_offsets[bounded]);
+        return result;
+    }
+};
+
+struct SkillLineAllocation {
+    bool omitted = false;
+    std::size_t description_chars = 0;
+};
+
+std::string combined_skill_description(const SkillMetadata& skill) {
+    std::string description = skill.description;
+    if (!skill.when_to_use.empty()) {
+        description += description.empty()
+            ? skill.when_to_use
+            : (" \xE2\x80\x94 " + skill.when_to_use);
+    }
+    return truncate_catalog_description(description);
+}
+
+std::vector<SkillIndexLine> ordered_skill_lines(
+    const std::vector<SkillMetadata>& skills) {
     std::vector<const SkillMetadata*> flat;
     std::map<std::string, std::vector<const SkillMetadata*>> by_category;
-    for (const auto& s : skills) {
-        if (s.category.empty()) flat.push_back(&s);
-        else by_category[s.category].push_back(&s);
+    for (const auto& skill : skills) {
+        if (skill.category.empty()) flat.push_back(&skill);
+        else by_category[skill.category].push_back(&skill);
     }
 
-    std::ostringstream oss;
-    bool first = true;
-    for (const auto* s : flat) {
-        if (!first) oss << "\n";
-        first = false;
-        oss << skill_index_line(*s, names_only, "");
-    }
+    std::vector<SkillIndexLine> result;
+    result.reserve(skills.size());
+    auto append = [&result](const SkillMetadata* skill,
+                            const std::string& category,
+                            const std::string& indent) {
+        SkillIndexLine line;
+        line.skill = skill;
+        line.category = category;
+        line.indent = indent;
+        line.description = combined_skill_description(*skill);
+        line.description_offsets = utf8_char_offsets(line.description);
+        result.push_back(std::move(line));
+    };
+    for (const auto* skill : flat) append(skill, "", "");
     for (const auto& [category, entries] : by_category) {
-        if (!first) oss << "\n";
-        first = false;
-        oss << category << ":";
-        for (const auto* s : entries) {
-            oss << "\n" << skill_index_line(*s, names_only, "  ");
-        }
+        for (const auto* skill : entries) append(skill, category, "  ");
     }
-    return oss.str();
+    return result;
 }
 
-// names-only 仍超预算时的兜底:按行贪心保留,被丢弃的 skill 条目数进 marker。
-std::string cut_names_only_to_budget(const std::string& names_only_index,
-                                     std::size_t char_budget,
-                                     std::size_t total_skills,
-                                     bool skills_list_available) {
-    std::istringstream iss(names_only_index);
-    std::string line;
-    std::string kept;
-    std::size_t kept_skills = 0;
-    // marker 自身也占预算,预留一行的余量。
-    constexpr std::size_t kMarkerReserve = 64;
-    const std::size_t usable = char_budget > kMarkerReserve
-        ? char_budget - kMarkerReserve : 0;
-    while (std::getline(iss, line)) {
-        std::size_t added = line.size() + (kept.empty() ? 0 : 1);
-        if (kept.size() + added > usable) break;
-        if (!kept.empty()) kept += "\n";
-        kept += line;
-        // category 标题行不是 skill 条目,不计数。
-        if (line.find("- ") != std::string::npos) ++kept_skills;
-    }
-    std::size_t omitted = total_skills > kept_skills ? total_skills - kept_skills : 0;
-    if (omitted > 0) {
-        if (!kept.empty()) kept += "\n";
-        kept += "(+" + std::to_string(omitted) + " more skills";
-        if (skills_list_available) {
-            kept += " \xE2\x80\x94 call skills_list to see all";
+std::size_t allocated_index_cost(
+    const std::vector<SkillIndexLine>& lines,
+    const std::vector<SkillLineAllocation>& allocations,
+    SkillMetadataBudget budget,
+    const std::string& marker = {}) {
+    std::size_t cost = 0;
+    std::string rendered_category;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (allocations[i].omitted) continue;
+        const auto& line = lines[i];
+        if (!line.category.empty() && line.category != rendered_category) {
+            cost = saturating_add(
+                cost, metadata_line_cost(budget, line.category + ":"));
+            rendered_category = line.category;
         }
-        kept += ")";
+        cost = saturating_add(
+            cost,
+            metadata_line_cost(
+                budget, line.render(allocations[i].description_chars)));
     }
-    return kept;
+    if (!marker.empty()) {
+        cost = saturating_add(cost, metadata_line_cost(budget, marker));
+    }
+    return cost;
+}
+
+std::string omission_marker(std::size_t omitted,
+                            bool skills_list_available) {
+    std::string marker = "- " + std::to_string(omitted) +
+        (omitted == 1 ? " additional skill omitted" :
+                        " additional skills omitted") +
+        " from this bounded skills list";
+    if (skills_list_available) marker += "; call skills_list to see all";
+    marker += ".";
+    return marker;
+}
+
+std::string render_allocated_index(
+    const std::vector<SkillIndexLine>& lines,
+    const std::vector<SkillLineAllocation>& allocations,
+    const std::string& marker) {
+    std::ostringstream out;
+    bool first = true;
+    std::string rendered_category;
+    auto append = [&](const std::string& value) {
+        if (!first) out << "\n";
+        first = false;
+        out << value;
+    };
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (allocations[i].omitted) continue;
+        const auto& line = lines[i];
+        if (!line.category.empty() && line.category != rendered_category) {
+            append(line.category + ":");
+            rendered_category = line.category;
+        }
+        append(line.render(allocations[i].description_chars));
+    }
+    if (!marker.empty()) append(marker);
+    return out.str();
 }
 
 } // namespace
 
-std::string format_skills_index_within_budget(
+std::string SkillIndexRenderReport::warning_message() const {
+    if (omitted_count > 0) {
+        return "Exceeded skills context budget. All skill descriptions were "
+               "removed and " + std::to_string(omitted_count) +
+               (omitted_count == 1 ? " additional skill was" :
+                                     " additional skills were") +
+               " not included in the model-visible skills list.";
+    }
+    if (total_count == 0 || truncated_description_chars == 0) return {};
+    const std::size_t average =
+        saturating_add(truncated_description_chars, total_count - 1) /
+        total_count;
+    if (average <= kDescriptionWarningThresholdChars) return {};
+    return "Skill descriptions were shortened to fit the skills context budget. "
+           "ACECode can still see every skill, but some descriptions are shorter. "
+           "Disable unused skills to leave more room for the rest.";
+}
+
+SkillIndexRenderResult format_skills_index_within_budget(
     const std::vector<SkillMetadata>& skills,
-    std::size_t char_budget,
+    SkillMetadataBudget budget,
     bool skills_list_available) {
-    if (skills.empty()) return "";
+    SkillIndexRenderResult result;
+    result.report.total_count = skills.size();
+    if (skills.empty() || budget.limit == 0) {
+        result.report.omitted_count = skills.size();
+        return result;
+    }
 
-    std::string full = render_skills_index(skills, /*names_only=*/false);
-    if (full.size() <= char_budget) return full;
+    const auto lines = ordered_skill_lines(skills);
+    std::vector<SkillLineAllocation> allocations(lines.size());
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        allocations[i].description_chars = lines[i].description_char_count();
+    }
 
-    std::string names_only = render_skills_index(skills, /*names_only=*/true);
-    if (names_only.size() <= char_budget) return names_only;
+    const std::size_t full_cost =
+        allocated_index_cost(lines, allocations, budget);
+    if (full_cost > budget.limit) {
+        for (auto& allocation : allocations) allocation.description_chars = 0;
+        const std::size_t minimum_cost =
+            allocated_index_cost(lines, allocations, budget);
+        if (minimum_cost <= budget.limit) {
+            std::size_t remaining = budget.limit - minimum_cost;
+            std::vector<std::size_t> current_costs(lines.size(), 0);
+            for (std::size_t i = 0; i < lines.size(); ++i) {
+                current_costs[i] = metadata_line_cost(budget, lines[i].render(0));
+            }
 
-    return cut_names_only_to_budget(
-        names_only, char_budget, skills.size(), skills_list_available);
+            // Codex's allocator distributes one Unicode character per skill per
+            // pass so the first catalog entry cannot monopolize the remainder.
+            for (;;) {
+                bool changed = false;
+                for (std::size_t i = 0; i < lines.size(); ++i) {
+                    auto& allocation = allocations[i];
+                    if (allocation.description_chars >=
+                        lines[i].description_char_count()) {
+                        continue;
+                    }
+                    const std::size_t next_chars = allocation.description_chars + 1;
+                    const std::size_t next_cost = metadata_line_cost(
+                        budget, lines[i].render(next_chars));
+                    const std::size_t delta = next_cost > current_costs[i]
+                        ? next_cost - current_costs[i]
+                        : 0;
+                    if (delta <= remaining) {
+                        allocation.description_chars = next_chars;
+                        current_costs[i] = next_cost;
+                        remaining -= delta;
+                        changed = true;
+                    }
+                }
+                if (!changed) break;
+            }
+        } else {
+            std::size_t omitted = 0;
+            std::string marker;
+            while (allocated_index_cost(lines, allocations, budget, marker) >
+                   budget.limit) {
+                auto it = std::find_if(
+                    allocations.rbegin(), allocations.rend(),
+                    [](const SkillLineAllocation& allocation) {
+                        return !allocation.omitted;
+                    });
+                if (it == allocations.rend()) {
+                    marker.clear();
+                    break;
+                }
+                it->omitted = true;
+                ++omitted;
+                marker = omission_marker(omitted, skills_list_available);
+            }
+            if (!marker.empty() &&
+                allocated_index_cost(lines, allocations, budget, marker) >
+                    budget.limit) {
+                marker.clear();
+            }
+            result.content = render_allocated_index(lines, allocations, marker);
+        }
+    }
+
+    if (result.content.empty()) {
+        result.content = render_allocated_index(lines, allocations, {});
+    }
+
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const std::size_t description_chars = lines[i].description_char_count();
+        if (allocations[i].omitted) {
+            ++result.report.omitted_count;
+            result.report.truncated_description_chars = saturating_add(
+                result.report.truncated_description_chars, description_chars);
+            if (description_chars > 0) {
+                ++result.report.truncated_description_count;
+            }
+            continue;
+        }
+        ++result.report.included_count;
+        const std::size_t truncated =
+            description_chars - allocations[i].description_chars;
+        result.report.truncated_description_chars = saturating_add(
+            result.report.truncated_description_chars, truncated);
+        if (truncated > 0) ++result.report.truncated_description_count;
+    }
+    return result;
 }
 
 PromptContextBlock build_skills_index_context_prompt(
@@ -567,21 +786,61 @@ PromptContextBlock build_skills_index_context_prompt(
     auto all = skills->list();
     if (all.empty()) return block;
 
-    std::string index = format_skills_index_within_budget(
-        all, skills_index_char_budget(context_window_tokens),
-        skills_list_available);
-    if (index.empty()) return block;
+    SkillIndexRenderResult rendered = format_skills_index_within_budget(
+        all, skills_index_budget(context_window_tokens), skills_list_available);
+    if (rendered.content.empty()) return block;
 
     std::ostringstream oss;
-    oss << "# Available Skills\n\n"
-        << "The following skills are installed (name: description). Before acting "
-        << "on a task, scan this index; when a skill matches, load it with "
-        << "skill_view(name=\"...\") and follow its instructions.\n\n"
-        << index;
-    if (oss.str().back() != '\n') oss << "\n";
+    oss << "<skills_instructions>\n"
+        << "## Skills\n\n"
+        << "A skill is a set of local instructions to follow that is stored in a "
+        << "SKILL.md file. Below is the list of skills that can be used. Each entry "
+        << "includes a name and description.\n\n"
+        << "### Available skills\n\n"
+        << rendered.content << "\n\n"
+        << "### How to use skills\n\n"
+        << "- Discovery: The list above is the skills available in this session "
+        << "(name + description). Skill bodies are loaded through skill_view.\n"
+        << "- Trigger rules: If the user names a skill (with $SkillName, "
+        << "/<skill-name>, or plain text) OR the task clearly matches a skill's "
+        << "description shown above, you must use that skill for that turn. Multiple "
+        << "mentions mean use them all. Do not carry skills across turns unless "
+        << "re-mentioned.\n"
+        << "- Missing/blocked: If a named skill is not in the list or cannot be "
+        << "loaded, say so briefly and continue with the best fallback.\n"
+        << "- How to use a skill (progressive disclosure):\n"
+        << "  1) After deciding to use a skill, call skill_view(name=\"...\") and "
+        << "read its full SKILL.md completely before taking task actions.\n"
+        << "  2) When SKILL.md references another file or resource, load it with "
+        << "skill_view using the same skill name and the referenced relative path.\n"
+        << "  3) If SKILL.md points to folders such as references/, use its routing "
+        << "instructions to identify only the files required for the task.\n"
+        << "  4) Prefer running or patching provided scripts instead of retyping "
+        << "large code blocks.\n"
+        << "  5) Reuse provided assets or templates instead of recreating them.\n"
+        << "- Coordination and sequencing:\n"
+        << "  - If multiple skills apply, choose the minimal set that covers the "
+        << "request and state the order you will use them.\n"
+        << "  - Announce which skills you are using and why. If you skip an obvious "
+        << "skill, say why.\n"
+        << "- Context hygiene:\n"
+        << "  - Progressive disclosure applies to selecting relevant files, not "
+        << "partially reading a selected instruction file.\n"
+        << "  - Avoid deep reference-chasing: prefer files directly linked from "
+        << "SKILL.md unless blocked.\n"
+        << "  - When variants exist, select only the relevant references and note "
+        << "the choice.\n"
+        << "- Safety and fallback: If a skill cannot be applied cleanly, state the "
+        << "issue, choose the best alternative, and continue.\n";
+    if (skills_list_available) {
+        oss << "- Call skills_list only when this bounded catalog omitted skills or "
+            << "you need to double-check the full set.\n";
+    }
+    oss << "</skills_instructions>\n";
 
     block.content = oss.str();
     block.cache_key = "skills:" + prompt_component_hash(block.content);
+    block.warning = rendered.report.warning_message();
     return block;
 }
 
@@ -669,7 +928,8 @@ PromptContextBlock build_session_context_prompt(
     PromptContextCategoryBytes* category_bytes,
     bool skill_view_available,
     bool skills_list_available,
-    bool spawn_subagent_available) {
+    bool spawn_subagent_available,
+    bool include_skill_index) {
     if (category_bytes) *category_bytes = PromptContextCategoryBytes{};
 
     PromptContextBlock expert_context =
@@ -679,10 +939,12 @@ PromptContextBlock build_session_context_prompt(
     PromptContextBlock user_memory = build_user_memory_context_prompt(memory, memory_cfg);
     PromptContextBlock custom =
         build_custom_instructions_context_prompt(custom_instructions_cfg);
-    PromptContextBlock skill_index =
-        build_skills_index_context_prompt(
+    PromptContextBlock skill_index;
+    if (include_skill_index) {
+        skill_index = build_skills_index_context_prompt(
             skills, context_window_tokens,
             skill_view_available, skills_list_available);
+    }
     PromptContextBlock git_status =
         build_git_status_context_prompt(git_status_snapshot);
 

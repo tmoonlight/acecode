@@ -8,6 +8,9 @@
 #include "session/compact_notice.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
+#include "skills/skill_registry.hpp"
+#include "tool/skill_view_tool.hpp"
+#include "tool/skills_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "stub_provider.hpp"
 
@@ -16,6 +19,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -137,6 +141,15 @@ bool request_contains(const std::vector<acecode::ChatMessage>& messages,
     return false;
 }
 
+std::size_t request_match_count(
+    const std::vector<acecode::ChatMessage>& messages,
+    const std::string& needle) {
+    return static_cast<std::size_t>(std::count_if(
+        messages.begin(), messages.end(), [&](const acecode::ChatMessage& message) {
+            return message.content.find(needle) != std::string::npos;
+        }));
+}
+
 std::filesystem::path make_temp_cwd(const std::string& name) {
     auto path = std::filesystem::temp_directory_path() /
                 ("acecode_" + name + "_" +
@@ -144,6 +157,19 @@ std::filesystem::path make_temp_cwd(const std::string& name) {
     std::filesystem::remove_all(path);
     std::filesystem::create_directories(path);
     return path;
+}
+
+void write_test_skill(const std::filesystem::path& root,
+                      const std::string& name,
+                      const std::string& description) {
+    const auto directory = root / name;
+    std::filesystem::create_directories(directory);
+    std::ofstream output(directory / "SKILL.md", std::ios::binary);
+    output << "---\n"
+           << "name: " << name << "\n"
+           << "description: " << description << "\n"
+           << "---\n\n"
+           << "# Test skill\n";
 }
 
 std::vector<acecode::SessionEvent> wait_for_done(
@@ -259,6 +285,68 @@ TEST(AgentLoopCompactEvents, QueuedCompactAppendsCodexMarkerWithoutTranscriptRep
                   "\nCompacted event summary.");
     EXPECT_TRUE(request_contains(loop.messages(), "old user 0"));
     EXPECT_FALSE(request_contains(loop.messages(), "old assistant 0"));
+}
+
+TEST(AgentLoopSkillContext,
+     SendsIndependentSystemMessageToNormalAndCompactRequestsOnly) {
+    auto provider = std::make_shared<CompactEventProvider>();
+    auto cwd = make_temp_cwd("request_local_skill_context");
+    auto skill_root = cwd / "skills";
+    write_test_skill(skill_root, "review-helper",
+                     "Use when the user asks for a code review");
+
+    acecode::SkillRegistry skill_registry;
+    skill_registry.set_scan_roots({skill_root});
+    skill_registry.scan();
+
+    acecode::ToolExecutor tools;
+    ASSERT_TRUE(tools.register_tool(
+        acecode::create_skill_view_tool(skill_registry)));
+    ASSERT_TRUE(tools.register_tool(
+        acecode::create_skills_list_tool(skill_registry)));
+    acecode::PermissionManager permissions;
+    acecode::SessionManager session;
+    session.start_session(
+        cwd.string(), "stub", "stub-model",
+        acecode::SessionStorage::generate_session_id());
+    acecode::AgentLoop loop(
+        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
+        tools, {}, cwd.string(), permissions);
+    loop.set_session_manager(&session);
+    loop.set_skill_registry(&skill_registry);
+    loop.set_context_window(128000);
+
+    wait_for_done(loop, [&] { loop.submit("please review this change"); });
+    ASSERT_EQ(provider->stream_requests.size(), 1u);
+    const auto& normal_request = provider->stream_requests.front();
+    ASSERT_GE(normal_request.size(), 2u);
+    EXPECT_EQ(normal_request.front().role, "system");
+    EXPECT_EQ(normal_request[1].role, "system");
+    EXPECT_NE(normal_request[1].content.find("<skills_instructions>"),
+              std::string::npos);
+    EXPECT_NE(normal_request[1].content.find("review-helper"),
+              std::string::npos);
+    EXPECT_EQ(request_match_count(normal_request, "### Available skills"), 1u);
+
+    wait_for_done(loop, [&] { loop.submit_compact(); });
+    ASSERT_EQ(provider->compact_requests.size(), 1u);
+    const auto& compact_request = provider->compact_requests.front();
+    ASSERT_GE(compact_request.size(), 2u);
+    EXPECT_EQ(compact_request.front().role, "system");
+    EXPECT_EQ(compact_request[1].role, "system");
+    EXPECT_EQ(request_match_count(compact_request, "### Available skills"),
+              1u);
+
+    EXPECT_FALSE(request_contains(loop.messages(), "<skills_instructions>"));
+    EXPECT_FALSE(request_contains(session.load_active_messages(),
+                                  "<skills_instructions>"));
+
+    loop.shutdown();
+    session.finalize();
+    std::error_code error;
+    std::filesystem::remove_all(
+        acecode::SessionStorage::get_project_dir(cwd.string()), error);
+    std::filesystem::remove_all(cwd, error);
 }
 
 TEST(AgentLoopCompactEvents, ManualCompactPersistsAppendOnlyTranscriptAndWindowMetadata) {

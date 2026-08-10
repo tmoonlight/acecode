@@ -849,6 +849,12 @@ TEST(OpenAiProviderReasoningTest, SystemMessagesAreCoalescedAtRequestStart) {
     static_system.role = "system";
     static_system.content = "static instructions";
 
+    ChatMessage skill_system;
+    skill_system.role = "system";
+    skill_system.content =
+        "<skills_instructions>\n- review: Review pull requests\n"
+        "</skills_instructions>";
+
     ChatMessage session_context;
     session_context.role = "user";
     session_context.content = "session context";
@@ -863,13 +869,14 @@ TEST(OpenAiProviderReasoningTest, SystemMessagesAreCoalescedAtRequestStart) {
     user_msg.content = "continue";
 
     auto body = provider.build_request_body(
-        {static_system, session_context, compact_summary, user_msg}, {}, false);
+        {static_system, skill_system, session_context, compact_summary, user_msg}, {}, false);
     const auto& msgs = body["messages"];
 
     ASSERT_EQ(msgs.size(), 3u);
     ASSERT_EQ(msgs[0]["role"].get<std::string>(), "system");
     const auto system_content = msgs[0]["content"].get<std::string>();
     EXPECT_NE(system_content.find("static instructions"), std::string::npos);
+    EXPECT_NE(system_content.find("<skills_instructions>"), std::string::npos);
     EXPECT_NE(system_content.find("compact summary"), std::string::npos);
     EXPECT_EQ(msgs[1]["role"].get<std::string>(), "user");
     EXPECT_EQ(msgs[1]["content"].get<std::string>(), "session context");

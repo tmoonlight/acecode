@@ -124,6 +124,31 @@ TEST(AnthropicProviderTest, BuildRequestMapsSystemToolsAndToolResults) {
     EXPECT_EQ(body["tools"][0]["input_schema"]["type"], "object");
 }
 
+TEST(AnthropicProviderTest, CoalescesRequestLocalSkillSystemMessage) {
+    AnthropicProvider provider(
+        AnthropicProvider::kDefaultBaseUrl, "sk-ant-test", "claude-test");
+
+    ChatMessage static_system;
+    static_system.role = "system";
+    static_system.content = "static instructions";
+
+    ChatMessage skill_system;
+    skill_system.role = "system";
+    skill_system.content =
+        "<skills_instructions>\n- review: Review pull requests\n"
+        "</skills_instructions>";
+
+    auto body = provider.build_request_body(
+        {static_system, skill_system, user_message("review this")}, {}, false);
+
+    ASSERT_TRUE(body.contains("system"));
+    const std::string system = body["system"].get<std::string>();
+    EXPECT_NE(system.find("static instructions"), std::string::npos);
+    EXPECT_NE(system.find("<skills_instructions>"), std::string::npos);
+    ASSERT_EQ(body["messages"].size(), 1u);
+    EXPECT_EQ(body["messages"][0]["role"], "user");
+}
+
 TEST(AnthropicProviderTest, BuildRequestRepairsMissingToolResultBeforeNextTurn) {
     AnthropicProvider provider(
         AnthropicProvider::kDefaultBaseUrl, "sk-ant-test", "claude-test");
