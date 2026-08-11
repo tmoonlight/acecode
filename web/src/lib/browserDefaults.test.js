@@ -49,3 +49,11 @@ run('Ctrl+F native find shortcut is blocked', () => {
 run('F3 native find shortcut is blocked', () => {
   assert.equal(isBlockedBrowserDefaultShortcut({ key: 'F3' }), true);
 });
+
+run('F5 page refresh shortcut is blocked', () => {
+  assert.equal(isBlockedBrowserDefaultShortcut({ key: 'F5' }), true);
+});
+
+run('Ctrl+R page refresh shortcut remains available', () => {
+  assert.equal(isBlockedBrowserDefaultShortcut({ key: 'r', ctrlKey: true }), false);
+});

@@ -13,6 +13,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '钩子': 'Hooks',
   '已归档': 'Archived',
   '已归档会话': 'Archived sessions',
+  '从项目列表移除': 'Archive',
   '全不选': 'Deselect all',
   '取消中': 'Unarchiving…',
   '取消选中会话的归档': 'Unarchive selected sessions',

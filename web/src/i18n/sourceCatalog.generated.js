@@ -2013,7 +2013,7 @@ export const sourceCatalogs = {
     "s_4048d8cd52d1ca52": "Model {{p0}} is in use by a session and cannot be deleted yet",
     "s_4058befef3a6363e": "Waiting for user to process permission request",
     "s_4088127b773ce83c": "Edit code",
-    "s_40d1fb9add6b27e3": "Remove from project list",
+    "s_40d1fb9add6b27e3": "Archive",
     "s_40fae00b7c6d8ac0": "General",
     "s_40ff6300f9817deb": "diagnosis",
     "s_410a8e8a6bf253ac": "cut",

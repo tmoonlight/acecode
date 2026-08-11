@@ -25,7 +25,7 @@ export function isBrowserZoomShortcut(event) {
 }
 
 export function isBlockedBrowserDefaultShortcut(event) {
-  return isBrowserZoomShortcut(event) || isFindShortcut(event);
+  return event?.key === 'F5' || isBrowserZoomShortcut(event) || isFindShortcut(event);
 }
 
 export function installBrowserDefaultGuards(target = globalThis.window) {
