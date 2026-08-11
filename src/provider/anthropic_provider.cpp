@@ -25,11 +25,13 @@ AnthropicProvider::AnthropicProvider(const std::string& base_url,
                                      const std::string& api_key,
                                      const std::string& model,
                                      int stream_timeout_ms,
-                                     std::map<std::string, std::string> request_headers)
+                                     std::map<std::string, std::string> request_headers,
+                                     ProviderRequestOptions request_options)
     : base_url_(normalize_base_url(base_url)),
       api_key_(api_key),
       model_(model),
       request_headers_(std::move(request_headers)),
+      request_options_(std::move(request_options)),
       stream_timeout_ms_(stream_timeout_ms > 0
           ? stream_timeout_ms
           : OpenAiConfig::kDefaultStreamTimeoutMs) {}
@@ -122,6 +124,36 @@ nlohmann::json anthropic_content_blocks_for_text(const std::string& text) {
     nlohmann::json blocks = nlohmann::json::array();
     append_text_block(blocks, text);
     return blocks;
+}
+
+std::optional<nlohmann::json> signed_anthropic_assistant_blocks(
+    const ChatMessage& msg) {
+    if (!msg.content_parts.is_array() || msg.content_parts.empty()) {
+        return std::nullopt;
+    }
+
+    bool contains_signed_thinking = false;
+    for (const auto& part : msg.content_parts) {
+        if (!part.is_object()) continue;
+        const std::string type = part.value("type", std::string{});
+        if (type == "thinking" && part.contains("signature") &&
+            part["signature"].is_string() &&
+            !part["signature"].get_ref<const std::string&>().empty()) {
+            contains_signed_thinking = true;
+            break;
+        }
+        if (type == "redacted_thinking" && part.contains("data") &&
+            part["data"].is_string()) {
+            contains_signed_thinking = true;
+            break;
+        }
+    }
+    if (!contains_signed_thinking) return std::nullopt;
+
+    // These blocks originated from the Anthropic response. Preserve their
+    // order and provider-owned fields exactly, especially thinking.signature
+    // and redacted_thinking.data.
+    return msg.content_parts;
 }
 
 nlohmann::json anthropic_tool_use_blocks(const nlohmann::json& tool_calls,
@@ -437,8 +469,39 @@ nlohmann::json AnthropicProvider::build_request_body(
 ) const {
     nlohmann::json body;
     body["model"] = model_;
-    body["max_tokens"] = kDefaultMaxTokens;
+    body["max_tokens"] = request_options_.max_output_tokens.value_or(
+        kDefaultMaxTokens);
     if (stream) body["stream"] = true;
+
+    if (request_options_.reasoning_protocol == ReasoningWireProtocol::Anthropic &&
+        request_options_.reasoning.has_value() &&
+        request_options_.reasoning->supported) {
+        const auto& reasoning = *request_options_.reasoning;
+        const bool enabled = reasoning.mandatory ||
+            reasoning.enabled.value_or(reasoning.default_enabled);
+        if (!enabled) {
+            body["thinking"] = {{"type", "disabled"}};
+        } else if (reasoning.max_tokens.has_value()) {
+            body["thinking"] = {
+                {"type", "enabled"},
+                {"budget_tokens", *reasoning.max_tokens},
+            };
+        } else if (!reasoning.supports_max_tokens) {
+            body["thinking"] = {{"type", "adaptive"}};
+            const auto effort = reasoning.effort.has_value()
+                ? reasoning.effort
+                : reasoning.default_effort;
+            if (effort.has_value()) {
+                body["output_config"] = {{"effort", *effort}};
+            }
+        } else if (reasoning.effort.has_value()) {
+            // A budget-capable model with no chosen budget must not be guessed
+            // into adaptive mode. An explicit effort remains a valid
+            // independent output_config override; catalog defaults are left to
+            // the provider when this model family does not support adaptive.
+            body["output_config"] = {{"effort", *reasoning.effort}};
+        }
+    }
 
     std::string system_text;
     nlohmann::json anthropic_messages = nlohmann::json::array();
@@ -486,15 +549,26 @@ nlohmann::json AnthropicProvider::build_request_body(
         }
 
         nlohmann::json blocks = nlohmann::json::array();
-        const std::string text = textual_content_parts(msg);
-        append_text_block(blocks, text);
-        if (msg.role == "assistant" && !msg.reasoning_content.empty()) {
-            append_text_block(blocks, "[Previous reasoning]\n" + msg.reasoning_content);
-        }
-        if (msg.role == "assistant" && !msg.tool_calls.is_null() && !msg.tool_calls.empty()) {
-            nlohmann::json tool_blocks = anthropic_tool_use_blocks(
-                msg.tool_calls, repaired_tool_calls, dropped_tool_calls);
-            for (auto& block : tool_blocks) blocks.push_back(std::move(block));
+        const auto preserved_blocks = msg.role == "assistant"
+            ? signed_anthropic_assistant_blocks(msg)
+            : std::nullopt;
+        if (preserved_blocks.has_value()) {
+            blocks = *preserved_blocks;
+        } else {
+            const std::string text = textual_content_parts(msg);
+            append_text_block(blocks, text);
+            if (msg.role == "assistant" && !msg.reasoning_content.empty()) {
+                append_text_block(
+                    blocks, "[Previous reasoning]\n" + msg.reasoning_content);
+            }
+            if (msg.role == "assistant" && !msg.tool_calls.is_null() &&
+                !msg.tool_calls.empty()) {
+                nlohmann::json tool_blocks = anthropic_tool_use_blocks(
+                    msg.tool_calls, repaired_tool_calls, dropped_tool_calls);
+                for (auto& block : tool_blocks) {
+                    blocks.push_back(std::move(block));
+                }
+            }
         }
         if (blocks.empty()) {
             append_text_block(blocks, "[Empty message]");
@@ -509,7 +583,7 @@ nlohmann::json AnthropicProvider::build_request_body(
     if (!system_text.empty()) body["system"] = system_text;
     body["messages"] = std::move(anthropic_messages);
 
-    if (!tools.empty()) {
+    if (!tools.empty() && request_options_.tools_enabled.value_or(true)) {
         nlohmann::json tools_json = nlohmann::json::array();
         for (const auto& tool : tools) {
             nlohmann::json t;
@@ -727,6 +801,7 @@ ChatResponse AnthropicProvider::parse_sse_stream(
         std::string id;
         std::string name;
         std::string input_json;
+        nlohmann::json raw = nlohmann::json::object();
     };
 
     ChatResponse last_accumulated;
@@ -782,10 +857,21 @@ ChatResponse AnthropicProvider::parse_sse_stream(
         };
 
         auto emit_done = [&]() {
+            accumulated.content_parts = nlohmann::json::array();
+            for (const auto& [index, state] : blocks) {
+                (void)index;
+                if (!state.raw.is_object() || state.raw.empty()) continue;
+                nlohmann::json raw = state.raw;
+                if (state.type == "tool_use") {
+                    raw["input"] = parse_tool_input_or_empty(state.input_json);
+                }
+                accumulated.content_parts.push_back(std::move(raw));
+            }
             emit_usage();
             StreamEvent done_evt;
             done_evt.type = StreamEventType::Done;
             done_evt.finish_reason = reported_finish_reason;
+            done_evt.content_parts = accumulated.content_parts;
             callback(done_evt);
             saw_done = true;
         };
@@ -855,6 +941,7 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                         block.type = cb.value("type", std::string{});
                         block.id = cb.value("id", std::string{});
                         block.name = cb.value("name", std::string{});
+                        block.raw = cb;
                         if (cb.contains("input") && !cb["input"].is_null() &&
                             !cb["input"].empty()) {
                             block.input_json = cb["input"].dump();
@@ -871,6 +958,14 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                         delta["text"].is_string()) {
                         const std::string token = delta["text"].get<std::string>();
                         accumulated.content += token;
+                        auto& block = blocks[index];
+                        block.type = "text";
+                        block.raw["type"] = "text";
+                        if (!block.raw.contains("text") ||
+                            !block.raw["text"].is_string()) {
+                            block.raw["text"] = "";
+                        }
+                        block.raw["text"].get_ref<std::string&>() += token;
                         if (!token.empty()) {
                             StreamEvent event;
                             event.type = StreamEventType::Delta;
@@ -882,17 +977,38 @@ ChatResponse AnthropicProvider::parse_sse_stream(
                                delta["thinking"].is_string()) {
                         const std::string token = delta["thinking"].get<std::string>();
                         accumulated.reasoning_content += token;
+                        auto& block = blocks[index];
+                        block.type = "thinking";
+                        block.raw["type"] = "thinking";
+                        if (!block.raw.contains("thinking") ||
+                            !block.raw["thinking"].is_string()) {
+                            block.raw["thinking"] = "";
+                        }
+                        block.raw["thinking"].get_ref<std::string&>() += token;
                         if (!token.empty()) {
                             StreamEvent event;
                             event.type = StreamEventType::ReasoningDelta;
                             event.content = token;
                             callback(event);
                         }
+                    } else if (delta_type == "signature_delta" &&
+                               delta.contains("signature") &&
+                               delta["signature"].is_string()) {
+                        auto& block = blocks[index];
+                        block.type = "thinking";
+                        block.raw["type"] = "thinking";
+                        if (!block.raw.contains("signature") ||
+                            !block.raw["signature"].is_string()) {
+                            block.raw["signature"] = "";
+                        }
+                        block.raw["signature"].get_ref<std::string&>() +=
+                            delta["signature"].get_ref<const std::string&>();
                     } else if (delta_type == "input_json_delta" &&
                                delta.contains("partial_json") &&
                                delta["partial_json"].is_string()) {
                         auto& block = blocks[index];
                         block.type = "tool_use";
+                        block.raw["type"] = "tool_use";
                         block.input_json += delta["partial_json"].get<std::string>();
 
                         StreamEvent progress_evt;

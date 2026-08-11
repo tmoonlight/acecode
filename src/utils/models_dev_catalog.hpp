@@ -17,6 +17,9 @@ struct ModelEntry {
     std::optional<double> cost_input;              // USD / million tokens
     std::optional<double> cost_output;
     bool reasoning = false;
+    std::vector<std::string> reasoning_efforts;
+    bool reasoning_supports_max_tokens = false;
+    bool reasoning_can_disable = false;
     bool tool_call = false;
     bool attachment = false;                       // vision / pdf
     bool deprecated = false;
@@ -39,6 +42,11 @@ struct ProviderEntry {
 // for unit testing and for callers that want to render a catalog from a JSON
 // blob other than the global registry.
 std::vector<ProviderEntry> build_catalog(const nlohmann::json& registry);
+
+// Stable cached value view for callers that retain providers across a registry
+// refresh. The returned shared_ptr owns the exact parsed generation.
+std::shared_ptr<const std::vector<ProviderEntry>> provider_catalog_snapshot(
+    const std::shared_ptr<const nlohmann::json>& registry);
 
 // Cached view over the global registry (current_registry()). The cache is keyed
 // off the shared_ptr identity, so calling this after refresh_registry_*() picks

@@ -20,6 +20,15 @@ struct RegistrySource {
     std::optional<std::string> seed_dir; // populated for Bundled
 };
 
+// One atomic generation of the registry and its provenance. Callers that need
+// consistent serialization must retain this value instead of reading the
+// registry/source separately across a possible refresh.
+struct RegistrySnapshot {
+    std::shared_ptr<const nlohmann::json> registry;
+    RegistrySource source;
+    unsigned long long generation = 0;
+};
+
 // Load the registry once according to AppConfig. Order: user_override_path →
 // bundled api.json (via find_models_dev_dir) → empty. Network fetch is NEVER
 // performed by this function — call refresh_registry_from_network() explicitly.
@@ -40,11 +49,21 @@ void reload_registry_from_disk(const AppConfig& cfg, const std::string& argv0_di
 // failure (registry untouched).
 bool refresh_registry_from_network();
 
+// Validate and atomically install a refresh candidate. Invalid candidates leave
+// the current registry untouched. The network path uses this same seam so tests
+// can prove refresh failure safety without external HTTP.
+bool install_registry_refresh_candidate(nlohmann::json candidate,
+                                        const std::string& source_url);
+
 // Current shared registry. Always non-null after initialize_registry() ran.
 std::shared_ptr<const nlohmann::json> current_registry();
 
 // Provenance of the currently-loaded registry.
-const RegistrySource& current_registry_source();
+RegistrySource current_registry_source();
+
+// Atomically capture registry, source, and monotonic generation under the same
+// lock. The shared registry remains alive across later refreshes.
+RegistrySnapshot current_registry_snapshot();
 
 // Helper for tests / `/models lookup` — find a provider object in the supplied
 // registry JSON by id (case-insensitive match against top-level keys). Returns

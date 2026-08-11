@@ -1,0 +1,159 @@
+{
+  "summary": {
+    "catalog": {
+      "source": "bundled",
+      "version": 7,
+      "updated_at": "2026-08-10T00:00:00Z",
+      "freshness": "bundled"
+    },
+    "providers": [
+      {
+        "id": "copilot",
+        "name": "GitHub Copilot",
+        "runtime_provider": "copilot",
+        "base_url": "",
+        "doc": "https://docs.github.com/en/copilot",
+        "auth_mode": "managed",
+        "endpoint_editable": false,
+        "model_input": "catalog",
+        "api_key_env": "",
+        "models_dev_provider_id": null,
+        "group": "native",
+        "endpoint_modes": []
+      },
+      {
+        "id": "custom-openai",
+        "name": "Custom OpenAI-compatible API",
+        "runtime_provider": "openai",
+        "base_url": "",
+        "doc": "",
+        "auth_mode": "required",
+        "endpoint_editable": true,
+        "model_input": "manual",
+        "api_key_env": "",
+        "models_dev_provider_id": null,
+        "group": "custom",
+        "endpoint_modes": ["base_url", "full_url"]
+      }
+    ],
+    "recommended_models": [
+      {
+        "provider_id": "openrouter",
+        "model_id": "xiaomi/mimo-v2.5",
+        "name": "MiMo-V2.5",
+        "context_window": 1050000,
+        "max_output_tokens": 131072,
+        "capabilities": ["vision", "tool_use", "reasoning"],
+        "reasoning": {
+          "supported": true,
+          "mandatory": false,
+          "default_enabled": true,
+          "supported_efforts": [],
+          "supports_max_tokens": false
+        },
+        "deprecated": false,
+        "privacy_warning": ""
+      },
+      {
+        "provider_id": "openrouter",
+        "model_id": "deepseek/deepseek-v4-flash-0731",
+        "name": "DeepSeek V4 Flash 0731",
+        "context_window": 1048576,
+        "max_output_tokens": 384000,
+        "capabilities": ["tool_use", "reasoning"],
+        "reasoning": {
+          "supported": true,
+          "mandatory": false,
+          "default_enabled": true,
+          "supported_efforts": ["low", "high", "max"],
+          "supports_max_tokens": false,
+          "default_effort": "high"
+        },
+        "deprecated": false,
+        "privacy_warning": ""
+      },
+      {
+        "provider_id": "openrouter",
+        "model_id": "z-ai/glm-5.2",
+        "name": "GLM-5.2",
+        "context_window": 1048576,
+        "max_output_tokens": 128000,
+        "capabilities": ["tool_use", "reasoning"],
+        "reasoning": {
+          "supported": true,
+          "mandatory": false,
+          "default_enabled": true,
+          "supported_efforts": ["high", "xhigh"],
+          "supports_max_tokens": false,
+          "default_effort": "high"
+        },
+        "deprecated": false,
+        "privacy_warning": ""
+      },
+      {
+        "provider_id": "openrouter",
+        "model_id": "openai/gpt-5.6-luna",
+        "name": "GPT-5.6 Luna",
+        "context_window": 1050000,
+        "max_output_tokens": 128000,
+        "capabilities": ["vision", "tool_use", "reasoning"],
+        "reasoning": {
+          "supported": true,
+          "mandatory": false,
+          "default_enabled": true,
+          "supported_efforts": ["low", "medium", "high", "xhigh", "max"],
+          "supports_max_tokens": false,
+          "default_effort": "medium"
+        },
+        "deprecated": false,
+        "privacy_warning": ""
+      },
+      {
+        "provider_id": "openrouter",
+        "model_id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "name": "Nemotron 3 Ultra (free)",
+        "context_window": 1000000,
+        "max_output_tokens": 65536,
+        "capabilities": ["tool_use", "reasoning"],
+        "reasoning": {
+          "supported": true,
+          "mandatory": false,
+          "default_enabled": true,
+          "supported_efforts": ["medium", "high"],
+          "supports_max_tokens": true,
+          "default_effort": "high"
+        },
+        "deprecated": false,
+        "privacy_warning": "Free endpoints may log inputs and outputs. Do not use this endpoint for confidential source code."
+      }
+    ]
+  },
+  "query": {
+    "provider_id": "openrouter",
+    "models": [
+      {
+        "id": "exact-model",
+        "name": "Exact Display",
+        "context_window": 100000,
+        "max_output_tokens": 12000,
+        "capabilities": ["vision", "tool_use", "reasoning"],
+        "reasoning": {
+          "supported": true,
+          "mandatory": false,
+          "default_enabled": true,
+          "supported_efforts": ["low", "high"],
+          "supports_max_tokens": false
+        },
+        "deprecated": true,
+        "input_modalities": [],
+        "output_modalities": [],
+        "knowledge_cutoff": null,
+        "pricing": {
+          "input": null,
+          "output": null
+        }
+      }
+    ],
+    "limit": 1
+  }
+}

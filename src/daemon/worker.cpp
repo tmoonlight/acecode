@@ -17,6 +17,7 @@
 #include "../provider/copilot_provider.hpp"
 #include "../provider/model_pool_status.hpp"
 #include "../provider/model_resolver.hpp"
+#include "../provider/models_dev_registry.hpp"
 #include "../provider/provider_factory.hpp"
 #include "../hooks/hook_config.hpp"
 #include "../hooks/hook_manager.hpp"
@@ -387,6 +388,20 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         }
         LOG_INFO(oss.str());
         if (opts.foreground) std::cerr << oss.str() << "\n";
+    }
+
+    // Daemon/WebUI 不经过 TUI 的启动初始化路径，因此必须在这里装载本地
+    // models.dev 快照。否则模型目录处理器只能看到进程级空注册表，实际构建
+    // 启动后“热门预置”会稳定返回 503，尽管源码级处理器测试可以通过。
+    std::string executable_dir;
+    if (const std::string executable = current_executable_path();
+        !executable.empty()) {
+        executable_dir = path_to_utf8(path_from_utf8(executable).parent_path());
+    }
+    initialize_registry(cfg, executable_dir);
+    if (cfg.models_dev.allow_network &&
+        !cfg.models_dev.refresh_on_command_only) {
+        std::thread([] { refresh_registry_from_network(); }).detach();
     }
 
     // 模型池负载监控:池成员由接口的 modelPoolName 决定,不能再靠模型名前缀预判。

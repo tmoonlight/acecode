@@ -39,6 +39,11 @@ RegistrySource& source_storage() {
     return s;
 }
 
+unsigned long long& generation_storage() {
+    static unsigned long long generation = 0;
+    return generation;
+}
+
 std::string lower(std::string v) {
     std::transform(v.begin(), v.end(), v.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -65,6 +70,7 @@ void install(std::shared_ptr<const nlohmann::json> registry, RegistrySource src)
     std::lock_guard<std::mutex> lk(registry_mutex());
     registry_storage() = std::move(registry);
     source_storage() = std::move(src);
+    ++generation_storage();
 }
 
 } // namespace
@@ -99,6 +105,7 @@ void initialize_registry(const AppConfig& cfg, const std::string& argv0_dir) {
 }
 
 void reload_registry_from_disk(const AppConfig& cfg, const std::string& argv0_dir) {
+    const auto bundled_seed = find_models_dev_dir(argv0_dir);
     if (cfg.models_dev.user_override_path.has_value() &&
         !cfg.models_dev.user_override_path->empty()) {
         fs::path p = path_from_utf8(*cfg.models_dev.user_override_path);
@@ -113,14 +120,15 @@ void reload_registry_from_disk(const AppConfig& cfg, const std::string& argv0_di
             }
             LOG_INFO("Loaded models.dev user override from " + path_to_utf8(p));
             install(std::make_shared<const nlohmann::json>(std::move(*parsed)),
-                    RegistrySource{RegistrySource::Kind::UserOverride, path_to_utf8(p), std::nullopt, std::nullopt});
+                    RegistrySource{RegistrySource::Kind::UserOverride,
+                                   path_to_utf8(p), std::nullopt, bundled_seed});
             return;
         }
         LOG_WARN("models.dev user_override_path '" + path_to_utf8(p) +
                  "' is missing or unreadable; falling back to bundled snapshot");
     }
 
-    auto seed = find_models_dev_dir(argv0_dir);
+    auto seed = bundled_seed;
     if (seed) {
         fs::path api_path = path_from_utf8(*seed) / "api.json";
         auto parsed = read_json_file(api_path);
@@ -165,13 +173,11 @@ bool refresh_registry_from_network() {
     }
     try {
         auto parsed = nlohmann::json::parse(r.text);
-        if (!validate_registry_schema(parsed)) {
+        if (!install_registry_refresh_candidate(std::move(parsed), kModelsDevUrl)) {
             LOG_INFO("models.dev network response failed schema validation; keeping current snapshot");
             return false;
         }
         LOG_INFO("models.dev network refresh succeeded");
-        install(std::make_shared<const nlohmann::json>(std::move(parsed)),
-                RegistrySource{RegistrySource::Kind::Network, kModelsDevUrl, std::nullopt, std::nullopt});
         return true;
     } catch (const std::exception& e) {
         LOG_INFO(std::string("models.dev network refresh parse error: ") + e.what());
@@ -184,8 +190,40 @@ std::shared_ptr<const nlohmann::json> current_registry() {
     return registry_storage();
 }
 
-const RegistrySource& current_registry_source() {
+RegistrySource current_registry_source() {
+    std::lock_guard<std::mutex> lk(registry_mutex());
     return source_storage();
+}
+
+RegistrySnapshot current_registry_snapshot() {
+    std::lock_guard<std::mutex> lk(registry_mutex());
+    return RegistrySnapshot{
+        registry_storage(), source_storage(), generation_storage()};
+}
+
+bool install_registry_refresh_candidate(nlohmann::json candidate,
+                                        const std::string& source_url) {
+    if (!validate_registry_schema(candidate)) return false;
+    std::size_t provider_count = 0;
+    std::size_t model_count = 0;
+    for (auto it = candidate.begin(); it != candidate.end(); ++it) {
+        if (!it->is_object()) continue;
+        ++provider_count;
+        const auto models = it->find("models");
+        if (models != it->end() && (models->is_object() || models->is_array())) {
+            model_count += models->size();
+        }
+    }
+    // Match scripts/sync_models_dev.ps1. This threshold applies only to
+    // network candidates; minimal local/user-override registries stay valid.
+    if (provider_count < 50 || model_count < 1000) return false;
+    const RegistrySource previous_source = current_registry_source();
+    install(std::make_shared<const nlohmann::json>(std::move(candidate)),
+            RegistrySource{RegistrySource::Kind::Network,
+                           source_url,
+                           previous_source.manifest,
+                           previous_source.seed_dir});
+    return true;
 }
 
 } // namespace acecode

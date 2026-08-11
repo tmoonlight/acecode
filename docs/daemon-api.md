@@ -300,6 +300,9 @@ when known.
 | PUT | `/api/models/:name` | update saved model profile |
 | DELETE | `/api/models/:name` | remove saved model profile |
 | POST | `/api/models/probe` | probe provider model ids |
+| GET | `/api/models/catalog` | read local model catalog summary and reviewed recommendations |
+| GET | `/api/models/catalog/:provider_id` | search one provider's local model catalog |
+| POST | `/api/models/catalog/refresh` | explicitly refresh the models.dev registry when network refresh is enabled |
 | GET | `/api/config/default-model` | read default saved model name |
 | POST | `/api/config/default-model` | set default saved model |
 | GET | `/api/copilot/auth` | read Copilot auth status |
@@ -1655,13 +1658,14 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 
 ### `GET /api/models`
 
-Returns an array of runtime-enabled saved model profiles. Editable fields such
-as `base_url`, `api_key`, `request_headers`, `context_window`,
-`stream_timeout_ms`, and `capabilities` are included when present.
+返回所有运行时已启用的模型配置。响应只包含 `has_api_key` 布尔值，绝不返回
+API Key 明文；日志与错误消息也不得包含密钥。高级字段有值时会原样返回，包括
+`endpoint_mode`、`max_output_tokens`、`capabilities_source`、`reasoning`、
+`request_headers`、`context_window` 与 `stream_timeout_ms`。
 
 ### `POST /api/models`
 
-Adds a saved model profile. Body is the saved model draft:
+新增模型配置。请求体为 saved model draft，例如：
 
 ```json
 {
@@ -1670,25 +1674,44 @@ Adds a saved model profile. Body is the saved model draft:
   "model": "gpt-4.1",
   "base_url": "https://example.com/v1",
   "api_key": "{env:OPENAI_API_KEY}",
+  "endpoint_mode": "base_url",
+  "max_output_tokens": 32768,
   "request_headers": {"X-Team":"acecode"},
   "context_window": 128000,
   "stream_timeout_ms": 600000,
-  "capabilities": {}
+  "capabilities": ["vision", "tool_use", "reasoning"],
+  "capabilities_source": "catalog",
+  "reasoning": {
+    "supported": true,
+    "mandatory": false,
+    "default_enabled": true,
+    "enabled": true,
+    "supported_efforts": ["low", "medium", "high"],
+    "default_effort": "medium",
+    "effort": "high",
+    "supports_max_tokens": false
+  }
 }
 ```
 
-Returns the saved profile. Validation errors use `BAD_JSON`, `BAD_REQUEST`, or
-the `SavedModelEditError` string. Persistence failures roll back memory and
-return `500 PERSIST_FAILED`.
+返回已脱敏的模型配置。校验错误使用 `BAD_JSON`、`BAD_REQUEST` 或
+`SavedModelEditError` 字符串；持久化失败会回滚内存并返回
+`500 PERSIST_FAILED`。
 
 ### `PUT /api/models/:name`
 
-Updates a saved model profile and may rename it. Missing `api_key`,
-`base_url`, `context_window`, `stream_timeout_ms`, `capabilities`, or
-`request_headers` preserve the existing values. Sending empty
-`request_headers` clears them. Legacy profiles carrying `readonly: true` from
-an external login helper remain editable; the marker is compatibility metadata,
-not an update permission. Returns the updated profile.
+更新模型配置并可重命名。省略 `api_key` 会保留原密钥；传入非空
+`api_key` 会替换密钥。只有允许无认证的端点才接受
+`clear_api_key:true`，否则请求失败。`credential_source_name` 可复用另一份
+配置的凭据，但仅在 runtime provider、规范化 Base URL 和
+`models_dev_provider_id` 完全兼容时允许；HTTP/HTTPS 默认端口会规范化，URL
+路径仍区分大小写。
+
+省略 `base_url`、`context_window`、`stream_timeout_ms`、`capabilities`、
+`endpoint_mode`、`max_output_tokens`、`capabilities_source`、`reasoning` 或
+`request_headers` 会保留原值。显式空 `request_headers` 会清空请求头；对应高级
+字段传 `null` 时按各字段合同清除。外部登录器留下的 legacy `readonly:true` 只是
+兼容元数据，不阻止编辑。响应仍只包含 `has_api_key`，不返回密钥。
 
 ### `DELETE /api/models/:name`
 
@@ -1716,6 +1739,94 @@ Success:
 
 Errors include `COPILOT_AUTH_REQUIRED`, `INVALID_REQUEST_HEADER`,
 `PROBE_FAILED`, `PROBE_HTTP_ERROR`, and `PROBE_BAD_JSON`.
+
+### `GET /api/models/catalog`
+
+只读取当前本地注册表，不触发网络请求。返回固定顶层结构：
+
+```json
+{
+  "catalog": {
+    "source": "bundled",
+    "version": 1,
+    "updated_at": "2026-08-10T00:00:00Z",
+    "freshness": "bundled"
+  },
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "runtime_provider": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "doc": "https://platform.openai.com/docs",
+      "auth_mode": "required",
+      "endpoint_editable": false,
+      "model_input": "catalog",
+      "api_key_env": "OPENAI_API_KEY",
+      "models_dev_provider_id": "openai",
+      "group": "native",
+      "endpoint_modes": ["base_url"]
+    }
+  ],
+  "recommended_models": []
+}
+```
+
+`catalog.version` 是非负整数。`auth_mode` 只会是 `required`、`optional`、
+`none` 或 `managed`。Custom OpenAI-compatible Provider 明确支持
+`endpoint_modes:["base_url","full_url"]`，并要求 API Key 或兼容的
+`credential_source_name`；Copilot 使用 `managed`，由 ACECode 的 GitHub 登录与
+受管端点负责认证。
+
+`recommended_models` 固定来自随包审查的五项清单，使用 `model_id` 作为模型
+身份，不增加第二套模板 ID。目录刷新只补充这些项的模型元数据，不改变成员、
+顺序或人工审查字段；离线时仍可使用随包清单。
+
+### `GET /api/models/catalog/:provider_id`
+
+从指定 Provider 的本地目录进行大小写不敏感搜索。可选查询参数为 `q` 和
+`limit`；默认最多返回 50 项，服务端硬上限为 100，完全匹配模型 ID 的结果优先，
+其余结果稳定排序。返回结构：
+
+```json
+{
+  "provider_id": "openrouter",
+  "models": [
+    {
+      "id": "openai/gpt-4.1",
+      "name": "GPT-4.1",
+      "context_window": 1047576,
+      "max_output_tokens": 32768,
+      "capabilities": ["vision", "tool_use"],
+      "reasoning": {
+        "supported": false,
+        "mandatory": false,
+        "default_enabled": false,
+        "supported_efforts": [],
+        "supports_max_tokens": false
+      },
+      "deprecated": false,
+      "input_modalities": ["text", "image"],
+      "output_modalities": ["text"],
+      "knowledge_cutoff": "2024-06",
+      "pricing": {"input": 2.0, "output": 8.0}
+    }
+  ],
+  "limit": 50
+}
+```
+
+目录模型使用 `id`；只有推荐模板使用 `model_id`。`supported_efforts` 只会包含
+`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；上游的 `none` 只表示
+reasoning 可关闭，`default`、`null` 等非规范值不会进入响应。
+
+### `POST /api/models/catalog/refresh`
+
+显式触发 models.dev 网络刷新；普通目录读取永不隐式访问网络。只有
+`models_dev.allow_network=true` 时允许调用，否则返回 `403`。下载结果必须通过
+最小结构校验，并至少包含 50 个 Provider、1000 个模型；下载、解析或阈值校验
+失败时返回错误并继续使用最后一份有效注册表，不会安装部分结果。成功后返回与
+`GET /api/models/catalog` 相同的目录摘要结构。
 
 ### `GET /api/config/default-model`
 

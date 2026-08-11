@@ -22,10 +22,13 @@ function run(name, fn) {
 run('saved model edits refresh the mounted active-session model state', () => {
   const app = source('App.jsx');
   const settings = source('components/SettingsPage.jsx');
+  const modelSettings = source('components/model-settings/ModelSettingsSection.jsx');
   const chat = source('components/ChatView.jsx');
 
-  assert.match(settings, /const updated = await api\.updateModel\(name, payloads\[0\]\);/);
-  assert.match(settings, /onModelProfileUpdated\?\.\(updated\);/);
+  assert.match(settings, /<ModelSettingsSection onModelProfileUpdated=\{onModelProfileUpdated\}/);
+  assert.match(modelSettings, /const updated = await api\.updateModel\(originalName, payloads\[0\]\);/);
+  assert.match(modelSettings, /announceMutation\(updated\);/);
+  assert.match(modelSettings, /onModelProfileUpdated\?\.\(safe\);/);
   assert.match(app, /modelProfileRevision=\{modelProfileRevision\}/);
   assert.match(
     app,

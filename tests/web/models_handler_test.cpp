@@ -10,6 +10,9 @@
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
 
+#include <filesystem>
+#include <fstream>
+
 using acecode::AppConfig;
 using acecode::ModelProfile;
 using acecode::SessionModelState;
@@ -50,7 +53,8 @@ TEST(ModelsHandler, ListIncludesAllSavedModels) {
     EXPECT_EQ(arr[0]["name"], "copilot-fast");
     EXPECT_EQ(arr[1]["name"], "local-lm");
     EXPECT_TRUE(arr[1].contains("base_url"));
-    EXPECT_EQ(arr[1]["api_key"], "x");
+    EXPECT_FALSE(arr[1].contains("api_key"));
+    EXPECT_EQ(arr[1]["has_api_key"], true);
     EXPECT_EQ(arr[1]["context_window"], 64000);
     EXPECT_EQ(arr[1]["capabilities"], nlohmann::json::array({"vision", "tool_use"}));
     EXPECT_EQ(arr[1]["request_headers"]["X-Team"], "acecode");
@@ -73,7 +77,8 @@ TEST(ModelsHandler, ListAndFindIncludeAnthropicProvider) {
     EXPECT_EQ(arr[2]["name"], "claude");
     EXPECT_EQ(arr[2]["provider"], "anthropic");
     EXPECT_EQ(arr[2]["base_url"], "https://api.anthropic.com/v1");
-    EXPECT_EQ(arr[2]["api_key"], "sk-ant-test");
+    EXPECT_FALSE(arr[2].contains("api_key"));
+    EXPECT_EQ(arr[2]["has_api_key"], true);
     EXPECT_EQ(arr[2]["request_headers"]["anthropic-beta"],
               "prompt-caching-2024-07-31");
 
@@ -206,8 +211,8 @@ TEST(ModelsHandler, ErrorToHttpStatusMapping) {
 }
 
 // 触发场景:POST/PUT 成功后把 ModelProfile 序列化回模型管理界面。
-// 期望行为:api_key 回填给管理表单,由前端字段逐字符 mask 并支持显隐切换。
-TEST(ModelsHandler, ProfileToSafeJsonIncludesApiKey) {
+// 期望行为:响应只返回存在性，不把密钥放进客户端状态或 DOM。
+TEST(ModelsHandler, ProfileToSafeJsonRedactsApiKey) {
     ModelProfile p;
     p.name = "local";
     p.provider = "openai";
@@ -215,7 +220,9 @@ TEST(ModelsHandler, ProfileToSafeJsonIncludesApiKey) {
     p.base_url = "http://localhost/v1";
     p.api_key = "sk-secret";
     auto j = profile_to_safe_json(p);
-    EXPECT_EQ(j["api_key"], "sk-secret");
+    EXPECT_FALSE(j.contains("api_key"));
+    EXPECT_EQ(j["has_api_key"], true);
+    EXPECT_EQ(j.dump().find("sk-secret"), std::string::npos);
     EXPECT_EQ(j["base_url"], "http://localhost/v1");
     EXPECT_EQ(j["name"], "local");
 }
@@ -244,7 +251,8 @@ TEST(ModelsHandler, ProfileToSafeJsonIncludesCapabilities) {
     p.capabilities = {"vision", "tool_use"};
     auto j = profile_to_safe_json(p);
     EXPECT_EQ(j["capabilities"], nlohmann::json::array({"vision", "tool_use"}));
-    EXPECT_EQ(j["api_key"], "sk-secret");
+    EXPECT_FALSE(j.contains("api_key"));
+    EXPECT_EQ(j["has_api_key"], true);
 }
 
 // 触发场景:request_headers 是可编辑模板,响应可返回模板但不能解析环境变量。
@@ -262,7 +270,8 @@ TEST(ModelsHandler, ProfileToSafeJsonIncludesRequestHeaders) {
     auto j = profile_to_safe_json(p);
     EXPECT_EQ(j["request_headers"]["Authorization"], "Bearer {env:ACE_TOKEN}");
     EXPECT_EQ(j["request_headers"]["X-Team"], "acecode");
-    EXPECT_EQ(j["api_key"], "sk-secret");
+    EXPECT_FALSE(j.contains("api_key"));
+    EXPECT_EQ(j["has_api_key"], true);
 }
 
 // 触发场景:前端 POST /api/models 漏字段时,后端要给出明确的字段名,
@@ -276,28 +285,30 @@ TEST(ModelsHandler, ParseDraftReportsMissingField) {
     EXPECT_NE(err.find("provider"), std::string::npos);
 }
 
-// 触发场景:前端 form 经常把空 input 序列化成 null,而不是省略字段;同时
-// 偶发情况下 base_url / api_key 可能是 number / bool 等非字符串类型(测试
-// stub / 错配的 schema)。可选字段一旦因此整体拒绝,UX 上看就是"明明
-// 没填也要报错"。这里和 models_dev_provider_id 的处理对齐:可选字段碰到
-// null 或 非 string,静默跳过而不是设 err。
-// 期望行为:body 含 base_url=null + api_key=42(int)→ parse 仍返回有效
-// draft,err 留空,base_url / api_key 为空字符串(语义同字段缺省)。
-// 回归表现:前端表单提交"只填必填项"被后端拒绝。
-TEST(ModelsHandler, ParseDraftSkipsNullOptionalFields) {
+// 密钥更新语义依赖“省略”和“提供”可区分；错误类型不能被静默当成省略。
+TEST(ModelsHandler, ParseDraftRejectsWrongCredentialTypes) {
     nlohmann::json body = {
         {"name", "lm"},
         {"provider", "copilot"},
         {"model", "gpt-4o"},
-        {"base_url", nullptr},  // null
+        {"base_url", "https://example.test/v1"},
         {"api_key", 42},         // 非字符串
     };
     std::string err;
     auto d = parse_model_draft(body, err);
-    ASSERT_TRUE(d.has_value()) << "可选字段为 null/非 string 时应静默跳过";
-    EXPECT_TRUE(err.empty());
-    EXPECT_EQ(d->base_url, "");
-    EXPECT_EQ(d->api_key, "");
+    EXPECT_FALSE(d.has_value());
+    EXPECT_NE(err.find("api_key"), std::string::npos);
+}
+
+std::filesystem::path repo_root() {
+    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+}
+
+nlohmann::json model_mutation_fixture() {
+    std::ifstream input(repo_root() / "tests" / "fixtures" /
+                        "model_mutation_contract.json");
+    if (!input) return nullptr;
+    return nlohmann::json::parse(input);
 }
 
 // 触发场景:必填字段是 null/非字符串(比如前端误把 name 写成数字)。这种
@@ -372,6 +383,124 @@ TEST(ModelsHandler, ParseDraftAcceptsAnthropicBody) {
     EXPECT_EQ(d->request_headers.at("anthropic-beta"),
               "prompt-caching-2024-07-31");
     EXPECT_TRUE(err.empty());
+}
+
+// 新增/更新 payload 的高级字段与密钥动作必须被完整、显式解析。
+TEST(ModelsHandler, ParseDraftAcceptsAdvancedCredentialSemantics) {
+    nlohmann::json body = {
+        {"name", "advanced"},
+        {"provider", "openai"},
+        {"model", "model-id"},
+        {"base_url", "https://openrouter.ai/api/v1"},
+        {"models_dev_provider_id", "openrouter"},
+        {"credential_source_name", "source"},
+        {"endpoint_mode", "base_url"},
+        {"max_output_tokens", 65536},
+        {"capabilities", nlohmann::json::array({"tool_use", "reasoning"})},
+        {"capabilities_source", "catalog"},
+        {"reasoning", {
+            {"supported", true},
+            {"mandatory", false},
+            {"default_enabled", true},
+            {"enabled", true},
+            {"supported_efforts", nlohmann::json::array({"low", "high"})},
+            {"default_effort", "low"},
+            {"effort", "high"},
+            {"supports_max_tokens", true},
+            {"max_tokens", 8192},
+        }},
+    };
+    std::string error;
+    auto draft = parse_model_draft(body, error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_TRUE(draft->base_url_supplied);
+    EXPECT_FALSE(draft->api_key_supplied);
+    EXPECT_EQ(draft->credential_source_name, "source");
+    EXPECT_TRUE(draft->endpoint_mode_supplied);
+    EXPECT_EQ(draft->max_output_tokens, 65536);
+    EXPECT_TRUE(draft->reasoning_supplied);
+    ASSERT_TRUE(draft->reasoning.has_value());
+    EXPECT_EQ(draft->reasoning->effort, "high");
+}
+
+TEST(ModelsHandler, SharedEditPayloadParsesAndClearsSuppliedOverrides) {
+    const auto fixture = model_mutation_fixture();
+    ASSERT_TRUE(fixture.is_object());
+    ASSERT_TRUE(fixture.contains("edit_payload"));
+
+    std::string error;
+    auto draft = parse_model_draft(fixture["edit_payload"], error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_TRUE(draft->context_window_supplied);
+    ASSERT_TRUE(draft->context_window.has_value());
+    EXPECT_EQ(*draft->context_window, 0);
+    EXPECT_TRUE(draft->max_output_tokens_supplied);
+    ASSERT_TRUE(draft->max_output_tokens.has_value());
+    EXPECT_EQ(*draft->max_output_tokens, 0);
+    EXPECT_TRUE(draft->endpoint_mode_supplied);
+    EXPECT_FALSE(draft->endpoint_mode.has_value());
+    EXPECT_TRUE(draft->request_headers_supplied);
+    EXPECT_TRUE(draft->request_headers.empty());
+    EXPECT_TRUE(draft->reasoning_supplied);
+    ASSERT_TRUE(draft->reasoning.has_value());
+    EXPECT_FALSE(draft->reasoning->enabled.has_value());
+    EXPECT_FALSE(draft->reasoning->effort.has_value());
+    EXPECT_FALSE(draft->reasoning->max_tokens.has_value());
+    EXPECT_EQ(draft->reasoning->default_effort, "high");
+
+    AppConfig cfg;
+    ModelProfile existing;
+    existing.name = "fixture-openrouter";
+    existing.provider = "openai";
+    existing.model = "old-model";
+    existing.models_dev_provider_id = "openrouter";
+    existing.base_url = "https://openrouter.ai/api/v1";
+    existing.api_key = "preserved-secret";
+    existing.context_window = 100000;
+    existing.max_output_tokens = 32000;
+    existing.endpoint_mode = "base_url";
+    existing.request_headers = {{"X-Old", "value"}};
+    cfg.saved_models.push_back(existing);
+
+    EXPECT_EQ(acecode::update_saved_model(
+                  cfg, "fixture-openrouter", *draft),
+              SavedModelEditError::OK);
+    ASSERT_EQ(cfg.saved_models.size(), 1u);
+    EXPECT_EQ(cfg.saved_models[0].api_key, "preserved-secret");
+    EXPECT_FALSE(cfg.saved_models[0].context_window.has_value());
+    EXPECT_FALSE(cfg.saved_models[0].max_output_tokens.has_value());
+    EXPECT_FALSE(cfg.saved_models[0].endpoint_mode.has_value());
+    EXPECT_TRUE(cfg.saved_models[0].request_headers.empty());
+    ASSERT_TRUE(cfg.saved_models[0].reasoning.has_value());
+    EXPECT_EQ(cfg.saved_models[0].reasoning->default_effort, "high");
+}
+
+// 响应中的高级字段允许返回，但任何 API Key 明文都不得出现。
+TEST(ModelsHandler, SafeJsonIncludesAdvancedFieldsWithoutCredential) {
+    ModelProfile profile;
+    profile.name = "advanced";
+    profile.provider = "openai";
+    profile.model = "model-id";
+    profile.base_url = "https://openrouter.ai/api/v1";
+    profile.api_key = "never-return-this";
+    profile.endpoint_mode = "base_url";
+    profile.max_output_tokens = 65536;
+    profile.capabilities = {"reasoning"};
+    profile.capabilities_source = "catalog";
+    acecode::ModelReasoningOptions reasoning;
+    reasoning.supported = true;
+    reasoning.default_enabled = true;
+    reasoning.supported_efforts = {"low", "high"};
+    reasoning.supports_max_tokens = false;
+    profile.reasoning = reasoning;
+
+    const auto body = profile_to_safe_json(profile);
+    EXPECT_EQ(body["has_api_key"], true);
+    EXPECT_FALSE(body.contains("api_key"));
+    EXPECT_EQ(body["endpoint_mode"], "base_url");
+    EXPECT_EQ(body["max_output_tokens"], 65536);
+    EXPECT_EQ(body["reasoning"]["supported"], true);
+    EXPECT_EQ(body.dump().find("never-return-this"), std::string::npos);
 }
 
 // 触发场景:request_headers 值必须是字符串模板。

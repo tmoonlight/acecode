@@ -9,7 +9,8 @@ namespace acecode {
 
 class CopilotProvider : public OpenAiCompatProvider {
 public:
-    explicit CopilotProvider(const std::string& model);
+    explicit CopilotProvider(const std::string& model,
+                             ProviderRequestOptions request_options = {});
 
     ChatResponse chat(
         const std::vector<ChatMessage>& messages,

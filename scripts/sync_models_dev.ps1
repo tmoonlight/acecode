@@ -20,7 +20,7 @@ Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing -TimeoutSec 30
 
 $validation = python -c @"
 import json, sys
-with open(r'$tmp') as f: data = json.load(f)
+with open(r'$tmp', encoding='utf-8') as f: data = json.load(f)
 if not isinstance(data, dict): sys.exit('top-level not an object')
 providers = sum(1 for v in data.values() if isinstance(v, dict))
 models = 0

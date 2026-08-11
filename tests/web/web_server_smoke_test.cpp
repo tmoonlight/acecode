@@ -29,6 +29,7 @@
 #include "loop/loop_store.hpp"
 #include "prompt/system_prompt.hpp"
 #include "provider/cwd_model_override.hpp"
+#include "provider/models_dev_registry.hpp"
 #include "session/local_session_client.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_registry.hpp"
@@ -6685,9 +6686,59 @@ TEST(WebServerHttp, CreateSessionWithBadJsonReturns400) {
 // 映射,这里补 route-level wiring:鉴权 + 落盘 + JSON 形态。配置文件指向
 // fixture 的 tmp_dir,绝不会污染真实 ~/.acecode/config.json。
 
-// 场景:POST /api/models 成功 → 200 + body 含 name/provider/model/api_key,
-// 管理界面用 api_key 回填可显隐切换的输入框。
-TEST(WebServerHttp, PostModelsCreatesSavedEntryWithApiKey) {
+TEST(WebServerHttp, ModelCatalogRoutesReturnBoundedCanonicalLocalData) {
+    const auto assets = std::filesystem::path(__FILE__).parent_path()
+        .parent_path().parent_path() / "assets" / "models_dev";
+    ScopedEnvOverride models_dir("ACECODE_MODELS_DEV_DIR", assets.string());
+    WebServerFixture fx;
+    acecode::initialize_registry(fx.cfg, "");
+
+    auto summary_response = cpr::Get(cpr::Url{fx.url("/api/models/catalog")});
+    ASSERT_EQ(summary_response.status_code, 200) << summary_response.text;
+    const auto summary = json::parse(summary_response.text);
+    ASSERT_TRUE(summary.contains("catalog"));
+    ASSERT_TRUE(summary["catalog"]["version"].is_number_unsigned() ||
+                summary["catalog"]["version"].is_number_integer());
+    ASSERT_TRUE(summary.contains("providers"));
+    ASSERT_EQ(summary["recommended_models"].size(), 5u);
+    EXPECT_FALSE(summary_response.text.find("api_key\"") != std::string::npos);
+
+    auto query_response = cpr::Get(cpr::Url{
+        fx.url("/api/models/catalog/openrouter?q=openai%2Fgpt-5.6-luna&limit=1")});
+    ASSERT_EQ(query_response.status_code, 200) << query_response.text;
+    const auto query = json::parse(query_response.text);
+    EXPECT_EQ(query["provider_id"], "openrouter");
+    EXPECT_EQ(query["limit"], 1);
+    ASSERT_EQ(query["models"].size(), 1u);
+    EXPECT_EQ(query["models"][0]["id"], "openai/gpt-5.6-luna");
+    EXPECT_TRUE(query["models"][0].contains("pricing"));
+    EXPECT_TRUE(query["models"][0].contains("input_modalities"));
+
+    const auto before = acecode::current_registry();
+    auto disabled = cpr::Post(cpr::Url{fx.url("/api/models/catalog/refresh")});
+    ASSERT_EQ(disabled.status_code, 403) << disabled.text;
+    EXPECT_EQ(json::parse(disabled.text)["error"], "CATALOG_NETWORK_DISABLED");
+    EXPECT_EQ(acecode::current_registry().get(), before.get());
+}
+
+TEST(WebServerHttp, ModelCatalogRejectsUnauthenticatedRemoteAccess) {
+    WebServerFixture fx;
+    acecode::web::RemoteWebTcpProxy proxy;
+    std::string proxy_error;
+    ASSERT_TRUE(proxy.start(0, fx.port, &proxy_error)) << proxy_error;
+    const int proxy_port = proxy.port();
+    std::thread proxy_thread([&] { proxy.run(); });
+
+    const auto denied = cpr::Get(cpr::Url{
+        "http://127.0.0.1:" + std::to_string(proxy_port) +
+        "/api/models/catalog"});
+    proxy.stop();
+    if (proxy_thread.joinable()) proxy_thread.join();
+    EXPECT_EQ(denied.status_code, 401) << denied.text;
+}
+
+// 场景:POST /api/models 成功 → 200 + has_api_key，响应不得回传密钥。
+TEST(WebServerHttp, PostModelsCreatesSavedEntryWithRedactedApiKey) {
     WebServerFixture fx;
     json req = {
         {"name", "smoke-openai"},
@@ -6709,7 +6760,9 @@ TEST(WebServerHttp, PostModelsCreatesSavedEntryWithApiKey) {
     EXPECT_EQ(j["provider"], "openai");
     EXPECT_EQ(j["model"], "llama-3");
     EXPECT_EQ(j["base_url"], "http://localhost:1234/v1");
-    EXPECT_EQ(j["api_key"], "sk-secret");
+    EXPECT_EQ(j["has_api_key"], true);
+    EXPECT_FALSE(j.contains("api_key"));
+    EXPECT_EQ(r.text.find("sk-secret"), std::string::npos);
     EXPECT_EQ(j["request_headers"]["Authorization"], "Bearer {env:ACE_TOKEN}");
     EXPECT_EQ(j["request_headers"]["X-Team"], "acecode");
 
@@ -6741,7 +6794,9 @@ TEST(WebServerHttp, PostModelsCreatesAnthropicEntry) {
     EXPECT_EQ(j["name"], "smoke-claude");
     EXPECT_EQ(j["provider"], "anthropic");
     EXPECT_EQ(j["base_url"], "https://api.anthropic.com/v1");
-    EXPECT_EQ(j["api_key"], "sk-ant-secret");
+    EXPECT_EQ(j["has_api_key"], true);
+    EXPECT_FALSE(j.contains("api_key"));
+    EXPECT_EQ(r.text.find("sk-ant-secret"), std::string::npos);
     EXPECT_EQ(j["request_headers"]["anthropic-beta"],
               "prompt-caching-2024-07-31");
 
@@ -6779,11 +6834,21 @@ TEST(WebServerHttp, PutModelsPreservesAndClearsRequestHeaders) {
                              cpr::Body{preserve_req.dump()});
     ASSERT_EQ(preserve.status_code, 200) << preserve.text;
     auto preserved = json::parse(preserve.text);
-    EXPECT_EQ(preserved["api_key"], "sk-secret");
+    EXPECT_EQ(preserved["has_api_key"], true);
+    EXPECT_FALSE(preserved.contains("api_key"));
+    EXPECT_EQ(preserve.text.find("sk-secret"), std::string::npos);
     EXPECT_EQ(preserved["request_headers"]["X-Team"], "acecode");
     ASSERT_EQ(fx.cfg.saved_models.size(), 2u);
     EXPECT_EQ(fx.cfg.saved_models.back().api_key, "sk-secret");
     EXPECT_EQ(fx.cfg.saved_models.back().request_headers.at("X-Team"), "acecode");
+
+    auto listed = cpr::Get(cpr::Url{fx.url("/api/models")});
+    ASSERT_EQ(listed.status_code, 200) << listed.text;
+    EXPECT_EQ(listed.text.find("sk-secret"), std::string::npos);
+    const auto listed_body = json::parse(listed.text);
+    ASSERT_TRUE(listed_body.is_array());
+    EXPECT_TRUE(listed_body.back()["has_api_key"].get<bool>());
+    EXPECT_FALSE(listed_body.back().contains("api_key"));
 
     json clear_req = preserve_req;
     clear_req["request_headers"] = json::object();

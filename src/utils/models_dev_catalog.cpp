@@ -76,6 +76,43 @@ ModelEntry parse_model(const std::string& id, const nlohmann::json& mj) {
     }
 
     m.reasoning = first_bool(mj, "reasoning", false);
+    auto parse_reasoning_option = [&](const nlohmann::json& option) {
+        if (!option.is_object()) return;
+        const std::string type = option.value("type", std::string{});
+        if (type == "toggle") {
+            m.reasoning_can_disable = true;
+        } else if (type == "effort") {
+            if (const auto values = option.find("values"); values != option.end()) {
+                static const std::vector<std::string> kCanonicalEfforts{
+                    "minimal", "low", "medium", "high", "xhigh", "max"};
+                for (const auto& value : as_string_array(*values)) {
+                    if (value == "none") {
+                        m.reasoning_can_disable = true;
+                        continue;
+                    }
+                    if (std::find(kCanonicalEfforts.begin(),
+                                  kCanonicalEfforts.end(), value) ==
+                        kCanonicalEfforts.end()) {
+                        continue;
+                    }
+                    if (std::find(m.reasoning_efforts.begin(),
+                                  m.reasoning_efforts.end(), value) ==
+                        m.reasoning_efforts.end()) {
+                        m.reasoning_efforts.push_back(value);
+                    }
+                }
+            }
+        } else if (type == "budget_tokens") {
+            m.reasoning_supports_max_tokens = true;
+        }
+    };
+    if (auto options_it = mj.find("reasoning_options"); options_it != mj.end()) {
+        if (options_it->is_object()) {
+            parse_reasoning_option(*options_it);
+        } else if (options_it->is_array()) {
+            for (const auto& option : *options_it) parse_reasoning_option(option);
+        }
+    }
     m.tool_call = first_bool(mj, "tool_call", false);
     m.attachment = first_bool(mj, "attachment", false);
     m.deprecated = first_bool(mj, "deprecated", false);

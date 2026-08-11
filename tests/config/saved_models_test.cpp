@@ -437,6 +437,130 @@ TEST(SavedModelsTest, ParseTreatsNullAsEmpty) {
     EXPECT_TRUE(parsed->empty());
 }
 
+// 新 schema 的全部高级字段必须可解析、校验并无损序列化。
+TEST(SavedModelsTest, AdvancedProfileParsesAndSerializesReasoning) {
+    const auto input = nlohmann::json::parse(R"([{
+      "name": "openrouter-luna",
+      "provider": "openai",
+      "model": "openai/gpt-5.6-luna",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "secret",
+      "models_dev_provider_id": "openrouter",
+      "endpoint_mode": "base_url",
+      "max_output_tokens": 65536,
+      "capabilities": ["tool_use", "reasoning"],
+      "capabilities_source": "catalog",
+      "reasoning": {
+        "supported": true,
+        "mandatory": false,
+        "default_enabled": true,
+        "enabled": true,
+        "supported_efforts": ["low", "high"],
+        "default_effort": "low",
+        "effort": "high",
+        "supports_max_tokens": true,
+        "max_tokens": 8192
+      }
+    }])");
+    std::string error;
+    auto parsed = parse_saved_models(input, error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    ASSERT_EQ(parsed->size(), 1u);
+    EXPECT_TRUE(validate_saved_models(*parsed, "openrouter-luna", error)) << error;
+    const auto& profile = parsed->front();
+    EXPECT_EQ(profile.endpoint_mode, "base_url");
+    EXPECT_EQ(profile.max_output_tokens, 65536);
+    EXPECT_EQ(profile.capabilities_source, "catalog");
+    ASSERT_TRUE(profile.reasoning.has_value());
+    EXPECT_EQ(model_reasoning_options_to_json(*profile.reasoning),
+              input[0]["reasoning"]);
+}
+
+// 未知 effort、none effort、强制推理关闭和预算占满输出都必须拒绝。
+TEST(SavedModelsTest, AdvancedProfileRejectsContradictoryReasoning) {
+    ModelProfile profile;
+    profile.name = "bad";
+    profile.provider = "openai";
+    profile.model = "model";
+    profile.base_url = "https://example.test/v1";
+    profile.api_key = "secret";
+    profile.capabilities = {"reasoning"};
+    profile.capabilities_source = "manual";
+    ModelReasoningOptions reasoning;
+    reasoning.supported = true;
+    reasoning.mandatory = true;
+    reasoning.default_enabled = true;
+    reasoning.enabled = false;
+    reasoning.supported_efforts = {"low", "high"};
+    profile.reasoning = reasoning;
+    std::string error;
+    EXPECT_FALSE(validate_saved_models({profile}, "", error));
+
+    reasoning.mandatory = false;
+    reasoning.enabled = true;
+    reasoning.supported_efforts = {"none", "high"};
+    profile.reasoning = reasoning;
+    error.clear();
+    EXPECT_FALSE(validate_saved_models({profile}, "", error));
+
+    reasoning.supported_efforts = {"high"};
+    reasoning.supports_max_tokens = true;
+    reasoning.max_tokens = 1000;
+    profile.reasoning = reasoning;
+    profile.max_output_tokens = 1000;
+    error.clear();
+    EXPECT_FALSE(validate_saved_models({profile}, "", error));
+}
+
+// 保存配置后重新读取，所有高级字段仍保持一致，旧预设无需新字段也能加载。
+TEST(SavedModelsTest, SaveConfigRoundTripsAdvancedAndLegacyProfiles) {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto path = std::filesystem::temp_directory_path() /
+        ("acecode-advanced-model-" + std::to_string(suffix) + ".json");
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    AppConfig cfg;
+    ModelProfile advanced;
+    advanced.name = "advanced";
+    advanced.provider = "anthropic";
+    advanced.model = "claude-test";
+    advanced.base_url = "https://api.anthropic.com/v1";
+    advanced.api_key = "secret";
+    advanced.endpoint_mode = "base_url";
+    advanced.max_output_tokens = 32768;
+    advanced.capabilities = {"tool_use", "reasoning"};
+    advanced.capabilities_source = "manual";
+    ModelReasoningOptions reasoning;
+    reasoning.supported = true;
+    reasoning.default_enabled = true;
+    reasoning.enabled = true;
+    reasoning.supported_efforts = {};
+    reasoning.supports_max_tokens = true;
+    reasoning.max_tokens = 8192;
+    advanced.reasoning = reasoning;
+    ModelProfile legacy;
+    legacy.name = "legacy";
+    legacy.provider = "copilot";
+    legacy.model = "gpt-4o";
+    cfg.saved_models = {advanced, legacy};
+    cfg.default_model_name = "advanced";
+    save_config(cfg, path.string());
+
+    const AppConfig loaded = load_config_from_path(path.string());
+    ASSERT_EQ(loaded.saved_models.size(), 2u);
+    const auto& roundtrip = loaded.saved_models[0];
+    EXPECT_EQ(roundtrip.endpoint_mode, "base_url");
+    EXPECT_EQ(roundtrip.max_output_tokens, 32768);
+    EXPECT_EQ(roundtrip.capabilities_source, "manual");
+    ASSERT_TRUE(roundtrip.reasoning.has_value());
+    EXPECT_EQ(roundtrip.reasoning->max_tokens, 8192);
+    EXPECT_FALSE(loaded.saved_models[1].endpoint_mode.has_value());
+    EXPECT_FALSE(loaded.saved_models[1].reasoning.has_value());
+
+    std::filesystem::remove(path, ec);
+}
+
 // 额外 — save_config 把 per-model context_window 写回 saved_models entry。
 TEST(SavedModelsTest, SaveConfigPersistsContextWindow) {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();

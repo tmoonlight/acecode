@@ -18,14 +18,31 @@ struct SavedModelDraft {
     std::string provider;  // "openai" | "copilot"; legacy "codex" is disabled
     std::string model;
     std::string base_url;  // openai 必填
-    std::string api_key;   // openai 必填
+    bool base_url_supplied = false;
+    std::string api_key;
+    bool api_key_supplied = false;
+    bool clear_api_key = false;
+    std::optional<std::string> credential_source_name;
     std::optional<std::string> models_dev_provider_id;
+    bool models_dev_provider_id_supplied = false;
     // 可选手动上下文窗口(token 数)。unset = 不覆盖;0 = 清除旧 override。
     std::optional<int> context_window;
+    bool context_window_supplied = false;
     // 可选 OpenAI stream timeout(ms)。unset = 不覆盖;0 = 清除旧 override。
     std::optional<int> stream_timeout_ms;
+    bool stream_timeout_ms_supplied = false;
     std::vector<std::string> capabilities;
+    bool capabilities_supplied = false;
+    std::optional<std::string> endpoint_mode;
+    bool endpoint_mode_supplied = false;
+    std::optional<int> max_output_tokens;
+    bool max_output_tokens_supplied = false;
+    std::optional<std::string> capabilities_source;
+    bool capabilities_source_supplied = false;
+    std::optional<ModelReasoningOptions> reasoning;
+    bool reasoning_supplied = false;
     std::map<std::string, std::string> request_headers;
+    bool request_headers_supplied = false;
 };
 
 enum class SavedModelEditError {
@@ -42,6 +59,13 @@ enum class SavedModelEditError {
     INVALID_STREAM_TIMEOUT, // stream_timeout_ms < 0
     INVALID_CAPABILITY,     // capabilities 含空值/控制字符/重复项
     INVALID_REQUEST_HEADER, // request_headers 非 openai / 非法 header/template
+    INVALID_ENDPOINT_MODE,
+    INVALID_MAX_OUTPUT_TOKENS,
+    INVALID_CAPABILITIES_SOURCE,
+    INVALID_REASONING,
+    INVALID_CREDENTIAL_SOURCE,
+    CREDENTIAL_CONFLICT,
+    UNSUPPORTED_MODEL_OPTION,
     NOT_FOUND,            // update/remove 时 name 不存在
     IN_USE_AS_DEFAULT,    // 调用层可用于表示运行中 session 正在使用该 name
 };

@@ -10,6 +10,18 @@
 
 namespace acecode {
 
+struct ModelReasoningOptions {
+    bool supported = false;
+    bool mandatory = false;
+    bool default_enabled = false;
+    std::optional<bool> enabled;
+    std::vector<std::string> supported_efforts;
+    std::optional<std::string> default_effort;
+    std::optional<std::string> effort;
+    bool supports_max_tokens = false;
+    std::optional<int> max_tokens;
+};
+
 // 一个命名模型条目。自包含 —— 一个 entry 就够 create_provider_from_entry 构造
 // 出一个可用 provider 实例。name 保留前缀 `"("` 给 ACECode 合成的特殊 name
 // (例如 `(session:XXXX)`);user-defined name MUST NOT 以 `(` 开头。
@@ -23,6 +35,13 @@ struct ModelProfile {
     std::optional<int> context_window;  // 可选,手动覆盖该模型的上下文窗口(token 数)
     std::optional<int> stream_timeout_ms; // 可选,streaming request timeout(ms)
     std::vector<std::string> capabilities; // 用户声明的能力标签,如 vision/tool_use/web_search
+    // Missing on legacy profiles. New profiles use base_url or full_url.
+    std::optional<std::string> endpoint_mode;
+    std::optional<int> max_output_tokens;
+    // catalog/manual marks capabilities as authoritative. Missing preserves
+    // the legacy capability interpretation.
+    std::optional<std::string> capabilities_source;
+    std::optional<ModelReasoningOptions> reasoning;
     std::map<std::string, std::string> request_headers; // openai/anthropic 自定义请求头模板
     // 兼容外部登录器写入的 legacy 管理标记。ACECode 仍允许正常编辑/删除;
     // 成功编辑会用 SavedModelDraft 重建条目并自然清除此标记。
@@ -52,5 +71,16 @@ std::optional<std::vector<ModelProfile>> parse_saved_models(const nlohmann::json
 bool validate_saved_models(const std::vector<ModelProfile>& entries,
                            const std::string& default_name,
                            std::string& err);
+
+std::optional<ModelReasoningOptions> parse_model_reasoning_options(
+    const nlohmann::json& node,
+    std::string& err);
+nlohmann::json model_reasoning_options_to_json(
+    const ModelReasoningOptions& options);
+
+// Shared credential/endpoint helpers used by config validation and the saved
+// model editor. They never inspect or emit credential values.
+bool model_profile_allows_no_api_key(const ModelProfile& profile);
+std::string normalize_model_endpoint_identity(const std::string& value);
 
 } // namespace acecode

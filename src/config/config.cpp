@@ -1956,6 +1956,18 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (!e.capabilities.empty()) {
             ej["capabilities"] = e.capabilities;
         }
+        if (e.endpoint_mode.has_value()) {
+            ej["endpoint_mode"] = *e.endpoint_mode;
+        }
+        if (e.max_output_tokens.has_value()) {
+            ej["max_output_tokens"] = *e.max_output_tokens;
+        }
+        if (e.capabilities_source.has_value()) {
+            ej["capabilities_source"] = *e.capabilities_source;
+        }
+        if (e.reasoning.has_value()) {
+            ej["reasoning"] = model_reasoning_options_to_json(*e.reasoning);
+        }
         if (!e.request_headers.empty()) {
             nlohmann::json headers = nlohmann::json::object();
             for (const auto& [k, v] : e.request_headers) headers[k] = v;

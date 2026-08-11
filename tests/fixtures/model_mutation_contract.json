@@ -1,0 +1,23 @@
+{
+  "edit_payload": {
+    "name": "fixture-openrouter",
+    "provider": "openai",
+    "model": "vendor/reasoning-model",
+    "models_dev_provider_id": "openrouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "endpoint_mode": null,
+    "request_headers": {},
+    "context_window": null,
+    "max_output_tokens": null,
+    "capabilities": ["tool_use", "reasoning"],
+    "capabilities_source": "catalog",
+    "reasoning": {
+      "supported": true,
+      "mandatory": false,
+      "default_enabled": true,
+      "supported_efforts": ["low", "high"],
+      "supports_max_tokens": true,
+      "default_effort": "high"
+    }
+  }
+}

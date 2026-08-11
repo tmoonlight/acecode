@@ -572,6 +572,26 @@ ChatMessage ToolExecutor::format_assistant_tool_calls(const ChatResponse& respon
     msg.content = response.content;
     // Carry reasoning_content forward so the next API call can echo it back.
     msg.reasoning_content = response.reasoning_content;
+    const bool has_signed_anthropic_thinking =
+        response.content_parts.is_array() &&
+        std::any_of(response.content_parts.begin(), response.content_parts.end(),
+                    [](const nlohmann::json& part) {
+                        if (!part.is_object()) return false;
+                        const std::string type =
+                            part.value("type", std::string{});
+                        return (type == "thinking" &&
+                                part.contains("signature") &&
+                                part["signature"].is_string()) ||
+                               (type == "redacted_thinking" &&
+                                part.contains("data") &&
+                                part["data"].is_string());
+                    });
+    if (has_signed_anthropic_thinking) {
+        // Only Anthropic's provider-owned signed blocks cross this generic
+        // tool-history boundary. Other providers retain their prior transcript
+        // behavior.
+        msg.content_parts = response.content_parts;
+    }
 
     nlohmann::json tc_array = nlohmann::json::array();
     for (const auto& tc : response.tool_calls) {

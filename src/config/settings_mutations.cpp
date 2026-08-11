@@ -96,6 +96,20 @@ std::string saved_model_error(SavedModelEditError error) {
             return "model capability list is invalid";
         case SavedModelEditError::INVALID_REQUEST_HEADER:
             return "model request headers are invalid";
+        case SavedModelEditError::INVALID_ENDPOINT_MODE:
+            return "model endpoint mode is invalid";
+        case SavedModelEditError::INVALID_MAX_OUTPUT_TOKENS:
+            return "model maximum output token limit is invalid";
+        case SavedModelEditError::INVALID_CAPABILITIES_SOURCE:
+            return "model capability source is invalid";
+        case SavedModelEditError::INVALID_REASONING:
+            return "model reasoning options are invalid";
+        case SavedModelEditError::INVALID_CREDENTIAL_SOURCE:
+            return "saved credential source is missing or incompatible";
+        case SavedModelEditError::CREDENTIAL_CONFLICT:
+            return "choose exactly one credential update operation";
+        case SavedModelEditError::UNSUPPORTED_MODEL_OPTION:
+            return "model option is not supported by this provider";
         case SavedModelEditError::NOT_FOUND:
             return "model profile was not found";
         case SavedModelEditError::IN_USE_AS_DEFAULT:

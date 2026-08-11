@@ -111,3 +111,50 @@ TEST(ModelsDevCatalog, BuildCatalogToleratesBadInput) {
     EXPECT_TRUE(build_catalog(nlohmann::json("string")).empty());
     EXPECT_TRUE(build_catalog(nlohmann::json::object()).empty());
 }
+
+// reasoning_options 的上游形状可为单 object；none 只表示允许关闭，不能成为 effort。
+TEST(ModelsDevCatalog, ParsesReasoningOptionsObjectAndFiltersNone) {
+    const auto providers = build_catalog(nlohmann::json::parse(R"({
+      "openrouter": {
+        "api": "https://openrouter.ai/api/v1",
+        "models": {
+          "luna": {
+            "reasoning": true,
+            "reasoning_options": {
+              "type": "effort",
+              "values": ["none", "default", "null", "minimal", "low", "high", "high"]
+            }
+          }
+        }
+      }
+    })"));
+    ASSERT_EQ(providers.size(), 1u);
+    ASSERT_EQ(providers[0].models.size(), 1u);
+    EXPECT_EQ(providers[0].models[0].reasoning_efforts,
+              (std::vector<std::string>{"minimal", "low", "high"}));
+    EXPECT_TRUE(providers[0].models[0].reasoning_can_disable);
+}
+
+// reasoning_options 的 array 形状可组合 effort 与 budget_tokens。
+TEST(ModelsDevCatalog, ParsesReasoningOptionsArray) {
+    const auto providers = build_catalog(nlohmann::json::parse(R"({
+      "openrouter": {
+        "api": "https://openrouter.ai/api/v1",
+        "models": {
+          "nemotron": {
+            "reasoning": true,
+            "reasoning_options": [
+              {"type": "effort", "values": ["medium", "high"]},
+              {"type": "budget_tokens"}
+            ]
+          }
+        }
+      }
+    })"));
+    ASSERT_EQ(providers.size(), 1u);
+    ASSERT_EQ(providers[0].models.size(), 1u);
+    EXPECT_EQ(providers[0].models[0].reasoning_efforts,
+              (std::vector<std::string>{"medium", "high"}));
+    EXPECT_TRUE(providers[0].models[0].reasoning_supports_max_tokens);
+    EXPECT_FALSE(providers[0].models[0].reasoning_can_disable);
+}
