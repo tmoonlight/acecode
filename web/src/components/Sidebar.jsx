@@ -910,7 +910,7 @@ function SessionRow({
               title="取消置顶"
               aria-label="取消置顶"
             >
-              <VsIcon name="pin" size={12} className="-rotate-45" />
+              <VsIcon name="pin" size={12} />
             </button>
             <span className="flex h-7 w-3 items-center justify-center">
               <SessionAttentionIndicator attention={attention} meta={meta} />
@@ -939,7 +939,7 @@ function SessionRow({
                 title="置顶"
                 aria-label="置顶"
               >
-                <VsIcon name="pin" size={12} className="-rotate-45" />
+                <VsIcon name="pin" size={12} />
               </button>
             )}
           </>
