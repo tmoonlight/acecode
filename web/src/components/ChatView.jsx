@@ -29,6 +29,7 @@ import { fileSourcePath } from '../lib/composerFileTransfer.js';
 import { Message } from './Message.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
+import InteractiveHomeLogo from './InteractiveHomeLogo.jsx';
 import { SelectionActionPopover } from './SelectionActionPopover.jsx';
 import { ExpertPickerDialog } from './ExpertCatalog.jsx';
 import { QueueCardList } from './QueueCardList.jsx';
@@ -4218,7 +4219,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
       <div className="flex-1 min-w-0 flex flex-col bg-bg">
         <div className="ace-home-panel flex-1">
           <div className="ace-home-content">
-            <img src="/acecode-logo.png" alt="ACECode" width="64" height="64" className="ace-home-logo select-none" draggable="false" />
+            <InteractiveHomeLogo />
             <h1 className="ace-home-title">{homeProjectTitle}</h1>
             <div data-tour-target="home-composer" className="ace-home-composer">
               <InputBar

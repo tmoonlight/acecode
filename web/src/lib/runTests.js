@@ -143,6 +143,8 @@ import './desktopTrayMenu.test.js';
 import './opencodeImport.test.js';
 import './updateJob.test.js';
 import './newSession.test.js';
+import './interactiveHomeLogoPerformance.test.js';
+import './interactiveHomeLogoArchitecture.test.js';
 import './navigationHistory.test.js';
 import './navigationHistoryHandoffArchitecture.test.js';
 import './gridPinnedSessions.test.js';

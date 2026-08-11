@@ -2071,10 +2071,87 @@ body {
   gap: 14px;
 }
 .ace-home-logo {
+  position: relative;
   align-self: center;
+  flex: 0 0 100px;
+  width: 100px;
+  height: 100px;
   margin-bottom: 4px;
-  transform: scale(1.2);
-  transform-origin: center;
+  isolation: isolate;
+}
+[data-theme="dark"] .ace-home-logo::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: 240px;
+  height: 220px;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(61, 144, 197, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(61, 144, 197, 0.04) 1px, transparent 1px),
+    radial-gradient(
+      ellipse 50% 50% at center,
+      rgba(5, 74, 124, 0.48) 0%,
+      rgba(4, 46, 80, 0.30) 45%,
+      rgba(2, 26, 48, 0.08) 70%,
+      transparent 100%
+    );
+  background-position: center;
+  background-size: 5px 5px, 5px 5px, 100% 100%;
+  transform: translate(-50%, -50%);
+  -webkit-mask-image: radial-gradient(
+    ellipse 50% 50% at center,
+    #000 0%,
+    #000 44%,
+    rgba(0, 0, 0, 0.68) 60%,
+    rgba(0, 0, 0, 0.24) 80%,
+    transparent 100%
+  );
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-image: radial-gradient(
+    ellipse 50% 50% at center,
+    #000 0%,
+    #000 44%,
+    rgba(0, 0, 0, 0.68) 60%,
+    rgba(0, 0, 0, 0.24) 80%,
+    transparent 100%
+  );
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+}
+.ace-home-logo-fallback,
+.ace-home-logo-canvas {
+  position: absolute;
+  display: block;
+  z-index: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.ace-home-logo-fallback {
+  inset: 0;
+  width: 100px;
+  height: 100px;
+}
+:root:not([data-theme="dark"]) .ace-home-logo-fallback {
+  filter: drop-shadow(0 2px 2px rgba(31, 57, 85, 0.16));
+}
+.ace-home-logo-canvas {
+  left: 50%;
+  top: 50%;
+  width: 156px;
+  height: 156px;
+  max-width: none;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+}
+.ace-home-logo[data-dynamic-logo-ready="true"] .ace-home-logo-fallback {
+  visibility: hidden;
+}
+.ace-home-logo[data-dynamic-logo-ready="true"] .ace-home-logo-canvas {
+  opacity: 1;
 }
 .ace-home-title {
   margin: 0 0 16px;
