@@ -153,7 +153,7 @@ std::optional<nlohmann::json> signed_anthropic_assistant_blocks(
     // These blocks originated from the Anthropic response. Preserve their
     // order and provider-owned fields exactly, especially thinking.signature
     // and redacted_thinking.data.
-    return msg.content_parts;
+    return std::optional<nlohmann::json>(std::in_place, msg.content_parts);
 }
 
 nlohmann::json anthropic_tool_use_blocks(const nlohmann::json& tool_calls,
