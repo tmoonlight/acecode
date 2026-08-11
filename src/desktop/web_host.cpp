@@ -885,11 +885,16 @@ void apply_window_background(webview::webview& host,
 }
 
 // ── Windows 系统文件拖放 + 外部新窗口接管 ─────────────────────────────
-// 拖文件到非可放下区时,WebView2(默认 AllowExternalDrop)会试图导航 / 新窗口
-// 打开 file://。这里拦截这两条路径:命中 file: scheme → 取消默认动作(防整页
-// 跳转 / 打开文件)+ 把原始 file:// URI 回传给 handler(前端纯函数再归一化)。
-// 新窗口中的 http(s) 则交给系统默认浏览器,主 WebView 不创建弹窗。普通同页导航
-// 仍然放行,不受影响。
+// 首选入口是页面把一次 drop 的完整 DOM File 批次作为 WebMessage additional
+// objects 发回来。ICoreWebView2File::get_Path 给 native-confirmed absolute path,
+// 不信任页面自己拼的 path 字符串,也不会把多选拆成若干不完整的导航事件。
+//
+// 旧 Runtime / bridge 不可用时仍保留 file:// NavigationStarting / NewWindowRequested
+// 拦截:至少防整页跳转 / 打开文件,并为历史单文件拖放提供兼容兜底。新窗口中的
+// http(s) 继续交给系统默认浏览器,普通同页导航不受影响。
+constexpr wchar_t kWindowsFilesystemDropMessage[] =
+    L"acecode:native-filesystem-drop:v1";
+
 bool win_is_file_uri(const std::wstring& uri) {
     if (uri.size() < 5) return false;
     auto lower = [](wchar_t c) { return static_cast<wchar_t>(::towlower(c)); };
@@ -903,6 +908,52 @@ void dispatch_file_uri(const std::wstring& uri) {
     }
 }
 
+std::vector<std::string> win_web_message_file_paths(
+    ICoreWebView2WebMessageReceivedEventArgs* args) {
+    if (!args) return {};
+
+    LPWSTR raw_message = nullptr;
+    const HRESULT message_hr = args->TryGetWebMessageAsString(&raw_message);
+    const std::wstring message = raw_message ? raw_message : L"";
+    ::CoTaskMemFree(raw_message);
+    if (FAILED(message_hr) || message != kWindowsFilesystemDropMessage) return {};
+
+    Microsoft::WRL::ComPtr<ICoreWebView2WebMessageReceivedEventArgs2> args2;
+    if (FAILED(args->QueryInterface(IID_PPV_ARGS(args2.GetAddressOf()))) || !args2) {
+        return {};
+    }
+
+    Microsoft::WRL::ComPtr<ICoreWebView2ObjectCollectionView> objects;
+    if (FAILED(args2->get_AdditionalObjects(objects.GetAddressOf())) || !objects) {
+        return {};
+    }
+
+    UINT32 count = 0;
+    if (FAILED(objects->get_Count(&count)) || count == 0) return {};
+
+    std::vector<std::string> paths;
+    paths.reserve(count);
+    for (UINT32 index = 0; index < count; ++index) {
+        Microsoft::WRL::ComPtr<IUnknown> object;
+        if (FAILED(objects->GetValueAtIndex(index, object.GetAddressOf())) || !object) {
+            continue;
+        }
+
+        Microsoft::WRL::ComPtr<ICoreWebView2File> file;
+        if (FAILED(object.As(&file)) || !file) continue;
+
+        LPWSTR raw_path = nullptr;
+        const HRESULT path_hr = file->get_Path(&raw_path);
+        const std::string path = raw_path ? acecode::wide_to_utf8(raw_path) : "";
+        ::CoTaskMemFree(raw_path);
+        if (FAILED(path_hr) || path.empty()) continue;
+        if (std::find(paths.begin(), paths.end(), path) == paths.end()) {
+            paths.push_back(path);
+        }
+    }
+    return paths;
+}
+
 void install_win_webview_navigation_handlers(webview::webview& host) {
     auto controller_result = host.browser_controller();
     if (!controller_result.ok()) return;
@@ -912,6 +963,20 @@ void install_win_webview_navigation_handlers(webview::webview& host) {
     if (FAILED(controller->get_CoreWebView2(&core)) || !core) return;
 
     using Microsoft::WRL::Callback;
+    EventRegistrationToken drop_message_token{};
+    core->add_WebMessageReceived(
+        Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+            [](ICoreWebView2*,
+               ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                auto paths = win_web_message_file_paths(args);
+                if (!paths.empty() && g_file_drop_handler) {
+                    g_file_drop_handler(std::move(paths));
+                }
+                return S_OK;
+            })
+            .Get(),
+        &drop_message_token);
+
     EventRegistrationToken nav_token{};
     core->add_NavigationStarting(
         Callback<ICoreWebView2NavigationStartingEventHandler>(

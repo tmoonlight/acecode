@@ -72,6 +72,7 @@ import {
   readNativeClipboardFilesystemItems,
   uriListFromTransfer,
 } from '../lib/desktopFilesystemTransfer.js';
+import { postWindowsNativeFilesystemDrop } from '../lib/desktopNativeFilesystemDrop.js';
 import {
   nextExpertMenuItemIndex,
   placeExpertSubmenu,
@@ -248,9 +249,6 @@ export const InputBar = forwardRef(function InputBar({
   const canChooseLocalContext = !!onMediaFiles || nativeContextPickerAvailable;
   const hasExpertHandlers = !!onSelectExpert || !!onOpenExpertComponents;
   const hasCapabilityHandlers = !!onSwarmModeChange || canChooseLocalContext || hasExpertHandlers;
-  const isImageAttachment = (item) => String(item.kind || item.mime_type || '').startsWith('image');
-  const imageAttachments = attachmentItems.filter(isImageAttachment);
-  const fileAttachments = attachmentItems.filter((item) => !isImageAttachment(item));
   const composerLayoutSignature = useMemo(() => [
     ...attachmentItems.map((item, index) => [
       composerAttachmentKey(item, index),
@@ -286,6 +284,12 @@ export const InputBar = forwardRef(function InputBar({
     window.addEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
     return () => window.removeEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
   }, [attachmentItems, onRemoveAttachment]);
+
+  const previewComposerAttachment = useCallback((item) => {
+    const src = String(item?.url || item?.preview_url || item?.blob_url || '');
+    if (!src) return;
+    setAttachmentPreview({ src, alt: String(item?.name || 'attachment') });
+  }, []);
 
   const updateValue = useCallback((next) => {
     const text = String(next || '');
@@ -752,20 +756,22 @@ export const InputBar = forwardRef(function InputBar({
 
   const handleDragEnter = useCallback((event) => {
     if (disabled || !onMediaFiles || !hasFileTransfer(event.dataTransfer)) return;
-    if (!NATIVE_FILE_DROP) event.preventDefault();
-    else markNativeDropHover();
+    // Windows 的 native 路径由 DOM drop → WebView2 additional objects 桥接，
+    // 必须先取消 dragenter/dragover 默认行为才能收到 drop。macOS 仍让事件
+    // 下沉给 WKWebView 原生 performDragOperation。
+    if (!NATIVE_FILE_DROP || HOST_OS === 'windows') event.preventDefault();
+    if (NATIVE_FILE_DROP) markNativeDropHover();
     dragDepthRef.current += 1;
     setDragActive(true);
   }, [disabled, markNativeDropHover, onMediaFiles]);
 
   const handleDragOver = useCallback((event) => {
     if (disabled || !onMediaFiles || !hasFileTransfer(event.dataTransfer)) return;
-    if (!NATIVE_FILE_DROP) {
+    if (!NATIVE_FILE_DROP || HOST_OS === 'windows') {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
-    } else {
-      markNativeDropHover();
     }
+    if (NATIVE_FILE_DROP) markNativeDropHover();
     setDragActive(true);
   }, [disabled, markNativeDropHover, onMediaFiles]);
 
@@ -782,6 +788,11 @@ export const InputBar = forwardRef(function InputBar({
     const files = disabled || !onMediaFiles ? [] : filesFromTransfer(event.dataTransfer, { source: 'drop' });
     if (NATIVE_FILE_DROP) {
       markNativeDropHover();
+      if (HOST_OS === 'windows' && postWindowsNativeFilesystemDrop(event.dataTransfer)) {
+        event.preventDefault();
+        event.stopPropagation();
+        resetDragState();
+      }
       return;
     }
     const uriPaths = nativeFilesystemMaterializerAvailable
@@ -1021,7 +1032,7 @@ export const InputBar = forwardRef(function InputBar({
   const actionState = getInputBarActionState({ value, disabled, busy, hasExtras });
   const stopControl = getGoalStopControlState({ busy });
   const composerSpacingClass = isHero ? 'px-4 pt-3 pb-1 text-[14px]' : 'px-3 pt-2 pb-1 text-[13px]';
-  const hasInlineContexts = otherContextItems.length > 0 || fileAttachments.length > 0;
+  const hasInlineContexts = otherContextItems.length > 0;
   const capabilityControl = (
     <div ref={capabilityMenuRef} className="relative shrink-0 flex items-center">
       <button
@@ -1193,33 +1204,6 @@ export const InputBar = forwardRef(function InputBar({
           </div>
         );
       })}
-      {fileAttachments.map((item, index) => {
-        const context = composerAttachmentContext(item, index);
-        return (
-          <div
-            key={context.key}
-            data-desktop-attachment-id={context.id}
-            data-desktop-attachment-name={context.name}
-            data-desktop-attachment-url={context.url || undefined}
-            data-desktop-attachment-path={context.path || undefined}
-            data-desktop-attachment-preview-url={context.url || undefined}
-            data-desktop-attachment-mutable="true"
-            className="group h-7 max-w-[160px] min-w-0 shrink-0 rounded-md px-1.5 flex items-center gap-1 text-[12px] text-fg-mute hover:bg-surface-hi"
-            title={context.sourcePath || item.name}
-          >
-            <VsIcon name="file" size={13} />
-            <span className="truncate">{item.uploading ? `${item.name || '文件'} 上传中` : (item.name || '文件')}</span>
-            <button
-              type="button"
-              className="w-4 h-4 shrink-0 rounded-full flex items-center justify-center hover:bg-bg text-fg-mute opacity-0 group-hover:opacity-100 focus:opacity-100"
-              onClick={() => onRemoveAttachment?.(context.key)}
-              aria-label="移除文件"
-            >
-              <VsIcon name="close" size={9} />
-            </button>
-          </div>
-        );
-      })}
     </>
   ) : null;
   const submitControls = (
@@ -1324,51 +1308,6 @@ export const InputBar = forwardRef(function InputBar({
             onClose={() => setDropdownClosed(true)}
           />
         )}
-        {imageAttachments.length > 0 && (
-          <div className={clsx(
-            'px-3 pt-3 flex flex-wrap items-start gap-2',
-            isHero && 'px-4',
-          )}>
-            {imageAttachments.map((item, index) => {
-              const context = composerAttachmentContext(item, index);
-              return (
-                <div
-                  key={context.key}
-                  data-desktop-attachment-id={context.id}
-                  data-desktop-attachment-name={context.name}
-                  data-desktop-attachment-url={context.url || undefined}
-                  data-desktop-attachment-path={context.path || undefined}
-                  data-desktop-attachment-preview-url={context.url || undefined}
-                  data-desktop-attachment-mutable="true"
-                  className={clsx(
-                    'group relative w-[86px] h-[86px] sm:w-24 sm:h-24 shrink-0 overflow-hidden rounded-lg border border-border bg-bg',
-                    context.url ? 'cursor-zoom-in hover:border-accent-soft' : '',
-                  )}
-                  title={context.sourcePath || context.name}
-                  onClick={context.url ? () => setAttachmentPreview({ src: context.url, alt: context.name }) : undefined}
-                >
-                  {item.preview_url ? (
-                    <img
-                      src={item.preview_url}
-                      alt=""
-                      className="block w-full h-full object-cover bg-bg"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-bg" />
-                  )}
-                  <button
-                    type="button"
-                    className="absolute right-[5px] top-[5px] w-[17px] h-[17px] rounded-full bg-black/75 hover:bg-black/85 text-white flex items-center justify-center"
-                    onClick={(e) => { e.stopPropagation(); onRemoveAttachment?.(context.key); }}
-                    aria-label="移除图片"
-                  >
-                    <VsIcon name="close" size={8} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
         {(selectionPreview || selectionContextItems.length > 0 || browserContextItems.length > 0) && (
           <div className={clsx(
             'px-3 pt-2 flex flex-wrap items-center gap-1.5',
@@ -1410,6 +1349,7 @@ export const InputBar = forwardRef(function InputBar({
             ref={ta}
             value={value}
             commands={commands}
+            attachments={attachmentItems}
             onChange={handleComposerChange}
             onKeyDown={onKey}
             onCompositionStart={handleCompositionStart}
@@ -1417,6 +1357,8 @@ export const InputBar = forwardRef(function InputBar({
             onSelectionChange={setComposerSelection}
             isComposingKeyEvent={isComposingKeyEvent}
             onSubmit={submit}
+            onPreviewAttachment={previewComposerAttachment}
+            onRemoveAttachment={onRemoveAttachment}
             onPasteFiles={addMediaFiles}
             onPasteFilesystemItems={
               nativeFilesystemClipboardAvailable || nativeFilesystemMaterializerAvailable

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   PATH_REFERENCE_LIMIT,
+  PATH_REFERENCE_KEY_ACTION,
   formatPathReference,
   insertPathReferenceAtCaret,
   normalizePathReferenceCandidates,
+  pathReferenceKeyboardAction,
   pathReferenceTokenAtCursor,
   replacePathReferenceToken,
   splitPathReferenceQuery,
@@ -79,6 +81,22 @@ test('candidate normalization is directory first, filtered, and capped', () => {
   assert.equal(all.length, PATH_REFERENCE_LIMIT);
   assert.deepEqual(normalizePathReferenceCandidates(entries, 'MAIN').map((x) => x.name), ['main.cpp']);
   assert.deepEqual(normalizePathReferenceCandidates(entries, '', { foldersOnly: true }).map((x) => x.name), ['Models']);
+});
+
+test('dropdown keyboard actions confirm files while preserving directory and session behavior', () => {
+  const file = { type: 'file', item: { kind: 'file', path: 'src/main.cpp' } };
+  const directory = { type: 'file', item: { kind: 'dir', path: 'src' } };
+  const session = { type: 'session', item: { id: 'session-1' } };
+
+  assert.equal(pathReferenceKeyboardAction('Tab', file), PATH_REFERENCE_KEY_ACTION.REFERENCE);
+  assert.equal(pathReferenceKeyboardAction('Enter', file), PATH_REFERENCE_KEY_ACTION.REFERENCE);
+  assert.equal(pathReferenceKeyboardAction('Tab', directory), PATH_REFERENCE_KEY_ACTION.ENTER_DIRECTORY);
+  assert.equal(pathReferenceKeyboardAction('ArrowRight', directory), PATH_REFERENCE_KEY_ACTION.ENTER_DIRECTORY);
+  assert.equal(pathReferenceKeyboardAction('Enter', directory), PATH_REFERENCE_KEY_ACTION.REFERENCE);
+  assert.equal(pathReferenceKeyboardAction('Tab', session), '');
+  assert.equal(pathReferenceKeyboardAction('Enter', session), PATH_REFERENCE_KEY_ACTION.REFERENCE);
+  assert.equal(pathReferenceKeyboardAction('Tab', null), '');
+  assert.equal(pathReferenceKeyboardAction('Enter', null), PATH_REFERENCE_KEY_ACTION.CONSUME);
 });
 
 test('rejects traversal and absolute paths', () => {

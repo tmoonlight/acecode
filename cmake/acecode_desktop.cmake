@@ -17,6 +17,32 @@ endif()
 
 include(FetchContent)
 
+# WebMessage additional objects expose dropped DOM File paths to the native
+# host starting with newer WebView2 SDKs. Keep this explicit and reproducible:
+# webview/webview 0.12.0 otherwise defaults to the much older 1.0.1150.38 SDK.
+if(WIN32)
+    set(_acecode_webview2_sdk_version "1.0.4078.44")
+    set(WEBVIEW_MSWEBVIEW2_VERSION "${_acecode_webview2_sdk_version}" CACHE STRING
+        "Microsoft WebView2 SDK version used by ACECode Desktop" FORCE)
+    # FindMSWebView2 caches only the include directory. In an existing build
+    # tree that can leave the previous NuGet package selected even after the
+    # pinned SDK version changes, so invalidate it once per version transition.
+    # Preserve an explicitly disabled built-in SDK path.
+    if(NOT DEFINED WEBVIEW_USE_BUILTIN_MSWEBVIEW2 OR
+       WEBVIEW_USE_BUILTIN_MSWEBVIEW2)
+        if(NOT "${ACECODE_WEBVIEW2_SDK_CACHE_VERSION}" STREQUAL
+               "${_acecode_webview2_sdk_version}")
+            unset(MSWebView2_INCLUDE_DIR CACHE)
+        endif()
+        set(ACECODE_WEBVIEW2_SDK_CACHE_VERSION
+            "${_acecode_webview2_sdk_version}" CACHE INTERNAL
+            "WebView2 SDK version used to populate the cached include path" FORCE)
+    else()
+        unset(ACECODE_WEBVIEW2_SDK_CACHE_VERSION CACHE)
+    endif()
+    unset(_acecode_webview2_sdk_version)
+endif()
+
 # webview/webview 0.12.0 是 2024 年的 release tag。如果将来需要更新版本,
 # 钉到 commit hash 优先(release tag 通常对应一个 commit)。
 FetchContent_Declare(
@@ -105,8 +131,28 @@ endif()
 
 if(APPLE)
     set(ACECODE_MACOS_ICON "${CMAKE_SOURCE_DIR}/assets/macos/acecode.icns")
+    set(ACECODE_MACOS_USER_APPLICATIONS_ICON_SOURCE
+        "${CMAKE_SOURCE_DIR}/assets/macos/acecode-user-applications.svg")
+    set(ACECODE_MACOS_USER_APPLICATIONS_ICON
+        "${CMAKE_BINARY_DIR}/generated/macos/acecode-user-applications.icns")
+    add_custom_command(
+        OUTPUT "${ACECODE_MACOS_USER_APPLICATIONS_ICON}"
+        COMMAND /bin/bash
+            "${CMAKE_SOURCE_DIR}/scripts/macos_generate_icns.sh"
+            --source "${ACECODE_MACOS_USER_APPLICATIONS_ICON_SOURCE}"
+            --output "${ACECODE_MACOS_USER_APPLICATIONS_ICON}"
+        DEPENDS
+            "${ACECODE_MACOS_USER_APPLICATIONS_ICON_SOURCE}"
+            "${CMAKE_SOURCE_DIR}/scripts/macos_generate_icns.sh"
+        COMMENT "Generating ACECode current-user Applications icon"
+        VERBATIM
+    )
     target_sources(acecode-desktop PRIVATE "${ACECODE_MACOS_ICON}")
     set_source_files_properties("${ACECODE_MACOS_ICON}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources"
+    )
+    set_source_files_properties("${ACECODE_MACOS_USER_APPLICATIONS_ICON}" PROPERTIES
+        GENERATED TRUE
         MACOSX_PACKAGE_LOCATION "Resources"
     )
     set_target_properties(acecode-desktop PROPERTIES
@@ -136,6 +182,31 @@ if(APPLE)
             "$<TARGET_BUNDLE_DIR:acecode-desktop>/../acecode-desktop.app"
         COMMENT "Copying acecode daemon into ACECode.app bundle"
         VERBATIM
+    )
+
+    add_executable(acecode-user-applications MACOSX_BUNDLE
+        ${CMAKE_SOURCE_DIR}/src/macos_user_applications/main.mm
+        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.cpp
+        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.hpp
+        ${ACECODE_MACOS_USER_APPLICATIONS_ICON}
+    )
+    target_include_directories(acecode-user-applications PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+    )
+    target_link_libraries(acecode-user-applications PRIVATE
+        "-framework AppKit"
+        "-framework Foundation"
+    )
+    set_target_properties(acecode-user-applications PROPERTIES
+        RUNTIME_OUTPUT_NAME "Applications"
+        MACOSX_BUNDLE_BUNDLE_NAME "Applications"
+        MACOSX_BUNDLE_ICON_FILE "acecode-user-applications.icns"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "dev.acecode.user-applications"
+        MACOSX_BUNDLE_INFO_PLIST
+            "${CMAKE_SOURCE_DIR}/cmake/macos/ACECodeUserApplicationsInfo.plist.in"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${ACECODE_BUILD_VERSION}"
+        MACOSX_BUNDLE_COPYRIGHT "ACECode contributors"
     )
 endif()
 

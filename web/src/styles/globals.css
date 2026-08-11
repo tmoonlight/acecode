@@ -3356,6 +3356,47 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ace-slate-attachment-tag {
+  max-width: min(320px, calc(100vw - 96px));
+}
+.ace-slate-attachment-tag.is-uploading {
+  opacity: 0.72;
+}
+.ace-slate-attachment-tag.is-previewable {
+  cursor: zoom-in;
+}
+.ace-slate-attachment-name {
+  min-width: 0;
+  max-width: min(240px, calc(100vw - 148px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ace-slate-attachment-remove {
+  width: 14px;
+  height: 14px;
+  margin-right: -3px;
+  padding: 0;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: currentColor;
+  opacity: 0.58;
+  cursor: pointer;
+}
+.ace-slate-attachment-remove:hover,
+.ace-slate-attachment-remove:focus-visible {
+  background: var(--ace-accent-bg);
+  opacity: 1;
+  outline: none;
+}
+.ace-slate-attachment-tag:focus-within {
+  background: var(--ace-accent-bg);
+  border-color: var(--ace-accent);
+}
 
 /* 用户气泡和 composer 共用的命令/tag 徽标:图标 + 蓝色名称。
    inline-flex 让徽标与 whitespace-pre-wrap 正文内联同行排版。 */
@@ -4330,7 +4371,8 @@ body {
   color: var(--ace-fg);
 }
 
-/* 变更详情栏「N 个文件已更改」行右端的折叠全部 diff 按钮。 */
+/* 变更详情栏「N 个文件已更改」行右端的 diff 布局与折叠按钮。 */
+.ace-review-layout-btn,
 .ace-review-collapse-all-btn {
   width: 24px;
   height: 20px;
@@ -4345,10 +4387,16 @@ body {
   flex-shrink: 0;
   transition: color .15s ease, background .15s ease;
 }
+.ace-review-layout-btn:hover,
 .ace-review-collapse-all-btn:hover {
   color: var(--ace-fg);
   background: var(--ace-surface-alt);
 }
+.ace-review-layout-btn[aria-pressed="true"] {
+  color: var(--ace-accent);
+  background: var(--ace-accent-bg);
+}
+.ace-review-layout-btn:focus-visible,
 .ace-review-collapse-all-btn:focus-visible {
   outline: 2px solid var(--ace-accent);
   outline-offset: -2px;
@@ -4403,6 +4451,33 @@ body {
 }
 .ace-review-diff {
   min-width: 720px;
+}
+.ace-review-diff.is-wrapped {
+  min-width: 0;
+}
+.ace-review-diff.is-wrapped .d2h-diff-table {
+  table-layout: fixed;
+}
+.ace-review-diff.is-wrapped .d2h-file-side-diff {
+  min-width: 0;
+  overflow-x: hidden;
+}
+.ace-review-diff.is-wrapped .d2h-code-line,
+.ace-review-diff.is-wrapped .d2h-code-side-line {
+  display: flex;
+  width: auto;
+  min-width: 0;
+  white-space: pre-wrap;
+}
+.ace-review-diff.is-wrapped .d2h-code-line-prefix {
+  flex: 0 0 auto;
+}
+.ace-review-diff.is-wrapped .d2h-code-line-ctn {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .ace-review-diff .d2h-code-side-linenumber,
 .ace-review-diff .d2h-code-linenumber {

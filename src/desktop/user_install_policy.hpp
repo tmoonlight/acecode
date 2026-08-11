@@ -21,14 +21,14 @@ enum class MacosInstallLocation {
     system_applications,
 };
 
-// Return the legacy per-user macOS installation layout. The caller supplies
+// Return the current per-user macOS installation layout. The caller supplies
 // NSHomeDirectory() as a filesystem path so this policy remains portable and
 // unit-testable on every CI platform.
 UserInstallPaths macos_user_install_paths(
     const std::filesystem::path& home_directory);
 
-// Return the conventional system-wide layout used by the public drag-install
-// DMG. These paths are intentionally fixed rather than configurable.
+// Return the supported system-wide layout used by existing installations.
+// These paths are intentionally fixed rather than configurable.
 SystemInstallPaths macos_system_install_paths();
 
 // Validate paths after the caller has resolved filesystem symlinks. Exact path
@@ -39,8 +39,8 @@ bool macos_user_install_destination_is_safe(
     const std::filesystem::path& resolved_applications,
     const std::filesystem::path& resolved_destination);
 
-// Classify an already-resolved updater destination. Only the legacy per-user
-// installation and the standard /Applications installation are accepted.
+// Classify an already-resolved updater destination. Only the current per-user
+// installation and the supported /Applications installation are accepted.
 MacosInstallLocation macos_self_update_install_location(
     const std::filesystem::path& resolved_home,
     const std::filesystem::path& resolved_applications,

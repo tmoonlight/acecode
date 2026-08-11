@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as Diff2Html from 'diff2html';
 import {
   DESKTOP_CONTEXT_ACTION_EVENT,
@@ -11,8 +12,6 @@ import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { clsx } from '../lib/format.js';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
-
-const REVIEW_SIDE_BY_SIDE_MIN_WIDTH = 640;
 
 function safeRows(rows) {
   return Array.isArray(rows) ? rows : [];
@@ -61,12 +60,17 @@ function renderPatchHtml(patch, outputFormat) {
   }
 }
 
-function PatchDiff({ text, outputFormat }) {
+function PatchDiff({ text, outputFormat, wrapLines }) {
   const html = useMemo(() => renderPatchHtml(text, outputFormat), [text, outputFormat]);
   if (!html) {
     return <div className="ace-change-empty-diff">此文件没有可渲染的 diff 片段</div>;
   }
-  return <div className="ace-diff ace-review-diff" dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div
+      className={clsx('ace-diff ace-review-diff', wrapLines && 'is-wrapped')}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 
 export async function copyDiffText(text, okText) {
@@ -167,6 +171,7 @@ export function ChangeReviewDetails({
   contentRevision = null,
   ensureDiffRevision = null,
 }) {
+  useTranslation();
   const list = safeRows(rows);
   const pathsKey = list.map((row) => row.path || '').join('\u0000');
   const firstPath = list[0]?.path || '';
@@ -174,8 +179,9 @@ export function ChangeReviewDetails({
     || (!initialExpandedFile && initialOpenFirst ? firstPath : '');
   const [openFiles, setOpenFiles] = useState(() => new Set(initialPath ? [initialPath] : []));
   const [scrollRequest, setScrollRequest] = useState(0);
-  const [outputFormat, setOutputFormat] = useState('line-by-line');
-  const panelRef = useRef(null);
+  const [sideBySide, setSideBySide] = useState(false);
+  const [wrapLines, setWrapLines] = useState(true);
+  const outputFormat = sideBySide ? 'side-by-side' : 'line-by-line';
   const fileListRef = useRef(null);
   const savedScrollTopRef = useRef(0);
   const suppressScrollRecordRef = useRef(false);
@@ -198,22 +204,6 @@ export function ChangeReviewDetails({
     if (!onEnsureDiff) return;
     for (const path of openFiles) onEnsureDiff(path, false);
   }, [ensureDiffRevision, onEnsureDiff, openFiles]);
-
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setOutputFormat(
-          entry.contentRect.width >= REVIEW_SIDE_BY_SIDE_MIN_WIDTH
-            ? 'side-by-side'
-            : 'line-by-line',
-        );
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
   useLayoutEffect(() => {
     const el = fileListRef.current;
@@ -345,7 +335,6 @@ export function ChangeReviewDetails({
       data-change-region={dataRegion}
       data-desktop-review-kind="summary"
       data-desktop-review-refresh="true"
-      ref={panelRef}
     >
       {showSummary && (
         <div
@@ -364,6 +353,26 @@ export function ChangeReviewDetails({
                 <span className="ace-change-del">-{totalDeletions || 0}</span>
               </span>
             )}
+            <button
+              type="button"
+              className="ace-review-layout-btn"
+              title="双列"
+              aria-label="双列"
+              aria-pressed={sideBySide}
+              onClick={() => setSideBySide((value) => !value)}
+            >
+              <VsIcon name="panelRight" size={14} />
+            </button>
+            <button
+              type="button"
+              className="ace-review-layout-btn"
+              title="自动换行"
+              aria-label="自动换行"
+              aria-pressed={wrapLines}
+              onClick={() => setWrapLines((value) => !value)}
+            >
+              <VsIcon name="wordWrap" size={14} />
+            </button>
             <button
               type="button"
               className="ace-review-collapse-all-btn"
@@ -441,7 +450,11 @@ export function ChangeReviewDetails({
                       </button>
                     </div>
                   ) : row.diff?.state === 'ready' ? (
-                    <PatchDiff text={row.diff.text || ''} outputFormat={outputFormat} />
+                    <PatchDiff
+                      text={row.diff.text || ''}
+                      outputFormat={outputFormat}
+                      wrapLines={wrapLines}
+                    />
                   ) : (
                     <div className="ace-empty-state text-[11px]">加载 diff 中…</div>
                   )}

@@ -1,5 +1,11 @@
 export const PATH_REFERENCE_LIMIT = 50;
 
+export const PATH_REFERENCE_KEY_ACTION = Object.freeze({
+  CONSUME: 'consume',
+  REFERENCE: 'reference',
+  ENTER_DIRECTORY: 'enter-directory',
+});
+
 function isSpace(ch) {
   return ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n';
 }
@@ -103,6 +109,23 @@ export function normalizePathReferenceCandidates(entries, filter = '', { folders
       path: normalizeReferencePath(item.path || item.name || ''),
       kind: item.kind === 'dir' ? 'dir' : 'file',
     }));
+}
+
+export function pathReferenceKeyboardAction(key, selection) {
+  const item = selection?.item;
+  if (key === 'Enter') {
+    return item ? PATH_REFERENCE_KEY_ACTION.REFERENCE : PATH_REFERENCE_KEY_ACTION.CONSUME;
+  }
+  if (!item || selection?.type !== 'file') return '';
+  if (key === 'Tab') {
+    return item.kind === 'dir'
+      ? PATH_REFERENCE_KEY_ACTION.ENTER_DIRECTORY
+      : PATH_REFERENCE_KEY_ACTION.REFERENCE;
+  }
+  if (key === 'ArrowRight' && item.kind === 'dir') {
+    return PATH_REFERENCE_KEY_ACTION.ENTER_DIRECTORY;
+  }
+  return '';
 }
 
 export function pathReferenceSignature(token, cursor, cwd = '') {

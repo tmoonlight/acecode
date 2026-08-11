@@ -2226,9 +2226,10 @@ Returns `409 NO_UPDATE` when no compatible update is available.
 Returns `409 UPDATE_IN_PROGRESS` when another job is pending or running. The
 response includes that job under `job`, so another WebUI tab can attach to it.
 
-On macOS, a daemon running from either
-`/Applications/ACECode.app/Contents/MacOS/acecode-daemon` or the legacy
-`~/Applications/ACECode.app/Contents/MacOS/acecode-daemon` installs a complete
+On macOS, a daemon running from either the current-user
+`~/Applications/ACECode.app/Contents/MacOS/acecode-daemon` location or the
+supported system `/Applications/ACECode.app/Contents/MacOS/acecode-daemon`
+location installs a complete
 `ACECode.app` update ZIP rather than copying files into `Contents/MacOS`. Before
 replacement, the daemon requires one of those exact non-symlinked install paths,
 a writable containing directory, a strict nested Apple signature, bundle
@@ -2275,7 +2276,7 @@ Choosing restart later leaves the current process running. Normal browser and
 Edge-app compatibility clients do not own the desktop lifecycle, so they show
 manual full-exit-and-relaunch guidance instead of an automatic restart action.
 For a successful macOS bundle update, `backup_dir` identifies the retained
-`~/Applications/.ACECode.previous.app` bundle.
+`.ACECode.previous.app` beside the running installation.
 
 ### `GET /api/mcp`
 

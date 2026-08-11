@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import { flattenCommands } from './slashCommands.js';
 import {
+  COMPOSER_ATTACHMENT_TAG,
   COMPOSER_COMMAND_TAG,
   COMPOSER_PATH_TAG,
   COMPOSER_SESSION_TAG,
   clipboardHasRichText,
+  composerAdjacentAttachmentKey,
   composerAdjacentTagDeletionRange,
+  composerAttachmentItemsSignature,
+  composerAttachmentTagsSignature,
   composerDocumentFromText,
+  composerDocumentWithSynchronizedAttachments,
   composerDocumentWithSynchronizedLeadingCommand,
   composerPlainTextOffsetForPoint,
   composerPlainTextRangeFromSelection,
@@ -91,6 +96,72 @@ run('Slate composer document round-trips command, path tags, and multiline text'
   assert.equal(absolute.token, '@"C:/Outside Folder/"');
   assert.equal(absolute.path, 'C:/Outside Folder/');
   assert.equal(absolute.directory, true);
+});
+
+run('attachment tags stay in Slate while contributing zero plain-text characters', () => {
+  const attachments = [
+    {
+      local_id: 'local-image',
+      name: 'screen.png',
+      kind: 'image',
+      preview_url: 'blob:screen',
+      source_path: 'C:/repo/screen.png',
+      uploading: true,
+    },
+    {
+      id: 'att-notes',
+      name: 'notes.txt',
+      kind: 'file',
+      blob_url: '/api/attachments/att-notes/blob',
+    },
+  ];
+  const text = '/init inspect @src/main.cpp';
+  const document = composerDocumentFromText(text, COMMANDS, attachments);
+  const tags = document[0].children.filter((child) => child.type === COMPOSER_ATTACHMENT_TAG);
+
+  assert.equal(composerTextFromDocument(document), text);
+  assert.deepEqual(tags.map((tag) => tag.attachmentKey), ['local-image', 'att-notes']);
+  assert.equal(tags[0].uploading, true);
+  assert.equal(tags[0].sourcePath, 'C:/repo/screen.png');
+  assert.equal(composerAttachmentTagsSignature(document), composerAttachmentItemsSignature(attachments));
+});
+
+run('attachment synchronization preserves live unfinished text and updates tag metadata', () => {
+  const liveDocument = composerDocumentFromText('continue @src/', COMMANDS);
+  const uploading = [{ local_id: 'local-1', name: 'report.md', kind: 'file', uploading: true }];
+  const withUpload = composerDocumentWithSynchronizedAttachments(liveDocument, uploading);
+  const ready = [{
+    local_id: 'local-1',
+    id: 'att-ready',
+    name: 'report.md',
+    kind: 'file',
+    blob_url: '/api/attachments/att-ready/blob',
+  }];
+  const synchronized = composerDocumentWithSynchronizedAttachments(withUpload, ready);
+
+  assert.equal(composerTextFromDocument(synchronized), 'continue @src/');
+  assert.equal(synchronized[0].children.some((child) => child.type === COMPOSER_PATH_TAG), false);
+  const tag = synchronized[0].children.find((child) => child.type === COMPOSER_ATTACHMENT_TAG);
+  assert.equal(tag.attachmentId, 'att-ready');
+  assert.equal(tag.uploading, false);
+  assert.equal(composerAttachmentTagsSignature(synchronized), composerAttachmentItemsSignature(ready));
+});
+
+run('offset zero lands after leading attachments and Backspace resolves the nearest key', () => {
+  const attachments = [
+    { id: 'att-first', name: 'first.txt', kind: 'file' },
+    { id: 'att-last', name: 'last.png', kind: 'image' },
+  ];
+  const document = composerDocumentFromText('type here', COMMANDS, attachments);
+  const caret = composerSelectionFromPlainTextRange(document, 0, 0);
+
+  assert.equal(composerPlainTextOffsetForPoint(document, caret.anchor), 0);
+  assert.equal(composerAdjacentAttachmentKey(document, caret, 'backward'), 'att-last');
+  assert.equal(composerAdjacentAttachmentKey(document, caret, 'forward'), '');
+  const lastAttachmentIndex = document[0].children
+    .map((child) => child.type)
+    .lastIndexOf(COMPOSER_ATTACHMENT_TAG);
+  assert.ok(caret.anchor.path[1] > lastAttachmentIndex);
 });
 
 run('Slate composer document round-trips a stable session tag', () => {

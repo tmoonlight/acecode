@@ -189,7 +189,8 @@ Windows 构建会启用 UTF-8 编译选项；使用 vcpkg toolchain 且未指定
 从 [Releases](https://github.com/shaohaozhi286/acecode/releases) 下载预编译二进制，然后运行：
 
 macOS 桌面版请下载与 Mac 架构匹配的 DMG，打开后把
-`ACECode.app` 拖到右侧的 `Applications` 文件夹。详见
+`ACECode.app` 拖到右侧的 `Applications` 安装入口；ACECode 会安装到当前
+用户的 `~/Applications/ACECode.app`，无需管理员权限。详见
 [macOS 发布与安装说明](docs/macos-release.md)。
 
 ```bash

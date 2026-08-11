@@ -25,13 +25,18 @@ import {
 import { clsx } from '../lib/format.js';
 import {
   clipboardHasRichText,
+  composerAdjacentAttachmentKey,
   composerAdjacentTagDeletionRange,
+  composerAttachmentItemsSignature,
+  composerAttachmentTagsSignature,
   composerDocumentFromText,
+  composerDocumentWithSynchronizedAttachments,
   composerDocumentWithSynchronizedLeadingCommand,
   composerLeadingCommandSignature,
   composerPlainTextRangeFromSelection,
   composerSelectionFromPlainTextRange,
   composerTextFromDocument,
+  isComposerAttachmentTag,
   isComposerCommandTag,
   isComposerInlineTag,
   isComposerPathTag,
@@ -40,6 +45,10 @@ import {
   plainTextFromClipboardData,
 } from '../lib/richComposerModel.js';
 import { filesFromClipboardEvent, filesFromTransfer } from '../lib/composerFileTransfer.js';
+import {
+  RICH_COMPOSER_CONTEXT_PASTE_ACTIONS,
+  RICH_COMPOSER_CONTEXT_PASTE_EVENT,
+} from '../lib/richComposerContextPaste.js';
 import { slashCommandKindPresentation } from '../lib/slashCommands.js';
 import { CommandGlyph, FileTypeIcon, VsIcon } from './Icon.jsx';
 
@@ -123,7 +132,75 @@ function SessionTagElement({ attributes, children, element }) {
   );
 }
 
-function ComposerElement(props) {
+function AttachmentTagElement({
+  attributes,
+  children,
+  element,
+  onPreviewAttachment,
+  onRemoveAttachment,
+}) {
+  const name = String(element?.name || 'attachment');
+  const label = element?.uploading ? `${name} 上传中` : name;
+  const previewable = element?.kind === 'image' && !!element?.url;
+  const attachmentKey = String(element?.attachmentKey || '');
+  return (
+    <span
+      {...attributes}
+      contentEditable={false}
+      draggable={false}
+      data-composer-inline-tag="attachment"
+      data-desktop-attachment-id={`composer:${attachmentKey}`}
+      data-desktop-attachment-name={name}
+      data-desktop-attachment-url={element?.url || undefined}
+      data-desktop-attachment-path={element?.path || undefined}
+      data-desktop-attachment-preview-url={element?.url || undefined}
+      data-desktop-attachment-mutable="true"
+      className={clsx(
+        'group ace-cmd-token ace-slate-inline-tag ace-slate-attachment-tag',
+        element?.uploading && 'is-uploading',
+        previewable && 'is-previewable',
+      )}
+      title={element?.sourcePath || name}
+      onMouseDown={(event) => {
+        if (event.button === 0) event.preventDefault();
+      }}
+      onClick={previewable ? () => onPreviewAttachment?.(element) : undefined}
+      onDragStart={(event) => event.preventDefault()}
+    >
+      {children}
+      <FileTypeIcon path={name} size={12} className="ace-cmd-token-glyph" />
+      <span className="ace-cmd-token-name ace-slate-attachment-name">{label}</span>
+      <button
+        type="button"
+        contentEditable={false}
+        className="ace-slate-attachment-remove"
+        aria-label="移除附件"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onRemoveAttachment?.(attachmentKey);
+        }}
+      >
+        <VsIcon name="close" size={9} />
+      </button>
+    </span>
+  );
+}
+
+function ComposerElement({ onPreviewAttachment, onRemoveAttachment, ...props }) {
+  if (isComposerAttachmentTag(props.element)) {
+    return (
+      <AttachmentTagElement
+        {...props}
+        onPreviewAttachment={onPreviewAttachment}
+        onRemoveAttachment={onRemoveAttachment}
+      />
+    );
+  }
   if (isComposerCommandTag(props.element)) return <CommandTagElement {...props} />;
   if (isComposerPathTag(props.element)) return <PathTagElement {...props} />;
   if (isComposerSessionTag(props.element)) return <SessionTagElement {...props} />;
@@ -199,6 +276,20 @@ function insertPlainText(editor, text) {
   });
 }
 
+function deleteSelectedPlainText(editor) {
+  if (!editor.selection || Range.isCollapsed(editor.selection)) return false;
+  const selection = composerPlainTextRangeFromSelection(editor.children, editor.selection);
+  if (selection.start === selection.end) return false;
+  Transforms.select(editor, composerSelectionFromPlainTextRange(
+    editor.children,
+    selection.start,
+    selection.end,
+    selection.direction,
+  ));
+  Transforms.delete(editor);
+  return true;
+}
+
 function writeSelectedPlainText(event, editor) {
   if (!editor.selection || Range.isCollapsed(editor.selection)) return false;
   const text = composerTextFromDocument(editor.children);
@@ -215,6 +306,7 @@ function writeSelectedPlainText(event, editor) {
 function RichComposerShell({
   value,
   commands,
+  attachments = [],
   disabled,
   placeholder,
   className,
@@ -227,20 +319,25 @@ function RichComposerShell({
   onSubmit,
   onPasteFiles,
   onPasteFilesystemItems,
+  onPreviewAttachment,
+  onRemoveAttachment,
   allowNativeFilesystemDrop = false,
   isComposingKeyEvent,
   onSelectionChange,
 }, ref) {
   const commandsRef = useRef(commands);
   commandsRef.current = commands;
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
   const initialValueRef = useRef(null);
   if (!initialValueRef.current) {
-    initialValueRef.current = composerDocumentFromText(value, commands);
+    initialValueRef.current = composerDocumentFromText(value, commands, attachments);
   }
   const editor = useMemo(
     () => withComposerInlineTags(withHistory(withReact(createEditor()))),
     [],
   );
+  const editableRef = useRef(null);
   const latestTextRef = useRef(composerTextFromDocument(initialValueRef.current));
   const selectionRef = useRef({
     start: latestTextRef.current.length,
@@ -259,6 +356,10 @@ function RichComposerShell({
       .join('\n'),
     [commands],
   );
+  const attachmentSignature = useMemo(
+    () => composerAttachmentItemsSignature(attachments),
+    [attachments],
+  );
 
   const publishSelection = useCallback((selection = editor.selection) => {
     const next = currentPlainSelection(editor.children, selection);
@@ -266,24 +367,80 @@ function RichComposerShell({
     onSelectionChange?.(next);
   }, [editor, onSelectionChange]);
 
+  const handleContextPasteAction = useCallback((event) => {
+    const detail = event?.detail;
+    if (detail?.action === RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.CAPTURE_SELECTION) {
+      detail.selection = currentPlainSelection(editor.children, editor.selection);
+      detail.handled = true;
+      return;
+    }
+    if (detail?.action !== RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.INSERT_TEXT) return;
+
+    // RichComposer owns this contenteditable. Consume the action even while
+    // disabled so the generic context-menu fallback never mutates Slate's DOM.
+    detail.handled = true;
+    if (disabled) return;
+
+    if (detail.selection) {
+      Transforms.select(editor, composerSelectionFromPlainTextRange(
+        editor.children,
+        detail.selection.start,
+        detail.selection.end,
+        detail.selection.direction,
+      ));
+    }
+
+    let focused = false;
+    try {
+      ReactEditor.focus(editor);
+      focused = true;
+    } catch {
+      // The menu can close in the same frame as a Slate render. Retry after
+      // React has reconciled the editable DOM rather than writing into it.
+    }
+    if (detail.text) insertPlainText(editor, detail.text);
+    if (!focused) {
+      window.requestAnimationFrame(() => {
+        try { ReactEditor.focus(editor); } catch {}
+      });
+    }
+  }, [disabled, editor]);
+
+  useEffect(() => {
+    const editable = editableRef.current;
+    if (!editable) return undefined;
+    editable.addEventListener(RICH_COMPOSER_CONTEXT_PASTE_EVENT, handleContextPasteAction);
+    return () => {
+      editable.removeEventListener(RICH_COMPOSER_CONTEXT_PASTE_EVENT, handleContextPasteAction);
+    };
+  }, [handleContextPasteAction]);
+
   useEffect(() => {
     const nextText = normalizeComposerPlainText(value);
     const currentDocument = editor.children;
     const currentText = composerTextFromDocument(currentDocument);
     const textChanged = currentText !== nextText;
+    const attachmentsChanged = composerAttachmentTagsSignature(currentDocument)
+      !== attachmentSignature;
     let nextDocument = null;
 
     if (textChanged) {
-      nextDocument = composerDocumentFromText(nextText, commands);
+      nextDocument = composerDocumentFromText(nextText, commands, attachments);
     } else {
+      const withAttachments = attachmentsChanged
+        ? composerDocumentWithSynchronizedAttachments(currentDocument, attachments)
+        : currentDocument;
       const synchronized = composerDocumentWithSynchronizedLeadingCommand(
-        currentDocument,
+        withAttachments,
         nextText,
         commands,
       );
       if (
-        composerLeadingCommandSignature(synchronized)
-        !== composerLeadingCommandSignature(currentDocument)
+        attachmentsChanged
+        || composerAttachmentTagsSignature(synchronized)
+          !== composerAttachmentTagsSignature(currentDocument)
+        || composerLeadingCommandSignature(synchronized)
+          !== composerLeadingCommandSignature(currentDocument)
       ) {
         nextDocument = synchronized;
       }
@@ -300,7 +457,7 @@ function RichComposerShell({
     });
     latestTextRef.current = nextText;
     publishSelection(editor.selection);
-  }, [commandSignature, commands, editor, publishSelection, value]);
+  }, [attachmentSignature, attachments, commandSignature, commands, editor, publishSelection, value]);
 
   const handleValueChange = useCallback((nextDocument) => {
     const text = composerTextFromDocument(nextDocument);
@@ -358,7 +515,11 @@ function RichComposerShell({
       return latestTextRef.current;
     },
     replaceText(next, { selectEnd = true } = {}) {
-      const nextDocument = composerDocumentFromText(next, commandsRef.current);
+      const nextDocument = composerDocumentFromText(
+        next,
+        commandsRef.current,
+        attachmentsRef.current,
+      );
       replaceEditorDocument(editor, nextDocument, {
         selectEnd,
         clearHistory: true,
@@ -368,7 +529,13 @@ function RichComposerShell({
     },
   }), [editor, publishSelection]);
 
-  const renderElement = useCallback((props) => <ComposerElement {...props} />, []);
+  const renderElement = useCallback((props) => (
+    <ComposerElement
+      {...props}
+      onPreviewAttachment={onPreviewAttachment}
+      onRemoveAttachment={onRemoveAttachment}
+    />
+  ), [onPreviewAttachment, onRemoveAttachment]);
   const renderPlaceholder = useCallback(({ attributes, children }) => (
     <span
       {...attributes}
@@ -404,6 +571,41 @@ function RichComposerShell({
       return;
     }
 
+    if (
+      (event.key === 'Backspace' || event.key === 'Delete')
+      && editor.selection
+      && !Range.isCollapsed(editor.selection)
+      && deleteSelectedPlainText(editor)
+    ) {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'Backspace') {
+      const attachmentKey = composerAdjacentAttachmentKey(
+        editor.children,
+        editor.selection,
+        'backward',
+      );
+      if (attachmentKey && onRemoveAttachment) {
+        event.preventDefault();
+        onRemoveAttachment(attachmentKey);
+        return;
+      }
+    }
+    if (event.key === 'Delete') {
+      const attachmentKey = composerAdjacentAttachmentKey(
+        editor.children,
+        editor.selection,
+        'forward',
+      );
+      if (attachmentKey && onRemoveAttachment) {
+        event.preventDefault();
+        onRemoveAttachment(attachmentKey);
+        return;
+      }
+    }
+
     if (event.key === 'Backspace' && deleteAdjacentTag(editor, 'backward')) {
       event.preventDefault();
       return;
@@ -411,7 +613,7 @@ function RichComposerShell({
     if (event.key === 'Delete' && deleteAdjacentTag(editor, 'forward')) {
       event.preventDefault();
     }
-  }, [disabled, editor, isComposingKeyEvent, onKeyDown, onSubmit]);
+  }, [disabled, editor, isComposingKeyEvent, onKeyDown, onRemoveAttachment, onSubmit]);
 
   const handlePaste = useCallback((event) => {
     if (disabled) {
@@ -442,7 +644,7 @@ function RichComposerShell({
 
   const handleCut = useCallback((event) => {
     if (disabled || !writeSelectedPlainText(event, editor)) return;
-    Transforms.delete(editor);
+    deleteSelectedPlainText(editor);
   }, [disabled, editor]);
 
   const handleDrop = useCallback((event) => {
@@ -464,6 +666,7 @@ function RichComposerShell({
       onSelectionChange={handleSlateSelectionChange}
     >
       <Editable
+        ref={editableRef}
         aria-label={placeholder}
         aria-disabled={disabled ? 'true' : undefined}
         readOnly={disabled}

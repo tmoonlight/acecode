@@ -696,6 +696,78 @@ run('provider 错误 message 会结束已有 partial assistant streaming 状态'
   assert.equal(state.items[1].role, 'error');
 });
 
+function repeatedProviderErrorEvent(seq, timestampMs) {
+  return {
+    type: 'message',
+    payload: {
+      id: 'same-provider-error-id',
+      role: 'error',
+      content: '[Error] HTTP 400 from openai model test\nidentical provider body',
+      metadata: {
+        provider_error: {
+          kind: 'http',
+          status_code: 400,
+          raw_body: 'identical provider body',
+        },
+      },
+    },
+    seq,
+    timestamp_ms: timestampMs,
+  };
+}
+
+run('不同回合的相同 provider 错误在实时事件中分别追加', () => {
+  const firstError = repeatedProviderErrorEvent(2, 120);
+  const secondError = repeatedProviderErrorEvent(5, 220);
+  let state = reduceMany([
+    { type: 'message', payload: { id: 'u1', role: 'user', content: 'first' }, seq: 1, timestamp_ms: 100 },
+    firstError,
+    { type: 'busy_changed', payload: { busy: false, outcome: 'error' }, seq: 3, timestamp_ms: 130 },
+    { type: 'message', payload: { id: 'u2', role: 'user', content: 'second' }, seq: 4, timestamp_ms: 200 },
+    secondError,
+  ]);
+
+  assert.deepEqual(state.items.map((item) => item.role), ['user', 'error', 'user', 'error']);
+  assert.deepEqual(
+    state.items.filter((item) => item.role === 'error').map((item) => item.ts),
+    [120, 220],
+  );
+
+  state = reduceTranscriptEvent(state, secondError).state;
+  assert.equal(state.items.filter((item) => item.role === 'error').length, 2);
+});
+
+run('WebSocket 补拉按不同 seq 保留相同 provider 错误', () => {
+  const state = applyTranscriptReplayEvents(createTranscriptState(), [
+    repeatedProviderErrorEvent(1, 100),
+    { type: 'message', payload: { id: 'u2', role: 'user', content: 'second' }, seq: 2, timestamp_ms: 200 },
+    repeatedProviderErrorEvent(3, 220),
+  ]).state;
+
+  assert.deepEqual(state.items.map((item) => item.role), ['error', 'user', 'error']);
+  assert.deepEqual(
+    state.items.filter((item) => item.role === 'error').map((item) => item.ts),
+    [100, 220],
+  );
+});
+
+run('首次历史加载按不同 seq 保留相同 provider 错误', () => {
+  const state = loadTranscriptHistory(createTranscriptState(), {
+    messages: [],
+    events: [
+      repeatedProviderErrorEvent(1, 100),
+      { type: 'message', payload: { id: 'u2', role: 'user', content: 'second' }, seq: 2, timestamp_ms: 200 },
+      repeatedProviderErrorEvent(3, 220),
+    ],
+  }).state;
+
+  assert.deepEqual(state.items.map((item) => item.role), ['error', 'user', 'error']);
+  assert.deepEqual(
+    state.items.filter((item) => item.role === 'error').map((item) => item.ts),
+    [100, 220],
+  );
+});
+
 run('usage 事件更新 token usage 且不新增 transcript item', () => {
   const state = reduceMany([
     {

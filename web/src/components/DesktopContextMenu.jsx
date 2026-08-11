@@ -14,6 +14,10 @@ import { selectionContextFromWindowSelection } from '../lib/selectionChatContext
 import { copyImageToSystemClipboard, copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { isDesktopShell, isWebappCompat } from '../lib/desktopShellMode.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
+import {
+  captureRichComposerContextSelection,
+  insertRichComposerContextText,
+} from '../lib/richComposerContextPaste.js';
 import { api } from '../lib/api.js';
 import { toast } from './Toast.jsx';
 
@@ -154,9 +158,9 @@ function selectAllForTarget(target) {
   sel.addRange(range);
 }
 
-function insertTextIntoEditable(editable, text) {
-  editable.focus();
+function insertTextIntoEditable(editable, text, richComposerSelection = null) {
   if (editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement) {
+    editable.focus();
     const start = editable.selectionStart ?? editable.value.length;
     const end = editable.selectionEnd ?? start;
     editable.setRangeText(text, start, end, 'end');
@@ -168,6 +172,8 @@ function insertTextIntoEditable(editable, text) {
     }));
     return;
   }
+  if (insertRichComposerContextText(editable, text, richComposerSelection)) return;
+  editable.focus();
   document.execCommand('insertText', false, text);
 }
 
@@ -212,12 +218,12 @@ export async function copyImageWithToast(target) {
   return result;
 }
 
-async function pasteIntoTarget(target) {
+async function pasteIntoTarget(target, richComposerSelection = null) {
   const editable = editableElementFrom(target);
   if (!editable) return;
   if (navigator.clipboard?.readText) {
     const text = await navigator.clipboard.readText();
-    insertTextIntoEditable(editable, text);
+    insertTextIntoEditable(editable, text, richComposerSelection);
     return;
   }
   editable.focus();
@@ -269,7 +275,13 @@ function dispatchDesktopContextAction(action, targetPayload, extra = {}) {
   return !!detail.handled;
 }
 
-async function runAction(item, target, rememberedText = '', rememberedSelectionContext = null) {
+async function runAction(
+  item,
+  target,
+  rememberedText = '',
+  rememberedSelectionContext = null,
+  rememberedRichComposerSelection = null,
+) {
   const action = typeof item === 'string' ? item : item?.id;
   const actionTarget = typeof item === 'object' ? item.target : null;
   if (!action) return;
@@ -373,7 +385,7 @@ async function runAction(item, target, rememberedText = '', rememberedSelectionC
       }
       break;
     case DESKTOP_CONTEXT_ACTIONS.PASTE:
-      await pasteIntoTarget(target);
+      await pasteIntoTarget(target, rememberedRichComposerSelection);
       break;
     case DESKTOP_CONTEXT_ACTIONS.CUT:
       editableElementFrom(target)?.focus();
@@ -465,6 +477,11 @@ export function DesktopContextMenu() {
       targetRef.current = target;
       const editableTarget = editableElementFrom(target);
       const editable = !!editableTarget;
+      const richComposerSelection = editableTarget
+        && !(editableTarget instanceof HTMLInputElement)
+        && !(editableTarget instanceof HTMLTextAreaElement)
+        ? captureRichComposerContextSelection(editableTarget)
+        : null;
       const contextTargets = editable ? {} : candidateTargets;
       const sessionPinTarget = contextTargets.sessionTarget
         ? {
@@ -497,7 +514,13 @@ export function DesktopContextMenu() {
         viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight,
       });
-      openWithSwitchGap({ ...pos, items, selectedText, selectionContext });
+      openWithSwitchGap({
+        ...pos,
+        items,
+        selectedText,
+        selectionContext,
+        richComposerSelection,
+      });
     };
     const onKeyDown = (event) => {
       if (event.key === 'Escape') close();
@@ -557,8 +580,15 @@ export function DesktopContextMenu() {
             const target = targetRef.current;
             const selectedText = menu.selectedText || '';
             const selectionContext = menu.selectionContext || null;
+            const richComposerSelection = menu.richComposerSelection || null;
             close();
-            await runAction(action, target, selectedText, selectionContext);
+            await runAction(
+              action,
+              target,
+              selectedText,
+              selectionContext,
+              richComposerSelection,
+            );
           }}
         >
           {ACTION_LABELS[typeof action === 'string' ? action : action.id] || (typeof action === 'string' ? action : action.id)}

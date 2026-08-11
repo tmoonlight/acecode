@@ -4,15 +4,18 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  scripts/macos_create_dmg.sh --app <ACECode.app> --output <ACECode.dmg> \
+  scripts/macos_create_dmg.sh --app <ACECode.app> \
+      --user-applications <Applications.app> --output <ACECode.dmg> \
       [--volume-name <name>] [--background <path>]
 
 Creates a styled compressed read-only DMG with ACECode.app on the left and a
-standard Applications link on the right.
+current-user Applications install target on the right. The target installs to
+~/Applications at runtime and never links to system /Applications.
 USAGE
 }
 
 app_path=""
+user_applications_path=""
 output_path=""
 volume_name="ACECode"
 background_path=""
@@ -22,6 +25,11 @@ while [[ $# -gt 0 ]]; do
         --app)
             [[ $# -ge 2 && -n "${2:-}" ]] || { echo "Missing value for --app" >&2; exit 2; }
             app_path="$2"
+            shift 2
+            ;;
+        --user-applications)
+            [[ $# -ge 2 && -n "${2:-}" ]] || { echo "Missing value for --user-applications" >&2; exit 2; }
+            user_applications_path="$2"
             shift 2
             ;;
         --output)
@@ -56,8 +64,8 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 1
 fi
 
-if [[ -z "$app_path" || -z "$output_path" ]]; then
-    echo "--app and --output are required." >&2
+if [[ -z "$app_path" || -z "$user_applications_path" || -z "$output_path" ]]; then
+    echo "--app, --user-applications, and --output are required." >&2
     usage >&2
     exit 2
 fi
@@ -69,6 +77,10 @@ fi
 
 if [[ ! -d "$app_path" ]]; then
     echo "Missing ACECode app bundle: $app_path" >&2
+    exit 1
+fi
+if [[ ! -d "$user_applications_path" ]]; then
+    echo "Missing current-user Applications bundle: $user_applications_path" >&2
     exit 1
 fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -131,13 +143,17 @@ background_root="$staging_root/.background"
 mkdir -p "$staging_root" "$background_root"
 
 /usr/bin/ditto "$app_path" "$staging_root/ACECode.app"
-/bin/ln -s /Applications "$staging_root/Applications"
+/usr/bin/ditto "$user_applications_path" "$staging_root/Applications.app"
 /usr/bin/sips -s format png "$background_path" \
     --out "$background_root/ACECode-DMG.png" >/dev/null
 
-if [[ ! -L "$staging_root/Applications" ]] || \
-   [[ "$(/usr/bin/readlink "$staging_root/Applications")" != "/Applications" ]]; then
-    echo "DMG Applications link must point exactly to /Applications." >&2
+if [[ ! -d "$staging_root/Applications.app" ]] || \
+   [[ -L "$staging_root/Applications.app" ]]; then
+    echo "DMG Applications target must be a real application bundle." >&2
+    exit 1
+fi
+if [[ -e "$staging_root/Applications" || -L "$staging_root/Applications" ]]; then
+    echo "DMG must not contain a system Applications link." >&2
     exit 1
 fi
 
@@ -188,6 +204,7 @@ fi
 
 # Keep the background resources out of the visible Finder layout.
 /usr/bin/SetFile -a V "$mount_root/.background"
+/usr/bin/SetFile -a E "$mount_root/Applications.app"
 
 apply_finder_layout() {
     /usr/bin/osascript - "$mount_root" <<'APPLESCRIPT'
@@ -215,7 +232,7 @@ on run argv
             set background picture of iconOptions to file ".background:ACECode-DMG.png"
 
             set position of item "ACECode.app" of dmgWindow to {160, 215}
-            set position of item "Applications" of dmgWindow to {500, 215}
+            set position of item "Applications.app" of dmgWindow to {500, 215}
 
             update without registering applications
             delay 2

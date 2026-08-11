@@ -36,11 +36,11 @@ run('composer runtime depends on Slate and no longer depends on Lexical', () => 
   assert.doesNotMatch(composer, /lexical/i);
 });
 
-run('command, path, and session tags are Slate inline void elements with fixed order', () => {
+run('command, path, session, and attachment tags are Slate inline void elements with fixed order', () => {
   const composer = source('components/RichComposer.jsx');
   assert.match(composer, /editor\.isInline = \(element\) => \(\s+isComposerInlineTag\(element\) \? true : isInline\(element\)/s);
   assert.match(composer, /editor\.isVoid = \(element\) => \(\s+isComposerInlineTag\(element\) \? true : isVoid\(element\)/s);
-  assert.equal((composer.match(/draggable=\{false\}/g) || []).length, 3);
+  assert.equal((composer.match(/draggable=\{false\}/g) || []).length, 4);
   assert.match(composer, /types\.includes\('application\/x-slate-fragment'\)/);
 });
 
@@ -89,7 +89,7 @@ run('imperative focus retries after an external Slate document replacement', () 
   assert.match(composer, /window\.requestAnimationFrame\(\(\) => \{\s*try \{ focusEditor\(\); \} catch \{\}/s);
 });
 
-run('attachments, contexts, and footer controls remain outside the Slate editor', () => {
+run('attachments render inside Slate while contexts and footer controls stay outside', () => {
   const inputBar = source('components/InputBar.jsx');
   const composer = source('components/RichComposer.jsx');
   const editorIndex = inputBar.indexOf('<RichComposer');
@@ -98,5 +98,50 @@ run('attachments, contexts, and footer controls remain outside the Slate editor'
   assert.ok(editorIndex >= 0);
   assert.ok(footerIndex > editorIndex);
   assert.match(inputBar.slice(0, editorIndex), /selectionContextItems\.map/);
+  assert.match(inputBar.slice(editorIndex, footerIndex), /attachments=\{attachmentItems\}/);
+  assert.doesNotMatch(inputBar, /imageAttachments\.map|fileAttachments\.map/);
+  assert.match(composer, /data-composer-inline-tag="attachment"/);
+  assert.match(composer, /contentEditable=\{false\}[\s\S]*draggable=\{false\}[\s\S]*ace-slate-attachment-tag/);
+  assert.match(composer, /composerAdjacentAttachmentKey\([\s\S]*onRemoveAttachment\(attachmentKey\)/);
   assert.doesNotMatch(composer, /ComposerSessionControls|AttachmentStrip|ComposerSelectionCard/);
+});
+
+run('attachment tags retain preview, context-menu metadata, and existing transfer entrypoints', () => {
+  const inputBar = source('components/InputBar.jsx');
+  const composer = source('components/RichComposer.jsx');
+
+  assert.match(composer, /data-desktop-attachment-id=\{`composer:\$\{attachmentKey\}`\}/);
+  assert.match(composer, /data-desktop-attachment-preview-url=\{element\?\.url \|\| undefined\}/);
+  assert.match(composer, /onClick=\{previewable \? \(\) => onPreviewAttachment\?\.\(element\) : undefined\}/);
+  assert.match(inputBar, /onPreviewAttachment=\{previewComposerAttachment\}/);
+  assert.match(inputBar, /onPasteFiles=\{addMediaFiles\}/);
+  assert.match(inputBar, /postWindowsNativeFilesystemDrop\(event\.dataTransfer\)/);
+  assert.match(inputBar, /addMaterializedPaths\(paths, savedCursor\)/);
+});
+
+run('desktop context-menu paste captures Slate selection and bridges before DOM fallback', () => {
+  const menu = source('components/DesktopContextMenu.jsx');
+  const insertStart = menu.indexOf('function insertTextIntoEditable');
+  const insertEnd = menu.indexOf('async function copySelectionFromTarget', insertStart);
+  const insertBody = menu.slice(insertStart, insertEnd);
+
+  assert.match(menu, /captureRichComposerContextSelection\(editableTarget\)/);
+  assert.match(menu, /openWithSwitchGap\(\{[\s\S]*richComposerSelection,[\s\S]*\}\);/);
+  assert.match(menu, /pasteIntoTarget\(target, rememberedRichComposerSelection\)/);
+  assert.ok(insertBody.indexOf('insertRichComposerContextText') >= 0);
+  assert.ok(insertBody.indexOf('insertRichComposerContextText') < insertBody.indexOf("document.execCommand('insertText'"));
+});
+
+run('rich context paste mutates Slate state while send gating reads the controlled value', () => {
+  const composer = source('components/RichComposer.jsx');
+  const inputBar = source('components/InputBar.jsx');
+  const chatView = source('components/ChatView.jsx');
+
+  assert.match(composer, /addEventListener\(RICH_COMPOSER_CONTEXT_PASTE_EVENT, handleContextPasteAction\)/);
+  assert.match(composer, /CAPTURE_SELECTION[\s\S]*currentPlainSelection\(editor\.children, editor\.selection\)/);
+  assert.match(composer, /INSERT_TEXT[\s\S]*composerSelectionFromPlainTextRange[\s\S]*insertPlainText\(editor, detail\.text\)/);
+  assert.doesNotMatch(composer, /execCommand/);
+  assert.match(inputBar, /getInputBarActionState\(\{ value, disabled, busy, hasExtras \}\)/);
+  assert.match(inputBar, /<RichComposer[\s\S]*onChange=\{handleComposerChange\}/);
+  assert.match(chatView, /const handleComposerChange = useCallback\(\(next\) => \{[\s\S]*setComposerValue\(next\)/);
 });

@@ -211,6 +211,11 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
+      - name: Build current-user Applications target (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cmake --build build --config MinSizeRel --target acecode-user-applications
+
       - name: Extract debug symbols (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -240,6 +245,7 @@ jobs:
         run: |
           app_exec="build/ACECode.app/Contents/MacOS/ACECode"
           app_daemon="build/ACECode.app/Contents/MacOS/acecode-daemon"
+          user_applications_exec="build/Applications.app/Contents/MacOS/Applications"
           if [ ! -f "$app_exec" ]; then
             echo "Missing desktop app executable: $app_exec" >&2
             exit 1
@@ -248,10 +254,16 @@ jobs:
             echo "Missing desktop app daemon: $app_daemon" >&2
             exit 1
           fi
+          if [ ! -f "$user_applications_exec" ]; then
+            echo "Missing current-user Applications executable: $user_applications_exec" >&2
+            exit 1
+          fi
           dsymutil "$app_exec" -o "build/ACECode.app.dSYM"
           strip "$app_exec"
           dsymutil "$app_daemon" -o "build/acecode-daemon.dSYM"
           strip "$app_daemon"
+          dsymutil "$user_applications_exec" -o "build/Applications.app.dSYM"
+          strip "$user_applications_exec"
 
       - name: Import Developer ID certificate (macOS)
         if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
@@ -324,6 +336,7 @@ jobs:
             --identity "${{ steps.macos-keychain.outputs.identity }}" \
             --keychain "${{ steps.macos-keychain.outputs.keychain }}" \
             --binary "build/${{ matrix.executable }}" \
+            --bundle "build/Applications.app" \
             --app "build/ACECode.app"
 
       - name: Notarize and staple macOS app
@@ -403,6 +416,7 @@ jobs:
           dmg_path="ACECode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}${unsigned_suffix}.dmg"
           scripts/macos_create_dmg.sh \
             --app "build/ACECode.app" \
+            --user-applications "build/Applications.app" \
             --output "$dmg_path" \
             --volume-name "ACECode ${{ steps.package-version.outputs.version }}"
           echo "path=$dmg_path" >> "$GITHUB_OUTPUT"
@@ -568,6 +582,7 @@ jobs:
           path: |
             build/ACECode.app.dSYM
             build/acecode-daemon.dSYM
+            build/Applications.app.dSYM
           if-no-files-found: warn
 
   build-linux-old-package:

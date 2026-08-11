@@ -32,6 +32,7 @@ import {
   renameTab,
 } from '../lib/consoleDock.js';
 import { formatDroppedPaths, parseUriList } from '../lib/consoleDropPaths.js';
+import { postWindowsNativeFilesystemDrop } from '../lib/desktopNativeFilesystemDrop.js';
 import { copyTextToSystemClipboard, readTextFromSystemClipboard } from '../lib/systemClipboard.js';
 import { normalizeShells, buildShellMenuItems } from '../lib/consoleShells.js';
 import { useTheme } from '../theme.jsx';
@@ -483,15 +484,15 @@ export function ConsoleDock({ open, height, onHeightChange, onToggle, consoleInf
 
   const handleTermDragEnter = useCallback((tabId, event) => {
     if (!transferHasFiles(event.dataTransfer)) return;
-    // web 模式(Linux)必须 preventDefault 才会触发后续 drop;native 模式不拦,
-    // 让系统拖放下沉到 WebView native 层去取真实路径。
-    if (!NATIVE_DROP) event.preventDefault();
+    // Web 模式与 Windows additional-object bridge 都需要 preventDefault 才会
+    // 触发后续 drop；macOS native 模式不拦，让 WKWebView 原生处理。
+    if (!NATIVE_DROP || HOST_OS === 'windows') event.preventDefault();
     markDropHover(tabId);
   }, [markDropHover]);
 
   const handleTermDragOver = useCallback((tabId, event) => {
     if (!transferHasFiles(event.dataTransfer)) return;
-    if (!NATIVE_DROP) {
+    if (!NATIVE_DROP || HOST_OS === 'windows') {
       event.preventDefault();
       try { event.dataTransfer.dropEffect = 'copy'; } catch { /* 某些环境只读 */ }
     }
@@ -507,7 +508,16 @@ export function ConsoleDock({ open, height, onHeightChange, onToggle, consoleInf
   }, [clearDropHover]);
 
   const handleTermDrop = useCallback((tabId, event) => {
-    if (NATIVE_DROP) return; // native 模式下 drop 不会触发,路径走全局回调
+    if (NATIVE_DROP) {
+      // Windows WebView2:把这一次 drop 的完整 File 批次交给 native,由
+      // ICoreWebView2File 取可信绝对路径。成功后接管默认行为,避免 file://
+      // 导航再次触发旧兜底；macOS 仍走 WKWebView 原生 performDragOperation。
+      if (HOST_OS === 'windows' && postWindowsNativeFilesystemDrop(event.dataTransfer)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
     event.preventDefault();
     const uris = parseUriList(event.dataTransfer?.getData?.('text/uri-list') || '');
     clearDropHover(tabId);

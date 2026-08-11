@@ -5,9 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const componentsRoot = path.join(srcRoot, 'components');
+const stylesRoot = path.join(srcRoot, 'styles');
 
 function source(name) {
   return fs.readFileSync(path.join(componentsRoot, name), 'utf8');
+}
+
+function styles(name) {
+  return fs.readFileSync(path.join(stylesRoot, name), 'utf8');
 }
 
 function run(name, fn) {
@@ -33,6 +38,30 @@ run('Git and session details share one review-panel renderer', () => {
     assert.doesNotMatch(adapter, /className="ace-review-panel"/);
     assert.doesNotMatch(adapter, /className="ace-review-file-list"/);
   }
+});
+
+run('Shared review details default to single-column wrapped diffs with manual toolbar controls', () => {
+  const shared = source('ChangeReviewDetails.jsx');
+  const globals = styles('globals.css');
+
+  assert.match(shared, /const \[sideBySide, setSideBySide\] = useState\(false\);/);
+  assert.match(shared, /const \[wrapLines, setWrapLines\] = useState\(true\);/);
+  assert.match(shared, /const outputFormat = sideBySide \? 'side-by-side' : 'line-by-line';/);
+  assert.doesNotMatch(shared, /REVIEW_SIDE_BY_SIDE_MIN_WIDTH|ResizeObserver/);
+  assert.match(
+    shared,
+    /ace-change-del[\s\S]*?aria-label="双列"[\s\S]*?aria-pressed=\{sideBySide\}[\s\S]*?aria-label="自动换行"[\s\S]*?aria-pressed=\{wrapLines\}[\s\S]*?ace-review-collapse-all-btn/,
+  );
+  assert.match(shared, /wrapLines && 'is-wrapped'/);
+  assert.match(shared, /<PatchDiff[\s\S]*?outputFormat=\{outputFormat\}[\s\S]*?wrapLines=\{wrapLines\}/);
+
+  assert.match(globals, /\.ace-review-layout-btn\[aria-pressed="true"\][\s\S]*?var\(--ace-accent\)/);
+  assert.match(globals, /\.ace-review-diff \{\s*min-width: 720px;/);
+  assert.match(globals, /\.ace-review-diff\.is-wrapped \{\s*min-width: 0;/);
+  assert.match(
+    globals,
+    /\.ace-review-diff\.is-wrapped \.d2h-code-line-ctn[\s\S]*?white-space: pre-wrap;[\s\S]*?overflow-wrap: anywhere;/,
+  );
 });
 
 run('File tree and Git/non-Git review rows expose shared Explorer reveal metadata', () => {

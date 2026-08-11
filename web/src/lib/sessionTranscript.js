@@ -9,6 +9,10 @@ export function messageKey(role, content) {
   return `${role || ''}\u0000${content || ''}`;
 }
 
+function messageEventUsesOccurrenceIdentity(payload) {
+  return (payload?.role || 'system') === 'error';
+}
+
 function normalizeSessionRef(sessionRef) {
   if (!sessionRef) return null;
   if (typeof sessionRef === 'string') return { sessionId: sessionRef };
@@ -771,8 +775,9 @@ export function applyTranscriptReplayEvents(state, events = []) {
     }
     if (ev?.type === 'message') {
       const p = ev.payload || {};
+      const occurrenceIdentity = messageEventUsesOccurrenceIdentity(p);
       const incomingMessageId = p.id || '';
-      if (incomingMessageId && seenMessageIds.has(incomingMessageId)) {
+      if (!occurrenceIdentity && incomingMessageId && seenMessageIds.has(incomingMessageId)) {
         pendingStreamEvents = [];
         const reduced = reduceTranscriptEvent(next, ev);
         next = reduced.state;
@@ -780,13 +785,15 @@ export function applyTranscriptReplayEvents(state, events = []) {
         continue;
       }
       const key = messageKey(p.role || 'system', p.content || '');
-      if (seenMessages.has(key)) {
+      if (!occurrenceIdentity && seenMessages.has(key)) {
         pendingStreamEvents = [];
         markEventSeqApplied(next, ev);
         continue;
       }
-      if (incomingMessageId) seenMessageIds.add(incomingMessageId);
-      seenMessages.add(key);
+      if (!occurrenceIdentity) {
+        if (incomingMessageId) seenMessageIds.add(incomingMessageId);
+        seenMessages.add(key);
+      }
     }
     flushPendingStreamEvents();
     const reduced = reduceTranscriptEvent(next, ev);
@@ -978,7 +985,9 @@ export function reduceTranscriptEvent(state, msg) {
       // 原位更新(事件可能带更完整的 content_parts / metadata),不追加,
       // 否则用户气泡出现两次。不同 id 相同文本(用户故意连发)不受影响。
       const incomingMessageId = p.id || '';
-      const existingIndex = incomingMessageId
+      // provider/runtime error 不属于持久消息。不同回合可能得到完全相同的
+      // role/content/id,必须按事件 seq 分别展示;同一事件重放仍由上方水位拦截。
+      const existingIndex = incomingMessageId && !messageEventUsesOccurrenceIdentity(p)
         ? next.items.findIndex((item) => item.kind === 'msg' && item.messageId === incomingMessageId)
         : -1;
       if (existingIndex >= 0) {
@@ -1294,13 +1303,14 @@ export function loadTranscriptHistory(state, data = {}) {
     }
     if (ev?.type === 'message') {
       const p = ev.payload || {};
+      const occurrenceIdentity = messageEventUsesOccurrenceIdentity(p);
       const key = messageKey(p.role || 'system', p.content || '');
-      if (seenMessages.has(key)) {
+      if (!occurrenceIdentity && seenMessages.has(key)) {
         pendingStreamEvents = [];
         markEventSeqApplied(next, ev);
         continue;
       }
-      seenMessages.add(key);
+      if (!occurrenceIdentity) seenMessages.add(key);
     }
     flushPendingStreamEvents();
     const reduced = reduceTranscriptEvent(next, ev);

@@ -12,6 +12,10 @@ import {
   DROPDOWN_GAP_PX,
 } from '../lib/dropdownPlacement.js';
 import { clsx } from '../lib/format.js';
+import {
+  PATH_REFERENCE_KEY_ACTION,
+  pathReferenceKeyboardAction,
+} from '../lib/pathReference.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
 
 const VISIBLE_ROWS = 9;
@@ -73,20 +77,16 @@ export function PathReferenceDropdown({
     }
     const selection = selectableItems[selected];
     const item = selection?.item;
-    if (event.key === 'Enter') {
+    const action = pathReferenceKeyboardAction(event.key, selection);
+    if (action) {
       event.preventDefault();
       event.stopPropagation();
-      if (item) {
+      if (action === PATH_REFERENCE_KEY_ACTION.ENTER_DIRECTORY) {
+        onEnterDirectory?.(item);
+      } else if (action === PATH_REFERENCE_KEY_ACTION.REFERENCE && item) {
         if (selection.type === 'session') onReferenceSession?.(item);
         else onReference?.(item);
       }
-      return;
-    }
-    if (event.key === 'ArrowRight' || event.key === 'Tab') {
-      if (!item || selection?.type !== 'file' || item.kind !== 'dir') return;
-      event.preventDefault();
-      event.stopPropagation();
-      onEnterDirectory?.(item);
       return;
     }
     if (selectableItems.length === 0) return;

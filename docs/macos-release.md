@@ -11,31 +11,33 @@ credential is missing.
 Each DMG contains:
 
 - `ACECode.app`
-- `Applications`, a link to the Mac's `/Applications` directory
+- `Applications.app`, shown by Finder as `Applications`, a signed current-user
+  installation target
 
-Open the DMG and drag `ACECode.app` onto the `Applications` folder shown on the
-right. Finder copies it to `/Applications/ACECode.app`; the image contains no
-custom installer or visible instructions file.
+Open the DMG and drag `ACECode.app` onto `Applications` on the right. The target
+resolves the user who opened it and copies the bundled app to
+`~/Applications/ACECode.app`. Double-clicking `Applications` performs the same
+installation using the adjacent `ACECode.app`.
 
-The standard drag install has these boundaries:
+The current-user install has these boundaries:
 
-- The DMG itself never runs an installer or invokes `sudo`.
-- Finder may request administrator authorization when the current account
-  cannot write to `/Applications`.
-- The user controls replacement of an existing copy through Finder's normal
-  confirmation dialog.
+- It never writes to system `/Applications`, invokes `sudo`, uses Authorization
+  Services, or requests administrator access.
+- It resolves the home directory at runtime, creates a real `~/Applications`
+  when needed, and rejects symlinked or redirected destinations.
+- It accepts only the `ACECode.app` beside it in the signed DMG and asks the
+  user to quit a running ACECode before replacing an existing user copy.
 
 Users can remove ACECode by quitting it and deleting
-`/Applications/ACECode.app`. No separate uninstaller is required.
+`~/Applications/ACECode.app`. No privileged uninstaller is required.
 
 After the first DMG installation, the desktop's existing **Check for updates**
-flow can replace the app in place when its Applications directory is writable.
-Self-update accepts only the exact `/Applications/ACECode.app` installation and
-the legacy `~/Applications/ACECode.app` location used by earlier DMGs. An app
-launched from the DMG or another copied location asks the user to install with
-the signed DMG first. If `/Applications` is not writable by the running process,
-the update stops before changing the app and asks the user to install the signed
-DMG manually.
+flow replaces the current-user app in place. Self-update accepts only the exact
+`~/Applications/ACECode.app` installation and the supported existing
+`/Applications/ACECode.app` location. An app launched from the DMG or another
+copied location asks the user to install with the signed DMG first. Existing
+system installations still stop safely before update when `/Applications` is
+not writable.
 
 ## Self-Update Trust And Replacement
 
@@ -52,8 +54,8 @@ installed app is touched:
   manifest's exact version, and use the same non-empty Apple Developer Team ID
   as the installed app.
 - The containing Applications directory and `ACECode.app` must not be symlinks
-  or resolve outside the exact `/Applications/ACECode.app` or legacy
-  `~/Applications/ACECode.app` destinations.
+  or resolve outside the exact `~/Applications/ACECode.app` or supported
+  `/Applications/ACECode.app` destinations.
 
 The updater copies and validates the new app as a hidden sibling, moves the old
 app to `.ACECode.previous.app` beside the running installation, then switches
@@ -222,12 +224,13 @@ retain the existing manifest, size, and checksum trust contract.
 Given an already configured macOS build directory:
 
 ```bash
-cmake --build build --target acecode acecode-desktop
+cmake --build build --target acecode acecode-desktop acecode-user-applications
 
 codesign_identity="Developer ID Application: Name (TEAMID)"
 scripts/macos_codesign.sh \
   --identity "$codesign_identity" \
   --binary build/acecode \
+  --bundle build/Applications.app \
   --app build/ACECode.app
 
 scripts/macos_notarize_app.sh \
@@ -241,6 +244,7 @@ scripts/macos_create_update_zip.sh \
 
 scripts/macos_create_dmg.sh \
   --app build/ACECode.app \
+  --user-applications build/Applications.app \
   --output dist/ACECode-local.dmg
 
 codesign --force --timestamp --sign "$codesign_identity" \

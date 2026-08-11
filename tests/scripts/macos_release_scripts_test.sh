@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 sign_script="$repo_root/scripts/macos_codesign.sh"
 dmg_script="$repo_root/scripts/macos_create_dmg.sh"
+icon_script="$repo_root/scripts/macos_generate_icns.sh"
 notarize_script="$repo_root/scripts/macos_notarize.sh"
 notarize_app_script="$repo_root/scripts/macos_notarize_app.sh"
 update_zip_script="$repo_root/scripts/macos_create_update_zip.sh"
@@ -32,7 +33,7 @@ expect_status() {
     fi
 }
 
-for script in "$sign_script" "$dmg_script" "$notarize_script" \
+for script in "$sign_script" "$dmg_script" "$icon_script" "$notarize_script" \
               "$notarize_app_script" "$update_zip_script"; do
     bash -n "$script"
     expect_status 0 "help for $(basename "$script")" bash "$script" --help
@@ -45,7 +46,8 @@ grep -Fq -- '--keychain-profile <name>' "$notarize_script"
 grep -Fq -- '--keychain-profile <name>' "$notarize_app_script"
 grep -Fq -- '--require-trusted' "$update_zip_script"
 grep -Fq -- '/usr/bin/ditto -c -k --keepParent' "$update_zip_script"
-grep -Fq '/bin/ln -s /Applications "$staging_root/Applications"' "$dmg_script"
+grep -Fq -- '--user-applications <Applications.app>' "$dmg_script"
+grep -Fq '/usr/bin/ditto "$user_applications_path" "$staging_root/Applications.app"' "$dmg_script"
 grep -Fq 'detach_with_retry "$detach_target"' "$dmg_script"
 grep -Fq '/usr/bin/hdiutil detach "$target" -force' "$dmg_script"
 grep -Fq 'identity_fingerprint=' "$package_workflow"
@@ -54,6 +56,9 @@ grep -Fq 'security list-keychains -d user -s' "$package_workflow"
 grep -Fq 'scripts/macos_notarize_app.sh --app "build/ACECode.app"' "$package_workflow"
 grep -Fq 'scripts/macos_create_update_zip.sh' "$package_workflow"
 grep -Fq 'scripts/macos_create_dmg.sh' "$package_workflow"
+grep -Fq 'cmake --build build --config MinSizeRel --target acecode-user-applications' "$package_workflow"
+grep -Fq -- '--bundle "build/Applications.app"' "$package_workflow"
+grep -Fq -- '--user-applications "build/Applications.app"' "$package_workflow"
 grep -Fq 'acecode-${{ matrix.id }}-update' "$package_workflow"
 grep -Fq 'Tagged macOS releases require secrets:' "$package_workflow"
 grep -Fq 'trust_args+=(--require-trusted)' "$package_workflow"
@@ -63,13 +68,13 @@ if grep -Fq 'identity="$MACOS_CODESIGN_IDENTITY"' "$package_workflow"; then
     exit 1
 fi
 
-if grep -Eq 'acecode-user-installer|Install ACECode\.app|--installer' "$package_workflow"; then
-    echo "Release workflow must not build or package the obsolete installer" >&2
+if grep -Eq 'ln[[:space:]].*/Applications|ln[[:space:]]+-s[[:space:]]+/Applications' "$dmg_script"; then
+    echo "DMG helper must not create a system /Applications link" >&2
     exit 1
 fi
 
 if grep -Eq 'Install ACECode\.app|README 安装说明|--instructions' "$dmg_script"; then
-    echo "DMG helper must expose only the app and Applications destination" >&2
+    echo "DMG helper must expose only the app and current-user Applications target" >&2
     exit 1
 fi
 
