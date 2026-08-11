@@ -165,6 +165,8 @@ import './sessionListEvents.test.js';
 import './errors.test.js';
 import './modelPicker.test.js';
 import './modelManager.test.js';
+import './modelSettings.test.js';
+import './modelSettingsArchitecture.test.js';
 import './modelLoad.test.js';
 import './fileTreeRefresh.test.js';
 import './fileTreeChangeStatus.test.js';

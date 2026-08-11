@@ -382,6 +382,23 @@ export function createApi(base = null) {
     enableHook:       (id)           => request('POST',   `/api/hooks/${encodeURIComponent(id)}/enable`, undefined, base),
     listModels:       ()             => request('GET',    '/api/models', undefined, base),
     probeModels:      (draft)        => request('POST',   '/api/models/probe', draft, base),
+    getModelCatalog:  ()             => request('GET',    '/api/models/catalog', undefined, base),
+    queryModelCatalog: (providerId, query = '', limit = 50) => {
+      const normalizedLimit = Number.isFinite(Number(limit))
+        ? Math.max(1, Math.min(100, Math.trunc(Number(limit))))
+        : 50;
+      const params = new URLSearchParams();
+      const normalizedQuery = String(query || '').trim();
+      if (normalizedQuery) params.set('q', normalizedQuery);
+      params.set('limit', String(normalizedLimit));
+      return request(
+        'GET',
+        `/api/models/catalog/${encodeURIComponent(providerId)}?${params.toString()}`,
+        undefined,
+        base,
+      );
+    },
+    refreshModelCatalog: ()          => request('POST',   '/api/models/catalog/refresh', {}, base),
     getSessionModel:  (sid, workspaceHash = '') => {
       const qs = workspaceHash ? `?workspace=${encodeURIComponent(workspaceHash)}` : '';
       return request('GET', `/api/sessions/${encodeURIComponent(sid)}/model${qs}`, undefined, base);

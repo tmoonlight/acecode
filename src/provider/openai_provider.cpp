@@ -27,11 +27,13 @@ OpenAiCompatProvider::OpenAiCompatProvider(const std::string& base_url,
                                            const std::string& api_key,
                                            const std::string& model,
                                            int stream_timeout_ms,
-                                           std::map<std::string, std::string> request_headers)
-    : base_url_(normalize_base_url(base_url)),
+                                           std::map<std::string, std::string> request_headers,
+                                           ProviderRequestOptions request_options)
+    : base_url_(normalize_endpoint(base_url, request_options.endpoint_mode)),
       api_key_(api_key),
       model_(model),
       request_headers_(std::move(request_headers)),
+      request_options_(std::move(request_options)),
       stream_timeout_ms_(stream_timeout_ms > 0
           ? stream_timeout_ms
           : OpenAiConfig::kDefaultStreamTimeoutMs) {}
@@ -791,6 +793,34 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
         body["stream"] = true;
         body["stream_options"] = {{"include_usage", true}};
     }
+    if (request_options_.max_output_tokens.has_value()) {
+        body["max_tokens"] = *request_options_.max_output_tokens;
+    }
+    if (request_options_.reasoning_protocol == ReasoningWireProtocol::OpenRouter &&
+        request_options_.reasoning.has_value() &&
+        request_options_.reasoning->supported) {
+        const auto& reasoning = *request_options_.reasoning;
+        const bool enabled = reasoning.mandatory ||
+            reasoning.enabled.value_or(reasoning.default_enabled);
+        nlohmann::json wire_reasoning = nlohmann::json::object();
+        if (!enabled) {
+            wire_reasoning["effort"] = "none";
+        } else if (reasoning.max_tokens.has_value()) {
+            // OpenRouter documents effort and max_tokens as alternative controls.
+            // An explicit token budget is more precise and therefore wins.
+            wire_reasoning["max_tokens"] = *reasoning.max_tokens;
+        } else {
+            const auto effort = reasoning.effort.has_value()
+                ? reasoning.effort
+                : reasoning.default_effort;
+            if (effort.has_value()) {
+                wire_reasoning["effort"] = *effort;
+            } else {
+                wire_reasoning["enabled"] = true;
+            }
+        }
+        body["reasoning"] = std::move(wire_reasoning);
+    }
 
     // Build messages array.
     // 最后一道防御:OpenAI/Ark 严格要求 role ∈ {system,user,assistant,tool}。
@@ -980,7 +1010,7 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
     body["messages"] = patched;
 
     // Build tools array
-    if (!tools.empty()) {
+    if (!tools.empty() && request_options_.tools_enabled.value_or(true)) {
         nlohmann::json tools_json = nlohmann::json::array();
         for (const auto& tool : tools) {
             nlohmann::json t;
@@ -1050,7 +1080,7 @@ ChatResponse OpenAiCompatProvider::chat(
 ) {
     nlohmann::json body = build_request_body(messages, tools, false);
 
-    std::string url = base_url_ + "/chat/completions";
+    std::string url = request_url();
 
     cpr::Header headers = {
         {"Content-Type", "application/json"}
@@ -1652,7 +1682,7 @@ void OpenAiCompatProvider::chat_stream(
     std::atomic<bool>* abort_flag
 ) {
     nlohmann::json body = build_request_body(messages, tools, true);
-    std::string url = base_url_ + "/chat/completions";
+    std::string url = request_url();
 
     std::map<std::string, std::string> extra_headers;
     if (!api_key_.empty()) {

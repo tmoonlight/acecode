@@ -95,7 +95,7 @@ nlohmann::json entry_to_json(const ModelProfile& entry) {
     o["provider"]  = entry.provider;
     o["model"]     = entry.model;
     if (!entry.base_url.empty()) o["base_url"] = entry.base_url;
-    if (!entry.api_key.empty()) o["api_key"] = entry.api_key;
+    o["has_api_key"] = !entry.api_key.empty();
     if (entry.models_dev_provider_id.has_value()) {
         o["models_dev_provider_id"] = *entry.models_dev_provider_id;
     }
@@ -107,6 +107,18 @@ nlohmann::json entry_to_json(const ModelProfile& entry) {
     }
     if (!entry.capabilities.empty()) {
         o["capabilities"] = entry.capabilities;
+    }
+    if (entry.endpoint_mode.has_value()) {
+        o["endpoint_mode"] = *entry.endpoint_mode;
+    }
+    if (entry.max_output_tokens.has_value()) {
+        o["max_output_tokens"] = *entry.max_output_tokens;
+    }
+    if (entry.capabilities_source.has_value()) {
+        o["capabilities_source"] = *entry.capabilities_source;
+    }
+    if (entry.reasoning.has_value()) {
+        o["reasoning"] = model_reasoning_options_to_json(*entry.reasoning);
     }
     if (!entry.request_headers.empty()) {
         o["request_headers"] = entry.request_headers;
@@ -160,37 +172,13 @@ int http_status_for_edit_error(SavedModelEditError e) {
 }
 
 nlohmann::json profile_to_safe_json(const ModelProfile& entry) {
-    nlohmann::json o;
-    o["name"]      = entry.name;
-    o["provider"]  = entry.provider;
-    o["model"]     = entry.model;
-    if (!entry.base_url.empty()) o["base_url"] = entry.base_url;
-    if (!entry.api_key.empty()) o["api_key"] = entry.api_key;
-    if (entry.models_dev_provider_id.has_value()) {
-        o["models_dev_provider_id"] = *entry.models_dev_provider_id;
-    }
-    if (entry.context_window.has_value() && *entry.context_window > 0) {
-        o["context_window"] = *entry.context_window;
-    }
-    if (entry.stream_timeout_ms.has_value() && *entry.stream_timeout_ms > 0) {
-        o["stream_timeout_ms"] = *entry.stream_timeout_ms;
-    }
-    if (!entry.capabilities.empty()) {
-        o["capabilities"] = entry.capabilities;
-    }
-    if (!entry.request_headers.empty()) {
-        o["request_headers"] = entry.request_headers;
-    }
-    return o;
+    return entry_to_json(entry);
 }
 
 std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
                                                   std::string& err) {
     if (!body.is_object()) { err = "body must be a JSON object"; return std::nullopt; }
     SavedModelDraft d;
-    // 注意:可选字段碰到 null / 非 string 静默跳过(out 保持默认空串),
-    // 与下方 models_dev_provider_id 的处理保持一致;只有必填字段才会硬性
-    // 报错。前端 form 经常把空 input 序列化成 null,这里宽容处理避免误拒。
     auto get_str = [&](const char* key, std::string& out, bool required) {
         if (!body.contains(key)) {
             if (required && err.empty()) {
@@ -199,9 +187,7 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
             return;
         }
         if (!body[key].is_string()) {
-            if (required && err.empty()) {
-                err = std::string("field '") + key + "' must be string";
-            }
+            if (err.empty()) err = std::string("field '") + key + "' must be string";
             return;
         }
         out = body[key].get<std::string>();
@@ -210,27 +196,117 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
     get_str("provider", d.provider, true);
     get_str("model", d.model, true);
     get_str("base_url", d.base_url, false);
+    d.base_url_supplied = body.contains("base_url");
     get_str("api_key", d.api_key, false);
-    if (body.contains("context_window") && body["context_window"].is_number_integer()) {
-        d.context_window = body["context_window"].get<int>();
+    d.api_key_supplied = body.contains("api_key");
+    if (body.contains("clear_api_key")) {
+        if (!body["clear_api_key"].is_boolean()) {
+            err = "field 'clear_api_key' must be boolean";
+        } else {
+            d.clear_api_key = body["clear_api_key"].get<bool>();
+        }
     }
-    if (body.contains("stream_timeout_ms") && body["stream_timeout_ms"].is_number_integer()) {
-        d.stream_timeout_ms = body["stream_timeout_ms"].get<int>();
+    if (body.contains("credential_source_name")) {
+        if (!body["credential_source_name"].is_string()) {
+            err = "field 'credential_source_name' must be string";
+        } else {
+            d.credential_source_name =
+                body["credential_source_name"].get<std::string>();
+        }
     }
-    if (body.contains("models_dev_provider_id") &&
-        body["models_dev_provider_id"].is_string()) {
-        std::string s = body["models_dev_provider_id"].get<std::string>();
-        if (!s.empty()) d.models_dev_provider_id = std::move(s);
+    if (body.contains("context_window")) {
+        d.context_window_supplied = true;
+        if (body["context_window"].is_null()) {
+            d.context_window = 0;
+        } else if (body["context_window"].is_number_integer()) {
+            d.context_window = body["context_window"].get<int>();
+        } else {
+            err = "field 'context_window' must be integer or null";
+        }
     }
-    if (body.contains("capabilities") && body["capabilities"].is_array()) {
-        for (const auto& item : body["capabilities"]) {
-            if (!item.is_string()) continue;
-            std::string tag = item.get<std::string>();
-            if (tag.empty()) continue;
-            d.capabilities.push_back(std::move(tag));
+    if (body.contains("stream_timeout_ms")) {
+        d.stream_timeout_ms_supplied = true;
+        if (body["stream_timeout_ms"].is_null()) {
+            d.stream_timeout_ms = 0;
+        } else if (body["stream_timeout_ms"].is_number_integer()) {
+            d.stream_timeout_ms = body["stream_timeout_ms"].get<int>();
+        } else {
+            err = "field 'stream_timeout_ms' must be integer or null";
+        }
+    }
+    if (body.contains("models_dev_provider_id")) {
+        d.models_dev_provider_id_supplied = true;
+        if (body["models_dev_provider_id"].is_null()) {
+            d.models_dev_provider_id.reset();
+        } else if (body["models_dev_provider_id"].is_string()) {
+            std::string value = body["models_dev_provider_id"].get<std::string>();
+            if (!value.empty()) d.models_dev_provider_id = std::move(value);
+        } else {
+            err = "field 'models_dev_provider_id' must be string or null";
+        }
+    }
+    if (body.contains("capabilities")) {
+        d.capabilities_supplied = true;
+        if (!body["capabilities"].is_array()) {
+            err = "field 'capabilities' must be an array";
+        } else {
+            for (const auto& item : body["capabilities"]) {
+                if (!item.is_string()) {
+                    err = "field 'capabilities' must contain strings";
+                    break;
+                }
+                d.capabilities.push_back(item.get<std::string>());
+            }
+        }
+    }
+    if (body.contains("endpoint_mode")) {
+        d.endpoint_mode_supplied = true;
+        if (body["endpoint_mode"].is_null()) {
+            d.endpoint_mode.reset();
+        } else if (body["endpoint_mode"].is_string()) {
+            d.endpoint_mode = body["endpoint_mode"].get<std::string>();
+        } else {
+            err = "field 'endpoint_mode' must be string or null";
+        }
+    }
+    if (body.contains("max_output_tokens")) {
+        d.max_output_tokens_supplied = true;
+        if (body["max_output_tokens"].is_null()) {
+            d.max_output_tokens = 0;
+        } else if (body["max_output_tokens"].is_number_integer()) {
+            d.max_output_tokens = body["max_output_tokens"].get<int>();
+        } else {
+            err = "field 'max_output_tokens' must be integer or null";
+        }
+    }
+    if (body.contains("capabilities_source")) {
+        d.capabilities_source_supplied = true;
+        if (body["capabilities_source"].is_null()) {
+            d.capabilities_source.reset();
+        } else if (body["capabilities_source"].is_string()) {
+            d.capabilities_source =
+                body["capabilities_source"].get<std::string>();
+        } else {
+            err = "field 'capabilities_source' must be string or null";
+        }
+    }
+    if (body.contains("reasoning")) {
+        d.reasoning_supplied = true;
+        if (body["reasoning"].is_null()) {
+            d.reasoning.reset();
+        } else {
+            std::string reasoning_error;
+            auto reasoning = parse_model_reasoning_options(body["reasoning"],
+                                                            reasoning_error);
+            if (!reasoning.has_value()) {
+                err = "field 'reasoning' is invalid: " + reasoning_error;
+            } else {
+                d.reasoning = std::move(*reasoning);
+            }
         }
     }
     if (body.contains("request_headers")) {
+        d.request_headers_supplied = true;
         auto parsed = parse_request_headers_json(body["request_headers"],
                                                  "model draft",
                                                  err);

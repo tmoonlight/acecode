@@ -21,6 +21,7 @@
 using acecode::AppConfig;
 using acecode::add_saved_model;
 using acecode::ModelProfile;
+using acecode::normalize_model_endpoint_identity;
 using acecode::remove_saved_model;
 using acecode::SavedModelDraft;
 using acecode::SavedModelEditError;
@@ -115,6 +116,7 @@ TEST(SavedModelsEditor, AddRejectsEmptyApiKey) {
     auto cfg = make_cfg_with_one_default();
     auto d = good_openai_draft();
     d.api_key = "";
+    d.base_url = "https://remote.example/v1";
     EXPECT_EQ(add_saved_model(cfg, d), SavedModelEditError::INVALID_API_KEY);
 }
 
@@ -297,6 +299,7 @@ TEST(SavedModelsEditor, UpdateCanClearCapabilities) {
     add_saved_model(cfg, d);
 
     SavedModelDraft updated = good_openai_draft("vision-lm");
+    updated.capabilities_supplied = true;
     updated.capabilities = {};
     EXPECT_EQ(update_saved_model(cfg, "vision-lm", updated), SavedModelEditError::OK);
     EXPECT_TRUE(cfg.saved_models[1].capabilities.empty());
@@ -310,6 +313,7 @@ TEST(SavedModelsEditor, UpdateCanClearRequestHeaders) {
     add_saved_model(cfg, d);
 
     SavedModelDraft updated = good_openai_draft("gateway-lm");
+    updated.request_headers_supplied = true;
     updated.request_headers = {};
     EXPECT_EQ(update_saved_model(cfg, "gateway-lm", updated), SavedModelEditError::OK);
     EXPECT_TRUE(cfg.saved_models[1].request_headers.empty());
@@ -425,6 +429,7 @@ TEST(SavedModelsEditor, AddLeavesCfgUnchangedOnAllRejections) {
 
     auto no_key = good_openai_draft();
     no_key.api_key = "";
+    no_key.base_url = "https://remote.example/v1";
     try_reject(no_key, SavedModelEditError::INVALID_API_KEY);
 
     auto bad_context = good_openai_draft();
@@ -474,4 +479,239 @@ TEST(SavedModelsEditor, RemoveAllowsReadonlyModel) {
 
     EXPECT_EQ(remove_saved_model(cfg, "locked"), SavedModelEditError::OK);
     EXPECT_TRUE(cfg.saved_models.empty());
+}
+
+// 新合同:更新省略 api_key 时保留旧值；提供非空值才替换。
+TEST(SavedModelsEditor, UpdatePreservesOrReplacesCredentialExplicitly) {
+    AppConfig cfg;
+    ModelProfile existing;
+    existing.name = "remote";
+    existing.provider = "openai";
+    existing.model = "old-model";
+    existing.base_url = "https://models.example/v1";
+    existing.api_key = "old-secret";
+    cfg.saved_models.push_back(existing);
+
+    SavedModelDraft preserve;
+    preserve.name = "remote";
+    preserve.provider = "openai";
+    preserve.model = "new-model";
+    EXPECT_EQ(update_saved_model(cfg, "remote", preserve),
+              SavedModelEditError::OK);
+    EXPECT_EQ(cfg.saved_models[0].api_key, "old-secret");
+    EXPECT_EQ(cfg.saved_models[0].base_url, "https://models.example/v1");
+
+    preserve.api_key = "replacement-secret";
+    preserve.api_key_supplied = true;
+    EXPECT_EQ(update_saved_model(cfg, "remote", preserve),
+              SavedModelEditError::OK);
+    EXPECT_EQ(cfg.saved_models[0].api_key, "replacement-secret");
+}
+
+// 新合同:本地无认证端点可明确清除；远端必需认证且失败不改配置。
+TEST(SavedModelsEditor, ClearCredentialHonorsAuthenticationPolicyAtomically) {
+    AppConfig local_cfg;
+    ModelProfile local;
+    local.name = "local";
+    local.provider = "openai";
+    local.model = "local-model";
+    local.base_url = "http://LOCALHOST:1234/v1/";
+    local.api_key = "optional-secret";
+    local_cfg.saved_models.push_back(local);
+
+    SavedModelDraft clear_local;
+    clear_local.name = "local";
+    clear_local.provider = "openai";
+    clear_local.model = "local-model";
+    clear_local.clear_api_key = true;
+    EXPECT_EQ(update_saved_model(local_cfg, "local", clear_local),
+              SavedModelEditError::OK);
+    EXPECT_TRUE(local_cfg.saved_models[0].api_key.empty());
+
+    AppConfig remote_cfg;
+    ModelProfile remote = local;
+    remote.name = "remote";
+    remote.base_url = "https://models.example/v1";
+    remote.api_key = "must-stay";
+    remote_cfg.saved_models.push_back(remote);
+    SavedModelDraft clear_remote;
+    clear_remote.name = "remote";
+    clear_remote.provider = "openai";
+    clear_remote.model = "local-model";
+    clear_remote.clear_api_key = true;
+    EXPECT_EQ(update_saved_model(remote_cfg, "remote", clear_remote),
+              SavedModelEditError::INVALID_API_KEY);
+    EXPECT_EQ(remote_cfg.saved_models[0].api_key, "must-stay");
+}
+
+// 凭据复用只在 Provider、规范化端点和 models.dev Provider ID 全相同时发生。
+TEST(SavedModelsEditor, CredentialReuseRequiresExactCompatibleIdentity) {
+    AppConfig cfg;
+    ModelProfile source;
+    source.name = "openrouter-source";
+    source.provider = "openai";
+    source.model = "source-model";
+    source.base_url = "HTTPS://OPENROUTER.AI/api/v1/";
+    source.api_key = "daemon-only-secret";
+    source.models_dev_provider_id = "openrouter";
+    cfg.saved_models.push_back(source);
+
+    SavedModelDraft compatible;
+    compatible.name = "openrouter-new";
+    compatible.provider = "openai";
+    compatible.model = "new-model";
+    compatible.base_url = "https://openrouter.ai/api/v1";
+    compatible.models_dev_provider_id = "openrouter";
+    compatible.credential_source_name = "openrouter-source";
+    EXPECT_EQ(add_saved_model(cfg, compatible), SavedModelEditError::OK);
+    ASSERT_EQ(cfg.saved_models.size(), 2u);
+    EXPECT_EQ(cfg.saved_models[1].api_key, "daemon-only-secret");
+
+    SavedModelDraft mismatch = compatible;
+    mismatch.name = "other-provider";
+    mismatch.models_dev_provider_id = "other";
+    EXPECT_EQ(add_saved_model(cfg, mismatch),
+              SavedModelEditError::INVALID_CREDENTIAL_SOURCE);
+    EXPECT_EQ(cfg.saved_models.size(), 2u);
+    EXPECT_EQ(std::string(to_string(SavedModelEditError::INVALID_CREDENTIAL_SOURCE))
+                  .find("daemon-only-secret"),
+              std::string::npos);
+}
+
+TEST(SavedModelsEditor, CredentialIdentityNormalizesDefaultPortsButNotPathCase) {
+    AppConfig cfg;
+    ModelProfile source;
+    source.name = "source";
+    source.provider = "openai";
+    source.model = "one";
+    source.base_url = "HTTPS://EXAMPLE.TEST:443/Api/v1/";
+    source.api_key = "secret";
+    cfg.saved_models.push_back(source);
+
+    SavedModelDraft same;
+    same.name = "same";
+    same.provider = "openai";
+    same.model = "two";
+    same.base_url = "https://example.test/Api/v1";
+    same.credential_source_name = "source";
+    EXPECT_EQ(add_saved_model(cfg, same), SavedModelEditError::OK);
+
+    SavedModelDraft different = same;
+    different.name = "different";
+    different.base_url = "https://example.test/api/v1";
+    EXPECT_EQ(add_saved_model(cfg, different),
+              SavedModelEditError::INVALID_CREDENTIAL_SOURCE);
+    EXPECT_EQ(cfg.saved_models.size(), 2u);
+}
+
+TEST(SavedModelsEditor, CredentialIdentityPreservesQueryAndFragmentCase) {
+    EXPECT_EQ(normalize_model_endpoint_identity(
+                  " HTTPS://HOST.EXAMPLE:443?Tenant=AbC#Region=UsEast "),
+              "https://host.example?Tenant=AbC#Region=UsEast");
+    EXPECT_NE(normalize_model_endpoint_identity(
+                  "https://host.example?Tenant=AbC#Region=UsEast"),
+              normalize_model_endpoint_identity(
+                  "https://host.example?Tenant=abc#Region=UsEast"));
+    EXPECT_EQ(normalize_model_endpoint_identity(
+                  "https://HOST.EXAMPLE:443/Api/?Redirect=/#Region=UsEast/"),
+              "https://host.example/Api?Redirect=/#Region=UsEast/");
+
+    AppConfig cfg;
+    ModelProfile source;
+    source.name = "query-source";
+    source.provider = "openai";
+    source.model = "one";
+    source.base_url = "HTTPS://HOST.EXAMPLE:443?Tenant=AbC#Region=UsEast";
+    source.api_key = "secret";
+    cfg.saved_models.push_back(source);
+
+    SavedModelDraft same;
+    same.name = "same-query";
+    same.provider = "openai";
+    same.model = "two";
+    same.base_url = "https://host.example?Tenant=AbC#Region=UsEast";
+    same.credential_source_name = "query-source";
+    EXPECT_EQ(add_saved_model(cfg, same), SavedModelEditError::OK);
+
+    SavedModelDraft different = same;
+    different.name = "different-query";
+    different.base_url = "https://host.example?Tenant=abc#Region=UsEast";
+    EXPECT_EQ(add_saved_model(cfg, different),
+              SavedModelEditError::INVALID_CREDENTIAL_SOURCE);
+    EXPECT_EQ(cfg.saved_models.size(), 2u);
+}
+
+// Copilot saved profile 只保存模型身份，继续走受管登录和固定端点。
+TEST(SavedModelsEditor, CopilotProfileRejectsCustomConnectionAndReasoning) {
+    AppConfig cfg;
+    SavedModelDraft copilot;
+    copilot.name = "copilot-fast";
+    copilot.provider = "copilot";
+    copilot.model = "gpt-5";
+    EXPECT_EQ(add_saved_model(cfg, copilot), SavedModelEditError::OK);
+    ASSERT_EQ(cfg.saved_models.size(), 1u);
+    EXPECT_TRUE(cfg.saved_models[0].base_url.empty());
+    EXPECT_TRUE(cfg.saved_models[0].api_key.empty());
+
+    auto custom_key = copilot;
+    custom_key.name = "copilot-key";
+    custom_key.api_key = "forbidden";
+    custom_key.api_key_supplied = true;
+    EXPECT_EQ(add_saved_model(cfg, custom_key),
+              SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+
+    auto custom_url = copilot;
+    custom_url.name = "copilot-url";
+    custom_url.base_url = "https://example.test/v1";
+    custom_url.base_url_supplied = true;
+    EXPECT_EQ(add_saved_model(cfg, custom_url),
+              SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+
+    auto custom_reasoning = copilot;
+    custom_reasoning.name = "copilot-reasoning";
+    custom_reasoning.reasoning_supplied = true;
+    custom_reasoning.reasoning = acecode::ModelReasoningOptions{};
+    EXPECT_EQ(add_saved_model(cfg, custom_reasoning),
+              SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+    EXPECT_EQ(cfg.saved_models.size(), 1u);
+}
+
+// 高级字段更新可以完整保存；无效推理预算不得部分覆盖旧 profile。
+TEST(SavedModelsEditor, AdvancedFieldsPersistAndInvalidReasoningIsAtomic) {
+    AppConfig cfg;
+    SavedModelDraft draft = good_openai_draft("advanced");
+    draft.base_url = "https://openrouter.ai/api/v1/";
+    draft.models_dev_provider_id = "openrouter";
+    draft.endpoint_mode = "base_url";
+    draft.max_output_tokens = 65536;
+    draft.capabilities = {"tool_use", "reasoning"};
+    draft.capabilities_source = "catalog";
+    acecode::ModelReasoningOptions reasoning;
+    reasoning.supported = true;
+    reasoning.default_enabled = true;
+    reasoning.enabled = true;
+    reasoning.supported_efforts = {"low", "high"};
+    reasoning.default_effort = "low";
+    reasoning.effort = "high";
+    reasoning.supports_max_tokens = true;
+    reasoning.max_tokens = 8192;
+    draft.reasoning = reasoning;
+    EXPECT_EQ(add_saved_model(cfg, draft), SavedModelEditError::OK);
+    ASSERT_EQ(cfg.saved_models.size(), 1u);
+    EXPECT_EQ(cfg.saved_models[0].base_url,
+              "https://openrouter.ai/api/v1");
+    EXPECT_EQ(cfg.saved_models[0].max_output_tokens, 65536);
+    ASSERT_TRUE(cfg.saved_models[0].reasoning.has_value());
+    EXPECT_EQ(cfg.saved_models[0].reasoning->effort, "high");
+
+    SavedModelDraft invalid;
+    invalid.name = "advanced";
+    invalid.provider = "openai";
+    invalid.model = "llama-3";
+    invalid.reasoning_supplied = true;
+    reasoning.max_tokens = 65536;
+    invalid.reasoning = reasoning;
+    EXPECT_EQ(update_saved_model(cfg, "advanced", invalid),
+              SavedModelEditError::INVALID_REASONING);
+    EXPECT_EQ(cfg.saved_models[0].reasoning->max_tokens, 8192);
 }

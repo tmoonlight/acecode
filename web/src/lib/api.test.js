@@ -524,6 +524,48 @@ await run('probeModels posts draft to model probe endpoint', async () => {
   }
 });
 
+await run('model catalog API keeps summary, limited provider query, and refresh separate', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ ok: true }),
+    };
+  };
+  try {
+    const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
+    await client.getModelCatalog();
+    await client.queryModelCatalog('open/router', ' luna  ', 500);
+    await client.queryModelCatalog('openrouter', '', 25);
+    await client.refreshModelCatalog();
+
+    assert.equal(calls.length, 4);
+    assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/models/catalog');
+    assert.equal(calls[0].opts.method, 'GET');
+    assert.equal(
+      calls[1].url,
+      'http://127.0.0.1:4567/api/models/catalog/open%2Frouter?q=luna&limit=100',
+    );
+    assert.equal(calls[1].opts.method, 'GET');
+    assert.equal(
+      calls[2].url,
+      'http://127.0.0.1:4567/api/models/catalog/openrouter?limit=25',
+    );
+    assert.equal(calls[3].url, 'http://127.0.0.1:4567/api/models/catalog/refresh');
+    assert.equal(calls[3].opts.method, 'POST');
+    assert.deepEqual(JSON.parse(calls[3].opts.body), {});
+    for (const call of calls) {
+      assert.equal(call.opts.headers['X-ACECode-Token'], 'tok');
+    }
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 await run('Copilot auth API methods use expected endpoints', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];

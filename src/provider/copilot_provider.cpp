@@ -7,6 +7,7 @@
 #include <cctype>
 #include <ctime>
 #include <map>
+#include <utility>
 
 namespace acecode {
 namespace {
@@ -75,8 +76,11 @@ ChatResponse make_copilot_error(
 
 static const std::string COPILOT_CHAT_URL = "https://api.githubcopilot.com/chat/completions";
 
-CopilotProvider::CopilotProvider(const std::string& model)
-    : OpenAiCompatProvider(COPILOT_CHAT_URL, "", model) {}
+CopilotProvider::CopilotProvider(const std::string& model,
+                                 ProviderRequestOptions request_options)
+    : OpenAiCompatProvider(COPILOT_CHAT_URL, "", model,
+                           OpenAiConfig::kDefaultStreamTimeoutMs, {},
+                           std::move(request_options)) {}
 
 bool CopilotProvider::is_authenticated() {
     return !github_token_.empty() && ensure_copilot_token();

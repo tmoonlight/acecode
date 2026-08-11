@@ -2097,14 +2097,18 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
                 result.accumulated.tool_calls.push_back(std::move(native_call));
             }
             break;
-        case StreamEventType::Done:
+        case StreamEventType::Done: {
             // 透传服务端上报的 finish_reason(可能为空 — 部分兼容网关不发)。
             // 非空才覆盖,保持 "stop" 兜底默认值。
+            std::lock_guard<std::mutex> lk(resp_mu);
             if (!evt.finish_reason.empty()) {
-                std::lock_guard<std::mutex> lk(resp_mu);
                 result.accumulated.finish_reason = evt.finish_reason;
             }
+            if (evt.content_parts.is_array() && !evt.content_parts.empty()) {
+                result.accumulated.content_parts = evt.content_parts;
+            }
             break;
+        }
         case StreamEventType::Usage: {
             TokenUsage usage = evt.usage;
             usage.context_breakdown = reconcile_context_usage_breakdown(

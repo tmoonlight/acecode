@@ -1,6 +1,11 @@
 // routes_models.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
+#include "../handlers/model_catalog_handler.hpp"
 #include "../../config/settings_mutations.hpp"
+#include "../../provider/models_dev_registry.hpp"
+#include "../../utils/models_dev_catalog.hpp"
+
+#include <cstdlib>
 
 namespace acecode::web {
 
@@ -17,6 +22,18 @@ void WebServer::Impl::register_models() {
         });
         CROW_ROUTE(app, "/api/models/probe").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/models/catalog").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/models/catalog/refresh").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/models/catalog/<string>").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
         CROW_ROUTE(app, "/api/config/default-model").methods(crow::HTTPMethod::Options)
@@ -49,6 +66,110 @@ void WebServer::Impl::register_models() {
             auto arr = list_models(*deps.app_config);
             crow::response r(arr.dump());
             r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
+        // Catalog reads are local-only. They never trigger models.dev network
+        // access; refresh is a separate authenticated POST below.
+        CROW_ROUTE(app, "/api/models/catalog").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const auto& providers = all_providers();
+            const RegistrySource source = current_registry_source();
+            std::string error;
+            auto recommendations = load_active_recommendations(
+                source, providers, error);
+            if (!recommendations.has_value()) {
+                crow::response r(503);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "CATALOG_RECOMMENDATIONS_UNAVAILABLE"},
+                              {"message", error}}.dump();
+                return with_cors(req, std::move(r));
+            }
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = model_catalog_summary_to_json(
+                providers, source, *recommendations, catalog_version()).dump();
+            return with_cors(req, std::move(r));
+        });
+
+        CROW_ROUTE(app, "/api/models/catalog/<string>").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req, const std::string& provider_id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const std::string query = req.url_params.get("q")
+                ? req.url_params.get("q")
+                : "";
+            int limit = kDefaultModelCatalogQueryLimit;
+            if (const char* raw_limit = req.url_params.get("limit")) {
+                char* end = nullptr;
+                const long parsed = std::strtol(raw_limit, &end, 10);
+                if (end == raw_limit || *end != '\0' || parsed <= 0) {
+                    crow::response r(400);
+                    r.add_header("Content-Type", "application/json");
+                    r.body = json{{"error", "INVALID_LIMIT"},
+                                  {"message", "limit must be a positive integer"}}.dump();
+                    return with_cors(req, std::move(r));
+                }
+                limit = parsed > kMaxModelCatalogQueryLimit
+                    ? kMaxModelCatalogQueryLimit
+                    : static_cast<int>(parsed);
+            }
+            auto result = query_model_catalog_to_json(
+                all_providers(), provider_id, query, limit);
+            if (!result.has_value()) {
+                crow::response r(404);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "CATALOG_PROVIDER_NOT_FOUND"},
+                              {"message", "catalog provider was not found"}}.dump();
+                return with_cors(req, std::move(r));
+            }
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = result->dump();
+            return with_cors(req, std::move(r));
+        });
+
+        CROW_ROUTE(app, "/api/models/catalog/refresh").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.app_config) return crow::response(503);
+            {
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
+                if (!deps.app_config->models_dev.allow_network) {
+                    crow::response r(403);
+                    r.add_header("Content-Type", "application/json");
+                    r.body = json{{"error", "CATALOG_NETWORK_DISABLED"},
+                                  {"message", "models.dev network refresh is disabled"}}.dump();
+                    return with_cors(req, std::move(r));
+                }
+            }
+            if (!refresh_registry_from_network()) {
+                crow::response r(502);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{
+                    {"error", "CATALOG_REFRESH_FAILED"},
+                    {"message", "models.dev refresh failed; the previous catalog remains active"},
+                    {"catalog", catalog_metadata_to_json(
+                        current_registry_source(), catalog_version())},
+                }.dump();
+                return with_cors(req, std::move(r));
+            }
+            const auto& providers = all_providers();
+            const RegistrySource source = current_registry_source();
+            std::string error;
+            auto recommendations = load_active_recommendations(
+                source, providers, error);
+            if (!recommendations.has_value()) {
+                crow::response r(503);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "CATALOG_RECOMMENDATIONS_UNAVAILABLE"},
+                              {"message", error}}.dump();
+                return with_cors(req, std::move(r));
+            }
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = model_catalog_summary_to_json(
+                providers, source, *recommendations, catalog_version()).dump();
             return with_cors(req, std::move(r));
         });
 
@@ -348,33 +469,6 @@ void WebServer::Impl::register_models() {
             if (!draft) return json_err(400, "BAD_REQUEST", err);
 
             std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
-            // patch 语义:body 没显式带 api_key / base_url 时,从 existing 条目
-            // 注入旧值再走校验。这样旧客户端编辑表单不必每次让用户重输
-            // api_key。也覆盖 base_url 以防偶发未提交;model/provider/name 显式必填,
-            // 不参与 patch。
-            if (body.is_object()) {
-                const ModelProfile* existing = nullptr;
-                for (const auto& e : deps.app_config->saved_models) {
-                    if (e.name == url_name) { existing = &e; break; }
-                }
-                if (existing) {
-                    if (!body.contains("api_key")) draft->api_key = existing->api_key;
-                    if (!body.contains("base_url")) draft->base_url = existing->base_url;
-                    if (!body.contains("context_window")) {
-                        draft->context_window = existing->context_window;
-                    }
-                    if (!body.contains("stream_timeout_ms")) {
-                        draft->stream_timeout_ms = existing->stream_timeout_ms;
-                    }
-                    if (!body.contains("capabilities")) {
-                        draft->capabilities = existing->capabilities;
-                    }
-                    if (!body.contains("request_headers")) {
-                        draft->request_headers = existing->request_headers;
-                    }
-                }
-            }
-
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;

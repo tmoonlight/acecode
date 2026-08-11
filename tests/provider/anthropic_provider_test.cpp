@@ -10,6 +10,7 @@
 
 #include "provider/anthropic_provider.hpp"
 #include "provider/llm_provider.hpp"
+#include "tool/tool_executor.hpp"
 
 #include <httplib.h>
 
@@ -169,7 +170,11 @@ TEST(AnthropicProviderTest, ParseResponseMapsContentUsageAndToolUse) {
             {"cache_creation_input_tokens", 2}
         }},
         {"content", nlohmann::json::array({
-            {{"type", "thinking"}, {"thinking", "plan"}},
+            {
+                {"type", "thinking"},
+                {"thinking", "plan"},
+                {"signature", "sig-nonstream"}
+            },
             {{"type", "text"}, {"text", "Need a file."}},
             {
                 {"type", "tool_use"},
@@ -185,6 +190,7 @@ TEST(AnthropicProviderTest, ParseResponseMapsContentUsageAndToolUse) {
     EXPECT_EQ(parsed.finish_reason, "tool_use");
     EXPECT_EQ(parsed.reasoning_content, "plan");
     EXPECT_EQ(parsed.content, "Need a file.");
+    EXPECT_EQ(parsed.content_parts, response["content"]);
     ASSERT_EQ(parsed.tool_calls.size(), 1u);
     EXPECT_EQ(parsed.tool_calls[0].id, "toolu_1");
     EXPECT_EQ(parsed.tool_calls[0].function_name, "file_read");
@@ -199,6 +205,22 @@ TEST(AnthropicProviderTest, ParseResponseMapsContentUsageAndToolUse) {
     EXPECT_EQ(parsed.usage.total_tokens, 16 + 7);
     EXPECT_EQ(parsed.usage.cache_read_tokens, 3);
     EXPECT_EQ(parsed.usage.cache_write_tokens, 2);
+
+    // A tool turn must persist and replay Anthropic's signed thinking block
+    // exactly; converting it to ordinary text makes the next request invalid.
+    const ChatMessage assistant =
+        acecode::ToolExecutor::format_assistant_tool_calls(parsed);
+    EXPECT_EQ(assistant.content_parts, response["content"]);
+    ChatMessage tool;
+    tool.role = "tool";
+    tool.tool_call_id = "toolu_1";
+    tool.content = "file contents";
+    AnthropicProvider provider(
+        AnthropicProvider::kDefaultBaseUrl, "sk-ant-test", "claude-test");
+    const auto next_body = provider.build_request_body(
+        {user_message("inspect"), assistant, tool}, {}, false);
+    ASSERT_EQ(next_body["messages"].size(), 3u);
+    EXPECT_EQ(next_body["messages"][1]["content"], response["content"]);
 }
 
 TEST(AnthropicProviderTest, UsageNormalizationIsIdempotentAcrossStreamNodes) {
@@ -314,17 +336,25 @@ TEST(AnthropicProviderTest, StreamParsesTextToolUseUsageAndDone) {
                 "event: message_start\n"
                 "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n"
                 "event: content_block_start\n"
-                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
                 "event: content_block_delta\n"
-                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n"
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"plan\"}}\n\n"
+                "event: content_block_delta\n"
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-stream\"}}\n\n"
                 "event: content_block_stop\n"
                 "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
                 "event: content_block_start\n"
-                "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"file_read\",\"input\":{}}}\n\n"
+                "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
                 "event: content_block_delta\n"
-                "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"AGENTS.md\\\"}\"}}\n\n"
+                "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n"
                 "event: content_block_stop\n"
                 "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n"
+                "event: content_block_start\n"
+                "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"file_read\",\"input\":{}}}\n\n"
+                "event: content_block_delta\n"
+                "data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"AGENTS.md\\\"}\"}}\n\n"
+                "event: content_block_stop\n"
+                "data: {\"type\":\"content_block_stop\",\"index\":2}\n\n"
                 "event: message_delta\n"
                 "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n"
                 "event: message_stop\n"
@@ -345,7 +375,9 @@ TEST(AnthropicProviderTest, StreamParsesTextToolUseUsageAndDone) {
     int usage_events = 0;
     int done_events = 0;
     int error_events = 0;
+    std::string reasoning;
     std::string finish_reason;
+    nlohmann::json content_parts = nlohmann::json::array();
     acecode::TokenUsage usage;
     std::mutex events_mu;
 
@@ -368,7 +400,11 @@ TEST(AnthropicProviderTest, StreamParsesTextToolUseUsageAndDone) {
                 break;
             case StreamEventType::Done:
                 finish_reason = evt.finish_reason;
+                content_parts = evt.content_parts;
                 ++done_events;
+                break;
+            case StreamEventType::ReasoningDelta:
+                reasoning += evt.content;
                 break;
             case StreamEventType::Error:
                 ++error_events;
@@ -382,6 +418,7 @@ TEST(AnthropicProviderTest, StreamParsesTextToolUseUsageAndDone) {
     provider.chat_stream({user_message("hi")}, {}, cb, &abort_flag);
 
     EXPECT_EQ(text, "hi");
+    EXPECT_EQ(reasoning, "plan");
     EXPECT_EQ(deltas, 1);
     EXPECT_EQ(tool_call_deltas, 1);
     ASSERT_EQ(tool_calls.size(), 1u);
@@ -395,6 +432,20 @@ TEST(AnthropicProviderTest, StreamParsesTextToolUseUsageAndDone) {
     EXPECT_EQ(done_events, 1);
     EXPECT_EQ(finish_reason, "tool_use");
     EXPECT_EQ(error_events, 0);
+    ASSERT_EQ(content_parts.size(), 3u);
+    EXPECT_EQ(content_parts[0], nlohmann::json({
+        {"type", "thinking"},
+        {"thinking", "plan"},
+        {"signature", "sig-stream"},
+    }));
+    EXPECT_EQ(content_parts[1],
+              nlohmann::json({{"type", "text"}, {"text", "hi"}}));
+    EXPECT_EQ(content_parts[2], nlohmann::json({
+        {"type", "tool_use"},
+        {"id", "toolu_1"},
+        {"name", "file_read"},
+        {"input", {{"path", "AGENTS.md"}}},
+    }));
 
     std::lock_guard<std::mutex> lk(mu);
     EXPECT_EQ(seen_api_key, "sk-ant-test");

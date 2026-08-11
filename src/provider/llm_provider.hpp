@@ -173,6 +173,10 @@ struct StreamEvent {
     std::string error;          // Error: description
     ProviderErrorInfo provider_error; // Error/Retry: structured provider failure
     TokenUsage usage;           // Usage: token counts from server
+    // Done: provider-native structured assistant blocks needed for a later
+    // request. Anthropic uses this to preserve signed thinking blocks across
+    // tool turns; providers that do not expose such blocks leave it empty.
+    nlohmann::json content_parts = nlohmann::json::array();
     // Done: finish_reason as reported by the server ("stop"/"length"/"tool_calls"...).
     // Empty when the upstream never reported one — some OpenAI-compatible gateways
     // omit it entirely, so consumers must treat it as a best-effort signal.

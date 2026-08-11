@@ -1,12 +1,14 @@
 #pragma once
 
 #include "llm_provider.hpp"
+#include "provider_request_options.hpp"
 #include "../config/config.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <map>
 #include <string>
+#include <utility>
 
 namespace acecode {
 
@@ -16,7 +18,8 @@ public:
                          const std::string& api_key,
                          const std::string& model,
                          int stream_timeout_ms = OpenAiConfig::kDefaultStreamTimeoutMs,
-                         std::map<std::string, std::string> request_headers = {});
+                         std::map<std::string, std::string> request_headers = {},
+                         ProviderRequestOptions request_options = {});
 
     ChatResponse chat(
         const std::vector<ChatMessage>& messages,
@@ -53,13 +56,25 @@ public:
     void reconfigure(const std::string& base_url,
                      const std::string& api_key,
                      int stream_timeout_ms = OpenAiConfig::kDefaultStreamTimeoutMs,
-                     std::map<std::string, std::string> request_headers = {}) {
-        base_url_ = normalize_base_url(base_url);
+                     std::map<std::string, std::string> request_headers = {},
+                     ProviderRequestOptions request_options = {}) {
+        request_options_ = std::move(request_options);
+        base_url_ = normalize_endpoint(base_url, request_options_.endpoint_mode);
         api_key_ = api_key;
         stream_timeout_ms_ = stream_timeout_ms > 0
             ? stream_timeout_ms
             : OpenAiConfig::kDefaultStreamTimeoutMs;
         request_headers_ = std::move(request_headers);
+    }
+
+    const ProviderRequestOptions& request_options() const {
+        return request_options_;
+    }
+
+    std::string request_url() const {
+        return request_options_.endpoint_mode == "full_url"
+            ? base_url_
+            : base_url_ + "/chat/completions";
     }
 
     // 容忍用户配置 base_url 时多打/少打尾部斜杠:统一裁掉所有尾部 '/',
@@ -74,6 +89,17 @@ public:
         value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(),
                     value.end());
         while (!value.empty() && value.back() == '/') value.pop_back();
+        return value;
+    }
+
+    static std::string normalize_endpoint(std::string value,
+                                          const std::string& endpoint_mode) {
+        if (endpoint_mode != "full_url") return normalize_base_url(std::move(value));
+        auto not_space = [](unsigned char c) { return !std::isspace(c); };
+        value.erase(value.begin(),
+                    std::find_if(value.begin(), value.end(), not_space));
+        value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(),
+                    value.end());
         return value;
     }
 
@@ -101,6 +127,7 @@ protected:
     std::string api_key_;
     std::string model_;
     std::map<std::string, std::string> request_headers_;
+    ProviderRequestOptions request_options_;
     int stream_timeout_ms_ = OpenAiConfig::kDefaultStreamTimeoutMs;
     bool model_has_vision_ = true;             // fail-open,见 set_vision_routing
     bool any_vision_model_available_ = false;

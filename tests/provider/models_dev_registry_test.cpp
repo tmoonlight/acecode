@@ -134,3 +134,84 @@ TEST(ModelsDevRegistry, CorruptJsonGracefullyEmpty) {
 
     set_env("ACECODE_MODELS_DEV_DIR", nullptr);
 }
+
+// 显式刷新候选必须原子安装；无效候选保留最后有效注册表与推荐 seed。
+TEST(ModelsDevRegistry, RefreshCandidateIsFailureSafeAndPreservesBundledSeed) {
+    auto seed = tmp_dir("refresh_candidate");
+    write_file(seed / "api.json", kMinimalRegistry);
+    write_file(seed / "MANIFEST.json", R"({"generated_at":"2026-08-10T00:00:00Z"})");
+    write_file(seed / "recommended_models.json", R"({"placeholder":true})");
+    set_env("ACECODE_MODELS_DEV_DIR", seed.string().c_str());
+    acecode::AppConfig cfg;
+    acecode::initialize_registry(cfg, "");
+    const auto before = acecode::current_registry();
+    ASSERT_TRUE(before->contains("anthropic"));
+
+    EXPECT_FALSE(acecode::install_registry_refresh_candidate(
+        nlohmann::json::object(), "https://invalid.test/api.json"));
+    EXPECT_EQ(acecode::current_registry().get(), before.get());
+    EXPECT_EQ(acecode::current_registry_source().kind,
+              acecode::RegistrySource::Kind::Bundled);
+
+    nlohmann::json low_providers = nlohmann::json::object();
+    low_providers["only"] = {{"models", nlohmann::json::object()}};
+    for (int model = 0; model < 1000; ++model) {
+        low_providers["only"]["models"]["model-" + std::to_string(model)] =
+            nlohmann::json::object();
+    }
+    EXPECT_FALSE(acecode::install_registry_refresh_candidate(
+        std::move(low_providers), "https://models.dev/api.json"));
+    EXPECT_EQ(acecode::current_registry().get(), before.get());
+    EXPECT_EQ(acecode::current_registry_source().kind,
+              acecode::RegistrySource::Kind::Bundled);
+
+    nlohmann::json garbage_padded_providers = nlohmann::json::object();
+    for (int provider = 0; provider < 49; ++provider) {
+        auto& models =
+            garbage_padded_providers["provider-" + std::to_string(provider)]["models"];
+        models = nlohmann::json::object();
+        for (int model = 0; model < 21; ++model) {
+            models["model-" + std::to_string(model)] = nlohmann::json::object();
+        }
+    }
+    garbage_padded_providers["scalar-padding"] = 1;
+    garbage_padded_providers["array-padding"] = nlohmann::json::array({1, 2, 3});
+    EXPECT_FALSE(acecode::install_registry_refresh_candidate(
+        std::move(garbage_padded_providers), "https://models.dev/api.json"));
+    EXPECT_EQ(acecode::current_registry().get(), before.get());
+    EXPECT_EQ(acecode::current_registry_source().kind,
+              acecode::RegistrySource::Kind::Bundled);
+
+    nlohmann::json low_models = nlohmann::json::object();
+    for (int provider = 0; provider < 50; ++provider) {
+        auto& models = low_models["provider-" + std::to_string(provider)]["models"];
+        models = nlohmann::json::object();
+        for (int model = 0; model < 19; ++model) {
+            models["model-" + std::to_string(model)] = nlohmann::json::object();
+        }
+    }
+    EXPECT_FALSE(acecode::install_registry_refresh_candidate(
+        std::move(low_models), "https://models.dev/api.json"));
+    EXPECT_EQ(acecode::current_registry().get(), before.get());
+
+    nlohmann::json valid = nlohmann::json::object();
+    for (int provider = 0; provider < 50; ++provider) {
+        auto& models = valid["provider-" + std::to_string(provider)]["models"];
+        models = nlohmann::json::object();
+        for (int model = 0; model < 20; ++model) {
+            models["model-" + std::to_string(model)] = nlohmann::json::object();
+        }
+    }
+    EXPECT_TRUE(acecode::install_registry_refresh_candidate(
+        std::move(valid), "https://models.dev/api.json"));
+    const auto after = acecode::current_registry();
+    EXPECT_NE(after.get(), before.get());
+    EXPECT_TRUE(after->contains("provider-0"));
+    const auto source = acecode::current_registry_source();
+    EXPECT_EQ(source.kind, acecode::RegistrySource::Kind::Network);
+    ASSERT_TRUE(source.seed_dir.has_value());
+    EXPECT_EQ(std::filesystem::path(*source.seed_dir).lexically_normal(),
+              seed.lexically_normal());
+
+    set_env("ACECODE_MODELS_DEV_DIR", nullptr);
+}

@@ -236,3 +236,54 @@ TEST(SettingsMutations, SavedModelsReuseEditorAndHonorBusyDeleteGuard) {
     EXPECT_EQ(saved.saved_models.front().name, "renamed");
     EXPECT_EQ(saved.default_model_name, "renamed");
 }
+
+TEST(SettingsMutations, AdvancedModelAndCredentialReusePersistAtomically) {
+    SettingsMutationTempDir temp;
+    acecode::AppConfig initial;
+    acecode::save_config(initial, temp.config_path());
+
+    auto source = model_draft("source");
+    source.models_dev_provider_id = "openrouter";
+    source.base_url = "https://openrouter.ai/api/v1/";
+    auto added = acecode::add_saved_model_setting(source, options_for(temp));
+    ASSERT_TRUE(added.ok) << added.error;
+
+    auto reused = model_draft("reused");
+    reused.api_key.clear();
+    reused.api_key_supplied = false;
+    reused.base_url = "HTTPS://OPENROUTER.AI/api/v1";
+    reused.models_dev_provider_id = "openrouter";
+    reused.credential_source_name = "source";
+    reused.endpoint_mode = "base_url";
+    reused.max_output_tokens = 64000;
+    reused.capabilities = {"reasoning"};
+    reused.capabilities_source = "manual";
+    acecode::ModelReasoningOptions reasoning;
+    reasoning.supported = true;
+    reasoning.default_enabled = true;
+    reasoning.supported_efforts = {"low", "high"};
+    reasoning.default_effort = "low";
+    reasoning.effort = "high";
+    reasoning.supports_max_tokens = false;
+    reused.reasoning = reasoning;
+    auto copied = acecode::add_saved_model_setting(reused, options_for(temp));
+    ASSERT_TRUE(copied.ok) << copied.error;
+
+    const auto saved = acecode::load_config_from_path(temp.config_path());
+    ASSERT_EQ(saved.saved_models.size(), 2u);
+    EXPECT_EQ(saved.saved_models[1].api_key, "secret");
+    EXPECT_EQ(saved.saved_models[1].max_output_tokens, 64000);
+    ASSERT_TRUE(saved.saved_models[1].reasoning.has_value());
+    EXPECT_EQ(saved.saved_models[1].reasoning->effort, "high");
+
+    auto incompatible = reused;
+    incompatible.name = "rejected";
+    incompatible.models_dev_provider_id = "different";
+    const auto rejected = acecode::add_saved_model_setting(
+        incompatible, options_for(temp));
+    EXPECT_FALSE(rejected.ok);
+    EXPECT_EQ(rejected.error_code, "INVALID_CREDENTIAL_SOURCE");
+    EXPECT_EQ(rejected.error.find("secret"), std::string::npos);
+    EXPECT_EQ(acecode::load_config_from_path(temp.config_path()).saved_models.size(),
+              2u);
+}
