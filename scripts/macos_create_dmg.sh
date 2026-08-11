@@ -108,6 +108,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
+detach_with_retry() {
+    local target="$1"
+    local detach_log="$temporary_root/detach.log"
+    local attempt
+
+    for attempt in 1 2 3 4 5 6; do
+        if /usr/bin/hdiutil detach "$target" >"$detach_log" 2>&1; then
+            return 0
+        fi
+        echo "DMG detach attempt $attempt/6 failed:" >&2
+        sed -n '1,80p' "$detach_log" >&2
+        sleep "$attempt"
+    done
+
+    echo "DMG remained busy; forcing the final detach attempt." >&2
+    /usr/bin/hdiutil detach "$target" -force
+}
+
 staging_root="$temporary_root/root"
 background_root="$staging_root/.background"
 mkdir -p "$staging_root" "$background_root"
@@ -235,7 +253,8 @@ if [[ ! -f "$mount_root/.VolumeIcon.icns" ]]; then
 fi
 
 /bin/sync
-/usr/bin/hdiutil detach "$mount_root"
+detach_target="${detach_target:-$mount_root}"
+detach_with_retry "$detach_target"
 mounted=0
 
 /usr/bin/hdiutil convert "$writable_dmg" \
