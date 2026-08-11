@@ -151,10 +151,13 @@ std::vector<nlohmann::json> provider_descriptors(
             {"base_url"}));
     }
     std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
-        const std::string left_name = lower_ascii(left["name"].get<std::string>());
-        const std::string right_name = lower_ascii(right["name"].get<std::string>());
+        const std::string left_name =
+            lower_ascii(left["name"].template get<std::string>());
+        const std::string right_name =
+            lower_ascii(right["name"].template get<std::string>());
         if (left_name != right_name) return left_name < right_name;
-        return left["id"].get<std::string>() < right["id"].get<std::string>();
+        return left["id"].template get<std::string>() <
+               right["id"].template get<std::string>();
     });
     return result;
 }
