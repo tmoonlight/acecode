@@ -326,6 +326,7 @@ when known.
 | POST | `/api/update/start` | start explicit WebUI update job |
 | GET | `/api/update/job` | read latest WebUI update job |
 | GET | `/api/update/jobs/:id` | poll one WebUI update job |
+| POST | `/api/update/jobs/:id/cancel` | cancel one WebUI update job before installation |
 | GET | `/api/mcp` | read MCP config |
 | PUT | `/api/mcp` | write MCP config |
 | POST | `/api/mcp/reload` | currently returns 501 |
@@ -2083,6 +2084,9 @@ lists, hashes, and URLs are not duplicated into each entry. Legacy entries with
 missing notes are returned with `notes: ""`. `http_status` and `error` are
 included when present.
 
+Manifest checks and package transfers do not use a fixed total request timeout.
+Transport, HTTP, and file-write failures are still reported normally.
+
 ### `POST /api/update/start`
 
 Checks for an update and starts one daemon-managed background update job. The
@@ -2100,7 +2104,9 @@ job reuses the normal upgrade engine without creating a console window. Returns
   "bytes_downloaded": 0,
   "bytes_total": 33554432,
   "percent": 0,
-  "restart_required": false
+  "restart_required": false,
+  "cancel_requested": false,
+  "can_cancel": true
 }
 ```
 
@@ -2128,11 +2134,27 @@ UPDATE_JOB_NOT_FOUND` before any job has been started.
 ### `GET /api/update/jobs/:id`
 
 Returns structured progress for one update job. `state` is `pending`, `running`,
-`succeeded`, or `failed`; `phase` is `checking`, `downloading`, `verifying`,
-`extracting`, `installing`, or `complete`. A successful job sets
+`succeeded`, `cancelled`, or `failed`; `phase` is `checking`, `downloading`,
+`verifying`, `extracting`, `installing`, `complete`, or `cancelled`.
+`cancel_requested` records an accepted cooperative cancellation request, while
+`can_cancel` is true only while the active job can still stop without replacing
+installed files. A successful job sets
 `restart_required` to `true` because the current daemon and desktop shell remain
 the already-running version until ACECode is fully restarted. Failed jobs
 include `error` and may be retried with a new `POST /api/update/start`.
+
+### `POST /api/update/jobs/:id/cancel`
+
+Requests cooperative cancellation of an active update job. Returns `202` after
+the request is accepted. Downloading stops and temporary package/staging files
+are removed before the job enters the `cancelled` terminal state. A cancelled
+job keeps `restart_required: false`.
+
+The endpoint returns `409 UPDATE_NOT_CANCELLABLE` after the job reaches the
+`installing` phase, because interrupting file replacement could leave an
+incomplete installation. Repeating the request for the same already-cancelled
+job is idempotent and returns `200`; an unknown job returns `404
+UPDATE_JOB_NOT_FOUND`.
 
 In the native desktop shell, a successful job asks whether to restart now. The
 restart-now action uses the in-process desktop bridge to bypass close-to-tray,

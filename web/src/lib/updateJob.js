@@ -22,9 +22,17 @@ export function updateJobIsActive(job) {
 }
 
 export function updateJobPhaseLabel(job) {
+  if (job?.state === 'cancelled') return '升级已取消';
+  if (job?.cancel_requested) return '正在取消升级';
   if (job?.state === 'failed') return '升级失败';
   if (job?.state === 'succeeded') return '升级安装完成';
   return PHASE_LABELS[job?.phase] || '正在准备升级';
+}
+
+export function updateJobCanCancel(job) {
+  return updateJobIsActive(job)
+    && job?.can_cancel !== false
+    && !job?.cancel_requested;
 }
 
 export function updateJobProgress(job) {
@@ -109,6 +117,7 @@ export function updateDialogMode(job, updateStatus = null) {
   }
   if (updateJobIsActive(job)) return 'running';
   if (job.state === 'succeeded') return 'success';
+  if (job.state === 'cancelled') return 'cancelled';
   if (job.state === 'failed') return 'failure';
   return 'confirm';
 }

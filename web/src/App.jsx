@@ -129,6 +129,7 @@ import {
 import {
   desktopUpdateRestartAvailable,
   requestDesktopUpdateRestart,
+  updateJobProgress,
   updateJobIsActive,
 } from './lib/updateJob.js';
 import {
@@ -217,6 +218,7 @@ export function App() {
   const [workspaceActivationRequest, setWorkspaceActivationRequest] = useState(null);
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updateStarting, setUpdateStarting] = useState(false);
+  const [updateCancelling, setUpdateCancelling] = useState(false);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateRestarting, setUpdateRestarting] = useState(false);
   const [updateJob, setUpdateJob] = useState(null);
@@ -657,6 +659,8 @@ export function App() {
           });
         } else if (job?.state === 'failed') {
           toast({ kind: 'err', text: '升级失败:' + (job.error || '未知错误') });
+        } else if (job?.state === 'cancelled') {
+          toast({ kind: 'info', text: '升级已取消，当前安装未修改' });
         }
       } catch (e) {
         failures += 1;
@@ -1218,6 +1222,29 @@ export function App() {
     }
   }, [pollUpdateJob, updateJob, updateStarting, updateStatus]);
 
+  const cancelUpdate = useCallback(async () => {
+    if (!updateJob?.job_id
+        || !updateJobIsActive(updateJob)
+        || updateJob?.can_cancel === false
+        || updateJob?.cancel_requested
+        || updateCancelling) return;
+    setUpdateCancelling(true);
+    try {
+      const job = await api.cancelUpdate(updateJob.job_id);
+      setUpdateJob(job);
+      pollUpdateJob(job?.job_id || updateJob.job_id);
+    } catch (e) {
+      if (e?.code === 'UPDATE_NOT_CANCELLABLE' && e?.body?.job) {
+        setUpdateJob(e.body.job);
+        toast({ kind: 'info', text: '升级已进入安装阶段，不能再取消' });
+        return;
+      }
+      toast({ kind: 'err', text: '取消升级失败:' + (e?.message || '未知错误') });
+    } finally {
+      setUpdateCancelling(false);
+    }
+  }, [pollUpdateJob, updateCancelling, updateJob]);
+
   const restartAfterUpdate = useCallback(async () => {
     if (updateRestarting
         || updateJob?.state !== 'succeeded'
@@ -1743,6 +1770,7 @@ export function App() {
         updateStarting={updateStarting}
         updateRunning={updateJobIsActive(updateJob)}
         updateReady={updateJob?.state === 'succeeded' && !!updateJob?.restart_required}
+        updateProgress={updateJobProgress(updateJob)}
         onStartUpdate={openUpdateDialog}
         onCheckUpdates={checkForUpdates}
         appVersion={health?.version || ''}
@@ -1897,9 +1925,11 @@ export function App() {
         updateStatus={updateStatus}
         job={updateJob}
         starting={updateStarting}
+        cancelling={updateCancelling}
         restarting={updateRestarting}
         restartAvailable={desktopUpdateRestartAvailable()}
         onConfirm={startUpdate}
+        onCancel={cancelUpdate}
         onRetry={startUpdate}
         onRestart={restartAfterUpdate}
         onClose={() => setUpdateDialogOpen(false)}

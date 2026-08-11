@@ -199,6 +199,7 @@ struct UpdateJobStatus {
     std::string backup_dir;
     std::string error;
     bool restart_required = false;
+    bool cancel_requested = false;
 };
 
 struct UpdateJobRuntime {

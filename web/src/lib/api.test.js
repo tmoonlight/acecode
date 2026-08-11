@@ -865,7 +865,12 @@ await run('Update API checks status and manages GUI update jobs', async () => {
         if (url.endsWith('/api/update/status')) {
           return { status: 'available', update_available: true, latest_version: '9.9.9' };
         }
-        if (opts.method === 'POST') return { started: true, job_id: 'job-1', target_version: '9.9.9' };
+        if (url.endsWith('/cancel')) {
+          return { job_id: 'job-1', state: 'running', cancel_requested: true };
+        }
+        if (opts.method === 'POST') {
+          return { started: true, job_id: 'job-1', target_version: '9.9.9' };
+        }
         return { job_id: 'job-1', state: 'running', phase: 'downloading' };
       },
     };
@@ -876,6 +881,7 @@ await run('Update API checks status and manages GUI update jobs', async () => {
     const started = await client.startUpdate();
     const latest = await client.getLatestUpdateJob();
     const job = await client.getUpdateJob('job 1');
+    const cancelling = await client.cancelUpdate('job 1');
 
     assert.deepEqual(status, {
       status: 'available',
@@ -885,6 +891,7 @@ await run('Update API checks status and manages GUI update jobs', async () => {
     assert.deepEqual(started, { started: true, job_id: 'job-1', target_version: '9.9.9' });
     assert.deepEqual(latest, { job_id: 'job-1', state: 'running', phase: 'downloading' });
     assert.deepEqual(job, { job_id: 'job-1', state: 'running', phase: 'downloading' });
+    assert.deepEqual(cancelling, { job_id: 'job-1', state: 'running', cancel_requested: true });
     assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/update/status');
     assert.equal(calls[0].opts.method, 'GET');
     assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
@@ -895,6 +902,8 @@ await run('Update API checks status and manages GUI update jobs', async () => {
     assert.equal(calls[2].opts.method, 'GET');
     assert.equal(calls[3].url, 'http://127.0.0.1:4567/api/update/jobs/job%201');
     assert.equal(calls[3].opts.method, 'GET');
+    assert.equal(calls[4].url, 'http://127.0.0.1:4567/api/update/jobs/job%201/cancel');
+    assert.equal(calls[4].opts.method, 'POST');
   } finally {
     globalThis.fetch = previousFetch;
   }
@@ -972,6 +981,31 @@ await run('workspace-scoped transcript reads carry the workspace hash', async ()
     );
   } finally {
     globalThis.fetch = previousFetch;
+  }
+});
+
+await run('GUI update checks and starts are exempt from the default 30-second timeout', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousSetTimeout = globalThis.setTimeout;
+  let timerScheduled = false;
+  globalThis.setTimeout = () => {
+    timerScheduled = true;
+    return 93;
+  };
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 202,
+    headers: { get: () => 'application/json' },
+    json: async () => ({ started: true, job_id: 'job-1' }),
+  });
+  try {
+    const client = createApi({ origin: 'http://acecode.test', token: '' });
+    await client.getUpdateStatus();
+    await client.startUpdate();
+    assert.equal(timerScheduled, false);
+  } finally {
+    globalThis.fetch = previousFetch;
+    globalThis.setTimeout = previousSetTimeout;
   }
 });
 

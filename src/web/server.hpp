@@ -103,6 +103,7 @@ struct WebServerDeps {
     RemoteWebProxyController* remote_web_proxy = nullptr;
     std::function<int(const AppConfig&,
                       acecode::upgrade::UpgradeProgressCallback,
+                      acecode::upgrade::UpgradeCancelCheck,
                       std::string*)> run_update_command;
     bool                       dangerous = false;
     // Web 控制台 PTY 会话注册表(add-console-dock)。null = 控制台不可用,

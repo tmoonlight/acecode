@@ -34,6 +34,9 @@ struct UpgradeProgress {
 };
 
 using UpgradeProgressCallback = std::function<void(const UpgradeProgress&)>;
+using UpgradeCancelCheck = std::function<bool()>;
+
+constexpr int kUpgradeCancelledExitCode = 130;
 
 const char* upgrade_phase_name(UpgradePhase phase);
 
@@ -45,6 +48,7 @@ int run_upgrade_command(const AppConfig& config,
                         std::ostream& out,
                         std::ostream& err,
                         bool force = false,
-                        UpgradeProgressCallback progress = {});
+                        UpgradeProgressCallback progress = {},
+                        UpgradeCancelCheck cancel_check = {});
 
 } // namespace acecode::upgrade

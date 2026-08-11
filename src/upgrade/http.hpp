@@ -12,12 +12,14 @@ struct HttpTextResult {
     long status_code = 0;
     std::string body;
     std::string error;
+    bool cancelled = false;
 };
 
 struct DownloadResult {
     long status_code = 0;
     std::uintmax_t bytes_written = 0;
     std::string error;
+    bool cancelled = false;
 };
 
 struct DownloadProgress {
@@ -25,14 +27,18 @@ struct DownloadProgress {
 };
 
 using DownloadProgressCallback = std::function<void(const DownloadProgress&)>;
+using HttpCancelCheck = std::function<bool()>;
 
-HttpTextResult fetch_text(const std::string& url, int timeout_ms);
+HttpTextResult fetch_text(const std::string& url,
+                          int timeout_ms,
+                          const HttpCancelCheck& cancel_check = {});
 DownloadResult download_to_file(const std::string& url,
                                 const std::filesystem::path& output_path,
                                 int timeout_ms);
 DownloadResult download_to_file(const std::string& url,
                                 const std::filesystem::path& output_path,
                                 int timeout_ms,
-                                const DownloadProgressCallback& progress_cb);
+                                const DownloadProgressCallback& progress_cb,
+                                const HttpCancelCheck& cancel_check = {});
 
 } // namespace acecode::upgrade

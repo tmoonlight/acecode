@@ -166,6 +166,7 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 // timeoutMs = 0 表示不设超时。仅用于「合法地会阻塞很久」的端点:
 //   - 后端弹原生模态框、等用户操作(选目录 / 导出)
 //   - 后端跑一次完整的模型往返(side question)
+//   - 后端检查并启动可由独立任务接口取消的程序升级
 // 其余端点一律走默认超时。
 const NO_TIMEOUT = 0;
 const LLM_ROUNDTRIP_TIMEOUT_MS = 600000;
@@ -416,10 +417,13 @@ export function createApi(base = null) {
     setConnectors: (cfg)             => request('PUT',    '/api/config/connectors', cfg, base),
     getUpgradeConfig: ()             => request('GET',    '/api/config/upgrade', undefined, base),
     setUpgradeConfig: (cfg)          => request('PUT',    '/api/config/upgrade', cfg, base),
-    getUpdateStatus: ()              => request('GET',    '/api/update/status', undefined, base),
-    startUpdate: ()                  => request('POST',   '/api/update/start', undefined, base),
+    getUpdateStatus: ()              => request('GET',    '/api/update/status', undefined, base,
+      { timeoutMs: NO_TIMEOUT }),
+    startUpdate: ()                  => request('POST',   '/api/update/start', undefined, base,
+      { timeoutMs: NO_TIMEOUT }),
     getLatestUpdateJob: ()           => request('GET',    '/api/update/job', undefined, base),
     getUpdateJob: (jobId)            => request('GET',    `/api/update/jobs/${encodeURIComponent(jobId)}`, undefined, base),
+    cancelUpdate: (jobId)            => request('POST',   `/api/update/jobs/${encodeURIComponent(jobId)}/cancel`, undefined, base),
     listDesktopFeedbackSessions: (limit=20) => request('GET', desktopFeedbackSessionsPath(limit), undefined, base),
     submitDesktopFeedback: (payload={}) => request('POST', '/api/feedback/desktop', payload, base),
     // git 感知(add-git-context / add-webui-git-session-pill /

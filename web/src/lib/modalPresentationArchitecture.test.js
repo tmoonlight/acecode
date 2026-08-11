@@ -89,3 +89,19 @@ run('update progress is monotonic, accessible, striped, and reduced-motion safe'
     /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.ace-update-progress-fill \{[\s\S]*animation: none;[\s\S]*transition: none;/,
   );
 });
+
+run('update UI exposes safe cancellation and a dual-foreground topbar progress pill', () => {
+  const app = source('App.jsx');
+  const updateDialog = source('components/UpdateDialog.jsx');
+  const topBar = source('components/TopBar.jsx');
+
+  assert.match(app, /api\.cancelUpdate\(updateJob\.job_id\)/);
+  assert.match(updateDialog, /取消升级/);
+  assert.match(updateDialog, /job\?\.can_cancel === false/);
+  assert.match(updateDialog, /mode === 'cancelled'/);
+  assert.match(topBar, /updateProgress = 0/);
+  assert.match(topBar, /100 - boundedUpdateProgress/);
+  assert.match(topBar, /absolute inset-0 flex items-center justify-center text-accent/);
+  assert.match(topBar, /absolute inset-0 flex items-center justify-center text-white/);
+  assert.match(topBar, /relative h-7 min-w-\[44px\] overflow-hidden px-3 rounded-full/);
+});

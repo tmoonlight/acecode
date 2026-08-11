@@ -416,6 +416,7 @@ struct WebServerFixture {
         bool attach_skill_registry = true,
         std::function<int(const acecode::AppConfig&,
                           acecode::upgrade::UpgradeProgressCallback,
+                          acecode::upgrade::UpgradeCancelCheck,
                           std::string*)> run_update_command = {},
         std::function<std::optional<std::string>(const std::string&)> open_in_explorer = {},
         bool dangerous = false,
@@ -6366,6 +6367,7 @@ TEST(WebServerHttp, PostUpdateStartPublishesSuccessfulGuiJob) {
         true,
         [&](const acecode::AppConfig&,
             acecode::upgrade::UpgradeProgressCallback publish,
+            acecode::upgrade::UpgradeCancelCheck,
             std::string*) {
             called.store(true);
             acecode::upgrade::UpgradeProgress downloading;
@@ -6436,6 +6438,7 @@ TEST(WebServerHttp, PostUpdateStartRejectsConcurrentGuiJob) {
         true,
         [gate](const acecode::AppConfig&,
                acecode::upgrade::UpgradeProgressCallback publish,
+               acecode::upgrade::UpgradeCancelCheck,
                std::string*) {
             acecode::upgrade::UpgradeProgress progress;
             progress.phase = acecode::upgrade::UpgradePhase::Downloading;
@@ -6493,6 +6496,7 @@ TEST(WebServerHttp, FailedUpdateJobCanBeRetried) {
         true,
         [attempts](const acecode::AppConfig&,
                    acecode::upgrade::UpgradeProgressCallback publish,
+                   acecode::upgrade::UpgradeCancelCheck,
                    std::string* error) {
             const int attempt = attempts->fetch_add(1);
             acecode::upgrade::UpgradeProgress progress;
@@ -6529,6 +6533,139 @@ TEST(WebServerHttp, FailedUpdateJobCanBeRetried) {
     auto retry = cpr::Post(cpr::Url{fx.url("/api/update/start")});
     ASSERT_EQ(retry.status_code, 202) << retry.text;
     EXPECT_NE(json::parse(retry.text)["job_id"], first_id);
+}
+
+// 场景:下载阶段可协作式取消,终态可恢复且重复取消幂等。
+TEST(WebServerHttp, ActiveUpdateJobCanBeCancelledIdempotently) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    auto started = std::make_shared<std::atomic<bool>>(false);
+    WebServerFixture fx(
+        true,
+        false,
+        {},
+        true,
+        [started](const acecode::AppConfig&,
+                  acecode::upgrade::UpgradeProgressCallback publish,
+                  acecode::upgrade::UpgradeCancelCheck cancel_requested,
+                  std::string*) {
+            acecode::upgrade::UpgradeProgress progress;
+            progress.phase = acecode::upgrade::UpgradePhase::Downloading;
+            progress.target_version = "9.9.9";
+            progress.bytes_downloaded = 25;
+            progress.bytes_total = 100;
+            publish(progress);
+            started->store(true);
+            for (int i = 0; i < 1000; ++i) {
+                if (cancel_requested && cancel_requested()) {
+                    return acecode::upgrade::kUpgradeCancelledExitCode;
+                }
+                std::this_thread::sleep_for(2ms);
+            }
+            return 1;
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+
+    auto start = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start.status_code, 202) << start.text;
+    const std::string job_id = json::parse(start.text)["job_id"];
+    for (int i = 0; i < 100 && !started->load(); ++i) {
+        std::this_thread::sleep_for(5ms);
+    }
+    ASSERT_TRUE(started->load());
+
+    auto cancel = cpr::Post(cpr::Url{fx.url(
+        "/api/update/jobs/" + job_id + "/cancel")});
+    ASSERT_EQ(cancel.status_code, 202) << cancel.text;
+    const auto cancelling = json::parse(cancel.text);
+    EXPECT_EQ(cancelling["cancel_requested"], true);
+    EXPECT_EQ(cancelling["can_cancel"], false);
+
+    json status;
+    for (int i = 0; i < 100; ++i) {
+        auto poll = cpr::Get(cpr::Url{fx.url("/api/update/jobs/" + job_id)});
+        ASSERT_EQ(poll.status_code, 200) << poll.text;
+        status = json::parse(poll.text);
+        if (status["state"] == "cancelled") break;
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT_EQ(status["state"], "cancelled");
+    EXPECT_EQ(status["phase"], "cancelled");
+    EXPECT_EQ(status["restart_required"], false);
+    EXPECT_EQ(status["can_cancel"], false);
+
+    auto repeated = cpr::Post(cpr::Url{fx.url(
+        "/api/update/jobs/" + job_id + "/cancel")});
+    ASSERT_EQ(repeated.status_code, 200) << repeated.text;
+    EXPECT_EQ(json::parse(repeated.text)["state"], "cancelled");
+
+    auto missing = cpr::Post(cpr::Url{fx.url(
+        "/api/update/jobs/missing/cancel")});
+    ASSERT_EQ(missing.status_code, 404) << missing.text;
+    EXPECT_EQ(json::parse(missing.text)["error"], "UPDATE_JOB_NOT_FOUND");
+}
+
+// 场景:安装替换已经开始时服务端拒绝取消,不能只依赖前端禁用按钮。
+TEST(WebServerHttp, InstallingUpdateJobRejectsCancellation) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    struct Gate {
+        std::mutex mu;
+        std::condition_variable cv;
+        bool installing = false;
+        bool release = false;
+    };
+    auto gate = std::make_shared<Gate>();
+    WebServerFixture fx(
+        true,
+        false,
+        {},
+        true,
+        [gate](const acecode::AppConfig&,
+               acecode::upgrade::UpgradeProgressCallback publish,
+               acecode::upgrade::UpgradeCancelCheck,
+               std::string*) {
+            acecode::upgrade::UpgradeProgress progress;
+            progress.phase = acecode::upgrade::UpgradePhase::Installing;
+            progress.target_version = "9.9.9";
+            publish(progress);
+            std::unique_lock<std::mutex> lock(gate->mu);
+            gate->installing = true;
+            gate->cv.notify_all();
+            gate->cv.wait(lock, [&] { return gate->release; });
+            progress.phase = acecode::upgrade::UpgradePhase::Complete;
+            publish(progress);
+            return 0;
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+
+    auto start = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start.status_code, 202) << start.text;
+    const std::string job_id = json::parse(start.text)["job_id"];
+    {
+        std::unique_lock<std::mutex> lock(gate->mu);
+        ASSERT_TRUE(gate->cv.wait_for(lock, 2s, [&] { return gate->installing; }));
+    }
+
+    auto cancel = cpr::Post(cpr::Url{fx.url(
+        "/api/update/jobs/" + job_id + "/cancel")});
+    ASSERT_EQ(cancel.status_code, 409) << cancel.text;
+    const auto body = json::parse(cancel.text);
+    EXPECT_EQ(body["error"], "UPDATE_NOT_CANCELLABLE");
+    EXPECT_EQ(body["job"]["can_cancel"], false);
+    EXPECT_EQ(body["job"]["cancel_requested"], false);
+
+    {
+        std::lock_guard<std::mutex> lock(gate->mu);
+        gate->release = true;
+    }
+    gate->cv.notify_all();
 }
 
 // 场景: POST /api/sessions body 是非法 JSON → 400 + error JSON,不影响 server。

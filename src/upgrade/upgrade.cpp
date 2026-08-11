@@ -27,6 +27,8 @@ namespace fs = std::filesystem;
 namespace acecode::upgrade {
 namespace {
 
+constexpr int kNoUpgradeTimeoutMs = 0;
+
 fs::path unique_update_workspace_dir() {
     const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
     return upgrade_workspace_base_dir() /
@@ -39,11 +41,17 @@ bool validate_upgrade_settings(const UpgradeConfig& cfg, std::string* error) {
         if (error) *error = "upgrade.base_url must be a non-empty http or https URL";
         return false;
     }
-    if (cfg.timeout_ms < 1000 || cfg.timeout_ms > 120000) {
-        if (error) *error = "upgrade.timeout_ms must be between 1000 and 120000";
-        return false;
-    }
     return true;
+}
+
+int report_upgrade_cancelled(std::ostream& err,
+                             const fs::path& workspace_dir = {}) {
+    if (!workspace_dir.empty()) {
+        std::error_code cleanup_error;
+        fs::remove_all(workspace_dir, cleanup_error);
+    }
+    err << "acecode upgrade: update cancelled\n";
+    return kUpgradeCancelledExitCode;
 }
 
 bool is_plain_http(const std::string& url) {
@@ -223,7 +231,7 @@ UpdateCheckResult check_for_update(const AppConfig& config,
     result.manifest_url = manifest_url(base_url);
 
     HttpTextResult manifest_resp = fetch_text(result.manifest_url,
-                                              config.upgrade.timeout_ms);
+                                              kNoUpgradeTimeoutMs);
     result.http_status = manifest_resp.status_code;
     if (!manifest_resp.error.empty()) {
         result.status = UpdateCheckStatus::ManifestUnavailable;
@@ -280,12 +288,18 @@ int run_upgrade_command(const AppConfig& config,
                         std::ostream& out,
                         std::ostream& err,
                         bool force,
-                        UpgradeProgressCallback progress_callback) {
+                        UpgradeProgressCallback progress_callback,
+                        UpgradeCancelCheck cancel_check) {
     UpgradeProgress progress_state;
     progress_state.current_version = current_version;
     auto publish_progress = [&]() {
         if (progress_callback) progress_callback(progress_state);
     };
+    auto cancellation_requested = [&]() {
+        return cancel_check && cancel_check();
+    };
+
+    if (cancellation_requested()) return report_upgrade_cancelled(err);
 
     std::string cfg_error;
     if (!validate_upgrade_settings(config.upgrade, &cfg_error)) {
@@ -325,7 +339,11 @@ int run_upgrade_command(const AppConfig& config,
     progress_state.phase = UpgradePhase::Checking;
     publish_progress();
     out << "\n" << styled(out, ConsoleStyle::Cyan, "[1/4] Checking update manifest...") << "\n";
-    HttpTextResult manifest_resp = fetch_text(manifest, config.upgrade.timeout_ms);
+    HttpTextResult manifest_resp = fetch_text(
+        manifest, kNoUpgradeTimeoutMs, cancel_check);
+    if (manifest_resp.cancelled || cancellation_requested()) {
+        return report_upgrade_cancelled(err);
+    }
     if (!manifest_resp.error.empty()) {
         err << "acecode upgrade: failed to fetch manifest " << manifest
             << ": " << manifest_resp.error << "\n";
@@ -362,6 +380,7 @@ int run_upgrade_command(const AppConfig& config,
         }
         return 0;
     }
+    if (cancellation_requested()) return report_upgrade_cancelled(err);
 
     const auto& selected = *selection.selected;
     progress_state.target_version = selected.version;
@@ -401,13 +420,17 @@ int run_upgrade_command(const AppConfig& config,
     DownloadProgressBar progress_bar(out, selected.package.size, stream_is_interactive_terminal(out));
     progress_bar.start();
     DownloadResult dl = download_to_file(
-        package_url, package_path, config.upgrade.timeout_ms,
+        package_url, package_path, kNoUpgradeTimeoutMs,
         [&](const DownloadProgress& p) {
             progress_bar.update(p.bytes_written);
             progress_state.bytes_downloaded = p.bytes_written;
             publish_progress();
-        });
+        },
+        cancel_check);
     progress_bar.finish(dl.bytes_written);
+    if (dl.cancelled || cancellation_requested()) {
+        return report_upgrade_cancelled(err, workspace_dir);
+    }
     if (!dl.error.empty()) {
         err << "acecode upgrade: failed to download package: " << dl.error << "\n";
         return 1;
@@ -440,6 +463,9 @@ int run_upgrade_command(const AppConfig& config,
             << "actual:   " << actual_sha << "\n";
         return 1;
     }
+    if (cancellation_requested()) {
+        return report_upgrade_cancelled(err, workspace_dir);
+    }
     out << "  Checksum: " << styled(out, ConsoleStyle::Green, "OK") << "\n";
 
     progress_state.phase = UpgradePhase::Extracting;
@@ -449,6 +475,9 @@ int run_upgrade_command(const AppConfig& config,
     if (!extract_zip_to_staging(package_path, staging_dir, &extract_error)) {
         err << "acecode upgrade: invalid package: " << extract_error << "\n";
         return 1;
+    }
+    if (cancellation_requested()) {
+        return report_upgrade_cancelled(err, workspace_dir);
     }
     std::string stage_error;
 #ifdef __APPLE__
@@ -474,11 +503,17 @@ int run_upgrade_command(const AppConfig& config,
         err << "acecode upgrade: invalid package: " << stage_error << "\n";
         return 1;
     }
+    if (cancellation_requested()) {
+        return report_upgrade_cancelled(err, workspace_dir);
+    }
     out << "  Package : " << styled(out, ConsoleStyle::Green, "OK") << "\n";
 
     fs::path install_dir = current_exe.parent_path();
     progress_state.phase = UpgradePhase::Installing;
     publish_progress();
+    if (cancellation_requested()) {
+        return report_upgrade_cancelled(err, workspace_dir);
+    }
     out << "  Install : applying update\n";
     std::string apply_error;
 #ifdef __APPLE__

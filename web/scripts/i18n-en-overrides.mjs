@@ -541,4 +541,24 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '原生文件系统返回无效结果': 'Native filesystem returned an invalid result',
   '原生文件系统条目无效': 'Invalid native filesystem item',
   '原生文件系统桥接不可用': 'Native filesystem bridge unavailable',
+  '当前安装没有被修改，可以稍后重新升级。':
+    'The current installation was not changed. You can update again later.',
+  '可取消本次升级；关闭窗口只会让任务转到后台继续。':
+    'You can cancel this update. Closing the window only moves it to the background.',
+  '取消升级': 'Cancel update',
+  '取消升级失败:': 'Failed to cancel update:',
+  '升级任务已安全停止，ACECode 仍保持当前版本。':
+    'The update stopped safely. ACECode remains on the current version.',
+  '升级已进入安装阶段，不能再取消':
+    'The update has entered the installation stage and can no longer be cancelled',
+  '升级已取消': 'Update cancelled',
+  '升级已取消，当前安装未修改': 'Update cancelled. The current installation was not changed',
+  '升级正在进行，{{p0}}%，点击查看进度':
+    'Update in progress, {{p0}}%. Click to view progress',
+  '已开始替换程序文件，为保证安装完整，此阶段不能取消。':
+    'Program file replacement has started. This stage cannot be cancelled safely.',
+  '正在安全停止升级，请稍候。': 'Stopping the update safely. Please wait.',
+  '正在取消…': 'Cancelling…',
+  '正在取消升级': 'Cancelling update',
+  '重新升级': 'Update again',
 });

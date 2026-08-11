@@ -5,6 +5,7 @@ import {
   nondecreasingUpdateProgress,
   normalizeUpdateReleases,
   updateDialogMode,
+  updateJobCanCancel,
   updateJobIsActive,
   updateJobPhaseLabel,
   updateJobProgress,
@@ -55,9 +56,11 @@ export function UpdateDialog({
   updateStatus,
   job,
   starting = false,
+  cancelling = false,
   restarting = false,
   restartAvailable = false,
   onConfirm,
+  onCancel,
   onRetry,
   onRestart,
   onClose,
@@ -66,6 +69,7 @@ export function UpdateDialog({
 
   const mode = updateDialogMode(job, updateStatus);
   const active = updateJobIsActive(job) || starting || restarting;
+  const canCancel = updateJobCanCancel(job);
   const currentVersion = job?.current_version || updateStatus?.current_version;
   const targetVersion = mode === 'up_to_date'
     ? currentVersion
@@ -77,6 +81,8 @@ export function UpdateDialog({
   const restartMessage = updateRestartMessage(job);
   const title = mode === 'success'
     ? '升级安装完成'
+    : mode === 'cancelled'
+      ? '升级已取消'
     : mode === 'failure'
       ? '升级失败'
       : mode === 'up_to_date'
@@ -86,6 +92,8 @@ export function UpdateDialog({
     ? '升级期间可以继续查看当前页面，请勿重复启动升级。'
     : mode === 'up_to_date'
       ? '当前安装的 ACECode 已是最新版本。'
+      : mode === 'cancelled'
+        ? '当前安装没有被修改，可以稍后重新升级。'
       : phaseLabel;
 
   return (
@@ -175,7 +183,11 @@ export function UpdateDialog({
               </div>
             )}
             <div className="mt-3 text-[11px] leading-5 text-fg-mute">
-              安装完成前不要退出 ACECode。关闭此窗口只会隐藏进度，不会取消升级。
+              {job?.cancel_requested
+                ? '正在安全停止升级，请稍候。'
+                : job?.can_cancel === false
+                  ? '已开始替换程序文件，为保证安装完整，此阶段不能取消。'
+                  : '可取消本次升级；关闭窗口只会让任务转到后台继续。'}
             </div>
           </div>
         )}
@@ -194,6 +206,12 @@ export function UpdateDialog({
             <div className="mt-1 break-words text-[11px] leading-5 text-fg-mute">
               {job?.error || '未知升级错误'}
             </div>
+          </div>
+        )}
+
+        {mode === 'cancelled' && (
+          <div className="mt-5 rounded-lg border border-border bg-surface-alt px-4 py-3 text-[12px] leading-5 text-fg">
+            升级任务已安全停止，ACECode 仍保持当前版本。
           </div>
         )}
       </div>
@@ -229,13 +247,23 @@ export function UpdateDialog({
           </button>
         )}
         {mode === 'running' && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-4 py-1.5 text-[12px] text-fg hover:bg-surface-hi"
-          >
-            后台运行
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={!canCancel || cancelling}
+              className="rounded-md px-3 py-1.5 text-[12px] text-danger hover:bg-surface-hi disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {cancelling || job?.cancel_requested ? '正在取消…' : '取消升级'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-4 py-1.5 text-[12px] text-fg hover:bg-surface-hi"
+            >
+              后台运行
+            </button>
+          </>
         )}
         {mode === 'success' && (
           restartAvailable ? (
@@ -283,6 +311,25 @@ export function UpdateDialog({
               className="rounded-md bg-accent px-4 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-60"
             >
               {starting ? '正在重试…' : '重试'}
+            </button>
+          </>
+        )}
+        {mode === 'cancelled' && (
+          <>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-3 py-1.5 text-[12px] text-fg-mute hover:bg-surface-hi hover:text-fg"
+            >
+              关闭
+            </button>
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={starting}
+              className="rounded-md bg-accent px-4 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-60"
+            >
+              {starting ? '正在重试…' : '重新升级'}
             </button>
           </>
         )}

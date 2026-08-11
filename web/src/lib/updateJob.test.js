@@ -6,6 +6,7 @@ import {
   normalizeUpdateReleases,
   requestDesktopUpdateRestart,
   updateDialogMode,
+  updateJobCanCancel,
   updateJobIsActive,
   updateJobPhaseLabel,
   updateJobProgress,
@@ -26,6 +27,14 @@ await test('active update jobs include pending and running only', () => {
   assert.equal(updateJobIsActive({ state: 'pending' }), true);
   assert.equal(updateJobIsActive({ state: 'running' }), true);
   assert.equal(updateJobIsActive({ state: 'failed' }), false);
+  assert.equal(updateJobIsActive({ state: 'cancelled' }), false);
+});
+
+await test('only safe active update phases remain cancellable', () => {
+  assert.equal(updateJobCanCancel({ state: 'running', phase: 'downloading', can_cancel: true }), true);
+  assert.equal(updateJobCanCancel({ state: 'running', phase: 'downloading', cancel_requested: true }), false);
+  assert.equal(updateJobCanCancel({ state: 'running', phase: 'installing', can_cancel: false }), false);
+  assert.equal(updateJobCanCancel({ state: 'cancelled', can_cancel: false }), false);
 });
 
 await test('download progress occupies the visible middle of the full lifecycle', () => {
@@ -47,12 +56,15 @@ await test('rendered update progress never regresses within the same job', () =>
 await test('phase labels and terminal dialog modes are stable', () => {
   assert.equal(updateJobPhaseLabel({ phase: 'extracting', state: 'running' }), '正在解压安装包');
   assert.equal(updateJobPhaseLabel({ phase: 'verifying', state: 'failed' }), '升级失败');
+  assert.equal(updateJobPhaseLabel({ phase: 'downloading', state: 'running', cancel_requested: true }), '正在取消升级');
+  assert.equal(updateJobPhaseLabel({ phase: 'cancelled', state: 'cancelled' }), '升级已取消');
   assert.equal(updateDialogMode(null), 'confirm');
   assert.equal(updateDialogMode(null, { status: 'available' }), 'confirm');
   assert.equal(updateDialogMode(null, { status: 'up_to_date' }), 'up_to_date');
   assert.equal(updateDialogMode({ state: 'running' }), 'running');
   assert.equal(updateDialogMode({ state: 'succeeded' }), 'success');
   assert.equal(updateDialogMode({ state: 'failed' }), 'failure');
+  assert.equal(updateDialogMode({ state: 'cancelled' }), 'cancelled');
 });
 
 await test('release history normalization keeps ordered non-empty plain-text notes', () => {

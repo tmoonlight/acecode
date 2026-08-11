@@ -45,6 +45,13 @@ bool update_job_is_active(const UpdateJobStatus& status) {
     return status.state == "pending" || status.state == "running";
 }
 
+bool update_job_can_cancel(const UpdateJobStatus& status) {
+    return update_job_is_active(status) &&
+           !status.cancel_requested &&
+           status.phase != "installing" &&
+           status.phase != "complete";
+}
+
 json update_job_to_json(const UpdateJobStatus& status) {
     int percent = 0;
     if (status.bytes_total && *status.bytes_total > 0) {
@@ -61,6 +68,8 @@ json update_job_to_json(const UpdateJobStatus& status) {
         {"bytes_downloaded", status.bytes_downloaded},
         {"percent", percent},
         {"restart_required", status.restart_required},
+        {"cancel_requested", status.cancel_requested},
+        {"can_cancel", update_job_can_cancel(status)},
     };
     if (status.bytes_total) out["bytes_total"] = *status.bytes_total;
     if (!status.backup_dir.empty()) out["backup_dir"] = status.backup_dir;
@@ -1134,6 +1143,10 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/update/jobs/<string>/cancel").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
         // Desktop guided-tour state lives in state.json instead of localStorage:
         // Desktop's random daemon port and Edge fallback profile are not stable origins.
         CROW_ROUTE(app, "/api/ui/onboarding/desktop").methods(crow::HTTPMethod::GET)
@@ -1318,6 +1331,44 @@ void WebServer::Impl::register_ui_preferences() {
             return with_cors(req, std::move(r));
         });
 
+        // POST /api/update/jobs/:id/cancel: cooperative cancellation before
+        // install file replacement begins.
+        CROW_ROUTE(app, "/api/update/jobs/<string>/cancel").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& job_id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            std::lock_guard<std::mutex> lock(update_job_runtime->mu);
+            if (!update_job_runtime->current ||
+                update_job_runtime->current->job_id != job_id) {
+                crow::response r(404);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "UPDATE_JOB_NOT_FOUND"},
+                              {"message", "update job not found"}}.dump();
+                return with_cors(req, std::move(r));
+            }
+
+            auto& job = *update_job_runtime->current;
+            if (job.state == "cancelled") {
+                crow::response r(200);
+                r.add_header("Content-Type", "application/json");
+                r.body = update_job_to_json(job).dump();
+                return with_cors(req, std::move(r));
+            }
+            if (!update_job_can_cancel(job)) {
+                crow::response r(409);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "UPDATE_NOT_CANCELLABLE"},
+                              {"message", "update can no longer be cancelled"},
+                              {"job", update_job_to_json(job)}}.dump();
+                return with_cors(req, std::move(r));
+            }
+
+            job.cancel_requested = true;
+            crow::response r(202);
+            r.add_header("Content-Type", "application/json");
+            r.body = update_job_to_json(job).dump();
+            return with_cors(req, std::move(r));
+        });
+
         // POST /api/update/start: explicit user-triggered GUI update job.
         CROW_ROUTE(app, "/api/update/start").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req) {
@@ -1393,6 +1444,12 @@ void WebServer::Impl::register_ui_preferences() {
                     job.bytes_total = progress.bytes_total;
                     if (!progress.backup_dir.empty()) job.backup_dir = progress.backup_dir;
                 };
+                auto cancellation_requested = [runtime, job_id = initial.job_id]() {
+                    std::lock_guard<std::mutex> lock(runtime->mu);
+                    return runtime->current &&
+                           runtime->current->job_id == job_id &&
+                           runtime->current->cancel_requested;
+                };
 
                 {
                     std::lock_guard<std::mutex> lock(runtime->mu);
@@ -1405,13 +1462,14 @@ void WebServer::Impl::register_ui_preferences() {
                 int code = 1;
                 try {
                     if (injected_runner) {
-                        code = injected_runner(config_snapshot, publish, &error);
+                        code = injected_runner(
+                            config_snapshot, publish, cancellation_requested, &error);
                     } else {
                         std::ostringstream output;
                         std::ostringstream errors;
                         code = acecode::upgrade::run_upgrade_command(
                             config_snapshot, "", ACECODE_VERSION,
-                            output, errors, false, publish);
+                            output, errors, false, publish, cancellation_requested);
                         if (code != 0 && error.empty()) {
                             error = trim_update_error(errors.str());
                         }
@@ -1427,7 +1485,12 @@ void WebServer::Impl::register_ui_preferences() {
                 std::lock_guard<std::mutex> lock(runtime->mu);
                 if (!runtime->current || runtime->current->job_id != initial.job_id) return;
                 auto& job = *runtime->current;
-                if (code == 0) {
+                if (code == acecode::upgrade::kUpgradeCancelledExitCode) {
+                    job.state = "cancelled";
+                    job.phase = "cancelled";
+                    job.restart_required = false;
+                    job.error.clear();
+                } else if (code == 0) {
                     job.state = "succeeded";
                     job.phase = "complete";
                     job.restart_required = true;

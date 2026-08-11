@@ -9,6 +9,7 @@
 #include <httplib.h>
 
 #include <chrono>
+#include <atomic>
 #include <filesystem>
 #include <functional>
 #include <fstream>
@@ -93,6 +94,27 @@ TEST(UpgradeHttp, NoUpdateReturnsSuccessWithoutTui) {
     EXPECT_NE(out.str().find("already up to date"), std::string::npos);
 }
 
+TEST(UpgradeHttp, UpgradeIgnoresLegacyTotalTimeout) {
+    LocalHttpServer server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            std::this_thread::sleep_for(50ms);
+            std::string sha = acecode::sha256_hex("pkg");
+            res.set_content(manifest_for("0.1.2", acecode::upgrade::current_target(),
+                                         "pkg.zip", sha), "application/json");
+        });
+    });
+    auto cfg = upgrade_config_for(server);
+    cfg.upgrade.timeout_ms = 1;
+
+    std::ostringstream out;
+    std::ostringstream err;
+    const int code = acecode::upgrade::run_upgrade_command(
+        cfg, "acecode-test", "0.1.2", out, err);
+
+    EXPECT_EQ(code, 0) << err.str();
+    EXPECT_NE(out.str().find("already up to date"), std::string::npos);
+}
+
 TEST(UpgradeHttp, Manifest404ReturnsActionableError) {
     LocalHttpServer server([](httplib::Server&) {});
 
@@ -171,6 +193,60 @@ TEST(UpgradeHttp, DownloadAcceptHeaderAllowsCommonZipMimeTypes) {
     std::error_code ec;
     EXPECT_EQ(std::filesystem::file_size(output, ec), 3u);
     std::filesystem::remove(output, ec);
+}
+
+TEST(UpgradeHttp, DownloadCanBeCancelledCooperatively) {
+    LocalHttpServer server([](httplib::Server& s) {
+        s.Get("/pkg.zip", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(std::string(256 * 1024, 'x'), "application/zip");
+        });
+    });
+
+    const auto output = std::filesystem::temp_directory_path() /
+        ("acecode-download-cancel-" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+         ".zip");
+    std::atomic<int> checks{0};
+    auto result = acecode::upgrade::download_to_file(
+        server.base_url() + "pkg.zip", output, 0,
+        {},
+        [&] { return checks.fetch_add(1) >= 2; });
+
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_TRUE(result.error.empty());
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
+}
+
+TEST(UpgradeHttp, UpgradeCancellationUsesDedicatedExitCodeBeforeInstall) {
+    LocalHttpServer server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            const std::string body = "not-a-real-zip";
+            res.set_content(manifest_for("9.9.9", acecode::upgrade::current_target(),
+                                         "pkg.zip", acecode::sha256_hex(body)),
+                            "application/json");
+        });
+        s.Get("/pkg.zip", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content("not-a-real-zip", "application/zip");
+        });
+    });
+
+    std::atomic<bool> cancel_requested{false};
+    std::ostringstream out;
+    std::ostringstream err;
+    const int code = acecode::upgrade::run_upgrade_command(
+        upgrade_config_for(server), "acecode-test", "0.1.2", out, err, false,
+        [&](const acecode::upgrade::UpgradeProgress& progress) {
+            if (progress.phase == acecode::upgrade::UpgradePhase::Downloading &&
+                progress.bytes_downloaded > 0) {
+                cancel_requested.store(true);
+            }
+        },
+        [&] { return cancel_requested.load(); });
+
+    EXPECT_EQ(code, acecode::upgrade::kUpgradeCancelledExitCode);
+    EXPECT_NE(err.str().find("update cancelled"), std::string::npos);
+    EXPECT_EQ(out.str().find("Checksum: OK"), std::string::npos);
 }
 
 TEST(UpgradeHttp, ChecksumMismatchReturnsBeforeExtraction) {
