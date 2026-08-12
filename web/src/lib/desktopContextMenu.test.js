@@ -165,7 +165,7 @@ test('尚未落盘的会话保留禁用的资源管理器动作', () => {
   assert.deepEqual(explorer.target, { path: '', kind: 'file' });
 });
 
-test('descriptor metadata includes label keys, disabled states, and confirmations', () => {
+test('descriptor metadata includes label keys, disabled states, and scoped confirmations', () => {
   const items = buildDesktopContextMenuItems({
     sessionTarget: { sessionId: 's1', title: '', pinned: false, canArchive: true },
     workspaceTarget: {
@@ -183,8 +183,11 @@ test('descriptor metadata includes label keys, disabled states, and confirmation
   const activateWorkspace = items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.ACTIVATE_WORKSPACE);
   assert.equal(activateWorkspace.enabled, false);
 
+  const archiveSession = items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION);
+  assert.equal(archiveSession.danger, true);
+  assert.equal(Boolean(archiveSession.confirm), false);
+
   for (const action of [
-    DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION,
     DESKTOP_CONTEXT_ACTIONS.REMOVE_WORKSPACE,
     DESKTOP_CONTEXT_ACTIONS.REMOVE_ATTACHMENT,
   ]) {
