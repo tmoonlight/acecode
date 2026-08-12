@@ -54,3 +54,9 @@ CLI 解析顺序如下：
 hook 只向 `HERDR_PANE_ID` 指定的 pane 上报，不使用 UI 当前焦点作为回退。Herdr 必须保证注入的 pane ID 对应承载 ACECode 的终端；若 Herdr 注入了旧 ID 或其他 pane ID，应由 Herdr 修复或在重建 pane 后重新注入，ACECode 不应猜测替换。
 
 Windows 实机验证必须覆盖 `HERDR_BIN_PATH` 缺失的普通 pane 环境，并确认日志中的成功退出确实对应 Herdr agent 列表发生变化，而不是 guard 静默短路。
+
+### Windows shell 命令行边界
+
+Windows hook runner 通过 `cmd.exe /d /s /c` 执行 `commandWindows`。`/c` 后的正文属于 `cmd.exe` 语法，不能再套用普通 C argv 的反斜杠引号转义；否则正文中的 `"..."` 会把反斜杠原样传给子命令。runner 必须只为 `cmd.exe` 路径使用普通 argv 引号，并用 `/s` 的首尾引号包住未经 C argv 转义的命令正文。
+
+Herdr 回归测试必须校验 fake CLI 收到的 pane ID 与 `HERDR_PANE_ID` 完全相等，不能只做子串匹配；这样 `\"w1:p1\"` 一类表面包含正确 ID、实际无法寻址 pane 的参数会直接失败。

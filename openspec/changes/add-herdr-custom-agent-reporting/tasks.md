@@ -33,3 +33,9 @@
 - [x] 5.3 修正 POSIX 与 Windows seed 命令的 Herdr CLI 解析，同时保持 Herdr 外部无副作用。
 - [x] 5.4 同步示例、seed 版本、官方指纹、manifest、安装升级测试与文档。
 - [x] 5.5 运行 focused/full 测试、构建、严格 OpenSpec 校验，并用真实 Windows Herdr CLI 验证 agent 列表联动。
+
+## 6. Windows cmd 引号实机回归
+
+- [x] 6.1 新增先失败的 Windows 回归测试，精确校验 hook runner 传给 Herdr 的 pane ID 不带反斜杠或额外引号。
+- [x] 6.2 修正 `cmd.exe /d /s /c` 的命令行构造，不再对 shell 命令正文应用普通 C argv 引号规则。
+- [x] 6.3 运行 focused/full 测试、构建、严格 OpenSpec 校验，并在真实 Herdr pane 中确认 SessionStart 自动出现在 agents 区域。

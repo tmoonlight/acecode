@@ -89,3 +89,9 @@ ACECode 在派发 `PermissionRequest` 后，MUST 在授权决定确定后恰好�
 - **WHEN** hook 上报任一生命周期状态
 - **THEN** 目标 pane 必须使用 `HERDR_PANE_ID`
 - **AND** hook 不得以 UI 当前聚焦 pane 替换该身份
+
+#### Scenario: Windows pane ID 引号保持
+
+- **WHEN** Windows hook runner 通过 `cmd.exe /d /s /c` 执行 Herdr seed 命令
+- **THEN** Herdr CLI 收到的 pane ID 必须与 `HERDR_PANE_ID` 完全相等
+- **AND** pane ID 不得包含 runner 额外插入的反斜杠或引号

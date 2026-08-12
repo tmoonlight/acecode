@@ -1127,7 +1127,7 @@ TEST(DefaultSkillSeedRegistryTest,
     write_file(
         fake_herdr,
         "@echo off\r\n"
-        ">>\"%HERDR_TEST_LOG%\" echo %*\r\n"
+        ">>\"%HERDR_TEST_LOG%\" echo %~3\r\n"
         "exit /b 0\r\n");
     constexpr const char* command_key = "commandWindows";
     constexpr const char path_separator = ';';
@@ -1136,7 +1136,7 @@ TEST(DefaultSkillSeedRegistryTest,
     write_file(
         fake_herdr,
         "#!/bin/sh\n"
-        "printf '%s\\n' \"$*\" >> \"$HERDR_TEST_LOG\"\n");
+        "printf '%s\\n' \"$3\" >> \"$HERDR_TEST_LOG\"\n");
     fs::permissions(
         fake_herdr,
         fs::perms::owner_read | fs::perms::owner_write |
@@ -1191,7 +1191,7 @@ TEST(DefaultSkillSeedRegistryTest,
     }
     ASSERT_EQ(lines.size(), handler_count);
     for (const auto& line : lines) {
-        EXPECT_NE(line.find(expected_pane), std::string::npos) << line;
+        EXPECT_EQ(line, expected_pane);
     }
 
     std::error_code cleanup_error;

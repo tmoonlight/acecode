@@ -193,10 +193,15 @@ std::string resolve_hook_command_path(const std::string& command) {
     return command;
 }
 
-HookProcessResult run_hook_process(const HookCommandSpec& command,
-                                   const std::string& stdin_text,
-                                   int timeout_ms,
-                                   const std::string& cwd) {
+static HookProcessResult run_hook_process_impl(
+    const HookCommandSpec& command,
+    const std::string& stdin_text,
+    int timeout_ms,
+    const std::string& cwd,
+    const std::string* windows_shell_command) {
+#ifndef _WIN32
+    (void)windows_shell_command;
+#endif
     HookProcessResult result;
     auto started_at = std::chrono::steady_clock::now();
     auto finish = [&]() {
@@ -274,7 +279,20 @@ HookProcessResult run_hook_process(const HookCommandSpec& command,
     si.hStdError = child_stderr_write;
 
     PROCESS_INFORMATION pi{};
-    std::wstring cmdline = build_windows_command_line(argv);
+    std::wstring cmdline;
+    if (windows_shell_command) {
+        // cmd.exe parses the text after /c itself. Applying the normal C argv
+        // escaping here turns every embedded quote into \"; cmd treats the
+        // backslash literally, so quoted arguments such as a Herdr pane ID
+        // arrive as \"w1:p1\" instead of w1:p1. /s removes the outer pair
+        // below and leaves the command body's own quotes for cmd to interpret.
+        cmdline = quote_windows_arg(argv[0]);
+        cmdline += L" /d /s /c \"";
+        cmdline += utf8_to_wide(*windows_shell_command);
+        cmdline += L"\"";
+    } else {
+        cmdline = build_windows_command_line(argv);
+    }
     std::vector<wchar_t> mutable_cmdline(cmdline.begin(), cmdline.end());
     mutable_cmdline.push_back(L'\0');
 
@@ -482,6 +500,13 @@ HookProcessResult run_hook_process(const HookCommandSpec& command,
 #endif
 }
 
+HookProcessResult run_hook_process(const HookCommandSpec& command,
+                                   const std::string& stdin_text,
+                                   int timeout_ms,
+                                   const std::string& cwd) {
+    return run_hook_process_impl(command, stdin_text, timeout_ms, cwd, nullptr);
+}
+
 HookProcessResult run_hook_shell_command(const std::string& command,
                                          const std::string& stdin_text,
                                          int timeout_ms,
@@ -490,13 +515,13 @@ HookProcessResult run_hook_shell_command(const std::string& command,
 #ifdef _WIN32
     const char* comspec = std::getenv("COMSPEC");
     spec.command = (comspec && *comspec) ? std::string(comspec) : std::string("cmd.exe");
-    spec.args = {"/d", "/s", "/c", command};
+    return run_hook_process_impl(spec, stdin_text, timeout_ms, cwd, &command);
 #else
     const char* shell = std::getenv("SHELL");
     spec.command = (shell && *shell) ? std::string(shell) : std::string("/bin/sh");
     spec.args = {"-c", command};
-#endif
     return run_hook_process(spec, stdin_text, timeout_ms, cwd);
+#endif
 }
 
 } // namespace acecode
