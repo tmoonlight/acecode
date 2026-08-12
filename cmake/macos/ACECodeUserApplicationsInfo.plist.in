@@ -10,17 +10,17 @@
     <dict>
       <key>CFBundleTypeExtensions</key>
       <array>
-        <string>app</string>
+        <string>*</string>
       </array>
       <key>CFBundleTypeName</key>
-      <string>ACECode Application Bundle</string>
+      <string>ACECode Drop Payload</string>
       <key>CFBundleTypeRole</key>
       <string>Viewer</string>
       <key>LSHandlerRank</key>
-      <string>Alternate</string>
+      <string>None</string>
       <key>LSItemContentTypes</key>
       <array>
-        <string>com.apple.application-bundle</string>
+        <string>public.item</string>
       </array>
     </dict>
   </array>

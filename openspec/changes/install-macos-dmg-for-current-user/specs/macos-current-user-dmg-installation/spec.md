@@ -6,12 +6,18 @@ macOS DMG SHALL 仅显示 `ACECode.app` 与名为 `Applications` 的当前用户
 #### Scenario: 用户拖放主应用
 - **WHEN** 用户把同一 DMG 中的 `ACECode.app` 拖到 `Applications` 安装入口
 - **THEN** 安装入口把该应用安装到运行用户的 `~/Applications/ACECode.app`
+- **THEN** 成功安装与启动过程不要求用户再点击右侧入口或确认成功对话框
 - **THEN** 系统 `/Applications` 不被写入
 
 #### Scenario: 用户直接打开安装入口
 - **WHEN** 用户直接打开 DMG 中的 `Applications` 安装入口
-- **THEN** 安装入口使用同一 DMG 内相邻的 `ACECode.app` 作为唯一安装来源
-- **THEN** 安装结果仍位于运行用户的 `~/Applications/ACECode.app`
+- **THEN** 安装入口提示用户把左侧 `ACECode.app` 拖到该入口
+- **THEN** 未收到 Finder 拖放来源时不得执行安装
+
+#### Scenario: Finder 识别拖放接收器
+- **WHEN** Finder 判断 `ACECode.app` 是否可以拖到右侧入口
+- **THEN** 入口 SHALL 通过通用项目 UTI 声明接受拖放，并 SHALL 使用不会参与默认打开方式竞争的处理等级
+- **THEN** 运行时仍 MUST 拒绝同盘相邻 `ACECode.app` 之外的所有来源
 
 #### Scenario: Finder 显示安装布局
 - **WHEN** 用户在 Finder 中打开 DMG

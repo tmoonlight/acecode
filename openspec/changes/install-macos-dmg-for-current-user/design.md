@@ -25,7 +25,7 @@
 
 ### 使用运行时安装入口而不是静态用户目录链接
 
-DMG 右侧将放置签名的 `Applications.app`，Finder 默认显示为 `Applications`。它既接受从同一 DMG 拖入 `ACECode.app`，也允许直接打开，并在运行时通过 `NSHomeDirectory()` 解析当前用户主目录。
+DMG 右侧将放置签名的 `Applications.app`，Finder 默认显示为 `Applications`。它是一个只用于接收拖放的 droplet：Launch Services 将其声明为可接收 Finder 项目但不参与默认打开方式竞争，用户把同一 DMG 的 `ACECode.app` 拖入后，它在运行时通过 `NSHomeDirectory()` 解析当前用户主目录并立即安装。直接打开该入口只显示拖放提示，不执行安装。
 
 静态 `~/Applications` 链接不可用，因为 POSIX 符号链接不展开 `~`；打包时展开 `$HOME` 会指向构建用户。可执行安装入口虽然比符号链接多一个小型 bundle，但能为任意下载用户提供确定且可审计的目标。
 
@@ -37,7 +37,7 @@ DMG 右侧将放置签名的 `Applications.app`，Finder 默认显示为 `Applic
 
 ### 保持两项式布局并明确真实语义
 
-DMG 不再包含 `/Applications` 符号链接，也不增加可见说明文件。右侧 bundle 的显示名为 `Applications`，构建时直接使用当前 macOS 提供的标准 `ApplicationsFolderIcon.icns`，使其与常规 DMG 的 Applications 文件夹目标保持一致，不再复用 ACECode 品牌图标或叠加下载徽标。背景仍只显示品牌与左到右箭头。布局测试必须同时断言用户安装入口存在、使用系统 Applications 文件夹图标以及系统链接不存在。
+DMG 不再包含 `/Applications` 符号链接，也不增加可见说明文件。右侧 bundle 的显示名为 `Applications`，构建时直接使用当前 macOS 提供的标准 `ApplicationsFolderIcon.icns`，使其与常规 DMG 的 Applications 文件夹目标保持一致，不再复用 ACECode 品牌图标或叠加下载徽标。其文档类型使用 `public.item` 与 `LSHandlerRank=None` 形成明确的 Finder droplet；运行时仍只接受同盘相邻且 Bundle ID 正确的 `ACECode.app`。背景仍只显示品牌与左到右箭头。布局测试必须同时断言用户安装入口存在、使用系统 Applications 文件夹图标、可接收拖放以及系统链接不存在。
 
 ### 将安装入口纳入发布信任链
 
@@ -45,7 +45,7 @@ CMake 生成 `Applications.app`；发布工作流构建并剥离其符号，使�
 
 ## Risks / Trade-offs
 
-- **右侧项目技术上是应用而不是文件夹** → 使用 macOS 自带的 Applications 文件夹图标维持标准 DMG 视觉语义，并在文档说明拖放或双击行为。
+- **右侧项目技术上是应用而不是文件夹** → 使用 macOS 自带的 Applications 文件夹图标维持标准 DMG 视觉语义，并将其配置为只接收拖放的 droplet；直接打开仅提示用户拖放。
 - **恢复安装入口增加构建与签名表面** → 保持实现独立、仅链接 AppKit/Foundation，并在工作流和脚本测试中强制构建及签名参数。
 - **现有系统级副本可能与用户级副本并存** → 只安装和启动当前用户副本，不自动删除系统副本；后续更新仍只更新实际运行的受支持副本。
 - **目标目录可能被符号链接重定向** → 创建或验证真实目录并在复制前、替换前检查规范化后的精确目标。

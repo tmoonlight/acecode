@@ -13,6 +13,7 @@ namespace fs = std::filesystem;
 NSString* const kAcecodeBundleIdentifier = @"dev.acecode.desktop";
 
 void show_alert(NSAlertStyle style, NSString* message, NSString* detail) {
+    [NSApp activateIgnoringOtherApps:YES];
     NSAlert* alert = [[NSAlert alloc] init];
     [alert setAlertStyle:style];
     [alert setMessageText:message];
@@ -89,8 +90,32 @@ bool dropped_source_is_expected(NSURL* requested_url, NSURL* expected_url) {
     if (!requested_url || !expected_url || ![requested_url isFileURL]) {
         return false;
     }
-    return filesystem_path(requested_url).lexically_normal() ==
-           filesystem_path(expected_url).lexically_normal();
+
+    NSURL* requested_resolved =
+        [[requested_url URLByStandardizingPath] URLByResolvingSymlinksInPath];
+    NSURL* expected_resolved =
+        [[expected_url URLByStandardizingPath] URLByResolvingSymlinksInPath];
+
+    id requested_identifier = nil;
+    id expected_identifier = nil;
+    NSError* requested_error = nil;
+    NSError* expected_error = nil;
+    const BOOL requested_has_identifier =
+        [requested_resolved getResourceValue:&requested_identifier
+                                      forKey:NSURLFileResourceIdentifierKey
+                                       error:&requested_error];
+    const BOOL expected_has_identifier =
+        [expected_resolved getResourceValue:&expected_identifier
+                                     forKey:NSURLFileResourceIdentifierKey
+                                      error:&expected_error];
+    if (requested_has_identifier && expected_has_identifier &&
+        requested_identifier && expected_identifier &&
+        [requested_identifier isEqual:expected_identifier]) {
+        return true;
+    }
+
+    return filesystem_path(requested_resolved).lexically_normal() ==
+           filesystem_path(expected_resolved).lexically_normal();
 }
 
 int install_application(NSURL* source_url) {
@@ -248,10 +273,6 @@ int install_application(NSURL* source_url) {
         return 1;
     }
 
-    show_alert(NSAlertStyleInformational,
-               @"ACECode installed / ACECode 已安装",
-               @"Installed for the current user at ~/Applications/ACECode.app. No administrator access was requested.\n\n已为当前用户安装到 ~/Applications/ACECode.app，全程未请求管理员权限。ACECode 即将启动。");
-
     if (![[NSWorkspace sharedWorkspace] openURL:destination_url]) {
         show_error(@"ACECode was installed, but macOS could not open it automatically. Open ~/Applications/ACECode.app manually.\n\nACECode 已安装，但 macOS 无法自动启动。请手动打开 ~/Applications/ACECode.app。");
         return 1;
@@ -264,7 +285,9 @@ int install_application(NSURL* source_url) {
 @interface ACECodeUserApplicationsDelegate : NSObject <NSApplicationDelegate> {
 @private
     NSURL* requested_source_url_;
+    BOOL launch_finished_;
     BOOL installation_started_;
+    BOOL invalid_drop_;
     int exit_code_;
 }
 
@@ -280,7 +303,9 @@ int install_application(NSURL* source_url) {
     self = [super init];
     if (self) {
         requested_source_url_ = nil;
+        launch_finished_ = NO;
         installation_started_ = NO;
+        invalid_drop_ = NO;
         exit_code_ = 1;
     }
     return self;
@@ -297,13 +322,27 @@ int install_application(NSURL* source_url) {
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
     (void)notification;
-    [NSApp activateIgnoringOtherApps:YES];
+    launch_finished_ = YES;
+    if (requested_source_url_ || invalid_drop_) {
+        [self beginInstallation];
+        return;
+    }
 
-    // Finder normally delivers open-file events during launch. A short delay
-    // lets that event select the dragged payload before direct-open fallback.
-    [self performSelector:@selector(beginInstallation)
-               withObject:nil
-               afterDelay:0.25];
+    show_alert(NSAlertStyleInformational,
+               @"Drag ACECode to Applications / 将 ACECode 拖到 Applications",
+               @"Drag the ACECode icon on the left onto this Applications icon. Installation to ~/Applications starts when you release it.\n\n请把左侧 ACECode 图标拖到这个 Applications 图标上，松手后会自动安装到 ~/Applications。");
+    exit_code_ = 0;
+    [NSApp stop:self];
+}
+
+- (BOOL)application:(NSApplication*)application
+            openFile:(NSString*)filename {
+    (void)application;
+    if (!filename) return NO;
+    [self acceptOpenURLs:@[
+        [NSURL fileURLWithPath:filename isDirectory:YES]
+    ]];
+    return YES;
 }
 
 - (void)application:(NSApplication*)application
@@ -324,17 +363,18 @@ int install_application(NSURL* source_url) {
 }
 
 - (void)acceptOpenURLs:(NSArray<NSURL*>*)urls {
-    if (installation_started_ || requested_source_url_ || [urls count] == 0) {
+    if (installation_started_ || requested_source_url_ || invalid_drop_) {
+        return;
+    }
+
+    if ([urls count] != 1) {
+        invalid_drop_ = YES;
+        if (launch_finished_) [self beginInstallation];
         return;
     }
 
     requested_source_url_ = [[urls objectAtIndex:0] retain];
-    [NSObject cancelPreviousPerformRequestsWithTarget:self
-                                             selector:@selector(beginInstallation)
-                                               object:nil];
-    [self performSelector:@selector(beginInstallation)
-               withObject:nil
-               afterDelay:0.05];
+    if (launch_finished_) [self beginInstallation];
 }
 
 - (void)beginInstallation {
@@ -342,7 +382,7 @@ int install_application(NSURL* source_url) {
     installation_started_ = YES;
 
     NSURL* source_url = expected_source_url();
-    if (requested_source_url_ &&
+    if (invalid_drop_ || !requested_source_url_ ||
         !dropped_source_is_expected(requested_source_url_, source_url)) {
         show_error(@"Drag the ACECode.app from beside Applications. Other applications are not accepted.\n\n请拖入 Applications 旁边的 ACECode.app，不能安装其他应用。");
         exit_code_ = 1;

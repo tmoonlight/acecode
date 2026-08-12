@@ -6,6 +6,7 @@ dmg_script="$repo_root/scripts/macos_create_dmg.sh"
 desktop_cmake="$repo_root/cmake/acecode_desktop.cmake"
 user_applications_plist="$repo_root/cmake/macos/ACECodeUserApplicationsInfo.plist.in"
 user_applications_source="$repo_root/src/macos_user_applications/main.mm"
+drop_verify_script="$repo_root/scripts/macos_verify_user_applications_drop.sh"
 dmg_background="$repo_root/assets/macos/acecode-dmg-background.svg"
 system_applications_icon="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/ApplicationsFolderIcon.icns"
 
@@ -47,13 +48,30 @@ grep -Fq 'add_executable(acecode-user-applications MACOSX_BUNDLE' "$desktop_cmak
 grep -Fq 'RUNTIME_OUTPUT_NAME "Applications"' "$desktop_cmake"
 grep -Fq 'MACOSX_PACKAGE_LOCATION "Resources"' "$desktop_cmake"
 grep -Fq '<key>CFBundleDocumentTypes</key>' "$user_applications_plist"
-grep -Fq '<string>com.apple.application-bundle</string>' "$user_applications_plist"
-grep -Fq '<string>Alternate</string>' "$user_applications_plist"
+grep -Fq '<string>public.item</string>' "$user_applications_plist"
+grep -Fq '<string>None</string>' "$user_applications_plist"
+grep -Fq '<string>*</string>' "$user_applications_plist"
 grep -Fq 'application:(NSApplication*)application' "$user_applications_source"
+grep -Fq 'openFile:(NSString*)filename' "$user_applications_source"
 grep -Fq 'openURLs:(NSArray<NSURL*>*)urls' "$user_applications_source"
 grep -Fq 'dropped_source_is_expected' "$user_applications_source"
+grep -Fq 'NSURLFileResourceIdentifierKey' "$user_applications_source"
 grep -Fq 'expected_source_url' "$user_applications_source"
 grep -Fq 'NSHomeDirectory()' "$user_applications_source"
+grep -Fq 'Drag ACECode to Applications / 将 ACECode 拖到 Applications' \
+    "$user_applications_source"
+grep -Fq 'macOS Applications droplet integration check passed' \
+    "$drop_verify_script"
+
+if grep -Fq 'ACECode installed / ACECode 已安装' "$user_applications_source"; then
+    echo "Successful Finder drops must not require a confirmation click" >&2
+    exit 1
+fi
+if grep -Fq 'performSelector:@selector(beginInstallation)' \
+    "$user_applications_source"; then
+    echo "Direct-open fallback must not install without a Finder drop" >&2
+    exit 1
+fi
 
 grep -Fq -- '-format UDRW' "$dmg_script"
 grep -Fq '/usr/bin/osascript' "$dmg_script"

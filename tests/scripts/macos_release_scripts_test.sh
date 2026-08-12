@@ -6,6 +6,7 @@ sign_script="$repo_root/scripts/macos_codesign.sh"
 dmg_script="$repo_root/scripts/macos_create_dmg.sh"
 notarize_script="$repo_root/scripts/macos_notarize.sh"
 notarize_app_script="$repo_root/scripts/macos_notarize_app.sh"
+drop_verify_script="$repo_root/scripts/macos_verify_user_applications_drop.sh"
 update_zip_script="$repo_root/scripts/macos_create_update_zip.sh"
 package_workflow="$repo_root/.github/workflows/package.yml"
 
@@ -33,7 +34,8 @@ expect_status() {
 }
 
 for script in "$sign_script" "$dmg_script" "$notarize_script" \
-              "$notarize_app_script" "$update_zip_script"; do
+              "$notarize_app_script" "$drop_verify_script" \
+              "$update_zip_script"; do
     bash -n "$script"
     expect_status 0 "help for $(basename "$script")" bash "$script" --help
     expect_status 2 "unknown argument for $(basename "$script")" \
@@ -56,6 +58,7 @@ grep -Fq 'scripts/macos_notarize_app.sh --app "build/ACECode.app"' "$package_wor
 grep -Fq 'scripts/macos_create_update_zip.sh' "$package_workflow"
 grep -Fq 'scripts/macos_create_dmg.sh' "$package_workflow"
 grep -Fq 'cmake --build build --config MinSizeRel --target acecode-user-applications' "$package_workflow"
+grep -Fq 'bash scripts/macos_verify_user_applications_drop.sh' "$package_workflow"
 grep -Fq -- '--bundle "build/Applications.app"' "$package_workflow"
 grep -Fq -- '--user-applications "build/Applications.app"' "$package_workflow"
 grep -Fq 'acecode-${{ matrix.id }}-update' "$package_workflow"

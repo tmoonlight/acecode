@@ -216,6 +216,13 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-user-applications
 
+      - name: Verify current-user Applications drag target (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bash scripts/macos_verify_user_applications_drop.sh \
+            --bundle "build/Applications.app"
+
       - name: Extract debug symbols (Linux)
         if: runner.os == 'Linux'
         shell: bash

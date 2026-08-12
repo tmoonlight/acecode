@@ -16,8 +16,9 @@ Each DMG contains:
 
 Open the DMG and drag `ACECode.app` onto `Applications` on the right. The target
 resolves the user who opened it and copies the bundled app to
-`~/Applications/ACECode.app`. Double-clicking `Applications` performs the same
-installation using the adjacent `ACECode.app`.
+`~/Applications/ACECode.app`, then launches it without requiring another click
+or a success confirmation. Double-clicking `Applications` does not install;
+it only reminds the user to drag the left `ACECode` icon onto it.
 
 The current-user install has these boundaries:
 
@@ -225,6 +226,9 @@ Given an already configured macOS build directory:
 
 ```bash
 cmake --build build --target acecode acecode-desktop acecode-user-applications
+
+bash scripts/macos_verify_user_applications_drop.sh \
+  --bundle build/Applications.app
 
 codesign_identity="Developer ID Application: Name (TEAMID)"
 scripts/macos_codesign.sh \
