@@ -391,8 +391,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     }
 
     // Daemon/WebUI 不经过 TUI 的启动初始化路径，因此必须在这里装载本地
-    // models.dev 快照。否则模型目录处理器只能看到进程级空注册表，实际构建
-    // 启动后“热门预置”会稳定返回 503，尽管源码级处理器测试可以通过。
+    // models.dev 快照。否则模型目录处理器只能看到进程级空注册表，Provider
+    // 与模型查询在实际构建启动后不可用，尽管源码级处理器测试可以通过。
     std::string executable_dir;
     if (const std::string executable = current_executable_path();
         !executable.empty()) {

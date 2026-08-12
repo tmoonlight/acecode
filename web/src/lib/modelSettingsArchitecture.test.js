@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROVIDER_LOGO_ASSET_BY_ID } from './providerLogos.generated.js';
+import { providerLogoAssetId, providerLogoPath } from './providerLogos.js';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -24,10 +26,10 @@ const section = source('components/model-settings/ModelSettingsSection.jsx');
 const dialog = source('components/model-settings/ModelProfileDialog.jsx');
 const picker = source('components/model-settings/ProviderCatalogPicker.jsx');
 const connection = source('components/model-settings/ModelConnectionCard.jsx');
-const recommended = source('components/model-settings/RecommendedModelList.jsx');
+const providerIcon = source('components/model-settings/ProviderIcon.jsx');
 const saved = source('components/model-settings/SavedModelList.jsx');
 const helpers = source('lib/modelSettings.js');
-const focusedComponents = [section, dialog, picker, connection, recommended, saved].join('\n');
+const focusedComponents = [section, dialog, picker, connection, providerIcon, saved].join('\n');
 
 run('model settings navigation delegates to focused list-first components', () => {
   assert.match(
@@ -38,20 +40,19 @@ run('model settings navigation delegates to focused list-first components', () =
   assert.doesNotMatch(settingsPage, /function draftFromModelProfile/);
 
   const connectionIndex = section.indexOf('<ModelConnectionCard');
-  const recommendedIndex = section.indexOf('<RecommendedModelList');
   const savedIndex = section.indexOf('<SavedModelList');
   assert.ok(connectionIndex >= 0);
-  assert.ok(recommendedIndex > connectionIndex);
-  assert.ok(savedIndex > recommendedIndex);
+  assert.ok(savedIndex > connectionIndex);
+  assert.doesNotMatch(section, /RecommendedModelList|recommendedModels|热门预置/);
 });
 
-run('one adaptive profile Modal owns add edit and template flows', () => {
+run('one adaptive profile Modal owns add and edit flows without template mode', () => {
   assert.match(section, /mode: 'add'/);
-  assert.match(section, /mode: 'template'/);
   assert.match(section, /mode: 'edit'/);
+  assert.doesNotMatch(section, /mode: 'template'/);
   assert.equal((section.match(/<ModelProfileDialog/g) || []).length, 1);
   assert.match(dialog, /mode === 'edit'/);
-  assert.match(dialog, /mode === 'template'/);
+  assert.doesNotMatch(dialog, /mode === 'template'|templateWarning|templateActive/);
   assert.match(dialog, /<ProviderCatalogPicker/);
   assert.match(dialog, /dismissOnBackdrop=\{!submitting\}/);
   assert.match(dialog, /dismissOnEscape=\{!submitting\}/);
@@ -82,19 +83,30 @@ run('provider picker keeps catalog queries bounded and supports docs manual ids 
   assert.match(picker, /role="listbox"/);
   assert.match(picker, /aria-selected=\{active\}/);
   assert.match(picker, /aria-selected=\{selected\}/);
+  assert.match(picker, /<ProviderIcon provider=\{item\} active=\{active\} \/>/);
+  assert.match(picker, /flex h-9 w-full items-center gap-2/);
+  assert.doesNotMatch(picker, /item\.runtime_provider === 'copilot'[\s\S]*?item\.id/);
 });
 
-run('templates are API-driven drafts and expose catalog and privacy warnings', () => {
-  assert.match(section, /const recommendedModels = catalog\?\.recommended_models \|\| \[\]/);
-  assert.match(section, /modelProfileDraftFromTemplate\(template, provider\)/);
-  assert.match(section, /warning: template\.privacy_warning/);
-  assert.match(recommended, /items\.map\(\(item\) =>/);
-  assert.match(recommended, /item\.privacy_warning/);
-  assert.match(recommended, /!loading && items\.length > 0/);
-  assert.doesNotMatch(recommended, /xiaomi\/mimo|deepseek-v4|nemotron-3/);
-  assert.match(dialog, /const templateActive = mode === 'template' && isTemplateDraftActive/);
-  assert.match(dialog, /templateActive && templateWarning/);
-  assert.match(dialog, /allowMultiple=\{!editing && !templateActive\}/);
+run('Provider logos are local deduplicated assets within the package budget', () => {
+  const logoDir = path.resolve(srcRoot, '../public/provider-logos');
+  const manifest = JSON.parse(fs.readFileSync(path.join(logoDir, 'MANIFEST.json'), 'utf8'));
+  const catalog = JSON.parse(fs.readFileSync(
+    path.resolve(srcRoot, '../../assets/models_dev/api.json'),
+    'utf8',
+  ));
+  const svgFiles = new Set(fs.readdirSync(logoDir).filter((name) => name.endsWith('.svg')));
+  assert.equal(manifest.provider_count, Object.keys(catalog).length);
+  assert.equal(manifest.provider_count, Object.keys(PROVIDER_LOGO_ASSET_BY_ID).length);
+  assert.equal(manifest.unique_asset_count, svgFiles.size);
+  assert.ok(manifest.bundled_svg_bytes <= manifest.max_bundled_svg_bytes);
+  Object.values(PROVIDER_LOGO_ASSET_BY_ID).forEach((assetId) => {
+    assert.ok(svgFiles.has(`${assetId}.svg`), `missing logo asset: ${assetId}`);
+  });
+  assert.equal(providerLogoAssetId({ id: 'copilot' }), PROVIDER_LOGO_ASSET_BY_ID['github-copilot']);
+  assert.equal(providerLogoAssetId({ id: 'custom-openai' }), PROVIDER_LOGO_ASSET_BY_ID.openai);
+  assert.equal(providerLogoPath({ id: 'future-provider' }), '');
+  assert.doesNotMatch(providerIcon, /https:\/\/models\.dev/);
 });
 
 run('runtime mutation payloads compact reasoning, clear edits, and keep batch metadata per model', () => {
@@ -128,7 +140,6 @@ run('successful mutations use the existing model profile revision bridge only', 
   assert.match(section, /onModelProfileUpdated\?\.\(\{ type: 'default'/);
   assert.match(section, /onModelProfileUpdated\?\.\(\{ type: 'delete'/);
   assert.doesNotMatch(dialog, /setDefaultModel|switchModel/);
-  assert.doesNotMatch(recommended, /addModel|setDefaultModel|switchModel/);
 });
 
 run('model settings use semantic theme tokens and reserve mono for request-header JSON', () => {
@@ -141,7 +152,6 @@ run('model settings use semantic theme tokens and reserve mono for request-heade
 
 run('rows search controls dialogs and busy states expose keyboard and ARIA contracts', () => {
   assert.match(connection, /aria-labelledby="model-connections-title"/);
-  assert.match(recommended, /aria-labelledby="recommended-models-title"/);
   assert.match(saved, /aria-labelledby="saved-models-title"/);
   assert.match(saved, /type="search"/);
   assert.match(saved, /aria-label=\{`编辑模型 \$\{model\.name\}`\}/);

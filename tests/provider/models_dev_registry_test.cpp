@@ -135,12 +135,11 @@ TEST(ModelsDevRegistry, CorruptJsonGracefullyEmpty) {
     set_env("ACECODE_MODELS_DEV_DIR", nullptr);
 }
 
-// 显式刷新候选必须原子安装；无效候选保留最后有效注册表与推荐 seed。
-TEST(ModelsDevRegistry, RefreshCandidateIsFailureSafeAndPreservesBundledSeed) {
+// 显式刷新候选必须原子安装；无效候选保留最后有效注册表与随包来源元数据。
+TEST(ModelsDevRegistry, RefreshCandidateIsFailureSafeAndPreservesBundledSource) {
     auto seed = tmp_dir("refresh_candidate");
     write_file(seed / "api.json", kMinimalRegistry);
     write_file(seed / "MANIFEST.json", R"({"generated_at":"2026-08-10T00:00:00Z"})");
-    write_file(seed / "recommended_models.json", R"({"placeholder":true})");
     set_env("ACECODE_MODELS_DEV_DIR", seed.string().c_str());
     acecode::AppConfig cfg;
     acecode::initialize_registry(cfg, "");

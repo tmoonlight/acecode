@@ -185,7 +185,7 @@ export function SavedModelList({
             {query ? '没有匹配的已保存模型' : '还没有保存模型'}
           </div>
           <div className="mt-1 text-[11px] text-fg-mute">
-            {query ? '调整搜索词，或清空搜索查看全部预设。' : '选择热门模板，或新增一个 Provider 配置。'}
+            {query ? '调整搜索词，或清空搜索查看全部预设。' : '新增一个 Provider 配置后即可在这里管理。'}
           </div>
         </div>
       )}

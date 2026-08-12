@@ -6,7 +6,6 @@ import {
   buildModelMutationPayloads,
   compatibleCredentialSources,
   hasAdvancedModelValues,
-  isTemplateDraftActive,
   markModelMetadataOverrides,
   modelFieldPolicy,
   modelNameSuggestion,
@@ -53,7 +52,6 @@ export function ModelProfileDialog({
   apiClient,
   mode,
   seed,
-  templateWarning = '',
   providers,
   savedModels,
   originalName = '',
@@ -73,7 +71,6 @@ export function ModelProfileDialog({
   const [saveAsName, setSaveAsName] = useState('');
   const saveAsRef = useRef(null);
   const provider = useMemo(() => providerForDraft(providers, draft), [draft, providers]);
-  const templateActive = mode === 'template' && isTemplateDraftActive(seed, draft);
   const policy = provider ? modelFieldPolicy(provider) : null;
   const credentialSources = useMemo(
     () => compatibleCredentialSources(savedModels, draft),
@@ -167,9 +164,7 @@ export function ModelProfileDialog({
   const updateReasoning = (patch) => patchMetadataDraft({
     reasoning: { ...reasoning, ...patch },
   });
-  const title = editing
-    ? `编辑模型 · ${originalName}`
-    : templateActive ? '配置热门模型' : '新增模型';
+  const title = editing ? `编辑模型 · ${originalName}` : '新增模型';
 
   return (
     <Modal
@@ -204,19 +199,12 @@ export function ModelProfileDialog({
         </header>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          {templateActive && templateWarning && (
-            <div role="note" className="flex items-start gap-2 rounded-md border border-warn bg-warn-bg px-3 py-2.5 text-[11px] leading-5 text-warn">
-              <VsIcon name="warning" size={13} className="mt-1 shrink-0" />
-              <span>{templateWarning}</span>
-            </div>
-          )}
-
           <ProviderCatalogPicker
             apiClient={apiClient}
             providers={providers}
             provider={provider}
             draft={draft}
-            allowMultiple={!editing && !templateActive}
+            allowMultiple={!editing}
             copilotAuthenticated={copilotAuthenticated}
             onProviderChange={selectProvider}
             onDraftChange={setDraft}

@@ -6700,7 +6700,7 @@ TEST(WebServerHttp, ModelCatalogRoutesReturnBoundedCanonicalLocalData) {
     ASSERT_TRUE(summary["catalog"]["version"].is_number_unsigned() ||
                 summary["catalog"]["version"].is_number_integer());
     ASSERT_TRUE(summary.contains("providers"));
-    ASSERT_EQ(summary["recommended_models"].size(), 5u);
+    EXPECT_FALSE(summary.contains("recommended_models"));
     EXPECT_FALSE(summary_response.text.find("api_key\"") != std::string::npos);
 
     auto query_response = cpr::Get(cpr::Url{

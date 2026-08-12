@@ -1767,8 +1767,7 @@ Errors include `COPILOT_AUTH_REQUIRED`, `INVALID_REQUEST_HEADER`,
       "group": "native",
       "endpoint_modes": ["base_url"]
     }
-  ],
-  "recommended_models": []
+  ]
 }
 ```
 
@@ -1777,10 +1776,6 @@ Errors include `COPILOT_AUTH_REQUIRED`, `INVALID_REQUEST_HEADER`,
 `endpoint_modes:["base_url","full_url"]`，并要求 API Key 或兼容的
 `credential_source_name`；Copilot 使用 `managed`，由 ACECode 的 GitHub 登录与
 受管端点负责认证。
-
-`recommended_models` 固定来自随包审查的五项清单，使用 `model_id` 作为模型
-身份，不增加第二套模板 ID。目录刷新只补充这些项的模型元数据，不改变成员、
-顺序或人工审查字段；离线时仍可使用随包清单。
 
 ### `GET /api/models/catalog/:provider_id`
 

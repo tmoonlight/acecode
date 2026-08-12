@@ -1,12 +1,9 @@
 #include "model_catalog_handler.hpp"
 
 #include "../../config/saved_models.hpp"
-#include "../../utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>
-#include <filesystem>
-#include <set>
 
 namespace acecode::web {
 namespace {
@@ -236,20 +233,14 @@ nlohmann::json catalog_metadata_to_json(const RegistrySource& source,
 nlohmann::json model_catalog_summary_to_json(
     const std::vector<ProviderEntry>& providers,
     const RegistrySource& source,
-    const RecommendedModelsManifest& recommendations,
     unsigned long long version) {
     nlohmann::json provider_json = nlohmann::json::array();
     for (auto& provider : provider_descriptors(providers)) {
         provider_json.push_back(std::move(provider));
     }
-    nlohmann::json recommended_json = nlohmann::json::array();
-    for (const auto& recommendation : recommendations.models) {
-        recommended_json.push_back(recommended_model_to_json(recommendation));
-    }
     return nlohmann::json{
         {"catalog", catalog_metadata_to_json(source, version)},
         {"providers", std::move(provider_json)},
-        {"recommended_models", std::move(recommended_json)},
     };
 }
 
@@ -301,20 +292,6 @@ std::optional<nlohmann::json> query_model_catalog_to_json(
         {"models", std::move(model_json)},
         {"limit", effective_limit},
     };
-}
-
-std::optional<RecommendedModelsManifest> load_active_recommendations(
-    const RegistrySource& source,
-    const std::vector<ProviderEntry>& providers,
-    std::string& error) {
-    if (!source.seed_dir.has_value() || source.seed_dir->empty()) {
-        error = "installed models.dev recommendation directory is unavailable";
-        return std::nullopt;
-    }
-    auto manifest = load_recommended_models_manifest(
-        path_from_utf8(*source.seed_dir), error);
-    if (!manifest.has_value()) return std::nullopt;
-    return supplement_recommended_models(std::move(*manifest), providers);
 }
 
 } // namespace acecode::web

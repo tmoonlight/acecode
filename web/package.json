@@ -9,6 +9,7 @@
     "test": "node src/lib/runTests.js",
     "i18n:audit": "node scripts/i18n-audit.mjs",
     "i18n:catalog": "node scripts/generate-source-catalog.mjs",
+    "sync:provider-logos": "node scripts/sync-provider-logos.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

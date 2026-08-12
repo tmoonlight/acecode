@@ -919,7 +919,8 @@ std::vector<std::string> win_web_message_file_paths(
     if (FAILED(message_hr) || message != kWindowsFilesystemDropMessage) return {};
 
     Microsoft::WRL::ComPtr<ICoreWebView2WebMessageReceivedEventArgs2> args2;
-    if (FAILED(args->QueryInterface(IID_PPV_ARGS(args2.GetAddressOf()))) || !args2) {
+    if (
+        FAILED(args->QueryInterface(IID_PPV_ARGS(args2.GetAddressOf()))) || !args2) {
         return {};
     }
 

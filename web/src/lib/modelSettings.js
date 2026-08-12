@@ -324,68 +324,13 @@ export function normalizeCatalogModel(raw, index = 0) {
   };
 }
 
-function normalizeRecommendedModel(raw, index) {
-  const value = requireObject(raw, `recommended_models[${index}]`);
-  const modelId = requireString(value.model_id, `recommended_models[${index}].model_id`);
-  return {
-    id: optionalString(value.id, `recommended_models[${index}].id`) || modelId,
-    provider_id: requireString(
-      value.provider_id,
-      `recommended_models[${index}].provider_id`,
-    ),
-    model_id: modelId,
-    name: requireString(value.name, `recommended_models[${index}].name`),
-    context_window: optionalPositiveInteger(
-      value.context_window,
-      `recommended_models[${index}].context_window`,
-    ),
-    max_output_tokens: optionalPositiveInteger(
-      value.max_output_tokens,
-      `recommended_models[${index}].max_output_tokens`,
-    ),
-    capabilities: normalizeResponseCapabilities(
-      value.capabilities,
-      `recommended_models[${index}].capabilities`,
-    ),
-    reasoning: normalizeReasoning(
-      value.reasoning,
-      `recommended_models[${index}].reasoning`,
-    ),
-    deprecated: optionalBoolean(
-      value.deprecated,
-      `recommended_models[${index}].deprecated`,
-      false,
-    ),
-    unavailable: optionalBoolean(
-      value.unavailable,
-      `recommended_models[${index}].unavailable`,
-      false,
-    ),
-    privacy_warning: optionalString(
-      value.privacy_warning,
-      `recommended_models[${index}].privacy_warning`,
-    ),
-    source_date: optionalString(value.source_date, `recommended_models[${index}].source_date`),
-  };
-}
-
 export function normalizeModelCatalogSummary(payload) {
   const value = requireObject(payload, 'catalog response');
   const catalog = requireObject(value.catalog, 'catalog response.catalog');
   const providers = requireArray(value.providers, 'catalog response.providers')
     .map(normalizeCatalogProvider);
-  const recommendedModels = requireArray(
-    value.recommended_models,
-    'catalog response.recommended_models',
-  ).map(normalizeRecommendedModel);
-  if (recommendedModels.length !== 5) {
-    throw contractError('catalog response must contain exactly five recommended_models');
-  }
   if (new Set(providers.map((provider) => provider.id)).size !== providers.length) {
     throw contractError('catalog response contains duplicate provider ids');
-  }
-  if (new Set(recommendedModels.map((model) => model.model_id)).size !== recommendedModels.length) {
-    throw contractError('catalog response contains duplicate recommended model ids');
   }
   return {
     catalog: {
@@ -401,7 +346,6 @@ export function normalizeModelCatalogSummary(payload) {
       freshness: requireString(catalog.freshness, 'catalog response.catalog.freshness'),
     },
     providers,
-    recommended_models: recommendedModels,
   };
 }
 
@@ -744,42 +688,6 @@ export function applyCatalogModelToDraft(draft, model) {
     _model_metadata_overrides: {},
     _active_catalog_model_id: normalized.id,
   };
-}
-
-export function modelProfileDraftFromTemplate(template, provider) {
-  const normalizedTemplate = normalizeRecommendedModel(template, 0);
-  const withProvider = applyCatalogProviderToDraft(emptyModelProfileDraft(), provider);
-  const metadata = {
-    context_window: normalizedTemplate.context_window
-      ? String(normalizedTemplate.context_window)
-      : '',
-    max_output_tokens: normalizedTemplate.max_output_tokens
-      ? String(normalizedTemplate.max_output_tokens)
-      : '',
-    capabilities: [...normalizedTemplate.capabilities],
-    capabilities_source: 'catalog',
-    reasoning: {
-      ...normalizedTemplate.reasoning,
-      supported_efforts: [...normalizedTemplate.reasoning.supported_efforts],
-    },
-  };
-  return {
-    ...withProvider,
-    name: normalizedTemplate.name,
-    model: normalizedTemplate.model_id,
-    ...metadata,
-    _catalog_model_metadata: { [normalizedTemplate.model_id]: metadata },
-    _model_metadata_overrides: {},
-    _active_catalog_model_id: normalizedTemplate.model_id,
-  };
-}
-
-export function isTemplateDraftActive(seed, draft) {
-  if (!seed || !draft) return false;
-  const selected = splitModelIds(draft.model);
-  return selected.length === 1
-    && selected[0] === String(seed.model || '').trim()
-    && String(draft.catalog_provider_id || '') === String(seed.catalog_provider_id || '');
 }
 
 export function modelNameSuggestion(baseName, existingNames = []) {

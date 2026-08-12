@@ -1646,6 +1646,17 @@ body {
   color: #fff !important;
   opacity: 1 !important;
 }
+.ace-provider-logo-mask {
+  background-color: currentColor;
+  -webkit-mask-image: var(--ace-provider-logo-url);
+  mask-image: var(--ace-provider-logo-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
 .ace-sidebar {
   -webkit-user-select: none;
   user-select: none;

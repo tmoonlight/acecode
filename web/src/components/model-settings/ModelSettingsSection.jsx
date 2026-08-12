@@ -6,7 +6,6 @@ import {
   applyCatalogProviderToDraft,
   emptyModelProfileDraft,
   modelProfileDraftFromSaved,
-  modelProfileDraftFromTemplate,
   normalizeModelCatalogSummary,
   normalizeSavedModelList,
   normalizeSavedModelProfile,
@@ -18,7 +17,6 @@ import { RefreshIcon, VsIcon } from '../Icon.jsx';
 import { toast } from '../Toast.jsx';
 import { ModelConnectionCard } from './ModelConnectionCard.jsx';
 import { ModelProfileDialog } from './ModelProfileDialog.jsx';
-import { RecommendedModelList } from './RecommendedModelList.jsx';
 import { SavedModelList } from './SavedModelList.jsx';
 
 function initialProvider(providers) {
@@ -71,7 +69,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
   const [copilotFlow, setCopilotFlow] = useState(null);
 
   const providers = catalog?.providers || [];
-  const recommendedModels = catalog?.recommended_models || [];
 
   const loadSavedModels = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setModelsLoading(true);
@@ -257,27 +254,8 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
       mode: 'add',
       originalName: '',
       seed: applyCatalogProviderToDraft(emptyModelProfileDraft(), provider),
-      warning: '',
     });
   }, [catalogError, providers]);
-
-  const openTemplateDialog = useCallback((template) => {
-    const provider = providers.find((item) => item.id === template.provider_id);
-    if (!provider) {
-      toast({ kind: 'err', text: `目录中缺少 Provider：${template.provider_id}` });
-      return;
-    }
-    setProfileDialog({
-      mode: 'template',
-      originalName: '',
-      seed: modelProfileDraftFromTemplate(template, provider),
-      warning: template.privacy_warning || (
-        template.deprecated || template.unavailable
-          ? '该模型已被当前目录标记为弃用或不可用，请确认后再保存。'
-          : ''
-      ),
-    });
-  }, [providers]);
 
   const openEditDialog = useCallback((model) => {
     const provider = providerForSavedModel(providers, model);
@@ -291,7 +269,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
       mode: 'edit',
       originalName: model.name,
       seed,
-      warning: '',
     });
   }, [providers]);
 
@@ -469,13 +446,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
         onPoll={pollCopilotFlow}
       />
 
-      <RecommendedModelList
-        items={recommendedModels}
-        loading={catalogLoading}
-        error={catalogError}
-        onConfigure={openTemplateDialog}
-      />
-
       {modelsError && (
         <div role="status" className="rounded-md border border-danger bg-danger-bg px-3.5 py-2.5 text-[11px] text-danger">
           {modelsError}
@@ -502,7 +472,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
           apiClient={api}
           mode={profileDialog.mode}
           seed={profileDialog.seed}
-          templateWarning={profileDialog.warning}
           providers={providers}
           savedModels={models}
           originalName={profileDialog.originalName}

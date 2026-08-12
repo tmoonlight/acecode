@@ -1,0 +1,8 @@
+{
+  "source": "https://models.dev/logos/{provider}.svg",
+  "catalog_content_sha256": "b7752121ed4b10697b2318503a24e574775e3db3f0436cc0e089d6781426cc68",
+  "provider_count": 182,
+  "unique_asset_count": 142,
+  "bundled_svg_bytes": 404843,
+  "max_bundled_svg_bytes": 524288
+}

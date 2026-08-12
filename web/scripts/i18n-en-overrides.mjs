@@ -585,13 +585,13 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '复制 GitHub 验证码 {{p0}}': 'Copy GitHub verification code {{p0}}',
   '复制验证码失败：{{p0}}': 'Failed to copy the verification code: {{p0}}',
   '覆盖已有预设': 'Overwrite existing profile',
-  '该模型已被当前目录标记为弃用或不可用，请确认后再保存。':
-    'The current catalog marks this model as deprecated or unavailable. Confirm before saving.',
   '高级设置': 'Advanced settings',
   '更新模型目录': 'Update model catalog',
   '关闭模型弹窗': 'Close model dialog',
   '过滤探测结果': 'Filter detected models',
   '还没有保存模型': 'No saved models yet',
+  '新增一个 Provider 配置后即可在这里管理。':
+    'Add a provider configuration to manage it here.',
   '会话使用中': 'In use by a session',
   '建议环境变量 {{p0}}': 'Suggested environment variable: {{p0}}',
   '将 {{p0}} 设为默认模型': 'Set {{p0}} as the default model',
@@ -623,15 +623,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '模型已保存': 'Model saved',
   '默认模型已设为 {{p0}}': 'Default model set to {{p0}}',
   '目录查询失败': 'Catalog query failed',
-  '目录警告': 'Catalog warning',
   '目录中没有匹配模型，仍可手动输入模型 ID。':
     'No matching models were found in the catalog. You can still enter a model ID manually.',
-  '目录中缺少 Provider：{{p0}}': 'Provider missing from catalog: {{p0}}',
   '目录状态：{{p0}}': 'Catalog status: {{p0}}',
-  '配置模板 {{p0}}': 'Configure template {{p0}}',
-  '配置模板不会自动保存，也不会改变默认模型。':
-    'Configuration templates are not saved automatically and do not change the default model.',
-  '配置热门模型': 'Configure recommended model',
   '启用模型推理': 'Enable model reasoning',
   '启用推理': 'Enable reasoning',
   '清除已保存密钥': 'Clear saved key',
@@ -641,7 +635,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '请选择一个 Provider': 'Select a provider',
   '确定删除“{{p0}}”吗？此操作只删除预设，不会删除会话记录。':
     'Delete “{{p0}}”? This removes only the profile and keeps all conversation history.',
-  '热门预置': 'Recommended profiles',
   '删除模型 {{p0}}': 'Delete model {{p0}}',
   '删除模型预设': 'Delete model profile',
   '删除预设': 'Delete profile',
@@ -683,8 +676,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '需要连接 GitHub Copilot': 'GitHub Copilot connection required',
   '选择 Provider 和模型后，只显示当前连接真正支持的配置。':
     'After choosing a provider and model, only settings supported by that connection are shown.',
-  '选择热门模板，或新增一个 Provider 配置。':
-    'Choose a recommended template, or add a provider configuration.',
   '移除模型 {{p0}}': 'Remove model {{p0}}',
   '已保存密钥不会读取到浏览器': 'The saved key is never read into the browser',
   '已保存模型': 'Saved models',

@@ -81,23 +81,18 @@ const nlohmann::json* provider_by_id(const nlohmann::json& providers,
 
 TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     const auto providers = acecode::build_catalog(catalog_fixture());
-    std::string error;
-    auto recommendations = acecode::load_recommended_models_manifest(
-        repo_root() / "assets" / "models_dev", error);
-    ASSERT_TRUE(recommendations.has_value()) << error;
     acecode::RegistrySource source;
     source.kind = acecode::RegistrySource::Kind::Bundled;
     source.manifest = nlohmann::json{{"generated_at", "2026-08-10T00:00:00Z"}};
 
     const auto summary = acecode::web::model_catalog_summary_to_json(
-        providers, source, *recommendations, 7);
+        providers, source, 7);
     ASSERT_TRUE(summary.contains("catalog"));
     ASSERT_TRUE(summary.contains("providers"));
-    ASSERT_TRUE(summary.contains("recommended_models"));
+    EXPECT_FALSE(summary.contains("recommended_models"));
     EXPECT_EQ(summary["catalog"]["source"], "bundled");
     EXPECT_EQ(summary["catalog"]["version"], 7);
     EXPECT_EQ(summary["catalog"]["updated_at"], "2026-08-10T00:00:00Z");
-    EXPECT_EQ(summary["recommended_models"].size(), 5u);
 
     const auto* anthropic = provider_by_id(summary["providers"], "anthropic");
     const auto* copilot = provider_by_id(summary["providers"], "copilot");
@@ -162,25 +157,13 @@ TEST(ModelCatalogHandler, SearchIsBoundedStableAndExactIdFirst) {
         providers, "missing", "", 10).has_value());
 }
 
-TEST(ModelCatalogHandler, NativeAliasesAndOfflineRecommendationsRemainUsable) {
+TEST(ModelCatalogHandler, NativeAliasesRemainUsable) {
     const auto providers = acecode::build_catalog(catalog_fixture());
     auto copilot = acecode::web::query_model_catalog_to_json(
         providers, "copilot", "managed", 10);
     ASSERT_TRUE(copilot.has_value());
     ASSERT_EQ((*copilot)["models"].size(), 1u);
     EXPECT_EQ((*copilot)["models"][0]["id"], "gpt-managed");
-
-    acecode::RegistrySource source;
-    source.kind = acecode::RegistrySource::Kind::UserOverride;
-    source.seed_dir = (repo_root() / "assets" / "models_dev").string();
-    std::string error;
-    const auto no_live_models = std::vector<acecode::ProviderEntry>{};
-    auto recommendations = acecode::web::load_active_recommendations(
-        source, no_live_models, error);
-    ASSERT_TRUE(recommendations.has_value()) << error;
-    ASSERT_EQ(recommendations->models.size(), 5u);
-    EXPECT_EQ(recommendations->models[0].model_id, "xiaomi/mimo-v2.5");
-    EXPECT_GT(recommendations->models[0].context_window, 0);
 }
 
 TEST(ModelCatalogHandler, SharedContractFixtureMatchesCanonicalResponses) {
@@ -190,16 +173,12 @@ TEST(ModelCatalogHandler, SharedContractFixtureMatchesCanonicalResponses) {
     ASSERT_TRUE(contract.contains("query"));
 
     const auto providers = acecode::build_catalog(catalog_fixture());
-    std::string error;
-    auto recommendations = acecode::load_recommended_models_manifest(
-        repo_root() / "assets" / "models_dev", error);
-    ASSERT_TRUE(recommendations.has_value()) << error;
     acecode::RegistrySource source;
     source.kind = acecode::RegistrySource::Kind::Bundled;
     source.manifest = nlohmann::json{{"generated_at", "2026-08-10T00:00:00Z"}};
 
     const auto summary = acecode::web::model_catalog_summary_to_json(
-        providers, source, *recommendations, 7);
+        providers, source, 7);
     EXPECT_EQ(summary["catalog"], contract["summary"]["catalog"]);
     for (const auto& expected_provider : contract["summary"]["providers"]) {
         const auto* actual = provider_by_id(summary["providers"],
@@ -207,8 +186,7 @@ TEST(ModelCatalogHandler, SharedContractFixtureMatchesCanonicalResponses) {
         ASSERT_NE(actual, nullptr) << expected_provider["id"];
         EXPECT_EQ(*actual, expected_provider);
     }
-    EXPECT_EQ(summary["recommended_models"],
-              contract["summary"]["recommended_models"]);
+    EXPECT_FALSE(summary.contains("recommended_models"));
 
     auto query = acecode::web::query_model_catalog_to_json(
         providers, "openrouter", "EXACT-MODEL", 1);

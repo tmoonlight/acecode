@@ -15,6 +15,7 @@ import {
 } from '../../lib/modelManager.js';
 import { openExternalUrl } from '../../lib/externalUrl.js';
 import { RefreshIcon, VsIcon } from '../Icon.jsx';
+import { ProviderIcon } from './ProviderIcon.jsx';
 
 const PROVIDER_GROUP_LABELS = {
   native: '原生与受管',
@@ -230,16 +231,14 @@ export function ProviderCatalogPicker({
                       onClick={() => onProviderChange(item)}
                       aria-selected={active}
                       className={clsx(
-                        'w-full rounded-md px-2.5 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-accent',
+                        'flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition focus:outline-none focus:ring-1 focus:ring-accent',
                         active
                           ? 'bg-accent-bg text-accent'
                           : 'text-fg-2 hover:bg-surface-hi hover:text-fg',
                       )}
                     >
-                      <span className="block truncate text-[11px] font-medium">{item.name}</span>
-                      <span className="mt-0.5 block truncate text-[10px] opacity-75">
-                        {item.runtime_provider === 'copilot' ? '受管连接' : item.id}
-                      </span>
+                      <ProviderIcon provider={item} active={active} />
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{item.name}</span>
                     </button>
                   );
                 })}

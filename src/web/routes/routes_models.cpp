@@ -76,20 +76,10 @@ void WebServer::Impl::register_models() {
             if (auto rej = require_auth(req)) return std::move(*rej);
             const auto& providers = all_providers();
             const RegistrySource source = current_registry_source();
-            std::string error;
-            auto recommendations = load_active_recommendations(
-                source, providers, error);
-            if (!recommendations.has_value()) {
-                crow::response r(503);
-                r.add_header("Content-Type", "application/json");
-                r.body = json{{"error", "CATALOG_RECOMMENDATIONS_UNAVAILABLE"},
-                              {"message", error}}.dump();
-                return with_cors(req, std::move(r));
-            }
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = model_catalog_summary_to_json(
-                providers, source, *recommendations, catalog_version()).dump();
+                providers, source, catalog_version()).dump();
             return with_cors(req, std::move(r));
         });
 
@@ -156,20 +146,10 @@ void WebServer::Impl::register_models() {
             }
             const auto& providers = all_providers();
             const RegistrySource source = current_registry_source();
-            std::string error;
-            auto recommendations = load_active_recommendations(
-                source, providers, error);
-            if (!recommendations.has_value()) {
-                crow::response r(503);
-                r.add_header("Content-Type", "application/json");
-                r.body = json{{"error", "CATALOG_RECOMMENDATIONS_UNAVAILABLE"},
-                              {"message", error}}.dump();
-                return with_cors(req, std::move(r));
-            }
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = model_catalog_summary_to_json(
-                providers, source, *recommendations, catalog_version()).dump();
+                providers, source, catalog_version()).dump();
             return with_cors(req, std::move(r));
         });
 

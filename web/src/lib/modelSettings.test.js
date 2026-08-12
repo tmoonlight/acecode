@@ -9,12 +9,10 @@ import {
   compatibleCredentialSources,
   emptyModelProfileDraft,
   hasAdvancedModelValues,
-  isTemplateDraftActive,
   markModelMetadataOverrides,
   modelFieldPolicy,
   modelNameSuggestion,
   modelProfileDraftFromSaved,
-  modelProfileDraftFromTemplate,
   normalizeModelCatalogSummary,
   normalizeProviderModelQuery,
   normalizeSavedModelList,
@@ -119,35 +117,6 @@ const localProvider = {
   group: 'local',
 };
 
-const recommendedIds = [
-  'xiaomi/mimo-v2.5',
-  'deepseek/deepseek-v4-flash-0731',
-  'z-ai/glm-5.2',
-  'openai/gpt-5.6-luna',
-  'nvidia/nemotron-3-ultra-550b-a55b:free',
-];
-
-function recommendedModels() {
-  return recommendedIds.map((modelId, index) => ({
-    provider_id: 'openrouter',
-    model_id: modelId,
-    name: `Model ${index + 1}`,
-    context_window: 1000000 + index,
-    max_output_tokens: 65536 + index,
-    capabilities: index === 0 ? ['vision', 'tool_use', 'reasoning'] : ['tool_use', 'reasoning'],
-    reasoning: {
-      supported: true,
-      mandatory: false,
-      default_enabled: true,
-      supported_efforts: ['medium', 'high'],
-      default_effort: 'high',
-      supports_max_tokens: true,
-    },
-    privacy_warning: index === 4 ? '免费端点可能记录输入输出' : '',
-    source_date: '2026-08-09',
-  }));
-}
-
 function catalogFixture() {
   return {
     catalog: {
@@ -160,23 +129,20 @@ function catalogFixture() {
       ...provider,
       endpoint_modes: [...provider.endpoint_modes],
     })),
-    recommended_models: recommendedModels(),
   };
 }
 
-run('目录摘要严格保留五个模板的清单顺序和元数据', () => {
+run('目录摘要严格保留 Provider 元数据且不再暴露热门预置', () => {
   const normalized = normalizeModelCatalogSummary(catalogFixture());
   assert.equal(normalized.catalog.version, 7);
-  assert.deepEqual(normalized.recommended_models.map((item) => item.model_id), recommendedIds);
-  assert.equal(normalized.recommended_models[0].context_window, 1000000);
-  assert.equal(normalized.recommended_models[4].privacy_warning, '免费端点可能记录输入输出');
   assert.equal(normalized.providers[0].doc, 'https://openrouter.ai/docs');
+  assert.equal(Object.hasOwn(normalized, 'recommended_models'), false);
 });
 
 run('Web 严格 normalizer 消费与 C++ 共享的 canonical catalog fixture', () => {
   const summary = normalizeModelCatalogSummary(sharedCatalogContract.summary);
   assert.equal(summary.catalog.version, 7);
-  assert.equal(summary.recommended_models.length, 5);
+  assert.equal(Object.hasOwn(summary, 'recommended_models'), false);
   assert.deepEqual(summary.providers.find((item) => item.id === 'copilot').endpoint_modes, []);
   const custom = summary.providers.find((item) => item.id === 'custom-openai');
   assert.equal(custom.auth_mode, 'required');
@@ -189,27 +155,16 @@ run('Web 严格 normalizer 消费与 C++ 共享的 canonical catalog fixture', (
   assert.deepEqual(query.models[0].output_modalities, []);
 });
 
-run('目录摘要不掩盖缺少数组、错误推荐数量或非法 Copilot 合同', () => {
-  assert.throws(() => normalizeModelCatalogSummary({ catalog: {}, recommended_models: [] }), {
+run('目录摘要不掩盖缺少 Provider 数组或非法 Copilot 合同', () => {
+  assert.throws(() => normalizeModelCatalogSummary({ catalog: {}, providers: [] }), {
     code: 'MODEL_CATALOG_CONTRACT',
   });
-  const short = catalogFixture();
-  short.recommended_models = short.recommended_models.slice(0, 4);
-  assert.throws(() => normalizeModelCatalogSummary(short), /exactly five/);
   const badCopilot = catalogFixture();
   badCopilot.providers[2] = { ...badCopilot.providers[2], auth_mode: 'required' };
   assert.throws(() => normalizeModelCatalogSummary(badCopilot), /Copilot must use managed auth/);
 });
 
 run('目录字段存在但类型或值非法时立即拒绝而不是静默回退', () => {
-  const badInteger = catalogFixture();
-  badInteger.recommended_models[0].context_window = 'not-a-number';
-  assert.throws(() => normalizeModelCatalogSummary(badInteger), /positive integer/);
-
-  const numericString = catalogFixture();
-  numericString.recommended_models[0].context_window = '1000000';
-  assert.throws(() => normalizeModelCatalogSummary(numericString), /positive integer/);
-
   const stringVersion = catalogFixture();
   stringVersion.catalog.version = '7';
   assert.throws(() => normalizeModelCatalogSummary(stringVersion), /non-negative integer/);
@@ -222,28 +177,6 @@ run('目录字段存在但类型或值非法时立即拒绝而不是静默回退
   badGroup.providers[0].group = 'mystery';
   assert.throws(() => normalizeModelCatalogSummary(badGroup), /group is unsupported/);
 
-  const badAvailability = catalogFixture();
-  badAvailability.recommended_models[0].deprecated = 'false';
-  assert.throws(() => normalizeModelCatalogSummary(badAvailability), /deprecated must be a boolean/);
-
-  const badReasoning = catalogFixture();
-  badReasoning.recommended_models[0].reasoning.supports_max_tokens = 'yes';
-  assert.throws(
-    () => normalizeModelCatalogSummary(badReasoning),
-    /supports_max_tokens must be a boolean/,
-  );
-
-  const nullBoolean = catalogFixture();
-  nullBoolean.recommended_models[0].deprecated = null;
-  assert.throws(() => normalizeModelCatalogSummary(nullBoolean), /deprecated must be a boolean/);
-
-  const nullEfforts = catalogFixture();
-  nullEfforts.recommended_models[0].reasoning.supported_efforts = null;
-  assert.throws(
-    () => normalizeModelCatalogSummary(nullEfforts),
-    /supported_efforts must be an array/,
-  );
-
   assert.throws(() => normalizeSavedModelList([{
     name: 'bad-endpoint',
     provider: 'openai',
@@ -252,20 +185,33 @@ run('目录字段存在但类型或值非法时立即拒绝而不是静默回退
   }]), /endpoint_mode is unsupported/);
 });
 
-run('推理 effort 接受合同中的 max 并拒绝未知 effort', () => {
-  const withMax = catalogFixture();
-  withMax.recommended_models[0].reasoning.supported_efforts = ['high', 'max'];
-  withMax.recommended_models[0].reasoning.default_effort = 'max';
-  const normalized = normalizeModelCatalogSummary(withMax);
-  assert.deepEqual(
-    normalized.recommended_models[0].reasoning.supported_efforts,
-    ['high', 'max'],
-  );
-  assert.equal(normalized.recommended_models[0].reasoning.default_effort, 'max');
+run('目录模型推理 effort 接受 max 并拒绝未知值', () => {
+  const model = {
+    id: 'reasoning-model',
+    reasoning: {
+      supported: true,
+      mandatory: false,
+      default_enabled: true,
+      supported_efforts: ['high', 'max'],
+      default_effort: 'max',
+      supports_max_tokens: false,
+    },
+  };
+  const normalized = normalizeProviderModelQuery({
+    provider_id: 'openrouter',
+    models: [model],
+    limit: 1,
+  });
+  assert.deepEqual(normalized.models[0].reasoning.supported_efforts, ['high', 'max']);
+  assert.equal(normalized.models[0].reasoning.default_effort, 'max');
 
-  const unknown = catalogFixture();
-  unknown.recommended_models[0].reasoning.supported_efforts = ['ultra-secret'];
-  assert.throws(() => normalizeModelCatalogSummary(unknown), /supported_efforts.*unsupported/);
+  const unknown = structuredClone(model);
+  unknown.reasoning.supported_efforts = ['ultra-secret'];
+  assert.throws(() => normalizeProviderModelQuery({
+    provider_id: 'openrouter',
+    models: [unknown],
+    limit: 1,
+  }), /supported_efforts.*unsupported/);
 });
 
 run('Provider 模型查询校验 provider 身份并保留有限结果', () => {
@@ -420,27 +366,6 @@ run('无需认证的本地 Provider 可见且保存 payload 不要求或携带 A
   assert.equal(result.ok, true);
   assert.equal(Object.hasOwn(result.payload, 'api_key'), false);
   assert.equal(result.payload.base_url, 'http://127.0.0.1:11434/v1');
-});
-
-run('推荐模板预填 OpenRouter 身份、模型元数据但不保存或设默认', () => {
-  const template = recommendedModels()[3];
-  const draft = modelProfileDraftFromTemplate(template, openRouterProvider);
-  assert.equal(draft.provider, 'openai');
-  assert.equal(draft.models_dev_provider_id, 'openrouter');
-  assert.equal(draft.base_url, 'https://openrouter.ai/api/v1');
-  assert.equal(draft.model, 'openai/gpt-5.6-luna');
-  assert.equal(draft.context_window, '1000003');
-  assert.equal(draft.api_key, '');
-  assert.equal(isTemplateDraftActive(draft, draft), true);
-  assert.equal(isTemplateDraftActive(draft, { ...draft, model: 'another/model' }), false);
-  assert.equal(isTemplateDraftActive(draft, {
-    ...draft,
-    model: `${draft.model}, another/model`,
-  }), false);
-  assert.equal(isTemplateDraftActive(draft, {
-    ...draft,
-    catalog_provider_id: 'custom-openai',
-  }), false);
 });
 
 run('目录模型写入能力/推理默认值并保留现有预设名', () => {
