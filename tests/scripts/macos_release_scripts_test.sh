@@ -4,7 +4,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 sign_script="$repo_root/scripts/macos_codesign.sh"
 dmg_script="$repo_root/scripts/macos_create_dmg.sh"
-icon_script="$repo_root/scripts/macos_generate_icns.sh"
 notarize_script="$repo_root/scripts/macos_notarize.sh"
 notarize_app_script="$repo_root/scripts/macos_notarize_app.sh"
 update_zip_script="$repo_root/scripts/macos_create_update_zip.sh"
@@ -33,7 +32,7 @@ expect_status() {
     fi
 }
 
-for script in "$sign_script" "$dmg_script" "$icon_script" "$notarize_script" \
+for script in "$sign_script" "$dmg_script" "$notarize_script" \
               "$notarize_app_script" "$update_zip_script"; do
     bash -n "$script"
     expect_status 0 "help for $(basename "$script")" bash "$script" --help

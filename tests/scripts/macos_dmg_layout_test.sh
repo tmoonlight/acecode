@@ -3,12 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 dmg_script="$repo_root/scripts/macos_create_dmg.sh"
-icon_script="$repo_root/scripts/macos_generate_icns.sh"
 desktop_cmake="$repo_root/cmake/acecode_desktop.cmake"
 user_applications_plist="$repo_root/cmake/macos/ACECodeUserApplicationsInfo.plist.in"
 user_applications_source="$repo_root/src/macos_user_applications/main.mm"
-user_applications_icon="$repo_root/assets/macos/acecode-user-applications.svg"
 dmg_background="$repo_root/assets/macos/acecode-dmg-background.svg"
+system_applications_icon="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/ApplicationsFolderIcon.icns"
 
 temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/acecode-dmg-layout-test.XXXXXX")"
 cleanup() {
@@ -34,20 +33,16 @@ expect_status() {
 }
 
 bash -n "$dmg_script"
-bash -n "$icon_script"
 expect_status 0 "DMG help" bash "$dmg_script" --help
-expect_status 0 "ICNS help" bash "$icon_script" --help
 expect_status 2 "unknown DMG argument" bash "$dmg_script" --unknown
-expect_status 2 "unknown ICNS argument" bash "$icon_script" --unknown
 expect_status 2 "obsolete installer argument" \
     bash "$dmg_script" --installer "$temporary_root/Install ACECode.app"
 expect_status 2 "obsolete instructions argument" \
     bash "$dmg_script" --instructions "$temporary_root/README.txt"
 
-test -f "$user_applications_icon"
 test -f "$dmg_background"
-grep -Fq 'acecode-user-applications.icns' "$desktop_cmake"
-grep -Fq 'macos_generate_icns.sh' "$desktop_cmake"
+grep -Fq 'ApplicationsFolderIcon.icns' "$desktop_cmake"
+grep -Fq 'Missing macOS Applications folder icon' "$desktop_cmake"
 grep -Fq 'add_executable(acecode-user-applications MACOSX_BUNDLE' "$desktop_cmake"
 grep -Fq 'RUNTIME_OUTPUT_NAME "Applications"' "$desktop_cmake"
 grep -Fq 'MACOSX_PACKAGE_LOCATION "Resources"' "$desktop_cmake"
@@ -93,13 +88,7 @@ if grep -Fq '@"/Applications"' "$user_applications_source"; then
 fi
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    generated_icon="$temporary_root/acecode-user-applications.icns"
-    expect_status 0 "generate current-user Applications icon" \
-        bash "$icon_script" --source "$user_applications_icon" --output "$generated_icon"
-    test -s "$generated_icon"
-    /usr/bin/iconutil -c iconset -o "$temporary_root/icon.iconset" \
-        "$generated_icon"
-    test "$(find "$temporary_root/icon.iconset" -type f -name '*.png' | wc -l | tr -d ' ')" -eq 10
+    test -s "$system_applications_icon"
 
     background_png="$temporary_root/ACECode-DMG.png"
     /usr/bin/sips -s format png "$dmg_background" \

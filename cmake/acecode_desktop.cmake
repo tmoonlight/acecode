@@ -131,28 +131,17 @@ endif()
 
 if(APPLE)
     set(ACECODE_MACOS_ICON "${CMAKE_SOURCE_DIR}/assets/macos/acecode.icns")
-    set(ACECODE_MACOS_USER_APPLICATIONS_ICON_SOURCE
-        "${CMAKE_SOURCE_DIR}/assets/macos/acecode-user-applications.svg")
     set(ACECODE_MACOS_USER_APPLICATIONS_ICON
-        "${CMAKE_BINARY_DIR}/generated/macos/acecode-user-applications.icns")
-    add_custom_command(
-        OUTPUT "${ACECODE_MACOS_USER_APPLICATIONS_ICON}"
-        COMMAND /bin/bash
-            "${CMAKE_SOURCE_DIR}/scripts/macos_generate_icns.sh"
-            --source "${ACECODE_MACOS_USER_APPLICATIONS_ICON_SOURCE}"
-            --output "${ACECODE_MACOS_USER_APPLICATIONS_ICON}"
-        DEPENDS
-            "${ACECODE_MACOS_USER_APPLICATIONS_ICON_SOURCE}"
-            "${CMAKE_SOURCE_DIR}/scripts/macos_generate_icns.sh"
-        COMMENT "Generating ACECode current-user Applications icon"
-        VERBATIM
-    )
+        "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/ApplicationsFolderIcon.icns")
+    if(NOT EXISTS "${ACECODE_MACOS_USER_APPLICATIONS_ICON}")
+        message(FATAL_ERROR
+            "Missing macOS Applications folder icon: ${ACECODE_MACOS_USER_APPLICATIONS_ICON}")
+    endif()
     target_sources(acecode-desktop PRIVATE "${ACECODE_MACOS_ICON}")
     set_source_files_properties("${ACECODE_MACOS_ICON}" PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources"
     )
     set_source_files_properties("${ACECODE_MACOS_USER_APPLICATIONS_ICON}" PROPERTIES
-        GENERATED TRUE
         MACOSX_PACKAGE_LOCATION "Resources"
     )
     set_target_properties(acecode-desktop PROPERTIES
@@ -200,7 +189,7 @@ if(APPLE)
     set_target_properties(acecode-user-applications PROPERTIES
         RUNTIME_OUTPUT_NAME "Applications"
         MACOSX_BUNDLE_BUNDLE_NAME "Applications"
-        MACOSX_BUNDLE_ICON_FILE "acecode-user-applications.icns"
+        MACOSX_BUNDLE_ICON_FILE "ApplicationsFolderIcon.icns"
         MACOSX_BUNDLE_GUI_IDENTIFIER "dev.acecode.user-applications"
         MACOSX_BUNDLE_INFO_PLIST
             "${CMAKE_SOURCE_DIR}/cmake/macos/ACECodeUserApplicationsInfo.plist.in"
