@@ -42,6 +42,28 @@ test('SessionRow removes the one-shot overlay after the surge completes', () => 
   );
 });
 
+test('remote-control selection event navigates and forces a nonce-based surge', () => {
+  const app = source('App.jsx');
+  const sidebar = source('components/Sidebar.jsx');
+  assert.match(
+    app,
+    /normalizeRemoteControlSessionSelection\(event\.detail \|\| \{\}\)/,
+  );
+  assert.match(
+    app,
+    /resumeAndOpenSession\(target, \{ allowDesktopActivate: false \}\)/,
+  );
+  assert.match(app, /remoteControlSelection=\{remoteControlSelection\}/);
+  assert.match(
+    sidebar,
+    /remoteControlSurgeNonceForSession\(\s*remoteControlSelection,\s*s,\s*\)/,
+  );
+  assert.match(
+    sidebar,
+    /previousRemoteControlSelectionNonceRef\.current = remoteControlSelectionNonce;\s*setRemoteControlSurging\(true\);/,
+  );
+});
+
 test('bound background persists while reduced motion suppresses only the surge', () => {
   const styles = source('styles/globals.css');
   assert.match(

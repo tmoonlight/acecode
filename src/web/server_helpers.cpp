@@ -1808,6 +1808,21 @@ void WebServer::Impl::broadcast_session_status(const json& payload) {
     }
 }
 
+void WebServer::Impl::broadcast_event(const json& event) {
+    if (!event.is_object() ||
+        !event.contains("type") ||
+        !event["type"].is_string() ||
+        event["type"].get<std::string>().empty()) {
+        return;
+    }
+    const auto text = event.dump();
+    std::lock_guard<std::mutex> lk(ws_mu);
+    for (const auto& [conn, state] : ws_connections) {
+        if (!conn || !state) continue;
+        try { conn->send_text(text); } catch (...) {}
+    }
+}
+
 void WebServer::Impl::track_subagent(const std::string& child_id) {
     if (child_id.empty() || !deps.session_client || !deps.session_registry) return;
     {

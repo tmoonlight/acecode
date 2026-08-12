@@ -645,6 +645,35 @@ std::size_t outbound_index(const std::shared_ptr<CaptureSender>& sender,
     return messages.size();
 }
 
+acecode::rc::RcSessionCatalogEntry binder_catalog_entry(
+    const std::string& id,
+    const std::string& title,
+    const std::string& updated_at,
+    const std::string& cwd = {},
+    const std::string& workspace_hash = {},
+    bool no_workspace = false) {
+    acecode::rc::RcSessionCatalogEntry entry;
+    entry.id = id;
+    entry.title = title;
+    entry.updated_at = updated_at;
+    entry.cwd = cwd;
+    entry.workspace_hash = no_workspace ? std::string{} : workspace_hash;
+    entry.workspace_name = no_workspace ? std::string{} : workspace_hash;
+    entry.no_workspace = no_workspace;
+    return entry;
+}
+
+bool wait_for_bound(acecode::rc::SessionChannelBinder& binder,
+                    const std::string& session_id,
+                    std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (binder.bound_session_id() == session_id) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return binder.bound_session_id() == session_id;
+}
+
 } // namespace
 
 TEST(SessionChannelBinderIntegration, BindRebindOffLifecycle) {
@@ -1564,4 +1593,293 @@ TEST(SessionChannelBinderIntegration,
     binder.execute_command(first_sid, "off");
     hx.registry.destroy(first_sid);
     hx.registry.destroy(second_sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     SessionCatalogStallDoesNotBlockInboundOrReachAgentInput) {
+    BinderHarness hx("session-control-nonblocking");
+    auto deps = hx.binder_deps();
+    std::mutex gate_mu;
+    std::condition_variable gate_cv;
+    bool entered = false;
+    bool released = false;
+    deps.list_session_catalog = [&] {
+        std::unique_lock<std::mutex> lock(gate_mu);
+        entered = true;
+        gate_cv.notify_all();
+        gate_cv.wait(lock, [&] { return released; });
+        return std::vector<acecode::rc::RcSessionCatalogEntry>{
+            binder_catalog_entry("listed", "Delayed catalog result",
+                                 "2026-08-05T03:00:00Z"),
+        };
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    const auto sid = hx.client.create_session({});
+    ASSERT_TRUE(binder.execute_command(sid, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    std::atomic<int> control_messages_in_agent{0};
+    const auto transcript_sub = hx.client.subscribe(
+        sid,
+        [&](const acecode::SessionEvent& event) {
+            if (event.kind == acecode::SessionEventKind::Message &&
+                event.payload.value("role", std::string{}) == "user" &&
+                event.payload.value("content", std::string{}).find("/sessions") !=
+                    std::string::npos) {
+                ++control_messages_in_agent;
+            }
+        });
+    ASSERT_NE(transcript_sub, 0u);
+
+    auto inbound = std::async(std::launch::async, [&] {
+        return hx.service.hub().handle_inbound(
+            "/sessions", hx.cfg.remote_control.token);
+    });
+    const auto inbound_status = inbound.wait_for(std::chrono::milliseconds(300));
+    bool catalog_entered = false;
+    {
+        std::unique_lock<std::mutex> lock(gate_mu);
+        catalog_entered = gate_cv.wait_for(
+            lock, std::chrono::seconds(2), [&] { return entered; });
+        released = true;
+        gate_cv.notify_all();
+    }
+    EXPECT_EQ(inbound_status, std::future_status::ready)
+        << "RC inbound callback waited for the stalled catalog";
+    EXPECT_TRUE(catalog_entered);
+    ASSERT_EQ(inbound.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_TRUE(inbound.get().ok());
+    EXPECT_TRUE(wait_for_outbound_text(sender, "Delayed catalog result"));
+    EXPECT_EQ(control_messages_in_agent.load(), 0);
+
+    hx.client.unsubscribe(sid, transcript_sub);
+    binder.execute_command(sid, "off");
+    hx.registry.destroy(sid);
+}
+
+TEST(SessionChannelBinderIntegration,
+     DisplayedSnapshotStaysStableAndSelectionBroadcastsSecretFreeEvent) {
+    BinderHarness hx("session-control-snapshot");
+    const auto current = hx.client.create_session({});
+    const auto target_two = hx.client.create_session({});
+    const auto target_three = hx.client.create_session({});
+
+    auto deps = hx.binder_deps();
+    std::mutex catalog_mu;
+    std::vector<acecode::rc::RcSessionCatalogEntry> catalog{
+        binder_catalog_entry(target_two, "Target two", "2026-08-05T03:00:00Z"),
+        binder_catalog_entry(target_three, "Target three", "2026-08-05T02:00:00Z"),
+    };
+    std::atomic<int> catalog_calls{0};
+    deps.list_session_catalog = [&] {
+        ++catalog_calls;
+        std::lock_guard<std::mutex> lock(catalog_mu);
+        return catalog;
+    };
+    std::mutex event_mu;
+    std::condition_variable event_cv;
+    std::vector<nlohmann::json> events;
+    deps.broadcast_event = [&](const nlohmann::json& event) {
+        std::lock_guard<std::mutex> lock(event_mu);
+        events.push_back(event);
+        event_cv.notify_all();
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(current, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/SESSIONs", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Target two"));
+    {
+        std::lock_guard<std::mutex> lock(catalog_mu);
+        catalog[0].updated_at = "2026-08-05T01:00:00Z";
+        catalog[1].updated_at = "2026-08-05T04:00:00Z";
+    }
+
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/resume 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_bound(binder, target_two))
+        << "selection re-sorted instead of using the displayed snapshot";
+    {
+        std::unique_lock<std::mutex> lock(event_mu);
+        ASSERT_TRUE(event_cv.wait_for(
+            lock, std::chrono::seconds(2), [&] { return !events.empty(); }));
+        const auto& event = events.back();
+        EXPECT_EQ(event.value("type", std::string{}),
+                  "remote_control_session_selected");
+        ASSERT_TRUE(event.contains("payload"));
+        const auto& payload = event["payload"];
+        EXPECT_EQ(payload.value("session_id", std::string{}), target_two);
+        EXPECT_TRUE(payload.value("remote_control_bound", false));
+        EXPECT_TRUE(payload.contains("selection_nonce"));
+        EXPECT_FALSE(payload.contains("token"));
+        EXPECT_FALSE(payload.contains("binding_token"));
+        EXPECT_FALSE(payload.contains("outbound_url"));
+        EXPECT_EQ(event.dump().find(hx.cfg.remote_control.token), std::string::npos);
+    }
+    EXPECT_EQ(catalog_calls.load(), 1)
+        << "numeric selection must not rebuild/re-sort a displayed snapshot";
+
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/session 99", hx.cfg.remote_control.token).ok());
+    EXPECT_TRUE(wait_for_outbound_text(sender, "会话编号超出范围"));
+    EXPECT_EQ(binder.bound_session_id(), target_two);
+
+    binder.execute_command(target_two, "off");
+    hx.registry.destroy(current);
+    hx.registry.destroy(target_two);
+    hx.registry.destroy(target_three);
+}
+
+TEST(SessionChannelBinderIntegration,
+     NumericBeforeListUsesDefaultSnapshotAndResumesExactTargetMetadata) {
+    BinderHarness hx("session-control-exact-resume");
+    const auto current = hx.client.create_session({});
+
+    acecode::SessionOptions workspace_opts;
+    workspace_opts.cwd = (hx.root / "other-workspace").string();
+    const auto workspace_target = hx.client.create_session(workspace_opts);
+    auto* workspace_entry = hx.registry.lookup(workspace_target);
+    ASSERT_NE(workspace_entry, nullptr);
+    ASSERT_EQ(workspace_entry->sm->ensure_active_session_id(), workspace_target);
+    const std::string exact_workspace_cwd = workspace_entry->cwd;
+    const std::string exact_workspace_hash = workspace_entry->workspace_hash;
+    hx.registry.destroy(workspace_target);
+
+    acecode::SessionOptions no_workspace_opts;
+    no_workspace_opts.no_workspace = true;
+    const auto no_workspace_target = hx.client.create_session(no_workspace_opts);
+    auto* no_workspace_entry = hx.registry.lookup(no_workspace_target);
+    ASSERT_NE(no_workspace_entry, nullptr);
+    ASSERT_EQ(no_workspace_entry->sm->ensure_active_session_id(), no_workspace_target);
+    const std::string exact_no_workspace_cwd = no_workspace_entry->cwd;
+    hx.registry.destroy(no_workspace_target);
+
+    auto deps = hx.binder_deps();
+    std::mutex catalog_mu;
+    std::vector<acecode::rc::RcSessionCatalogEntry> catalog{
+        binder_catalog_entry(workspace_target, "Other workspace",
+                             "2026-08-05T04:00:00Z", exact_workspace_cwd,
+                             exact_workspace_hash, false),
+    };
+    deps.list_session_catalog = [&] {
+        std::lock_guard<std::mutex> lock(catalog_mu);
+        return catalog;
+    };
+    std::mutex resumed_mu;
+    std::vector<acecode::rc::RcSessionCatalogEntry> resumed_targets;
+    deps.resume_session_exact = [&](const acecode::rc::RcSessionCatalogEntry& target) {
+        {
+            std::lock_guard<std::mutex> lock(resumed_mu);
+            resumed_targets.push_back(target);
+        }
+        acecode::SessionOptions opts;
+        opts.cwd = target.cwd;
+        opts.workspace_hash = target.workspace_hash;
+        opts.no_workspace = target.no_workspace;
+        return hx.client.resume_session(target.id, opts);
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    ASSERT_TRUE(binder.execute_command(current, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+
+    // No prior list: selection must build the default newest-ten snapshot on
+    // the control worker and then use the complete metadata stored in it.
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_bound(binder, workspace_target));
+    auto resumed_workspace = hx.registry.acquire(workspace_target);
+    ASSERT_TRUE(resumed_workspace);
+    EXPECT_EQ(resumed_workspace->cwd, exact_workspace_cwd);
+    EXPECT_EQ(resumed_workspace->workspace_hash, exact_workspace_hash);
+    EXPECT_FALSE(resumed_workspace->no_workspace);
+
+    {
+        std::lock_guard<std::mutex> lock(catalog_mu);
+        catalog = {
+            binder_catalog_entry(no_workspace_target, "No workspace",
+                                 "2026-08-05T05:00:00Z", exact_no_workspace_cwd,
+                                 {}, true),
+        };
+    }
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/resume all", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_outbound_text(sender, "No workspace"));
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/session 1", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_bound(binder, no_workspace_target));
+    auto resumed_no_workspace = hx.registry.acquire(no_workspace_target);
+    ASSERT_TRUE(resumed_no_workspace);
+    EXPECT_TRUE(resumed_no_workspace->no_workspace);
+    EXPECT_EQ(resumed_no_workspace->cwd, exact_no_workspace_cwd);
+    EXPECT_TRUE(resumed_no_workspace->workspace_hash.empty());
+
+    {
+        std::lock_guard<std::mutex> lock(resumed_mu);
+        ASSERT_EQ(resumed_targets.size(), 2u);
+        EXPECT_EQ(resumed_targets[0].cwd, exact_workspace_cwd);
+        EXPECT_EQ(resumed_targets[0].workspace_hash, exact_workspace_hash);
+        EXPECT_FALSE(resumed_targets[0].no_workspace);
+        EXPECT_EQ(resumed_targets[1].cwd, exact_no_workspace_cwd);
+        EXPECT_TRUE(resumed_targets[1].no_workspace);
+    }
+
+    binder.execute_command(no_workspace_target, "off");
+    hx.registry.destroy(current);
+    hx.registry.destroy(workspace_target);
+    hx.registry.destroy(no_workspace_target);
+}
+
+TEST(SessionChannelBinderIntegration,
+     ShutdownRejectsNewControlWorkAndJoinsStalledWorkerDeterministically) {
+    BinderHarness hx("session-control-shutdown");
+    auto deps = hx.binder_deps();
+    std::mutex gate_mu;
+    std::condition_variable gate_cv;
+    bool entered = false;
+    bool released = false;
+    deps.list_session_catalog = [&] {
+        std::unique_lock<std::mutex> lock(gate_mu);
+        entered = true;
+        gate_cv.notify_all();
+        gate_cv.wait(lock, [&] { return released; });
+        return std::vector<acecode::rc::RcSessionCatalogEntry>{
+            binder_catalog_entry("late", "Late result", "2026-08-05T03:00:00Z"),
+        };
+    };
+    acecode::rc::SessionChannelBinder binder(std::move(deps));
+    const auto sid = hx.client.create_session({});
+    ASSERT_TRUE(binder.execute_command(sid, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions", hx.cfg.remote_control.token).ok());
+    {
+        std::unique_lock<std::mutex> lock(gate_mu);
+        ASSERT_TRUE(gate_cv.wait_for(
+            lock, std::chrono::seconds(2), [&] { return entered; }));
+    }
+
+    auto stopping = std::async(std::launch::async, [&] { binder.shutdown(); });
+    EXPECT_EQ(stopping.wait_for(std::chrono::milliseconds(200)),
+              std::future_status::timeout)
+        << "shutdown must join an already-running owned control operation";
+    {
+        std::lock_guard<std::mutex> lock(gate_mu);
+        released = true;
+        gate_cv.notify_all();
+    }
+    ASSERT_EQ(stopping.wait_for(std::chrono::seconds(3)), std::future_status::ready);
+    stopping.get();
+    EXPECT_FALSE(hx.service.running());
+    EXPECT_FALSE(wait_for_outbound_text(sender, "Late result",
+                                        std::chrono::milliseconds(200)));
+    EXPECT_FALSE(hx.service.hub().handle_inbound(
+        "/sessions", hx.cfg.remote_control.token).ok());
+
+    hx.registry.destroy(sid);
 }

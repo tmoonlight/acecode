@@ -27,6 +27,7 @@
 
 #include "channel_plugin.hpp"
 #include "channel_question_bridge.hpp"
+#include "rc_session_navigation.hpp"
 #include "remote_control_service.hpp"
 
 #include "../config/config.hpp"
@@ -38,12 +39,14 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace acecode::rc {
 
@@ -159,6 +162,15 @@ struct SessionChannelBinderDeps {
     std::function<bool(const std::string&)> session_active;
     std::function<bool(const std::string&)> session_resumable;
 
+    // RC channel-side /session aliases. All callbacks may touch the filesystem
+    // or indexes and therefore are invoked only by the owned control worker,
+    // never by the HTTP inbound callback.
+    std::function<std::vector<RcSessionCatalogEntry>()> list_session_catalog;
+    std::function<std::vector<RcSessionCatalogEntry>(const std::string&, std::size_t)>
+        search_session_catalog;
+    std::function<bool(const RcSessionCatalogEntry&)> resume_session_exact;
+    std::function<void(const nlohmann::json&)> broadcast_event;
+
     // 测试注入的插件进程 runner;空 = ChannelPluginHost::default_runner()。
     ChannelPluginHost::Runner plugin_runner;
 
@@ -231,6 +243,21 @@ private:
         std::uint64_t generation = 0;
     };
 
+    struct ControlWork {
+        RcSessionCommand command;
+        std::shared_ptr<BindingContext> source_context;
+        std::string source_session_id;
+        std::uint64_t source_generation = 0;
+    };
+
+    struct ControlState {
+        std::mutex mu;
+        std::condition_variable cv;
+        std::deque<ControlWork> queue;
+        bool accepting = true;
+        bool stop = false;
+    };
+
     CommandOutcome bind_session(const std::string& session_id);
     CommandOutcome unbind_and_stop();
     std::string status_text() const;
@@ -241,6 +268,15 @@ private:
                          const std::string& token);
     void ensure_keepalive_thread();
     void keepalive_loop();
+    static bool enqueue_control_work(const std::shared_ptr<ControlState>& state,
+                                     ControlWork work);
+    void control_loop();
+    void handle_control_work(const ControlWork& work);
+    bool control_work_is_current(const ControlWork& work) const;
+    void emit_control_text(const ControlWork& work, const std::string& text) const;
+    std::vector<RcSessionCatalogEntry> default_session_snapshot() const;
+    void replace_session_snapshot(std::vector<RcSessionCatalogEntry> snapshot);
+    std::vector<RcSessionCatalogEntry> session_snapshot() const;
     ChannelPluginHost make_plugin_host() const;
     void deactivate_replaced_channel_best_effort(
         const std::optional<ActiveChannel>& previous,
@@ -271,6 +307,12 @@ private:
     bool stop_requested_ = false;
     bool shut_down_ = false;
     std::thread keepalive_thread_;
+
+    std::shared_ptr<ControlState> control_state_;
+    std::thread control_thread_;
+    std::atomic<std::uint64_t> navigation_nonce_{0};
+    mutable std::mutex snapshot_mu_;
+    std::vector<RcSessionCatalogEntry> session_snapshot_;
 };
 
 } // namespace acecode::rc

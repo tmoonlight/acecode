@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { api, ApiError, createApi } from './lib/api.js';
 import { setToken } from './lib/auth.js';
 import { connection } from './lib/connection.js';
+import { normalizeRemoteControlSessionSelection } from './lib/remoteControlSessionNavigation.js';
 import { loadUiLocale } from './lib/uiLocale.js';
 import {
   createDesktopNotificationMonitor,
@@ -199,6 +200,7 @@ export function App() {
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [conversationFindRequest, setConversationFindRequest] = useState(0);
   const [workspaceActivationRequest, setWorkspaceActivationRequest] = useState(null);
+  const [remoteControlSelection, setRemoteControlSelection] = useState(null);
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updateStarting, setUpdateStarting] = useState(false);
   const [updateChecking, setUpdateChecking] = useState(false);
@@ -710,6 +712,36 @@ export function App() {
         window.aceDesktop_activateAndOpenSession = undefined;
       }
     };
+  }, [resumeAndOpenSession]);
+
+  // The backend has already resumed and rebound this target. Every connected
+  // frontend treats the WebSocket frame as an optional navigation hint: mark
+  // the row present/bound, open it without a second resume call, and retain the
+  // event nonce so a row mounted during the switch can still replay its surge.
+  useEffect(() => {
+    const handler = (event) => {
+      const target = normalizeRemoteControlSessionSelection(event.detail || {});
+      if (!target) return;
+      setRemoteControlSelection(target);
+      notifySessionListChanged({
+        sessionId: target.sessionId,
+        workspaceHash: target.workspaceHash,
+        noWorkspace: target.noWorkspace,
+        reason: 'remote-control-selection',
+        session: {
+          id: target.sessionId,
+          title: target.title,
+          cwd: target.cwd,
+          workspace_hash: target.workspaceHash,
+          no_workspace: target.noWorkspace,
+          remote_control_bound: true,
+          active: true,
+        },
+      });
+      resumeAndOpenSession(target, { allowDesktopActivate: false }).catch(() => {});
+    };
+    connection.addEventListener('message', handler);
+    return () => connection.removeEventListener('message', handler);
   }, [resumeAndOpenSession]);
 
   // 全局 Ctrl/Cmd+K 切换搜索面板。matchShortcut 处理大小写与修饰键。
@@ -1664,6 +1696,7 @@ export function App() {
           onNewLoop={openLoopPage}
           onSearchTasks={() => setSearchOpen(true)}
           workspaceActivationRequest={workspaceActivationRequest}
+          remoteControlSelection={remoteControlSelection}
           onOpenSettingsSection={openSettingsSection}
           onOpenExpertComponents={openExpertComponents}
           pendingPermissionSessionIds={pendingPermissionSessionIdsForSidebar}

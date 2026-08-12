@@ -437,6 +437,7 @@ struct WebServer::Impl {
         const std::string& session_id,
         const std::string& workspace_hash_hint = {}) const;
     void broadcast_session_status(const nlohmann::json& payload);
+    void broadcast_event(const nlohmann::json& event);
     void note_session_event_for_attention(const std::string& session_id,
                                            const std::string& workspace_hash,
                                            const std::string& cwd,

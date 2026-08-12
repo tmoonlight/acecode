@@ -189,4 +189,8 @@ void WebServer::with_app_config_lock(const std::function<void()>& fn) const {
     fn();
 }
 
+void WebServer::broadcast_event(const nlohmann::json& event) {
+    if (impl_) impl_->broadcast_event(event);
+}
+
 } // namespace acecode::web

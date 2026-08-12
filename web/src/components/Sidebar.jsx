@@ -38,6 +38,7 @@ import {
   unpinSessionId,
 } from '../lib/pinnedSessions.js';
 import { sessionDisplayTitle, withNewSessionDisplayTitles } from '../lib/sessionTitle.js';
+import { remoteControlSurgeNonceForSession } from '../lib/remoteControlSessionNavigation.js';
 import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
 import { usePreference } from '../lib/usePreference.js';
 import {
@@ -563,6 +564,7 @@ function SessionRow({
   dragging = false,
   dropPlacement = '',
   importHighlighted = false,
+  remoteControlSelection = null,
 }) {
   const attention = s.attention_state || s.read_state || 'read';
   const meta = attentionMeta(attention);
@@ -581,6 +583,11 @@ function SessionRow({
   const [focusWithin, setFocusWithin] = useState(false);
   const [remoteControlSurging, setRemoteControlSurging] = useState(false);
   const previousRemoteControlBoundRef = useRef(remoteControlBound);
+  const previousRemoteControlSelectionNonceRef = useRef('');
+  const remoteControlSelectionNonce = remoteControlSurgeNonceForSession(
+    remoteControlSelection,
+    s,
+  );
   const committingRef = useRef(false);
   const hoverCardVisible = !!hoverDetails && (hovered || focusWithin);
 
@@ -597,6 +604,15 @@ function SessionRow({
       setRemoteControlSurging(false);
     }
   }, [remoteControlBound]);
+
+  useEffect(() => {
+    if (!remoteControlSelectionNonce
+        || previousRemoteControlSelectionNonceRef.current === remoteControlSelectionNonce) {
+      return;
+    }
+    previousRemoteControlSelectionNonceRef.current = remoteControlSelectionNonce;
+    setRemoteControlSurging(true);
+  }, [remoteControlSelectionNonce]);
 
   const commitRename = async () => {
     if (committingRef.current) return;
@@ -1011,6 +1027,7 @@ function WorkspaceGroup({
   sessionsLoading = false,
   opencodeImportCount = 0,
   opencodeImportedHighlightKeys = new Set(),
+  remoteControlSelection = null,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(ws.name);
@@ -1172,6 +1189,7 @@ function WorkspaceGroup({
                   onArchive={onArchive}
                   onRename={onRenameSession}
                   importHighlighted={opencodeImportedHighlightKeys.has(opencodeImportedSessionHighlightKey(ws.hash, s.id))}
+                  remoteControlSelection={remoteControlSelection}
                 />
               ))}
               {projectedSessions.collapsible && (
@@ -1206,6 +1224,7 @@ function NoWorkspaceSessionGroup({
   onRenameSession,
   pendingPermissionSessionIds,
   pendingQuestionSessionIds,
+  remoteControlSelection = null,
 }) {
   const projectedSessions = sidebarSessionProjection(sessions, sessionListExpanded);
 
@@ -1229,6 +1248,7 @@ function NoWorkspaceSessionGroup({
               onSelect={onSelect}
               onArchive={onArchive}
               onRename={onRenameSession}
+              remoteControlSelection={remoteControlSelection}
             />
           ))}
           {projectedSessions.collapsible && (
@@ -1264,6 +1284,7 @@ export function Sidebar({
   onOpenExpertComponents,
   pendingPermissionSessionIds = new Set(),
   pendingQuestionSessionIds = new Set(),
+  remoteControlSelection = null,
 }) {
   const [workspaces,  setWorkspaces]  = useState([]);
   const [sessions,    setSessions]    = useState([]);
@@ -2628,6 +2649,7 @@ export function Sidebar({
                       onTogglePin={togglePinnedSession}
                       onArchive={archiveSession}
                       onRename={renameSession}
+                      remoteControlSelection={remoteControlSelection}
                     />
                   );
                 })}
@@ -2652,6 +2674,7 @@ export function Sidebar({
                 onRenameSession={renameSession}
                 pendingPermissionSessionIds={pendingPermissionSessionIds}
                 pendingQuestionSessionIds={pendingQuestionSessionIds}
+                remoteControlSelection={remoteControlSelection}
               />
             )}
             <SidebarSectionHeader
@@ -2716,6 +2739,7 @@ export function Sidebar({
                       sessionsLoading={sessionLoadingWorkspaces.has(ws.hash) || !sessionLoadedWorkspaces.has(ws.hash)}
                       opencodeImportCount={opencodeImportPreviews.get(ws.hash)?.count || 0}
                       opencodeImportedHighlightKeys={opencodeImportedHighlightKeys}
+                      remoteControlSelection={remoteControlSelection}
                     />
                   );
                 })}

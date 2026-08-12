@@ -27,6 +27,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json_fwd.hpp>
+
 namespace acecode {
 class LlmProvider;
 class HookManager;
@@ -138,6 +140,12 @@ public:
     // 组件(remote-control binder 等)读写 cfg_mut 时,借这里与全部 HTTP
     // 路由 / 钩子刷新互斥。fn 内不得再调 WebServer 会拿该锁的方法(不可重入)。
     void with_app_config_lock(const std::function<void()>& fn) const;
+
+    // Broadcast a generic, secret-free event to every connected Web/Desktop
+    // client. Producers own the event schema; this transport method does not
+    // require a workspace/session subscription and is safe from non-web
+    // daemon threads.
+    void broadcast_event(const nlohmann::json& event);
 
 private:
     struct Impl;

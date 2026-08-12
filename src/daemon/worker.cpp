@@ -48,6 +48,7 @@
 #include "../tool/web_search/web_search_tool.hpp"
 #include "../network/proxy_resolver.hpp"
 #include "../remote_control/session_channel_binder.hpp"
+#include "../remote_control/rc_session_catalog.hpp"
 #include "../utils/logger.hpp"
 #include "../utils/paths.hpp"
 #include "../utils/power_inhibitor.hpp"
@@ -606,6 +607,29 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         // 路由一致)—— 绑定的是「不使用工作区」会话时,默认 SessionOptions
         // 会把 cwd 解析成 daemon 自身 cwd,重启重建永远找不到该会话。
         return acecode::rc::resume_session_with_no_workspace_fallback(client, id);
+    };
+    acecode::rc::RcSessionCatalog rc_session_catalog({
+        projects_dir,
+        acecode::default_no_workspace_cache_root(),
+        [&client]() { return client.list_sessions(); },
+    });
+    rc_binder_deps.list_session_catalog = [&rc_session_catalog]() {
+        return rc_session_catalog.list_all();
+    };
+    rc_binder_deps.search_session_catalog =
+        [&rc_session_catalog](const std::string& query, std::size_t limit) {
+            return rc_session_catalog.search(query, limit);
+        };
+    rc_binder_deps.resume_session_exact =
+        [&client](const acecode::rc::RcSessionCatalogEntry& target) {
+            acecode::SessionOptions opts;
+            opts.cwd = target.cwd;
+            opts.workspace_hash = target.workspace_hash;
+            opts.no_workspace = target.no_workspace;
+            return client.resume_session(target.id, opts);
+        };
+    rc_binder_deps.broadcast_event = [&server](const nlohmann::json& event) {
+        server.broadcast_event(event);
     };
     acecode::rc::SessionChannelBinder rc_binder(std::move(rc_binder_deps));
 
