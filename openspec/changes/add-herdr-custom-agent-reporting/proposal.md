@@ -12,6 +12,7 @@
 - 把跨平台 Herdr `hooks.json` 纳入版本化默认 seed，把现有生命周期事件映射为 Herdr custom-agent 状态。
 - 默认应用启动时安装并加载该 hook；加载器只自动信任与官方 seed 指纹一致的内容。
 - seed hook 使用独立的 ACECode 管理目录，不改写或合并用户已有的 `hooks.json`。
+- 修正真实 Herdr managed pane 不提供 `HERDR_BIN_PATH` 时 Windows hook 静默跳过的问题；将该变量降为可选提示，并通过平台安装位置或 `PATH` 解析 Herdr CLI。
 
 ## 不变范围
 
@@ -20,3 +21,4 @@
 - 不新增 Herdr 安装器、上报类、provider 或运行时分支。
 - 在 Herdr 环境外，默认 hook 成功退出且不产生外部调用。
 - 用户修改过的 seed hook 不会被覆盖，也不会继续按 managed hook 自动信任。
+- ACECode 不通过当前焦点猜测 pane 身份；上报目标始终来自 Herdr 注入的 `HERDR_PANE_ID`。

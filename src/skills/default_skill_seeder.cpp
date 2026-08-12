@@ -1182,9 +1182,9 @@ const std::vector<DefaultExpertSeed>& default_expert_seeds() {
 const std::vector<DefaultHookSeed>& default_hook_seeds() {
     static const std::vector<DefaultHookSeed> seeds = {
         {"agent-reporting",
-         "acecode:managed-hook/agent-reporting@2026-08-10",
+         "acecode:managed-hook/agent-reporting@2026-08-12",
          "agent-reporting",
-         "b731118b927bb32a5c43083f5d3279ecd4ce3d96137b351c2d105ac3548d9f2f"},
+         "e139bd9bc1314dfe82cd7a7c018332e7a33c42eb451c8ce1db99f58d18d6ff4e"},
     };
     return seeds;
 }

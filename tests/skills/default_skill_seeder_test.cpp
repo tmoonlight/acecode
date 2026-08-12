@@ -2,6 +2,7 @@
 #include "skills/skill_registry.hpp"
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_registry.hpp"
+#include "hooks/hook_runner.hpp"
 #include "utils/sha256.hpp"
 
 #include <gtest/gtest.h>
@@ -10,13 +11,16 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
 #include <iomanip>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -25,6 +29,44 @@ namespace {
 constexpr const char* kSeedVersion1 = "2026-07-20.1";
 constexpr const char* kSeedVersion2 = "2026-07-21.1";
 constexpr const char* kSeedVersionNewer = "2027-01-01.1";
+
+void set_environment_value(
+    const char* name,
+    const std::optional<std::string>& value) {
+#ifdef _WIN32
+    _putenv_s(name, value ? value->c_str() : "");
+#else
+    if (value) {
+        setenv(name, value->c_str(), 1);
+    } else {
+        unsetenv(name);
+    }
+#endif
+}
+
+class ScopedEnvironmentValue {
+public:
+    ScopedEnvironmentValue(
+        const char* name,
+        const std::optional<std::string>& value)
+        : name_(name) {
+        if (const char* current = std::getenv(name)) {
+            previous_ = std::string(current);
+        }
+        set_environment_value(name_.c_str(), value);
+    }
+
+    ~ScopedEnvironmentValue() {
+        set_environment_value(name_.c_str(), previous_);
+    }
+
+    ScopedEnvironmentValue(const ScopedEnvironmentValue&) = delete;
+    ScopedEnvironmentValue& operator=(const ScopedEnvironmentValue&) = delete;
+
+private:
+    std::string name_;
+    std::optional<std::string> previous_;
+};
 
 fs::path make_temp_root(const std::string& name) {
     const auto now =
@@ -1047,6 +1089,12 @@ TEST(DefaultSkillSeedRegistryTest, PackagedManifestVersionAndHashesAgree) {
             });
         ASSERT_NE(item, manifest["hooks"].end());
         EXPECT_EQ(
+            (*item)["source_id"].get<std::string>(),
+            seed.source_id);
+        EXPECT_EQ(
+            (*item)["relative_path"].get<std::string>(),
+            seed.relative_path.generic_string());
+        EXPECT_EQ(
             (*item)["definition_sha256"].get<std::string>(),
             seed.definition_sha256);
     }
@@ -1059,6 +1107,95 @@ TEST(DefaultSkillSeedRegistryTest, PackagedManifestVersionAndHashesAgree) {
             "hooks.json"),
         read_json(repository_root / "docs" / "examples" /
                   "herdr-hooks.json"));
+}
+
+TEST(DefaultSkillSeedRegistryTest,
+     HerdrHooksResolveCliWithoutOptionalBinPathAndKeepPaneIdentity) {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const auto config = read_json(
+        repository_root / "assets" / "seed" / "hooks" /
+        "agent-reporting" / "hooks.json");
+    const fs::path temp_root = make_temp_root("herdr-cli-fallback");
+    const fs::path fake_bin = temp_root / "bin";
+    const fs::path calls_log = temp_root / "calls.log";
+    fs::create_directories(fake_bin);
+
+#ifdef _WIN32
+    const fs::path fake_herdr = fake_bin / "herdr.cmd";
+    write_file(
+        fake_herdr,
+        "@echo off\r\n"
+        ">>\"%HERDR_TEST_LOG%\" echo %*\r\n"
+        "exit /b 0\r\n");
+    constexpr const char* command_key = "commandWindows";
+    constexpr const char path_separator = ';';
+#else
+    const fs::path fake_herdr = fake_bin / "herdr";
+    write_file(
+        fake_herdr,
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$*\" >> \"$HERDR_TEST_LOG\"\n");
+    fs::permissions(
+        fake_herdr,
+        fs::perms::owner_read | fs::perms::owner_write |
+            fs::perms::owner_exec,
+        fs::perm_options::replace);
+    constexpr const char* command_key = "command";
+    constexpr const char path_separator = ':';
+#endif
+
+    const std::string original_path =
+        std::getenv("PATH") ? std::getenv("PATH") : "";
+    const std::string test_path =
+        fake_bin.string() + path_separator + original_path;
+    const std::string expected_pane = "w-test:p-expected";
+    ScopedEnvironmentValue herdr_env("HERDR_ENV", "1");
+    ScopedEnvironmentValue pane_id("HERDR_PANE_ID", expected_pane);
+    ScopedEnvironmentValue socket_path(
+        "HERDR_SOCKET_PATH", (temp_root / "herdr.sock").string());
+    ScopedEnvironmentValue missing_bin_path("HERDR_BIN_PATH", std::nullopt);
+    ScopedEnvironmentValue path("PATH", test_path);
+    ScopedEnvironmentValue calls("HERDR_TEST_LOG", calls_log.string());
+#ifdef _WIN32
+    ScopedEnvironmentValue local_app_data(
+        "LOCALAPPDATA", (temp_root / "missing-local-app-data").string());
+#endif
+
+    std::size_t handler_count = 0;
+    for (const auto& event : config.at("hooks").items()) {
+        for (const auto& group : event.value()) {
+            for (const auto& handler : group.at("hooks")) {
+                ++handler_count;
+                const std::string command =
+                    handler.at(command_key).get<std::string>();
+                EXPECT_EQ(command.find("HERDR_ACTIVE_PANE_ID"), std::string::npos);
+                EXPECT_EQ(command.find("pane current"), std::string::npos);
+                auto result = acecode::run_hook_shell_command(
+                    command, "{}", 3000, temp_root.string());
+                EXPECT_TRUE(result.started) << event.key() << ": " << result.error;
+                EXPECT_FALSE(result.timed_out) << event.key();
+                EXPECT_EQ(result.exit_code, 0)
+                    << event.key() << ": " << result.output;
+            }
+        }
+    }
+
+    EXPECT_EQ(handler_count, 8u);
+    std::istringstream recorded(read_file(calls_log));
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(recorded, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty()) lines.push_back(std::move(line));
+    }
+    ASSERT_EQ(lines.size(), handler_count);
+    for (const auto& line : lines) {
+        EXPECT_NE(line.find(expected_pane), std::string::npos) << line;
+    }
+
+    std::error_code cleanup_error;
+    fs::remove_all(temp_root, cleanup_error);
 }
 
 TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
@@ -1114,7 +1251,7 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
     EXPECT_TRUE(state["completed"].get<bool>());
-    EXPECT_EQ(state["bundle_version"], "2026-08-10.1");
+    EXPECT_EQ(state["bundle_version"], "2026-08-12.1");
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);

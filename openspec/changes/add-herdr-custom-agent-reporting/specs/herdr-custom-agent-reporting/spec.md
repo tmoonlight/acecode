@@ -72,3 +72,20 @@ ACECode 在派发 `PermissionRequest` 后，MUST 在授权决定确定后恰好�
 - **WHEN** 默认 seed hook 已安装并在 Herdr pane 中运行
 - **THEN** 它通过通用生命周期事件上报 `idle`、`working` 与 `blocked`
 - **AND** ACECode core 不包含 Herdr 专属的运行时检测或 reporter
+
+#### Scenario: 普通 pane 未提供 Herdr 可执行文件变量
+
+- **WHEN** `HERDR_ENV`、`HERDR_PANE_ID` 与 `HERDR_SOCKET_PATH` 有效，但 `HERDR_BIN_PATH` 缺失
+- **THEN** hook 从平台官方安装位置或 `PATH` 解析 Herdr CLI 并完成上报
+- **AND** 不把缺少可选的 `HERDR_BIN_PATH` 当成 Herdr 外部环境
+
+#### Scenario: 找不到 Herdr CLI
+
+- **WHEN** 必需的 Herdr pane 环境有效，但所有 Herdr CLI 候选均不可用
+- **THEN** hook 成功退出且不产生外部调用
+
+#### Scenario: pane 上报身份
+
+- **WHEN** hook 上报任一生命周期状态
+- **THEN** 目标 pane 必须使用 `HERDR_PANE_ID`
+- **AND** hook 不得以 UI 当前聚焦 pane 替换该身份

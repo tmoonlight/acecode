@@ -66,8 +66,10 @@ the official built-in fingerprint; a modified copy is preserved but not run as
 a managed hook.
 
 The single JSON file contains both POSIX `command` and Windows
-`commandWindows` handlers. Every command requires the complete Herdr pane
-environment and exits successfully otherwise.
+`commandWindows` handlers. Every command requires the Herdr marker, socket, and
+pane identity. `HERDR_BIN_PATH` is optional: handlers fall back to the platform
+installation/PATH lookup and exit successfully when no Herdr CLI is available.
+They always report the injected pane ID and never infer identity from focus.
 
 State mapping:
 
@@ -108,62 +110,58 @@ Coverage includes:
     `idle, working, blocked, working, blocked, working, idle`
   - running the same handlers without `HERDR_ENV` produced zero calls
 
-Windows commands were statically inspected but not executed because the build
-machine has no Windows `cmd.exe` or Wine.
+At the time of the original handoff, Windows commands were only statically
+inspected because that build machine had no Windows `cmd.exe` or Wine. That gap
+allowed the optional `HERDR_BIN_PATH` behavior below to escape validation.
 
-## Build status and blocker
+## 2026-08-12 Windows managed-pane regression
 
-Do not treat this branch as compiled or test-passing yet.
+A real Herdr pane provided `HERDR_ENV`, `HERDR_SOCKET_PATH`, and
+`HERDR_PANE_ID`, but not `HERDR_BIN_PATH`. In `cmd.exe`, an undefined
+`%HERDR_BIN_PATH%` remains a literal token in the original command, so its
+string guard passed, attempted to run a nonexistent literal executable, hid the
+error, and then returned success. ACECode logs therefore showed successful hook
+dispatch while Herdr's agent list stayed empty.
 
-The ARM64 Linux configure completed successfully after initializing submodules:
+The seed now resolves the CLI in this order:
 
-```bash
-git submodule update --init --recursive
-export VCPKG_ROOT=/root/vcpkg
-export VCPKG_FORCE_SYSTEM_BINARIES=1
-cmake --preset linux-arm64-debug -DVCPKG_MANIFEST_FEATURES=tests
-```
+- POSIX: `HERDR_BIN_PATH`, then `PATH`.
+- Windows: `HERDR_BIN_PATH`, the standard per-user Herdr executable, then
+  `PATH`.
 
-The first build used `-j2`:
+A cross-platform test executes all eight packaged handlers with
+`HERDR_BIN_PATH` absent, captures the fake CLI calls, and verifies every call
+retains the injected pane ID. The fixed Windows command was also exercised
+against a real Herdr CLI and produced an agent-list entry.
 
-```bash
-cmake --build build/linux-arm64-debug --target acecode_unit_tests -j2
-```
+One separate external condition was observed: a second pane in the installed
+Herdr preview inherited the first pane's `HERDR_PANE_ID`. The hook deliberately
+does not replace that identity with the currently focused pane; update/restart
+Herdr and recreate affected panes so the process receives the correct ID.
 
-It reached the linking phase for helper test executables, then the kernel killed
-`ld` with signal 9 because two large links exhausted the 7.5 GiB machine.
-This was an environment OOM, not a compiler diagnostic from the changed code.
+## Current verification
 
-A second build was started with `-j1` to serialize links and was progressing
-normally, but it was intentionally interrupted when the session was stopped.
-No final `acecode_unit_tests` or `acecode` binary was produced.
+The original ARM64 Linux handoff was blocked by linker OOM, but the continued
+work has now been compiled and tested on Windows x64:
 
-## Recommended continuation on another machine
+- the focused seed/hook suites passed 81 of 81 tests;
+- the broad suite passed 3310 tests and skipped 4 environment-only smokes;
+- the 6 process-level tests initially omitted from that run passed separately
+  after their helper executables were built with the same toolchain;
+- 7 `DesktopSingleInstance` tests were not run because an ACECode desktop
+  instance was active;
+- an isolated Release CLI target linked successfully;
+- `openspec validate add-herdr-custom-agent-reporting --strict`,
+  `git diff --check`, and the shell code-quality check passed;
+- all 8 POSIX and Windows handlers executed against fake CLIs with
+  `HERDR_BIN_PATH` absent and preserved the injected pane ID;
+- a real Windows Herdr CLI probe created the expected `w1:p2` agent-list entry
+  and its validation source was then released.
 
-```bash
-git submodule update --init --recursive
-export VCPKG_ROOT=/path/to/vcpkg
-cmake --preset <matching-platform-debug-preset> -DVCPKG_MANIFEST_FEATURES=tests
-cmake --build build/<preset> --target acecode_unit_tests -j1
-```
-
-Run the focused tests first:
-
-```bash
-./build/<preset>/tests/acecode_unit_tests \
-  --gtest_filter='HookRuntime.*:HookAgentLoop.Permission*'
-```
-
-Then run the complete suite and build the CLI:
-
-```bash
-ctest --test-dir build/<preset> --output-on-failure
-cmake --build build/<preset> --target acecode
-```
-
-On a Windows machine, additionally start a build containing the new seed in a
-Herdr pane and verify the seeded `commandWindows` handlers with a real Herdr
-executable.
+The remaining deployment step is to ship a package containing seed revision
+`2026-08-12.1`. Existing users with an unchanged ACECode-owned hook receive the
+new definition during startup reconciliation; modified hook packages remain
+preserved and require manual review.
 
 ## Review checklist
 

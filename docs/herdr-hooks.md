@@ -18,7 +18,17 @@ Start ACECode inside a Herdr pane to use the integration. The example JSON remai
 available as a readable reference; copying it manually is unnecessary and can cause
 duplicate reports if that copy is separately trusted.
 
-The same JSON includes POSIX `command` entries and Windows `commandWindows` entries. Each command checks `HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_SOCKET_PATH`, and `HERDR_BIN_PATH`; outside a Herdr pane it exits successfully without invoking anything.
+The same JSON includes POSIX `command` entries and Windows `commandWindows`
+entries. Each command requires `HERDR_ENV=1`, `HERDR_PANE_ID`, and
+`HERDR_SOCKET_PATH`. `HERDR_BIN_PATH` is optional: POSIX first uses it and then
+searches `PATH`; Windows first uses it, then checks the standard per-user Herdr
+installation, and finally searches `PATH`. If the required pane environment or
+the CLI is unavailable, the command exits successfully without invoking anything.
+
+The hook always reports the exact injected `HERDR_PANE_ID`. It never guesses from
+the focused pane because focus can change while a hook is running. If a pane has
+inherited another pane's ID, update/restart Herdr and recreate that pane before
+starting ACECode there.
 
 ## State mapping
 
@@ -45,5 +55,10 @@ The hook reports lifecycle source `custom:acecode`, agent label `acecode`, displ
 
 Disabling ACECode's hooks feature disables the managed seed hook together with all
 other hooks.
+
+The same lifecycle dispatch runs in the terminal TUI, daemon/headless flows, and
+the desktop/web surfaces. In the TUI, submitting a prompt changes the Herdr state
+to `working`, permission or `AskUserQuestion` waits change it to `blocked`, and
+completion returns it to `idle`.
 
 Herdr does not persist native cold-resume references from custom sources. This hook therefore provides live identity and state reporting, not automatic AceCode session restoration after a Herdr restart. Use `acecode --resume <session-id>` for AceCode's own resume flow.

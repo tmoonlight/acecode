@@ -40,3 +40,17 @@ hook registry 把内容与内置官方定义指纹一致的 seed source 标记�
 - `Stop` -> `idle`
 
 命令同步执行且超时为一秒，因为 ACECode 当前会跳过异步 Codex 命令钩子。失败输出会被重定向并通过条件守卫处理，因此缺少 Herdr 时不会产生副作用。
+
+### Herdr CLI 与 pane 身份解析
+
+普通 Herdr managed pane 的必需契约是 `HERDR_ENV=1`、`HERDR_PANE_ID` 与 `HERDR_SOCKET_PATH`。`HERDR_BIN_PATH` 只作为可选的 CLI 绝对路径提示，不能作为是否处于 Herdr pane 的判断条件。
+
+CLI 解析顺序如下：
+
+- POSIX：优先 `HERDR_BIN_PATH`，缺少时通过 `command -v herdr` 查找。
+- Windows：优先 `HERDR_BIN_PATH`，其次使用官方安装位置 `%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe`，最后从 `PATH` 查找 `herdr`。
+- 所有候选均不存在时，hook 成功退出且不产生上报。
+
+hook 只向 `HERDR_PANE_ID` 指定的 pane 上报，不使用 UI 当前焦点作为回退。Herdr 必须保证注入的 pane ID 对应承载 ACECode 的终端；若 Herdr 注入了旧 ID 或其他 pane ID，应由 Herdr 修复或在重建 pane 后重新注入，ACECode 不应猜测替换。
+
+Windows 实机验证必须覆盖 `HERDR_BIN_PATH` 缺失的普通 pane 环境，并确认日志中的成功退出确实对应 Herdr agent 列表发生变化，而不是 guard 静默短路。
