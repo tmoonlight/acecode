@@ -318,6 +318,9 @@ public:
     void set_hook_manager(HookManager* hm) { hook_manager_ = hm; }
 
     void dispatch_session_start_hook(const std::string& source);
+    void dispatch_session_title_changed_hook(const std::string& title,
+                                             const std::string& source,
+                                             const std::string& title_source);
     void restore_goal_runtime();
     void publish_current_goal_state();
     void maybe_continue_goal();

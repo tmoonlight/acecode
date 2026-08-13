@@ -84,6 +84,19 @@
         ]
       }
     ],
+    "SessionTitleChanged": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"${HERDR_ENV:-}\" = \"1\" ] && [ -n \"${HERDR_TAB_ID:-}\" ] && [ -n \"${HERDR_SOCKET_PATH:-}\" ] && [ -n \"${ACECODE_HOOK_SESSION_TITLE:-}\" ]; then herdr_bin=\"${HERDR_BIN_PATH:-$(command -v herdr 2>/dev/null || true)}\"; if [ -n \"$herdr_bin\" ]; then \"$herdr_bin\" tab rename \"$HERDR_TAB_ID\" \"$ACECODE_HOOK_SESSION_TITLE\" >/dev/null 2>&1 || true; fi; fi; exit 0",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"$title=$env:ACECODE_HOOK_SESSION_TITLE; if ($env:HERDR_ENV -eq '1' -and -not [string]::IsNullOrWhiteSpace($env:HERDR_TAB_ID) -and -not [string]::IsNullOrWhiteSpace($env:HERDR_SOCKET_PATH) -and -not [string]::IsNullOrEmpty($title)) { $herdr=$env:HERDR_BIN_PATH; if ([string]::IsNullOrWhiteSpace($herdr)) { $candidate=Join-Path $env:LOCALAPPDATA 'Programs\\Herdr\\bin\\herdr.exe'; if (Test-Path -LiteralPath $candidate) { $herdr=$candidate } else { $resolved=Get-Command herdr -ErrorAction SilentlyContinue; if ($null -ne $resolved) { $herdr=$resolved.Source } } }; if (-not [string]::IsNullOrWhiteSpace($herdr)) { try { & $herdr tab rename $env:HERDR_TAB_ID $title *> $null } catch {} } }; exit 0\"",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "*",

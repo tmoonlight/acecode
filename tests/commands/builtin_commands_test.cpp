@@ -4,6 +4,8 @@
 #include "commands/command_registry.hpp"
 #include "commands/desktop_command.hpp"
 #include "config/config.hpp"
+#include "hooks/hook_manager.hpp"
+#include "hooks/hook_runtime.hpp"
 #include "permissions.hpp"
 #include "provider/provider_factory.hpp"
 #include "session/session_manager.hpp"
@@ -1223,6 +1225,95 @@ TEST(BuiltinCommands, ResumeByNumberRefreshesModelAndTokenState) {
     ASSERT_TRUE(h.dispatch("/resume 1"));
 
     h.expect_resumed_runtime_state();
+}
+
+TEST(BuiltinCommands, TitleSetAndClearDispatchChangedButQueryDoesNot) {
+    ResumeCommandHarness h("title_hook");
+    acecode::NormalizedHook hook;
+    hook.id = "title-capture";
+    hook.source_id = "test";
+    hook.event_name = acecode::kCodexHookEventSessionTitleChanged;
+    hook.matcher = "user";
+    hook.kind = acecode::HookHandlerKind::Command;
+    hook.command.command = "capture";
+    hook.command.timeout_seconds = 1;
+    hook.trust_status = acecode::HookTrustStatus::Trusted;
+    acecode::HookRegistrySnapshot snapshot;
+    snapshot.feature_enabled = true;
+    snapshot.hooks.push_back(std::move(hook));
+
+    std::vector<nlohmann::json> payloads;
+    acecode::HookManager hooks(
+        std::move(snapshot),
+        acecode::HookProcessRunner{},
+        [&](const std::string&, const std::string& stdin_text, int,
+            const std::string&) {
+            payloads.push_back(nlohmann::json::parse(stdin_text));
+            acecode::HookProcessResult result;
+            result.started = true;
+            result.exit_code = 0;
+            return result;
+        });
+    h.loop_.set_hook_manager(&hooks);
+
+    EXPECT_TRUE(h.dispatch("/title"));
+    EXPECT_TRUE(payloads.empty());
+    EXPECT_TRUE(h.dispatch("/title 修复登录问题"));
+    ASSERT_EQ(payloads.size(), 1u);
+    EXPECT_EQ(payloads[0]["title"], "修复登录问题");
+    EXPECT_EQ(payloads[0]["source"], "user");
+    EXPECT_EQ(payloads[0]["title_source"], "user");
+
+    EXPECT_TRUE(h.dispatch("/title clear"));
+    ASSERT_EQ(payloads.size(), 2u);
+    EXPECT_EQ(payloads[1]["title"], "");
+    EXPECT_EQ(payloads[1]["source"], "user");
+    EXPECT_EQ(payloads[1]["title_source"], "user-cleared");
+}
+
+TEST(BuiltinCommands, ResumeDispatchesRestoredTitleChangedHook) {
+    ResumeCommandHarness h("resume_title_hook");
+    {
+        acecode::SessionManager editor;
+        editor.start_session(
+            h.cwd_.string(), "openai", "gpt-mini", "", "mini");
+        ASSERT_FALSE(editor.resume_session(h.target_session_id_).empty());
+        editor.set_session_title("部署脚本");
+        editor.finalize();
+    }
+
+    acecode::NormalizedHook hook;
+    hook.id = "resume-title-capture";
+    hook.source_id = "test";
+    hook.event_name = acecode::kCodexHookEventSessionTitleChanged;
+    hook.matcher = "resume";
+    hook.kind = acecode::HookHandlerKind::Command;
+    hook.command.command = "capture";
+    hook.command.timeout_seconds = 1;
+    hook.trust_status = acecode::HookTrustStatus::Trusted;
+    acecode::HookRegistrySnapshot snapshot;
+    snapshot.feature_enabled = true;
+    snapshot.hooks.push_back(std::move(hook));
+
+    std::vector<nlohmann::json> payloads;
+    acecode::HookManager hooks(
+        std::move(snapshot),
+        acecode::HookProcessRunner{},
+        [&](const std::string&, const std::string& stdin_text, int,
+            const std::string&) {
+            payloads.push_back(nlohmann::json::parse(stdin_text));
+            acecode::HookProcessResult result;
+            result.started = true;
+            result.exit_code = 0;
+            return result;
+        });
+    h.loop_.set_hook_manager(&hooks);
+
+    EXPECT_TRUE(h.dispatch("/resume 1"));
+    ASSERT_EQ(payloads.size(), 1u);
+    EXPECT_EQ(payloads[0]["title"], "部署脚本");
+    EXPECT_EQ(payloads[0]["source"], "resume");
+    EXPECT_EQ(payloads[0]["title_source"], "user");
 }
 
 TEST(BuiltinCommands, ResumeByStableIdRefreshesCanonicalRuntimeState) {

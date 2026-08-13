@@ -617,6 +617,18 @@ void AgentLoop::dispatch_session_start_hook(const std::string& source) {
     apply_hook_side_effects(outcome);
 }
 
+void AgentLoop::dispatch_session_title_changed_hook(
+    const std::string& title,
+    const std::string& source,
+    const std::string& title_source) {
+    if (!hook_manager_) return;
+    auto fields = build_hook_common_fields(kCodexHookEventSessionTitleChanged);
+    auto payload = build_session_title_changed_hook_payload(
+        fields, title, source, title_source);
+    (void)dispatch_codex_hook(
+        kCodexHookEventSessionTitleChanged, source, payload);
+}
+
 void AgentLoop::abort() {
     abort_requested_ = true;
     wake_active_provider_retry();

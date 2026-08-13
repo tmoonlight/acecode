@@ -1356,6 +1356,12 @@ crow::response WebServer::Impl::set_session_title_response(
             entry->sm->ensure_active_session_id();
             entry->sm->set_session_title(title);
             emit_session_title_update(*entry);
+            if (entry->loop) {
+                entry->loop->dispatch_session_title_changed_hook(
+                    entry->sm->current_title(),
+                    "user",
+                    entry->sm->current_title_source());
+            }
             if (auto meta = find_session_meta_for_workspace(ws, id)) {
                 crow::response r(session_info_to_json(
                     SessionInfo{

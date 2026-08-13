@@ -1017,7 +1017,7 @@ static void cmd_title(CommandContext& ctx, const std::string& args) {
         text.pop_back();
     }
 
-    std::lock_guard<std::mutex> lk(ctx.state.mu);
+    std::unique_lock<std::mutex> lk(ctx.state.mu);
 
     // No args: echo current title.
     if (text.empty()) {
@@ -1042,6 +1042,15 @@ static void cmd_title(CommandContext& ctx, const std::string& args) {
         ctx.state.status_line = "Title cleared";
         ctx.state.conversation.push_back({"system", "Title cleared.", false});
         ctx.state.chat_follow_tail = true;
+        const bool dispatch_hook = ctx.session_manager != nullptr;
+        const std::string title_source = dispatch_hook
+            ? ctx.session_manager->current_title_source()
+            : std::string{};
+        lk.unlock();
+        if (dispatch_hook) {
+            ctx.agent_loop.dispatch_session_title_changed_hook(
+                "", "user", title_source);
+        }
         return;
     }
 
@@ -1072,6 +1081,15 @@ static void cmd_title(CommandContext& ctx, const std::string& args) {
         ctx.state.conversation.push_back({"system", status + " (not persisted)", false});
     }
     ctx.state.chat_follow_tail = true;
+    const bool dispatch_hook = ctx.session_manager != nullptr;
+    const std::string title_source = dispatch_hook
+        ? ctx.session_manager->current_title_source()
+        : std::string{};
+    lk.unlock();
+    if (dispatch_hook) {
+        ctx.agent_loop.dispatch_session_title_changed_hook(
+            text, "user", title_source);
+    }
 }
 
 // 简单 trim helper —— args 里可能有多余空格。
@@ -1383,6 +1401,15 @@ static void do_resume_session(CommandContext& ctx, const std::string& session_id
         ctx.state.current_session_title = target->title;
     } else {
         ctx.state.current_session_title.clear();
+    }
+
+    const bool resumed = canonical_exists && resume_error.empty() &&
+        ctx.session_manager->current_session_id() == session_id;
+    if (resumed) {
+        ctx.agent_loop.dispatch_session_title_changed_hook(
+            ctx.session_manager->current_title(),
+            "resume",
+            ctx.session_manager->current_title_source());
     }
 }
 

@@ -1114,6 +1114,10 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
     }
     entry->loop->maybe_continue_goal();
     entry->loop->dispatch_session_start_hook("resume");
+    entry->loop->dispatch_session_title_changed_hook(
+        entry->sm->current_title(),
+        "resume",
+        entry->sm->current_title_source());
 
     {
         std::lock_guard<std::mutex> lk(mu_);
@@ -1417,6 +1421,10 @@ void SessionRegistry::start_auto_title_attempt(const std::string& id,
                         session_id, *title)) {
                     applied = true;
                     emit_session_title_updated(*entry);
+                    entry->loop->dispatch_session_title_changed_hook(
+                        entry->sm->current_title(),
+                        "generated",
+                        entry->sm->current_title_source());
                 }
             }
         } catch (const std::exception& e) {

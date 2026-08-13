@@ -24,6 +24,7 @@ struct DefaultHookSeed {
     std::string source_id;
     std::filesystem::path relative_path;
     std::string definition_sha256;
+    std::vector<std::string> previous_definition_sha256s;
 };
 
 struct DefaultSkillSeedOutcome {

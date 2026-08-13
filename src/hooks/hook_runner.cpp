@@ -162,6 +162,18 @@ std::wstring build_windows_command_line(const std::vector<std::string>& argv) {
     return out;
 }
 
+std::wstring windows_environment_name(const std::wstring& entry) {
+    const std::size_t search_from =
+        !entry.empty() && entry.front() == L'=' ? 1u : 0u;
+    const std::size_t equals = entry.find(L'=', search_from);
+    return equals == std::wstring::npos ? entry : entry.substr(0, equals);
+}
+
+bool windows_environment_name_equal(const std::wstring& lhs,
+                                    const std::wstring& rhs) {
+    return _wcsicmp(lhs.c_str(), rhs.c_str()) == 0;
+}
+
 #else
 
 void close_fd(int& fd) {
@@ -198,6 +210,7 @@ static HookProcessResult run_hook_process_impl(
     const std::string& stdin_text,
     int timeout_ms,
     const std::string& cwd,
+    const HookEnvironment& environment,
     const std::string* windows_shell_command) {
 #ifndef _WIN32
     (void)windows_shell_command;
@@ -297,13 +310,64 @@ static HookProcessResult run_hook_process_impl(
     mutable_cmdline.push_back(L'\0');
 
     std::wstring wide_cwd = cwd.empty() ? std::wstring{} : utf8_to_wide(cwd);
+    std::vector<wchar_t> environment_block;
+    if (!environment.empty()) {
+        std::vector<std::wstring> environment_entries;
+        std::vector<std::wstring> override_names;
+        override_names.reserve(environment.size());
+        for (const auto& [name, value] : environment) {
+            (void)value;
+            override_names.push_back(utf8_to_wide(name));
+        }
+        LPWCH inherited = GetEnvironmentStringsW();
+        if (inherited) {
+            for (const wchar_t* current = inherited; *current != L'\0';) {
+                const std::wstring entry(current);
+                const std::wstring name = windows_environment_name(entry);
+                const bool replaced = std::any_of(
+                    override_names.begin(), override_names.end(),
+                    [&](const std::wstring& candidate) {
+                        return windows_environment_name_equal(name, candidate);
+                    });
+                if (!replaced) {
+                    environment_entries.push_back(entry);
+                }
+                current += entry.size() + 1;
+            }
+            FreeEnvironmentStringsW(inherited);
+        }
+        for (const auto& [name, value] : environment) {
+            std::wstring entry = utf8_to_wide(name);
+            entry.push_back(L'=');
+            entry += utf8_to_wide(value);
+            environment_entries.push_back(std::move(entry));
+        }
+        std::sort(
+            environment_entries.begin(), environment_entries.end(),
+            [](const std::wstring& lhs, const std::wstring& rhs) {
+                return _wcsicmp(lhs.c_str(), rhs.c_str()) < 0;
+            });
+        for (const auto& entry : environment_entries) {
+            environment_block.insert(
+                environment_block.end(), entry.begin(), entry.end());
+            environment_block.push_back(L'\0');
+        }
+        environment_block.push_back(L'\0');
+    }
+
+    DWORD creation_flags = CREATE_NO_WINDOW;
+    if (!environment_block.empty()) {
+        creation_flags |= CREATE_UNICODE_ENVIRONMENT;
+    }
     BOOL ok = CreateProcessW(nullptr,
                              mutable_cmdline.data(),
                              nullptr,
                              nullptr,
                              TRUE,
-                             CREATE_NO_WINDOW,
-                             nullptr,
+                             creation_flags,
+                             environment_block.empty()
+                                 ? nullptr
+                                 : environment_block.data(),
                              wide_cwd.empty() ? nullptr : wide_cwd.c_str(),
                              &si,
                              &pi);
@@ -504,22 +568,37 @@ HookProcessResult run_hook_process(const HookCommandSpec& command,
                                    const std::string& stdin_text,
                                    int timeout_ms,
                                    const std::string& cwd) {
-    return run_hook_process_impl(command, stdin_text, timeout_ms, cwd, nullptr);
+    return run_hook_process_impl(
+        command, stdin_text, timeout_ms, cwd, HookEnvironment{}, nullptr);
 }
 
 HookProcessResult run_hook_shell_command(const std::string& command,
                                          const std::string& stdin_text,
                                          int timeout_ms,
-                                         const std::string& cwd) {
+                                         const std::string& cwd,
+                                         const HookEnvironment& environment) {
     HookCommandSpec spec;
 #ifdef _WIN32
     const char* comspec = std::getenv("COMSPEC");
     spec.command = (comspec && *comspec) ? std::string(comspec) : std::string("cmd.exe");
-    return run_hook_process_impl(spec, stdin_text, timeout_ms, cwd, &command);
+    return run_hook_process_impl(
+        spec, stdin_text, timeout_ms, cwd, environment, &command);
 #else
     const char* shell = std::getenv("SHELL");
-    spec.command = (shell && *shell) ? std::string(shell) : std::string("/bin/sh");
-    spec.args = {"-c", command};
+    const std::string shell_path =
+        (shell && *shell) ? std::string(shell) : std::string("/bin/sh");
+    if (environment.empty()) {
+        spec.command = shell_path;
+        spec.args = {"-c", command};
+    } else {
+        spec.command = "/usr/bin/env";
+        for (const auto& [name, value] : environment) {
+            spec.args.push_back(name + "=" + value);
+        }
+        spec.args.push_back(shell_path);
+        spec.args.push_back("-c");
+        spec.args.push_back(command);
+    }
     return run_hook_process(spec, stdin_text, timeout_ms, cwd);
 #endif
 }

@@ -28,6 +28,12 @@ using HookShellRunner = std::function<HookProcessResult(
     const std::string& stdin_text,
     int timeout_ms,
     const std::string& cwd)>;
+using HookShellEnvironmentRunner = std::function<HookProcessResult(
+    const std::string& command,
+    const std::string& stdin_text,
+    int timeout_ms,
+    const std::string& cwd,
+    const HookEnvironment& environment)>;
 
 std::size_t dispatch_startup_before_model_load_hooks(const std::string& cwd,
                                                      std::string* error = nullptr);
@@ -39,6 +45,9 @@ public:
     explicit HookManager(HookRegistrySnapshot registry,
                          HookProcessRunner legacy_runner = HookProcessRunner{},
                          HookShellRunner shell_runner = HookShellRunner{});
+    HookManager(HookRegistrySnapshot registry,
+                HookProcessRunner legacy_runner,
+                HookShellEnvironmentRunner shell_runner);
     ~HookManager();
 
     HookManager(const HookManager&) = delete;
@@ -87,7 +96,7 @@ private:
     HookRegistrySnapshot registry_;
     mutable std::mutex registry_mu_;
     HookProcessRunner runner_;
-    HookShellRunner shell_runner_;
+    HookShellEnvironmentRunner shell_runner_;
     std::shared_ptr<AsyncState> async_state_;
     std::thread worker_;
     bool worker_detached_ = false;

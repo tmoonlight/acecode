@@ -668,6 +668,174 @@ TEST_F(DefaultSkillSeederTest, PreservesModifiedAcecodeOwnedHook) {
         std::string::npos);
 }
 
+TEST(DefaultSkillSeedRegistryTest,
+     PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition) {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const fs::path packaged_seed = repository_root / "assets" / "seed";
+    const fs::path temp_root = make_temp_root("known-official-hook-upgrade");
+    const fs::path home = temp_root / "profile" / ".acecode";
+    const fs::path target = home / "hooks" / "agent-reporting";
+
+    auto previous_official = read_json(
+        packaged_seed / "hooks" / "agent-reporting" / "hooks.json");
+    ASSERT_EQ(previous_official["hooks"].erase("SessionTitleChanged"), 1u);
+    const auto& hook_seed = acecode::default_hook_seeds().front();
+    ASSERT_NE(
+        std::find(
+            hook_seed.previous_definition_sha256s.begin(),
+            hook_seed.previous_definition_sha256s.end(),
+            acecode::sha256_hex(previous_official.dump())),
+        hook_seed.previous_definition_sha256s.end())
+        << "fixture must remain an exact known previous official definition";
+    write_file(target / "hooks.json", previous_official.dump(2) + "\n");
+    write_file(home / "seed.version", "2026-08-12.2\n");
+    write_file(
+        home / ".seed_skills_state.json",
+        nlohmann::json{
+            {"schema_version", 4},
+            {"bundle_version", "2026-08-12.2"},
+            {"completed", true},
+            {"skills", nlohmann::json::array()},
+            {"experts", nlohmann::json::array()},
+            {"hooks",
+             nlohmann::json::array({
+                 {
+                     {"name", "agent-reporting"},
+                     {"source_id", "acecode:managed-hook/agent-reporting@2026-08-12"},
+                     {"relative_path", "agent-reporting"},
+                     {"result", "preserved_user_modified"},
+                     {"acecode_owned", false},
+                     {"installed_tree_sha256", "drifted-state-hash"},
+                 },
+             })},
+        }.dump(2) + "\n");
+
+    const auto result = acecode::reconcile_default_global_skills(
+        home, packaged_seed / "skills");
+
+    ASSERT_TRUE(result.version_written) << result.error;
+    const auto* outcome = find_hook_outcome(result, "agent-reporting");
+    ASSERT_NE(outcome, nullptr);
+    EXPECT_EQ(outcome->result, "updated");
+    EXPECT_TRUE(outcome->acecode_owned);
+    EXPECT_TRUE(read_json(target / "hooks.json")["hooks"].contains(
+        "SessionTitleChanged"));
+    EXPECT_EQ(trim_ascii(read_file(home / "seed.version")), "2026-08-14.1");
+    const auto state = read_json(home / ".seed_skills_state.json");
+    ASSERT_EQ(state["hooks"].size(), 1u);
+    EXPECT_TRUE(state["hooks"][0]["acecode_owned"].get<bool>());
+
+    std::error_code cleanup_error;
+    fs::remove_all(temp_root, cleanup_error);
+}
+
+TEST(DefaultSkillSeedRegistryTest,
+     PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted) {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const fs::path packaged_seed = repository_root / "assets" / "seed";
+    const fs::path temp_root = make_temp_root("modified-hook-drift");
+    const fs::path home = temp_root / "profile" / ".acecode";
+    const fs::path target = home / "hooks" / "agent-reporting";
+
+    auto modified = read_json(
+        packaged_seed / "hooks" / "agent-reporting" / "hooks.json");
+    ASSERT_EQ(modified["hooks"].erase("SessionTitleChanged"), 1u);
+    modified["hooks"]["SessionStart"][0]["hooks"][0]["command"] =
+        "user-owned-command";
+    write_file(target / "hooks.json", modified.dump(2) + "\n");
+    write_file(home / "seed.version", "2026-08-12.2\n");
+    write_file(
+        home / ".seed_skills_state.json",
+        nlohmann::json{
+            {"schema_version", 4},
+            {"bundle_version", "2026-08-12.2"},
+            {"completed", true},
+            {"skills", nlohmann::json::array()},
+            {"experts", nlohmann::json::array()},
+            {"hooks",
+             nlohmann::json::array({
+                 {
+                     {"name", "agent-reporting"},
+                     {"relative_path", "agent-reporting"},
+                     {"result", "preserved_user_modified"},
+                     {"acecode_owned", false},
+                 },
+             })},
+        }.dump(2) + "\n");
+
+    const auto result = acecode::reconcile_default_global_skills(
+        home, packaged_seed / "skills");
+
+    ASSERT_TRUE(result.version_written) << result.error;
+    const auto* outcome = find_hook_outcome(result, "agent-reporting");
+    ASSERT_NE(outcome, nullptr);
+    EXPECT_EQ(outcome->result, "preserved_user_modified");
+    EXPECT_FALSE(outcome->acecode_owned);
+    const auto installed = read_json(target / "hooks.json");
+    EXPECT_EQ(
+        installed["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+        "user-owned-command");
+    EXPECT_FALSE(installed["hooks"].contains("SessionTitleChanged"));
+
+    std::error_code cleanup_error;
+    fs::remove_all(temp_root, cleanup_error);
+}
+
+TEST(DefaultSkillSeedRegistryTest,
+     PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory) {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const fs::path packaged_seed = repository_root / "assets" / "seed";
+    const fs::path temp_root = make_temp_root("official-hook-extra-directory");
+    const fs::path home = temp_root / "profile" / ".acecode";
+    const fs::path target = home / "hooks" / "agent-reporting";
+
+    auto previous_official = read_json(
+        packaged_seed / "hooks" / "agent-reporting" / "hooks.json");
+    ASSERT_EQ(previous_official["hooks"].erase("SessionTitleChanged"), 1u);
+    write_file(target / "hooks.json", previous_official.dump(2) + "\n");
+    ASSERT_TRUE(fs::create_directories(target / "user-data"));
+    write_file(home / "seed.version", "2026-08-12.2\n");
+    write_file(
+        home / ".seed_skills_state.json",
+        nlohmann::json{
+            {"schema_version", 4},
+            {"bundle_version", "2026-08-12.2"},
+            {"completed", true},
+            {"skills", nlohmann::json::array()},
+            {"experts", nlohmann::json::array()},
+            {"hooks",
+             nlohmann::json::array({
+                 {
+                     {"name", "agent-reporting"},
+                     {"relative_path", "agent-reporting"},
+                     {"result", "preserved_user_modified"},
+                     {"acecode_owned", false},
+                 },
+             })},
+        }.dump(2) + "\n");
+
+    const auto result = acecode::reconcile_default_global_skills(
+        home, packaged_seed / "skills");
+
+    ASSERT_TRUE(result.version_written) << result.error;
+    const auto* outcome = find_hook_outcome(result, "agent-reporting");
+    ASSERT_NE(outcome, nullptr);
+    EXPECT_EQ(outcome->result, "preserved_user_modified");
+    EXPECT_FALSE(outcome->acecode_owned);
+    EXPECT_FALSE(read_json(target / "hooks.json")["hooks"].contains(
+        "SessionTitleChanged"));
+    EXPECT_TRUE(fs::is_directory(target / "user-data"));
+
+    std::error_code cleanup_error;
+    fs::remove_all(temp_root, cleanup_error);
+}
+
 TEST_F(DefaultSkillSeederTest, PreservesModifiedAcecodeOwnedSeed) {
     auto first =
         acecode::reconcile_default_global_skills(home, seed_root);
@@ -1097,6 +1265,11 @@ TEST(DefaultSkillSeedRegistryTest, PackagedManifestVersionAndHashesAgree) {
         EXPECT_EQ(
             (*item)["definition_sha256"].get<std::string>(),
             seed.definition_sha256);
+        ASSERT_TRUE((*item)["previous_definition_sha256s"].is_array());
+        EXPECT_EQ(
+            (*item)["previous_definition_sha256s"]
+                .get<std::vector<std::string>>(),
+            seed.previous_definition_sha256s);
     }
     ASSERT_EQ(manifest["hooks"].size(), 1u);
     const auto& packaged_hook = manifest["hooks"][0];
@@ -1127,7 +1300,7 @@ TEST(DefaultSkillSeedRegistryTest,
     write_file(
         fake_herdr,
         "@echo off\r\n"
-        ">>\"%HERDR_TEST_LOG%\" echo %~3\r\n"
+        ">>\"%HERDR_TEST_LOG%\" echo %~1^|%~3\r\n"
         "exit /b 0\r\n");
     constexpr const char* command_key = "commandWindows";
     constexpr const char path_separator = ';';
@@ -1136,7 +1309,7 @@ TEST(DefaultSkillSeedRegistryTest,
     write_file(
         fake_herdr,
         "#!/bin/sh\n"
-        "printf '%s\\n' \"$3\" >> \"$HERDR_TEST_LOG\"\n");
+        "printf '%s|%s\\n' \"$1\" \"$3\" >> \"$HERDR_TEST_LOG\"\n");
     fs::permissions(
         fake_herdr,
         fs::perms::owner_read | fs::perms::owner_write |
@@ -1151,13 +1324,17 @@ TEST(DefaultSkillSeedRegistryTest,
     const std::string test_path =
         fake_bin.string() + path_separator + original_path;
     const std::string expected_pane = "w-test:p-expected";
+    const std::string expected_tab = "w-test:t-expected";
     ScopedEnvironmentValue herdr_env("HERDR_ENV", "1");
     ScopedEnvironmentValue pane_id("HERDR_PANE_ID", expected_pane);
+    ScopedEnvironmentValue tab_id("HERDR_TAB_ID", expected_tab);
     ScopedEnvironmentValue socket_path(
         "HERDR_SOCKET_PATH", (temp_root / "herdr.sock").string());
     ScopedEnvironmentValue missing_bin_path("HERDR_BIN_PATH", std::nullopt);
     ScopedEnvironmentValue path("PATH", test_path);
     ScopedEnvironmentValue calls("HERDR_TEST_LOG", calls_log.string());
+    ScopedEnvironmentValue title(
+        "ACECODE_HOOK_SESSION_TITLE", "Seed title");
 #ifdef _WIN32
     ScopedEnvironmentValue local_app_data(
         "LOCALAPPDATA", (temp_root / "missing-local-app-data").string());
@@ -1182,7 +1359,7 @@ TEST(DefaultSkillSeedRegistryTest,
         }
     }
 
-    EXPECT_EQ(handler_count, 8u);
+    EXPECT_EQ(handler_count, 9u);
     std::istringstream recorded(read_file(calls_log));
     std::vector<std::string> lines;
     for (std::string line; std::getline(recorded, line);) {
@@ -1191,8 +1368,117 @@ TEST(DefaultSkillSeedRegistryTest,
     }
     ASSERT_EQ(lines.size(), handler_count);
     for (const auto& line : lines) {
-        EXPECT_EQ(line, expected_pane);
+        if (line.rfind("tab|", 0) == 0) {
+            EXPECT_EQ(line, "tab|" + expected_tab);
+        } else {
+            EXPECT_EQ(line, "pane|" + expected_pane);
+        }
     }
+
+    std::error_code cleanup_error;
+    fs::remove_all(temp_root, cleanup_error);
+}
+
+TEST(DefaultSkillSeedRegistryTest,
+     HerdrTitleHookKeepsExactTabAndTitleAndSkipsEmptyOrMissingEnvironment) {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const auto config = read_json(
+        repository_root / "assets" / "seed" / "hooks" /
+        "agent-reporting" / "hooks.json");
+    const auto& handler = config.at("hooks")
+                              .at("SessionTitleChanged")
+                              .at(0)
+                              .at("hooks")
+                              .at(0);
+    const fs::path temp_root = make_temp_root("herdr-title-hook");
+    const fs::path fake_bin = temp_root / "bin";
+    const fs::path calls_log = temp_root / "calls.log";
+    fs::create_directories(fake_bin);
+
+#ifdef _WIN32
+    const fs::path fake_herdr = fake_bin / "herdr.cmd";
+    write_file(
+        fake_herdr,
+        "@echo off\r\n"
+        "set \"HERDR_CAPTURE_1=%~1\"\r\n"
+        "set \"HERDR_CAPTURE_2=%~2\"\r\n"
+        "set \"HERDR_CAPTURE_3=%~3\"\r\n"
+        "set \"HERDR_CAPTURE_4=%~4\"\r\n"
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"$line=$env:HERDR_CAPTURE_1+'|'+$env:HERDR_CAPTURE_2+'|'+$env:HERDR_CAPTURE_3+'|'+$env:HERDR_CAPTURE_4+[char]10; [IO.File]::AppendAllText($env:HERDR_TEST_LOG,$line,[Text.UTF8Encoding]::new($false))\"\r\n"
+        "exit /b 0\r\n");
+    constexpr const char* command_key = "commandWindows";
+    constexpr const char path_separator = ';';
+#else
+    const fs::path fake_herdr = fake_bin / "herdr";
+    write_file(
+        fake_herdr,
+        "#!/bin/sh\n"
+        "printf '%s|%s|%s|%s\\n' \"$1\" \"$2\" \"$3\" \"$4\" >> \"$HERDR_TEST_LOG\"\n");
+    fs::permissions(
+        fake_herdr,
+        fs::perms::owner_read | fs::perms::owner_write |
+            fs::perms::owner_exec,
+        fs::perm_options::replace);
+    constexpr const char* command_key = "command";
+    constexpr const char path_separator = ':';
+#endif
+
+    const std::string original_path =
+        std::getenv("PATH") ? std::getenv("PATH") : "";
+    ScopedEnvironmentValue path(
+        "PATH", fake_bin.string() + path_separator + original_path);
+    ScopedEnvironmentValue herdr_env("HERDR_ENV", "1");
+    ScopedEnvironmentValue tab_id("HERDR_TAB_ID", "w-test:t-title");
+    ScopedEnvironmentValue socket_path(
+        "HERDR_SOCKET_PATH", (temp_root / "herdr.sock").string());
+    ScopedEnvironmentValue missing_bin_path("HERDR_BIN_PATH", std::nullopt);
+    ScopedEnvironmentValue calls("HERDR_TEST_LOG", calls_log.string());
+#ifdef _WIN32
+    ScopedEnvironmentValue local_app_data(
+        "LOCALAPPDATA", (temp_root / "missing-local-app-data").string());
+#endif
+
+    const std::string title = "构建 & 发布 $HOME";
+    const std::string command = handler.at(command_key).get<std::string>();
+    auto renamed = acecode::run_hook_shell_command(
+        command,
+        R"({"title":"ignored-stdin-copy"})",
+        3000,
+        temp_root.string(),
+        {{"ACECODE_HOOK_SESSION_TITLE", title}});
+    ASSERT_TRUE(renamed.started) << renamed.error;
+    ASSERT_FALSE(renamed.timed_out);
+    ASSERT_EQ(renamed.exit_code, 0) << renamed.output;
+    EXPECT_EQ(
+        read_file(calls_log),
+        "tab|rename|w-test:t-title|" + title + "\n");
+
+    auto empty = acecode::run_hook_shell_command(
+        command,
+        R"({"title":""})",
+        3000,
+        temp_root.string(),
+        {{"ACECODE_HOOK_SESSION_TITLE", ""}});
+    ASSERT_EQ(empty.exit_code, 0) << empty.output;
+    EXPECT_EQ(
+        read_file(calls_log),
+        "tab|rename|w-test:t-title|" + title + "\n");
+
+    {
+        ScopedEnvironmentValue missing_tab("HERDR_TAB_ID", std::nullopt);
+        auto missing = acecode::run_hook_shell_command(
+            command,
+            R"({"title":"missing tab"})",
+            3000,
+            temp_root.string(),
+            {{"ACECODE_HOOK_SESSION_TITLE", "missing tab"}});
+        ASSERT_EQ(missing.exit_code, 0) << missing.output;
+    }
+    EXPECT_EQ(
+        read_file(calls_log),
+        "tab|rename|w-test:t-title|" + title + "\n");
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);
@@ -1240,7 +1526,7 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     hook_options.codex_home = (temp_root / "missing-codex").string();
     hook_options.include_project_sources = false;
     const auto hook_registry = acecode::load_hook_registry(hook_options);
-    ASSERT_EQ(hook_registry.hooks.size(), 8u);
+    ASSERT_EQ(hook_registry.hooks.size(), 9u);
     for (const auto& hook : hook_registry.hooks) {
         EXPECT_TRUE(hook.managed);
         EXPECT_EQ(
@@ -1251,7 +1537,7 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
     EXPECT_TRUE(state["completed"].get<bool>());
-    EXPECT_EQ(state["bundle_version"], "2026-08-12.1");
+    EXPECT_EQ(state["bundle_version"], "2026-08-14.1");
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);

@@ -370,7 +370,9 @@ std::optional<std::string> hash_directory_tree(const fs::path& root,
     return sha.final_hex();
 }
 
-bool directory_contains_only_skill_md(const fs::path& directory) {
+bool directory_contains_only_file(const fs::path& directory,
+                                  const std::string& expected_path,
+                                  bool allow_directories = true) {
     std::error_code ec;
     std::size_t file_count = 0;
     fs::recursive_directory_iterator it(
@@ -385,16 +387,22 @@ bool directory_contains_only_skill_md(const fs::path& directory) {
             const fs::path relative =
                 fs::relative(it->path(), directory, relative_ec);
             if (relative_ec ||
-                path_to_utf8_generic(relative) != "SKILL.md") {
+                path_to_utf8_generic(relative) != expected_path) {
                 return false;
             }
             ++file_count;
-        } else if (!fs::is_directory(status)) {
+        } else if (fs::is_directory(status)) {
+            if (!allow_directories) return false;
+        } else {
             return false;
         }
         it.increment(ec);
     }
     return !ec && file_count == 1;
+}
+
+bool directory_contains_only_skill_md(const fs::path& directory) {
+    return directory_contains_only_file(directory, "SKILL.md");
 }
 
 void read_previous_seed_group(
@@ -465,6 +473,36 @@ bool previous_state_proves_pristine(const PreviousSeedState* previous,
     }
     auto current_hash = hash_file_fnv1a64(target_dir / "SKILL.md");
     return current_hash && *current_hash == previous->skill_md_hash;
+}
+
+template <typename Seed>
+bool target_matches_known_official_definition(
+    const Seed&,
+    const fs::path&) {
+    return false;
+}
+
+bool target_matches_known_official_definition(
+    const DefaultHookSeed& seed,
+    const fs::path& target_dir) {
+    if (!directory_contains_only_file(target_dir, "hooks.json", false)) {
+        return false;
+    }
+
+    try {
+        std::ifstream ifs(target_dir / "hooks.json", std::ios::binary);
+        if (!ifs.is_open()) return false;
+        const nlohmann::json root = nlohmann::json::parse(ifs);
+        const std::string definition_sha256 = sha256_hex(root.dump());
+        if (definition_sha256 == seed.definition_sha256) return true;
+        return std::find(
+                   seed.previous_definition_sha256s.begin(),
+                   seed.previous_definition_sha256s.end(),
+                   definition_sha256) !=
+            seed.previous_definition_sha256s.end();
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 bool copy_tree_no_overwrite(const fs::path& source_dir,
@@ -1056,7 +1094,8 @@ void reconcile_seed_group(
         const PreviousSeedState* previous_entry =
             previous_it == previous.end() ? nullptr : &previous_it->second;
         if (!previous_state_proves_pristine(
-                previous_entry, target_dir, *target_hash)) {
+                previous_entry, target_dir, *target_hash) &&
+            !target_matches_known_official_definition(seed, target_dir)) {
             outcome.result = "preserved_user_modified";
             outcome.message =
                 previous_entry
@@ -1182,9 +1221,13 @@ const std::vector<DefaultExpertSeed>& default_expert_seeds() {
 const std::vector<DefaultHookSeed>& default_hook_seeds() {
     static const std::vector<DefaultHookSeed> seeds = {
         {"agent-reporting",
-         "acecode:managed-hook/agent-reporting@2026-08-12",
+         "acecode:managed-hook/agent-reporting@2026-08-14.1",
          "agent-reporting",
-         "e139bd9bc1314dfe82cd7a7c018332e7a33c42eb451c8ce1db99f58d18d6ff4e"},
+         "daeb5ce4f3ff42d1717c9997b9627bc6daf00df9ec24643203253da2aae30644",
+         {
+             "b731118b927bb32a5c43083f5d3279ecd4ce3d96137b351c2d105ac3548d9f2f",
+             "e139bd9bc1314dfe82cd7a7c018332e7a33c42eb451c8ce1db99f58d18d6ff4e",
+         }},
     };
     return seeds;
 }

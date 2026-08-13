@@ -15,6 +15,8 @@
 #include "permissions.hpp"
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
+#include "hooks/hook_manager.hpp"
+#include "hooks/hook_runtime.hpp"
 #include "prompt/system_prompt.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/local_session_client.hpp"
@@ -2010,16 +2012,42 @@ TEST(SessionRegistry, ResumeDiskSessionRestoresLoopHistory) {
         msg.role = "user";
         msg.content = "remember me";
         sm.on_message(msg);
+        sm.set_session_title("恢复标题");
         sm.finalize();
     }
 
     ToolExecutor tools;
     PermissionManager permissions;
+    acecode::NormalizedHook title_hook;
+    title_hook.id = "resume-title-capture";
+    title_hook.source_id = "test";
+    title_hook.event_name = acecode::kCodexHookEventSessionTitleChanged;
+    title_hook.matcher = "resume";
+    title_hook.kind = acecode::HookHandlerKind::Command;
+    title_hook.command.command = "capture";
+    title_hook.command.timeout_seconds = 1;
+    title_hook.trust_status = acecode::HookTrustStatus::Trusted;
+    acecode::HookRegistrySnapshot hook_snapshot;
+    hook_snapshot.feature_enabled = true;
+    hook_snapshot.hooks.push_back(std::move(title_hook));
+    std::vector<nlohmann::json> title_payloads;
+    acecode::HookManager hooks(
+        std::move(hook_snapshot),
+        acecode::HookProcessRunner{},
+        [&](const std::string&, const std::string& stdin_text, int,
+            const std::string&) {
+            title_payloads.push_back(nlohmann::json::parse(stdin_text));
+            acecode::HookProcessResult result;
+            result.started = true;
+            result.exit_code = 0;
+            return result;
+        });
     SessionRegistryDeps deps;
     deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
     deps.tools = &tools;
     deps.cwd = cwd.string();
     deps.template_permissions = &permissions;
+    deps.hook_manager = &hooks;
     SessionRegistry registry(std::move(deps));
 
     ASSERT_TRUE(registry.resume(id));
@@ -2028,9 +2056,15 @@ TEST(SessionRegistry, ResumeDiskSessionRestoresLoopHistory) {
     ASSERT_NE(entry->loop, nullptr);
     ASSERT_EQ(entry->loop->messages().size(), 1u);
     EXPECT_EQ(entry->loop->messages()[0].content, "remember me");
+    ASSERT_EQ(title_payloads.size(), 1u);
+    EXPECT_EQ(title_payloads[0]["title"], "恢复标题");
+    EXPECT_EQ(title_payloads[0]["source"], "resume");
+    EXPECT_EQ(title_payloads[0]["title_source"], "user");
 
     EXPECT_TRUE(registry.resume(id)) << "同 daemon 同 id 二次 resume 应复用 active entry";
     EXPECT_EQ(registry.size(), 1u);
+    EXPECT_EQ(title_payloads.size(), 1u)
+        << "复用已经 active 的 entry 不应重复触发 title hook";
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);
@@ -2435,6 +2469,35 @@ TEST(SessionRegistry, AutoTitleRetriesOnceAfterCompletedTurn) {
     auto provider = std::make_shared<EventDrivenAutoTitleProvider>(state);
     ToolExecutor tools;
     PermissionManager permissions;
+    acecode::NormalizedHook title_hook;
+    title_hook.id = "generated-title-capture";
+    title_hook.source_id = "test";
+    title_hook.event_name = acecode::kCodexHookEventSessionTitleChanged;
+    title_hook.matcher = "generated";
+    title_hook.kind = acecode::HookHandlerKind::Command;
+    title_hook.command.command = "capture";
+    title_hook.command.timeout_seconds = 1;
+    title_hook.trust_status = acecode::HookTrustStatus::Trusted;
+    acecode::HookRegistrySnapshot hook_snapshot;
+    hook_snapshot.feature_enabled = true;
+    hook_snapshot.hooks.push_back(std::move(title_hook));
+    std::mutex title_hook_mu;
+    std::vector<nlohmann::json> title_hook_payloads;
+    acecode::HookManager hooks(
+        std::move(hook_snapshot),
+        acecode::HookProcessRunner{},
+        [&](const std::string&, const std::string& stdin_text, int,
+            const std::string&) {
+            {
+                std::lock_guard<std::mutex> lk(title_hook_mu);
+                title_hook_payloads.push_back(
+                    nlohmann::json::parse(stdin_text));
+            }
+            acecode::HookProcessResult result;
+            result.started = true;
+            result.exit_code = 0;
+            return result;
+        });
 
     {
         SessionRegistryDeps deps;
@@ -2445,6 +2508,7 @@ TEST(SessionRegistry, AutoTitleRetriesOnceAfterCompletedTurn) {
         deps.cwd = cwd.string();
         deps.config = &cfg;
         deps.template_permissions = &permissions;
+        deps.hook_manager = &hooks;
         deps.auto_title_generator = [state](const std::string& input) {
             return state->generate(input);
         };
@@ -2479,6 +2543,13 @@ TEST(SessionRegistry, AutoTitleRetriesOnceAfterCompletedTurn) {
                       "fix the recovered connection",
                       "fix the recovered connection",
                   }));
+        {
+            std::lock_guard<std::mutex> lk(title_hook_mu);
+            ASSERT_EQ(title_hook_payloads.size(), 1u);
+            EXPECT_EQ(title_hook_payloads[0]["title"], "Recovered title");
+            EXPECT_EQ(title_hook_payloads[0]["source"], "generated");
+            EXPECT_EQ(title_hook_payloads[0]["title_source"], "generated");
+        }
     }
 
     std::filesystem::remove_all(project_dir);

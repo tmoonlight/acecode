@@ -5244,6 +5244,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                                 }
                             }
                             set_terminal_title(*title);
+                            agent_loop.dispatch_session_title_changed_hook(
+                                *title,
+                                "generated",
+                                session_manager.current_title_source());
                             screen.PostEvent(Event::Custom);
                         }
                     }
@@ -5526,6 +5530,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     }
     agent_loop.dispatch_session_start_hook(
         resumed_session_success ? std::string{"resume"} : std::string{"startup"});
+    if (resumed_session_success) {
+        agent_loop.dispatch_session_title_changed_hook(
+            session_manager.current_title(),
+            "resume",
+            session_manager.current_title_source());
+    }
 
     // Slash command registry
     CommandRegistry cmd_registry;

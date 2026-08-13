@@ -102,6 +102,13 @@ void write_text(const std::filesystem::path& path, const std::string& text) {
     ofs << text;
 }
 
+std::string read_text(const std::filesystem::path& path) {
+    std::ifstream ifs(path, std::ios::binary);
+    return std::string(
+        std::istreambuf_iterator<char>(ifs),
+        std::istreambuf_iterator<char>());
+}
+
 std::string url_encode_component(const std::string& value) {
     static constexpr char kHex[] = "0123456789ABCDEF";
     std::string out;
@@ -465,6 +472,8 @@ struct WebServerFixture {
         project_dir = acecode::SessionStorage::get_project_dir(cwd);
         std::filesystem::remove_all(project_dir);
 
+        hook_manager = std::make_unique<acecode::HookManager>(
+            acecode::HookRegistrySnapshot{});
         acecode::SessionRegistryDeps deps;
         deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
         deps.tools = &tools;
@@ -473,11 +482,11 @@ struct WebServerFixture {
         deps.config = &cfg;
         deps.expert_registry = expert_registry.get();
         deps.template_permissions = &template_perm;
+        deps.hook_manager = hook_manager.get();
         registry = std::make_unique<acecode::SessionRegistry>(std::move(deps));
         client = session_client_factory
             ? session_client_factory(*registry)
             : std::make_unique<acecode::LocalSessionClient>(*registry);
-        hook_manager = std::make_unique<acecode::HookManager>(acecode::HookRegistrySnapshot{});
         loop_store = std::make_unique<acecode::loop::LoopStore>(tmp_dir / "loops.sqlite3");
         acecode::loop::StoreError loop_error;
         if (!loop_store->initialize(&loop_error)) {
@@ -3869,6 +3878,30 @@ TEST(WebServerHttp, HiddenDefaultWorkspaceNotListedOrResolved) {
 
 TEST(WebServerHttp, PutSessionTitleRenamesActiveSessionAndPersistsMeta) {
     WebServerFixture fx;
+    const auto hook_output = fx.tmp_dir / "title-hook.txt";
+    acecode::NormalizedHook title_hook;
+    title_hook.id = "web-title-capture";
+    title_hook.source_id = "test";
+    title_hook.event_name = acecode::kCodexHookEventSessionTitleChanged;
+    title_hook.matcher = "user";
+    title_hook.kind = acecode::HookHandlerKind::Command;
+#ifdef _WIN32
+    title_hook.command.command_windows =
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \""
+        "[IO.File]::WriteAllText('" + hook_output.string() +
+        "',$env:ACECODE_HOOK_SESSION_TITLE,[Text.UTF8Encoding]::new($false))\"";
+#else
+    title_hook.command.command =
+        "printf '%s' \"$ACECODE_HOOK_SESSION_TITLE\" > '" +
+        hook_output.string() + "'";
+#endif
+    title_hook.command.timeout_seconds = 3;
+    title_hook.trust_status = acecode::HookTrustStatus::Trusted;
+    acecode::HookRegistrySnapshot hook_snapshot;
+    hook_snapshot.feature_enabled = true;
+    hook_snapshot.hooks.push_back(std::move(title_hook));
+    fx.hook_manager->refresh_registry(std::move(hook_snapshot));
+
     auto create = cpr::Post(cpr::Url{fx.url("/api/sessions")},
                             cpr::Header{{"Content-Type", "application/json"}},
                             cpr::Body{R"({})"});
@@ -3888,6 +3921,7 @@ TEST(WebServerHttp, PutSessionTitleRenamesActiveSessionAndPersistsMeta) {
         acecode::SessionStorage::meta_path(fx.project_dir, sid, 0));
     EXPECT_EQ(meta.title, "Renamed session");
     EXPECT_EQ(meta.title_source, "user");
+    EXPECT_EQ(read_text(hook_output), "Renamed session");
 }
 
 TEST(WebServerHttp, WorkspacePutSessionTitleRenamesInactiveDiskSession) {

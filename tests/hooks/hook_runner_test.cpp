@@ -36,6 +36,26 @@ TEST(HookRunner, ShellCommandRunsThroughPlatformShellWithStdin) {
     EXPECT_NE(result.stdout_text.find("hello shell hook"), std::string::npos);
 }
 
+TEST(HookRunner, ShellCommandReceivesExactEnvironmentOverride) {
+    const std::string expected = "修复 \"登录\" & deploy %PATH% $HOME";
+    acecode::HookEnvironment environment{
+        {"ACECODE_HOOK_SESSION_TITLE", expected},
+    };
+#ifdef _WIN32
+    const std::string command =
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -Command "
+        "\"[Console]::Out.Write($env:ACECODE_HOOK_SESSION_TITLE)\"";
+#else
+    const std::string command = "printf '%s' \"$ACECODE_HOOK_SESSION_TITLE\"";
+#endif
+    auto result = acecode::run_hook_shell_command(
+        command, "", 3000, "", environment);
+    EXPECT_TRUE(result.started) << result.error;
+    EXPECT_FALSE(result.timed_out);
+    EXPECT_EQ(result.exit_code, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text, expected);
+}
+
 TEST(HookRunner, PositiveTimeoutTerminatesLongRunningHook) {
     acecode::HookCommandSpec cmd;
 #ifdef _WIN32

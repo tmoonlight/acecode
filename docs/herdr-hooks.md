@@ -11,19 +11,25 @@ approval is required. Existing `~/.acecode/hooks.json`, `~/.codex/hooks.json`, a
 project hook files are left untouched.
 
 The seed is versioned and idempotent. ACECode updates an unchanged ACECode-owned
-copy on a later bundle revision, but preserves a user-modified copy. A modified or
-malformed copy no longer receives managed automatic trust.
+copy on a later bundle revision, but preserves a user-modified copy. If an older
+ACECode release wrote a stale ownership record, an exact historical official
+definition is recognized by its audited fingerprint and repaired during the next
+startup. Recovery is refused when the definition changed or the package contains
+any additional file or directory. A modified or malformed copy never receives
+managed automatic trust.
 
 Start ACECode inside a Herdr pane to use the integration. The example JSON remains
 available as a readable reference; copying it manually is unnecessary and can cause
 duplicate reports if that copy is separately trusted.
 
 The same JSON includes POSIX `command` entries and Windows `commandWindows`
-entries. Each command requires `HERDR_ENV=1`, `HERDR_PANE_ID`, and
-`HERDR_SOCKET_PATH`. `HERDR_BIN_PATH` is optional: POSIX first uses it and then
-searches `PATH`; Windows first uses it, then checks the standard per-user Herdr
-installation, and finally searches `PATH`. If the required pane environment or
-the CLI is unavailable, the command exits successfully without invoking anything.
+entries. Lifecycle commands require `HERDR_ENV=1`, `HERDR_PANE_ID`, and
+`HERDR_SOCKET_PATH`; title synchronization requires `HERDR_ENV=1`,
+`HERDR_TAB_ID`, and `HERDR_SOCKET_PATH`. `HERDR_BIN_PATH` is optional: POSIX
+first uses it and then searches `PATH`; Windows first uses it, then checks the
+standard per-user Herdr installation, and finally searches `PATH`. If the
+required Herdr environment or the CLI is unavailable, the command exits
+successfully without invoking anything.
 
 The hook always reports the exact injected `HERDR_PANE_ID`. It never guesses from
 the focused pane because focus can change while a hook is running. If a pane has
@@ -39,6 +45,7 @@ starting ACECode there.
 - `PreToolUse(AskUserQuestion)` -> `blocked`
 - `PostToolUse(AskUserQuestion)` -> `working`
 - `Stop` -> `idle`
+- `SessionTitleChanged` -> rename the exact `HERDR_TAB_ID` when `title` is non-empty
 
 `PermissionResolved` is an ACECode lifecycle extension. Its payload contains the standard tool fields plus:
 
@@ -48,6 +55,28 @@ starting ACECode there.
   "permission_source": "hook | interactive | headless | implicit"
 }
 ```
+
+`SessionTitleChanged` is an ACECode observational extension. Its payload includes:
+
+```json
+{
+  "title": "修复登录问题",
+  "source": "user | generated | resume",
+  "title_source": "user | user-cleared | generated"
+}
+```
+
+ACECode emits it after `/title <text>` and title clearing, after an automatic
+title is accepted, and after a successful `/resume`, `acecode --resume <id>`, or
+daemon resume. A bare `/title` only queries the current value and does not emit
+the event. Active-session title changes through the Web API emit it as well.
+
+Command hooks receive the exact title in both the JSON stdin payload and the
+child-only `ACECODE_HOOK_SESSION_TITLE` environment variable. The managed Herdr
+handler uses the environment value as one CLI argument, so spaces, Chinese text,
+quotes, percent signs, and shell metacharacters are not re-evaluated as shell
+syntax. Empty titles still emit the generic event, but the Herdr handler skips
+the rename and exits successfully.
 
 ## Scope and limitations
 
@@ -60,5 +89,11 @@ The same lifecycle dispatch runs in the terminal TUI, daemon/headless flows, and
 the desktop/web surfaces. In the TUI, submitting a prompt changes the Herdr state
 to `working`, permission or `AskUserQuestion` waits change it to `blocked`, and
 completion returns it to `idle`.
+
+Title synchronization renames the whole Herdr tab, not only one pane. If several
+ACECode processes share a tab, the most recent non-empty title event wins. A
+later `/title`, automatic-title, or resume event can therefore replace a manual
+Herdr tab name. Clearing an ACECode title intentionally leaves the existing Herdr
+tab name unchanged.
 
 Herdr does not persist native cold-resume references from custom sources. This hook therefore provides live identity and state reporting, not automatic AceCode session restoration after a Herdr restart. Use `acecode --resume <session-id>` for AceCode's own resume flow.

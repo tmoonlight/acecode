@@ -20,8 +20,10 @@ HookProcessResult default_runner(const HookCommandSpec& command,
 HookProcessResult default_shell_runner(const std::string& command,
                                        const std::string& stdin_text,
                                        int timeout_ms,
-                                       const std::string& cwd) {
-    return run_hook_shell_command(command, stdin_text, timeout_ms, cwd);
+                                       const std::string& cwd,
+                                       const HookEnvironment& environment) {
+    return run_hook_shell_command(
+        command, stdin_text, timeout_ms, cwd, environment);
 }
 
 std::string mode_name(HookMode mode) {
@@ -56,7 +58,7 @@ HookManager::HookManager()
 HookManager::HookManager(HookConfig config, HookProcessRunner runner)
     : config_(std::move(config)),
       runner_(runner ? std::move(runner) : HookProcessRunner(default_runner)),
-      shell_runner_(HookShellRunner(default_shell_runner)),
+      shell_runner_(HookShellEnvironmentRunner(default_shell_runner)),
       async_state_(std::make_shared<AsyncState>()) {}
 
 HookManager::HookManager(HookRegistrySnapshot registry,
@@ -65,7 +67,29 @@ HookManager::HookManager(HookRegistrySnapshot registry,
     : config_{},
       registry_(std::move(registry)),
       runner_(legacy_runner ? std::move(legacy_runner) : HookProcessRunner(default_runner)),
-      shell_runner_(shell_runner ? std::move(shell_runner) : HookShellRunner(default_shell_runner)),
+      shell_runner_(shell_runner
+          ? HookShellEnvironmentRunner(
+                [runner = std::move(shell_runner)](
+                    const std::string& command,
+                    const std::string& stdin_text,
+                    int timeout_ms,
+                    const std::string& cwd,
+                    const HookEnvironment&) {
+                    return runner(command, stdin_text, timeout_ms, cwd);
+                })
+          : HookShellEnvironmentRunner(default_shell_runner)),
+      async_state_(std::make_shared<AsyncState>()) {}
+
+HookManager::HookManager(HookRegistrySnapshot registry,
+                         HookProcessRunner legacy_runner,
+                         HookShellEnvironmentRunner shell_runner)
+    : config_{},
+      registry_(std::move(registry)),
+      runner_(legacy_runner ? std::move(legacy_runner)
+                            : HookProcessRunner(default_runner)),
+      shell_runner_(shell_runner ? std::move(shell_runner)
+                                 : HookShellEnvironmentRunner(
+                                       default_shell_runner)),
       async_state_(std::make_shared<AsyncState>()) {}
 
 std::size_t dispatch_startup_before_model_load_hooks(const std::string& cwd,
@@ -163,11 +187,17 @@ HookAggregateOutcome HookManager::dispatch_codex(const HookDispatchRequest& requ
                  " event=" + request.event_name +
                  " command=" + log_truncate(command, 300) +
                  " timeout_ms=" + std::to_string(timeout_ms));
+        HookEnvironment environment;
+        if (request.event_name == kCodexHookEventSessionTitleChanged) {
+            environment["ACECODE_HOOK_SESSION_TITLE"] =
+                request.payload.value("title", std::string{});
+        }
         HookProcessResult result = shell_runner_(
             command,
             payload_text,
             timeout_ms,
-            request.cwd);
+            request.cwd,
+            environment);
 
         const std::string status = result.timed_out ? "timeout" :
             (result.started && result.exit_code == 0 ? "ok" :

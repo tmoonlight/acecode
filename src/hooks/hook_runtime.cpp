@@ -255,6 +255,18 @@ nlohmann::json build_session_start_hook_payload(const HookCommonPayloadFields& f
     return payload;
 }
 
+nlohmann::json build_session_title_changed_hook_payload(
+    const HookCommonPayloadFields& fields,
+    const std::string& title,
+    const std::string& source,
+    const std::string& title_source) {
+    auto payload = build_hook_common_payload(fields);
+    payload["title"] = title;
+    payload["source"] = source;
+    payload["title_source"] = title_source;
+    return payload;
+}
+
 nlohmann::json build_user_prompt_submit_hook_payload(const HookCommonPayloadFields& fields,
                                                      const std::string& prompt) {
     auto payload = build_hook_common_payload(fields);

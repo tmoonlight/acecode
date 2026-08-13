@@ -169,6 +169,31 @@ TEST(HookRegistry, DetectsBarePermissionResolvedObjectAsCodexHooks) {
     EXPECT_EQ(registry.hooks[0].command.command, "python resolved.py");
 }
 
+TEST(HookRegistry, DetectsBareSessionTitleChangedObjectAsCodexHooks) {
+    auto j = nlohmann::json::parse(R"({
+        "SessionTitleChanged": [
+            {
+                "matcher": "resume",
+                "hooks": [
+                    {"type": "command", "command": "python title.py"}
+                ]
+            }
+        ]
+    })");
+
+    auto registry = acecode::parse_hook_source_json(
+        j,
+        source_for("/repo/.acecode/hooks.json",
+                   acecode::HookSourceScope::UserGlobal,
+                   acecode::HookSourceFormat::Unknown),
+        true);
+
+    ASSERT_EQ(registry.hooks.size(), 1u);
+    EXPECT_EQ(registry.hooks[0].event_name, "SessionTitleChanged");
+    EXPECT_EQ(registry.hooks[0].matcher, "resume");
+    EXPECT_EQ(registry.hooks[0].command.command, "python title.py");
+}
+
 TEST(HookRegistry, ParsesUnsupportedAndAsyncHandlersAsSkipped) {
     auto j = nlohmann::json::parse(R"({
         "hooks": {
@@ -371,7 +396,7 @@ TEST(HookRegistry, OfficialSeedHookLoadsManagedWithoutRewritingUserConfig) {
     const auto second = acecode::load_hook_registry(opts);
 
     EXPECT_EQ(read_text(user_path), user_config);
-    ASSERT_EQ(first.hooks.size(), 9u);
+    ASSERT_EQ(first.hooks.size(), 10u);
     ASSERT_EQ(second.hooks.size(), first.hooks.size());
     std::size_t managed_count = 0;
     std::size_t pending_count = 0;
@@ -387,7 +412,7 @@ TEST(HookRegistry, OfficialSeedHookLoadsManagedWithoutRewritingUserConfig) {
             ++pending_count;
         }
     }
-    EXPECT_EQ(managed_count, 8u);
+    EXPECT_EQ(managed_count, 9u);
     EXPECT_EQ(pending_count, 1u);
 }
 

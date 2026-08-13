@@ -515,6 +515,34 @@ TEST(HookAgentLoop, PermissionResolvedReportsInteractiveDecision) {
     EXPECT_EQ(captured["permission_source"], "interactive");
 }
 
+TEST(HookAgentLoop, DispatchesSessionTitleChangedAsObservationalEvent) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    LoopHarness h(provider);
+
+    nlohmann::json captured;
+    acecode::HookManager hooks(
+        registry_with({make_codex_hook(
+            "title", acecode::kCodexHookEventSessionTitleChanged, "resume")}),
+        acecode::HookProcessRunner{},
+        [&](const std::string&,
+            const std::string& stdin_text,
+            int,
+            const std::string&,
+            const acecode::HookEnvironment&) {
+            captured = nlohmann::json::parse(stdin_text);
+            return hook_json(R"({"continue":false,"reason":"ignored"})");
+        });
+    h.loop->set_hook_manager(&hooks);
+
+    h.loop->dispatch_session_title_changed_hook(
+        "部署脚本", "resume", "generated");
+
+    EXPECT_EQ(captured["hook_event_name"], "SessionTitleChanged");
+    EXPECT_EQ(captured["title"], "部署脚本");
+    EXPECT_EQ(captured["source"], "resume");
+    EXPECT_EQ(captured["title_source"], "generated");
+}
+
 TEST(HookAgentLoop, PermissionResolvedReportsInteractiveAlwaysAllow) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");

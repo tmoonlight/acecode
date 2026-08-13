@@ -3,9 +3,12 @@
 #include "hook_config.hpp"
 
 #include <chrono>
+#include <map>
 #include <string>
 
 namespace acecode {
+
+using HookEnvironment = std::map<std::string, std::string>;
 
 struct HookProcessResult {
     bool started = false;
@@ -30,6 +33,7 @@ HookProcessResult run_hook_process(const HookCommandSpec& command,
 HookProcessResult run_hook_shell_command(const std::string& command,
                                          const std::string& stdin_text,
                                          int timeout_ms,
-                                         const std::string& cwd);
+                                         const std::string& cwd,
+                                         const HookEnvironment& environment = {});
 
 } // namespace acecode

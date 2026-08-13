@@ -12,6 +12,7 @@
 namespace acecode {
 
 constexpr const char* kCodexHookEventSessionStart = "SessionStart";
+constexpr const char* kCodexHookEventSessionTitleChanged = "SessionTitleChanged";
 constexpr const char* kCodexHookEventUserPromptSubmit = "UserPromptSubmit";
 constexpr const char* kCodexHookEventPreToolUse = "PreToolUse";
 constexpr const char* kCodexHookEventPermissionRequest = "PermissionRequest";
@@ -75,6 +76,11 @@ bool hook_matcher_matches(const NormalizedHook& hook,
 nlohmann::json build_hook_common_payload(const HookCommonPayloadFields& fields);
 nlohmann::json build_session_start_hook_payload(const HookCommonPayloadFields& fields,
                                                 const std::string& source);
+nlohmann::json build_session_title_changed_hook_payload(
+    const HookCommonPayloadFields& fields,
+    const std::string& title,
+    const std::string& source,
+    const std::string& title_source);
 nlohmann::json build_user_prompt_submit_hook_payload(const HookCommonPayloadFields& fields,
                                                      const std::string& prompt);
 nlohmann::json build_tool_hook_payload(const HookCommonPayloadFields& fields,

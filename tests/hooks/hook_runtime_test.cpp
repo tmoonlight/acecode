@@ -121,12 +121,35 @@ TEST(HookRuntime, EventPayloadBuildersIncludeEventSpecificFields) {
     EXPECT_EQ(resolved["permission_decision"], "allow");
     EXPECT_EQ(resolved["permission_source"], "interactive");
 
+    fields.hook_event_name = acecode::kCodexHookEventSessionTitleChanged;
+    auto title = acecode::build_session_title_changed_hook_payload(
+        fields,
+        "修复 \"登录\" & deploy %PATH%",
+        "user",
+        "user");
+    EXPECT_EQ(title["hook_event_name"], "SessionTitleChanged");
+    EXPECT_EQ(title["title"], "修复 \"登录\" & deploy %PATH%");
+    EXPECT_EQ(title["source"], "user");
+    EXPECT_EQ(title["title_source"], "user");
+
     auto compact = acecode::build_compact_hook_payload(fields, "manual");
     EXPECT_EQ(compact["trigger"], "manual");
 
     auto stop = acecode::build_stop_hook_payload(fields, true, "last message");
     EXPECT_EQ(stop["stop_hook_active"], true);
     EXPECT_EQ(stop["last_assistant_message"], "last message");
+}
+
+TEST(HookRuntime, SessionTitleChangedMatcherUsesTriggerSource) {
+    EXPECT_TRUE(acecode::hook_matcher_matches(
+        make_hook("resume", acecode::kCodexHookEventSessionTitleChanged, "resume"),
+        acecode::kCodexHookEventSessionTitleChanged,
+        "resume"));
+    EXPECT_FALSE(acecode::hook_matcher_matches(
+        make_hook("generated", acecode::kCodexHookEventSessionTitleChanged,
+                  "generated"),
+        acecode::kCodexHookEventSessionTitleChanged,
+        "resume"));
 }
 
 TEST(HookRuntime, ExitCodeTwoBlocksWithStderrReason) {
@@ -331,4 +354,45 @@ TEST(HookManagerRuntime, DispatchSkipsDisabledAndRefreshesRegistrySnapshot) {
     EXPECT_EQ(second.invoked_count, 1u);
     EXPECT_EQ(invocations, 1);
     EXPECT_EQ(manager.registry_snapshot().hooks[0].id, "trusted");
+}
+
+TEST(HookManagerRuntime, SessionTitleChangedExposesExactTitleToChildEnvironment) {
+    acecode::HookRegistrySnapshot snapshot;
+    snapshot.feature_enabled = true;
+    snapshot.hooks.push_back(make_hook(
+        "title", acecode::kCodexHookEventSessionTitleChanged, "user"));
+
+    const std::string expected = "修复 \"登录\" & deploy %PATH%";
+    acecode::HookEnvironment captured_environment;
+    acecode::HookManager manager(
+        std::move(snapshot),
+        acecode::HookProcessRunner{},
+        [&](const std::string&,
+            const std::string& stdin_text,
+            int,
+            const std::string&,
+            const acecode::HookEnvironment& environment) {
+            const auto payload = nlohmann::json::parse(stdin_text);
+            EXPECT_EQ(payload["title"], expected);
+            captured_environment = environment;
+            return ok_json_result("{}");
+        });
+
+    acecode::HookDispatchRequest request;
+    request.event_name = acecode::kCodexHookEventSessionTitleChanged;
+    request.matcher_value = "user";
+    request.cwd = ".";
+    request.payload = nlohmann::json{
+        {"hook_event_name", acecode::kCodexHookEventSessionTitleChanged},
+        {"title", expected},
+        {"source", "user"},
+        {"title_source", "user"},
+    };
+
+    auto outcome = manager.dispatch_codex(request);
+
+    EXPECT_EQ(outcome.invoked_count, 1u);
+    auto it = captured_environment.find("ACECODE_HOOK_SESSION_TITLE");
+    ASSERT_NE(it, captured_environment.end());
+    EXPECT_EQ(it->second, expected);
 }

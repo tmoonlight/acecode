@@ -60,16 +60,19 @@ Files:
 - `docs/herdr-hooks.md`
 
 The seed transaction installs, upgrades, and recovers this hook alongside the
-default Skills and Experts without rewriting user hook files. The registry only
-marks the installed source `ManagedTrusted` while its parsed definition matches
-the official built-in fingerprint; a modified copy is preserved but not run as
-a managed hook.
+default Skills and Experts without rewriting user hook files. If an older build
+left the ownership state stale, an exact historical official definition can be
+recovered through an audited fingerprint, but only when the package contains
+exactly `hooks.json`. The registry only marks the installed source
+`ManagedTrusted` while its parsed definition matches the official built-in
+fingerprint; a modified copy is preserved but not run as a managed hook.
 
 The single JSON file contains both POSIX `command` and Windows
-`commandWindows` handlers. Every command requires the Herdr marker, socket, and
-pane identity. `HERDR_BIN_PATH` is optional: handlers fall back to the platform
+`commandWindows` handlers. Lifecycle commands require the Herdr marker, socket,
+and pane identity; `SessionTitleChanged` requires the marker, socket, and tab
+identity. `HERDR_BIN_PATH` is optional: handlers fall back to the platform
 installation/PATH lookup and exit successfully when no Herdr CLI is available.
-They always report the injected pane ID and never infer identity from focus.
+They always use the injected pane/tab ID and never infer identity from focus.
 
 State mapping:
 
@@ -80,8 +83,13 @@ State mapping:
 - `PreToolUse(AskUserQuestion)` -> `blocked`
 - `PostToolUse(AskUserQuestion)` -> `working`
 - `Stop` -> `idle`
+- `SessionTitleChanged` -> rename the exact Herdr tab for a non-empty title
 
 Lifecycle source is `custom:acecode`; display metadata renders `AceCode`.
+The title event is emitted by `/title` changes, accepted automatic titles, all
+successful resume paths, and active-session Web title changes. Its command child
+receives the exact value through `ACECODE_HOOK_SESSION_TITLE`; an empty title is
+observable to generic hooks but does not rename the Herdr tab.
 
 ## Tests added
 
@@ -141,25 +149,30 @@ Herdr and recreate affected panes so the process receives the correct ID.
 
 ## Current verification
 
-The original ARM64 Linux handoff was blocked by linker OOM, but the continued
-work has now been compiled and tested on Windows x64:
+The original ARM64 Linux handoff was blocked by linker OOM. The continued work
+has now been compiled and exercised on Windows x64:
 
-- the focused seed/hook suites passed 81 of 81 tests;
-- the broad suite passed 3310 tests and skipped 4 environment-only smokes;
-- the 6 process-level tests initially omitted from that run passed separately
-  after their helper executables were built with the same toolchain;
-- 7 `DesktopSingleInstance` tests were not run because an ACECode desktop
-  instance was active;
-- an isolated Release CLI target linked successfully;
-- `openspec validate add-herdr-custom-agent-reporting --strict`,
-  `git diff --check`, and the shell code-quality check passed;
-- all 8 POSIX and Windows handlers executed against fake CLIs with
-  `HERDR_BIN_PATH` absent and preserved the injected pane ID;
-- a real Windows Herdr CLI probe created the expected `w1:p2` agent-list entry
-  and its validation source was then released.
+- the focused hook/session/title/seed slice passed 17 of 17 tests;
+- the four seed ownership and historical-official migration tests passed;
+- all Web tests and the production Web build passed;
+- all 7 `DesktopSingleInstance` tests passed;
+- the normal full C++ run skipped 4 environment-only smokes and reported 2
+  timing-sensitive failures; each failed test then passed three consecutive
+  isolated repeats;
+- the `acecode_unit_tests` Release target built successfully; the full CLI
+  target is currently blocked by unrelated, concurrent terminal-key work that
+  calls an FTXUI API absent from the checked-out dependency;
+- `git diff --check`, strict OpenSpec validation, and the shell code-quality
+  command completed successfully (the quality report still lists pre-existing
+  hard-coded-error and magic-number findings);
+- all packaged POSIX and Windows handlers executed against fake CLIs with
+  `HERDR_BIN_PATH` absent and preserved the injected pane/tab identities;
+- a real isolated Windows Herdr tab received the exact title
+  `HERDR_TITLE_E2E_OK 中文 & 100%` through `/title`, while the AceCode agent
+  remained registered and idle; the temporary tab and profile were removed.
 
 The remaining deployment step is to ship a package containing seed revision
-`2026-08-12.1`. Existing users with an unchanged ACECode-owned hook receive the
+`2026-08-14.1`. Existing users with an unchanged ACECode-owned hook receive the
 new definition during startup reconciliation; modified hook packages remain
 preserved and require manual review.
 

@@ -64,6 +64,7 @@ HookDiagnostic diag(HookDiagnosticSeverity severity,
 
 bool is_known_codex_event(const std::string& key) {
     return key == "SessionStart" ||
+        key == "SessionTitleChanged" ||
         key == "PreToolUse" ||
         key == "PermissionRequest" ||
         key == "PermissionResolved" ||
