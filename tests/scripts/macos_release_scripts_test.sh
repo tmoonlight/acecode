@@ -58,6 +58,9 @@ grep -Fq 'Developer ID Installer identity does not match APPLE_TEAM_ID' "$packag
 grep -Fq 'security list-keychains -d user -s' "$package_workflow"
 grep -Fq 'MACOS_INSTALLER_CERTIFICATE_BASE64' "$package_workflow"
 grep -Fq 'MACOS_INSTALLER_CERTIFICATE_PASSWORD' "$package_workflow"
+grep -Fq 'echo "pkg_enabled=true"' "$package_workflow"
+grep -Fq 'echo "pkg_enabled=false"' "$package_workflow"
+grep -Fq 'macOS Installer credentials must configure both' "$package_workflow"
 grep -Fq -- '-T /usr/bin/pkgbuild' "$package_workflow"
 grep -Fq -- '-T /usr/bin/productbuild' "$package_workflow"
 grep -Fq 'scripts/macos_notarize_app.sh --app "build/ACECode.app"' "$package_workflow"
@@ -68,11 +71,18 @@ grep -Fq -- '--installer-identity "${{ steps.macos-keychain.outputs.installer_id
 grep -Fq 'acecode-${{ matrix.id }}-pkg' "$package_workflow"
 grep -Fq 'DMG artifacts are no longer permitted in tagged releases' "$package_workflow"
 grep -Fq 'Unsigned PKG artifacts must not be published' "$package_workflow"
-grep -Fq 'Tagged releases require exactly two signed macOS PKGs' "$package_workflow"
+grep -Fq 'Unsigned macOS update artifacts must not be published' "$package_workflow"
+grep -Fq 'Tagged releases allow either zero or two signed macOS PKGs' "$package_workflow"
 grep -Fq 'ACECode-${release_version}-macos-${arch}.pkg' "$package_workflow"
 grep -Fq 'acecode-${{ matrix.id }}-update' "$package_workflow"
-grep -Fq 'Tagged macOS releases require secrets:' "$package_workflow"
+grep -Fq 'Tagged macOS application releases require secrets:' "$package_workflow"
 grep -Fq 'trust_args+=(--require-trusted)' "$package_workflow"
+grep -Fq "steps.macos-release.outputs.pkg_enabled == 'true'" "$package_workflow"
+
+if grep -Fq 'pkg_path="ACECode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}${unsigned_suffix}.pkg"' "$package_workflow"; then
+    echo "GitHub Actions must not create unsigned PKG artifacts" >&2
+    exit 1
+fi
 
 if grep -Fq 'identity="$MACOS_CODESIGN_IDENTITY"' "$package_workflow"; then
     echo "macOS app signing must use the imported identity fingerprint" >&2

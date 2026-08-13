@@ -1,15 +1,18 @@
 # macOS PKG Release Guide
 
 ACECode's `package` GitHub Actions workflow builds separate Intel
-(`macos-x64`) and Apple silicon (`macos-arm64`) Installer packages and
-self-update ZIPs. Tagged releases fail instead of publishing an unsigned or
-unnotarized macOS artifact when any required credential is missing.
+(`macos-x64`) and Apple silicon (`macos-arm64`) self-update ZIPs and archives.
+When the separate Developer ID Installer credentials are configured, it also
+builds PKG installers for both architectures. Tagged releases always fail
+instead of publishing an unsigned or unnotarized macOS application artifact;
+when only the Installer credentials are absent, they publish no PKG at all.
 
 ## What Users Install
 
-Download the PKG matching the Mac architecture, double-click it, and confirm
-the normal steps in Apple's Installer application. The package offers only the
-current-user installation domain, so Installer places the app at:
+When the Release contains PKGs, download the one matching the Mac architecture,
+double-click it, and confirm the normal steps in Apple's Installer application.
+The package offers only the current-user installation domain, so Installer
+places the app at:
 
 ```text
 ~/Applications/ACECode.app
@@ -33,7 +36,10 @@ it and deleting `~/Applications/ACECode.app`; no privileged uninstaller is
 required. Installer receipts may remain in the user's receipt database.
 
 ACECode no longer builds or publishes a DMG. There is no fake Applications
-folder and no Finder drag-install path.
+folder and no Finder drag-install path. A Release without PKGs still provides
+signed and notarized macOS archives and trusted self-update ZIPs; existing
+installations can update normally, while first-time graphical installation is
+not represented as an unsigned substitute installer.
 
 ## Self-Update Trust And Replacement
 
@@ -88,11 +94,16 @@ Under **GitHub repository > Settings > Secrets and variables > Actions**, add:
 | --- | --- |
 | `MACOS_CERTIFICATE_BASE64` | Base64 Developer ID Application `.p12` |
 | `MACOS_CERTIFICATE_PASSWORD` | Application `.p12` export password |
-| `MACOS_INSTALLER_CERTIFICATE_BASE64` | Base64 Developer ID Installer `.p12` |
-| `MACOS_INSTALLER_CERTIFICATE_PASSWORD` | Installer `.p12` export password |
+| `MACOS_INSTALLER_CERTIFICATE_BASE64` | Optional for PKG: Base64 Developer ID Installer `.p12` |
+| `MACOS_INSTALLER_CERTIFICATE_PASSWORD` | Optional for PKG: Installer `.p12` export password |
 | `APPLE_ID` | Apple Account email used for notarization |
 | `APPLE_TEAM_ID` | Apple Developer Team ID |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password |
+
+The Application certificate and Apple notarization values are mandatory for a
+tagged macOS release. The two Installer values are an optional pair: configure
+both to publish PKGs, or configure neither to omit PKGs. Configuring only one is
+an error.
 
 The optional Actions variables `MACOS_CODESIGN_IDENTITY` and
 `MACOS_INSTALLER_SIGNING_IDENTITY` can contain the expected full identity
@@ -124,13 +135,19 @@ Run **Actions > package > Run workflow** with `npm_version` empty.
 - With all seven macOS secrets configured, the app and two architecture PKGs
   are signed, notarized, stapled, Gatekeeper-checked, and uploaded alongside
   trusted update ZIPs.
-- Without complete credentials, a manual run emits `-unsigned.pkg` and
-  `-update-unsigned.zip` artifacts for structural inspection only.
-- A `v*` tag never permits unsigned fallback.
+- With complete Application/notarization secrets but neither Installer secret,
+  the app is still signed, notarized, and stapled and the workflow uploads
+  trusted update ZIPs and archives, but creates no PKG artifact.
+- Without complete Application/notarization credentials, a manual run may emit
+  a clearly suffixed `-update-unsigned.zip` for structural inspection only.
+- A `v*` tag never permits unsigned fallback, and a partial Installer pair is
+  always rejected.
 
-Before tagging, install each signed PKG on a clean non-admin account. Confirm
-that Installer does not show an administrator authentication sheet and that the
-result exists only at `~/Applications/ACECode.app`.
+When PKG credentials are configured, install each signed PKG on a clean
+non-admin account before tagging. Confirm that Installer does not show an
+administrator authentication sheet and that the result exists only at
+`~/Applications/ACECode.app`. When PKGs are intentionally omitted, confirm the
+dry run has no PKG artifact and that both trusted update ZIPs completed.
 
 ## Tagged Release
 
@@ -143,10 +160,11 @@ git tag -a v0.8.16 -m "ACECode v0.8.16"
 git push origin v0.8.16
 ```
 
-After all platform builds succeed, GitHub creates a Release containing the x64
-and arm64 PKGs, matching self-update ZIPs, platform archives, debug symbols,
-and `SHA256SUMS.txt`. Do not reuse a failed public tag; fix the cause, increment
-the version, and create a new tag.
+After all platform builds succeed, GitHub creates a Release containing matching
+self-update ZIPs, platform archives, debug symbols, and `SHA256SUMS.txt`. When
+Installer credentials are available it also contains exactly the x64 and arm64
+PKGs; otherwise it contains zero PKGs. Do not reuse a failed public tag; fix the
+cause, increment the version, and create a new tag.
 
 ## Publish To The Update Service
 

@@ -141,29 +141,52 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          missing=()
+          application_missing=()
           for name in \
             MACOS_CERTIFICATE_BASE64 \
             MACOS_CERTIFICATE_PASSWORD \
-            MACOS_INSTALLER_CERTIFICATE_BASE64 \
-            MACOS_INSTALLER_CERTIFICATE_PASSWORD \
             APPLE_ID \
             APPLE_TEAM_ID \
             APPLE_APP_SPECIFIC_PASSWORD; do
             if [ -z "${!name}" ]; then
-              missing+=("$name")
+              application_missing+=("$name")
             fi
           done
 
-          if [ "${#missing[@]}" -ne 0 ]; then
+          if [ "${#application_missing[@]}" -ne 0 ]; then
             if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-              echo "::error::Tagged macOS releases require secrets: ${missing[*]}"
+              echo "::error::Tagged macOS application releases require secrets: ${application_missing[*]}"
               exit 1
             fi
-            echo "::notice::macOS signing/notarization disabled; missing: ${missing[*]}"
+            echo "::notice::macOS signing/notarization disabled; missing: ${application_missing[*]}"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          installer_certificate_set=false
+          installer_password_set=false
+          if [ -n "$MACOS_INSTALLER_CERTIFICATE_BASE64" ]; then
+            installer_certificate_set=true
+          fi
+          if [ -n "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" ]; then
+            installer_password_set=true
+          fi
+
+          if [ "$installer_certificate_set" != "$installer_password_set" ]; then
+            echo "::error::macOS Installer credentials must configure both MACOS_INSTALLER_CERTIFICATE_BASE64 and MACOS_INSTALLER_CERTIFICATE_PASSWORD"
+            exit 1
+          fi
+          if [ "$installer_certificate_set" = "true" ]; then
+            if [ "${#application_missing[@]}" -eq 0 ]; then
+              echo "pkg_enabled=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::notice::macOS PKG creation disabled because application signing/notarization is disabled"
+              echo "pkg_enabled=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::notice::macOS PKG creation disabled; Developer ID Installer credentials are not configured"
+            echo "pkg_enabled=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Configure MSVC
@@ -277,8 +300,11 @@ jobs:
           keychain_password="$(openssl rand -hex 32)"
 
           printf '%s' "$MACOS_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$certificate_path"
-          printf '%s' "$MACOS_INSTALLER_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$installer_certificate_path"
-          chmod 600 "$certificate_path" "$installer_certificate_path"
+          chmod 600 "$certificate_path"
+          if [ "${{ steps.macos-release.outputs.pkg_enabled }}" = "true" ]; then
+            printf '%s' "$MACOS_INSTALLER_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$installer_certificate_path"
+            chmod 600 "$installer_certificate_path"
+          fi
           security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
@@ -302,13 +328,15 @@ jobs:
             -f pkcs12 \
             -T /usr/bin/codesign \
             -T /usr/bin/security
-          security import "$installer_certificate_path" \
-            -k "$keychain_path" \
-            -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" \
-            -f pkcs12 \
-            -T /usr/bin/pkgbuild \
-            -T /usr/bin/productbuild \
-            -T /usr/bin/security
+          if [ "${{ steps.macos-release.outputs.pkg_enabled }}" = "true" ]; then
+            security import "$installer_certificate_path" \
+              -k "$keychain_path" \
+              -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" \
+              -f pkcs12 \
+              -T /usr/bin/pkgbuild \
+              -T /usr/bin/productbuild \
+              -T /usr/bin/security
+          fi
           security set-key-partition-list \
             -S apple-tool:,apple: \
             -s \
@@ -332,28 +360,30 @@ jobs:
             exit 1
           fi
 
-          installer_identity_record="$(security find-identity -v -p basic "$keychain_path" |
-            awk '/Developer ID Installer:/ { print; exit }')"
-          installer_identity_fingerprint="$(printf '%s\n' "$installer_identity_record" | awk '{ print $2 }')"
-          installer_identity_name="$(printf '%s\n' "$installer_identity_record" | awk -F '"' '{ print $2 }')"
-          if [[ ! "$installer_identity_fingerprint" =~ ^[[:xdigit:]]{40}$ ]] || [ -z "$installer_identity_name" ]; then
-            echo "::error::No Developer ID Installer identity found in the imported certificate"
-            exit 1
-          fi
-          if [ -n "$MACOS_INSTALLER_SIGNING_IDENTITY" ] && [ "$installer_identity_name" != "$MACOS_INSTALLER_SIGNING_IDENTITY" ]; then
-            echo "::error::Imported Installer identity does not match MACOS_INSTALLER_SIGNING_IDENTITY"
-            exit 1
-          fi
-          if [ -n "$APPLE_TEAM_ID" ] && [[ "$installer_identity_name" != *"($APPLE_TEAM_ID)" ]]; then
-            echo "::error::Developer ID Installer identity does not match APPLE_TEAM_ID"
-            exit 1
+          if [ "${{ steps.macos-release.outputs.pkg_enabled }}" = "true" ]; then
+            installer_identity_record="$(security find-identity -v -p basic "$keychain_path" |
+              awk '/Developer ID Installer:/ { print; exit }')"
+            installer_identity_fingerprint="$(printf '%s\n' "$installer_identity_record" | awk '{ print $2 }')"
+            installer_identity_name="$(printf '%s\n' "$installer_identity_record" | awk -F '"' '{ print $2 }')"
+            if [[ ! "$installer_identity_fingerprint" =~ ^[[:xdigit:]]{40}$ ]] || [ -z "$installer_identity_name" ]; then
+              echo "::error::No Developer ID Installer identity found in the imported certificate"
+              exit 1
+            fi
+            if [ -n "$MACOS_INSTALLER_SIGNING_IDENTITY" ] && [ "$installer_identity_name" != "$MACOS_INSTALLER_SIGNING_IDENTITY" ]; then
+              echo "::error::Imported Installer identity does not match MACOS_INSTALLER_SIGNING_IDENTITY"
+              exit 1
+            fi
+            if [ -n "$APPLE_TEAM_ID" ] && [[ "$installer_identity_name" != *"($APPLE_TEAM_ID)" ]]; then
+              echo "::error::Developer ID Installer identity does not match APPLE_TEAM_ID"
+              exit 1
+            fi
+            echo "installer_identity=$installer_identity_name" >> "$GITHUB_OUTPUT"
           fi
 
           echo "keychain=$keychain_path" >> "$GITHUB_OUTPUT"
           # Sign by the certificate fingerprint. codesign can fail to resolve a
           # human-readable identity name inside an isolated temporary keychain.
           echo "identity=$identity_fingerprint" >> "$GITHUB_OUTPUT"
-          echo "installer_identity=$installer_identity_name" >> "$GITHUB_OUTPUT"
 
       - name: Sign macOS release payloads
         if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
@@ -431,29 +461,20 @@ jobs:
           tar -C dist -czf "acecode-${{ matrix.id }}.tar.gz" "acecode-${{ matrix.id }}"
 
       - name: Create current-user macOS PKG
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.macos-release.outputs.pkg_enabled == 'true'
         id: macos-pkg
         shell: bash
         run: |
-          unsigned_suffix=""
-          signing_args=()
-          if [ "${{ steps.macos-release.outputs.enabled }}" != "true" ]; then
-            unsigned_suffix="-unsigned"
-          else
-            signing_args+=(
-              --installer-identity "${{ steps.macos-keychain.outputs.installer_identity }}"
-              --keychain "${{ steps.macos-keychain.outputs.keychain }}"
-            )
-          fi
-          pkg_path="ACECode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}${unsigned_suffix}.pkg"
+          pkg_path="ACECode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}.pkg"
           scripts/macos_create_pkg.sh \
             --app "build/ACECode.app" \
             --output "$pkg_path" \
-            "${signing_args[@]}"
+            --installer-identity "${{ steps.macos-keychain.outputs.installer_identity }}" \
+            --keychain "${{ steps.macos-keychain.outputs.keychain }}"
           echo "path=$pkg_path" >> "$GITHUB_OUTPUT"
 
       - name: Notarize and validate macOS PKG
-        if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
+        if: runner.os == 'macOS' && steps.macos-release.outputs.pkg_enabled == 'true'
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -539,7 +560,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload macOS PKG
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.macos-release.outputs.pkg_enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: acecode-${{ matrix.id }}-pkg
@@ -821,20 +842,30 @@ jobs:
             exit 1
           fi
 
-          release_version="${GITHUB_REF_NAME#v}"
-          pkg_count="$(find artifacts -type f -name '*.pkg' | wc -l | tr -d '[:space:]')"
-          if [ "$pkg_count" -ne 2 ]; then
-            echo "::error::Tagged releases require exactly two signed macOS PKGs; found $pkg_count"
+          unsigned_update="$(find artifacts -type f -name '*-update-unsigned.zip' -print -quit)"
+          if [ -n "$unsigned_update" ]; then
+            echo "::error::Unsigned macOS update artifacts must not be published: $unsigned_update"
             exit 1
           fi
-          for arch in x64 arm64; do
-            expected_pkg="ACECode-${release_version}-macos-${arch}.pkg"
-            matching_count="$(find artifacts -type f -name "$expected_pkg" | wc -l | tr -d '[:space:]')"
-            if [ "$matching_count" -ne 1 ]; then
-              echo "::error::Expected exactly one $expected_pkg; found $matching_count"
-              exit 1
-            fi
-          done
+
+          release_version="${GITHUB_REF_NAME#v}"
+          pkg_count="$(find artifacts -type f -name '*.pkg' | wc -l | tr -d '[:space:]')"
+          if [ "$pkg_count" -ne 0 ] && [ "$pkg_count" -ne 2 ]; then
+            echo "::error::Tagged releases allow either zero or two signed macOS PKGs; found $pkg_count"
+            exit 1
+          fi
+          if [ "$pkg_count" -eq 2 ]; then
+            for arch in x64 arm64; do
+              expected_pkg="ACECode-${release_version}-macos-${arch}.pkg"
+              matching_count="$(find artifacts -type f -name "$expected_pkg" | wc -l | tr -d '[:space:]')"
+              if [ "$matching_count" -ne 1 ]; then
+                echo "::error::Expected exactly one $expected_pkg; found $matching_count"
+                exit 1
+              fi
+            done
+          else
+            echo "::notice::No macOS PKGs were produced; publishing the remaining trusted assets"
+          fi
 
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.pkg' \) -print0 |
             while IFS= read -r -d '' file; do
