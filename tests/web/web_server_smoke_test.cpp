@@ -19,6 +19,7 @@
 #include <sqlite3.h>
 
 #include "provider/auth/github_auth.hpp"
+#include "provider/auth/xai_auth.hpp"
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
 #include "permissions.hpp"
@@ -6755,7 +6756,7 @@ TEST(WebServerHttp, ModelCatalogRoutesReturnBoundedCanonicalLocalData) {
     EXPECT_EQ(acecode::current_registry().get(), before.get());
 }
 
-TEST(WebServerHttp, ModelCatalogRejectsUnauthenticatedRemoteAccess) {
+TEST(WebServerHttp, ModelRoutesRejectUnauthenticatedRemoteAccess) {
     WebServerFixture fx;
     acecode::web::RemoteWebTcpProxy proxy;
     std::string proxy_error;
@@ -6763,16 +6764,20 @@ TEST(WebServerHttp, ModelCatalogRejectsUnauthenticatedRemoteAccess) {
     const int proxy_port = proxy.port();
     std::thread proxy_thread([&] { proxy.run(); });
 
-    const auto denied = cpr::Get(cpr::Url{
+    const auto denied_catalog = cpr::Get(cpr::Url{
         "http://127.0.0.1:" + std::to_string(proxy_port) +
         "/api/models/catalog"});
+    const auto denied_models = cpr::Get(cpr::Url{
+        "http://127.0.0.1:" + std::to_string(proxy_port) +
+        "/api/models"});
     proxy.stop();
     if (proxy_thread.joinable()) proxy_thread.join();
-    EXPECT_EQ(denied.status_code, 401) << denied.text;
+    EXPECT_EQ(denied_catalog.status_code, 401) << denied_catalog.text;
+    EXPECT_EQ(denied_models.status_code, 401) << denied_models.text;
 }
 
-// 场景:POST /api/models 成功 → 200 + has_api_key，响应不得回传密钥。
-TEST(WebServerHttp, PostModelsCreatesSavedEntryWithRedactedApiKey) {
+// 场景:POST /api/models 成功 → 200，已认证的管理响应回传原密钥供编辑。
+TEST(WebServerHttp, PostModelsCreatesSavedEntryWithApiKey) {
     WebServerFixture fx;
     json req = {
         {"name", "smoke-openai"},
@@ -6795,8 +6800,8 @@ TEST(WebServerHttp, PostModelsCreatesSavedEntryWithRedactedApiKey) {
     EXPECT_EQ(j["model"], "llama-3");
     EXPECT_EQ(j["base_url"], "http://localhost:1234/v1");
     EXPECT_EQ(j["has_api_key"], true);
-    EXPECT_FALSE(j.contains("api_key"));
-    EXPECT_EQ(r.text.find("sk-secret"), std::string::npos);
+    EXPECT_EQ(j["api_key"], "sk-secret");
+    EXPECT_NE(r.text.find("sk-secret"), std::string::npos);
     EXPECT_EQ(j["request_headers"]["Authorization"], "Bearer {env:ACE_TOKEN}");
     EXPECT_EQ(j["request_headers"]["X-Team"], "acecode");
 
@@ -6829,8 +6834,8 @@ TEST(WebServerHttp, PostModelsCreatesAnthropicEntry) {
     EXPECT_EQ(j["provider"], "anthropic");
     EXPECT_EQ(j["base_url"], "https://api.anthropic.com/v1");
     EXPECT_EQ(j["has_api_key"], true);
-    EXPECT_FALSE(j.contains("api_key"));
-    EXPECT_EQ(r.text.find("sk-ant-secret"), std::string::npos);
+    EXPECT_EQ(j["api_key"], "sk-ant-secret");
+    EXPECT_NE(r.text.find("sk-ant-secret"), std::string::npos);
     EXPECT_EQ(j["request_headers"]["anthropic-beta"],
               "prompt-caching-2024-07-31");
 
@@ -6869,8 +6874,8 @@ TEST(WebServerHttp, PutModelsPreservesAndClearsRequestHeaders) {
     ASSERT_EQ(preserve.status_code, 200) << preserve.text;
     auto preserved = json::parse(preserve.text);
     EXPECT_EQ(preserved["has_api_key"], true);
-    EXPECT_FALSE(preserved.contains("api_key"));
-    EXPECT_EQ(preserve.text.find("sk-secret"), std::string::npos);
+    EXPECT_EQ(preserved["api_key"], "sk-secret");
+    EXPECT_NE(preserve.text.find("sk-secret"), std::string::npos);
     EXPECT_EQ(preserved["request_headers"]["X-Team"], "acecode");
     ASSERT_EQ(fx.cfg.saved_models.size(), 2u);
     EXPECT_EQ(fx.cfg.saved_models.back().api_key, "sk-secret");
@@ -6878,11 +6883,11 @@ TEST(WebServerHttp, PutModelsPreservesAndClearsRequestHeaders) {
 
     auto listed = cpr::Get(cpr::Url{fx.url("/api/models")});
     ASSERT_EQ(listed.status_code, 200) << listed.text;
-    EXPECT_EQ(listed.text.find("sk-secret"), std::string::npos);
+    EXPECT_NE(listed.text.find("sk-secret"), std::string::npos);
     const auto listed_body = json::parse(listed.text);
     ASSERT_TRUE(listed_body.is_array());
     EXPECT_TRUE(listed_body.back()["has_api_key"].get<bool>());
-    EXPECT_FALSE(listed_body.back().contains("api_key"));
+    EXPECT_EQ(listed_body.back()["api_key"], "sk-secret");
 
     json clear_req = preserve_req;
     clear_req["request_headers"] = json::object();
@@ -7072,6 +7077,25 @@ TEST(WebServerHttp, PostModelsProbeCopilotRequiresAuthWhenNoToken) {
     EXPECT_EQ(j["error"], "COPILOT_AUTH_REQUIRED");
 }
 
+// Grok model discovery is a managed path. Missing local OAuth credentials
+// must fail before any upstream request is attempted.
+TEST(WebServerHttp, PostModelsProbeGrokRequiresAuthWhenNoCredentials) {
+    auto temp_home = std::filesystem::temp_directory_path() /
+                     ("acecode_grok_home_" + std::to_string(std::random_device{}()));
+    RemoveTreeOnExit cleanup{temp_home};
+    ScopedHomeOverride home(temp_home);
+    WebServerFixture fx;
+
+    auto r = cpr::Post(cpr::Url{fx.url("/api/models/probe")},
+                       cpr::Header{{"Content-Type", "application/json"}},
+                       cpr::Body{json{{"provider", "grok"}}.dump()});
+    ASSERT_EQ(r.status_code, 401) << r.text;
+    const auto body = json::parse(r.text);
+    EXPECT_EQ(body["error"], "GROK_AUTH_REQUIRED");
+    EXPECT_EQ(r.text.find("access_token"), std::string::npos);
+    EXPECT_EQ(r.text.find("refresh_token"), std::string::npos);
+}
+
 // 场景:desktop/web Copilot auth 状态和退出只读写 github_token 文件,
 // 不碰 saved_models,也不泄漏 token 内容。
 TEST(WebServerHttp, CopilotAuthStatusAndLogoutUseSavedTokenOnly) {
@@ -7100,6 +7124,54 @@ TEST(WebServerHttp, CopilotAuthStatusAndLogoutUseSavedTokenOnly) {
     auto logout = cpr::Delete(cpr::Url{fx.url("/api/copilot/auth")});
     ASSERT_EQ(logout.status_code, 200) << logout.text;
     EXPECT_FALSE(acecode::has_saved_github_token());
+    EXPECT_EQ(fx.cfg.saved_models.size(), 1u);
+}
+
+// Grok status/logout operate only on ~/.acecode/grok_auth.json. The daemon
+// never exposes either OAuth token or account identity to WebUI.
+TEST(WebServerHttp, GrokAuthStatusAndLogoutNeverExposeCredentials) {
+    auto temp_home = std::filesystem::temp_directory_path() /
+                     ("acecode_grok_auth_home_" + std::to_string(std::random_device{}()));
+    RemoveTreeOnExit cleanup{temp_home};
+    ScopedHomeOverride home(temp_home);
+    WebServerFixture fx;
+
+    auto initial = cpr::Get(cpr::Url{fx.url("/api/grok/auth")});
+    ASSERT_EQ(initial.status_code, 200) << initial.text;
+    EXPECT_EQ(json::parse(initial.text)["authenticated"], false);
+
+    acecode::GrokAuthTokens tokens;
+    tokens.access_token = "grok-access-secret";
+    tokens.refresh_token = "grok-refresh-secret";
+    tokens.expires_at = 4102444800;
+    tokens.user_id = "private-user-id";
+    tokens.email = "private@example.test";
+    std::string save_error;
+    ASSERT_TRUE(acecode::save_grok_auth_tokens(tokens, "", &save_error)) << save_error;
+
+    auto connected = cpr::Get(cpr::Url{fx.url("/api/grok/auth")});
+    ASSERT_EQ(connected.status_code, 200) << connected.text;
+    const auto connected_body = json::parse(connected.text);
+    EXPECT_EQ(connected_body["provider"], "grok");
+    EXPECT_EQ(connected_body["authenticated"], true);
+    for (const char* secret : {"grok-access-secret", "grok-refresh-secret",
+                               "private-user-id", "private@example.test",
+                               "access_token", "refresh_token"}) {
+        EXPECT_EQ(connected.text.find(secret), std::string::npos) << secret;
+    }
+    ASSERT_EQ(fx.cfg.saved_models.size(), 1u);
+
+    auto malformed = cpr::Post(
+        cpr::Url{fx.url("/api/grok/auth/device/poll")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"device_code":""})"});
+    ASSERT_EQ(malformed.status_code, 400) << malformed.text;
+    EXPECT_EQ(json::parse(malformed.text)["error"], "GROK_DEVICE_CODE_REQUIRED");
+
+    auto logout = cpr::Delete(cpr::Url{fx.url("/api/grok/auth")});
+    ASSERT_EQ(logout.status_code, 200) << logout.text;
+    EXPECT_EQ(json::parse(logout.text)["authenticated"], false);
+    EXPECT_FALSE(acecode::has_saved_grok_auth());
     EXPECT_EQ(fx.cfg.saved_models.size(), 1u);
 }
 

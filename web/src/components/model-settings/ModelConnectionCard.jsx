@@ -9,14 +9,19 @@ export function ModelConnectionCard({
   onLogout,
   onCopyCode,
   onPoll,
+  title = 'GitHub Copilot',
+  description = '使用 ACECode 现有的 GitHub 设备登录与受管端点。',
+  connectLabel = '连接 GitHub',
+  waitingLabel = '等待 GitHub 授权',
+  headingId = 'model-connections-title',
 }) {
   const authenticated = !!auth?.authenticated;
   const loading = !!auth?.loading;
   return (
-    <section aria-labelledby="model-connections-title">
+    <section aria-labelledby={headingId}>
       <div className="mb-2 flex items-end justify-between gap-3">
         <div>
-          <h3 id="model-connections-title" className="text-[13px] font-semibold text-fg">
+          <h3 id={headingId} className="text-[13px] font-semibold text-fg">
             模型连接
           </h3>
           <p className="mt-0.5 text-[11px] leading-5 text-fg-mute">
@@ -36,7 +41,7 @@ export function ModelConnectionCard({
           />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[13px] font-medium text-fg">GitHub Copilot</span>
+              <span className="text-[13px] font-medium text-fg">{title}</span>
               <span className={clsx(
                 'rounded border px-1.5 py-0.5 text-[10px] font-medium',
                 authenticated
@@ -47,7 +52,7 @@ export function ModelConnectionCard({
               </span>
             </div>
             <p className="mt-0.5 text-[11px] text-fg-mute">
-              使用 ACECode 现有的 GitHub 设备登录与受管端点。
+              {description}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -68,7 +73,7 @@ export function ModelConnectionCard({
                 className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-medium text-white transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent-soft disabled:opacity-50"
               >
                 <VsIcon name="extension" size={13} />
-                连接 GitHub
+                {connectLabel}
               </button>
             )}
           </div>
@@ -81,12 +86,12 @@ export function ModelConnectionCard({
               type="button"
               onClick={() => onCopyCode?.(flow.user_code)}
               className="rounded border border-border bg-surface-alt px-2 py-1 text-[12px] font-semibold tracking-wider text-fg transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent"
-              aria-label={`复制 GitHub 验证码 ${flow.user_code || ''}`}
+              aria-label={`复制 ${title} 验证码 ${flow.user_code || ''}`}
             >
               {flow.user_code || '—'}
             </button>
             <span className="min-w-0 flex-1 text-[11px] text-fg-mute">
-              {flow.message || '等待 GitHub 授权'}
+              {flow.message || waitingLabel}
             </span>
             <button
               type="button"

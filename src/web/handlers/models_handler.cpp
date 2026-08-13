@@ -88,13 +88,15 @@ int context_window_from_model_item(const nlohmann::json& item) {
     return 0;
 }
 
-// 构造单个条目的 JSON。base_url / models_dev_provider_id 可选,有值才输出。
+// 构造单个条目的模型管理 JSON。该响应只从经过认证的模型路由返回，
+// 因而保留 API Key 原值供编辑弹窗回填；调用方不得记录该对象。
 nlohmann::json entry_to_json(const ModelProfile& entry) {
     nlohmann::json o;
     o["name"]      = entry.name;
     o["provider"]  = entry.provider;
     o["model"]     = entry.model;
     if (!entry.base_url.empty()) o["base_url"] = entry.base_url;
+    o["api_key"] = entry.api_key;
     o["has_api_key"] = !entry.api_key.empty();
     if (entry.models_dev_provider_id.has_value()) {
         o["models_dev_provider_id"] = *entry.models_dev_provider_id;
@@ -171,7 +173,7 @@ int http_status_for_edit_error(SavedModelEditError e) {
     }
 }
 
-nlohmann::json profile_to_safe_json(const ModelProfile& entry) {
+nlohmann::json profile_to_json(const ModelProfile& entry) {
     return entry_to_json(entry);
 }
 
@@ -347,9 +349,11 @@ std::optional<ModelProbeRequest> parse_model_probe_request(const nlohmann::json&
     }
 
     if (request.provider.empty()) request.provider = "openai";
-    if (request.provider != "openai" && request.provider != "copilot") {
+    if (request.provider != "openai" && request.provider != "copilot" &&
+        request.provider != "grok") {
         err_code = "UNKNOWN_PROVIDER";
-        err = "model probing currently supports provider=openai or provider=copilot";
+        err = "model probing currently supports provider=openai, provider=copilot, "
+              "or provider=grok";
         return std::nullopt;
     }
     if (request.provider == "openai" && request.base_url.empty()) {

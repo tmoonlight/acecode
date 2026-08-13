@@ -52,6 +52,18 @@ void WebServer::Impl::register_models() {
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/grok/auth").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/grok/auth/device").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/grok/auth/device/poll").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/sessions/<string>/model").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
@@ -292,6 +304,103 @@ void WebServer::Impl::register_models() {
             return with_cors(req, std::move(r));
         });
 
+        // Grok Coding Plan uses xAI's Device OAuth flow. Only the device code
+        // contract crosses HTTP; access/refresh tokens remain daemon-managed.
+        CROW_ROUTE(app, "/api/grok/auth").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = grok_auth_status_to_json(has_saved_grok_auth()).dump();
+            return with_cors(req, std::move(r));
+        });
+
+        CROW_ROUTE(app, "/api/grok/auth").methods(crow::HTTPMethod::Delete)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            std::string error;
+            if (!delete_grok_auth("", &error)) {
+                crow::response r(500);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "GROK_AUTH_DELETE_FAILED"},
+                              {"message", redact_grok_auth_diagnostic(error)}}.dump();
+                return with_cors(req, std::move(r));
+            }
+            auto body = grok_auth_status_to_json(false);
+            body["ok"] = true;
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = body.dump();
+            return with_cors(req, std::move(r));
+        });
+
+        CROW_ROUTE(app, "/api/grok/auth/device").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const GrokDeviceCodeResponse device = request_grok_device_code();
+            if (!device.error.empty() || device.device_code.empty()) {
+                crow::response r(502);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{
+                    {"error", device.error.empty()
+                        ? "GROK_DEVICE_AUTH_FAILED"
+                        : redact_grok_auth_diagnostic(device.error)},
+                    {"message", redact_grok_auth_diagnostic(
+                        device.message.empty()
+                            ? "failed to request Grok device code"
+                            : device.message)},
+                }.dump();
+                return with_cors(req, std::move(r));
+            }
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = grok_device_code_to_json(device, now_unix_ms()).dump();
+            return with_cors(req, std::move(r));
+        });
+
+        CROW_ROUTE(app, "/api/grok/auth/device/poll").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+
+            auto json_err = [&](int status, const char* code, const std::string& msg) {
+                crow::response r(status);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", code},
+                              {"message", redact_grok_auth_diagnostic(msg)}}.dump();
+                return with_cors(req, std::move(r));
+            };
+
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const std::exception& e) {
+                return json_err(400, "BAD_JSON",
+                                std::string("invalid JSON body: ") + e.what());
+            }
+            std::string parse_error;
+            auto device_code = parse_grok_device_poll_request(body, parse_error);
+            if (!device_code.has_value()) {
+                return json_err(400, "GROK_DEVICE_CODE_REQUIRED", parse_error);
+            }
+
+            const GrokDevicePollResult poll =
+                poll_grok_device_code_once(*device_code);
+            const bool authenticated = poll.status == "authorized" &&
+                has_saved_grok_auth();
+            int status = 200;
+            if (poll.status == "failed") {
+                status = poll.status_code == 0 ? 502
+                    : poll.status_code == 401 ? 401
+                    : 400;
+            } else if (poll.status == "expired") {
+                status = 400;
+            }
+            crow::response r(status);
+            r.add_header("Content-Type", "application/json");
+            r.body = grok_device_poll_to_json(poll, authenticated).dump();
+            return with_cors(req, std::move(r));
+        });
+
         // GET /api/sessions/:id/model: 返回当前 session model state。
         CROW_ROUTE(app, "/api/sessions/<string>/model").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req, const std::string& sid) {
@@ -422,7 +531,7 @@ void WebServer::Impl::register_models() {
                 [&](const ModelProfile& profile) {
                     return profile.name == draft->name;
                 });
-            r.body = profile_to_safe_json(*added).dump();
+            r.body = profile_to_json(*added).dump();
             return with_cors(req, std::move(r));
         });
 
@@ -488,7 +597,7 @@ void WebServer::Impl::register_models() {
             }
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            r.body = profile_to_safe_json(*updated).dump();
+            r.body = profile_to_json(*updated).dump();
             return with_cors(req, std::move(r));
         });
 

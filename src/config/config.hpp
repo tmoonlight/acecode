@@ -412,7 +412,7 @@ struct FeaturesConfig {
 };
 
 struct AppConfig {
-    std::string provider; // active runtime provider: "copilot" or "openai"; empty = not configured
+    std::string provider; // active runtime provider; empty = not configured
     OpenAiConfig openai;
     CopilotConfig copilot;
     CodexConfig codex;

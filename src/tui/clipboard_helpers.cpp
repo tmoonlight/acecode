@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "tui_state.hpp"
+#include "tui/terminal_key_event.hpp"
 #include "session/attachment_store.hpp"
 #include "utils/clipboard.hpp"
 
@@ -81,11 +82,21 @@ std::string clipboard_copy_status_message(ClipboardTextWriteResult::Status statu
 }
 
 bool is_alt_v_event(const Event& event) {
-    return event == Event::Special("\x1Bv") || event == Event::Special("\x1BV");
+    constexpr auto alt = terminal_modifier(TerminalKeyModifier::Alt);
+    constexpr auto ignored =
+        terminal_modifier(TerminalKeyModifier::Shift) |
+        TerminalKeyModifier::CapsLock |
+        TerminalKeyModifier::NumLock;
+    return matches_terminal_codepoint(event, 'v', alt, ignored);
 }
 
 bool is_alt_a_event(const Event& event) {
-    return event == Event::Special("\x1B" "a") || event == Event::Special("\x1B" "A");
+    constexpr auto alt = terminal_modifier(TerminalKeyModifier::Alt);
+    constexpr auto ignored =
+        terminal_modifier(TerminalKeyModifier::Shift) |
+        TerminalKeyModifier::CapsLock |
+        TerminalKeyModifier::NumLock;
+    return matches_terminal_codepoint(event, 'a', alt, ignored);
 }
 
 std::string attachment_name_from_json(const nlohmann::json& attachment) {

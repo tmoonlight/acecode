@@ -27,6 +27,7 @@ const dialog = source('components/model-settings/ModelProfileDialog.jsx');
 const picker = source('components/model-settings/ProviderCatalogPicker.jsx');
 const connection = source('components/model-settings/ModelConnectionCard.jsx');
 const providerIcon = source('components/model-settings/ProviderIcon.jsx');
+const providerGroups = source('lib/providerCatalogGroups.js');
 const saved = source('components/model-settings/SavedModelList.jsx');
 const helpers = source('lib/modelSettings.js');
 const focusedComponents = [section, dialog, picker, connection, providerIcon, saved].join('\n');
@@ -39,10 +40,9 @@ run('model settings navigation delegates to focused list-first components', () =
   assert.match(settingsPage, /return <ModelSettingsSection onModelProfileUpdated=\{onModelProfileUpdated\} \/>;/);
   assert.doesNotMatch(settingsPage, /function draftFromModelProfile/);
 
-  const connectionIndex = section.indexOf('<ModelConnectionCard');
   const savedIndex = section.indexOf('<SavedModelList');
-  assert.ok(connectionIndex >= 0);
-  assert.ok(savedIndex > connectionIndex);
+  assert.ok(savedIndex >= 0);
+  assert.doesNotMatch(section, /<ModelConnectionCard/);
   assert.doesNotMatch(section, /RecommendedModelList|recommendedModels|热门预置/);
 });
 
@@ -58,20 +58,43 @@ run('one adaptive profile Modal owns add and edit flows without template mode', 
   assert.match(dialog, /dismissOnEscape=\{!submitting\}/);
 });
 
-run('Copilot remains a managed saved profile without key or endpoint controls', () => {
-  assert.match(dialog, /provider\?\.runtime_provider === 'copilot' \? \(/);
-  assert.match(dialog, /Copilot 始终使用 ACECode 管理的认证和服务端点/);
-  assert.match(dialog, /\) : \(\s*<div className="grid grid-cols-1 gap-3 md:grid-cols-2">[\s\S]*?policy\?\.show_base_url/);
+run('Copilot and Grok remain managed saved profiles without key or endpoint controls', () => {
+  assert.match(dialog, /!policy\?\.managed/);
   assert.match(dialog, /policy\?\.show_api_key/);
-  assert.match(connection, /密钥和端点不会进入模型弹窗/);
+  assert.match(picker, /runtime_provider === 'copilot'[\s\S]*?runtime_provider === 'grok'/);
+  assert.match(picker, /<ModelConnectionCard \{\.\.\.managedConnection\} \/>/);
+  assert.match(dialog, /managedConnections\?\.\[provider\?\.runtime_provider\]/);
+  assert.match(section, /managedConnections=\{\{/);
+  assert.match(section, /grok: \{/);
+  assert.match(section, /api\.startGrokAuth\(\)/);
+  assert.match(section, /api\.pollGrokAuth\(grokFlow\.device_code\)/);
+  assert.match(section, /api\.logoutGrok\(\)/);
+  assert.match(connection, /受管 Provider 在这里完成登录/);
+  assert.match(connection, /flow\?\.device_code/);
+  assert.match(connection, /onCopyCode\?\.\(flow\.user_code\)/);
+  assert.match(connection, /onPoll/);
   assert.match(connection, /受管端点/);
   assert.doesNotMatch(connection, /base_url|Base URL|font-mono/);
   assert.match(section, /announceMutation\(added\)/);
 });
 
+run('API Key is prefilled behind a password mask with an accessible eye toggle', () => {
+  assert.match(helpers, /api_key: model\.api_key/);
+  assert.match(dialog, /const \[apiKeyVisible, setApiKeyVisible\] = useState\(false\)/);
+  assert.match(dialog, /type=\{apiKeyVisible \? 'text' : 'password'\}/);
+  assert.match(dialog, /aria-label=\{apiKeyVisible \? '隐藏 API Key' : '显示 API Key'\}/);
+  assert.match(dialog, /aria-pressed=\{apiKeyVisible\}/);
+  assert.match(dialog, /aria-controls="model-api-key"/);
+  assert.match(dialog, /<VsIcon name="eye" size=\{14\} \/>/);
+  assert.doesNotMatch(dialog, /已保存密钥不会读取到浏览器/);
+});
+
 run('provider picker keeps catalog queries bounded and supports docs manual ids probe and multi-select', () => {
-  assert.match(picker, /local: '本地服务'/);
-  assert.match(picker, /\['native', 'local', 'catalog', 'custom'\]/);
+  assert.match(providerGroups, /custom: '自定义模型'/);
+  assert.match(providerGroups, /popular: '热门模型'/);
+  assert.match(providerGroups, /'custom',[\s\S]*?'popular',[\s\S]*?'native',[\s\S]*?'local',[\s\S]*?'catalog'/);
+  assert.match(picker, /groupCatalogProviders\(providers, providerQuery\)/);
+  assert.match(section, /providers\.find\(\(provider\) => provider\.id === 'custom-openai'\)/);
   assert.match(picker, /queryModelCatalog\(provider\.id, modelQuery, 50\)/);
   assert.match(picker, /queryModelCatalog\(provider\.id, currentId, 1\)/);
   assert.match(picker, /modelMetadataSummary\(model\)/);
@@ -85,6 +108,7 @@ run('provider picker keeps catalog queries bounded and supports docs manual ids 
   assert.match(picker, /aria-selected=\{selected\}/);
   assert.match(picker, /<ProviderIcon provider=\{item\} active=\{active\} \/>/);
   assert.match(picker, /flex h-9 w-full items-center gap-2/);
+  assert.match(picker, /focus:ring-1 focus:ring-inset focus:ring-accent/);
   assert.doesNotMatch(picker, /item\.runtime_provider === 'copilot'[\s\S]*?item\.id/);
 });
 
@@ -104,9 +128,21 @@ run('Provider logos are local deduplicated assets within the package budget', ()
     assert.ok(svgFiles.has(`${assetId}.svg`), `missing logo asset: ${assetId}`);
   });
   assert.equal(providerLogoAssetId({ id: 'copilot' }), PROVIDER_LOGO_ASSET_BY_ID['github-copilot']);
+  assert.equal(providerLogoAssetId({ id: 'grok' }), PROVIDER_LOGO_ASSET_BY_ID.xai);
   assert.equal(providerLogoAssetId({ id: 'custom-openai' }), PROVIDER_LOGO_ASSET_BY_ID.openai);
+  assert.equal(
+    providerLogoAssetId({ provider: 'openai', models_dev_provider_id: 'deepseek' }),
+    PROVIDER_LOGO_ASSET_BY_ID.deepseek,
+  );
+  assert.equal(providerLogoAssetId({ provider: 'openai' }), PROVIDER_LOGO_ASSET_BY_ID.openai);
+  assert.equal(
+    providerLogoAssetId({ provider: 'copilot' }),
+    PROVIDER_LOGO_ASSET_BY_ID['github-copilot'],
+  );
   assert.equal(providerLogoPath({ id: 'future-provider' }), '');
   assert.doesNotMatch(providerIcon, /https:\/\/models\.dev/);
+  assert.match(saved, /<ProviderIcon provider=\{model\} \/>/);
+  assert.doesNotMatch(saved, /<VsIcon name="extension"/);
 });
 
 run('runtime mutation payloads compact reasoning, clear edits, and keep batch metadata per model', () => {
@@ -151,7 +187,8 @@ run('model settings use semantic theme tokens and reserve mono for request-heade
 });
 
 run('rows search controls dialogs and busy states expose keyboard and ARIA contracts', () => {
-  assert.match(connection, /aria-labelledby="model-connections-title"/);
+  assert.match(connection, /aria-labelledby=\{headingId\}/);
+  assert.match(connection, /id=\{headingId\}/);
   assert.match(saved, /aria-labelledby="saved-models-title"/);
   assert.match(saved, /type="search"/);
   assert.match(saved, /aria-label=\{`编辑模型 \$\{model\.name\}`\}/);

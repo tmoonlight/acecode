@@ -28,8 +28,9 @@ namespace acecode::web {
 //   [
 //     {"name":"copilot-fast","provider":"copilot","model":"gpt-4o"},
 //     {"name":"local-lm","provider":"openai","model":"llama-3",
-//      "base_url":"http://localhost:1234/v1"}
+//      "base_url":"http://localhost:1234/v1","api_key":"sk-..."}
 //   ]
+// 仅可用于已认证模型管理响应；返回值包含 API Key 原值，不得写入日志。
 nlohmann::json list_models(const AppConfig& cfg);
 
 // 通过 name 找 ModelProfile。未命中返回 nullopt。
@@ -47,9 +48,9 @@ nlohmann::json model_state_to_json(const SessionModelState& state);
 //   - 其它(校验失败)   → 400
 int http_status_for_edit_error(SavedModelEditError e);
 
-// 把 ModelProfile 序列化到模型管理 JSON 格式。
-// 给 POST/PUT 成功响应用。
-nlohmann::json profile_to_safe_json(const ModelProfile& entry);
+// 把 ModelProfile 序列化到已认证的模型管理 JSON 格式。
+// 给 POST/PUT 成功响应用；返回值包含 API Key 原值。
+nlohmann::json profile_to_json(const ModelProfile& entry);
 
 // 解析 POST/PUT body 到 SavedModelDraft。失败返 nullopt + err 写错误说明。
 std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,

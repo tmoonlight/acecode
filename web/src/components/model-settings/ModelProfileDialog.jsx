@@ -37,7 +37,8 @@ function fieldLabel(id, label, optional = false) {
 function providerForDraft(providers, draft) {
   return providers.find((provider) => provider.id === draft.catalog_provider_id)
     || providers.find((provider) => (
-      !!draft.models_dev_provider_id
+      provider.runtime_provider === draft.provider
+        && !!draft.models_dev_provider_id
         && provider.models_dev_provider_id === draft.models_dev_provider_id
     ))
     || providers.find((provider) => (
@@ -55,14 +56,14 @@ export function ModelProfileDialog({
   providers,
   savedModels,
   originalName = '',
-  copilotAuthenticated = false,
-  onManageCopilot,
+  managedConnections,
   onSubmit,
   onResolveConflict,
   onClose,
 }) {
   const editing = mode === 'edit';
   const [draft, setDraft] = useState(seed);
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(() => editing && hasAdvancedModelValues(seed));
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -72,6 +73,8 @@ export function ModelProfileDialog({
   const saveAsRef = useRef(null);
   const provider = useMemo(() => providerForDraft(providers, draft), [draft, providers]);
   const policy = provider ? modelFieldPolicy(provider) : null;
+  const managedConnection = managedConnections?.[provider?.runtime_provider] || null;
+  const managedAuthenticated = !!managedConnection?.auth?.authenticated;
   const credentialSources = useMemo(
     () => compatibleCredentialSources(savedModels, draft),
     [draft, savedModels],
@@ -83,6 +86,7 @@ export function ModelProfileDialog({
   ));
   const selectProvider = (nextProvider) => {
     setDraft((current) => applyCatalogProviderToDraft(current, nextProvider));
+    setApiKeyVisible(false);
     setFormError('');
     setConflict(null);
   };
@@ -205,36 +209,13 @@ export function ModelProfileDialog({
             provider={provider}
             draft={draft}
             allowMultiple={!editing}
-            copilotAuthenticated={copilotAuthenticated}
+            managedAuthenticated={managedAuthenticated}
+            managedConnection={managedConnection}
             onProviderChange={selectProvider}
             onDraftChange={setDraft}
           />
 
-          {provider?.runtime_provider === 'copilot' ? (
-            <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-surface px-3.5 py-2.5">
-              <span className={clsx(
-                'h-2 w-2 rounded-full',
-                copilotAuthenticated ? 'bg-ok' : 'bg-warn',
-              )} aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-medium text-fg">
-                  {copilotAuthenticated ? 'GitHub Copilot 已连接' : '需要连接 GitHub Copilot'}
-                </div>
-                <div className="mt-0.5 text-[10px] text-fg-mute">
-                  Copilot 始终使用 ACECode 管理的认证和服务端点。
-                </div>
-              </div>
-              {!copilotAuthenticated && (
-                <button
-                  type="button"
-                  onClick={onManageCopilot}
-                  className="h-8 rounded-md border border-border px-3 text-[11px] font-medium text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent"
-                >
-                  连接 GitHub
-                </button>
-              )}
-            </div>
-          ) : (
+          {!policy?.managed && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {policy?.show_base_url && (
                 <div className={policy.show_api_key ? '' : 'md:col-span-2'}>
@@ -252,27 +233,38 @@ export function ModelProfileDialog({
               )}
               {policy?.show_api_key && (
                 <div>
-                  {fieldLabel('model-api-key', 'API Key', editing && draft.has_api_key)}
-                  <input
-                    id="model-api-key"
-                    type="password"
-                    value={draft.api_key}
-                    onChange={(event) => patchDraft({
-                      api_key: event.target.value,
-                      clear_api_key: false,
-                      credential_source_name: '',
-                    })}
-                    placeholder={editing && draft.has_api_key ? '留空以保留已保存密钥' : '输入新的 API Key'}
-                    className={inputClass()}
-                    autoComplete="new-password"
-                    spellCheck={false}
-                  />
-                  {editing && draft.has_api_key && (
-                    <div className="mt-1 flex items-center gap-1 text-[10px] text-ok">
-                      <VsIcon name="lock" size={10} />
-                      已保存密钥不会读取到浏览器
-                    </div>
-                  )}
+                  {fieldLabel('model-api-key', 'API Key')}
+                  <div className="relative">
+                    <input
+                      id="model-api-key"
+                      type={apiKeyVisible ? 'text' : 'password'}
+                      value={draft.api_key}
+                      onChange={(event) => patchDraft({
+                        api_key: event.target.value,
+                        clear_api_key: false,
+                        credential_source_name: '',
+                      })}
+                      placeholder="输入 API Key"
+                      className={inputClass('pr-10')}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setApiKeyVisible((visible) => !visible)}
+                      aria-label={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+                      aria-pressed={apiKeyVisible}
+                      aria-controls="model-api-key"
+                      title={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+                      className={clsx(
+                        'absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-md transition',
+                        'text-fg-mute hover:bg-surface-hi hover:text-fg focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent',
+                        apiKeyVisible && 'text-accent',
+                      )}
+                    >
+                      <VsIcon name="eye" size={14} />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -306,10 +298,13 @@ export function ModelProfileDialog({
               <input
                 type="checkbox"
                 checked={!!draft.clear_api_key}
-                onChange={(event) => patchDraft({
-                  clear_api_key: event.target.checked,
-                  api_key: '',
-                })}
+                onChange={(event) => {
+                  setApiKeyVisible(false);
+                  patchDraft({
+                    clear_api_key: event.target.checked,
+                    api_key: '',
+                  });
+                }}
                 className="accent-accent"
               />
               清除已保存密钥

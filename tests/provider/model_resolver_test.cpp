@@ -72,6 +72,31 @@ TEST(ModelResolverTest, ResumeMetaWinsOverCwdAndDefault) {
     EXPECT_EQ(got.name, "beta");
 }
 
+// Grok managed preset 参与默认选择与 session 恢复，provider/model 精确匹配。
+TEST(ModelResolverTest, GrokPresetCanBeDefaultAndResumeTarget) {
+    AppConfig cfg = make_cfg("alpha");
+    ModelProfile grok;
+    grok.name = "grok-coding-plan";
+    grok.provider = "grok";
+    grok.model = "grok-4.5";
+    grok.models_dev_provider_id = "xai";
+    cfg.saved_models.push_back(grok);
+    cfg.default_model_name = grok.name;
+
+    auto selected = resolve_effective_model(cfg, std::nullopt, std::nullopt);
+    EXPECT_EQ(selected.name, grok.name);
+    EXPECT_EQ(selected.provider, "grok");
+
+    SessionMeta meta;
+    meta.id = "grok-session";
+    meta.provider = "grok";
+    meta.model = "grok-4.5";
+    auto resumed = resolve_effective_model(cfg, std::optional<std::string>{"alpha"},
+                                           std::optional{meta});
+    EXPECT_EQ(resumed.name, grok.name);
+    EXPECT_EQ(resumed.provider, "grok");
+}
+
 // 额外 — resume 到旧 codex session 时跳过已屏蔽 provider,回落到 default。
 TEST(ModelResolverTest, DisabledCodexResumeMetaFallsBackToDefault) {
     AppConfig cfg = make_cfg("alpha");

@@ -24,6 +24,7 @@
 #include "tui/non_selectable.hpp"
 #include "tui/pending_attachment_selection.hpp"
 #include "tui/thick_vscroll_bar.hpp"
+#include "tui/terminal_key_event.hpp"
 #include "tui/todo_checklist_view.hpp"
 #include "tui/unclipped_reflect.hpp"
 #include "tui/vertical_scroll.hpp"
@@ -1245,16 +1246,17 @@ std::optional<size_t> input_cursor_from_point(
 
 std::optional<ShiftArrowDirection> shift_arrow_direction(
     const Event& event) {
-    if (event == Event::Special("\x1B[1;2A")) {
+    constexpr auto shift = terminal_modifier(TerminalKeyModifier::Shift);
+    if (matches_terminal_key(event, TerminalKey::ArrowUp, shift)) {
         return ShiftArrowDirection::Up;
     }
-    if (event == Event::Special("\x1B[1;2B")) {
+    if (matches_terminal_key(event, TerminalKey::ArrowDown, shift)) {
         return ShiftArrowDirection::Down;
     }
-    if (event == Event::Special("\x1B[1;2C")) {
+    if (matches_terminal_key(event, TerminalKey::ArrowRight, shift)) {
         return ShiftArrowDirection::Right;
     }
-    if (event == Event::Special("\x1B[1;2D")) {
+    if (matches_terminal_key(event, TerminalKey::ArrowLeft, shift)) {
         return ShiftArrowDirection::Left;
     }
     return std::nullopt;

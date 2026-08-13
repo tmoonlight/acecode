@@ -156,6 +156,7 @@
 #include "tui/vertical_scroll.hpp"
 #include "utils/terminal_theme_detect.hpp"
 #include "tui/subagent_host.hpp"
+#include "tui/terminal_key_event.hpp"
 #include "tool/spawn_subagent_tool.hpp"
 #include "tui/todo_checklist_view.hpp"
 #include "tui/input_history_navigation.hpp"
@@ -178,6 +179,30 @@ using namespace ftxui;
 using namespace acecode;
 
 namespace {
+
+constexpr auto kTerminalShift =
+    acecode::tui::terminal_modifier(
+        acecode::tui::TerminalKeyModifier::Shift);
+constexpr auto kTerminalAlt =
+    acecode::tui::terminal_modifier(
+        acecode::tui::TerminalKeyModifier::Alt);
+constexpr auto kTerminalCtrl =
+    acecode::tui::terminal_modifier(
+        acecode::tui::TerminalKeyModifier::Ctrl);
+
+static bool is_terminal_key(const Event& event,
+                            acecode::tui::TerminalKey key,
+                            acecode::tui::TerminalKeyModifiers modifiers = 0) {
+    return acecode::tui::matches_terminal_key(event, key, modifiers);
+}
+
+static bool is_terminal_codepoint(
+    const Event& event,
+    std::uint32_t codepoint,
+    acecode::tui::TerminalKeyModifiers modifiers = 0) {
+    return acecode::tui::matches_terminal_codepoint(
+        event, codepoint, modifiers);
+}
 
 static std::int64_t monotonic_milliseconds() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1151,13 +1176,29 @@ static std::string clipboard_image_status_message(
 }
 
 static bool is_alt_v_event(const Event& event) {
-    return event == Event::Special("\x1Bv") ||
-           event == Event::Special("\x1BV");
+    constexpr auto alt =
+        acecode::tui::terminal_modifier(
+            acecode::tui::TerminalKeyModifier::Alt);
+    constexpr auto ignored =
+        acecode::tui::terminal_modifier(
+            acecode::tui::TerminalKeyModifier::Shift) |
+        acecode::tui::TerminalKeyModifier::CapsLock |
+        acecode::tui::TerminalKeyModifier::NumLock;
+    return acecode::tui::matches_terminal_codepoint(
+        event, 'v', alt, ignored);
 }
 
 static bool is_alt_a_event(const Event& event) {
-    return event == Event::Special("\x1B" "a") ||
-           event == Event::Special("\x1B" "A");
+    constexpr auto alt =
+        acecode::tui::terminal_modifier(
+            acecode::tui::TerminalKeyModifier::Alt);
+    constexpr auto ignored =
+        acecode::tui::terminal_modifier(
+            acecode::tui::TerminalKeyModifier::Shift) |
+        acecode::tui::TerminalKeyModifier::CapsLock |
+        acecode::tui::TerminalKeyModifier::NumLock;
+    return acecode::tui::matches_terminal_codepoint(
+        event, 'a', alt, ignored);
 }
 
 static std::string attachment_name_from_json(const nlohmann::json& attachment) {
@@ -1677,7 +1718,7 @@ static bool handle_pending_attachment_focus_event(TuiState& state,
         return false;
     }
 
-    if (event == Event::Escape) {
+    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         state.pending_attachment_focus =
             acecode::tui::kNoPendingAttachmentFocus;
         screen.PostEvent(Event::Custom);
@@ -1759,7 +1800,7 @@ static bool handle_confirm_overlay_event(
         screen.PostEvent(Event::Custom);
     };
 
-    if (event == Event::Escape) {
+    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         submit(PermissionResult::Deny);
         return true;
     }
@@ -1773,7 +1814,8 @@ static bool handle_confirm_overlay_event(
         screen.PostEvent(Event::Custom);
         return true;
     }
-    if (event == Event::TabReverse) {
+    if (is_terminal_key(
+            event, acecode::tui::TerminalKey::Tab, kTerminalShift)) {
         submit(PermissionResult::AlwaysAllow);
         return true;
     }
@@ -1907,7 +1949,7 @@ static bool handle_rewind_picker_event(
         }
     };
 
-    if (event == Event::Escape) {
+    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         if (state.rewind_mode_active) {
             state.rewind_mode_active = false;
             state.rewind_modes.clear();
@@ -2048,7 +2090,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
     };
 
     if (event == Event::ArrowUp ||
-        event == Event::Special(std::string(1, '\x10'))) {
+        is_terminal_codepoint(event, 'p', kTerminalCtrl)) {
         state.slash_dropdown_selected =
             (state.slash_dropdown_selected - 1 + n) % n;
         follow_view();
@@ -2056,7 +2098,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
         return true;
     }
     if (event == Event::ArrowDown ||
-        event == Event::Special(std::string(1, '\x0E'))) {
+        is_terminal_codepoint(event, 'n', kTerminalCtrl)) {
         state.slash_dropdown_selected =
             (state.slash_dropdown_selected + 1) % n;
         follow_view();
@@ -2090,7 +2132,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
         commit_selection();
         return false;
     }
-    if (event == Event::Escape) {
+    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         state.slash_dropdown_active = false;
         state.slash_dropdown_items.clear();
         state.slash_dropdown_selected = 0;
@@ -2125,7 +2167,7 @@ static bool handle_path_reference_event(
         return true;
     };
 
-    if (event == Event::Escape) {
+    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         acecode::tui::dismiss_path_reference_state(state);
         screen.PostEvent(Event::Custom);
         return true;
@@ -4698,6 +4740,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                                    force_alt_screen);
 
     auto screen = acecode::tui::make_screen_interactive(render_mode);
+    screen.EnableKittyKeyboard();
     auto redraw_pacer = std::make_shared<acecode::tui::TuiRedrawPacer>();
     std::atomic<std::int64_t> last_keyboard_input_at_ms{0};
     auto request_scheduled_redraw =
@@ -6070,7 +6113,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 screen.ShiftSelection(0, dy);
             }
         }
-        if (event != Event::CtrlC &&
+        const bool ctrl_c_event =
+            is_terminal_codepoint(event, 'c', kTerminalCtrl);
+        if (!ctrl_c_event &&
             event != Event::Custom &&
             !event.is_mouse() &&
             !event.is_cursor_position() &&
@@ -6098,13 +6143,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
         }
-        if (event == Event::CtrlV) {
+        if (is_terminal_codepoint(event, 'v', kTerminalCtrl)) {
             return paste_system_clipboard_text();
         }
         if (is_alt_v_event(event)) {
             return paste_system_clipboard_image();
         }
-        if (event == Event::CtrlC) {
+        if (ctrl_c_event) {
             // If an operation is active, Ctrl+C behaves like Escape: cancel the
             // current work instead of arming the double-press exit shortcut.
             bool should_exit = false;
@@ -6444,10 +6489,16 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     return true;
                 }
 
-                if (event == Event::Special("\x1B[1;3A") ||
-                    event == Event::Special("\x1B[1;3B")) {
+                if (is_terminal_key(
+                        event, acecode::tui::TerminalKey::ArrowUp,
+                        kTerminalAlt) ||
+                    is_terminal_key(
+                        event, acecode::tui::TerminalKey::ArrowDown,
+                        kTerminalAlt)) {
                     const int delta =
-                        (event == Event::Special("\x1B[1;3A")) ? -1 : 1;
+                        is_terminal_key(
+                            event, acecode::tui::TerminalKey::ArrowUp,
+                            kTerminalAlt) ? -1 : 1;
                     sync_chat_line_counts_from_layout();
                     if (scroll_chat_by_lines(delta) != 0) {
                         screen.PostEvent(Event::Custom);
@@ -6770,7 +6821,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 }
 
                 // Esc —— 整体拒绝。
-                if (event == Event::Escape) {
+                if (is_terminal_key(
+                        event, acecode::tui::TerminalKey::Escape)) {
                     if (state.ask_other_input_active) {
                         // 先退出 Other 文本模式,保留用户之前的选择。
                         state.ask_other_input_active = false;
@@ -7416,7 +7468,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // kitty / Konsole / GNOME Terminal 都走这一编码. 上面 overlay 守卫会
         // 提前 return, 这里不再重复 ask/confirm/rewind/slash 检查; 仅 resume
         // picker 没有"全局吞键"逻辑, 单独让位.
-        if (event == Event::Special("\x1B[1;3A")) {
+        if (is_terminal_key(
+                event, acecode::tui::TerminalKey::ArrowUp, kTerminalAlt)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
@@ -7427,7 +7480,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             return true;
         }
-        if (event == Event::Special("\x1B[1;3B")) {
+        if (is_terminal_key(
+                event, acecode::tui::TerminalKey::ArrowDown, kTerminalAlt)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
@@ -7458,7 +7512,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             return true;
         }
-        if (event == Event::Escape) {
+        if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
             std::lock_guard<std::mutex> lk(state.mu);
             // drag-autoscroll: Esc 中止任何进行中的拖动自动滚动. 选区本身由
             // 下游 FTXUI 通过 `handled=true` 情况下的 HandleSelection 清空
@@ -7542,7 +7596,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (state.mode_picker_open) return true;
         }
         // Shift+Tab: cycle permission mode
-        if (event == Event::TabReverse) {
+        if (is_terminal_key(
+                event, acecode::tui::TerminalKey::Tab, kTerminalShift)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.mode_picker_open) return true;
             if (!state.is_waiting && !state.confirm_pending) {
@@ -8253,17 +8308,15 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // Ctrl+E is also honoured as the readline-style End fallback. Ctrl+A
         // follows conventional text fields and selects the complete buffer.
         auto is_home_event = [](const Event& e) {
-            return e == Event::Home
-                || e == Event::Special("\x1B[1~")
-                || e == Event::Special("\x1B[7~");
+            return is_terminal_key(
+                e, acecode::tui::TerminalKey::Home);
         };
         auto is_end_event = [](const Event& e) {
-            return e == Event::End
-                || e == Event::Special("\x1B[4~")
-                || e == Event::Special("\x1B[8~")
-                || e == Event::Special(std::string(1, '\x05')); // Ctrl+E
+            return is_terminal_key(
+                       e, acecode::tui::TerminalKey::End) ||
+                   is_terminal_codepoint(e, 'e', kTerminalCtrl);
         };
-        if (event == Event::Special(std::string(1, '\x01'))) {
+        if (is_terminal_codepoint(event, 'a', kTerminalCtrl)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active || state.model_picker_open ||
                 state.mode_picker_open) {
@@ -8290,7 +8343,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // Ctrl+O:全局展开/收起所有工具输出(Claude Code 风格 verbose 开关)。
         // 与 Ctrl+E 的逐行展开正交:render 侧取二者之或。开关位掺在
         // message_render_revision 里,翻转后所有行高自动重新测量。
-        if (event == Event::Special(std::string(1, '\x0F'))) {
+        if (is_terminal_codepoint(event, 'o', kTerminalCtrl)) {
             std::lock_guard<std::mutex> lk(state.mu);
             state.transcript_expanded = !state.transcript_expanded;
             state.sidebar_scroll_top_row = 0;
@@ -8302,7 +8355,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // Ctrl+E contextual expand: when a summarized tool_result is focused
         // in the chat view, toggle its expanded state. Falls through to the
         // readline-style "move to end of line" when no chat message is focused.
-        if (event == Event::Special(std::string(1, '\x05'))) {
+        if (is_terminal_codepoint(event, 'e', kTerminalCtrl)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.chat_focus_index >= 0 &&
                 state.chat_focus_index < static_cast<int>(state.conversation.size())) {

@@ -2,6 +2,7 @@
 #include "anthropic_provider.hpp"
 #include "openai_provider.hpp"
 #include "copilot_provider.hpp"
+#include "grok_provider.hpp"
 #include "vision_capability.hpp"
 #include "../config/config.hpp"
 #include "../config/model_provider_registry.hpp"
@@ -103,6 +104,19 @@ std::shared_ptr<LlmProvider> create_provider_from_entry(const ModelProfile& entr
         copilot_options.tools_enabled = request_options.tools_enabled;
         provider = std::make_shared<CopilotProvider>(
             entry.model, std::move(copilot_options));
+    } else if (entry.provider == "grok") {
+        if (!entry.base_url.empty() || !entry.api_key.empty() ||
+            !entry.request_headers.empty() || entry.endpoint_mode.has_value() ||
+            entry.max_output_tokens.has_value() || entry.reasoning.has_value() ||
+            entry.stream_timeout_ms.has_value()) {
+            LOG_WARN("[provider_factory] refusing unsupported Grok endpoint, "
+                     "credential, timeout, output, or reasoning customization");
+            return nullptr;
+        }
+        ProviderRequestOptions grok_options;
+        grok_options.tools_enabled = request_options.tools_enabled;
+        provider = std::make_shared<GrokProvider>(
+            entry.model, std::move(grok_options));
     } else if (entry.provider == "codex") {
         LOG_WARN(std::string("[provider_factory] ") +
                  disabled_model_provider_reason(entry.provider));

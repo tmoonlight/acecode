@@ -365,6 +365,41 @@ TEST(SavedModelsTest, RequestHeadersRejectCopilotProvider) {
     EXPECT_NE(err.find("provider"), std::string::npos) << err;
 }
 
+// Grok Coding Plan 是受管 Provider：只保存模型身份与目录能力元数据。
+TEST(SavedModelsTest, GrokManagedProfileRejectsConnectionAndRuntimeOverrides) {
+    ModelProfile valid;
+    valid.name = "grok-coding-plan";
+    valid.provider = "grok";
+    valid.model = "grok-4.5";
+    valid.models_dev_provider_id = "xai";
+    valid.capabilities = {"tool_use", "reasoning"};
+    valid.capabilities_source = "catalog";
+
+    std::string error;
+    EXPECT_TRUE(validate_saved_models({valid}, "grok-coding-plan", error))
+        << error;
+
+    auto custom_url = valid;
+    custom_url.base_url = "https://example.test/v1";
+    EXPECT_FALSE(validate_saved_models({custom_url}, "", error));
+
+    auto custom_key = valid;
+    custom_key.api_key = "forbidden";
+    EXPECT_FALSE(validate_saved_models({custom_key}, "", error));
+
+    auto custom_headers = valid;
+    custom_headers.request_headers = {{"X-Custom", "forbidden"}};
+    EXPECT_FALSE(validate_saved_models({custom_headers}, "", error));
+
+    auto custom_timeout = valid;
+    custom_timeout.stream_timeout_ms = 30000;
+    EXPECT_FALSE(validate_saved_models({custom_timeout}, "", error));
+
+    auto custom_output = valid;
+    custom_output.max_output_tokens = 4096;
+    EXPECT_FALSE(validate_saved_models({custom_output}, "", error));
+}
+
 // 额外 — capabilities 内重复标签不通过 validate,避免路由/搜索出现歧义。
 TEST(SavedModelsTest, DuplicateCapabilitiesFailValidation) {
     ModelProfile e;

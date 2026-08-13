@@ -5,11 +5,12 @@ import {
 
 const PROVIDER_LOGO_ID_OVERRIDES = Object.freeze({
   copilot: 'github-copilot',
+  grok: 'xai',
   'custom-openai': 'openai',
 });
 
 export function providerLogoAssetId(provider) {
-  const providerId = String(provider?.id || '').trim();
+  const providerId = String(provider?.id || provider?.provider || '').trim();
   const requestedId = PROVIDER_LOGO_ID_OVERRIDES[providerId]
     || String(provider?.models_dev_provider_id || providerId).trim();
   return PROVIDER_LOGO_ASSET_BY_ID[requestedId] || '';

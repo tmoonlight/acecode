@@ -3,6 +3,7 @@
 #include "../tui_state.hpp"
 #include "../tui/tui_helpers.hpp"
 #include "../tui/paste_handler.hpp"
+#include "../tui/terminal_key_event.hpp"
 #include "../utils/text_input_ops.hpp"
 
 #include <string>
@@ -14,16 +15,16 @@ namespace {
 // Home 等价按键集合:FTXUI 的 Event::Home + 几个 VT 系列 / rxvt 系列的
 // ESC-sequence 原始字节。Ctrl+A 现在改为全选当前 buffer。
 bool is_home_event(const ftxui::Event& e) {
-    return e == ftxui::Event::Home
-        || e == ftxui::Event::Special("\x1B[1~")
-        || e == ftxui::Event::Special("\x1B[7~");
+    return acecode::tui::matches_terminal_key(
+        e, acecode::tui::TerminalKey::Home);
 }
 
 bool is_end_event(const ftxui::Event& e) {
-    return e == ftxui::Event::End
-        || e == ftxui::Event::Special("\x1B[4~")
-        || e == ftxui::Event::Special("\x1B[8~")
-        || e == ftxui::Event::Special(std::string(1, '\x05')); // Ctrl+E
+    const auto ctrl = acecode::tui::terminal_modifier(
+        acecode::tui::TerminalKeyModifier::Ctrl);
+    return acecode::tui::matches_terminal_key(
+               e, acecode::tui::TerminalKey::End) ||
+           acecode::tui::matches_terminal_codepoint(e, 'e', ctrl);
 }
 
 } // namespace
@@ -155,7 +156,11 @@ bool try_handle_ask_other_input(TuiState& state, const ftxui::Event& event) {
         return true;
     }
 
-    if (event == ftxui::Event::Special(std::string(1, '\x01'))) {
+    if (acecode::tui::matches_terminal_codepoint(
+            event,
+            'a',
+            acecode::tui::terminal_modifier(
+                acecode::tui::TerminalKeyModifier::Ctrl))) {
         select_all_text(
             state.input_text,
             state.input_cursor,

@@ -109,6 +109,35 @@ TEST(ApplyModelToSession, UsesProfileContextWindowOverride) {
     EXPECT_EQ(result.state.context_window, 64000);
 }
 
+// Grok Coding Plan is a managed provider like Copilot, but it authenticates
+// lazily when the next request is sent. Switching/restoring a session must not
+// require network access or a token to be present yet.
+TEST(ApplyModelToSession, SwapsToManagedGrokWithoutConnectionOverrides) {
+    auto cfg = make_copilot_cfg();
+    SessionEntry::ProviderSlot slot;
+    ModelProfile profile;
+    profile.name = "grok-coding";
+    profile.provider = "grok";
+    profile.model = "grok-4.5";
+    profile.context_window = 131072;
+
+    ApplyModelDeps deps;
+    deps.cfg = &cfg;
+    deps.provider_slot = &slot;
+
+    const auto result = apply_model_to_session(profile, deps);
+
+    EXPECT_EQ(result.state.name, "grok-coding");
+    EXPECT_EQ(result.state.provider, "grok");
+    EXPECT_EQ(result.state.model, "grok-4.5");
+    EXPECT_EQ(result.state.context_window, 131072);
+    EXPECT_TRUE(result.warning.empty());
+    std::lock_guard<std::mutex> lk(slot.mu);
+    ASSERT_TRUE(slot.provider);
+    EXPECT_EQ(slot.provider->name(), "grok");
+    EXPECT_EQ(slot.provider->model(), "grok-4.5");
+}
+
 // 场景:codex provider 已屏蔽,不能通过 /model 或 Web API 切过去。
 TEST(ApplyModelToSession, RejectsDisabledCodexProvider) {
     auto cfg = make_copilot_cfg();

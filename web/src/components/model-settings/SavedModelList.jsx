@@ -1,6 +1,7 @@
 import { clsx } from '../../lib/format.js';
 import { filterSavedModels } from '../../lib/modelManager.js';
 import { RefreshIcon, VsIcon } from '../Icon.jsx';
+import { ProviderIcon } from './ProviderIcon.jsx';
 
 function providerLabel(model) {
   if (model.provider === 'copilot') return 'GitHub Copilot';
@@ -20,9 +21,7 @@ function SavedModelRow({
   const disabled = !!busy;
   return (
     <article role="listitem" className="flex min-w-0 flex-wrap items-center gap-3 rounded-md border border-border bg-surface px-3.5 py-2.5">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-alt text-fg-2">
-        <VsIcon name="extension" size={15} />
-      </div>
+      <ProviderIcon provider={model} />
       <div className="min-w-[180px] flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="truncate text-[12px] font-semibold text-fg">{model.name}</span>

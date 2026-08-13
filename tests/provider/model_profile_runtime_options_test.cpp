@@ -422,3 +422,34 @@ TEST(ModelProfileRuntimeOptions, CopilotRemainsManagedAndRejectsCustomRuntime) {
     reasoning.reasoning = reasoning_with_effort("high");
     EXPECT_EQ(acecode::create_provider_from_entry(reasoning), nullptr);
 }
+
+TEST(ModelProfileRuntimeOptions, GrokRemainsManagedAndRejectsCustomRuntime) {
+    ModelProfile valid;
+    valid.name = "managed-grok";
+    valid.provider = "grok";
+    valid.model = "grok-4.5";
+    auto provider = acecode::create_provider_from_entry(valid);
+    ASSERT_TRUE(provider);
+    EXPECT_EQ(provider->name(), "grok");
+    EXPECT_EQ(provider->model(), "grok-4.5");
+
+    auto custom_endpoint = valid;
+    custom_endpoint.base_url = "https://example.test/v1";
+    EXPECT_EQ(acecode::create_provider_from_entry(custom_endpoint), nullptr);
+
+    auto custom_key = valid;
+    custom_key.api_key = "must-not-be-used";
+    EXPECT_EQ(acecode::create_provider_from_entry(custom_key), nullptr);
+
+    auto headers = valid;
+    headers.request_headers = {{"X-Custom", "forbidden"}};
+    EXPECT_EQ(acecode::create_provider_from_entry(headers), nullptr);
+
+    auto timeout = valid;
+    timeout.stream_timeout_ms = 30000;
+    EXPECT_EQ(acecode::create_provider_from_entry(timeout), nullptr);
+
+    auto output = valid;
+    output.max_output_tokens = 4096;
+    EXPECT_EQ(acecode::create_provider_from_entry(output), nullptr);
+}

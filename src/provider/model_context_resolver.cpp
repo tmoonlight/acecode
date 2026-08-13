@@ -239,6 +239,9 @@ std::string detect_models_dev_provider(const AppConfig& config, const std::strin
     if (normalized_provider == "copilot") {
         return "github-copilot";
     }
+    if (normalized_provider == "grok") {
+        return "xai";
+    }
 
     if (normalized_provider == "openai") {
         const std::string base_url = to_lower_copy(config.openai.base_url);
@@ -250,7 +253,8 @@ std::string detect_models_dev_provider(const AppConfig& config, const std::strin
     // The provider_name argument is also accepted as a direct models.dev id
     // (e.g. "anthropic", "openrouter") so callers can short-circuit detection.
     if (!normalized_provider.empty() && normalized_provider != "openai" &&
-        normalized_provider != "copilot") {
+        normalized_provider != "copilot" &&
+        normalized_provider != "grok") {
         return normalized_provider;
     }
 
@@ -288,6 +292,11 @@ AppConfig config_for_profile_context(const AppConfig& cfg,
             profile.models_dev_provider_id.has_value()
                 ? profile.models_dev_provider_id
                 : std::optional<std::string>{"anthropic"};
+    } else if (profile.provider == "grok") {
+        context_cfg.openai.models_dev_provider_id =
+            profile.models_dev_provider_id.has_value()
+                ? profile.models_dev_provider_id
+                : std::optional<std::string>{"xai"};
     } else if (profile.provider == "codex") {
         context_cfg.codex.model = profile.model;
     } else {

@@ -15,24 +15,25 @@ import { openExternalUrl } from '../../lib/externalUrl.js';
 import { Modal } from '../Modal.jsx';
 import { RefreshIcon, VsIcon } from '../Icon.jsx';
 import { toast } from '../Toast.jsx';
-import { ModelConnectionCard } from './ModelConnectionCard.jsx';
 import { ModelProfileDialog } from './ModelProfileDialog.jsx';
 import { SavedModelList } from './SavedModelList.jsx';
 
 function initialProvider(providers) {
   return providers.find((provider) => provider.id === 'custom-openai')
     || providers.find((provider) => provider.group === 'custom')
-    || providers.find((provider) => provider.runtime_provider !== 'copilot')
+    || providers.find((provider) => !['copilot', 'grok'].includes(provider.runtime_provider))
     || providers[0]
     || null;
 }
 
 function providerForSavedModel(providers, model) {
   return providers.find((provider) => (
-    !!model.models_dev_provider_id
+    provider.runtime_provider === model.provider
+      && !!model.models_dev_provider_id
       && (provider.id === model.models_dev_provider_id
         || provider.models_dev_provider_id === model.models_dev_provider_id)
   ))
+    || providers.find((provider) => provider.id === model.models_dev_provider_id)
     || providers.find((provider) => (
       provider.runtime_provider === model.provider
         && (model.provider !== 'openai' || provider.group === 'custom')
@@ -67,6 +68,12 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
   });
   const [copilotBusy, setCopilotBusy] = useState('');
   const [copilotFlow, setCopilotFlow] = useState(null);
+  const [grokAuth, setGrokAuth] = useState({
+    loading: true,
+    authenticated: false,
+  });
+  const [grokBusy, setGrokBusy] = useState('');
+  const [grokFlow, setGrokFlow] = useState(null);
 
   const providers = catalog?.providers || [];
 
@@ -127,11 +134,22 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
     }
   }, []);
 
+  const loadGrokAuth = useCallback(async () => {
+    setGrokAuth((current) => ({ ...current, loading: true }));
+    try {
+      const state = await api.getGrokAuth();
+      setGrokAuth({ loading: false, authenticated: !!state?.authenticated });
+    } catch {
+      setGrokAuth({ loading: false, authenticated: false });
+    }
+  }, []);
+
   useEffect(() => {
     void loadSavedModels();
     void loadCatalog();
     void loadCopilotAuth();
-  }, [loadCatalog, loadCopilotAuth, loadSavedModels]);
+    void loadGrokAuth();
+  }, [loadCatalog, loadCopilotAuth, loadGrokAuth, loadSavedModels]);
 
   const copyCopilotCode = useCallback(async (userCode, { silent = false } = {}) => {
     const result = await copyTextToSystemClipboard(userCode);
@@ -228,6 +246,103 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
       setCopilotBusy('');
     }
   }, [copilotBusy]);
+
+  const copyGrokCode = useCallback(async (userCode, { silent = false } = {}) => {
+    const result = await copyTextToSystemClipboard(userCode);
+    if (!silent) {
+      toast({
+        kind: result.ok ? 'ok' : 'err',
+        text: result.ok ? '验证码已复制' : `复制验证码失败：${result.error || ''}`,
+      });
+    }
+    return result;
+  }, []);
+
+  const startGrokLogin = useCallback(async () => {
+    if (grokBusy) return;
+    setGrokBusy('start');
+    try {
+      const flow = await api.startGrokAuth();
+      setGrokFlow({
+        ...flow,
+        status: 'pending',
+        interval: Math.max(1, Number(flow?.interval || 5)),
+        message: '等待 xAI 授权',
+      });
+      const copied = flow?.user_code
+        ? await copyGrokCode(flow.user_code, { silent: true })
+        : null;
+      const authorizationUrl = flow?.verification_uri_complete || flow?.verification_uri;
+      if (authorizationUrl) {
+        const opened = await openExternalUrl(authorizationUrl);
+        if (!opened.ok) toast({ kind: 'err', text: `无法打开系统浏览器：${opened.error || ''}` });
+      }
+      toast({
+        kind: 'ok',
+        text: copied?.ok ? 'Grok 登录已开始，验证码已复制' : 'Grok 登录已开始',
+      });
+    } catch (error) {
+      toast({ kind: 'err', text: lookupErrorMessage(error?.code, error?.message) });
+    } finally {
+      setGrokBusy('');
+    }
+  }, [copyGrokCode, grokBusy]);
+
+  const pollGrokFlow = useCallback(async () => {
+    if (!grokFlow?.device_code || grokBusy) return;
+    setGrokBusy('poll');
+    try {
+      const state = await api.pollGrokAuth(grokFlow.device_code);
+      if (state?.status === 'authenticated') {
+        setGrokFlow(null);
+        setGrokAuth({ loading: false, authenticated: true });
+        toast({ kind: 'ok', text: 'Grok Coding Plan 已连接' });
+        return;
+      }
+      setGrokFlow((current) => current ? {
+        ...current,
+        status: state?.status || 'pending',
+        message: state?.message || '等待 xAI 授权',
+        interval: Math.max(
+          1,
+          Number(current.interval || 5) + Number(state?.interval_delta_seconds || 0),
+        ),
+      } : current);
+    } catch (error) {
+      setGrokFlow((current) => current ? {
+        ...current,
+        status: 'failed',
+        message: lookupErrorMessage(error?.code, error?.message),
+      } : current);
+    } finally {
+      setGrokBusy('');
+    }
+  }, [grokBusy, grokFlow]);
+
+  useEffect(() => {
+    if (!grokFlow?.device_code || grokBusy) return undefined;
+    if (['authenticated', 'expired', 'failed'].includes(grokFlow.status)) return undefined;
+    const timeout = window.setTimeout(
+      () => { void pollGrokFlow(); },
+      Math.max(1, Number(grokFlow.interval || 5)) * 1000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [grokBusy, grokFlow, pollGrokFlow]);
+
+  const logoutGrok = useCallback(async () => {
+    if (grokBusy) return;
+    setGrokBusy('logout');
+    try {
+      await api.logoutGrok();
+      setGrokFlow(null);
+      setGrokAuth({ loading: false, authenticated: false });
+      toast({ kind: 'ok', text: 'Grok Coding Plan 已退出' });
+    } catch (error) {
+      toast({ kind: 'err', text: lookupErrorMessage(error?.code, error?.message) });
+    } finally {
+      setGrokBusy('');
+    }
+  }, [grokBusy]);
 
   const refreshCatalog = useCallback(async () => {
     if (catalogRefreshing) return;
@@ -436,16 +551,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
         </button>
       </header>
 
-      <ModelConnectionCard
-        auth={copilotAuth}
-        flow={copilotFlow}
-        busy={!!copilotBusy}
-        onConnect={startCopilotLogin}
-        onLogout={logoutCopilot}
-        onCopyCode={copyCopilotCode}
-        onPoll={pollCopilotFlow}
-      />
-
       {modelsError && (
         <div role="status" className="rounded-md border border-danger bg-danger-bg px-3.5 py-2.5 text-[11px] text-danger">
           {modelsError}
@@ -475,8 +580,36 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
           providers={providers}
           savedModels={models}
           originalName={profileDialog.originalName}
-          copilotAuthenticated={copilotAuth.authenticated}
-          onManageCopilot={startCopilotLogin}
+          managedConnections={{
+            copilot: {
+              auth: copilotAuth,
+              flow: copilotFlow,
+              busy: !!copilotBusy,
+              onConnect: startCopilotLogin,
+              onLogout: logoutCopilot,
+              onCopyCode: copyCopilotCode,
+              onPoll: pollCopilotFlow,
+              title: 'GitHub Copilot',
+              description: '使用 ACECode 现有的 GitHub 设备登录与受管端点。',
+              connectLabel: '连接 GitHub',
+              waitingLabel: '等待 GitHub 授权',
+              headingId: 'copilot-model-connection-title',
+            },
+            grok: {
+              auth: grokAuth,
+              flow: grokFlow,
+              busy: !!grokBusy,
+              onConnect: startGrokLogin,
+              onLogout: logoutGrok,
+              onCopyCode: copyGrokCode,
+              onPoll: pollGrokFlow,
+              title: 'Grok Coding Plan',
+              description: '使用 xAI 设备登录与 Grok Build 受管端点。',
+              connectLabel: '连接 xAI',
+              waitingLabel: '等待 xAI 授权',
+              headingId: 'grok-model-connection-title',
+            },
+          }}
           onSubmit={submitProfiles}
           onResolveConflict={resolveConflict}
           onClose={() => setProfileDialog(null)}

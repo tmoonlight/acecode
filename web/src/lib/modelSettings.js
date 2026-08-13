@@ -2,7 +2,8 @@
 //
 // The daemon contract is deliberately snake_case. These helpers fail fast for
 // missing required catalog data instead of fabricating Provider behavior in
-// React. Saved API keys are never copied into a draft or mutation payload.
+// React. Authenticated model-management responses may include saved API keys
+// so the edit dialog can round-trip the original value.
 
 import {
   ANTHROPIC_DEFAULT_BASE_URL,
@@ -18,7 +19,7 @@ export const MODEL_CATALOG_QUERY_LIMIT = 50;
 export const MODEL_ENDPOINT_MODES = ['base_url', 'full_url'];
 export const MODEL_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-const RUNTIME_PROVIDERS = new Set(['openai', 'anthropic', 'copilot']);
+const RUNTIME_PROVIDERS = new Set(['openai', 'anthropic', 'copilot', 'grok']);
 const AUTH_MODES = new Set(['required', 'optional', 'none', 'managed']);
 const MODEL_INPUT_MODES = new Set(['catalog', 'manual']);
 const PROVIDER_GROUPS = new Set(['native', 'local', 'catalog', 'custom']);
@@ -255,13 +256,15 @@ function normalizeCatalogProvider(raw, index) {
     }
     return normalized;
   }))];
-  if (runtimeProvider === 'copilot' && (authMode !== 'managed' || endpointEditable)) {
-    throw contractError('Copilot must use managed auth and a managed endpoint');
+  const managedRuntime = runtimeProvider === 'copilot' || runtimeProvider === 'grok';
+  const managedLabel = runtimeProvider === 'copilot' ? 'Copilot' : 'Grok';
+  if (managedRuntime && (authMode !== 'managed' || endpointEditable)) {
+    throw contractError(`${managedLabel} must use managed auth and a managed endpoint`);
   }
-  if (runtimeProvider === 'copilot' && endpointModes.includes('full_url')) {
-    throw contractError('Copilot must use a managed endpoint mode');
+  if (managedRuntime && endpointModes.includes('full_url')) {
+    throw contractError(`${managedLabel} must use a managed endpoint mode`);
   }
-  if (runtimeProvider !== 'copilot' && endpointModes.length === 0) {
+  if (!managedRuntime && endpointModes.length === 0) {
     throw contractError(`providers[${index}].endpoint_modes must not be empty`);
   }
   const group = requireString(value.group, `providers[${index}].group`);
@@ -365,13 +368,11 @@ export function normalizeProviderModelQuery(payload, expectedProviderId = '') {
 
 export function normalizeSavedModelProfile(raw, index = 0) {
   const value = requireObject(raw, `saved_models[${index}]`);
-  if (Object.prototype.hasOwnProperty.call(value, 'api_key')) {
-    throw contractError('saved model response exposed api_key');
-  }
   const provider = requireString(value.provider, `saved_models[${index}].provider`);
   if (!RUNTIME_PROVIDERS.has(provider)) {
     throw contractError(`saved_models[${index}].provider is unsupported`);
   }
+  const apiKey = optionalString(value.api_key, `saved_models[${index}].api_key`);
   return {
     ...value,
     name: requireString(value.name, `saved_models[${index}].name`),
@@ -409,7 +410,12 @@ export function normalizeSavedModelProfile(raw, index = 0) {
       : isObject(value.request_headers)
         ? value.request_headers
         : (() => { throw contractError(`saved_models[${index}].request_headers must be an object`); })(),
-    has_api_key: optionalBoolean(value.has_api_key, `saved_models[${index}].has_api_key`, false),
+    api_key: apiKey,
+    has_api_key: optionalBoolean(
+      value.has_api_key,
+      `saved_models[${index}].has_api_key`,
+      !!apiKey,
+    ),
   };
 }
 
@@ -604,10 +610,10 @@ export function modelProfileDraftFromSaved(raw) {
     ...emptyModelProfileDraft(),
     name: model.name,
     provider: model.provider,
-    catalog_provider_id: model.models_dev_provider_id || (
-      model.provider === 'anthropic' ? 'anthropic' :
-        model.provider === 'copilot' ? 'copilot' : 'custom-openai'
-    ),
+    catalog_provider_id: model.provider === 'anthropic' ? 'anthropic' :
+      model.provider === 'copilot' ? 'copilot' :
+        model.provider === 'grok' ? 'grok' :
+          model.models_dev_provider_id || 'custom-openai',
     models_dev_provider_id: model.models_dev_provider_id,
     model: model.model,
     base_url: model.base_url || (
@@ -615,8 +621,8 @@ export function modelProfileDraftFromSaved(raw) {
         model.provider === 'openai' ? OPENAI_DEFAULT_BASE_URL : ''
     ),
     endpoint_mode: model.endpoint_mode,
-    api_key: '',
-    has_api_key: model.has_api_key,
+    api_key: model.api_key,
+    has_api_key: model.has_api_key || !!model.api_key,
     request_headers_json: formatRequestHeadersJson(model.request_headers),
     context_window: model.context_window ? String(model.context_window) : '',
     max_output_tokens: model.max_output_tokens ? String(model.max_output_tokens) : '',
@@ -628,7 +634,9 @@ export function modelProfileDraftFromSaved(raw) {
 
 export function modelFieldPolicy(provider) {
   const value = requireObject(provider, 'provider');
-  const managed = value.auth_mode === 'managed' || value.runtime_provider === 'copilot';
+  const managed = value.auth_mode === 'managed'
+    || value.runtime_provider === 'copilot'
+    || value.runtime_provider === 'grok';
   const supportsHttpOptions = !managed && (
     value.runtime_provider === 'openai' || value.runtime_provider === 'anthropic'
   );
@@ -644,7 +652,9 @@ export function modelFieldPolicy(provider) {
     show_request_headers: supportsHttpOptions,
     show_max_output: !managed,
     show_reasoning: supportsHttpOptions,
-    can_probe: value.runtime_provider === 'copilot' || value.runtime_provider === 'openai',
+    can_probe: value.runtime_provider === 'copilot'
+      || value.runtime_provider === 'grok'
+      || value.runtime_provider === 'openai',
     model_input: value.model_input,
   };
 }

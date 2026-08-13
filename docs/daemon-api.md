@@ -309,6 +309,10 @@ when known.
 | DELETE | `/api/copilot/auth` | delete saved GitHub token |
 | POST | `/api/copilot/auth/device` | start GitHub device flow |
 | POST | `/api/copilot/auth/device/poll` | poll device flow |
+| GET | `/api/grok/auth` | read Grok Coding Plan auth status |
+| DELETE | `/api/grok/auth` | delete saved xAI OAuth credentials |
+| POST | `/api/grok/auth/device` | start xAI device flow |
+| POST | `/api/grok/auth/device/poll` | poll one xAI device-flow tick |
 | GET | `/api/ui/onboarding/desktop` | read Desktop guided-tour status |
 | POST | `/api/ui/onboarding/desktop/dismiss` | dismiss the current Desktop guided-tour version |
 | GET | `/api/config/ui-preferences` | read UI preferences |
@@ -1654,12 +1658,13 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 
 ---
 
-## 9. Models and Copilot Auth
+## 9. Models and Managed Provider Auth
 
 ### `GET /api/models`
 
-返回所有运行时已启用的模型配置。响应只包含 `has_api_key` 布尔值，绝不返回
-API Key 明文；日志与错误消息也不得包含密钥。高级字段有值时会原样返回，包括
+返回所有运行时已启用的模型配置。该路由要求通过 Web 认证，响应包含 `api_key`
+原值和 `has_api_key` 布尔值，供编辑表单默认遮罩回填；调用方必须把整个响应视为
+敏感数据，日志与错误消息仍不得包含密钥。高级字段有值时会原样返回，包括
 `endpoint_mode`、`max_output_tokens`、`capabilities_source`、`reasoning`、
 `request_headers`、`context_window` 与 `stream_timeout_ms`。
 
@@ -1694,7 +1699,7 @@ API Key 明文；日志与错误消息也不得包含密钥。高级字段有值
 }
 ```
 
-返回已脱敏的模型配置。校验错误使用 `BAD_JSON`、`BAD_REQUEST` 或
+返回包含 `api_key` 原值的模型配置。校验错误使用 `BAD_JSON`、`BAD_REQUEST` 或
 `SavedModelEditError` 字符串；持久化失败会回滚内存并返回
 `500 PERSIST_FAILED`。
 
@@ -1711,7 +1716,8 @@ API Key 明文；日志与错误消息也不得包含密钥。高级字段有值
 `endpoint_mode`、`max_output_tokens`、`capabilities_source`、`reasoning` 或
 `request_headers` 会保留原值。显式空 `request_headers` 会清空请求头；对应高级
 字段传 `null` 时按各字段合同清除。外部登录器留下的 legacy `readonly:true` 只是
-兼容元数据，不阻止编辑。响应仍只包含 `has_api_key`，不返回密钥。
+兼容元数据，不阻止编辑。响应包含 `api_key` 原值与 `has_api_key`，并仅允许经
+Web 认证的调用方读取。
 
 ### `DELETE /api/models/:name`
 
@@ -1725,8 +1731,12 @@ returns `409 MODEL_IN_USE`. On success:
 ### `POST /api/models/probe`
 
 Probes provider model ids. OpenAI-compatible providers call upstream
-`GET /models`; Copilot uses saved GitHub auth. Anthropic model ids are entered
-manually and are not probed.
+`GET /models`; Copilot uses saved GitHub auth; `provider:"grok"` uses the
+daemon-managed xAI OAuth credentials and the fixed Grok Build `/v1/models`
+endpoint. Anthropic model ids are entered manually and are not probed. Grok
+catalog parsing accepts the official `id`、`model`、`modelId` and `_meta`
+fallback shapes, ignores hidden entries, preserves first-seen order, and
+deduplicates model ids.
 
 Success:
 
@@ -1737,8 +1747,10 @@ Success:
 }
 ```
 
-Errors include `COPILOT_AUTH_REQUIRED`, `INVALID_REQUEST_HEADER`,
-`PROBE_FAILED`, `PROBE_HTTP_ERROR`, and `PROBE_BAD_JSON`.
+Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
+`GROK_AUTH_EXPIRED`, `GROK_MODELS_UNREACHABLE`, `GROK_MODELS_HTTP_ERROR`,
+`GROK_MODELS_BAD_JSON`, `INVALID_REQUEST_HEADER`, `PROBE_FAILED`,
+`PROBE_HTTP_ERROR`, and `PROBE_BAD_JSON`.
 
 ### `GET /api/models/catalog`
 
@@ -1774,8 +1786,9 @@ Errors include `COPILOT_AUTH_REQUIRED`, `INVALID_REQUEST_HEADER`,
 `catalog.version` 是非负整数。`auth_mode` 只会是 `required`、`optional`、
 `none` 或 `managed`。Custom OpenAI-compatible Provider 明确支持
 `endpoint_modes:["base_url","full_url"]`，并要求 API Key 或兼容的
-`credential_source_name`；Copilot 使用 `managed`，由 ACECode 的 GitHub 登录与
-受管端点负责认证。
+`credential_source_name`；Copilot 与 Grok Coding Plan 使用 `managed`，分别由
+ACECode 的 GitHub/xAI 设备登录与固定受管端点负责认证。普通 `xai` Provider
+仍保留为 OpenAI-compatible API Key 接入；只有目录 id `grok` 使用 Coding Plan。
 
 ### `GET /api/models/catalog/:provider_id`
 
@@ -1897,6 +1910,41 @@ state. Returns `404` when the session is not active in the registry.
 Polling success returns `status:"authenticated"`. Pending, slow-down, and
 failure states return `status`, `error`, `message`, and
 `interval_delta_seconds`.
+
+### Grok Coding Plan auth routes
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/grok/auth` | `{"provider":"grok","authenticated":true}` |
+| DELETE | `/api/grok/auth` | deletes `~/.acecode/grok_auth.json`, returns auth false |
+| POST | `/api/grok/auth/device` | starts xAI Device OAuth |
+| POST | `/api/grok/auth/device/poll` | polls exactly one device-flow tick |
+
+`POST /api/grok/auth/device` response:
+
+```json
+{
+  "status": "pending",
+  "provider": "grok",
+  "authenticated": false,
+  "device_code": "...",
+  "user_code": "ABCD-EFGH",
+  "verification_uri": "https://accounts.x.ai/activate",
+  "verification_uri_complete": "https://accounts.x.ai/activate?user_code=ABCD-EFGH",
+  "interval": 5,
+  "expires_in": 1800,
+  "expires_at_unix_ms": 1783152000000
+}
+```
+
+轮询终态为 `authenticated`、`expired` 或 `failed`；`slow_down` 会返回
+`interval_delta_seconds`，前端应在原 interval 上累加。凭据保存到
+`~/.acecode/grok_auth.json`，写入使用受限权限和原子替换。到期前 60 秒自动刷新；
+上游返回 401 时只强制刷新并重放一次，refresh token 轮换会立即持久化。
+
+所有 Grok auth 状态、轮询、模型探测和错误响应都不得包含 `access_token`、
+`refresh_token`、账号 email 或 user id。`device_code` 只在设备授权开始响应及随后
+浏览器提交的轮询请求中出现；daemon 日志与错误消息会脱敏认证字段。
 
 ---
 

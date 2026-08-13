@@ -87,6 +87,21 @@ const copilotProvider = {
   group: 'native',
 };
 
+const grokProvider = {
+  id: 'grok',
+  name: 'Grok Coding Plan',
+  runtime_provider: 'grok',
+  base_url: '',
+  doc: 'https://docs.x.ai',
+  api_key_env: '',
+  auth_mode: 'managed',
+  endpoint_editable: false,
+  endpoint_modes: [],
+  model_input: 'catalog',
+  models_dev_provider_id: 'xai',
+  group: 'native',
+};
+
 const anthropicProvider = {
   id: 'anthropic',
   name: 'Anthropic',
@@ -125,7 +140,7 @@ function catalogFixture() {
       updated_at: '2026-08-09T12:00:00Z',
       freshness: 'bundled',
     },
-    providers: [openRouterProvider, customProvider, copilotProvider, localProvider].map((provider) => ({
+    providers: [openRouterProvider, customProvider, copilotProvider, grokProvider, localProvider].map((provider) => ({
       ...provider,
       endpoint_modes: [...provider.endpoint_modes],
     })),
@@ -391,20 +406,62 @@ run('目录模型写入能力/推理默认值并保留现有预设名', () => {
   assert.equal(draft.reasoning.supported, true);
 });
 
-run('编辑草稿永不读取响应里的 API Key 且保留 has_api_key 状态', () => {
+run('编辑草稿回填响应里的 API Key 并保留 has_api_key 状态', () => {
   const draft = modelProfileDraftFromSaved({
     name: 'safe',
     provider: 'openai',
     model: 'gpt-safe',
     base_url: 'https://api.example/v1',
+    api_key: 'sk-original',
     has_api_key: true,
   });
-  assert.equal(draft.api_key, '');
+  assert.equal(draft.api_key, 'sk-original');
   assert.equal(draft.has_api_key, true);
-  assert.equal(JSON.stringify(draft).includes('sk-'), false);
   assert.throws(() => normalizeSavedModelList([{
-    name: 'unsafe', provider: 'openai', model: 'gpt', api_key: 'sk-leaked',
-  }]), /exposed api_key/);
+    name: 'invalid', provider: 'openai', model: 'gpt', api_key: 42,
+  }]), /api_key must be a string/);
+});
+
+run('Grok Coding Plan 使用受管路径且 payload 不含端点、密钥或运行时覆盖', () => {
+  const draft = {
+    ...applyCatalogProviderToDraft(emptyModelProfileDraft(), grokProvider),
+    name: 'grok-coding',
+    model: 'grok-4.5',
+    base_url: 'https://must-not-leak.example/v1',
+    api_key: 'must-not-leak',
+    request_headers_json: '{"Authorization":"must-not-leak"}',
+    max_output_tokens: '2048',
+  };
+  const result = buildModelMutationPayload(draft, grokProvider);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload, {
+    name: 'grok-coding',
+    provider: 'grok',
+    model: 'grok-4.5',
+    models_dev_provider_id: 'xai',
+  });
+  assert.deepEqual(modelFieldPolicy(grokProvider), {
+    managed: true,
+    show_api_key: false,
+    api_key_required: false,
+    can_clear_api_key: false,
+    show_base_url: false,
+    edit_base_url: false,
+    show_endpoint_mode: false,
+    show_request_headers: false,
+    show_max_output: false,
+    show_reasoning: false,
+    can_probe: true,
+    model_input: 'catalog',
+  });
+  const restored = modelProfileDraftFromSaved({
+    name: 'grok-coding',
+    provider: 'grok',
+    model: 'grok-4.5',
+    models_dev_provider_id: 'xai',
+  });
+  assert.equal(restored.catalog_provider_id, 'grok');
+  assert.equal(restored.provider, 'grok');
 });
 
 run('模型错误文案会脱敏当前 API Key 和请求头值', () => {
@@ -421,7 +478,7 @@ run('模型错误文案会脱敏当前 API Key 和请求头值', () => {
   );
 });
 
-run('编辑时空密钥省略 api_key 并保留高级 payload', () => {
+run('旧响应缺少密钥时仍可省略 api_key 并保留高级 payload', () => {
   const draft = {
     ...modelProfileDraftFromSaved({
       name: 'safe',
@@ -442,6 +499,20 @@ run('编辑时空密钥省略 api_key 并保留高级 payload', () => {
   assert.equal(result.payload.endpoint_mode, 'full_url');
   assert.equal(result.payload.max_output_tokens, 32768);
   assert.deepEqual(result.payload.capabilities, ['tool_use']);
+});
+
+run('编辑时将回填的原 API Key 连同模型字段提交', () => {
+  const draft = modelProfileDraftFromSaved({
+    name: 'safe',
+    provider: 'openai',
+    model: 'gpt-safe',
+    base_url: 'https://api.example/v1',
+    api_key: 'sk-original',
+    has_api_key: true,
+  });
+  const result = buildModelMutationPayload(draft, customProvider, { editing: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.api_key, 'sk-original');
 });
 
 run('reasoning mutation 只发送必填元数据和有真实值的可选覆盖', () => {

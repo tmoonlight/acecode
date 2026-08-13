@@ -91,6 +91,7 @@ std::vector<nlohmann::json> provider_descriptors(
     std::vector<nlohmann::json> result;
     const ProviderEntry* anthropic = by_id(providers, "anthropic");
     const ProviderEntry* openai = by_id(providers, "openai");
+    const ProviderEntry* xai = by_id(providers, "xai");
     result.push_back(provider_to_json(
         "anthropic",
         anthropic ? anthropic->name : "Anthropic",
@@ -109,6 +110,10 @@ std::vector<nlohmann::json> provider_descriptors(
         "https://docs.github.com/en/copilot", "managed", false, "catalog", "",
         std::nullopt, "native", {}));
     result.push_back(provider_to_json(
+        "grok", "Grok Coding Plan", "grok", "",
+        xai && xai->doc ? *xai->doc : "https://docs.x.ai",
+        "managed", false, "catalog", "", std::string("xai"), "native", {}));
+    result.push_back(provider_to_json(
         "custom-openai", "Custom OpenAI-compatible API", "openai", "", "",
         "required", true, "manual", "", std::nullopt, "custom",
         {"base_url", "full_url"}));
@@ -125,12 +130,27 @@ std::vector<nlohmann::json> provider_descriptors(
         std::string("openai"),
         "native",
         {"base_url"}));
+    if (xai != nullptr) {
+        result.push_back(provider_to_json(
+            "xai",
+            xai->name,
+            "openai",
+            "https://api.x.ai/v1",
+            xai->doc.value_or(""),
+            "required",
+            false,
+            "catalog",
+            first_env(xai),
+            std::string("xai"),
+            "catalog",
+            {"base_url"}));
+    }
 
     for (const auto& provider : providers) {
         if (!provider.openai_compatible || !provider.base_url.has_value()) continue;
         const std::string id = lower_ascii(provider.id);
         if (id == "anthropic" || id == "github-copilot" || id == "copilot" ||
-            id == "openai") {
+            id == "openai" || id == "xai") {
             continue;
         }
         result.push_back(provider_to_json(
@@ -208,6 +228,7 @@ const ProviderEntry* query_provider(const std::vector<ProviderEntry>& providers,
     const std::string normalized = lower_ascii(id);
     if (normalized == "custom-openai") return nullptr;
     if (normalized == "copilot") return by_id(providers, "github-copilot");
+    if (normalized == "grok") return by_id(providers, "xai");
     return by_id(providers, normalized);
 }
 

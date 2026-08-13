@@ -4,11 +4,13 @@ namespace acecode {
 
 bool is_known_model_provider(const std::string& provider) {
     return provider == "openai" || provider == "anthropic" ||
-           provider == "copilot" || provider == "codex";
+           provider == "copilot" || provider == "grok" ||
+           provider == "codex";
 }
 
 bool is_runtime_model_provider_enabled(const std::string& provider) {
-    return provider == "openai" || provider == "anthropic" || provider == "copilot";
+    return provider == "openai" || provider == "anthropic" ||
+           provider == "copilot" || provider == "grok";
 }
 
 const char* disabled_model_provider_reason(const std::string& provider) {

@@ -604,6 +604,40 @@ await run('Copilot auth API methods use expected endpoints', async () => {
   }
 });
 
+await run('Grok auth API methods use managed device-flow endpoints', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ ok: true, status: 'pending' }),
+    };
+  };
+  try {
+    const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
+    await client.getGrokAuth();
+    await client.startGrokAuth();
+    await client.pollGrokAuth('grok-device-123');
+    await client.logoutGrok();
+
+    assert.deepEqual(calls.map((call) => [call.url, call.opts.method]), [
+      ['http://127.0.0.1:4567/api/grok/auth', 'GET'],
+      ['http://127.0.0.1:4567/api/grok/auth/device', 'POST'],
+      ['http://127.0.0.1:4567/api/grok/auth/device/poll', 'POST'],
+      ['http://127.0.0.1:4567/api/grok/auth', 'DELETE'],
+    ]);
+    assert.deepEqual(JSON.parse(calls[2].opts.body), { device_code: 'grok-device-123' });
+    for (const call of calls) {
+      assert.equal(call.opts.headers['X-ACECode-Token'], 'tok');
+    }
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 await run('UI preference API carries the complete appearance contract', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];

@@ -1953,6 +1953,22 @@ void WebServer::Impl::register_ui_preferences() {
                 return with_cors(req, std::move(r));
             }
 
+            if (parsed->provider == "grok") {
+                GrokModelsResult result = fetch_grok_model_ids();
+                if (!result.error.empty()) {
+                    const int status = result.status_code == 401 ? 401 : 502;
+                    return json_err(status,
+                                    result.error.c_str(),
+                                    redact_grok_auth_diagnostic(
+                                        result.message.empty()
+                                            ? "Grok model discovery failed"
+                                            : result.message));
+                }
+                crow::response r(json{{"models", result.models}}.dump());
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
             const std::string url = trim_trailing_slash(parsed->base_url) + "/models";
             cpr::Header headers = {{"Content-Type", "application/json"}};
             if (!parsed->api_key.empty()) {

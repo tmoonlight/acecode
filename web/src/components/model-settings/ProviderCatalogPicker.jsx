@@ -9,31 +9,19 @@ import {
 } from '../../lib/modelSettings.js';
 import { lookupErrorMessage } from '../../lib/errors.js';
 import {
+  groupCatalogProviders,
+  providerDisplayName,
+  PROVIDER_GROUP_LABELS,
+} from '../../lib/providerCatalogGroups.js';
+import {
   normalizeModelProbeResult,
   parseRequestHeadersJson,
   splitModelIds,
 } from '../../lib/modelManager.js';
 import { openExternalUrl } from '../../lib/externalUrl.js';
 import { RefreshIcon, VsIcon } from '../Icon.jsx';
+import { ModelConnectionCard } from './ModelConnectionCard.jsx';
 import { ProviderIcon } from './ProviderIcon.jsx';
-
-const PROVIDER_GROUP_LABELS = {
-  native: '原生与受管',
-  local: '本地服务',
-  catalog: '模型目录',
-  custom: '自定义',
-};
-
-const PROVIDER_GROUP_ORDER = ['native', 'local', 'catalog', 'custom'];
-
-function providerSearchText(provider) {
-  return [
-    provider.id,
-    provider.name,
-    provider.runtime_provider,
-    provider.models_dev_provider_id,
-  ].filter(Boolean).join(' ').toLowerCase();
-}
 
 function mergeCatalogModels(primary, exact) {
   const seen = new Set();
@@ -60,7 +48,8 @@ export function ProviderCatalogPicker({
   provider,
   draft,
   allowMultiple,
-  copilotAuthenticated,
+  managedAuthenticated,
+  managedConnection,
   onProviderChange,
   onDraftChange,
 }) {
@@ -74,20 +63,10 @@ export function ProviderCatalogPicker({
   const [manualModel, setManualModel] = useState('');
   const selectedModels = splitModelIds(draft.model);
 
-  const groupedProviders = useMemo(() => {
-    const needle = providerQuery.trim().toLowerCase();
-    const groups = new Map();
-    providers
-      .filter((item) => !needle || providerSearchText(item).includes(needle))
-      .forEach((item) => {
-        const group = item.group || 'catalog';
-        if (!groups.has(group)) groups.set(group, []);
-        groups.get(group).push(item);
-      });
-    return PROVIDER_GROUP_ORDER
-      .filter((group) => groups.has(group))
-      .map((group) => ({ group, items: groups.get(group) }));
-  }, [providerQuery, providers]);
+  const groupedProviders = useMemo(
+    () => groupCatalogProviders(providers, providerQuery),
+    [providerQuery, providers],
+  );
 
   useEffect(() => {
     setModelQuery('');
@@ -146,8 +125,10 @@ export function ProviderCatalogPicker({
     setManualModel('');
   };
 
-  const canProbe = provider?.runtime_provider === 'copilot'
-    ? !!copilotAuthenticated
+  const managedProvider = provider?.runtime_provider === 'copilot'
+    || provider?.runtime_provider === 'grok';
+  const canProbe = managedProvider
+    ? !!managedAuthenticated
     : provider?.runtime_provider === 'openai' && !!draft.base_url;
 
   const probeModels = async () => {
@@ -231,14 +212,16 @@ export function ProviderCatalogPicker({
                       onClick={() => onProviderChange(item)}
                       aria-selected={active}
                       className={clsx(
-                        'flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition focus:outline-none focus:ring-1 focus:ring-accent',
+                        'flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent',
                         active
                           ? 'bg-accent-bg text-accent'
                           : 'text-fg-2 hover:bg-surface-hi hover:text-fg',
                       )}
                     >
                       <ProviderIcon provider={item} active={active} />
-                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{item.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                        {providerDisplayName(item)}
+                      </span>
                     </button>
                   );
                 })}
@@ -257,7 +240,9 @@ export function ProviderCatalogPicker({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h4 className="truncate text-[12px] font-semibold text-fg">{provider.name}</h4>
+                  <h4 className="truncate text-[12px] font-semibold text-fg">
+                    {providerDisplayName(provider)}
+                  </h4>
                   <span className="rounded border border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-fg-mute">
                     {provider.runtime_provider}
                   </span>
@@ -282,14 +267,14 @@ export function ProviderCatalogPicker({
                     Provider 文档
                   </button>
                 )}
-                {(provider.runtime_provider === 'openai' || provider.runtime_provider === 'copilot') && (
+                {(provider.runtime_provider === 'openai' || managedProvider) && (
                   <button
                     type="button"
                     onClick={probeModels}
                     disabled={!canProbe || probeStatus === 'loading'}
                     className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
-                    title={provider.runtime_provider === 'copilot' && !copilotAuthenticated
-                      ? '请先连接 GitHub Copilot'
+                    title={managedProvider && !managedAuthenticated
+                      ? `请先连接 ${provider.name}`
                       : '从当前 Provider 探测真实模型列表'}
                   >
                     <RefreshIcon size={11} className={clsx(probeStatus === 'loading' && 'animate-spin')} />
@@ -298,6 +283,12 @@ export function ProviderCatalogPicker({
                 )}
               </div>
             </div>
+
+            {managedProvider && managedConnection && (
+              <div className="mt-3">
+                <ModelConnectionCard {...managedConnection} />
+              </div>
+            )}
 
             <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-surface-alt px-2.5 py-2">
               <VsIcon name="edit" size={12} className="shrink-0 text-fg-mute" />

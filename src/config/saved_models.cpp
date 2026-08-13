@@ -174,7 +174,7 @@ std::optional<ModelProfile> parse_one_entry(const nlohmann::json& node, std::siz
         std::ostringstream oss;
         oss << "saved_models[" << idx << "] (name='" << e.name
             << "') has unknown provider '" << e.provider
-            << "' (expected 'openai', 'anthropic', 'copilot', or 'codex')";
+            << "' (expected 'openai', 'anthropic', 'copilot', 'grok', or 'codex')";
         err = oss.str();
         return std::nullopt;
     }
@@ -344,16 +344,17 @@ bool validate_saved_models(const std::vector<ModelProfile>& entries,
             err = oss.str();
             return false;
         }
-        if (e.provider == "copilot") {
+        if (e.provider == "copilot" || e.provider == "grok") {
             if (!e.base_url.empty() || !e.api_key.empty()) {
                 err = "saved_models entry '" + e.name +
-                      "' cannot customize Copilot endpoint or credentials";
+                      "' cannot customize managed provider endpoint or credentials";
                 return false;
             }
             if (e.endpoint_mode.has_value() || e.reasoning.has_value() ||
-                e.max_output_tokens.has_value()) {
+                e.max_output_tokens.has_value() ||
+                (e.provider == "grok" && e.stream_timeout_ms.has_value())) {
                 err = "saved_models entry '" + e.name +
-                      "' contains unsupported Copilot runtime options";
+                      "' contains unsupported managed provider runtime options";
                 return false;
             }
         }
@@ -569,7 +570,7 @@ nlohmann::json model_reasoning_options_to_json(
 }
 
 bool model_profile_allows_no_api_key(const ModelProfile& profile) {
-    if (profile.provider == "copilot") return true;
+    if (profile.provider == "copilot" || profile.provider == "grok") return true;
     if (profile.provider != "openai") return false;
     return is_known_local_provider_id(profile.models_dev_provider_id) ||
            is_loopback_endpoint(profile.base_url);

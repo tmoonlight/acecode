@@ -55,6 +55,12 @@ nlohmann::json catalog_fixture() {
             {"env", {"OPENROUTER_API_KEY"}},
             {"models", std::move(models)},
         }},
+        {"xai", {
+            {"name", "xAI"},
+            {"env", {"XAI_API_KEY"}},
+            {"doc", "https://docs.x.ai/docs/models"},
+            {"models", {{"grok-test", {{"name", "Grok Test"}}}}},
+        }},
     };
 }
 
@@ -96,18 +102,27 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
 
     const auto* anthropic = provider_by_id(summary["providers"], "anthropic");
     const auto* copilot = provider_by_id(summary["providers"], "copilot");
+    const auto* grok = provider_by_id(summary["providers"], "grok");
     const auto* custom = provider_by_id(summary["providers"], "custom-openai");
     const auto* local = provider_by_id(summary["providers"], "lmstudio");
     const auto* openrouter = provider_by_id(summary["providers"], "openrouter");
+    const auto* xai = provider_by_id(summary["providers"], "xai");
     ASSERT_NE(anthropic, nullptr);
     ASSERT_NE(copilot, nullptr);
+    ASSERT_NE(grok, nullptr);
     ASSERT_NE(custom, nullptr);
     ASSERT_NE(local, nullptr);
     ASSERT_NE(openrouter, nullptr);
+    ASSERT_NE(xai, nullptr);
     EXPECT_EQ((*anthropic)["runtime_provider"], "anthropic");
     EXPECT_EQ((*anthropic)["doc"], "https://docs.anthropic.test");
     EXPECT_EQ((*copilot)["auth_mode"], "managed");
     EXPECT_FALSE((*copilot)["endpoint_editable"].get<bool>());
+    EXPECT_EQ((*grok)["runtime_provider"], "grok");
+    EXPECT_EQ((*grok)["auth_mode"], "managed");
+    EXPECT_FALSE((*grok)["endpoint_editable"].get<bool>());
+    EXPECT_TRUE((*grok)["base_url"].get<std::string>().empty());
+    EXPECT_EQ((*grok)["models_dev_provider_id"], "xai");
     EXPECT_TRUE((*custom)["endpoint_editable"].get<bool>());
     EXPECT_EQ((*custom)["auth_mode"], "required");
     EXPECT_EQ((*custom)["endpoint_modes"],
@@ -115,6 +130,9 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     EXPECT_EQ((*local)["auth_mode"], "none");
     EXPECT_EQ((*openrouter)["runtime_provider"], "openai");
     EXPECT_EQ((*openrouter)["auth_mode"], "required");
+    EXPECT_EQ((*xai)["runtime_provider"], "openai");
+    EXPECT_EQ((*xai)["base_url"], "https://api.x.ai/v1");
+    EXPECT_EQ((*xai)["models_dev_provider_id"], "xai");
     for (const auto& provider : summary["providers"]) {
         EXPECT_FALSE(provider.contains("models"));
         for (const char* key : {"id", "name", "runtime_provider", "base_url",
@@ -164,6 +182,18 @@ TEST(ModelCatalogHandler, NativeAliasesRemainUsable) {
     ASSERT_TRUE(copilot.has_value());
     ASSERT_EQ((*copilot)["models"].size(), 1u);
     EXPECT_EQ((*copilot)["models"][0]["id"], "gpt-managed");
+
+    auto xai = acecode::web::query_model_catalog_to_json(
+        providers, "xai", "grok", 10);
+    ASSERT_TRUE(xai.has_value());
+    ASSERT_EQ((*xai)["models"].size(), 1u);
+    EXPECT_EQ((*xai)["models"][0]["id"], "grok-test");
+
+    auto grok = acecode::web::query_model_catalog_to_json(
+        providers, "grok", "grok", 10);
+    ASSERT_TRUE(grok.has_value());
+    ASSERT_EQ((*grok)["models"].size(), 1u);
+    EXPECT_EQ((*grok)["models"][0]["id"], "grok-test");
 }
 
 TEST(ModelCatalogHandler, SharedContractFixtureMatchesCanonicalResponses) {

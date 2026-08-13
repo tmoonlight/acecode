@@ -676,6 +676,40 @@ TEST(SavedModelsEditor, CopilotProfileRejectsCustomConnectionAndReasoning) {
     EXPECT_EQ(cfg.saved_models.size(), 1u);
 }
 
+// Grok 与 Copilot 同为 managed auth，但保留 xAI 目录身份与能力元数据。
+TEST(SavedModelsEditor, GrokProfileIsManagedAndKeepsCatalogMetadata) {
+    AppConfig cfg;
+    SavedModelDraft grok;
+    grok.name = "grok-coding-plan";
+    grok.provider = "grok";
+    grok.model = "grok-4.5";
+    grok.models_dev_provider_id = "xai";
+    grok.capabilities = {"tool_use", "reasoning"};
+    grok.capabilities_source = "catalog";
+    EXPECT_EQ(add_saved_model(cfg, grok), SavedModelEditError::OK);
+    ASSERT_EQ(cfg.saved_models.size(), 1u);
+    EXPECT_EQ(cfg.saved_models[0].models_dev_provider_id, "xai");
+    EXPECT_EQ(cfg.saved_models[0].capabilities.size(), 2u);
+    EXPECT_EQ(cfg.saved_models[0].capabilities_source, "catalog");
+    EXPECT_TRUE(cfg.saved_models[0].base_url.empty());
+    EXPECT_TRUE(cfg.saved_models[0].api_key.empty());
+
+    auto custom_url = grok;
+    custom_url.name = "grok-custom";
+    custom_url.base_url = "https://example.test/v1";
+    custom_url.base_url_supplied = true;
+    EXPECT_EQ(add_saved_model(cfg, custom_url),
+              SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+
+    auto custom_timeout = grok;
+    custom_timeout.name = "grok-timeout";
+    custom_timeout.stream_timeout_ms = 30000;
+    custom_timeout.stream_timeout_ms_supplied = true;
+    EXPECT_EQ(add_saved_model(cfg, custom_timeout),
+              SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+    EXPECT_EQ(cfg.saved_models.size(), 1u);
+}
+
 // 高级字段更新可以完整保存；无效推理预算不得部分覆盖旧 profile。
 TEST(SavedModelsEditor, AdvancedFieldsPersistAndInvalidReasoningIsAtomic) {
     AppConfig cfg;

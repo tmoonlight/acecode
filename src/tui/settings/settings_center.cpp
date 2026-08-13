@@ -16,6 +16,7 @@
 #include "../../utils/clipboard.hpp"
 #include "../../utils/utf8_path.hpp"
 #include "../theme_palette.hpp"
+#include "../terminal_key_event.hpp"
 
 #include <cpr/cpr.h>
 #include <cpr/ssl_options.h>
@@ -64,9 +65,20 @@ namespace {
 namespace fs = std::filesystem;
 using namespace ftxui;
 
+bool is_escape_event(const Event& event) {
+    return matches_terminal_key(event, TerminalKey::Escape);
+}
+
+bool is_ctrl_s_event(const Event& event) {
+    return matches_terminal_codepoint(
+        event,
+        's',
+        terminal_modifier(TerminalKeyModifier::Ctrl));
+}
+
 constexpr const char* kProjectUrl =
     "https://github.com/shaohaozhi286/acecode";
-constexpr const char* kFtxuiVersion = "6.1.9";
+constexpr const char* kFtxuiVersion = "7.0.3";
 
 std::string trim_ascii(std::string value) {
     auto is_space = [](unsigned char ch) { return std::isspace(ch) != 0; };
@@ -2296,7 +2308,7 @@ struct SettingsCenter::Impl {
         });
 
         root = CatchEvent(root, [this](Event event) {
-            if (event == Event::CtrlS) {
+            if (is_ctrl_s_event(event)) {
                 if (navigation.active_tab() ==
                         SettingsTab::Configuration ||
                     navigation.active_tab() ==
@@ -2305,7 +2317,7 @@ struct SettingsCenter::Impl {
                     return true;
                 }
             }
-            if (event == Event::Escape) {
+            if (is_escape_event(event)) {
                 if (model_form_open) {
                     request_close_model_form();
                     return true;
@@ -2616,11 +2628,11 @@ struct SettingsCenter::Impl {
         });
         model_form_component =
             CatchEvent(model_form_component, [this](Event event) {
-                if (event == Event::Escape) {
+                if (is_escape_event(event)) {
                     request_close_model_form();
                     return true;
                 }
-                if (event == Event::CtrlS) {
+                if (is_ctrl_s_event(event)) {
                     save_model_form(false);
                     return true;
                 }
@@ -2696,7 +2708,7 @@ struct SettingsCenter::Impl {
             });
         discard_modal_component =
             CatchEvent(discard_modal_component, [this](Event event) {
-                if (event != Event::Escape) return false;
+                if (!is_escape_event(event)) return false;
                 discard_modal_open = false;
                 navigation.cancel_pending_navigation();
                 tab_index = previous_tab_index;
@@ -2744,7 +2756,7 @@ struct SettingsCenter::Impl {
             CatchEvent(
                 model_discard_modal_component,
                 [this](Event event) {
-                    if (event != Event::Escape) return false;
+                    if (!is_escape_event(event)) return false;
                     model_discard_modal_open = false;
                     return true;
                 });
@@ -2784,7 +2796,7 @@ struct SettingsCenter::Impl {
             });
         confirm_modal_component =
             CatchEvent(confirm_modal_component, [this](Event event) {
-                if (event != Event::Escape) return false;
+                if (!is_escape_event(event)) return false;
                 confirm_modal_open = false;
                 confirm_action = {};
                 return true;

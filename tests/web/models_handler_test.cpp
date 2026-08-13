@@ -53,7 +53,7 @@ TEST(ModelsHandler, ListIncludesAllSavedModels) {
     EXPECT_EQ(arr[0]["name"], "copilot-fast");
     EXPECT_EQ(arr[1]["name"], "local-lm");
     EXPECT_TRUE(arr[1].contains("base_url"));
-    EXPECT_FALSE(arr[1].contains("api_key"));
+    EXPECT_EQ(arr[1]["api_key"], "x");
     EXPECT_EQ(arr[1]["has_api_key"], true);
     EXPECT_EQ(arr[1]["context_window"], 64000);
     EXPECT_EQ(arr[1]["capabilities"], nlohmann::json::array({"vision", "tool_use"}));
@@ -77,7 +77,7 @@ TEST(ModelsHandler, ListAndFindIncludeAnthropicProvider) {
     EXPECT_EQ(arr[2]["name"], "claude");
     EXPECT_EQ(arr[2]["provider"], "anthropic");
     EXPECT_EQ(arr[2]["base_url"], "https://api.anthropic.com/v1");
-    EXPECT_FALSE(arr[2].contains("api_key"));
+    EXPECT_EQ(arr[2]["api_key"], "sk-ant-test");
     EXPECT_EQ(arr[2]["has_api_key"], true);
     EXPECT_EQ(arr[2]["request_headers"]["anthropic-beta"],
               "prompt-caching-2024-07-31");
@@ -187,7 +187,7 @@ using acecode::web::http_status_for_edit_error;
 using acecode::web::parse_model_probe_request;
 using acecode::web::parse_openai_model_ids;
 using acecode::web::parse_model_draft;
-using acecode::web::profile_to_safe_json;
+using acecode::web::profile_to_json;
 
 // 触发场景:server.cpp 把 saved_models_editor 的错误码翻成 HTTP 状态;
 // 这层映射与前端 toast 文案强相关 — NOT_FOUND→404 / NAME_TAKEN→409 /
@@ -211,24 +211,23 @@ TEST(ModelsHandler, ErrorToHttpStatusMapping) {
 }
 
 // 触发场景:POST/PUT 成功后把 ModelProfile 序列化回模型管理界面。
-// 期望行为:响应只返回存在性，不把密钥放进客户端状态或 DOM。
-TEST(ModelsHandler, ProfileToSafeJsonRedactsApiKey) {
+// 期望行为:经过认证的响应返回原密钥，供编辑弹窗默认遮罩回填。
+TEST(ModelsHandler, ProfileToJsonIncludesApiKey) {
     ModelProfile p;
     p.name = "local";
     p.provider = "openai";
     p.model = "llama-3";
     p.base_url = "http://localhost/v1";
     p.api_key = "sk-secret";
-    auto j = profile_to_safe_json(p);
-    EXPECT_FALSE(j.contains("api_key"));
+    auto j = profile_to_json(p);
+    EXPECT_EQ(j["api_key"], "sk-secret");
     EXPECT_EQ(j["has_api_key"], true);
-    EXPECT_EQ(j.dump().find("sk-secret"), std::string::npos);
     EXPECT_EQ(j["base_url"], "http://localhost/v1");
     EXPECT_EQ(j["name"], "local");
 }
 
 // 触发场景:成功响应里允许返回非敏感的 context_window override。
-TEST(ModelsHandler, ProfileToSafeJsonIncludesContextWindow) {
+TEST(ModelsHandler, ProfileToJsonIncludesContextWindow) {
     ModelProfile p;
     p.name = "local";
     p.provider = "openai";
@@ -236,12 +235,12 @@ TEST(ModelsHandler, ProfileToSafeJsonIncludesContextWindow) {
     p.base_url = "http://localhost/v1";
     p.api_key = "sk-secret";
     p.context_window = 96000;
-    auto j = profile_to_safe_json(p);
+    auto j = profile_to_json(p);
     EXPECT_EQ(j["context_window"], 96000);
 }
 
 // 触发场景:成功响应里允许返回非敏感的 capabilities。
-TEST(ModelsHandler, ProfileToSafeJsonIncludesCapabilities) {
+TEST(ModelsHandler, ProfileToJsonIncludesCapabilities) {
     ModelProfile p;
     p.name = "vision";
     p.provider = "openai";
@@ -249,14 +248,14 @@ TEST(ModelsHandler, ProfileToSafeJsonIncludesCapabilities) {
     p.base_url = "http://localhost/v1";
     p.api_key = "sk-secret";
     p.capabilities = {"vision", "tool_use"};
-    auto j = profile_to_safe_json(p);
+    auto j = profile_to_json(p);
     EXPECT_EQ(j["capabilities"], nlohmann::json::array({"vision", "tool_use"}));
-    EXPECT_FALSE(j.contains("api_key"));
+    EXPECT_EQ(j["api_key"], "sk-secret");
     EXPECT_EQ(j["has_api_key"], true);
 }
 
 // 触发场景:request_headers 是可编辑模板,响应可返回模板但不能解析环境变量。
-TEST(ModelsHandler, ProfileToSafeJsonIncludesRequestHeaders) {
+TEST(ModelsHandler, ProfileToJsonIncludesRequestHeaders) {
     ModelProfile p;
     p.name = "gateway";
     p.provider = "openai";
@@ -267,10 +266,10 @@ TEST(ModelsHandler, ProfileToSafeJsonIncludesRequestHeaders) {
         {"Authorization", "Bearer {env:ACE_TOKEN}"},
         {"X-Team", "acecode"}
     };
-    auto j = profile_to_safe_json(p);
+    auto j = profile_to_json(p);
     EXPECT_EQ(j["request_headers"]["Authorization"], "Bearer {env:ACE_TOKEN}");
     EXPECT_EQ(j["request_headers"]["X-Team"], "acecode");
-    EXPECT_FALSE(j.contains("api_key"));
+    EXPECT_EQ(j["api_key"], "sk-secret");
     EXPECT_EQ(j["has_api_key"], true);
 }
 
@@ -475,8 +474,8 @@ TEST(ModelsHandler, SharedEditPayloadParsesAndClearsSuppliedOverrides) {
     EXPECT_EQ(cfg.saved_models[0].reasoning->default_effort, "high");
 }
 
-// 响应中的高级字段允许返回，但任何 API Key 明文都不得出现。
-TEST(ModelsHandler, SafeJsonIncludesAdvancedFieldsWithoutCredential) {
+// 响应中的高级字段和 API Key 原值都供经过认证的模型编辑器使用。
+TEST(ModelsHandler, JsonIncludesAdvancedFieldsAndCredential) {
     ModelProfile profile;
     profile.name = "advanced";
     profile.provider = "openai";
@@ -494,13 +493,12 @@ TEST(ModelsHandler, SafeJsonIncludesAdvancedFieldsWithoutCredential) {
     reasoning.supports_max_tokens = false;
     profile.reasoning = reasoning;
 
-    const auto body = profile_to_safe_json(profile);
+    const auto body = profile_to_json(profile);
     EXPECT_EQ(body["has_api_key"], true);
-    EXPECT_FALSE(body.contains("api_key"));
+    EXPECT_EQ(body["api_key"], "never-return-this");
     EXPECT_EQ(body["endpoint_mode"], "base_url");
     EXPECT_EQ(body["max_output_tokens"], 65536);
     EXPECT_EQ(body["reasoning"]["supported"], true);
-    EXPECT_EQ(body.dump().find("never-return-this"), std::string::npos);
 }
 
 // 触发场景:request_headers 值必须是字符串模板。
@@ -597,6 +595,16 @@ TEST(ModelsHandler, ParseProbeRequestValidatesProviderAndBaseUrl) {
     ASSERT_TRUE(copilot.has_value());
     EXPECT_EQ(copilot->provider, "copilot");
     EXPECT_TRUE(copilot->base_url.empty());
+
+    code.clear();
+    err.clear();
+    auto grok = parse_model_probe_request(
+        nlohmann::json{{"provider", "grok"}},
+        code,
+        err);
+    ASSERT_TRUE(grok.has_value());
+    EXPECT_EQ(grok->provider, "grok");
+    EXPECT_TRUE(grok->base_url.empty());
 }
 
 TEST(ModelsHandler, ParseProbeRequestRejectsRequestHeadersForCopilot) {

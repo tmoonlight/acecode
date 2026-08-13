@@ -608,7 +608,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
     'The model picker in the chat composer uses these profiles.',
   '另存为': 'Save as',
   '另存为预设名称': 'Profile name for Save as',
-  '留空以保留已保存密钥': 'Leave blank to keep the saved key',
   '没有匹配的 Provider': 'No matching providers',
   '没有匹配的已保存模型': 'No matching saved models',
   '名称、限制、能力与请求选项': 'Name, limits, capabilities, and request options',
@@ -647,11 +646,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '使用默认值 {{p0}}': 'Use default {{p0}}',
   '手动修改后，能力来源会记录为 manual 并影响运行时请求。':
     'After a manual change, the capability source is recorded as manual and affects runtime requests.',
-  '受管 Provider 在这里完成登录，密钥和端点不会进入模型弹窗。':
-    'Sign in to managed providers here. Their credentials and endpoints never enter the model dialog.',
   '受管连接': 'Managed connection',
   '输入模型 ID，按 Enter 添加': 'Enter a model ID and press Enter to add it',
-  '输入新的 API Key': 'Enter a new API key',
+  '输入 API Key': 'Enter API key',
   '刷新后的本地目录无法读取': 'The refreshed local catalog could not be read',
   '刷新已保存模型': 'Refresh saved models',
   '搜索 Provider': 'Search providers',
@@ -677,7 +674,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '选择 Provider 和模型后，只显示当前连接真正支持的配置。':
     'After choosing a provider and model, only settings supported by that connection are shown.',
   '移除模型 {{p0}}': 'Remove model {{p0}}',
-  '已保存密钥不会读取到浏览器': 'The saved key is never read into the browser',
+  '显示 API Key': 'Show API key',
+  '隐藏 API Key': 'Hide API key',
   '已保存模型': 'Saved models',
   '已存在名为“{{p0}}”的预设': 'A profile named “{{p0}}” already exists',
   '已选择模型': 'Selected models',
@@ -685,6 +683,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '预设名称': 'Profile name',
   '原生与受管': 'Native and managed',
   '本地服务': 'Local services',
+  '热门模型': 'Popular models',
+  '自定义模型': 'Custom models',
   '运行中的会话正在使用该模型': 'A running session is using this model',
   '找不到该预设对应的 Provider 描述': 'The provider definition for this profile was not found',
   '这是当前默认模型。删除后默认模型将被清空。':
@@ -711,4 +711,32 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '上下文 {{p0}}': 'Context {{p0}}',
   '最大输出 {{p0}}': 'Maximum output {{p0}}',
   '能力 {{p0}}': 'Capabilities {{p0}}',
+  '受管 Provider 在这里完成登录，密钥和端点不会进入模型弹窗。':
+    'Sign in to managed providers here. Their credentials and endpoints never enter the model dialog.',
+  '复制 {{p0}} 验证码 {{p1}}': 'Copy {{p0}} verification code {{p1}}',
+  '等待 xAI 授权': 'Waiting for xAI authorization',
+  'Grok 登录已开始，验证码已复制':
+    'Grok sign-in started and the verification code was copied',
+  'Grok 登录已开始': 'Grok sign-in started',
+  'Grok Coding Plan 已连接': 'Grok Coding Plan connected',
+  'Grok Coding Plan 已退出': 'Grok Coding Plan disconnected',
+  '使用 xAI 设备登录与 Grok Build 受管端点。':
+    'Use xAI device sign-in with the managed Grok Build endpoint.',
+  '连接 xAI': 'Connect xAI',
+  '请先连接 {{p0}}': 'Connect {{p0}} first',
+  '请先连接 Grok Coding Plan': 'Connect Grok Coding Plan first',
+  'Grok 设备授权信息已失效，请重新连接':
+    'The Grok device authorization expired. Connect again.',
+  '无法连接 xAI 设备授权服务': 'Could not reach the xAI device authorization service',
+  '无法获取 Grok 验证码': 'Could not get a Grok verification code',
+  'Grok 授权响应格式错误': 'The Grok authorization response was invalid',
+  '无法连接 xAI 授权服务': 'Could not reach the xAI authorization service',
+  'Grok 登录成功，但凭据保存失败':
+    'Grok sign-in succeeded, but the credentials could not be saved',
+  'Grok 登录已过期，请重新连接': 'The Grok sign-in expired. Connect again.',
+  'Grok 登录已失效，请重新连接': 'The Grok sign-in is invalid. Connect again.',
+  '无法连接 Grok 模型服务': 'Could not reach the Grok model service',
+  'Grok 模型服务返回错误': 'The Grok model service returned an error',
+  'Grok 模型列表格式错误': 'The Grok model list was invalid',
+  '删除 Grok 凭据失败': 'Could not delete the Grok credentials',
 });

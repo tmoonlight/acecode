@@ -1,8 +1,8 @@
 {
   "name": "ftxui",
-  "version-semver": "6.1.9",
-  "port-version": 7,
-  "description": "C++ Functional Terminal User Interface (shaohaozhi286 fork; adds ACECode TUI selection and input trace patches — see external/ftxui/ACECODE_PATCHES.md)",
+  "version-semver": "7.0.3",
+  "port-version": 1,
+  "description": "C++ Functional Terminal User Interface (shaohaozhi286 fork; adds ACECode TUI selection, input trace, and Kitty keyboard lifecycle patches — see external/ftxui/ACECODE_PATCHES.md)",
   "homepage": "https://github.com/shaohaozhi286/FTXUI",
   "license": "MIT",
   "supports": "!uwp",

@@ -122,7 +122,7 @@ SavedModelEditError validate_draft_shape(const SavedModelDraft& d) {
         return SavedModelEditError::INVALID_CREDENTIAL_SOURCE;
     }
 
-    if (d.provider == "copilot") {
+    if (d.provider == "copilot" || d.provider == "grok") {
         if (field_supplied(d.base_url_supplied, !d.base_url.empty()) ||
             key_supplied || d.clear_api_key || source_supplied ||
             field_supplied(d.request_headers_supplied,
@@ -131,7 +131,10 @@ SavedModelEditError validate_draft_shape(const SavedModelDraft& d) {
                            d.endpoint_mode.has_value()) ||
             field_supplied(d.max_output_tokens_supplied,
                            d.max_output_tokens.has_value()) ||
-            field_supplied(d.reasoning_supplied, d.reasoning.has_value())) {
+            field_supplied(d.reasoning_supplied, d.reasoning.has_value()) ||
+            (d.provider == "grok" &&
+             field_supplied(d.stream_timeout_ms_supplied,
+                            d.stream_timeout_ms.has_value()))) {
             return SavedModelEditError::UNSUPPORTED_MODEL_OPTION;
         }
     }
@@ -210,7 +213,26 @@ ModelProfile merge_profile(const SavedModelDraft& d,
     }
 
     if (profile.provider == "copilot") {
-        reset_provider_specific_fields(profile);
+        // Preserve catalog capabilities while clearing connection/runtime
+        // customization for the managed provider.
+        profile.base_url.clear();
+        profile.api_key.clear();
+        profile.models_dev_provider_id.reset();
+        profile.endpoint_mode.reset();
+        profile.max_output_tokens.reset();
+        profile.capabilities_source.reset();
+        profile.reasoning.reset();
+        profile.request_headers.clear();
+    } else if (profile.provider == "grok") {
+        // Grok keeps catalog identity/capability metadata, but its connection
+        // and request behavior are fully managed by the Coding Plan provider.
+        profile.base_url.clear();
+        profile.api_key.clear();
+        profile.stream_timeout_ms.reset();
+        profile.endpoint_mode.reset();
+        profile.max_output_tokens.reset();
+        profile.reasoning.reset();
+        profile.request_headers.clear();
     } else if (profile.endpoint_mode != "full_url") {
         profile.base_url = normalize_model_endpoint_identity(profile.base_url);
     }
@@ -256,7 +278,7 @@ SavedModelEditError apply_credentials(const AppConfig& cfg,
         candidate.api_key.clear();
     }
 
-    if (candidate.provider == "copilot") {
+    if (candidate.provider == "copilot" || candidate.provider == "grok") {
         candidate.api_key.clear();
         return SavedModelEditError::OK;
     }
@@ -297,7 +319,7 @@ SavedModelEditError validate_candidate(const ModelProfile& candidate) {
         }
         if (error.find("full_url") != std::string::npos ||
             error.find("endpoint") != std::string::npos ||
-            error.find("Copilot") != std::string::npos ||
+            error.find("managed provider") != std::string::npos ||
             error.find("unsupported") != std::string::npos) {
             return SavedModelEditError::UNSUPPORTED_MODEL_OPTION;
         }

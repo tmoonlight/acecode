@@ -128,6 +128,17 @@ TEST(AskOverlayInputTest, CtrlASelectsCompleteBuffer) {
     EXPECT_EQ(s.input_selection_anchor, 0u);
 }
 
+TEST(AskOverlayInputTest, KittyCtrlASelectsCompleteBuffer) {
+    TuiState s;
+    init_other_mode_state(s);
+    s.input_text = "hello";
+    s.input_cursor = 2;
+    EXPECT_TRUE(try_handle_ask_other_input(
+        s, Event::Special("\x1B[97;5u")));
+    EXPECT_EQ(s.input_cursor, 5u);
+    EXPECT_EQ(s.input_selection_anchor, 0u);
+}
+
 TEST(AskOverlayInputTest, ShiftLeftSelectsUtf8GlyphsAndPlainRightCollapses) {
     TuiState s;
     init_other_mode_state(s);
@@ -176,6 +187,16 @@ TEST(AskOverlayInputTest, CtrlEEquivalentToEnd) {
     s.input_text = "hello";
     s.input_cursor = 1;
     EXPECT_TRUE(try_handle_ask_other_input(s, Event::Special(std::string(1, '\x05'))));
+    EXPECT_EQ(s.input_cursor, 5u);
+}
+
+TEST(AskOverlayInputTest, KittyCtrlEEquivalentToEnd) {
+    TuiState s;
+    init_other_mode_state(s);
+    s.input_text = "hello";
+    s.input_cursor = 1;
+    EXPECT_TRUE(try_handle_ask_other_input(
+        s, Event::Special("\x1B[101;5u")));
     EXPECT_EQ(s.input_cursor, 5u);
 }
 

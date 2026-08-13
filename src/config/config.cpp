@@ -115,6 +115,7 @@ std::string legacy_model_profile_name(const AppConfig& cfg) {
         return "openai";
     }
     if (cfg.provider == "copilot") return "copilot";
+    if (cfg.provider == "grok") return "grok";
     return "";
 }
 
@@ -429,6 +430,13 @@ ModelProfile legacy_model_profile_from_config(const AppConfig& cfg) {
         profile.stream_timeout_ms = cfg.openai.stream_timeout_ms;
         profile.request_headers = cfg.openai.request_headers;
         profile.models_dev_provider_id = cfg.openai.models_dev_provider_id;
+        return profile;
+    }
+
+    if (cfg.provider == "grok") {
+        profile.provider = "grok";
+        profile.model = "grok-4.5";
+        profile.models_dev_provider_id = "xai";
         return profile;
     }
 

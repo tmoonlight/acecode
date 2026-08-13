@@ -686,4 +686,50 @@ TEST(SettingsCenterRender, ModelSearchAndExternalConfigEdit) {
         << output;
 }
 
+TEST(SettingsCenterRender, KittyEscapeClosesSettingsAndManagementSurfaces) {
+    acecode::tui::init_theme_palette("dark");
+    auto config = render_config();
+
+    int settings_close_count = 0;
+    ats::SettingsCenterDependencies settings_deps;
+    settings_deps.config = &config;
+    settings_deps.acecode_version = "render-test";
+    settings_deps.post_to_ui = [](std::function<void()>) {};
+    settings_deps.request_close = [&]() { ++settings_close_count; };
+    ats::SettingsCenter settings(std::move(settings_deps));
+    settings.open();
+    ASSERT_TRUE(settings.component()->OnEvent(
+        ftxui::Event::Special("\x1B[27;1u")));
+    EXPECT_EQ(settings_close_count, 1);
+
+    int management_close_count = 0;
+    ats::ManagementCenterDependencies management_deps;
+    management_deps.request_close = [&]() { ++management_close_count; };
+    ats::ManagementCenter management(std::move(management_deps));
+    management.open();
+    ASSERT_TRUE(management.component()->OnEvent(
+        ftxui::Event::Special("\x1B[27;1u")));
+    EXPECT_EQ(management_close_count, 1);
+}
+
+TEST(SettingsCenterRender, KittyCtrlSMatchesLegacySaveShortcut) {
+    acecode::tui::init_theme_palette("dark");
+    auto config = render_config();
+    int post_count = 0;
+    ats::SettingsCenterDependencies deps;
+    deps.config = &config;
+    deps.acecode_version = "render-test";
+    deps.post_to_ui = [](std::function<void()>) {};
+    deps.post_event = [&]() { ++post_count; };
+    ats::SettingsCenter center(std::move(deps));
+    center.open(ats::SettingsTab::Configuration);
+    ASSERT_EQ(post_count, 1);
+
+    const auto component = center.component();
+    component->TakeFocus();
+    ASSERT_TRUE(component->OnEvent(
+        ftxui::Event::Special("\x1B[115;5u")));
+    EXPECT_EQ(post_count, 2);
+}
+
 } // namespace

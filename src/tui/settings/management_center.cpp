@@ -17,6 +17,7 @@
 #include "../../tool/tool_executor.hpp"
 #include "../../utils/utf8_path.hpp"
 #include "../theme_palette.hpp"
+#include "../terminal_key_event.hpp"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_options.hpp>
@@ -53,6 +54,17 @@ namespace {
 
 using namespace ftxui;
 namespace fs = std::filesystem;
+
+bool is_escape_event(const Event& event) {
+    return matches_terminal_key(event, TerminalKey::Escape);
+}
+
+bool is_ctrl_s_event(const Event& event) {
+    return matches_terminal_codepoint(
+        event,
+        's',
+        terminal_modifier(TerminalKeyModifier::Ctrl));
+}
 
 constexpr const char* kRedactedSecret = "<redacted>";
 
@@ -1921,11 +1933,11 @@ struct ManagementCenter::Impl {
         });
         mcp_editor_component =
             CatchEvent(mcp_editor_component, [this](Event event) {
-                if (event == Event::Escape) {
+                if (is_escape_event(event)) {
                     request_close_mcp_editor();
                     return true;
                 }
-                if (event == Event::CtrlS) {
+                if (is_ctrl_s_event(event)) {
                     save_mcp_editor();
                     return true;
                 }
@@ -1976,7 +1988,7 @@ struct ManagementCenter::Impl {
             CatchEvent(
                 mcp_discard_modal_component,
                 [this](Event event) {
-                    if (event != Event::Escape) return false;
+                    if (!is_escape_event(event)) return false;
                     mcp_discard_modal_open = false;
                     return true;
                 });
@@ -2016,7 +2028,7 @@ struct ManagementCenter::Impl {
             });
         confirm_modal_component =
             CatchEvent(confirm_modal_component, [this](Event event) {
-                if (event != Event::Escape) return false;
+                if (!is_escape_event(event)) return false;
                 confirm_modal_open = false;
                 confirm_action = {};
                 return true;
@@ -2045,7 +2057,7 @@ struct ManagementCenter::Impl {
             }) | border | color(theme().ui.border);
         });
         root = CatchEvent(root, [this](Event event) {
-            if (event == Event::Escape) {
+            if (is_escape_event(event)) {
                 if (mcp_editor_open) {
                     request_close_mcp_editor();
                     return true;
