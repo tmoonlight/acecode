@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {
+  DESKTOP_GUIDED_TOUR_TARGET_MAX_ATTEMPTS,
   DESKTOP_GUIDED_TOUR_TARGET_LIST,
   buildDesktopGuidedTourSteps,
   desktopGuidedTourHasModel,
   desktopGuidedTourLostRequiredTarget,
   desktopGuidedTourModeEligible,
+  desktopGuidedTourTargetProbeAction,
   desktopGuidedTourTargetsReady,
   desktopGuidedTourTerminalAction,
   shouldAutoStartDesktopGuidedTour,
@@ -30,7 +32,6 @@ run('Desktop tour auto-start requires an eligible settled Desktop home', () => {
     startupNavigationSettled: true,
     hasActiveSession: false,
     blocked: false,
-    targetsReady: true,
     attempted: false,
   };
   assert.equal(shouldAutoStartDesktopGuidedTour(ready), true);
@@ -42,12 +43,28 @@ run('Desktop tour auto-start requires an eligible settled Desktop home', () => {
     ['startupNavigationSettled', false],
     ['hasActiveSession', true],
     ['blocked', true],
-    ['targetsReady', false],
     ['attempted', true],
   ]) {
     assert.equal(shouldAutoStartDesktopGuidedTour({ ...ready, [key]: value }), false, key);
   }
   assert.equal(shouldAutoStartDesktopGuidedTour({ ...ready, mode: 'webapp' }), true);
+  assert.equal(
+    shouldAutoStartDesktopGuidedTour({ ...ready, targetsReady: false }),
+    true,
+    'DOM readiness must not block the preparation state that expands the sidebar',
+  );
+});
+
+run('Desktop tour target probing starts immediately when ready and retries with a bound', () => {
+  assert.equal(desktopGuidedTourTargetProbeAction({ targetsReady: true }), 'start');
+  assert.equal(desktopGuidedTourTargetProbeAction({ targetsReady: false, attempt: 0 }), 'retry');
+  assert.equal(
+    desktopGuidedTourTargetProbeAction({
+      targetsReady: false,
+      attempt: DESKTOP_GUIDED_TOUR_TARGET_MAX_ATTEMPTS - 1,
+    }),
+    'abort',
+  );
 });
 
 run('Desktop tour mode and target helpers reject browser and missing targets', () => {

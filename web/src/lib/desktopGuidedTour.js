@@ -12,6 +12,9 @@ export const DESKTOP_GUIDED_TOUR_TARGET_LIST = Object.freeze(
   Object.values(DESKTOP_GUIDED_TOUR_TARGETS),
 );
 
+export const DESKTOP_GUIDED_TOUR_TARGET_RETRY_MS = 100;
+export const DESKTOP_GUIDED_TOUR_TARGET_MAX_ATTEMPTS = 40;
+
 export function desktopGuidedTourModeEligible(mode) {
   return mode === 'shell' || mode === 'webapp';
 }
@@ -33,7 +36,6 @@ export function shouldAutoStartDesktopGuidedTour({
   startupNavigationSettled,
   hasActiveSession,
   blocked,
-  targetsReady,
   attempted,
 } = {}) {
   return desktopGuidedTourModeEligible(mode)
@@ -43,8 +45,16 @@ export function shouldAutoStartDesktopGuidedTour({
     && startupNavigationSettled === true
     && hasActiveSession === false
     && blocked === false
-    && targetsReady === true
     && attempted === false;
+}
+
+export function desktopGuidedTourTargetProbeAction({
+  targetsReady,
+  attempt = 0,
+  maxAttempts = DESKTOP_GUIDED_TOUR_TARGET_MAX_ATTEMPTS,
+} = {}) {
+  if (targetsReady === true) return 'start';
+  return attempt + 1 >= maxAttempts ? 'abort' : 'retry';
 }
 
 export function shouldPrepareDesktopGuidedTour({

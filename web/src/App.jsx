@@ -143,8 +143,11 @@ import {
   visiblePermissionRequests,
 } from './lib/permissionRequestQueue.js';
 import {
+  DESKTOP_GUIDED_TOUR_TARGET_MAX_ATTEMPTS,
+  DESKTOP_GUIDED_TOUR_TARGET_RETRY_MS,
   desktopGuidedTourHasModel,
   desktopGuidedTourModeEligible,
+  desktopGuidedTourTargetProbeAction,
   desktopGuidedTourTargetsReady,
   shouldAutoStartDesktopGuidedTour,
   shouldPrepareDesktopGuidedTour,
@@ -1393,7 +1396,6 @@ export function App() {
       startupNavigationSettled,
       hasActiveSession: guidedTourHasActiveSession,
       blocked: guidedTourBlocked,
-      targetsReady: desktopGuidedTourTargetsReady(),
       attempted: guidedTourAutoAttemptedRef.current,
     });
     if (!shouldStart) return;
@@ -1419,15 +1421,36 @@ export function App() {
     })) {
       return undefined;
     }
-    const timer = window.setTimeout(() => {
-      if (!desktopGuidedTourTargetsReady()) {
+    let timer = null;
+    let attempt = 0;
+    const probeTargets = () => {
+      const action = desktopGuidedTourTargetProbeAction({
+        targetsReady: desktopGuidedTourTargetsReady(),
+        attempt,
+        maxAttempts: DESKTOP_GUIDED_TOUR_TARGET_MAX_ATTEMPTS,
+      });
+      if (action === 'start') {
+        setGuidedTourRun(true);
+        setGuidedTourPreparing(false);
+        return;
+      }
+      if (action === 'abort') {
         abortGuidedTour();
         return;
       }
-      setGuidedTourRun(true);
-      setGuidedTourPreparing(false);
-    }, 280);
-    return () => window.clearTimeout(timer);
+      attempt += 1;
+      timer = window.setTimeout(
+        probeTargets,
+        DESKTOP_GUIDED_TOUR_TARGET_RETRY_MS,
+      );
+    };
+    timer = window.setTimeout(
+      probeTargets,
+      DESKTOP_GUIDED_TOUR_TARGET_RETRY_MS,
+    );
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
   }, [
     abortGuidedTour,
     authState,
