@@ -106,6 +106,14 @@ function optionalPositiveInteger(value, label = 'value', { allowNumericString = 
   return parsed;
 }
 
+function optionalCatalogLimit(value, label) {
+  // models.dev uses numeric zero for limits that do not apply (for example,
+  // image/video generators). Catalog metadata treats that sentinel as
+  // unknown; persisted model profiles remain strictly positive.
+  if (value === 0) return null;
+  return optionalPositiveInteger(value, label);
+}
+
 function requireBoolean(value, label) {
   if (typeof value !== 'boolean') throw contractError(`${label} must be a boolean`);
   return value;
@@ -299,8 +307,8 @@ export function normalizeCatalogModel(raw, index = 0) {
     id: requireString(value.id, `models[${index}].id`),
     name: optionalString(value.name, `models[${index}].name`)
       || requireString(value.id, `models[${index}].id`),
-    context_window: optionalPositiveInteger(value.context_window, `models[${index}].context_window`),
-    max_output_tokens: optionalPositiveInteger(
+    context_window: optionalCatalogLimit(value.context_window, `models[${index}].context_window`),
+    max_output_tokens: optionalCatalogLimit(
       value.max_output_tokens,
       `models[${index}].max_output_tokens`,
     ),

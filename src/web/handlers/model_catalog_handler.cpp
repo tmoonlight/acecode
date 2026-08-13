@@ -191,10 +191,10 @@ nlohmann::json model_to_json(const ModelEntry& model) {
     nlohmann::json result{
         {"id", model.id},
         {"name", model.name},
-        {"context_window", model.context.has_value()
+        {"context_window", model.context.has_value() && *model.context > 0
             ? nlohmann::json(*model.context)
             : nlohmann::json(nullptr)},
-        {"max_output_tokens", model.max_output.has_value()
+        {"max_output_tokens", model.max_output.has_value() && *model.max_output > 0
             ? nlohmann::json(*model.max_output)
             : nlohmann::json(nullptr)},
         {"capabilities", model_capabilities(model)},

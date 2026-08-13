@@ -422,6 +422,26 @@ run('编辑草稿回填响应里的 API Key 并保留 has_api_key 状态', () =>
   }]), /api_key must be a string/);
 });
 
+run('目录 Token 上限的零值哨兵归一化为未知', () => {
+  const result = normalizeProviderModelQuery({
+    provider_id: 'grok',
+    limit: 1,
+    models: [{
+      id: 'grok-imagine-image',
+      context_window: 0,
+      max_output_tokens: 0,
+    }],
+  }, 'grok');
+  assert.equal(result.models[0].context_window, null);
+  assert.equal(result.models[0].max_output_tokens, null);
+
+  assert.throws(() => normalizeProviderModelQuery({
+    provider_id: 'grok',
+    limit: 1,
+    models: [{ id: 'bad-limit', max_output_tokens: -1 }],
+  }, 'grok'), /max_output_tokens must be a positive integer/);
+});
+
 run('Grok Coding Plan 使用受管路径且 payload 不含端点、密钥或运行时覆盖', () => {
   const draft = {
     ...applyCatalogProviderToDraft(emptyModelProfileDraft(), grokProvider),

@@ -59,7 +59,10 @@ nlohmann::json catalog_fixture() {
             {"name", "xAI"},
             {"env", {"XAI_API_KEY"}},
             {"doc", "https://docs.x.ai/docs/models"},
-            {"models", {{"grok-test", {{"name", "Grok Test"}}}}},
+            {"models", {{"grok-test", {
+                {"name", "Grok Test"},
+                {"limit", {{"context", 100000}, {"output", 0}}},
+            }}}},
         }},
     };
 }
@@ -194,6 +197,8 @@ TEST(ModelCatalogHandler, NativeAliasesRemainUsable) {
     ASSERT_TRUE(grok.has_value());
     ASSERT_EQ((*grok)["models"].size(), 1u);
     EXPECT_EQ((*grok)["models"][0]["id"], "grok-test");
+    EXPECT_EQ((*grok)["models"][0]["context_window"], 100000);
+    EXPECT_TRUE((*grok)["models"][0]["max_output_tokens"].is_null());
 }
 
 TEST(ModelCatalogHandler, SharedContractFixtureMatchesCanonicalResponses) {
