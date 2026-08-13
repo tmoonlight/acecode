@@ -159,7 +159,7 @@ test('dark theme retains the original directional-light coefficients', () => {
   assert.match(logo, /glyphEdge \* \(0\.07 \+ glyphDiffuse \* 0\.10\) \* glyphReliefStrength/);
 });
 
-test('interactive logo uses a transparent local WebGL2 canvas and bounds direct-input frames', () => {
+test('interactive logo uses premultiplied transparent WebGL2 output and bounds direct-input frames', () => {
   const logo = source('components/InteractiveHomeLogo.jsx');
   const drawStart = logo.indexOf('const draw = (frameTimestamp) => {');
   const scheduleStart = logo.indexOf('const scheduleFrame = () => {', drawStart);
@@ -168,7 +168,11 @@ test('interactive logo uses a transparent local WebGL2 canvas and bounds direct-
 
   assert.match(logo, /canvas\.getContext\('webgl2', \{/);
   assert.match(logo, /alpha: true,/);
-  assert.match(logo, /premultipliedAlpha: false,/);
+  assert.match(logo, /premultipliedAlpha: true,/);
+  assert.doesNotMatch(logo, /premultipliedAlpha: false,/);
+  assert.match(logo, /premultiplied = min\(premultiplied, vec3\(alpha\)\);/);
+  assert.match(logo, /outColor = vec4\(premultiplied, alpha\);/);
+  assert.doesNotMatch(logo, /premultiplied \/ max\(alpha,/);
   assert.match(logo, /const MAX_DPR = 1\.5;/);
   assert.match(logo, /window\.addEventListener\('pointermove', handlePointerMove, \{ passive: true \}\);/);
   assert.match(logo, /pointer\.clientX - rect\.left/);

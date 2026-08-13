@@ -471,8 +471,8 @@ void main() {
   premultiplied = premultiplied * (1.0 - tileMask) + tileColor * tileMask;
   alpha = alpha * (1.0 - tileMask) + tileMask;
 
-  vec3 color = premultiplied / max(alpha, 0.0001);
-  outColor = vec4(color, alpha);
+  premultiplied = min(premultiplied, vec3(alpha));
+  outColor = vec4(premultiplied, alpha);
 }
 `;
 
@@ -508,7 +508,7 @@ export default function InteractiveHomeLogo({ className = '' }) {
       antialias: false,
       depth: false,
       powerPreference: 'low-power',
-      premultipliedAlpha: false,
+      premultipliedAlpha: true,
       preserveDrawingBuffer: false,
     });
     if (!gl) return undefined;
