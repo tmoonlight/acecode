@@ -1,240 +1,181 @@
-# macOS DMG Release Guide
+# macOS PKG Release Guide
 
-ACECode's `package` GitHub Actions workflow builds separate Intel (`macos-x64`)
-and Apple silicon (`macos-arm64`) disk images and self-update ZIPs. Tagged
-releases require a Developer ID signature and Apple notarization; the workflow
-will fail instead of publishing an unsigned macOS artifact when any required
-credential is missing.
+ACECode's `package` GitHub Actions workflow builds separate Intel
+(`macos-x64`) and Apple silicon (`macos-arm64`) Installer packages and
+self-update ZIPs. Tagged releases fail instead of publishing an unsigned or
+unnotarized macOS artifact when any required credential is missing.
 
 ## What Users Install
 
-Each DMG contains:
+Download the PKG matching the Mac architecture, double-click it, and confirm
+the normal steps in Apple's Installer application. The package offers only the
+current-user installation domain, so Installer places the app at:
 
-- `ACECode.app`
-- `Applications.app`, shown by Finder as `Applications`, a signed current-user
-  installation target
+```text
+~/Applications/ACECode.app
+```
 
-Open the DMG and drag `ACECode.app` onto `Applications` on the right. The target
-resolves the user who opened it and copies the bundled app to
-`~/Applications/ACECode.app`, then launches it without requiring another click
-or a success confirmation. Double-clicking `Applications` does not install;
-it only reminds the user to drag the left `ACECode` icon onto it.
+The PKG does not install into system `/Applications`, contain install scripts,
+invoke `sudo`, use Authorization Services, or request administrator access. A
+standard user with write access to their own home directory can install it.
+Double-clicking does not silently modify the computer: the user still reviews
+and confirms installation through macOS Installer.
 
-The current-user install has these boundaries:
+The component metadata expresses its path as `/Applications`, while the
+product enables only the `CurrentUserHomeDirectory` Installer domain. In that
+domain Installer resolves the component beneath the user's home, producing
+`~/Applications`; it does not select system-level `/Applications`.
 
-- It never writes to system `/Applications`, invokes `sudo`, uses Authorization
-  Services, or requests administrator access.
-- It resolves the home directory at runtime, creates a real `~/Applications`
-  when needed, and rejects symlinked or redirected destinations.
-- It accepts only the `ACECode.app` beside it in the signed DMG and asks the
-  user to quit a running ACECode before replacing an existing user copy.
+Quit ACECode before reinstalling or upgrading it with a PKG. Installer declares
+the production bundle identifier as a must-close application and replaces the
+same user-level application component. Users can uninstall ACECode by quitting
+it and deleting `~/Applications/ACECode.app`; no privileged uninstaller is
+required. Installer receipts may remain in the user's receipt database.
 
-Users can remove ACECode by quitting it and deleting
-`~/Applications/ACECode.app`. No privileged uninstaller is required.
-
-After the first DMG installation, the desktop's existing **Check for updates**
-flow replaces the current-user app in place. Self-update accepts only the exact
-`~/Applications/ACECode.app` installation and the supported existing
-`/Applications/ACECode.app` location. An app launched from the DMG or another
-copied location asks the user to install with the signed DMG first. Existing
-system installations still stop safely before update when `/Applications` is
-not writable.
+ACECode no longer builds or publishes a DMG. There is no fake Applications
+folder and no Finder drag-install path.
 
 ## Self-Update Trust And Replacement
 
-The update service still uses `aceupdate.json`, package size, and SHA-256. On
-macOS those checks are followed by an independent native trust check before the
-installed app is touched:
+The graphical PKG is distinct from the self-update archive. The update service
+continues using `ACECode-<version>-macos-<arch>-update.zip`, `aceupdate.json`,
+package size, and SHA-256. Native preflight additionally enforces:
 
-- The archive must contain one complete top-level (or single-wrapper)
-  `ACECode.app` and no symbolic-link or special-file ZIP entries. Release ZIPs
-  also carry a root `acecode` copied from the notarized bundle so standalone CLI
-  installations keep their flat upgrade behavior.
-- The app and all nested code must pass strict Apple code-signature validation.
-- The candidate must use bundle identifier `dev.acecode.desktop`, report the
-  manifest's exact version, and use the same non-empty Apple Developer Team ID
-  as the installed app.
-- The containing Applications directory and `ACECode.app` must not be symlinks
-  or resolve outside the exact `~/Applications/ACECode.app` or supported
-  `/Applications/ACECode.app` destinations.
+- One complete `ACECode.app`, plus the signed flat CLI payload used by existing
+  standalone CLI installations.
+- Strict Apple signatures for the app and nested code.
+- Bundle identifier `dev.acecode.desktop`, the manifest version, and the same
+  non-empty Apple Developer Team ID as the installed copy.
+- An exact, non-symlinked `~/Applications/ACECode.app` or legacy
+  `/Applications/ACECode.app` destination.
 
-The updater copies and validates the new app as a hidden sibling, moves the old
-app to `.ACECode.previous.app` beside the running installation, then switches
-the new bundle into place. If the switch or final validation fails, it restores
-the previous app. The desktop's normal restart action stops its daemons and tray
-resources before launching the new executable.
+The updater stages a hidden sibling, validates it, retains one previous bundle,
+and rolls back when replacement validation fails. New PKG installations always
+use `~/Applications`; existing `/Applications` installations remain supported
+but are neither relocated nor deleted automatically.
 
-Only one previous app is retained. After confirming the new release works, the
-hidden backup may be deleted manually. If a new release cannot launch, quit all
-ACECode processes and restore that bundle from Terminal or Finder before trying
-the update again.
+## One-Time Apple And GitHub Setup
 
-## One-Time GitHub Setup
+### Export both Developer ID identities
 
-### 1. Export the Developer ID identity
+The release needs two different identities with their private keys:
 
-In Keychain Access, open the login keychain and select **My Certificates**.
-Expand the `Developer ID Application` certificate and confirm that its private
-key is present. Export the identity as a password-protected `.p12` file. A
-`Developer ID Installer` certificate is not required because ACECode ships a
-signed app inside a DMG rather than an Apple installer package (`.pkg`).
+- `Developer ID Application` signs ACECode executables and `ACECode.app`.
+- `Developer ID Installer` signs the outer `.pkg` product archive.
 
-Encode the exported file without line breaks:
+Export each identity from Keychain Access as its own password-protected `.p12`.
+Encode each file without line breaks:
 
 ```bash
-openssl base64 -A -in /path/to/ACECode-Developer-ID.p12 | pbcopy
+openssl base64 -A -in /secure/ACECode-Developer-ID-Application.p12 | pbcopy
+openssl base64 -A -in /secure/ACECode-Developer-ID-Installer.p12 | pbcopy
 ```
 
-Do not commit the `.p12` file or its password. After the GitHub setup is
-verified, move the export to secure offline storage or delete it.
+Do not commit certificate exports or passwords. Keep verified exports in secure
+offline storage or delete them after configuring GitHub.
 
-### 2. Create an Apple app-specific password
+### Create an Apple app-specific password
 
 Sign in at [Apple Account](https://account.apple.com/), open **Sign-In and
-Security**, then create an app-specific password named for the ACECode release
-workflow. The Apple Account must have two-factor authentication enabled.
+Security**, and create an app-specific password for the ACECode release
+workflow. Two-factor authentication must be enabled.
 
-### 3. Add repository secrets
+### Add repository secrets
 
-Open **GitHub repository > Settings > Secrets and variables > Actions** and add
-these repository secrets:
+Under **GitHub repository > Settings > Secrets and variables > Actions**, add:
 
 | Secret | Value |
 | --- | --- |
-| `MACOS_CERTIFICATE_BASE64` | The single-line base64 text copied above |
-| `MACOS_CERTIFICATE_PASSWORD` | Password chosen while exporting the `.p12` |
+| `MACOS_CERTIFICATE_BASE64` | Base64 Developer ID Application `.p12` |
+| `MACOS_CERTIFICATE_PASSWORD` | Application `.p12` export password |
+| `MACOS_INSTALLER_CERTIFICATE_BASE64` | Base64 Developer ID Installer `.p12` |
+| `MACOS_INSTALLER_CERTIFICATE_PASSWORD` | Installer `.p12` export password |
 | `APPLE_ID` | Apple Account email used for notarization |
-| `APPLE_TEAM_ID` | Apple Developer Team ID, for example `T52GZCH73Y` |
-| `APPLE_APP_SPECIFIC_PASSWORD` | The generated app-specific password |
+| `APPLE_TEAM_ID` | Apple Developer Team ID |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password |
 
-The existing tag workflow also starts `publish-npm`. Add `NPM_TOKEN` when npm
-publishing is wanted; without it, the independent GitHub Release can still be
-created, but the npm job reports a failure. This token is separate from macOS
-signing.
+The optional Actions variables `MACOS_CODESIGN_IDENTITY` and
+`MACOS_INSTALLER_SIGNING_IDENTITY` can contain the expected full identity
+names. The workflow verifies those names when configured, uses the application
+certificate fingerprint for `codesign`, and uses the Installer identity name
+for `productbuild`.
 
-The optional Actions variable `MACOS_CODESIGN_IDENTITY` can contain the full
-identity name, for example `Developer ID Application: Name (TEAMID)`. When it is
-set, the workflow uses it to verify that the imported `.p12` is the expected
-identity. Signing itself always uses the unique certificate fingerprint found
-in the temporary keychain, and the workflow adds that temporary keychain to the
-runner user's keychain search list before invoking `codesign`. Leave the
-variable unset when the exported `.p12` contains only one Developer ID
-Application identity and this extra guard is not needed.
+The independent npm publication job requires `NPM_TOKEN` when npm publishing
+is desired.
 
 ## Local Notarization Credentials
 
-For local release testing, store notarization credentials in Keychain rather
-than in a shell history:
+Store local credentials in Keychain rather than shell history:
 
 ```bash
 xcrun notarytool store-credentials "ACECode-notary"
 xcrun notarytool history --keychain-profile "ACECode-notary"
 ```
 
-Enter the Apple Account, Team ID, and app-specific password when prompted. This
-profile is local-only; GitHub Actions uses repository secrets instead.
-
-Apple's current references are
+Apple references:
 [Developer ID certificates](https://developer.apple.com/help/account/certificates/create-developer-id-certificates),
 [custom notarization workflows](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow),
 and [app-specific passwords](https://support.apple.com/zh-cn/102654).
 
 ## Dry Run
 
-After the workflow changes are on GitHub, open **Actions > package > Run
-workflow** and leave `npm_version` empty.
+Run **Actions > package > Run workflow** with `npm_version` empty.
 
-- With all five macOS secrets configured, the apps and two DMGs are signed,
-  notarized, stapled, Gatekeeper-checked, and uploaded together with verified
-  `*-update.zip` artifacts.
-- Without those secrets, a manual run still creates artifacts whose filenames
-  end in `-unsigned.dmg` or `-update-unsigned.zip`, for packaging inspection
-  only. Never place those ZIPs on the update service.
-- A `v*` tag never permits the unsigned fallback.
+- With all seven macOS secrets configured, the app and two architecture PKGs
+  are signed, notarized, stapled, Gatekeeper-checked, and uploaded alongside
+  trusted update ZIPs.
+- Without complete credentials, a manual run emits `-unsigned.pkg` and
+  `-update-unsigned.zip` artifacts for structural inspection only.
+- A `v*` tag never permits unsigned fallback.
 
-Download both DMG artifacts and test the matching architecture on a clean Mac
-user account before creating the release tag.
+Before tagging, install each signed PKG on a clean non-admin account. Confirm
+that Installer does not show an administrator authentication sheet and that the
+result exists only at `~/Applications/ACECode.app`.
 
 ## Tagged Release
 
-The version in `CMakeLists.txt` is authoritative. The tag must match it exactly:
+The version in `CMakeLists.txt` is authoritative and must exactly match the tag:
 
 ```bash
 git switch master
 git pull --ff-only
-git tag -a v0.8.8 -m "ACECode v0.8.8"
-git push origin v0.8.8
+git tag -a v0.8.16 -m "ACECode v0.8.16"
+git push origin v0.8.16
 ```
 
-The tag starts the full package workflow. After every platform build succeeds,
-GitHub creates a Release containing the versioned x64 and arm64 DMGs, matching
-`ACECode-<version>-macos-<arch>-update.zip` files, platform archives, debug
-symbols, and `SHA256SUMS.txt`. Do not reuse a failed public tag; fix the cause,
-increment the version, and create a new tag.
+After all platform builds succeed, GitHub creates a Release containing the x64
+and arm64 PKGs, matching self-update ZIPs, platform archives, debug symbols,
+and `SHA256SUMS.txt`. Do not reuse a failed public tag; fix the cause, increment
+the version, and create a new tag.
 
 ## Publish To The Update Service
 
-Upload both final update ZIPs beside `aceupdate.json` under the configured
-upgrade base URL. Do not point macOS records at a DMG, the npm tar archive, or an
-unsigned dry-run ZIP. Calculate the exact metadata from the files that were
-uploaded:
+Upload only the final `*-update.zip` files beside `aceupdate.json`. Do not point
+update records at the PKG, npm archive, or an unsigned dry-run ZIP. Calculate
+the exact digest and size from uploaded files:
 
 ```bash
-shasum -a 256 ACECode-0.8.9-macos-*-update.zip
-stat -f '%N %z' ACECode-0.8.9-macos-*-update.zip
-```
-
-Add both architecture records to the release. Replace the illustrative hashes
-and sizes below with the command output:
-
-```json
-{
-  "schema_version": 1,
-  "latest": "0.8.9",
-  "releases": [
-    {
-      "version": "0.8.9",
-      "published_at": "2026-08-06T20:00:00Z",
-      "notes": "macOS self-update support.",
-      "packages": [
-        {
-          "target": "macos-x64",
-          "file": "ACECode-0.8.9-macos-x64-update.zip",
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "size": 12345678
-        },
-        {
-          "target": "macos-arm64",
-          "file": "ACECode-0.8.9-macos-arm64-update.zip",
-          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "size": 12345678
-        }
-      ]
-    }
-  ]
-}
+shasum -a 256 ACECode-0.8.16-macos-*-update.zip
+stat -f '%N %z' ACECode-0.8.16-macos-*-update.zip
 ```
 
 Publish ZIPs before changing the manifest so clients never observe a release
-whose package is missing. HTTPS is strongly recommended. Bundled-app updates
-also pin the Developer ID Team during native preflight; standalone CLI updates
-retain the existing manifest, size, and checksum trust contract.
+whose package is missing. Bundled-app updates also pin the Developer ID Team;
+standalone CLI updates retain the manifest, size, and checksum trust contract.
 
-## Local Build And DMG Check
+## Local Build And PKG Check
 
 Given an already configured macOS build directory:
 
 ```bash
-cmake --build build --target acecode acecode-desktop acecode-user-applications
+cmake --build build --target acecode acecode-desktop
 
-bash scripts/macos_verify_user_applications_drop.sh \
-  --bundle build/Applications.app
+app_identity="Developer ID Application: Name (TEAMID)"
+installer_identity="Developer ID Installer: Name (TEAMID)"
 
-codesign_identity="Developer ID Application: Name (TEAMID)"
 scripts/macos_codesign.sh \
-  --identity "$codesign_identity" \
+  --identity "$app_identity" \
   --binary build/acecode \
-  --bundle build/Applications.app \
   --app build/ACECode.app
 
 scripts/macos_notarize_app.sh \
@@ -246,20 +187,20 @@ scripts/macos_create_update_zip.sh \
   --output dist/ACECode-local-macos-arm64-update.zip \
   --require-trusted
 
-scripts/macos_create_dmg.sh \
+scripts/macos_create_pkg.sh \
   --app build/ACECode.app \
-  --user-applications build/Applications.app \
-  --output dist/ACECode-local.dmg
+  --output dist/ACECode-local.pkg \
+  --installer-identity "$installer_identity"
 
-codesign --force --timestamp --sign "$codesign_identity" \
-  dist/ACECode-local.dmg
-scripts/macos_notarize.sh \
-  --file dist/ACECode-local.dmg \
+scripts/macos_notarize_pkg.sh \
+  --pkg dist/ACECode-local.pkg \
   --keychain-profile "ACECode-notary"
+
+installer -dominfo -pkg dist/ACECode-local.pkg
+pkgutil --check-signature dist/ACECode-local.pkg
+spctl --assess --type install --verbose=4 dist/ACECode-local.pkg
 ```
 
-The notarization helpers wait for Apple's result, require `Accepted`, staple and
-validate the app or DMG ticket, and run a Gatekeeper assessment. The update ZIP
-helper follows Apple's `ditto --keepParent` workflow and verifies a clean
-extraction before publishing. GitHub Actions runs the same helpers using
-secrets.
+For a local unsigned structural package, omit `--installer-identity`; never
+publish that output. `macos_create_pkg.sh` expands and audits its own output and
+requires `installer -dominfo` to return only `CurrentUserHomeDirectory`.

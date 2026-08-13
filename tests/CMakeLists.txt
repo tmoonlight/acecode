@@ -9,11 +9,11 @@ if(UNIX)
     set_tests_properties(macos_release_scripts_contract PROPERTIES LABELS "unit")
 
     add_test(
-        NAME macos_dmg_layout_contract
+        NAME macos_pkg_installation_contract
         COMMAND /bin/bash
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/macos_dmg_layout_test.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/macos_pkg_installation_test.sh
     )
-    set_tests_properties(macos_dmg_layout_contract PROPERTIES LABELS "unit")
+    set_tests_properties(macos_pkg_installation_contract PROPERTIES LABELS "unit")
 endif()
 
 file(GLOB_RECURSE ACECODE_TEST_SOURCES CONFIGURE_DEPENDS

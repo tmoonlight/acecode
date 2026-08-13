@@ -131,17 +131,8 @@ endif()
 
 if(APPLE)
     set(ACECODE_MACOS_ICON "${CMAKE_SOURCE_DIR}/assets/macos/acecode.icns")
-    set(ACECODE_MACOS_USER_APPLICATIONS_ICON
-        "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/ApplicationsFolderIcon.icns")
-    if(NOT EXISTS "${ACECODE_MACOS_USER_APPLICATIONS_ICON}")
-        message(FATAL_ERROR
-            "Missing macOS Applications folder icon: ${ACECODE_MACOS_USER_APPLICATIONS_ICON}")
-    endif()
     target_sources(acecode-desktop PRIVATE "${ACECODE_MACOS_ICON}")
     set_source_files_properties("${ACECODE_MACOS_ICON}" PROPERTIES
-        MACOSX_PACKAGE_LOCATION "Resources"
-    )
-    set_source_files_properties("${ACECODE_MACOS_USER_APPLICATIONS_ICON}" PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources"
     )
     set_target_properties(acecode-desktop PROPERTIES
@@ -173,30 +164,6 @@ if(APPLE)
         VERBATIM
     )
 
-    add_executable(acecode-user-applications MACOSX_BUNDLE
-        ${CMAKE_SOURCE_DIR}/src/macos_user_applications/main.mm
-        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.cpp
-        ${CMAKE_SOURCE_DIR}/src/desktop/user_install_policy.hpp
-        ${ACECODE_MACOS_USER_APPLICATIONS_ICON}
-    )
-    target_include_directories(acecode-user-applications PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-    )
-    target_link_libraries(acecode-user-applications PRIVATE
-        "-framework AppKit"
-        "-framework Foundation"
-    )
-    set_target_properties(acecode-user-applications PROPERTIES
-        RUNTIME_OUTPUT_NAME "Applications"
-        MACOSX_BUNDLE_BUNDLE_NAME "Applications"
-        MACOSX_BUNDLE_ICON_FILE "ApplicationsFolderIcon.icns"
-        MACOSX_BUNDLE_GUI_IDENTIFIER "dev.acecode.user-applications"
-        MACOSX_BUNDLE_INFO_PLIST
-            "${CMAKE_SOURCE_DIR}/cmake/macos/ACECodeUserApplicationsInfo.plist.in"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${ACECODE_BUILD_VERSION}"
-        MACOSX_BUNDLE_COPYRIGHT "ACECode contributors"
-    )
 endif()
 
 if(MSVC)

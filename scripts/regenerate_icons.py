@@ -3,8 +3,7 @@
 The default source is ``assets/branding/acecode-icon.svg``. Raster sources are
 also accepted for one-off regeneration. Pillow is required; SVG input uses
 ``sips`` on macOS, ``rsvg-convert``, or ImageMagick. When ``iconutil`` is
-available, the macOS ICNS used by both the app bundle and DMG is regenerated as
-well.
+available, the macOS ICNS used by the app bundle is regenerated as well.
 
 Usage:
   python3 scripts/regenerate_icons.py [source.svg|source.png]

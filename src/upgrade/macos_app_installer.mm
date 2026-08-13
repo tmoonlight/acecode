@@ -118,7 +118,7 @@ bool validate_safe_install_path(const fs::path& installed_bundle,
         set_error(error,
                   "macOS self-update requires ~/Applications/ACECode.app or "
                   "/Applications/ACECode.app; "
-                  "reinstall ACECode with the signed DMG first");
+                  "reinstall ACECode with the signed PKG first");
         return false;
     }
 
@@ -188,8 +188,7 @@ bool validate_safe_install_path(const fs::path& installed_bundle,
             desktop::MacosInstallLocation::system_applications) {
             set_error(error,
                       "ACECode cannot modify /Applications. Install the update "
-                      "manually by dragging ACECode.app from the signed DMG to "
-                      "Applications");
+                      "manually with the signed ACECode PKG");
         } else {
             set_error(error,
                       "ACECode cannot modify ~/Applications: " +
