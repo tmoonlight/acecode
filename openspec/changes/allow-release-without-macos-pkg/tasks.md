@@ -11,4 +11,4 @@
 ## 3. 验证
 
 - [x] 3.1 运行 OpenSpec strict validation、工作流契约检查、Shell 语法检查和 `git diff --check`
-- [ ] 3.2 在无 Installer Secret 的 GitHub Actions 干跑中确认可信 macOS 资产成功且没有 PKG artifact
+- [x] 3.2 在无 Installer Secret 的 GitHub Actions 干跑中确认可信 macOS 资产成功且没有 PKG artifact
