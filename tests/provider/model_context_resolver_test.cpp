@@ -60,6 +60,33 @@ const char* kOtherRegistry = R"({
   }
 })";
 
+const char* kGrokRegistryWithPricing = R"({
+  "xai": {
+    "id": "xai",
+    "models": {
+      "grok-4.6": {
+        "id": "grok-4.6",
+        "cost": { "input": 2, "output": 6 },
+        "limit": { "context": 500000, "input": 500000, "output": 500000 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
+      }
+    }
+  }
+})";
+
+const char* kGrokRegistryWithPricingOnly = R"({
+  "xai": {
+    "id": "xai",
+    "models": {
+      "grok-unknown-window": {
+        "id": "grok-unknown-window",
+        "cost": { "input": 2, "output": 6 },
+        "modalities": { "input": ["text"], "output": ["text"] }
+      }
+    }
+  }
+})";
+
 } // namespace
 
 // 场景:本地 models.dev 有匹配项 → 非阻塞解析直接返回准确 context。
@@ -76,6 +103,45 @@ TEST(ModelContextResolver, NonblockingUsesLocalModelsDevContext) {
         cfg, "openai", cfg.openai.model, 128000);
 
     EXPECT_EQ(got, 131072);
+}
+
+// 场景:Grok 目录同时有 `cost.input=2` 与 `limit.context=500000`。
+// 价格字段绝不能被递归误认成 2-token 上下文窗口。
+TEST(ModelContextResolver, GrokCatalogUsesTokenLimitInsteadOfInputPrice) {
+    acecode::reset_model_context_window_cache_for_test();
+    auto dir = tmp_dir("grok_pricing");
+    auto registry_path = dir / "api.json";
+    write_file(registry_path, kGrokRegistryWithPricing);
+
+    acecode::AppConfig cfg;
+    cfg.provider = "grok";
+    cfg.context_window = 128000;
+    cfg.openai.models_dev_provider_id = "xai";
+    cfg.models_dev.user_override_path = registry_path.string();
+    acecode::initialize_registry(cfg, "");
+
+    EXPECT_EQ(acecode::resolve_model_context_window_nonblocking(
+                  cfg, "grok", "grok-4.6", cfg.context_window),
+              500000);
+}
+
+// 场景:目录只有价格、没有 Token 上限时必须回退，不能把价格 2 当窗口。
+TEST(ModelContextResolver, GrokCatalogInputPriceAloneFallsBack) {
+    acecode::reset_model_context_window_cache_for_test();
+    auto dir = tmp_dir("grok_pricing_only");
+    auto registry_path = dir / "api.json";
+    write_file(registry_path, kGrokRegistryWithPricingOnly);
+
+    acecode::AppConfig cfg;
+    cfg.provider = "grok";
+    cfg.context_window = 128000;
+    cfg.openai.models_dev_provider_id = "xai";
+    cfg.models_dev.user_override_path = registry_path.string();
+    acecode::initialize_registry(cfg, "");
+
+    EXPECT_EQ(acecode::resolve_model_context_window_nonblocking(
+                  cfg, "grok", "grok-unknown-window", cfg.context_window),
+              cfg.context_window);
 }
 
 // 场景:首次命中本地 metadata 后写入进程缓存;随后 registry 丢失同 provider,

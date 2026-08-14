@@ -3075,11 +3075,11 @@ static ModelProfile initialize_tui_provider_runtime(
         provider = provider_slot.provider;
     }
     if (provider) {
-        config.context_window = resolve_model_context_window(
-            config,
-            provider->name(),
-            provider->model(),
-            config.context_window);
+        // Startup must use the same profile-aware priority as session create,
+        // switch, and resume. Calling the provider/model-only resolver here
+        // bypassed an explicit saved-model context_window in TUI launches.
+        config.context_window = resolve_model_profile_context_window(
+            config, effective_entry, config.context_window);
     } else {
         LOG_WARN("[main] no configured model provider; starting without an active model");
     }

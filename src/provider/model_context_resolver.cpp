@@ -77,44 +77,74 @@ int json_int_value(const nlohmann::json& value) {
     return 0;
 }
 
+int first_positive_integer_for_keys(
+    const nlohmann::json& value,
+    const std::vector<std::string>& keys) {
+    if (!value.is_object()) return 0;
+    for (const auto& key : keys) {
+        auto it = value.find(key);
+        if (it == value.end()) continue;
+        const int parsed = json_int_value(*it);
+        if (parsed > 0) return parsed;
+    }
+    return 0;
+}
+
 int extract_context_length(const nlohmann::json& value) {
-    static const std::vector<std::string> keys = {
+    // Only read fields whose schema describes token capacity. A model object
+    // can also contain `cost.input` (price) and `modalities.input` (array);
+    // recursively accepting a bare `input` turns e.g. price 2 into a 2-token
+    // context window before the later `limit.context` key is visited.
+    static const std::vector<std::string> direct_keys = {
         "context_length",
         "context_window",
         "max_context_length",
         "max_input_tokens",
         "input_token_limit",
         "input_tokens",
-        "context",
-        "input"
+        "context"
     };
+    static const std::vector<std::string> limit_container_keys = {
+        "limit", "limits", "token_limit", "token_limits"
+    };
+    static const std::vector<std::string> metadata_container_keys = {
+        "_meta", "metadata", "capabilities"
+    };
+    static const std::vector<std::string> short_limit_keys = {"input"};
 
-    if (value.is_object()) {
-        for (const auto& key : keys) {
-            auto it = value.find(key);
-            if (it != value.end()) {
-                int parsed = json_int_value(*it);
-                if (parsed > 0) {
-                    return parsed;
-                }
-            }
-        }
-
-        for (const auto& item : value.items()) {
-            int parsed = extract_context_length(item.value());
-            if (parsed > 0) {
-                return parsed;
-            }
-        }
+    if (!value.is_object()) return 0;
+    if (int parsed = first_positive_integer_for_keys(value, direct_keys);
+        parsed > 0) {
+        return parsed;
     }
 
-    if (value.is_array()) {
-        for (const auto& item : value) {
-            int parsed = extract_context_length(item);
-            if (parsed > 0) {
+    auto read_limit_container = [&](const nlohmann::json& parent) {
+        for (const auto& container_key : limit_container_keys) {
+            auto it = parent.find(container_key);
+            if (it == parent.end() || !it->is_object()) continue;
+            if (int parsed = first_positive_integer_for_keys(*it, direct_keys);
+                parsed > 0) {
+                return parsed;
+            }
+            if (int parsed = first_positive_integer_for_keys(
+                    *it, short_limit_keys);
+                parsed > 0) {
                 return parsed;
             }
         }
+        return 0;
+    };
+
+    if (int parsed = read_limit_container(value); parsed > 0) return parsed;
+
+    for (const auto& metadata_key : metadata_container_keys) {
+        auto it = value.find(metadata_key);
+        if (it == value.end() || !it->is_object()) continue;
+        if (int parsed = first_positive_integer_for_keys(*it, direct_keys);
+            parsed > 0) {
+            return parsed;
+        }
+        if (int parsed = read_limit_container(*it); parsed > 0) return parsed;
     }
 
     return 0;
