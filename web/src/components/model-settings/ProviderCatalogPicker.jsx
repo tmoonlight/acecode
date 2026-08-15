@@ -48,6 +48,7 @@ export function ProviderCatalogPicker({
   provider,
   draft,
   allowMultiple,
+  directModelDetails,
   managedAuthenticated,
   managedConnection,
   onProviderChange,
@@ -62,6 +63,7 @@ export function ProviderCatalogPicker({
   const [probeError, setProbeError] = useState('');
   const [manualModel, setManualModel] = useState('');
   const selectedModels = splitModelIds(draft.model);
+  const directModelIdInput = provider?.model_input === 'manual';
 
   const groupedProviders = useMemo(
     () => groupCatalogProviders(providers, providerQuery),
@@ -171,8 +173,8 @@ export function ProviderCatalogPicker({
     ));
 
   return (
-    <div className="grid min-h-[320px] grid-cols-1 overflow-hidden rounded-md border border-border bg-surface md:grid-cols-[220px_minmax(0,1fr)]">
-      <div className="border-b border-border bg-surface-alt p-2.5 md:border-b-0 md:border-r">
+    <div className="grid min-h-[320px] grid-cols-1 overflow-hidden rounded-md border border-border bg-surface md:h-[420px] md:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="border-b border-border bg-surface-alt p-2.5 md:flex md:min-h-0 md:flex-col md:border-b-0 md:border-r">
         <label className="relative block">
           <span className="sr-only">搜索 Provider</span>
           <VsIcon name="search" size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-mute" />
@@ -185,7 +187,7 @@ export function ProviderCatalogPicker({
           />
         </label>
         <div
-          className="mt-2 max-h-[210px] space-y-2 overflow-y-auto pr-0.5 md:max-h-[360px]"
+          className="mt-2 max-h-[210px] space-y-2 overflow-y-auto pr-0.5 md:min-h-0 md:max-h-none md:flex-1"
           role="listbox"
           aria-label="Provider 列表"
         >
@@ -234,7 +236,7 @@ export function ProviderCatalogPicker({
         </div>
       </div>
 
-      <div className="min-w-0 p-3">
+      <div className="min-w-0 p-3 md:min-h-0 md:overflow-y-auto">
         {provider ? (
           <>
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -267,7 +269,7 @@ export function ProviderCatalogPicker({
                     Provider 文档
                   </button>
                 )}
-                {(provider.runtime_provider === 'openai' || managedProvider) && (
+                {!directModelIdInput && (provider.runtime_provider === 'openai' || managedProvider) && (
                   <button
                     type="button"
                     onClick={probeModels}
@@ -290,129 +292,148 @@ export function ProviderCatalogPicker({
               </div>
             )}
 
-            <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-surface-alt px-2.5 py-2">
-              <VsIcon name="edit" size={12} className="shrink-0 text-fg-mute" />
-              <input
-                type="text"
-                aria-label="手动模型 ID"
-                value={manualModel}
-                onChange={(event) => setManualModel(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    addManualModel();
-                  }
-                }}
-                placeholder="输入模型 ID，按 Enter 添加"
-                className="min-w-0 flex-1 bg-transparent text-[11px] text-fg outline-none placeholder:text-fg-mute"
-              />
-              <button
-                type="button"
-                onClick={addManualModel}
-                disabled={!manualModel.trim()}
-                className="h-6 rounded px-2 text-[10px] font-medium text-accent transition hover:bg-accent-bg focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
-              >
-                添加
-              </button>
-            </div>
-
-            <div className="mt-2 flex items-center gap-2">
-              <label className="relative min-w-0 flex-1">
-                <span className="sr-only">搜索模型</span>
-                <VsIcon name="search" size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-mute" />
-                <input
-                  type="search"
-                  value={modelQuery}
-                  onChange={(event) => setModelQuery(event.target.value)}
-                  placeholder={provider.model_input === 'catalog' ? '搜索目录模型' : '过滤探测结果'}
-                  className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-2 text-[11px] text-fg outline-none placeholder:text-fg-mute focus:border-accent focus:ring-1 focus:ring-accent-soft"
-                />
-              </label>
-              <span className="shrink-0 text-[10px] text-fg-mute">
-                {allowMultiple ? '可多选' : '单选'}
-              </span>
-            </div>
-
-            <div
-              className="mt-2 max-h-[210px] overflow-y-auto rounded-md border border-border bg-surface"
-              role="listbox"
-              aria-label="模型列表"
-              aria-multiselectable={allowMultiple || undefined}
-              aria-busy={catalogStatus === 'loading' || probeStatus === 'loading'}
-            >
-              {(catalogStatus === 'loading' || probeStatus === 'loading') && (
-                <div className="px-3 py-5 text-center text-[11px] text-fg-mute">正在读取模型…</div>
-              )}
-              {(catalogError || probeError) && (
-                <div role="status" className="px-3 py-3 text-[11px] text-danger">
-                  {catalogError || probeError}
-                </div>
-              )}
-              {displayedModels.map((model, index) => {
-                const selected = selectedModels.includes(model.id);
-                const metadata = modelMetadataSummary(model);
-                return (
-                  <button
-                    key={model.id}
-                    type="button"
-                    role="option"
-                    onClick={() => updateSelectedModels(model.id, model)}
-                    aria-selected={selected}
-                    className={clsx(
-                      'flex w-full items-center gap-2.5 px-3 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent',
-                      index > 0 && 'border-t border-border',
-                      selected ? 'bg-accent-bg' : 'hover:bg-surface-hi',
-                    )}
+            {directModelIdInput ? (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label
+                    htmlFor="custom-openai-model-id"
+                    className="mb-1.5 block text-[11px] font-medium text-fg-2"
                   >
-                    <span className={clsx(
-                      'flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded border text-[10px]',
-                      selected
-                        ? 'border-accent bg-accent text-white'
-                        : 'border-border bg-surface text-transparent',
-                    )}>
-                      ✓
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[11px] font-medium text-fg">{model.name || model.id}</span>
-                      <span className="block truncate text-[10px] text-fg-mute">{model.id}</span>
-                      {metadata && (
-                        <span className="mt-0.5 block truncate text-[10px] text-fg-mute">
-                          {metadata}
-                        </span>
-                      )}
-                    </span>
-                    {(model.deprecated || model.unavailable) && (
-                      <span className="shrink-0 text-[10px] text-warn">不可用警告</span>
-                    )}
-                  </button>
-                );
-              })}
-              {catalogStatus !== 'loading' && probeStatus !== 'loading'
-                && displayedModels.length === 0 && !catalogError && !probeError && (
-                <div className="px-3 py-5 text-center text-[11px] text-fg-mute">
-                  {provider.model_input === 'catalog'
-                    ? '目录中没有匹配模型，仍可手动输入模型 ID。'
-                    : '可以手动输入模型 ID，或使用“探测模型”。'}
+                    Model ID
+                  </label>
+                  <input
+                    id="custom-openai-model-id"
+                    type="text"
+                    value={draft.model}
+                    onChange={(event) => onDraftChange({ ...draft, model: event.target.value })}
+                    placeholder="例如：gpt-4.1"
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-describedby="custom-openai-model-id-help"
+                    className="h-9 w-full rounded-md border border-border bg-surface px-3 text-[12px] text-fg outline-none transition placeholder:text-fg-mute focus:border-accent focus:ring-1 focus:ring-accent-soft"
+                  />
+                  <p id="custom-openai-model-id-help" className="mt-1.5 text-[10px] text-fg-mute">
+                    直接输入 OpenAI 兼容接口实际使用的模型 ID。
+                  </p>
                 </div>
-              )}
-            </div>
-
-            {selectedModels.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5" aria-label="已选择模型">
-                {selectedModels.map((modelId) => (
-                  <span key={modelId} className="inline-flex items-center gap-1 rounded-md border border-accent-soft bg-accent-bg py-1 pl-2 pr-1 text-[10px] text-accent">
-                    <span className="max-w-[240px] truncate">{modelId}</span>
-                    <button
-                      type="button"
-                      onClick={() => updateSelectedModels(modelId)}
-                      className="flex h-4 w-4 items-center justify-center rounded hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent"
-                      aria-label={`移除模型 ${modelId}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
+                {directModelDetails}
               </div>
+            ) : (
+              <>
+                <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-surface-alt px-2.5 py-2">
+                  <VsIcon name="edit" size={12} className="shrink-0 text-fg-mute" />
+                  <input
+                    type="text"
+                    aria-label="手动模型 ID"
+                    value={manualModel}
+                    onChange={(event) => setManualModel(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        addManualModel();
+                      }
+                    }}
+                    placeholder="输入模型 ID，按 Enter 添加"
+                    className="min-w-0 flex-1 bg-transparent text-[11px] text-fg outline-none placeholder:text-fg-mute"
+                  />
+                  <button
+                    type="button"
+                    onClick={addManualModel}
+                    disabled={!manualModel.trim()}
+                    className="h-6 rounded px-2 text-[10px] font-medium text-accent transition hover:bg-accent-bg focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+                  >
+                    添加
+                  </button>
+                </div>
+
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="relative min-w-0 flex-1">
+                    <span className="sr-only">搜索模型</span>
+                    <VsIcon name="search" size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-mute" />
+                    <input
+                      type="search"
+                      value={modelQuery}
+                      onChange={(event) => setModelQuery(event.target.value)}
+                      placeholder="搜索目录模型"
+                      className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-2 text-[11px] text-fg outline-none placeholder:text-fg-mute focus:border-accent focus:ring-1 focus:ring-accent-soft"
+                    />
+                  </label>
+                </div>
+
+                <div
+                  className="mt-2 max-h-[210px] overflow-y-auto rounded-md border border-border bg-surface"
+                  role={allowMultiple ? 'group' : 'radiogroup'}
+                  aria-label="模型列表"
+                  aria-busy={catalogStatus === 'loading' || probeStatus === 'loading'}
+                >
+                  {(catalogStatus === 'loading' || probeStatus === 'loading') && (
+                    <div className="px-3 py-5 text-center text-[11px] text-fg-mute">正在读取模型…</div>
+                  )}
+                  {(catalogError || probeError) && (
+                    <div role="status" className="px-3 py-3 text-[11px] text-danger">
+                      {catalogError || probeError}
+                    </div>
+                  )}
+                  {displayedModels.map((model, index) => {
+                    const selected = selectedModels.includes(model.id);
+                    const metadata = modelMetadataSummary(model);
+                    return (
+                      <label
+                        key={model.id}
+                        className={clsx(
+                          'flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left transition focus-within:ring-1 focus-within:ring-inset focus-within:ring-accent',
+                          index > 0 && 'border-t border-border',
+                          selected ? 'bg-accent-bg' : 'hover:bg-surface-hi',
+                        )}
+                      >
+                        <input
+                          type={allowMultiple ? 'checkbox' : 'radio'}
+                          name={allowMultiple ? undefined : `model-catalog-selection-${provider.id}`}
+                          checked={selected}
+                          onChange={() => updateSelectedModels(model.id, model)}
+                          className="h-[17px] w-[17px] shrink-0 accent-accent"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[11px] font-medium text-fg">{model.name || model.id}</span>
+                          <span className="block truncate text-[10px] text-fg-mute">{model.id}</span>
+                          {metadata && (
+                            <span className="mt-0.5 block truncate text-[10px] text-fg-mute">
+                              {metadata}
+                            </span>
+                          )}
+                        </span>
+                        {(model.deprecated || model.unavailable) && (
+                          <span className="shrink-0 text-[10px] text-warn">不可用警告</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                  {catalogStatus !== 'loading' && probeStatus !== 'loading'
+                    && displayedModels.length === 0 && !catalogError && !probeError && (
+                    <div className="px-3 py-5 text-center text-[11px] text-fg-mute">
+                      目录中没有匹配模型，仍可手动输入模型 ID。
+                    </div>
+                  )}
+                </div>
+
+                {selectedModels.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5" aria-label="已选择模型">
+                    {selectedModels.map((modelId) => (
+                      <span key={modelId} className="inline-flex items-center gap-1 rounded-md border border-accent-soft bg-accent-bg py-1 pl-2 pr-1 text-[10px] text-accent">
+                        <span className="max-w-[240px] truncate">{modelId}</span>
+                        <button
+                          type="button"
+                          onClick={() => updateSelectedModels(modelId)}
+                          className="flex h-4 w-4 items-center justify-center rounded hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent"
+                          aria-label={`移除模型 ${modelId}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </>
         ) : (

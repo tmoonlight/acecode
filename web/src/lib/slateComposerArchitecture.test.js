@@ -89,6 +89,37 @@ run('imperative focus retries after an external Slate document replacement', () 
   assert.match(composer, /window\.requestAnimationFrame\(\(\) => \{\s*try \{ focusEditor\(\); \} catch \{\}/s);
 });
 
+run('desktop Ctrl+Enter inserts a line break while plain Enter still submits', () => {
+  const composer = source('components/RichComposer.jsx');
+  const enter = composer.indexOf("event.key === 'Enter'");
+  const desktopCtrlEnter = composer.indexOf('event.ctrlKey && isDesktopShell()', enter);
+  const insertBreak = composer.indexOf('editor.insertBreak()', desktopCtrlEnter);
+  const plainEnter = composer.indexOf('if (!event.shiftKey)', insertBreak);
+  const submit = composer.indexOf('onSubmit?.()', plainEnter);
+
+  assert.ok(enter >= 0);
+  assert.ok(desktopCtrlEnter > enter);
+  assert.ok(insertBreak > desktopCtrlEnter);
+  assert.ok(plainEnter > insertBreak);
+  assert.ok(submit > plainEnter);
+});
+
+run('placeholder stays top-aligned without the inset shorthand', () => {
+  const composer = source('components/RichComposer.jsx');
+  const styles = source('styles/globals.css');
+
+  assert.match(composer, /ace-rich-composer-placeholder/);
+  assert.doesNotMatch(composer, /inset-0/);
+  assert.match(
+    styles,
+    /\.ace-rich-composer-placeholder\s*\{[^}]*position: absolute;[^}]*top: 0;[^}]*right: 0;[^}]*left: 0;/s,
+  );
+  assert.doesNotMatch(
+    styles.slice(styles.indexOf('.ace-rich-composer-placeholder')),
+    /\.ace-rich-composer-placeholder\s*\{[^}]*inset:/s,
+  );
+});
+
 run('attachments render inside Slate while contexts and footer controls stay outside', () => {
   const inputBar = source('components/InputBar.jsx');
   const composer = source('components/RichComposer.jsx');

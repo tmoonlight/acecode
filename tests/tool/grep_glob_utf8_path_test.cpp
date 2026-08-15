@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -93,18 +94,15 @@ TEST(GrepGlobUtf8PathTest, GrepAcceptsFilePath) {
     EXPECT_EQ(result.output.find("other.txt"), std::string::npos);
 }
 
-TEST(GrepGlobUtf8PathTest, GrepSearchesExplicitFileLargerThanOneMiB) {
+TEST(GrepGlobUtf8PathTest, GrepSearchesExplicitFileLargerThanFiveMiB) {
     TempTree tmp;
     fs::path file = tmp.path / "large.log";
     {
         std::ofstream ofs(file, std::ios::binary);
-        const std::string padding(100, 'x');
-        for (int line = 1; line <= 11000; ++line) {
-            ofs << (line == 10999 ? "large-file-needle " : "ordinary ")
-                << padding << "\n";
-        }
+        ofs << std::string(6 * 1024 * 1024, 'x') << "\n";
+        ofs << "large-file-needle\n";
     }
-    ASSERT_GT(fs::file_size(file), 1024u * 1024u);
+    ASSERT_GT(fs::file_size(file), 5u * 1024u * 1024u);
 
     auto tool = acecode::create_grep_tool();
     auto result = tool.execute(nlohmann::json({
@@ -113,7 +111,7 @@ TEST(GrepGlobUtf8PathTest, GrepSearchesExplicitFileLargerThanOneMiB) {
     }).dump(), acecode::ToolContext{});
 
     ASSERT_TRUE(result.success) << result.output;
-    EXPECT_NE(result.output.find("large.log:10999:large-file-needle"),
+    EXPECT_NE(result.output.find("large.log:2:large-file-needle"),
               std::string::npos);
 }
 
@@ -124,9 +122,10 @@ TEST(GrepGlobUtf8PathTest, RecursiveGrepDoesNotSkipLargeFiles) {
     fs::create_directories(file.parent_path());
     {
         std::ofstream ofs(file, std::ios::binary);
-        ofs << std::string(1024 * 1024 + 128, 'a') << "\n";
+        ofs << std::string(6 * 1024 * 1024, 'a') << "\n";
         ofs << "recursive-large-file-needle\n";
     }
+    ASSERT_GT(fs::file_size(file), 5u * 1024u * 1024u);
 
     acecode::ToolContext ctx;
     ctx.cwd = acecode::path_to_utf8(root);
@@ -157,8 +156,14 @@ TEST(GrepGlobUtf8PathTest, GrepBoundsLongLinesAndAggregateOutput) {
     }).dump(), acecode::ToolContext{});
 
     ASSERT_TRUE(result.success) << result.output;
-    EXPECT_NE(result.output.find("[line shortened]"), std::string::npos);
-    EXPECT_NE(result.output.find("48KiB output limit"), std::string::npos);
-    EXPECT_LE(result.output.size(), 48u * 1024u);
+    EXPECT_NE(result.output.find("[truncated;"), std::string::npos);
+    EXPECT_NE(result.output.find("[Results truncated by"), std::string::npos);
+    EXPECT_LE(result.output.size(), 40000u);
+    std::istringstream lines(result.output);
+    for (std::string line; std::getline(lines, line);) {
+        if (line.find("many-matches.log:") != std::string::npos) {
+            EXPECT_LE(line.size(), 1000u);
+        }
+    }
     EXPECT_TRUE(acecode::is_valid_utf8(result.output));
 }

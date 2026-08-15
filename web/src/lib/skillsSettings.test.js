@@ -151,7 +151,13 @@ run('技能设置以响应式卡片网格复用全局和工作区条目', () => 
   assert.doesNotMatch(cards, /border-l-(?:accent|\[[^\]]+\])/);
   assert.match(cards, /line-clamp-4/);
   assert.match(cards, /ariaLabel=\{`切换技能 \$\{skill\.name\}`\}/);
+  assert.match(cards, /disabled=\{busyName === skill\.name\}/);
+  assert.match(cards, /busyName=\{busyName\}/);
+  assert.doesNotMatch(cards, /disabled=\{busy\}/);
   assert.match(workspace, /<SkillCardGrid skills=\{shown\}/);
+  assert.match(workspace, /busyName=\{busyName\}/);
   assert.match(section, /<SkillCardGrid skills=\{filteredGlobal\}/);
+  assert.match(section, /busyName=\{savingName\}/);
+  assert.doesNotMatch(section, /busy=\{!!savingName\}/);
   assert.doesNotMatch(settings, /function SkillRow\(/);
 });

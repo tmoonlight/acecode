@@ -667,6 +667,11 @@ export function modelFieldPolicy(provider) {
   };
 }
 
+export function isCustomOpenAiCompatibilityProvider(provider) {
+  return provider?.runtime_provider === 'openai'
+    && provider?.model_input === 'manual';
+}
+
 export function applyCatalogProviderToDraft(draft, provider) {
   const policy = modelFieldPolicy(provider);
   return {
@@ -746,16 +751,11 @@ export function redactModelDraftSecrets(value, draft) {
   const secrets = new Set();
   const apiKey = String(draft?.api_key || '');
   if (apiKey) secrets.add(apiKey);
-  try {
-    const headers = JSON.parse(String(draft?.request_headers_json || ''));
-    if (isObject(headers)) {
-      Object.values(headers).forEach((headerValue) => {
-        if (typeof headerValue === 'string' && headerValue) secrets.add(headerValue);
-      });
-    }
-  } catch {
-    // Invalid JSON is reported by form validation; there is no structured
-    // header value to redact from a later server error in that case.
+  const parsedHeaders = parseRequestHeadersJson(draft?.request_headers_json, draft?.provider);
+  if (parsedHeaders.ok && isObject(parsedHeaders.headers)) {
+    Object.values(parsedHeaders.headers).forEach((headerValue) => {
+      if (typeof headerValue === 'string' && headerValue) secrets.add(headerValue);
+    });
   }
   for (const secret of secrets) output = output.split(secret).join('••••');
   return output;
@@ -853,10 +853,12 @@ export function serializeModelReasoningMutation(reasoning) {
 export function buildModelMutationPayload(draft, provider, options = {}) {
   const validation = validateModelProfileDraft(draft, provider, options);
   if (!validation.ok) return validation;
+  const model = String(draft.model || '').trim();
+  const requestedName = String(draft.name || '').trim();
   const payload = {
-    name: String(draft.name || '').trim(),
+    name: requestedName || (isCustomOpenAiCompatibilityProvider(provider) ? model : ''),
     provider: provider.runtime_provider,
-    model: String(draft.model || '').trim(),
+    model,
   };
   if (!payload.name || payload.name.startsWith('(')) {
     return { ok: false, code: payload.name ? 'RESERVED_NAME' : 'INVALID_NAME' };
@@ -938,9 +940,12 @@ export function buildModelMutationPayloads(draft, provider, options = {}) {
     return { ok: false, code: 'MULTI_MODEL_EDIT' };
   }
   const generated = buildModelDraftsFromSelection(draft);
+  const useModelIdAsName = isCustomOpenAiCompatibilityProvider(provider)
+    && !String(draft?.name || '').trim();
   const payloads = [];
   for (const item of generated) {
-    const effective = draftForSelectedModelMutation(item, item.model, options);
+    const namedItem = useModelIdAsName ? { ...item, name: item.model } : item;
+    const effective = draftForSelectedModelMutation(namedItem, item.model, options);
     const result = buildModelMutationPayload(effective, provider, options);
     if (!result.ok) return result;
     payloads.push(result.payload);

@@ -23,6 +23,7 @@ import {
   withHistory,
 } from 'slate-history';
 import { clsx } from '../lib/format.js';
+import { isDesktopShell } from '../lib/desktopShellMode.js';
 import {
   clipboardHasRichText,
   composerAdjacentAttachmentKey,
@@ -540,7 +541,7 @@ function RichComposerShell({
     <span
       {...attributes}
       className={clsx(
-        'pointer-events-none absolute inset-0 leading-[20px] font-sans text-fg-mute',
+        'ace-rich-composer-placeholder pointer-events-none font-sans text-fg-mute',
         placeholderClassName,
       )}
     >
@@ -556,7 +557,7 @@ function RichComposerShell({
       return;
     }
 
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter') {
       if (
         isComposingKeyEvent?.(event)
         || event.isComposing
@@ -566,9 +567,18 @@ function RichComposerShell({
       ) {
         return;
       }
-      event.preventDefault();
-      onSubmit?.();
-      return;
+
+      if (event.ctrlKey && isDesktopShell()) {
+        event.preventDefault();
+        editor.insertBreak();
+        return;
+      }
+
+      if (!event.shiftKey) {
+        event.preventDefault();
+        onSubmit?.();
+        return;
+      }
     }
 
     if (

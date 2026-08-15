@@ -99,9 +99,10 @@ export function GitSessionPill({
   return (
     <div className={clsx(
       'relative flex items-center',
-      // bar:与 InputBar dock 同色(bg-surface,消色差),-mt-1.5 向上贴近输入框 6px。
+      // bar:跟输入框同一底色,正常流式排在下方,不要负边距叠进卡片。
+      // 旧 WebView 上 inputbar 的 stacking context 会把叠上去的 pill 吃掉。
       // hero(新对话界面):沿用首页布局,无背景/偏移。
-      variant === 'hero' ? '' : 'px-3 pb-1 -mt-1.5 bg-surface',
+      variant === 'hero' ? '' : 'ace-git-pill-bar px-3 pt-1 pb-1.5 bg-surface',
     )}>
       <div
         className={clsx(

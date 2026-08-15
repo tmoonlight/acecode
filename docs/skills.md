@@ -26,8 +26,10 @@ At startup, ACECode compares the packaged `assets/seed/seed.version` revision wi
 `YYYY-MM-DD.N`, where `N` is a numeric revision for that date. A missing, invalid,
 or older user marker triggers an offline reconciliation of bundled Skills into
 `~/.acecode/skills/`, bundled experts into `~/.acecode/experts/`, and managed hook
-packages into `~/.acecode/hooks/`. An equal marker is a no-op, and a newer user marker prevents
-an older installation from downgrading the bundle.
+packages into `~/.acecode/hooks/`. An equal marker is normally a no-op; ACECode still
+self-heals a missing managed hook directory or upgrades a recognized previous official
+hook definition. Unknown and user-modified definitions remain preserved. A newer user
+marker prevents an older installation from downgrading the bundle.
 
 The default Skill bundle contains:
 

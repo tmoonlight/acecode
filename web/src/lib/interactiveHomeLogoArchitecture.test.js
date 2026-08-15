@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { nextHomeLogoEffectEnabled } from './homeLogoEffectPolicy.js';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -34,9 +35,44 @@ test('new conversation home is the only interactive logo entry point', () => {
     chatView,
     /import InteractiveHomeLogo from '\.\/InteractiveHomeLogo\.jsx';/,
   );
-  assert.equal((chatView.match(/<InteractiveHomeLogo\s*\/>/g) || []).length, 1);
-  assert.match(emptyState, /<InteractiveHomeLogo\s*\/>/);
+  assert.equal(
+    (chatView.match(/<InteractiveHomeLogo enabled=\{homeLogoEffectEnabled\}\s*\/>/g) || []).length,
+    1,
+  );
+  assert.match(emptyState, /<InteractiveHomeLogo enabled=\{homeLogoEffectEnabled\}\s*\/>/);
   assert.doesNotMatch(emptyState, /<img[^>]+className="ace-home-logo/);
+});
+
+test('home logo effect permanently latches off after the first real session', () => {
+  const app = source('App.jsx');
+  const chatView = source('components/ChatView.jsx');
+  const logo = source('components/InteractiveHomeLogo.jsx');
+  const performance = source('lib/interactiveHomeLogoPerformance.js');
+
+  assert.equal(nextHomeLogoEffectEnabled(true, ''), true);
+  assert.equal(nextHomeLogoEffectEnabled(true, 'session-1'), false);
+  assert.equal(nextHomeLogoEffectEnabled(false, ''), false);
+  assert.equal(nextHomeLogoEffectEnabled(false, 'session-2'), false);
+
+  assert.match(
+    app,
+    /const \[homeLogoEffectEnabled, setHomeLogoEffectEnabled\] = useState\(true\);/,
+  );
+  assert.match(app, /const homeLogoActiveSessionId = sessionJumpId\(activeRef \|\| \{\}\);/);
+  assert.match(
+    app,
+    /setHomeLogoEffectEnabled\(\(current\) => \(\s*nextHomeLogoEffectEnabled\(current, homeLogoActiveSessionId\)\s*\)\);/,
+  );
+  assert.match(app, /homeLogoEffectEnabled=\{homeLogoEffectEnabled\}/);
+  assert.match(chatView, /homeLogoEffectEnabled = true/);
+  assert.match(chatView, /<InteractiveHomeLogo enabled=\{homeLogoEffectEnabled\}\s*\/>/);
+  assert.match(logo, /function InteractiveHomeLogo\(\{ className = '', enabled = true \}\)/);
+  assert.match(logo, /setReady\(false\);\s*if \(!enabled\) return undefined;/);
+  assert.match(logo, /data-dynamic-logo-ready=\{enabled && ready \? 'true' : 'false'\}/);
+  assert.match(logo, /data-dynamic-logo-fallback=\{enabled \? undefined : 'session-visited'\}/);
+  assert.match(logo, /\{enabled && \(\s*<canvas/);
+  assert.doesNotMatch(logo, /fps|frameRate|framesPerSecond|lowFps/i);
+  assert.doesNotMatch(performance, /fps|frameRate|framesPerSecond|lowFps/i);
 });
 
 test('interactive logo preserves the approved SDF material and bounded shadow', () => {
@@ -178,10 +214,9 @@ test('interactive logo uses premultiplied transparent WebGL2 output and bounds d
   assert.match(logo, /pointer\.clientX - rect\.left/);
   assert.match(logo, /rect\.bottom - pointer\.clientY/);
   assert.match(logo, /animationFrame === 0/);
-  assert.match(logo, /const fpsProbe = createDynamicLogoFpsProbe\(\);/);
   assert.match(
     drawBody,
-    /if \(idleLight\.active \|\| fpsSample\.shouldContinue\) \{\s*scheduleFrame\(\);\s*\}/,
+    /if \(idleLight\.active\) \{\s*scheduleFrame\(\);\s*\}/,
   );
   assert.doesNotMatch(logo, /setInterval\(/);
 });
@@ -231,32 +266,6 @@ test('interactive logo clamps every light source to 80px from center', () => {
   );
 });
 
-test('interactive logo latches any below-16-FPS sample to the static fallback', () => {
-  const logo = source('components/InteractiveHomeLogo.jsx');
-  const performance = source('lib/interactiveHomeLogoPerformance.js');
-
-  assert.match(performance, /export const MIN_DYNAMIC_LOGO_FPS = 16;/);
-  assert.match(performance, /1000 \/ \(currentTimestamp - previousTimestamp\) < minimumFps/);
-  assert.match(performance, /export const DYNAMIC_LOGO_FPS_PROBE_FRAME_COUNT = 2;/);
-  assert.match(performance, /export function createDynamicLogoFpsProbe\(\)/);
-  assert.match(logo, /let lowFpsFallbackLatched = false;/);
-  assert.match(logo, /useState\(lowFpsFallbackLatched\)/);
-  assert.match(logo, /const fpsSample = fpsProbe\.sample\(frameTimestamp\);/);
-  assert.match(logo, /if \(fpsSample\.belowMinimum\)/);
-  assert.match(logo, /lowFpsFallbackLatched = true;/);
-  assert.match(logo, /setLowFpsFallback\(true\);/);
-  assert.match(logo, /if \(lowFpsFallback\) return undefined;/);
-  assert.match(
-    logo,
-    /data-dynamic-logo-fallback=\{lowFpsFallback \? 'low-fps' : undefined\}/,
-  );
-  assert.match(
-    logo,
-    /const stopIdleMotion = \(\{ cancelFrame = false \} = \{\}\) => \{[\s\S]*?fpsProbe\.reset\(\);/,
-  );
-  assert.ok((logo.match(/stopIdleMotion\(/g) || []).length >= 5);
-});
-
 test('reduced motion disables idle wandering but keeps direct pointer lighting and lifecycle cleanup', () => {
   const logo = source('components/InteractiveHomeLogo.jsx');
 
@@ -269,7 +278,10 @@ test('reduced motion disables idle wandering but keeps direct pointer lighting a
   assert.match(logo, /reducedMotionQuery\?\.addEventListener\?\.\('change', handleReducedMotionChange\)/);
   assert.match(logo, /reducedMotionQuery\?\.removeEventListener\?\.\('change', handleReducedMotionChange\)/);
   assert.match(logo, /src="\/acecode-logo\.png"/);
-  assert.match(logo, /data-dynamic-logo-ready=\{ready \? 'true' : 'false'\}/);
+  assert.match(
+    logo,
+    /data-dynamic-logo-ready=\{enabled && ready \? 'true' : 'false'\}/,
+  );
   assert.match(logo, /new MutationObserver\(scheduleFrame\)/);
   assert.match(logo, /attributeFilter: \['data-theme'\]/);
   assert.match(logo, /webglcontextlost/);
@@ -284,15 +296,10 @@ test('reduced motion disables idle wandering but keeps direct pointer lighting a
   assert.match(logo, /gl\.deleteShader\(vertexShader\)/);
 });
 
-test('idle wandering continuously samples FPS and stops on hidden or lost context', () => {
+test('idle wandering keeps its frame loop local and stops on hidden or lost context', () => {
   const logo = source('components/InteractiveHomeLogo.jsx');
-  const performance = source('lib/interactiveHomeLogoPerformance.js');
 
-  assert.match(logo, /fpsProbe\.start\(\{ continuous: true \}\);/);
-  assert.match(
-    performance,
-    /if \(continuous\) \{\s*return \{\s*belowMinimum: false,\s*framesPerSecond,\s*shouldContinue: true,/,
-  );
+  assert.match(logo, /idleLight\.active = true;[\s\S]*?chooseNextIdleTarget\(\);\s*scheduleFrame\(\);/);
   assert.match(
     logo,
     /if \(document\.hidden\) \{\s*stopIdleMotion\(\{ cancelFrame: true \}\);/,
@@ -301,7 +308,7 @@ test('idle wandering continuously samples FPS and stops on hidden or lost contex
     logo,
     /contextLost = true;\s*stopIdleMotion\(\{ cancelFrame: true \}\);/,
   );
-  assert.match(logo, /stopIdleMotion\(\);\s*lowFpsFallbackTriggered = true;/);
+  assert.match(logo, /disposed = true;\s*stopIdleMotion\(\{ cancelFrame: true \}\);/);
 });
 
 test('home logo layout reserves 100px while the transparent shadow canvas overflows safely', () => {

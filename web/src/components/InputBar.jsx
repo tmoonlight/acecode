@@ -1309,9 +1309,9 @@ export const InputBar = forwardRef(function InputBar({
         />
       )}
       <div className={clsx(
-        'ace-composer-card relative bg-surface border-[1.5px] border-border focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15 transition',
+        'ace-composer-card relative bg-surface transition',
         isHero ? 'ace-inputbar-hero-card rounded-2xl' : 'rounded-xl',
-        dragActive && 'border-accent ring-2 ring-accent/20',
+        dragActive && 'is-drag-active',
       )}
       ref={rootRef}
       onDragEnter={fileDropManagedExternally ? undefined : handleDragEnter}

@@ -648,6 +648,11 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
     'After a manual change, the capability source is recorded as manual and affects runtime requests.',
   '受管连接': 'Managed connection',
   '输入模型 ID，按 Enter 添加': 'Enter a model ID and press Enter to add it',
+  '为空时使用 Model ID': 'Use the Model ID when left blank',
+  '留空时使用当前 Model ID 作为预设名称。': 'Leave blank to use the current Model ID as the profile name.',
+  '例如：gpt-4.1': 'For example: gpt-4.1',
+  '直接输入 OpenAI 兼容接口实际使用的模型 ID。':
+    'Enter the Model ID used by the OpenAI-compatible API directly.',
   '输入 API Key': 'Enter API key',
   '刷新后的本地目录无法读取': 'The refreshed local catalog could not be read',
   '刷新已保存模型': 'Refresh saved models',

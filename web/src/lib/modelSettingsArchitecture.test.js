@@ -46,7 +46,7 @@ run('model settings navigation delegates to focused list-first components', () =
   assert.doesNotMatch(section, /RecommendedModelList|recommendedModels|热门预置/);
 });
 
-run('one adaptive profile Modal owns add and edit flows without template mode', () => {
+run('one adaptive profile Modal owns add and edit flows without backdrop draft loss', () => {
   assert.match(section, /mode: 'add'/);
   assert.match(section, /mode: 'edit'/);
   assert.doesNotMatch(section, /mode: 'template'/);
@@ -54,7 +54,7 @@ run('one adaptive profile Modal owns add and edit flows without template mode', 
   assert.match(dialog, /mode === 'edit'/);
   assert.doesNotMatch(dialog, /mode === 'template'|templateWarning|templateActive/);
   assert.match(dialog, /<ProviderCatalogPicker/);
-  assert.match(dialog, /dismissOnBackdrop=\{!submitting\}/);
+  assert.match(dialog, /dismissOnBackdrop=\{false\}/);
   assert.match(dialog, /dismissOnEscape=\{!submitting\}/);
 });
 
@@ -89,7 +89,7 @@ run('API Key is prefilled behind a password mask with an accessible eye toggle',
   assert.doesNotMatch(dialog, /已保存密钥不会读取到浏览器/);
 });
 
-run('provider picker keeps catalog queries bounded and supports docs manual ids probe and multi-select', () => {
+run('catalog provider picker keeps queries bounded and supports docs manual fallback probe and multi-select', () => {
   assert.match(providerGroups, /custom: '自定义模型'/);
   assert.match(providerGroups, /popular: '热门模型'/);
   assert.match(providerGroups, /'custom',[\s\S]*?'popular',[\s\S]*?'native',[\s\S]*?'local',[\s\S]*?'catalog'/);
@@ -105,11 +105,41 @@ run('provider picker keeps catalog queries bounded and supports docs manual ids 
   assert.match(picker, /输入模型 ID，按 Enter 添加/);
   assert.match(picker, /role="listbox"/);
   assert.match(picker, /aria-selected=\{active\}/);
-  assert.match(picker, /aria-selected=\{selected\}/);
+  assert.match(picker, /type=\{allowMultiple \? 'checkbox' : 'radio'\}/);
+  assert.match(picker, /checked=\{selected\}/);
   assert.match(picker, /<ProviderIcon provider=\{item\} active=\{active\} \/>/);
   assert.match(picker, /flex h-9 w-full items-center gap-2/);
   assert.match(picker, /focus:ring-1 focus:ring-inset focus:ring-accent/);
   assert.doesNotMatch(picker, /item\.runtime_provider === 'copilot'[\s\S]*?item\.id/);
+});
+
+run('managed provider details use bounded desktop columns with independent scrolling', () => {
+  assert.match(
+    picker,
+    /grid min-h-\[320px\][^\"]*md:h-\[420px\][^\"]*md:grid-cols-\[220px_minmax\(0,1fr\)\]/,
+  );
+  assert.match(
+    picker,
+    /bg-surface-alt p-2\.5[^\"]*md:flex[^\"]*md:min-h-0[^\"]*md:flex-col/,
+  );
+  assert.match(
+    picker,
+    /mt-2 max-h-\[210px\][^\"]*overflow-y-auto[^\"]*md:min-h-0[^\"]*md:max-h-none[^\"]*md:flex-1/,
+  );
+  assert.match(picker, /className="min-w-0 p-3 md:min-h-0 md:overflow-y-auto"/);
+});
+
+run('manual OpenAI-compatible provider uses one direct Model ID field without chooser flow', () => {
+  assert.match(picker, /const directModelIdInput = provider\?\.model_input === 'manual';/);
+  assert.match(
+    picker,
+    /\{!directModelIdInput && \(provider\.runtime_provider === 'openai' \|\| managedProvider\) && \(/,
+  );
+  assert.match(
+    picker,
+    /\{directModelIdInput \? \([\s\S]*?htmlFor="custom-openai-model-id"[\s\S]*?id="custom-openai-model-id"[\s\S]*?value=\{draft\.model\}[\s\S]*?onDraftChange\(\{ \.\.\.draft, model: event\.target\.value \}\)/,
+  );
+  assert.match(picker, /直接输入 OpenAI 兼容接口实际使用的模型 ID/);
 });
 
 run('Provider logos are local deduplicated assets within the package budget', () => {
@@ -195,6 +225,6 @@ run('rows search controls dialogs and busy states expose keyboard and ARIA contr
   assert.match(dialog, /labelledBy="model-profile-dialog-title"/);
   assert.match(dialog, /role="alert"/);
   assert.match(picker, /event\.key === 'Enter'/);
-  assert.match(picker, /aria-multiselectable=\{allowMultiple \|\| undefined\}/);
+  assert.match(picker, /role=\{allowMultiple \? 'group' : 'radiogroup'\}/);
   assert.match(section, /disabled=\{!!mutationBusy \|\| deleteTarget\.blocked\}/);
 });

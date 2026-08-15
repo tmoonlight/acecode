@@ -507,6 +507,42 @@ TEST_F(DefaultSkillSeederTest, EqualVersionIsANoOp) {
         std::string::npos);
 }
 
+TEST_F(DefaultSkillSeederTest,
+       EqualVersionRepairsMissingManagedHookWithoutTouchingModifiedSeed) {
+    auto first =
+        acecode::reconcile_default_global_skills(home, seed_root);
+    ASSERT_TRUE(first.version_written);
+
+    const auto& hook_seed = acecode::default_hook_seeds().front();
+    const fs::path hook_target =
+        home / "hooks" / hook_seed.relative_path;
+    std::error_code remove_error;
+    ASSERT_GT(fs::remove_all(hook_target, remove_error), 0u);
+    ASSERT_FALSE(remove_error) << remove_error.message();
+
+    const auto& skill_seed = acecode::default_skill_seeds().front();
+    const fs::path skill_target =
+        home / "skills" / skill_seed.relative_path;
+    write_skill_file(
+        skill_target, skill_seed.name, "user-modified same-version copy");
+
+    auto second =
+        acecode::reconcile_default_global_skills(home, seed_root);
+
+    EXPECT_TRUE(second.attempted);
+    EXPECT_TRUE(second.version_written) << second.error;
+    EXPECT_EQ(count_hook_outcome(second, "installed"), 1u);
+    EXPECT_TRUE(fs::is_regular_file(hook_target / "hooks.json"));
+    EXPECT_NE(
+        read_file(skill_target / "SKILL.md").find(
+            "user-modified same-version copy"),
+        std::string::npos);
+    const auto* skill_outcome = find_outcome(second, skill_seed.name);
+    ASSERT_NE(skill_outcome, nullptr);
+    EXPECT_EQ(skill_outcome->result, "preserved_user_modified");
+    EXPECT_FALSE(skill_outcome->acecode_owned);
+}
+
 TEST_F(DefaultSkillSeederTest, PreservesUnknownExistingTarget) {
     const auto& seed = acecode::default_skill_seeds().front();
     const fs::path existing = home / "skills" / seed.relative_path;
@@ -722,10 +758,50 @@ TEST(DefaultSkillSeedRegistryTest,
     EXPECT_TRUE(outcome->acecode_owned);
     EXPECT_TRUE(read_json(target / "hooks.json")["hooks"].contains(
         "SessionTitleChanged"));
-    EXPECT_EQ(trim_ascii(read_file(home / "seed.version")), "2026-08-14.1");
+    EXPECT_EQ(trim_ascii(read_file(home / "seed.version")), "2026-08-14.2");
     const auto state = read_json(home / ".seed_skills_state.json");
     ASSERT_EQ(state["hooks"].size(), 1u);
     EXPECT_TRUE(state["hooks"][0]["acecode_owned"].get<bool>());
+
+    std::error_code cleanup_error;
+    fs::remove_all(temp_root, cleanup_error);
+}
+
+TEST(DefaultSkillSeedRegistryTest,
+     EqualPackagedVersionRepairsKnownPreviousOfficialHook) {
+    const fs::path source_file = fs::absolute(fs::path(__FILE__));
+    const fs::path repository_root =
+        source_file.parent_path().parent_path().parent_path();
+    const fs::path packaged_seed = repository_root / "assets" / "seed";
+    const fs::path temp_root =
+        make_temp_root("equal-version-known-official-hook");
+    const fs::path home = temp_root / "profile" / ".acecode";
+    const fs::path target = home / "hooks" / "agent-reporting";
+
+    auto previous_official = read_json(
+        packaged_seed / "hooks" / "agent-reporting" / "hooks.json");
+    ASSERT_EQ(previous_official["hooks"].erase("SessionTitleChanged"), 1u);
+    const auto& hook_seed = acecode::default_hook_seeds().front();
+    ASSERT_NE(
+        std::find(
+            hook_seed.previous_definition_sha256s.begin(),
+            hook_seed.previous_definition_sha256s.end(),
+            acecode::sha256_hex(previous_official.dump())),
+        hook_seed.previous_definition_sha256s.end());
+    write_file(target / "hooks.json", previous_official.dump(2) + "\n");
+    write_file(home / "seed.version", "2026-08-14.2\n");
+
+    const auto result = acecode::reconcile_default_global_skills(
+        home, packaged_seed / "skills");
+
+    ASSERT_TRUE(result.attempted);
+    ASSERT_TRUE(result.version_written) << result.error;
+    const auto* outcome = find_hook_outcome(result, "agent-reporting");
+    ASSERT_NE(outcome, nullptr);
+    EXPECT_EQ(outcome->result, "updated");
+    EXPECT_TRUE(outcome->acecode_owned);
+    EXPECT_TRUE(read_json(target / "hooks.json")["hooks"].contains(
+        "SessionTitleChanged"));
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);
@@ -1537,7 +1613,7 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
     EXPECT_TRUE(state["completed"].get<bool>());
-    EXPECT_EQ(state["bundle_version"], "2026-08-14.1");
+    EXPECT_EQ(state["bundle_version"], "2026-08-14.2");
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);

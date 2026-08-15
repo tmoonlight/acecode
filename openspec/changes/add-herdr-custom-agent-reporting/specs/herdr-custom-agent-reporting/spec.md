@@ -53,8 +53,14 @@ ACECode 在派发 `PermissionRequest` 后，MUST 在授权决定确定后恰好�
 
 #### Scenario: 重复启动
 
-- **WHEN** 同一 seed 版本已经成功安装
+- **WHEN** 同一 seed 版本已经成功安装且托管 hook 完整
 - **THEN** 后续启动不重复安装或重复注册 seed hook
+
+#### Scenario: 同版本标记下托管 hook 缺失
+
+- **WHEN** 用户的 `seed.version` 已等于包内版本，但 ACECode 管理的默认 hook 目录缺失
+- **THEN** ACECode 在首次 hook registry 加载前重新安装官方 seed hook
+- **AND** 其他用户修改过的 Skill、Expert 或 hook 内容保持不变
 
 #### Scenario: seed hook 被用户修改
 

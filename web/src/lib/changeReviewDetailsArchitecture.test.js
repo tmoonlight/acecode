@@ -60,6 +60,10 @@ run('Shared review details default to single-column wrapped diffs with manual to
   assert.match(globals, /\.ace-review-diff\.is-wrapped \{\s*min-width: 0;/);
   assert.match(
     globals,
+    /\.ace-review-diff\.is-wrapped \.d2h-code-side-linenumber,\s*\.ace-review-diff\.is-wrapped \.d2h-code-linenumber \{\s*display: table-cell;/,
+  );
+  assert.match(
+    globals,
     /\.ace-review-diff\.is-wrapped \.d2h-code-line-ctn[\s\S]*?white-space: pre-wrap;[\s\S]*?overflow-wrap: anywhere;/,
   );
 });

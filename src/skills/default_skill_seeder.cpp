@@ -505,6 +505,37 @@ bool target_matches_known_official_definition(
     }
 }
 
+bool same_version_managed_hooks_need_reconciliation(
+    const fs::path& acecode_home) {
+    for (const auto& seed : default_hook_seeds()) {
+        const fs::path target_dir =
+            acecode_home / "hooks" / seed.relative_path;
+        std::error_code ec;
+        const bool target_exists = fs::exists(target_dir, ec);
+        if (ec || !target_exists) {
+            return true;
+        }
+
+        // Unknown or user-modified definitions stay preserved. Only a known
+        // previous official definition may trigger an equal-version repair.
+        if (!target_matches_known_official_definition(seed, target_dir)) {
+            continue;
+        }
+        try {
+            std::ifstream ifs(target_dir / "hooks.json", std::ios::binary);
+            if (!ifs.is_open()) continue;
+            const nlohmann::json root = nlohmann::json::parse(ifs);
+            if (sha256_hex(root.dump()) != seed.definition_sha256) {
+                return true;
+            }
+        } catch (const std::exception&) {
+            // Malformed content is treated as user-modified and is not
+            // overwritten by managed seed reconciliation.
+        }
+    }
+    return false;
+}
+
 bool copy_tree_no_overwrite(const fs::path& source_dir,
                             const fs::path& target_dir,
                             std::string& error) {
@@ -1221,7 +1252,7 @@ const std::vector<DefaultExpertSeed>& default_expert_seeds() {
 const std::vector<DefaultHookSeed>& default_hook_seeds() {
     static const std::vector<DefaultHookSeed> seeds = {
         {"agent-reporting",
-         "acecode:managed-hook/agent-reporting@2026-08-14.1",
+         "acecode:managed-hook/agent-reporting@2026-08-14.2",
          "agent-reporting",
          "daeb5ce4f3ff42d1717c9997b9627bc6daf00df9ec24643203253da2aae30644",
          {
@@ -1344,7 +1375,11 @@ DefaultSkillSeedInstallResult reconcile_default_global_skills(
         if (user_version) {
             const int comparison =
                 compare_seed_versions(*user_version, *bundled_version);
-            if (comparison == 0) return result;
+            if (comparison == 0 &&
+                !same_version_managed_hooks_need_reconciliation(
+                    acecode_home)) {
+                return result;
+            }
             if (comparison > 0) {
                 result.downgrade_skipped = true;
                 return result;

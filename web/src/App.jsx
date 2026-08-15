@@ -91,6 +91,7 @@ import {
   clearHomeComposerDraftIfMatch,
   updateHomeComposerDrafts,
 } from './lib/homeComposerDrafts.js';
+import { nextHomeLogoEffectEnabled } from './lib/homeLogoEffectPolicy.js';
 import { homeRefFromWorkspace, noHomeWorkspaceOption } from './lib/homeWorkspaceSelection.js';
 import {
   DEFAULT_SINGLE_LAYOUT,
@@ -193,6 +194,7 @@ export function App() {
   const [health,    setHealth]    = useState(null);
 
   const [activeRef,    setActiveRef]    = useState(null);
+  const [homeLogoEffectEnabled, setHomeLogoEffectEnabled] = useState(true);
   const [homeComposerDrafts, setHomeComposerDrafts] = useState({});
   const [navHistory, setNavHistory] = useState(() => (
     (typeof window !== 'undefined' && navigationHistoryFromHash(window.location.hash))
@@ -343,6 +345,7 @@ export function App() {
   const [guidedTourRun, setGuidedTourRun] = useState(false);
   const [guidedTourForced, setGuidedTourForced] = useState(false);
   const guidedTourAutoAttemptedRef = useRef(false);
+  const homeLogoActiveSessionId = sessionJumpId(activeRef || {});
   const guidedTourHasActiveSession = !!(activeRef?.sessionId || activeRef?.id);
   const guidedTourBlocked = showSettings || searchOpen || updateDialogOpen
     || desktopCloseDialogOpen
@@ -370,6 +373,11 @@ export function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-font-size', fontSize);
   }, [fontSize]);
+  useEffect(() => {
+    setHomeLogoEffectEnabled((current) => (
+      nextHomeLogoEffectEnabled(current, homeLogoActiveSessionId)
+    ));
+  }, [homeLogoActiveSessionId]);
   useEffect(() => { activeRefRef.current = activeRef; }, [activeRef]);
   // Track host-window attention for suppress_when_focused. WebView2 can
   // briefly report document.hasFocus()=false when native chrome steals focus;
@@ -1856,6 +1864,7 @@ export function App() {
             {view === 'single' && !activeRef?.loop && !activeRef?.expertComponents && (
               <ChatView
                 sessionRef={activeRef}
+                homeLogoEffectEnabled={homeLogoEffectEnabled}
                 homeComposerDrafts={homeComposerDrafts}
                 onHomeComposerDraftChange={updateHomeComposerDraft}
                 onHomeComposerDraftAccepted={acceptHomeComposerDraft}

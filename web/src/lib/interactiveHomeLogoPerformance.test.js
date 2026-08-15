@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
 import {
-  DYNAMIC_LOGO_FPS_PROBE_FRAME_COUNT,
   IDLE_LOGO_LIGHT_RADIUS_PX,
   MAX_LIGHT_DISTANCE_PX,
-  MIN_DYNAMIC_LOGO_FPS,
   clampLightToRadius,
   createRandomLogoLightOffset,
-  createDynamicLogoFpsProbe,
   interpolateLogoLightOffset,
-  isFrameRateBelowMinimum,
 } from './interactiveHomeLogoPerformance.js';
 
 function test(name, fn) {
@@ -20,69 +16,6 @@ function test(name, fn) {
     throw error;
   }
 }
-
-test('16 FPS exactly keeps the dynamic logo', () => {
-  assert.equal(MIN_DYNAMIC_LOGO_FPS, 16);
-  assert.equal(isFrameRateBelowMinimum(0, 1000 / 16), false);
-});
-
-test('any valid frame sample below 16 FPS requests static fallback', () => {
-  assert.equal(isFrameRateBelowMinimum(0, 1000 / 16 + 0.001), true);
-  assert.equal(isFrameRateBelowMinimum(100, 200), true);
-});
-
-test('fast, reversed, and invalid frame samples do not request fallback', () => {
-  assert.equal(isFrameRateBelowMinimum(0, 1000 / 60), false);
-  assert.equal(isFrameRateBelowMinimum(100, 100), false);
-  assert.equal(isFrameRateBelowMinimum(100, 99), false);
-  assert.equal(isFrameRateBelowMinimum(Number.NaN, 200), false);
-});
-
-test('bounded probe turns a 100ms adjacent-frame interval into a low-FPS result', () => {
-  assert.equal(DYNAMIC_LOGO_FPS_PROBE_FRAME_COUNT, 2);
-  const probe = createDynamicLogoFpsProbe();
-  probe.start();
-  assert.deepEqual(probe.sample(0), {
-    belowMinimum: false,
-    framesPerSecond: null,
-    shouldContinue: true,
-  });
-  assert.deepEqual(probe.sample(100), {
-    belowMinimum: true,
-    framesPerSecond: 10,
-    shouldContinue: false,
-  });
-});
-
-test('probe accepts exactly 16 FPS and resets the idle baseline', () => {
-  const probe = createDynamicLogoFpsProbe();
-  probe.start();
-  probe.sample(0);
-  assert.deepEqual(probe.sample(62.5), {
-    belowMinimum: false,
-    framesPerSecond: 16,
-    shouldContinue: false,
-  });
-
-  probe.start();
-  assert.equal(probe.sample(5000).framesPerSecond, null);
-});
-
-test('continuous probe checks every adjacent idle-animation frame', () => {
-  const probe = createDynamicLogoFpsProbe();
-  probe.start({ continuous: true });
-  assert.deepEqual(probe.sample(0), {
-    belowMinimum: false,
-    framesPerSecond: null,
-    shouldContinue: true,
-  });
-  assert.equal(probe.sample(16).belowMinimum, false);
-  assert.deepEqual(probe.sample(116), {
-    belowMinimum: true,
-    framesPerSecond: 10,
-    shouldContinue: false,
-  });
-});
 
 test('light coordinates inside the 80px radius stay unchanged', () => {
   assert.equal(MAX_LIGHT_DISTANCE_PX, 80);

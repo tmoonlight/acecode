@@ -180,6 +180,33 @@ run('selected contexts remain accessible while the composer footer stays on one 
     /data-composer-control="model"\s+className="ace-composer-model-control relative min-w-0"/,
   );
   assert.doesNotMatch(styles, /@container \(max-width: 560px\)/);
+  assert.doesNotMatch(styles, /container-type:\s*inline-size/);
+  assert.doesNotMatch(styles, /@container \(max-width: 410px\)/);
+});
+
+run('chat composer docks the git pill below the input without overlapping it', () => {
+  const chatView = source('components/ChatView.jsx');
+  const pill = source('components/GitSessionPill.jsx');
+  const styles = source('styles/globals.css');
+  const inputBar = source('components/InputBar.jsx');
+
+  assert.match(chatView, /className="ace-composer-dock"/);
+  assert.match(
+    chatView,
+    /<div className="ace-composer-dock">[\s\S]*<InputBar[\s\S]*<GitSessionPill[\s\S]*<\/div>/,
+  );
+  assert.match(pill, /ace-git-pill-bar/);
+  assert.doesNotMatch(pill, /-mt-1\.5|-mt-\[|margin-top:\s*-/);
+  assert.match(
+    styles,
+    /\.ace-composer-dock\s*\{[^}]*z-index: 30;[^}]*flex-shrink: 0;/s,
+  );
+  assert.match(
+    styles,
+    /\.ace-composer-dock \.ace-inputbar-layer\s*\{[^}]*z-index: auto;/s,
+  );
+  assert.match(inputBar, /'ace-composer-card relative bg-surface transition'/);
+  assert.doesNotMatch(inputBar, /focus-within:ring-2|border-\[1\.5px\]/);
 });
 
 run('composer permission and model selectors share a 13px label size', () => {

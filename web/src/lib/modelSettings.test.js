@@ -496,6 +496,17 @@ run('模型错误文案会脱敏当前 API Key 和请求头值', () => {
     ),
     'request failed for •••• with •••• in ••••',
   );
+  assert.equal(
+    redactModelDraftSecrets(
+      'request failed with Bearer private-header in acecode',
+      {
+        ...draft,
+        request_headers_json: '\u3000{\n  "Authorization": "Bearer private-header",\n'
+          + '  "X-Team": "acecode",\n}\u3000',
+      },
+    ),
+    'request failed with •••• in ••••',
+  );
 });
 
 run('旧响应缺少密钥时仍可省略 api_key 并保留高级 payload', () => {
@@ -791,6 +802,32 @@ run('凭据复用保留大小写敏感的 URL query 与 fragment 身份', () => 
     ...baseDraft,
     base_url: 'https://gateway.example/api?Tenant=TeamA#RouteTwo',
   }), []);
+});
+
+run('自定义 OpenAI 兼容 API 的空预设名称精确回退 Model ID', () => {
+  const draft = {
+    ...applyCatalogProviderToDraft(emptyModelProfileDraft(), customProvider),
+    name: '   ',
+    model: 'vendor/model-v1',
+    api_key: 'sk-custom',
+  };
+  const direct = buildModelMutationPayload(draft, customProvider);
+  assert.equal(direct.ok, true);
+  assert.equal(direct.payload.name, 'vendor/model-v1');
+
+  const built = buildModelMutationPayloads(draft, customProvider);
+  assert.equal(built.ok, true);
+  assert.equal(built.payloads.length, 1);
+  assert.equal(built.payloads[0].name, 'vendor/model-v1');
+
+  const catalog = buildModelMutationPayloads({
+    ...applyCatalogProviderToDraft(emptyModelProfileDraft(), openRouterProvider),
+    name: '',
+    model: 'vendor/model-v1',
+    api_key: 'sk-openrouter',
+  }, openRouterProvider);
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.payloads[0].name, 'vendor-model-v1');
 });
 
 run('批量新增生成稳定名称并只发送凭据来源名称', () => {

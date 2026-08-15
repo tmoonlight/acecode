@@ -172,9 +172,11 @@ has now been compiled and exercised on Windows x64:
   remained registered and idle; the temporary tab and profile were removed.
 
 The remaining deployment step is to ship a package containing seed revision
-`2026-08-14.1`. Existing users with an unchanged ACECode-owned hook receive the
-new definition during startup reconciliation; modified hook packages remain
-preserved and require manual review.
+`2026-08-14.2`. Existing users with an unchanged ACECode-owned hook receive the
+new definition during startup reconciliation. Users whose marker already equals
+the packaged revision but whose managed hook directory is missing are repaired
+before the first hook registry scan; modified hook packages remain preserved and
+require manual review.
 
 ## Review checklist
 

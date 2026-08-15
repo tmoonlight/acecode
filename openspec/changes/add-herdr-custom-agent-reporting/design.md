@@ -26,7 +26,7 @@ ACECode 派发 `PermissionRequest` 时，记录一条已开启的授权生命周
 - 官方资源位于 `assets/seed/hooks/agent-reporting/hooks.json`。
 - 用户侧安装到 `~/.acecode/hooks/agent-reporting/hooks.json`，不触碰 `~/.acecode/hooks.json` 或 `~/.codex/hooks.json`。
 - 首次安装、版本升级、并发锁、暂存发布、失败恢复与用户改动保护沿用现有 seed 事务。
-- 重复启动在 seed 版本相同时不重复安装或注册。
+- 重复启动在 seed 版本相同且托管 hook 完整时不重复安装或注册；若托管 hook 目录缺失，或仍是内置识别的旧官方定义，则允许同版本执行一次修复 reconcile。未知或用户修改过的定义仍然保留。
 
 hook registry 把内容与内置官方定义指纹一致的 seed source 标记为 `ManagedTrusted`。若文件被修改、损坏或指纹不匹配，则保留文件但拒绝 managed 自动信任并给出诊断。这样默认应用可直接启用官方 hook，又不会把用户可写路径中的任意命令当成受信任配置。
 

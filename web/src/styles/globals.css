@@ -1219,15 +1219,34 @@ body {
 
 /* WorkBuddy-style composer footer: session controls stay on one line around a
    flexible, horizontally accessible selected-context strip. */
+.ace-composer-dock {
+  /* Chat view: keep the composer + git pill in one stacking context so the
+     input layer cannot paint over the branch row. Popups stay above the
+     transcript because the dock itself is ordered above the rail. */
+  position: relative;
+  z-index: 30;
+  flex-shrink: 0;
+  background: var(--ace-surface);
+}
 .ace-inputbar-layer {
-  /* WebView2 109 keeps the container-query composer card in its own stacking
-     context. Order the whole popup host above the transcript rail instead of
-     trying to escape that context with a larger descendant z-index. */
+  /* Home view has no dock wrapper, so the layer itself owns stacking.
+     Chat view resets this inside .ace-composer-dock. */
   position: relative;
   z-index: 30;
 }
+.ace-composer-dock .ace-inputbar-layer {
+  z-index: auto;
+  padding-bottom: 6px;
+}
 .ace-composer-card {
-  container-type: inline-size;
+  /* Avoid container-type / @container: they create an extra stacking
+     context on older WebView2 and are ignored before Chromium 105. */
+  border: 1.5px solid var(--ace-border);
+}
+.ace-composer-card:focus-within,
+.ace-composer-card.is-drag-active {
+  border-color: var(--ace-accent);
+  box-shadow: 0 0 0 2px rgba(var(--ace-accent-rgb), 0.15);
 }
 .ace-goal-status-bar {
   position: relative;
@@ -1322,9 +1341,9 @@ body {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  overscroll-behavior-inline: contain;
+  -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
-  scroll-behavior: smooth;
 }
 .ace-composer-context-strip::-webkit-scrollbar {
   width: 0;
@@ -1424,7 +1443,7 @@ body {
 .ace-composer-model-menu {
   right: 0;
   width: 304px;
-  max-width: min(360px, calc(100vw - 24px));
+  max-width: 360px;
   overflow: hidden;
 }
 .ace-composer-model-menu-header {
@@ -1482,7 +1501,7 @@ body {
   text-align: left;
   transition: background-color 0.14s ease;
 }
-@container (max-width: 410px) {
+@media (max-width: 520px) {
   .ace-composer-permission-button {
     max-width: 126px;
   }
@@ -1500,7 +1519,17 @@ body {
 /* Older Chromium/WebView compatibility.
    Tailwind v4 slash-opacity utilities compile to modern color mixing, which can
    render as solid color blocks in some older embedded browsers. Keep stable
-   rgba() overrides for ACECode's commonly used theme opacity utilities. */
+   rgba() overrides for ACECode's commonly used theme opacity utilities.
+   `inset` is Chromium 87+; expand it to longhands so fixed/absolute fills
+   still cover the viewport on earlier WebView2 builds. */
+.inset-0,
+.absolute.inset-0,
+.fixed.inset-0 {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
 .bg-black\/0 { background-color: rgba(0, 0, 0, 0); }
 .bg-black\/30 { background-color: rgba(0, 0, 0, 0.30); }
 .bg-black\/70 { background-color: rgba(0, 0, 0, 0.70); }
@@ -2237,6 +2266,12 @@ body {
   flex-direction: column;
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.08);
 }
+.ace-inputbar-hero-card:focus-within,
+.ace-inputbar-hero-card.is-drag-active {
+  box-shadow:
+    0 0 0 2px rgba(var(--ace-accent-rgb), 0.15),
+    0 18px 46px rgba(0, 0, 0, 0.08);
+}
 .ace-inputbar-hero-editor {
   flex: 1 1 auto;
   min-height: 0;
@@ -2247,6 +2282,12 @@ body {
 }
 [data-theme="dark"] .ace-inputbar-hero-card {
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
+}
+[data-theme="dark"] .ace-inputbar-hero-card:focus-within,
+[data-theme="dark"] .ace-inputbar-hero-card.is-drag-active {
+  box-shadow:
+    0 0 0 2px rgba(var(--ace-accent-rgb), 0.15),
+    0 18px 46px rgba(0, 0, 0, 0.32);
 }
 .ace-home-project-row {
   align-self: flex-start;
@@ -3390,11 +3431,22 @@ body {
 /* Slate composer: inline void tags and plain text share one native caret/layout
    surface. InputBar owns the outer spacing, height and bottom controls. */
 .ace-rich-composer-input {
+  position: relative;
   display: block;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
   scrollbar-width: thin;
+}
+.ace-rich-composer-placeholder {
+  /* Do not use `inset`: Chromium < 87 ignores it and the placeholder
+     can escape to a taller ancestor. Keep the caret/text top-aligned. */
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  pointer-events: none;
+  line-height: 20px;
 }
 .ace-rich-composer-input:empty::before {
   content: "";
@@ -4522,6 +4574,11 @@ body {
 .ace-review-diff.is-wrapped .d2h-diff-table {
   table-layout: fixed;
 }
+.ace-review-diff.is-wrapped .d2h-code-side-linenumber,
+.ace-review-diff.is-wrapped .d2h-code-linenumber {
+  display: table-cell;
+  vertical-align: top;
+}
 .ace-review-diff.is-wrapped .d2h-file-side-diff {
   min-width: 0;
   overflow-x: hidden;
@@ -5420,6 +5477,10 @@ body {
 
 /* GitSessionPill(add-webui-git-session-pill):新会话的分支 + worktree 胶囊。
    视觉与「项目」pill 同族:圆角边框 + surface 底 + hover 提亮。 */
+.ace-git-pill-bar {
+  position: relative;
+  z-index: 1;
+}
 .ace-git-pill { line-height: 1.2; }
 .ace-git-pill-checkbox {
   width: 13px;

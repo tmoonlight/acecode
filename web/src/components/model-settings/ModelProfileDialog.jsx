@@ -6,6 +6,7 @@ import {
   buildModelMutationPayloads,
   compatibleCredentialSources,
   hasAdvancedModelValues,
+  isCustomOpenAiCompatibilityProvider,
   markModelMetadataOverrides,
   modelFieldPolicy,
   modelNameSuggestion,
@@ -31,6 +32,84 @@ function fieldLabel(id, label, optional = false) {
       {label}
       {optional && <span className="ml-1 font-normal text-fg-mute">可选</span>}
     </label>
+  );
+}
+
+function CustomCompatibilityApiFields({
+  draft,
+  policy,
+  apiKeyVisible,
+  onPatchDraft,
+  onToggleApiKey,
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {policy?.show_base_url && (
+        <div className={policy.show_api_key ? '' : 'md:col-span-2'}>
+          {fieldLabel('model-base-url', draft.endpoint_mode === 'full_url' ? '完整端点 URL' : 'Base URL')}
+          <input
+            id="model-base-url"
+            type="url"
+            value={draft.base_url}
+            onChange={(event) => onPatchDraft({ base_url: event.target.value })}
+            readOnly={!policy.edit_base_url}
+            className={inputClass(!policy.edit_base_url && 'bg-surface-alt text-fg-mute')}
+            spellCheck={false}
+          />
+        </div>
+      )}
+      {policy?.show_api_key && (
+        <div>
+          {fieldLabel('model-api-key', 'API Key')}
+          <div className="relative">
+            <input
+              id="model-api-key"
+              type={apiKeyVisible ? 'text' : 'password'}
+              value={draft.api_key}
+              onChange={(event) => onPatchDraft({
+                api_key: event.target.value,
+                clear_api_key: false,
+                credential_source_name: '',
+              })}
+              placeholder="输入 API Key"
+              className={inputClass('pr-10')}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              onClick={onToggleApiKey}
+              aria-label={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+              aria-pressed={apiKeyVisible}
+              aria-controls="model-api-key"
+              title={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+              className={clsx(
+                'absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-md transition',
+                'text-fg-mute hover:bg-surface-hi hover:text-fg focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent',
+                apiKeyVisible && 'text-accent',
+              )}
+            >
+              <VsIcon name="eye" size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="md:col-span-2">
+        {fieldLabel('model-profile-name', '预设名称', true)}
+        <input
+          id="model-profile-name"
+          type="text"
+          value={draft.name}
+          onChange={(event) => onPatchDraft({ name: event.target.value })}
+          placeholder="为空时使用 Model ID"
+          aria-describedby="model-profile-name-help"
+          className={inputClass()}
+        />
+        <p id="model-profile-name-help" className="mt-1.5 text-[10px] text-fg-mute">
+          留空时使用当前 Model ID 作为预设名称。
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -71,8 +150,10 @@ export function ModelProfileDialog({
   const [conflictMode, setConflictMode] = useState('');
   const [saveAsName, setSaveAsName] = useState('');
   const saveAsRef = useRef(null);
+  const advancedSectionRef = useRef(null);
   const provider = useMemo(() => providerForDraft(providers, draft), [draft, providers]);
   const policy = provider ? modelFieldPolicy(provider) : null;
+  const customCompatibilityApi = isCustomOpenAiCompatibilityProvider(provider);
   const managedConnection = managedConnections?.[provider?.runtime_provider] || null;
   const managedAuthenticated = !!managedConnection?.auth?.authenticated;
   const credentialSources = useMemo(
@@ -159,6 +240,24 @@ export function ModelProfileDialog({
     window.requestAnimationFrame(() => saveAsRef.current?.focus());
   };
 
+  const toggleAdvancedSettings = () => {
+    if (advancedOpen) {
+      setAdvancedOpen(false);
+      return;
+    }
+    setAdvancedOpen(true);
+    window.requestAnimationFrame(() => {
+      const section = advancedSectionRef.current;
+      if (!section) return;
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+      section.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'start',
+        inline: 'nearest',
+      });
+    });
+  };
+
   const selectedCapabilities = new Set(draft.capabilities || []);
   const toggleCapability = (capability) => {
     setDraft((current) => toggleModelCapability(current, capability));
@@ -174,7 +273,7 @@ export function ModelProfileDialog({
     <Modal
       onClose={() => { if (!submitting) onClose?.(); }}
       width="min(920px, calc(100vw - 32px))"
-      dismissOnBackdrop={!submitting}
+      dismissOnBackdrop={false}
       dismissOnEscape={!submitting}
       labelledBy="model-profile-dialog-title"
     >
@@ -209,13 +308,22 @@ export function ModelProfileDialog({
             provider={provider}
             draft={draft}
             allowMultiple={!editing}
+            directModelDetails={customCompatibilityApi ? (
+              <CustomCompatibilityApiFields
+                draft={draft}
+                policy={policy}
+                apiKeyVisible={apiKeyVisible}
+                onPatchDraft={patchDraft}
+                onToggleApiKey={() => setApiKeyVisible((visible) => !visible)}
+              />
+            ) : null}
             managedAuthenticated={managedAuthenticated}
             managedConnection={managedConnection}
             onProviderChange={selectProvider}
             onDraftChange={setDraft}
           />
 
-          {!policy?.managed && (
+          {!policy?.managed && !customCompatibilityApi && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {policy?.show_base_url && (
                 <div className={policy.show_api_key ? '' : 'md:col-span-2'}>
@@ -311,7 +419,7 @@ export function ModelProfileDialog({
             </label>
           )}
 
-          {editing && (
+          {editing && !customCompatibilityApi && (
             <div>
               {fieldLabel('model-profile-name', '预设名称')}
               <input
@@ -324,22 +432,26 @@ export function ModelProfileDialog({
             </div>
           )}
 
-          <div className="rounded-md border border-border bg-surface">
+          <div
+            ref={advancedSectionRef}
+            className="scroll-mt-4 rounded-md border border-border bg-surface"
+          >
             <button
               type="button"
-              onClick={() => setAdvancedOpen((open) => !open)}
+              onClick={toggleAdvancedSettings}
               aria-expanded={advancedOpen}
+              aria-controls="model-profile-advanced-settings"
               className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[11px] font-medium text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent"
             >
               <VsIcon name={advancedOpen ? 'expandDown' : 'expandRight'} size={12} />
               高级设置
-              <span className="ml-auto text-[10px] font-normal text-fg-mute">
-                名称、限制、能力与请求选项
-              </span>
             </button>
             {advancedOpen && (
-              <div className="space-y-4 border-t border-border px-3.5 py-3">
-                {!editing && (
+              <div
+                id="model-profile-advanced-settings"
+                className="space-y-4 border-t border-border px-3.5 py-3"
+              >
+                {!editing && !customCompatibilityApi && (
                   <div>
                     {fieldLabel('model-profile-name', '预设名称', true)}
                     <input
@@ -434,9 +546,6 @@ export function ModelProfileDialog({
                         </button>
                       );
                     })}
-                  </div>
-                  <div className="mt-1 text-[10px] text-fg-mute">
-                    手动修改后，能力来源会记录为 manual 并影响运行时请求。
                   </div>
                 </fieldset>
 

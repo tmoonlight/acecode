@@ -1,4 +1,5 @@
 #include "openai_provider.hpp"
+#include "dsml_tool_call_recovery.hpp"
 #include "session/session_history_recovery.hpp"
 #include "image/image_processor.hpp"
 #include "config/request_headers.hpp"
@@ -85,6 +86,26 @@ std::string json_string_or_empty(const nlohmann::json& value, const char* key) {
         return {};
     }
     return value[key].get<std::string>();
+}
+
+std::vector<ToolDef> request_tool_defs(const nlohmann::json& body) {
+    std::vector<ToolDef> tools;
+    if (!body.contains("tools") || !body["tools"].is_array()) return tools;
+
+    for (const auto& item : body["tools"]) {
+        if (!item.is_object() || !item.contains("function") ||
+            !item["function"].is_object()) {
+            continue;
+        }
+        const auto& function = item["function"];
+        const std::string name = json_string_or_empty(function, "name");
+        if (name.empty()) continue;
+
+        ToolDef tool;
+        tool.name = name;
+        tools.push_back(std::move(tool));
+    }
+    return tools;
 }
 
 std::optional<std::size_t> find_complete_json_prefix_end(const std::string& value) {
@@ -1127,6 +1148,21 @@ ChatResponse OpenAiCompatProvider::chat(
     try {
         nlohmann::json response_json = nlohmann::json::parse(r.text);
         auto resp = parse_response(response_json);
+        auto dsml = recover_dsml_tool_calls(resp.content, request_tool_defs(body));
+        resp.content = std::move(dsml.visible_text);
+        if (!dsml.error.empty()) {
+            LOG_WARN("Rejected DSML tool-call candidate: " + dsml.error);
+        }
+        if (dsml.recovered) {
+            if (resp.tool_calls.empty()) {
+                resp.tool_calls = std::move(dsml.tool_calls);
+                resp.finish_reason = "tool_calls";
+                LOG_INFO("Recovered non-streaming DSML tool calls count=" +
+                         std::to_string(resp.tool_calls.size()));
+            } else {
+                LOG_WARN("Ignored recovered DSML calls because native tool_calls exist");
+            }
+        }
         // Parse usage from non-streaming response
         if (response_json.contains("usage") && response_json["usage"].is_object()) {
             const auto& u = response_json["usage"];
@@ -1213,6 +1249,7 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
 
     ChatResponse last_accumulated;
     last_accumulated.finish_reason = "stop";
+    const auto dsml_tools = request_tool_defs(body);
 
     for (std::uint64_t attempt = 1; ;
          attempt = attempt == (std::numeric_limits<std::uint64_t>::max)()
@@ -1237,6 +1274,17 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         std::string payload_error_body;
         std::string payload_error_message;
         int payload_error_status_code = 0;
+        DsmlToolCallStreamFilter dsml_filter(dsml_tools);
+
+        auto emit_visible_text = [&](const std::string& text) {
+            if (text.empty()) return;
+            accumulated.content += text;
+
+            StreamEvent evt;
+            evt.type = StreamEventType::Delta;
+            evt.content = text;
+            callback(evt);
+        };
 
         auto flush_pending_tools = [&]() {
             for (auto& [idx, tc] : pending_tools) {
@@ -1262,6 +1310,36 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         };
 
         auto emit_done = [&]() {
+            if (saw_done) return;
+
+            auto dsml = dsml_filter.finish();
+            emit_visible_text(dsml.visible_text);
+            if (!dsml.error.empty()) {
+                LOG_WARN("Rejected DSML tool-call candidate: " + dsml.error);
+            }
+            if (dsml.recovered) {
+                const bool has_native_tool_calls =
+                    !pending_tools.empty() || !accumulated.tool_calls.empty();
+                if (has_native_tool_calls) {
+                    LOG_WARN("Ignored recovered DSML calls because native tool_calls exist");
+                } else {
+                    accumulated.finish_reason = "tool_calls";
+                    reported_finish_reason = "tool_calls";
+                    LOG_INFO("Recovered streaming DSML tool calls count=" +
+                             std::to_string(dsml.tool_calls.size()));
+                    for (std::size_t index = 0; index < dsml.tool_calls.size(); ++index) {
+                        const auto& call = dsml.tool_calls[index];
+                        accumulated.tool_calls.push_back(call);
+
+                        StreamEvent evt;
+                        evt.type = StreamEventType::ToolCall;
+                        evt.tool_call = call;
+                        evt.tool_index = static_cast<int>(index);
+                        callback(evt);
+                    }
+                }
+            }
+
             flush_pending_tools();
             if (accumulated.usage.has_data) {
                 StreamEvent usage_evt;
@@ -1398,14 +1476,7 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
 
                     if (delta.contains("content") && !delta["content"].is_null()) {
                         std::string token = delta["content"].get<std::string>();
-                        accumulated.content += token;
-                        if (!token.empty()) {
-
-                            StreamEvent evt;
-                            evt.type = StreamEventType::Delta;
-                            evt.content = token;
-                            callback(evt);
-                        }
+                        emit_visible_text(dsml_filter.push(token));
                     }
 
                     if (delta.contains("tool_calls") && delta["tool_calls"].is_array()) {

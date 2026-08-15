@@ -1601,7 +1601,7 @@ function parseDesktopBridgeResult(value) {
   return JSON.parse(text);
 }
 
-function SkillCard({ skill, busy, onToggle }) {
+function SkillCard({ skill, busyName, onToggle }) {
   return (
     <article
       data-skill-card="true"
@@ -1631,7 +1631,7 @@ function SkillCard({ skill, busy, onToggle }) {
         </div>
         <Toggle
           on={skill.enabled}
-          disabled={busy}
+          disabled={busyName === skill.name}
           onChange={(value) => onToggle(skill.name, value)}
           ariaLabel={`切换技能 ${skill.name}`}
         />
@@ -1646,14 +1646,14 @@ function SkillCard({ skill, busy, onToggle }) {
   );
 }
 
-function SkillCardGrid({ skills, busy, onToggle }) {
+function SkillCardGrid({ skills, busyName, onToggle }) {
   return (
     <div
       data-skill-card-grid="true"
       className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
     >
       {skills.map((skill) => (
-        <SkillCard key={skill.name} skill={skill} busy={busy} onToggle={onToggle} />
+        <SkillCard key={skill.name} skill={skill} busyName={busyName} onToggle={onToggle} />
       ))}
     </div>
   );
@@ -1667,7 +1667,7 @@ function WorkspaceSkillGroup({
   expanded,
   onToggleExpand,
   query,
-  busy,
+  busyName,
   onToggleSkill,
   onOpenDir,
   openingDir,
@@ -1719,7 +1719,7 @@ function WorkspaceSkillGroup({
             </div>
           )}
           {shown.length > 0 && (
-            <SkillCardGrid skills={shown} busy={busy} onToggle={onToggleSkill} />
+            <SkillCardGrid skills={shown} busyName={busyName} onToggle={onToggleSkill} />
           )}
         </div>
       )}
@@ -1899,7 +1899,7 @@ function SectionSkills() {
             </div>
           )}
           {filteredGlobal.length > 0 && (
-            <SkillCardGrid skills={filteredGlobal} busy={!!savingName} onToggle={toggle} />
+            <SkillCardGrid skills={filteredGlobal} busyName={savingName} onToggle={toggle} />
           )}
           <button
             type="button"
@@ -1937,7 +1937,7 @@ function SectionSkills() {
                   setExpanded((prev) => ({ ...prev, [ws.hash]: !prev[ws.hash] }))
                 }
                 query={search}
-                busy={!!savingName}
+                busyName={savingName}
                 onToggleSkill={(name, v) => toggle(name, v, ws.hash)}
                 onOpenDir={() => openDir('workspace', ws.hash)}
                 openingDir={openingDir}

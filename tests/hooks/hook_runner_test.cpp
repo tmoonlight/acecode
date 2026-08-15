@@ -3,8 +3,12 @@
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runner.hpp"
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
 
 TEST(HookRunner, SendsPayloadOnStdinWithZeroTimeoutAsInfinite) {
@@ -69,6 +73,95 @@ TEST(HookRunner, PositiveTimeoutTerminatesLongRunningHook) {
     auto result = acecode::run_hook_process(cmd, "", 50, "");
     EXPECT_TRUE(result.started) << result.error;
     EXPECT_TRUE(result.timed_out);
+}
+
+TEST(HookRunner, BoundedOptionsAbortLongRunningProcess) {
+    acecode::HookCommandSpec cmd;
+#ifdef _WIN32
+    cmd.command = "cmd.exe";
+    cmd.args = {"/d", "/s", "/c", "ping -n 6 127.0.0.1 > nul"};
+#else
+    cmd.command = "/bin/sh";
+    cmd.args = {"-c", "sleep 5"};
+#endif
+
+    std::atomic<bool> abort{false};
+    acecode::HookProcessOptions options;
+    options.timeout_ms = 5000;
+    options.abort_flag = &abort;
+    options.terminate_process_tree = true;
+
+    std::thread canceller([&abort] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        abort.store(true);
+    });
+    const auto started = std::chrono::steady_clock::now();
+    auto result = acecode::run_hook_process(cmd, "", "", options);
+    canceller.join();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
+    EXPECT_TRUE(result.started) << result.error;
+    EXPECT_TRUE(result.aborted);
+    EXPECT_FALSE(result.timed_out);
+    EXPECT_LT(elapsed.count(), 2000);
+}
+
+TEST(HookRunner, BoundedOptionsStopAtStdoutLineLimit) {
+    acecode::HookCommandSpec cmd;
+#ifdef _WIN32
+    cmd.command = "powershell.exe";
+    cmd.args = {"-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+                "1..50 | ForEach-Object { Write-Output ('line-' + $_) }; "
+                "Start-Sleep -Seconds 5"};
+#else
+    cmd.command = "/bin/sh";
+    cmd.args = {"-c", "i=0; while [ $i -lt 50 ]; do echo line-$i; "
+                         "i=$((i+1)); done; sleep 5"};
+#endif
+
+    acecode::HookProcessOptions options;
+    options.timeout_ms = 5000;
+    options.max_stdout_lines = 3;
+    options.terminate_on_stdout_limit = true;
+    options.terminate_process_tree = true;
+    options.append_output_truncation_notice = false;
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = acecode::run_hook_process(cmd, "", "", options);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
+    EXPECT_TRUE(result.started) << result.error;
+    EXPECT_TRUE(result.stdout_truncated);
+    EXPECT_TRUE(result.output_limit_reached);
+    EXPECT_FALSE(result.timed_out);
+    EXPECT_EQ(static_cast<std::size_t>(
+                  std::count(result.stdout_text.begin(), result.stdout_text.end(), '\n')),
+              3u);
+    EXPECT_LT(elapsed.count(), 2000);
+}
+
+TEST(HookRunner, BoundedOptionsCapStdoutWithoutProtocolMarker) {
+    acecode::HookCommandSpec cmd;
+#ifdef _WIN32
+    cmd.command = "cmd.exe";
+    cmd.args = {"/d", "/s", "/c", "<nul set /p =abcdefghijklmnopqrstuvwxyz"};
+#else
+    cmd.command = "/bin/sh";
+    cmd.args = {"-c", "printf abcdefghijklmnopqrstuvwxyz"};
+#endif
+
+    acecode::HookProcessOptions options;
+    options.timeout_ms = 3000;
+    options.max_stdout_bytes = 10;
+    options.append_output_truncation_notice = false;
+
+    auto result = acecode::run_hook_process(cmd, "", "", options);
+    EXPECT_TRUE(result.started) << result.error;
+    EXPECT_TRUE(result.stdout_truncated);
+    EXPECT_FALSE(result.output_limit_reached);
+    EXPECT_EQ(result.stdout_text, "abcdefghij");
 }
 
 TEST(HookRunner, ResolvesCommandBesideCurrentExecutableBeforePathSearch) {

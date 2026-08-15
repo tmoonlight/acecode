@@ -140,6 +140,9 @@ run('架构: pill 读 git info 走共享缓存,且不可渲染时不发请求', 
   assert.equal(pillTags.length, 2);
   assert.ok(pillTags.every((tag) => /\bapi=\{api\}/.test(tag)));
   assert.match(pillTags[1], /sessionLoaded=\{transcriptLoadState === 'loaded'\}/);
+  assert.match(chatViewSource, /className="ace-composer-dock"/);
+  assert.match(pillSource, /ace-git-pill-bar/);
+  assert.doesNotMatch(pillSource, /-mt-1\.5/);
   // sid 切换首帧不能沿用上一空会话的 loaded 状态。
   assert.match(transcriptSource, /stateSessionIdRef\.current === sid\s*\? state\.loadState/);
 });

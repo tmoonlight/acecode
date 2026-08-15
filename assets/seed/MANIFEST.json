@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-08-14.1",
+  "bundle_version": "2026-08-14.2",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
@@ -122,7 +122,7 @@
   "hooks": [
     {
       "name": "agent-reporting",
-      "source_id": "acecode:managed-hook/agent-reporting@2026-08-14.1",
+      "source_id": "acecode:managed-hook/agent-reporting@2026-08-14.2",
       "relative_path": "agent-reporting",
       "definition_sha256": "daeb5ce4f3ff42d1717c9997b9627bc6daf00df9ec24643203253da2aae30644",
       "previous_definition_sha256s": [

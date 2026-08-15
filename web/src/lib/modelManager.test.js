@@ -157,6 +157,39 @@ run('parseRequestHeadersJson 区分空输入、{} 和非法 JSON', () => {
   );
 });
 
+run('parseRequestHeadersJson 容忍多行、Unicode 空白和对象尾逗号', () => {
+  const input = '\u3000{\n\n  "X-Team"\u00a0:\t"acecode",\n'
+    + '  "Authorization": "Bearer {env:ACE_TOKEN}",\n}\u3000';
+  assert.deepEqual(parseRequestHeadersJson(input), {
+    ok: true,
+    headers: {
+      'X-Team': 'acecode',
+      Authorization: 'Bearer {env:ACE_TOKEN}',
+    },
+  });
+  assert.deepEqual(parseRequestHeadersJson('\u3000\n\t'), { ok: true, headers: undefined });
+});
+
+run('parseRequestHeadersJson 保留字符串内容并继续拒绝无效或危险输入', () => {
+  const headerValue = ' left\u3000,] "quoted" \\tail ';
+  const input = `{\n  "X-Text": ${JSON.stringify(headerValue)},\n}`;
+  assert.deepEqual(parseRequestHeadersJson(input), {
+    ok: true,
+    headers: { 'X-Text': headerValue },
+  });
+
+  [
+    '{"X-Team":"one"\n"X-Other":"two",}',
+    '{"X-Team":"line\nbreak",}',
+    '{"Bad Header":"x",}',
+    '{"X-Team":42,}',
+    '[{"X-Team":"acecode"},]',
+    '{"X-Team":"acecode", /* comment */}',
+  ].forEach((invalid) => {
+    assert.equal(parseRequestHeadersJson(invalid).code, 'INVALID_REQUEST_HEADER');
+  });
+});
+
 run('formatRequestHeadersJson 格式化已保存模板', () => {
   assert.equal(formatRequestHeadersJson({ 'X-Team': 'acecode' }), '{\n  "X-Team": "acecode"\n}');
   assert.equal(formatRequestHeadersJson({}), '');

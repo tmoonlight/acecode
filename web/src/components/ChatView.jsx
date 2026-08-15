@@ -626,7 +626,7 @@ function isRealWorkspaceHash(hash) {
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 
-export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
+export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const stagedExpertDraft = expertDispatchDraftFromRef(ref);
@@ -4324,7 +4324,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
       >
         <div className="ace-home-panel flex-1">
           <div className="ace-home-content">
-            <InteractiveHomeLogo />
+            <InteractiveHomeLogo enabled={homeLogoEffectEnabled} />
             <h1 className="ace-home-title">{homeProjectTitle}</h1>
             <div data-tour-target="home-composer" className="ace-home-composer">
               <InputBar
@@ -5034,7 +5034,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
           {tr('externalSession.tuiReadOnly')}
         </div>
       ) : (
-        <>
+        <div className="ace-composer-dock">
           <InputBar
             ref={inputRef}
             pathReferenceApi={api}
@@ -5092,7 +5092,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
             busy={busy}
             onIntentChange={handleGitPillIntentChange}
           />
-        </>
+        </div>
       )}
       <ChatFileDropOverlay active={chatFileDropActive} />
       </div>

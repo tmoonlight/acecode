@@ -4,7 +4,6 @@ import {
   MAX_LIGHT_DISTANCE_PX,
   clampLightToRadius,
   createRandomLogoLightOffset,
-  createDynamicLogoFpsProbe,
   interpolateLogoLightOffset,
 } from '../lib/interactiveHomeLogoPerformance.js';
 
@@ -16,7 +15,6 @@ const IDLE_LIGHT_DELAY_MS = 2000;
 const IDLE_LIGHT_MOVE_DURATION_MS = 1600;
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const ICON_CORNER_RADIUS = 0.237;
-let lowFpsFallbackLatched = false;
 
 const VERTEX_SHADER = `#version 300 es
 layout(location = 0) in vec2 a_position;
@@ -490,15 +488,14 @@ function compileShader(gl, type, source) {
   return shader;
 }
 
-export default function InteractiveHomeLogo({ className = '' }) {
+export default function InteractiveHomeLogo({ className = '', enabled = true }) {
   const canvasRef = useRef(null);
   const [rendererRevision, setRendererRevision] = useState(0);
   const [ready, setReady] = useState(false);
-  const [lowFpsFallback, setLowFpsFallback] = useState(lowFpsFallbackLatched);
 
   useEffect(() => {
     setReady(false);
-    if (lowFpsFallback) return undefined;
+    if (!enabled) return undefined;
 
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
@@ -578,8 +575,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
     let disposed = false;
     let contextLost = false;
     let revealed = false;
-    let lowFpsFallbackTriggered = false;
-    const fpsProbe = createDynamicLogoFpsProbe();
 
     const cancelScheduledFrame = () => {
       if (animationFrame !== 0) window.cancelAnimationFrame(animationFrame);
@@ -593,7 +588,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
       clearIdleTimer();
       idleLight.active = false;
       idleLight.segmentStartedAt = null;
-      fpsProbe.reset();
       if (cancelFrame) cancelScheduledFrame();
     };
     const chooseNextIdleTarget = () => {
@@ -633,7 +627,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
       if (
         disposed
         || contextLost
-        || lowFpsFallbackTriggered
         || document.hidden
         || reducedMotion
       ) {
@@ -667,7 +660,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
       idleLight.currentY = currentLight.y - centerY;
       idleLight.segmentStartedAt = null;
       chooseNextIdleTarget();
-      fpsProbe.start({ continuous: true });
       scheduleFrame();
     };
     const scheduleIdleMotion = () => {
@@ -676,7 +668,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
         idleLight.active
         || disposed
         || contextLost
-        || lowFpsFallbackTriggered
         || document.hidden
         || reducedMotion
       ) {
@@ -690,7 +681,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
       if (
         disposed
         || contextLost
-        || lowFpsFallbackTriggered
         || document.hidden
       ) {
         return;
@@ -698,19 +688,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
 
       const rect = canvas.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-
-      const fpsSample = fpsProbe.sample(frameTimestamp);
-      if (fpsSample.belowMinimum) {
-        stopIdleMotion();
-        lowFpsFallbackTriggered = true;
-        lowFpsFallbackLatched = true;
-        setReady(false);
-        setLowFpsFallback(true);
-        console.warn(
-          `Interactive ACECode logo measured ${fpsSample.framesPerSecond.toFixed(1)} FPS; using static fallback.`,
-        );
-        return;
-      }
 
       const pixelRatio = Math.min(window.devicePixelRatio || 1, MAX_DPR);
       const width = Math.max(1, Math.round(rect.width * pixelRatio));
@@ -761,7 +738,7 @@ export default function InteractiveHomeLogo({ className = '' }) {
         setReady(true);
       }
 
-      if (idleLight.active || fpsSample.shouldContinue) {
+      if (idleLight.active) {
         scheduleFrame();
       }
     };
@@ -771,7 +748,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
         animationFrame === 0
         && !disposed
         && !contextLost
-        && !lowFpsFallbackTriggered
         && !document.hidden
       ) {
         animationFrame = window.requestAnimationFrame(draw);
@@ -786,7 +762,6 @@ export default function InteractiveHomeLogo({ className = '' }) {
       pointer.clientX = sample.clientX;
       pointer.clientY = sample.clientY;
       pointer.active = true;
-      fpsProbe.start();
       scheduleFrame();
       scheduleIdleMotion();
     };
@@ -853,15 +828,15 @@ export default function InteractiveHomeLogo({ className = '' }) {
         gl.deleteShader(vertexShader);
       }
     };
-  }, [lowFpsFallback, rendererRevision]);
+  }, [enabled, rendererRevision]);
 
   return (
     <div
       className={`ace-home-logo ${className}`.trim()}
       role="img"
       aria-label="ACECode"
-      data-dynamic-logo-ready={ready ? 'true' : 'false'}
-      data-dynamic-logo-fallback={lowFpsFallback ? 'low-fps' : undefined}
+      data-dynamic-logo-ready={enabled && ready ? 'true' : 'false'}
+      data-dynamic-logo-fallback={enabled ? undefined : 'session-visited'}
     >
       <img
         src="/acecode-logo.png"
@@ -872,13 +847,15 @@ export default function InteractiveHomeLogo({ className = '' }) {
         draggable="false"
         aria-hidden="true"
       />
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_SIZE}
-        height={CANVAS_SIZE}
-        className="ace-home-logo-canvas"
-        aria-hidden="true"
-      />
+      {enabled && (
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_SIZE}
+          height={CANVAS_SIZE}
+          className="ace-home-logo-canvas"
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }

@@ -35,21 +35,69 @@
 namespace acecode {
 namespace {
 
-constexpr std::size_t kMaxCapturedOutputBytes = 64 * 1024;
-
 long long elapsed_ms_since(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
 }
 
-void append_capped(std::string& out, const char* data, std::size_t len) {
-    if (len == 0 || out.size() >= kMaxCapturedOutputBytes) return;
-    std::size_t remaining = kMaxCapturedOutputBytes - out.size();
-    std::size_t take = std::min(remaining, len);
-    out.append(data, data + take);
-    if (take < len && out.size() < kMaxCapturedOutputBytes + 32) {
-        out.append("\n[hook output truncated]\n");
+struct CaptureState {
+    std::size_t complete_lines = 0;
+    bool truncated = false;
+    bool notice_appended = false;
+};
+
+bool append_capped(std::string& out,
+                   const char* data,
+                   std::size_t len,
+                   std::size_t max_bytes,
+                   std::size_t max_lines,
+                   bool append_notice,
+                   CaptureState& state) {
+    if (len == 0) return state.truncated;
+
+    std::size_t take = len;
+    bool hit_limit = false;
+
+    if (max_bytes > 0) {
+        const std::size_t remaining =
+            out.size() < max_bytes ? max_bytes - out.size() : 0;
+        if (take > remaining) {
+            take = remaining;
+            hit_limit = true;
+        }
     }
+
+    if (max_lines > 0 && state.complete_lines < max_lines) {
+        std::size_t lines = state.complete_lines;
+        for (std::size_t i = 0; i < take; ++i) {
+            if (data[i] != '\n') continue;
+            ++lines;
+            if (lines >= max_lines) {
+                take = i + 1;
+                hit_limit = true;
+                break;
+            }
+        }
+    } else if (max_lines > 0) {
+        take = 0;
+        hit_limit = true;
+    }
+
+    if (take > 0) {
+        out.append(data, data + take);
+        state.complete_lines += static_cast<std::size_t>(
+            std::count(data, data + take, '\n'));
+    }
+
+    if (take < len) hit_limit = true;
+    if (!hit_limit) return state.truncated;
+
+    state.truncated = true;
+    if (append_notice && !state.notice_appended) {
+        out.append("\n[hook output truncated]\n");
+        state.notice_appended = true;
+    }
+    return true;
 }
 
 std::vector<std::string> make_argv(const HookCommandSpec& command) {
@@ -208,8 +256,8 @@ std::string resolve_hook_command_path(const std::string& command) {
 static HookProcessResult run_hook_process_impl(
     const HookCommandSpec& command,
     const std::string& stdin_text,
-    int timeout_ms,
     const std::string& cwd,
+    const HookProcessOptions& options,
     const HookEnvironment& environment,
     const std::string* windows_shell_command) {
 #ifndef _WIN32
@@ -219,6 +267,14 @@ static HookProcessResult run_hook_process_impl(
     auto started_at = std::chrono::steady_clock::now();
     auto finish = [&]() {
         result.duration_ms = elapsed_ms_since(started_at);
+        if (!options.append_output_truncation_notice) {
+            if (result.stdout_truncated) {
+                trim_trailing_partial_utf8(result.stdout_text);
+            }
+            if (result.stderr_truncated) {
+                trim_trailing_partial_utf8(result.stderr_text);
+            }
+        }
         result.stdout_text = ensure_utf8(result.stdout_text);
         result.stderr_text = ensure_utf8(result.stderr_text);
         result.output = result.stdout_text + result.stderr_text;
@@ -244,6 +300,7 @@ static HookProcessResult run_hook_process_impl(
     HANDLE child_stdout_write = nullptr;
     HANDLE child_stderr_read = nullptr;
     HANDLE child_stderr_write = nullptr;
+    HANDLE process_job = nullptr;
 
     auto cleanup = [&]() {
         close_handle(child_stdin_read);
@@ -252,6 +309,7 @@ static HookProcessResult run_hook_process_impl(
         close_handle(child_stdout_write);
         close_handle(child_stderr_read);
         close_handle(child_stderr_write);
+        close_handle(process_job);
     };
 
     if (!CreatePipe(&child_stdin_read, &child_stdin_write, &sa, 0)) {
@@ -355,7 +413,22 @@ static HookProcessResult run_hook_process_impl(
         environment_block.push_back(L'\0');
     }
 
+    if (options.terminate_process_tree) {
+        process_job = CreateJobObjectW(nullptr, nullptr);
+        if (process_job) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if (!SetInformationJobObject(process_job,
+                                         JobObjectExtendedLimitInformation,
+                                         &info,
+                                         sizeof(info))) {
+                close_handle(process_job);
+            }
+        }
+    }
+
     DWORD creation_flags = CREATE_NO_WINDOW;
+    if (process_job) creation_flags |= CREATE_SUSPENDED;
     if (!environment_block.empty()) {
         creation_flags |= CREATE_UNICODE_ENVIRONMENT;
     }
@@ -380,6 +453,12 @@ static HookProcessResult run_hook_process_impl(
         return finish();
     }
     result.started = true;
+    if (process_job) {
+        if (!AssignProcessToJobObject(process_job, pi.hProcess)) {
+            close_handle(process_job);
+        }
+        ResumeThread(pi.hThread);
+    }
     CloseHandle(pi.hThread);
 
     if (!stdin_text.empty()) {
@@ -396,9 +475,17 @@ static HookProcessResult run_hook_process_impl(
     }
     close_handle(child_stdin_write);
 
-    char buffer[4096];
-    auto drain_pipe = [&](HANDLE pipe, std::string& out) {
+    CaptureState stdout_capture;
+    CaptureState stderr_capture;
+    char buffer[8192];
+    auto drain_pipe = [&](HANDLE pipe,
+                          std::string& out,
+                          std::size_t max_bytes,
+                          std::size_t max_lines,
+                          bool stop_when_truncated,
+                          CaptureState& capture) {
         for (;;) {
+            if (stop_when_truncated && capture.truncated) break;
             DWORD avail = 0;
             if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &avail, nullptr)) break;
             if (avail == 0) break;
@@ -409,23 +496,59 @@ static HookProcessResult run_hook_process_impl(
                 break;
             }
             if (bytes_read == 0) break;
-            append_capped(out, buffer, bytes_read);
+            append_capped(out,
+                          buffer,
+                          bytes_read,
+                          max_bytes,
+                          max_lines,
+                          options.append_output_truncation_notice,
+                          capture);
         }
     };
     auto drain_output = [&]() {
-        drain_pipe(child_stdout_read, result.stdout_text);
-        drain_pipe(child_stderr_read, result.stderr_text);
+        drain_pipe(child_stdout_read,
+                   result.stdout_text,
+                   options.max_stdout_bytes,
+                   options.max_stdout_lines,
+                   options.terminate_on_stdout_limit,
+                   stdout_capture);
+        drain_pipe(child_stderr_read,
+                   result.stderr_text,
+                   options.max_stderr_bytes,
+                   0,
+                   false,
+                   stderr_capture);
+        result.stdout_truncated = stdout_capture.truncated;
+        result.stderr_truncated = stderr_capture.truncated;
     };
 
-    const bool has_timeout = timeout_ms > 0;
+    auto terminate_child = [&]() {
+        if (process_job) {
+            TerminateJobObject(process_job, 1);
+        } else {
+            TerminateProcess(pi.hProcess, 1);
+        }
+        WaitForSingleObject(pi.hProcess, 1000);
+    };
+
+    const bool has_timeout = options.timeout_ms > 0;
     for (;;) {
         drain_output();
+        if (options.terminate_on_stdout_limit && stdout_capture.truncated) {
+            result.output_limit_reached = true;
+            terminate_child();
+            break;
+        }
         DWORD wait = WaitForSingleObject(pi.hProcess, 0);
         if (wait == WAIT_OBJECT_0) break;
-        if (has_timeout && elapsed_ms_since(started_at) >= timeout_ms) {
+        if (options.abort_flag && options.abort_flag->load()) {
+            result.aborted = true;
+            terminate_child();
+            break;
+        }
+        if (has_timeout && elapsed_ms_since(started_at) >= options.timeout_ms) {
             result.timed_out = true;
-            TerminateProcess(pi.hProcess, 1);
-            WaitForSingleObject(pi.hProcess, 1000);
+            terminate_child();
             break;
         }
         Sleep(10);
@@ -439,6 +562,7 @@ static HookProcessResult run_hook_process_impl(
     close_handle(pi.hProcess);
     close_handle(child_stdout_read);
     close_handle(child_stderr_read);
+    close_handle(process_job);
     return finish();
 #else
     std::signal(SIGPIPE, SIG_IGN);
@@ -478,6 +602,9 @@ static HookProcessResult run_hook_process_impl(
     }
 
     if (pid == 0) {
+        if (options.terminate_process_tree) {
+            setpgid(0, 0);
+        }
         dup2(stdin_pipe[0], STDIN_FILENO);
         dup2(stdout_pipe[1], STDOUT_FILENO);
         dup2(stderr_pipe[1], STDERR_FILENO);
@@ -502,6 +629,9 @@ static HookProcessResult run_hook_process_impl(
     }
 
     result.started = true;
+    if (options.terminate_process_tree) {
+        setpgid(pid, pid);
+    }
     close_fd(stdin_pipe[0]);
     close_fd(stdout_pipe[1]);
     close_fd(stderr_pipe[1]);
@@ -522,12 +652,26 @@ static HookProcessResult run_hook_process_impl(
     }
     close_fd(stdin_pipe[1]);
 
-    char buffer[4096];
-    auto drain_fd = [&](int fd, std::string& out) {
+    CaptureState stdout_capture;
+    CaptureState stderr_capture;
+    char buffer[8192];
+    auto drain_fd = [&](int fd,
+                        std::string& out,
+                        std::size_t max_bytes,
+                        std::size_t max_lines,
+                        bool stop_when_truncated,
+                        CaptureState& capture) {
         for (;;) {
+            if (stop_when_truncated && capture.truncated) break;
             ssize_t n = read(fd, buffer, sizeof(buffer));
             if (n > 0) {
-                append_capped(out, buffer, static_cast<std::size_t>(n));
+                append_capped(out,
+                              buffer,
+                              static_cast<std::size_t>(n),
+                              max_bytes,
+                              max_lines,
+                              options.append_output_truncation_notice,
+                              capture);
                 continue;
             }
             if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
@@ -535,29 +679,76 @@ static HookProcessResult run_hook_process_impl(
         }
     };
     auto drain_output = [&]() {
-        drain_fd(stdout_pipe[0], result.stdout_text);
-        drain_fd(stderr_pipe[0], result.stderr_text);
+        drain_fd(stdout_pipe[0],
+                 result.stdout_text,
+                 options.max_stdout_bytes,
+                 options.max_stdout_lines,
+                 options.terminate_on_stdout_limit,
+                 stdout_capture);
+        drain_fd(stderr_pipe[0],
+                 result.stderr_text,
+                 options.max_stderr_bytes,
+                 0,
+                 false,
+                 stderr_capture);
+        result.stdout_truncated = stdout_capture.truncated;
+        result.stderr_truncated = stderr_capture.truncated;
     };
 
     int status = 0;
-    const bool has_timeout = timeout_ms > 0;
+    bool status_valid = false;
+    auto terminate_and_reap = [&]() {
+        const pid_t target = options.terminate_process_tree ? -pid : pid;
+        kill(target, SIGKILL);
+        const auto reap_started = std::chrono::steady_clock::now();
+        for (;;) {
+            pid_t done = waitpid(pid, &status, WNOHANG);
+            if (done == pid) {
+                status_valid = true;
+                return;
+            }
+            if (done < 0 && errno != EINTR) return;
+            if (elapsed_ms_since(reap_started) >= 1000) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        // Preserve the bounded caller wait while still arranging eventual reap.
+        std::thread([pid]() {
+            int ignored_status = 0;
+            while (waitpid(pid, &ignored_status, 0) < 0 && errno == EINTR) {
+            }
+        }).detach();
+    };
+
+    const bool has_timeout = options.timeout_ms > 0;
     for (;;) {
         drain_output();
+        if (options.terminate_on_stdout_limit && stdout_capture.truncated) {
+            result.output_limit_reached = true;
+            terminate_and_reap();
+            break;
+        }
         pid_t done = waitpid(pid, &status, WNOHANG);
-        if (done == pid) break;
+        if (done == pid) {
+            status_valid = true;
+            break;
+        }
         if (done < 0 && errno != EINTR) break;
-        if (has_timeout && elapsed_ms_since(started_at) >= timeout_ms) {
+        if (options.abort_flag && options.abort_flag->load()) {
+            result.aborted = true;
+            terminate_and_reap();
+            break;
+        }
+        if (has_timeout && elapsed_ms_since(started_at) >= options.timeout_ms) {
             result.timed_out = true;
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
+            terminate_and_reap();
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     drain_output();
 
-    if (WIFEXITED(status)) result.exit_code = WEXITSTATUS(status);
-    else if (WIFSIGNALED(status)) result.exit_code = 128 + WTERMSIG(status);
+    if (status_valid && WIFEXITED(status)) result.exit_code = WEXITSTATUS(status);
+    else if (status_valid && WIFSIGNALED(status)) result.exit_code = 128 + WTERMSIG(status);
     close_fd(stdout_pipe[0]);
     close_fd(stderr_pipe[0]);
     return finish();
@@ -568,8 +759,18 @@ HookProcessResult run_hook_process(const HookCommandSpec& command,
                                    const std::string& stdin_text,
                                    int timeout_ms,
                                    const std::string& cwd) {
+    HookProcessOptions options;
+    options.timeout_ms = timeout_ms;
     return run_hook_process_impl(
-        command, stdin_text, timeout_ms, cwd, HookEnvironment{}, nullptr);
+        command, stdin_text, cwd, options, HookEnvironment{}, nullptr);
+}
+
+HookProcessResult run_hook_process(const HookCommandSpec& command,
+                                   const std::string& stdin_text,
+                                   const std::string& cwd,
+                                   const HookProcessOptions& options) {
+    return run_hook_process_impl(
+        command, stdin_text, cwd, options, HookEnvironment{}, nullptr);
 }
 
 HookProcessResult run_hook_shell_command(const std::string& command,
@@ -581,8 +782,10 @@ HookProcessResult run_hook_shell_command(const std::string& command,
 #ifdef _WIN32
     const char* comspec = std::getenv("COMSPEC");
     spec.command = (comspec && *comspec) ? std::string(comspec) : std::string("cmd.exe");
+    HookProcessOptions options;
+    options.timeout_ms = timeout_ms;
     return run_hook_process_impl(
-        spec, stdin_text, timeout_ms, cwd, environment, &command);
+        spec, stdin_text, cwd, options, environment, &command);
 #else
     const char* shell = std::getenv("SHELL");
     const std::string shell_path =

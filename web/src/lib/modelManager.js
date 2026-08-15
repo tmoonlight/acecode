@@ -61,6 +61,7 @@ function isValidCapabilityTag(tag) {
 
 const HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
 const ENV_NAME_RE = /^[A-Za-z0-9_]+$/;
+const RELAXED_JSON_WHITESPACE_RE = /\s/u;
 
 function hasControlChars(value) {
   return /[\u0000-\u001f\u007f]/.test(value);
@@ -107,12 +108,42 @@ export function validateRequestHeaders(headers, provider = 'openai') {
   return { ok: true };
 }
 
+function normalizeRequestHeadersJsonText(raw) {
+  let normalized = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (inString) {
+      normalized += ch;
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      normalized += ch;
+      continue;
+    }
+    if (ch === ',') {
+      let next = index + 1;
+      while (next < raw.length && RELAXED_JSON_WHITESPACE_RE.test(raw[next])) next += 1;
+      if (raw[next] === '}' || raw[next] === ']') continue;
+    }
+    normalized += RELAXED_JSON_WHITESPACE_RE.test(ch) ? ' ' : ch;
+  }
+  return normalized;
+}
+
 export function parseRequestHeadersJson(value, provider = 'openai') {
   const raw = String(value ?? '').trim();
   if (!raw) return { ok: true, headers: undefined };
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(normalizeRequestHeadersJsonText(raw));
   } catch {
     return { ok: false, code: 'INVALID_REQUEST_HEADER' };
   }
