@@ -1,7 +1,5 @@
-import { useMemo } from 'react'
-
-import { renderMarkdown } from '../../../lib/markdown.js'
 import { JsonTree } from './JsonTree.tsx'
+import { MarkdownText as DeepSeekMarkdownText } from './markdown/MarkdownText.tsx'
 import { Tooltip } from './Tooltip.tsx'
 
 export { JsonTree, Tooltip }
@@ -12,8 +10,12 @@ export {
   IconUserOutline16,
 } from './TrajectoryIcons.tsx'
 
-/** ACECode renderer adapter for DeepSeek's MarkdownText primitive. */
+const ENGLISH_CODE_LABELS = Object.freeze({
+  copyLabel: 'Copy',
+  copiedLabel: 'Copied',
+})
+
+/** DeepSeek's MarkdownText primitive with the requested English-only labels. */
 export function MarkdownText({ text }: { text: string }) {
-  const html = useMemo(() => ({ __html: renderMarkdown(text) }), [text])
-  return <div className="ace-trajectory-markdown" dangerouslySetInnerHTML={html} />
+  return <DeepSeekMarkdownText text={text} codeLabels={ENGLISH_CODE_LABELS} />
 }

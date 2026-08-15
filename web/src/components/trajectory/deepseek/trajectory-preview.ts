@@ -1,14 +1,6 @@
 /** Bounded Markdown-to-text projection shared by trajectory consumers. */
 
-function extractMarkdownPlainText(markdown: string): string {
-  return markdown
-    .replace(/```[\s\S]*?```/g, block => block.replace(/^```[^\n]*\n?|```$/g, ''))
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/^\s{0,3}(?:#{1,6}\s+|[-+*]>?\s+)/gm, '')
-    .replace(/[>*_~]/g, '')
-}
+import { extractMarkdownPlainText } from './markdown/plain-text.ts'
 
 const PREVIEW_SOURCE_CHARACTERS = 2_048
 const PREVIEW_OUTPUT_CHARACTERS = 512

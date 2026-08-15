@@ -680,6 +680,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     status: transcriptStatus,
     loadState: transcriptLoadState,
     streamingId,
+    trajectoryPartial,
     tokenUsage,
     goal,
     todos,
@@ -4687,8 +4688,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                   ? 'bg-accent-bg text-accent hover:bg-accent-bg'
                   : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
               )}
-              title={trajectoryOpen ? '返回对话' : '查看会话轨迹'}
-              aria-label={trajectoryOpen ? '返回对话' : '查看会话轨迹'}
+              title={trajectoryOpen ? 'Conversation' : 'Trajectory'}
+              aria-label={trajectoryOpen ? 'Conversation' : 'Trajectory'}
               aria-pressed={trajectoryOpen}
             >
               <VsIcon name="trajectory" size={14} />
@@ -5040,7 +5041,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
 
       {trajectoryOpen && (
         <Suspense
-          fallback={<div className="flex-1 min-h-0 flex items-center justify-center text-[12px] text-fg-mute">正在载入轨迹视图…</div>}
+          fallback={<div className="flex-1 min-h-0 flex items-center justify-center text-[12px] text-fg-mute">Loading trajectory…</div>}
         >
           <LazyTrajectoryView
             api={api}
@@ -5048,6 +5049,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             workspaceHash={sessionWorkspaceHash}
             active={trajectoryOpen}
             busy={busy}
+            livePartial={trajectoryPartial}
           />
         </Suspense>
       )}

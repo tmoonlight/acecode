@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildDeepSeekTrajectory,
   mergeTrajectoryRecords,
+  resolveDeepSeekTrajectoryPartial,
 } from './trajectoryModel.js';
 
 function run(name, fn) {
@@ -154,4 +155,163 @@ run('legacy records keep empty timing without adding source or age notices', () 
   assert.equal('source' in projection, false);
   assert.equal('missingCapabilities' in projection, false);
   assert.equal('diagnostics' in projection, false);
+});
+
+run('turn_start aliases its user message into Turn 1 without creating a phantom turn', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1000, 'turn_start', {
+      turn_id: 'active-turn',
+      user_message_id: 'user-message',
+    }),
+    recorded(2, 1001, 'message', {
+      role: 'user', id: 'user-message', content: 'first turn',
+    }),
+    recorded(3, 1010, 'model_request', {
+      step_index: 1, messages: [], tools: [],
+    }),
+  ]);
+  assert.equal(projection.turns.length, 1);
+  assert.equal(projection.turns[0].turn, 1);
+  const user = projection.turns[0].groups
+    .flatMap((group) => group.cells)
+    .find((cell) => cell.kind === 'user');
+  assert.equal(user.previewMarkdown, 'first turn');
+});
+
+run('live reasoning and text resolve to DeepSeek partial without rebuilding durable records', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1000, 'turn_start', { turn_id: 'turn-1' }),
+    recorded(2, 1001, 'message', { role: 'user', id: 'turn-1', content: 'stream' }),
+    recorded(3, 1010, 'model_step_start', { step_index: 1 }),
+    recorded(4, 1011, 'model_request', { step_index: 1, messages: [], tools: [] }),
+  ]);
+  const partial = resolveDeepSeekTrajectoryPartial(projection, {
+    turn: 1,
+    step: 1,
+    blocks: [
+      { kind: 'reasoning', text: 'checking' },
+      { kind: 'text', text: 'answering' },
+    ],
+  });
+  assert.deepEqual(partial, {
+    turn: 1,
+    step: 1,
+    blocks: [
+      { kind: 'reasoning', text: 'checking' },
+      { kind: 'text', text: 'answering' },
+    ],
+  });
+});
+
+run('running calls and retry metadata use the DeepSeek request contract', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1000, 'turn_start', { turn_id: 'turn-1' }),
+    recorded(2, 1001, 'message', { role: 'user', id: 'turn-1', content: 'run' }),
+    recorded(3, 1010, 'model_step_start', { step_index: 1 }),
+    recorded(4, 1011, 'model_request', {
+      step_index: 1,
+      provider: 'openai',
+      model: 'gpt-test',
+      messages: [],
+      tools: [{ name: 'bash', description: 'Run', parameters: { type: 'object' } }],
+    }),
+    recorded(5, 1020, 'agent_progress', {
+      phase: 'model_retry', retry_attempt: 2, retry_max_attempts: 5, retry_delay_ms: 750,
+    }),
+    recorded(6, 1030, 'tool_start', {
+      step_index: 1,
+      tool: 'bash',
+      tool_call_id: 'call-live',
+      args: { command: 'pwd' },
+      started_at_ms: 1030,
+    }),
+  ]);
+  assert.equal(projection.runningCalls.length, 1);
+  assert.equal(projection.runningCalls[0].callId, 'call-live');
+  assert.equal(projection.callSchemas.get('call-live').description, 'Run');
+  assert.equal(projection.requestNumbers[0].status, 'running');
+  assert.equal(projection.requestNumbers[0].retry, 2);
+  assert.equal(projection.requestNumbers[0].maxRetries, 5);
+  assert.equal(projection.requestNumbers[0].retryDelayMs, 750);
+});
+
+run('failed requests without partial content stay request-only like DeepSeek', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1000, 'turn_start', { turn_id: 'turn-1' }),
+    recorded(2, 1001, 'message', { role: 'user', id: 'turn-1', content: 'fail' }),
+    recorded(3, 1010, 'model_step_start', { step_index: 1 }),
+    recorded(4, 1011, 'model_request', { step_index: 1, messages: [], tools: [] }),
+    recorded(5, 1020, 'model_response', {
+      step_index: 1, status: 'error', content: '', error: { display_message: 'offline' },
+    }),
+    recorded(6, 1021, 'model_step_finish', { step_index: 1, reason: 'error' }),
+  ]);
+  const request = projection.requests[0];
+  assert.equal(request.status, 'error');
+  assert.equal('resultSeq' in request, false);
+  assert.equal(projection.nodes.some((node) => node.kind === 'assistant'), false);
+  const requestCell = projection.turns[0].groups
+    .flatMap((group) => group.cells)
+    .find((cell) => cell.requestOnly === true);
+  assert.equal(requestCell.isError, true);
+});
+
+run('aborted partial content becomes DeepSeek interrupted assistant evidence', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1000, 'turn_start', { turn_id: 'turn-1' }),
+    recorded(2, 1001, 'message', { role: 'user', id: 'turn-1', content: 'abort' }),
+    recorded(3, 1010, 'model_step_start', { step_index: 1 }),
+    recorded(4, 1011, 'model_request', { step_index: 1, messages: [], tools: [] }),
+    recorded(5, 1020, 'model_response', {
+      step_index: 1, status: 'aborted', content: 'partial answer',
+    }),
+    recorded(6, 1030, 'model_step_finish', { step_index: 1, reason: 'aborted' }),
+  ]);
+  const assistant = projection.nodes.find((node) => node.kind === 'assistant');
+  assert.equal(assistant.interrupted, true);
+  assert.equal(assistant.seq, 5.1);
+  assert.equal(assistant.time, 1030);
+  assert.equal(projection.requests[0].status, 'error');
+  assert.equal('resultSeq' in projection.requests[0], false);
+});
+
+run('retry responses remain failed request runs instead of completed runs', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1000, 'turn_start', { turn_id: 'turn-1' }),
+    recorded(2, 1001, 'message', { role: 'user', id: 'turn-1', content: 'retry' }),
+    recorded(3, 1010, 'model_step_start', { step_index: 1 }),
+    recorded(4, 1011, 'model_request', { step_index: 1, messages: [], tools: [] }),
+    recorded(5, 1020, 'model_response', { step_index: 1, status: 'retry', content: '' }),
+    recorded(6, 1030, 'model_step_finish', { step_index: 1, reason: 'retry' }),
+  ]);
+  assert.equal(projection.requests[0].status, 'error');
+  assert.equal(projection.requestNumbers[0].status, 'error');
+});
+
+run('compact notices project as the canonical standalone Compaction request', () => {
+  const compact = (sequence, stage, content, complete = false) => recorded(
+    sequence,
+    1000 + sequence,
+    'message',
+    {
+      role: 'system',
+      content,
+      metadata: {
+        compact_notice: true,
+        compact_notice_id: 'compact-1',
+        compact_notice_stage: stage,
+        compact_notice_complete: complete,
+      },
+    },
+  );
+  const projection = buildDeepSeekTrajectory([
+    compact(1, 'progress', 'Compacting context…'),
+    compact(2, 'summary', '[Conversation summary] condensed', true),
+  ]);
+  const request = projection.requests[0];
+  assert.equal(request.purpose, 'compaction');
+  assert.equal(request.status, 'complete');
+  assert.equal(request.summary[0].text, 'condensed');
+  assert.equal(projection.turns[0].turn, null);
+  assert.equal(projection.turns[0].groups[0].cells[0].kind, 'compacted');
 });

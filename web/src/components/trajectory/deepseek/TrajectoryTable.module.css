@@ -117,7 +117,11 @@
 }
 
 .table {
-  --trajectory-turn-accent: var(--ace-trajectory-turn-accent);
+  --trajectory-turn-accent: color-mix(
+    in srgb,
+    var(--dsw-static-blue-500) 22%,
+    var(--dsw-alias-bg-layer-1)
+  );
 
   width: 100%;
   min-width: 0;
@@ -288,7 +292,11 @@
 .requestBoundaryControlActive::before,
 .requestBoundaryControlActive:hover::before,
 .requestBoundaryControlActive:focus-visible::before {
-  background: var(--ace-trajectory-request-active);
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary-new-colorprimary-new-color) 18%,
+    var(--dsw-alias-bg-layer-1)
+  );
   box-shadow: 0 0 0 1.5px var(--dsw-alias-brand-primary-new-colorprimary-new-color);
 }
 
@@ -344,7 +352,11 @@
 }
 
 .table tbody tr[data-error='true'] .turnRail {
-  background: var(--ace-trajectory-error-rail);
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 22%,
+    var(--dsw-alias-bg-layer-1)
+  );
 }
 
 .table tbody tr[data-error='true'] .selectionRail {
@@ -410,7 +422,11 @@
 }
 
 .turnLabelActive {
-  color: var(--ace-trajectory-turn-label);
+  color: color-mix(
+    in srgb,
+    var(--dsw-static-blue-500) 55%,
+    var(--dsw-alias-label-tertiary)
+  );
   background: var(--trajectory-turn-accent);
 }
 
@@ -584,7 +600,11 @@
 }
 
 .contextGreen {
-  color: var(--ace-trajectory-context);
+  color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 68%,
+    var(--dsw-alias-label-secondary)
+  );
   background: var(--dsw-alias-state-success-tertiary);
 }
 
@@ -645,18 +665,38 @@
 }
 
 .promptDiffLineadded {
-  color: var(--ace-trajectory-prompt-added);
+  color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 72%,
+    var(--dsw-alias-label-primary)
+  );
   background: var(--dsw-alias-state-success-tertiary);
 }
 
 .promptDiffLineremoved {
   color: var(--dsw-alias-state-error-primary);
-  background: var(--ace-trajectory-prompt-removed-bg);
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 12%,
+    var(--dsw-alias-bg-layer-1)
+  );
 }
 
 .assistantVioletBright {
-  color: var(--ace-trajectory-assistant);
-  background: var(--ace-trajectory-assistant-soft);
+  color: color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%,
+    var(--dsw-alias-state-error-secondary)
+  );
+  background: color-mix(
+    in srgb,
+    color-mix(
+      in srgb,
+      var(--dsw-alias-brand-primary-new-colorprimary-new-color) 55%,
+      var(--dsw-alias-state-error-secondary)
+    ) 15%,
+    var(--dsw-alias-bg-layer-1)
+  );
 }
 
 .toolAmber {
@@ -665,8 +705,16 @@
 }
 
 .subtoolAmber {
-  color: var(--ace-trajectory-subtool);
-  background: var(--ace-trajectory-subtool-bg);
+  color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-label) 62%,
+    var(--dsw-alias-label-tertiary)
+  );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-tertiary) 58%,
+    var(--dsw-alias-bg-layer-1)
+  );
 }
 
 .contentText {

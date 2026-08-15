@@ -115,7 +115,32 @@ function cloneState(state) {
     todos: cloneTodos(state.todos),
     todoSummary: state.todoSummary && typeof state.todoSummary === 'object' ? { ...state.todoSummary } : null,
     activity: state.activity && typeof state.activity === 'object' ? { ...state.activity } : null,
+    trajectoryPartial: state.trajectoryPartial && typeof state.trajectoryPartial === 'object'
+      ? {
+          ...state.trajectoryPartial,
+          blocks: Array.isArray(state.trajectoryPartial.blocks)
+            ? state.trajectoryPartial.blocks.map((block) => ({ ...block }))
+            : [],
+        }
+      : null,
   };
+}
+
+function appendTrajectoryPartialText(next, kind, text) {
+  if (!text) return;
+  const current = next.trajectoryPartial && typeof next.trajectoryPartial === 'object'
+    ? next.trajectoryPartial
+    : { step: null, blocks: [] };
+  const blocks = Array.isArray(current.blocks)
+    ? current.blocks.map((block) => ({ ...block }))
+    : [];
+  const last = blocks[blocks.length - 1];
+  if (last?.kind === kind) {
+    blocks[blocks.length - 1] = { ...last, text: `${last.text || ''}${text}` };
+  } else {
+    blocks.push({ kind, text });
+  }
+  next.trajectoryPartial = { ...current, blocks };
 }
 
 function readUsageInt(payload, snakeKey, camelKey) {
@@ -734,7 +759,8 @@ export function preserveLiveRuntimeOnLoad(loadedState, liveState) {
   const liveIsRunning = liveState?.busy === true
     || liveState?.status === 'running'
     || !!liveState?.activeTurnId
-    || !!liveState?.activity;
+    || !!liveState?.activity
+    || !!liveState?.trajectoryPartial;
   if (!liveIsRunning) return loadedState;
 
   return {
@@ -744,6 +770,14 @@ export function preserveLiveRuntimeOnLoad(loadedState, liveState) {
     status: 'running',
     activity: liveState.activity && typeof liveState.activity === 'object'
       ? { ...liveState.activity }
+      : null,
+    trajectoryPartial: liveState.trajectoryPartial && typeof liveState.trajectoryPartial === 'object'
+      ? {
+          ...liveState.trajectoryPartial,
+          blocks: Array.isArray(liveState.trajectoryPartial.blocks)
+            ? liveState.trajectoryPartial.blocks.map((block) => ({ ...block }))
+            : [],
+        }
       : null,
   };
 }
@@ -817,6 +851,7 @@ export function createTranscriptState(overrides = {}) {
     isLive: false,
     loadState: 'idle',
     streamingId: null,
+    trajectoryPartial: null,
     toolMap: new Map(),
     turnTimings: new Map(),
     nextItemId: 1,
@@ -866,6 +901,7 @@ export function reduceTranscriptEvent(state, msg) {
   switch (t) {
     case 'transcript_replace': {
       finalizeStreaming(next);
+      next.trajectoryPartial = null;
       next.toolMap = new Map();
       const { messages, turnTimings } = splitTranscriptMessages(p.messages);
       next.turnTimings = turnTimings;
@@ -874,6 +910,15 @@ export function reduceTranscriptEvent(state, msg) {
       if (restoredTitle) next.title = restoredTitle;
       next.tokenUsage = null;
       next.error = '';
+      break;
+    }
+    case 'model_step_start': {
+      const step = Number(p.step_index);
+      next.trajectoryPartial = {
+        turn: Math.max(1, (Number(next.turns) || 0) + 1),
+        step: Number.isInteger(step) && step > 0 ? step : null,
+        blocks: [],
+      };
       break;
     }
     case 'agent_progress': {
@@ -1046,6 +1091,7 @@ export function reduceTranscriptEvent(state, msg) {
     }
     case 'token': {
       const text = p.text || '';
+      appendTrajectoryPartialText(next, 'text', text);
       if (text && text.trim()) {
         next.turnHadAssistantText = true;
       }
@@ -1075,6 +1121,10 @@ export function reduceTranscriptEvent(state, msg) {
           return { ...item, content: merged, ts: eventTs(msg) };
         });
       }
+      break;
+    }
+    case 'reasoning': {
+      appendTrajectoryPartialText(next, 'reasoning', p.text || '');
       break;
     }
     case 'tool_start': {
@@ -1192,9 +1242,11 @@ export function reduceTranscriptEvent(state, msg) {
         // 回合开始 → 重置桌面通知用的回合标记
         next.turnHadAssistantText = false;
         next.lastAssistantText = '';
+        next.trajectoryPartial = null;
       }
       if (!next.busy) {
         next.activity = null;
+        next.trajectoryPartial = null;
         finalizeStreaming(next);
         if (wasBusy) next.turns = (next.turns || 0) + 1;
         if (wasBusy && completedOutcome && next.turnHadAssistantText) {
@@ -1220,6 +1272,7 @@ export function reduceTranscriptEvent(state, msg) {
       next.activeTurnId = '';
       next.status = 'idle';
       next.activity = null;
+      next.trajectoryPartial = null;
       finalizeStreaming(next);
       if (wasBusy && completedOutcome && next.turnHadAssistantText) {
         effects.push({
@@ -1237,6 +1290,7 @@ export function reduceTranscriptEvent(state, msg) {
       next.status = 'error';
       next.error = p.reason || '';
       next.activity = null;
+      next.trajectoryPartial = null;
       finalizeStreaming(next);
       next.turnHadAssistantText = false;
       next.lastAssistantText = '';
@@ -1248,6 +1302,7 @@ export function reduceTranscriptEvent(state, msg) {
       next.activeTurnId = '';
       next.status = 'idle';
       next.activity = null;
+      next.trajectoryPartial = null;
       finalizeStreaming(next);
       next.turnHadAssistantText = false;
       next.lastAssistantText = '';

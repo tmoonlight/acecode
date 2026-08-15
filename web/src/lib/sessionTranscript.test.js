@@ -1589,14 +1589,30 @@ run('tool_call_id 优先关联并行同名工具', () => {
   assert.equal(b.output, 'bad');
 });
 
-run('reasoning 事件不追加到可见 assistant 消息', () => {
+run('reasoning 只进入 DeepSeek 轨迹 partial 且不追加到可见 assistant 消息', () => {
   const state = reduceMany([
-    { type: 'reasoning', payload: { text: 'hidden thought' }, seq: 1 },
-    { type: 'token', payload: { text: 'visible' }, seq: 2 },
+    { type: 'busy_changed', payload: { busy: true, turn_id: 'turn-live' }, seq: 1 },
+    { type: 'model_step_start', payload: { step_index: 2 }, seq: 2 },
+    { type: 'reasoning', payload: { text: 'hidden ' }, seq: 3 },
+    { type: 'reasoning', payload: { text: 'thought' }, seq: 4 },
+    { type: 'token', payload: { text: 'visible' }, seq: 5 },
   ]);
   assert.equal(state.items.length, 1);
   assert.equal(state.items[0].role, 'assistant');
   assert.equal(state.items[0].content, 'visible');
+  assert.deepEqual(state.trajectoryPartial, {
+    turn: 1,
+    step: 2,
+    blocks: [
+      { kind: 'reasoning', text: 'hidden thought' },
+      { kind: 'text', text: 'visible' },
+    ],
+  });
+
+  const ended = reduceTranscriptEvent(state, {
+    type: 'busy_changed', payload: { busy: false }, seq: 6,
+  }).state;
+  assert.equal(ended.trajectoryPartial, null);
 });
 
 run('transcript_replace 替换可见 transcript 并清理 token usage', () => {

@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  appendTrajectoryPartialLayout,
+  deriveTrajectoryLayout,
+} from './deepseek/layout.ts';
+import {
   buildDeepSeekTrajectory,
   mergeTrajectoryRecords,
+  resolveDeepSeekTrajectoryPartial,
   trajectoryRecordKey,
 } from '../../lib/trajectoryModel.js';
 import { TrajectorySearchIndex } from './deepseek/trajectory-search-index.ts';
@@ -18,18 +23,61 @@ const EMPTY_TURN_IDS = new Set();
 const EMPTY_RECORD_IDS = new Set();
 const PAGE_LIMIT = 250;
 const POLL_INTERVAL_MS = 1500;
+const SEARCH_INDEX_THROTTLE_MS = 3000;
+const DURATION_STORAGE_KEY = 'dsh.trajectory.duration';
 
-function allCellIndexes(turns, identities) {
-  if (identities === null) return null;
-  const indexes = new Set();
+function readDurationPreference() {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem(DURATION_STORAGE_KEY);
+    return raw === null ? false : JSON.parse(raw) === true;
+  } catch (error) {
+    console.error(`snapshot store '${DURATION_STORAGE_KEY}' rehydration failed:`, error);
+    return false;
+  }
+}
+
+function writeDurationPreference(value) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(DURATION_STORAGE_KEY, JSON.stringify(value));
+  } catch (error) {
+    console.error(`snapshot store '${DURATION_STORAGE_KEY}' persistence failed:`, error);
+  }
+}
+
+function lastCellIndex(turns) {
+  let last = 0;
   for (const turn of turns) {
     for (const group of turn.groups) {
       for (const cell of group.cells) {
-        if (identities.has(trajectoryRecordId(cell))) indexes.add(cell.index);
+        last = Math.max(last, cell.index);
       }
     }
   }
-  return indexes;
+  return last;
+}
+
+function timelineBlock(block) {
+  switch (block.kind) {
+    case 'text': return { kind: 'text', text: '' };
+    case 'reasoning': return { kind: 'reasoning', text: '' };
+    case 'image': return block;
+    case 'tool-call': return {
+      kind: 'tool-call',
+      callId: block.callId,
+      name: block.name,
+      argsRaw: '',
+    };
+    default: return { kind: 'other', block: null };
+  }
+}
+
+function partialStructureSignature(partial) {
+  if (partial === null) return '';
+  return partial.blocks.map((block) => (block.kind === 'tool-call'
+    ? `${block.kind}:${block.callId}:${block.name}`
+    : block.kind)).join('\u0000');
 }
 
 export function TrajectoryView({
@@ -38,6 +86,9 @@ export function TrajectoryView({
   workspaceHash = '',
   active = true,
   busy = false,
+  livePartial = null,
+  inspectCallId = null,
+  onInspectApplied,
 }) {
   const [records, setRecords] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -46,11 +97,13 @@ export function TrajectoryView({
   const [collapsedTurns, setCollapsedTurns] = useState(EMPTY_TURN_IDS);
   const [collapsedAssistants, setCollapsedAssistants] = useState(EMPTY_RECORD_IDS);
   const [timelineSelection, setTimelineSelection] = useState(null);
-  const [actualDuration, setActualDuration] = useState(true);
+  const [actualDuration, setActualDuration] = useState(readDurationPreference);
   const [actualTime, setActualTime] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchIndex] = useState(() => new TrajectorySearchIndex());
   const [searchRevision, setSearchRevision] = useState(0);
+  const searchIndexTimer = useRef(null);
+  const searchIndexInitialized = useRef(false);
   const [selectedTimelineIndex, setSelectedTimelineIndex] = useState(null);
   const [timelineRecordSelection, setTimelineRecordSelection] = useState(null);
   const [timelineRecordFocus, setTimelineRecordFocus] = useState(null);
@@ -228,28 +281,102 @@ export function TrajectoryView({
   }, [active, api, busy, sessionId]);
 
   const projection = useMemo(() => buildDeepSeekTrajectory(records), [records]);
-  const turns = projection.turns;
+  const {
+    nodes, runningCalls, requests, callSchemas,
+  } = projection;
+  const partial = useMemo(
+    () => resolveDeepSeekTrajectoryPartial(projection, livePartial),
+    [livePartial, projection],
+  );
+  const partialTurn = partial?.turn ?? null;
+  const partialStep = partial?.step ?? null;
+  const finalized = useMemo(() => {
+    const turns = deriveTrajectoryLayout({
+      nodes,
+      partial: partialTurn === null || partialStep === null
+        ? null
+        : { turn: partialTurn, step: partialStep, blocks: [] },
+      runningCalls,
+      requests,
+      callSchemas,
+    });
+    return { turns, lastIndex: lastCellIndex(turns) };
+  }, [callSchemas, nodes, partialStep, partialTurn, requests, runningCalls]);
+  const timelinePartialSignature = partialStructureSignature(partial);
+  const timelinePartial = useMemo(() => (partial === null
+    ? null
+    : {
+        turn: partial.turn,
+        step: partial.step,
+        blocks: partial.blocks.map((block) => timelineBlock(block)),
+      }), [partialStep, partialTurn, timelinePartialSignature]);
+  const timelineTurns = useMemo(
+    () => appendTrajectoryPartialLayout(finalized.turns, timelinePartial, finalized.lastIndex),
+    [finalized, timelinePartial],
+  );
   const timelineMode = actualDuration
     ? (actualTime ? 'actual' : 'duration')
     : (actualTime ? 'time' : 'sequence');
 
+  const partialSearchTurns = useMemo(
+    () => appendTrajectoryPartialLayout([], partial, finalized.lastIndex),
+    [finalized.lastIndex, partial],
+  );
+  const searchLayouts = useMemo(
+    () => [finalized.turns, partialSearchTurns],
+    [finalized, partialSearchTurns],
+  );
+  const latestSearchLayouts = useRef(searchLayouts);
+  latestSearchLayouts.current = searchLayouts;
   useEffect(() => {
-    if (searchIndex.update([turns])) setSearchRevision((revision) => revision + 1);
-  }, [searchIndex, turns]);
+    if (!searchIndexInitialized.current) {
+      searchIndexInitialized.current = true;
+      if (searchIndex.update(searchLayouts)) {
+        setSearchRevision((revision) => revision + 1);
+      }
+      return;
+    }
+    if (searchIndexTimer.current !== null) return;
+    searchIndexTimer.current = window.setTimeout(() => {
+      searchIndexTimer.current = null;
+      if (searchIndex.update(latestSearchLayouts.current)) {
+        setSearchRevision((revision) => revision + 1);
+      }
+    }, SEARCH_INDEX_THROTTLE_MS);
+  }, [searchIndex, searchLayouts]);
+  useEffect(() => () => {
+    if (searchIndexTimer.current !== null) window.clearTimeout(searchIndexTimer.current);
+  }, []);
 
   const searchRecordIds = useMemo(
     () => searchIndex.search(searchQuery),
     [searchIndex, searchQuery, searchRevision],
   );
-  const searchMatchIndexes = useMemo(
-    () => allCellIndexes(turns, searchRecordIds),
-    [searchRecordIds, turns],
+  const searchMatchIndexes = useMemo(() => {
+    if (searchRecordIds === null) return null;
+    const indexes = new Set();
+    for (const turns of searchLayouts) {
+      for (const turn of turns) {
+        for (const group of turn.groups) {
+          for (const cell of group.cells) {
+            if (searchRecordIds.has(trajectoryRecordId(cell))) indexes.add(cell.index);
+          }
+        }
+      }
+    }
+    return indexes;
+  }, [searchLayouts, searchRecordIds]);
+  const streamingCells = useMemo(
+    () => partialSearchTurns.flatMap((turn) => (
+      turn.groups.flatMap((group) => group.cells)
+    )),
+    [partialSearchTurns],
   );
   const timelineFocusIndexes = useMemo(
     () => timelineSelection === null
       ? null
-      : trajectoryTimelineFocusIndexes(turns, timelineSelection, timelineMode),
-    [timelineMode, timelineSelection, turns],
+      : trajectoryTimelineFocusIndexes(timelineTurns, timelineSelection, timelineMode),
+    [timelineMode, timelineSelection, timelineTurns],
   );
   const loadEarlierHistory = useCallback(
     () => loadOlderRef.current(),
@@ -257,7 +384,7 @@ export function TrajectoryView({
   );
 
   const collapsibleTurnIds = useMemo(
-    () => turns
+    () => timelineTurns
       .filter((turn) => turn.turn !== null && turn.groups.reduce(
         (count, group) => count + group.cells.filter(
           (cell) => cell.requestOnly !== true && cell.kind !== 'system',
@@ -265,13 +392,13 @@ export function TrajectoryView({
         0,
       ) > 1)
       .map((turn) => turn.turn),
-    [turns],
+    [timelineTurns],
   );
   const allTurnsCollapsed = collapsibleTurnIds.length > 0
     && collapsibleTurnIds.every((turn) => collapsedTurns.has(turn));
   const collapsibleAssistantIds = useMemo(() => {
     const ids = [];
-    for (const turn of turns) {
+    for (const turn of timelineTurns) {
       const cells = turn.groups.flatMap((group) => group.cells);
       for (let index = 0; index < cells.length; index += 1) {
         const cell = cells[index];
@@ -282,7 +409,7 @@ export function TrajectoryView({
       }
     }
     return ids;
-  }, [turns]);
+  }, [timelineTurns]);
   const allAssistantsCollapsed = collapsibleAssistantIds.length > 0
     && collapsibleAssistantIds.every((id) => collapsedAssistants.has(id));
 
@@ -329,6 +456,7 @@ export function TrajectoryView({
         actualDuration={actualDuration}
         onActualDurationChange={(value) => {
           setActualDuration(value);
+          writeDurationPreference(value);
           setTimelineSelection(null);
         }}
         actualTime={actualTime}
@@ -344,7 +472,7 @@ export function TrajectoryView({
         onSearchQueryChange={setSearchQuery}
       />
       <TrajectoryTimeline
-        turns={turns}
+        turns={timelineTurns}
         mode={timelineMode}
         range={timelineSelection}
         hasEarlierRecords={hasOlderRecords}
@@ -362,7 +490,8 @@ export function TrajectoryView({
       <div className={css.ledger} style={{ '--dsh-trajectory-bottom-clearance': '0px' }}>
         <TrajectoryTable
           requestNumbers={projection.requestNumbers}
-          turns={turns}
+          turns={timelineTurns}
+          streamingCells={streamingCells}
           timelineFocusIndexes={timelineFocusIndexes}
           searchMatchIndexes={searchMatchIndexes}
           onSelectedIndexChange={setSelectedTimelineIndex}
@@ -383,6 +512,8 @@ export function TrajectoryView({
           onToggleTurn={toggleTurn}
           collapsedAssistants={collapsedAssistants}
           onToggleAssistant={toggleAssistant}
+          inspectCallId={inspectCallId}
+          onInspectApplied={onInspectApplied}
         />
       </div>
     </div>
