@@ -131,7 +131,11 @@ nlohmann::json context_item_json(const acecode::desktop::ContextItem& item) {
     if (item.kind == acecode::desktop::ContextItemKind::File) {
         value["mime_type"] = item.mime_type;
         value["size_bytes"] = item.size_bytes;
-        value["data_base64"] = acecode::base64_encode(item.bytes);
+        if (item.reference_only) {
+            value["reference_only"] = true;
+        } else {
+            value["data_base64"] = acecode::base64_encode(item.bytes);
+        }
     }
     return value;
 }

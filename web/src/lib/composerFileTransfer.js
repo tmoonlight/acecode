@@ -9,6 +9,7 @@ const PASTE_IMAGE_NAMES = {
 };
 
 const DESKTOP_SOURCE_PATH = Symbol.for('acecode.desktopSourcePath');
+const DESKTOP_SOURCE_REFERENCE = Symbol.for('acecode.desktopSourceReference');
 
 function normalizedAbsoluteSourcePath(value) {
   let path = String(value || '').trim().replaceAll('\\', '/');
@@ -39,6 +40,33 @@ export function markFileSourcePath(file, sourcePath) {
 
 export function fileSourcePath(file) {
   return normalizedAbsoluteSourcePath(file?.[DESKTOP_SOURCE_PATH]);
+}
+
+export function markFileSourceReference(file, sourcePath, sizeBytes) {
+  const path = normalizedAbsoluteSourcePath(sourcePath);
+  const size = Number(sizeBytes);
+  if (!file || !path || !Number.isFinite(size) || size < 0) return file;
+  markFileSourcePath(file, path);
+  try {
+    Object.defineProperty(file, DESKTOP_SOURCE_REFERENCE, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: { sourcePath: path, sizeBytes: size },
+    });
+  } catch {
+    // If the host object cannot carry metadata, callers fall back to the
+    // ordinary snapshot upload path instead of trusting an incomplete ref.
+  }
+  return file;
+}
+
+export function fileSourceReference(file) {
+  const reference = file?.[DESKTOP_SOURCE_REFERENCE];
+  const sourcePath = normalizedAbsoluteSourcePath(reference?.sourcePath);
+  const sizeBytes = Number(reference?.sizeBytes);
+  if (!sourcePath || !Number.isFinite(sizeBytes) || sizeBytes < 0) return null;
+  return { sourcePath, sizeBytes };
 }
 
 function fileMetadataNumber(value) {

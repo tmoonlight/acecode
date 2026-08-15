@@ -1,4 +1,7 @@
-import { markFileSourcePath } from './composerFileTransfer.js';
+import {
+  markFileSourcePath,
+  markFileSourceReference,
+} from './composerFileTransfer.js';
 
 function parseBridgeJson(raw) {
   if (typeof raw !== 'string') return raw;
@@ -18,9 +21,7 @@ export function parseNativeContextPickerResult(raw) {
 
   const items = Array.isArray(body.items) ? body.items : [];
   const folders = items.filter((item) => item?.kind === 'folder' && item.path);
-  const files = items.filter((item) => (
-    item?.kind === 'file' && item.path && item.name && item.data_base64 != null
-  ));
+  const files = items.filter(isValidNativeFileItem);
   if (folders.length > 1 || (folders.length > 0 && files.length > 0)) {
     throw new Error('原生选择器返回了冲突的文件和文件夹结果');
   }
@@ -41,12 +42,7 @@ export function parseNativeFilesystemItemsResult(raw) {
     if (item?.kind === 'folder' && typeof item.path === 'string' && item.path) {
       return item;
     }
-    if (
-      item?.kind === 'file'
-      && typeof item.path === 'string' && item.path
-      && typeof item.name === 'string' && item.name
-      && typeof item.data_base64 === 'string'
-    ) {
+    if (isValidNativeFileItem(item)) {
       return item;
     }
     throw new Error('原生文件系统条目无效');
@@ -63,8 +59,17 @@ export function nativePickedFileToFile(item, {
   FileCtor = globalThis.File,
   decodeBase64 = globalThis.atob,
 } = {}) {
-  if (!item || item.kind !== 'file' || typeof item.data_base64 !== 'string') {
+  if (!isValidNativeFileItem(item)) {
     throw new Error('原生文件数据无效');
+  }
+  if (item.reference_only === true) {
+    const file = {
+      name: String(item.name || 'attachment'),
+      type: String(item.mime_type || ''),
+      size: Number(item.size_bytes),
+      lastModified: 0,
+    };
+    return markFileSourceReference(file, item.path, item.size_bytes);
   }
   if (typeof FileCtor !== 'function' || typeof decodeBase64 !== 'function') {
     throw new Error('当前环境无法还原原生文件');
@@ -79,6 +84,21 @@ export function nativePickedFileToFile(item, {
     lastModified: Date.now(),
   });
   return markFileSourcePath(file, item.path);
+}
+
+function isValidNativeFileItem(item) {
+  if (
+    item?.kind !== 'file'
+    || typeof item.path !== 'string' || !item.path
+    || typeof item.name !== 'string' || !item.name
+  ) {
+    return false;
+  }
+  if (item.reference_only === true) {
+    const size = Number(item.size_bytes);
+    return Number.isFinite(size) && size >= 0 && item.data_base64 == null;
+  }
+  return typeof item.data_base64 === 'string';
 }
 
 function normalizedAbsolutePath(value) {

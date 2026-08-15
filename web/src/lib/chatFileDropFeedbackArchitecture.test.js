@@ -104,6 +104,19 @@ run('ChatView reserves attachment identities before session creation or upload',
   assert.match(chatView, /const clearComposerExtras = useCallback\(\(\) => \{\s*clearAttachmentReservations\(\)/);
 });
 
+run('Desktop ordinary-file references bypass image normalization and Base64 upload', () => {
+  const chatView = source('components/ChatView.jsx');
+  const persistence = chatView.match(
+    /const persistAttachment = sourceReference[\s\S]*?Promise\.resolve\(persistAttachment\)/,
+  )?.[0] || '';
+
+  assert.match(persistence, /api\.createSessionAttachmentReference\(targetSid, \{[\s\S]*reference_only: true/);
+  assert.match(persistence, /:\s*normalizeImageFile\(file\)[\s\S]*fileToBase64\(uploadFile\)/);
+  assert.ok(
+    persistence.indexOf('createSessionAttachmentReference') < persistence.indexOf('normalizeImageFile'),
+  );
+});
+
 run('drop overlay uses a themed blur fallback and Slate tags own their gutter', () => {
   const styles = source('styles/globals.css');
 

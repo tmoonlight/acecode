@@ -39,6 +39,10 @@ std::string display_name(const fs::path& path) {
     return path_to_utf8(filename.empty() ? path : filename);
 }
 
+bool requires_snapshot_bytes(const std::string& mime_type) {
+    return mime_type.rfind("image/", 0) == 0 && mime_type != "image/svg+xml";
+}
+
 } // namespace
 
 ContextItemsResult materialize_context_items(
@@ -87,6 +91,13 @@ ContextItemsResult materialize_context_items(
             result.error = "failed to inspect file: " + item.name;
             return result;
         }
+
+        if (!requires_snapshot_bytes(item.mime_type)) {
+            item.reference_only = true;
+            result.items.push_back(std::move(item));
+            continue;
+        }
+
         if (item.size_bytes > kMaxAttachmentBytes) {
             result.error = "file exceeds the 25 MiB attachment limit: " + item.name;
             return result;

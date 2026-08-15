@@ -109,6 +109,7 @@ std::string attachment_mime_for_name(const std::string& name,
     if (ext == ".webp") return "image/webp";
     if (ext == ".bmp") return "image/bmp";
     if (ext == ".svg") return "image/svg+xml";
+    if (ext == ".pdf") return "application/pdf";
     if (ext == ".txt" || ext == ".log") return "text/plain";
     if (ext == ".md" || ext == ".markdown") return "text/markdown";
     if (ext == ".json") return "application/json";
@@ -149,6 +150,80 @@ bool is_valid_attachment_id(const std::string& id) {
         return false;
     }
     return true;
+}
+
+std::optional<AttachmentRecord> save_attachment_reference(
+    const std::string& project_dir,
+    const std::string& session_id,
+    const std::string& name,
+    const std::string& supplied_mime_type,
+    const std::string& source_path,
+    std::string* error) {
+    if (project_dir.empty() || session_id.empty()) {
+        set_error(error, "session storage unavailable");
+        return std::nullopt;
+    }
+    if (source_path.empty() || source_path.size() > 32768) {
+        set_error(error, "attachment source path is unavailable");
+        return std::nullopt;
+    }
+
+    const fs::path input = path_from_utf8(source_path);
+    if (!input.is_absolute()) {
+        set_error(error, "attachment source path must be absolute");
+        return std::nullopt;
+    }
+
+    std::error_code ec;
+    const fs::path canonical = fs::weakly_canonical(input, ec);
+    if (ec || canonical.empty() || !fs::is_regular_file(canonical, ec) || ec) {
+        set_error(error, "attachment source path is unavailable");
+        return std::nullopt;
+    }
+
+    const std::string source_name = path_to_utf8(canonical.filename());
+    const std::string stored_name = name.empty()
+        ? (source_name.empty() ? "attachment" : source_name)
+        : name;
+    const std::string stored_mime =
+        attachment_mime_for_name(stored_name, supplied_mime_type);
+    if (attachment_kind_for_mime(std::string{}, source_name) == "image" ||
+        attachment_kind_for_mime(stored_mime, stored_name) == "image") {
+        set_error(error, "image attachments require snapshot data");
+        return std::nullopt;
+    }
+
+    const std::uintmax_t actual_size = fs::file_size(canonical, ec);
+    if (ec) {
+        set_error(error, "failed to inspect attachment source");
+        return std::nullopt;
+    }
+
+    AttachmentRecord record;
+    record.id = generate_attachment_id();
+    record.session_id = session_id;
+    record.name = stored_name;
+    record.mime_type = stored_mime;
+    record.kind = "file";
+    record.size_bytes = actual_size;
+    record.metadata = {
+        {"source_path", path_to_utf8_generic(canonical)},
+        {"storage", "source_reference"},
+    };
+
+    const fs::path dir = attachments_dir(project_dir, session_id);
+    fs::create_directories(dir, ec);
+    if (ec) {
+        set_error(error, "failed to create attachment directory: " + ec.message());
+        return std::nullopt;
+    }
+    if (!atomic_write_file(
+            path_to_utf8(metadata_path_for(project_dir, session_id, record.id)),
+            attachment_to_json(record).dump(2))) {
+        set_error(error, "failed to write attachment metadata");
+        return std::nullopt;
+    }
+    return record;
 }
 
 std::optional<AttachmentRecord> save_attachment(
@@ -364,7 +439,8 @@ std::optional<AttachmentRecord> attachment_from_json(const nlohmann::json& j) {
     if (record.mime_type.empty()) {
         record.mime_type = attachment_mime_for_name(record.name, std::string{});
     }
-    if (record.blob_url.empty() && !record.session_id.empty()) {
+    if (record.blob_url.empty() && !record.session_id.empty() &&
+        !record.path.empty()) {
         record.blob_url = attachment_blob_url(record.session_id, record.id);
     }
     if (j.contains("metadata") && j["metadata"].is_object()) {

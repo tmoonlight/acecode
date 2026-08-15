@@ -259,7 +259,7 @@ when known.
 | POST | `/api/sessions/:id/export-markdown` | choose a folder and export the visible transcript as Markdown |
 | POST | `/api/sessions/:id/messages` | queue user input |
 | POST | `/api/sessions/:id/turn/steer` | append input to the matching active turn |
-| POST | `/api/sessions/:id/attachments` | upload session attachment |
+| POST | `/api/sessions/:id/attachments` | upload a session snapshot or create a Desktop source reference |
 | GET | `/api/sessions/:id/attachments/:attachment_id/blob` | download attachment bytes |
 | POST | `/api/sessions/:id/commands` | run daemon builtin slash command |
 | POST | `/api/sessions/:id/side-question` | run isolated one-turn `/btw` question |
@@ -939,6 +939,20 @@ Uploads bytes into the session attachment store. Body:
 }
 ```
 
+Desktop may instead create a metadata-only reference for an ordinary local
+file. The server canonicalizes `source_path`, verifies that it is a regular
+non-image file, and records its actual size without reading or copying its
+bytes. There is no 25 MiB snapshot limit for this form:
+
+```json
+{
+  "name": "large.pdf",
+  "mime_type": "application/pdf",
+  "source_path": "C:/docs/large.pdf",
+  "reference_only": true
+}
+```
+
 Returns `201`:
 
 ```json
@@ -956,10 +970,16 @@ Returns `201`:
 }
 ```
 
+For a source reference, `path` and `blob_url` are empty, and `metadata`
+contains the canonical `source_path` plus `"storage":"source_reference"`.
+Raster images cannot use `reference_only`; they continue through the snapshot
+upload and image-normalization path.
+
 ### `GET /api/sessions/:id/attachments/:attachment_id/blob`
 
 Returns raw attachment bytes with the stored MIME type and
-`Cache-Control: private, max-age=3600`.
+`Cache-Control: private, max-age=3600`. Metadata-only source references have
+no blob and return `404` from this endpoint.
 
 ### `POST /api/sessions/:id/commands`
 

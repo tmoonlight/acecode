@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import {
   composerFileIdentity,
   fileSourcePath,
+  fileSourceReference,
   filesFromClipboardEvent,
   filesFromTransfer,
   hasFileTransfer,
   markFileSourcePath,
+  markFileSourceReference,
 } from './composerFileTransfer.js';
 
 function run(name, fn) {
@@ -88,6 +90,20 @@ run('native source paths are preserved separately from the browser filename', ()
   assert.equal(fileSourcePath(file), 'C:/work/project/notes.txt');
   assert.equal(Object.keys(file).includes('acecodeSourcePath'), false);
   assert.equal(fileSourcePath(markFileSourcePath(fileLike('x'), 'relative/x')), '');
+});
+
+run('native source references preserve actual size without becoming file bytes', () => {
+  const file = fileLike('large.pdf', 'application/pdf');
+  markFileSourceReference(file, 'C:\\work\\large.pdf', 50 * 1024 * 1024);
+
+  assert.deepEqual(fileSourceReference(file), {
+    sourcePath: 'C:/work/large.pdf',
+    sizeBytes: 50 * 1024 * 1024,
+  });
+  assert.equal(fileSourcePath(file), 'C:/work/large.pdf');
+  assert.equal(fileSourceReference(markFileSourceReference(
+    fileLike('bad.txt'), 'relative/bad.txt', 1,
+  )), null);
 });
 
 run('composer file identity normalizes Windows path separators and casing', () => {

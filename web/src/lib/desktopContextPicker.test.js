@@ -7,7 +7,10 @@ import {
   parseNativeContextPickerResult,
   parseNativeFilesystemItemsResult,
 } from './desktopContextPicker.js';
-import { fileSourcePath } from './composerFileTransfer.js';
+import {
+  fileSourcePath,
+  fileSourceReference,
+} from './composerFileTransfer.js';
 
 function test(name, fn) {
   try { fn(); console.log('ok -', name); }
@@ -31,6 +34,16 @@ test('parses file, folder, and cancelled native results', () => {
   assert.equal(parseNativeContextPickerResult({
     ok: true,
     items: [{ kind: 'file', path: 'C:/repo/a.txt', name: 'a.txt', data_base64: 'YQ==' }],
+  }).files.length, 1);
+  assert.equal(parseNativeContextPickerResult({
+    ok: true,
+    items: [{
+      kind: 'file',
+      path: 'C:/repo/large.pdf',
+      name: 'large.pdf',
+      size_bytes: 50 * 1024 * 1024,
+      reference_only: true,
+    }],
   }).files.length, 1);
 });
 
@@ -68,13 +81,42 @@ test('restores native base64 bytes as a File-compatible object', () => {
   assert.deepEqual([...file.parts[0]], [0, 255, 16]);
 });
 
+test('keeps native ordinary files as path-only references without decoding bytes', () => {
+  const file = nativePickedFileToFile({
+    kind: 'file',
+    path: 'C:/repo/large.pdf',
+    name: 'large.pdf',
+    mime_type: 'application/pdf',
+    size_bytes: 50 * 1024 * 1024,
+    reference_only: true,
+  }, {
+    FileCtor: undefined,
+    decodeBase64: undefined,
+  });
+
+  assert.equal(file.name, 'large.pdf');
+  assert.equal(file.type, 'application/pdf');
+  assert.equal(file.size, 50 * 1024 * 1024);
+  assert.equal(fileSourcePath(file), 'C:/repo/large.pdf');
+  assert.deepEqual(fileSourceReference(file), {
+    sourcePath: 'C:/repo/large.pdf',
+    sizeBytes: 50 * 1024 * 1024,
+  });
+});
+
 test('parses mixed native filesystem files and folders in transfer order', () => {
   const parsed = parseNativeFilesystemItemsResult(JSON.stringify({
     ok: true,
     filesystem_items: true,
     items: [
       { kind: 'folder', path: 'C:/repo/docs', name: 'docs' },
-      { kind: 'file', path: 'C:/repo/a.txt', name: 'a.txt', data_base64: 'YQ==' },
+      {
+        kind: 'file',
+        path: 'C:/repo/a.txt',
+        name: 'a.txt',
+        size_bytes: 1,
+        reference_only: true,
+      },
     ],
   }));
   assert.deepEqual(parsed.items.map((item) => item.kind), ['folder', 'file']);
@@ -87,6 +129,17 @@ test('rejects malformed native filesystem items instead of silently dropping the
   assert.throws(() => parseNativeFilesystemItemsResult({
     ok: true,
     items: [{ kind: 'file', name: 'missing-path.txt', data_base64: '' }],
+  }), /条目无效/);
+  assert.throws(() => parseNativeFilesystemItemsResult({
+    ok: true,
+    items: [{
+      kind: 'file',
+      path: 'C:/repo/a.txt',
+      name: 'a.txt',
+      reference_only: true,
+      data_base64: 'YQ==',
+      size_bytes: 1,
+    }],
   }), /条目无效/);
 });
 

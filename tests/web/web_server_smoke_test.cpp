@@ -32,6 +32,7 @@
 #include "provider/cwd_model_override.hpp"
 #include "provider/models_dev_registry.hpp"
 #include "session/local_session_client.hpp"
+#include "session/attachment_store.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_registry.hpp"
 #include "session/session_storage.hpp"
@@ -4768,6 +4769,86 @@ TEST(WebServerHttp, SourceBackedAttachmentPersistsAbsolutePathForModelContext) {
     }
     EXPECT_TRUE(found) << "source-backed attachment context should be persisted: "
                        << last_messages;
+}
+
+TEST(WebServerHttp, LargeDesktopFileCreatesSourceReferenceWithoutBlob) {
+    WebServerFixture fx;
+    const auto source_file = fx.cwd_dir / "large reference.pdf";
+    {
+        std::ofstream output(source_file, std::ios::binary);
+        output.put('x');
+    }
+    const auto source_size = static_cast<std::uintmax_t>(
+        acecode::kMaxAttachmentBytes) + 8192u;
+    std::filesystem::resize_file(source_file, source_size);
+    const auto canonical_source = std::filesystem::weakly_canonical(source_file);
+    const std::string source_path = acecode::path_to_utf8(canonical_source);
+    const std::string expected_source = acecode::path_to_utf8_generic(canonical_source);
+
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}},
+                          cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201);
+    const auto sid = json::parse(post.text)["session_id"].get<std::string>();
+
+    auto create_reference = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"name", "large reference.pdf"},
+            {"mime_type", "application/pdf"},
+            {"source_path", source_path},
+            {"reference_only", true},
+        }.dump()});
+    ASSERT_EQ(create_reference.status_code, 201) << create_reference.text;
+    const auto attachment = json::parse(create_reference.text)["attachment"];
+    EXPECT_EQ(attachment.value("kind", ""), "file");
+    EXPECT_EQ(attachment.value("size_bytes", 0u), source_size);
+    EXPECT_TRUE(attachment.value("path", "missing").empty());
+    EXPECT_TRUE(attachment.value("blob_url", "missing").empty());
+    EXPECT_EQ(attachment["metadata"].value("source_path", ""), expected_source);
+    EXPECT_EQ(attachment["metadata"].value("storage", ""), "source_reference");
+    const std::string attachment_id = attachment["id"].get<std::string>();
+
+    auto blob = cpr::Get(cpr::Url{fx.url(
+        "/api/sessions/" + sid + "/attachments/" + attachment_id + "/blob")});
+    EXPECT_EQ(blob.status_code, 404) << blob.text;
+
+    auto queued = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "inspect the referenced PDF"},
+            {"client_message_id", "source-reference-message"},
+            {"attachments", json::array({json{{"id", attachment_id}}})},
+        }.dump()});
+    EXPECT_EQ(queued.status_code, 202) << queued.text;
+
+    const auto image_file = fx.cwd_dir / "source.png";
+    {
+        std::ofstream output(image_file, std::ios::binary);
+        output << "png";
+    }
+    auto image_reference = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"name", "renamed.pdf"},
+            {"mime_type", "application/pdf"},
+            {"source_path", acecode::path_to_utf8(image_file)},
+            {"reference_only", true},
+        }.dump()});
+    EXPECT_EQ(image_reference.status_code, 400) << image_reference.text;
+
+    auto missing_source = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"name", "missing.pdf"},
+            {"mime_type", "application/pdf"},
+            {"reference_only", true},
+        }.dump()});
+    EXPECT_EQ(missing_source.status_code, 400) << missing_source.text;
 }
 
 TEST(WebServerHttp, PostBuiltinCommandRejectsUnknownSession) {

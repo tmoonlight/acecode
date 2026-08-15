@@ -57,3 +57,23 @@ TEST(AttachmentPromptContext, SourceBackedAttachmentUsesSourceAndKeepsSnapshot) 
     EXPECT_NE(text.find("read `snapshot_path` instead"), std::string::npos);
     EXPECT_NE(text.find("never modify `snapshot_path`"), std::string::npos);
 }
+
+TEST(AttachmentPromptContext, SourceOnlyAttachmentHasNoSnapshotFallback) {
+    auto record = base_record();
+    record.path.clear();
+    record.blob_url.clear();
+    record.metadata = {
+        {"source_path", "D:/outside/large.pdf"},
+        {"storage", "source_reference"},
+    };
+
+    const std::string text = acecode::file_attachment_reference_text(record);
+
+    EXPECT_NE(text.find(R"("source_path": "D:/outside/large.pdf")"),
+              std::string::npos);
+    EXPECT_NE(text.find(R"("read_path": "D:/outside/large.pdf")"),
+              std::string::npos);
+    EXPECT_EQ(text.find("snapshot_path"), std::string::npos);
+    EXPECT_NE(text.find("no session snapshot was created"), std::string::npos);
+    EXPECT_NE(text.find("only when the user asks"), std::string::npos);
+}

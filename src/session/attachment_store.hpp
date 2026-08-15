@@ -41,6 +41,14 @@ std::optional<AttachmentRecord> save_attachment(
     std::string* error = nullptr,
     const nlohmann::json& initial_metadata = nlohmann::json::object());
 
+std::optional<AttachmentRecord> save_attachment_reference(
+    const std::string& project_dir,
+    const std::string& session_id,
+    const std::string& name,
+    const std::string& supplied_mime_type,
+    const std::string& source_path,
+    std::string* error = nullptr);
+
 std::optional<AttachmentRecord> load_attachment(
     const std::string& project_dir,
     const std::string& session_id,

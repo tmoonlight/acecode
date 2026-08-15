@@ -338,6 +338,8 @@ export function createApi(base = null) {
     ),
     uploadSessionAttachment: (id, attachment) =>
       request('POST', `/api/sessions/${encodeURIComponent(id)}/attachments`, attachment, base),
+    createSessionAttachmentReference: (id, attachment) =>
+      request('POST', `/api/sessions/${encodeURIComponent(id)}/attachments`, attachment, base),
     executeCommand:   (id, command)  => request('POST',   `/api/sessions/${encodeURIComponent(id)}/commands`, command, base),
     // 同步跑一次完整模型往返(SessionRegistry::ask_side_question),按 LLM 计时。
     askSideQuestion:  (id, question) => request('POST',   `/api/sessions/${encodeURIComponent(id)}/side-question`, { question }, base,

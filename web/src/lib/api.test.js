@@ -64,6 +64,37 @@ await run('expert capability client reads the sanitized runtime catalog endpoint
   }
 });
 
+await run('Desktop source reference creation sends metadata without file bytes', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 201,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ attachment: { id: 'att_reference' } }),
+    };
+  };
+  try {
+    const body = {
+      name: 'large.pdf',
+      mime_type: 'application/pdf',
+      source_path: 'C:/docs/large.pdf',
+      reference_only: true,
+    };
+    await createApi({ origin: 'http://acecode.test', token: '' })
+      .createSessionAttachmentReference('session/a', body);
+
+    assert.equal(calls[0].url, 'http://acecode.test/api/sessions/session%2Fa/attachments');
+    assert.equal(calls[0].opts.method, 'POST');
+    assert.deepEqual(JSON.parse(calls[0].opts.body), body);
+    assert.equal('data_base64' in JSON.parse(calls[0].opts.body), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await run('ordinary API requests abort with a structured timeout error', async () => {
   const originalFetch = globalThis.fetch;
   const originalSetTimeout = globalThis.setTimeout;

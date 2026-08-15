@@ -17,6 +17,7 @@ struct ContextItem {
     std::string name;
     std::string mime_type;
     std::uintmax_t size_bytes = 0;
+    bool reference_only = false;
     std::string bytes;
 };
 
@@ -29,9 +30,10 @@ struct ContextItemsResult {
     }
 };
 
-// Canonicalize and classify native filesystem paths. Regular files are read so
-// callers can pass the same payload shape used by the Desktop context picker;
-// folders are represented only by their absolute path and are never traversed.
+// Canonicalize and classify native filesystem paths. Ordinary files are
+// represented by source-path metadata only; raster images retain their bytes
+// for the existing snapshot/vision flow. Folders are represented only by their
+// absolute path and are never traversed.
 ContextItemsResult materialize_context_items(
     const std::vector<std::string>& paths);
 

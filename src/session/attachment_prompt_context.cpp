@@ -57,6 +57,11 @@ std::string file_attachment_reference_text(
             " If `source_path` is unavailable, read `snapshot_path` instead."
             " Modify `source_path` only when the user asks to change the original"
             " file; never modify `snapshot_path`.";
+    } else if (source_path.has_value()) {
+        text +=
+            " This attachment is a source reference; no session snapshot was"
+            " created. Modify `source_path` only when the user asks to change"
+            " the original file.";
     } else if (!snapshot_path.empty()) {
         text += " `snapshot_path` is the session copy; never modify it.";
     }

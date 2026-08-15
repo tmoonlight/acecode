@@ -1071,9 +1071,9 @@ void WebServer::Impl::register_sessions() {
             return with_cors(req, std::move(r));
         });
 
-        // POST /api/sessions/:id/attachments: upload a session-scoped attachment
-        // as JSON {name,mime_type,data_base64}. The message endpoint only
-        // references returned attachment ids, so retries do not duplicate bytes.
+        // POST /api/sessions/:id/attachments: either upload a session snapshot
+        // as JSON {name,mime_type,data_base64}, or create a Desktop source-path
+        // reference with {name,mime_type,source_path,reference_only:true}.
         CROW_ROUTE(app, "/api/sessions/<string>/attachments").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req, const std::string& id) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -1095,6 +1095,7 @@ void WebServer::Impl::register_sessions() {
             std::string mime_type;
             std::string data_base64;
             std::string source_path;
+            bool reference_only = false;
             try {
                 auto j = json::parse(req.body);
                 if (j.contains("name") && j["name"].is_string()) {
@@ -1115,6 +1116,15 @@ void WebServer::Impl::register_sessions() {
                     }
                     source_path = j["source_path"].get<std::string>();
                 }
+                if (j.contains("reference_only")) {
+                    if (!j["reference_only"].is_boolean()) {
+                        crow::response r(400);
+                        r.body = R"({"error":"reference_only must be a boolean"})";
+                        r.add_header("Content-Type", "application/json");
+                        return with_cors(req, std::move(r));
+                    }
+                    reference_only = j["reference_only"].get<bool>();
+                }
             } catch (const std::exception& e) {
                 crow::response r(400);
                 r.body = json{{"error", std::string("bad json: ") + e.what()}}.dump();
@@ -1122,30 +1132,48 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, std::move(r));
             }
 
-            auto decoded = base64_decode(data_base64);
-            if (!decoded.has_value()) {
-                crow::response r(400);
-                r.body = R"({"error":"invalid base64 attachment data"})";
-                r.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(r));
-            }
-
             const std::string project_dir = SessionStorage::get_project_dir(entry->cwd);
             std::string error;
-            json initial_metadata = json::object();
-            if (!source_path.empty()) {
-                auto verified = verified_attachment_source_path(source_path, error);
-                if (!verified.has_value()) {
+            std::optional<AttachmentRecord> record;
+            if (reference_only) {
+                if (source_path.empty()) {
                     crow::response r(400);
-                    r.body = json{{"error", error.empty()
-                        ? "attachment source path is unavailable" : error}}.dump();
+                    r.body = R"({"error":"source_path is required for an attachment reference"})";
                     r.add_header("Content-Type", "application/json");
                     return with_cors(req, std::move(r));
                 }
-                initial_metadata["source_path"] = *verified;
+                if (!data_base64.empty()) {
+                    crow::response r(400);
+                    r.body = R"({"error":"attachment references must not include data_base64"})";
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+                record = save_attachment_reference(
+                    project_dir, id, name, mime_type, source_path, &error);
+            } else {
+                auto decoded = base64_decode(data_base64);
+                if (!decoded.has_value()) {
+                    crow::response r(400);
+                    r.body = R"({"error":"invalid base64 attachment data"})";
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+
+                json initial_metadata = json::object();
+                if (!source_path.empty()) {
+                    auto verified = verified_attachment_source_path(source_path, error);
+                    if (!verified.has_value()) {
+                        crow::response r(400);
+                        r.body = json{{"error", error.empty()
+                            ? "attachment source path is unavailable" : error}}.dump();
+                        r.add_header("Content-Type", "application/json");
+                        return with_cors(req, std::move(r));
+                    }
+                    initial_metadata["source_path"] = *verified;
+                }
+                record = save_attachment(
+                    project_dir, id, name, mime_type, *decoded, &error, initial_metadata);
             }
-            auto record = save_attachment(
-                project_dir, id, name, mime_type, *decoded, &error, initial_metadata);
             if (!record.has_value()) {
                 crow::response r(400);
                 r.body = json{{"error", error.empty() ? "failed to save attachment" : error}}.dump();

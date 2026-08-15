@@ -25,7 +25,10 @@ import { connection } from '../lib/connection.js';
 import { tr } from '../i18n/index.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
-import { fileSourcePath } from '../lib/composerFileTransfer.js';
+import {
+  fileSourcePath,
+  fileSourceReference,
+} from '../lib/composerFileTransfer.js';
 import {
   clearComposerAttachmentReservations,
   createComposerAttachmentReservations,
@@ -1333,40 +1336,51 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
     for (const reserved of Array.from(reservedFiles || [])) {
       const { file, identity, localId } = reserved;
       if (!file || !identity || !localId) continue;
-      const kind = String(file.type || '').startsWith('image/') ? 'image' : 'file';
+      const sourceReference = fileSourceReference(file);
+      const kind = sourceReference
+        ? 'file'
+        : (String(file.type || '').startsWith('image/') ? 'image' : 'file');
       const previewUrl = kind === 'image' ? URL.createObjectURL(file) : '';
-      const sourcePath = fileSourcePath(file);
+      const sourcePath = sourceReference?.sourcePath || fileSourcePath(file);
       const localItem = {
         local_id: localId,
         name: file.name || 'attachment',
         kind,
         mime_type: file.type || '',
-        size_bytes: file.size || 0,
+        size_bytes: sourceReference?.sizeBytes ?? file.size ?? 0,
         preview_url: previewUrl,
         source_path: sourcePath,
         attachment_identity: identity,
         uploading: true,
       };
       setComposerAttachments((items) => [...items, localItem]);
-      normalizeImageFile(file)
-        .then((normalized) => {
-          if (normalized.file.size > ATTACHMENT_HARD_LIMIT_BYTES) {
-            throw new Error('附件超过 25MiB，且无法压缩到限制内');
-          }
-          return normalized;
-        })
-        .then(({ file: uploadFile }) => fileToBase64(uploadFile)
-          .then((dataBase64) => ({ uploadFile, dataBase64 })))
-        .then(({ uploadFile, dataBase64 }) => {
-          const uploadName = uploadFile.name || file.name || 'attachment';
-          const uploadMime = uploadFile.type || file.type || '';
-          return api.uploadSessionAttachment(targetSid, {
-            name: uploadName,
-            mime_type: uploadMime,
-            data_base64: dataBase64,
-            ...(sourcePath ? { source_path: sourcePath } : {}),
+      const persistAttachment = sourceReference
+        ? api.createSessionAttachmentReference(targetSid, {
+            name: file.name || 'attachment',
+            mime_type: file.type || '',
+            source_path: sourceReference.sourcePath,
+            reference_only: true,
+          })
+        : normalizeImageFile(file)
+          .then((normalized) => {
+            if (normalized.file.size > ATTACHMENT_HARD_LIMIT_BYTES) {
+              throw new Error('附件超过 25MiB，且无法压缩到限制内');
+            }
+            return normalized;
+          })
+          .then(({ file: uploadFile }) => fileToBase64(uploadFile)
+            .then((dataBase64) => ({ uploadFile, dataBase64 })))
+          .then(({ uploadFile, dataBase64 }) => {
+            const uploadName = uploadFile.name || file.name || 'attachment';
+            const uploadMime = uploadFile.type || file.type || '';
+            return api.uploadSessionAttachment(targetSid, {
+              name: uploadName,
+              mime_type: uploadMime,
+              data_base64: dataBase64,
+              ...(sourcePath ? { source_path: sourcePath } : {}),
+            });
           });
-        })
+      Promise.resolve(persistAttachment)
         .then((result) => {
           const attachment = result?.attachment || {};
           setComposerAttachments((items) => items.map((item) => (
