@@ -1167,6 +1167,56 @@ body {
   }
 }
 
+/* Chat-wide filesystem drop feedback. The translucent wash is the fallback;
+   backdrop blur is progressive enhancement so the prompt remains usable in
+   older embedded webviews. */
+.ace-chat-file-drop-scope {
+  position: relative;
+  isolation: isolate;
+}
+.ace-chat-file-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(var(--ace-bg-rgb), 0.7);
+  animation: ace-chat-file-drop-in 0.1s ease-out both;
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ace-chat-file-drop-overlay {
+    -webkit-backdrop-filter: blur(2.5px) saturate(0.72);
+    backdrop-filter: blur(2.5px) saturate(0.72);
+  }
+}
+.ace-chat-file-drop-prompt {
+  min-height: 34px;
+  padding: 7px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ace-border);
+  border-radius: 9px;
+  background: rgba(var(--ace-surface-rgb), 0.94);
+  color: var(--ace-fg);
+  box-shadow: var(--ace-shadow-lg);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+@keyframes ace-chat-file-drop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-chat-file-drop-overlay {
+    animation: none;
+  }
+}
+
 /* WorkBuddy-style composer footer: session controls stay on one line around a
    flexible, horizontally accessible selected-context strip. */
 .ace-inputbar-layer {
@@ -3427,6 +3477,9 @@ body {
   vertical-align: baseline;
   cursor: default;
   outline: none;
+}
+.ace-cmd-token.ace-slate-inline-tag {
+  margin: 1px 5px 1px 0;
 }
 .ace-cmd-token-glyph {
   flex: 0 0 auto;

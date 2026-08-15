@@ -26,6 +26,12 @@ import { tr } from '../i18n/index.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { fileSourcePath } from '../lib/composerFileTransfer.js';
+import {
+  clearComposerAttachmentReservations,
+  createComposerAttachmentReservations,
+  releaseComposerAttachmentFile,
+  reserveComposerAttachmentFiles,
+} from '../lib/composerAttachmentReservations.js';
 import { Message } from './Message.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
@@ -446,6 +452,31 @@ function ActivityIndicator({ activity, showAceCodeAvatar = false }) {
   );
 }
 
+function ChatFileDropOverlay({ active }) {
+  if (!active) return null;
+  return (
+    <div
+      className="ace-chat-file-drop-overlay"
+      data-chat-file-drop-overlay="true"
+    >
+      <div
+        className="ace-chat-file-drop-prompt"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {tr('fileDrop.releaseToAdd')}
+      </div>
+    </div>
+  );
+}
+
+function chatFileDropEventIsInsideScope(event) {
+  const scope = event?.currentTarget;
+  const target = event?.target;
+  return !!scope && !!target && scope.contains(target);
+}
+
 function ActivitySummaryBlock({ item, expanded, onToggle }) {
   return (
     <div className="my-1 max-w-[88%]">
@@ -805,6 +836,23 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
   const lastUserTurnKeyRef = useRef('');
   const previewAutoRefreshRef = useRef({ sid: '', busy: false, completedTurnKey: '' });
   const inputRef = useRef(null);
+  const [chatFileDropActive, setChatFileDropActive] = useState(false);
+  const handleChatFileDragEnter = useCallback((event) => {
+    if (!chatFileDropEventIsInsideScope(event)) return;
+    inputRef.current?.handleFileDragEnter?.(event);
+  }, []);
+  const handleChatFileDragOver = useCallback((event) => {
+    if (!chatFileDropEventIsInsideScope(event)) return;
+    inputRef.current?.handleFileDragOver?.(event);
+  }, []);
+  const handleChatFileDragLeave = useCallback((event) => {
+    if (!chatFileDropEventIsInsideScope(event)) return;
+    inputRef.current?.handleFileDragLeave?.(event);
+  }, []);
+  const handleChatFileDrop = useCallback((event) => {
+    if (!chatFileDropEventIsInsideScope(event)) return;
+    inputRef.current?.handleFileDrop?.(event);
+  }, []);
   const layoutRef = useRef(null);
   const subagentSplitRef = useRef(null);
   const [layoutWidth, setLayoutWidth] = useState(0);
@@ -830,6 +878,10 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
   const composerValueRef = useRef('');
   const composerDirtyRef = useRef(false);
   const preserveComposerExtrasOnSessionChangeRef = useRef(false);
+  const attachmentReservationsRef = useRef(null);
+  if (!attachmentReservationsRef.current) {
+    attachmentReservationsRef.current = createComposerAttachmentReservations();
+  }
   const restoreComposerFocusAfterSubmitRef = useRef(false);
   const selectionPreviewFingerprintRef = useRef('');
   const [queueState, setQueueState] = useState(() => createChatInputQueueState());
@@ -1179,7 +1231,20 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
     if (!sid) onHomeComposerDraftChange?.(homeDraftWorkspaceHash, next);
   }, [homeDraftWorkspaceHash, onHomeComposerDraftChange, sid]);
 
+  const releaseAttachmentReservation = useCallback((localId) => {
+    releaseComposerAttachmentFile(attachmentReservationsRef.current, localId);
+  }, []);
+
+  const clearAttachmentReservations = useCallback(() => {
+    clearComposerAttachmentReservations(attachmentReservationsRef.current);
+  }, []);
+
+  const reserveUniqueComposerFiles = useCallback((files) => {
+    return reserveComposerAttachmentFiles(attachmentReservationsRef.current, files);
+  }, []);
+
   const clearComposerExtras = useCallback(() => {
+    clearAttachmentReservations();
     setComposerAttachments((items) => {
       for (const item of items) {
         if (item?.preview_url && item.preview_url.startsWith('blob:')) {
@@ -1193,7 +1258,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
     selectionPreviewFingerprintRef.current = '';
     setSelectionPreview(null);
     clearPreviewSelection();
-  }, []);
+  }, [clearAttachmentReservations]);
 
   const resetComposerContextSelections = useCallback(() => {
     clearComposerExtras();
@@ -1264,9 +1329,10 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
     }
   }, [api, experts, health, homeExpertId, homeModelName, homeSubmitting, onSessionPromoted, permissionMode, ref, selectedHomeWorkspace]);
 
-  const uploadMediaFilesToSession = useCallback((targetSid, files) => {
-    for (const [index, file] of Array.from(files || []).entries()) {
-      const localId = `local-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`;
+  const uploadMediaFilesToSession = useCallback((targetSid, reservedFiles) => {
+    for (const reserved of Array.from(reservedFiles || [])) {
+      const { file, identity, localId } = reserved;
+      if (!file || !identity || !localId) continue;
       const kind = String(file.type || '').startsWith('image/') ? 'image' : 'file';
       const previewUrl = kind === 'image' ? URL.createObjectURL(file) : '';
       const sourcePath = fileSourcePath(file);
@@ -1278,6 +1344,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
         size_bytes: file.size || 0,
         preview_url: previewUrl,
         source_path: sourcePath,
+        attachment_identity: identity,
         uploading: true,
       };
       setComposerAttachments((items) => [...items, localItem]);
@@ -1309,6 +1376,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
                   local_id: localId,
                   preview_url: previewUrl,
                   source_path: attachment?.metadata?.source_path || sourcePath,
+                  attachment_identity: identity,
                   uploading: false,
                 }
               : item
@@ -1316,17 +1384,18 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
         })
         .catch((e) => {
           if (previewUrl) URL.revokeObjectURL(previewUrl);
+          releaseAttachmentReservation(localId);
           setComposerAttachments((items) => items.filter((item) => item.local_id !== localId));
           toast({ kind: 'err', text: '附件上传失败:' + (e.message || '') });
         });
     }
-  }, [api]);
+  }, [api, releaseAttachmentReservation]);
 
   const handleMediaFiles = useCallback((files) => {
-    const fileList = Array.from(files || []);
-    if (fileList.length === 0) return;
+    const reservedFiles = reserveUniqueComposerFiles(files);
+    if (reservedFiles.length === 0) return;
     if (sid) {
-      uploadMediaFilesToSession(sid, fileList);
+      uploadMediaFilesToSession(sid, reservedFiles);
       return;
     }
     createHomeComposerSession('', {
@@ -1335,20 +1404,34 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
       title: '附件消息',
     })
       .then((created) => {
-        if (created?.id) uploadMediaFilesToSession(created.id, fileList);
+        if (created?.id) {
+          uploadMediaFilesToSession(created.id, reservedFiles);
+          return;
+        }
+        for (const item of reservedFiles) releaseAttachmentReservation(item.localId);
       })
-      .catch((e) => toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') }));
-  }, [createHomeComposerSession, sid, uploadMediaFilesToSession]);
+      .catch((e) => {
+        for (const item of reservedFiles) releaseAttachmentReservation(item.localId);
+        toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
+      });
+  }, [
+    createHomeComposerSession,
+    releaseAttachmentReservation,
+    reserveUniqueComposerFiles,
+    sid,
+    uploadMediaFilesToSession,
+  ]);
 
   const removeComposerAttachment = useCallback((key) => {
     setComposerAttachments((items) => {
       const removed = items.find((item) => (item.local_id || item.id || item.name) === key);
+      if (removed?.local_id) releaseAttachmentReservation(removed.local_id);
       if (removed?.preview_url && removed.preview_url.startsWith('blob:')) {
         URL.revokeObjectURL(removed.preview_url);
       }
       return items.filter((item) => (item.local_id || item.id || item.name) !== key);
     });
-  }, []);
+  }, [releaseAttachmentReservation]);
 
   const removeComposerContext = useCallback((key) => {
     setComposerContexts((items) => items.filter((item) => (item.local_id || item.id || item.type) !== key));
@@ -4216,7 +4299,15 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
       { icon: 'lightbulb', title: '使用 Skills', desc: '预定义工作流，从侧边栏开启' },
     ];
     return (
-      <div className="flex-1 min-w-0 flex flex-col bg-bg">
+      <div
+        className="ace-chat-file-drop-scope flex-1 min-w-0 flex flex-col bg-bg"
+        data-chat-file-drop-scope="true"
+        data-file-drop-active={chatFileDropActive ? 'true' : undefined}
+        onDragEnter={handleChatFileDragEnter}
+        onDragOver={handleChatFileDragOver}
+        onDragLeave={handleChatFileDragLeave}
+        onDrop={handleChatFileDrop}
+      >
         <div className="ace-home-panel flex-1">
           <div className="ace-home-content">
             <InteractiveHomeLogo />
@@ -4243,6 +4334,8 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
                 disabled={!!questionForView || homeSubmitting}
                 placeholder="向 ACECode 描述任务，或输入 / 命令..."
                 {...composerInputProps}
+                fileDropManagedExternally
+                onFileDragActiveChange={setChatFileDropActive}
                 sessionControls={{
                   model: homeModelLabel,
                   modelOptions,
@@ -4384,6 +4477,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
             onOpeningPrompt={selectExpertOpeningPrompt}
           />
         )}
+        <ChatFileDropOverlay active={chatFileDropActive} />
       </div>
     );
   }
@@ -4534,9 +4628,15 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
     <div ref={layoutRef} className="flex-1 flex min-w-0 ace-chat-layout">
       <div
         className={clsx(
-          'flex-1 flex flex-col min-w-0 relative',
+          'ace-chat-file-drop-scope flex-1 flex flex-col min-w-0 relative',
           previewPanelMaximized && 'hidden',
         )}
+        data-chat-file-drop-scope="true"
+        data-file-drop-active={chatFileDropActive ? 'true' : undefined}
+        onDragEnter={handleChatFileDragEnter}
+        onDragOver={handleChatFileDragOver}
+        onDragLeave={handleChatFileDragLeave}
+        onDrop={handleChatFileDrop}
         style={chatColumnStyle}
       >
       <div className="h-9 px-3 flex items-center justify-between bg-surface border-b border-border shrink-0 gap-2">
@@ -4947,6 +5047,8 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
             onSubmit={submit}
             onAbort={stopCurrentWork}
             {...composerInputProps}
+            fileDropManagedExternally
+            onFileDragActiveChange={setChatFileDropActive}
             disabled={!!questionForView || composerSubmitting}
             placeholder={questionForView ? '请先回答上方问题…' : undefined}
             sessionControls={{
@@ -4978,6 +5080,7 @@ export function ChatView({ sessionRef, sessionId, homeComposerDrafts = {}, onHom
           />
         </>
       )}
+      <ChatFileDropOverlay active={chatFileDropActive} />
       </div>
       {previewPanelVisible && !previewPanelMaximized && (
         <div

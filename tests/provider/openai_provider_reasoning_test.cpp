@@ -973,7 +973,7 @@ TEST(OpenAiProviderReasoningTest, TextOnlyUserMessageKeepsStringContent) {
     EXPECT_EQ(content.get<std::string>(), "plain text only");
 }
 
-TEST(OpenAiProviderReasoningTest, FileContentPartSerializesAsTextContext) {
+TEST(OpenAiProviderReasoningTest, FileContentPartSerializesAsReferenceContext) {
     namespace fs = std::filesystem;
     auto dir = fs::temp_directory_path() / "acecode_openai_file_part_test";
     fs::remove_all(dir);
@@ -981,7 +981,7 @@ TEST(OpenAiProviderReasoningTest, FileContentPartSerializesAsTextContext) {
     auto file_path = dir / "notes.txt";
     {
         std::ofstream ofs(file_path, std::ios::binary);
-        ofs << "hello from attached file";
+        ofs << "ATTACHMENT_BODY_MUST_NOT_BE_INLINE";
     }
 
     acecode::AttachmentRecord record;
@@ -992,7 +992,7 @@ TEST(OpenAiProviderReasoningTest, FileContentPartSerializesAsTextContext) {
     record.mime_type = "text/plain";
     record.path = acecode::path_to_utf8(file_path);
     record.blob_url = "/api/sessions/session1/attachments/att_file/blob";
-    record.size_bytes = 24;
+    record.size_bytes = 34;
 
     ChatMessage user;
     user.role = "user";
@@ -1010,8 +1010,12 @@ TEST(OpenAiProviderReasoningTest, FileContentPartSerializesAsTextContext) {
     ASSERT_EQ(content.size(), 2u);
     EXPECT_EQ(content[1]["type"], "text");
     const auto text = content[1]["text"].get<std::string>();
-    EXPECT_NE(text.find("[Attached file]"), std::string::npos);
-    EXPECT_NE(text.find("hello from attached file"), std::string::npos);
+    EXPECT_NE(text.find("[Attached file reference]"), std::string::npos);
+    EXPECT_NE(text.find("att_file"), std::string::npos);
+    EXPECT_NE(text.find(acecode::path_to_utf8_generic(file_path)),
+              std::string::npos);
+    EXPECT_NE(text.find("read_path"), std::string::npos);
+    EXPECT_EQ(text.find("ATTACHMENT_BODY_MUST_NOT_BE_INLINE"), std::string::npos);
 
     fs::remove_all(dir);
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   bindDesktopComposerAutoFocus,
+  requestDesktopFileDragActivation,
   requestDesktopWindowFocus,
   restoreComposerTextareaCaret,
   shouldAutoFocusDesktopComposer,
@@ -374,6 +375,30 @@ run('desktop window focus request is a no-op without bridge', () => {
 run('desktop window focus request swallows bridge throw', () => {
   const ok = requestDesktopWindowFocus({
     aceDesktop_focusWindow: () => {
+      throw new Error('native unavailable');
+    },
+  });
+
+  assert.equal(ok, false);
+});
+
+run('desktop file drag activation calls its dedicated optional bridge once', () => {
+  let calls = 0;
+  const ok = requestDesktopFileDragActivation({
+    aceDesktop_activateFileDropWindow: () => {
+      calls += 1;
+      return Promise.resolve('{"ok":true}');
+    },
+  });
+
+  assert.equal(ok, true);
+  assert.equal(calls, 1);
+  assert.equal(requestDesktopFileDragActivation({}), false);
+});
+
+run('desktop file drag activation swallows bridge throw', () => {
+  const ok = requestDesktopFileDragActivation({
+    aceDesktop_activateFileDropWindow: () => {
       throw new Error('native unavailable');
     },
   });

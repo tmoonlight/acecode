@@ -41,6 +41,29 @@ export function fileSourcePath(file) {
   return normalizedAbsoluteSourcePath(file?.[DESKTOP_SOURCE_PATH]);
 }
 
+function fileMetadataNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function sourcePathIdentity(sourcePath) {
+  const path = normalizedAbsoluteSourcePath(sourcePath);
+  if (!path) return '';
+  const windowsPath = /^[A-Za-z]:\//.test(path) || path.startsWith('//');
+  return `path:${windowsPath ? path.toLowerCase() : path}`;
+}
+
+export function composerFileIdentity(file) {
+  const sourceIdentity = sourcePathIdentity(fileSourcePath(file));
+  if (sourceIdentity) return sourceIdentity;
+
+  const name = String(file?.name || 'attachment').normalize('NFC');
+  const type = String(file?.type || '').trim().toLowerCase();
+  const size = fileMetadataNumber(file?.size);
+  const lastModified = fileMetadataNumber(file?.lastModified);
+  return `file:${JSON.stringify([name, size, type, lastModified])}`;
+}
+
 function listToArray(list) {
   if (!list) return [];
   try {

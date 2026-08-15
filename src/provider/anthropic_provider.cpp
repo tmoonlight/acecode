@@ -2,6 +2,8 @@
 
 #include "config/request_headers.hpp"
 #include "network/proxy_resolver.hpp"
+#include "session/attachment_prompt_context.hpp"
+#include "session/attachment_store.hpp"
 #include "session/session_history_recovery.hpp"
 #include "utils/logger.hpp"
 #include "utils/sha1.hpp"
@@ -107,7 +109,12 @@ std::string textual_content_parts(const ChatMessage& msg) {
             const auto ctx = part.contains("context") ? part["context"] : nlohmann::json::object();
             append("[Browser context]\n" + ctx.dump(2));
         } else if (type == "file") {
-            append("[Attached file omitted: Anthropic file blocks are not supported by this provider yet]");
+            auto record = part.contains("attachment")
+                ? attachment_from_json(part["attachment"])
+                : std::optional<AttachmentRecord>{};
+            append(record.has_value()
+                ? file_attachment_reference_text(*record)
+                : std::string{"[Attached file unavailable: invalid metadata]"});
         } else if (type == "image") {
             append("[Image attachment omitted: Anthropic image blocks are not supported by this provider yet]");
         } else if (!part.is_null()) {

@@ -113,6 +113,9 @@ export const enUS = {
     uploadedWithPackage: 'Feedback uploaded: {{packageName}}',
     uploadFailed: 'Feedback upload failed: {{error}}',
   },
+  fileDrop: {
+    releaseToAdd: 'Release to add',
+  },
   externalSession: {
     tuiReadOnly: 'This session is active in TUI. Desktop is showing a read-only view and will refresh saved messages automatically.',
   },

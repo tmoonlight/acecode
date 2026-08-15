@@ -10,15 +10,20 @@
 
 #include "provider/anthropic_provider.hpp"
 #include "provider/llm_provider.hpp"
+#include "session/attachment_store.hpp"
 #include "tool/tool_executor.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <httplib.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <mutex>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -123,6 +128,83 @@ TEST(AnthropicProviderTest, BuildRequestMapsSystemToolsAndToolResults) {
     ASSERT_EQ(body["tools"].size(), 1u);
     EXPECT_EQ(body["tools"][0]["name"], "file_read");
     EXPECT_EQ(body["tools"][0]["input_schema"]["type"], "object");
+}
+
+TEST(AnthropicProviderTest, FileContentPartSerializesAsReferenceContext) {
+    AnthropicProvider provider(
+        AnthropicProvider::kDefaultBaseUrl, "sk-ant-test", "claude-test");
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() /
+        ("acecode_anthropic_file_part_" +
+         std::to_string(std::random_device{}()));
+    fs::create_directories(dir);
+    const fs::path snapshot_path = dir / "notes.txt";
+    {
+        std::ofstream output(snapshot_path, std::ios::binary);
+        output << "ATTACHMENT_BODY_MUST_NOT_BE_INLINE";
+    }
+
+    acecode::AttachmentRecord record;
+    record.id = "att_anthropic_file";
+    record.session_id = "session-anthropic";
+    record.name = "notes.txt";
+    record.kind = "file";
+    record.mime_type = "text/plain";
+    record.path = acecode::path_to_utf8(snapshot_path);
+    record.size_bytes = 34;
+    record.metadata = {
+        {"source_path", "D:/outside/original-notes.txt"},
+    };
+
+    ChatMessage user;
+    user.role = "user";
+    user.content = "summarize";
+    user.content_parts = nlohmann::json::array({
+        nlohmann::json{{"type", "text"}, {"text", user.content}},
+        nlohmann::json{
+            {"type", "file"},
+            {"attachment", acecode::attachment_to_json(record)},
+        },
+    });
+
+    const auto body = provider.build_request_body({user}, {}, false);
+    ASSERT_EQ(body["messages"].size(), 1u);
+    ASSERT_EQ(body["messages"][0]["content"].size(), 1u);
+    const std::string text =
+        body["messages"][0]["content"][0]["text"].get<std::string>();
+
+    EXPECT_NE(text.find("[Attached file reference]"), std::string::npos);
+    EXPECT_NE(text.find("att_anthropic_file"), std::string::npos);
+    EXPECT_NE(text.find("D:/outside/original-notes.txt"), std::string::npos);
+    EXPECT_NE(text.find(acecode::path_to_utf8_generic(snapshot_path)),
+              std::string::npos);
+    EXPECT_NE(text.find(R"("read_path": "D:/outside/original-notes.txt")"),
+              std::string::npos);
+    EXPECT_EQ(text.find("ATTACHMENT_BODY_MUST_NOT_BE_INLINE"),
+              std::string::npos);
+    EXPECT_EQ(text.find("file blocks are not supported"), std::string::npos);
+    fs::remove_all(dir);
+}
+
+TEST(AnthropicProviderTest, InvalidFileContentPartKeepsExplicitFallback) {
+    AnthropicProvider provider(
+        AnthropicProvider::kDefaultBaseUrl, "sk-ant-test", "claude-test");
+
+    ChatMessage user;
+    user.role = "user";
+    user.content_parts = nlohmann::json::array({
+        nlohmann::json{
+            {"type", "file"},
+            {"attachment", nlohmann::json{{"name", "missing-id.txt"}}},
+        },
+    });
+
+    const auto body = provider.build_request_body({user}, {}, false);
+    const std::string text =
+        body["messages"][0]["content"][0]["text"].get<std::string>();
+
+    EXPECT_NE(text.find("[Attached file unavailable: invalid metadata]"),
+              std::string::npos);
 }
 
 TEST(AnthropicProviderTest, CoalescesRequestLocalSkillSystemMessage) {

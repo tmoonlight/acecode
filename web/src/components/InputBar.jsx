@@ -29,6 +29,7 @@ import { getNextInputHistoryPointer, isUserComposerEdit, shouldNavigateInputHist
 import { filesFromTransfer, hasFileTransfer } from '../lib/composerFileTransfer.js';
 import {
   captureComposerTextareaSelection,
+  requestDesktopFileDragActivation,
   requestDesktopWindowFocus,
   restoreComposerTextareaCaret,
 } from '../lib/composerCaretRestore.js';
@@ -191,6 +192,7 @@ export const InputBar = forwardRef(function InputBar({
   onOpenExpertComponents,
   selectionPreview = null, onPinSelectionPreview,
   pathReferenceApi = null, cwd = '', currentSessionId = '',
+  fileDropManagedExternally = false, onFileDragActiveChange,
   sessionControls = null,
 }, ref) {
   const { t } = useTranslation();
@@ -221,6 +223,7 @@ export const InputBar = forwardRef(function InputBar({
   const fileMenuItemRef = useRef(null);
   const expertSubmenuRef = useRef(null);
   const dragDepthRef = useRef(0);
+  const dragActiveRef = useRef(false);
   const nativeDropHoverRef = useRef({ active: false, ts: 0 });
   const composingRef = useRef(false);
   const justFinishedCompositionRef = useRef(false);
@@ -346,10 +349,10 @@ export const InputBar = forwardRef(function InputBar({
     });
   }, [clearCaretRestoreSchedule, restoreComposerCaretIfPending]);
 
-  const requestComposerCaretRestore = useCallback(() => {
+  const requestComposerCaretRestore = useCallback(({ requestNativeFocus = true } = {}) => {
     caretRestoreUntilRef.current = Date.now() + 1500;
     caretRestoreSelectionRef.current = captureComposerTextareaSelection(ta.current);
-    requestDesktopWindowFocus();
+    if (requestNativeFocus) requestDesktopWindowFocus();
     restoreComposerTextareaCaret({
       textareaElement: ta.current,
       rootElement: rootRef.current,
@@ -450,22 +453,6 @@ export const InputBar = forwardRef(function InputBar({
       editor?.setSelectionRange?.(cursor, cursor);
     });
   }, []);
-
-  useImperativeHandle(ref, () => ({
-    focus: () => ta.current?.focus(),
-    clear: () => {
-      updateValue('');
-      setHistPtr(-1);
-      setEditedSinceHistory(false);
-    },
-    insertDirectoryReference: (relativePath) => {
-      const insertion = insertPathReferenceAtCaret(value, composerSelection.end, relativePath);
-      updateValue(insertion.text);
-      setEditedSinceHistory(true);
-      restorePathCaret(insertion.cursor);
-      return insertion;
-    },
-  }), [composerSelection.end, restorePathCaret, updateValue, value]);
 
   // `@` reference menu: files keep the existing visible-path behavior, while
   // sessions use a stable inline token that is expanded only when submitted.
@@ -607,16 +594,20 @@ export const InputBar = forwardRef(function InputBar({
 
   const activePathDropdown = pathMention;
 
-  const addMediaFiles = useCallback((files) => {
+  const addMediaFiles = useCallback((files, { requestNativeFocus = true } = {}) => {
     const fileList = Array.from(files || []).filter(Boolean);
     if (disabled || !onMediaFiles || fileList.length === 0) return false;
     setCapabilityOpen(false);
-    requestComposerCaretRestore();
+    requestComposerCaretRestore({ requestNativeFocus });
     onMediaFiles(fileList);
     return true;
   }, [disabled, onMediaFiles, requestComposerCaretRestore]);
 
-  const addNativeFilesystemItems = useCallback((items, savedCursor = composerSelection.end) => {
+  const addNativeFilesystemItems = useCallback((
+    items,
+    savedCursor = composerSelection.end,
+    { requestNativeFocus = true } = {},
+  ) => {
     const list = Array.from(items || []);
     if (list.length === 0) return false;
 
@@ -635,13 +626,13 @@ export const InputBar = forwardRef(function InputBar({
         restorePathCaret(insertion.cursor);
       }
     }
-    if (files.length > 0) addMediaFiles(files);
+    if (files.length > 0) addMediaFiles(files, { requestNativeFocus });
     return folders.length > 0 || files.length > 0;
   }, [addMediaFiles, composerSelection.end, restorePathCaret, updateValue]);
 
-  const addMaterializedPaths = useCallback(async (paths, savedCursor) => {
+  const addMaterializedPaths = useCallback(async (paths, savedCursor, options) => {
     const result = await materializeNativeFilesystemPaths(paths);
-    return addNativeFilesystemItems(result.items, savedCursor);
+    return addNativeFilesystemItems(result.items, savedCursor, options);
   }, [addNativeFilesystemItems]);
 
   const handleFilesystemPaste = useCallback(({ files = [], uriList = '' } = {}) => {
@@ -745,10 +736,18 @@ export const InputBar = forwardRef(function InputBar({
     onOpenExpertComponents?.();
   };
 
+  const setFileDragActive = useCallback((active) => {
+    const next = !!active;
+    if (dragActiveRef.current === next) return;
+    dragActiveRef.current = next;
+    setDragActive(next);
+    onFileDragActiveChange?.(next);
+  }, [onFileDragActiveChange]);
+
   const resetDragState = useCallback(() => {
     dragDepthRef.current = 0;
-    setDragActive(false);
-  }, []);
+    setFileDragActive(false);
+  }, [setFileDragActive]);
 
   const markNativeDropHover = useCallback(() => {
     nativeDropHoverRef.current = { active: true, ts: Date.now() };
@@ -761,9 +760,10 @@ export const InputBar = forwardRef(function InputBar({
     // 下沉给 WKWebView 原生 performDragOperation。
     if (!NATIVE_FILE_DROP || HOST_OS === 'windows') event.preventDefault();
     if (NATIVE_FILE_DROP) markNativeDropHover();
+    if (dragDepthRef.current === 0) requestDesktopFileDragActivation();
     dragDepthRef.current += 1;
-    setDragActive(true);
-  }, [disabled, markNativeDropHover, onMediaFiles]);
+    setFileDragActive(true);
+  }, [disabled, markNativeDropHover, onMediaFiles, setFileDragActive]);
 
   const handleDragOver = useCallback((event) => {
     if (disabled || !onMediaFiles || !hasFileTransfer(event.dataTransfer)) return;
@@ -772,17 +772,17 @@ export const InputBar = forwardRef(function InputBar({
       event.dataTransfer.dropEffect = 'copy';
     }
     if (NATIVE_FILE_DROP) markNativeDropHover();
-    setDragActive(true);
-  }, [disabled, markNativeDropHover, onMediaFiles]);
+    setFileDragActive(true);
+  }, [disabled, markNativeDropHover, onMediaFiles, setFileDragActive]);
 
   const handleDragLeave = useCallback((event) => {
-    if (!dragActive) return;
+    if (!dragActiveRef.current) return;
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) {
-      setDragActive(false);
+      setFileDragActive(false);
       nativeDropHoverRef.current = { active: false, ts: 0 };
     }
-  }, [dragActive]);
+  }, [setFileDragActive]);
 
   const handleDrop = useCallback((event) => {
     const files = disabled || !onMediaFiles ? [] : filesFromTransfer(event.dataTransfer, { source: 'drop' });
@@ -803,13 +803,13 @@ export const InputBar = forwardRef(function InputBar({
       event.stopPropagation();
       if (uriPaths.length > 0) {
         const savedCursor = composerSelection.end;
-        addMaterializedPaths(uriPaths, savedCursor)
+        addMaterializedPaths(uriPaths, savedCursor, { requestNativeFocus: false })
           .catch((error) => toast({
             kind: 'err',
             text: `拖入文件或文件夹失败:${error?.message || '原生文件系统不可用'}`,
           }));
       } else {
-        addMediaFiles(files);
+        addMediaFiles(files, { requestNativeFocus: false });
       }
     }
     resetDragState();
@@ -823,6 +823,39 @@ export const InputBar = forwardRef(function InputBar({
     onMediaFiles,
     resetDragState,
   ]);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => ta.current?.focus(),
+    clear: () => {
+      updateValue('');
+      setHistPtr(-1);
+      setEditedSinceHistory(false);
+    },
+    insertDirectoryReference: (relativePath) => {
+      const insertion = insertPathReferenceAtCaret(value, composerSelection.end, relativePath);
+      updateValue(insertion.text);
+      setEditedSinceHistory(true);
+      restorePathCaret(insertion.cursor);
+      return insertion;
+    },
+    handleFileDragEnter: handleDragEnter,
+    handleFileDragOver: handleDragOver,
+    handleFileDragLeave: handleDragLeave,
+    handleFileDrop: handleDrop,
+  }), [
+    composerSelection.end,
+    handleDragEnter,
+    handleDragLeave,
+    handleDragOver,
+    handleDrop,
+    restorePathCaret,
+    updateValue,
+    value,
+  ]);
+
+  useEffect(() => () => {
+    if (dragActiveRef.current) onFileDragActiveChange?.(false);
+  }, [onFileDragActiveChange]);
 
   useEffect(() => {
     if (!dragActive) return undefined;
@@ -852,7 +885,7 @@ export const InputBar = forwardRef(function InputBar({
       const paths = localPathsFromDropPayload(rawPaths, HOST_OS);
       if (paths.length === 0) return;
       const savedCursor = composerSelection.end;
-      addMaterializedPaths(paths, savedCursor)
+      addMaterializedPaths(paths, savedCursor, { requestNativeFocus: false })
         .catch((error) => toast({
           kind: 'err',
           text: `拖入文件或文件夹失败:${error?.message || '原生文件系统不可用'}`,
@@ -1281,10 +1314,10 @@ export const InputBar = forwardRef(function InputBar({
         dragActive && 'border-accent ring-2 ring-accent/20',
       )}
       ref={rootRef}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDragEnter={fileDropManagedExternally ? undefined : handleDragEnter}
+      onDragOver={fileDropManagedExternally ? undefined : handleDragOver}
+      onDragLeave={fileDropManagedExternally ? undefined : handleDragLeave}
+      onDrop={fileDropManagedExternally ? undefined : handleDrop}
       >
         {activePathDropdown && (
           <PathReferenceDropdown

@@ -2,6 +2,7 @@
 #include "session/session_history_recovery.hpp"
 #include "image/image_processor.hpp"
 #include "config/request_headers.hpp"
+#include "session/attachment_prompt_context.hpp"
 #include "session/attachment_store.hpp"
 #include "utils/logger.hpp"
 #include "utils/base64.hpp"
@@ -599,37 +600,9 @@ int retry_after_delay_ms(const cpr::Header& headers,
         provider_retry_delay_ms(retry_number, server_delay));
 }
 
-bool is_text_like_attachment(const AttachmentRecord& record) {
-    const std::string mime = ascii_lower(record.mime_type);
-    return mime.rfind("text/", 0) == 0 ||
-           mime == "application/json" ||
-           mime == "application/xml" ||
-           mime == "application/yaml" ||
-           mime == "application/x-yaml";
-}
-
 void push_openai_text_part(nlohmann::json& parts, const std::string& text) {
     if (text.empty()) return;
     parts.push_back(nlohmann::json{{"type", "text"}, {"text", text}});
-}
-
-std::string file_context_text(const AttachmentRecord& record) {
-    std::ostringstream oss;
-    oss << "[Attached file]\n";
-    oss << "Name: " << record.name << "\n";
-    oss << "MIME type: " << record.mime_type << "\n";
-    oss << "Size: " << record.size_bytes << " bytes";
-
-    if (is_text_like_attachment(record)) {
-        std::string error;
-        auto bytes = read_attachment_bytes(record, 128u * 1024u, &error);
-        if (bytes.has_value()) {
-            oss << "\n\nContent:\n" << *bytes;
-        } else if (!error.empty()) {
-            oss << "\n\nContent unavailable: " << error;
-        }
-    }
-    return oss.str();
 }
 
 // 判定一条附件是否应当作为 provider 图片 part 发送。以 MIME 为权威依据:
@@ -701,7 +674,8 @@ nlohmann::json openai_content_for_message(const ChatMessage& msg,
             }
             // D3 兜底:误标成 image 的非图片(含 SVG)按文件句柄处理,绝不发图片 payload。
             if (!record_is_vision_image(*record)) {
-                push_openai_text_part(parts, file_context_text(*record));
+                push_openai_text_part(
+                    parts, file_attachment_reference_text(*record));
                 continue;
             }
             // D2/D5 能力 gate:active 模型不能看图时,聚合成 fallback 句柄文本而非发图。
@@ -758,7 +732,7 @@ nlohmann::json openai_content_for_message(const ChatMessage& msg,
                 ? attachment_from_json(part["attachment"])
                 : std::optional<AttachmentRecord>{};
             push_openai_text_part(parts, record.has_value()
-                ? file_context_text(*record)
+                ? file_attachment_reference_text(*record)
                 : std::string{"[Attached file unavailable: invalid metadata]"});
             continue;
         }

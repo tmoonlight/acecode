@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  composerFileIdentity,
   fileSourcePath,
   filesFromClipboardEvent,
   filesFromTransfer,
@@ -87,4 +88,42 @@ run('native source paths are preserved separately from the browser filename', ()
   assert.equal(fileSourcePath(file), 'C:/work/project/notes.txt');
   assert.equal(Object.keys(file).includes('acecodeSourcePath'), false);
   assert.equal(fileSourcePath(markFileSourcePath(fileLike('x'), 'relative/x')), '');
+});
+
+run('composer file identity normalizes Windows path separators and casing', () => {
+  const first = markFileSourcePath(fileLike('notes.txt', 'text/plain'), 'C:\\Work\\Project\\Notes.txt');
+  const second = markFileSourcePath(fileLike('renamed.txt', 'application/octet-stream'), 'c:/work/project/notes.TXT');
+  const uncFirst = markFileSourcePath(fileLike('asset.bin'), '\\\\Server\\Share\\Asset.bin');
+  const uncSecond = markFileSourcePath(fileLike('asset-copy.bin'), '//server/share/asset.BIN');
+
+  assert.equal(composerFileIdentity(first), composerFileIdentity(second));
+  assert.equal(composerFileIdentity(uncFirst), composerFileIdentity(uncSecond));
+  assert.match(composerFileIdentity(first), /^path:/);
+});
+
+run('composer file identity keeps POSIX source path casing distinct', () => {
+  const first = markFileSourcePath(fileLike('notes.txt'), '/work/Notes.txt');
+  const second = markFileSourcePath(fileLike('notes.txt'), '/work/notes.txt');
+
+  assert.notEqual(composerFileIdentity(first), composerFileIdentity(second));
+});
+
+run('composer file identity falls back to stable browser metadata', () => {
+  const first = {
+    name: 'report.txt',
+    type: 'TEXT/PLAIN',
+    size: 42,
+    lastModified: 123456,
+  };
+  const same = {
+    name: 'report.txt',
+    type: 'text/plain',
+    size: 42,
+    lastModified: 123456,
+  };
+  const changed = { ...same, lastModified: 123457 };
+
+  assert.equal(composerFileIdentity(first), composerFileIdentity(same));
+  assert.notEqual(composerFileIdentity(first), composerFileIdentity(changed));
+  assert.match(composerFileIdentity(first), /^file:/);
 });

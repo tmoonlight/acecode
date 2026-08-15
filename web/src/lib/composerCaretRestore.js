@@ -176,3 +176,14 @@ export function requestDesktopWindowFocus(win = typeof window === 'undefined' ? 
     return false;
   }
 }
+
+export function requestDesktopFileDragActivation(win = typeof window === 'undefined' ? null : window) {
+  const activateWindow = win?.aceDesktop_activateFileDropWindow;
+  if (typeof activateWindow !== 'function') return false;
+  try {
+    Promise.resolve(activateWindow()).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}

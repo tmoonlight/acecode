@@ -116,7 +116,10 @@ run('attachment tags retain preview, context-menu metadata, and existing transfe
   assert.match(inputBar, /onPreviewAttachment=\{previewComposerAttachment\}/);
   assert.match(inputBar, /onPasteFiles=\{addMediaFiles\}/);
   assert.match(inputBar, /postWindowsNativeFilesystemDrop\(event\.dataTransfer\)/);
-  assert.match(inputBar, /addMaterializedPaths\(paths, savedCursor\)/);
+  assert.match(
+    inputBar,
+    /addMaterializedPaths\(paths, savedCursor, \{ requestNativeFocus: false \}\)/,
+  );
 });
 
 run('desktop context-menu paste captures Slate selection and bridges before DOM fallback', () => {

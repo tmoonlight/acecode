@@ -4,7 +4,8 @@
 // 断言:
 //   - 视觉模型能拿到真实 image_url part;
 //   - 非视觉模型拿到句柄文本而非图片,且 fallback 措辞随是否存在视觉模型变化;
-//   - 非图片附件(text-like / PDF / SVG / 误标成 image 的非图片)永远不产生 image_url。
+//   - 非图片附件(text-like / PDF / SVG / 误标成 image 的非图片)只产生按需读取引用,
+//     永远不内联正文或产生 image_url。
 #include <gtest/gtest.h>
 
 #include "provider/openai_provider.hpp"
@@ -148,7 +149,8 @@ TEST(OpenAiContentParts, NonVisionModelNoVisionAvailableExplainsConfig) {
 TEST(OpenAiContentParts, TextFileNeverImage) {
     auto dir = temp_project("textfile");
     const std::string project_dir = acecode::path_to_utf8(dir);
-    auto record = save(project_dir, "notes.txt", "text/plain", "hello world");
+    constexpr const char* kContentSentinel = "ATTACHMENT_BODY_MUST_NOT_BE_INLINE";
+    auto record = save(project_dir, "notes.txt", "text/plain", kContentSentinel);
 
     acecode::ChatMessage msg;
     msg.role = "user";
@@ -158,7 +160,15 @@ TEST(OpenAiContentParts, TextFileNeverImage) {
 
     auto content = acecode::openai_content_for_message(msg, true, true);
     EXPECT_FALSE(has_image_url(content)) << content.dump(2);
-    EXPECT_NE(collect_text(content).find("notes.txt"), std::string::npos);
+    const std::string text = collect_text(content);
+    EXPECT_NE(text.find("[Attached file reference]"), std::string::npos);
+    EXPECT_NE(text.find("notes.txt"), std::string::npos);
+    EXPECT_NE(text.find(record.id), std::string::npos);
+    EXPECT_NE(text.find(acecode::path_to_utf8_generic(
+                  acecode::path_from_utf8(record.path))),
+              std::string::npos);
+    EXPECT_NE(text.find("read_path"), std::string::npos);
+    EXPECT_EQ(text.find(kContentSentinel), std::string::npos);
     fs::remove_all(dir);
 }
 
@@ -172,6 +182,8 @@ TEST(OpenAiContentParts, PdfStaysFileEvenWithVision) {
         image_part_message(record), /*model_has_vision=*/true, true);
 
     EXPECT_FALSE(has_image_url(content)) << content.dump(2);
+    EXPECT_NE(collect_text(content).find("[Attached file reference]"),
+              std::string::npos);
     fs::remove_all(dir);
 }
 

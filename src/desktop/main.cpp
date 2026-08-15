@@ -1878,6 +1878,14 @@ int main(int argc, char** argv) {
         bring_window_foreground();
         return nlohmann::json{{"ok", true}}.dump();
     });
+    host.bind("aceDesktop_activateFileDropWindow", [&](const std::string& /*req*/) -> std::string {
+        // A drag-enter is direct user intent. Present the host once while the
+        // pointer is still over it, but deliberately avoid the notification
+        // activation path: its temporary TOPMOST fallback is appropriate for
+        // tray/toast attention, not for an in-progress file drag.
+        host.set_visible(true);
+        return nlohmann::json{{"ok", true}}.dump();
+    });
 
     // WM_SIZE 时如果最大化状态变化(被 web_host.cpp 内部 g_last_known_maximized 去重过),
     // eval 一段 JS 调前端 window.aceDesktop_onMaximizeStateChanged(bool),让 TopBar 切换
