@@ -140,6 +140,13 @@ export function sessionTrajectoryPath(id, options = {}, base = null) {
   };
   params.set('after', String(nonNegativeInteger(options.after, 0)));
   params.set('legacy_after', String(nonNegativeInteger(options.legacyAfter, 0)));
+  if (options.tail) params.set('tail', '1');
+  if (Object.prototype.hasOwnProperty.call(options, 'before')) {
+    params.set('before', String(nonNegativeInteger(options.before, 0)));
+  }
+  if (Object.prototype.hasOwnProperty.call(options, 'legacyBefore')) {
+    params.set('legacy_before', String(nonNegativeInteger(options.legacyBefore, 0)));
+  }
   params.set('limit', String(Math.max(
     1,
     Math.min(1000, nonNegativeInteger(options.limit, 250) || 250),

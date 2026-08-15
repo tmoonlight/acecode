@@ -4299,6 +4299,33 @@ TEST(WebServerHttp, TrajectoryRoutePaginatesMixedFactsAndRejectsWrongScope) {
     EXPECT_EQ(second_body["next_after"], 2);
     EXPECT_EQ(second_body["has_more"], false);
 
+    auto tail = cpr::Get(cpr::Url{fx.url(
+        "/api/sessions/" + sid +
+        "/trajectory?tail=1&limit=1&workspace=" + workspace_hash)});
+    ASSERT_EQ(tail.status_code, 200) << tail.text;
+    const auto tail_body = json::parse(tail.text);
+    ASSERT_EQ(tail_body["records"].size(), 2u);
+    EXPECT_EQ(tail_body["records"][0]["type"], "legacy_user_message");
+    EXPECT_EQ(tail_body["records"][1]["type"], "model_response");
+    EXPECT_EQ(tail_body["first_sequence"], 2);
+    EXPECT_EQ(tail_body["legacy_first_index"], 0);
+    EXPECT_EQ(tail_body["recorded_latest_sequence"], 2);
+    EXPECT_EQ(tail_body["recorded_has_older"], true);
+    EXPECT_EQ(tail_body["legacy_has_older"], false);
+
+    auto older = cpr::Get(cpr::Url{fx.url(
+        "/api/sessions/" + sid +
+        "/trajectory?tail=1&before=2&legacy_before=0&limit=1&workspace=" +
+        workspace_hash)});
+    ASSERT_EQ(older.status_code, 200) << older.text;
+    const auto older_body = json::parse(older.text);
+    ASSERT_EQ(older_body["records"].size(), 1u);
+    EXPECT_EQ(older_body["records"][0]["type"], "model_request");
+    EXPECT_EQ(older_body["first_sequence"], 1);
+    EXPECT_TRUE(older_body["legacy_first_index"].is_null());
+    EXPECT_EQ(older_body["recorded_has_older"], false);
+    EXPECT_EQ(older_body["legacy_has_older"], false);
+
     auto wrong_scope = cpr::Get(cpr::Url{fx.url(
         "/api/sessions/" + sid +
         "/trajectory?workspace=wrong-workspace")});

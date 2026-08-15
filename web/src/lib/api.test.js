@@ -1158,6 +1158,18 @@ run('trajectory path carries both precise and legacy cursors', () => {
   );
 });
 
+run('trajectory path carries tail paging boundaries', () => {
+  assert.equal(
+    sessionTrajectoryPath('session/id', {
+      tail: true,
+      before: 41,
+      legacyBefore: 17,
+      limit: 100,
+    }),
+    '/api/sessions/session%2Fid/trajectory?after=0&legacy_after=0&tail=1&before=41&legacy_before=17&limit=100',
+  );
+});
+
 await run('trajectory client uses the connection workspace by default', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];

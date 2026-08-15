@@ -1004,6 +1004,18 @@ void WebServer::Impl::register_sessions() {
                 req.url_params.get("legacy_after")
                     ? parse_seq(req.url_params.get("legacy_after"))
                     : 0);
+            const bool tail = req.url_params.get("tail") &&
+                std::string(req.url_params.get("tail")) != "0";
+            const bool has_before = req.url_params.get("before") != nullptr;
+            const std::uint64_t before = has_before
+                ? parse_seq(req.url_params.get("before"))
+                : 0;
+            const bool has_legacy_before =
+                req.url_params.get("legacy_before") != nullptr;
+            const std::size_t legacy_before = static_cast<std::size_t>(
+                has_legacy_before
+                    ? parse_seq(req.url_params.get("legacy_before"))
+                    : 0);
             const std::uint64_t raw_limit = req.url_params.get("limit")
                 ? parse_seq(req.url_params.get("limit"))
                 : kSessionTrajectoryDefaultPageSize;
@@ -1087,19 +1099,64 @@ void WebServer::Impl::register_sessions() {
                 trajectory_path, &coverage_diagnostics);
             SessionTrajectoryPage precise_page;
             precise_page.diagnostics = coverage_diagnostics;
-            for (const auto& record : precise_records) {
-                if (record.sequence <= after) continue;
-                if (precise_page.records.size() >= limit) {
-                    precise_page.has_more = true;
-                    break;
+            bool recorded_has_older = false;
+            if (tail) {
+                std::size_t end = precise_records.size();
+                if (has_before) {
+                    const auto boundary = std::lower_bound(
+                        precise_records.begin(),
+                        precise_records.end(),
+                        before,
+                        [](const SessionTrajectoryRecord& record,
+                           std::uint64_t sequence) {
+                            return record.sequence < sequence;
+                        });
+                    end = static_cast<std::size_t>(
+                        std::distance(precise_records.begin(), boundary));
                 }
-                precise_page.records.push_back(record);
+                const std::size_t begin = end > limit ? end - limit : 0;
+                precise_page.records.insert(
+                    precise_page.records.end(),
+                    precise_records.begin() + static_cast<std::ptrdiff_t>(begin),
+                    precise_records.begin() + static_cast<std::ptrdiff_t>(end));
+                recorded_has_older = begin > 0;
+            } else {
+                for (const auto& record : precise_records) {
+                    if (record.sequence <= after) continue;
+                    if (precise_page.records.size() >= limit) {
+                        precise_page.has_more = true;
+                        break;
+                    }
+                    precise_page.records.push_back(record);
+                }
             }
             precise_page.next_after = precise_page.records.empty()
                 ? after
                 : precise_page.records.back().sequence;
-            const auto legacy_page = project_legacy_trajectory(
-                messages, precise_records, legacy_after, limit);
+
+            LegacyTrajectoryPage legacy_page;
+            bool legacy_has_older = false;
+            if (tail) {
+                const auto legacy_probe = project_legacy_trajectory(
+                    messages, precise_records, 0, 1);
+                const std::size_t end = has_legacy_before
+                    ? std::min(legacy_before, legacy_probe.total)
+                    : legacy_probe.total;
+                const std::size_t begin = end > limit ? end - limit : 0;
+                if (begin < end) {
+                    legacy_page = project_legacy_trajectory(
+                        messages, precise_records, begin, end - begin);
+                } else {
+                    legacy_page = legacy_probe;
+                    legacy_page.records.clear();
+                    legacy_page.next_after = end;
+                    legacy_page.has_more = false;
+                }
+                legacy_has_older = begin > 0;
+            } else {
+                legacy_page = project_legacy_trajectory(
+                    messages, precise_records, legacy_after, limit);
+            }
 
             json records = json::array();
             for (const auto& record : legacy_page.records) {
@@ -1117,6 +1174,18 @@ void WebServer::Impl::register_sessions() {
                 ? "mixed"
                 : (has_precise ? "recorded"
                                : (has_legacy ? "legacy" : "empty"));
+            const json first_sequence = precise_page.records.empty()
+                ? json(nullptr)
+                : json(precise_page.records.front().sequence);
+            const json legacy_first_index = legacy_page.records.empty()
+                ? json(nullptr)
+                : legacy_page.records.front().value(
+                      "legacy_index", json(nullptr));
+            const std::uint64_t recorded_latest_sequence =
+                precise_records.empty() ? 0 : precise_records.back().sequence;
+            const bool page_has_more = tail
+                ? recorded_has_older || legacy_has_older
+                : precise_page.has_more || legacy_page.has_more;
             json body{
                 {"schema_version", kSessionTrajectorySchemaVersion},
                 {"session_id", id},
@@ -1128,9 +1197,18 @@ void WebServer::Impl::register_sessions() {
                 {"records", std::move(records)},
                 {"next_after", precise_page.next_after},
                 {"legacy_next_after", legacy_page.next_after},
-                {"has_more", precise_page.has_more || legacy_page.has_more},
-                {"recorded_has_more", precise_page.has_more},
-                {"legacy_has_more", legacy_page.has_more},
+                {"has_more", page_has_more},
+                {"recorded_has_more", tail
+                    ? recorded_has_older
+                    : precise_page.has_more},
+                {"legacy_has_more", tail
+                    ? legacy_has_older
+                    : legacy_page.has_more},
+                {"recorded_has_older", recorded_has_older},
+                {"legacy_has_older", legacy_has_older},
+                {"first_sequence", first_sequence},
+                {"legacy_first_index", legacy_first_index},
+                {"recorded_latest_sequence", recorded_latest_sequence},
                 {"legacy_total", legacy_page.total},
                 {"missing_capabilities", legacy_page.missing_capabilities},
                 {"diagnostics", {

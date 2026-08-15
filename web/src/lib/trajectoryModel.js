@@ -8,52 +8,47 @@ const MODEL_EVENT_TYPES = new Set([
 
 const TOOL_EVENT_TYPES = new Set(['tool_start', 'tool_end']);
 
-const CATEGORY_LABELS = {
-  context: '上下文',
-  user: '用户',
-  model: '模型',
-  tool: '工具',
-  permission: '权限',
-  question: '提问',
-  usage: '用量',
-  progress: '进度',
-  error: '错误',
-  session: '会话',
-};
-
-function finiteTimestamp(value) {
+function finiteNumber(value) {
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : null;
+  return Number.isFinite(number) ? number : null;
 }
 
-function safeJsonText(value) {
+function timestampOf(record, ...payloadKeys) {
+  const payload = record?.payload || {};
+  for (const key of payloadKeys) {
+    const value = finiteNumber(payload[key]);
+    if (value !== null) return value;
+  }
+  return finiteNumber(record?.timestamp_ms);
+}
+
+function safeJson(value, pretty = false) {
   if (value == null) return '';
   if (typeof value === 'string') return value;
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value, null, pretty ? 2 : 0);
   } catch {
     return String(value);
   }
 }
 
 function compactText(value, maxLength = 180) {
-  const text = safeJsonText(value).replace(/\s+/g, ' ').trim();
+  const text = safeJson(value).replace(/\s+/g, ' ').trim();
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
 function recordOrder(record) {
-  if (record?.sequence != null && Number.isFinite(Number(record.sequence))) {
-    return [1, Number(record.sequence)];
-  }
-  return [0, Number(record?.legacy_index) || 0];
+  const sequence = finiteNumber(record?.sequence);
+  if (sequence !== null) return [1, sequence];
+  return [0, finiteNumber(record?.legacy_index) ?? 0];
 }
 
 export function trajectoryRecordKey(record) {
-  if (record?.sequence != null && Number.isFinite(Number(record.sequence))) {
-    return `recorded:${record.sequence}`;
-  }
-  if (record?.legacy_index != null) return `legacy:${record.legacy_index}`;
-  return `unknown:${record?.type || 'event'}:${safeJsonText(record?.payload)}`;
+  const sequence = finiteNumber(record?.sequence);
+  if (sequence !== null) return `recorded:${sequence}`;
+  const legacyIndex = finiteNumber(record?.legacy_index);
+  if (legacyIndex !== null) return `legacy:${legacyIndex}`;
+  return `unknown:${record?.type || 'event'}:${safeJson(record?.payload)}`;
 }
 
 export function mergeTrajectoryRecords(previous = [], incoming = []) {
@@ -69,487 +64,548 @@ export function mergeTrajectoryRecords(previous = [], incoming = []) {
   });
 }
 
-function makeTurn(id, ordinal, source = 'recorded') {
+function makeTurn(number, id) {
   return {
+    number,
     id,
-    ordinal,
-    source,
-    title: ordinal > 0 ? `轮次 ${ordinal}` : '会话事件',
-    rows: [],
-    startMs: null,
-    endMs: null,
-    durationMs: null,
-    outcome: '',
-    startRecord: null,
-    endRecord: null,
+    inputs: [],
+    steps: new Map(),
+    activeStep: 0,
   };
 }
 
-function categoryForType(type, payload) {
-  if (type === 'legacy_context') return 'context';
-  if (type === 'legacy_user_message') return 'user';
-  if (type === 'legacy_model_response') return 'model';
-  if (type === 'legacy_tool_result') return 'tool';
-  if (type === 'message') {
-    const role = payload?.role || '';
-    if (role === 'user') return payload?.is_meta ? 'context' : 'user';
-    if (role === 'system' || role === 'context') return 'context';
-    if (role === 'error') return 'error';
-    return 'model';
-  }
-  if (type.startsWith('permission_')) return 'permission';
-  if (type.startsWith('question_')) return 'question';
-  if (type === 'usage') return 'usage';
-  if (type === 'agent_progress') return 'progress';
-  if (type === 'error') return 'error';
-  return 'session';
-}
-
-function labelForGenericRecord(type, payload, category) {
-  if (category === 'user') return '用户消息';
-  if (category === 'context') return payload?.role === 'system' ? '系统上下文' : '上下文';
-  if (type === 'legacy_model_response') return '模型响应（旧记录）';
-  if (type === 'legacy_tool_result') return '工具结果（旧记录）';
-  if (type === 'permission_request') return '等待权限确认';
-  if (type === 'permission_closed') return '权限确认结束';
-  if (type === 'question_request') return '等待用户回答';
-  if (type === 'question_closed') return '用户回答结束';
-  if (type === 'usage') return 'Token 用量';
-  if (type === 'agent_progress') return payload?.label || '执行进度';
-  if (type === 'busy_changed') return payload?.busy ? '会话开始运行' : '会话转为空闲';
-  if (type === 'done') return '会话完成';
-  if (type === 'error') return '执行错误';
-  if (type === 'message' && payload?.role === 'error') return '错误消息';
-  if (type === 'message' && payload?.role === 'assistant') return '助手消息';
-  return type || CATEGORY_LABELS[category] || '事件';
-}
-
-function previewForPayload(payload, category, type = '') {
-  if (!payload || typeof payload !== 'object') return compactText(payload);
-  if (type === 'busy_changed') return payload.busy ? '运行中' : '空闲';
-  if (type === 'done') return compactText(payload.outcome || payload.status || '完成');
-  if (category === 'user' || category === 'context' || category === 'model') {
-    return compactText(
-      payload.content || payload.reasoning_content || payload.message || payload.text || '',
-    );
-  }
-  if (category === 'tool') return compactText(payload.output || payload.args || payload);
-  if (category === 'error') {
-    return compactText(payload.message || payload.error || payload.content || payload);
-  }
-  return compactText(payload.detail || payload.label || payload);
-}
-
-function makeGenericRow(record, turnId) {
-  const payload = record.payload || {};
-  const category = categoryForType(record.type || '', payload);
-  const timestamp = finiteTimestamp(record.timestamp_ms);
+function makeStep(number, order) {
   return {
-    key: trajectoryRecordKey(record),
-    turnId,
-    category,
-    badge: CATEGORY_LABELS[category] || '事件',
-    label: labelForGenericRecord(record.type || '', payload, category),
-    preview: previewForPayload(payload, category, record.type || ''),
-    status: payload.status || payload.outcome || '',
-    source: record.source || (record.sequence == null ? 'legacy' : 'recorded'),
-    startMs: timestamp,
-    endMs: timestamp,
-    durationMs: null,
-    rawRecords: [record],
-    details: {
-      summary: {
-        type: record.type || '',
-        category,
-        source: record.source || (record.sequence == null ? 'legacy' : 'recorded'),
-        status: payload.status || payload.outcome || null,
-      },
-      payload,
-      result: category === 'tool' ? payload.output ?? null : null,
-      schema: null,
-      timing: {
-        timestamp_ms: timestamp,
-        started_at_ms: timestamp,
-        completed_at_ms: timestamp,
-        duration_ms: null,
-      },
-    },
+    number,
+    order,
+    start: null,
+    request: null,
+    firstOutput: null,
+    response: null,
+    finish: null,
+    tools: [],
+    toolByKey: new Map(),
   };
 }
 
-function ensureModelRow(turn, record, rowByKey) {
-  const payload = record.payload || {};
-  const step = Number(payload.step_index) || 0;
-  const key = `model:${turn.id}:${step || trajectoryRecordKey(record)}`;
-  let row = rowByKey.get(key);
-  if (!row) {
-    row = {
-      key,
-      turnId: turn.id,
-      category: 'model',
-      badge: '模型',
-      label: step ? `模型步骤 ${step}` : '模型步骤',
-      preview: '',
-      status: '',
-      source: record.source || 'recorded',
-      startMs: null,
-      endMs: null,
-      firstOutputMs: null,
-      durationMs: null,
-      ttftMs: null,
-      stepIndex: step,
-      request: null,
-      response: null,
-      finish: null,
-      rawRecords: [],
-      details: {},
-    };
-    rowByKey.set(key, row);
-    turn.rows.push(row);
-  }
-  row.rawRecords.push(record);
-  const timestamp = finiteTimestamp(record.timestamp_ms);
-  if (record.type === 'model_step_start') row.startMs = timestamp;
-  if (record.type === 'model_request') {
-    row.request = payload;
-    row.startMs ??= timestamp;
-    const identity = [payload.provider, payload.model].filter(Boolean).join(' / ');
-    if (identity) row.label = `模型 · ${identity}`;
-  }
-  if (record.type === 'model_first_output') row.firstOutputMs = timestamp;
-  if (record.type === 'model_response') {
-    row.response = payload;
-    row.endMs ??= timestamp;
-    row.status = payload.status || payload.finish_reason || '';
-    row.preview = compactText(
-      payload.reasoning_content || payload.content || payload.tool_calls || '',
-    );
-  }
-  if (record.type === 'model_step_finish') {
-    row.finish = payload;
-    row.endMs = timestamp ?? row.endMs;
-    row.status = payload.reason || row.status;
-  }
-  return row;
+function toolLifecycleKey(record) {
+  const payload = record?.payload || {};
+  if (payload.tool_call_id) return `call:${payload.tool_call_id}`;
+  if (payload.id) return `call:${payload.id}`;
+  const index = payload.tool_index ?? record?.legacy_index ?? record?.sequence ?? '';
+  return `${payload.tool || payload.name || 'tool'}:${index}`;
 }
 
-function ensureToolRow(turn, record, rowByKey) {
-  const payload = record.payload || {};
-  const callId = payload.tool_call_id || '';
-  const toolIndex = payload.tool_index ?? '';
-  const fallback = `${payload.tool || 'tool'}:${toolIndex}:${trajectoryRecordKey(record)}`;
-  const key = `tool:${turn.id}:${callId || fallback}`;
-  let row = rowByKey.get(key);
-  if (!row) {
-    row = {
-      key,
-      turnId: turn.id,
-      category: 'tool',
-      badge: '工具',
-      label: `工具 · ${payload.tool || '未知工具'}`,
-      preview: '',
-      status: '',
-      source: record.source || 'recorded',
-      startMs: null,
-      endMs: null,
-      durationMs: null,
-      toolName: payload.tool || '',
-      toolCallId: callId,
-      start: null,
-      end: null,
-      schema: null,
-      rawRecords: [],
-      details: {},
-    };
-    rowByKey.set(key, row);
-    turn.rows.push(row);
+function ensureStep(turn, stepNumber, order) {
+  let number = Number(stepNumber);
+  if (!Number.isInteger(number) || number <= 0) {
+    number = turn.activeStep > 0 ? turn.activeStep : turn.steps.size + 1;
   }
-  row.rawRecords.push(record);
-  row.toolName ||= payload.tool || '';
-  if (row.toolName) row.label = `工具 · ${row.toolName}`;
-  if (record.type === 'tool_start') {
-    row.start = payload;
-    row.startMs = finiteTimestamp(payload.started_at_ms) || finiteTimestamp(record.timestamp_ms);
-    row.preview = compactText(payload.args || payload.display || payload.command || '');
-  } else {
-    row.end = payload;
-    row.endMs = finiteTimestamp(payload.completed_at_ms) || finiteTimestamp(record.timestamp_ms);
-    row.startMs ??= finiteTimestamp(payload.started_at_ms);
-    row.durationMs = Number.isFinite(Number(payload.duration_ms))
-      ? Math.max(0, Number(payload.duration_ms))
-      : null;
-    row.status = payload.success === true
-      ? 'completed'
-      : (payload.success === false ? 'error' : payload.status || '');
-    row.preview ||= compactText(payload.output || '');
+  let step = turn.steps.get(number);
+  if (!step) {
+    step = makeStep(number, order);
+    turn.steps.set(number, step);
   }
-  return row;
+  turn.activeStep = number;
+  return step;
 }
 
-function finalizeRow(row) {
-  if ((row.category === 'model' || row.category === 'tool')
-      && row.durationMs == null
-      && row.startMs != null
-      && row.endMs != null) {
-    row.durationMs = Math.max(0, row.endMs - row.startMs);
+function sourceBlock(value) {
+  if (value == null || typeof value !== 'object') {
+    return { type: 'text', content: safeJson(value) };
   }
-  if (row.category === 'model') {
-    row.ttftMs = row.startMs != null && row.firstOutputMs != null
-      ? Math.max(0, row.firstOutputMs - row.startMs)
-      : null;
-    row.details = {
-      summary: {
-        type: 'model_step',
-        step_index: row.stepIndex || null,
-        provider: row.request?.provider || row.response?.provider || null,
-        model: row.request?.model || row.response?.model || null,
-        status: row.status || null,
-        finish_reason: row.response?.finish_reason || row.finish?.reason || null,
-        usage: row.response?.usage || row.finish?.usage || null,
-      },
-      payload: row.request,
-      result: row.response,
-      schema: row.request?.tools || null,
-      timing: {
-        started_at_ms: row.startMs,
-        first_output_at_ms: row.firstOutputMs,
-        completed_at_ms: row.endMs,
-        duration_ms: row.durationMs,
-        ttft_ms: row.ttftMs,
-      },
-    };
-  } else if (row.category === 'tool' && (row.start || row.end)) {
-    row.details = {
-      summary: {
-        type: 'tool_call',
-        tool: row.toolName || null,
-        tool_call_id: row.toolCallId || null,
-        status: row.status || null,
-        success: row.end?.success ?? null,
-        failure_stage: row.end?.failure_stage || null,
-      },
-      payload: row.start?.args ?? null,
-      result: row.end ? {
-        output: row.end.output ?? null,
-        summary: row.end.summary ?? null,
-        metadata: row.end.metadata ?? null,
-        attachments: row.end.attachments ?? null,
-        hunks: row.end.hunks ?? null,
-      } : null,
-      schema: row.schema,
-      timing: {
-        started_at_ms: row.startMs,
-        completed_at_ms: row.endMs,
-        duration_ms: row.durationMs,
-      },
-    };
+  const type = typeof value.type === 'string' ? value.type : 'unknown';
+  const text = typeof value.text === 'string'
+    ? value.text
+    : (typeof value.content === 'string' ? value.content : '');
+  if (text) return { type: type === 'reasoning' ? 'thinking' : type, content: text };
+  const url = typeof value.url === 'string'
+    ? value.url
+    : (typeof value.image_url === 'string' ? value.image_url : '');
+  if (url && /^(?:https?:|blob:|data:image\/)/.test(url)) {
+    return { type, content: '', imageSrc: url, imageAlt: value.alt || undefined };
   }
-  const searchable = [
-    row.badge,
-    row.label,
-    row.preview,
-    row.status,
-    safeJsonText(row.details),
-  ].join(' ').toLocaleLowerCase();
-  return { ...row, searchText: searchable };
+  return { type, content: safeJson(value, true) };
 }
 
-export function buildTrajectoryViewModel(records = [], missingCapabilities = []) {
-  const orderedRecords = mergeTrajectoryRecords([], records);
-  const responseMessageIds = new Set(
-    orderedRecords
-      .filter((record) => record.type === 'model_response')
-      .map((record) => record.payload?.message_id)
-      .filter(Boolean),
-  );
-  const sessionTurn = makeTurn('session-events', 0, 'mixed');
+function contentBlocks(payload) {
+  if (Array.isArray(payload?.content_parts) && payload.content_parts.length > 0) {
+    return payload.content_parts.map(sourceBlock);
+  }
+  if (Array.isArray(payload?.content)) return payload.content.map(sourceBlock);
+  const text = typeof payload?.content === 'string' ? payload.content : '';
+  return text ? [{ type: 'text', content: text }] : [];
+}
+
+function contentText(payload) {
+  if (typeof payload?.content === 'string') return payload.content;
+  return contentBlocks(payload)
+    .filter((block) => block.type === 'text' || block.type === 'input_text')
+    .map((block) => block.content)
+    .join('\n');
+}
+
+function messageCellBase(record, kind) {
+  const payload = record?.payload || {};
+  const content = contentText(payload) || safeJson(payload.message || payload.text || '');
+  return {
+    recordId: trajectoryRecordKey(record),
+    kind,
+    text: '',
+    ...(content ? { previewMarkdown: content, inputDetail: content } : {}),
+    ...(contentBlocks(payload).length > 0 ? { sourceBlocks: contentBlocks(payload) } : {}),
+    ...(finiteNumber(record?.sequence) === null
+      ? {}
+      : { sourceSeq: finiteNumber(record.sequence) }),
+    timeSeconds: 0,
+    startedAt: timestampOf(record),
+  };
+}
+
+function systemPrompt(request) {
+  if (!request) return null;
+  const messages = Array.isArray(request.messages) ? request.messages : [];
+  const system = messages
+    .filter((message) => message?.role === 'system' || message?.role === 'developer')
+    .map((message) => contentText(message) || safeJson(message?.content))
+    .filter(Boolean)
+    .join('\n\n');
+  const tools = (Array.isArray(request.tools) ? request.tools : []).map((tool) => ({
+    name: String(tool?.native_name || tool?.name || ''),
+    description: String(tool?.description || ''),
+    parameters: tool?.parameters ?? {},
+  }));
+  return { system, tools };
+}
+
+function samePrompt(left, right) {
+  return safeJson(left) === safeJson(right);
+}
+
+function promptChangeLabel(previous, current) {
+  if (!previous) return 'Initial System Prompt';
+  const systemChanged = previous.system !== current.system;
+  const toolsChanged = safeJson(previous.tools) !== safeJson(current.tools);
+  if (systemChanged && toolsChanged) return 'System Prompt and Tools Updated';
+  if (systemChanged) return 'System Prompt Updated';
+  return 'Tools Updated';
+}
+
+function usageFromPayload(value) {
+  if (!value || typeof value !== 'object') return undefined;
+  const prompt = finiteNumber(value.prompt_tokens ?? value.input_tokens);
+  const cacheRead = finiteNumber(value.cache_read_tokens);
+  const cacheWrite = finiteNumber(value.cache_write_tokens);
+  const completion = finiteNumber(value.completion_tokens ?? value.output_tokens);
+  const reasoning = finiteNumber(value.reasoning_tokens);
+  const hasAny = [prompt, cacheRead, cacheWrite, completion, reasoning]
+    .some((item) => item !== null);
+  if (!hasAny) return undefined;
+  const uncachedInput = prompt === null
+    ? null
+    : Math.max(0, prompt - (cacheRead ?? 0));
+  return {
+    ...(uncachedInput === null ? {} : { input: uncachedInput }),
+    ...(cacheRead === null ? {} : { cacheRead }),
+    ...(cacheWrite === null ? {} : { cacheWrite }),
+    ...(completion === null ? {} : { output: completion }),
+    ...(reasoning === null ? {} : { reasoning }),
+  };
+}
+
+function addUsage(total, usage) {
+  if (!usage) return total;
+  const next = {};
+  for (const key of ['input', 'cacheRead', 'cacheWrite', 'output', 'reasoning']) {
+    if (total?.[key] !== undefined || usage[key] !== undefined) {
+      next[key] = (total?.[key] || 0) + (usage[key] || 0);
+    }
+  }
+  return next;
+}
+
+function requestConfig(request) {
+  if (!request) return undefined;
+  const config = {
+    provider: request.provider,
+    model: request.model,
+    context_window: request.context_window,
+    context_usage_estimate: request.context_usage_estimate,
+    prompt_diagnostics: request.prompt_diagnostics,
+  };
+  return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined));
+}
+
+function requestStatus(step) {
+  const value = String(step.response?.payload?.status || step.finish?.payload?.reason || '');
+  if (value === 'error' || value === 'aborted' || value === 'failed') return 'error';
+  if (!step.response && !step.finish) return 'running';
+  return 'complete';
+}
+
+function assistantCell(step, turnNumber) {
+  const requestRecord = step.request;
+  const responseRecord = step.response;
+  const request = requestRecord?.payload || {};
+  const response = responseRecord?.payload || {};
+  const finish = step.finish?.payload || {};
+  const content = contentText(response);
+  const thinking = typeof response.reasoning_content === 'string'
+    ? response.reasoning_content
+    : '';
+  const calls = Array.isArray(response.tool_calls) ? response.tool_calls : [];
+  const sourceBlocks = [
+    ...(thinking ? [{ type: 'thinking', content: thinking }] : []),
+    ...(content ? [{ type: 'text', content }] : contentBlocks(response)),
+    ...calls.map((call) => ({
+      type: 'tool-call',
+      content: safeJson(call?.arguments ?? call?.args ?? ''),
+      callId: call?.id || undefined,
+      toolName: call?.name || call?.function?.name || undefined,
+    })),
+  ];
+  const start = timestampOf(step.start || requestRecord);
+  const first = timestampOf(step.firstOutput);
+  const completed = timestampOf(step.finish || responseRecord);
+  const usage = usageFromPayload(response.usage || finish.usage);
+  const outputTokens = usage?.output;
+  const sourceSeq = finiteNumber(responseRecord?.sequence ?? requestRecord?.sequence);
+  return {
+    recordId: `assistant\u0000${turnNumber}\u0000${step.number}`,
+    kind: 'message',
+    text: content || thinking ? '' : (calls.length > 0 ? 'Tool call only' : ''),
+    ...(content ? { previewMarkdown: content, outputDetail: content } : {}),
+    ...(!content && thinking ? { previewMarkdown: thinking } : {}),
+    ...(thinking ? { thinkingDetail: thinking } : {}),
+    ...(sourceBlocks.length > 0 ? { sourceBlocks } : {}),
+    ...(sourceSeq === null ? {} : { sourceSeq }),
+    timeSeconds: start === null || completed === null
+      ? null
+      : Math.max(0, (completed - start) / 1000),
+    startedAt: start,
+    ...(usage?.input === undefined ? {} : { input: usage.input }),
+    ...(usage?.cacheRead === undefined ? {} : { cacheRead: usage.cacheRead }),
+    ...(usage?.cacheWrite === undefined ? {} : { cacheWrite: usage.cacheWrite }),
+    ...(outputTokens === undefined ? {} : { output: outputTokens }),
+    ...(usage?.reasoning === undefined ? {} : { think: usage.reasoning }),
+    ...(requestStatus(step) === 'error' ? { isError: true } : {}),
+    assistantMetrics: {
+      timingRecorded: start !== null || first !== null || completed !== null,
+      stepStartTime: start,
+      firstTokenTime: first,
+      completedTime: completed,
+      usageProvided: usage !== undefined,
+      outputTokens: outputTokens ?? null,
+    },
+    _request: request,
+    _response: response,
+  };
+}
+
+function toolCell(lifecycle, schema) {
+  const startRecord = lifecycle.start;
+  const endRecord = lifecycle.end;
+  const payload = { ...(startRecord?.payload || {}), ...(endRecord?.payload || {}) };
+  const name = String(payload.tool || payload.name || 'tool');
+  const args = startRecord?.payload?.args ?? payload.arguments;
+  const output = endRecord?.payload?.output
+    ?? endRecord?.payload?.content
+    ?? (lifecycle.legacy ? lifecycle.legacy.payload?.content : undefined);
+  const callId = payload.tool_call_id || payload.id || undefined;
+  const start = timestampOf(startRecord || lifecycle.legacy, 'started_at_ms');
+  const completed = timestampOf(endRecord || lifecycle.legacy, 'completed_at_ms');
+  const duration = finiteNumber(endRecord?.payload?.duration_ms);
+  const success = endRecord?.payload?.success;
+  const sourceSeq = finiteNumber(endRecord?.sequence ?? startRecord?.sequence);
+  const outputText = safeJson(output, typeof output !== 'string');
+  return {
+    recordId: callId ? `tool\u0000call\u0000${callId}` : trajectoryRecordKey(endRecord || startRecord || lifecycle.legacy),
+    kind: 'tool',
+    text: name,
+    ...(args === undefined ? {} : {
+      previewMarkdown: safeJson(args),
+      inputDetail: safeJson(args, typeof args !== 'string'),
+    }),
+    ...(outputText ? {
+      outputDetail: outputText,
+      outputBlocks: [{ type: 'text', content: outputText }],
+    } : {}),
+    ...(success === false
+      ? { result: endRecord?.payload?.failure_stage || 'error' }
+      : outputText ? { result: '', resultPreviewMarkdown: outputText } : { result: 'No output' }),
+    ...(schema ? { schemaDetail: safeJson(schema, true) } : {}),
+    ...(callId ? { callId } : {}),
+    ...(success === false ? { isError: true } : {}),
+    ...(sourceSeq === null ? {} : { sourceSeq }),
+    timeSeconds: duration !== null
+      ? Math.max(0, duration / 1000)
+      : start === null || completed === null
+        ? null
+        : Math.max(0, (completed - start) / 1000),
+    startedAt: start,
+  };
+}
+
+function toolSchema(step, name) {
+  const tools = step.request?.payload?.tools;
+  if (!Array.isArray(tools)) return null;
+  return tools.find((tool) => tool?.native_name === name || tool?.name === name) || null;
+}
+
+function formatGroupDuration(milliseconds) {
+  if (!Number.isFinite(milliseconds)) return '';
+  return `${Math.max(0, Math.round(milliseconds)).toLocaleString('en-US')} ms`;
+}
+
+function describeGroup(cells) {
+  const times = [];
+  const tools = new Map();
+  for (const cell of cells) {
+    if (Number.isFinite(cell.startedAt)) {
+      times.push(cell.startedAt);
+      if (Number.isFinite(cell.timeSeconds)) times.push(cell.startedAt + cell.timeSeconds * 1000);
+    }
+    if (cell.kind === 'tool') tools.set(cell.text, (tools.get(cell.text) || 0) + 1);
+  }
+  const parts = [];
+  if (times.length >= 2) parts.push(formatGroupDuration(Math.max(...times) - Math.min(...times)));
+  for (const [name, count] of tools) parts.push(count > 1 ? `${name}×${count}` : name);
+  return parts.filter(Boolean).join(' ') || undefined;
+}
+
+function normalizeInputRecord(record) {
+  const payload = record?.payload || {};
+  if (record.type === 'legacy_context') {
+    if (payload?.metadata?.transcript_only === true || payload.content === '[Turn net diff]') {
+      return null;
+    }
+    return messageCellBase(record, 'context');
+  }
+  if (record.type === 'legacy_user_message') {
+    return { ...messageCellBase(record, 'user'), opensTurn: true };
+  }
+  if (record.type !== 'message') return null;
+  if (payload.role === 'user') {
+    return {
+      ...messageCellBase(record, payload.is_meta ? 'context' : 'user'),
+      ...(payload.is_meta ? {} : { opensTurn: true }),
+    };
+  }
+  if (payload.role === 'system' || payload.role === 'context') {
+    return messageCellBase(record, 'context');
+  }
+  if (payload.role === 'error') {
+    return { ...messageCellBase(record, 'context'), text: 'Error' };
+  }
+  return null;
+}
+
+/**
+ * Translate ACECode's append-only trajectory records into the exact grouped
+ * ledger contract consumed by DeepSeek Harness's trajectory components.
+ */
+export function buildDeepSeekTrajectory(records = []) {
+  const ordered = mergeTrajectoryRecords([], records);
   const turns = [];
   const turnById = new Map();
-  const rowByKey = new Map();
-  let currentTurn = sessionTurn;
-  let nextTurnOrdinal = 1;
+  let current = null;
+  let nextTurn = 1;
+  let order = 0;
 
-  const ensureTurn = (id, source = 'recorded') => {
-    const safeId = id || `turn-${nextTurnOrdinal}`;
-    let turn = turnById.get(safeId);
-    if (!turn) {
-      turn = makeTurn(safeId, nextTurnOrdinal++, source);
-      turnById.set(safeId, turn);
-      turns.push(turn);
+  const openTurn = (id, forceNew = false) => {
+    const key = id ? String(id) : '';
+    if (!forceNew && key && turnById.has(key)) {
+      current = turnById.get(key);
+      return current;
     }
+    if (!forceNew && current && (!key || current.id === key)) return current;
+    const turn = makeTurn(nextTurn++, key || `turn-${nextTurn}`);
+    turns.push(turn);
+    if (key) turnById.set(key, turn);
+    current = turn;
     return turn;
   };
 
-  for (const record of orderedRecords) {
-    const type = String(record.type || '');
-    const payload = record.payload || {};
+  for (const record of ordered) {
+    order += 1;
+    const type = String(record?.type || '');
+    const payload = record?.payload || {};
     if (type === 'turn_start') {
-      currentTurn = ensureTurn(
-        payload.turn_id || payload.user_message_id,
-        record.source || 'recorded',
-      );
-      currentTurn.startRecord = record;
-      currentTurn.startMs = finiteTimestamp(payload.started_at_ms)
-        || finiteTimestamp(record.timestamp_ms);
+      openTurn(payload.turn_id || payload.user_message_id, true);
       continue;
     }
     if (type === 'turn_end' || type === 'legacy_turn_end') {
-      const turn = ensureTurn(
-        payload.turn_id || payload.user_message_uuid,
-        record.source || (type.startsWith('legacy_') ? 'legacy' : 'recorded'),
-      );
-      turn.endRecord = record;
-      turn.startMs ??= finiteTimestamp(payload.started_at_ms);
-      turn.endMs = finiteTimestamp(payload.completed_at_ms)
-        || finiteTimestamp(record.timestamp_ms);
-      turn.durationMs = Number.isFinite(Number(payload.duration_ms))
-        ? Math.max(0, Number(payload.duration_ms))
-        : (turn.startMs != null && turn.endMs != null
-            ? Math.max(0, turn.endMs - turn.startMs)
-            : null);
-      turn.outcome = payload.outcome || payload.status || '';
-      currentTurn = turn;
+      openTurn(payload.turn_id || payload.user_message_uuid);
       continue;
     }
-
-    if (type === 'legacy_user_message'
-        || (type === 'message' && payload.role === 'user' && !payload.is_meta)) {
-      const messageId = payload.uuid || payload.id || payload.message_id;
-      if (currentTurn === sessionTurn
-          || (messageId && currentTurn.id !== messageId && currentTurn.endRecord)) {
-        currentTurn = ensureTurn(
-          messageId || `legacy-${record.legacy_index ?? nextTurnOrdinal}`,
-          record.source || (type.startsWith('legacy_') ? 'legacy' : 'recorded'),
-        );
+    if (type === 'legacy_user_message') {
+      openTurn(payload.uuid || payload.id || `legacy-${record.legacy_index}`, true)
+        .inputs.push({ order, record });
+      continue;
+    }
+    if (type === 'message' && payload.role === 'user' && !payload.is_meta) {
+      const id = payload.id || payload.uuid || payload.message_id;
+      const turn = openTurn(id);
+      if (!turn.inputs.some((entry) => entry.record?.payload?.role === 'user')) {
+        turn.inputs.push({ order, record });
+      } else if (turn.id !== id) {
+        openTurn(id, true).inputs.push({ order, record });
+      } else {
+        turn.inputs.push({ order, record });
       }
-      const row = makeGenericRow(record, currentTurn.id);
-      currentTurn.rows.push(row);
-      rowByKey.set(row.key, row);
       continue;
     }
-
+    const input = normalizeInputRecord(record);
+    if (input) {
+      (current || openTurn('')).inputs.push({ order, record });
+      continue;
+    }
+    if (type === 'legacy_context'
+        || (type === 'message' && ['system', 'context', 'error'].includes(payload.role))) {
+      continue;
+    }
+    const turn = current || openTurn('');
     if (MODEL_EVENT_TYPES.has(type)) {
-      ensureModelRow(currentTurn, record, rowByKey);
+      const step = ensureStep(turn, payload.step_index, order);
+      if (type === 'model_step_start') step.start = record;
+      if (type === 'model_request') step.request = record;
+      if (type === 'model_first_output') step.firstOutput = record;
+      if (type === 'model_response') step.response = record;
+      if (type === 'model_step_finish') step.finish = record;
       continue;
     }
     if (TOOL_EVENT_TYPES.has(type)) {
-      ensureToolRow(currentTurn, record, rowByKey);
+      const step = ensureStep(turn, payload.step_index, order);
+      const key = toolLifecycleKey(record);
+      let lifecycle = step.toolByKey.get(key);
+      if (!lifecycle) {
+        lifecycle = { order, start: null, end: null, legacy: null };
+        step.toolByKey.set(key, lifecycle);
+        step.tools.push(lifecycle);
+      }
+      if (type === 'tool_start') lifecycle.start = record;
+      else lifecycle.end = record;
       continue;
     }
-    if (type === 'message'
-        && payload.role === 'assistant'
-        && responseMessageIds.has(payload.id)) {
+    if (type === 'legacy_model_response') {
+      const step = ensureStep(turn, turn.steps.size + 1, order);
+      step.response = record;
       continue;
     }
-
-    const target = currentTurn || sessionTurn;
-    const row = makeGenericRow(record, target.id);
-    target.rows.push(row);
-    rowByKey.set(row.key, row);
+    if (type === 'legacy_tool_result') {
+      const step = ensureStep(turn, turn.activeStep || 1, order);
+      const lifecycle = { order, start: null, end: null, legacy: record };
+      step.tools.push(lifecycle);
+      continue;
+    }
   }
 
-  const allTurns = sessionTurn.rows.length > 0 ? [sessionTurn, ...turns] : turns;
-  for (const turn of allTurns) {
-    let knownToolSchemas = new Map();
-    turn.rows = turn.rows.map((row) => {
-      if (row.category === 'model' && Array.isArray(row.request?.tools)) {
-        knownToolSchemas = new Map();
-        for (const tool of row.request.tools) {
-          if (tool?.name) knownToolSchemas.set(tool.name, tool);
-          if (tool?.native_name) knownToolSchemas.set(tool.native_name, tool);
+  let cellIndex = 0;
+  let previousPrompt = null;
+  let requestNumber = 0;
+  let cumulativeUsage;
+  const requestNumbers = [];
+  const projectedTurns = [];
+
+  for (const turn of turns) {
+    const groups = [];
+    const inputCells = turn.inputs
+      .sort((left, right) => left.order - right.order)
+      .map(({ record }) => normalizeInputRecord(record))
+      .filter(Boolean)
+      .map((cell) => ({ ...cell, index: ++cellIndex }));
+    if (inputCells.length > 0) {
+      groups.push({ title: 'Message', cells: inputCells, description: describeGroup(inputCells) });
+    }
+
+    const steps = [...turn.steps.values()].sort((left, right) => left.order - right.order);
+    for (const step of steps) {
+      const prompt = systemPrompt(step.request?.payload);
+      if (prompt && !samePrompt(previousPrompt, prompt)) {
+        const promptCell = {
+          index: ++cellIndex,
+          recordId: `system\u0000${turn.number}\u0000${step.number}`,
+          kind: 'system',
+          text: promptChangeLabel(previousPrompt, prompt),
+          promptDetail: prompt,
+          ...(previousPrompt ? { previousPromptDetail: previousPrompt } : {}),
+          ...(finiteNumber(step.request?.sequence) === null
+            ? {}
+            : { sourceSeq: finiteNumber(step.request.sequence) }),
+          timeSeconds: 0,
+          startedAt: timestampOf(step.request),
+        };
+        if (!previousPrompt && groups[0]?.title === 'Message') {
+          groups[0] = {
+            ...groups[0],
+            cells: [promptCell, ...groups[0].cells],
+          };
+        } else {
+          groups.push({ title: 'Message', cells: [promptCell] });
         }
+        previousPrompt = prompt;
       }
-      if (row.category === 'tool' && row.toolName) {
-        row.schema = knownToolSchemas.get(row.toolName) || null;
-      }
-      return finalizeRow(row);
-    });
-    if (turn.startMs == null) {
-      turn.startMs = turn.rows.find((row) => row.startMs != null)?.startMs ?? null;
+
+      const assistant = assistantCell(step, turn.number);
+      assistant.index = ++cellIndex;
+      const toolCells = step.tools
+        .sort((left, right) => left.order - right.order)
+        .map((lifecycle) => {
+          const name = String(
+            lifecycle.start?.payload?.tool
+              || lifecycle.end?.payload?.tool
+              || lifecycle.legacy?.payload?.tool
+              || lifecycle.legacy?.payload?.name
+              || 'tool',
+          );
+          return toolCell(lifecycle, toolSchema(step, name));
+        })
+        .map((cell) => ({ ...cell, index: ++cellIndex }));
+      const cells = [assistant, ...toolCells];
+      const group = `Step ${step.number}`;
+      groups.push({ title: group, description: describeGroup(cells), cells });
+
+      requestNumber += 1;
+      const usage = usageFromPayload(
+        step.response?.payload?.usage || step.finish?.payload?.usage,
+      );
+      cumulativeUsage = addUsage(cumulativeUsage, usage);
+      const startedAt = timestampOf(step.start || step.request);
+      const completedAt = timestampOf(step.finish || step.response);
+      requestNumbers.push({
+        ...(finiteNumber(step.request?.sequence) === null
+          ? {}
+          : { seq: finiteNumber(step.request.sequence) }),
+        turn: turn.number,
+        step: step.number,
+        group,
+        number: requestNumber,
+        status: requestStatus(step),
+        ...(startedAt === null ? {} : { startedAt }),
+        ...(completedAt === null ? {} : { completedAt }),
+        ...(finiteNumber(step.response?.sequence) === null
+          ? {}
+          : { resultSeq: finiteNumber(step.response.sequence) }),
+        ...(step.request?.payload?.provider ? { provider: step.request.payload.provider } : {}),
+        ...(step.request?.payload?.model ? { model: step.request.payload.model } : {}),
+        ...(requestConfig(step.request?.payload)
+          ? { requestConfig: requestConfig(step.request.payload) }
+          : {}),
+        ...(usage ? { usage } : {}),
+        ...(cumulativeUsage ? { cumulativeUsage } : {}),
+        ...(requestStatus(step) === 'error'
+          ? { error: safeJson(step.response?.payload?.error || step.finish?.payload?.reason || '') }
+          : {}),
+      });
     }
-    if (turn.endMs == null) {
-      const timedRows = turn.rows.filter((row) => row.endMs != null);
-      turn.endMs = timedRows.length > 0
-        ? timedRows[timedRows.length - 1].endMs
-        : null;
-    }
-    if (turn.durationMs == null && turn.startMs != null && turn.endMs != null) {
-      turn.durationMs = Math.max(0, turn.endMs - turn.startMs);
-    }
-    turn.searchText = [
-      turn.title,
-      turn.outcome,
-      ...turn.rows.map((row) => row.searchText),
-    ].join(' ').toLocaleLowerCase();
+
+    if (groups.length > 0) projectedTurns.push({ turn: turn.number, groups });
   }
 
-  const rows = allTurns.flatMap((turn) => turn.rows);
-  const timestamps = rows.flatMap((row) => [row.startMs, row.endMs])
-    .filter((value) => value != null);
-  const rangeStartMs = timestamps.length > 0 ? Math.min(...timestamps) : null;
-  const rangeEndMs = timestamps.length > 0 ? Math.max(...timestamps) : null;
+  const firstRecorded = ordered.find((record) => finiteNumber(record?.sequence) !== null);
   return {
-    turns: allTurns,
-    rows,
-    rowByKey: new Map(rows.map((row) => [row.key, row])),
-    rangeStartMs,
-    rangeEndMs,
-    missingCapabilities: [...new Set(missingCapabilities || [])],
+    turns: projectedTurns,
+    requestNumbers,
+    historyStartSeq: finiteNumber(firstRecorded?.sequence) ?? undefined,
   };
-}
-
-export function trajectoryMatches(model, query) {
-  const normalized = String(query || '').trim().toLocaleLowerCase();
-  if (!normalized) return [];
-  return model.rows
-    .filter((row) => row.searchText.includes(normalized))
-    .map((row) => row.key);
-}
-
-export function trajectoryTimelineSegments(model, mode = 'duration') {
-  if (!model) return [];
-  if (mode === 'turns') {
-    return model.turns
-      .filter((turn) => turn.startMs != null || turn.endMs != null)
-      .map((turn) => ({
-        key: `turn:${turn.id}`,
-        label: turn.title,
-        category: 'turn',
-        startMs: turn.startMs ?? turn.endMs,
-        endMs: turn.endMs ?? turn.startMs,
-        durationMs: turn.durationMs,
-        turnId: turn.id,
-      }));
-  }
-  const rows = mode === 'calls'
-    ? model.rows.filter((row) => row.category === 'model' || row.category === 'tool')
-    : model.rows;
-  return rows
-    .filter((row) => row.startMs != null || row.endMs != null)
-    .map((row) => ({
-      key: row.key,
-      label: row.label,
-      category: row.category,
-      startMs: row.startMs ?? row.endMs,
-      endMs: row.endMs ?? row.startMs,
-      durationMs: row.durationMs,
-      turnId: row.turnId,
-    }));
-}
-
-export function formatTrajectoryDuration(durationMs) {
-  if (durationMs == null || !Number.isFinite(Number(durationMs))) return '未记录';
-  const value = Math.max(0, Number(durationMs));
-  if (value < 1000) return `${Math.round(value)} ms`;
-  if (value < 60000) return `${(value / 1000).toFixed(value < 10000 ? 2 : 1)} s`;
-  const minutes = Math.floor(value / 60000);
-  const seconds = Math.round((value % 60000) / 1000);
-  return `${minutes}m ${seconds}s`;
-}
-
-export function formatTrajectoryTimestamp(timestampMs) {
-  if (timestampMs == null || !Number.isFinite(Number(timestampMs))) return '未记录';
-  return new Date(Number(timestampMs)).toLocaleString(undefined, {
-    hour12: false,
-  });
 }

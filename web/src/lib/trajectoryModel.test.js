@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
 
 import {
-  buildTrajectoryViewModel,
-  formatTrajectoryDuration,
+  buildDeepSeekTrajectory,
   mergeTrajectoryRecords,
-  trajectoryMatches,
-  trajectoryTimelineSegments,
 } from './trajectoryModel.js';
 
 function run(name, fn) {
@@ -27,8 +24,8 @@ const recorded = (sequence, timestamp, type, payload = {}) => ({
   payload,
 });
 
-run('trajectory projection groups precise model and tool lifecycles by turn', () => {
-  const records = [
+run('ACE records project into DeepSeek Message and Step groups', () => {
+  const projection = buildDeepSeekTrajectory([
     recorded(1, 1000, 'turn_start', { turn_id: 'turn-1', started_at_ms: 1000 }),
     recorded(2, 1001, 'message', { role: 'user', id: 'turn-1', content: 'inspect repo' }),
     recorded(3, 1010, 'model_step_start', { step_index: 1 }),
@@ -36,14 +33,30 @@ run('trajectory projection groups precise model and tool lifecycles by turn', ()
       step_index: 1,
       provider: 'openai',
       model: 'gpt-test',
-      messages: [{ role: 'user', content: 'inspect repo' }],
-      tools: [{ name: 'read', native_name: 'file_read', parameters: { type: 'object' } }],
+      context_window: 128000,
+      messages: [
+        { role: 'system', content: 'system prompt' },
+        { role: 'user', content: 'inspect repo' },
+      ],
+      tools: [{
+        name: 'read',
+        native_name: 'file_read',
+        description: 'Read a file',
+        parameters: { type: 'object' },
+      }],
     }),
     recorded(5, 1040, 'model_first_output', { step_index: 1, channel: 'reasoning' }),
     recorded(6, 1100, 'model_response', {
       step_index: 1,
       status: 'completed',
+      content: 'calling a tool',
       reasoning_content: 'need a file',
+      usage: {
+        prompt_tokens: 40,
+        cache_read_tokens: 10,
+        completion_tokens: 8,
+        reasoning_tokens: 3,
+      },
       tool_calls: [{ id: 'call-1', name: 'file_read', arguments: '{"file_path":"a"}' }],
     }),
     recorded(7, 1101, 'model_step_finish', { step_index: 1, reason: 'tool_calls' }),
@@ -62,33 +75,65 @@ run('trajectory projection groups precise model and tool lifecycles by turn', ()
       completed_at_ms: 1160,
       duration_ms: 50,
     }),
-    recorded(10, 1200, 'turn_end', {
-      turn_id: 'turn-1',
-      completed_at_ms: 1200,
-      duration_ms: 200,
-      outcome: 'completed',
-    }),
-  ];
+    recorded(10, 1200, 'turn_end', { turn_id: 'turn-1', outcome: 'completed' }),
+  ]);
 
-  const model = buildTrajectoryViewModel(records);
-  assert.equal(model.turns.length, 1);
-  assert.equal(model.turns[0].outcome, 'completed');
-  assert.equal(model.turns[0].rows.length, 3);
-  const modelRow = model.turns[0].rows[1];
-  const toolRow = model.turns[0].rows[2];
-  assert.equal(modelRow.category, 'model');
-  assert.equal(modelRow.ttftMs, 30);
-  assert.equal(modelRow.details.payload.messages[0].content, 'inspect repo');
-  assert.equal(toolRow.details.payload.file_path, 'a');
-  assert.equal(toolRow.details.result.output, 'contents');
-  assert.equal(toolRow.details.schema.name, 'read');
-  assert.equal(toolRow.details.schema.native_name, 'file_read');
-  assert.equal(toolRow.durationMs, 50);
-  assert.equal(trajectoryTimelineSegments(model, 'calls').length, 2);
-  assert.deepEqual(trajectoryMatches(model, 'contents'), [toolRow.key]);
+  assert.equal(projection.turns.length, 1);
+  assert.deepEqual(projection.turns[0].groups.map((group) => group.title), ['Message', 'Step 1']);
+  const messageCells = projection.turns[0].groups[0].cells;
+  assert.deepEqual(messageCells.map((cell) => cell.kind), ['system', 'user']);
+  assert.equal(messageCells[0].text, 'Initial System Prompt');
+  assert.equal(messageCells[0].promptDetail.system, 'system prompt');
+  assert.equal(messageCells[0].promptDetail.tools[0].name, 'file_read');
+
+  const [assistant, tool] = projection.turns[0].groups[1].cells;
+  assert.equal(assistant.kind, 'message');
+  assert.equal(assistant.outputDetail, 'calling a tool');
+  assert.equal(assistant.thinkingDetail, 'need a file');
+  assert.equal(assistant.assistantMetrics.firstTokenTime, 1040);
+  assert.equal(assistant.input, 30);
+  assert.equal(assistant.cacheRead, 10);
+  assert.equal(assistant.output, 8);
+  assert.equal(assistant.think, 3);
+  assert.equal(tool.kind, 'tool');
+  assert.equal(tool.text, 'file_read');
+  assert.equal(tool.outputDetail, 'contents');
+  assert.equal(tool.schemaDetail.includes('Read a file'), true);
+  assert.equal(tool.timeSeconds, 0.05);
+
+  assert.equal(projection.requestNumbers.length, 1);
+  assert.equal(projection.requestNumbers[0].number, 1);
+  assert.equal(projection.requestNumbers[0].provider, 'openai');
+  assert.equal(projection.requestNumbers[0].usage.output, 8);
+  assert.equal(projection.historyStartSeq, 1);
 });
 
-run('legacy records stay before precise suffix and preserve unknown timing', () => {
+run('prompt changes become DeepSeek system update records', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1000, 'turn_start', { turn_id: 'turn-1' }),
+    recorded(2, 1001, 'message', { role: 'user', id: 'turn-1', content: 'go' }),
+    recorded(3, 1010, 'model_request', {
+      step_index: 1,
+      messages: [{ role: 'system', content: 'one' }],
+      tools: [],
+    }),
+    recorded(4, 1020, 'model_response', { step_index: 1, content: 'first' }),
+    recorded(5, 1030, 'model_request', {
+      step_index: 2,
+      messages: [{ role: 'system', content: 'two' }],
+      tools: [],
+    }),
+    recorded(6, 1040, 'model_response', { step_index: 2, content: 'second' }),
+  ]);
+
+  const groups = projection.turns[0].groups;
+  assert.deepEqual(groups.map((group) => group.title), ['Message', 'Step 1', 'Message', 'Step 2']);
+  assert.equal(groups[2].cells[0].text, 'System Prompt Updated');
+  assert.equal(groups[2].cells[0].previousPromptDetail.system, 'one');
+  assert.equal(groups[2].cells[0].promptDetail.system, 'two');
+});
+
+run('legacy records keep empty timing without adding source or age notices', () => {
   const legacy = {
     schema_version: 1,
     sequence: null,
@@ -100,28 +145,13 @@ run('legacy records stay before precise suffix and preserve unknown timing', () 
   };
   const merged = mergeTrajectoryRecords(
     [recorded(2, 2000, 'done', {})],
-    [legacy, recorded(1, 1900, 'model_step_start', { step_index: 1 }), legacy],
+    [legacy, recorded(1, 1900, 'model_response', { step_index: 1, content: 'answer' }), legacy],
   );
   assert.deepEqual(merged.map((record) => record.sequence), [null, 1, 2]);
 
-  const model = buildTrajectoryViewModel(merged, ['ttft']);
-  assert.equal(model.turns[0].source, 'legacy');
-  assert.equal(model.turns[0].rows[0].startMs, null);
-  assert.equal(model.missingCapabilities[0], 'ttft');
-  assert.equal(formatTrajectoryDuration(null), '未记录');
-});
-
-run('point-in-time session events keep timestamps and concise labels', () => {
-  const model = buildTrajectoryViewModel([
-    recorded(1, 1000, 'busy_changed', { busy: true }),
-    recorded(2, 1010, 'message', { role: 'error', content: 'provider unavailable' }),
-    recorded(3, 1020, 'done', {}),
-  ]);
-
-  assert.equal(model.rows[0].preview, '运行中');
-  assert.equal(model.rows[0].durationMs, null);
-  assert.equal(model.rows[1].label, '错误消息');
-  assert.equal(model.rows[1].preview, 'provider unavailable');
-  assert.equal(model.rows[2].preview, '完成');
-  assert.equal(trajectoryTimelineSegments(model)[0].durationMs, null);
+  const projection = buildDeepSeekTrajectory(merged);
+  assert.equal(projection.turns[0].groups[0].cells[0].previewMarkdown, 'old fact');
+  assert.equal('source' in projection, false);
+  assert.equal('missingCapabilities' in projection, false);
+  assert.equal('diagnostics' in projection, false);
 });
