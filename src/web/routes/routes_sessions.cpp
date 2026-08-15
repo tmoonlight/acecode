@@ -1,7 +1,9 @@
 // routes_sessions.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
 #include "../session_reference_context.hpp"
+#include "../trajectory_legacy_projection.hpp"
 #include "../../session/compact_checkpoint.hpp"
+#include "../../session/session_trajectory.hpp"
 #include "../../session/session_user_message_search.hpp"
 #include "../../utils/utf8_path.hpp"
 
@@ -493,6 +495,10 @@ void WebServer::Impl::register_sessions() {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/sessions/<string>/trajectory").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/sessions/<string>/turn/steer").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
@@ -973,6 +979,170 @@ void WebServer::Impl::register_sessions() {
             }
 
             crow::response r(arr.dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
+        // GET /api/sessions/:id/trajectory: durable precise records plus the
+        // canonical transcript facts that predate trajectory recording.
+        CROW_ROUTE(app, "/api/sessions/<string>/trajectory").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+
+            auto error_response = [this, &req](int status,
+                                               const std::string& message) {
+                crow::response r(status);
+                r.body = json{{"error", message}}.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            };
+
+            const std::uint64_t after = req.url_params.get("after")
+                ? parse_seq(req.url_params.get("after"))
+                : 0;
+            const std::size_t legacy_after = static_cast<std::size_t>(
+                req.url_params.get("legacy_after")
+                    ? parse_seq(req.url_params.get("legacy_after"))
+                    : 0);
+            const std::uint64_t raw_limit = req.url_params.get("limit")
+                ? parse_seq(req.url_params.get("limit"))
+                : kSessionTrajectoryDefaultPageSize;
+            const std::size_t limit = std::clamp<std::size_t>(
+                raw_limit == 0
+                    ? kSessionTrajectoryDefaultPageSize
+                    : static_cast<std::size_t>(std::min<std::uint64_t>(
+                          raw_limit, kSessionTrajectoryMaxPageSize)),
+                1,
+                kSessionTrajectoryMaxPageSize);
+            const std::string workspace_hash_hint =
+                req.url_params.get("workspace")
+                    ? std::string(req.url_params.get("workspace"))
+                    : std::string{};
+
+            std::shared_ptr<SessionEntry> active_entry;
+            if (deps.session_registry) {
+                active_entry = deps.session_registry->acquire(id);
+                if (active_entry && !workspace_hash_hint.empty()) {
+                    const std::string active_hash = active_entry->no_workspace
+                        ? std::string{}
+                        : (!active_entry->workspace_hash.empty()
+                              ? active_entry->workspace_hash
+                              : compute_cwd_hash(active_entry->cwd));
+                    if (active_hash != workspace_hash_hint) {
+                        return error_response(404, "session not found");
+                    }
+                }
+            }
+
+            const auto workspace =
+                resolve_session_workspace(id, workspace_hash_hint);
+            if (!workspace.has_value()) {
+                return error_response(404, "workspace not found");
+            }
+            auto maybe_meta = find_session_meta_for_workspace(*workspace, id);
+            if (!maybe_meta.has_value()) {
+                return error_response(404, "session not found");
+            }
+            SessionMeta meta = *maybe_meta;
+            if (!workspace_hash_hint.empty()) {
+                const std::string meta_hash = meta.no_workspace
+                    ? std::string{}
+                    : compute_cwd_hash(meta.cwd.empty()
+                          ? workspace->cwd
+                          : meta.cwd);
+                if (meta_hash != workspace_hash_hint) {
+                    return error_response(404, "session not found");
+                }
+            }
+
+            std::vector<ChatMessage> messages;
+            const bool active_matches = active_entry &&
+                (active_entry->no_workspace
+                    ? meta.no_workspace
+                    : session_entry_matches_workspace(
+                          *active_entry, *workspace));
+            if (active_matches && active_entry->sm) {
+                const auto active_meta = active_entry->sm->load_session_meta(id);
+                if (!active_meta.id.empty()) meta = active_meta;
+                messages = active_entry->sm->load_active_messages();
+            }
+
+            const std::string session_cwd = meta.cwd.empty()
+                ? workspace->cwd
+                : meta.cwd;
+            const auto project_dir = SessionStorage::get_project_dir(session_cwd);
+            if (messages.empty()) {
+                const auto candidates =
+                    SessionStorage::find_session_files(project_dir, id);
+                if (!candidates.empty()) {
+                    messages = SessionStorage::load_messages(
+                        candidates.front().jsonl_path);
+                }
+            }
+
+            const auto trajectory_path =
+                SessionTrajectoryStorage::file_path(project_dir, id);
+            SessionTrajectoryLoadDiagnostics coverage_diagnostics;
+            const auto precise_records = SessionTrajectoryStorage::load_all(
+                trajectory_path, &coverage_diagnostics);
+            SessionTrajectoryPage precise_page;
+            precise_page.diagnostics = coverage_diagnostics;
+            for (const auto& record : precise_records) {
+                if (record.sequence <= after) continue;
+                if (precise_page.records.size() >= limit) {
+                    precise_page.has_more = true;
+                    break;
+                }
+                precise_page.records.push_back(record);
+            }
+            precise_page.next_after = precise_page.records.empty()
+                ? after
+                : precise_page.records.back().sequence;
+            const auto legacy_page = project_legacy_trajectory(
+                messages, precise_records, legacy_after, limit);
+
+            json records = json::array();
+            for (const auto& record : legacy_page.records) {
+                records.push_back(record);
+            }
+            for (const auto& record : precise_page.records) {
+                auto encoded = session_trajectory_record_to_json(record);
+                encoded["source"] = "recorded";
+                records.push_back(std::move(encoded));
+            }
+
+            const bool has_precise = !precise_records.empty();
+            const bool has_legacy = legacy_page.total > 0;
+            const std::string source = has_precise && has_legacy
+                ? "mixed"
+                : (has_precise ? "recorded"
+                               : (has_legacy ? "legacy" : "empty"));
+            json body{
+                {"schema_version", kSessionTrajectorySchemaVersion},
+                {"session_id", id},
+                {"workspace_hash", meta.no_workspace
+                    ? std::string{}
+                    : compute_cwd_hash(session_cwd)},
+                {"no_workspace", meta.no_workspace},
+                {"source", source},
+                {"records", std::move(records)},
+                {"next_after", precise_page.next_after},
+                {"legacy_next_after", legacy_page.next_after},
+                {"has_more", precise_page.has_more || legacy_page.has_more},
+                {"recorded_has_more", precise_page.has_more},
+                {"legacy_has_more", legacy_page.has_more},
+                {"legacy_total", legacy_page.total},
+                {"missing_capabilities", legacy_page.missing_capabilities},
+                {"diagnostics", {
+                    {"malformed_complete_records",
+                     coverage_diagnostics.malformed_complete_records},
+                    {"ignored_partial_tail",
+                     coverage_diagnostics.ignored_partial_tail},
+                    {"recovered_unterminated_record",
+                     coverage_diagnostics.recovered_unterminated_record},
+                }},
+            };
+            crow::response r(body.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });

@@ -63,6 +63,7 @@ const ICONS = {
   settings: 'Settings',
   stop: 'Stop',
   terminal: 'TerminalReadWrite',
+  trajectory: 'Trajectory',
   tool: 'Tool',
   warning: 'StatusWarning',
   wordWrap: 'WordWrap',

@@ -47,6 +47,21 @@ std::uint64_t EventDispatcher::emit(SessionEventKind kind, nlohmann::json payloa
     return evt.seq;
 }
 
+void EventDispatcher::set_observer(EventObserver observer) {
+    SubscriptionId previous = 0;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        previous = observer_subscription_id_;
+        observer_subscription_id_ = 0;
+    }
+    if (previous != 0) unsubscribe(previous);
+    if (!observer) return;
+
+    const SubscriptionId installed = subscribe(std::move(observer), 0);
+    std::lock_guard<std::mutex> lk(mu_);
+    observer_subscription_id_ = installed;
+}
+
 void EventDispatcher::drain_subscription(
     SubscriptionId id,
     const std::shared_ptr<Subscription>& sub) {
@@ -137,11 +152,17 @@ EventDispatcher::subscribe(EventListener listener, std::uint64_t since_seq) {
 void EventDispatcher::unsubscribe(SubscriptionId id) {
     std::lock_guard<std::mutex> lk(mu_);
     subscriptions_.erase(id);
+    if (observer_subscription_id_ == id) observer_subscription_id_ = 0;
 }
 
 std::size_t EventDispatcher::listener_count() const {
     std::lock_guard<std::mutex> lk(mu_);
-    return subscriptions_.size();
+    const std::size_t observer_count =
+        observer_subscription_id_ != 0 &&
+        subscriptions_.find(observer_subscription_id_) != subscriptions_.end()
+            ? 1u
+            : 0u;
+    return subscriptions_.size() - observer_count;
 }
 
 void EventDispatcher::push_to_buffer(const SessionEvent& evt, const std::string& coalesce_key) {

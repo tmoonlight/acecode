@@ -3,6 +3,7 @@
 #include "file_checkpoint_store.hpp"
 #include "compact_checkpoint.hpp"
 #include "session_storage.hpp"
+#include "session_trajectory.hpp"
 #include "session_writer_lease.hpp"
 #include "thread_goal_store.hpp"
 #include "../provider/llm_provider.hpp"
@@ -228,6 +229,19 @@ public:
     TokenUsage current_session_token_usage() const;
     int current_turn_count() const;
 
+    // Append one model-invisible diagnostic record to the active session's
+    // trajectory sidecar. timestamp_ms <= 0 uses the current system clock.
+    // Failure is non-fatal for the canonical transcript and is reported by
+    // the return value plus a warning log.
+    bool record_trajectory_event(
+        std::string type,
+        nlohmann::json payload = nlohmann::json::object(),
+        std::int64_t timestamp_ms = 0);
+
+    // Resolved sidecar path for the current session. Empty until a session id
+    // has been allocated.
+    std::string current_trajectory_path() const;
+
 private:
     bool ensure_created();  // Lazy creation of session files on first message
     bool update_meta();     // Write current metadata to disk
@@ -237,6 +251,10 @@ private:
     bool acquire_writer_lease_locked();
     void refresh_writer_lease_locked();
     void release_writer_lease_locked();
+    bool record_trajectory_event_locked(
+        std::string type,
+        nlohmann::json payload,
+        std::int64_t timestamp_ms);
 
     std::string cwd_;
     std::string provider_name_;
@@ -248,6 +266,8 @@ private:
     std::string session_id_;
     std::string jsonl_path_;
     std::string meta_path_str_;
+    std::uint64_t trajectory_sequence_ = 0;
+    bool trajectory_sequence_initialized_ = false;
 
     bool started_ = false;    // start_session() called
     bool created_ = false;    // Files actually created (lazy)

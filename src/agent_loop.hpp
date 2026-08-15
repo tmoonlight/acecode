@@ -314,7 +314,7 @@ public:
     }
     ResolvedQuestionPolicy resolved_question_policy() const;
 
-    void set_session_manager(SessionManager* sm) { session_manager_ = sm; }
+    void set_session_manager(SessionManager* sm);
     void set_hook_manager(HookManager* hm) { hook_manager_ = hm; }
 
     void dispatch_session_start_hook(const std::string& source);
@@ -495,15 +495,20 @@ private:
         bool provider_error_seen = false;
         ProviderErrorInfo provider_error_info;
         std::shared_ptr<LlmProvider> provider_snapshot;
+        int provider_attempt = 1;
     };
     ProviderCallResult call_provider_and_collect(
         const std::shared_ptr<LlmProvider>& provider,
         const ApiRequestBundle& bundle,
-        const ProgressEmitter& emit_progress);
+        const ProgressEmitter& emit_progress,
+        int model_step_index);
     void emit_retry_lifecycle(
         const ProviderErrorInfo& info,
         bool waiting,
         bool compaction);
+    void record_terminal_trajectory_events(
+        nlohmann::json busy_payload,
+        nlohmann::json done_payload);
 
     // Phase 4: Classify terminal provider errors.
     enum class HandleErrorResult { Continue, Break, Proceed };

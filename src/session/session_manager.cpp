@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <algorithm>
+#include <chrono>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -227,6 +228,8 @@ void SessionManager::start_session(const std::string& cwd,
     session_id_ = preset_session_id;
     jsonl_path_.clear();
     meta_path_str_.clear();
+    trajectory_sequence_ = 0;
+    trajectory_sequence_initialized_ = false;
     started_ = true;
     created_ = false;
     finalized_ = false;
@@ -540,6 +543,8 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     session_id_ = session_id;
     jsonl_path_ = jsonl_path;
     meta_path_str_ = meta_path;
+    trajectory_sequence_ = 0;
+    trajectory_sequence_initialized_ = false;
     if (!acquire_writer_lease_locked()) {
         created_ = false;
         finalized_ = false;
@@ -669,6 +674,8 @@ void SessionManager::end_current_session() {
     session_id_.clear();
     jsonl_path_.clear();
     meta_path_str_.clear();
+    trajectory_sequence_ = 0;
+    trajectory_sequence_initialized_ = false;
     created_ = false;
     finalized_ = false;
     message_count_ = 0;
@@ -720,6 +727,8 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
     session_id_ = new_session_id;
     jsonl_path_ = SessionStorage::session_path(project_dir_, session_id_);
     meta_path_str_ = SessionStorage::meta_path(project_dir_, session_id_);
+    trajectory_sequence_ = 0;
+    trajectory_sequence_initialized_ = false;
     created_at_ = SessionStorage::now_iso8601();
     created_ = false;
     finalized_ = false;
@@ -1562,6 +1571,57 @@ TokenUsage SessionManager::current_session_token_usage() const {
 int SessionManager::current_turn_count() const {
     std::lock_guard<std::mutex> lk(mu_);
     return turn_count_;
+}
+
+bool SessionManager::record_trajectory_event(
+    std::string type,
+    nlohmann::json payload,
+    std::int64_t timestamp_ms) {
+    std::lock_guard<std::mutex> lk(mu_);
+    return record_trajectory_event_locked(
+        std::move(type), std::move(payload), timestamp_ms);
+}
+
+std::string SessionManager::current_trajectory_path() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return SessionTrajectoryStorage::file_path(project_dir_, session_id_);
+}
+
+bool SessionManager::record_trajectory_event_locked(
+    std::string type,
+    nlohmann::json payload,
+    std::int64_t timestamp_ms) {
+    if (!started_ || type.empty()) return false;
+    if (!ensure_created()) return false;
+
+    const std::string path = SessionTrajectoryStorage::file_path(
+        project_dir_, session_id_);
+    if (path.empty()) return false;
+    if (!trajectory_sequence_initialized_) {
+        trajectory_sequence_ =
+            SessionTrajectoryStorage::last_sequence(path);
+        trajectory_sequence_initialized_ = true;
+    }
+    if (timestamp_ms <= 0) {
+        timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+
+    SessionTrajectoryRecord record;
+    record.sequence = trajectory_sequence_ + 1;
+    record.timestamp_ms = timestamp_ms;
+    record.type = std::move(type);
+    record.payload = payload.is_null()
+        ? nlohmann::json::object()
+        : std::move(payload);
+    if (!SessionTrajectoryStorage::append(path, record)) {
+        trajectory_sequence_initialized_ = false;
+        LOG_WARN("[trajectory] failed to append session=" + session_id_ +
+                 " type=" + record.type);
+        return false;
+    }
+    trajectory_sequence_ = record.sequence;
+    return true;
 }
 
 bool SessionManager::acquire_writer_lease_locked() {

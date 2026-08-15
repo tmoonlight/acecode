@@ -177,6 +177,47 @@ TEST(EventDispatcher, MultipleListenersAllReceiveEvent) {
     EXPECT_EQ(d.listener_count(), 2u);
 }
 
+// 场景:内部 observer 与外部订阅使用同一套有序投递,但不改变公开 listener 数。
+TEST(EventDispatcher, ObserverReceivesFutureEventsAndIsNotCountedAsListener) {
+    EventDispatcher d;
+    d.emit(SessionEventKind::Token, {{"text", "before"}});
+
+    std::vector<std::uint64_t> observed;
+    d.set_observer([&](const SessionEvent& event) {
+        observed.push_back(event.seq);
+    });
+    EXPECT_EQ(d.listener_count(), 0u);
+
+    const auto first = d.emit(SessionEventKind::Message, {{"role", "user"}});
+    const auto second = d.emit(SessionEventKind::Done, {});
+    EXPECT_EQ(observed, (std::vector<std::uint64_t>{first, second}));
+
+    int listeners = 0;
+    d.subscribe([&](const SessionEvent&) { ++listeners; });
+    EXPECT_EQ(d.listener_count(), 1u);
+    d.emit(SessionEventKind::Done, {});
+    EXPECT_EQ(listeners, 1);
+}
+
+TEST(EventDispatcher, ReplacingAndClearingObserverStopsOldCallback) {
+    EventDispatcher d;
+    int first = 0;
+    int second = 0;
+    d.set_observer([&](const SessionEvent&) { ++first; });
+    d.emit(SessionEventKind::Done, {});
+    EXPECT_EQ(first, 1);
+
+    d.set_observer([&](const SessionEvent&) { ++second; });
+    d.emit(SessionEventKind::Done, {});
+    EXPECT_EQ(first, 1);
+    EXPECT_EQ(second, 1);
+
+    d.set_observer({});
+    d.emit(SessionEventKind::Done, {});
+    EXPECT_EQ(second, 1);
+    EXPECT_EQ(d.listener_count(), 0u);
+}
+
 // 回归: subscribe 回放历史事件期间,并发到达的实时事件必须排在历史事件之后、
 // 按 seq 顺序投递,不得乱序 / 丢失 / 重复。
 //

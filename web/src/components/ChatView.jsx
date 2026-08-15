@@ -251,6 +251,11 @@ import {
 const LazyConversationTurnScrubber = lazy(
   () => import('./ConversationTurnScrubber.jsx'),
 );
+const LazyTrajectoryView = lazy(
+  () => import('./trajectory/TrajectoryView.jsx').then((module) => ({
+    default: module.TrajectoryView,
+  })),
+);
 
 class ConversationTurnScrubberBoundary extends Component {
   state = { failed: false };
@@ -688,10 +693,15 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   // 订阅,权限/问题请求才能冒泡到主会话 UI),面板本身按需打开。
   const subagentTasks = useSubagentTasks(sid);
   const [subagentPanelOpen, setSubagentPanelOpen] = useState(false);
+  const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   // 聊天流「调用了 N 个智能体」分组点某个智能体 → 打开面板并定位其 transcript。
   // focus.n 单调递增,让同一 sessionId 的重复点击也能触发 SubagentPanel 内 effect。
   const [subagentFocus, setSubagentFocus] = useState(null);
-  useEffect(() => { setSubagentPanelOpen(false); setSubagentFocus(null); }, [sid]);
+  useEffect(() => {
+    setSubagentPanelOpen(false);
+    setSubagentFocus(null);
+    setTrajectoryOpen(false);
+  }, [sid]);
   const openSubagentTranscript = useCallback((sessionId) => {
     if (!sessionId) return;
     setSubagentPanelOpen(true);
@@ -4667,6 +4677,23 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          {sid && (
+            <button
+              type="button"
+              onClick={() => setTrajectoryOpen((open) => !open)}
+              className={clsx(
+                'w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
+                trajectoryOpen
+                  ? 'bg-accent-bg text-accent hover:bg-accent-bg'
+                  : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
+              )}
+              title={trajectoryOpen ? '返回对话' : '查看会话轨迹'}
+              aria-label={trajectoryOpen ? '返回对话' : '查看会话轨迹'}
+              aria-pressed={trajectoryOpen}
+            >
+              <VsIcon name="trajectory" size={14} />
+            </button>
+          )}
           {sid && onFindInConversation && (
             <button
               type="button"
@@ -4737,7 +4764,11 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         </div>
       </div>
 
-      <div ref={subagentSplitRef} className="relative flex-1 min-h-0 flex">
+      <div
+        ref={subagentSplitRef}
+        className={clsx('relative flex-1 min-h-0 flex', trajectoryOpen && 'hidden')}
+        aria-hidden={trajectoryOpen ? 'true' : undefined}
+      >
         <div className="relative flex-1 min-w-0 h-full">
         <div
           ref={scrollRef}
@@ -5006,6 +5037,20 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           }}
         />
       </div>
+
+      {trajectoryOpen && (
+        <Suspense
+          fallback={<div className="flex-1 min-h-0 flex items-center justify-center text-[12px] text-fg-mute">正在载入轨迹视图…</div>}
+        >
+          <LazyTrajectoryView
+            api={api}
+            sessionId={sid}
+            workspaceHash={sessionWorkspaceHash}
+            active={trajectoryOpen}
+            busy={busy}
+          />
+        </Suspense>
+      )}
 
       {questionForView && (
         <QuestionPicker

@@ -130,6 +130,33 @@ function sessionMessagesPath(id, since = 0, base = null, workspaceHash = '') {
   return `/api/sessions/${encodeURIComponent(id)}/messages?${params.toString()}`;
 }
 
+export function sessionTrajectoryPath(id, options = {}, base = null) {
+  const params = new URLSearchParams();
+  const nonNegativeInteger = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0
+      ? Math.trunc(parsed)
+      : fallback;
+  };
+  params.set('after', String(nonNegativeInteger(options.after, 0)));
+  params.set('legacy_after', String(nonNegativeInteger(options.legacyAfter, 0)));
+  params.set('limit', String(Math.max(
+    1,
+    Math.min(1000, nonNegativeInteger(options.limit, 250) || 250),
+  )));
+  const hasWorkspaceOverride = Object.prototype.hasOwnProperty.call(
+    options,
+    'workspaceHash',
+  );
+  const effectiveWorkspaceHash = String(
+    hasWorkspaceOverride
+      ? options.workspaceHash || ''
+      : base?.workspaceHash || base?.workspace_hash || '',
+  ).trim();
+  if (effectiveWorkspaceHash) params.set('workspace', effectiveWorkspaceHash);
+  return `/api/sessions/${encodeURIComponent(id)}/trajectory?${params.toString()}`;
+}
+
 export function sessionDraftPath(id, workspaceHash = '') {
   const sid = encodeURIComponent(id);
   const hash = String(workspaceHash || '').trim();
@@ -347,6 +374,12 @@ export function createApi(base = null) {
     getMessages:      (id, since=0, workspaceHash='')  => request(
       'GET',
       sessionMessagesPath(id, since, base, workspaceHash),
+      undefined,
+      base,
+    ),
+    getTrajectory:    (id, options={}) => request(
+      'GET',
+      sessionTrajectoryPath(id, options, base),
       undefined,
       base,
     ),

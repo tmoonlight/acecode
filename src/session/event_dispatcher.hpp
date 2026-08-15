@@ -41,6 +41,7 @@ namespace acecode {
 class EventDispatcher {
 public:
     using EventListener  = SessionClient::EventListener;
+    using EventObserver  = SessionClient::EventListener;
     using SubscriptionId = SessionClient::SubscriptionId;
 
     struct EmitOptions {
@@ -60,6 +61,12 @@ public:
     // 由 AgentLoop 调用。线程安全。返回分配的 seq(从 1 开始)。
     std::uint64_t emit(SessionEventKind kind, nlohmann::json payload);
     std::uint64_t emit(SessionEventKind kind, nlohmann::json payload, EmitOptions options);
+
+    // Installs one internal observer using the same ordered, lock-free callback
+    // delivery machinery as normal subscriptions. The observer sees future
+    // events only and is excluded from listener_count(). Passing an empty
+    // callback clears it.
+    void set_observer(EventObserver observer);
 
     // 注册一个 listener。`since_seq` > 0 时先按 seq 顺序回放缓存里
     // seq > since_seq 的事件给这个 listener,再切到实时投递;回放期间产生的
@@ -99,6 +106,7 @@ private:
     std::deque<SessionEvent>                                          buffer_;
     std::unordered_map<std::string, std::uint64_t>                    coalesced_seq_by_key_;
     std::unordered_map<SubscriptionId, std::shared_ptr<Subscription>> subscriptions_;
+    SubscriptionId observer_subscription_id_ = 0;
 };
 
 } // namespace acecode

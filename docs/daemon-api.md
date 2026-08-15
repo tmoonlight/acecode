@@ -256,6 +256,7 @@ when known.
 | PUT | `/api/sessions/:id/draft` | write compatibility draft |
 | DELETE | `/api/sessions/:id/todos` | clear compatibility todos |
 | GET | `/api/sessions/:id/messages` | transcript snapshot or event replay |
+| GET | `/api/sessions/:id/trajectory` | paged durable session trajectory and legacy projection |
 | POST | `/api/sessions/:id/export-markdown` | choose a folder and export the visible transcript as Markdown |
 | POST | `/api/sessions/:id/messages` | queue user input |
 | POST | `/api/sessions/:id/turn/steer` | append input to the matching active turn |
@@ -750,6 +751,63 @@ When `since>0`, returns an event array directly:
 
 If the requested sequence predates the in-memory replay ring, the array can be
 empty. The frontend should fall back to `since=0`.
+
+### `GET /api/sessions/:id/trajectory`
+
+Returns model-invisible diagnostic records for exactly one session. The route
+uses the normal daemon authentication and session/workspace scope checks. Pass
+`workspace=<hash>` for a workspace session when its id is not globally unique;
+omit it for a no-workspace session.
+
+Query parameters:
+
+| Name | Default | Meaning |
+|---|---:|---|
+| `after` | `0` | return recorded events whose monotonic `sequence` is greater than this cursor |
+| `legacy_after` | `0` | offset into confirmed facts projected from the canonical transcript |
+| `limit` | `250` | page size for each source, clamped to `1..1000` |
+| `workspace` | empty | optional workspace hash scope |
+
+```json
+{
+  "schema_version": 1,
+  "session_id": "20260815-113921-a520",
+  "workspace_hash": "...",
+  "no_workspace": false,
+  "source": "mixed",
+  "records": [
+    {
+      "schema_version": 1,
+      "sequence": 42,
+      "timestamp_ms": 1786783204730,
+      "type": "tool_end",
+      "source": "recorded",
+      "payload": {}
+    }
+  ],
+  "next_after": 42,
+  "legacy_next_after": 3,
+  "has_more": false,
+  "recorded_has_more": false,
+  "legacy_has_more": false,
+  "legacy_total": 3,
+  "missing_capabilities": ["ttft", "tool_timing"],
+  "diagnostics": {
+    "malformed_complete_records": 0,
+    "ignored_partial_tail": false,
+    "recovered_unterminated_record": false
+  }
+}
+```
+
+`source` is `recorded`, `legacy`, `mixed`, or `empty`. Recorded events come
+from `<project_dir>/<session_id>/trajectory.jsonl`; legacy records have
+`sequence: null`, a `legacy_index`, and never infer missing timestamps,
+request payloads, TTFT, tool schemas, or tool durations. `missing_capabilities`
+names those unavailable facts. The two cursors are independent and must both
+be retained by paged or polling clients. Malformed complete JSONL records and
+an incomplete crash tail are skipped and reported in `diagnostics` without
+affecting the canonical transcript.
 
 ### `POST /api/sessions/:id/export-markdown`
 

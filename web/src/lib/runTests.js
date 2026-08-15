@@ -187,6 +187,7 @@ import './assistantRunDirectives.test.js';
 import './assistantAvatarDisplay.test.js';
 import './todoChecklist.test.js';
 import './transcriptProjection.test.js';
+import './trajectoryModel.test.js';
 import './transcriptWindow.test.js';
 import './homeWorkspaceSelection.test.js';
 import './homeComposerDrafts.test.js';

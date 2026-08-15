@@ -17,6 +17,7 @@
 #include "session/tool_result_storage.hpp"
 #include "session/output_attachments.hpp"
 #include "session/session_rewind.hpp"
+#include "session/session_serializer.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_goal_store.hpp"
 #include "session/todo_state.hpp"
@@ -387,6 +388,33 @@ void append_request_context_for_api(std::vector<ChatMessage>& messages,
     messages.push_back(std::move(msg));
 }
 
+bool should_persist_trajectory_event(const SessionEvent& event) {
+    switch (event.kind) {
+    case SessionEventKind::Token:
+    case SessionEventKind::Reasoning:
+    case SessionEventKind::ToolUpdate:
+    case SessionEventKind::ToolEnd:
+    case SessionEventKind::TranscriptReplace:
+    case SessionEventKind::GoalUpdated:
+    case SessionEventKind::GoalCleared:
+    case SessionEventKind::TodoUpdated:
+    case SessionEventKind::SessionUpdated:
+    case SessionEventKind::Done:
+    case SessionEventKind::BusyChanged:
+        return false;
+    case SessionEventKind::AgentProgress: {
+        const std::string phase = event.payload.value("phase", std::string{});
+        return phase == "model_retry" || phase == "compacting";
+    }
+    case SessionEventKind::Message: {
+        const std::string role = event.payload.value("role", std::string{});
+        return role != "tool_call" && role != "tool_result";
+    }
+    default:
+        return true;
+    }
+}
+
 std::string cached_context_for_api(const PromptContextBlock& block,
                                    std::string& cached_key,
                                    std::string& cached_content) {
@@ -415,6 +443,30 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
 
 AgentLoop::~AgentLoop() {
     shutdown();
+}
+
+void AgentLoop::set_session_manager(SessionManager* sm) {
+    session_manager_ = sm;
+    if (!sm) {
+        events_.set_observer({});
+        return;
+    }
+    events_.set_observer([sm](const SessionEvent& event) {
+        if (!should_persist_trajectory_event(event)) return;
+        sm->record_trajectory_event(
+            to_string(event.kind), event.payload, event.timestamp_ms);
+    });
+}
+
+void AgentLoop::record_terminal_trajectory_events(
+    nlohmann::json busy_payload,
+    nlohmann::json done_payload) {
+    if (!session_manager_) return;
+    const std::int64_t timestamp_ms = now_epoch_ms();
+    session_manager_->record_trajectory_event(
+        "busy_changed", std::move(busy_payload), timestamp_ms);
+    session_manager_->record_trajectory_event(
+        "done", std::move(done_payload), timestamp_ms);
 }
 
 void AgentLoop::set_cwd(const std::string& new_cwd) {
@@ -483,6 +535,15 @@ void AgentLoop::append_turn_timing_record(const std::string& user_message_uuid,
     messages_.push_back(msg);
     if (session_manager_) {
         session_manager_->on_message(msg);
+        session_manager_->record_trajectory_event(
+            "turn_end",
+            {{"turn_id", timing.user_message_uuid},
+             {"user_message_id", timing.user_message_uuid},
+             {"started_at_ms", timing.started_at_ms},
+             {"completed_at_ms", timing.completed_at_ms},
+             {"duration_ms", timing.duration_ms},
+             {"outcome", timing.status}},
+            timing.completed_at_ms);
     }
 }
 
@@ -1817,6 +1878,14 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
     messages_.push_back(user_msg);
     if (session_manager_) {
         session_manager_->on_message(user_msg);
+        if (info.visible_timed_turn) {
+            session_manager_->record_trajectory_event(
+                "turn_start",
+                {{"turn_id", info.active_turn_id},
+                 {"user_message_id", user_msg.uuid},
+                 {"started_at_ms", info.turn_started_at_ms}},
+                info.turn_started_at_ms);
+        }
         if (!hidden_goal_context) {
             session_manager_->begin_user_turn_checkpoint(user_msg.uuid);
         }
@@ -1836,6 +1905,11 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
         events_.emit(SessionEventKind::Message, msg_event);
     }
 
+    if (session_manager_) {
+        session_manager_->record_trajectory_event(
+            "busy_changed",
+            {{"busy", true}, {"turn_id", info.active_turn_id}});
+    }
     begin_active_turn(info.active_turn_id);
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(true);
@@ -2140,7 +2214,8 @@ void AgentLoop::emit_retry_lifecycle(
 AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
     const std::shared_ptr<LlmProvider>& provider,
     const ApiRequestBundle& bundle,
-    const ProgressEmitter& emit_progress) {
+    const ProgressEmitter& emit_progress,
+    int model_step_index) {
     ProviderCallResult result;
     result.accumulated.finish_reason = "stop";
     result.provider_snapshot = provider;
@@ -2148,12 +2223,26 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
     std::mutex resp_mu;
     std::size_t reasoning_bytes = 0;
     int reasoning_fragments = 0;
+    int provider_attempt = 1;
+    bool first_output_recorded = false;
 
     auto stream_callback = [&result, &resp_mu, &emit_progress, &bundle,
                             &reasoning_bytes, &reasoning_fragments,
+                            &provider_attempt, &first_output_recorded,
+                            model_step_index,
                             this](const StreamEvent& evt) {
         switch (evt.type) {
         case StreamEventType::Delta:
+            if (!evt.content.empty() && !first_output_recorded) {
+                first_output_recorded = true;
+                if (session_manager_) {
+                    session_manager_->record_trajectory_event(
+                        "model_first_output",
+                        {{"step_index", model_step_index},
+                         {"attempt", provider_attempt},
+                         {"channel", "content"}});
+                }
+            }
             {
                 std::lock_guard<std::mutex> lk(resp_mu);
                 result.accumulated.content += evt.content;
@@ -2164,6 +2253,16 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             events_.emit(SessionEventKind::Token, nlohmann::json{{"text", evt.content}});
             break;
         case StreamEventType::ReasoningDelta:
+            if (!evt.content.empty() && !first_output_recorded) {
+                first_output_recorded = true;
+                if (session_manager_) {
+                    session_manager_->record_trajectory_event(
+                        "model_first_output",
+                        {{"step_index", model_step_index},
+                         {"attempt", provider_attempt},
+                         {"channel", "reasoning"}});
+                }
+            }
             {
                 std::lock_guard<std::mutex> lk(resp_mu);
                 result.accumulated.reasoning_content += evt.content;
@@ -2177,6 +2276,16 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             events_.emit(SessionEventKind::Reasoning, nlohmann::json{{"text", evt.content}});
             break;
         case StreamEventType::ToolCallDelta:
+            if (!first_output_recorded) {
+                first_output_recorded = true;
+                if (session_manager_) {
+                    session_manager_->record_trajectory_event(
+                        "model_first_output",
+                        {{"step_index", model_step_index},
+                         {"attempt", provider_attempt},
+                         {"channel", "tool_call"}});
+                }
+            }
             {
                 const std::string tool_name =
                     tools_.resolve_model_tool_name_to_native(
@@ -2190,6 +2299,16 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             }
             break;
         case StreamEventType::ToolCall:
+            if (!first_output_recorded) {
+                first_output_recorded = true;
+                if (session_manager_) {
+                    session_manager_->record_trajectory_event(
+                        "model_first_output",
+                        {{"step_index", model_step_index},
+                         {"attempt", provider_attempt},
+                         {"channel", "tool_call"}});
+                }
+            }
             {
                 ToolCall native_call = evt.tool_call;
                 native_call.function_name =
@@ -2237,6 +2356,8 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             }
             reasoning_bytes = 0;
             reasoning_fragments = 0;
+            ++provider_attempt;
+            first_output_recorded = false;
             if (callbacks_.on_stream_retry_reset) {
                 callbacks_.on_stream_retry_reset();
             }
@@ -2309,6 +2430,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
         std::lock_guard<std::mutex> lk(resp_mu);
         final_usage = result.accumulated.usage;
     }
+    result.provider_attempt = provider_attempt;
     if (!result.provider_error_seen &&
         !abort_requested_.load() &&
         final_usage.has_data) {
@@ -2679,7 +2801,39 @@ bool AgentLoop::execute_tool_calls(
                 const std::string reason = outcome.reason.empty()
                     ? "Tool execution denied by hook."
                     : outcome.reason;
-                return ToolResult{"[Hook denied tool execution] " + reason, false};
+                ToolResult denied_result{
+                    "[Hook denied tool execution] " + reason, false};
+                if (session_manager_) {
+                    nlohmann::json args_payload;
+                    try {
+                        args_payload = nlohmann::json::parse(
+                            tc.function_arguments);
+                    } catch (...) {
+                        args_payload = tc.function_arguments;
+                    }
+                    const auto timestamp_ms = now_epoch_ms();
+                    session_manager_->record_trajectory_event(
+                        "tool_start",
+                        {{"tool", tc.function_name},
+                         {"args", args_payload},
+                         {"tool_call_id", tc.id},
+                         {"tool_index", static_cast<int>(tool_index)},
+                         {"started_at_ms", timestamp_ms}},
+                        timestamp_ms);
+                    session_manager_->record_trajectory_event(
+                        "tool_end",
+                        {{"tool", tc.function_name},
+                         {"tool_call_id", tc.id},
+                         {"tool_index", static_cast<int>(tool_index)},
+                         {"success", false},
+                         {"output", denied_result.output},
+                         {"started_at_ms", timestamp_ms},
+                         {"completed_at_ms", timestamp_ms},
+                         {"duration_ms", 0},
+                         {"failure_stage", "pre_tool_hook"}},
+                        timestamp_ms);
+                }
+                return denied_result;
             }
         }
 
@@ -2697,17 +2851,20 @@ bool AgentLoop::execute_tool_calls(
         bool is_task_complete = (tc.function_name == "task_complete");
 
         auto tool_start_tp = std::chrono::steady_clock::now();
+        const std::int64_t tool_started_at_ms = now_epoch_ms();
         const int tool_index_int = static_cast<int>(tool_index);
 
         {
             nlohmann::json args_payload;
             try { args_payload = nlohmann::json::parse(tc.function_arguments); }
             catch (...) { args_payload = tc.function_arguments; }
-            events_.emit(SessionEventKind::ToolStart,
-                web::build_tool_start_payload(tc.function_name, args_payload,
-                                                cmd_preview, display_override,
-                                                is_task_complete,
-                                                tc.id, tool_index_int));
+            auto start_payload = web::build_tool_start_payload(
+                tc.function_name, args_payload,
+                cmd_preview, display_override,
+                is_task_complete, tc.id, tool_index_int);
+            start_payload["started_at_ms"] = tool_started_at_ms;
+            events_.emit(
+                SessionEventKind::ToolStart, std::move(start_payload));
         }
 
         emit_progress("tool_running", "正在调用工具 " + tc.function_name,
@@ -2859,6 +3016,7 @@ bool AgentLoop::execute_tool_calls(
         auto elapsed_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - tool_start_tp).count();
+        const std::int64_t tool_completed_at_ms = now_epoch_ms();
         std::string snippet;
         if (!result.success) {
             int lines = 0;
@@ -2867,10 +3025,25 @@ bool AgentLoop::execute_tool_calls(
                 if (c == '\n' && ++lines >= 20) break;
             }
         }
-        events_.emit(SessionEventKind::ToolEnd,
-            web::build_tool_end_payload(tc.function_name, result,
-                                          elapsed_ms / 1000.0, snippet,
-                                          tc.id, tool_index_int));
+        if (session_manager_) {
+            auto trajectory_payload = web::build_tool_end_payload(
+                tc.function_name, result,
+                elapsed_ms / 1000.0,
+                result.output,
+                tc.id, tool_index_int);
+            trajectory_payload["started_at_ms"] = tool_started_at_ms;
+            trajectory_payload["completed_at_ms"] = tool_completed_at_ms;
+            trajectory_payload["duration_ms"] = elapsed_ms;
+            session_manager_->record_trajectory_event(
+                "tool_end", std::move(trajectory_payload),
+                tool_completed_at_ms);
+        }
+        events_.emit(
+            SessionEventKind::ToolEnd,
+            web::build_tool_end_payload(
+                tc.function_name, result,
+                elapsed_ms / 1000.0, snippet,
+                tc.id, tool_index_int));
         return result;
     };
 
@@ -3402,6 +3575,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             if (callbacks_.on_turn_finished) {
                 callbacks_.on_turn_finished("error");
             }
+            record_terminal_trajectory_events(
+                {{"busy", false}, {"outcome", "error"}},
+                {{"outcome", "error"}});
             if (callbacks_.on_busy_changed) callbacks_.on_busy_changed(false);
             busy_ = false;
             events_.emit(SessionEventKind::BusyChanged, nlohmann::json{
@@ -3553,6 +3729,97 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         });
     };
 
+    auto record_model_request = [this](
+        int step_index,
+        const std::shared_ptr<LlmProvider>& provider,
+        const ApiRequestBundle& bundle) {
+        if (!session_manager_ || !provider) return;
+        nlohmann::json messages = nlohmann::json::array();
+        for (const auto& message : bundle.messages_with_system) {
+            try {
+                messages.push_back(
+                    nlohmann::json::parse(serialize_message(message)));
+            } catch (...) {
+                messages.push_back(nlohmann::json{
+                    {"role", message.role},
+                    {"content", message.content},
+                });
+            }
+        }
+        nlohmann::json tools = nlohmann::json::array();
+        for (const auto& tool : bundle.tool_defs) {
+            const std::string native_name =
+                tools_.resolve_model_tool_name_to_native(tool.name);
+            tools.push_back(nlohmann::json{
+                {"name", tool.name},
+                {"native_name", native_name.empty() ? tool.name : native_name},
+                {"description", tool.description},
+                {"parameters", tool.parameters},
+            });
+        }
+        session_manager_->record_trajectory_event(
+            "model_request",
+            {{"step_index", step_index},
+             {"provider", provider->name()},
+             {"model", provider->model()},
+             {"context_window", context_window()},
+             {"messages", std::move(messages)},
+             {"tools", std::move(tools)},
+             {"context_usage_estimate",
+              context_usage_breakdown_to_json(
+                  bundle.context_usage_estimate)},
+             {"prompt_diagnostics", bundle.prompt_diag}});
+    };
+
+    auto record_model_response = [this](
+        int step_index,
+        const ProviderCallResult& result,
+        const TokenUsage& usage,
+        std::string status) {
+        if (!session_manager_) return;
+        if (status.empty()) {
+            status = result.provider_error_seen ? "error" : "completed";
+        }
+        nlohmann::json tool_calls = nlohmann::json::array();
+        for (const auto& call : result.accumulated.tool_calls) {
+            tool_calls.push_back(nlohmann::json{
+                {"id", call.id},
+                {"name", call.function_name},
+                {"arguments", call.function_arguments},
+            });
+        }
+        nlohmann::json payload{
+            {"step_index", step_index},
+            {"attempt", result.provider_attempt},
+            {"content", result.accumulated.content},
+            {"reasoning_content", result.accumulated.reasoning_content},
+            {"content_parts", result.accumulated.content_parts.is_null()
+                ? nlohmann::json::array()
+                : result.accumulated.content_parts},
+            {"tool_calls", std::move(tool_calls)},
+            {"finish_reason", result.accumulated.finish_reason},
+            {"usage", model_step_usage_to_json(usage)},
+            {"status", std::move(status)},
+        };
+        if (result.provider_snapshot) {
+            payload["provider"] = result.provider_snapshot->name();
+            payload["model"] = result.provider_snapshot->model();
+        }
+        if (result.provider_error_seen ||
+            result.provider_error_info.has_error()) {
+            payload["error"] = provider_error_to_json(
+                result.provider_error_info);
+        }
+        if (!result.accumulated.content.empty()) {
+            ChatMessage id_basis;
+            id_basis.role = "assistant";
+            id_basis.content = result.accumulated.content;
+            payload["message_id"] = web::compute_message_id(id_basis);
+        }
+        session_manager_->record_trajectory_event(
+            "model_response", std::move(payload));
+    };
+
     // Main agent loop
     while (!preturn_compaction_failed && !abort_requested_ && !terminator_fired &&
            (!has_max_iterations || total_iterations < max_iter)) {
@@ -3614,12 +3881,17 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         events_.emit(SessionEventKind::ModelStepStart, nlohmann::json{
             {"step_index", current_model_step},
         });
+        record_model_request(
+            current_model_step, provider_snapshot, bundle);
         auto provider_result = call_provider_and_collect(
-            provider_snapshot, bundle, emit_agent_progress);
+            provider_snapshot, bundle, emit_agent_progress,
+            current_model_step);
         TokenUsage step_usage = provider_result.accumulated.usage;
 
         if (abort_requested_) {
             dispatch_message("system", "[Interrupted]", false);
+            record_model_response(
+                current_model_step, provider_result, step_usage, "aborted");
             emit_model_step_finish(current_model_step, "aborted", step_usage);
             break;
         }
@@ -3630,10 +3902,14 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             turn_timing_status);
         reset_doom_guard_after_compact();
         if (error_result == HandleErrorResult::Continue) {
+            record_model_response(
+                current_model_step, provider_result, step_usage, "retry");
             emit_model_step_finish(current_model_step, "retry", step_usage);
             continue;
         }
         if (error_result == HandleErrorResult::Break) {
+            record_model_response(
+                current_model_step, provider_result, step_usage, "error");
             emit_model_step_finish(current_model_step, "error", step_usage);
             break;
         }
@@ -3663,6 +3939,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             if (callbacks_.on_usage) callbacks_.on_usage(estimated_usage);
             if (session_manager_) session_manager_->record_token_usage(estimated_usage);
         }
+
+        record_model_response(
+            current_model_step, provider_result, step_usage, "completed");
 
         // Text-only response (no tool calls) → end the loop
         if (!provider_result.accumulated.has_tool_calls()) {
@@ -3850,6 +4129,11 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     if (callbacks_.on_turn_finished) {
         callbacks_.on_turn_finished(turn_timing_status);
     }
+    record_terminal_trajectory_events(
+        {{"busy", false},
+         {"outcome", turn_timing_status},
+         {"turn_id", turn_info.active_turn_id}},
+        {{"outcome", turn_timing_status}});
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(false);
     }
@@ -3876,6 +4160,10 @@ void AgentLoop::run_compact() {
 
     const std::string compact_notice_id = generate_uuid_v7();
 
+    if (session_manager_) {
+        session_manager_->record_trajectory_event(
+            "busy_changed", {{"busy", true}});
+    }
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(true);
     }
@@ -3890,6 +4178,8 @@ void AgentLoop::run_compact() {
         make_compact_notice_metadata(compact_notice_id, "progress"));
 
     auto finish = [this]() {
+        record_terminal_trajectory_events(
+            {{"busy", false}}, nlohmann::json::object());
         if (callbacks_.on_busy_changed) {
             callbacks_.on_busy_changed(false);
         }
@@ -3957,6 +4247,10 @@ void AgentLoop::run_shell(std::string command) {
 
     LOG_WARN("user_initiated_shell: " + log_truncate(command, 200));
 
+    if (session_manager_) {
+        session_manager_->record_trajectory_event(
+            "busy_changed", {{"busy", true}});
+    }
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(true);
     }
@@ -4085,6 +4379,8 @@ void AgentLoop::run_shell(std::string command) {
     // stderr empty; exit code derives from `success`.
     inject_shell_turn(command, result.output, "", result.success ? 0 : 1);
 
+    record_terminal_trajectory_events(
+        {{"busy", false}}, nlohmann::json::object());
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(false);
     }

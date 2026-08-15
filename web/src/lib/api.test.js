@@ -12,6 +12,7 @@ import {
   expertCapabilitiesPath,
   mergeAllWorkspaceSessions,
   sessionDraftPath,
+  sessionTrajectoryPath,
   sessionTodosPath,
 } from './api.js';
 
@@ -1140,6 +1141,54 @@ await run('transcript reads accept a per-session workspace override', async () =
       calls[0].url,
       'http://127.0.0.1:4567/api/sessions/session%20id/messages?since=0&workspace=workspace%2Fhash',
     );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+run('trajectory path carries both precise and legacy cursors', () => {
+  assert.equal(
+    sessionTrajectoryPath('session/id', {
+      after: 41,
+      legacyAfter: 17,
+      limit: 5000,
+      workspaceHash: 'workspace/hash',
+    }),
+    '/api/sessions/session%2Fid/trajectory?after=41&legacy_after=17&limit=1000&workspace=workspace%2Fhash',
+  );
+});
+
+await run('trajectory client uses the connection workspace by default', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ records: [], next_after: 0 }),
+    };
+  };
+  try {
+    const client = createApi({
+      origin: 'http://127.0.0.1:4567',
+      token: 'tok',
+      workspaceHash: 'workspace/hash',
+    });
+    await client.getTrajectory('session id', {
+      after: 8,
+      legacyAfter: 3,
+      limit: 50,
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0].url,
+      'http://127.0.0.1:4567/api/sessions/session%20id/trajectory?after=8&legacy_after=3&limit=50&workspace=workspace%2Fhash',
+    );
+    assert.equal(calls[0].opts.method, 'GET');
+    assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
   } finally {
     globalThis.fetch = previousFetch;
   }

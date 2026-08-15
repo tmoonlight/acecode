@@ -36,6 +36,7 @@
 #include "session/session_manager.hpp"
 #include "session/session_registry.hpp"
 #include "session/session_storage.hpp"
+#include "session/session_trajectory.hpp"
 #include "session/session_user_message_search.hpp"
 #include "session/todo_state.hpp"
 #include "session/session_usage_ledger.hpp"
@@ -2573,6 +2574,16 @@ TEST(WebServerHttp, CreateNoWorkspaceSessionIsListedOutsideWorkspaces) {
     EXPECT_TRUE(std::filesystem::is_directory(expected_cwd));
     ASSERT_NE(entry->sm, nullptr);
     EXPECT_EQ(entry->sm->ensure_active_session_id(), sid);
+    ASSERT_TRUE(entry->sm->record_trajectory_event(
+        "model_request", {{"step_index", 1}}, 2000));
+    auto trajectory = cpr::Get(cpr::Url{
+        fx.url("/api/sessions/" + sid + "/trajectory")});
+    ASSERT_EQ(trajectory.status_code, 200) << trajectory.text;
+    const auto trajectory_body = json::parse(trajectory.text);
+    EXPECT_EQ(trajectory_body["workspace_hash"], "");
+    EXPECT_EQ(trajectory_body["no_workspace"], true);
+    ASSERT_EQ(trajectory_body["records"].size(), 1u);
+    EXPECT_EQ(trajectory_body["records"][0]["type"], "model_request");
     const auto no_workspace_project_dir =
         acecode::SessionStorage::get_project_dir(expected_cwd);
     auto meta = acecode::SessionStorage::read_meta(
@@ -4239,6 +4250,108 @@ TEST(WebServerHttp, GetMessagesWithSinceReturnsArrayOnly) {
     ASSERT_EQ(r.status_code, 200);
     auto j = json::parse(r.text);
     EXPECT_TRUE(j.is_array());
+}
+
+TEST(WebServerHttp, TrajectoryRoutePaginatesMixedFactsAndRejectsWrongScope) {
+    WebServerFixture fx;
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}},
+                          cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201) << post.text;
+    const auto sid = json::parse(post.text)["session_id"].get<std::string>();
+
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_TRUE(entry->sm);
+    acecode::ChatMessage legacy_user;
+    legacy_user.role = "user";
+    legacy_user.uuid = "legacy-turn";
+    legacy_user.content = "legacy prefix";
+    entry->sm->on_message(legacy_user);
+    ASSERT_TRUE(entry->sm->record_trajectory_event(
+        "model_request", {{"step_index", 1}}, 2000));
+    ASSERT_TRUE(entry->sm->record_trajectory_event(
+        "model_response", {{"step_index", 1}, {"content", "done"}}, 2100));
+
+    const std::string workspace_hash = acecode::compute_cwd_hash(fx.cwd);
+    auto first = cpr::Get(cpr::Url{fx.url(
+        "/api/sessions/" + sid +
+        "/trajectory?after=0&legacy_after=0&limit=1&workspace=" +
+        workspace_hash)});
+    ASSERT_EQ(first.status_code, 200) << first.text;
+    const auto first_body = json::parse(first.text);
+    EXPECT_EQ(first_body["source"], "mixed");
+    EXPECT_EQ(first_body["next_after"], 1);
+    EXPECT_EQ(first_body["legacy_next_after"], 1);
+    EXPECT_EQ(first_body["has_more"], true);
+    ASSERT_EQ(first_body["records"].size(), 2u);
+    EXPECT_EQ(first_body["records"][0]["type"], "legacy_user_message");
+    EXPECT_EQ(first_body["records"][1]["type"], "model_request");
+
+    auto second = cpr::Get(cpr::Url{fx.url(
+        "/api/sessions/" + sid +
+        "/trajectory?after=1&legacy_after=1&limit=1&workspace=" +
+        workspace_hash)});
+    ASSERT_EQ(second.status_code, 200) << second.text;
+    const auto second_body = json::parse(second.text);
+    ASSERT_EQ(second_body["records"].size(), 1u);
+    EXPECT_EQ(second_body["records"][0]["type"], "model_response");
+    EXPECT_EQ(second_body["next_after"], 2);
+    EXPECT_EQ(second_body["has_more"], false);
+
+    auto wrong_scope = cpr::Get(cpr::Url{fx.url(
+        "/api/sessions/" + sid +
+        "/trajectory?workspace=wrong-workspace")});
+    EXPECT_EQ(wrong_scope.status_code, 404) << wrong_scope.text;
+
+    auto denied = cpr::Get(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/trajectory")},
+        cpr::Header{{"Origin", "http://localhost:5173"}});
+    EXPECT_EQ(denied.status_code, 401) << denied.text;
+}
+
+TEST(WebServerHttp, TrajectoryRouteProjectsInactiveLegacySession) {
+    WebServerFixture fx;
+    const auto legacy_cwd_path = fx.tmp_dir / "legacy-trajectory-workspace";
+    std::filesystem::create_directories(legacy_cwd_path);
+    const std::string legacy_cwd = legacy_cwd_path.string();
+    const std::string legacy_hash = acecode::compute_cwd_hash(legacy_cwd);
+
+    auto add_workspace = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"cwd", legacy_cwd}}.dump()});
+    ASSERT_EQ(add_workspace.status_code, 201) << add_workspace.text;
+
+    const auto legacy_project_dir =
+        acecode::SessionStorage::get_project_dir(legacy_cwd);
+    RemoveTreeOnExit cleanup{path_from_utf8(legacy_project_dir)};
+    acecode::SessionManager writer;
+    writer.start_session(legacy_cwd, "stub", "stub-model");
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.uuid = "old-turn";
+    user.content = "old transcript fact";
+    writer.on_message(user);
+    const std::string sid = writer.current_session_id();
+    writer.finalize();
+
+    auto response = cpr::Get(cpr::Url{fx.url(
+        "/api/sessions/" + sid +
+        "/trajectory?after=0&legacy_after=0&limit=25&workspace=" +
+        legacy_hash)});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto body = json::parse(response.text);
+    EXPECT_EQ(body["source"], "legacy");
+    EXPECT_EQ(body["workspace_hash"], legacy_hash);
+    ASSERT_EQ(body["records"].size(), 1u);
+    EXPECT_EQ(body["records"][0]["payload"]["content"],
+              "old transcript fact");
+    EXPECT_TRUE(body["records"][0]["timestamp_ms"].is_null());
+    ASSERT_TRUE(body["missing_capabilities"].is_array());
+    EXPECT_NE(std::find(body["missing_capabilities"].begin(),
+                        body["missing_capabilities"].end(), "ttft"),
+              body["missing_capabilities"].end());
 }
 
 // 场景:POST /api/sessions/:id/messages 只负责把输入交给 daemon 的
