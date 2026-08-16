@@ -5,6 +5,7 @@
 #include "../desktop/open_in_explorer.hpp"
 #include "version.hpp"
 #include "../tool/spawn_subagent_tool.hpp"
+#include "../tool/thread_tools.hpp"
 #include "../desktop/workspace_registry.hpp"
 #include "../experts/expert_registry.hpp"
 #include "../connectors/connector_first_start_auth.hpp"
@@ -28,6 +29,7 @@
 #include "../session/local_session_client.hpp"
 #include "../session/session_registry.hpp"
 #include "../session/session_storage.hpp"
+#include "../session/thread_service.hpp"
 #include "../session/session_user_message_search.hpp"
 #include "../skills/skill_registry.hpp"
 #include "../skills/skill_init.hpp"
@@ -599,6 +601,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     auto subagent_deps = std::make_shared<acecode::SubagentToolDeps>();
     tools.register_tool(acecode::create_spawn_subagent_tool(subagent_deps));
     tools.register_tool(acecode::create_wait_subagent_tool(subagent_deps));
+    auto thread_tool_deps = std::make_shared<acecode::ThreadToolDeps>();
+    acecode::register_codex_thread_tools(tools, thread_tool_deps);
 
     acecode::daemon::DaemonMcpRuntime mcp_runtime;
     mcp_runtime.start(cfg_mut, tools);
@@ -628,6 +632,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     subagent_deps->registry = &registry;
     subagent_deps->client   = &client;
     subagent_deps->config   = &cfg_mut;
+    thread_tool_deps->service = std::make_shared<acecode::ThreadService>(
+        acecode::ThreadService::Deps{&registry, &client});
 
     // LOOP is daemon-owned and independent of browser connections. SQLite is
     // initialized before HTTP routes are exposed; scheduler shutdown happens

@@ -660,6 +660,38 @@ The compatibility `POST /api/sessions` response includes:
 }
 ```
 
+### Model-facing thread tools
+
+Daemon, TUI, and headless runtimes expose the same in-process thread tools to
+the model. They reuse the session registry and storage directly; they do not
+call the daemon HTTP API:
+
+| Tool | Behavior |
+|---|---|
+| `create_thread` | create a background thread and queue its initial prompt |
+| `fork_thread` | fork completed persisted history into a new thread |
+| `list_threads` | return pinned threads plus a bounded recent list |
+| `read_thread` | read bounded, cursor-paginated turns |
+| `send_message_to_thread` | queue a follow-up prompt |
+| `wait_threads` | wait for up to eight targets using event cursors |
+| `set_thread_title` | rename a thread |
+| `set_thread_pinned` | update the existing pinned-session state |
+| `set_thread_archived` | archive or unarchive a thread |
+| `delete_thread` | permanently delete a thread and all descendants |
+| `repair_thread` | append a deterministic repair checkpoint to another thread |
+
+`delete_thread` also removes search-index and pin records. A running tool call
+cannot delete its own thread. `repair_thread` does not invoke a model, replay
+tools, or rewrite visible transcript rows. It reconstructs provider history,
+repairs malformed tool-call/result structure, and prunes only complete old user
+turn groups while preserving the current input.
+
+Separately, an explicit pre-output provider context-overflow error triggers a
+finite recovery sequence inside `AgentLoop`: one history-repair retry, then one
+retry with an emergency request profile, then a terminal error. Partial model
+output is never replayed, and ordinary rate-limit, server, timeout, and network
+errors do not enter this recovery sequence.
+
 ### `DELETE /api/sessions/:id`
 
 Destroys an active in-memory session: aborts the current turn, joins the worker

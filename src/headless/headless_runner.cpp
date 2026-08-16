@@ -15,6 +15,7 @@
 #include "../permissions.hpp"
 #include "../session/local_session_client.hpp"
 #include "../session/session_registry.hpp"
+#include "../session/thread_service.hpp"
 #include "../skills/skill_init.hpp"
 #include "../skills/skill_registry.hpp"
 #include "../tool/ask_user_question_tool.hpp"
@@ -23,6 +24,7 @@
 #include "../tool/skill_view_tool.hpp"
 #include "../tool/skills_tool.hpp"
 #include "../tool/tool_executor.hpp"
+#include "../tool/thread_tools.hpp"
 #include "../tool/web_search/backend_router.hpp"
 #include "../tool/web_search/region_detector.hpp"
 #include "../tool/web_search/runtime.hpp"
@@ -194,7 +196,8 @@ void register_headless_tools(
     ToolExecutor& tools,
     const AppConfig& cfg,
     SkillRegistry* skill_registry,
-    const std::shared_ptr<SubagentToolDeps>& subagent_deps) {
+    const std::shared_ptr<SubagentToolDeps>& subagent_deps,
+    const std::shared_ptr<ThreadToolDeps>& thread_deps) {
     register_session_builtin_tools(tools, cfg);
     tools.register_tool(create_ask_user_question_tool_async());
     if (skill_registry && cfg.skills.allowed &&
@@ -204,6 +207,7 @@ void register_headless_tools(
     }
     tools.register_tool(create_spawn_subagent_tool(subagent_deps));
     tools.register_tool(create_wait_subagent_tool(subagent_deps));
+    register_codex_thread_tools(tools, thread_deps);
 }
 
 int print_available_capabilities(const HeadlessCliOptions& opts) {
@@ -236,8 +240,9 @@ int print_available_capabilities(const HeadlessCliOptions& opts) {
         {
             ToolExecutor tools;
             auto subagent_deps = std::make_shared<SubagentToolDeps>();
+            auto thread_deps = std::make_shared<ThreadToolDeps>();
             register_headless_tools(
-                tools, cfg, nullptr, subagent_deps);
+                tools, cfg, nullptr, subagent_deps, thread_deps);
             for (const auto& def :
                  tools.get_tool_definitions_by_source(ToolSource::Builtin)) {
                 entries.push_back({def.name, {}});
@@ -442,9 +447,11 @@ int run_print_mode(const HeadlessCliOptions& opts) {
 
     acecode::ToolExecutor tools;
     auto subagent_deps = std::make_shared<acecode::SubagentToolDeps>();
+    auto thread_deps = std::make_shared<acecode::ThreadToolDeps>();
     // async 版 AskUserQuestion:headless::active() 分支在工具内部自动应答,
     // 不会真的走到 prompter。仍注册它是为了让模型看到与 daemon 一致的工具面。
-    register_headless_tools(tools, cfg, &skill_registry, subagent_deps);
+    register_headless_tools(
+        tools, cfg, &skill_registry, subagent_deps, thread_deps);
 
     acecode::daemon::DaemonMcpRuntime mcp_runtime;
 
@@ -506,6 +513,8 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         subagent_deps->registry = &registry;
         subagent_deps->client   = &client;
         subagent_deps->config   = &cfg;
+        thread_deps->service = std::make_shared<acecode::ThreadService>(
+            acecode::ThreadService::Deps{&registry, &client});
 
         SessionOptions session_opts;
         session_opts.cwd             = cwd;

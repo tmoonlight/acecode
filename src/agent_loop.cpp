@@ -20,6 +20,7 @@
 #include "session/session_serializer.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_goal_store.hpp"
+#include "session/thread_repair.hpp"
 #include "session/todo_state.hpp"
 #include "session/turn_timing.hpp"
 #include "session/turn_net_diff.hpp"
@@ -1924,7 +1925,8 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
     return info;
 }
 
-AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
+AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
+    bool emergency_profile) {
     ApiRequestBundle bundle;
 
     // Rebuild the system prompt for each provider call from session-stable
@@ -1940,21 +1942,43 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
         system_prompt += "\n</loop-execution>";
     }
     LOG_DEBUG("System prompt length: " + std::to_string(system_prompt.size()));
-    bundle.tool_defs =
-        tools_.get_model_tool_definitions(&tool_capability_policy_);
-    const auto builtin_tool_defs =
-        tools_.get_model_tool_definitions_by_source(
-            ToolSource::Builtin, &tool_capability_policy_);
-    const auto mcp_tool_defs =
-        tools_.get_model_tool_definitions_by_source(
-            ToolSource::Mcp, &tool_capability_policy_);
+    auto builtin_tool_defs = tools_.get_model_tool_definitions_by_source(
+        ToolSource::Builtin, &tool_capability_policy_);
+    auto mcp_tool_defs = tools_.get_model_tool_definitions_by_source(
+        ToolSource::Mcp, &tool_capability_policy_);
+    if (emergency_profile) {
+        const auto is_core_tool = [](const ToolDef& definition) {
+            return definition.name == "bash" || definition.name == "read" ||
+                   definition.name == "write" || definition.name == "edit" ||
+                   definition.name == "task_complete";
+        };
+        builtin_tool_defs.erase(
+            std::remove_if(builtin_tool_defs.begin(), builtin_tool_defs.end(),
+                           [&](const ToolDef& definition) {
+                               return !is_core_tool(definition);
+                           }),
+            builtin_tool_defs.end());
+        mcp_tool_defs.clear();
+        LOG_WARN("[thread-repair] using emergency request profile with " +
+                 std::to_string(builtin_tool_defs.size()) +
+                 " core tool schemas");
+        bundle.tool_defs = builtin_tool_defs;
+    } else {
+        // Preserve the normal model-facing order exactly. The unified helper
+        // keeps builtin and MCP tools in registry order, which is also part of
+        // prompt-cache stability and expert-switch behavior.
+        bundle.tool_defs =
+            tools_.get_model_tool_definitions(&tool_capability_policy_);
+    }
     LOG_DEBUG("Registered tools: " + std::to_string(bundle.tool_defs.size()));
 
     // gitStatus 快照:每会话激活惰性采集一次,cwd 切换或外部失效(Web UI
     // checkout)时重采(openspec add-git-context)。采集失败/非仓库/disabled
     // → 空串不注入。
-    if (git_snapshot_stale_.exchange(false)) git_snapshot_cache_.reset();
-    if (!git_snapshot_cache_.has_value()) {
+    if (!emergency_profile && git_snapshot_stale_.exchange(false)) {
+        git_snapshot_cache_.reset();
+    }
+    if (!emergency_profile && !git_snapshot_cache_.has_value()) {
         const bool git_ctx_enabled = !git_context_cfg_ || git_context_cfg_->enabled;
         const int git_timeout_ms = git_context_cfg_
                                        ? git_context_cfg_->timeout_ms
@@ -1969,45 +1993,53 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
     auto api_messages = recovered_provider_messages(messages_, "provider-request");
     rewrite_tool_calls_for_model(api_messages);
     PromptContextCategoryBytes context_category_bytes;
-    const bool skill_view_available =
+    const bool skill_view_available = !emergency_profile &&
         tools_.is_allowed("skill_view", &tool_capability_policy_);
-    const bool skills_list_available =
+    const bool skills_list_available = !emergency_profile &&
         tools_.is_allowed("skills_list", &tool_capability_policy_);
-    const bool spawn_subagent_available =
+    const bool spawn_subagent_available = !emergency_profile &&
         tools_.is_allowed("spawn_subagent", &tool_capability_policy_);
-    PromptContextBlock skill_context_block = build_skills_index_context_prompt(
-        skill_registry_, context_window_.load(std::memory_order_relaxed),
-        skill_view_available, skills_list_available);
-    const bool skill_context_changed =
-        skill_context_block.cache_key != skill_context_cache_key_;
-    std::string skill_context = cached_context_for_api(
-        skill_context_block,
-        skill_context_cache_key_, skill_context_cache_content_);
-    if (skill_context_changed && !skill_context_block.warning.empty()) {
-        LOG_WARN("[skills] " + skill_context_block.warning);
-    }
-    std::string session_context = cached_context_for_api(
-        build_session_context_prompt(
-            cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
+    std::string skill_context;
+    std::string session_context;
+    if (!emergency_profile) {
+        PromptContextBlock skill_context_block = build_skills_index_context_prompt(
             skill_registry_, context_window_.load(std::memory_order_relaxed),
-            custom_instructions_cfg_,
-            *git_snapshot_cache_, expert_, expert_member_id_,
-            &context_category_bytes,
-            skill_view_available, skills_list_available,
-            spawn_subagent_available,
-            /*include_skill_index=*/false),
-        session_context_cache_key_, session_context_cache_content_);
+            skill_view_available, skills_list_available);
+        const bool skill_context_changed =
+            skill_context_block.cache_key != skill_context_cache_key_;
+        skill_context = cached_context_for_api(
+            skill_context_block,
+            skill_context_cache_key_, skill_context_cache_content_);
+        if (skill_context_changed && !skill_context_block.warning.empty()) {
+            LOG_WARN("[skills] " + skill_context_block.warning);
+        }
+        session_context = cached_context_for_api(
+            build_session_context_prompt(
+                cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
+                skill_registry_, context_window_.load(std::memory_order_relaxed),
+                custom_instructions_cfg_,
+                git_snapshot_cache_.value_or(std::string{}),
+                expert_, expert_member_id_,
+                &context_category_bytes,
+                skill_view_available, skills_list_available,
+                spawn_subagent_available,
+                /*include_skill_index=*/false),
+            session_context_cache_key_, session_context_cache_content_);
+    }
     context_category_bytes.skills = skill_context.size();
     std::vector<ChatMessage> mutable_context_messages;
     append_request_context_for_api(mutable_context_messages, session_context);
-    std::string swarm_mode_context = build_swarm_mode_context_prompt(
-        active_turn_swarm_mode_, spawn_subagent_available);
+    std::string swarm_mode_context = emergency_profile
+        ? std::string{}
+        : build_swarm_mode_context_prompt(
+              active_turn_swarm_mode_, spawn_subagent_available);
     append_request_context_for_api(
         mutable_context_messages, swarm_mode_context);
-    std::string hook_context = drain_hook_request_context();
+    std::string hook_context = emergency_profile
+        ? std::string{} : drain_hook_request_context();
     append_request_context_for_api(mutable_context_messages, hook_context);
     std::string plan_mode_context =
-        permissions_.mode() == PermissionMode::Plan
+        !emergency_profile && permissions_.mode() == PermissionMode::Plan
             ? build_plan_mode_context_prompt(
                   session_manager_,
                   tools_.is_allowed("AskUserQuestion", &tool_capability_policy_),
@@ -2015,7 +2047,8 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages() {
             : std::string{};
     append_plan_mode_context_for_api(mutable_context_messages, plan_mode_context);
     std::vector<TodoItem> todo_context_items =
-        session_manager_ ? session_manager_->current_todos() : std::vector<TodoItem>{};
+        !emergency_profile && session_manager_
+            ? session_manager_->current_todos() : std::vector<TodoItem>{};
     append_todo_context_for_api(mutable_context_messages, todo_context_items);
 
     ChatMessage skill_system_message;
@@ -2459,7 +2492,9 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
 AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
     ProviderCallResult& result,
     const std::vector<ChatMessage>& messages_with_system,
-    std::string& turn_timing_status) {
+    std::string& turn_timing_status,
+    ContextRecoveryStage& recovery_stage,
+    bool& emergency_request_profile) {
     if (!result.provider_error_seen) {
         return HandleErrorResult::Proceed;
     }
@@ -2488,15 +2523,89 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
              " context_overflow=" +
              (context_overflow ? "true" : "false"));
 
-    if (context_overflow) {
-        LOG_WARN("Provider rejected the normal request for context overflow; "
-                 "ending the turn without summary-free history deletion");
+    if (context_overflow && !model_output_seen) {
+        if (recovery_stage == ContextRecoveryStage::Normal) {
+            const int history_tokens = estimate_message_tokens(
+                recovered_provider_messages(
+                    messages_, "context-overflow-estimate"));
+            const int fixed_tokens = (std::max)(0, request_tokens - history_tokens);
+            int target_total = (std::max)(1, request_tokens * 2 / 3);
+            if (context_window > 0) {
+                target_total = (std::min)(
+                    target_total, context_window * 7 / 10);
+            }
+            ThreadRepairOptions options;
+            options.trigger = "repair-context-overflow";
+            options.target_tokens = (std::max)(
+                1, target_total - fixed_tokens);
+            options.force_prune_one_group = true;
+            auto repair = apply_thread_repair(
+                session_manager_, messages_, options);
+            LOG_WARN("[thread-repair] automatic status=" +
+                     std::string(to_string(repair.status)) +
+                     " pre_tokens=" + std::to_string(repair.pre_tokens) +
+                     " post_tokens=" + std::to_string(repair.post_tokens) +
+                     " pruned_groups=" +
+                     std::to_string(repair.pruned_groups) +
+                     " reason=" + repair.reason);
+            if (repair.repaired()) {
+                recovery_stage = ContextRecoveryStage::HistoryRepaired;
+                compact_generation_.fetch_add(1, std::memory_order_relaxed);
+                last_api_total_tokens_.store(0, std::memory_order_relaxed);
+                if (callbacks_.on_stream_retry_reset) {
+                    callbacks_.on_stream_retry_reset();
+                }
+                events_.emit(SessionEventKind::AgentProgress, nlohmann::json{
+                    {"phase", "context_repair"},
+                    {"label", "Retrying with repaired thread history"},
+                    {"detail", repair.reason},
+                });
+                return HandleErrorResult::Continue;
+            }
+            recovery_stage = ContextRecoveryStage::EmergencyProfile;
+            emergency_request_profile = true;
+            if (callbacks_.on_stream_retry_reset) {
+                callbacks_.on_stream_retry_reset();
+            }
+            LOG_WARN("[thread-repair] history exhausted; retrying once with "
+                     "the emergency request profile");
+            return HandleErrorResult::Continue;
+        }
+        if (recovery_stage == ContextRecoveryStage::HistoryRepaired) {
+            recovery_stage = ContextRecoveryStage::EmergencyProfile;
+            emergency_request_profile = true;
+            if (callbacks_.on_stream_retry_reset) {
+                callbacks_.on_stream_retry_reset();
+            }
+            LOG_WARN("[thread-repair] repaired history was still rejected; "
+                     "retrying once with the emergency request profile");
+            return HandleErrorResult::Continue;
+        }
+        LOG_WARN("[thread-repair] emergency request profile was still rejected; "
+                 "automatic recovery is exhausted");
+    } else if (context_overflow && model_output_seen) {
+        LOG_WARN("[thread-repair] context overflow arrived after model output; "
+                 "not replaying the model step or tool activity");
     }
 
     nlohmann::json metadata;
     metadata["provider_error"] = provider_error_to_json(result.provider_error_info);
+    if (context_overflow) {
+        metadata["thread_repair_exhausted"] =
+            recovery_stage == ContextRecoveryStage::EmergencyProfile;
+        metadata["partial_model_output"] = model_output_seen;
+    }
     turn_timing_status = "error";
-    dispatch_message("error", "[Error] " + result.provider_error_info.display_message, false,
+    std::string display_message = result.provider_error_info.display_message;
+    if (context_overflow &&
+        recovery_stage == ContextRecoveryStage::EmergencyProfile &&
+        !model_output_seen) {
+        display_message +=
+            " Automatic thread repair and the emergency request profile were "
+            "both exhausted; the fixed context or current input may exceed the "
+            "provider's actual limit.";
+    }
+    dispatch_message("error", "[Error] " + display_message, false,
                      std::move(metadata));
     LOG_WARN("Provider stream failed; ending turn without assistant message: " +
              log_truncate(result.provider_error_info.display_message, 500));
@@ -3620,6 +3729,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     // Loop state
     int total_iterations = 0;
     bool terminator_fired = false;
+    ContextRecoveryStage context_recovery_stage =
+        ContextRecoveryStage::Normal;
+    bool emergency_request_profile = false;
 
     const int max_iter = loop_cfg_.max_iterations;
     const bool has_max_iterations = max_iter > 0;
@@ -3843,7 +3955,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // The top of every sampling iteration covers both pre-turn and
         // post-tool follow-up compaction. A failed compact aborts this sampling
         // path without silently deleting unsummarized history.
-        if (total_iterations > 1 && active_estimate_exceeds_auto_threshold()) {
+        if (total_iterations > 1 &&
+            context_recovery_stage == ContextRecoveryStage::Normal &&
+            active_estimate_exceeds_auto_threshold()) {
             if (!maybe_run_auto_compact()) {
                 turn_timing_status = "error";
                 stop_active_goal_after_turn_error(ProviderErrorInfo{});
@@ -3858,7 +3972,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         maybe_inject_goal_steering();
 
         // Phase 2: Build API request messages
-        auto bundle = build_api_request_messages();
+        auto bundle = build_api_request_messages(emergency_request_profile);
         publish_side_question_context(bundle.messages_with_system);
 
         // Get provider snapshot
@@ -3901,12 +4015,14 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // Phase 4: Handle provider errors (context rescue, fatal errors)
         auto error_result = handle_provider_error(
             provider_result, bundle.messages_with_system,
-            turn_timing_status);
+            turn_timing_status, context_recovery_stage,
+            emergency_request_profile);
         reset_doom_guard_after_compact();
         if (error_result == HandleErrorResult::Continue) {
             record_model_response(
                 current_model_step, provider_result, step_usage, "retry");
             emit_model_step_finish(current_model_step, "retry", step_usage);
+            --total_iterations;
             continue;
         }
         if (error_result == HandleErrorResult::Break) {

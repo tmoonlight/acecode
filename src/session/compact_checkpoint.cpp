@@ -130,6 +130,11 @@ std::vector<ChatMessage> provider_relevant_messages(const std::vector<ChatMessag
 
 std::vector<ChatMessage> reconstruct_effective_model_history(
     const std::vector<ChatMessage>& raw_messages) {
+    return reconstruct_effective_model_history_with_recovery(raw_messages).messages;
+}
+
+ProviderHistoryRecoveryResult reconstruct_effective_model_history_with_recovery(
+    const std::vector<ChatMessage>& raw_messages) {
     std::vector<ChatMessage> effective;
     std::size_t suffix_start = 0;
 
@@ -143,7 +148,7 @@ std::vector<ChatMessage> reconstruct_effective_model_history(
 
     if (effective.empty() && suffix_start == 0) {
         return recover_provider_history(
-            provider_relevant_messages(raw_messages)).messages;
+            provider_relevant_messages(raw_messages));
     }
 
     for (std::size_t i = suffix_start; i < raw_messages.size(); ++i) {
@@ -158,7 +163,7 @@ std::vector<ChatMessage> reconstruct_effective_model_history(
         auto one = provider_relevant_messages({msg});
         effective.insert(effective.end(), one.begin(), one.end());
     }
-    return recover_provider_history(effective).messages;
+    return recover_provider_history(effective);
 }
 
 } // namespace acecode

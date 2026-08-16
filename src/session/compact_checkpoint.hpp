@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../provider/llm_provider.hpp"
+#include "session_history_recovery.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -38,6 +39,9 @@ std::optional<CompactCheckpoint> decode_compact_checkpoint(const ChatMessage& ms
 std::vector<ChatMessage> provider_relevant_messages(const std::vector<ChatMessage>& messages);
 
 std::vector<ChatMessage> reconstruct_effective_model_history(
+    const std::vector<ChatMessage>& raw_messages);
+
+ProviderHistoryRecoveryResult reconstruct_effective_model_history_with_recovery(
     const std::vector<ChatMessage>& raw_messages);
 
 } // namespace acecode

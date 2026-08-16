@@ -70,6 +70,7 @@
 #include "tool/goal_tool.hpp"
 #include "tool/mcp_manager.hpp"
 #include "tool/mcp_startup_coordination.hpp"
+#include "tool/thread_tools.hpp"
 #include "tool/skills_tool.hpp"
 #include "tool/skill_view_tool.hpp"
 #include "tool/memory_read_tool.hpp"
@@ -95,6 +96,7 @@
 #include "utils/logger.hpp"
 #include "permissions.hpp"
 #include "agent_loop.hpp"
+#include "session/thread_service.hpp"
 #include "cli/interactive_options.hpp"
 #include "commands/configure.hpp"
 #include "daemon/cli.hpp"
@@ -5423,6 +5425,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             };
         tools.register_tool(create_spawn_subagent_tool(subagent_deps));
         tools.register_tool(create_wait_subagent_tool(subagent_deps));
+        auto thread_deps = std::make_shared<ThreadToolDeps>();
+        thread_deps->service = std::make_shared<ThreadService>(
+            ThreadService::Deps{
+                &subagent_host.registry(), &subagent_host.client()});
+        register_codex_thread_tools(tools, std::move(thread_deps));
     }
 
     // Register session finalization for clean shutdown

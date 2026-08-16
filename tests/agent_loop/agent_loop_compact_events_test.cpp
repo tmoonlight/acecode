@@ -676,26 +676,140 @@ TEST(AgentLoopCompactEvents, FailedAutoCompactIsAtomicAndRetriesOnNextTurn) {
     EXPECT_TRUE(request_contains(loop.messages(), "old assistant 0"));
 }
 
-TEST(AgentLoopCompactEvents, NormalRequestContextOverflowDoesNotUseLossyRescue) {
+TEST(AgentLoopCompactEvents, ContextOverflowRepairsHistoryAndRetriesSameInputOnce) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_error(make_context_overflow_error());
+    provider->push_text("recovered response");
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    const auto cwd = make_temp_cwd("context_repair_retry");
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    {
+        acecode::SessionManager session;
+        session.start_session(cwd.string(), "stub", "model");
+        acecode::AgentLoop loop(
+            [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
+            tools, {}, cwd.string(), permissions);
+        loop.set_session_manager(&session);
+        loop.set_context_window(1000000);
+        add_history(loop, 2);
+
+        const auto events = wait_for_done(
+            loop, [&] { loop.submit("latest user request"); });
+
+        EXPECT_EQ(provider->turn_count(), 2);
+        EXPECT_FALSE(request_contains(loop.messages(), "old assistant 0"));
+        EXPECT_TRUE(request_contains(loop.messages(), "latest user request"));
+        EXPECT_TRUE(request_contains(loop.messages(), "recovered response"));
+        EXPECT_EQ(request_match_count(
+                      session.load_active_messages(), "latest user request"),
+                  1u);
+        EXPECT_FALSE(has_system_event(events, "[Rescue compact]"));
+        session.finalize();
+    }
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+TEST(AgentLoopCompactEvents, ExhaustedHistoryUsesOneEmergencyProfileRetry) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_error(make_context_overflow_error());
+    provider->push_text("emergency response");
+    acecode::ToolExecutor tools;
+    const auto register_test_tool = [&](const std::string& name,
+                                        std::string description) {
+        acecode::ToolImpl tool;
+        tool.definition.name = name;
+        tool.definition.description = std::move(description);
+        tool.definition.parameters = nlohmann::json{{"type", "object"}};
+        tool.execute = [](const std::string&, const acecode::ToolContext&) {
+            return acecode::ToolResult{"ok", true};
+        };
+        tools.register_tool(std::move(tool));
+    };
+    register_test_tool("large_optional_tool", std::string(2000, 'd'));
+    register_test_tool("file_read", "core read");
+    register_test_tool("bash", "core shell");
+    acecode::PermissionManager permissions;
+    acecode::AgentLoop loop(
+        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
+        tools, {}, "/tmp/emergency-profile", permissions);
+    loop.set_context_window(1000000);
+
+    wait_for_done(loop, [&] { loop.submit("only current input"); });
+
+    ASSERT_EQ(provider->turn_count(), 2);
+    ASSERT_EQ(provider->tools_for_turn(0).size(), 3u);
+    const auto emergency_tools = provider->tools_for_turn(1);
+    ASSERT_EQ(emergency_tools.size(), 2u);
+    EXPECT_TRUE(std::any_of(
+        emergency_tools.begin(), emergency_tools.end(), [](const auto& tool) {
+            return tool.name == "read";
+        }));
+    EXPECT_TRUE(std::any_of(
+        emergency_tools.begin(), emergency_tools.end(), [](const auto& tool) {
+            return tool.name == "bash";
+        }));
+    EXPECT_EQ(request_match_count(
+                  provider->messages_for_turn(1), "only current input"),
+              1u);
+}
+
+TEST(AgentLoopCompactEvents, PartialOutputOverflowIsNotReplayed) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_error(
+        make_context_overflow_error(), true, "partial output");
+    provider->push_text("must not run");
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
         [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/no-rescue-compact", permissions);
+        tools, {}, "/tmp/partial-overflow", permissions);
     loop.set_context_window(1000000);
-    add_history(loop, 2);
-    const auto original_provider_size =
-        acecode::provider_relevant_messages(loop.messages()).size();
 
-    const auto events = wait_for_done(
-        loop, [&] { loop.submit("latest user request"); });
+    wait_for_done(loop, [&] { loop.submit("request"); });
 
     EXPECT_EQ(provider->turn_count(), 1);
-    EXPECT_EQ(acecode::provider_relevant_messages(loop.messages()).size(),
-              original_provider_size + 1);
-    EXPECT_TRUE(request_contains(loop.messages(), "old assistant 0"));
-    EXPECT_FALSE(has_system_event(events, "[Rescue compact]"));
-    EXPECT_FALSE(has_system_event(events, "--- [Compact Checkpoint] ---"));
+}
+
+TEST(AgentLoopCompactEvents, RepeatedOverflowStopsAfterFiniteRecoveryStages) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_error(make_context_overflow_error());
+    provider->push_error(make_context_overflow_error());
+    provider->push_error(make_context_overflow_error());
+    provider->push_text("must not run");
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    const auto cwd = make_temp_cwd("finite_context_recovery");
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    {
+        acecode::SessionManager session;
+        session.start_session(cwd.string(), "stub", "model");
+        acecode::AgentLoop loop(
+            [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
+            tools, {}, cwd.string(), permissions);
+        loop.set_session_manager(&session);
+        loop.set_context_window(1000000);
+        add_history(loop, 2);
+
+        wait_for_done(loop, [&] { loop.submit("current request"); });
+
+        EXPECT_EQ(provider->turn_count(), 3);
+        EXPECT_EQ(request_match_count(
+                      session.load_active_messages(), "current request"),
+                  1u);
+        const auto raw = session.load_active_messages();
+        EXPECT_EQ(std::count_if(
+                      raw.begin(), raw.end(), [](const auto& item) {
+                          return acecode::is_compact_checkpoint_message(item);
+                      }),
+                  1);
+        session.finalize();
+    }
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
 }

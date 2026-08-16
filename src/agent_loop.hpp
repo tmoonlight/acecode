@@ -485,7 +485,7 @@ private:
         ContextUsageBreakdown context_usage_estimate;
         nlohmann::json prompt_diag; // simplified: store as raw json
     };
-    ApiRequestBundle build_api_request_messages();
+    ApiRequestBundle build_api_request_messages(bool emergency_profile = false);
     void publish_side_question_context(
         const std::vector<ChatMessage>& messages_with_system);
 
@@ -512,10 +512,17 @@ private:
 
     // Phase 4: Classify terminal provider errors.
     enum class HandleErrorResult { Continue, Break, Proceed };
+    enum class ContextRecoveryStage {
+        Normal,
+        HistoryRepaired,
+        EmergencyProfile,
+    };
     HandleErrorResult handle_provider_error(
         ProviderCallResult& result,
         const std::vector<ChatMessage>& messages_with_system,
-        std::string& turn_timing_status);
+        std::string& turn_timing_status,
+        ContextRecoveryStage& recovery_stage,
+        bool& emergency_request_profile);
 
     // Phase 5: Execute tool calls (parallel read + serial write).
     // Returns true if task_complete terminator fired.
