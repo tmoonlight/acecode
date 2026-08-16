@@ -87,13 +87,6 @@ export function subscribeDesktopStartupProgress(
   return () => win.removeEventListener?.(DESKTOP_STARTUP_PROGRESS_EVENT, handleProgress);
 }
 
-export function formatDesktopStartupElapsed(elapsedMs) {
-  const value = finiteNumber(elapsedMs);
-  if (value === null || value < 0) return '';
-  if (value < 1000) return `${Math.round(value)}ms`;
-  return `${(value / 1000).toFixed(1)}s`;
-}
-
 export function reportDesktopStartupMilestone(
   stage,
   win = typeof window !== 'undefined' ? window : undefined,

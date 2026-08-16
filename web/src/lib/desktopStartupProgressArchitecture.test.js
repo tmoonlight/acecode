@@ -37,23 +37,32 @@ run('App subscribes to native progress and renders a Desktop-only logo status sc
   assert.match(app, /reportDesktopStartupMilestone\('ui_ready'\)/);
 });
 
-run('home logo receives the transient final startup status', () => {
+run('startup status stays in the checking screen and never enters the main ChatView', () => {
   const app = source('../App.jsx');
   const chat = source('../components/ChatView.jsx');
   const styles = source('../styles/globals.css');
-  assert.match(app, /desktopStartupStatus=\{desktopStartupStatus\}/);
-  assert.match(chat, /data-desktop-startup-status=\{desktopStartupStatus\.stage\}/);
-  assert.match(chat, /formatDesktopStartupElapsed\(desktopStartupStatus\.elapsed_ms\)/);
   assert.match(styles, /\.ace-desktop-startup-screen\s*\{/);
-  assert.match(styles, /\.ace-home-startup-status\s*\{/);
+  assert.doesNotMatch(app, /desktopStartupStatus=\{desktopStartupStatus\}/);
+  assert.doesNotMatch(chat, /desktopStartupStatus|data-desktop-startup-status/);
+  assert.doesNotMatch(styles, /\.ace-home-startup-status|\.ace-desktop-startup-elapsed/);
+  assert.doesNotMatch(app, /formatDesktopStartupElapsed|DESKTOP_STARTUP_TERMINAL_VISIBLE_MS/);
 });
 
-run('startup status restores native text rasterization within its own selector', () => {
+run('startup status uses a scoped Windows UI font and subpixel rasterization', () => {
   const styles = source('../styles/globals.css');
   const statusBlock = styles.match(/\.ace-desktop-startup-status\s*\{([\s\S]*?)\}/)?.[1] || '';
+  assert.match(statusBlock, /font-family:\s*"Segoe UI Variable Text", "Microsoft YaHei UI"/);
   assert.match(statusBlock, /font-size:\s*14px;/);
-  assert.match(statusBlock, /-webkit-font-smoothing:\s*auto;/);
+  assert.match(statusBlock, /-webkit-font-smoothing:\s*subpixel-antialiased;/);
   assert.match(statusBlock, /text-rendering:\s*auto;/);
+});
+
+run('native splash composites grayscale text coverage and never formats visible time', () => {
+  const splash = source('../../../src/desktop/splash_screen.cpp');
+  assert.match(splash, /ANTIALIASED_QUALITY/);
+  assert.match(splash, /composite_grayscale_text\(/);
+  assert.match(splash, /premultiplied_bgra\(/);
+  assert.doesNotMatch(splash, /CLEARTYPE_QUALITY|format_status_text|setprecision/);
 });
 
 run('native bridge injects snapshots and keeps pageReady as the visibility gate', () => {

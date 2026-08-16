@@ -2165,10 +2165,12 @@ body {
   justify-content: center;
   gap: 8px;
   color: var(--ace-fg-mute);
+  font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", sans-serif;
   font-size: 14px;
+  font-weight: 400;
   line-height: 20px;
   text-align: center;
-  -webkit-font-smoothing: auto;
+  -webkit-font-smoothing: subpixel-antialiased;
   text-rendering: auto;
 }
 .ace-desktop-startup-spinner {
@@ -2177,21 +2179,6 @@ body {
   flex: 0 0 12px;
   border-width: 1.5px;
 }
-.ace-desktop-startup-elapsed {
-  flex: 0 0 auto;
-  color: rgba(var(--ace-fg-mute-rgb), 0.72);
-  font-variant-numeric: tabular-nums;
-}
-.ace-home-startup-status {
-  align-self: center;
-  min-height: 20px;
-  margin-top: -10px;
-  margin-bottom: -4px;
-}
-.ace-home-startup-status.is-complete {
-  color: var(--ace-accent);
-}
-
 /* Codex-style new task home */
 .ace-home-panel {
   min-height: 0;

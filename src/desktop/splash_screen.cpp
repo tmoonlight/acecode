@@ -14,8 +14,6 @@
 #  include <cstring>
 #  include <cstdint>
 #  include <filesystem>
-#  include <iomanip>
-#  include <sstream>
 #  include <string>
 #endif
 
@@ -81,13 +79,65 @@ std::wstring utf8_to_wide(const std::string& value) {
     return out;
 }
 
-std::wstring format_status_text(const std::wstring& message,
-                                std::uint64_t elapsed_ms) {
-    if (message.empty()) return {};
-    std::wostringstream out;
-    out << message << L"  " << std::fixed << std::setprecision(1)
-        << (static_cast<double>(elapsed_ms) / 1000.0) << L"s";
-    return out.str();
+std::uint32_t premultiplied_bgra(unsigned char red,
+                                 unsigned char green,
+                                 unsigned char blue,
+                                 unsigned char alpha) {
+    const auto premultiply = [alpha](unsigned char channel) {
+        return (static_cast<std::uint32_t>(channel) * alpha + 127u) / 255u;
+    };
+    return (static_cast<std::uint32_t>(alpha) << 24u) |
+           (premultiply(red) << 16u) |
+           (premultiply(green) << 8u) |
+           premultiply(blue);
+}
+
+void composite_grayscale_text(std::uint32_t* target,
+                              const std::uint32_t* mask,
+                              int bitmap_width,
+                              int bitmap_height,
+                              const RECT& rect) {
+    if (!target || !mask || bitmap_width <= 0 || bitmap_height <= 0) return;
+    const int left = std::clamp(static_cast<int>(rect.left), 0, bitmap_width);
+    const int right = std::clamp(static_cast<int>(rect.right), 0, bitmap_width);
+    const int top = std::clamp(static_cast<int>(rect.top), 0, bitmap_height);
+    const int bottom = std::clamp(static_cast<int>(rect.bottom), 0, bitmap_height);
+    for (int y = top; y < bottom; ++y) {
+        for (int x = left; x < right; ++x) {
+            const auto offset = static_cast<std::size_t>(y) * bitmap_width + x;
+            const std::uint32_t mask_pixel = mask[offset];
+            const std::uint32_t mask_blue = mask_pixel & 0xFFu;
+            const std::uint32_t mask_green = (mask_pixel >> 8u) & 0xFFu;
+            const std::uint32_t mask_red = (mask_pixel >> 16u) & 0xFFu;
+            const std::uint32_t coverage =
+                (mask_red + mask_green + mask_blue + 1u) / 3u;
+            if (coverage == 0) continue;
+
+            const std::uint32_t background = target[offset];
+            const std::uint32_t background_blue = background & 0xFFu;
+            const std::uint32_t background_green = (background >> 8u) & 0xFFu;
+            const std::uint32_t background_red = (background >> 16u) & 0xFFu;
+            const std::uint32_t background_alpha = (background >> 24u) & 0xFFu;
+            const std::uint32_t inverse = 255u - coverage;
+            const auto source_over = [coverage, inverse](
+                                         std::uint32_t foreground,
+                                         std::uint32_t background_channel) {
+                return (foreground * coverage +
+                        background_channel * inverse + 127u) / 255u;
+            };
+
+            const std::uint32_t out_blue = source_over(250u, background_blue);
+            const std::uint32_t out_green = source_over(247u, background_green);
+            const std::uint32_t out_red = source_over(245u, background_red);
+            const std::uint32_t out_alpha =
+                coverage + (background_alpha * inverse + 127u) / 255u;
+            target[offset] =
+                (out_alpha << 24u) |
+                (out_red << 16u) |
+                (out_green << 8u) |
+                out_blue;
+        }
+    }
 }
 
 void fill_rounded_rect(std::uint32_t* pixels,
@@ -146,7 +196,6 @@ struct SplashScreen::Impl {
     int window_width = 520;
     int window_height = 250;
     std::wstring status_message;
-    std::uint64_t elapsed_ms = 0;
 
     ~Impl() {
         close();
@@ -219,9 +268,8 @@ struct SplashScreen::Impl {
         ::ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     }
 
-    void set_status(const std::string& message, std::uint64_t next_elapsed_ms) {
+    void set_status(const std::string& message, std::uint64_t) {
         status_message = utf8_to_wide(message);
-        elapsed_ms = next_elapsed_ms;
         if (hwnd) render_layered_icon();
     }
 
@@ -312,58 +360,70 @@ struct SplashScreen::Impl {
         ::DrawIconEx(mem, icon_x, 0, icon, icon_size, icon_size,
                      0, nullptr, DI_NORMAL);
 
-        const std::wstring status = format_status_text(status_message, elapsed_ms);
+        const std::wstring& status = status_message;
         if (!status.empty()) {
             const int dpi = std::max(96, ::GetDeviceCaps(screen, LOGPIXELSY));
             HFONT font = ::CreateFontW(
                 -::MulDiv(11, dpi, 72), 0, 0, 0, FW_NORMAL,
                 FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+                ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
                 L"Segoe UI");
-            HFONT old_font = font
-                ? static_cast<HFONT>(::SelectObject(mem, font))
+            HDC text_dc = ::CreateCompatibleDC(screen);
+            void* mask_bits = nullptr;
+            HBITMAP mask_bitmap = text_dc
+                ? ::CreateDIBSection(
+                      screen, &bmi, DIB_RGB_COLORS, &mask_bits, nullptr, 0)
                 : nullptr;
-            RECT measured{0, 0, window_width - 40, 40};
-            ::DrawTextW(mem, status.c_str(), static_cast<int>(status.size()),
-                        &measured, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
-            const int pill_width = std::min(
-                window_width - 20,
-                std::max(120, static_cast<int>(measured.right - measured.left) + 32));
-            const int pill_height = std::max(
-                34, static_cast<int>(measured.bottom - measured.top) + 16);
-            RECT pill{
-                (window_width - pill_width) / 2,
-                icon_size + 8,
-                (window_width + pill_width) / 2,
-                std::min(window_height - 4, icon_size + 8 + pill_height),
-            };
-            fill_rounded_rect(
-                static_cast<std::uint32_t*>(bits), window_width, window_height,
-                pill, 12, 0xB41B1818u);
+            if (text_dc && mask_bitmap && mask_bits) {
+                std::memset(mask_bits, 0,
+                            static_cast<size_t>(window_width) *
+                            static_cast<size_t>(window_height) * 4);
+                HBITMAP old_mask_bitmap =
+                    static_cast<HBITMAP>(::SelectObject(text_dc, mask_bitmap));
+                HFONT old_font = font
+                    ? static_cast<HFONT>(::SelectObject(text_dc, font))
+                    : nullptr;
+                ::SetBkMode(text_dc, TRANSPARENT);
+                ::SetTextColor(text_dc, RGB(255, 255, 255));
 
-            ::SetBkMode(mem, TRANSPARENT);
-            ::SetTextColor(mem, RGB(245, 247, 250));
-            RECT text_rect{pill.left + 16, pill.top, pill.right - 16, pill.bottom};
-            ::DrawTextW(
-                mem, status.c_str(), static_cast<int>(status.size()), &text_rect,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS |
-                    DT_NOPREFIX);
+                RECT measured{0, 0, window_width - 40, 40};
+                ::DrawTextW(
+                    text_dc, status.c_str(), static_cast<int>(status.size()),
+                    &measured, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+                const int pill_width = std::min(
+                    window_width - 20,
+                    std::max(120,
+                             static_cast<int>(measured.right - measured.left) + 32));
+                const int pill_height = std::max(
+                    34, static_cast<int>(measured.bottom - measured.top) + 16);
+                RECT pill{
+                    (window_width - pill_width) / 2,
+                    icon_size + 8,
+                    (window_width + pill_width) / 2,
+                    std::min(window_height - 4, icon_size + 8 + pill_height),
+                };
+                fill_rounded_rect(
+                    static_cast<std::uint32_t*>(bits), window_width, window_height,
+                    pill, 12, premultiplied_bgra(27, 24, 24, 180));
 
-            auto* pixels = static_cast<std::uint32_t*>(bits);
-            for (int y = text_rect.top; y < text_rect.bottom; ++y) {
-                for (int x = text_rect.left; x < text_rect.right; ++x) {
-                    auto& pixel = pixels[static_cast<std::size_t>(y) * window_width + x];
-                    const auto blue = static_cast<unsigned char>(pixel & 0xFFu);
-                    const auto green = static_cast<unsigned char>((pixel >> 8u) & 0xFFu);
-                    const auto red = static_cast<unsigned char>((pixel >> 16u) & 0xFFu);
-                    if (red > 96 || green > 96 || blue > 96) {
-                        pixel |= 0xFF000000u;
-                    }
-                }
+                RECT text_rect{
+                    pill.left + 16, pill.top, pill.right - 16, pill.bottom};
+                ::DrawTextW(
+                    text_dc, status.c_str(), static_cast<int>(status.size()),
+                    &text_rect,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS |
+                        DT_NOPREFIX);
+                composite_grayscale_text(
+                    static_cast<std::uint32_t*>(bits),
+                    static_cast<const std::uint32_t*>(mask_bits),
+                    window_width, window_height, text_rect);
+
+                if (old_font) ::SelectObject(text_dc, old_font);
+                ::SelectObject(text_dc, old_mask_bitmap);
             }
-
-            if (old_font) ::SelectObject(mem, old_font);
+            if (mask_bitmap) ::DeleteObject(mask_bitmap);
+            if (text_dc) ::DeleteDC(text_dc);
             if (font) ::DeleteObject(font);
         }
 

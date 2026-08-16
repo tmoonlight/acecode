@@ -118,7 +118,6 @@ import {
 } from './lib/sessionJump.js';
 import { desktopUiMode } from './lib/desktopShellMode.js';
 import {
-  formatDesktopStartupElapsed,
   initialDesktopStartupProgress,
   reportDesktopStartupMilestone,
   subscribeDesktopStartupProgress,
@@ -167,8 +166,6 @@ const SINGLE_LAYOUT_STORAGE_KEY = 'acecode.singleLayoutWidths.v1';
 // 情况下应该是请求先超时、上层收尾;这个计时器只负责接住「上层压根没收尾」
 // 的漏网路径,不该抢在请求超时之前触发。
 const SESSION_NAVIGATION_MASK_TIMEOUT_MS = 45000;
-const DESKTOP_STARTUP_TERMINAL_VISIBLE_MS = 1600;
-
 // 控制台停靠区偏好(add-console-dock):开关 + 高度跨刷新持久化。
 const CONSOLE_DOCK_STORAGE_KEY = 'acecode.consoleDock.v1';
 const DEFAULT_CONSOLE_DOCK = { open: false, height: CONSOLE_DOCK_DEFAULT_HEIGHT };
@@ -203,7 +200,6 @@ export function App() {
   const [desktopStartupProgress, setDesktopStartupProgress] = useState(
     () => initialDesktopStartupProgress(),
   );
-  const [desktopStartupHidden, setDesktopStartupHidden] = useState(false);
 
   const [activeRef,    setActiveRef]    = useState(null);
   const [homeLogoEffectEnabled, setHomeLogoEffectEnabled] = useState(true);
@@ -334,7 +330,6 @@ export function App() {
   }
   const navHistoryRef = useRef(navHistory);
   const updatePollRef = useRef(0);
-  const desktopStartupTimerRef = useRef(0);
   const desktopModeRef = useRef(desktopUiMode());
   const startupOpenTargetRef = useRef(
     typeof window === 'undefined' ? null : openSessionTargetFromSearch(window.location.search),
@@ -368,26 +363,9 @@ export function App() {
   useEffect(() => {
     const handleProgress = (snapshot) => {
       setDesktopStartupProgress(snapshot);
-      setDesktopStartupHidden(false);
-      if (desktopStartupTimerRef.current) {
-        window.clearTimeout(desktopStartupTimerRef.current);
-        desktopStartupTimerRef.current = 0;
-      }
-      if (snapshot.current?.terminal) {
-        desktopStartupTimerRef.current = window.setTimeout(() => {
-          setDesktopStartupHidden(true);
-          desktopStartupTimerRef.current = 0;
-        }, DESKTOP_STARTUP_TERMINAL_VISIBLE_MS);
-      }
     };
     const unsubscribe = subscribeDesktopStartupProgress(handleProgress);
-    return () => {
-      unsubscribe();
-      if (desktopStartupTimerRef.current) {
-        window.clearTimeout(desktopStartupTimerRef.current);
-        desktopStartupTimerRef.current = 0;
-      }
-    };
+    return unsubscribe;
   }, []);
   useEffect(() => installDesktopExternalLinkRouter({
     onError: (error) => {
@@ -1753,13 +1731,9 @@ export function App() {
     () => pendingQuestionSessionIds(questionReqs, activeId, permissionOwnership),
     [questionReqs, activeId, permissionOwnership],
   );
-  const desktopStartupStatus = !desktopStartupHidden
-    ? desktopStartupProgress?.current || null
-    : null;
-
   if (authState === 'checking') {
     if (desktopModeRef.current === 'shell') {
-      const elapsed = formatDesktopStartupElapsed(desktopStartupStatus?.elapsed_ms);
+      const desktopStartupStatus = desktopStartupProgress?.current || null;
       return (
         <>
           <div
@@ -1776,7 +1750,6 @@ export function App() {
             >
               <span className="ace-spinner ace-desktop-startup-spinner" />
               <span>{desktopStartupStatus?.message || t('desktop.startupConnecting')}</span>
-              {elapsed && <span className="ace-desktop-startup-elapsed">{elapsed}</span>}
             </div>
           </div>
           <FramelessResizeHandles />
@@ -1951,7 +1924,6 @@ export function App() {
               <ChatView
                 sessionRef={activeRef}
                 homeLogoEffectEnabled={homeLogoEffectEnabled}
-                desktopStartupStatus={desktopStartupStatus}
                 homeComposerDrafts={homeComposerDrafts}
                 onHomeComposerDraftChange={updateHomeComposerDraft}
                 onHomeComposerDraftAccepted={acceptHomeComposerDraft}

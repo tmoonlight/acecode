@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import {
   DESKTOP_STARTUP_PROGRESS_EVENT,
-  formatDesktopStartupElapsed,
   initialDesktopStartupProgress,
   installDesktopStartupPaintReporter,
   normalizeDesktopStartupEvent,
@@ -67,12 +66,10 @@ run('normalizes a bounded startup event and rejects free-form payloads', () => {
   assert.equal(normalizeDesktopStartupSnapshot({ version: 2, current: event(1) }), null);
 });
 
-run('reads only Desktop shell bootstrap snapshots and formats elapsed time', () => {
+run('reads bootstrap snapshots only inside the Desktop shell', () => {
   const win = makeWindow();
   assert.equal(initialDesktopStartupProgress(win).current.sequence, 1);
   assert.equal(initialDesktopStartupProgress({ __ACECODE_DESKTOP_STARTUP__: snapshot() }), null);
-  assert.equal(formatDesktopStartupElapsed(842), '842ms');
-  assert.equal(formatDesktopStartupElapsed(1250), '1.3s');
 });
 
 run('subscribes to native progress snapshots and ignores malformed events', () => {

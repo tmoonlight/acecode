@@ -58,7 +58,6 @@ import { ChangeGlassDock } from './ChangeReview.jsx';
 import { TurnFileList } from './TurnFileList.jsx';
 import { toast } from './Toast.jsx';
 import { clsx } from '../lib/format.js';
-import { formatDesktopStartupElapsed } from '../lib/desktopStartupProgress.js';
 import {
   aggregateHunksFromMessages,
   changeGroupsSignature,
@@ -632,7 +631,7 @@ function isRealWorkspaceHash(hash) {
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 
-export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, desktopStartupStatus = null, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
+export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const stagedExpertDraft = expertDispatchDraftFromRef(ref);
@@ -4343,23 +4342,6 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         <div className="ace-home-panel flex-1">
           <div className="ace-home-content">
             <InteractiveHomeLogo enabled={homeLogoEffectEnabled} />
-            {desktopStartupStatus && (
-              <div
-                className={clsx(
-                  'ace-desktop-startup-status ace-home-startup-status',
-                  desktopStartupStatus.terminal && 'is-complete',
-                )}
-                data-desktop-startup-status={desktopStartupStatus.stage}
-              >
-                {!desktopStartupStatus.terminal && (
-                  <span className="ace-spinner ace-desktop-startup-spinner" />
-                )}
-                <span>{desktopStartupStatus.message}</span>
-                <span className="ace-desktop-startup-elapsed">
-                  {formatDesktopStartupElapsed(desktopStartupStatus.elapsed_ms)}
-                </span>
-              </div>
-            )}
             <h1 className="ace-home-title">{homeProjectTitle}</h1>
             <div data-tour-target="home-composer" className="ace-home-composer">
               <InputBar
