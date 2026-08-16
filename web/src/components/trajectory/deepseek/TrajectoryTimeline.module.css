@@ -174,24 +174,12 @@
 }
 
 .span[data-timeline-span='context'] {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-success-primary) 68%,
-    var(--dsw-alias-label-secondary)
-  );
+  background: var(--dsh-trajectory-fallback-context-color);
 }
 
 .span[data-timeline-span='message'] {
-  --trajectory-assistant-decoding-color: color-mix(
-    in srgb,
-    var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%,
-    var(--dsw-alias-state-error-secondary)
-  );
-  --trajectory-assistant-ttft-color: color-mix(
-    in srgb,
-    var(--trajectory-assistant-decoding-color) 54%,
-    var(--dsw-alias-bg-layer-2)
-  );
+  --trajectory-assistant-decoding-color: var(--dsh-trajectory-fallback-assistant-color);
+  --trajectory-assistant-ttft-color: var(--dsh-trajectory-fallback-assistant-ttft-color);
 
   background: var(--trajectory-assistant-decoding-color);
   opacity: 1;
@@ -231,11 +219,7 @@
   opacity: 1;
   box-shadow:
     0 0 0 1px var(--dsw-alias-bg-layer-2),
-    0 0 0 2px color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 80%,
-      transparent
-    );
+    0 0 0 2px var(--dsh-trajectory-fallback-hover-outline-color);
 }
 
 .span[data-current='true'] {
@@ -258,14 +242,10 @@
   left: var(--trajectory-selection-left);
   width: var(--trajectory-selection-width);
   min-width: 1px;
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-business-primary) 12%,
-    transparent
-  );
+  background: var(--dsh-trajectory-fallback-selection-color);
   box-shadow:
-    -100vw 0 0 100vw color-mix(in srgb, var(--dsw-alias-bg-layer-1) 58%, transparent),
-    100vw 0 0 100vw color-mix(in srgb, var(--dsw-alias-bg-layer-1) 58%, transparent);
+    -100vw 0 0 100vw var(--dsh-trajectory-fallback-selection-mask-color),
+    100vw 0 0 100vw var(--dsh-trajectory-fallback-selection-mask-color);
   pointer-events: none;
 }
 
@@ -319,9 +299,57 @@
 }
 
 .selection[data-dragging='true'] {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-business-primary) 18%,
-    transparent
-  );
+  background: var(--dsh-trajectory-fallback-selection-dragging-color);
+}
+
+@supports (color: color-mix(in srgb, black, white)) {
+  .span[data-timeline-span='context'] {
+    background: color-mix(
+      in srgb,
+      var(--dsw-alias-state-success-primary) 68%,
+      var(--dsw-alias-label-secondary)
+    );
+  }
+
+  .span[data-timeline-span='message'] {
+    --trajectory-assistant-decoding-color: color-mix(
+      in srgb,
+      var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%,
+      var(--dsw-alias-state-error-secondary)
+    );
+    --trajectory-assistant-ttft-color: color-mix(
+      in srgb,
+      var(--trajectory-assistant-decoding-color) 54%,
+      var(--dsw-alias-bg-layer-2)
+    );
+  }
+
+  .span[data-hovered='true']:not([data-current='true']) {
+    box-shadow:
+      0 0 0 1px var(--dsw-alias-bg-layer-2),
+      0 0 0 2px color-mix(
+        in srgb,
+        var(--dsw-alias-state-business-primary) 80%,
+        transparent
+      );
+  }
+
+  .selection {
+    background: color-mix(
+      in srgb,
+      var(--dsw-alias-state-business-primary) 12%,
+      transparent
+    );
+    box-shadow:
+      -100vw 0 0 100vw color-mix(in srgb, var(--dsw-alias-bg-layer-1) 58%, transparent),
+      100vw 0 0 100vw color-mix(in srgb, var(--dsw-alias-bg-layer-1) 58%, transparent);
+  }
+
+  .selection[data-dragging='true'] {
+    background: color-mix(
+      in srgb,
+      var(--dsw-alias-state-business-primary) 18%,
+      transparent
+    );
+  }
 }
