@@ -80,14 +80,25 @@ void SkillRegistry::refresh_from_disk() const {
              !ec && it != fs::recursive_directory_iterator();
              it.increment(ec)) {
             if (ec) { ec.clear(); continue; }
-            if (it->is_directory()) {
+            // directory_entry 的无参 status/is_directory/is_regular_file 会在
+            // 目录项刚好被同步器、安装器或杀毒软件替换时抛 filesystem_error。
+            // Skill 扫描是 best-effort；单个瞬时不可读项不能终止 daemon。
+            std::error_code status_ec;
+            const fs::file_status status = it->status(status_ec);
+            if (status_ec) {
+                LOG_DEBUG(
+                    "[skills] skipping transient directory entry '" +
+                    path_to_utf8(it->path()) + "': " + status_ec.message());
+                continue;
+            }
+            if (fs::is_directory(status)) {
                 std::string name = path_to_utf8(it->path().filename());
                 for (const auto& ex : kExcludedDirs) {
                     if (name == ex) { it.disable_recursion_pending(); break; }
                 }
                 continue;
             }
-            if (!it->is_regular_file()) continue;
+            if (!fs::is_regular_file(status)) continue;
             if (it->path().filename() != "SKILL.md") continue;
             if (is_excluded_segment(it->path())) continue;
 
@@ -172,7 +183,9 @@ std::vector<std::string> SkillRegistry::list_supporting_files(const std::string&
              !ec && it != fs::recursive_directory_iterator();
              it.increment(ec)) {
             if (ec) { ec.clear(); continue; }
-            if (!it->is_regular_file()) continue;
+            std::error_code status_ec;
+            const fs::file_status status = it->status(status_ec);
+            if (status_ec || !fs::is_regular_file(status)) continue;
             std::error_code rec;
             auto rel = fs::relative(it->path(), meta->skill_dir, rec);
             if (rec) continue;

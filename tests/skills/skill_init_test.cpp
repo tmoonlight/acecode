@@ -6,10 +6,13 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <atomic>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -307,6 +310,49 @@ TEST_F(SkillInitOpencodeTest, ExpertAllowlistOverridesGlobalPolicyAndKeepsBundle
         explicit_none, acecode::AppConfig{}, workspace.string(), {},
         std::vector<std::string>{});
     EXPECT_TRUE(explicit_none.list().empty());
+}
+
+// 安装后的首次启动会同步默认 skills。杀毒软件、同步器或另一条初始化
+// 路径可能恰好在扫描期间替换目录项；这种瞬时文件系统变化只能让该项被
+// 跳过，不能让 std::filesystem_error 逃出并终止整个 daemon。
+TEST(SkillRegistryFilesystemRace, EntriesRemovedDuringScanDoNotThrow) {
+    const fs::path root = make_temp_root();
+    const fs::path churn_root = root / "churn";
+    write_skill(root, "stable-skill", "stable");
+    fs::create_directories(churn_root);
+
+    std::atomic<bool> stop{false};
+    std::thread churner([&] {
+        std::error_code ec;
+        std::size_t generation = 0;
+        while (!stop.load(std::memory_order_relaxed)) {
+            const fs::path entry =
+                churn_root / ("entry-" + std::to_string(generation++ % 128));
+            fs::create_directories(entry, ec);
+            ec.clear();
+            fs::remove_all(entry, ec);
+            ec.clear();
+        }
+    });
+
+    acecode::SkillRegistry registry;
+    registry.set_scan_roots({root});
+    std::exception_ptr scan_error;
+    for (int i = 0; i < 400 && !scan_error; ++i) {
+        try {
+            registry.scan();
+        } catch (...) {
+            scan_error = std::current_exception();
+        }
+    }
+
+    stop.store(true, std::memory_order_relaxed);
+    churner.join();
+    EXPECT_EQ(scan_error, nullptr);
+    EXPECT_TRUE(registry.find("stable-skill").has_value());
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
 }
 
 } // namespace
