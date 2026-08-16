@@ -120,27 +120,102 @@ run('placeholder stays top-aligned without the inset shorthand', () => {
   );
 });
 
-run('attachments render inside Slate while contexts and footer controls stay outside', () => {
+run('composer external sync is composition-safe, generation-aware, and semantic', () => {
   const inputBar = source('components/InputBar.jsx');
   const composer = source('components/RichComposer.jsx');
+  const decisionIndex = composer.indexOf('const decision = classifyComposerExternalSync');
+  const effectStart = composer.lastIndexOf('useEffect(() => {', decisionIndex);
+  const effectEnd = composer.indexOf('const handleValueChange', decisionIndex);
+  const syncEffect = composer.slice(effectStart, effectEnd);
+
+  assert.ok(effectStart >= 0);
+  assert.ok(effectEnd > effectStart);
+  assert.match(inputBar, /syncKey=\{currentSessionId\}/);
+  assert.doesNotMatch(inputBar, /<RichComposer[\s\S]*?key=\{currentSessionId\}/);
+  assert.match(composer, /syncIdentityRef\.current\.generation \+ 1/);
+  assert.match(composer, /documentSyncGenerationRef\.current !== activeSyncGeneration/);
+  assert.match(composer, /documentSyncGenerationRef\.current !== activeGeneration\) return/);
+  assert.match(composer, /appendComposerLocalEcho\(localEchoes, text\)/);
+  assert.match(composer, /compositionStateRef\.current\.active = true/);
+  assert.match(composer, /compositionStateRef\.current\.settling = true/);
+  assert.match(composer, /window\.setTimeout\(\(\) => \{[\s\S]*setSyncRevision/s);
+  assert.match(composer, /onCompositionStart=\{handleCompositionStart\}/);
+  assert.match(composer, /onCompositionEnd=\{handleCompositionEnd\}/);
+  assert.match(syncEffect, /ReactEditor\.isComposing\(editor\)/);
+  assert.match(syncEffect, /compositionStateRef\.current\.active[\s\S]*compositionStateRef\.current\.settling/);
+  assert.match(syncEffect, /classifyComposerExternalSync\(\{/);
+  assert.match(
+    syncEffect,
+    /\}, \[\s*activeSyncGeneration,\s*attachmentSignature,\s*commandSignature,\s*editor,\s*normalizedValue,\s*publishSelection,\s*syncRevision,\s*\]\);/s,
+  );
+  assert.doesNotMatch(syncEffect, /\[attachmentSignature, attachments/);
+  assert.doesNotMatch(syncEffect, /commandSignature, commands/);
+});
+
+run('composer document replacement never removes the last root before inserting recovery content', () => {
+  const composer = source('components/RichComposer.jsx');
+  const replaceStart = composer.indexOf('function replaceEditorDocument');
+  const replaceEnd = composer.indexOf('function deleteAdjacentTag', replaceStart);
+  const replacement = composer.slice(replaceStart, replaceEnd);
+  const insertIndex = replacement.indexOf('Transforms.insertNodes(editor, replacementDocument');
+  const removeIndex = replacement.indexOf('Transforms.removeNodes(editor');
+
+  assert.ok(replaceStart >= 0);
+  assert.ok(replaceEnd > replaceStart);
+  assert.ok(insertIndex >= 0);
+  assert.ok(removeIndex > insertIndex);
+  assert.match(composer, /function legalComposerDocument\(document\)/);
+  assert.match(composer, /function ensureLegalEditorDocument\(editor/);
+  assert.match(composer, /editor\.children = fallbackDocument/);
+  assert.match(replacement, /return replaced/);
+});
+
+run('ordinary files render inside Slate while images use linked previews outside the editor', () => {
+  const inputBar = source('components/InputBar.jsx');
+  const composer = source('components/RichComposer.jsx');
+  const imagePreviewIndex = inputBar.indexOf('data-composer-image-preview="true"');
   const editorIndex = inputBar.indexOf('<RichComposer');
   const footerIndex = inputBar.indexOf('<ComposerSessionControls', editorIndex);
 
+  assert.ok(imagePreviewIndex >= 0);
   assert.ok(editorIndex >= 0);
+  assert.ok(imagePreviewIndex < editorIndex);
   assert.ok(footerIndex > editorIndex);
   assert.match(inputBar.slice(0, editorIndex), /selectionContextItems\.map/);
-  assert.match(inputBar.slice(editorIndex, footerIndex), /attachments=\{attachmentItems\}/);
-  assert.doesNotMatch(inputBar, /imageAttachments\.map|fileAttachments\.map/);
+  assert.match(inputBar, /const \{ imageAttachments, fileAttachments \} = useMemo\(\(\) => \(\{/);
+  assert.match(inputBar, /imageAttachments: attachmentItems\.filter\(isComposerImageAttachment\)/);
+  assert.match(inputBar, /fileAttachments: attachmentItems\.filter\(\(item\) => !isComposerImageAttachment\(item\)\)/);
+  assert.match(inputBar, /\}\), \[attachmentItems\]\);/);
+  assert.match(inputBar.slice(0, editorIndex), /imageAttachments\.map/);
+  assert.match(inputBar.slice(editorIndex, footerIndex), /attachments=\{fileAttachments\}/);
+  assert.doesNotMatch(inputBar.slice(editorIndex, footerIndex), /attachments=\{attachmentItems\}/);
   assert.match(composer, /data-composer-inline-tag="attachment"/);
   assert.match(composer, /contentEditable=\{false\}[\s\S]*draggable=\{false\}[\s\S]*ace-slate-attachment-tag/);
   assert.match(composer, /composerAdjacentAttachmentKey\([\s\S]*onRemoveAttachment\(attachmentKey\)/);
   assert.doesNotMatch(composer, /ComposerSessionControls|AttachmentStrip|ComposerSelectionCard/);
 });
 
-run('attachment tags retain preview, context-menu metadata, and existing transfer entrypoints', () => {
+run('image previews retain image rendering, file-link metadata, and existing transfer entrypoints', () => {
   const inputBar = source('components/InputBar.jsx');
   const composer = source('components/RichComposer.jsx');
+  const previewStart = inputBar.indexOf('{imageAttachments.length > 0');
+  const previewEnd = inputBar.indexOf('{(selectionPreview', previewStart);
+  const preview = inputBar.slice(previewStart, previewEnd);
 
+  assert.ok(previewStart >= 0);
+  assert.ok(previewEnd > previewStart);
+  assert.match(preview, /const linkPath = context\.sourcePath \|\| context\.path/);
+  assert.match(preview, /<img[\s\S]*src=\{context\.url\}[\s\S]*alt=\{context\.name\}/);
+  assert.match(preview, /data-desktop-attachment-id=\{context\.id\}/);
+  assert.match(preview, /data-desktop-attachment-name=\{context\.name\}/);
+  assert.match(preview, /data-desktop-attachment-url=\{context\.url \|\| undefined\}/);
+  assert.match(preview, /data-desktop-attachment-path=\{linkPath \|\| undefined\}/);
+  assert.match(preview, /data-desktop-attachment-preview-url=\{context\.url \|\| undefined\}/);
+  assert.match(preview, /data-desktop-attachment-mime-type=\{mimeType \|\| undefined\}/);
+  assert.match(preview, /data-desktop-attachment-kind="image"/);
+  assert.match(preview, /data-desktop-attachment-mutable="true"/);
+  assert.match(preview, /setAttachmentPreview\(\{ src: context\.url, alt: context\.name \}\)/);
+  assert.match(preview, /onRemoveAttachment\?\.\(context\.key\)/);
   assert.match(composer, /data-desktop-attachment-id=\{`composer:\$\{attachmentKey\}`\}/);
   assert.match(composer, /data-desktop-attachment-preview-url=\{element\?\.url \|\| undefined\}/);
   assert.match(composer, /onClick=\{previewable \? \(\) => onPreviewAttachment\?\.\(element\) : undefined\}/);

@@ -3,8 +3,11 @@ import { flattenCommands } from './slashCommands.js';
 import {
   COMPOSER_ATTACHMENT_TAG,
   COMPOSER_COMMAND_TAG,
+  COMPOSER_EXTERNAL_SYNC_ACTIONS,
   COMPOSER_PATH_TAG,
   COMPOSER_SESSION_TAG,
+  appendComposerLocalEcho,
+  classifyComposerExternalSync,
   clipboardHasRichText,
   composerAdjacentAttachmentKey,
   composerAdjacentTagDeletionRange,
@@ -18,6 +21,7 @@ import {
   composerPointForPlainTextOffset,
   composerSelectionFromPlainTextRange,
   composerTextFromDocument,
+  isComposerImageAttachment,
   normalizeComposerPlainText,
   plainTextFromClipboardData,
   richComposerModelFromText,
@@ -80,6 +84,105 @@ run('unknown leading command remains plain text', () => {
   assert.equal(model.kind, 'plain');
   assert.equal(model.command, null);
   assert.equal(richComposerTextFromModel(model), text);
+});
+
+run('composer external sync defers stale controlled text through IME settlement', () => {
+  const baseline = 'asd';
+  const committed = 'asd中文';
+  assert.deepEqual(classifyComposerExternalSync({
+    compositionProtected: true,
+    currentText: committed,
+    nextText: baseline,
+    lastExternalText: baseline,
+  }), {
+    action: COMPOSER_EXTERNAL_SYNC_ACTIONS.DEFER,
+    acknowledgedEchoCount: 0,
+  });
+
+  const localEchoes = appendComposerLocalEcho([], committed);
+  assert.deepEqual(classifyComposerExternalSync({
+    currentText: committed,
+    nextText: baseline,
+    lastExternalText: baseline,
+    localEchoes,
+  }), {
+    action: COMPOSER_EXTERNAL_SYNC_ACTIONS.IGNORE_STALE,
+    acknowledgedEchoCount: 0,
+  });
+  assert.deepEqual(classifyComposerExternalSync({
+    currentText: committed,
+    nextText: committed,
+    lastExternalText: baseline,
+    localEchoes,
+  }), {
+    action: COMPOSER_EXTERNAL_SYNC_ACTIONS.ACCEPT,
+    acknowledgedEchoCount: 1,
+  });
+});
+
+run('composer external sync ignores earlier rapid local echoes without losing the latest text', () => {
+  let localEchoes = [];
+  localEchoes = appendComposerLocalEcho(localEchoes, '中');
+  localEchoes = appendComposerLocalEcho(localEchoes, '中文');
+  localEchoes = appendComposerLocalEcho(localEchoes, '中文输入');
+
+  assert.deepEqual(classifyComposerExternalSync({
+    currentText: '中文输入',
+    nextText: '中文',
+    lastExternalText: '',
+    localEchoes,
+  }), {
+    action: COMPOSER_EXTERNAL_SYNC_ACTIONS.IGNORE_STALE,
+    acknowledgedEchoCount: 2,
+  });
+  assert.deepEqual(appendComposerLocalEcho(['一', '二'], '三', 2), ['二', '三']);
+});
+
+run('composer external sync makes the latest session generation authoritative', () => {
+  assert.equal(classifyComposerExternalSync({
+    generationChanged: true,
+    currentText: '会话 A 草稿',
+    nextText: '会话 B 草稿',
+    lastExternalText: '会话 A 草稿',
+    localEchoes: ['会话 A 新输入'],
+  }).action, COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE);
+
+  assert.equal(classifyComposerExternalSync({
+    generationChanged: true,
+    currentText: '相同文字',
+    nextText: '相同文字',
+  }).action, COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE);
+
+  assert.equal(classifyComposerExternalSync({
+    compositionProtected: true,
+    generationChanged: true,
+    currentText: '旧会话 composition',
+    nextText: '',
+  }).action, COMPOSER_EXTERNAL_SYNC_ACTIONS.DEFER);
+  assert.equal(classifyComposerExternalSync({
+    generationChanged: true,
+    currentText: '旧会话 composition',
+    nextText: '',
+  }).action, COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE);
+});
+
+run('composer external sync accepts unchanged English and replaces novel external drafts', () => {
+  assert.equal(classifyComposerExternalSync({
+    currentText: 'plain English',
+    nextText: 'plain English',
+  }).action, COMPOSER_EXTERNAL_SYNC_ACTIONS.ACCEPT);
+  assert.equal(classifyComposerExternalSync({
+    currentText: 'local draft',
+    nextText: 'external draft',
+    lastExternalText: 'previous draft',
+  }).action, COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE);
+});
+
+run('composer image classification respects explicit attachment kind before MIME fallback', () => {
+  assert.equal(isComposerImageAttachment({ kind: 'image', mime_type: 'image/png' }), true);
+  assert.equal(isComposerImageAttachment({ mime_type: 'image/jpeg' }), true);
+  assert.equal(isComposerImageAttachment({ kind: 'file', mime_type: 'image/svg+xml' }), false);
+  assert.equal(isComposerImageAttachment({ kind: 'file', mime_type: 'application/pdf' }), false);
 });
 
 run('Slate composer document round-trips command, path tags, and multiline text', () => {

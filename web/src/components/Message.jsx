@@ -20,7 +20,7 @@ import { resolveLeadingSlashCommand } from '../lib/slashCommands.js';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { AttachmentStrip } from './AttachmentStrip.jsx';
 
-function HoverActions({ messageId, getCopyText, onFork }) {
+function HoverActions({ messageId, getCopyText, onFork, forkPending = false, forkLoading = false }) {
   const handleCopy = async (event) => {
     event.stopPropagation();
     try {
@@ -34,21 +34,31 @@ function HoverActions({ messageId, getCopyText, onFork }) {
   };
   const handleFork = (event) => {
     event.stopPropagation();
-    if (!messageId) return;
+    if (!messageId || forkPending) return;
     onFork?.(messageId);
   };
   return (
-    <div className="ace-msg-actions flex gap-0.5">
+    <div
+      className="ace-msg-actions flex gap-0.5"
+      data-fork-loading={forkLoading ? 'true' : undefined}
+    >
       <button type="button" onClick={handleCopy} title="复制">
         <VsIcon name="copy" size={14} />
       </button>
       <button
         type="button"
         onClick={handleFork}
-        disabled={!messageId}
-        title={messageId ? '分叉到新会话' : '此消息不可分叉(无 ID)'}
+        disabled={!messageId || forkPending}
+        data-fork-loading={forkLoading ? 'true' : undefined}
+        aria-busy={forkLoading ? 'true' : undefined}
+        aria-label={forkLoading ? '正在分叉到新会话' : '分叉到新会话'}
+        title={forkLoading
+          ? '正在分叉到新会话…'
+          : (messageId ? '分叉到新会话' : '此消息不可分叉(无 ID)')}
       >
-        <VsIcon name="fork" size={14} />
+        {forkLoading
+          ? <span className="ace-spinner w-3.5 h-3.5" aria-hidden="true" />
+          : <VsIcon name="fork" size={14} />}
       </button>
     </div>
   );
@@ -135,6 +145,8 @@ function UserBubble({
   ts,
   messageId,
   onFork,
+  forkPending,
+  forkLoading,
   annotationPresentations,
 }) {
   return (
@@ -155,6 +167,8 @@ function UserBubble({
           messageId={messageId}
           getCopyText={() => content}
           onFork={onFork}
+          forkPending={forkPending}
+          forkLoading={forkLoading}
         />
       </div>
     </div>
@@ -168,6 +182,8 @@ function AssistantBubble({
   streaming,
   messageId,
   onFork,
+  forkPending,
+  forkLoading,
   onOpenFilePreview,
   continuation,
   showFooter,
@@ -245,6 +261,8 @@ function AssistantBubble({
                 messageId={messageId}
                 getCopyText={() => content || ''}
                 onFork={onFork}
+                forkPending={forkPending}
+                forkLoading={forkLoading}
               />
             )}
             {ts != null && <span className="text-[10px] text-fg-mute font-normal">{relativeTime(ts)}</span>}
@@ -325,6 +343,8 @@ export const Message = memo(function Message({
   messageId,
   metadata,
   onFork,
+  forkPending = false,
+  forkLoading = false,
   onOpenFilePreview,
   continuation,
   showFooter = true,
@@ -344,12 +364,15 @@ export const Message = memo(function Message({
     return <UserBubble content={displayContent} contentParts={contentParts} ts={ts}
                         messageId={messageId}
                         onFork={onFork}
+                        forkPending={forkPending}
+                        forkLoading={forkLoading}
                         annotationPresentations={annotationPresentations} />;
   }
   if (role === 'assistant') {
     return <AssistantBubble content={content} contentParts={contentParts}
                              ts={ts} streaming={streaming}
                              messageId={messageId} onFork={onFork}
+                             forkPending={forkPending} forkLoading={forkLoading}
                              onOpenFilePreview={onOpenFilePreview}
                              continuation={continuation}
                              showFooter={showFooter}

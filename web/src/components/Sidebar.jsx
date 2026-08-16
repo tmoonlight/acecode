@@ -43,7 +43,6 @@ import { usePreference } from '../lib/usePreference.js';
 import {
   SESSION_LIST_CHANGED_EVENT,
   normalizeSessionListChangedDetail,
-  notifySessionListChanged,
 } from '../lib/sessionListEvents.js';
 import { sessionHasPendingQuestion } from '../lib/pendingQuestions.js';
 import { sessionHasPendingPermission } from '../lib/permissionRequestQueue.js';
@@ -85,7 +84,7 @@ import {
   sessionHoverDetails,
 } from '../lib/sessionHoverDetails.js';
 // hover 卡片与 GitSessionPill 共用同一份 git info 缓存(见 gitInfoCache.js)。
-import { gitInfoCache, refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
+import { gitInfoCache } from '../lib/gitInfoCache.js';
 import {
   DEFAULT_SIDEBAR_CUSTOM_EXPANDED,
   DEFAULT_SIDEBAR_SECTION_EXPANSION,
@@ -2722,70 +2721,18 @@ export function Sidebar({
     }
   };
 
-  const createSessionInWorkspace = async (ws) => {
-    if (!ws?.hash) return;
+  const openNewTaskInWorkspace = useCallback((ws) => {
+    const workspaceHash = ws?.hash || '';
+    if (!workspaceHash) return;
     workspaceCollapseAllRef.current = false;
-    void refreshWorkspaceGitInfo(api, ws).catch(() => {});
-    try {
-      const r = ws.hash === '__local__'
-        ? await api.createSession({})
-        : await api.createWorkspaceSession(ws.hash, {});
-      const id = r && (r.session_id || r.id);
-      if (!id) return;
-
-      const workspaceHash = r.workspace_hash || ws.hash;
-      const cwd = r.cwd || ws.cwd;
-      const now = new Date().toISOString();
-      const nextSession = {
-        ...r,
-        id,
-        active: true,
-        status: r.status || 'idle',
-        attention_state: r.attention_state || 'read',
-        read_state: r.read_state || 'read',
-        workspace_hash: workspaceHash,
-        cwd,
-        created_at: r.created_at || now,
-        updated_at: r.updated_at || now,
-      };
-      const decoratedNextSession =
-        withNewSessionDisplayTitles([...sessions.filter((item) => item.id !== id), nextSession])
-          .find((item) => item.id === id) || nextSession;
-
-      setActiveWorkspaceHash(workspaceHash);
-      updateExpanded((prev) => new Set(prev).add(workspaceHash));
-      setWorkspaces((prev) => prev.map((item) => ({ ...item, active: item.hash === workspaceHash })));
-      setSessions((prev) => [decoratedNextSession, ...prev.filter((item) => item.id !== id)]);
-      setStatusBySession((prev) => applyStatusUpdate(prev, { ...decoratedNextSession, session_id: id, state: 'read' }));
-      notifySessionListChanged({
-        reason: 'session-created',
-        sessionId: id,
-        workspaceHash,
-        session: decoratedNextSession,
-      });
-      connection.subscribeWorkspaceStatus(workspaceHash);
-      syncRetainedSessionIds(new Set([...retainedSessionIdsRef.current, id]));
-      markSessionRead(decoratedNextSession);
-      onSelect?.({
-        workspaceHash,
-        contextId: 'default',
-        sessionId: id,
-        displayTitle: decoratedNextSession.displayTitle || decoratedNextSession.display_title,
-        port: ws.port,
-        token: ws.token,
-        cwd,
-        sessionPath: r.sessionPath || r.session_path || '',
-        title: r.title,
-        summary: r.summary,
-        message_count: r.message_count,
-        created_at: r.created_at,
-        updated_at: r.updated_at,
-      });
-      refresh(workspaceHash).catch(() => {});
-    } catch (e) {
-      toast({ kind: 'err', text: '新建任务失败:' + (e.message || '') });
-    }
-  };
+    setActiveWorkspaceHash(workspaceHash);
+    updateExpanded((prev) => new Set(prev).add(workspaceHash));
+    setWorkspaces((prev) => prev.map((item) => ({
+      ...item,
+      active: item.hash === workspaceHash,
+    })));
+    onOpenHome?.(ws);
+  }, [onOpenHome, updateExpanded]);
 
   const onAddWorkspace = async () => {
     try {
@@ -2957,7 +2904,7 @@ export function Sidebar({
                       onSelect={(session) => selectSession(ws, session)}
                       onRename={onRename}
                       onActivate={onActivate}
-                      onNewSession={createSessionInWorkspace}
+                      onNewSession={openNewTaskInWorkspace}
                       onImportOpencode={openOpencodeImportDialog}
                       onRemove={hasDesktopRemoveWorkspace() ? removeWorkspace : undefined}
                       onTogglePin={togglePinnedSession}

@@ -4,6 +4,7 @@ export function createComposerAttachmentReservations() {
   return {
     identityByLocalId: new Map(),
     localIdByIdentity: new Map(),
+    reservationByLocalId: new Map(),
   };
 }
 
@@ -23,11 +24,20 @@ export function reserveComposerAttachmentFiles(
     if (reservations.localIdByIdentity.has(identity)) continue;
     const localId = String(createLocalId(file, index) || '');
     if (!localId || reservations.identityByLocalId.has(localId)) continue;
+    const reservation = { file, identity, localId };
     reservations.identityByLocalId.set(localId, identity);
     reservations.localIdByIdentity.set(identity, localId);
-    accepted.push({ file, identity, localId });
+    reservations.reservationByLocalId?.set(localId, reservation);
+    accepted.push(reservation);
   }
   return accepted;
+}
+
+export function composerAttachmentFilesForLocalIds(reservations, localIds) {
+  if (!reservations?.reservationByLocalId) return [];
+  return Array.from(localIds || [])
+    .map((localId) => reservations.reservationByLocalId.get(String(localId || '')))
+    .filter(Boolean);
 }
 
 export function releaseComposerAttachmentFile(reservations, localId) {
@@ -36,6 +46,7 @@ export function releaseComposerAttachmentFile(reservations, localId) {
   const identity = reservations.identityByLocalId.get(key);
   if (!identity) return false;
   reservations.identityByLocalId.delete(key);
+  reservations.reservationByLocalId?.delete(key);
   if (reservations.localIdByIdentity.get(identity) === key) {
     reservations.localIdByIdentity.delete(identity);
   }
@@ -45,4 +56,5 @@ export function releaseComposerAttachmentFile(reservations, localId) {
 export function clearComposerAttachmentReservations(reservations) {
   reservations?.identityByLocalId?.clear();
   reservations?.localIdByIdentity?.clear();
+  reservations?.reservationByLocalId?.clear();
 }

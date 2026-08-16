@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   clearComposerAttachmentReservations,
+  composerAttachmentFilesForLocalIds,
   createComposerAttachmentReservations,
   releaseComposerAttachmentFile,
   reserveComposerAttachmentFiles,
@@ -58,6 +59,27 @@ run('attachment reservation release allows the same file to be added again', () 
   assert.equal(reserveComposerAttachmentFiles(reservations, [file], createLocalId).length, 1);
 });
 
+run('attachment reservations retain files for selected staged local IDs', () => {
+  const reservations = createComposerAttachmentReservations();
+  const createLocalId = localIds();
+  const files = [browserFile('a.txt'), browserFile('b.txt')];
+  const accepted = reserveComposerAttachmentFiles(reservations, files, createLocalId);
+
+  assert.deepEqual(
+    composerAttachmentFilesForLocalIds(
+      reservations,
+      [accepted[1].localId, 'missing', accepted[0].localId],
+    ),
+    [accepted[1], accepted[0]],
+  );
+
+  releaseComposerAttachmentFile(reservations, accepted[1].localId);
+  assert.deepEqual(
+    composerAttachmentFilesForLocalIds(reservations, accepted.map((item) => item.localId)),
+    [accepted[0]],
+  );
+});
+
 run('clearing attachment reservations releases every composer file', () => {
   const reservations = createComposerAttachmentReservations();
   const createLocalId = localIds();
@@ -66,5 +88,9 @@ run('clearing attachment reservations releases every composer file', () => {
 
   clearComposerAttachmentReservations(reservations);
 
+  assert.deepEqual(
+    composerAttachmentFilesForLocalIds(reservations, ['local-test-1', 'local-test-2']),
+    [],
+  );
   assert.equal(reserveComposerAttachmentFiles(reservations, files, createLocalId).length, 2);
 });

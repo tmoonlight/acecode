@@ -42,14 +42,15 @@ test('all workspace-backed new-task entry points refresh without changing generi
   const sidebar = source('components/Sidebar.jsx');
   const expertTask = section(app, 'const dispatchExpertToNewTask =', 'const consumeInitialDraftText =');
   const trayTask = section(app, 'const createDesktopTraySession =', 'const handleSubagentTasksChange =');
-  const homeTask = section(chat, 'const createHomeComposerSession =', 'const uploadMediaFilesToSession =');
-  const sidebarTask = section(sidebar, 'const createSessionInWorkspace =', 'const onAddWorkspace =');
+  const homeTask = section(chat, 'const createHomeComposerSession =', 'const stageMediaFiles =');
+  const sidebarTask = section(sidebar, 'const openNewTaskInWorkspace =', 'const onAddWorkspace =');
   const genericNavigation = section(app, 'const navigateToRef =', 'const replaceNavigationState =');
 
   assert.match(expertTask, /refreshWorkspaceGitInfo\(createApi\(base\), base\)/);
   assert.match(trayTask, /refreshWorkspaceGitInfo\(createApi\(next\), next\)/);
   assert.match(homeTask, /refreshWorkspaceGitInfo\(api, target\)/);
-  assert.match(sidebarTask, /refreshWorkspaceGitInfo\(api, ws\)/);
+  assert.match(sidebarTask, /onOpenHome\?\.\(ws\)/);
+  assert.doesNotMatch(sidebarTask, /refreshWorkspaceGitInfo|createWorkspaceSession/);
   assert.doesNotMatch(genericNavigation, /refreshWorkspaceGitInfo/);
 });
 

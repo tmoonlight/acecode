@@ -31,6 +31,7 @@ import {
 } from '../lib/composerFileTransfer.js';
 import {
   clearComposerAttachmentReservations,
+  composerAttachmentFilesForLocalIds,
   createComposerAttachmentReservations,
   releaseComposerAttachmentFile,
   reserveComposerAttachmentFiles,
@@ -104,6 +105,7 @@ import {
 import { usePreference } from '../lib/usePreference.js';
 import { pickExistingWorkspace } from '../lib/workspacePicker.js';
 import { refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
+import { createPendingActionGuard } from '../lib/pendingActionGuard.js';
 import { homeComposerDraftText } from '../lib/homeComposerDrafts.js';
 import { extractSessionReferences } from '../lib/sessionReference.js';
 import {
@@ -302,6 +304,18 @@ function normalizeComposerPayload(text, attachments = [], contexts = [], swarmMo
   }
   if (swarmMode) payload.swarm_mode = true;
   return payload;
+}
+
+function payloadWithAttachmentIds(payload, attachments = []) {
+  const nextAttachments = Array.from(payload?.attachments || []);
+  const seen = new Set(nextAttachments.map((item) => String(item?.id || '')).filter(Boolean));
+  for (const attachment of Array.from(attachments || [])) {
+    const id = String(attachment?.id || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    nextAttachments.push({ id });
+  }
+  return { ...payload, attachments: nextAttachments };
 }
 
 function payloadHasExtras(payload) {
@@ -630,6 +644,7 @@ function isRealWorkspaceHash(hash) {
 
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
+const FORK_ACTION_KEY = 'fork-session';
 
 export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
@@ -786,6 +801,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     validateHomeWorkspaceSelection,
   );
   const [homeSubmitting, setHomeSubmitting] = useState(false);
+  const [forkingMessageId, setForkingMessageId] = useState('');
+  const forkActionGuardRef = useRef(createPendingActionGuard());
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [modelOptions, setModelOptions] = useState([]);
@@ -892,6 +909,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const composerValueRef = useRef('');
   const composerDirtyRef = useRef(false);
   const preserveComposerExtrasOnSessionChangeRef = useRef(false);
+  const preserveComposerInputOnSessionChangeRef = useRef(false);
   const attachmentReservationsRef = useRef(null);
   if (!attachmentReservationsRef.current) {
     attachmentReservationsRef.current = createComposerAttachmentReservations();
@@ -1323,7 +1341,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         next.expert_id = homeExpertId;
         if (selectedExpert) next.expert = selectedExpert;
       }
-      if (preserveExtras) preserveComposerExtrasOnSessionChangeRef.current = true;
+      if (preserveExtras) {
+        preserveComposerExtrasOnSessionChangeRef.current = true;
+        preserveComposerInputOnSessionChangeRef.current = true;
+      }
       onSessionPromoted?.(next);
       notifySessionListChanged({
         reason: 'session-created',
@@ -1343,7 +1364,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     }
   }, [api, experts, health, homeExpertId, homeModelName, homeSubmitting, onSessionPromoted, permissionMode, ref, selectedHomeWorkspace]);
 
-  const uploadMediaFilesToSession = useCallback((targetSid, reservedFiles) => {
+  const stageMediaFiles = useCallback((reservedFiles) => {
+    const stagedItems = [];
     for (const reserved of Array.from(reservedFiles || [])) {
       const { file, identity, localId } = reserved;
       if (!file || !identity || !localId) continue;
@@ -1362,89 +1384,108 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         preview_url: previewUrl,
         source_path: sourcePath,
         attachment_identity: identity,
-        uploading: true,
+        pending_upload: true,
+        uploading: false,
       };
-      setComposerAttachments((items) => [...items, localItem]);
-      const persistAttachment = sourceReference
-        ? api.createSessionAttachmentReference(targetSid, {
-            name: file.name || 'attachment',
-            mime_type: file.type || '',
-            source_path: sourceReference.sourcePath,
-            reference_only: true,
-          })
-        : normalizeImageFile(file)
-          .then((normalized) => {
-            if (normalized.file.size > ATTACHMENT_HARD_LIMIT_BYTES) {
-              throw new Error('附件超过 25MiB，且无法压缩到限制内');
-            }
-            return normalized;
-          })
-          .then(({ file: uploadFile }) => fileToBase64(uploadFile)
-            .then((dataBase64) => ({ uploadFile, dataBase64 })))
-          .then(({ uploadFile, dataBase64 }) => {
-            const uploadName = uploadFile.name || file.name || 'attachment';
-            const uploadMime = uploadFile.type || file.type || '';
-            return api.uploadSessionAttachment(targetSid, {
-              name: uploadName,
-              mime_type: uploadMime,
-              data_base64: dataBase64,
-              ...(sourcePath ? { source_path: sourcePath } : {}),
-            });
-          });
-      Promise.resolve(persistAttachment)
-        .then((result) => {
-          const attachment = result?.attachment || {};
-          setComposerAttachments((items) => items.map((item) => (
-            item.local_id === localId
-              ? {
-                  ...attachment,
-                  local_id: localId,
-                  preview_url: previewUrl,
-                  source_path: attachment?.metadata?.source_path || sourcePath,
-                  attachment_identity: identity,
-                  uploading: false,
-                }
-              : item
-          )));
-        })
-        .catch((e) => {
-          if (previewUrl) URL.revokeObjectURL(previewUrl);
-          releaseAttachmentReservation(localId);
-          setComposerAttachments((items) => items.filter((item) => item.local_id !== localId));
-          toast({ kind: 'err', text: '附件上传失败:' + (e.message || '') });
-        });
+      stagedItems.push(localItem);
     }
-  }, [api, releaseAttachmentReservation]);
+    if (stagedItems.length > 0) {
+      setComposerAttachments((items) => [...items, ...stagedItems]);
+    }
+    return stagedItems;
+  }, []);
+
+  const persistMediaFilesToSession = useCallback(async (targetSid, reservedFiles) => {
+    const persistOne = async (reserved) => {
+      const { file, identity, localId } = reserved || {};
+      if (!file || !identity || !localId) return null;
+      const sourceReference = fileSourceReference(file);
+      const sourcePath = sourceReference?.sourcePath || fileSourcePath(file);
+      setComposerAttachments((items) => items.map((item) => (
+        item.local_id === localId
+          ? { ...item, pending_upload: false, uploading: true, upload_error: '' }
+          : item
+      )));
+      try {
+        const persistAttachment = sourceReference
+          ? api.createSessionAttachmentReference(targetSid, {
+              name: file.name || 'attachment',
+              mime_type: file.type || '',
+              source_path: sourceReference.sourcePath,
+              reference_only: true,
+            })
+          : normalizeImageFile(file)
+            .then((normalized) => {
+              if (normalized.file.size > ATTACHMENT_HARD_LIMIT_BYTES) {
+                throw new Error('附件超过 25MiB，且无法压缩到限制内');
+              }
+              return normalized;
+            })
+            .then(({ file: uploadFile }) => fileToBase64(uploadFile)
+              .then((dataBase64) => ({ uploadFile, dataBase64 })))
+            .then(({ uploadFile, dataBase64 }) => {
+              const uploadName = uploadFile.name || file.name || 'attachment';
+              const uploadMime = uploadFile.type || file.type || '';
+              return api.uploadSessionAttachment(targetSid, {
+                name: uploadName,
+                mime_type: uploadMime,
+                data_base64: dataBase64,
+                ...(sourcePath ? { source_path: sourcePath } : {}),
+              });
+            });
+        const result = await Promise.resolve(persistAttachment);
+        const attachment = result?.attachment || {};
+        if (!attachment.id) {
+          throw new Error(tr('composerAttachment.missingId'));
+        }
+        const uploadedItem = {
+          ...attachment,
+          local_id: localId,
+          source_path: attachment?.metadata?.source_path || sourcePath,
+          attachment_identity: identity,
+          pending_upload: false,
+          uploading: false,
+          upload_error: '',
+        };
+        setComposerAttachments((items) => items.map((item) => (
+          item.local_id === localId
+            ? { ...uploadedItem, preview_url: item.preview_url || '' }
+            : item
+        )));
+        return uploadedItem;
+      } catch (error) {
+        setComposerAttachments((items) => items.map((item) => (
+          item.local_id === localId
+            ? {
+                ...item,
+                pending_upload: true,
+                uploading: false,
+                upload_error: error?.message || tr('composerAttachment.uploadFailed'),
+              }
+            : item
+        )));
+        throw error;
+      }
+    };
+
+    const uploaded = await Promise.all(Array.from(reservedFiles || []).map(persistOne));
+    return uploaded.filter(Boolean);
+  }, [api]);
 
   const handleMediaFiles = useCallback((files) => {
     const reservedFiles = reserveUniqueComposerFiles(files);
     if (reservedFiles.length === 0) return;
-    if (sid) {
-      uploadMediaFilesToSession(sid, reservedFiles);
-      return;
-    }
-    createHomeComposerSession('', {
-      createOptions: { auto_start: false },
-      preserveExtras: true,
-      title: '附件消息',
-    })
-      .then((created) => {
-        if (created?.id) {
-          uploadMediaFilesToSession(created.id, reservedFiles);
-          return;
-        }
-        for (const item of reservedFiles) releaseAttachmentReservation(item.localId);
-      })
+    stageMediaFiles(reservedFiles);
+    if (!sid) return;
+    persistMediaFilesToSession(sid, reservedFiles)
       .catch((e) => {
-        for (const item of reservedFiles) releaseAttachmentReservation(item.localId);
-        toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
+        toast({ kind: 'err', text: '附件上传失败:' + (e?.message || '') });
       });
   }, [
-    createHomeComposerSession,
-    releaseAttachmentReservation,
+    persistMediaFilesToSession,
     reserveUniqueComposerFiles,
     sid,
-    uploadMediaFilesToSession,
+    stageMediaFiles,
   ]);
 
   const removeComposerAttachment = useCallback((key) => {
@@ -1689,8 +1730,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     const targetWorkspaceHash = draftWorkspaceHash;
     const targetKey = draftSessionKey;
     const editVersionAtLoad = draftEditVersionRef.current;
+    const preserveComposerInput = preserveComposerInputOnSessionChangeRef.current;
+    preserveComposerInputOnSessionChangeRef.current = false;
     setDraftReadyKey('');
-    setComposerSubmitting(false);
+    if (!preserveComposerInput) setComposerSubmitting(false);
 
     if (!targetSid || !targetKey) {
       const homeText = stagedExpertDraft.present
@@ -1703,6 +1746,13 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         onHomeComposerDraftChange?.(homeDraftWorkspaceHash, stagedExpertDraft.text);
         onInitialDraftConsumed?.();
       }
+      return () => { cancelled = true; };
+    }
+
+    if (preserveComposerInput) {
+      composerDirtyRef.current = !!composerValueRef.current;
+      draftLastSavedRef.current = { key: targetKey, text: '' };
+      setDraftReadyKey(targetKey);
       return () => { cancelled = true; };
     }
 
@@ -2534,13 +2584,29 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       toast({ kind: 'err', text: '附件仍在上传，请稍后发送' });
       return;
     }
+    const pendingAttachmentLocalIds = composerAttachments
+      .filter((item) => item?.pending_upload && item?.local_id)
+      .map((item) => item.local_id);
+    const pendingAttachmentFiles = composerAttachmentFilesForLocalIds(
+      attachmentReservationsRef.current,
+      pendingAttachmentLocalIds,
+    );
+    const hasPendingAttachments = pendingAttachmentLocalIds.length > 0;
+    if (pendingAttachmentFiles.length !== pendingAttachmentLocalIds.length) {
+      toast({ kind: 'err', text: tr('composerAttachment.stagedUnavailable') });
+      return;
+    }
+    if (sid && hasPendingAttachments) {
+      toast({ kind: 'err', text: tr('composerAttachment.uploadRequired') });
+      return;
+    }
     const payload = normalizeComposerPayload(
       text,
       composerAttachments,
       composerContexts,
       composerSwarmMode,
     );
-    const hasExtras = payloadHasExtras(payload);
+    const hasExtras = payloadHasExtras(payload) || hasPendingAttachments;
     const hasSwarmMode = payload.swarm_mode === true;
     if (!payload.text.trim() && !hasExtras) return;
     const route = inputRouteForText(payload.text);
@@ -2663,7 +2729,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       // 自动新建会话。普通消息由 daemon auto_start 接管;builtin 先创建
       // 空会话,再走专门 command endpoint。
       const trimmed = String(payload.text || '').trim();
-      if ((!trimmed && !hasExtras) || homeSubmitting) return;
+      if ((!trimmed && !hasExtras) || homeSubmitting || composerSubmitting) return;
       const submittedHomeDraftWorkspaceHash = homeDraftWorkspaceHash;
       const submittedHomeDraftText = payload.text;
       // GitSessionPill 的 worktree 意图:命中时改走 auto_start:false +
@@ -2676,20 +2742,30 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       const createOptions = explicitHomeSend
         ? { auto_start: false }
         : sessionCreateOptionsForText(payload.text);
+      let sessionCreated = false;
+      setComposerSubmitting(true);
       createHomeComposerSession(payload.text, {
         createOptions,
-        preserveExtras: hasSwarmMode,
+        preserveExtras: hasExtras || hasSwarmMode,
+        title: !payload.text.trim() && hasPendingAttachments
+          ? (composerAttachments[0]?.name || '附件消息')
+          : '',
       })
         .then(async (created) => {
           const id = created?.id;
           if (!id) return;
+          sessionCreated = true;
+          const materializedAttachments = pendingAttachmentFiles.length > 0
+            ? await persistMediaFilesToSession(id, pendingAttachmentFiles)
+            : [];
+          const materializedPayload = payloadWithAttachmentIds(payload, materializedAttachments);
           if (isBuiltin) {
             await executeBuiltinCommand(id, route.command);
           } else if (explicitHomeSend) {
             applyEvent({ type: 'busy_changed', payload: { busy: true } }, { emitEffects: false });
             const sendPayload = worktreeIntent
-              ? { ...payload, worktree: worktreeIntent }
-              : payload;
+              ? { ...materializedPayload, worktree: worktreeIntent }
+              : materializedPayload;
             const queued = await sendInputOrBuiltin(id, sendPayload);
             if (worktreeIntent) {
               setLocalWorktree({
@@ -2713,6 +2789,11 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           if (!isBuiltin && (hasExtras || hasSwarmMode)) {
             clearComposerExtras();
           }
+          if (!isBuiltin && explicitHomeSend) {
+            draftEditVersionRef.current += 1;
+            composerDirtyRef.current = false;
+            setComposerValue('');
+          }
           onHomeComposerDraftAccepted?.(
             submittedHomeDraftWorkspaceHash,
             submittedHomeDraftText,
@@ -2722,9 +2803,15 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           if (explicitHomeSend) {
             applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
           }
-          toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
+          toast({
+            kind: 'err',
+            text: (sessionCreated ? '发送失败:' : '新建会话失败:') + (e.message || ''),
+          });
         })
-        .finally(() => restoreChatInputFocusSoon(false));
+        .finally(() => {
+          setComposerSubmitting(false);
+          restoreChatInputFocusSoon(false);
+        });
       return;
     }
     if (composerSubmitting) return;
@@ -2780,7 +2867,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
       })
       .finally(() => setComposerSubmitting(false));
-  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmMode, clearComposerExtras, createHomeComposerSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, homeDraftWorkspaceHash, onHomeComposerDraftAccepted, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash]);
+  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, applyEvent, setTranscriptTitle, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmMode, clearComposerExtras, createHomeComposerSession, persistMediaFilesToSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, homeDraftWorkspaceHash, onHomeComposerDraftAccepted, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash]);
 
   const drainQueuedInput = useCallback(() => {
     const targetSid = sidRef.current;
@@ -3163,9 +3250,12 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   // 失败弹 toast 不打断当前 session。新 session 不会自动启 turn,
   // 用户在新 session 自己输入消息才开始。
   const forkAndSwitch = useCallback(async (messageId) => {
-    if (!sid || !messageId) return;
+    const sourceMessageId = messageId == null ? '' : String(messageId);
+    if (!sid || !sourceMessageId) return;
+    if (!forkActionGuardRef.current.acquire(FORK_ACTION_KEY)) return;
+    setForkingMessageId(sourceMessageId);
     try {
-      const r = await api.forkSession(sid, messageId, '');
+      const r = await api.forkSession(sid, sourceMessageId, '');
       if (!r || !r.session_id) {
         toast({ kind: 'err', text: '分叉失败:无 session_id' });
         return;
@@ -3206,6 +3296,9 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       toast({ kind: 'ok', text: '已分叉到 ' + (r.title || r.session_id) });
     } catch (e) {
       toast({ kind: 'err', text: '分叉失败:' + (e?.message || '') });
+    } finally {
+      forkActionGuardRef.current.release(FORK_ACTION_KEY);
+      setForkingMessageId((current) => (current === sourceMessageId ? '' : current));
     }
   }, [sid, api, ref, onSessionPromoted]);
 
@@ -4617,6 +4710,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
               messageId={child.messageId}
               metadata={child.metadata}
               onFork={forkAndSwitch}
+              forkPending={forkingMessageId !== ''}
+              forkLoading={forkingMessageId !== '' && forkingMessageId === String(child.messageId || '')}
               onOpenFilePreview={openFilePreview}
               continuation={childContinuation}
               showFooter={childShowFooter}
@@ -4936,6 +5031,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                       messageId={it.messageId}
                       metadata={it.metadata}
                       onFork={forkAndSwitch}
+                      forkPending={forkingMessageId !== ''}
+                      forkLoading={forkingMessageId !== '' && forkingMessageId === String(it.messageId || '')}
                       onOpenFilePreview={openFilePreview}
                       continuation={continuation}
                       showFooter={showFooter}

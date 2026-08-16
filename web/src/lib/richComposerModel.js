@@ -7,9 +7,79 @@ export const COMPOSER_COMMAND_TAG = 'command-tag';
 export const COMPOSER_PATH_TAG = 'path-tag';
 export const COMPOSER_SESSION_TAG = 'session-tag';
 export const COMPOSER_ATTACHMENT_TAG = 'attachment-tag';
+export const COMPOSER_EXTERNAL_SYNC_ACTIONS = Object.freeze({
+  DEFER: 'defer',
+  ACCEPT: 'accept',
+  IGNORE_STALE: 'ignore-stale',
+  REPLACE: 'replace',
+});
 
 export function normalizeComposerPlainText(value = '') {
   return String(value ?? '').replace(/\r\n?/g, '\n');
+}
+
+export function appendComposerLocalEcho(echoes, value, limit = 32) {
+  const next = [...Array.from(echoes || []), normalizeComposerPlainText(value)];
+  const boundedLimit = Math.max(1, Number.isFinite(limit) ? Math.trunc(limit) : 32);
+  return next.slice(-boundedLimit);
+}
+
+export function classifyComposerExternalSync({
+  compositionProtected = false,
+  generationChanged = false,
+  currentText = '',
+  nextText = '',
+  lastExternalText = '',
+  localEchoes = [],
+} = {}) {
+  if (compositionProtected) {
+    return {
+      action: COMPOSER_EXTERNAL_SYNC_ACTIONS.DEFER,
+      acknowledgedEchoCount: 0,
+    };
+  }
+
+  if (generationChanged) {
+    return {
+      action: COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE,
+      acknowledgedEchoCount: 0,
+    };
+  }
+
+  const current = normalizeComposerPlainText(currentText);
+  const next = normalizeComposerPlainText(nextText);
+  const lastExternal = normalizeComposerPlainText(lastExternalText);
+  const echoes = Array.from(localEchoes || []).map(normalizeComposerPlainText);
+  let acknowledgedEchoIndex = -1;
+  for (let index = echoes.length - 1; index >= 0; index -= 1) {
+    if (echoes[index] === next) {
+      acknowledgedEchoIndex = index;
+      break;
+    }
+  }
+
+  if (acknowledgedEchoIndex >= 0) {
+    return {
+      action: current === next
+        ? COMPOSER_EXTERNAL_SYNC_ACTIONS.ACCEPT
+        : COMPOSER_EXTERNAL_SYNC_ACTIONS.IGNORE_STALE,
+      acknowledgedEchoCount: acknowledgedEchoIndex + 1,
+    };
+  }
+
+  if (echoes.length > 0 && next === lastExternal) {
+    return {
+      action: COMPOSER_EXTERNAL_SYNC_ACTIONS.IGNORE_STALE,
+      acknowledgedEchoCount: 0,
+    };
+  }
+
+  return {
+    action: current === next
+      ? COMPOSER_EXTERNAL_SYNC_ACTIONS.ACCEPT
+      : COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE,
+    acknowledgedEchoCount: 0,
+  };
 }
 
 export function isComposerCommandTag(value) {
@@ -33,6 +103,15 @@ export function isComposerInlineTag(value) {
     || isComposerPathTag(value)
     || isComposerSessionTag(value)
     || isComposerAttachmentTag(value);
+}
+
+export function isComposerImageAttachment(attachment) {
+  const explicitKind = String(attachment?.kind || '').trim().toLowerCase();
+  if (explicitKind) return explicitKind === 'image' || explicitKind.startsWith('image/');
+  return String(attachment?.mime_type || attachment?.mimeType || '')
+    .trim()
+    .toLowerCase()
+    .startsWith('image/');
 }
 
 function composerCommandTag(command) {
@@ -76,8 +155,7 @@ function composerAttachmentTag(attachment, index = 0) {
   );
   const name = String(attachment?.name || 'attachment');
   const mimeType = String(attachment?.mime_type || '');
-  const rawKind = String(attachment?.kind || mimeType);
-  const kind = rawKind === 'image' || rawKind.startsWith('image/') ? 'image' : 'file';
+  const kind = isComposerImageAttachment(attachment) ? 'image' : 'file';
   return {
     type: COMPOSER_ATTACHMENT_TAG,
     attachmentKey,

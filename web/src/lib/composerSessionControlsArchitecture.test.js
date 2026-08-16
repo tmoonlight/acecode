@@ -119,7 +119,7 @@ run('swarm and expert selections survive submission until explicitly changed', (
   assert.match(chatView, /if \(swarmMode\) payload\.swarm_mode = true/);
   assert.match(chatView, /swarmMode: composerSwarmMode/);
   assert.match(chatView, /const explicitHomeSend = !isBuiltin && \(hasExtras \|\| hasSwarmMode/);
-  assert.match(chatView, /preserveExtras: hasSwarmMode/);
+  assert.match(chatView, /preserveExtras: hasExtras \|\| hasSwarmMode/);
   assert.match(
     chatView,
     /const expertOptions = homeExpertId \? \{ expert_id: homeExpertId, expertId: homeExpertId \} : \{\}/,

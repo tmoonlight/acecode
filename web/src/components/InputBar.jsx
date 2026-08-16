@@ -27,6 +27,7 @@ import { toast } from './Toast.jsx';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { getNextInputHistoryPointer, isUserComposerEdit, shouldNavigateInputHistory } from '../lib/inputHistoryNavigation.js';
 import { filesFromTransfer, hasFileTransfer } from '../lib/composerFileTransfer.js';
+import { isComposerImageAttachment } from '../lib/richComposerModel.js';
 import {
   captureComposerTextareaSelection,
   requestDesktopFileDragActivation,
@@ -83,6 +84,7 @@ const MAX_ROWS = 8;
 const LINE_HEIGHT = 20; // 与 leading-[20px] 对齐
 const HOST_OS = desktopHostOs();
 const NATIVE_FILE_DROP = nativeFileDropEnabled();
+const EMPTY_COMPOSER_ATTACHMENTS = Object.freeze([]);
 
 function composerAttachmentKey(item, index = 0) {
   return String(item?.local_id || item?.id || item?.name || index);
@@ -177,7 +179,7 @@ export const InputBar = forwardRef(function InputBar({
   onGoalEdit, onGoalStatusChange, onGoalClear,
   history = [], variant = 'default',
   value: controlledValue, onChange,
-  attachments = [], contexts = [], annotationPresentations = null,
+  attachments = EMPTY_COMPOSER_ATTACHMENTS, contexts = [], annotationPresentations = null,
   onMediaFiles, onRemoveAttachment, onRemoveContext,
   swarmMode = false, onSwarmModeChange,
   expertOptions = [],
@@ -237,7 +239,11 @@ export const InputBar = forwardRef(function InputBar({
   // WorkBuddy 式输入框一致；最大高度仍保持原有 8 行上限。
   const textareaBaseHeight = LINE_HEIGHT * 2 + textareaVerticalPadding;
   const textareaMaxHeight = LINE_HEIGHT * MAX_ROWS + textareaVerticalPadding;
-  const attachmentItems = Array.isArray(attachments) ? attachments : [];
+  const attachmentItems = Array.isArray(attachments) ? attachments : EMPTY_COMPOSER_ATTACHMENTS;
+  const { imageAttachments, fileAttachments } = useMemo(() => ({
+    imageAttachments: attachmentItems.filter(isComposerImageAttachment),
+    fileAttachments: attachmentItems.filter((item) => !isComposerImageAttachment(item)),
+  }), [attachmentItems]);
   const contextItems = Array.isArray(contexts) ? contexts : [];
   const recentExpertItems = Array.isArray(expertOptions) ? expertOptions.slice(0, 5) : [];
   const selectionContextItems = contextItems.filter((item) => item?.type === SELECTION_CONTEXT_TYPE);
@@ -1341,6 +1347,74 @@ export const InputBar = forwardRef(function InputBar({
             onClose={() => setDropdownClosed(true)}
           />
         )}
+        {imageAttachments.length > 0 && (
+          <div className={clsx(
+            'px-3 pt-3 flex flex-wrap items-start gap-2',
+            isHero && 'px-4',
+          )}>
+            {imageAttachments.map((item, index) => {
+              const context = composerAttachmentContext(item, index);
+              const linkPath = context.sourcePath || context.path;
+              const mimeType = String(item?.mime_type || item?.mimeType || '');
+              return (
+                <div
+                  key={context.key}
+                  data-composer-image-preview="true"
+                  data-desktop-attachment-id={context.id}
+                  data-desktop-attachment-name={context.name}
+                  data-desktop-attachment-url={context.url || undefined}
+                  data-desktop-attachment-path={linkPath || undefined}
+                  data-desktop-attachment-preview-url={context.url || undefined}
+                  data-desktop-attachment-copy-image-url={context.url || undefined}
+                  data-desktop-attachment-mime-type={mimeType || undefined}
+                  data-desktop-attachment-kind="image"
+                  data-desktop-attachment-mutable="true"
+                  aria-busy={item?.uploading || undefined}
+                  className={clsx(
+                    'group relative w-[86px] h-[86px] sm:w-24 sm:h-24 shrink-0 overflow-hidden rounded-lg border border-border bg-bg',
+                    context.url && 'cursor-zoom-in hover:border-accent-soft',
+                  )}
+                  title={context.sourcePath || context.name}
+                  role={context.url ? 'button' : undefined}
+                  tabIndex={context.url ? 0 : undefined}
+                  onClick={context.url
+                    ? () => setAttachmentPreview({ src: context.url, alt: context.name })
+                    : undefined}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget || !context.url) return;
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setAttachmentPreview({ src: context.url, alt: context.name });
+                  }}
+                >
+                  {context.url ? (
+                    <img
+                      src={context.url}
+                      alt={context.name}
+                      draggable={false}
+                      className="block w-full h-full object-cover bg-bg"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-fg-mute bg-bg">
+                      <FileTypeIcon path={context.name} size={24} />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="absolute right-[5px] top-[5px] w-[17px] h-[17px] rounded-full bg-black/75 hover:bg-black/85 text-white flex items-center justify-center"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRemoveAttachment?.(context.key);
+                    }}
+                    aria-label="移除附件"
+                  >
+                    <VsIcon name="close" size={8} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {(selectionPreview || selectionContextItems.length > 0 || browserContextItems.length > 0) && (
           <div className={clsx(
             'px-3 pt-2 flex flex-wrap items-center gap-1.5',
@@ -1381,8 +1455,9 @@ export const InputBar = forwardRef(function InputBar({
           <RichComposer
             ref={ta}
             value={value}
+            syncKey={currentSessionId}
             commands={commands}
-            attachments={attachmentItems}
+            attachments={fileAttachments}
             onChange={handleComposerChange}
             onKeyDown={onKey}
             onCompositionStart={handleCompositionStart}

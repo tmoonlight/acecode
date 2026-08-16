@@ -117,6 +117,12 @@ export const enUS = {
   fileDrop: {
     releaseToAdd: 'Release to add',
   },
+  composerAttachment: {
+    uploadFailed: 'Attachment upload failed',
+    missingId: 'The attachment upload response did not include an attachment ID.',
+    stagedUnavailable: 'The staged attachment is no longer available. Remove it and add it again.',
+    uploadRequired: 'The attachment has not uploaded successfully. Remove it and add it again.',
+  },
   externalSession: {
     tuiReadOnly: 'This session is active in TUI. Desktop is showing a read-only view and will refresh saved messages automatically.',
   },

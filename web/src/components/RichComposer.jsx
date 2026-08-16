@@ -5,6 +5,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import {
   createEditor,
@@ -26,6 +27,9 @@ import { clsx } from '../lib/format.js';
 import { isDesktopShell } from '../lib/desktopShellMode.js';
 import {
   clipboardHasRichText,
+  COMPOSER_EXTERNAL_SYNC_ACTIONS,
+  appendComposerLocalEcho,
+  classifyComposerExternalSync,
   composerAdjacentAttachmentKey,
   composerAdjacentTagDeletionRange,
   composerAttachmentItemsSignature,
@@ -220,39 +224,96 @@ function currentPlainSelection(document, selection) {
   return composerPlainTextRangeFromSelection(document, selection);
 }
 
+function legalComposerDocument(document) {
+  return Array.isArray(document) && document.length > 0
+    ? document
+    : composerDocumentFromText('');
+}
+
+function safeDeselectEditor(editor) {
+  if (!editor.selection) return;
+  try {
+    Transforms.deselect(editor);
+  } catch {
+    // A broken root can leave a stale [0, 0] selection. Clear it before
+    // applying recovery operations so the invalid point cannot escape.
+    editor.selection = null;
+  }
+}
+
+function ensureLegalEditorDocument(editor, { selectEnd = true } = {}) {
+  const fallbackDocument = composerDocumentFromText('');
+  try {
+    HistoryEditor.withoutSaving(editor, () => {
+      Editor.withoutNormalizing(editor, () => {
+        safeDeselectEditor(editor);
+        if (!Array.isArray(editor.children) || editor.children.length === 0) {
+          Transforms.insertNodes(editor, fallbackDocument, { at: [0] });
+        }
+        const recoveryDocument = legalComposerDocument(editor.children);
+        const recoveryText = composerTextFromDocument(recoveryDocument);
+        const offset = selectEnd ? recoveryText.length : 0;
+        Transforms.select(editor, composerSelectionFromPlainTextRange(
+          recoveryDocument,
+          offset,
+          offset,
+        ));
+      });
+    });
+  } catch {
+    // Last-resort state repair. This branch is only reachable after Slate
+    // transforms themselves failed; keeping a legal root prevents a React
+    // white screen and lets the next semantic sync rebuild the real draft.
+    editor.children = fallbackDocument;
+    editor.selection = composerSelectionFromPlainTextRange(fallbackDocument, 0, 0);
+    try { editor.onChange(); } catch {}
+  }
+}
+
 function replaceEditorDocument(editor, nextDocument, {
   selection = null,
   selectEnd = true,
   clearHistory = false,
 } = {}) {
-  const nextText = composerTextFromDocument(nextDocument);
+  const replacementDocument = legalComposerDocument(nextDocument);
+  const nextText = composerTextFromDocument(replacementDocument);
   const plainSelection = selection || {
     start: selectEnd ? nextText.length : 0,
     end: selectEnd ? nextText.length : 0,
     direction: 'none',
   };
   const slateSelection = composerSelectionFromPlainTextRange(
-    nextDocument,
+    replacementDocument,
     plainSelection.start,
     plainSelection.end,
     plainSelection.direction,
   );
 
-  HistoryEditor.withoutSaving(editor, () => {
-    Editor.withoutNormalizing(editor, () => {
-      if (editor.selection) Transforms.deselect(editor);
-      for (let index = editor.children.length - 1; index >= 0; index -= 1) {
-        Transforms.removeNodes(editor, { at: [index] });
-      }
-      Transforms.insertNodes(editor, nextDocument, { at: [0] });
-      Transforms.select(editor, slateSelection);
+  let replaced = false;
+  try {
+    HistoryEditor.withoutSaving(editor, () => {
+      Editor.withoutNormalizing(editor, () => {
+        safeDeselectEditor(editor);
+        const previousRootCount = Array.isArray(editor.children) ? editor.children.length : 0;
+        // Insert first so the Slate root is never empty, even while switching
+        // from a corrupted or empty draft.
+        Transforms.insertNodes(editor, replacementDocument, { at: [previousRootCount] });
+        for (let index = previousRootCount - 1; index >= 0; index -= 1) {
+          Transforms.removeNodes(editor, { at: [index] });
+        }
+        Transforms.select(editor, slateSelection);
+      });
     });
-  });
+    replaced = true;
+  } catch {
+    ensureLegalEditorDocument(editor, { selectEnd });
+  }
 
   if (clearHistory && HistoryEditor.isHistoryEditor(editor)) {
     editor.history.undos.splice(0);
     editor.history.redos.splice(0);
   }
+  return replaced;
 }
 
 function deleteAdjacentTag(editor, direction) {
@@ -306,6 +367,7 @@ function writeSelectedPlainText(event, editor) {
 
 function RichComposerShell({
   value,
+  syncKey = '',
   commands,
   attachments = [],
   disabled,
@@ -326,13 +388,23 @@ function RichComposerShell({
   isComposingKeyEvent,
   onSelectionChange,
 }, ref) {
+  const normalizedValue = normalizeComposerPlainText(value);
+  const normalizedSyncKey = String(syncKey ?? '');
+  const syncIdentityRef = useRef({ key: normalizedSyncKey, generation: 0 });
+  if (syncIdentityRef.current.key !== normalizedSyncKey) {
+    syncIdentityRef.current = {
+      key: normalizedSyncKey,
+      generation: syncIdentityRef.current.generation + 1,
+    };
+  }
+  const activeSyncGeneration = syncIdentityRef.current.generation;
   const commandsRef = useRef(commands);
   commandsRef.current = commands;
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   const initialValueRef = useRef(null);
   if (!initialValueRef.current) {
-    initialValueRef.current = composerDocumentFromText(value, commands, attachments);
+    initialValueRef.current = composerDocumentFromText(normalizedValue, commands, attachments);
   }
   const editor = useMemo(
     () => withComposerInlineTags(withHistory(withReact(createEditor()))),
@@ -340,6 +412,18 @@ function RichComposerShell({
   );
   const editableRef = useRef(null);
   const latestTextRef = useRef(composerTextFromDocument(initialValueRef.current));
+  const documentSyncGenerationRef = useRef(activeSyncGeneration);
+  const lastExternalStateRef = useRef({
+    generation: activeSyncGeneration,
+    text: normalizedValue,
+  });
+  const localEchoStateRef = useRef({
+    generation: activeSyncGeneration,
+    values: [],
+  });
+  const compositionStateRef = useRef({ active: false, settling: false });
+  const compositionSettleTimerRef = useRef(0);
+  const [syncRevision, setSyncRevision] = useState(0);
   const selectionRef = useRef({
     start: latestTextRef.current.length,
     end: latestTextRef.current.length,
@@ -361,6 +445,39 @@ function RichComposerShell({
     () => composerAttachmentItemsSignature(attachments),
     [attachments],
   );
+
+  const clearCompositionSettleTimer = useCallback(() => {
+    if (!compositionSettleTimerRef.current) return;
+    window.clearTimeout(compositionSettleTimerRef.current);
+    compositionSettleTimerRef.current = 0;
+  }, []);
+
+  useEffect(() => () => {
+    clearCompositionSettleTimer();
+  }, [clearCompositionSettleTimer]);
+
+  const handleCompositionStart = useCallback((event) => {
+    clearCompositionSettleTimer();
+    compositionStateRef.current.active = true;
+    compositionStateRef.current.settling = false;
+    return onCompositionStart?.(event);
+  }, [clearCompositionSettleTimer, onCompositionStart]);
+
+  const handleCompositionEnd = useCallback((event) => {
+    compositionStateRef.current.active = false;
+    compositionStateRef.current.settling = true;
+    const handled = onCompositionEnd?.(event);
+    clearCompositionSettleTimer();
+    // Slate's Chrome composition handler inserts event.data after invoking
+    // this callback and publishes onValueChange in a microtask. A zero-delay
+    // task runs after both steps and re-evaluates only the latest props.
+    compositionSettleTimerRef.current = window.setTimeout(() => {
+      compositionStateRef.current.settling = false;
+      compositionSettleTimerRef.current = 0;
+      setSyncRevision((revision) => revision + 1);
+    }, 0);
+    return handled;
+  }, [clearCompositionSettleTimer, onCompositionEnd]);
 
   const publishSelection = useCallback((selection = editor.selection) => {
     const next = currentPlainSelection(editor.children, selection);
@@ -417,27 +534,71 @@ function RichComposerShell({
   }, [handleContextPasteAction]);
 
   useEffect(() => {
-    const nextText = normalizeComposerPlainText(value);
+    const nextText = normalizedValue;
     const currentDocument = editor.children;
     const currentText = composerTextFromDocument(currentDocument);
-    const textChanged = currentText !== nextText;
+    const generationChanged = documentSyncGenerationRef.current !== activeSyncGeneration;
+    const localEchoState = localEchoStateRef.current;
+    const localEchoes = localEchoState.generation === activeSyncGeneration
+      ? localEchoState.values
+      : [];
+    const lastExternalState = lastExternalStateRef.current;
+    const lastExternalText = lastExternalState.generation === activeSyncGeneration
+      ? lastExternalState.text
+      : '';
+    let reactEditorComposing = false;
+    try { reactEditorComposing = ReactEditor.isComposing(editor); } catch {}
+    const decision = classifyComposerExternalSync({
+      compositionProtected: (
+        compositionStateRef.current.active
+        || compositionStateRef.current.settling
+        || reactEditorComposing
+      ),
+      generationChanged,
+      currentText,
+      nextText,
+      lastExternalText,
+      localEchoes,
+    });
+    if (decision.action === COMPOSER_EXTERNAL_SYNC_ACTIONS.DEFER) return;
+
+    if (decision.action === COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE) {
+      localEchoStateRef.current = { generation: activeSyncGeneration, values: [] };
+      lastExternalStateRef.current = { generation: activeSyncGeneration, text: nextText };
+    } else if (decision.acknowledgedEchoCount > 0) {
+      localEchoStateRef.current = {
+        generation: activeSyncGeneration,
+        values: localEchoes.slice(decision.acknowledgedEchoCount),
+      };
+      lastExternalStateRef.current = { generation: activeSyncGeneration, text: nextText };
+    } else if (decision.action === COMPOSER_EXTERNAL_SYNC_ACTIONS.ACCEPT) {
+      lastExternalStateRef.current = { generation: activeSyncGeneration, text: nextText };
+    }
+
+    const replacesText = decision.action === COMPOSER_EXTERNAL_SYNC_ACTIONS.REPLACE;
     const attachmentsChanged = composerAttachmentTagsSignature(currentDocument)
       !== attachmentSignature;
     let nextDocument = null;
 
-    if (textChanged) {
-      nextDocument = composerDocumentFromText(nextText, commands, attachments);
+    if (replacesText) {
+      nextDocument = composerDocumentFromText(
+        nextText,
+        commandsRef.current,
+        attachmentsRef.current,
+      );
     } else {
       const withAttachments = attachmentsChanged
-        ? composerDocumentWithSynchronizedAttachments(currentDocument, attachments)
+        ? composerDocumentWithSynchronizedAttachments(currentDocument, attachmentsRef.current)
         : currentDocument;
       const synchronized = composerDocumentWithSynchronizedLeadingCommand(
         withAttachments,
-        nextText,
-        commands,
+        currentText,
+        commandsRef.current,
       );
       if (
-        attachmentsChanged
+        !Array.isArray(currentDocument)
+        || currentDocument.length === 0
+        || attachmentsChanged
         || composerAttachmentTagsSignature(synchronized)
           !== composerAttachmentTagsSignature(currentDocument)
         || composerLeadingCommandSignature(synchronized)
@@ -447,23 +608,53 @@ function RichComposerShell({
       }
     }
 
-    if (!nextDocument) return;
-    const preservedSelection = textChanged
-      ? null
-      : currentPlainSelection(currentDocument, editor.selection);
-    replaceEditorDocument(editor, nextDocument, {
+    if (!nextDocument) {
+      latestTextRef.current = currentText;
+      return;
+    }
+    let preservedSelection = null;
+    if (!replacesText) {
+      try { preservedSelection = currentPlainSelection(currentDocument, editor.selection); } catch {}
+    }
+    const replaced = replaceEditorDocument(editor, nextDocument, {
       selection: preservedSelection,
       selectEnd: true,
-      clearHistory: textChanged,
+      clearHistory: replacesText,
     });
-    latestTextRef.current = nextText;
+    documentSyncGenerationRef.current = activeSyncGeneration;
+    const actualText = composerTextFromDocument(editor.children);
+    latestTextRef.current = actualText;
+    if (!replaced && replacesText && actualText !== nextText) {
+      lastExternalStateRef.current = { generation: activeSyncGeneration, text: actualText };
+    }
     publishSelection(editor.selection);
-  }, [attachmentSignature, attachments, commandSignature, commands, editor, publishSelection, value]);
+  }, [
+    activeSyncGeneration,
+    attachmentSignature,
+    commandSignature,
+    editor,
+    normalizedValue,
+    publishSelection,
+    syncRevision,
+  ]);
 
   const handleValueChange = useCallback((nextDocument) => {
     const text = composerTextFromDocument(nextDocument);
+    const previousText = latestTextRef.current;
     latestTextRef.current = text;
     publishSelection(editor.selection);
+    const activeGeneration = syncIdentityRef.current.generation;
+    if (documentSyncGenerationRef.current !== activeGeneration) return;
+    if (text !== previousText) {
+      const localEchoState = localEchoStateRef.current;
+      const localEchoes = localEchoState.generation === activeGeneration
+        ? localEchoState.values
+        : [];
+      localEchoStateRef.current = {
+        generation: activeGeneration,
+        values: appendComposerLocalEcho(localEchoes, text),
+      };
+    }
     onChange?.(text);
   }, [editor, onChange, publishSelection]);
 
@@ -485,6 +676,7 @@ function RichComposerShell({
       } catch {
         // 外部草稿刚替换 Slate 文档时，React 树和 Slate DOM 映射可能相差一帧。
         // 延迟重试避免开场白回填成功却留下 Cannot resolve a DOM node 错误。
+        ensureLegalEditorDocument(editor);
         window.requestAnimationFrame(() => {
           try { focusEditor(); } catch {}
         });
@@ -525,7 +717,12 @@ function RichComposerShell({
         selectEnd,
         clearHistory: true,
       });
-      latestTextRef.current = composerTextFromDocument(editor.children);
+      const activeGeneration = syncIdentityRef.current.generation;
+      const actualText = composerTextFromDocument(editor.children);
+      documentSyncGenerationRef.current = activeGeneration;
+      localEchoStateRef.current = { generation: activeGeneration, values: [] };
+      lastExternalStateRef.current = { generation: activeGeneration, text: actualText };
+      latestTextRef.current = actualText;
       publishSelection(editor.selection);
     },
   }), [editor, publishSelection]);
@@ -690,8 +887,8 @@ function RichComposerShell({
         onCopy={handleCopy}
         onCut={handleCut}
         onDrop={handleDrop}
-        onCompositionStart={onCompositionStart}
-        onCompositionEnd={onCompositionEnd}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         spellCheck
       />
     </Slate>

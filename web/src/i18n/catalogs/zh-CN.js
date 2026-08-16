@@ -117,6 +117,12 @@ export const zhCN = {
   fileDrop: {
     releaseToAdd: '松开即可添加',
   },
+  composerAttachment: {
+    uploadFailed: '附件上传失败',
+    missingId: '附件上传响应缺少附件 ID',
+    stagedUnavailable: '暂存附件已失效，请移除后重新添加',
+    uploadRequired: '附件尚未上传成功，请移除后重新添加',
+  },
   externalSession: {
     tuiReadOnly: '此会话正在 TUI 中运行。Desktop 已切到只读视图，并会自动同步已保存的消息。',
   },

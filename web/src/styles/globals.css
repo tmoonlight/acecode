@@ -1760,6 +1760,11 @@ body {
   color: var(--ace-accent);
   opacity: 1;
 }
+.ace-sidebar-workspace-action:disabled {
+  color: var(--ace-fg-mute);
+  cursor: wait;
+  opacity: 0.5;
+}
 .ace-sidebar-session-row {
   position: relative;
 }
@@ -3363,7 +3368,8 @@ body {
   transition: opacity .15s ease, width .15s ease;
 }
 .group:hover .ace-msg-actions,
-.ace-msg-actions:focus-within {
+.ace-msg-actions:focus-within,
+.ace-msg-actions[data-fork-loading="true"] {
   width: 54px;
   opacity: 1;
   pointer-events: auto;
@@ -3395,6 +3401,11 @@ body {
 .ace-msg-actions button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+.ace-msg-actions button[data-fork-loading="true"]:disabled {
+  color: var(--ace-fg);
+  cursor: wait;
+  opacity: 1;
 }
 
 /* Sticky user prompt context while reviewing scrolled answers */

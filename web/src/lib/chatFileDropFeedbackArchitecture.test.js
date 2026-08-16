@@ -7,11 +7,11 @@ const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(srcRoot, '..', '..');
 
 function source(relativePath) {
-  return fs.readFileSync(path.join(srcRoot, relativePath), 'utf8');
+  return fs.readFileSync(path.join(srcRoot, relativePath), 'utf8').replace(/\r\n?/g, '\n');
 }
 
 function repoSource(relativePath) {
-  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n?/g, '\n');
 }
 
 function run(name, fn) {
@@ -90,16 +90,37 @@ run('desktop file drag activates once on entry and never re-foregrounds after dr
   assert.doesNotMatch(bridge, /bring_window_foreground|activate_notification_window|HWND_TOPMOST/);
 });
 
-run('ChatView reserves attachment identities before session creation or upload', () => {
+run('ChatView stages home attachments without creating or navigating a session', () => {
   const chatView = source('components/ChatView.jsx');
+  const handleStart = chatView.indexOf('const handleMediaFiles = useCallback((files) => {');
+  const handleEnd = chatView.indexOf('\n\n  const removeComposerAttachment', handleStart);
+  const handleFlow = chatView.slice(handleStart, handleEnd);
+  const submitStart = chatView.indexOf('const submit = useCallback((text) => {');
+  const submitEnd = chatView.indexOf('\n\n  const drainQueuedInput', submitStart);
+  const submitFlow = chatView.slice(submitStart, submitEnd);
 
   assert.match(
-    chatView,
+    handleFlow,
     /const reservedFiles = reserveUniqueComposerFiles\(files\);\s*if \(reservedFiles\.length === 0\) return;/,
   );
-  assert.match(chatView, /uploadMediaFilesToSession\(sid, reservedFiles\)/);
-  assert.match(chatView, /attachment_identity: identity,[\s\S]*uploading: true/);
-  assert.match(chatView, /\.catch\(\(e\) => \{[\s\S]*releaseAttachmentReservation\(localId\)/);
+  assert.match(handleFlow, /stageMediaFiles\(reservedFiles\);\s*if \(!sid\) return;/);
+  assert.match(handleFlow, /persistMediaFilesToSession\(sid, reservedFiles\)/);
+  assert.doesNotMatch(handleFlow, /createHomeComposerSession|createWorkspaceSession|createSession\(/);
+  assert.match(chatView, /attachment_identity: identity,\s*pending_upload: true,\s*uploading: false/);
+  assert.match(submitFlow, /payloadHasExtras\(payload\) \|\| hasPendingAttachments/);
+  assert.match(submitFlow, /persistMediaFilesToSession\(id, pendingAttachmentFiles\)/);
+  assert.match(submitFlow, /payloadWithAttachmentIds\(payload, materializedAttachments\)/);
+  assert.ok(
+    submitFlow.indexOf('createHomeComposerSession')
+      < submitFlow.indexOf('persistMediaFilesToSession(id, pendingAttachmentFiles)'),
+    'home submit must create the session before materializing staged files',
+  );
+  assert.ok(
+    submitFlow.indexOf('persistMediaFilesToSession(id, pendingAttachmentFiles)')
+      < submitFlow.indexOf('sendInputOrBuiltin(id, sendPayload)'),
+    'home submit must materialize staged files before sending',
+  );
+  assert.match(chatView, /pending_upload: true,[\s\S]*upload_error: error\?\.message/);
   assert.match(chatView, /if \(removed\?\.local_id\) releaseAttachmentReservation\(removed\.local_id\)/);
   assert.match(chatView, /const clearComposerExtras = useCallback\(\(\) => \{\s*clearAttachmentReservations\(\)/);
 });
@@ -107,7 +128,7 @@ run('ChatView reserves attachment identities before session creation or upload',
 run('Desktop ordinary-file references bypass image normalization and Base64 upload', () => {
   const chatView = source('components/ChatView.jsx');
   const persistence = chatView.match(
-    /const persistAttachment = sourceReference[\s\S]*?Promise\.resolve\(persistAttachment\)/,
+    /const persistAttachment = sourceReference[\s\S]*?await Promise\.resolve\(persistAttachment\)/,
   )?.[0] || '';
 
   assert.match(persistence, /api\.createSessionAttachmentReference\(targetSid, \{[\s\S]*reference_only: true/);
