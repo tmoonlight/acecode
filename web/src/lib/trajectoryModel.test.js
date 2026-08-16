@@ -157,6 +157,82 @@ run('legacy records keep empty timing without adding source or age notices', () 
   assert.equal('diagnostics' in projection, false);
 });
 
+run('real legacy response keeps every null-sequence record and projects visible rows', () => {
+  const responseRecords = [
+    {
+      schema_version: 1,
+      sequence: null,
+      legacy_index: 0,
+      timestamp_ms: 1784969812398,
+      type: 'legacy_user_message',
+      source: 'legacy',
+      payload: {
+        uuid: '732dd38a-1d8e-4a3e-b416-6527f1ad55aa',
+        content: 'convert this address',
+      },
+    },
+    {
+      schema_version: 1,
+      sequence: null,
+      legacy_index: 1,
+      timestamp_ms: null,
+      type: 'legacy_model_response',
+      source: 'legacy',
+      payload: {
+        content: 'converted address',
+        reasoning_content: 'checking address parts',
+      },
+    },
+    {
+      schema_version: 1,
+      sequence: null,
+      legacy_index: 2,
+      timestamp_ms: 1784969817511,
+      type: 'legacy_turn_end',
+      source: 'legacy',
+      payload: {
+        turn_id: '732dd38a-1d8e-4a3e-b416-6527f1ad55aa',
+        started_at_ms: 1784969812398,
+        completed_at_ms: 1784969817511,
+        duration_ms: 5113,
+      },
+    },
+  ];
+
+  const merged = mergeTrajectoryRecords([], responseRecords);
+  assert.deepEqual(merged.map((record) => record.legacy_index), [0, 1, 2]);
+
+  const projection = buildDeepSeekTrajectory(merged);
+  assert.deepEqual(projection.nodes.map((node) => node.kind), ['user', 'assistant']);
+  assert.equal(projection.turns.length, 1);
+  assert.deepEqual(
+    projection.turns[0].groups.flatMap((group) => group.cells).map((cell) => cell.kind),
+    ['user', 'message'],
+  );
+  assert.equal(Number.isNaN(projection.nodes[1].time), true);
+});
+
+run('empty optional numeric fields remain missing instead of becoming zero', () => {
+  const records = [null, undefined, '   '].map((timestamp, legacyIndex) => ({
+    schema_version: 1,
+    sequence: null,
+    legacy_index: legacyIndex,
+    timestamp_ms: timestamp,
+    type: 'legacy_user_message',
+    source: 'legacy',
+    payload: {
+      uuid: `empty-time-${legacyIndex}`,
+      content: `message ${legacyIndex}`,
+    },
+  }));
+
+  const merged = mergeTrajectoryRecords([], records);
+  assert.equal(merged.length, 3);
+  const projection = buildDeepSeekTrajectory(merged);
+  assert.equal(projection.nodes.length, 3);
+  assert.equal(projection.nodes.every((node) => Number.isNaN(node.time)), true);
+});
+
 run('turn_start aliases its user message into Turn 1 without creating a phantom turn', () => {
   const projection = buildDeepSeekTrajectory([
     recorded(1, 1000, 'turn_start', {

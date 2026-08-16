@@ -11,6 +11,8 @@ const MODEL_EVENT_TYPES = new Set([
 const TOOL_EVENT_TYPES = new Set(['tool_start', 'tool_end']);
 
 function finiteNumber(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
