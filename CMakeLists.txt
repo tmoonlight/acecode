@@ -190,6 +190,7 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/desktop/notifications.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/open_request.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/open_in_explorer.cpp
+    ${CMAKE_SOURCE_DIR}/src/desktop/startup_progress.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/strings.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/workspace_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/clipboard.cpp

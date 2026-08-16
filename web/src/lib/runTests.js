@@ -140,6 +140,8 @@ import './subagentCompletionNotificationArchitecture.test.js';
 import './desktopNotificationMonitor.test.js';
 import './desktopNotificationAuthorization.test.js';
 import './desktopShellMode.test.js';
+import './desktopStartupProgress.test.js';
+import './desktopStartupProgressArchitecture.test.js';
 import './desktopAppActions.test.js';
 import './desktopBackgroundProcess.test.js';
 import './desktopCloseBehavior.test.js';

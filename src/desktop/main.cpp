@@ -31,6 +31,7 @@
 #include "pick_active.hpp"
 #include "single_instance.hpp"
 #include "splash_screen.hpp"
+#include "startup_progress.hpp"
 #include "strings.hpp"
 #include "tray_menu_bridge.hpp"
 #include "tray_icon_win.hpp"
@@ -61,6 +62,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
@@ -710,6 +712,14 @@ int main(int argc, char** argv) {
     acecode::Logger::instance().init_with_rotation(acecode::get_logs_dir(), "desktop", false);
     acecode::Logger::instance().set_level(acecode::LogLevel::Dbg);
     LOG_INFO("[desktop] starting acecode-desktop");
+    DesktopStartupTimeline startup_timeline;
+    const std::string desktop_system_locale =
+        acecode::desktop::detect_system_locale_tag();
+    std::string startup_locale = acecode::desktop::resolve_ui_locale(
+        acecode::desktop::kLocalePreferenceAuto, desktop_system_locale);
+    WebHost* startup_progress_host = nullptr;
+    bool startup_navigation_started = false;
+    bool startup_splash_open = false;
     if (!startup_open_request_error.empty()) {
         LOG_WARN("[desktop] ignored invalid open request: " +
                  startup_open_request_error);
@@ -761,6 +771,45 @@ int main(int argc, char** argv) {
     }
 
     SplashScreen splash;
+    auto publish_startup_snapshot = [&]() {
+        if (!startup_progress_host || !startup_navigation_started) return;
+        const std::string snapshot = startup_timeline.snapshot_json();
+        startup_progress_host->eval(
+            "(function(snapshot){try{"
+            "window.__ACECODE_DESKTOP_STARTUP__=snapshot;"
+            "window.dispatchEvent(new CustomEvent(" +
+            nlohmann::json(kDesktopStartupProgressEvent).dump() +
+            ",{detail:snapshot}));"
+            "}catch(e){}})(" + snapshot + ");");
+    };
+    auto mark_startup = [&](const std::string& stage,
+                            const std::string& source = "native",
+                            std::optional<double> frontend_ms = std::nullopt) {
+        const auto event = startup_timeline.record(
+            stage,
+            desktop_startup_stage_message(stage, startup_locale),
+            source,
+            is_terminal_startup_stage(stage),
+            frontend_ms);
+        std::string log =
+            "[startup] stage=" + event.stage +
+            " sequence=" + std::to_string(event.sequence) +
+            " source=" + event.source +
+            " elapsed_ms=" + std::to_string(event.elapsed_ms);
+        if (event.frontend_ms.has_value()) {
+            std::ostringstream value;
+            value << *event.frontend_ms;
+            log += " frontend_ms=" + value.str();
+        }
+        LOG_INFO(log);
+        if (startup_splash_open) {
+            splash.set_status(event.message, event.elapsed_ms);
+        }
+        publish_startup_snapshot();
+        return event;
+    };
+    startup_splash_open = true;
+    mark_startup("desktop_starting");
     splash.show();
 
     // 加载 desktop 端用到的 config(窗口关闭行为、通知、后台进程等)。
@@ -769,18 +818,19 @@ int main(int argc, char** argv) {
     // 不会污染或覆盖 daemon 端配置。
     acecode::AppConfig desktop_cfg;
     std::mutex desktop_config_mu;
+    mark_startup("config_load_begin");
     try {
         desktop_cfg = acecode::load_config();
     } catch (const std::exception& e) {
         LOG_WARN(std::string("[desktop] load_config failed, using defaults: ") + e.what());
     }
-    const std::string desktop_system_locale =
-        acecode::desktop::detect_system_locale_tag();
     std::string desktop_effective_locale = acecode::desktop::resolve_ui_locale(
         desktop_cfg.ui.locale, desktop_system_locale);
+    startup_locale = desktop_effective_locale;
     acecode::desktop::set_native_locale(desktop_effective_locale);
     LOG_INFO("[desktop] GUI locale preference=" + desktop_cfg.ui.locale +
-             " effective=" + desktop_effective_locale);
+              " effective=" + desktop_effective_locale);
+    mark_startup("config_load_end");
 
     std::string daemon_exe = locate_daemon_exe();
     if (daemon_exe.empty()) {
@@ -803,9 +853,11 @@ int main(int argc, char** argv) {
     fs::create_directories(proj_dir, ec); // 首次启动时不存在
 
     // 1. 扫已有 workspace
+    mark_startup("workspace_scan_begin");
     WorkspaceRegistry registry;
     registry.scan(proj_dir);
     log_legacy_workspace_run_dirs(proj_dir);
+    mark_startup("workspace_scan_end");
 
     // 2. 决定 active workspace
     std::string last_active = acecode::read_last_active_workspace_hash();
@@ -870,6 +922,12 @@ int main(int argc, char** argv) {
     std::string active_hash_dynamic = active_hash; // 后续切 workspace 时更新
 
     std::string url = onboarding_url();
+    const bool daemon_activation_attempted =
+        !active_hash.empty() || !proc_cwd.empty();
+    bool daemon_activation_recorded = false;
+    if (daemon_activation_attempted) {
+        mark_startup("daemon_activate_begin");
+    }
     if (!active_hash.empty()) {
         auto m = registry.get(active_hash);
         if (m) {
@@ -897,12 +955,22 @@ int main(int argc, char** argv) {
                 r = pool.activate(req);
             }
             if (r.ok) {
+                daemon_activation_recorded = true;
+                mark_startup("daemon_activate_end");
                 std::string werr;
-                if (workspace_available && !post_workspace_to_daemon(r.port, r.token, m->cwd, werr)) {
-                    LOG_ERROR("[desktop] post_workspace failed during startup: " + werr);
+                if (workspace_available) {
+                    mark_startup("workspace_register_begin");
+                    if (!post_workspace_to_daemon(r.port, r.token, m->cwd, werr)) {
+                        LOG_ERROR("[desktop] post_workspace failed during startup: " + werr);
+                        mark_startup("workspace_register_failed");
+                    } else {
+                        mark_startup("workspace_register_end");
+                    }
                 }
                 url = build_loopback_url(r.port, r.token);
             } else {
+                daemon_activation_recorded = true;
+                mark_startup("daemon_activate_failed");
 #ifdef _WIN32
                 show_error(format_daemon_workspace_failed_message(
                     m->name, r.error, native_locale()));
@@ -931,10 +999,17 @@ int main(int argc, char** argv) {
             r = pool.activate(req);
         }
         if (r.ok) {
+            daemon_activation_recorded = true;
+            mark_startup("daemon_activate_end");
             url = build_loopback_url(r.port, r.token);
         } else {
+            daemon_activation_recorded = true;
+            mark_startup("daemon_activate_failed");
             LOG_ERROR("[desktop] failed to start onboarding daemon: " + r.error);
         }
+    }
+    if (daemon_activation_attempted && !daemon_activation_recorded) {
+        mark_startup("daemon_activate_failed");
     }
 
     if (startup_open_workspace.has_value() &&
@@ -956,13 +1031,16 @@ int main(int argc, char** argv) {
     // 当前屏幕中央。这样用户启动时只看到透明 icon,不会看到白屏。
     const bool desktop_debug = is_desktop_debug_mode();
     std::unique_ptr<WebHost> host_storage;
+    mark_startup("webhost_create_begin");
     try {
         host_storage = std::make_unique<WebHost>(
             /*debug=*/desktop_debug,
             WebHost::StartupWindowMode::OffscreenUntilReady);
     } catch (const WebHostInitializationError& e) {
+        mark_startup("webhost_create_failed");
         return run_browser_fallback(url, splash, pool, "embedded WebView unavailable", e.what());
     } catch (const std::exception& e) {
+        mark_startup("webhost_create_failed");
 #ifdef _WIN32
         LOG_WARN(std::string("[desktop] WebHost construction failed with unexpected exception; "
                              "entering Edge app mode: ") + e.what());
@@ -971,6 +1049,7 @@ int main(int argc, char** argv) {
         throw;
 #endif
     } catch (...) {
+        mark_startup("webhost_create_failed");
 #ifdef _WIN32
         LOG_WARN("[desktop] WebHost construction failed with unknown exception; "
                  "entering Edge app mode");
@@ -980,6 +1059,8 @@ int main(int argc, char** argv) {
 #endif
     }
     WebHost& host = *host_storage;
+    startup_progress_host = &host;
+    mark_startup("webhost_create_end");
     AgentBrowserHost agent_browser(
         host.native_window(),
         desktop_owner_pid,
@@ -1220,17 +1301,36 @@ int main(int argc, char** argv) {
     auto close_splash_once = [&] {
         bool expected = false;
         if (!page_ready_notified.compare_exchange_strong(expected, true)) return;
+        startup_splash_open = false;
         splash.close();
         host.set_visible(true);
     };
 
     // 前端首屏完成后关闭 Win32 透明 logo splash,再把屏幕外的主窗口移回前台。
     host.bind("aceDesktop_pageReady", [&](const std::string& /*req*/) -> std::string {
+        mark_startup("dom_ready", "frontend");
         close_splash_once();
         if (consume_pending_open_request) {
             consume_pending_open_request();
         }
         return nlohmann::json{{"ok", true}}.dump();
+    });
+
+    host.bind("aceDesktop_reportStartupMilestone",
+              [&](const std::string& req) -> std::string {
+        std::string error;
+        const auto milestone = parse_frontend_startup_milestone(req, &error);
+        if (!milestone.has_value()) {
+            LOG_WARN("[startup] rejected frontend milestone: " + error);
+            return nlohmann::json{{"ok", false}, {"error", error}}.dump();
+        }
+        const auto event = mark_startup(
+            milestone->stage, "frontend", milestone->performance_ms);
+        return nlohmann::json{
+            {"ok", true},
+            {"sequence", event.sequence},
+            {"elapsed_ms", event.elapsed_ms},
+        }.dump();
     });
 
     host.bind("aceDesktop_getBackgroundProcessPreference",
@@ -2070,10 +2170,13 @@ int main(int argc, char** argv) {
         {"color_theme", desktop_cfg.web_ui.color_theme},
         {"font_size", desktop_cfg.web_ui.font_size},
     }.dump();
+    const std::string startup_bootstrap = startup_timeline.snapshot_json();
     host.init_script(acecode::desktop::locale_bootstrap_script(
                          desktop_cfg.ui.locale, desktop_effective_locale) +
                                      "window.__ACECODE_APPEARANCE__=" +
                                      appearance_bootstrap + ";\n" +
+                                     "window.__ACECODE_DESKTOP_STARTUP__=" +
+                                     startup_bootstrap + ";\n" +
                                      "window.__ACECODE_DESKTOP_SHELL__=true;\n" +
                                      "window.__ACECODE_DESKTOP_DEBUG__=" +
                                      (desktop_debug ? "true" : "false") + ";\n" +
@@ -2479,6 +2582,12 @@ int main(int argc, char** argv) {
     });
 
     // 4. navigate(URL 在第 3 步已就绪)
+    mark_startup("native_shell_ready");
+    mark_startup("webview_navigate_begin");
+    host.init_script(
+        "window.__ACECODE_DESKTOP_STARTUP__=" +
+        startup_timeline.snapshot_json() + ";\n");
+    startup_navigation_started = true;
     host.navigate(url);
     if (url == onboarding_url()) {
         close_splash_once();

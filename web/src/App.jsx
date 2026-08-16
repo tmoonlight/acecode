@@ -80,6 +80,7 @@ import { ConsoleDock } from './components/ConsoleDock.jsx';
 import { DesktopGuidedTour } from './components/DesktopGuidedTour.jsx';
 import { DesktopCloseDialog } from './components/DesktopCloseDialog.jsx';
 import { UpdateDialog } from './components/UpdateDialog.jsx';
+import InteractiveHomeLogo from './components/InteractiveHomeLogo.jsx';
 import { LoopPage } from './components/LoopPage.jsx';
 import { ExpertComponentsPage } from './components/ExpertComponentsPage.jsx';
 import {
@@ -116,6 +117,12 @@ import {
   stripOpenSessionParams,
 } from './lib/sessionJump.js';
 import { desktopUiMode } from './lib/desktopShellMode.js';
+import {
+  formatDesktopStartupElapsed,
+  initialDesktopStartupProgress,
+  reportDesktopStartupMilestone,
+  subscribeDesktopStartupProgress,
+} from './lib/desktopStartupProgress.js';
 import { installDesktopExternalLinkRouter } from './lib/externalUrl.js';
 import { shouldAutoFocusDesktopComposer } from './lib/composerCaretRestore.js';
 import { requestDesktopAppExit, showDesktopAboutDialog } from './lib/desktopAppActions.js';
@@ -160,6 +167,7 @@ const SINGLE_LAYOUT_STORAGE_KEY = 'acecode.singleLayoutWidths.v1';
 // 情况下应该是请求先超时、上层收尾;这个计时器只负责接住「上层压根没收尾」
 // 的漏网路径,不该抢在请求超时之前触发。
 const SESSION_NAVIGATION_MASK_TIMEOUT_MS = 45000;
+const DESKTOP_STARTUP_TERMINAL_VISIBLE_MS = 1600;
 
 // 控制台停靠区偏好(add-console-dock):开关 + 高度跨刷新持久化。
 const CONSOLE_DOCK_STORAGE_KEY = 'acecode.consoleDock.v1';
@@ -192,6 +200,10 @@ export function App() {
   const bootstrapAppearance = useMemo(() => appearanceBootstrapPreferences(), []);
   const [authState, setAuthState] = useState('checking'); // 'checking' | 'ok' | 'need-token'
   const [health,    setHealth]    = useState(null);
+  const [desktopStartupProgress, setDesktopStartupProgress] = useState(
+    () => initialDesktopStartupProgress(),
+  );
+  const [desktopStartupHidden, setDesktopStartupHidden] = useState(false);
 
   const [activeRef,    setActiveRef]    = useState(null);
   const [homeLogoEffectEnabled, setHomeLogoEffectEnabled] = useState(true);
@@ -322,6 +334,7 @@ export function App() {
   }
   const navHistoryRef = useRef(navHistory);
   const updatePollRef = useRef(0);
+  const desktopStartupTimerRef = useRef(0);
   const desktopModeRef = useRef(desktopUiMode());
   const startupOpenTargetRef = useRef(
     typeof window === 'undefined' ? null : openSessionTargetFromSearch(window.location.search),
@@ -352,6 +365,30 @@ export function App() {
     || questionReqs.length > 0;
 
   useEffect(() => initInactiveSelection(), []);
+  useEffect(() => {
+    const handleProgress = (snapshot) => {
+      setDesktopStartupProgress(snapshot);
+      setDesktopStartupHidden(false);
+      if (desktopStartupTimerRef.current) {
+        window.clearTimeout(desktopStartupTimerRef.current);
+        desktopStartupTimerRef.current = 0;
+      }
+      if (snapshot.current?.terminal) {
+        desktopStartupTimerRef.current = window.setTimeout(() => {
+          setDesktopStartupHidden(true);
+          desktopStartupTimerRef.current = 0;
+        }, DESKTOP_STARTUP_TERMINAL_VISIBLE_MS);
+      }
+    };
+    const unsubscribe = subscribeDesktopStartupProgress(handleProgress);
+    return () => {
+      unsubscribe();
+      if (desktopStartupTimerRef.current) {
+        window.clearTimeout(desktopStartupTimerRef.current);
+        desktopStartupTimerRef.current = 0;
+      }
+    };
+  }, []);
   useEffect(() => installDesktopExternalLinkRouter({
     onError: (error) => {
       toast({
@@ -615,14 +652,18 @@ export function App() {
   }, [setSingleLayout]);
 
   const probe = useCallback(async () => {
+    reportDesktopStartupMilestone('daemon_connecting');
     try {
       const h = await api.health();
       setHealth(h);
       setAuthState('ok');
+      reportDesktopStartupMilestone('daemon_connected');
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
+        reportDesktopStartupMilestone('daemon_connected');
         setAuthState('need-token');
       } else {
+        reportDesktopStartupMilestone('daemon_connection_failed');
         toast({ kind: 'err', text: '连接 daemon 失败:' + e.message });
         setAuthState('need-token');
       }
@@ -630,6 +671,21 @@ export function App() {
   }, []);
 
   useEffect(() => { probe(); }, [probe]);
+
+  useEffect(() => {
+    if (authState !== 'ok' || desktopModeRef.current !== 'shell') return undefined;
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        reportDesktopStartupMilestone('ui_ready');
+      });
+    });
+    return () => {
+      if (firstFrame) window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [authState]);
 
   useEffect(() => {
     if (authState !== 'ok') return;
@@ -1697,8 +1753,38 @@ export function App() {
     () => pendingQuestionSessionIds(questionReqs, activeId, permissionOwnership),
     [questionReqs, activeId, permissionOwnership],
   );
+  const desktopStartupStatus = !desktopStartupHidden
+    ? desktopStartupProgress?.current || null
+    : null;
 
   if (authState === 'checking') {
+    if (desktopModeRef.current === 'shell') {
+      const elapsed = formatDesktopStartupElapsed(desktopStartupStatus?.elapsed_ms);
+      return (
+        <>
+          <div
+            className="ace-desktop-startup-screen"
+            data-desktop-startup-screen="true"
+          >
+            <InteractiveHomeLogo
+              className="ace-desktop-startup-logo"
+              enabled={false}
+            />
+            <div
+              className="ace-desktop-startup-status"
+              data-desktop-startup-status={desktopStartupStatus?.stage || 'daemon_connecting'}
+            >
+              <span className="ace-spinner ace-desktop-startup-spinner" />
+              <span>{desktopStartupStatus?.message || t('desktop.startupConnecting')}</span>
+              {elapsed && <span className="ace-desktop-startup-elapsed">{elapsed}</span>}
+            </div>
+          </div>
+          <FramelessResizeHandles />
+          <DesktopContextMenu />
+          <Toaster />
+        </>
+      );
+    }
     return (
       <>
         <div className="h-full flex items-center justify-center text-fg-mute text-sm">
@@ -1865,6 +1951,7 @@ export function App() {
               <ChatView
                 sessionRef={activeRef}
                 homeLogoEffectEnabled={homeLogoEffectEnabled}
+                desktopStartupStatus={desktopStartupStatus}
                 homeComposerDrafts={homeComposerDrafts}
                 onHomeComposerDraftChange={updateHomeComposerDraft}
                 onHomeComposerDraftAccepted={acceptHomeComposerDraft}

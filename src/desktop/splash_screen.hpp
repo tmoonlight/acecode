@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
+
 namespace acecode::desktop {
 
 class SplashScreen {
@@ -11,6 +14,7 @@ public:
     SplashScreen& operator=(const SplashScreen&) = delete;
 
     void show();
+    void set_status(const std::string& message, std::uint64_t elapsed_ms);
     void close();
 
 private:

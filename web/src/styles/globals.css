@@ -2142,6 +2142,56 @@ body {
   }
 }
 
+/* Desktop startup handoff: native splash -> WebUI checking screen -> home logo. */
+.ace-desktop-startup-screen {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--ace-fg-mute);
+  background: var(--ace-bg);
+}
+.ace-desktop-startup-logo {
+  margin-bottom: 2px;
+}
+.ace-desktop-startup-status {
+  min-width: 0;
+  max-width: min(520px, calc(100vw - 48px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--ace-fg-mute);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  -webkit-font-smoothing: auto;
+  text-rendering: auto;
+}
+.ace-desktop-startup-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-width: 1.5px;
+}
+.ace-desktop-startup-elapsed {
+  flex: 0 0 auto;
+  color: rgba(var(--ace-fg-mute-rgb), 0.72);
+  font-variant-numeric: tabular-nums;
+}
+.ace-home-startup-status {
+  align-self: center;
+  min-height: 20px;
+  margin-top: -10px;
+  margin-bottom: -4px;
+}
+.ace-home-startup-status.is-complete {
+  color: var(--ace-accent);
+}
+
 /* Codex-style new task home */
 .ace-home-panel {
   min-height: 0;

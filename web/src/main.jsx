@@ -6,11 +6,17 @@ import { MermaidPreviewHost } from './components/MermaidPreviewHost.jsx';
 import { installBrowserDefaultGuards } from './lib/browserDefaults.js';
 import { installMermaidRenderer } from './lib/mermaidRenderer.js';
 import { installWebappCompatFlag } from './lib/desktopShellMode.js';
+import {
+  installDesktopStartupPaintReporter,
+  reportDesktopStartupMilestone,
+} from './lib/desktopStartupProgress.js';
 import { i18n, tr } from './i18n/index.js';
 import './styles/globals.css';
 
 installBrowserDefaultGuards();
 installMermaidRenderer();
+reportDesktopStartupMilestone('web_bootstrap');
+installDesktopStartupPaintReporter();
 
 // 必须在 React mount 前安装:DesktopContextMenu 等组件 mount 时即读取该标志。
 // 固化到 sessionStorage 后,后续 replaceState 抹掉 query 也不影响识别。

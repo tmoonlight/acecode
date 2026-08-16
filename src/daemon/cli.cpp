@@ -232,10 +232,13 @@ static int do_foreground(const Args& a, const std::string& exe_path) {
     if (!a.run_dir_override.empty()) {
         acecode::set_run_dir_override(a.run_dir_override);
     }
+    append_startup_diagnostic(
+        "[daemon] stage=process_entry mode=foreground");
 
     std::string hook_config_error;
     append_startup_diagnostic(
-        "[daemon] startup.before_model_load dispatch begin cwd=" +
+        "[daemon] stage=startup_hooks_begin "
+        "startup.before_model_load dispatch begin cwd=" +
         acecode::current_path_utf8());
     acecode::dispatch_startup_before_model_load_hooks(
         acecode::current_path_utf8(), &hook_config_error);
@@ -243,14 +246,19 @@ static int do_foreground(const Args& a, const std::string& exe_path) {
         append_startup_diagnostic("[hooks] WARNING: " + hook_config_error);
     }
     append_startup_diagnostic(
-        "[daemon] startup.before_model_load dispatch end" +
+        "[daemon] stage=startup_hooks_end "
+        "startup.before_model_load dispatch end" +
         std::string(hook_config_error.empty() ? "" : " with warnings"));
     if (!hook_config_error.empty()) {
         std::cerr << "[hooks] WARNING: " << hook_config_error << "\n";
     }
 
+    append_startup_diagnostic("[daemon] stage=config_load_begin");
     AppConfig cfg = load_config();
+    append_startup_diagnostic("[daemon] stage=config_load_end");
+    append_startup_diagnostic("[daemon] stage=default_skills_sync_begin");
     reconcile_default_skills_on_startup(exe_path);
+    append_startup_diagnostic("[daemon] stage=default_skills_sync_end");
     auto errs = validate_config(cfg);
     if (!errs.empty()) {
         for (const auto& e : errs) std::cerr << "config error: " << e << "\n";
@@ -277,6 +285,7 @@ static int do_foreground(const Args& a, const std::string& exe_path) {
     opts.desktop_protocol_version = a.desktop_protocol_version;
     opts.desktop_owner_pid   = a.desktop_owner_pid;
     opts.desktop_owner_instance = a.desktop_owner_instance;
+    append_startup_diagnostic("[daemon] stage=worker_handoff");
     return run_worker(opts, cfg);
 }
 
