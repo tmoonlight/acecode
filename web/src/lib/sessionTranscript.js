@@ -43,6 +43,18 @@ function cloneTurnTimings(turnTimings) {
   return out;
 }
 
+function cloneTurnNetDiffs(turnNetDiffs) {
+  const out = new Map();
+  const entries = turnNetDiffs instanceof Map
+    ? turnNetDiffs.entries()
+    : Object.entries(turnNetDiffs && typeof turnNetDiffs === 'object' ? turnNetDiffs : {});
+  for (const [key, value] of entries) {
+    if (!key || !value || typeof value !== 'object') continue;
+    out.set(String(key), cloneJsonLike(value));
+  }
+  return out;
+}
+
 function cloneTokenUsage(tokenUsage) {
   if (!tokenUsage || typeof tokenUsage !== 'object') return null;
   const cloned = { ...tokenUsage };
@@ -110,6 +122,7 @@ function cloneState(state) {
     items: Array.isArray(state.items) ? state.items : [],
     toolMap: cloneToolMap(state.toolMap),
     turnTimings: cloneTurnTimings(state.turnTimings),
+    turnNetDiffs: cloneTurnNetDiffs(state.turnNetDiffs),
     tokenUsage: cloneTokenUsage(state.tokenUsage),
     goal: cloneGoal(state.goal),
     todos: cloneTodos(state.todos),
@@ -316,6 +329,86 @@ function normalizeTurnTimingRecord(message) {
     completedAtMs: Number.isFinite(completedAtMs) ? Math.max(0, Math.trunc(completedAtMs)) : 0,
     durationMs: Number.isFinite(durationMs) ? Math.max(0, Math.trunc(durationMs)) : 0,
     status,
+  };
+}
+
+function nonNegativeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function normalizeTurnDiffLine(line) {
+  if (!line || typeof line !== 'object' || Array.isArray(line)) return null;
+  if (!['context', 'added', 'removed'].includes(line.kind) || typeof line.text !== 'string') {
+    return null;
+  }
+  const normalized = { kind: line.kind, text: line.text };
+  for (const key of ['old_line_no', 'new_line_no']) {
+    if (!Object.prototype.hasOwnProperty.call(line, key)) continue;
+    const value = nonNegativeInteger(line[key]);
+    if (value === null) return null;
+    normalized[key] = value;
+  }
+  return normalized;
+}
+
+function normalizeTurnDiffHunk(hunk) {
+  if (!hunk || typeof hunk !== 'object' || Array.isArray(hunk) || !Array.isArray(hunk.lines)) {
+    return null;
+  }
+  const normalized = { lines: [] };
+  for (const key of ['old_start', 'old_count', 'new_start', 'new_count']) {
+    const value = nonNegativeInteger(hunk[key]);
+    if (value === null) return null;
+    normalized[key] = value;
+  }
+  for (const line of hunk.lines) {
+    const normalizedLine = normalizeTurnDiffLine(line);
+    if (!normalizedLine) return null;
+    normalized.lines.push(normalizedLine);
+  }
+  return normalized;
+}
+
+export function normalizeTurnNetDiffRecord(messageOrPayload) {
+  const metadata = messageOrPayload?.metadata;
+  const raw = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? metadata.turn_net_diff
+    : (messageOrPayload?.turn_net_diff ?? messageOrPayload);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (typeof raw.user_message_uuid !== 'string' || !raw.user_message_uuid.trim()) return null;
+  if (typeof raw.complete !== 'boolean' || !Array.isArray(raw.files) || !Array.isArray(raw.errors)) {
+    return null;
+  }
+
+  const errors = [];
+  for (const error of raw.errors) {
+    if (typeof error !== 'string') return null;
+    errors.push(error);
+  }
+
+  const files = [];
+  for (const file of raw.files) {
+    if (!file || typeof file !== 'object' || Array.isArray(file) ||
+        typeof file.file !== 'string' || !file.file.trim() || !Array.isArray(file.hunks)) {
+      return null;
+    }
+    const additions = nonNegativeInteger(file.additions);
+    const deletions = nonNegativeInteger(file.deletions);
+    if (additions === null || deletions === null) return null;
+    const hunks = [];
+    for (const hunk of file.hunks) {
+      const normalizedHunk = normalizeTurnDiffHunk(hunk);
+      if (!normalizedHunk) return null;
+      hunks.push(normalizedHunk);
+    }
+    files.push({ file: file.file.trim(), additions, deletions, hunks });
+  }
+
+  return {
+    userMessageUuid: raw.user_message_uuid.trim(),
+    complete: raw.complete,
+    files,
+    errors,
   };
 }
 
@@ -559,18 +652,24 @@ function visibleTranscriptMessages(messages) {
 }
 
 function splitTranscriptMessages(messages) {
-  const visible = visibleTranscriptMessages(messages);
+  const source = Array.isArray(messages) ? messages : [];
+  const visible = visibleTranscriptMessages(source);
   const transcriptMessages = [];
   const turnTimings = new Map();
+  const turnNetDiffs = new Map();
+  for (const message of source) {
+    const timing = normalizeTurnTimingRecord(message);
+    if (timing) turnTimings.set(timing.userMessageUuid, timing);
+    const turnNetDiff = normalizeTurnNetDiffRecord(message);
+    if (turnNetDiff) turnNetDiffs.set(turnNetDiff.userMessageUuid, turnNetDiff);
+  }
   for (const message of visible) {
     const timing = normalizeTurnTimingRecord(message);
-    if (timing) {
-      turnTimings.set(timing.userMessageUuid, timing);
-      continue;
-    }
+    if (timing) continue;
+    if (normalizeTurnNetDiffRecord(message)) continue;
     transcriptMessages.push(message);
   }
-  return { messages: transcriptMessages, turnTimings };
+  return { messages: transcriptMessages, turnTimings, turnNetDiffs };
 }
 
 function itemUserMessageUuid(item) {
@@ -593,6 +692,22 @@ function applyTurnTimingsToItems(items, turnTimings) {
       turnDurationMs: activeTiming.durationMs,
     };
   });
+}
+
+function applyTurnNetDiffsToItems(items, turnNetDiffs) {
+  if (!(turnNetDiffs instanceof Map) || turnNetDiffs.size === 0) return items;
+  return items.map((item) => {
+    if (item?.kind !== 'msg' || item.role !== 'user') return item;
+    const record = turnNetDiffs.get(itemUserMessageUuid(item));
+    return record ? { ...item, turnNetDiff: record } : item;
+  });
+}
+
+function applyTurnMetadataToItems(items, turnTimings, turnNetDiffs) {
+  return applyTurnNetDiffsToItems(
+    applyTurnTimingsToItems(items, turnTimings),
+    turnNetDiffs,
+  );
 }
 
 function toolKey(payload = {}) {
@@ -854,6 +969,7 @@ export function createTranscriptState(overrides = {}) {
     trajectoryPartial: null,
     toolMap: new Map(),
     turnTimings: new Map(),
+    turnNetDiffs: new Map(),
     nextItemId: 1,
     error: '',
     tokenUsage: null,
@@ -870,6 +986,7 @@ export function createTranscriptState(overrides = {}) {
     ...overrides,
     toolMap: cloneToolMap(overrides.toolMap),
     turnTimings: cloneTurnTimings(overrides.turnTimings),
+    turnNetDiffs: cloneTurnNetDiffs(overrides.turnNetDiffs),
     tokenUsage: cloneTokenUsage(overrides.tokenUsage),
     goal: cloneGoal(overrides.goal),
     todos: cloneTodos(overrides.todos),
@@ -903,9 +1020,11 @@ export function reduceTranscriptEvent(state, msg) {
       finalizeStreaming(next);
       next.trajectoryPartial = null;
       next.toolMap = new Map();
-      const { messages, turnTimings } = splitTranscriptMessages(p.messages);
+      const { messages, turnTimings, turnNetDiffs } = splitTranscriptMessages(p.messages);
       next.turnTimings = turnTimings;
-      next.items = applyTurnTimingsToItems(historyItemsFromMessages(next, messages), turnTimings);
+      next.turnNetDiffs = turnNetDiffs;
+      next.items = applyTurnMetadataToItems(
+        historyItemsFromMessages(next, messages), turnTimings, turnNetDiffs);
       const restoredTitle = titleFromMessages(messages);
       if (restoredTitle) next.title = restoredTitle;
       next.tokenUsage = null;
@@ -981,6 +1100,12 @@ export function reduceTranscriptEvent(state, msg) {
     }
     case 'message': {
       const role = p.role || 'system';
+      const turnNetDiff = normalizeTurnNetDiffRecord(p);
+      if (turnNetDiff) {
+        next.turnNetDiffs.set(turnNetDiff.userMessageUuid, turnNetDiff);
+        next.items = applyTurnNetDiffsToItems(next.items, next.turnNetDiffs);
+        break;
+      }
       if (role === 'error') {
         // Legacy/current daemon provider failures are visible message events.
         // Clear any earlier assistant text so their terminal busy=false cannot
@@ -1207,6 +1332,13 @@ export function reduceTranscriptEvent(state, msg) {
       });
       break;
     }
+    case 'turn_diff': {
+      const turnNetDiff = normalizeTurnNetDiffRecord(p);
+      if (!turnNetDiff) break;
+      next.turnNetDiffs.set(turnNetDiff.userMessageUuid, turnNetDiff);
+      next.items = applyTurnNetDiffsToItems(next.items, next.turnNetDiffs);
+      break;
+    }
     case 'usage': {
       next.tokenUsage = normalizeUsagePayload(p, eventTs(msg));
       break;
@@ -1331,10 +1463,12 @@ export function loadTranscriptHistory(state, data = {}) {
     loadState: 'loaded',
   });
   const effects = [];
-  const { messages: msgs, turnTimings } = splitTranscriptMessages(data.messages);
+  const { messages: msgs, turnTimings, turnNetDiffs } = splitTranscriptMessages(data.messages);
 
   next.turnTimings = turnTimings;
-  next.items = applyTurnTimingsToItems(historyItemsFromMessages(next, msgs), turnTimings);
+  next.turnNetDiffs = turnNetDiffs;
+  next.items = applyTurnMetadataToItems(
+    historyItemsFromMessages(next, msgs), turnTimings, turnNetDiffs);
 
   const restoredTitle = titleFromMessages(msgs);
   if (restoredTitle) next.title = restoredTitle;

@@ -29,6 +29,70 @@ TEST(AgentBrowserTools, SnapshotContractUsesRevisionedRefsWithoutHostBindings) {
     EXPECT_EQ(script.find("aceDesktop"), std::string::npos);
 }
 
+TEST(AgentBrowserTools, VisiblePointerScriptIsIsolatedAndNonInteractive) {
+    const std::string script = agent_browser_pointer_script(
+        12.5, 34.25, "click");
+
+    EXPECT_NE(
+        script.find("__acecode_agent_browser_ai_pointer_v1"),
+        std::string::npos);
+    EXPECT_NE(script.find("\"action\":\"click\""), std::string::npos);
+    EXPECT_NE(script.find("\"x\":12.5"), std::string::npos);
+    EXPECT_NE(script.find("\"y\":34.25"), std::string::npos);
+    EXPECT_NE(script.find("attachShadow({mode:'open'})"), std::string::npos);
+    EXPECT_NE(script.find(":host{all:initial}"), std::string::npos);
+    EXPECT_EQ(
+        script.find(":host{all:initial!important}"),
+        std::string::npos);
+    EXPECT_NE(script.find("pointer-events':'none'"), std::string::npos);
+    EXPECT_NE(
+        script.find("const critical={display:'block',position:'fixed'"),
+        std::string::npos);
+    EXPECT_EQ(script.find("const critical={all:"), std::string::npos);
+    EXPECT_NE(script.find("host.removeAttribute('style')"), std::string::npos);
+    EXPECT_NE(script.find("aria-hidden"), std::string::npos);
+    EXPECT_NE(script.find("badge.textContent='AI'"), std::string::npos);
+    EXPECT_NE(script.find("prefers-reduced-motion:reduce"), std::string::npos);
+    EXPECT_NE(script.find("setTimeout"), std::string::npos);
+    EXPECT_EQ(script.find("chrome.webview"), std::string::npos);
+    EXPECT_EQ(script.find("aceDesktop"), std::string::npos);
+
+    const std::string drag = agent_browser_pointer_script(1, 2, "drag");
+    EXPECT_NE(drag.find("\"action\":\"drag\""), std::string::npos);
+
+    const std::string fallback = agent_browser_pointer_script(1, 2, "unknown");
+    EXPECT_NE(fallback.find("\"action\":\"hover\""), std::string::npos);
+    EXPECT_EQ(fallback.find("\"action\":\"unknown\""), std::string::npos);
+}
+
+TEST(AgentBrowserTools, EvaluatePointerObserverCapturesOnlySyntheticMouseEvents) {
+    const std::string install =
+        agent_browser_evaluate_pointer_observer_script(true);
+
+    EXPECT_NE(
+        install.find("__acecodeEvaluatePointerObserverV1"),
+        std::string::npos);
+    EXPECT_NE(install.find("event.isTrusted!==false"), std::string::npos);
+    EXPECT_NE(install.find("'pointerdown','mousedown','click'"), std::string::npos);
+    EXPECT_NE(install.find("'mousemove','wheel'"), std::string::npos);
+    EXPECT_NE(install.find("event.clientX"), std::string::npos);
+    EXPECT_NE(install.find("event.clientY"), std::string::npos);
+    EXPECT_NE(install.find("getBoundingClientRect"), std::string::npos);
+    EXPECT_NE(install.find("zeroOutsideTarget"), std::string::npos);
+    EXPECT_NE(install.find("globalThis.addEventListener"), std::string::npos);
+    EXPECT_NE(
+        install.find("__acecode_agent_browser_ai_pointer_v1"),
+        std::string::npos);
+    EXPECT_NE(install.find("setTimeout(remove,20000)"), std::string::npos);
+    EXPECT_EQ(install.find("chrome.webview"), std::string::npos);
+    EXPECT_EQ(install.find("aceDesktop"), std::string::npos);
+
+    const std::string remove =
+        agent_browser_evaluate_pointer_observer_script(false);
+    EXPECT_NE(remove.find("state.remove()"), std::string::npos);
+    EXPECT_EQ(remove.find("globalThis.addEventListener"), std::string::npos);
+}
+
 TEST(AgentBrowserTools, RejectsAmbiguousInteractionTargetsBeforeConnecting) {
 #if defined(_WIN32) || defined(__APPLE__)
     ToolExecutor tools;

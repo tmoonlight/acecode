@@ -138,8 +138,60 @@ export function collectHunkMessagesFromItems(items) {
 
 function normalizedChangedPath(value) {
   return typeof value === 'string'
-    ? value.trim().replace(/\\/g, '/').replace(/^\/\/\?\//, '')
+    ? value.trim()
+      .replace(/\\/g, '/')
+      .replace(/^\/\/\?\//, '')
+      .replace(/^\.\/+/, '')
+      .replace(/\/{2,}/g, '/')
     : '';
+}
+
+function changedPathsMatch(left, right) {
+  let a = normalizedChangedPath(left);
+  let b = normalizedChangedPath(right);
+  if (!a || !b) return false;
+  if (/^[A-Za-z]:\//.test(a) || /^[A-Za-z]:\//.test(b)) {
+    a = a.toLowerCase();
+    b = b.toLowerCase();
+  }
+  if (a === b) return true;
+  const aAbsolute = /^([A-Za-z]:\/|\/)/.test(a);
+  const bAbsolute = /^([A-Za-z]:\/|\/)/.test(b);
+  if (aAbsolute === bAbsolute) return false;
+  const absolute = aAbsolute ? a : b;
+  const relative = aAbsolute ? b : a;
+  return absolute.endsWith(`/${relative}`);
+}
+
+function excludedTurnChangePaths(item) {
+  if (!excludesTurnChangeSummary(item)) return [];
+  const tool = item?.tool || {};
+  const paths = [];
+  const add = (value) => {
+    const path = normalizedChangedPath(value);
+    if (path && !paths.includes(path)) paths.push(path);
+  };
+  for (const hunk of Array.isArray(tool.hunks) ? tool.hunks : []) add(hunk?.file);
+  add(tool.summary?.object);
+  add(tool.args?.path);
+  add(tool.args?.file_path);
+  add(tool.args?.file);
+  return paths;
+}
+
+function groupsFromTurnNetDiff(record, excludedPaths) {
+  if (!record?.complete || !Array.isArray(record.files)) return null;
+  const excluded = Array.isArray(excludedPaths) ? excludedPaths : [];
+  return record.files
+    .filter((file) => !excluded.some((path) => changedPathsMatch(path, file?.file)))
+    .map((file) => ({
+      file: file.file,
+      hunks: (Array.isArray(file.hunks) ? file.hunks : []).map((hunk) => (
+        hunk?.file ? hunk : { ...hunk, file: file.file }
+      )),
+      totalAdditions: finiteNumber(file.additions),
+      totalDeletions: finiteNumber(file.deletions),
+    }));
 }
 
 function successfulToolChangedPaths(item) {
@@ -268,11 +320,18 @@ export function collectTurnChangeSetsFromItems(items) {
   let current = null;
 
   const flush = () => {
-    if (!current || current.messages.length === 0) {
+    if (!current) {
       current = null;
       return;
     }
-    const groups = aggregateHunksFromMessages(current.messages);
+    const netGroups = groupsFromTurnNetDiff(current.turnNetDiff, current.excludedPaths);
+    if (netGroups === null && current.messages.length === 0) {
+      current = null;
+      return;
+    }
+    const groups = netGroups === null
+      ? aggregateHunksFromMessages(current.messages)
+      : netGroups;
     const summary = summarizeChangeGroups(groups);
     if (summary.hasChanges) {
       const set = {
@@ -299,6 +358,8 @@ export function collectTurnChangeSetsFromItems(items) {
         preview: previewText(item.content),
         afterItemId: item.id,
         messages: [],
+        turnNetDiff: item.turnNetDiff || null,
+        excludedPaths: [],
       };
       continue;
     }
@@ -306,9 +367,12 @@ export function collectTurnChangeSetsFromItems(items) {
     // 临时文件的工具行与 diff 仍保留，只从每轮「已修改 xx 个文件」摘要排除。
     // 是否属于临时根目录由后端依据 ToolContext::scratch_dir 判定，前端不
     // 重复硬编码 `.acecode/tmp`。
-    const hunkMessage = excludesTurnChangeSummary(item)
-      ? null
-      : hunkMessageFromToolItem(item);
+    const excludedPaths = excludedTurnChangePaths(item);
+    const hunkMessage = excludedPaths.length > 0 ? null : hunkMessageFromToolItem(item);
+    if (current && excludedPaths.length > 0) {
+      current.excludedPaths.push(...excludedPaths);
+      current.afterItemId = item.id;
+    }
     if (!hunkMessage) continue;
     if (!current) {
       current = {
@@ -317,6 +381,8 @@ export function collectTurnChangeSetsFromItems(items) {
         preview: '',
         afterItemId: item.id,
         messages: [],
+        turnNetDiff: null,
+        excludedPaths: [],
       };
     }
     current.afterItemId = item.id;

@@ -2,7 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import { usePreference } from '../lib/usePreference.js';
 import { clsx } from '../lib/format.js';
-import { PREVIEW_TAB_TYPES, previewAbsolutePath } from '../lib/previewTabs.js';
+import {
+  PREVIEW_TAB_TYPES,
+  previewAbsolutePath,
+  resolveSessionChangesTabContent,
+} from '../lib/previewTabs.js';
 import { scrollLeftForVisibleTab } from '../lib/previewTabScroll.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 import { FilePreviewContent } from './FilePreviewContent.jsx';
@@ -198,6 +202,7 @@ export function PreviewDetailsPanel({
   activeTab = null,
   changeGroups = [],
   changeSummary = null,
+  turnChangeSets = [],
   maximized = false,
   busy = false,
   selectionContexts = [],
@@ -273,15 +278,23 @@ export function PreviewDetailsPanel({
       );
     }
     if (active.type === PREVIEW_TAB_TYPES.SESSION_CHANGES) {
+      const scopedChanges = resolveSessionChangesTabContent(active, {
+        changeGroups,
+        changeSummary,
+        turnChangeSets,
+      });
       return (
         <SessionChangeDetails
-          groups={changeGroups}
-          summary={changeSummary}
+          groups={scopedChanges.groups}
+          summary={scopedChanges.summary}
           cwd={cwd}
           expandedFile={active.expandedFile || ''}
           expandedFileRevision={active.expandedFileRevision || 0}
           reloadRevision={active.reloadRevision || 0}
-          onSelectFile={onSelectChangeFile}
+          onSelectFile={(filePath) => onSelectChangeFile?.(
+            filePath,
+            scopedChanges.turnUserMessageId,
+          )}
           onOpenFilePreview={onOpenFilePreview}
           onRefresh={() => onRefreshTab?.(active.key)}
         />
@@ -318,7 +331,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;

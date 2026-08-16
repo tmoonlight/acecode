@@ -16,6 +16,7 @@ import {
   previewScopeKey,
   refreshPreviewTab,
   reorderPreviewTab,
+  resolveSessionChangesTabContent,
   sessionWorkingCwd,
   updateBrowserTabFavicon,
   updateBrowserTabMetadata,
@@ -414,6 +415,74 @@ run('openSessionChangesTab increments expanded file revision for repeated clicks
   assert.equal(active.expandedFileRevision, firstRevision + 1);
 });
 
+run('轮次变更页签在详情内切文件时保持 user message UUID，全会话入口会清除它', () => {
+  let state = {};
+  state = openSessionChangesTab(state, {
+    scopeKey: 'workspace-a',
+    sessionId: 's1',
+    expandedFile: 'src/a.cpp',
+    fileCount: 2,
+    turnUserMessageId: 'user-turn-1',
+  });
+  state = openSessionChangesTab(state, {
+    scopeKey: 'workspace-a',
+    sessionId: 's1',
+    expandedFile: 'src/b.cpp',
+    fileCount: 2,
+    turnUserMessageId: 'user-turn-1',
+  });
+
+  let active = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(active.expandedFile, 'src/b.cpp');
+  assert.equal(active.turnUserMessageId, 'user-turn-1');
+
+  state = openSessionChangesTab(state, {
+    scopeKey: 'workspace-a',
+    sessionId: 's1',
+    expandedFile: 'src/global.cpp',
+    fileCount: 5,
+  });
+  active = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(active.expandedFile, 'src/global.cpp');
+  assert.equal(active.turnUserMessageId, '');
+  assert.equal(active.fileCount, 5);
+});
+
+run('resolveSessionChangesTabContent 只返回页签 UUID 对应轮次的 groups 与 summary', () => {
+  const globalGroups = [{ file: 'global.cpp' }];
+  const globalSummary = { fileCount: 9, totalAdditions: 9, totalDeletions: 0, hasChanges: true };
+  const turn = {
+    userMessageId: 'user-turn-2',
+    groups: [{ file: 'turn.cpp' }],
+    summary: { fileCount: 1, totalAdditions: 2, totalDeletions: 1, hasChanges: true },
+  };
+
+  assert.deepEqual(resolveSessionChangesTabContent(
+    { turnUserMessageId: 'user-turn-2' },
+    { changeGroups: globalGroups, changeSummary: globalSummary, turnChangeSets: [turn] },
+  ), {
+    groups: turn.groups,
+    summary: turn.summary,
+    turnUserMessageId: 'user-turn-2',
+  });
+  assert.deepEqual(resolveSessionChangesTabContent(
+    { turnUserMessageId: '' },
+    { changeGroups: globalGroups, changeSummary: globalSummary, turnChangeSets: [turn] },
+  ), {
+    groups: globalGroups,
+    summary: globalSummary,
+    turnUserMessageId: '',
+  });
+  assert.deepEqual(resolveSessionChangesTabContent(
+    { turnUserMessageId: 'missing-turn' },
+    { changeGroups: globalGroups, changeSummary: globalSummary, turnChangeSets: [turn] },
+  ), {
+    groups: [],
+    summary: { fileCount: 0, totalAdditions: 0, totalDeletions: 0, hasChanges: false },
+    turnUserMessageId: 'missing-turn',
+  });
+});
+
 run('file tab can become active when session change tab also exists', () => {
   let state = {};
   state = openSessionChangesTab(state, {
@@ -469,7 +538,7 @@ run('closeVisiblePreviewTabsConfirmationMessage warns about all visible tabs', (
   assert.equal(closeVisiblePreviewTabsConfirmationMessage(-1), '');
 });
 
-run('updateSessionChangesTab updates count without replacing expanded file', () => {
+run('updateSessionChangesTab updates global count without replacing expanded file or scoped turn count', () => {
   let state = {};
   state = openSessionChangesTab(state, {
     scopeKey: 'workspace-a',
@@ -481,6 +550,18 @@ run('updateSessionChangesTab updates count without replacing expanded file', () 
   const tab = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
   assert.equal(tab.fileCount, 4);
   assert.equal(tab.expandedFile, 'src/a.cpp');
+
+  state = openSessionChangesTab(state, {
+    scopeKey: 'workspace-a',
+    sessionId: 's1',
+    expandedFile: 'src/turn.cpp',
+    fileCount: 2,
+    turnUserMessageId: 'user-turn-3',
+  });
+  state = updateSessionChangesTab(state, { sessionId: 's1', fileCount: 10 });
+  const scopedTab = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(scopedTab.fileCount, 2);
+  assert.equal(scopedTab.turnUserMessageId, 'user-turn-3');
 });
 
 // ── git 级「变更」页签(git-changes 类型)──────────────────────────

@@ -24,6 +24,8 @@ using json = nlohmann::json;
 
 constexpr auto kConnectTimeout = std::chrono::seconds(10);
 constexpr auto kCommandTimeout = std::chrono::seconds(15);
+constexpr auto kPointerCommandTimeout = std::chrono::seconds(2);
+constexpr auto kPointerClickLeadTime = std::chrono::milliseconds(80);
 constexpr std::uint32_t kMaxSnapshotRevision = 1'000'000'000u;
 
 std::atomic<std::uint32_t> snapshot_revision_seed{
@@ -316,6 +318,82 @@ bool dispatch_mouse(AgentBrowserCdpClient& client,
     return error.empty();
 }
 
+bool show_agent_pointer(AgentBrowserCdpClient& client,
+                        double x,
+                        double y,
+                        const std::string& action,
+                        const ToolContext& context) {
+    if (!std::isfinite(x) || !std::isfinite(y)) return false;
+
+    std::string pointer_error;
+    const json response = client.command(
+        "Runtime.evaluate",
+        {
+            {"expression", agent_browser_pointer_script(x, y, action)},
+            {"awaitPromise", true},
+            {"returnByValue", true},
+        },
+        kPointerCommandTimeout,
+        context.abort_flag,
+        pointer_error);
+    if (!pointer_error.empty()) {
+        LOG_WARN(
+            "[agent-browser-tool] visible AI pointer failed for " + action +
+            ": " + pointer_error.substr(0, 256));
+        return false;
+    }
+    if (response.contains("exceptionDetails")) {
+        LOG_WARN(
+            "[agent-browser-tool] visible AI pointer script was rejected for " +
+            action);
+        return false;
+    }
+
+    const json remote = response.value("result", json::object());
+    const json value = remote.is_object()
+        ? remote.value("value", json(nullptr)) : json(nullptr);
+    if (value.is_object() && !value.value("ok", true)) {
+        LOG_WARN(
+            "[agent-browser-tool] visible AI pointer was unavailable for " +
+            action);
+        return false;
+    }
+    return true;
+}
+
+bool set_evaluate_pointer_observer(
+    AgentBrowserCdpClient& client,
+    bool install,
+    const ToolContext& context) {
+    std::string pointer_error;
+    const json response = client.command(
+        "Runtime.evaluate",
+        {
+            {"expression",
+             agent_browser_evaluate_pointer_observer_script(install)},
+            {"awaitPromise", true},
+            {"returnByValue", true},
+        },
+        kPointerCommandTimeout,
+        install ? context.abort_flag : nullptr,
+        pointer_error);
+    const std::string phase = install ? "install" : "remove";
+    if (!pointer_error.empty()) {
+        LOG_WARN(
+            "[agent-browser-tool] failed to " + phase +
+            " browser_evaluate AI pointer observer: " +
+            pointer_error.substr(0, 256));
+        return false;
+    }
+    if (response.contains("exceptionDetails")) {
+        LOG_WARN(
+            "[agent-browser-tool] browser_evaluate AI pointer observer " +
+            phase + " script was rejected");
+        return false;
+    }
+    return true;
+}
+
 ToolImpl make_tool(const std::string& name,
                    const std::string& description,
                    json parameters,
@@ -574,6 +652,9 @@ ToolImpl click_tool() {
             const double y = rect.value("cy", 0.0);
             const std::string button = args.value("button", "left");
             const int count = args.value("click_count", 1);
+            if (show_agent_pointer(client, x, y, "click", context)) {
+                std::this_thread::sleep_for(kPointerClickLeadTime);
+            }
             if (!dispatch_mouse(client, "mouseMoved", x, y, json::object(), args, context, error) ||
                 !dispatch_mouse(client, "mousePressed", x, y,
                                 {{"button", button}, {"clickCount", count}}, args, context, error) ||
@@ -795,6 +876,12 @@ ToolImpl hover_tool() {
             json target = resolve_target(client, args, context, error);
             if (!error.empty()) return failure_result("target_not_found", error);
             const auto& rect = target["rect"];
+            show_agent_pointer(
+                client,
+                rect.value("cx", 0.0),
+                rect.value("cy", 0.0),
+                "hover",
+                context);
             if (!dispatch_mouse(client, "mouseMoved", rect.value("cx", 0.0), rect.value("cy", 0.0),
                                 json::object(), args, context, error)) {
                 return input_failure_result("hover_failed", error);
@@ -834,6 +921,9 @@ ToolImpl drag_tool() {
             const double y1 = from["rect"].value("cy", 0.0);
             const double x2 = to["rect"].value("cx", 0.0);
             const double y2 = to["rect"].value("cy", 0.0);
+            if (show_agent_pointer(client, x1, y1, "click", context)) {
+                std::this_thread::sleep_for(kPointerClickLeadTime);
+            }
             if (!dispatch_mouse(
                     client, "mouseMoved", x1, y1, json::object(),
                     args, context, error) ||
@@ -843,6 +933,7 @@ ToolImpl drag_tool() {
                     args, context, error)) {
                 return input_failure_result("drag_failed", error);
             }
+            show_agent_pointer(client, x2, y2, "drag", context);
             for (int step = 1; step <= 8 && error.empty(); ++step) {
                 const double ratio = static_cast<double>(step) / 8.0;
                 dispatch_mouse(client, "mouseMoved",
@@ -912,6 +1003,7 @@ ToolImpl scroll_tool() {
             const double y = args.value("y", center.value("y", 0.0));
             const double dx = args.value("delta_x", 0.0);
             const double dy = args.value("delta_y", 600.0);
+            show_agent_pointer(client, x, y, "scroll", context);
             if (!dispatch_mouse(client, "mouseWheel", x, y,
                                 {{"deltaX", dx}, {"deltaY", dy}},
                                 args, context, error)) {
@@ -1105,14 +1197,16 @@ ToolImpl dialog_tool() {
 ToolImpl evaluate_tool() {
     return make_tool(
         "browser_evaluate",
-        "Evaluate JavaScript in the visible Browser page and return the JSON-serializable value. This can mutate the page; prefer browser_read_page and semantic tools for ordinary work.",
+        "Evaluate JavaScript in the visible Browser page and return the JSON-serializable value. Synthetic mouse, pointer, or wheel events dispatched by the code show the visible AI pointer at their event coordinates. This can mutate the page; prefer browser_read_page and semantic tools for ordinary work.",
         object_schema({{"code", string_property("JavaScript expression or IIFE.")}}, {"code"}),
         false,
         [](const json& args, const ToolContext& context) {
             AgentBrowserCdpClient client;
             std::string error;
             if (!connect_client(client, context, error, &args)) return failure_result("desktop_browser_unavailable", error);
+            set_evaluate_pointer_observer(client, true, context);
             json value = evaluate(client, args.value("code", ""), context, error);
+            set_evaluate_pointer_observer(client, false, context);
             if (!error.empty()) return failure_result("evaluation_failed", error);
             return success_result_with_page(
                 client, context, {{"result", value}}, "Evaluated", "Browser page");

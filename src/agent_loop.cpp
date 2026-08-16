@@ -22,6 +22,7 @@
 #include "session/thread_goal_store.hpp"
 #include "session/todo_state.hpp"
 #include "session/turn_timing.hpp"
+#include "session/turn_net_diff.hpp"
 #include "skills/skill_activation.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/mtime_tracker.hpp"
@@ -394,6 +395,7 @@ bool should_persist_trajectory_event(const SessionEvent& event) {
     case SessionEventKind::Reasoning:
     case SessionEventKind::ToolUpdate:
     case SessionEventKind::ToolEnd:
+    case SessionEventKind::TurnDiff:
     case SessionEventKind::TranscriptReplace:
     case SessionEventKind::GoalUpdated:
     case SessionEventKind::GoalCleared:
@@ -4118,6 +4120,15 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         }
     } else {
         account_goal_usage(0, false);
+    }
+
+    if (turn_info.visible_timed_turn && session_manager_) {
+        auto turn_diff = session_manager_->finalize_user_turn_net_diff(
+            turn_info.turn_user_uuid);
+        if (turn_diff.has_value()) {
+            events_.emit(SessionEventKind::TurnDiff,
+                         encode_turn_net_diff(*turn_diff));
+        }
     }
 
     if (turn_info.visible_timed_turn) {

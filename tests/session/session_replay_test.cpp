@@ -11,6 +11,7 @@
 #include "session/compact_notice.hpp"
 #include "session/file_checkpoint_store.hpp"
 #include "session/tool_metadata_codec.hpp"
+#include "session/turn_net_diff.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "tool/diff_utils.hpp"
@@ -598,6 +599,24 @@ TEST(SessionReplay, FileCheckpointMetaMessagesAreHidden) {
 
     ToolExecutor tools;
     auto out = replay_session_messages({checkpoint, user}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "user");
+    EXPECT_EQ(out[0].content, "visible");
+}
+
+TEST(SessionReplay, TurnNetDiffMetaMessagesAreHidden) {
+    acecode::TurnNetDiffRecord record;
+    record.user_message_uuid = "user";
+    ChatMessage turn_diff = acecode::make_turn_net_diff_message(
+        record, "2026-08-15T00:00:00Z");
+
+    ChatMessage user;
+    user.role = "user";
+    user.content = "visible";
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({turn_diff, user}, tools);
 
     ASSERT_EQ(out.size(), 1u);
     EXPECT_EQ(out[0].role, "user");

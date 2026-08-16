@@ -305,6 +305,10 @@ std::vector<nlohmann::json> HeadlessJsonlProjector::consume(
         tool_starts_.clear();
         break;
     }
+    case SessionEventKind::TurnDiff:
+        // Canonical JSONL already contains the transcript-only turn record.
+        // The headless projection intentionally emits only model/tool parts.
+        break;
     default:
         break;
     }

@@ -4,6 +4,7 @@
 #include "session_title_generator.hpp"
 #include "session_user_message_search.hpp"
 #include "tool_result_storage.hpp"
+#include "turn_net_diff.hpp"
 #include "turn_timing.hpp"
 #include "session_usage_ledger.hpp"
 #include "../utils/atomic_file.hpp"
@@ -149,6 +150,35 @@ collect_retained_turn_timing_messages(
     }
     for (const auto& msg : retained_messages) {
         add_retained_turn_timing_message(out, seen, retained_user_uuids, msg);
+    }
+    return out;
+}
+
+void add_retained_turn_net_diff_message(
+    std::unordered_map<std::string, acecode::ChatMessage>& out,
+    const std::set<std::string>& retained_user_uuids,
+    const acecode::ChatMessage& msg) {
+    if (!msg.metadata.is_object()) return;
+    auto record = acecode::decode_turn_net_diff(
+        msg.metadata.value("turn_net_diff", nlohmann::json{}));
+    if (!record.has_value()) return;
+    if (!retained_user_uuids.count(record->user_message_uuid)) return;
+    // JSONL is append-only. If recovery left more than one terminal record for
+    // a turn, the latest valid record is authoritative.
+    out[record->user_message_uuid] = msg;
+}
+
+std::unordered_map<std::string, acecode::ChatMessage>
+collect_retained_turn_net_diff_messages(
+    const std::vector<acecode::ChatMessage>& existing_messages,
+    const std::vector<acecode::ChatMessage>& retained_messages,
+    const std::set<std::string>& retained_user_uuids) {
+    std::unordered_map<std::string, acecode::ChatMessage> out;
+    for (const auto& msg : existing_messages) {
+        add_retained_turn_net_diff_message(out, retained_user_uuids, msg);
+    }
+    for (const auto& msg : retained_messages) {
+        add_retained_turn_net_diff_message(out, retained_user_uuids, msg);
     }
     return out;
 }
@@ -386,14 +416,18 @@ bool SessionManager::replace_active_messages(const std::vector<ChatMessage>& mes
     }
     auto timing_by_user = collect_retained_turn_timing_messages(
         existing_messages, messages, retained_user_uuids);
+    auto turn_diff_by_user = collect_retained_turn_net_diff_messages(
+        existing_messages, messages, retained_user_uuids);
 
     std::vector<ChatMessage> rewritten;
-    rewritten.reserve(messages.size() + checkpoints_by_user.size() + timing_by_user.size());
+    rewritten.reserve(messages.size() + checkpoints_by_user.size() +
+                      timing_by_user.size() + turn_diff_by_user.size());
     last_user_summary_.clear();
     turn_count_ = 0;
     for (const auto& msg : messages) {
         if (is_file_checkpoint_message(msg)) continue;
         if (is_turn_timing_message(msg)) continue;
+        if (is_turn_net_diff_message(msg)) continue;
         rewritten.push_back(msg);
         if (is_visible_user_turn_message(msg)) {
             turn_count_++;
@@ -407,6 +441,10 @@ bool SessionManager::replace_active_messages(const std::vector<ChatMessage>& mes
             auto timing_it = timing_by_user.find(msg.uuid);
             if (timing_it != timing_by_user.end()) {
                 rewritten.insert(rewritten.end(), timing_it->second.begin(), timing_it->second.end());
+            }
+            auto turn_diff_it = turn_diff_by_user.find(msg.uuid);
+            if (turn_diff_it != turn_diff_by_user.end()) {
+                rewritten.push_back(turn_diff_it->second);
             }
         }
     }
@@ -473,6 +511,32 @@ void SessionManager::track_file_write_before(const std::string& file_path) {
     }
     message_count_++;
     update_meta();
+}
+
+std::optional<TurnNetDiffRecord> SessionManager::finalize_user_turn_net_diff(
+    const std::string& user_message_uuid) {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (!started_ || user_message_uuid.empty()) return std::nullopt;
+    if (!ensure_created()) return std::nullopt;
+
+    TurnNetDiffRecord record = checkpoint_store_.build_active_turn_net_diff(cwd_);
+    if (record.user_message_uuid != user_message_uuid) {
+        record.complete = false;
+        record.errors.push_back(
+            "Active file checkpoint does not match the completed user turn.");
+        record.user_message_uuid = user_message_uuid;
+    }
+
+    const ChatMessage message = make_turn_net_diff_message(
+        record, SessionStorage::now_iso8601());
+    if (!SessionStorage::append_message(jsonl_path_, message)) {
+        last_error_ = "failed to append turn net diff";
+        LOG_WARN("[session] " + last_error_ + " session=" + session_id_);
+        return std::nullopt;
+    }
+    message_count_++;
+    update_meta();
+    return record;
 }
 
 bool SessionManager::file_checkpoint_can_restore(const std::string& user_message_uuid) const {
@@ -721,6 +785,8 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
     auto checkpoint_meta = checkpoint_store_.fork_to_session(new_session_id, retained_user_uuids);
     auto timing_by_user = collect_retained_turn_timing_messages(
         SessionStorage::load_messages(jsonl_path_), fork_messages, retained_user_uuids);
+    auto turn_diff_by_user = collect_retained_turn_net_diff_messages(
+        SessionStorage::load_messages(jsonl_path_), fork_messages, retained_user_uuids);
 
     release_writer_lease_locked();
 
@@ -761,6 +827,7 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
     for (const auto& msg : fork_messages) {
         if (is_file_checkpoint_message(msg)) continue;
         if (is_turn_timing_message(msg)) continue;
+        if (is_turn_net_diff_message(msg)) continue;
         if (!SessionStorage::append_message(jsonl_path_, msg)) {
             append_failed = true;
             break;
@@ -778,6 +845,14 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
                     message_count_++;
                 }
                 if (append_failed) break;
+            }
+            auto turn_diff_it = turn_diff_by_user.find(msg.uuid);
+            if (turn_diff_it != turn_diff_by_user.end()) {
+                if (!SessionStorage::append_message(jsonl_path_, turn_diff_it->second)) {
+                    append_failed = true;
+                    break;
+                }
+                message_count_++;
             }
         }
     }
@@ -854,6 +929,10 @@ std::string SessionManager::fork_session_to_new_id(
         jsonl_path_.empty() ? std::vector<ChatMessage>{} : SessionStorage::load_messages(jsonl_path_),
         fork_messages,
         retained_user_uuids);
+    auto turn_diff_by_user = collect_retained_turn_net_diff_messages(
+        jsonl_path_.empty() ? std::vector<ChatMessage>{} : SessionStorage::load_messages(jsonl_path_),
+        fork_messages,
+        retained_user_uuids);
 
     // 写新 jsonl(过滤 file_checkpoint 元消息;新 session 不继承 checkpoints)
     int count = 0;
@@ -864,6 +943,7 @@ std::string SessionManager::fork_session_to_new_id(
         for (const auto& msg : fork_messages) {
             if (is_file_checkpoint_message(msg)) continue;
             if (is_turn_timing_message(msg)) continue;
+            if (is_turn_net_diff_message(msg)) continue;
             if (!SessionStorage::append_message(new_jsonl, msg)) {
                 io_error = true;
                 break;
@@ -881,6 +961,14 @@ std::string SessionManager::fork_session_to_new_id(
                         count++;
                     }
                     if (io_error) break;
+                }
+                auto turn_diff_it = turn_diff_by_user.find(msg.uuid);
+                if (turn_diff_it != turn_diff_by_user.end()) {
+                    if (!SessionStorage::append_message(new_jsonl, turn_diff_it->second)) {
+                        io_error = true;
+                        break;
+                    }
+                    count++;
                 }
             }
             if (is_visible_user_turn_message(msg) && !msg.content.empty()) {

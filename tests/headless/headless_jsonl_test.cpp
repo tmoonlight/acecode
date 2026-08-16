@@ -211,6 +211,19 @@ TEST(HeadlessJsonlProjector, ProviderErrorFollowsFailedStepFinish) {
     EXPECT_EQ(projector.last_error_message(), "provider exploded");
 }
 
+TEST(HeadlessJsonlProjector, TurnDiffDoesNotEmitAProjectionRecord) {
+    HeadlessJsonlProjector projector("session-turn-diff");
+    const auto records = projector.consume(event(
+        SessionEventKind::TurnDiff,
+        1,
+        6000,
+        {{"user_message_uuid", "u-1"},
+         {"complete", true},
+         {"files", nlohmann::json::array()},
+         {"errors", nlohmann::json::array()}}));
+    EXPECT_TRUE(records.empty());
+}
+
 TEST(JsonlStreamWriter, WritesOneParseableLineAndFlushesEveryRecord) {
     std::string output;
     int flushes = 0;

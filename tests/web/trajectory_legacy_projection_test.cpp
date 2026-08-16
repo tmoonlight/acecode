@@ -1,5 +1,6 @@
 #include "web/message_payload.hpp"
 #include "web/trajectory_legacy_projection.hpp"
+#include "session/turn_net_diff.hpp"
 #include "session/turn_timing.hpp"
 
 #include <gtest/gtest.h>
@@ -42,6 +43,11 @@ std::vector<acecode::ChatMessage> legacy_messages() {
     tool_result.tool_call_id = "call-1";
     tool_result.content = "old file contents";
     messages.push_back(tool_result);
+
+    acecode::TurnNetDiffRecord turn_diff;
+    turn_diff.user_message_uuid = "turn-1";
+    messages.push_back(acecode::make_turn_net_diff_message(
+        turn_diff, "2026-08-15T01:02:04Z"));
 
     acecode::TurnTimingRecord timing;
     timing.user_message_uuid = "turn-1";

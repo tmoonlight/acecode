@@ -8,6 +8,7 @@
 #include "tool_metadata_codec.hpp"
 #include "tool_result_storage.hpp"
 #include "output_attachments.hpp"
+#include "turn_net_diff.hpp"
 #include "turn_timing.hpp"
 #include "../tool/ask_user_question_tool.hpp"
 #include "../tool/tool_executor.hpp"
@@ -72,6 +73,9 @@ std::vector<TuiState::Message> replay_session_messages(
             continue;
         }
         if (is_turn_timing_message(msg)) {
+            continue;
+        }
+        if (is_turn_net_diff_message(msg)) {
             continue;
         }
         if (is_compact_checkpoint_message(msg)) {

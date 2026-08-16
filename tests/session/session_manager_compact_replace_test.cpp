@@ -4,6 +4,7 @@
 #include "session/file_checkpoint_store.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
+#include "session/turn_net_diff.hpp"
 
 #include <filesystem>
 #include <random>
@@ -44,9 +45,11 @@ TEST(SessionManagerCompactReplace, RewritesJsonlAndKeepsRetainedCheckpointsOnly)
     sm.on_message(old_user);
     sm.begin_user_turn_checkpoint(old_user.uuid);
     sm.on_message(make_message("assistant", "old response"));
+    ASSERT_TRUE(sm.finalize_user_turn_net_diff(old_user.uuid).has_value());
     sm.on_message(kept_user);
     sm.begin_user_turn_checkpoint(kept_user.uuid);
     sm.on_message(kept_assistant);
+    ASSERT_TRUE(sm.finalize_user_turn_net_diff(kept_user.uuid).has_value());
 
     acecode::ChatMessage boundary;
     boundary.role = "system";
@@ -68,6 +71,8 @@ TEST(SessionManagerCompactReplace, RewritesJsonlAndKeepsRetainedCheckpointsOnly)
     bool saw_kept_user = false;
     int checkpoint_count = 0;
     std::string checkpoint_user;
+    int turn_diff_count = 0;
+    std::string turn_diff_user;
     for (const auto& msg : stored) {
         if (msg.content == "old prompt") saw_old_user = true;
         if (msg.content == "kept prompt") saw_kept_user = true;
@@ -76,12 +81,22 @@ TEST(SessionManagerCompactReplace, RewritesJsonlAndKeepsRetainedCheckpointsOnly)
             checkpoint_count++;
             checkpoint_user = snapshot->message_uuid;
         }
+        if (msg.metadata.is_object()) {
+            auto turn_diff = acecode::decode_turn_net_diff(
+                msg.metadata.value("turn_net_diff", nlohmann::json{}));
+            if (turn_diff.has_value()) {
+                turn_diff_count++;
+                turn_diff_user = turn_diff->user_message_uuid;
+            }
+        }
     }
 
     EXPECT_FALSE(saw_old_user);
     EXPECT_TRUE(saw_kept_user);
     EXPECT_EQ(checkpoint_count, 1);
     EXPECT_EQ(checkpoint_user, "u-kept");
+    EXPECT_EQ(turn_diff_count, 1);
+    EXPECT_EQ(turn_diff_user, "u-kept");
 
     auto meta = acecode::SessionStorage::read_meta(candidates.front().meta_path);
     EXPECT_EQ(meta.message_count, static_cast<int>(stored.size()));

@@ -8,6 +8,9 @@
 #include "permissions.hpp"
 #include "provider/llm_provider.hpp"
 #include "session/event_dispatcher.hpp"
+#include "session/session_manager.hpp"
+#include "session/session_storage.hpp"
+#include "session/turn_net_diff.hpp"
 #include "stub_provider.hpp"
 #include "tool/file_edit_tool.hpp"
 #include "tool/file_read_tool.hpp"
@@ -15,6 +18,7 @@
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -135,6 +139,14 @@ public:
     ToolExecutor& tools() { return tools_; }
     StubLlmProvider& provider() { return *provider_; }
     PermissionManager& permissions() { return perms_; }
+    void enable_session_manager() {
+        session_manager_.start_session(cwd_, "stub", "stub-model");
+        loop_->set_session_manager(&session_manager_);
+    }
+    std::vector<acecode::ChatMessage> persisted_session_messages() const {
+        return session_manager_.load_active_messages();
+    }
+    void shutdown() { loop_->shutdown(); }
     std::atomic<int>& confirm_count() { return confirm_count_; }
     void set_tool_capability_policy(acecode::ToolCapabilityPolicy policy) {
         loop_->set_tool_capability_policy(std::move(policy));
@@ -169,6 +181,7 @@ private:
     std::shared_ptr<StubLlmProvider> provider_ = std::make_shared<StubLlmProvider>();
     ToolExecutor tools_;
     PermissionManager perms_;
+    acecode::SessionManager session_manager_;
     std::unique_ptr<AgentLoop> loop_;
     acecode::EventDispatcher::SubscriptionId sub_ = 0;
 
@@ -180,6 +193,86 @@ private:
     bool busy_ = false;
     std::atomic<int> confirm_count_{0};
 };
+
+TEST(AgentLoopToolLifecycleEvents,
+     TurnDiffCollapsesRepeatedWritesAndPrecedesTerminalEvents) {
+    auto cwd = make_temp_dir("acecode_turn_net_diff_event");
+    const auto file = cwd / "img_test.py";
+    const auto project_dir = acecode::SessionStorage::get_project_dir(cwd.string());
+    fs::remove_all(project_dir);
+
+    {
+    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo, PermissionResult::Allow);
+    h.tools().register_tool(acecode::create_file_write_tool());
+    h.enable_session_manager();
+
+    ScriptedResponse create_turn;
+    create_turn.tool_calls.push_back({
+        "call-create",
+        "file_write",
+        nlohmann::json{
+            {"file_path", file.string()},
+            {"content", "old\nkeep\n"},
+        }.dump(),
+    });
+    h.provider().push_response(std::move(create_turn));
+
+    ScriptedResponse edit_turn;
+    edit_turn.tool_calls.push_back({
+        "call-edit",
+        "file_write",
+        nlohmann::json{
+            {"file_path", file.string()},
+            {"content", "new\nkeep\n"},
+        }.dump(),
+    });
+    h.provider().push_response(std::move(edit_turn));
+    h.provider().push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait(10s));
+    h.shutdown();
+
+    const auto events = h.all_events();
+    auto turn_diff_it = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.kind == SessionEventKind::TurnDiff;
+    });
+    ASSERT_NE(turn_diff_it, events.end());
+    auto terminal_busy_it = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.kind == SessionEventKind::BusyChanged &&
+               event.payload.is_object() &&
+               !event.payload.value("busy", true);
+    });
+    auto done_it = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.kind == SessionEventKind::Done;
+    });
+    ASSERT_NE(terminal_busy_it, events.end());
+    ASSERT_NE(done_it, events.end());
+    EXPECT_LT(turn_diff_it, terminal_busy_it);
+    EXPECT_LT(turn_diff_it, done_it);
+
+    auto record = acecode::decode_turn_net_diff(turn_diff_it->payload);
+    ASSERT_TRUE(record.has_value());
+    EXPECT_TRUE(record->complete);
+    ASSERT_EQ(record->files.size(), 1u);
+    EXPECT_EQ(record->files[0].file, "img_test.py");
+    EXPECT_EQ(record->files[0].additions, 2);
+    EXPECT_EQ(record->files[0].deletions, 0);
+
+    int persisted_count = 0;
+    for (const auto& message : h.persisted_session_messages()) {
+        if (!message.metadata.is_object()) continue;
+        if (acecode::decode_turn_net_diff(
+                message.metadata.value("turn_net_diff", nlohmann::json{}))
+                .has_value()) {
+            persisted_count++;
+        }
+    }
+    EXPECT_EQ(persisted_count, 1);
+    }
+
+    fs::remove_all(project_dir);
+    fs::remove_all(cwd);
+}
 
 TEST(AgentLoopToolLifecycleEvents,
      ExpertPolicyFiltersProviderSchemaAndRejectsReplayBeforePermission) {

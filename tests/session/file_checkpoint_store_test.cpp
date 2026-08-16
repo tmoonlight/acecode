@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
 #include "session/file_checkpoint_store.hpp"
+#include "session/turn_net_diff.hpp"
 
 #include <filesystem>
 #include <fstream>
+#include <cstdint>
 #include <iterator>
+#include <limits>
 #include <random>
 #include <set>
 #include <string>
@@ -216,4 +219,113 @@ TEST(FileCheckpointStore, SnapshotCapEvictsOldestMetadata) {
     EXPECT_TRUE(store.can_restore("u2"));
 
     fs::remove_all(project);
+}
+
+TEST(FileCheckpointStore, ActiveTurnNetDiffUsesOriginalBaselineAfterRepeatedWrites) {
+    auto project = make_temp_dir("turn_net_repeated");
+    auto file = project / "repeat.txt";
+    write_file(file, "original\n");
+
+    FileCheckpointStore store;
+    store.set_session(project.string(), "s1");
+    store.make_snapshot("u1");
+    ASSERT_TRUE(store.track_before_write(file.string()).has_value());
+    write_file(file, "middle\n");
+    EXPECT_FALSE(store.track_before_write(file.string()).has_value());
+    write_file(file, "final\nvalue\n");
+
+    const auto diff = store.build_active_turn_net_diff(project.string());
+    EXPECT_TRUE(diff.complete);
+    EXPECT_EQ(diff.user_message_uuid, "u1");
+    ASSERT_EQ(diff.files.size(), 1u);
+    EXPECT_EQ(diff.files[0].file, "repeat.txt");
+    EXPECT_EQ(diff.files[0].additions, 2);
+    EXPECT_EQ(diff.files[0].deletions, 1);
+    ASSERT_EQ(diff.files[0].hunks.size(), 1u);
+
+    fs::remove_all(project);
+}
+
+TEST(FileCheckpointStore, ActiveTurnNetDiffHandlesCreatedDeletedAndRevertedFiles) {
+    auto project = make_temp_dir("turn_net_states");
+    auto created = project / "created.txt";
+    auto removed = project / "removed.txt";
+    auto reverted = project / "reverted.txt";
+    write_file(removed, "remove\nme\n");
+    write_file(reverted, "same\n");
+
+    FileCheckpointStore store;
+    store.set_session(project.string(), "s1");
+    store.make_snapshot("u1");
+    ASSERT_TRUE(store.track_before_write(created.string()).has_value());
+    write_file(created, "one\ntwo\n");
+    ASSERT_TRUE(store.track_before_write(removed.string()).has_value());
+    fs::remove(removed);
+    ASSERT_TRUE(store.track_before_write(reverted.string()).has_value());
+    write_file(reverted, "temporary\n");
+    write_file(reverted, "same\n");
+
+    const auto diff = store.build_active_turn_net_diff(project.string());
+    EXPECT_TRUE(diff.complete);
+    ASSERT_EQ(diff.files.size(), 2u);
+    EXPECT_EQ(diff.files[0].file, "created.txt");
+    EXPECT_EQ(diff.files[0].additions, 2);
+    EXPECT_EQ(diff.files[0].deletions, 0);
+    EXPECT_EQ(diff.files[1].file, "removed.txt");
+    EXPECT_EQ(diff.files[1].additions, 0);
+    EXPECT_EQ(diff.files[1].deletions, 2);
+
+    fs::remove_all(project);
+}
+
+TEST(FileCheckpointStore, ActiveTurnNetDiffReportsMissingBackupAsIncomplete) {
+    auto project = make_temp_dir("turn_net_missing");
+    auto file = project / "missing.txt";
+    write_file(file, "old\n");
+
+    FileCheckpointStore store;
+    store.set_session(project.string(), "s1");
+    store.make_snapshot("u1");
+    auto snapshot = store.track_before_write(file.string());
+    ASSERT_TRUE(snapshot.has_value());
+    const auto backup = snapshot->tracked_file_backups.begin()->second.backup_file_name;
+    fs::remove(fs::path(store.checkpoint_dir()) / backup);
+    write_file(file, "new\n");
+
+    const auto diff = store.build_active_turn_net_diff(project.string());
+    EXPECT_FALSE(diff.complete);
+    EXPECT_TRUE(diff.files.empty());
+    EXPECT_FALSE(diff.errors.empty());
+
+    fs::remove_all(project);
+}
+
+TEST(TurnNetDiff, MetadataRoundtripAndInvalidHunkFallback) {
+    acecode::TurnNetDiffRecord record;
+    record.user_message_uuid = "user-1";
+    record.files.push_back({"src/a.cpp", 1, 0,
+                            acecode::generate_structured_diff("", "line\n", "src/a.cpp")});
+
+    const auto message = acecode::make_turn_net_diff_message(
+        record, "2026-08-15T00:00:00Z");
+    EXPECT_TRUE(acecode::is_turn_net_diff_message(message));
+    EXPECT_TRUE(message.metadata.value("transcript_only", false));
+    auto decoded = acecode::decode_turn_net_diff(message.metadata["turn_net_diff"]);
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(decoded->user_message_uuid, "user-1");
+    ASSERT_EQ(decoded->files.size(), 1u);
+    EXPECT_EQ(decoded->files[0].additions, 1);
+
+    auto invalid = message.metadata["turn_net_diff"];
+    invalid["files"][0]["hunks"][0]["lines"][0]["kind"] = "unknown";
+    EXPECT_FALSE(acecode::decode_turn_net_diff(invalid).has_value());
+
+    invalid = message.metadata["turn_net_diff"];
+    invalid["files"][0]["additions"] = std::numeric_limits<std::uint64_t>::max();
+    EXPECT_FALSE(acecode::decode_turn_net_diff(invalid).has_value());
+
+    invalid = message.metadata["turn_net_diff"];
+    invalid["files"][0]["hunks"][0]["old_start"] =
+        std::numeric_limits<std::uint64_t>::max();
+    EXPECT_FALSE(acecode::decode_turn_net_diff(invalid).has_value());
 }

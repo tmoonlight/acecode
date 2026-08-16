@@ -5,6 +5,7 @@ import {
   createTranscriptState,
   lastAssistantText,
   loadTranscriptHistory,
+  normalizeTurnNetDiffRecord,
   preserveLiveAssistantTailOnLoad,
   preserveLiveRuntimeOnLoad,
   projectCompactTranscriptItems,
@@ -716,6 +717,43 @@ function repeatedProviderErrorEvent(seq, timestampMs) {
   };
 }
 
+function turnNetDiffPayload(userMessageUuid, overrides = {}) {
+  return {
+    user_message_uuid: userMessageUuid,
+    complete: true,
+    files: [{
+      file: 'src/a.js',
+      additions: 1,
+      deletions: 1,
+      hunks: [{
+        old_start: 1,
+        old_count: 1,
+        new_start: 1,
+        new_count: 1,
+        lines: [
+          { kind: 'removed', text: 'old', old_line_no: 1 },
+          { kind: 'added', text: 'new', new_line_no: 1 },
+        ],
+      }],
+    }],
+    errors: [],
+    ...overrides,
+  };
+}
+
+function turnNetDiffMessage(userMessageUuid, overrides = {}) {
+  return {
+    id: `turn-diff-${userMessageUuid}`,
+    role: 'system',
+    content: '[Turn net diff]',
+    is_meta: true,
+    metadata: {
+      transcript_only: true,
+      turn_net_diff: turnNetDiffPayload(userMessageUuid, overrides),
+    },
+  };
+}
+
 run('不同回合的相同 provider 错误在实时事件中分别追加', () => {
   const firstError = repeatedProviderErrorEvent(2, 120);
   const secondError = repeatedProviderErrorEvent(5, 220);
@@ -1311,6 +1349,69 @@ run('history load 消费 turn_timing 并用持久 duration 渲染 processed summ
     events: [],
   }).state;
   assert.equal(projectLoadedItems(reloaded.items)[1].title, '已处理 1m 5s');
+});
+
+run('history load 从 meta 消息恢复 turn_net_diff 并关联用户 item', () => {
+  const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: [
+      { id: 'u-net', role: 'user', content: 'change it', timestamp: '2026-08-15T00:00:00Z' },
+      { id: 'a-net', role: 'assistant', content: 'done', timestamp: '2026-08-15T00:00:01Z' },
+      turnNetDiffMessage('u-net'),
+    ],
+    events: [],
+  }).state;
+
+  assert.equal(loaded.items.some((item) => item.content === '[Turn net diff]'), false);
+  const user = loaded.items.find((item) => item.role === 'user');
+  assert.equal(user.turnNetDiff.userMessageUuid, 'u-net');
+  assert.equal(user.turnNetDiff.complete, true);
+  assert.equal(user.turnNetDiff.files[0].file, 'src/a.js');
+  assert.equal(loaded.turnNetDiffs.get('u-net').files[0].additions, 1);
+});
+
+run('live turn_diff 与 transcript_replace 都恢复到对应用户 item', () => {
+  let state = reduceTranscriptEvent(createTranscriptState(), {
+    type: 'message',
+    seq: 1,
+    payload: { id: 'u-live', role: 'user', content: 'live change' },
+  }).state;
+  state = reduceTranscriptEvent(state, {
+    type: 'turn_diff',
+    seq: 2,
+    payload: turnNetDiffPayload('u-live'),
+  }).state;
+  assert.equal(state.items[0].turnNetDiff.files[0].file, 'src/a.js');
+
+  state = reduceTranscriptEvent(state, {
+    type: 'transcript_replace',
+    seq: 3,
+    payload: {
+      messages: [
+        { id: 'u-replaced', role: 'user', content: 'replacement' },
+        turnNetDiffMessage('u-replaced', { files: [] }),
+      ],
+    },
+  }).state;
+  assert.equal(state.items.length, 1);
+  assert.equal(state.items[0].turnNetDiff.userMessageUuid, 'u-replaced');
+  assert.deepEqual(state.items[0].turnNetDiff.files, []);
+});
+
+run('turn_net_diff 严格拒绝坏字段和坏 hunk', () => {
+  assert.equal(normalizeTurnNetDiffRecord(turnNetDiffPayload('u-valid')).complete, true);
+  assert.equal(normalizeTurnNetDiffRecord(turnNetDiffPayload('u-bad-count', {
+    files: [{ file: 'a.js', additions: -1, deletions: 0, hunks: [] }],
+  })), null);
+  assert.equal(normalizeTurnNetDiffRecord(turnNetDiffPayload('u-unsafe-count', {
+    files: [{ file: 'a.js', additions: Number.MAX_SAFE_INTEGER + 1, deletions: 0, hunks: [] }],
+  })), null);
+  assert.equal(normalizeTurnNetDiffRecord(turnNetDiffPayload('u-bad-hunk', {
+    files: [{
+      file: 'a.js', additions: 1, deletions: 0,
+      hunks: [{ old_start: 0, old_count: 0, new_start: 1, new_count: 1,
+        lines: [{ kind: 'mystery', text: 'x' }] }],
+    }],
+  })), null);
 });
 
 run('history load 没有 turn_timing 时保留 timestamp fallback', () => {

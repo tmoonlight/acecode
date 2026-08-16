@@ -16,6 +16,7 @@
 #include "session/compact_checkpoint.hpp"
 #include "session/file_checkpoint_store.hpp"
 #include "session/tool_metadata_codec.hpp"
+#include "session/turn_net_diff.hpp"
 #include "session/turn_timing.hpp"
 #include "tool/diff_utils.hpp"
 
@@ -104,12 +105,37 @@ ChatMessage make_timing(const std::string& user_uuid,
     return acecode::make_turn_timing_message(timing, "2026-06-04T00:00:01Z");
 }
 
+ChatMessage make_turn_diff(const std::string& user_uuid,
+                           const std::string& file = "src/example.cpp") {
+    acecode::TurnNetDiffRecord record;
+    record.user_message_uuid = user_uuid;
+    record.files.push_back({
+        file,
+        1,
+        0,
+        acecode::generate_structured_diff("", "line\n", file),
+    });
+    return acecode::make_turn_net_diff_message(record, "2026-08-15T00:00:00Z");
+}
+
 std::vector<TurnTimingRecord> loaded_timings(const std::vector<ChatMessage>& messages) {
     std::vector<TurnTimingRecord> out;
     for (const auto& msg : messages) {
         if (!msg.metadata.is_object()) continue;
         auto timing = acecode::decode_turn_timing(msg.metadata.value("turn_timing", nlohmann::json{}));
         if (timing.has_value()) out.push_back(*timing);
+    }
+    return out;
+}
+
+std::vector<acecode::TurnNetDiffRecord> loaded_turn_diffs(
+    const std::vector<ChatMessage>& messages) {
+    std::vector<acecode::TurnNetDiffRecord> out;
+    for (const auto& msg : messages) {
+        if (!msg.metadata.is_object()) continue;
+        auto record = acecode::decode_turn_net_diff(
+            msg.metadata.value("turn_net_diff", nlohmann::json{}));
+        if (record.has_value()) out.push_back(std::move(*record));
     }
     return out;
 }
@@ -264,8 +290,10 @@ TEST(SessionFork, ForkSessionPreservesTimingForRetainedUsersOnly) {
     sm.start_session(cwd.path(), "openai", "gpt-4");
     sm.on_message(make_user("U1", "u-1"));
     sm.on_message(make_timing("u-1", "completed", 2000));
+    sm.on_message(make_turn_diff("u-1", "src/one.cpp"));
     sm.on_message(make_user("U2", "u-2"));
     sm.on_message(make_timing("u-2", "completed", 3000));
+    sm.on_message(make_turn_diff("u-2", "src/two.cpp"));
 
     auto new_id = sm.fork_session_to_new_id(
         {make_user("U2", "u-2"), make_assistant("A2")}, "T", sm.current_session_id(), "u-2");
@@ -279,9 +307,36 @@ TEST(SessionFork, ForkSessionPreservesTimingForRetainedUsersOnly) {
     ASSERT_EQ(timings.size(), 1u);
     EXPECT_EQ(timings[0].user_message_uuid, "u-2");
     EXPECT_EQ(timings[0].duration_ms, 3000);
+    auto turn_diffs = loaded_turn_diffs(loaded);
+    ASSERT_EQ(turn_diffs.size(), 1u);
+    EXPECT_EQ(turn_diffs[0].user_message_uuid, "u-2");
+    ASSERT_EQ(turn_diffs[0].files.size(), 1u);
+    EXPECT_EQ(turn_diffs[0].files[0].file, "src/two.cpp");
     EXPECT_EQ(std::count_if(loaded.begin(), loaded.end(), [](const ChatMessage& msg) {
         return msg.role == "user";
     }), 1);
+}
+
+TEST(SessionFork, ForkActiveSessionPreservesTurnDiffsForRetainedUsersOnly) {
+    TempCwd cwd;
+    SessionManager sm;
+    sm.start_session(cwd.path(), "openai", "gpt-4");
+    sm.on_message(make_user("U1", "u-1"));
+    sm.on_message(make_turn_diff("u-1", "src/one.cpp"));
+    sm.on_message(make_user("U2", "u-2"));
+    sm.on_message(make_turn_diff("u-2", "src/two.cpp"));
+
+    const auto new_id = sm.fork_active_session({
+        make_user("U1", "u-1"),
+        make_assistant("A1"),
+    });
+    ASSERT_FALSE(new_id.empty());
+
+    const auto loaded = sm.load_active_messages();
+    const auto turn_diffs = loaded_turn_diffs(loaded);
+    ASSERT_EQ(turn_diffs.size(), 1u);
+    EXPECT_EQ(turn_diffs[0].user_message_uuid, "u-1");
+    EXPECT_EQ(turn_diffs[0].files[0].file, "src/one.cpp");
 }
 
 // 场景:retained_prefix 含 file_checkpoint 元消息 → 新 session 自动过滤(spec

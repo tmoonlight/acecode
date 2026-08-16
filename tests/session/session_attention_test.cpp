@@ -72,3 +72,8 @@ TEST(SessionAttention, QuestionClosedIsLifecycleOnly) {
 TEST(SessionAttention, PermissionClosedIsLifecycleOnly) {
     EXPECT_FALSE(session_event_has_user_visible_output(SessionEventKind::PermissionClosed, nlohmann::json::object()));
 }
+
+TEST(SessionAttention, TurnDiffIsLifecycleOnly) {
+    EXPECT_FALSE(session_event_has_user_visible_output(
+        SessionEventKind::TurnDiff, nlohmann::json::object()));
+}

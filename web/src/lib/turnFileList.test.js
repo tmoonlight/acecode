@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   TURN_FILE_LIST_COLLAPSE_THRESHOLD,
   buildTurnFileItems,
@@ -128,4 +129,22 @@ run('splitTurnFileItems 非法阈值回退默认值', () => {
     assert.equal(visible.length, TURN_FILE_LIST_COLLAPSE_THRESHOLD);
     assert.equal(hiddenCount, 1);
   }
+});
+
+run('轮次文件入口把稳定 user message UUID 贯穿列表、页签和详情文件切换', () => {
+  const turnFileList = readFileSync(new URL('../components/TurnFileList.jsx', import.meta.url), 'utf8');
+  const chatView = readFileSync(new URL('../components/ChatView.jsx', import.meta.url), 'utf8');
+  const previewDetails = readFileSync(new URL('../components/PreviewDetailsPanel.jsx', import.meta.url), 'utf8');
+
+  assert.match(turnFileList, /onOpenFile\?\.\(item\.file, turnUserMessageId\)/);
+  assert.equal(
+    [...chatView.matchAll(/turnUserMessageId=\{set\.userMessageId\}/g)].length,
+    2,
+  );
+  assert.match(chatView, /turnChangeSets=\{turnChangeSets\}/);
+  assert.match(previewDetails, /resolveSessionChangesTabContent\(active,/);
+  assert.match(
+    previewDetails,
+    /onSelectChangeFile\?\.\(\s*filePath,\s*scopedChanges\.turnUserMessageId,/,
+  );
 });

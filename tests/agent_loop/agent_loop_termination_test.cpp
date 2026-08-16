@@ -28,6 +28,8 @@
 #include "permissions.hpp"
 #include "provider/llm_provider.hpp"
 #include "provider/retry_policy.hpp"
+#include "session/session_manager.hpp"
+#include "session/turn_net_diff.hpp"
 #include "session/turn_timing.hpp"
 
 #include <nlohmann/json.hpp>
@@ -132,7 +134,8 @@ ToolImpl create_noop_tool() {
 // Fixture:封装 AgentLoop + stub + 消息收集器 + 完成同步。
 class AgentLoopHarness {
 public:
-    explicit AgentLoopHarness(std::string cwd = ".") {
+    explicit AgentLoopHarness(std::string cwd = ".")
+        : cwd_(std::move(cwd)) {
         tools_.register_tool(create_noop_tool());
         tools_.register_tool(acecode::create_task_complete_tool());
 
@@ -179,7 +182,7 @@ public:
             [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
 
         loop_ = std::make_unique<AgentLoop>(
-            provider_accessor, tools_, cb, /*cwd=*/std::move(cwd), perms_);
+            provider_accessor, tools_, cb, /*cwd=*/cwd_, perms_);
         event_sub_ = loop_->events().subscribe(
             [this](const acecode::SessionEvent& event) {
                 {
@@ -204,6 +207,15 @@ public:
 
     void set_config(acecode::AgentLoopConfig cfg) {
         loop_->set_agent_loop_config(cfg);
+    }
+
+    void enable_session_manager() {
+        session_manager_.start_session(cwd_, "stub", "stub-model");
+        loop_->set_session_manager(&session_manager_);
+    }
+
+    std::vector<ChatMessage> persisted_session_messages() const {
+        return session_manager_.load_active_messages();
     }
 
     void set_no_model_prompt(std::string prompt) {
@@ -343,6 +355,16 @@ public:
         return events_;
     }
 
+    bool wait_for_event(acecode::SessionEventKind kind,
+                        std::chrono::milliseconds timeout = std::chrono::seconds(2)) {
+        std::unique_lock<std::mutex> lk(event_mu_);
+        return event_cv_.wait_for(lk, timeout, [this, kind] {
+            return std::any_of(events_.begin(), events_.end(), [kind](const auto& event) {
+                return event.kind == kind;
+            });
+        });
+    }
+
     std::string last_turn_outcome() {
         std::lock_guard<std::mutex> lk(outcome_mu_);
         return turn_outcomes_.empty() ? std::string{} : turn_outcomes_.back();
@@ -398,9 +420,11 @@ public:
     }
 
 private:
+    std::string cwd_;
     std::shared_ptr<StubLlmProvider> provider_ = std::make_shared<StubLlmProvider>();
     ToolExecutor tools_;
     PermissionManager perms_;
+    acecode::SessionManager session_manager_;
     std::unique_ptr<AgentLoop> loop_;
 
     std::mutex msg_mu_;
@@ -456,6 +480,52 @@ std::vector<acecode::TurnTimingRecord> turn_timings_from(
     return out;
 }
 
+std::vector<acecode::TurnNetDiffRecord> turn_net_diffs_from(
+    const std::vector<ChatMessage>& messages) {
+    std::vector<acecode::TurnNetDiffRecord> out;
+    for (const auto& msg : messages) {
+        if (!msg.metadata.is_object()) continue;
+        auto record = acecode::decode_turn_net_diff(
+            msg.metadata.value("turn_net_diff", nlohmann::json{}));
+        if (record.has_value()) out.push_back(std::move(*record));
+    }
+    return out;
+}
+
+void expect_turn_diff_before_terminal(AgentLoopHarness& harness,
+                                      const std::string& outcome) {
+    ASSERT_TRUE(harness.wait_for_event(acecode::SessionEventKind::Done));
+    const auto events = harness.snapshot_events();
+    const auto turn_diff_it = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.kind == acecode::SessionEventKind::TurnDiff;
+    });
+    const auto terminal_busy_it = std::find_if(events.begin(), events.end(), [&](const auto& event) {
+        return event.kind == acecode::SessionEventKind::BusyChanged &&
+               event.payload.is_object() &&
+               !event.payload.value("busy", true) &&
+               event.payload.value("outcome", std::string{}) == outcome;
+    });
+    const auto done_it = std::find_if(events.begin(), events.end(), [&](const auto& event) {
+        return event.kind == acecode::SessionEventKind::Done &&
+               event.payload.value("outcome", std::string{}) == outcome;
+    });
+    ASSERT_NE(turn_diff_it, events.end());
+    ASSERT_NE(terminal_busy_it, events.end());
+    ASSERT_NE(done_it, events.end());
+    EXPECT_LT(turn_diff_it, terminal_busy_it);
+    EXPECT_LT(turn_diff_it, done_it);
+
+    auto live_record = acecode::decode_turn_net_diff(turn_diff_it->payload);
+    ASSERT_TRUE(live_record.has_value());
+    EXPECT_TRUE(live_record->complete);
+    EXPECT_TRUE(live_record->files.empty());
+
+    const auto persisted = turn_net_diffs_from(harness.persisted_session_messages());
+    ASSERT_EQ(persisted.size(), 1u);
+    EXPECT_EQ(persisted[0].user_message_uuid, live_record->user_message_uuid);
+    EXPECT_TRUE(persisted[0].complete);
+}
+
 TEST(AgentLoopTurnTiming, CompletedTurnWritesTranscriptOnlyTiming) {
     AgentLoopHarness h;
     h.push_text("done");
@@ -499,6 +569,48 @@ TEST(AgentLoopTurnTiming, ProviderErrorWritesOneErrorTiming) {
     auto timings = turn_timings_from(h.persisted_messages());
     ASSERT_EQ(timings.size(), 1u);
     EXPECT_EQ(timings[0].status, "error");
+}
+
+TEST(AgentLoopTurnNetDiff, CompletedTurnPersistsAndEmitsBeforeTerminalEvents) {
+    TempHomeGuard home("acecode_turn_net_diff_completed");
+    const auto cwd = home.root() / "work";
+    fs::create_directories(cwd);
+    AgentLoopHarness h(cwd.string());
+    h.enable_session_manager();
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("complete"));
+    expect_turn_diff_before_terminal(h, "completed");
+}
+
+TEST(AgentLoopTurnNetDiff, ErrorTurnPersistsAndEmitsBeforeTerminalEvents) {
+    TempHomeGuard home("acecode_turn_net_diff_error");
+    const auto cwd = home.root() / "work";
+    fs::create_directories(cwd);
+    AgentLoopHarness h(cwd.string());
+    h.enable_session_manager();
+    h.push_provider_error(make_stub_provider_error("provider failed"));
+
+    ASSERT_TRUE(h.submit_and_wait("fail"));
+    expect_turn_diff_before_terminal(h, "error");
+}
+
+TEST(AgentLoopTurnNetDiff, AbortedTurnPersistsAndEmitsBeforeTerminalEvents) {
+    TempHomeGuard home("acecode_turn_net_diff_aborted");
+    const auto cwd = home.root() / "work";
+    fs::create_directories(cwd);
+    AgentLoopHarness h(cwd.string());
+    h.enable_session_manager();
+    h.set_stub_latency_ms(200);
+    h.push_tool_call("noop", "{}", "c1");
+
+    std::thread aborter([&h] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        h.abort();
+    });
+    ASSERT_TRUE(h.submit_and_wait("abort", std::chrono::seconds(10)));
+    aborter.join();
+    expect_turn_diff_before_terminal(h, "aborted");
 }
 
 TEST(AgentLoopTurnTiming, HiddenContextInputDoesNotCreateTiming) {

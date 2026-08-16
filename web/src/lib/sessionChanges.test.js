@@ -182,6 +182,100 @@ run('collectTurnChangeSetsFromItems 本轮仅修改临时文件时不生成摘�
   assert.deepEqual(sets, []);
 });
 
+run('collectTurnChangeSetsFromItems 用完整轮次净 diff 替代重叠工具 patch', () => {
+  const operationCreate = {
+    old_start: 0, old_count: 0, new_start: 1, new_count: 2,
+    lines: [{ kind: 'added', text: 'old' }, { kind: 'added', text: 'keep' }],
+  };
+  const operationEdit = {
+    old_start: 1, old_count: 1, new_start: 1, new_count: 1,
+    lines: [{ kind: 'removed', text: 'old' }, { kind: 'added', text: 'new' }],
+  };
+  const netHunk = {
+    old_start: 0, old_count: 0, new_start: 1, new_count: 2,
+    lines: [{ kind: 'added', text: 'new' }, { kind: 'added', text: 'keep' }],
+  };
+  const sets = collectTurnChangeSetsFromItems([
+    {
+      kind: 'msg', id: 1, messageId: 'u-net', role: 'user', content: 'create and edit',
+      turnNetDiff: {
+        userMessageUuid: 'u-net', complete: true, errors: [],
+        files: [{ file: 'img_test.py', additions: 2, deletions: 0, hunks: [netHunk] }],
+      },
+    },
+    { kind: 'tool', id: 2, tool: {
+      summary: { object: 'img_test.py', metrics: [{ label: '+', value: '2' }] },
+      hunks: [operationCreate],
+    } },
+    { kind: 'tool', id: 3, tool: {
+      summary: { object: 'img_test.py', metrics: [{ label: '+', value: '1' }, { label: '-', value: '1' }] },
+      hunks: [operationEdit],
+    } },
+  ]);
+
+  assert.equal(sets.length, 1);
+  assert.equal(sets[0].groups.length, 1);
+  assert.equal(sets[0].groups[0].hunks.length, 1);
+  assert.deepEqual(sets[0].groups[0].hunks[0].lines.map((line) => line.text), ['new', 'keep']);
+  assert.deepEqual(sets[0].summary, {
+    fileCount: 1,
+    totalAdditions: 2,
+    totalDeletions: 0,
+    hasChanges: true,
+  });
+});
+
+run('完整空轮次净 diff 不回退，不完整记录回退旧工具 hunk', () => {
+  const tool = {
+    kind: 'tool', id: 2,
+    tool: {
+      summary: { object: 'a.js', metrics: [{ label: '+', value: '1' }] },
+      hunks: [{ old_start: 0, old_count: 0, new_start: 1, new_count: 1, lines: [] }],
+    },
+  };
+  assert.deepEqual(collectTurnChangeSetsFromItems([
+    { kind: 'msg', id: 1, messageId: 'u-empty', role: 'user', turnNetDiff: {
+      userMessageUuid: 'u-empty', complete: true, files: [], errors: [],
+    } },
+    tool,
+  ]), []);
+
+  const fallback = collectTurnChangeSetsFromItems([
+    { kind: 'msg', id: 1, messageId: 'u-incomplete', role: 'user', turnNetDiff: {
+      userMessageUuid: 'u-incomplete', complete: false, files: [], errors: ['read failed'],
+    } },
+    tool,
+  ]);
+  assert.equal(fallback.length, 1);
+  assert.equal(fallback[0].groups[0].file, 'a.js');
+});
+
+run('轮次净 diff 继续排除 absolute tool path 对应的 relative scratch path', () => {
+  const sets = collectTurnChangeSetsFromItems([
+    {
+      kind: 'msg', id: 1, messageId: 'u-exclude', role: 'user',
+      turnNetDiff: {
+        userMessageUuid: 'u-exclude', complete: true, errors: [],
+        files: [
+          { file: '.AceCode/TMP/s/Helper.py', additions: 1, deletions: 0, hunks: [] },
+          { file: 'src/main.cpp', additions: 2, deletions: 1, hunks: [] },
+        ],
+      },
+    },
+    {
+      kind: 'tool', id: 2,
+      tool: {
+        summary: { object: 'N:\\repo\\.acecode\\tmp\\s\\helper.py', metrics: [{ label: '+', value: '1' }] },
+        hunks: [],
+        metadata: { exclude_from_turn_change_summary: true },
+      },
+    },
+  ]);
+  assert.deepEqual(sets[0].groups.map((group) => group.file), ['src/main.cpp']);
+  assert.equal(sets[0].summary.totalAdditions, 2);
+  assert.equal(sets[0].summary.totalDeletions, 1);
+});
+
 run('change signatures 对同一组变更保持稳定', () => {
   const groups = aggregateHunksFromMessages([
     { file: 'a.js', additions: 2, deletions: 1, hunks: [{ old_start: 1, old_count: 1, new_start: 1, new_count: 2, lines: [] }] },

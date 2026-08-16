@@ -51,6 +51,8 @@ public:
     // snapshot immediately before a write tool mutates a file.
     void begin_user_turn_checkpoint(const std::string& user_message_uuid);
     void track_file_write_before(const std::string& file_path);
+    std::optional<TurnNetDiffRecord> finalize_user_turn_net_diff(
+        const std::string& user_message_uuid);
     bool file_checkpoint_can_restore(const std::string& user_message_uuid) const;
     FileCheckpointDiffStats file_checkpoint_diff_stats(const std::string& user_message_uuid) const;
     FileCheckpointRestoreResult rewind_files_to_checkpoint(const std::string& user_message_uuid) const;

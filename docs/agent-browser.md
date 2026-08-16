@@ -53,6 +53,14 @@ flowchart LR
   native 页面会隐藏，避免覆盖主 WebView UI。
 - Agent 正在调用浏览器工具时，网页内容区出现与 VS Code Browser View 相同
   色序和节奏的彩虹边框；系统开启“减少动态效果”时使用静态渐变。
+- Agent 调用 `browser_click`、`browser_hover`、`browser_drag` 或 `browser_scroll` 时，
+  网页会在实际 viewport 输入坐标显示带 `AI` 标识的临时鼠标指针。click 和 scroll
+  显示落点反馈，hover 显示当前悬停点，drag 显示按下起点并移动到释放终点，随后自动
+  淡出。`browser_evaluate` 仅在该次脚本实际派发合成鼠标、指针或滚轮事件时显示事件
+  坐标；普通求值、DOM 聚焦和键盘激活不显示假鼠标。无坐标的 `.click()` 会回退到可见
+  目标中心。“减少动态效果”下改为静态位置反馈。指针使用隔离样式且不接收输入，因此
+  不会遮挡用户或网页的点击。macOS `native` 模式仍会移动真实系统指针，同时显示同坐标
+  的 AI 标识；视觉指针失败不会阻断原有 Browser 动作或 JavaScript 求值。
 - 断网、域名解析、证书、超时等导航失败，以及页面无响应、渲染进程退出和 OOM，
   统一显示使用 ACECode 主题 token 的极简状态页。状态页保留尝试的地址，提供“重试”，
   有历史时提供“返回上一页”；WebView2/Chromium 自带错误文档始终保持隐藏。

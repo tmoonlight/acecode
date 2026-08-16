@@ -4167,16 +4167,22 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     sid,
   ]);
 
-  const openSessionChangePreview = useCallback((filePath) => {
+  const openSessionChangePreview = useCallback((filePath, turnUserMessageId = '') => {
     if (!sid || !filePath) return;
     if (sidePanelCollapsed) onToggleSidePanel?.();
+    const turnChangeSet = turnUserMessageId
+      ? turnChangeSets.find((set) => set.userMessageId === turnUserMessageId)
+      : null;
     setPreviewTabState((prev) => openSessionChangesTab(prev, {
       scopeKey: previewScope,
       sessionId: sid,
       expandedFile: filePath,
-      fileCount: changeSummary.fileCount,
+      fileCount: turnUserMessageId
+        ? (turnChangeSet?.summary?.fileCount || 0)
+        : changeSummary.fileCount,
+      turnUserMessageId,
     }));
-  }, [changeSummary.fileCount, onToggleSidePanel, previewScope, sid, sidePanelCollapsed]);
+  }, [changeSummary.fileCount, onToggleSidePanel, previewScope, sid, sidePanelCollapsed, turnChangeSets]);
 
   // git 变更点击文件 → 在中间详情栏开/聚焦「变更」页签(复刻会话级变更旧行为)。
   // gitBase 只有从 SidePanel 导航列表点击时才带;详情栏内点文件不带,由
@@ -4900,6 +4906,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                       groups={set.groups}
                       summary={set.summary}
                       cwd={sidePanelCwd}
+                      turnUserMessageId={set.userMessageId}
                       onOpenFile={openSessionChangePreview}
                     />
                   </div>
@@ -4955,6 +4962,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                 groups={set.groups}
                 summary={set.summary}
                 cwd={sidePanelCwd}
+                turnUserMessageId={set.userMessageId}
                 onOpenFile={openSessionChangePreview}
               />
             </div>
@@ -5169,6 +5177,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             activeTab={activePreview}
             changeGroups={changeGroups}
             changeSummary={changeSummary}
+            turnChangeSets={turnChangeSets}
             maximized={previewPanelMaximized}
             busy={busy}
             selectionContexts={previewSelectionContexts}

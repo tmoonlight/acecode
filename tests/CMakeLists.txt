@@ -64,6 +64,34 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
         )
     endif()
+
+    # Manual visual/runtime demo for the exact AI pointer overlay used by
+    # mouse tools and synthetic events from browser_evaluate. It runs in an
+    # isolated native WebView2 host so it never takes over the user's active
+    # Browser tab.
+    add_executable(agent_browser_pointer_demo EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/desktop/helpers/agent_browser_pointer_demo.cpp
+        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
+        ${CMAKE_SOURCE_DIR}/src/tool/agent_browser/cdp_client.cpp
+        ${CMAKE_SOURCE_DIR}/src/tool/agent_browser/pointer_overlay.cpp
+    )
+    target_include_directories(agent_browser_pointer_demo PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_BINARY_DIR}/generated
+    )
+    target_link_libraries(agent_browser_pointer_demo PRIVATE
+        acecode_desktop_support
+        acecode_native_bridge_support
+        webview::core
+        cpr::cpr
+        nlohmann_json::nlohmann_json
+        ole32 user32 ws2_32
+    )
+    if(MSVC)
+        set_target_properties(agent_browser_pointer_demo PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        )
+    endif()
 endif()
 
 if(APPLE)

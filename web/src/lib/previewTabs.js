@@ -252,6 +252,7 @@ export function openSessionChangesTab(state, {
   sessionId = '',
   expandedFile = '',
   fileCount = 0,
+  turnUserMessageId = '',
 } = {}) {
   if (!sessionId) return state || {};
   const source = state && typeof state === 'object' ? state : {};
@@ -261,6 +262,7 @@ export function openSessionChangesTab(state, {
     key,
     type: PREVIEW_TAB_TYPES.SESSION_CHANGES,
     sessionId,
+    turnUserMessageId: String(turnUserMessageId || ''),
     expandedFile: normalizeTreePath(expandedFile),
     expandedFileRevision: (Number(previousTab?.expandedFileRevision) || 0) + 1,
     reloadRevision: Number(previousTab?.reloadRevision) || 0,
@@ -280,6 +282,46 @@ export function openSessionChangesTab(state, {
       ...(source.activeTabByView || {}),
       [viewKey(scopeKey, sessionId)]: key,
     },
+  };
+}
+
+const EMPTY_CHANGE_SUMMARY = Object.freeze({
+  fileCount: 0,
+  totalAdditions: 0,
+  totalDeletions: 0,
+  hasChanges: false,
+});
+
+export function resolveSessionChangesTabContent(activeTab, {
+  changeGroups = [],
+  changeSummary = null,
+  turnChangeSets = [],
+} = {}) {
+  const turnUserMessageId = String(activeTab?.turnUserMessageId || '');
+  if (!turnUserMessageId) {
+    return {
+      groups: Array.isArray(changeGroups) ? changeGroups : [],
+      summary: changeSummary,
+      turnUserMessageId: '',
+    };
+  }
+
+  const turn = Array.isArray(turnChangeSets)
+    ? turnChangeSets.find((set) => set?.userMessageId === turnUserMessageId)
+    : null;
+  if (!turn) {
+    return {
+      groups: [],
+      summary: EMPTY_CHANGE_SUMMARY,
+      turnUserMessageId,
+    };
+  }
+  return {
+    groups: Array.isArray(turn.groups) ? turn.groups : [],
+    summary: turn.summary && typeof turn.summary === 'object'
+      ? turn.summary
+      : EMPTY_CHANGE_SUMMARY,
+    turnUserMessageId,
   };
 }
 
@@ -511,7 +553,9 @@ export function updateSessionChangesTab(state, {
       ...(source.changeTabsBySession || {}),
       [sessionId]: {
         ...existing,
-        fileCount: Number.isFinite(Number(fileCount)) ? Number(fileCount) : 0,
+        fileCount: existing.turnUserMessageId
+          ? existing.fileCount
+          : (Number.isFinite(Number(fileCount)) ? Number(fileCount) : 0),
       },
     },
   };

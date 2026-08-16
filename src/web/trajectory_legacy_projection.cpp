@@ -4,6 +4,7 @@
 #include "../session/compact_checkpoint.hpp"
 #include "../session/session_rewind.hpp"
 #include "../session/tool_result_storage.hpp"
+#include "../session/turn_net_diff.hpp"
 #include "../session/turn_timing.hpp"
 
 #include <algorithm>
@@ -129,7 +130,8 @@ LegacyTrajectoryPage project_legacy_trajectory(
     for (const auto& message : messages) {
         if (is_file_checkpoint_message(message) ||
             is_compact_checkpoint_message(message) ||
-            is_content_replacement_message(message)) {
+            is_content_replacement_message(message) ||
+            is_turn_net_diff_message(message)) {
             continue;
         }
         if (is_turn_timing_message(message)) {

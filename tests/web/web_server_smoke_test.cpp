@@ -575,6 +575,19 @@ struct WebServerFixture {
     ~WebServerFixture() {
         if (server) server->stop();
         if (server_thread.joinable()) server_thread.join();
+
+        // Message endpoints enqueue AgentLoop work and may return before the
+        // turn reaches its terminal persistence. Stop every session worker
+        // while its project/checkpoint directories still exist; deleting the
+        // fixture tree first races those terminal writes and can crash during
+        // member destruction.
+        server.reset();
+        client.reset();
+        registry.reset();
+        loop_store.reset();
+        hook_manager.reset();
+        remote_web_proxy.reset();
+
         acecode::set_state_file_path_for_test("");
         std::error_code ec;
         std::filesystem::remove_all(project_dir, ec);

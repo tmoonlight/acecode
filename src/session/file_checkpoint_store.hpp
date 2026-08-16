@@ -1,5 +1,6 @@
 #pragma once
 
+#include "turn_net_diff.hpp"
 #include "../provider/llm_provider.hpp"
 
 #include <map>
@@ -52,6 +53,7 @@ public:
 
     bool can_restore(const std::string& user_message_uuid) const;
     FileCheckpointDiffStats diff_stats(const std::string& user_message_uuid) const;
+    TurnNetDiffRecord build_active_turn_net_diff(const std::string& workspace_root) const;
     FileCheckpointRestoreResult rewind_to(const std::string& user_message_uuid) const;
 
     void load_from_messages(const std::string& project_dir,

@@ -41,6 +41,7 @@ enum class SessionEventKind {
     ToolStart,         // payload: {"tool":"...", "command_preview":"..."}
     ToolUpdate,        // payload: {"tool":"...", "tail":[...], "partial":"...", "total_lines":N, "total_bytes":N}
     ToolEnd,           // payload: {"tool":"...", "result_summary": {...}, "ok": bool}
+    TurnDiff,          // payload: persisted turn_net_diff record
     PermissionRequest, // payload: {"request_id":"...", "tool":"...", "args": {...}}
     PermissionClosed,  // payload: {"request_id":"...","choice":"...","reason":"..."}
     QuestionRequest,   // payload: {"request_id":"...", "questions":[...]} (AskUserQuestion 工具)
@@ -381,6 +382,7 @@ inline const char* to_string(SessionEventKind k) {
         case SessionEventKind::ToolStart:         return "tool_start";
         case SessionEventKind::ToolUpdate:        return "tool_update";
         case SessionEventKind::ToolEnd:           return "tool_end";
+        case SessionEventKind::TurnDiff:          return "turn_diff";
         case SessionEventKind::PermissionRequest: return "permission_request";
         case SessionEventKind::PermissionClosed:  return "permission_closed";
         case SessionEventKind::QuestionRequest:   return "question_request";

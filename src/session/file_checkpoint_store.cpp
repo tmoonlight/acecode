@@ -52,6 +52,44 @@ std::optional<std::string> read_binary_file(const fs::path& path, std::string* e
     return s;
 }
 
+std::string turn_diff_display_path(const std::string& tracking_path,
+                                   const std::string& workspace_root) {
+    if (workspace_root.empty()) return tracking_path;
+
+    std::error_code ec;
+    fs::path path = fs::weakly_canonical(path_from_utf8(tracking_path), ec);
+    if (ec) {
+        ec.clear();
+        path = path_from_utf8(tracking_path);
+    }
+    fs::path root = fs::weakly_canonical(path_from_utf8(workspace_root), ec);
+    if (ec) root = path_from_utf8(workspace_root);
+    path = path.lexically_normal();
+    root = root.lexically_normal();
+    const fs::path relative = path.lexically_relative(root);
+    if (relative.empty() || relative.is_absolute()) return tracking_path;
+    for (const auto& part : relative) {
+        if (part == "..") return tracking_path;
+    }
+    return path_to_utf8_generic(relative);
+}
+
+void count_hunk_lines(const std::vector<DiffHunk>& hunks,
+                      int& additions,
+                      int& deletions) {
+    additions = 0;
+    deletions = 0;
+    for (const auto& hunk : hunks) {
+        for (const auto& line : hunk.lines) {
+            if (line.kind == DiffLineKind::Added) {
+                additions++;
+            } else if (line.kind == DiffLineKind::Removed) {
+                deletions++;
+            }
+        }
+    }
+}
+
 bool write_copy_with_dirs(const fs::path& from, const fs::path& to, std::string& error) {
     std::error_code ec;
     fs::create_directories(to.parent_path(), ec);
@@ -279,6 +317,80 @@ FileCheckpointDiffStats FileCheckpointStore::diff_stats(const std::string& user_
         stats.deletions += ds.deletions;
     }
     return stats;
+}
+
+TurnNetDiffRecord FileCheckpointStore::build_active_turn_net_diff(
+    const std::string& workspace_root) const {
+    TurnNetDiffRecord record;
+    record.user_message_uuid = active_message_uuid_;
+    record.complete = true;
+
+    const auto* snapshot = find_snapshot(active_message_uuid_);
+    if (!snapshot) {
+        record.complete = false;
+        record.errors.push_back("No active file checkpoint found for this turn.");
+        return record;
+    }
+
+    for (const auto& tracking_path : active_captured_paths_) {
+        const auto backup_it = snapshot->tracked_file_backups.find(tracking_path);
+        if (backup_it == snapshot->tracked_file_backups.end()) {
+            record.complete = false;
+            record.errors.push_back("Missing checkpoint metadata for " + tracking_path);
+            continue;
+        }
+        const auto& backup = backup_it->second;
+
+        std::string old_content;
+        if (!backup.absent) {
+            std::string error;
+            auto content = read_binary_file(
+                path_from_utf8(backup_path(backup.backup_file_name)), &error);
+            if (!content.has_value()) {
+                record.complete = false;
+                record.errors.push_back(
+                    "Missing backup for " + tracking_path + ": " + error);
+                continue;
+            }
+            old_content = std::move(*content);
+        }
+
+        const fs::path current_path = path_from_utf8(tracking_path);
+        std::error_code ec;
+        const bool current_exists = fs::exists(current_path, ec);
+        if (ec) {
+            record.complete = false;
+            record.errors.push_back(
+                "Cannot inspect current file " + tracking_path + ": " + ec.message());
+            continue;
+        }
+
+        std::string new_content;
+        if (current_exists) {
+            std::string error;
+            auto content = read_binary_file(current_path, &error);
+            if (!content.has_value()) {
+                record.complete = false;
+                record.errors.push_back(
+                    "Cannot read current file " + tracking_path + ": " + error);
+                continue;
+            }
+            new_content = std::move(*content);
+        }
+
+        const bool old_exists = !backup.absent;
+        if (old_exists == current_exists && old_content == new_content) {
+            continue;
+        }
+
+        TurnNetDiffFile file;
+        file.file = turn_diff_display_path(tracking_path, workspace_root);
+        file.hunks = generate_structured_diff(old_content, new_content, file.file);
+        count_hunk_lines(file.hunks, file.additions, file.deletions);
+        record.files.push_back(std::move(file));
+    }
+
+    return record;
 }
 
 FileCheckpointRestoreResult FileCheckpointStore::rewind_to(

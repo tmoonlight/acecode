@@ -92,6 +92,73 @@ run('Agent Browser collaboration chrome mirrors the VS Code page actions', () =>
   assert.match(desktop, /aceDesktop_agentBrowserToggleDevTools/);
 });
 
+run('Agent Browser mouse-producing tools show one non-blocking AI pointer at exact input coordinates', () => {
+  const header = source('src/tool/agent_browser/browser_tools.hpp');
+  const tools = source('src/tool/agent_browser/browser_tools.cpp');
+  const pointerOverlay = source('src/tool/agent_browser/pointer_overlay.cpp');
+  const click = tools.slice(
+    tools.indexOf('ToolImpl click_tool()'),
+    tools.indexOf('ToolImpl fill_tool()'),
+  );
+  const hover = tools.slice(
+    tools.indexOf('ToolImpl hover_tool()'),
+    tools.indexOf('ToolImpl drag_tool()'),
+  );
+  const scroll = tools.slice(
+    tools.indexOf('ToolImpl scroll_tool()'),
+    tools.indexOf('ToolImpl wait_tool()'),
+  );
+  const drag = tools.slice(
+    tools.indexOf('ToolImpl drag_tool()'),
+    tools.indexOf('ToolImpl scroll_tool()'),
+  );
+  const evaluate = tools.slice(
+    tools.indexOf('ToolImpl evaluate_tool()'),
+    tools.indexOf('ToolImpl close_tool()'),
+  );
+  const keyboardAndFocus = tools.slice(
+    tools.indexOf('ToolImpl fill_tool()'),
+    tools.indexOf('ToolImpl hover_tool()'),
+  );
+
+  assert.match(header, /std::string agent_browser_pointer_script\(/);
+  assert.match(header, /agent_browser_evaluate_pointer_observer_script\(bool install\)/);
+  assert.match(tools, /kPointerCommandTimeout = std::chrono::seconds\(2\)/);
+  assert.match(pointerOverlay, /attachShadow\(\{mode:'open'\}\)/);
+  assert.match(pointerOverlay, /:host\{all:initial\}/);
+  assert.doesNotMatch(pointerOverlay, /:host\{all:initial!important\}/);
+  assert.match(pointerOverlay, /'pointer-events':'none'/);
+  assert.match(pointerOverlay, /const critical=\{display:'block',position:'fixed'/);
+  assert.doesNotMatch(pointerOverlay, /const critical=\{all:/);
+  assert.match(pointerOverlay, /host\.removeAttribute\('style'\)/);
+  assert.match(pointerOverlay, /badge\.textContent='AI'/);
+  assert.match(pointerOverlay, /prefers-reduced-motion:reduce/);
+  assert.match(pointerOverlay, /event\.isTrusted!==false/);
+  assert.match(pointerOverlay, /event\.clientX/);
+  assert.match(pointerOverlay, /zeroOutsideTarget/);
+  assert.match(pointerOverlay, /globalThis\.addEventListener/);
+  assert.match(pointerOverlay, /globalThis\.removeEventListener/);
+  assert.match(tools, /std::string pointer_error/);
+  assert.equal((tools.match(/show_agent_pointer\(/g) || []).length, 6);
+
+  assert.match(click, /show_agent_pointer\(client, x, y, "click", context\)/);
+  assert.ok(click.indexOf('show_agent_pointer') < click.indexOf('dispatch_mouse'));
+  assert.match(hover, /show_agent_pointer\([\s\S]*"hover",[\s\S]*context\)/);
+  assert.ok(hover.indexOf('show_agent_pointer') < hover.indexOf('dispatch_mouse'));
+  assert.match(scroll, /show_agent_pointer\(client, x, y, "scroll", context\)/);
+  assert.ok(scroll.indexOf('show_agent_pointer') < scroll.indexOf('dispatch_mouse'));
+  assert.match(drag, /show_agent_pointer\(client, x1, y1, "click", context\)/);
+  assert.match(drag, /show_agent_pointer\(client, x2, y2, "drag", context\)/);
+  assert.match(drag, /step <= 8/);
+  assert.ok(drag.indexOf('show_agent_pointer(client, x1') < drag.indexOf('"mousePressed"'));
+  assert.ok(drag.indexOf('show_agent_pointer(client, x2') < drag.indexOf('step <= 8'));
+  assert.match(evaluate, /set_evaluate_pointer_observer\(client, true, context\)/);
+  assert.match(evaluate, /set_evaluate_pointer_observer\(client, false, context\)/);
+  assert.ok(evaluate.indexOf('true, context') < evaluate.indexOf('json value = evaluate'));
+  assert.ok(evaluate.indexOf('json value = evaluate') < evaluate.indexOf('false, context'));
+  assert.doesNotMatch(keyboardAndFocus, /show_agent_pointer|set_evaluate_pointer_observer/);
+});
+
 run('Browser chat contexts share the composer reference row with Pin and annotations', () => {
   const input = source('web/src/components/InputBar.jsx');
   const editorIndex = input.indexOf('<RichComposer');

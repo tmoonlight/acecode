@@ -23,7 +23,13 @@ function ChangeCounts({ additions, deletions, className = '' }) {
   );
 }
 
-export const TurnFileList = memo(function TurnFileList({ groups, summary, cwd = '', onOpenFile }) {
+export const TurnFileList = memo(function TurnFileList({
+  groups,
+  summary,
+  cwd = '',
+  turnUserMessageId = '',
+  onOpenFile,
+}) {
   useTranslation();
   const [expanded, setExpanded] = useState(false);
   const items = useMemo(() => buildTurnFileItems(groups, cwd), [groups, cwd]);
@@ -47,7 +53,7 @@ export const TurnFileList = memo(function TurnFileList({ groups, summary, cwd = 
           key={item.file}
           type="button"
           className="ace-turn-file-row"
-          onClick={() => onOpenFile?.(item.file)}
+          onClick={() => onOpenFile?.(item.file, turnUserMessageId)}
           title={item.file}
         >
           <FileTypeIcon path={item.file} size={16} className="ace-turn-file-icon" />
