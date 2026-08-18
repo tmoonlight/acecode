@@ -2,16 +2,17 @@
 
 // /api/files 的纯函数业务逻辑 — Web UI SidePanel 的"文件 / 预览" tab 后端。
 //
-// 三个核心函数都不依赖 Crow,handlers/server.cpp 只做 HTTP 解析 + 序列化:
+// 四个核心函数都不依赖 Crow,handlers/server.cpp 只做 HTTP 解析 + 序列化:
 //   - validate_path_within: cwd + 用户给的相对/绝对 path → 解析后必须落在 cwd 子树
+//   - resolve_preview_path:把文件详情请求解析为任意本地绝对路径
 //   - list_directory: 返回指定目录的直接子项(不递归),按 dir 优先 + name 字典序排序
 //   - read_file_content: 读文件原文,5MB cap + 二进制嗅探(前 512 字节出现 \0)
 //
 // 安全:
-//   - cwd 必须 ∈ allowed_cwds(由 caller 从 daemon deps 构造,通常 = {deps.cwd}),
-//     防止用户拿任意路径把 daemon 当通用 file server。
-//   - path 用 `weakly_canonical(cwd / path)` 解析后做 prefix 比较,自动处理
-//     `..`、绝对路径、符号链接、Windows 反斜杠。
+//   - 文件树 / Git 的 cwd 必须 ∈ allowed_cwds(由 caller 从 daemon deps 构造,
+//     通常 = {deps.cwd}),并用 prefix 比较限制在 workspace 内。
+//   - 已鉴权的文件详情端点明确允许任意本地文件;它只用
+//     resolve_preview_path 规范化目标,不获得目录枚举 / Git 能力。
 //
 // 噪音目录硬编码黑名单(NOISE_DIRS),始终过滤,与 show_hidden 无关。
 // 隐藏文件(以 . 开头)默认过滤,show_hidden=true 时透出 — 但 NOISE_DIRS 黑名单
@@ -67,16 +68,12 @@ validate_path_within(const std::string& cwd,
                      const std::string& path,
                      const std::vector<std::string>& allowed_cwds);
 
-// 预览端点专用:先按 workspace 白名单校验;失败后再用 extra_preview_roots
-// (活动 no-workspace session 根、~/.acecode/skills 与 projects 等)做前缀放行。
-// 前端在无工作区会话下会把绝对路径拆成「所在目录 + basename」,该目录不在
-// workspace 白名单,但目标文件仍可能落在 session cache 或 ACECode 管理目录。
-// 目录树 / Git 路由不得调用此函数——它们只认 allowed_cwds。
+// 文件详情端点专用:cwd 必须是绝对路径;path 为绝对路径时直接使用,否则
+// 拼到 cwd 下。返回 weakly_canonical 后的目标,不要求目标位于 cwd / workspace。
+// 目录树 / Git 路由不得调用此函数——它们必须继续使用 validate_path_within。
 std::variant<std::filesystem::path, FileError>
-validate_preview_path_within(const std::string& cwd,
-                             const std::string& path,
-                             const std::vector<std::string>& allowed_cwds,
-                             const std::vector<std::string>& extra_preview_roots);
+resolve_preview_path(const std::string& cwd,
+                     const std::string& path);
 
 // 列出 abs_dir 下的直接子项(不递归)。abs_dir 必须先经 validate_path_within。
 //

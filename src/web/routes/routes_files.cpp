@@ -1,7 +1,6 @@
 // routes_files.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
 #include "../../skills/skill_init.hpp"
-#include "../../desktop/open_in_explorer.hpp"
 #include "../../config/config.hpp"
 
 namespace acecode::web {
@@ -61,29 +60,6 @@ void WebServer::Impl::register_files() {
             if (!err.message.empty()) body["detail"] = err.message;
             r.body = body.dump();
             return with_cors(req, std::move(r));
-        };
-
-        // 无工作区会话不会把真实 cwd 暴露给前端。变更记录里的绝对路径因此会被
-        // 前端拆成“所在目录 + 文件名”,不能通过 workspace cwd 的精确白名单。
-        // 仅预览端点在失败后按活动 no-workspace session 根 + ACECode 管理目录
-        // (~/.acecode/skills、projects,与 open-in-explorer 对齐)重新校验。
-        // 目录树和 Git 路由仍只认 allowed_file_cwds()。
-        auto validate_preview_path = [this](
-            const std::string& cwd,
-            const std::string& path)
-            -> std::variant<std::filesystem::path, FileError> {
-            std::vector<std::string> extra_roots;
-            if (deps.session_registry) {
-                for (const auto& session : deps.session_registry->list_active()) {
-                    if (!session.no_workspace || session.cwd.empty()) continue;
-                    extra_roots.push_back(session.cwd);
-                }
-            }
-            extra_roots = acecode::desktop::append_acecode_managed_open_roots(
-                std::move(extra_roots),
-                acecode::get_acecode_dir());
-            return validate_preview_path_within(
-                cwd, path, allowed_file_cwds(), extra_roots);
         };
 
         // GET /api/files?cwd=<abs>&path=<rel>&show_hidden=<0|1>
@@ -147,7 +123,7 @@ void WebServer::Impl::register_files() {
 
         // GET /api/files/content?cwd=<abs>&path=<rel>
         CROW_ROUTE(app, "/api/files/content").methods(crow::HTTPMethod::GET)
-        ([this, error_response, validate_preview_path](const crow::request& req) {
+        ([this, error_response](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
 
             std::string cwd_q;
@@ -161,7 +137,7 @@ void WebServer::Impl::register_files() {
                 return with_cors(req, std::move(r));
             }
 
-            auto validated = validate_preview_path(cwd_q, path_q);
+            auto validated = resolve_preview_path(cwd_q, path_q);
             if (std::holds_alternative<FileError>(validated)) {
                 return error_response(req, std::get<FileError>(validated));
             }
@@ -179,7 +155,7 @@ void WebServer::Impl::register_files() {
 
         // GET /api/files/blob?cwd=<abs>&path=<rel>
         CROW_ROUTE(app, "/api/files/blob").methods(crow::HTTPMethod::GET)
-        ([this, error_response, validate_preview_path](const crow::request& req) {
+        ([this, error_response](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
 
             std::string cwd_q;
@@ -201,7 +177,7 @@ void WebServer::Impl::register_files() {
                 return with_cors(req, std::move(r));
             }
 
-            auto validated = validate_preview_path(cwd_q, path_q);
+            auto validated = resolve_preview_path(cwd_q, path_q);
             if (std::holds_alternative<FileError>(validated)) {
                 return error_response(req, std::get<FileError>(validated));
             }
