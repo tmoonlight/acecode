@@ -33,18 +33,31 @@ export function compactLineCount(value) {
   return text.split(/\r\n|\r|\n/).length;
 }
 
-export function labelForNonAssistantRole(role) {
+export function isInterjectionAbortNotice(content = '', metadata = null) {
+  if (metadata && typeof metadata === 'object' && metadata.turn_interrupt === true) {
+    return true;
+  }
+  return String(content || '').trim() === '[Interjected]';
+}
+
+export function labelForNonAssistantRole(role, content = '', metadata = null) {
   const normalized = String(role || '').toLowerCase();
   if (normalized === 'tool_call') return '工具调用';
   if (normalized === 'tool_result' || normalized === 'tool') return '工具返回';
   if (normalized === 'error') return '错误信息';
+  if (isInterjectionAbortNotice(content, metadata)) return '插话中断';
   return '系统信息';
 }
 
-export function buildCompactMessagePreview({ role = '', content = '', label = '' } = {}) {
+export function buildCompactMessagePreview({
+  role = '',
+  content = '',
+  label = '',
+  metadata = null,
+} = {}) {
   const text = textFromValue(content);
   return {
-    label: label || labelForNonAssistantRole(role),
+    label: label || labelForNonAssistantRole(role, content, metadata),
     text,
     preview: compactOneLinePreview(text),
     lineCount: compactLineCount(text),

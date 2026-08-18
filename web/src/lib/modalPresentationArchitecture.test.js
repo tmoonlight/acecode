@@ -61,6 +61,18 @@ run('archived deletion and close-preview confirmations share Modal', () => {
   assert.match(chatView, />关闭预览面板</);
 });
 
+run('loop delete and desktop context-menu confirmations share Modal', () => {
+  const loopPage = source('components/LoopPage.jsx');
+  const contextMenu = source('components/DesktopContextMenu.jsx');
+
+  assert.match(loopPage, /<Modal onClose=\{\(\) => setDeleteConfirm\(null\)\}/);
+  assert.match(loopPage, />\s*删除循环\s*</);
+  assert.doesNotMatch(loopPage, /window\.confirm|window\.alert/);
+  assert.match(contextMenu, /<Modal onClose=\{\(\) => setPendingConfirm\(null\)\}/);
+  assert.match(contextMenu, /pendingConfirm\.action\.confirm/);
+  assert.doesNotMatch(contextMenu, /window\.confirm|window\.alert/);
+});
+
 run('update dialog keeps release history bounded and renders notes as plain text', () => {
   const updateDialog = source('components/UpdateDialog.jsx');
 

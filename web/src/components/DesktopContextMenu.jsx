@@ -19,6 +19,7 @@ import {
   insertRichComposerContextText,
 } from '../lib/richComposerContextPaste.js';
 import { api } from '../lib/api.js';
+import { Modal } from './Modal.jsx';
 import { toast } from './Toast.jsx';
 
 const MENU_WIDTH = 216;
@@ -402,8 +403,14 @@ async function runAction(
   }
 }
 
+function actionLabel(action) {
+  const id = typeof action === 'string' ? action : action.id;
+  return ACTION_LABELS[id] || id;
+}
+
 export function DesktopContextMenu() {
   const [menu, setMenuState] = useState(null);
+  const [pendingConfirm, setPendingConfirm] = useState(null);
   const menuRef = useRef(null);
   const reopenTimerRef = useRef(0);
   const targetRef = useRef(null);
@@ -552,48 +559,99 @@ export function DesktopContextMenu() {
     return () => notifyNativeSurfaceOverlayChange();
   }, [menu]);
 
-  if (!menu) return null;
+  if (!menu && !pendingConfirm) return null;
 
   return (
-    <div
-      className="ace-desktop-context-menu"
-      data-ace-native-overlay="overlap"
-      style={{ left: menu.left, top: menu.top }}
-      role="menu"
-      onMouseDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      {menu.items.map((action) => (
-        <button
-          key={typeof action === 'string' ? action : action.id}
-          type="button"
-          role="menuitem"
-          disabled={typeof action === 'object' && action.enabled === false}
-          className={[
-            'ace-desktop-context-menu-item',
-            typeof action === 'object' && action.separatorBefore ? 'ace-desktop-context-menu-separator' : '',
-            typeof action === 'object' && action.danger ? 'ace-desktop-context-menu-danger' : '',
-          ].filter(Boolean).join(' ')}
-          onClick={async () => {
-            if (typeof action === 'object' && action.enabled === false) return;
-            if (typeof action === 'object' && action.confirm && !window.confirm(action.confirm)) return;
-            const target = targetRef.current;
-            const selectedText = menu.selectedText || '';
-            const selectionContext = menu.selectionContext || null;
-            const richComposerSelection = menu.richComposerSelection || null;
-            close();
-            await runAction(
-              action,
-              target,
-              selectedText,
-              selectionContext,
-              richComposerSelection,
-            );
-          }}
+    <>
+      {menu && (
+        <div
+          className="ace-desktop-context-menu"
+          data-ace-native-overlay="overlap"
+          style={{ left: menu.left, top: menu.top }}
+          role="menu"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
         >
-          {ACTION_LABELS[typeof action === 'string' ? action : action.id] || (typeof action === 'string' ? action : action.id)}
-        </button>
-      ))}
-    </div>
+          {menu.items.map((action) => (
+            <button
+              key={typeof action === 'string' ? action : action.id}
+              type="button"
+              role="menuitem"
+              disabled={typeof action === 'object' && action.enabled === false}
+              className={[
+                'ace-desktop-context-menu-item',
+                typeof action === 'object' && action.separatorBefore ? 'ace-desktop-context-menu-separator' : '',
+                typeof action === 'object' && action.danger ? 'ace-desktop-context-menu-danger' : '',
+              ].filter(Boolean).join(' ')}
+              onClick={async () => {
+                if (typeof action === 'object' && action.enabled === false) return;
+                const target = targetRef.current;
+                const selectedText = menu.selectedText || '';
+                const selectionContext = menu.selectionContext || null;
+                const richComposerSelection = menu.richComposerSelection || null;
+                close();
+                if (typeof action === 'object' && action.confirm) {
+                  setPendingConfirm({
+                    action,
+                    target,
+                    selectedText,
+                    selectionContext,
+                    richComposerSelection,
+                  });
+                  return;
+                }
+                await runAction(
+                  action,
+                  target,
+                  selectedText,
+                  selectionContext,
+                  richComposerSelection,
+                );
+              }}
+            >
+              {actionLabel(action)}
+            </button>
+          ))}
+        </div>
+      )}
+      {pendingConfirm && (
+        <Modal onClose={() => setPendingConfirm(null)} width={440} layerClassName="z-[400]">
+          {({ close: closeConfirm }) => (
+            <div className="p-4">
+              <div className="text-[14px] font-semibold mb-2">{actionLabel(pendingConfirm.action)}</div>
+              <div className="text-[12.5px] text-fg-mute leading-relaxed mb-4">
+                {pendingConfirm.action.confirm}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-[12.5px] rounded-lg border border-border hover:bg-surface-hi"
+                  onClick={closeConfirm}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-[12.5px] rounded-lg border border-danger/40 bg-danger-bg text-danger hover:opacity-80"
+                  onClick={async () => {
+                    const pending = pendingConfirm;
+                    setPendingConfirm(null);
+                    await runAction(
+                      pending.action,
+                      pending.target,
+                      pending.selectedText,
+                      pending.selectionContext,
+                      pending.richComposerSelection,
+                    );
+                  }}
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+    </>
   );
 }

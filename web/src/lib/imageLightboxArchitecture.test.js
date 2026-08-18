@@ -82,5 +82,5 @@ run('shared context menu intercepts ordinary browser right clicks only for Merma
   assert.match(component, /mermaidTarget: candidateTargets\.mermaidTarget/);
   assert.match(component, /exportMermaidAsset\(target, format\)/);
   assert.doesNotMatch(component, /if \(!desktop\) return undefined/);
-  assert.match(component, /if \(!menu\) return null/);
+  assert.match(component, /if \(!menu && !pendingConfirm\) return null/);
 });

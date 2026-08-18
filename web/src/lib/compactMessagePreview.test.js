@@ -3,6 +3,7 @@ import {
   buildCompactMessagePreview,
   compactLineCount,
   compactOneLinePreview,
+  isInterjectionAbortNotice,
   labelForNonAssistantRole,
 } from './compactMessagePreview.js';
 
@@ -38,6 +39,18 @@ run('labelForNonAssistantRole distinguishes tool calls and returns', () => {
   assert.equal(labelForNonAssistantRole('tool_result'), '工具返回');
   assert.equal(labelForNonAssistantRole('tool'), '工具返回');
   assert.equal(labelForNonAssistantRole('system'), '系统信息');
+  assert.equal(labelForNonAssistantRole('system', '[Interrupted]'), '系统信息');
+  assert.equal(labelForNonAssistantRole('system', '[Interjected]'), '插话中断');
+  assert.equal(
+    labelForNonAssistantRole('system', '[Interrupted]', { turn_interrupt: true }),
+    '插话中断',
+  );
+});
+
+run('isInterjectionAbortNotice only matches interjection markers', () => {
+  assert.equal(isInterjectionAbortNotice('[Interjected]'), true);
+  assert.equal(isInterjectionAbortNotice('[Interrupted]'), false);
+  assert.equal(isInterjectionAbortNotice('[Interrupted]', { turn_interrupt: true }), true);
 });
 
 run('buildCompactMessagePreview returns one-line preview metadata', () => {
@@ -45,4 +58,11 @@ run('buildCompactMessagePreview returns one-line preview metadata', () => {
   assert.equal(meta.label, '工具返回');
   assert.equal(meta.preview, 'line1 line2');
   assert.equal(meta.lineCount, 2);
+
+  const interjected = buildCompactMessagePreview({
+    role: 'system',
+    content: '[Interjected]',
+  });
+  assert.equal(interjected.label, '插话中断');
+  assert.equal(interjected.preview, '[Interjected]');
 });

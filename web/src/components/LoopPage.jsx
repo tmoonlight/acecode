@@ -11,6 +11,7 @@ import {
   validateLoopForm,
 } from '../lib/loops.js';
 import { VsIcon } from './Icon.jsx';
+import { Modal } from './Modal.jsx';
 import { toast } from './Toast.jsx';
 
 const WEEKDAYS = [
@@ -269,6 +270,7 @@ export function LoopPage({ onOpenSession }) {
   const [runsByLoop, setRunsByLoop] = useState({});
   const [expanded, setExpanded] = useState('');
   const [dialog, setDialog] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unsupported, setUnsupported] = useState(false);
   const pollInFlight = useRef(false);
@@ -352,8 +354,13 @@ export function LoopPage({ onOpenSession }) {
       toast({ kind: 'err', text: conflict });
     }
   };
-  const remove = async (loop) => {
-    if (!window.confirm(`删除循环“${loop.name}”？运行记录也会一并删除。`)) return;
+  const remove = (loop) => {
+    setDeleteConfirm(loop);
+  };
+  const confirmRemove = async () => {
+    const loop = deleteConfirm;
+    if (!loop) return;
+    setDeleteConfirm(null);
     try {
       await api.deleteLoop(loop.id);
       setLoops((prev) => prev.filter((item) => item.id !== loop.id));
@@ -440,6 +447,35 @@ export function LoopPage({ onOpenSession }) {
           )}
         </section>
       </div>
+
+      {deleteConfirm && (
+        <Modal onClose={() => setDeleteConfirm(null)} width={440}>
+          {({ close }) => (
+            <div className="p-4">
+              <div className="text-[14px] font-semibold mb-2">删除循环</div>
+              <div className="text-[12.5px] text-fg-mute leading-relaxed mb-4">
+                {`删除循环“${deleteConfirm.name}”？运行记录也会一并删除。`}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-[12.5px] rounded-lg border border-border hover:bg-surface-hi"
+                  onClick={close}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-[12.5px] rounded-lg border border-danger/40 bg-danger-bg text-danger hover:opacity-80"
+                  onClick={confirmRemove}
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
 
       {dialog && (
         <AddLoopDialog

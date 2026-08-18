@@ -291,8 +291,13 @@ function SystemRow({ role, content, metadata }) {
       : '');
   const isToolCompact = role === 'tool_call' || role === 'tool_result' || customLabel === '工具调用 / 返回';
   const { label, text, preview, lineCount, charCount } = useMemo(
-    () => buildCompactMessagePreview({ role, content, label: customLabel }),
-    [role, content, customLabel],
+    () => buildCompactMessagePreview({
+      role,
+      content,
+      label: customLabel,
+      metadata,
+    }),
+    [role, content, customLabel, metadata],
   );
 
   return (
