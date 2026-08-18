@@ -6,6 +6,7 @@ import {
   lastAssistantText,
   loadTranscriptHistory,
   normalizeTurnNetDiffRecord,
+  isTranscriptActivelyRunning,
   preserveLiveAssistantTailOnLoad,
   preserveLiveRuntimeOnLoad,
   projectCompactTranscriptItems,
@@ -1927,6 +1928,71 @@ run('防回退: REST 序列不旧时不保留 live runtime', () => {
   });
   const loaded = createTranscriptState({ lastSeq: 5, busy: false, status: 'idle' });
   assert.equal(preserveLiveRuntimeOnLoad(loaded, live), loaded);
+});
+
+run('推理或 token 流把丢失的 busy 拉回 running', () => {
+  let state = reduceTranscriptEvent(createTranscriptState(), {
+    type: 'reasoning',
+    payload: { text: '先核对文件栏怎么打开' },
+    seq: 1,
+  }).state;
+  assert.equal(state.busy, true);
+  assert.equal(state.status, 'running');
+  assert.equal(isTranscriptActivelyRunning(state), true);
+
+  state = reduceTranscriptEvent(createTranscriptState(), {
+    type: 'token',
+    payload: { text: '找到了现有的文件链接模块。' },
+    seq: 1,
+  }).state;
+  assert.equal(state.busy, true);
+  assert.equal(state.status, 'running');
+  assert.notEqual(state.streamingId, null);
+});
+
+run('防回退: live 只有推理流时不得把 REST busy 快照冲成 idle', () => {
+  const live = reduceTranscriptEvent(createTranscriptState({ lastSeq: 0 }), {
+    type: 'reasoning',
+    payload: { text: '先看现有的文件链接' },
+    seq: 8,
+  }).state;
+  assert.equal(live.busy, true);
+
+  const loaded = createTranscriptState({
+    lastSeq: 3,
+    busy: true,
+    activeTurnId: 'turn-rest',
+    status: 'running',
+    loadState: 'loaded',
+  });
+  const liveWithoutBusyFlag = {
+    ...live,
+    busy: false,
+    status: 'idle',
+    activeTurnId: '',
+  };
+  const guarded = preserveLiveRuntimeOnLoad(loaded, liveWithoutBusyFlag);
+  assert.equal(guarded.busy, true);
+  assert.equal(guarded.status, 'running');
+  assert.equal(guarded.activeTurnId, 'turn-rest');
+  assert.ok(guarded.trajectoryPartial?.blocks?.length > 0);
+});
+
+run('进行中的流式草稿即使 busy 被清掉也仍视为 running', () => {
+  assert.equal(isTranscriptActivelyRunning({
+    busy: false,
+    status: 'idle',
+    streamingId: 7,
+  }), true);
+  assert.equal(isTranscriptActivelyRunning({
+    busy: false,
+    status: 'idle',
+    trajectoryPartial: { blocks: [{ kind: 'reasoning', text: '思考中' }] },
+  }), true);
+  assert.equal(isTranscriptActivelyRunning({
+    busy: false,
+    status: 'idle',
+  }), false);
 });
 
 // 场景: 快照不比实时旧(seq >= 实时)时直接采用快照,不做任何保留 —— 这是

@@ -139,6 +139,34 @@ function cloneState(state) {
   };
 }
 
+function hasTrajectoryPartialWork(state) {
+  const partial = state?.trajectoryPartial;
+  if (!partial || typeof partial !== 'object') return false;
+  if (partial.step != null) return true;
+  return Array.isArray(partial.blocks) && partial.blocks.length > 0;
+}
+
+export function hasInFlightTranscriptWork(state = {}) {
+  return !!state?.activeTurnId
+    || state?.streamingId != null
+    || hasTrajectoryPartialWork(state)
+    || !!state?.activity;
+}
+
+export function isTranscriptActivelyRunning(state = {}) {
+  return state?.busy === true
+    || state?.status === 'running'
+    || hasInFlightTranscriptWork(state);
+}
+
+function markTranscriptRunning(next, turnId = '') {
+  if (!next || next.status === 'error') return next;
+  next.busy = true;
+  next.status = 'running';
+  if (turnId && !next.activeTurnId) next.activeTurnId = String(turnId);
+  return next;
+}
+
 function appendTrajectoryPartialText(next, kind, text) {
   if (!text) return;
   const current = next.trajectoryPartial && typeof next.trajectoryPartial === 'object'
@@ -871,21 +899,22 @@ export function preserveLiveRuntimeOnLoad(loadedState, liveState) {
   const loadedSeq = Number(loadedState?.lastSeq) || 0;
   if (liveSeq <= loadedSeq) return loadedState;
 
-  const liveIsRunning = liveState?.busy === true
-    || liveState?.status === 'running'
-    || !!liveState?.activeTurnId
-    || !!liveState?.activity
-    || !!liveState?.trajectoryPartial;
+  const liveIsRunning = isTranscriptActivelyRunning(liveState);
   if (!liveIsRunning) return loadedState;
 
+  // Live work signals (reasoning/token/activity) can arrive before or without a
+  // retained busy_changed(true). Never copy live.busy=false over an in-flight
+  // turn — that is what drops Desktop 中止/排队 back to the idle send button.
   return {
     ...loadedState,
-    busy: !!liveState.busy,
-    activeTurnId: String(liveState.activeTurnId || ''),
+    busy: true,
+    activeTurnId: String(liveState.activeTurnId || loadedState.activeTurnId || ''),
     status: 'running',
     activity: liveState.activity && typeof liveState.activity === 'object'
       ? { ...liveState.activity }
-      : null,
+      : (loadedState.activity && typeof loadedState.activity === 'object'
+        ? { ...loadedState.activity }
+        : null),
     trajectoryPartial: liveState.trajectoryPartial && typeof liveState.trajectoryPartial === 'object'
       ? {
           ...liveState.trajectoryPartial,
@@ -893,7 +922,14 @@ export function preserveLiveRuntimeOnLoad(loadedState, liveState) {
             ? liveState.trajectoryPartial.blocks.map((block) => ({ ...block }))
             : [],
         }
-      : null,
+      : (loadedState.trajectoryPartial && typeof loadedState.trajectoryPartial === 'object'
+        ? {
+            ...loadedState.trajectoryPartial,
+            blocks: Array.isArray(loadedState.trajectoryPartial.blocks)
+              ? loadedState.trajectoryPartial.blocks.map((block) => ({ ...block }))
+              : [],
+          }
+        : null),
   };
 }
 
@@ -1038,12 +1074,14 @@ export function reduceTranscriptEvent(state, msg) {
         step: Number.isInteger(step) && step > 0 ? step : null,
         blocks: [],
       };
+      markTranscriptRunning(next);
       break;
     }
     case 'agent_progress': {
       const phase = p.phase || '';
       const label = p.label || '';
       if (!phase && !label) break;
+      markTranscriptRunning(next);
       next.activity = {
         phase,
         label: label || phase,
@@ -1217,6 +1255,7 @@ export function reduceTranscriptEvent(state, msg) {
     case 'token': {
       const text = p.text || '';
       appendTrajectoryPartialText(next, 'text', text);
+      if (text) markTranscriptRunning(next);
       if (text && text.trim()) {
         next.turnHadAssistantText = true;
       }
@@ -1249,10 +1288,13 @@ export function reduceTranscriptEvent(state, msg) {
       break;
     }
     case 'reasoning': {
-      appendTrajectoryPartialText(next, 'reasoning', p.text || '');
+      const text = p.text || '';
+      appendTrajectoryPartialText(next, 'reasoning', text);
+      if (text) markTranscriptRunning(next);
       break;
     }
     case 'tool_start': {
+      markTranscriptRunning(next);
       finalizeStreaming(next);
       const id = allocateItemId(next);
       next.toolMap.set(toolKey(p), id);
@@ -1532,6 +1574,9 @@ export function loadTranscriptHistory(state, data = {}) {
     next.busy = false;
     next.activeTurnId = '';
     next.status = 'idle';
+    next.activity = null;
+    next.trajectoryPartial = null;
+    finalizeStreaming(next);
   }
 
   return { state: next, effects };
@@ -1776,10 +1821,13 @@ export function useSessionTranscript(sessionRef, options = {}) {
     };
   }, [applyEvent, isLive, ref?.port, ref?.token, sid]);
 
+  const activelyRunning = isTranscriptActivelyRunning(state);
   return {
     ...state,
     title: state.title || initialTitle,
     isLive,
+    busy: activelyRunning,
+    status: activelyRunning ? 'running' : state.status,
     loadState: stateSessionIdRef.current === sid
       ? state.loadState
       : (sid ? 'loading' : 'idle'),
