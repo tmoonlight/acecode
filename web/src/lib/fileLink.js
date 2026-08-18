@@ -20,9 +20,44 @@ export function splitLineSuffix(raw) {
 const WIN_ABS = /^[A-Za-z]:[\\/]/;         // N:\Users\... 或 N:/Users/...
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i; // http: mailto: javascript: data: tel: ...
 
-// 返回 { kind, path, line }。kind ∈ 'external' | 'anchor' | 'file' | 'reject'。
-// path/line 仅在 kind==='file' 有意义。
-export function classifyFileLink(rawHref) {
+export function hasDirectoryMarker(value) {
+  return /[/\\]$/.test(String(value == null ? '' : value).trim());
+}
+
+// 去掉路径尾部分隔符,但保留盘符根(N:\ / C:/)。定位文件树时要用目录本身,
+// 不能把 `src/headless/` 原样塞进 tree key。
+export function stripTrailingSeparators(rawPath) {
+  const path = String(rawPath == null ? '' : rawPath);
+  const stripped = path.replace(/[/\\]+$/, '');
+  if (!stripped) return path;
+  if (/^[A-Za-z]:$/.test(stripped)) return path;
+  return stripped;
+}
+
+function normalizeComparablePath(value) {
+  return stripTrailingSeparators(value).replace(/\\/g, '/');
+}
+
+function labelMarksSameDirectory(path, label) {
+  const text = String(label == null ? '' : label).trim();
+  if (!hasDirectoryMarker(text)) return false;
+  return normalizeComparablePath(text) === normalizeComparablePath(path);
+}
+
+function asLocalPath(path, line, options = {}) {
+  const directory = hasDirectoryMarker(path) || labelMarksSameDirectory(path, options.label);
+  return {
+    kind: directory ? 'directory' : 'file',
+    path: directory ? stripTrailingSeparators(path) : path,
+    line: directory ? null : line,
+  };
+}
+
+// 返回 { kind, path, line }。
+// kind ∈ 'external' | 'anchor' | 'file' | 'directory' | 'reject'。
+// path/line 仅在 kind==='file' / 'directory' 有意义。
+// 目录判定:href 或可见链接文案以 / 或 \ 结尾(模型/AGENT.md 的目录型链接约定)。
+export function classifyFileLink(rawHref, options = {}) {
   const href = String(rawHref == null ? '' : rawHref).trim();
   if (!href) return { kind: 'reject', path: '', line: null };
   // 页内锚点保持原样(当前页滚动)。
@@ -36,7 +71,7 @@ export function classifyFileLink(rawHref) {
   // Windows 盘符绝对路径:先判文件(盘符里的冒号不能当 scheme),再剥 :行号。
   if (WIN_ABS.test(href)) {
     const { path, line } = splitLineSuffix(href);
-    return { kind: 'file', path, line };
+    return asLocalPath(path, line, options);
   }
 
   // 其余:先剥 :行号,再看剩下的是否带 scheme。带 scheme(javascript:/data:/...)一律拒绝。
@@ -44,5 +79,5 @@ export function classifyFileLink(rawHref) {
   const { path, line } = splitLineSuffix(href);
   if (URL_SCHEME.test(path)) return { kind: 'reject', path: '', line: null };
   // 无 scheme 的相对路径(docs/foo.md、./x、../y)或 POSIX 绝对路径(/home/...)→ 本地文件。
-  return { kind: 'file', path, line };
+  return asLocalPath(path, line, options);
 }

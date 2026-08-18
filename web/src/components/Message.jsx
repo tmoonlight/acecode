@@ -20,7 +20,7 @@ import { resolveLeadingSlashCommand } from '../lib/slashCommands.js';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { AttachmentStrip } from './AttachmentStrip.jsx';
 
-function HoverActions({ messageId, getCopyText, onFork, forkPending = false, forkLoading = false }) {
+export function MessageActions({ messageId, getCopyText, onFork, forkPending = false, forkLoading = false }) {
   const handleCopy = async (event) => {
     event.stopPropagation();
     try {
@@ -163,7 +163,7 @@ function UserBubble({
       ) : null}
       <div className="min-h-6 flex items-center justify-end gap-1 mr-1">
         {ts != null && <span className="text-[10px] text-fg-mute">{relativeTime(ts)}</span>}
-        <HoverActions
+        <MessageActions
           messageId={messageId}
           getCopyText={() => content}
           onFork={onFork}
@@ -185,6 +185,7 @@ function AssistantBubble({
   forkPending,
   forkLoading,
   onOpenFilePreview,
+  onLocateInFileTree,
   continuation,
   showFooter,
   showAceCodeAvatar,
@@ -204,9 +205,12 @@ function AssistantBubble({
       event.preventDefault();
       event.stopPropagation();
       const path = fileAnchor.getAttribute('data-file-path') || '';
+      const kind = fileAnchor.getAttribute('data-file-kind') || 'file';
       const lineAttr = fileAnchor.getAttribute('data-file-line');
       const line = lineAttr ? Number(lineAttr) : null;
-      if (path) onOpenFilePreview?.(path, line);
+      if (!path) return;
+      if (kind === 'directory') onLocateInFileTree?.(path);
+      else onOpenFilePreview?.(path, line);
       return;
     }
     // 2) 代码块复制按钮(原逻辑)。
@@ -220,7 +224,7 @@ function AssistantBubble({
     } catch (e) {
       toast({ kind: 'err', text: '复制失败:' + (e?.message || '') });
     }
-  }, [onOpenFilePreview]);
+  }, [onLocateInFileTree, onOpenFilePreview]);
   // ACECode 头像永久隐藏;不再保留空白占位,让左右外边距保持一致。
   return (
     <div className={`flex min-w-0 ${chrome.gapClass} max-w-[88%] group relative`}>
@@ -257,7 +261,7 @@ function AssistantBubble({
         {showFooter && (
           <div className="min-h-6 flex items-center gap-1">
             {!streaming && (
-              <HoverActions
+              <MessageActions
                 messageId={messageId}
                 getCopyText={() => content || ''}
                 onFork={onFork}
@@ -346,6 +350,7 @@ export const Message = memo(function Message({
   forkPending = false,
   forkLoading = false,
   onOpenFilePreview,
+  onLocateInFileTree,
   continuation,
   showFooter = true,
   showAceCodeAvatar = false,
@@ -374,6 +379,7 @@ export const Message = memo(function Message({
                              messageId={messageId} onFork={onFork}
                              forkPending={forkPending} forkLoading={forkLoading}
                              onOpenFilePreview={onOpenFilePreview}
+                             onLocateInFileTree={onLocateInFileTree}
                              continuation={continuation}
                              showFooter={showFooter}
                              showAceCodeAvatar={showAceCodeAvatar}

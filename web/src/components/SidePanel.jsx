@@ -31,12 +31,12 @@ import {
   DESKTOP_CONTEXT_ACTIONS,
   joinWorkspacePath,
 } from '../lib/desktopContextMenu.js';
+import { fileTreeLocatePlan } from '../lib/fileTreeLocate.js';
 import {
   buildReviewStatusMap,
   entriesWithReviewRows,
   fileChangeStatusTitle,
   normalizeTreePath,
-  normalizeWorkspaceRelativePath,
   statusForTreeEntry,
 } from '../lib/fileTreeChangeStatus.js';
 import {
@@ -126,15 +126,6 @@ function TreeArrowIcon({ open }) {
       />
     </svg>
   );
-}
-
-function pathAncestors(path) {
-  const parts = normalizeTreePath(path).split('/').filter(Boolean);
-  const result = [];
-  for (let i = 1; i < parts.length; i += 1) {
-    result.push(parts.slice(0, i).join('/'));
-  }
-  return result;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -342,7 +333,7 @@ function FileTree({ api, cwd, treeCache, setTreeCache, expandedDirs, setExpanded
     return displayEntries.map((e) => {
       const isDir = e.kind === 'dir';
       const isOpen = isDir && expandedDirs.has(e.path);
-      const isActive = !isDir && selectedNormalizedPath
+      const isActive = !!selectedNormalizedPath
         && normalizeTreePath(e.path) === selectedNormalizedPath;
       const absolutePath = joinWorkspacePath(cwd, e.path);
       const explorerPath = isDir ? absolutePath : '';
@@ -459,6 +450,7 @@ export function SidePanel({
   changeSummary = null,
   fileRefreshKey = '',
   reviewRequest = 0,
+  fileLocateRequest = null,
   filesEnabled = true,
   width = 280,
   collapsed = false,
@@ -613,6 +605,23 @@ export function SidePanel({
     setActiveTab('changes');
   }, [reviewRequest]);
 
+  const lastFileLocateToken = useRef(0);
+  useEffect(() => {
+    const token = Number(fileLocateRequest?.token || 0);
+    const path = fileLocateRequest?.path || '';
+    if (!token || token === lastFileLocateToken.current || !path || !filesEnabled) return;
+    lastFileLocateToken.current = token;
+    const plan = fileTreeLocatePlan(path, cwd, { includeSelf: true });
+    if (!plan) return;
+    setActiveTab('files');
+    setSelectedPath(plan.selectedPath);
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      for (const dir of plan.expandedDirs) next.add(dir);
+      return next;
+    });
+  }, [cwd, fileLocateRequest, filesEnabled, setExpandedDirs]);
+
   useEffect(() => {
     if (!selectedChangeFile) return;
     setActiveTab('changes');
@@ -637,11 +646,12 @@ export function SidePanel({
         onOpenFilePreview?.(effect.normalizedFilePath);
       } else if (effect.type === SIDE_PANEL_CONTEXT_EFFECTS.LOCATE_IN_FILE_TREE) {
         detail.handled = true;
-        const relativeFilePath = normalizeWorkspaceRelativePath(effect.normalizedFilePath, cwd);
-        setSelectedPath(relativeFilePath);
+        const plan = fileTreeLocatePlan(effect.normalizedFilePath, cwd);
+        if (!plan) return;
+        setSelectedPath(plan.selectedPath);
         setExpandedDirs((prev) => {
           const next = new Set(prev);
-          for (const dir of pathAncestors(relativeFilePath)) next.add(dir);
+          for (const dir of plan.expandedDirs) next.add(dir);
           return next;
         });
         setActiveTab('files');

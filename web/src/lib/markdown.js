@@ -1,6 +1,6 @@
 // markdown → safe HTML 渲染管线。
 // 由 markdown-it 14 + highlight.js core(12 种常用语言)驱动:
-//   - GFM 表格 / 任务清单 / 嵌套 list / autolink
+//   - GFM 表格 / 任务清单 / 嵌套 list / 带 scheme 的 autolink(不识别裸域名)
 //   - 代码高亮(c/cpp/js/ts/python/bash/json/diff/markdown/rust/go/yaml)
 //   - HTML 解析关闭(html: false),URL scheme 白名单(http/https/mailto/相对)
 // 公开 API: renderMarkdown(src) -> string,签名跟旧版一致,Message.jsx 零改。
@@ -133,7 +133,7 @@ function highlightCode(str, lang) {
 
 const md = new MarkdownIt({
   html: false,        // 禁 raw HTML(XSS 防御)
-  linkify: true,      // 自动链接化裸 URL
+  linkify: true,      // 自动链接化带 scheme 的 URL / mailto(见下方 fuzzyLink)
   breaks: false,      // 单换行不变 <br>(GFM 行为可选,我们走标准)
   typographer: false, // 不做 smart quotes
   highlight(str, lang) {
@@ -146,6 +146,12 @@ const md = new MarkdownIt({
 });
 
 md.use(taskLists, { enabled: false, label: false });
+
+// markdown-it 默认 fuzzyLink=true,会把 SKILL.MD / AGENTS.COM / README.md /
+// file.rs 这类「名字.后缀」当成域名(.md/.com/.rs 都是真实 TLD)。编码助手
+// 输出里这类假阳性远比裸域名常见,关掉 fuzzy,只保留 http(s)://、//host、
+// mailto: 以及邮箱。显式 [text](url) 不受影响。
+md.linkify.set({ fuzzyLink: false });
 
 md.renderer.rules.fence = (tokens, idx, _options, env) => {
   const token = tokens[idx];
@@ -180,19 +186,30 @@ md.renderer.rules.fence = (tokens, idx, _options, env) => {
 md.validateLink = (url) => classifyFileLink(url).kind !== 'reject';
 
 // link_open:外链加 target=_blank rel=noreferrer(避免 referer 泄漏 + 新标签页);
-// 本地文件链接打 data-file-path/data-file-line + class,交给 Message.jsx 的点击拦截
-// 在中间详情页开预览,而不是让浏览器导航到 http://<host>/<path> 兜底页。
+// 本地文件/目录链接打 data-file-path/data-file-kind/data-file-line + class,
+// 交给 Message.jsx 的点击拦截:文件走中间详情页预览,目录打开右侧文件栏并定位。
+function collectLinkLabel(tokens, openIdx) {
+  let text = '';
+  for (let i = openIdx + 1; i < tokens.length; i += 1) {
+    const inner = tokens[i];
+    if (!inner || inner.type === 'link_close') break;
+    if (inner.type === 'text' || inner.type === 'code_inline') text += inner.content || '';
+  }
+  return text;
+}
+
 const defaultLinkOpen = md.renderer.rules.link_open
   || ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const href = token.attrGet('href') || '';
-  const info = classifyFileLink(href);
+  const info = classifyFileLink(href, { label: collectLinkLabel(tokens, idx) });
   if (info.kind === 'external') {
     token.attrSet('target', '_blank');
     token.attrSet('rel', 'noreferrer');
-  } else if (info.kind === 'file') {
+  } else if (info.kind === 'file' || info.kind === 'directory') {
     token.attrSet('data-file-path', info.path);
+    token.attrSet('data-file-kind', info.kind);
     if (info.line != null) token.attrSet('data-file-line', String(info.line));
     const cls = token.attrGet('class');
     token.attrSet('class', cls ? cls + ' ace-file-link' : 'ace-file-link');

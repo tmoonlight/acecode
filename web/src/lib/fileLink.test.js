@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { classifyFileLink, splitLineSuffix } from './fileLink.js';
+import { classifyFileLink, splitLineSuffix, stripTrailingSeparators } from './fileLink.js';
 import { renderMarkdown } from './markdown.js';
 
 async function run(name, fn) {
@@ -19,6 +19,40 @@ await run('relative workspace path classifies as file', () => {
   assert.equal(r.kind, 'file');
   assert.equal(r.path, 'src/prompt/system_prompt.cpp');
   assert.equal(r.line, null);
+});
+
+// 场景:目录型链接(href 或可见文案以 / 结尾)。
+// 期望:判 directory,剥掉尾部分隔符,不带行号 —— 点击走文件树定位而不是预览。
+await run('trailing-slash href classifies as directory', () => {
+  const r = classifyFileLink('src/headless/');
+  assert.equal(r.kind, 'directory');
+  assert.equal(r.path, 'src/headless');
+  assert.equal(r.line, null);
+});
+
+await run('label trailing slash classifies a bare directory href as directory', () => {
+  const r = classifyFileLink('src/worktree', { label: 'src/worktree/' });
+  assert.equal(r.kind, 'directory');
+  assert.equal(r.path, 'src/worktree');
+});
+
+await run('windows directory path classifies as directory', () => {
+  const r = classifyFileLink('N:\\Users\\shao\\acecode\\src\\headless\\');
+  assert.equal(r.kind, 'directory');
+  assert.equal(r.path, 'N:\\Users\\shao\\acecode\\src\\headless');
+});
+
+await run('file path is not a directory just because the label mentions a folder', () => {
+  const r = classifyFileLink('src/headless/headless_runner.cpp', { label: 'src/headless/' });
+  assert.equal(r.kind, 'file');
+  assert.equal(r.path, 'src/headless/headless_runner.cpp');
+});
+
+await run('stripTrailingSeparators keeps drive roots and drops ordinary slashes', () => {
+  assert.equal(stripTrailingSeparators('src/headless/'), 'src/headless');
+  assert.equal(stripTrailingSeparators('src\\worktree\\'), 'src\\worktree');
+  assert.equal(stripTrailingSeparators('N:\\'), 'N:\\');
+  assert.equal(stripTrailingSeparators('C:/'), 'C:/');
 });
 
 // 场景:相对路径带 :行号(claude-code 风格 foo.cpp:130)。
@@ -105,8 +139,20 @@ await run('markdown renders relative file link with data-file-path', () => {
   assert.match(html, /<a[^>]*data-file-path="docs\/spec\.md"/);
   assert.match(html, /data-file-line="10"/);
   assert.match(html, /class="[^"]*ace-file-link/);
+  assert.match(html, /data-file-kind="file"/);
   // 文件链接不应带 target=_blank(不走浏览器新标签页,走详情页预览)。
   assert.doesNotMatch(html, /<a[^>]*data-file-path[^>]*target="_blank"/);
+});
+
+await run('markdown renders directory links with data-file-kind=directory', () => {
+  const byHref = renderMarkdown('see [headless](src/headless/) here');
+  assert.match(byHref, /<a[^>]*data-file-path="src\/headless"/);
+  assert.match(byHref, /data-file-kind="directory"/);
+  assert.doesNotMatch(byHref, /data-file-line/);
+
+  const byLabel = renderMarkdown('see [src/worktree/](src/worktree) here');
+  assert.match(byLabel, /<a[^>]*data-file-path="src\/worktree"/);
+  assert.match(byLabel, /data-file-kind="directory"/);
 });
 
 // 集成:外链仍旧 target=_blank rel=noreferrer,且不带 data-file-path。
@@ -121,6 +167,30 @@ await run('markdown keeps external links as new-tab, not file', () => {
 await run('markdown drops javascript: link to plain text', () => {
   const html = renderMarkdown('[x](javascript:alert(1))');
   assert.doesNotMatch(html, /<a[^>]*href="javascript:/i);
+});
+
+// 回归:linkify 的 fuzzy 域名识别会把 SKILL.MD / AGENTS.COM / README.md /
+// file.rs 当成 http://host(md/com/rs 都是真实 TLD)。编码助手输出里这些是文件名。
+await run('markdown does not linkify filename-like host.tld tokens', () => {
+  const html = renderMarkdown('See SKILL.MD and AGENTS.COM and README.md and file.rs');
+  assert.doesNotMatch(html, /<a\b/);
+  assert.match(html, /SKILL\.MD/);
+  assert.match(html, /AGENTS\.COM/);
+  assert.match(html, /README\.md/);
+  assert.match(html, /file\.rs/);
+});
+
+// 显式 scheme / 邮箱仍应自动成链;显式 markdown 链接也不受 fuzzy 关闭影响。
+await run('markdown still linkifies explicit URLs, emails, and [text](url)', () => {
+  const url = renderMarkdown('Visit https://example.com please');
+  assert.match(url, /href="https:\/\/example\.com"/);
+  assert.match(url, /target="_blank"/);
+
+  const mail = renderMarkdown('Email user@example.com please');
+  assert.match(mail, /href="mailto:user@example\.com"/);
+
+  const mdLink = renderMarkdown('see [skill](SKILL.MD) here');
+  assert.match(mdLink, /<a[^>]*data-file-path="SKILL\.MD"/);
 });
 
 console.log('all fileLink tests passed');
