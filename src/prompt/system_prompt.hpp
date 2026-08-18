@@ -64,6 +64,16 @@ struct PromptContextCategoryBytes {
     std::size_t dynamic_context = 0;
 };
 
+// Optional session worktree facts injected into the static Environment block.
+// These change only on EnterWorktree / ExitWorktree (or resume into one), so
+// they stay in the cacheable system-prompt prefix with cwd.
+struct SystemPromptWorktreeState {
+    bool active = false;
+    std::string worktree_path;
+    std::string worktree_branch;
+    std::string original_cwd;
+};
+
 // Build the static system prompt with identity, stable environment info, and
 // behavior rules. Per-request context such as current time/CWD, mutable project
 // instructions, mutable memory index content, and full tool JSON schemas belong
@@ -74,7 +84,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
                                 const MemoryRegistry* memory = nullptr,
                                 const MemoryConfig* memory_cfg = nullptr,
                                 const ProjectInstructionsConfig* project_instructions_cfg = nullptr,
-                                const ToolCapabilityPolicy* effective_tool_policy = nullptr);
+                                const ToolCapabilityPolicy* effective_tool_policy = nullptr,
+                                const SystemPromptWorktreeState* worktree = nullptr);
 
 // Build provider-visible, session-scoped context blocks. These are assembled
 // for the current API request only and must not be persisted into the visible

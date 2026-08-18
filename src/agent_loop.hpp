@@ -428,6 +428,11 @@ private:
     // acceptance under the same lock, eliminating the final-response race.
     bool drain_active_turn_inputs(bool close_if_empty);
     void append_interrupted_turn_context(const std::string& turn_id);
+    // Visible abort notice: manual stop keeps [Interrupted]; interjection
+    // uses a dedicated [Interjected] system marker so the transcript does
+    // not look like a user stop.
+    std::string abort_notice_text() const;
+    nlohmann::json abort_notice_metadata() const;
     std::size_t close_active_turn_and_discard();
     bool maybe_run_auto_compact();
     bool active_estimate_exceeds_auto_threshold(

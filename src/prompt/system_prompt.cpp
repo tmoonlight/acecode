@@ -102,7 +102,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
                                 const MemoryRegistry* memory,
                                 const MemoryConfig* memory_cfg,
                                 const ProjectInstructionsConfig* project_instructions_cfg,
-                                const ToolCapabilityPolicy* effective_tool_policy) {
+                                const ToolCapabilityPolicy* effective_tool_policy,
+                                const SystemPromptWorktreeState* worktree) {
     (void)cwd;
     (void)skills;
     (void)memory;
@@ -121,6 +122,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     const bool bash_allowed = guidance_allows("bash");
     const bool skill_view_allowed = guidance_allows("skill_view");
     const bool skills_list_allowed = guidance_allows("skills_list");
+    const bool enter_worktree_allowed = guidance_allows("EnterWorktree");
+    const bool exit_worktree_allowed = guidance_allows("ExitWorktree");
     const std::string file_read_name =
         model_tool_name_for_native("file_read");
     const std::string file_edit_name =
@@ -165,6 +168,14 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
 
     oss << "# Using your tools\n\n"
         << "- Prefer dedicated tools over shell commands when an appropriate tool exists.\n";
+    if (enter_worktree_allowed || exit_worktree_allowed) {
+        oss << "- Worktree session switches are exclusive to `EnterWorktree` and "
+            << "`ExitWorktree`. Never treat `git merge`, `git checkout`, `git worktree "
+            << "add/remove`, or editing files in the main checkout as entering or leaving "
+            << "the session worktree. Merging a worktree branch into master/main does not "
+            << "exit the session; call `ExitWorktree` after the merge if the user wants "
+            << "the session back on the main checkout.\n";
+    }
     if (file_read_allowed || file_edit_allowed || file_write_allowed) {
         oss << "- Always use absolute file paths with file tools, except a supported ACECODE_TMPDIR alias may be the leading path component for a temporary file.\n"
             << "- Built-in file tools decode supported text to UTF-8/LF internally and preserve existing encoding/line endings on write.\n";
@@ -293,7 +304,25 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "- Working directory: " << cwd << "\n"
         << "- Today's date: " << current_prompt_date() << "\n"
         << "- Is directory a git repo: "
-        << (gitinfo::is_inside_git_repo(cwd) ? "Yes" : "No") << "\n\n";
+        << (gitinfo::is_inside_git_repo(cwd) ? "Yes" : "No") << "\n";
+    if (worktree && worktree->active) {
+        oss << "- Session worktree: active";
+        if (!worktree->worktree_branch.empty()) {
+            oss << " on branch " << worktree->worktree_branch;
+        }
+        oss << "\n";
+        if (!worktree->worktree_path.empty()) {
+            oss << "- Session worktree path: " << worktree->worktree_path << "\n";
+        }
+        if (!worktree->original_cwd.empty()) {
+            oss << "- Session worktree return cwd: " << worktree->original_cwd << "\n";
+        }
+        oss << "- Returning this session to the main checkout requires `ExitWorktree`. "
+            << "A git merge onto master/main does not leave the worktree.\n";
+    } else if (enter_worktree_allowed || exit_worktree_allowed) {
+        oss << "- Session worktree: inactive\n";
+    }
+    oss << "\n";
 
     oss << get_shell_guidance(bash_allowed, file_write_allowed);
 

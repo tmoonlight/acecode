@@ -88,6 +88,36 @@ TEST_F(SystemPromptTest, EnvironmentCarriesWorkingDirectoryAndDate) {
     EXPECT_NE(out.find("- Working directory: " + temp_home.string()),
               std::string::npos);
     EXPECT_NE(out.find("- Today's date: "), std::string::npos);
+    EXPECT_NE(out.find("- Session worktree: inactive"), std::string::npos);
+    EXPECT_NE(out.find("Worktree session switches are exclusive"),
+              std::string::npos);
+    EXPECT_NE(out.find("Merging a worktree branch into master/main does not"),
+              std::string::npos);
+}
+
+TEST_F(SystemPromptTest, ActiveWorktreeRequiresExitToolToReturn) {
+    acecode::ToolExecutor tools;
+    acecode::SystemPromptWorktreeState worktree;
+    worktree.active = true;
+    worktree.worktree_path = (temp_home / "wt").string();
+    worktree.worktree_branch = "worktree-demo";
+    worktree.original_cwd = temp_home.string();
+
+    std::string out = acecode::build_system_prompt(
+        tools, worktree.worktree_path,
+        /*skills=*/nullptr, /*memory=*/nullptr, /*memory_cfg=*/nullptr,
+        /*project_instructions_cfg=*/nullptr, /*effective_tool_policy=*/nullptr,
+        &worktree);
+
+    EXPECT_NE(out.find("- Session worktree: active on branch worktree-demo"),
+              std::string::npos);
+    EXPECT_NE(out.find("- Session worktree path: " + worktree.worktree_path),
+              std::string::npos);
+    EXPECT_NE(out.find("- Session worktree return cwd: " + worktree.original_cwd),
+              std::string::npos);
+    EXPECT_NE(out.find("Returning this session to the main checkout requires `ExitWorktree`"),
+              std::string::npos);
+    EXPECT_EQ(out.find("- Session worktree: inactive"), std::string::npos);
 }
 
 // 场景:静态 system prompt 不能包含每次请求都会变化的内容,否则 prompt

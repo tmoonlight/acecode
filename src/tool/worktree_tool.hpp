@@ -17,8 +17,9 @@ namespace acecode {
 // `ExitWorktree`:退出本会话由 EnterWorktree 建立的 worktree 会话,恢复
 // 原工作目录。action=keep 保留目录与分支;action=remove 删除两者,但有
 // 未提交文件或基线之后的提交时 fail-closed 拒绝,必须显式
-// discard_changes=true 才放行。不碰手工 `git worktree add` 建的或上个
-// 会话遗留的 worktree(判据 = SessionManager 里的活动状态)。
+// discard_changes=true 才放行。合回 master/main 或"回到主干"也必须走
+// 这个工具;git merge/checkout 不算退出。不碰手工 `git worktree add`
+// 建的或上个会话遗留的 worktree(判据 = SessionManager 里的活动状态)。
 //
 // 依赖 ToolContext:session_manager(状态持久化)+ switch_session_cwd
 // (AgentLoop 注入的 cwd 切换回调);两者任一缺失时工具报错不动状态。

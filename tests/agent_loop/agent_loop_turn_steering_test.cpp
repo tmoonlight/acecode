@@ -371,6 +371,7 @@ TEST(AgentLoopTurnSteering, InterruptStartsStructuredTurnBeforeOrdinaryQueue) {
 
     int marker_count = 0;
     int replacement_count = 0;
+    int interjected_notice_count = 0;
     for (const auto& message : h.loop().messages()) {
         if (message.metadata.is_object() &&
             message.metadata.value("turn_interrupt_marker", false)) {
@@ -385,8 +386,17 @@ TEST(AgentLoopTurnSteering, InterruptStartsStructuredTurnBeforeOrdinaryQueue) {
         }
         EXPECT_NE(message.content, "old response that must be cancelled");
     }
+    for (const auto& event : h.events()) {
+        if (event.kind != acecode::SessionEventKind::Message) continue;
+        if (event.payload.value("role", "") != "system") continue;
+        if (event.payload.value("content", "") != "[Interjected]") continue;
+        ++interjected_notice_count;
+        EXPECT_TRUE(event.payload.contains("metadata"));
+        EXPECT_TRUE(event.payload["metadata"].value("turn_interrupt", false));
+    }
     EXPECT_EQ(marker_count, 1);
     EXPECT_EQ(replacement_count, 1);
+    EXPECT_EQ(interjected_notice_count, 1);
 }
 
 TEST(AgentLoopTurnSteering, InterruptTransfersAcceptedSoftSteersInFifo) {

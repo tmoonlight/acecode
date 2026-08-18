@@ -1111,10 +1111,19 @@ bool AgentLoop::active_estimate_exceeds_auto_threshold(
 std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
     std::vector<ChatMessage> context;
 
+    SystemPromptWorktreeState worktree_state;
+    if (session_manager_) {
+        const WorktreeSessionInfo info = session_manager_->active_worktree();
+        worktree_state.active = info.active();
+        worktree_state.worktree_path = info.worktree_path;
+        worktree_state.worktree_branch = info.worktree_branch;
+        worktree_state.original_cwd = info.original_cwd;
+    }
     std::string system_prompt = build_system_prompt(
         tools_, cwd_, skill_registry_, memory_registry_,
         memory_cfg_, project_instructions_cfg_,
-        &tool_capability_policy_);
+        &tool_capability_policy_,
+        &worktree_state);
     if (loop_execution_policy_.active &&
         !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
@@ -1801,6 +1810,17 @@ void AgentLoop::begin_active_turn(const std::string& turn_id) {
     active_turn_accepting_ = !turn_id.empty();
 }
 
+std::string AgentLoop::abort_notice_text() const {
+    return turn_interrupt_requested_.load() ? "[Interjected]" : "[Interrupted]";
+}
+
+nlohmann::json AgentLoop::abort_notice_metadata() const {
+    if (!turn_interrupt_requested_.load()) return nlohmann::json{};
+    return nlohmann::json{
+        {"turn_interrupt", true},
+    };
+}
+
 void AgentLoop::append_interrupted_turn_context(const std::string& turn_id) {
     ChatMessage marker;
     marker.role = "user";
@@ -2059,10 +2079,19 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
     // Rebuild the system prompt for each provider call from session-stable
     // inputs. The working directory and date belong here; request-local
     // context below must remain byte-stable while its inputs are unchanged.
+    SystemPromptWorktreeState worktree_state;
+    if (session_manager_) {
+        const WorktreeSessionInfo info = session_manager_->active_worktree();
+        worktree_state.active = info.active();
+        worktree_state.worktree_path = info.worktree_path;
+        worktree_state.worktree_branch = info.worktree_branch;
+        worktree_state.original_cwd = info.original_cwd;
+    }
     std::string system_prompt = build_system_prompt(
         tools_, cwd_, skill_registry_, memory_registry_,
         memory_cfg_, project_instructions_cfg_,
-        &tool_capability_policy_);
+        &tool_capability_policy_,
+        &worktree_state);
     if (loop_execution_policy_.active && !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
         system_prompt += loop_execution_policy_.system_context;
@@ -4122,7 +4151,8 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
 
         if (abort_requested_) {
             LOG_WARN("Abort requested, breaking loop");
-            dispatch_message("system", "[Interrupted]", false);
+            dispatch_message(
+                "system", abort_notice_text(), false, abort_notice_metadata());
             break;
         }
 
@@ -4179,7 +4209,8 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         TokenUsage step_usage = provider_result.accumulated.usage;
 
         if (abort_requested_) {
-            dispatch_message("system", "[Interrupted]", false);
+            dispatch_message(
+                "system", abort_notice_text(), false, abort_notice_metadata());
             record_model_response(
                 current_model_step, provider_result, step_usage, "aborted");
             emit_model_step_finish(current_model_step, "aborted", step_usage);

@@ -112,6 +112,15 @@ TEST_F(WorktreeToolTest, ExitWithoutSessionIsNoOp) {
     EXPECT_NE(result.output.find("No-op"), std::string::npos);
 }
 
+TEST_F(WorktreeToolTest, ExitDescriptionRequiresToolAfterMergeToMain) {
+    EXPECT_NE(exit_.definition.description.find("merge/land the worktree onto"),
+              std::string::npos);
+    EXPECT_NE(exit_.definition.description.find("A git merge or checkout is NOT an exit"),
+              std::string::npos);
+    EXPECT_NE(exit_.definition.description.find("worktree badge stays until this tool runs"),
+              std::string::npos);
+}
+
 // 场景:worktree 里有未提交文件,ExitWorktree(remove) 未带 discard_changes。
 // 期望:fail-closed 拒绝并说明有几个未提交文件;会话仍在 worktree 里。
 // 带 discard_changes=true 重试 → 删除成功、目录消失、cwd 回原目录。

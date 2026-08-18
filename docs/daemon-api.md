@@ -989,11 +989,13 @@ been committed in memory:
 }
 ```
 
-The old turn finishes with outcome `aborted`, records a hidden model-visible
-`<turn_aborted>` marker, and does not pause an active goal. The replacement user
-message is the durable acknowledgement and carries the matching
-`metadata.client_message_id`. Pending UI should remain in an interrupting state
-across the short old-turn `busy=false` transition until that message arrives.
+The old turn finishes with outcome `aborted`, emits a visible system notice
+`[Interjected]` (`metadata.turn_interrupt=true`), records a hidden model-visible
+`<turn_aborted>` marker, and does not pause an active goal. Manual stop still
+uses `[Interrupted]`. The replacement user message is the durable acknowledgement
+and carries the matching `metadata.client_message_id`. Pending UI should remain
+in an interrupting state across the short old-turn `busy=false` transition until
+that message arrives.
 
 The endpoint uses the same structured error codes as `/turn/steer`. Existing
 clients that want same-turn delivery at the next model boundary should continue
