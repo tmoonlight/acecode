@@ -5,9 +5,9 @@
 //   node scripts/npm/prepare-npm-packages.mjs --version 0.6.8 --input extracted --output npm-staging
 //
 // 输入布局(与 package.yml 的 Package 步骤产物一致):
-//   extracted/acecode-linux-x64/{acecode,acecode-desktop,acecode-logo.png,...}
-//   extracted/acecode-windows-x64/{acecode.exe,acecode-desktop.exe,...}
-//   extracted/acecode-macos-arm64/{acecode,ACECode.app/,...}
+//   extracted/acecode-linux-x64/{acecode,acecode-desktop,share/...}
+//   extracted/acecode-windows-x64/{acecode.exe,acecode-desktop.exe,share/...}
+//   extracted/acecode-macos-arm64/{acecode,ACECode.app/...,share/...}
 //
 // 输出布局(发布顺序:先 platform/* 再 cli / desktop):
 //   npm-staging/platform/<os>-<cpu>/   六个平台二进制包 @aceagent/<os>-<cpu>
@@ -29,6 +29,8 @@ const SCOPE = '@aceagent';
 const CLI_PACKAGE = '@aceagent/acecode';
 const DESKTOP_PACKAGE = `${SCOPE}/desktop`;
 const REPO_URL = 'https://github.com/shaohaozhi286/acecode';
+const MODELS_DEV_FILES = ['LICENSE', 'MANIFEST.json', 'api.json'];
+const MODELS_DEV_RELATIVE_DIR = path.join('share', 'acecode', 'models_dev');
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -38,42 +40,42 @@ const PLATFORMS = [
     ciId: 'linux-x64',
     os: 'linux',
     cpu: 'x64',
-    files: ['acecode', 'acecode-desktop', 'acecode-logo.png'],
+    files: ['acecode', 'acecode-desktop', 'acecode-logo.png', 'share'],
     executables: ['acecode', 'acecode-desktop'],
   },
   {
     ciId: 'linux-arm64',
     os: 'linux',
     cpu: 'arm64',
-    files: ['acecode', 'acecode-desktop', 'acecode-logo.png'],
+    files: ['acecode', 'acecode-desktop', 'acecode-logo.png', 'share'],
     executables: ['acecode', 'acecode-desktop'],
   },
   {
     ciId: 'windows-x64',
     os: 'win32',
     cpu: 'x64',
-    files: ['acecode.exe', 'acecode-desktop.exe'],
+    files: ['acecode.exe', 'acecode-desktop.exe', 'share'],
     executables: [],
   },
   {
     ciId: 'windows-arm64',
     os: 'win32',
     cpu: 'arm64',
-    files: ['acecode.exe', 'acecode-desktop.exe'],
+    files: ['acecode.exe', 'acecode-desktop.exe', 'share'],
     executables: [],
   },
   {
     ciId: 'macos-x64',
     os: 'darwin',
     cpu: 'x64',
-    files: ['acecode', 'ACECode.app'],
+    files: ['acecode', 'ACECode.app', 'share'],
     executables: ['acecode'],
   },
   {
     ciId: 'macos-arm64',
     os: 'darwin',
     cpu: 'arm64',
-    files: ['acecode', 'ACECode.app'],
+    files: ['acecode', 'ACECode.app', 'share'],
     executables: ['acecode'],
   },
 ];
@@ -115,11 +117,30 @@ function chmodExecutableRecursive(dir) {
   }
 }
 
+function validateModelsDevRegistry(rootDir, label) {
+  const registryDir = path.join(rootDir, MODELS_DEV_RELATIVE_DIR);
+  if (!fs.existsSync(registryDir) || !fs.statSync(registryDir).isDirectory()) {
+    throw new Error(`${label} 缺少 models.dev 目录: ${registryDir}`);
+  }
+  const actualFiles = fs
+    .readdirSync(registryDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort();
+  if (JSON.stringify(actualFiles) !== JSON.stringify(MODELS_DEV_FILES)) {
+    throw new Error(
+      `${label} 的 models.dev 文件不完整: 期望 ${MODELS_DEV_FILES.join(', ')}, ` +
+        `实际 ${actualFiles.join(', ')}`
+    );
+  }
+}
+
 function buildPlatformPackage(platform, version, inputRoot, outputRoot) {
   const srcDir = path.join(inputRoot, `acecode-${platform.ciId}`);
   if (!fs.existsSync(srcDir)) {
     throw new Error(`缺少输入目录: ${srcDir}`);
   }
+  validateModelsDevRegistry(srcDir, `平台 ${platform.ciId} 输入产物`);
   const pkgName = `${SCOPE}/${platform.os}-${platform.cpu}`;
   const outDir = path.join(outputRoot, 'platform', `${platform.os}-${platform.cpu}`);
   fs.mkdirSync(outDir, { recursive: true });
@@ -135,11 +156,16 @@ function buildPlatformPackage(platform, version, inputRoot, outputRoot) {
   for (const exe of platform.executables) {
     fs.chmodSync(path.join(outDir, exe), 0o755);
   }
+  validateModelsDevRegistry(outDir, `平台 ${platform.ciId} npm 包`);
   if (platform.os === 'darwin') {
     const macosDir = path.join(outDir, 'ACECode.app', 'Contents', 'MacOS');
     if (!fs.existsSync(path.join(macosDir, 'ACECode'))) {
       throw new Error(`平台 ${platform.ciId} 的 ACECode.app 不完整: 缺少 ${macosDir}/ACECode`);
     }
+    validateModelsDevRegistry(
+      path.join(outDir, 'ACECode.app', 'Contents', 'Resources'),
+      `平台 ${platform.ciId} 的 ACECode.app`
+    );
     chmodExecutableRecursive(macosDir);
   }
 

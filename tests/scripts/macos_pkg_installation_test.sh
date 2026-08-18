@@ -61,7 +61,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     fake_app="$temporary_root/ACECode.app"
     fake_exec="$fake_app/Contents/MacOS/ACECode"
     info_plist="$fake_app/Contents/Info.plist"
+    models_dev_dir="$fake_app/Contents/Resources/share/acecode/models_dev"
     mkdir -p "$(dirname "$fake_exec")"
+    mkdir -p "$models_dev_dir"
+    printf '%s\n' '{}' > "$models_dev_dir/api.json"
+    printf '%s\n' '{}' > "$models_dev_dir/MANIFEST.json"
+    printf '%s\n' 'MIT' > "$models_dev_dir/LICENSE"
     printf '%s\n' 'int main(void) { return 0; }' > "$temporary_root/main.c"
     xcrun clang -arch "$(uname -m)" "$temporary_root/main.c" -o "$fake_exec"
 
@@ -103,6 +108,13 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     grep -Fq 'install-location="/Applications"' "$package_info"
     grep -Fq 'relocatable="false"' "$package_info"
     test -d "$(find "$expanded" -type d -name ACECode.app -print -quit)"
+    expanded_models_dev_dir="$(find "$expanded" -type d \
+        -path '*/ACECode.app/Contents/Resources/share/acecode/models_dev' \
+        -print -quit)"
+    test -n "$expanded_models_dev_dir"
+    for models_dev_file in api.json MANIFEST.json LICENSE; do
+        test -f "$expanded_models_dev_dir/$models_dev_file"
+    done
     ! find "$expanded" -type d -name Scripts -print -quit | grep -q .
 fi
 

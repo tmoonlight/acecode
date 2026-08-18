@@ -116,6 +116,14 @@ if [[ ! -f "$info_plist" ]]; then
     echo "Missing ACECode Info.plist: $info_plist" >&2
     exit 1
 fi
+models_dev_dir="$app_path/Contents/Resources/share/acecode/models_dev"
+models_dev_files=(api.json MANIFEST.json LICENSE)
+for models_dev_file in "${models_dev_files[@]}"; do
+    if [[ ! -f "$models_dev_dir/$models_dev_file" ]]; then
+        echo "ACECode.app is missing bundled models.dev resource: $models_dev_file" >&2
+        exit 1
+    fi
+done
 
 plist_value() {
     /usr/libexec/PlistBuddy -c "Print :$1" "$info_plist" 2>/dev/null || true
@@ -282,6 +290,19 @@ if find "$expanded_product" -type d -name Scripts -print -quit | grep -q .; then
     echo "Expanded ACECode product must not contain install scripts." >&2
     exit 1
 fi
+expanded_models_dev_dir="$(find "$expanded_product" -type d \
+    -path '*/ACECode.app/Contents/Resources/share/acecode/models_dev' \
+    -print -quit)"
+if [[ -z "$expanded_models_dev_dir" ]]; then
+    echo "Expanded ACECode product is missing the bundled models.dev registry." >&2
+    exit 1
+fi
+for models_dev_file in "${models_dev_files[@]}"; do
+    if [[ ! -f "$expanded_models_dev_dir/$models_dev_file" ]]; then
+        echo "Expanded ACECode product is missing models.dev resource: $models_dev_file" >&2
+        exit 1
+    fi
+done
 
 if [[ -n "$installer_identity" ]]; then
     signature_output="$(/usr/sbin/pkgutil --check-signature "$temporary_product" 2>&1)" || {

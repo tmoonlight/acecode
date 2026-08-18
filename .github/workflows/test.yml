@@ -46,9 +46,13 @@ jobs:
             -DVCPKG_MANIFEST_FEATURES=tests \
             -DBUILD_TESTING=ON
 
-      - name: Build test binary
+      - name: Build CLI and test binary
         shell: bash
-        run: cmake --build build --target acecode_unit_tests
+        run: cmake --build build --target acecode acecode_unit_tests
+
+      - name: Validate bundled models.dev registry
+        shell: bash
+        run: ./build/acecode --validate-models-registry
 
       - name: Run ctest
         shell: bash

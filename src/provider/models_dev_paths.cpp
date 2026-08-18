@@ -42,6 +42,21 @@ std::optional<std::string> find_models_dev_dir(const std::string& argv0_dir) {
             return path_to_utf8(portable_normalized);
         }
 
+        // macOS application layout:
+        // ACECode.app/Contents/MacOS/acecode-daemon
+        // ACECode.app/Contents/Resources/share/acecode/models_dev/api.json
+        fs::path app_resources_candidate = path_from_utf8(argv0_dir) / ".." /
+            "Resources" / "share" / "acecode" / "models_dev";
+        std::error_code app_resources_ec;
+        fs::path app_resources_normalized =
+            fs::weakly_canonical(app_resources_candidate, app_resources_ec);
+        if (app_resources_ec) {
+            app_resources_normalized = app_resources_candidate.lexically_normal();
+        }
+        if (dir_has_api_json(app_resources_normalized)) {
+            return path_to_utf8(app_resources_normalized);
+        }
+
         // Production install layout: <prefix>/bin/acecode → <prefix>/share/...
         fs::path install_candidate = path_from_utf8(argv0_dir) / ".." / "share" / "acecode" / "models_dev";
         std::error_code ec;

@@ -26,6 +26,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check bundled models.dev freshness for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          from pathlib import Path
+
+          manifest_path = Path("assets/models_dev/MANIFEST.json")
+          try:
+              manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+              generated_at = dt.datetime.fromisoformat(
+                  manifest["generated_at"].replace("Z", "+00:00")
+              )
+          except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Invalid {manifest_path}: {exc}")
+
+          if generated_at.tzinfo is None:
+              raise SystemExit(f"{manifest_path}: generated_at must include a timezone")
+          now = dt.datetime.now(dt.timezone.utc)
+          age = now - generated_at.astimezone(dt.timezone.utc)
+          if age < -dt.timedelta(minutes=5):
+              raise SystemExit(f"{manifest_path}: generated_at is in the future")
+          if age > dt.timedelta(days=30):
+              raise SystemExit(
+                  f"Bundled models.dev registry is {age.days} days old; "
+                  "run scripts/sync_models_dev before creating a release tag"
+              )
+          print(f"Bundled models.dev registry age: {age.days} days")
+          PY
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -238,6 +270,24 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
+      - name: Verify models.dev resources in macOS app
+        if: runner.os == 'macOS' && matrix.build_desktop
+        shell: bash
+        run: |
+          registry_dir="build/ACECode.app/Contents/Resources/share/acecode/models_dev"
+          file_count="$(find "$registry_dir" -type f | wc -l | tr -d '[:space:]')"
+          if [ "$file_count" != "3" ]; then
+            echo "Expected exactly 3 models.dev resources in $registry_dir, found $file_count" >&2
+            exit 1
+          fi
+          for file in api.json MANIFEST.json LICENSE; do
+            if [ ! -f "$registry_dir/$file" ] ||
+               ! cmp -s "assets/models_dev/$file" "$registry_dir/$file"; then
+              echo "Missing or mismatched macOS app models.dev resource: $file" >&2
+              exit 1
+            fi
+          done
+
       - name: Extract debug symbols (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -430,12 +480,33 @@ jobs:
           package_dir="dist/acecode-${{ matrix.id }}"
           mkdir -p "$package_dir"
 
+          validate_models_dev_registry() {
+            registry_dir="$1"
+            file_count="$(find "$registry_dir" -type f | wc -l | tr -d '[:space:]')"
+            if [ "$file_count" != "3" ]; then
+              echo "Expected exactly 3 models.dev files in $registry_dir, found $file_count" >&2
+              exit 1
+            fi
+            for file in api.json MANIFEST.json LICENSE; do
+              if [ ! -f "$registry_dir/$file" ] ||
+                 ! cmp -s "assets/models_dev/$file" "$registry_dir/$file"; then
+                echo "Missing or mismatched models.dev package file: $registry_dir/$file" >&2
+                exit 1
+              fi
+            done
+          }
+
           if [ ! -f "build/${{ matrix.executable }}" ]; then
             echo "Missing terminal executable: build/${{ matrix.executable }}" >&2
             exit 1
           fi
           cp "build/${{ matrix.executable }}" "$package_dir/"
           cp README.md README_CN.md "$package_dir/"
+          cmake --install build \
+            --config MinSizeRel \
+            --prefix "$PWD/$package_dir" \
+            --component models_dev_registry
+          validate_models_dev_registry "$package_dir/share/acecode/models_dev"
 
           if [ "${{ matrix.build_desktop }}" = "true" ]; then
             if [ "$RUNNER_OS" = "macOS" ]; then
@@ -459,6 +530,16 @@ jobs:
             exit 1
           fi
           tar -C dist -czf "acecode-${{ matrix.id }}.tar.gz" "acecode-${{ matrix.id }}"
+
+          verify_root="$(mktemp -d)"
+          tar -xzf "acecode-${{ matrix.id }}.tar.gz" -C "$verify_root"
+          extracted_package="$verify_root/acecode-${{ matrix.id }}"
+          validate_models_dev_registry "$extracted_package/share/acecode/models_dev"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            validate_models_dev_registry \
+              "$extracted_package/ACECode.app/Contents/Resources/share/acecode/models_dev"
+          fi
+          rm -rf -- "$verify_root"
 
       - name: Create current-user macOS PKG
         if: runner.os == 'macOS' && steps.macos-release.outputs.pkg_enabled == 'true'
@@ -499,12 +580,40 @@ jobs:
           $packageDir = "dist/acecode-${{ matrix.id }}"
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 
+          function Assert-ModelsDevRegistry([string] $RegistryDir) {
+            if (-not (Test-Path -LiteralPath $RegistryDir -PathType Container)) {
+              throw "Missing models.dev directory: $RegistryDir"
+            }
+            $actualFiles = @(Get-ChildItem -LiteralPath $RegistryDir -File -Recurse)
+            if ($actualFiles.Count -ne 3) {
+              throw "Expected exactly 3 models.dev files in ${RegistryDir}, found $($actualFiles.Count)"
+            }
+            foreach ($name in @("api.json", "MANIFEST.json", "LICENSE")) {
+              $source = Join-Path "assets/models_dev" $name
+              $packaged = Join-Path $RegistryDir $name
+              if (-not (Test-Path -LiteralPath $packaged -PathType Leaf)) {
+                throw "Missing models.dev package file: $packaged"
+              }
+              $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+              $packagedHash = (Get-FileHash -LiteralPath $packaged -Algorithm SHA256).Hash
+              if ($sourceHash -ne $packagedHash) {
+                throw "Mismatched models.dev package file: $packaged"
+              }
+            }
+          }
+
           $terminalExe = "build/${{ matrix.executable }}"
           if (-not (Test-Path -LiteralPath $terminalExe)) {
             throw "Missing terminal executable: $terminalExe"
           }
           Copy-Item -LiteralPath $terminalExe -Destination "$packageDir/"
           Copy-Item "README.md","README_CN.md" "$packageDir/"
+          $packageRoot = (Resolve-Path -LiteralPath $packageDir).Path
+          & cmake --install build --config MinSizeRel --prefix $packageRoot --component models_dev_registry
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install the bundled models.dev registry"
+          }
+          Assert-ModelsDevRegistry (Join-Path $packageDir "share/acecode/models_dev")
 
           if ("${{ matrix.build_desktop }}" -eq "true") {
             $desktopCandidates = @(
@@ -530,6 +639,11 @@ jobs:
             throw "Legacy browser artifact must not be packaged: $($legacyBrowserArtifact.FullName)"
           }
           Compress-Archive -Path "$packageDir/*" -DestinationPath "acecode-${{ matrix.id }}.zip" -Force
+
+          $verifyRoot = Join-Path $env:RUNNER_TEMP ("acecode-package-verify-" + [Guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $verifyRoot | Out-Null
+          Expand-Archive -LiteralPath "acecode-${{ matrix.id }}.zip" -DestinationPath $verifyRoot
+          Assert-ModelsDevRegistry (Join-Path $verifyRoot "share/acecode/models_dev")
 
       - name: Verify Windows ARM64 package
         if: matrix.id == 'windows-arm64'
@@ -770,12 +884,33 @@ jobs:
           package_dir="dist/acecode-${{ matrix.id }}"
           mkdir -p "$package_dir"
 
+          validate_models_dev_registry() {
+            registry_dir="$1"
+            file_count="$(find "$registry_dir" -type f | wc -l | tr -d '[:space:]')"
+            if [ "$file_count" != "3" ]; then
+              echo "Expected exactly 3 models.dev files in $registry_dir, found $file_count" >&2
+              exit 1
+            fi
+            for file in api.json MANIFEST.json LICENSE; do
+              if [ ! -f "$registry_dir/$file" ] ||
+                 ! cmp -s "assets/models_dev/$file" "$registry_dir/$file"; then
+                echo "Missing or mismatched models.dev package file: $registry_dir/$file" >&2
+                exit 1
+              fi
+            done
+          }
+
           if [ ! -f "build/${{ matrix.executable }}" ]; then
             echo "Missing terminal executable: build/${{ matrix.executable }}" >&2
             exit 1
           fi
           cp "build/${{ matrix.executable }}" "$package_dir/"
           cp README.md README_CN.md "$package_dir/"
+          cmake --install build \
+            --config MinSizeRel \
+            --prefix "$PWD/$package_dir" \
+            --component models_dev_registry
+          validate_models_dev_registry "$package_dir/share/acecode/models_dev"
 
           if [ ! -f "build/acecode-desktop" ]; then
             echo "Missing desktop executable: build/acecode-desktop" >&2
@@ -790,6 +925,12 @@ jobs:
             exit 1
           fi
           tar -C dist -czf "acecode-${{ matrix.id }}.tar.gz" "acecode-${{ matrix.id }}"
+
+          verify_root="$(mktemp -d)"
+          tar -xzf "acecode-${{ matrix.id }}.tar.gz" -C "$verify_root"
+          validate_models_dev_registry \
+            "$verify_root/acecode-${{ matrix.id }}/share/acecode/models_dev"
+          rm -rf -- "$verify_root"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -48,6 +48,8 @@ grep -Fq "grep -Fq 'Developer ID Installer:'" "$notarize_pkg_script"
 grep -Fq -- '--type install' "$notarize_pkg_script"
 grep -Fq -- '--require-trusted' "$update_zip_script"
 grep -Fq -- '/usr/bin/ditto -c -k --keepParent' "$update_zip_script"
+grep -Fq 'Contents/Resources/share/acecode/models_dev' "$update_zip_script"
+grep -Fq 'share/acecode/models_dev' "$pkg_script"
 grep -Fq 'identity_fingerprint=' "$package_workflow"
 grep -Fq 'installer_identity_name=' "$package_workflow"
 grep -Fq 'echo "identity=$identity_fingerprint"' "$package_workflow"
@@ -115,8 +117,15 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 
     fake_app="$temporary_root/ACECode.app"
     mkdir -p "$fake_app/Contents/MacOS"
+    mkdir -p "$fake_app/Contents/Resources/share/acecode/models_dev"
     touch "$fake_app/Contents/MacOS/ACECode" \
           "$fake_app/Contents/MacOS/acecode-daemon"
+    printf '%s\n' '{}' > \
+        "$fake_app/Contents/Resources/share/acecode/models_dev/api.json"
+    printf '%s\n' '{}' > \
+        "$fake_app/Contents/Resources/share/acecode/models_dev/MANIFEST.json"
+    printf '%s\n' 'MIT' > \
+        "$fake_app/Contents/Resources/share/acecode/models_dev/LICENSE"
     chmod +x "$fake_app/Contents/MacOS/ACECode" \
              "$fake_app/Contents/MacOS/acecode-daemon"
     expect_status 2 "missing app notarization credentials" \
@@ -134,6 +143,10 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     test -x "$temporary_root/extracted-update/ACECode.app/Contents/MacOS/ACECode"
     test -x "$temporary_root/extracted-update/ACECode.app/Contents/MacOS/acecode-daemon"
     test -x "$temporary_root/extracted-update/acecode"
+    for models_dev_file in api.json MANIFEST.json LICENSE; do
+        test -f "$temporary_root/extracted-update/ACECode.app/Contents/Resources/share/acecode/models_dev/$models_dev_file"
+        test -f "$temporary_root/extracted-update/share/acecode/models_dev/$models_dev_file"
+    done
 fi
 
 echo "macOS release script contract checks passed"

@@ -464,14 +464,17 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/assets/models_dev/api.json)
     install(FILES
         ${CMAKE_SOURCE_DIR}/assets/models_dev/api.json
         DESTINATION share/acecode/models_dev
+        COMPONENT models_dev_registry
     )
     if(EXISTS ${CMAKE_SOURCE_DIR}/assets/models_dev/MANIFEST.json)
         install(FILES ${CMAKE_SOURCE_DIR}/assets/models_dev/MANIFEST.json
-            DESTINATION share/acecode/models_dev)
+            DESTINATION share/acecode/models_dev
+            COMPONENT models_dev_registry)
     endif()
     if(EXISTS ${CMAKE_SOURCE_DIR}/assets/models_dev/LICENSE)
         install(FILES ${CMAKE_SOURCE_DIR}/assets/models_dev/LICENSE
-            DESTINATION share/acecode/models_dev)
+            DESTINATION share/acecode/models_dev
+            COMPONENT models_dev_registry)
     endif()
 endif()
 

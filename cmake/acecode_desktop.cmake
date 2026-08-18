@@ -131,9 +131,26 @@ endif()
 
 if(APPLE)
     set(ACECODE_MACOS_ICON "${CMAKE_SOURCE_DIR}/assets/macos/acecode.icns")
-    target_sources(acecode-desktop PRIVATE "${ACECODE_MACOS_ICON}")
+    set(ACECODE_MACOS_MODELS_DEV_RESOURCES
+        "${CMAKE_SOURCE_DIR}/assets/models_dev/api.json"
+        "${CMAKE_SOURCE_DIR}/assets/models_dev/MANIFEST.json"
+        "${CMAKE_SOURCE_DIR}/assets/models_dev/LICENSE"
+    )
+    foreach(ACECODE_MODELS_DEV_RESOURCE IN LISTS ACECODE_MACOS_MODELS_DEV_RESOURCES)
+        if(NOT EXISTS "${ACECODE_MODELS_DEV_RESOURCE}")
+            message(FATAL_ERROR
+                "Missing required macOS models.dev resource: ${ACECODE_MODELS_DEV_RESOURCE}")
+        endif()
+    endforeach()
+    target_sources(acecode-desktop PRIVATE
+        "${ACECODE_MACOS_ICON}"
+        ${ACECODE_MACOS_MODELS_DEV_RESOURCES}
+    )
     set_source_files_properties("${ACECODE_MACOS_ICON}" PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources"
+    )
+    set_source_files_properties(${ACECODE_MACOS_MODELS_DEV_RESOURCES} PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources/share/acecode/models_dev"
     )
     set_target_properties(acecode-desktop PROPERTIES
         # Keep the app bundle user-facing while avoiding a case-insensitive

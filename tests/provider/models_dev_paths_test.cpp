@@ -1,5 +1,6 @@
 // 覆盖 src/provider/models_dev_paths.{hpp,cpp} 的查找顺序：
 // ACECODE_MODELS_DEV_DIR > <argv0_dir>/share/acecode/models_dev
+// > macOS Contents/Resources/share/acecode/models_dev
 // > <argv0_dir>/../share/acecode/models_dev > /usr/share/...
 // 测试用 setenv/unsetenv 切环境，构造合成 portable/install 布局来精确控制命中。
 //
@@ -86,6 +87,22 @@ TEST(ModelsDevPaths, DiscoversPortableUpdaterLayout) {
 
     set_env("ACECODE_MODELS_DEV_DIR", nullptr);
     auto found = acecode::find_models_dev_dir(portable.string());
+
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(fs::canonical(*found), fs::canonical(bundled));
+}
+
+// 场景：macOS 桌面端 daemon 位于 Contents/MacOS，目录资源位于标准
+// Contents/Resources 下，必须在不依赖外部 share 目录时命中。
+TEST(ModelsDevPaths, DiscoversMacAppResourcesLayout) {
+    auto app = tmp_root("mac_app") / "ACECode.app" / "Contents";
+    auto executable_dir = app / "MacOS";
+    fs::create_directories(executable_dir);
+    auto bundled = make_seed_dir(
+        app / "Resources" / "share" / "acecode", "models_dev");
+
+    set_env("ACECODE_MODELS_DEV_DIR", nullptr);
+    auto found = acecode::find_models_dev_dir(executable_dir.string());
 
     ASSERT_TRUE(found.has_value());
     EXPECT_EQ(fs::canonical(*found), fs::canonical(bundled));
