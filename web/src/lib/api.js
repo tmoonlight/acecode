@@ -370,6 +370,14 @@ export function createApi(base = null) {
         : { text: payload },
       base,
     ),
+    interruptTurn:    (id, payload)  => request(
+      'POST',
+      `/api/sessions/${encodeURIComponent(id)}/turn/interrupt`,
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? payload
+        : { text: payload },
+      base,
+    ),
     uploadSessionAttachment: (id, attachment) =>
       request('POST', `/api/sessions/${encodeURIComponent(id)}/attachments`, attachment, base),
     createSessionAttachmentReference: (id, attachment) =>

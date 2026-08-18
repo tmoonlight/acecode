@@ -1355,6 +1355,7 @@ export function reduceTranscriptEvent(state, msg) {
         if (item.id !== id || item.kind !== 'tool') return item;
         return {
           ...item,
+          messageId: p.message_id || item.messageId || '',
           ts: eventTs(msg),
           tool: {
             ...item.tool,

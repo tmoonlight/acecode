@@ -97,7 +97,8 @@ function updateQueuedInput(state, id, updater) {
     if (nextItem !== item) changed = true;
     return nextItem;
   });
-  return changed ? { ...current, items } : current;
+  if (changed) return { ...current, items };
+  return state && typeof state === 'object' ? state : current;
 }
 
 function setQueuedInputState(state, id, nextState, extraQueued = {}) {
@@ -174,22 +175,6 @@ export function finishQueuedGuidance(state, id, { succeeded = false } = {}) {
     delete queued.acceptedAt;
     return { ...item, queued };
   });
-}
-
-export function restoreUncommittedGuidanceForSession(state, sessionId) {
-  const sid = normalizeSessionId(sessionId);
-  const source = state || createChatInputQueueState();
-  const guided = cloneItems(source).filter((item) => (
-    item?.queued?.sessionId === sid &&
-    item.queued.state === QUEUED_INPUT_STATE.GUIDING
-  ));
-  if (guided.length === 0) return source;
-
-  let next = source;
-  for (const item of guided) {
-    next = finishQueuedGuidance(next, item.queued.id, { succeeded: false });
-  }
-  return next;
 }
 
 export function markQueuedInputSending(state, id, { now = Date.now() } = {}) {

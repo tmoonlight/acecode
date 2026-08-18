@@ -87,7 +87,7 @@ run('buildQueueCardItem GUIDING 显示插话中且不重复显示按钮', () => 
 
   const accepted = makeItem(QUEUED_INPUT_STATE.GUIDING, 'hi');
   accepted.queued.acceptedAt = 100;
-  assert.equal(buildQueueCardItem(accepted).statusLabel, '等待当前回合接收…');
+  assert.equal(buildQueueCardItem(accepted).statusLabel, '正在打断当前回合…');
 });
 
 run('附件或上下文排队项也可以作为结构化引导', () => {

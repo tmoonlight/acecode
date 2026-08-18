@@ -1539,3 +1539,38 @@ await run('steerTurn posts the expected turn id and structured input payload', a
     globalThis.fetch = previousFetch;
   }
 });
+
+await run('interruptTurn posts structured input to the immediate interrupt endpoint', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 202,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ accepted: true, interrupting: true, turn_id: 'turn-1' }),
+    };
+  };
+  try {
+    const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
+    const payload = {
+      text: 'replace immediately',
+      attachments: [{ id: 'att-1' }],
+      contexts: [{ type: 'selection' }],
+      client_message_id: 'queued-s-2',
+      expected_turn_id: 'turn-1',
+    };
+    await client.interruptTurn('s/a', payload);
+
+    assert.equal(
+      calls[0].url,
+      'http://127.0.0.1:4567/api/sessions/s%2Fa/turn/interrupt',
+    );
+    assert.equal(calls[0].opts.method, 'POST');
+    assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
+    assert.deepEqual(JSON.parse(calls[0].opts.body), payload);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});

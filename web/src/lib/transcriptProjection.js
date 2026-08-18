@@ -375,6 +375,7 @@ function makeCompletionSummaryItem(item) {
   return {
     kind: 'completion_summary',
     id: `completion:${id}`,
+    messageId: item?.messageId || '',
     title: `总结：${titleSummary}`,
     summary,
     sourceItem: item,

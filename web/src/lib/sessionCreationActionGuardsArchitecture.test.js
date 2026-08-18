@@ -70,14 +70,15 @@ test('chat fork is single-flight and the originating message owns persistent loa
     /action !== DESKTOP_CONTEXT_ACTIONS\.FORK_MESSAGE[\s\S]*forkAndSwitch\(target\.messageId\)/,
   );
   assert.ok(
-    (chat.match(/forkPending=\{forkingMessageId !== ''\}/g) || []).length >= 2,
-    'both transcript message render paths must disable fork actions while pending',
+    (chat.match(/forkPending=\{forkingMessageId !== ''\}/g) || []).length >= 4,
+    'message and completion-summary render paths must disable fork actions while pending',
   );
   assert.ok(
-    (chat.match(/forkLoading=\{forkingMessageId !== '' && forkingMessageId === String\(/g) || []).length >= 2,
-    'both transcript message render paths must identify the loading message',
+    (chat.match(/forkLoading=\{forkingMessageId !== '' && forkingMessageId === String\(/g) || []).length >= 4,
+    'message and completion-summary render paths must identify the loading message',
   );
 
+  assert.match(message, /export function MessageActions\(/);
   assert.match(message, /if \(!messageId \|\| forkPending\) return;/);
   assert.match(message, /disabled=\{!messageId \|\| forkPending\}/);
   assert.match(message, /aria-busy=\{forkLoading \? 'true' : undefined\}/);
@@ -86,5 +87,33 @@ test('chat fork is single-flight and the originating message owns persistent loa
   assert.match(
     styles,
     /\.ace-msg-actions button\[data-fork-loading="true"\]:disabled\s*\{[\s\S]*?cursor: wait;[\s\S]*?opacity: 1;/,
+  );
+});
+
+test('completion summary reuses message actions with raw text and persisted fork identity', () => {
+  const chat = source('components/ChatView.jsx');
+  const completionBlock = section(
+    chat,
+    'function CompletionSummaryBlock({',
+    '\n\nfunction TerminationNoticeBlock',
+  );
+
+  assert.match(chat, /import \{ Message, MessageActions \} from '\.\/Message\.jsx';/);
+  assert.match(completionBlock, /className="group [^"]*"/);
+  assert.match(
+    completionBlock,
+    /<MessageActions[\s\S]*messageId=\{item\?\.messageId\}[\s\S]*getCopyText=\{\(\) => summaryText\}[\s\S]*onFork=\{onFork\}/,
+  );
+  assert.match(completionBlock, /forkPending=\{forkPending\}/);
+  assert.match(completionBlock, /forkLoading=\{forkLoading\}/);
+  assert.match(chat, /item\?\.kind === 'completion_summary'\) return completionSummaryText\(item\);/);
+  assert.match(chat, /isCompletionSummary \? 'assistant' : \(item\.role \|\| undefined\)/);
+  assert.ok(
+    (chat.match(/<CompletionSummaryBlock[\s\S]*?onFork=\{forkAndSwitch\}/g) || []).length >= 2,
+    'top-level and expanded completion summaries must reuse forkAndSwitch',
+  );
+  assert.ok(
+    (chat.match(/\.\.\.messageContextAttrs\((?:child|it)\)/g) || []).length >= 2,
+    'completion summaries must expose desktop message context attributes',
   );
 });

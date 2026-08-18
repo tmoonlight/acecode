@@ -806,12 +806,16 @@ run('没有 final assistant text 时 task_complete 保留可展开处理摘要',
 
 run('task_complete markdown 摘要保留原文给渲染层', () => {
   const summary = '**完成**\n\n- `README.md`\n- docs 已更新';
+  const completed = taskComplete(2, summary);
+  completed.messageId = 'done-2';
   const projected = projectCollapsedTranscriptItems([
     user(1),
-    taskComplete(2, summary),
+    completed,
   ]);
 
   assert.equal(projected[1].kind, 'completion_summary');
+  assert.equal(projected[1].messageId, 'done-2');
+  assert.notEqual(projected[1].messageId, projected[1].id);
   assert.equal(projected[1].summary, summary);
   assert.equal(projected[1].title, '总结：**完成** - `README.md` - docs 已更新');
 });

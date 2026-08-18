@@ -30,7 +30,7 @@ export function buildQueueCardItem(item) {
     statusKind = 'failed';
     showRetry = true;
   } else if (state === QUEUED_INPUT_STATE.GUIDING) {
-    statusLabel = queued.acceptedAt ? '等待当前回合接收…' : '正在提交插话…';
+    statusLabel = queued.acceptedAt ? '正在打断当前回合…' : '正在提交插话…';
     statusKind = 'guiding';
     dimmed = true;
   }

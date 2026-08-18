@@ -36,7 +36,7 @@ import {
   releaseComposerAttachmentFile,
   reserveComposerAttachmentFiles,
 } from '../lib/composerAttachmentReservations.js';
-import { Message } from './Message.jsx';
+import { Message, MessageActions } from './Message.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
 import InteractiveHomeLogo from './InteractiveHomeLogo.jsx';
@@ -58,7 +58,7 @@ import { CreateProjectModal } from './CreateProjectModal.jsx';
 import { ChangeGlassDock } from './ChangeReview.jsx';
 import { TurnFileList } from './TurnFileList.jsx';
 import { toast } from './Toast.jsx';
-import { clsx } from '../lib/format.js';
+import { clsx, relativeTime } from '../lib/format.js';
 import {
   aggregateHunksFromMessages,
   changeGroupsSignature,
@@ -84,8 +84,8 @@ import {
   markQueuedInputFailed,
   markQueuedInputSending,
   nextQueuedInput,
+  QUEUED_INPUT_STATE,
   queuedInputRequestPayload,
-  restoreUncommittedGuidanceForSession,
   retryQueuedInput,
 } from '../lib/chatInputQueue.js';
 import { findStickyUserContext, sameStickyUserContext, scrollTopForStickySourceRow } from '../lib/stickyUserContext.js';
@@ -333,6 +333,7 @@ function nextSelectionContextId() {
 }
 
 function messageTextForContext(item) {
+  if (item?.kind === 'completion_summary') return completionSummaryText(item);
   if (item?.kind !== 'msg') return '';
   if (item.role === 'user' && typeof item.metadata?.display_text === 'string' && item.metadata.display_text) {
     return item.metadata.display_text;
@@ -341,11 +342,12 @@ function messageTextForContext(item) {
 }
 
 function messageContextAttrs(item) {
-  if (item?.kind !== 'msg') return {};
+  const isCompletionSummary = item?.kind === 'completion_summary';
+  if (item?.kind !== 'msg' && !isCompletionSummary) return {};
   const messageId = item.messageId || '';
   return {
     'data-desktop-message-id': messageId || undefined,
-    'data-desktop-message-role': item.role || undefined,
+    'data-desktop-message-role': isCompletionSummary ? 'assistant' : (item.role || undefined),
     'data-desktop-message-text': messageTextForContext(item) || undefined,
     'data-desktop-message-can-fork': messageId ? 'true' : undefined,
   };
@@ -524,7 +526,12 @@ function completionSummaryText(item) {
   return completionSummaryMarkdown(item, '已完成');
 }
 
-function CompletionSummaryBlock({ item }) {
+function CompletionSummaryBlock({
+  item,
+  onFork,
+  forkPending = false,
+  forkLoading = false,
+}) {
   const summaryText = completionSummaryText(item);
   const html = useMemo(() => ({ __html: renderMarkdown(summaryText) }), [summaryText]);
   const handleMarkdownClick = useCallback(async (event) => {
@@ -542,7 +549,7 @@ function CompletionSummaryBlock({ item }) {
 
   return (
     <div
-      className="max-w-[88%] px-1 py-0.5 text-fg break-words"
+      className="group max-w-[88%] px-1 py-0.5 text-fg break-words"
       title={item?.title || `总结：${summaryText}`}
     >
       <div className="text-[12px] font-semibold text-fg-mute mb-0.5">总结</div>
@@ -551,6 +558,18 @@ function CompletionSummaryBlock({ item }) {
         onClick={handleMarkdownClick}
         dangerouslySetInnerHTML={html}
       />
+      <div className="min-h-6 flex items-center gap-1">
+        <MessageActions
+          messageId={item?.messageId}
+          getCopyText={() => summaryText}
+          onFork={onFork}
+          forkPending={forkPending}
+          forkLoading={forkLoading}
+        />
+        {item?.ts != null && (
+          <span className="text-[10px] text-fg-mute font-normal">{relativeTime(item.ts)}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -840,6 +859,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const [permissionMode, setPermissionMode] = useState('default');
   const [permissionSwitching, setPermissionSwitching] = useState(false);
   const [reviewRequest, setReviewRequest] = useState(0);
+  const [fileLocateRequest, setFileLocateRequest] = useState({ path: '', token: 0 });
   const [previewTabState, setPreviewTabState] = useState({});
   const [previewCloseConfirm, setPreviewCloseConfirm] = useState(null);
   const [dismissedDockSignatures, setDismissedDockSignatures] = usePreference(
@@ -921,6 +941,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const [sideQuestion, setSideQuestion] = useState(null);
   const sideQuestionInFlightRef = useRef(false);
   const sideQuestionEpochRef = useRef(0);
+  const turnInterruptInFlightRef = useRef(new Set());
   // GitSessionPill 的待生效意图(worktree 勾选 + 基线分支)。ref 不入 dep:
   // 只在发送首条消息那一刻读取,不驱动渲染。
   const gitPillIntentRef = useRef({ worktreeChecked: false, selectedBase: '' });
@@ -2527,6 +2548,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     const queuedItem = queueStateRef.current.items.find(
       (item) => item?.queued?.id === queuedId,
     );
+    if (queuedItem?.queued?.state !== QUEUED_INPUT_STATE.QUEUED &&
+        queuedItem?.queued?.state !== QUEUED_INPUT_STATE.FAILED) {
+      return null;
+    }
     const requestPayload = queuedInputRequestPayload(queuedItem);
     if (!requestPayload) {
       toast({ kind: 'err', text: '找不到这条排队消息' });
@@ -2538,7 +2563,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       queuedId,
       { turnId: expectedTurnId },
     ));
-    return api.steerTurn(targetSid, {
+    return api.interruptTurn(targetSid, {
       ...requestPayload,
       expected_turn_id: expectedTurnId,
     })
@@ -2694,6 +2719,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
 
       const targetSid = sid;
       const expectedTurnId = activeTurnId;
+      const interruptRequestKey = `${targetSid}\u0000${expectedTurnId}`;
+      if (turnInterruptInFlightRef.current.has(interruptRequestKey)) return;
       const steerPayload = {
         ...payload,
         text: route.guidance,
@@ -2701,13 +2728,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         client_message_id:
           `turn-${targetSid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       };
+      turnInterruptInFlightRef.current.add(interruptRequestKey);
       setComposerSubmitting(true);
-      api.steerTurn(targetSid, steerPayload)
+      api.interruptTurn(targetSid, steerPayload)
         .then(() => {
           recordInputHistory(route.display_text);
           clearCurrentSessionDraft();
           clearComposerExtras();
-          toast({ kind: 'ok', text: '插话已提交，等待当前回合接收' });
+          toast({ kind: 'ok', text: '插话已提交，正在打断当前回合' });
         })
         .catch((e) => {
           toast({ kind: 'err', text: '插话提交失败:' + (e?.message || '未知错误') });
@@ -2809,6 +2837,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           });
         })
         .finally(() => {
+          turnInterruptInFlightRef.current.delete(interruptRequestKey);
           setComposerSubmitting(false);
           restoreChatInputFocusSoon(false);
         });
@@ -2920,13 +2949,6 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       loadState: transcriptLoadState,
     })) {
       return;
-    }
-    const restored = restoreUncommittedGuidanceForSession(
-      queueStateRef.current,
-      sid,
-    );
-    if (restored !== queueStateRef.current) {
-      updateQueueState(restored);
     }
     if (wasBusy || !hasSendingQueuedInput(queueState, sid)) {
       drainQueuedInput();
@@ -3987,6 +4009,12 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     setReviewRequest((n) => n + 1);
   }, [onRevealSidePanelList, showSidePanel, sid, sidePanelCollapsed, sidePanelListCollapsed]);
 
+  const locateInFileTree = useCallback((path) => {
+    if (!showSidePanel || !sid || !path) return;
+    if (sidePanelCollapsed || sidePanelListCollapsed) onRevealSidePanelList?.();
+    setFileLocateRequest((prev) => ({ path, token: (prev.token || 0) + 1 }));
+  }, [onRevealSidePanelList, showSidePanel, sid, sidePanelCollapsed, sidePanelListCollapsed]);
+
   const dismissChangeDock = useCallback(() => {
     if (!changeDockDismissalKey || !changeSignature) return;
     setDismissedDockSignatures((prev) => dismissChangeDockSignature(
@@ -4644,8 +4672,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             className="flex flex-col"
             data-chat-kind={child.kind || ''}
             data-chat-role="completion_summary"
+            {...messageContextAttrs(child)}
           >
-            <CompletionSummaryBlock item={child} />
+            <CompletionSummaryBlock
+              item={child}
+              onFork={forkAndSwitch}
+              forkPending={forkingMessageId !== ''}
+              forkLoading={forkingMessageId !== '' && forkingMessageId === String(child.messageId || '')}
+            />
           </div>
         );
       }
@@ -4713,6 +4747,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
               forkPending={forkingMessageId !== ''}
               forkLoading={forkingMessageId !== '' && forkingMessageId === String(child.messageId || '')}
               onOpenFilePreview={openFilePreview}
+              onLocateInFileTree={locateInFileTree}
               continuation={childContinuation}
               showFooter={childShowFooter}
               showAceCodeAvatar={showAceCodeAvatar}
@@ -4925,8 +4960,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                   data-chat-item-id={String(it.id)}
                   data-chat-kind={it.kind || ''}
                   data-chat-role="completion_summary"
+                  {...messageContextAttrs(it)}
                 >
-                  <CompletionSummaryBlock item={it} />
+                  <CompletionSummaryBlock
+                    item={it}
+                    onFork={forkAndSwitch}
+                    forkPending={forkingMessageId !== ''}
+                    forkLoading={forkingMessageId !== '' && forkingMessageId === String(it.messageId || '')}
+                  />
                 </div>
               );
             }
@@ -5034,6 +5075,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                       forkPending={forkingMessageId !== ''}
                       forkLoading={forkingMessageId !== '' && forkingMessageId === String(it.messageId || '')}
                       onOpenFilePreview={openFilePreview}
+                      onLocateInFileTree={locateInFileTree}
                       continuation={continuation}
                       showFooter={showFooter}
                       showAceCodeAvatar={showAceCodeAvatar}
@@ -5374,6 +5416,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
               changeSummary={changeSummary}
               fileRefreshKey={fileTreeRefreshKey}
               reviewRequest={reviewRequest}
+              fileLocateRequest={fileLocateRequest}
               filesEnabled={sidePanelFilesEnabled}
               width={sidePanelWidth}
               collapsed={sidePanelListCollapsed}

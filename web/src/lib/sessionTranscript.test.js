@@ -1325,6 +1325,7 @@ run('history load 消费 turn_timing 并用持久 duration 渲染 processed summ
   assert.equal(projected[1].mode, 'processed');
   assert.equal(projected[1].title, '已处理 1m 5s');
   assert.equal(projected[2].kind, 'completion_summary');
+  assert.equal(projected[2].messageId, 'done-1');
 
   const reloaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
     messages: [
@@ -1554,6 +1555,39 @@ run('tool lifecycle 保留进度、summary、失败输出、hunks 和附件', ()
   assert.equal(tool.output, 'failed');
   assert.deepEqual(tool.hunks, [hunk]);
   assert.deepEqual(tool.attachments, [attachment]);
+});
+
+run('task_complete live tool_end 的持久消息 ID 进入完成总结投影', () => {
+  const state = reduceMany([
+    {
+      type: 'tool_start',
+      payload: {
+        tool: 'task_complete',
+        tool_call_id: 'call-done',
+        is_task_complete: true,
+        args: { summary: '## 完成\n- 已验证' },
+      },
+      seq: 1,
+    },
+    {
+      type: 'tool_end',
+      payload: {
+        tool: 'task_complete',
+        tool_call_id: 'call-done',
+        success: true,
+        message_id: 'done-live',
+        summary: { verb: 'complete', object: 'task', metrics: [{ label: 'summary', value: '## 完成\n- 已验证' }] },
+        output: '## 完成\n- 已验证',
+      },
+      seq: 2,
+    },
+  ]);
+
+  assert.equal(state.items[0].messageId, 'done-live');
+  const projected = projectLoadedItems(state.items);
+  assert.equal(projected[0].kind, 'completion_summary');
+  assert.equal(projected[0].messageId, 'done-live');
+  assert.notEqual(projected[0].messageId, projected[0].id);
 });
 
 run('tool_start 保留原始 args 供工具块展开显示完整命令', () => {
