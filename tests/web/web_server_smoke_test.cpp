@@ -1849,14 +1849,14 @@ TEST(WebServerHttp, ActiveWorktreeSessionListIncludesWorktreeState) {
 
     const auto outside_path = fx.cwd_dir / "main-only.md";
     write_text(outside_path, "main checkout only\n");
-    auto escaped = cpr::Get(
+    auto outside_worktree = cpr::Get(
         cpr::Url{fx.url("/api/files/content")},
         cpr::Parameters{
             {"cwd", worktree.worktree_path},
             {"path", acecode::path_to_utf8(outside_path)},
         });
-    ASSERT_EQ(escaped.status_code, 400) << escaped.text;
-    EXPECT_EQ(json::parse(escaped.text)["error"], "path outside workspace");
+    ASSERT_EQ(outside_worktree.status_code, 200) << outside_worktree.text;
+    EXPECT_EQ(outside_worktree.text, "main checkout only\n");
 
     const auto unrelated_cwd = fx.tmp_dir / "unregistered-root";
     write_text(unrelated_cwd / "unknown.md", "unknown\n");
@@ -1866,8 +1866,8 @@ TEST(WebServerHttp, ActiveWorktreeSessionListIncludesWorktreeState) {
             {"cwd", acecode::path_to_utf8(unrelated_cwd)},
             {"path", "unknown.md"},
         });
-    ASSERT_EQ(unrelated.status_code, 400) << unrelated.text;
-    EXPECT_EQ(json::parse(unrelated.text)["error"], "unknown workspace");
+    ASSERT_EQ(unrelated.status_code, 200) << unrelated.text;
+    EXPECT_EQ(unrelated.text, "unknown\n");
 }
 
 // 首条消息创建 worktree 时,前端必须从 202 响应立即拿到真实路径；不能等下一次
@@ -3367,33 +3367,22 @@ TEST(WebServerHttp, FilesEndpointAllowsRegisteredWorkspaceCwd) {
     EXPECT_EQ(content.text, "hello from registered workspace");
 }
 
-// 无工作区 session 的 cwd 不下发给前端。变更记录中的绝对文件路径会被拆成
-// containing directory + basename；预览端点应按活动 session 根授权，但不能
-// 顺带开放目录树、越界文件或已经销毁的 session cache。
-TEST(WebServerHttp, FilePreviewEndpointsAllowOnlyActiveNoWorkspaceArtifacts) {
+// 文件详情允许读取任意明确的本地文件路径,但不能顺带把外部目录开放为文件树。
+TEST(WebServerHttp, FilePreviewEndpointsAllowExternalFilesButNotDirectoryListing) {
     WebServerFixture fx;
 
-    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
-                             cpr::Header{{"Content-Type", "application/json"}},
-                             cpr::Body{R"({"no_workspace":true})"});
-    ASSERT_EQ(created.status_code, 201) << created.text;
-    const auto sid = json::parse(created.text)["session_id"].get<std::string>();
-    const auto session_root = path_from_utf8(
-        acecode::no_workspace_session_cwd(
-            sid, fx.no_workspace_cache_root.string()));
-    const auto output_dir =
-        session_root / "opc-doc" / "outputs" / "00-orchestrator";
-    const auto markdown_path = output_dir / "session-summary.md";
-    const auto image_path = output_dir / "preview.png";
-    write_text(markdown_path, "# Session summary\n");
+    const auto external_dir = fx.tmp_dir / "external-preview";
+    const auto text_path = external_dir / "test.txt";
+    const auto image_path = external_dir / "preview.png";
+    write_text(text_path, "external text\n");
     write_text(image_path, "preview-image-bytes");
 
-    const auto preview_cwd = acecode::path_to_utf8(output_dir);
+    const auto preview_cwd = acecode::path_to_utf8(external_dir);
     auto content = cpr::Get(
         cpr::Url{fx.url("/api/files/content")},
-        cpr::Parameters{{"cwd", preview_cwd}, {"path", "session-summary.md"}});
+        cpr::Parameters{{"cwd", preview_cwd}, {"path", "test.txt"}});
     ASSERT_EQ(content.status_code, 200) << content.text;
-    EXPECT_EQ(content.text, "# Session summary\n");
+    EXPECT_EQ(content.text, "external text\n");
 
     auto blob = cpr::Get(
         cpr::Url{fx.url("/api/files/blob")},
@@ -3401,40 +3390,26 @@ TEST(WebServerHttp, FilePreviewEndpointsAllowOnlyActiveNoWorkspaceArtifacts) {
     ASSERT_EQ(blob.status_code, 200) << blob.text;
     EXPECT_EQ(blob.text, "preview-image-bytes");
 
+    auto absolute_path = cpr::Get(
+        cpr::Url{fx.url("/api/files/content")},
+        cpr::Parameters{
+            {"cwd", fx.cwd},
+            {"path", acecode::path_to_utf8(text_path)},
+        });
+    ASSERT_EQ(absolute_path.status_code, 200) << absolute_path.text;
+    EXPECT_EQ(absolute_path.text, "external text\n");
+
     auto listing = cpr::Get(
         cpr::Url{fx.url("/api/files")},
         cpr::Parameters{{"cwd", preview_cwd}, {"path", ""}});
     ASSERT_EQ(listing.status_code, 400) << listing.text;
     EXPECT_EQ(json::parse(listing.text)["error"], "unknown workspace");
-
-    const auto outside_path = fx.tmp_dir / "outside.md";
-    write_text(outside_path, "outside");
-    auto escaped = cpr::Get(
-        cpr::Url{fx.url("/api/files/content")},
-        cpr::Parameters{
-            {"cwd", preview_cwd},
-            {"path", acecode::path_to_utf8(outside_path)},
-        });
-    EXPECT_EQ(escaped.status_code, 400) << escaped.text;
-
-    fx.client->destroy_session(sid);
-    auto stale = cpr::Get(
-        cpr::Url{fx.url("/api/files/content")},
-        cpr::Parameters{{"cwd", preview_cwd}, {"path", "session-summary.md"}});
-    ASSERT_EQ(stale.status_code, 400) << stale.text;
-    EXPECT_EQ(json::parse(stale.text)["error"], "unknown workspace");
 }
 
-// 回归:无工作区会话变更里常出现 ~/.acecode/skills 下的绝对路径(全局 skill
-// 包)。前端拆成 parent+basename 后不在 workspace 白名单,预览应与
-// open-in-explorer 一样放行 ACECode 管理的 skills 根。
+// 回归:任意路径预览继续覆盖 ~/.acecode/skills 下的全局 skill 文件,且该目录
+// 不会因此成为可枚举的 workspace 文件树。
 TEST(WebServerHttp, FilePreviewEndpointsAllowAcecodeManagedSkillArtifacts) {
     WebServerFixture fx;
-
-    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
-                             cpr::Header{{"Content-Type", "application/json"}},
-                             cpr::Body{R"({"no_workspace":true})"});
-    ASSERT_EQ(created.status_code, 201) << created.text;
 
     const auto skills_dir =
         path_from_utf8(acecode::get_acecode_dir()) / "skills" /
@@ -3450,7 +3425,7 @@ TEST(WebServerHttp, FilePreviewEndpointsAllowAcecodeManagedSkillArtifacts) {
     EXPECT_EQ(content.status_code, 200) << content.text;
     EXPECT_EQ(content.text, "export type TodoStatus = \"pending\";\n");
 
-    // 目录树仍不得借预览白名单开放全局 skills 根。
+    // 目录树仍不得借宽松的文件详情解析开放全局 skills 根。
     auto listing = cpr::Get(
         cpr::Url{fx.url("/api/files")},
         cpr::Parameters{{"cwd", preview_cwd}, {"path", ""}});
@@ -4777,6 +4752,123 @@ TEST(WebServerHttp, TurnSteerValidatesIdentityAndCommitsAcceptedInput) {
         "guide-http-1");
     EXPECT_TRUE(second_request.back().metadata.value("turn_steer", false));
     EXPECT_EQ(second_request.back().metadata.value("turn_id", ""), turn_id);
+}
+
+TEST(WebServerHttp, TurnInterruptAbortsAndStartsPriorityReplacementTurn) {
+    WebServerFixture fx;
+    auto create = cpr::Post(
+        cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(create.status_code, 201) << create.text;
+    const std::string sid =
+        json::parse(create.text)["session_id"].get<std::string>();
+
+    auto missing_expected = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/turn/interrupt")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"text":"interrupt now"})"});
+    ASSERT_EQ(missing_expected.status_code, 400) << missing_expected.text;
+    EXPECT_EQ(
+        json::parse(missing_expected.text)["error"],
+        "EXPECTED_TURN_ID_REQUIRED");
+
+    auto unknown = cpr::Post(
+        cpr::Url{fx.url(
+            "/api/sessions/missing-session/turn/interrupt")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"text":"interrupt now","expected_turn_id":"turn-1"})"});
+    ASSERT_EQ(unknown.status_code, 404) << unknown.text;
+    EXPECT_EQ(json::parse(unknown.text)["error"], "UNKNOWN_SESSION");
+
+    auto idle = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/turn/interrupt")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({"text":"interrupt now","expected_turn_id":"turn-1"})"});
+    ASSERT_EQ(idle.status_code, 409) << idle.text;
+    EXPECT_EQ(json::parse(idle.text)["error"], "NO_ACTIVE_TURN");
+
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_TRUE(entry);
+    ASSERT_TRUE(entry->provider_slot);
+    auto provider = std::make_shared<TurnSteeringProvider>();
+    {
+        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
+        entry->provider_slot->provider = provider;
+    }
+    entry->loop->submit("start");
+    ASSERT_TRUE(provider->wait_for_first_started(2s));
+    const std::string turn_id = entry->loop->active_turn_id();
+    ASSERT_FALSE(turn_id.empty());
+
+    auto mismatch = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/turn/interrupt")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "wrong turn"},
+            {"expected_turn_id", "replacement-turn"},
+        }.dump()});
+    ASSERT_EQ(mismatch.status_code, 409) << mismatch.text;
+    EXPECT_EQ(json::parse(mismatch.text)["error"], "TURN_MISMATCH");
+    EXPECT_EQ(provider->call_count(), 1)
+        << "a stale interrupt must not cancel the active provider";
+
+    entry->loop->submit("ordinary queued input");
+    const auto started = std::chrono::steady_clock::now();
+    auto accepted = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/turn/interrupt")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"text", "replace immediately"},
+            {"expected_turn_id", turn_id},
+            {"client_message_id", "interrupt-http-1"},
+            {"contexts", json::array({json{
+                {"type", "browser"},
+                {"url", "https://example.test"},
+            }})},
+        }.dump()});
+    ASSERT_EQ(accepted.status_code, 202) << accepted.text;
+    const auto body = json::parse(accepted.text);
+    EXPECT_TRUE(body["accepted"].get<bool>());
+    EXPECT_TRUE(body["interrupting"].get<bool>());
+    EXPECT_EQ(body["turn_id"], turn_id);
+    EXPECT_EQ(body["client_message_id"], "interrupt-http-1");
+
+    const auto replacement_deadline =
+        std::chrono::steady_clock::now() + 1s;
+    while (provider->call_count() < 2 &&
+           std::chrono::steady_clock::now() < replacement_deadline) {
+        std::this_thread::sleep_for(5ms);
+    }
+    ASSERT_GE(provider->call_count(), 2)
+        << "interrupt endpoint must start the replacement without release_first()";
+    EXPECT_LT(std::chrono::steady_clock::now() - started, 1s);
+
+    const auto done_deadline = std::chrono::steady_clock::now() + 3s;
+    while ((provider->call_count() < 3 || entry->loop->is_busy()) &&
+           std::chrono::steady_clock::now() < done_deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_EQ(provider->call_count(), 3);
+    ASSERT_FALSE(entry->loop->is_busy());
+
+    const auto replacement_request = provider->request(1);
+    ASSERT_FALSE(replacement_request.empty());
+    EXPECT_EQ(replacement_request.back().role, "user");
+    EXPECT_NE(
+        replacement_request.back().content.find("replace immediately"),
+        std::string::npos);
+    EXPECT_EQ(
+        replacement_request.back().metadata.value("client_message_id", ""),
+        "interrupt-http-1");
+    EXPECT_TRUE(
+        replacement_request.back().metadata.value("turn_interrupt", false));
+    EXPECT_TRUE(replacement_request.back().content_parts.is_array());
+
+    const auto ordinary_request = provider->request(2);
+    ASSERT_FALSE(ordinary_request.empty());
+    EXPECT_EQ(ordinary_request.back().role, "user");
+    EXPECT_EQ(ordinary_request.back().content, "ordinary queued input");
 }
 
 TEST(WebServerHttp, UploadAttachmentAndSubmitContentParts) {

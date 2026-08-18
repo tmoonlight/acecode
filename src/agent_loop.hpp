@@ -246,6 +246,11 @@ public:
     // append happen under one lock, matching Codex turn/steer race semantics.
     TurnSteerResult steer_input(const std::string& expected_turn_id,
                                 const UserInput& input);
+    // Atomically promise a new high-priority user turn and abort the matching
+    // active turn. Unlike steer_input(), this does not wait for the current
+    // provider response to reach its next model boundary.
+    TurnSteerResult interrupt_turn(const std::string& expected_turn_id,
+                                   const UserInput& input);
     std::string active_turn_id() const;
 
     // Legacy cancel alias
@@ -422,6 +427,7 @@ private:
     // message was committed. When close_if_empty is true, an empty queue closes
     // acceptance under the same lock, eliminating the final-response race.
     bool drain_active_turn_inputs(bool close_if_empty);
+    void append_interrupted_turn_context(const std::string& turn_id);
     std::size_t close_active_turn_and_discard();
     bool maybe_run_auto_compact();
     bool active_estimate_exceeds_auto_threshold(
@@ -577,6 +583,9 @@ private:
     std::vector<std::thread> side_question_threads_;
     std::atomic<bool> side_question_shutdown_{false};
     std::atomic<bool> abort_requested_{false};
+    // Distinguishes a steering interrupt from a manual stop. The former
+    // immediately continues with a promised turn and must not pause goals.
+    std::atomic<bool> turn_interrupt_requested_{false};
     std::atomic<bool> busy_{false};
     std::mutex active_provider_mu_;
     std::weak_ptr<LlmProvider> active_provider_;
@@ -646,6 +655,9 @@ private:
     std::thread worker_thread_;
     std::mutex queue_mu_;
     std::condition_variable queue_cv_;
+    // Immediate steering follow-ups run before ordinary queued work. Separate
+    // FIFOs preserve both urgent and ordinary relative ordering.
+    std::queue<WorkerTask> priority_task_queue_;
     std::queue<WorkerTask> task_queue_;
     bool shutdown_requested_ = false;
     bool worker_task_active_ = false;

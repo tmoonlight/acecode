@@ -478,6 +478,114 @@ WebServer::Impl::parse_session_user_input_request(
     return result;
 }
 
+crow::response WebServer::Impl::handle_turn_input_request(
+    const crow::request& req,
+    const std::string& session_id,
+    bool interrupting) {
+    if (auto rejection = require_auth(req)) {
+        return std::move(*rejection);
+    }
+    if (!deps.session_client) {
+        crow::response response(503);
+        response.body = json{
+            {"error", "SESSION_CLIENT_UNAVAILABLE"},
+            {"message", "session client unavailable"},
+        }.dump();
+        response.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(response));
+    }
+
+    auto parsed = parse_session_user_input_request(
+        req.body, session_id, /*allow_worktree=*/false);
+    if (!parsed.ok) {
+        crow::response response(parsed.status);
+        const bool unknown_session =
+            parsed.status == 404 && parsed.error == "unknown session";
+        response.body = json{
+            {"error", unknown_session
+                ? "UNKNOWN_SESSION"
+                : "INVALID_TURN_INPUT"},
+            {"message", parsed.error},
+        }.dump();
+        response.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(response));
+    }
+    if (parsed.expected_turn_id.empty()) {
+        crow::response response(400);
+        response.body = json{
+            {"error", "EXPECTED_TURN_ID_REQUIRED"},
+            {"message", "expected_turn_id is required"},
+        }.dump();
+        response.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(response));
+    }
+
+    const auto result = interrupting
+        ? deps.session_client->interrupt_turn(
+              session_id, parsed.expected_turn_id, parsed.input)
+        : deps.session_client->steer_input(
+              session_id, parsed.expected_turn_id, parsed.input);
+    int status = 409;
+    std::string code;
+    switch (result.status) {
+    case TurnSteerStatus::Accepted:
+        status = 202;
+        break;
+    case TurnSteerStatus::InvalidInput:
+        status = 400;
+        code = "INVALID_TURN_INPUT";
+        break;
+    case TurnSteerStatus::UnknownSession:
+        status = 404;
+        code = "UNKNOWN_SESSION";
+        break;
+    case TurnSteerStatus::NoActiveTurn:
+        code = "NO_ACTIVE_TURN";
+        break;
+    case TurnSteerStatus::NonSteerable:
+        code = "TURN_NOT_STEERABLE";
+        break;
+    case TurnSteerStatus::TurnMismatch:
+        code = "TURN_MISMATCH";
+        break;
+    case TurnSteerStatus::QueueFull:
+        status = 429;
+        code = "TURN_STEER_QUEUE_FULL";
+        break;
+    }
+
+    crow::response response(status);
+    if (result.accepted()) {
+        json body = {
+            {"accepted", true},
+            {"turn_id", result.turn_id},
+        };
+        if (interrupting) body["interrupting"] = true;
+        if (parsed.input.metadata.is_object()) {
+            const std::string client_message_id =
+                parsed.input.metadata.value(
+                    "client_message_id", std::string{});
+            if (!client_message_id.empty()) {
+                body["client_message_id"] = client_message_id;
+            }
+        }
+        response.body = body.dump();
+    } else {
+        json body = {
+            {"error", code},
+            {"message", result.message.empty()
+                ? std::string(to_string(result.status))
+                : result.message},
+        };
+        if (!result.turn_id.empty()) {
+            body["active_turn_id"] = result.turn_id;
+        }
+        response.body = body.dump();
+    }
+    response.add_header("Content-Type", "application/json");
+    return with_cors(req, std::move(response));
+}
+
 void WebServer::Impl::register_sessions() {
         CROW_ROUTE(app, "/api/sessions").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
@@ -500,6 +608,10 @@ void WebServer::Impl::register_sessions() {
             return cors_preflight(req);
         });
         CROW_ROUTE(app, "/api/sessions/<string>/turn/steer").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/sessions/<string>/turn/interrupt").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
@@ -1521,111 +1633,18 @@ void WebServer::Impl::register_sessions() {
             return with_cors(req, std::move(r));
         });
 
-        // POST /api/sessions/:id/turn/steer: append structured input to the
-        // matching active regular turn. Acceptance is not transcript commit;
-        // the normal user message event carrying client_message_id is the
-        // durable acknowledgement.
+        // Soft steer: append structured input to the matching active turn and
+        // consume it at the next model boundary.
         CROW_ROUTE(app, "/api/sessions/<string>/turn/steer").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req, const std::string& id) {
-            if (auto rejection = require_auth(req)) {
-                return std::move(*rejection);
-            }
-            if (!deps.session_client) {
-                crow::response response(503);
-                response.body = json{
-                    {"error", "SESSION_CLIENT_UNAVAILABLE"},
-                    {"message", "session client unavailable"},
-                }.dump();
-                response.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(response));
-            }
+            return handle_turn_input_request(req, id, /*interrupting=*/false);
+        });
 
-            auto parsed = parse_session_user_input_request(
-                req.body, id, /*allow_worktree=*/false);
-            if (!parsed.ok) {
-                crow::response response(parsed.status);
-                const bool unknown_session =
-                    parsed.status == 404 &&
-                    parsed.error == "unknown session";
-                response.body = json{
-                    {"error", unknown_session
-                        ? "UNKNOWN_SESSION"
-                        : "INVALID_TURN_INPUT"},
-                    {"message", parsed.error},
-                }.dump();
-                response.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(response));
-            }
-            if (parsed.expected_turn_id.empty()) {
-                crow::response response(400);
-                response.body = json{
-                    {"error", "EXPECTED_TURN_ID_REQUIRED"},
-                    {"message", "expected_turn_id is required"},
-                }.dump();
-                response.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(response));
-            }
-
-            const auto result = deps.session_client->steer_input(
-                id, parsed.expected_turn_id, parsed.input);
-            int status = 409;
-            std::string code;
-            switch (result.status) {
-            case TurnSteerStatus::Accepted:
-                status = 202;
-                break;
-            case TurnSteerStatus::InvalidInput:
-                status = 400;
-                code = "INVALID_TURN_INPUT";
-                break;
-            case TurnSteerStatus::UnknownSession:
-                status = 404;
-                code = "UNKNOWN_SESSION";
-                break;
-            case TurnSteerStatus::NoActiveTurn:
-                code = "NO_ACTIVE_TURN";
-                break;
-            case TurnSteerStatus::NonSteerable:
-                code = "TURN_NOT_STEERABLE";
-                break;
-            case TurnSteerStatus::TurnMismatch:
-                code = "TURN_MISMATCH";
-                break;
-            case TurnSteerStatus::QueueFull:
-                status = 429;
-                code = "TURN_STEER_QUEUE_FULL";
-                break;
-            }
-
-            crow::response response(status);
-            if (result.accepted()) {
-                json body = {
-                    {"accepted", true},
-                    {"turn_id", result.turn_id},
-                };
-                if (parsed.input.metadata.is_object()) {
-                    const std::string client_message_id =
-                        parsed.input.metadata.value(
-                            "client_message_id", std::string{});
-                    if (!client_message_id.empty()) {
-                        body["client_message_id"] = client_message_id;
-                    }
-                }
-                response.body = body.dump();
-            } else {
-                json body = {
-                    {"error", code},
-                    {"message", result.message.empty()
-                        ? std::string(to_string(result.status))
-                        : result.message},
-                };
-                if (!result.turn_id.empty()) {
-                    body["active_turn_id"] = result.turn_id;
-                }
-                response.body = body.dump();
-            }
-            response.add_header("Content-Type", "application/json");
-            return with_cors(req, std::move(response));
+        // Immediate steer: atomically promise a high-priority replacement turn
+        // and abort the matching active turn.
+        CROW_ROUTE(app, "/api/sessions/<string>/turn/interrupt").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& id) {
+            return handle_turn_input_request(req, id, /*interrupting=*/true);
         });
 
         // POST /api/sessions/:id/commands: daemon-owned builtin slash command

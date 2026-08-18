@@ -50,12 +50,15 @@ nlohmann::json build_tool_update_payload(
 // 构造 tool_end payload。result.summary 缺省时 "summary" 字段不出现;
 // success=true 时携带完整 result.output 供 Web live 视图展开;success=false
 // 时附带前 N 行 stderr/output 给前端 dim 显示(N 由 caller 已经截好,本函数不截)。
+// message_id 非空时指向对应 canonical tool-result,供合成展示行复用真实
+// transcript 身份执行 fork。
 nlohmann::json build_tool_end_payload(
     const std::string& tool_name,
     const ToolResult& result,
     double elapsed_seconds,
     const std::string& output_snippet,
     const std::string& tool_call_id = {},
-    int tool_index = -1);
+    int tool_index = -1,
+    const std::string& message_id = {});
 
 } // namespace acecode::web

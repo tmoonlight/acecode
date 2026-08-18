@@ -343,6 +343,9 @@ struct WebServer::Impl {
         const std::string& body,
         const std::string& session_id,
         bool allow_worktree);
+    crow::response handle_turn_input_request(const crow::request& req,
+                                             const std::string& session_id,
+                                             bool interrupting);
     // parent_filter 语义:空 = 常规列表,排除所有 spawn_subagent 子会话;
     // 非空 = 后台任务查询,只返回 parent_session_id == parent_filter 的子会话
     // (active 部分不做 workspace 过滤,子会话跟随父会话归属)。

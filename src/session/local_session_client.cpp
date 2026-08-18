@@ -79,6 +79,22 @@ TurnSteerResult LocalSessionClient::steer_input(
     return entry->loop->steer_input(expected_turn_id, input);
 }
 
+TurnSteerResult LocalSessionClient::interrupt_turn(
+    const std::string& session_id,
+    const std::string& expected_turn_id,
+    const UserInput& input) {
+    auto entry = registry_.acquire(session_id);
+    if (!entry || !entry->loop) {
+        LOG_WARN("[client] interrupt_turn on unknown session " + session_id);
+        return {
+            TurnSteerStatus::UnknownSession,
+            {},
+            "unknown session",
+        };
+    }
+    return entry->loop->interrupt_turn(expected_turn_id, input);
+}
+
 BuiltinCommandResult LocalSessionClient::execute_builtin_command(
     const std::string& session_id,
     const BuiltinCommandRequest& request) {

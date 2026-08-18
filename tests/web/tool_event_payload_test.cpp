@@ -76,6 +76,17 @@ TEST(ToolEventPayload, ToolLifecycleCarriesCorrelationFields) {
     auto end = build_tool_end_payload("grep", r, 0.3, "", "call-1", 2);
     EXPECT_EQ(end["tool_call_id"], "call-1");
     EXPECT_EQ(end["tool_index"], 2);
+    EXPECT_FALSE(end.contains("message_id"));
+}
+
+// 场景:caller 已用 canonical tool-result 算出稳定 ID 时,tool_end 原样携带,
+// 让 task_complete 的合成总结可以从真实 transcript 边界分叉。
+TEST(ToolEventPayload, ToolEndCarriesCanonicalMessageIdWhenProvided) {
+    ToolResult r;
+    r.success = true;
+    auto end = build_tool_end_payload(
+        "task_complete", r, 0.1, "done", "call-done", 0, "message-done");
+    EXPECT_EQ(end["message_id"], "message-done");
 }
 
 // 场景: task_complete 工具的 tool_start 必须带 is_task_complete=true,

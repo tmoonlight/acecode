@@ -260,6 +260,7 @@ when known.
 | POST | `/api/sessions/:id/export-markdown` | choose a folder and export the visible transcript as Markdown |
 | POST | `/api/sessions/:id/messages` | queue user input |
 | POST | `/api/sessions/:id/turn/steer` | append input to the matching active turn |
+| POST | `/api/sessions/:id/turn/interrupt` | interrupt the matching active turn and start a priority replacement turn |
 | POST | `/api/sessions/:id/attachments` | upload a session snapshot or create a Desktop source reference |
 | GET | `/api/sessions/:id/attachments/:attachment_id/blob` | download attachment bytes |
 | POST | `/api/sessions/:id/commands` | run daemon builtin slash command |
@@ -954,6 +955,51 @@ Errors use structured codes: `400 EXPECTED_TURN_ID_REQUIRED` or
 `429 TURN_STEER_QUEUE_FULL`. A mismatch response includes the current
 `active_turn_id`.
 
+### `POST /api/sessions/:id/turn/interrupt`
+
+Interrupts the matching active regular turn and atomically promises the input
+as a new high-priority regular turn. The request body and validation rules are
+the same as `/turn/steer`, including required `expected_turn_id` and optional
+structured attachments, contexts, and `client_message_id`:
+
+```json
+{
+  "text": "Stop and use the new constraint now",
+  "client_message_id": "queued-session-id-2",
+  "expected_turn_id": "initial-user-message-uuid"
+}
+```
+
+Unlike soft steer, acceptance sets the current provider/tool abort flag instead
+of waiting for the current response to finish. The server queues the replacement
+before requesting abort and runs it ahead of ordinary queued worker tasks. Thus,
+if acceptance races natural completion, the operation is either rejected with
+no new message or accepted with exactly one future user turn; the client never
+needs to resend it after `busy=false`.
+
+Success returns `202` after both the replacement turn and interrupt request have
+been committed in memory:
+
+```json
+{
+  "accepted": true,
+  "interrupting": true,
+  "turn_id": "initial-user-message-uuid",
+  "client_message_id": "queued-session-id-2"
+}
+```
+
+The old turn finishes with outcome `aborted`, records a hidden model-visible
+`<turn_aborted>` marker, and does not pause an active goal. The replacement user
+message is the durable acknowledgement and carries the matching
+`metadata.client_message_id`. Pending UI should remain in an interrupting state
+across the short old-turn `busy=false` transition until that message arrives.
+
+The endpoint uses the same structured error codes as `/turn/steer`. Existing
+clients that want same-turn delivery at the next model boundary should continue
+using `/turn/steer`; Desktop/Web interjection and `/turn` use this immediate
+endpoint.
+
 ### `POST /api/sessions/:id/side-question`
 
 Runs one isolated `/btw` or `/side` side question against the active session's
@@ -1339,12 +1385,12 @@ shape as `GET`.
 ## 7. Files
 
 Directory listing validates `cwd` against the daemon cwd and registered
-workspace cwds. Text and binary preview requests additionally accept a target
-inside an active no-workspace session root, or under ACECode-managed roots
-(`~/.acecode/skills`, `~/.acecode/projects` — same set as open-in-explorer);
-this does not make those roots listable via `/api/files`. Every target is
-canonicalized and must stay inside its authorized workspace, session, or
-managed root.
+workspace cwds. Authenticated text and binary file-detail requests may resolve
+any local file path readable by the daemon process: `cwd` must be absolute,
+while `path` may be relative to `cwd` or an absolute target. The target is
+canonicalized before the existing file checks run. This preview-only behavior
+does not make an external parent directory listable via `/api/files` and does
+not authorize Git or other workspace routes for that directory.
 
 ### `GET /api/files?cwd=<abs>&path=<rel>&show_hidden=1&show_noise=1`
 
@@ -1364,24 +1410,23 @@ uses both flags so a bare `@` reflects the complete direct contents of the
 current cwd. Enumeration remains non-recursive and all returned paths are still
 canonicalized within the allowed cwd.
 
-### `GET /api/files/content?cwd=<abs>&path=<rel>`
+### `GET /api/files/content?cwd=<abs>&path=<rel-or-abs>`
 
 Returns `text/plain; charset=utf-8` file content. Error status examples:
 
-- `400` unknown workspace or outside workspace
+- `400` missing parameters or a non-absolute/invalid `cwd`
 - `404` not found
 - `415` binary or too large
 - `500` IO error
 
-For a changed file in an active no-workspace session, `cwd` may be the file's
-containing directory and `path` its basename (the real session cwd is not
-exposed to the frontend). The canonical target must remain under that active
-session's isolated root, or under ACECode-managed `skills`/`projects`
-directories (global skill packages the agent may edit). Destroying the session
-revokes only the session-root allowance; managed-root previews remain available
-while the path still exists.
+For any workspace or no-workspace session, `cwd` may be the file's containing
+directory and `path` its basename. A caller may also keep its current absolute
+`cwd` and pass an absolute `path` elsewhere on the local machine. The endpoint
+does not require either target to be a registered workspace, but still requires
+daemon authentication and remains subject to the 5 MiB text cap, binary sniff,
+filesystem permissions, and read-only response behavior.
 
-### `GET /api/files/blob?cwd=<abs>&path=<rel>`
+### `GET /api/files/blob?cwd=<abs>&path=<rel-or-abs>`
 
 Returns raw bytes for browser-native preview types:
 
@@ -1389,8 +1434,9 @@ Returns raw bytes for browser-native preview types:
 - documents: `pdf`, `docx`, `xlsx`, `xlsm`
 
 The route caps preview bytes at 20 MB and sets `X-Content-Type-Options:
-nosniff`. It uses the same active no-workspace / ACECode-managed preview
-authorization as the text-content endpoint.
+nosniff`. It uses the same arbitrary-local-path resolution and authentication
+boundary as the text-content endpoint; the external parent directory remains
+unavailable to `/api/files` and Git routes.
 
 ### `GET /api/git/info?cwd=<abs>`
 
@@ -2682,6 +2728,12 @@ Session event `type` values from `SessionEventKind`:
 - `busy_changed`
 - `done`
 - `error`
+
+For a successful `task_complete` call, the `tool_end` payload also includes
+`message_id`, the canonical id of the persisted tool-role result. Live and
+trajectory/replay records use the same id so clients can attach copy, fork, and
+other message actions to the completion summary without relying on its
+synthetic display id.
 
 The start of a regular agent turn includes
 `{"busy":true,"turn_id":"initial-user-message-uuid"}`. That id stays stable

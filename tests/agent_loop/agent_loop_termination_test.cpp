@@ -29,8 +29,10 @@
 #include "provider/llm_provider.hpp"
 #include "provider/retry_policy.hpp"
 #include "session/session_manager.hpp"
+#include "session/tool_result_storage.hpp"
 #include "session/turn_net_diff.hpp"
 #include "session/turn_timing.hpp"
+#include "web/message_payload.hpp"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -216,6 +218,11 @@ public:
 
     std::vector<ChatMessage> persisted_session_messages() const {
         return session_manager_.load_active_messages();
+    }
+
+    std::vector<acecode::SessionTrajectoryRecord> persisted_trajectory() const {
+        return acecode::SessionTrajectoryStorage::load_all(
+            session_manager_.current_trajectory_path());
     }
 
     void set_no_model_prompt(std::string prompt) {
@@ -1012,6 +1019,61 @@ TEST(AgentLoopTermination, TaskCompleteTerminatesImmediately) {
     EXPECT_EQ(h.count_nudges(), 0);
     EXPECT_EQ(h.last_system_message().find("Agent loop stopped"),
               std::string::npos);
+
+    const auto messages = h.persisted_messages();
+    const auto tool_result = std::find_if(
+        messages.rbegin(), messages.rend(), [](const ChatMessage& message) {
+            return message.role == "tool" && message.tool_call_id == "c-done";
+        });
+    ASSERT_NE(tool_result, messages.rend());
+
+    const auto events = h.snapshot_events();
+    const auto tool_end = std::find_if(
+        events.begin(), events.end(), [](const acecode::SessionEvent& event) {
+            return event.kind == acecode::SessionEventKind::ToolEnd &&
+                   event.payload.value("tool", std::string{}) == "task_complete";
+        });
+    ASSERT_NE(tool_end, events.end());
+    ASSERT_TRUE(tool_end->payload.contains("message_id"));
+    EXPECT_EQ(tool_end->payload["message_id"],
+              acecode::web::compute_message_id(*tool_result));
+}
+
+TEST(AgentLoopTermination, TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult) {
+    TempHomeGuard temp_home("acecode-task-complete-message-id");
+    AgentLoopHarness h(temp_home.root().string());
+    h.enable_session_manager();
+    h.push_task_complete(std::string(
+        acecode::TOOL_RESULT_DEFAULT_MAX_BYTES + 1024, 'x'));
+
+    ASSERT_TRUE(h.submit_and_wait("finish with a large summary"));
+    const auto messages = h.persisted_session_messages();
+    const auto tool_result = std::find_if(
+        messages.rbegin(), messages.rend(), [](const ChatMessage& message) {
+            return message.role == "tool" && message.tool_call_id == "c-done";
+        });
+    ASSERT_NE(tool_result, messages.rend());
+    EXPECT_TRUE(acecode::is_persisted_output_message(tool_result->content));
+
+    const auto events = h.snapshot_events();
+    const auto tool_end = std::find_if(
+        events.begin(), events.end(), [](const acecode::SessionEvent& event) {
+            return event.kind == acecode::SessionEventKind::ToolEnd &&
+                   event.payload.value("tool", std::string{}) == "task_complete";
+        });
+    ASSERT_NE(tool_end, events.end());
+    EXPECT_EQ(tool_end->payload["message_id"],
+              acecode::web::compute_message_id(*tool_result));
+
+    const auto trajectory = h.persisted_trajectory();
+    const auto persisted_tool_end = std::find_if(
+        trajectory.begin(), trajectory.end(), [](const auto& record) {
+            return record.type == "tool_end" &&
+                   record.payload.value("tool", std::string{}) == "task_complete";
+        });
+    ASSERT_NE(persisted_tool_end, trajectory.end());
+    EXPECT_EQ(persisted_tool_end->payload["message_id"],
+              acecode::web::compute_message_id(*tool_result));
 }
 
 // 场景 (c):max_iterations 硬上限触发

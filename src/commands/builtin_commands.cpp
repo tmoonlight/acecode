@@ -310,10 +310,12 @@ static void cmd_turn(CommandContext& ctx, const std::string& raw_args) {
 
     UserInput input;
     input.text = guidance;
-    auto result = ctx.agent_loop.steer_input(turn_id, input);
+    auto result = ctx.agent_loop.interrupt_turn(turn_id, input);
     switch (result.status) {
         case TurnSteerStatus::Accepted:
-            emit_command_message(ctx, "Guidance accepted for the active turn.");
+            emit_command_message(
+                ctx,
+                "Interrupting the active turn to submit guidance immediately.");
             return;
         case TurnSteerStatus::NoActiveTurn:
         case TurnSteerStatus::NonSteerable:
@@ -329,8 +331,8 @@ static void cmd_turn(CommandContext& ctx, const std::string& raw_args) {
         case TurnSteerStatus::QueueFull:
             emit_command_message(
                 ctx,
-                "The active turn guidance queue is full. Try again after the "
-                "agent processes earlier guidance.");
+                "The immediate guidance queue is full. Try again after the "
+                "agent starts the pending turn.");
             return;
         case TurnSteerStatus::InvalidInput:
             emit_command_message(ctx, "Usage: /turn <guidance>");
@@ -398,7 +400,7 @@ static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
         << "  /tokens   - Show session token usage\n"
         << "  /goal     - Create, view, pause, resume, edit, or clear the thread goal\n"
         << "  /plan     - Enter plan mode or start planning a described task\n"
-        << "  /turn     - Guide the active turn at its next model boundary\n"
+        << "  /turn     - Interrupt the active turn and send guidance immediately\n"
         << "  /btw      - Ask a detached one-turn side question\n"
         << "  /side     - Alias for /btw\n"
         << "  /resume   - Resume a previous session\n"
@@ -1964,7 +1966,8 @@ void register_builtin_commands(CommandRegistry& registry) {
     registry.register_command({"tokens", "Show session token usage", cmd_tokens});
     register_goal_command(registry);
     registry.register_command({"plan", "Enter plan mode or start planning a described task", cmd_plan});
-    registry.register_command({"turn", "Guide the active turn", cmd_turn});
+    registry.register_command({
+        "turn", "Interrupt the active turn and send guidance", cmd_turn});
     registry.register_command({
         "btw",
         "Ask a detached one-turn side question",

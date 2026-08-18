@@ -492,6 +492,35 @@ TEST(AgentLoopGoal, ObjectiveEditSteeringReachesRunningTurn) {
         1, "pivot to the new objective"));
 }
 
+// 场景:active goal 运行中通过立即插话终止旧 provider。该中断是继续任务的
+// 改向操作,不能复用手动 stop 的 pause 语义；插话回合应仍可完成原 goal。
+TEST(AgentLoopGoal, InterruptingTurnSteerKeepsGoalActive) {
+    AgentLoopGoalHarness h("interrupting_steer");
+    h.create_goal();
+    h.provider().set_latency_ms(200);
+    h.provider().push_text("cancelled response");
+    h.provider().push_tool_call(
+        "update_goal", R"({"status":"complete"})", "goal-complete-after-steer");
+
+    h.loop().submit("start");
+    ASSERT_TRUE(h.wait_until([&h] {
+        return !h.loop().active_turn_id().empty();
+    }));
+    const std::string turn_id = h.loop().active_turn_id();
+    ASSERT_FALSE(turn_id.empty());
+
+    acecode::UserInput guidance;
+    guidance.text = "finish with the corrected approach";
+    ASSERT_TRUE(h.loop().interrupt_turn(turn_id, guidance).accepted());
+
+    ASSERT_TRUE(h.wait_until([&h] {
+        auto goal = h.goal();
+        return goal.has_value() &&
+            goal->status == acecode::ThreadGoalStatus::Complete;
+    }, 10s));
+    EXPECT_FALSE(h.saw_goal_status(acecode::ThreadGoalStatus::Paused));
+}
+
 // 场景:Plan mode 下 goal 处于 Active。期望:maybe_continue_goal 不自动开
 // 新回合(provider 不被调用)。Plan mode 的只读约束优先于 goal 自动续跑,
 // 对齐 Codex try_start_turn_if_idle 的 PlanMode 拒绝。

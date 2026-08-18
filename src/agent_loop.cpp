@@ -764,11 +764,17 @@ void AgentLoop::worker_main() {
         {
             std::unique_lock<std::mutex> lk(queue_mu_);
             queue_cv_.wait(lk, [this] {
-                return !task_queue_.empty() || shutdown_requested_;
+                return !priority_task_queue_.empty() ||
+                       !task_queue_.empty() || shutdown_requested_;
             });
             if (shutdown_requested_) return;
-            task = std::move(task_queue_.front());
-            task_queue_.pop();
+            if (!priority_task_queue_.empty()) {
+                task = std::move(priority_task_queue_.front());
+                priority_task_queue_.pop();
+            } else {
+                task = std::move(task_queue_.front());
+                task_queue_.pop();
+            }
             worker_task_active_ = true;
             worker_task_kind_ = task.kind;
         }
@@ -838,10 +844,15 @@ ControlEnqueueReceipt AgentLoop::enqueue_control(
         };
         bool queued_behind_turn =
             worker_task_active_ && is_turn_task(worker_task_kind_);
-        auto queued = task_queue_;
-        while (!queued_behind_turn && !queued.empty()) {
-            queued_behind_turn = is_turn_task(queued.front().kind);
-            queued.pop();
+        auto urgent = priority_task_queue_;
+        while (!queued_behind_turn && !urgent.empty()) {
+            queued_behind_turn = is_turn_task(urgent.front().kind);
+            urgent.pop();
+        }
+        auto ordinary = task_queue_;
+        while (!queued_behind_turn && !ordinary.empty()) {
+            queued_behind_turn = is_turn_task(ordinary.front().kind);
+            ordinary.pop();
         }
 
         WorkerTask task;
@@ -922,6 +933,101 @@ TurnSteerResult AgentLoop::steer_input(
         TurnSteerStatus::Accepted,
         active_turn_id_,
         "accepted",
+    };
+}
+
+TurnSteerResult AgentLoop::interrupt_turn(
+    const std::string& expected_turn_id,
+    const UserInput& input) {
+    if (expected_turn_id.empty()) {
+        return {
+            TurnSteerStatus::InvalidInput,
+            {},
+            "expected turn id is required",
+        };
+    }
+    if (!has_meaningful_user_input(input)) {
+        return {
+            TurnSteerStatus::InvalidInput,
+            {},
+            "steering input is empty",
+        };
+    }
+
+    std::string interrupted_turn_id;
+    std::size_t promised_inputs = 0;
+    {
+        // Lock order is intentionally active_turn_mu_ -> queue_mu_. No worker
+        // path holds queue_mu_ while acquiring active_turn_mu_.
+        std::lock_guard<std::mutex> turn_lk(active_turn_mu_);
+        if (!active_turn_accepting_ || active_turn_id_.empty()) {
+            return {
+                busy_.load()
+                    ? TurnSteerStatus::NonSteerable
+                    : TurnSteerStatus::NoActiveTurn,
+                {},
+                busy_.load()
+                    ? "the busy operation is not steerable"
+                    : "no active turn",
+            };
+        }
+        if (expected_turn_id != active_turn_id_) {
+            return {
+                TurnSteerStatus::TurnMismatch,
+                active_turn_id_,
+                "expected turn does not match the active turn",
+            };
+        }
+
+        interrupted_turn_id = active_turn_id_;
+        const std::size_t input_count = pending_turn_inputs_.size() + 1;
+        std::lock_guard<std::mutex> queue_lk(queue_mu_);
+        if (priority_task_queue_.size() + input_count >
+            kMaxPendingTurnSteers) {
+            return {
+                TurnSteerStatus::QueueFull,
+                interrupted_turn_id,
+                "interrupting turn queue is full",
+            };
+        }
+
+        auto promise_follow_up = [&](UserInput follow_up) {
+            if (!follow_up.metadata.is_object()) {
+                follow_up.metadata = nlohmann::json::object();
+            }
+            follow_up.metadata["turn_interrupt"] = true;
+            follow_up.metadata["interrupted_turn_id"] = interrupted_turn_id;
+
+            WorkerTask task;
+            task.kind = WorkerTask::Kind::Chat;
+            task.input = std::move(follow_up);
+            priority_task_queue_.push(std::move(task));
+            ++promised_inputs;
+        };
+
+        while (!pending_turn_inputs_.empty()) {
+            promise_follow_up(std::move(pending_turn_inputs_.front()));
+            pending_turn_inputs_.pop_front();
+        }
+        promise_follow_up(input);
+
+        // Close acceptance before setting abort, so a concurrent soft steer
+        // cannot be acknowledged and then discarded during turn teardown.
+        active_turn_accepting_ = false;
+        turn_interrupt_requested_.store(true);
+        abort_requested_.store(true);
+    }
+
+    wake_active_provider_retry();
+    queue_cv_.notify_one();
+    LOG_INFO("[turn/interrupt] accepted " +
+             std::to_string(promised_inputs) +
+             " high-priority input(s) for active turn " +
+             interrupted_turn_id);
+    return {
+        TurnSteerStatus::Accepted,
+        interrupted_turn_id,
+        "accepted; interrupt requested",
     };
 }
 
@@ -1581,7 +1687,8 @@ void AgentLoop::maybe_continue_goal() {
 
     {
         std::lock_guard<std::mutex> lk(queue_mu_);
-        if (shutdown_requested_ || !task_queue_.empty()) return;
+        if (shutdown_requested_ || !priority_task_queue_.empty() ||
+            !task_queue_.empty()) return;
         WorkerTask task;
         task.kind = WorkerTask::Kind::Chat;
         task.input.text = build_goal_context_prompt(*goal);
@@ -1692,6 +1799,26 @@ void AgentLoop::begin_active_turn(const std::string& turn_id) {
     pending_turn_inputs_.clear();
     active_turn_id_ = turn_id;
     active_turn_accepting_ = !turn_id.empty();
+}
+
+void AgentLoop::append_interrupted_turn_context(const std::string& turn_id) {
+    ChatMessage marker;
+    marker.role = "user";
+    marker.content =
+        "<turn_aborted>\n"
+        "The user interrupted the previous turn on purpose to submit new "
+        "instructions. Any running tools or commands may have partially "
+        "executed; inspect their state before retrying.\n"
+        "</turn_aborted>";
+    marker.metadata = nlohmann::json{
+        {"hidden_goal_context", true},
+        {"turn_interrupt_marker", true},
+        {"interrupted_turn_id", turn_id},
+    };
+    ensure_user_message_identity(marker);
+    messages_.push_back(marker);
+    if (session_manager_) session_manager_->on_message(marker);
+    LOG_INFO("[turn/interrupt] recorded interrupted-turn context for " + turn_id);
 }
 
 void AgentLoop::commit_turn_steering_input(
@@ -2769,6 +2896,14 @@ bool AgentLoop::execute_tool_calls(
     // Results array indexed by original position
     std::vector<ToolResult> results(accumulated.tool_calls.size());
     std::vector<bool> result_ready(accumulated.tool_calls.size(), false);
+    struct DeferredTaskCompleteEnd {
+        std::int64_t started_at_ms = 0;
+        std::int64_t completed_at_ms = 0;
+        std::int64_t duration_ms = 0;
+        double elapsed_seconds = 0.0;
+    };
+    std::vector<DeferredTaskCompleteEnd> deferred_task_complete_ends(
+        accumulated.tool_calls.size());
 
     // Helper: extract context from a tool call
     auto extract_context = [](const ToolCall& tc, std::string& ctx_path, std::string& ctx_command) {
@@ -3136,7 +3271,16 @@ bool AgentLoop::execute_tool_calls(
                 if (c == '\n' && ++lines >= 20) break;
             }
         }
-        if (session_manager_) {
+        const bool defer_task_complete_end = is_task_complete && result.success;
+        if (defer_task_complete_end &&
+            tool_index < deferred_task_complete_ends.size()) {
+            auto& deferred = deferred_task_complete_ends[tool_index];
+            deferred.started_at_ms = tool_started_at_ms;
+            deferred.completed_at_ms = tool_completed_at_ms;
+            deferred.duration_ms = elapsed_ms;
+            deferred.elapsed_seconds = elapsed_ms / 1000.0;
+        }
+        if (session_manager_ && !defer_task_complete_end) {
             auto trajectory_payload = web::build_tool_end_payload(
                 tc.function_name, result,
                 elapsed_ms / 1000.0,
@@ -3149,12 +3293,18 @@ bool AgentLoop::execute_tool_calls(
                 "tool_end", std::move(trajectory_payload),
                 tool_completed_at_ms);
         }
-        events_.emit(
-            SessionEventKind::ToolEnd,
-            web::build_tool_end_payload(
-                tc.function_name, result,
-                elapsed_ms / 1000.0, snippet,
-                tc.id, tool_index_int));
+        if (defer_task_complete_end) {
+            // task_complete 的 fork 边界必须指向预算替换后实际落盘的
+            // canonical tool-result。延迟 trajectory/live ToolEnd 到 Phase 3
+            // 持久化之后,避免超长 summary 的预计算 ID 与 REST/fork 不一致。
+        } else {
+            events_.emit(
+                SessionEventKind::ToolEnd,
+                web::build_tool_end_payload(
+                    tc.function_name, result,
+                    elapsed_ms / 1000.0, snippet,
+                    tc.id, tool_index_int));
+        }
         return result;
     };
 
@@ -3624,6 +3774,29 @@ bool AgentLoop::execute_tool_calls(
         messages_.push_back(tool_msg);
         if (session_manager_) session_manager_->on_message(tool_msg);
 
+        if (tc.function_name == "task_complete" &&
+            result_ready[i] && results[i].success) {
+            const DeferredTaskCompleteEnd deferred =
+                i < deferred_task_complete_ends.size()
+                    ? deferred_task_complete_ends[i]
+                    : DeferredTaskCompleteEnd{};
+            auto end_payload = web::build_tool_end_payload(
+                tc.function_name, results[i], deferred.elapsed_seconds,
+                results[i].output, tc.id, static_cast<int>(i),
+                web::compute_message_id(tool_msg));
+            if (session_manager_) {
+                auto trajectory_payload = end_payload;
+                trajectory_payload["started_at_ms"] = deferred.started_at_ms;
+                trajectory_payload["completed_at_ms"] = deferred.completed_at_ms;
+                trajectory_payload["duration_ms"] = deferred.duration_ms;
+                session_manager_->record_trajectory_event(
+                    "tool_end", std::move(trajectory_payload),
+                    deferred.completed_at_ms);
+            }
+            events_.emit(
+                SessionEventKind::ToolEnd, std::move(end_payload));
+        }
+
         // 展示派发(tool_result 伪行 + on_tool_result)已前移到各执行点
         // (dispatch_tool_result_display),这里只保留 canonical 相关处理。
         if (result_ready[i]) {
@@ -3663,6 +3836,7 @@ bool AgentLoop::execute_tool_calls(
 void AgentLoop::run_agent_with_input(const UserInput& input,
                                       bool hidden_goal_context) {
     abort_requested_ = false;
+    turn_interrupt_requested_ = false;
     busy_ = true;
     restore_goal_runtime();
     // 上一回合没来得及消费的 steering 标记直接丢弃(等价 Codex
@@ -4220,10 +4394,14 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         dispatch_message("system", stop_msg, false);
     }
 
+    const bool interrupted_for_new_turn =
+        abort_requested_.load() && turn_interrupt_requested_.exchange(false);
     if (abort_requested_) {
         turn_timing_status = "aborted";
         account_goal_usage(0, false);
-        if (session_manager_) {
+        if (interrupted_for_new_turn) {
+            append_interrupted_turn_context(turn_info.active_turn_id);
+        } else if (session_manager_) {
             const std::string sid = session_manager_->current_session_id();
             ThreadGoalStore* store = session_manager_->goal_store();
             if (store && !sid.empty()) {

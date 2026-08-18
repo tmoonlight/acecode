@@ -469,6 +469,21 @@ public:
         });
     }
 
+    bool wait_for_agent_turns_and_idle(int count) {
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (provider_->turn_count() >= count && !loop_.is_busy()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                if (provider_->turn_count() >= count && !loop_.is_busy()) {
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return provider_->turn_count() >= count && !loop_.is_busy();
+    }
+
     bool wait_for_tui_message(const std::string& needle) {
         const auto deadline = std::chrono::steady_clock::now() +
                               std::chrono::seconds(5);
@@ -752,8 +767,8 @@ TEST(BuiltinCommands, TurnCommandSteersTheCurrentlyRunningTurn) {
     ASSERT_FALSE(h.state_.conversation.empty());
     EXPECT_EQ(
         h.state_.conversation.back().content,
-        "Guidance accepted for the active turn.");
-    ASSERT_TRUE(h.wait_until_idle());
+        "Interrupting the active turn to submit guidance immediately.");
+    ASSERT_TRUE(h.wait_for_agent_turns_and_idle(2));
     ASSERT_EQ(h.provider_->turn_count(), 2);
 
     const auto request = h.provider_->messages_for_turn(1);

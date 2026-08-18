@@ -338,6 +338,23 @@ public:
         };
     }
 
+    // Abort the matching active turn after atomically promising the input as a
+    // new high-priority regular turn. The default keeps remote/legacy clients
+    // source-compatible while reporting that the operation is unavailable.
+    virtual TurnSteerResult interrupt_turn(
+        const std::string& session_id,
+        const std::string& expected_turn_id,
+        const UserInput& input) {
+        (void)session_id;
+        (void)expected_turn_id;
+        (void)input;
+        return {
+            TurnSteerStatus::NonSteerable,
+            {},
+            "interrupting turn steering is unavailable",
+        };
+    }
+
     // Execute a daemon-owned builtin command, currently limited to `/init` and
     // `/compact`. This is intentionally separate from send_input so command
     // text is not skill-expanded or sent to the model as an ordinary message.

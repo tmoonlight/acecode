@@ -88,6 +88,32 @@ public:
         });
     }
 
+    bool wait_for_provider_turns(int count,
+                                 std::chrono::milliseconds timeout = 5s) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (provider_->turn_count() >= count) return true;
+            std::this_thread::sleep_for(2ms);
+        }
+        return provider_->turn_count() >= count;
+    }
+
+    bool wait_for_provider_turns_and_idle(
+        int count,
+        std::chrono::milliseconds timeout = 10s) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (provider_->turn_count() >= count && !loop_->is_busy()) {
+                std::this_thread::sleep_for(10ms);
+                if (provider_->turn_count() >= count && !loop_->is_busy()) {
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(2ms);
+        }
+        return provider_->turn_count() >= count && !loop_->is_busy();
+    }
+
     std::vector<acecode::SessionEvent> events() const {
         std::lock_guard<std::mutex> lk(events_mu_);
         return events_;
@@ -284,4 +310,143 @@ TEST(AgentLoopTurnSteering, EveryAcceptedFinalBoundaryRaceInputIsCommitted) {
             message.metadata.value("client_message_id", ""));
     }
     EXPECT_EQ(committed_ids, accepted_ids);
+}
+
+TEST(AgentLoopTurnSteering, InterruptStartsStructuredTurnBeforeOrdinaryQueue) {
+    TurnSteeringHarness h("interrupt_priority");
+    h.provider().set_latency_ms(400);
+    h.provider().push_text("old response that must be cancelled");
+    h.provider().push_text("interrupt response");
+    h.provider().push_text("ordinary response");
+
+    h.loop().submit("start");
+    const std::string turn_id = h.wait_for_active_turn();
+    ASSERT_FALSE(turn_id.empty());
+    h.loop().submit("ordinary queued input");
+
+    acecode::UserInput guidance;
+    guidance.text = "replace the current approach";
+    guidance.display_text = "visible replacement";
+    guidance.content_parts = nlohmann::json::array({
+        nlohmann::json{{"type", "text"},
+                       {"text", "replace the current approach"}},
+        nlohmann::json{{"type", "browser_context"},
+                       {"context", nlohmann::json{{"url", "https://example.test"}}}},
+    });
+    guidance.metadata["client_message_id"] = "interrupt-client-1";
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto result = h.loop().interrupt_turn(turn_id, guidance);
+    ASSERT_TRUE(result.accepted()) << result.message;
+    EXPECT_EQ(result.turn_id, turn_id);
+    EXPECT_TRUE(h.loop().active_turn_id().empty())
+        << "the interrupted turn must stop accepting additional steering";
+    ASSERT_TRUE(h.wait_for_provider_turns(2, 250ms))
+        << "the replacement provider call should start without waiting for the "
+           "old 400ms response";
+    EXPECT_LT(
+        std::chrono::steady_clock::now() - started,
+        350ms);
+    ASSERT_TRUE(h.wait_for_provider_turns_and_idle(3, 5s));
+
+    const auto replacement_request = h.provider().messages_for_turn(1);
+    ASSERT_FALSE(replacement_request.empty());
+    EXPECT_EQ(replacement_request.back().role, "user");
+    EXPECT_EQ(replacement_request.back().content, "replace the current approach");
+    EXPECT_EQ(
+        replacement_request.back().metadata.value("client_message_id", ""),
+        "interrupt-client-1");
+    EXPECT_TRUE(
+        replacement_request.back().metadata.value("turn_interrupt", false));
+    EXPECT_EQ(
+        replacement_request.back().metadata.value("interrupted_turn_id", ""),
+        turn_id);
+    EXPECT_TRUE(replacement_request.back().content_parts.is_array());
+    EXPECT_EQ(replacement_request.back().content_parts.size(), 2u);
+
+    const auto ordinary_request = h.provider().messages_for_turn(2);
+    ASSERT_FALSE(ordinary_request.empty());
+    EXPECT_EQ(ordinary_request.back().role, "user");
+    EXPECT_EQ(ordinary_request.back().content, "ordinary queued input");
+
+    int marker_count = 0;
+    int replacement_count = 0;
+    for (const auto& message : h.loop().messages()) {
+        if (message.metadata.is_object() &&
+            message.metadata.value("turn_interrupt_marker", false)) {
+            ++marker_count;
+            EXPECT_TRUE(message.metadata.value("hidden_goal_context", false));
+            EXPECT_NE(message.content.find("<turn_aborted>"), std::string::npos);
+        }
+        if (message.metadata.is_object() &&
+            message.metadata.value("client_message_id", "") ==
+                "interrupt-client-1") {
+            ++replacement_count;
+        }
+        EXPECT_NE(message.content, "old response that must be cancelled");
+    }
+    EXPECT_EQ(marker_count, 1);
+    EXPECT_EQ(replacement_count, 1);
+}
+
+TEST(AgentLoopTurnSteering, InterruptTransfersAcceptedSoftSteersInFifo) {
+    TurnSteeringHarness h("interrupt_soft_fifo");
+    h.provider().set_latency_ms(200);
+    h.provider().push_text("cancelled response");
+    h.provider().push_text("soft steer response");
+    h.provider().push_text("immediate response");
+
+    h.loop().submit("start");
+    const std::string turn_id = h.wait_for_active_turn();
+    ASSERT_FALSE(turn_id.empty());
+
+    acecode::UserInput soft;
+    soft.text = "already accepted soft steer";
+    soft.metadata["client_message_id"] = "soft-before-interrupt";
+    ASSERT_TRUE(h.loop().steer_input(turn_id, soft).accepted());
+
+    acecode::UserInput immediate;
+    immediate.text = "immediate steer";
+    immediate.metadata["client_message_id"] = "immediate-after-soft";
+    ASSERT_TRUE(h.loop().interrupt_turn(turn_id, immediate).accepted());
+    ASSERT_TRUE(h.wait_for_provider_turns_and_idle(3, 5s));
+
+    const auto soft_request = h.provider().messages_for_turn(1);
+    const auto immediate_request = h.provider().messages_for_turn(2);
+    ASSERT_FALSE(soft_request.empty());
+    ASSERT_FALSE(immediate_request.empty());
+    EXPECT_EQ(soft_request.back().content, "already accepted soft steer");
+    EXPECT_EQ(immediate_request.back().content, "immediate steer");
+    EXPECT_TRUE(soft_request.back().metadata.value("turn_interrupt", false));
+    EXPECT_TRUE(immediate_request.back().metadata.value("turn_interrupt", false));
+}
+
+TEST(AgentLoopTurnSteering, InterruptAcceptanceCommitsExactlyOnce) {
+    TurnSteeringHarness h("interrupt_once");
+    h.provider().set_latency_ms(30);
+    h.provider().push_text("cancelled response");
+    h.provider().push_text("replacement response");
+
+    h.loop().submit("start");
+    const std::string turn_id = h.wait_for_active_turn();
+    ASSERT_FALSE(turn_id.empty());
+
+    acecode::UserInput guidance;
+    guidance.text = "only once";
+    guidance.metadata["client_message_id"] = "interrupt-once";
+    ASSERT_TRUE(h.loop().interrupt_turn(turn_id, guidance).accepted());
+
+    const auto duplicate = h.loop().interrupt_turn(turn_id, guidance);
+    EXPECT_EQ(duplicate.status, acecode::TurnSteerStatus::NonSteerable);
+    ASSERT_TRUE(h.wait_for_provider_turns_and_idle(2, 3s));
+
+    int committed = 0;
+    for (const auto& message : h.loop().messages()) {
+        if (message.metadata.is_object() &&
+            message.metadata.value("client_message_id", "") ==
+                "interrupt-once") {
+            ++committed;
+        }
+    }
+    EXPECT_EQ(committed, 1);
 }

@@ -63,13 +63,15 @@ nlohmann::json build_tool_end_payload(
     double elapsed_seconds,
     const std::string& output_snippet,
     const std::string& tool_call_id,
-    int tool_index) {
+    int tool_index,
+    const std::string& message_id) {
     nlohmann::json p;
     p["tool"]            = tool_name;
     p["success"]         = result.success;
     p["elapsed_seconds"] = elapsed_seconds;
     if (!tool_call_id.empty()) p["tool_call_id"] = tool_call_id;
     if (tool_index >= 0) p["tool_index"] = tool_index;
+    if (!message_id.empty()) p["message_id"] = message_id;
     if (result.summary.has_value()) {
         p["summary"] = tool_summary_to_json(*result.summary);
     }
