@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
-import { classifyFileLink, splitLineSuffix, stripTrailingSeparators } from './fileLink.js';
+import {
+  classifyFileLink,
+  parseThreadLink,
+  splitLineSuffix,
+  stripTrailingSeparators,
+  threadSessionTargetFromClickEvent,
+} from './fileLink.js';
 import { renderMarkdown } from './markdown.js';
 
 async function run(name, fn) {
@@ -88,6 +94,36 @@ await run('posix absolute path classifies as file', () => {
   assert.equal(classifyFileLink('/home/user/x.py').kind, 'file');
 });
 
+// 场景:thread:// 会话链接。
+// 期望:判 session,抽出 session-id;可选 workspace / no_workspace 查询串。
+await run('thread href classifies as session', () => {
+  const r = classifyFileLink('thread://20260818-041607-0315');
+  assert.equal(r.kind, 'session');
+  assert.equal(r.sessionId, '20260818-041607-0315');
+  assert.equal(r.workspaceHash, '');
+  assert.equal(r.noWorkspace, false);
+});
+
+await run('thread href keeps workspace query and no_workspace flag', () => {
+  const withWorkspace = classifyFileLink('thread://ses-1?workspace=abc123');
+  assert.equal(withWorkspace.kind, 'session');
+  assert.equal(withWorkspace.sessionId, 'ses-1');
+  assert.equal(withWorkspace.workspaceHash, 'abc123');
+  assert.equal(withWorkspace.noWorkspace, false);
+
+  const noWorkspace = parseThreadLink('thread://ses-2?no_workspace=1');
+  assert.equal(noWorkspace.sessionId, 'ses-2');
+  assert.equal(noWorkspace.noWorkspace, true);
+  assert.equal(noWorkspace.workspaceHash, '');
+});
+
+await run('invalid thread hrefs stay rejected', () => {
+  assert.equal(classifyFileLink('thread://').kind, 'reject');
+  assert.equal(classifyFileLink('thread://has space').kind, 'reject');
+  assert.equal(classifyFileLink('thread:ses-1').kind, 'reject');
+  assert.equal(parseThreadLink('javascript:alert(1)'), null);
+});
+
 // 场景:真外链 http/https/mailto。
 // 期望:判 external(交给 link_open 加 target=_blank,不当文件预览)。
 await run('http/https/mailto classify as external', () => {
@@ -142,6 +178,48 @@ await run('markdown renders relative file link with data-file-path', () => {
   assert.match(html, /data-file-kind="file"/);
   // 文件链接不应带 target=_blank(不走浏览器新标签页,走详情页预览)。
   assert.doesNotMatch(html, /<a[^>]*data-file-path[^>]*target="_blank"/);
+});
+
+await run('markdown renders thread links as session chips', () => {
+  const html = renderMarkdown('see [Fix encoding causing large git diffs](thread://20260818-041607-0315) here');
+  assert.match(html, /<a[^>]*href="thread:\/\/20260818-041607-0315"/);
+  assert.match(html, /data-session-id="20260818-041607-0315"/);
+  assert.match(html, /class="[^"]*ace-thread-link/);
+  assert.match(html, /class="[^"]*ace-cmd-token/);
+  assert.match(html, /NewSession\.svg/);
+  assert.match(html, /Fix encoding causing large git diffs/);
+  assert.doesNotMatch(html, /target="_blank"/);
+  assert.doesNotMatch(html, /data-file-path/);
+});
+
+await run('markdown linkifies bare thread URLs', () => {
+  const html = renderMarkdown('open thread://20260818-042716-8d6a now');
+  assert.match(html, /<a[^>]*data-session-id="20260818-042716-8d6a"/);
+  assert.match(html, /class="[^"]*ace-thread-link/);
+});
+
+await run('threadSessionTargetFromClickEvent reads chip data attributes', () => {
+  const anchor = {
+    getAttribute: (name) => ({
+      'data-session-id': 'ses-1',
+      'data-session-workspace': 'ws-1',
+      'data-session-no-workspace': null,
+    }[name]),
+  };
+  const event = {
+    defaultPrevented: false,
+    button: 0,
+    target: { closest: (selector) => (selector === 'a[data-session-id]' ? anchor : null) },
+  };
+  assert.deepEqual(threadSessionTargetFromClickEvent(event), {
+    sessionId: 'ses-1',
+    workspaceHash: 'ws-1',
+    noWorkspace: false,
+  });
+  assert.equal(threadSessionTargetFromClickEvent({
+    ...event,
+    metaKey: true,
+  }), null);
 });
 
 await run('markdown renders directory links with data-file-kind=directory', () => {

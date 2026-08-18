@@ -2559,6 +2559,19 @@ body {
 .ace-md ol { list-style-type: decimal; }
 .ace-md li { margin: 2px 0; }
 .ace-md a  { color: var(--ace-accent); text-decoration: underline; text-underline-offset: 2px; }
+.ace-md a.ace-thread-link,
+a.ace-thread-link {
+  text-decoration: none;
+  text-underline-offset: unset;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ace-md a.ace-thread-link:hover,
+a.ace-thread-link:hover,
+.ace-md a.ace-thread-link:focus-visible,
+a.ace-thread-link:focus-visible {
+  text-decoration: none;
+}
 .ace-md strong { font-weight: 600; }
 .ace-md em     { font-style: italic; }
 .ace-md hr     { border: 0; border-top: 1px solid var(--ace-border); margin: 8px 0; }

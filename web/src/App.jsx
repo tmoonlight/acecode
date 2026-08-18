@@ -116,6 +116,7 @@ import {
   sessionRefFromJumpTarget,
   stripOpenSessionParams,
 } from './lib/sessionJump.js';
+import { threadSessionTargetFromClickEvent } from './lib/fileLink.js';
 import { desktopUiMode } from './lib/desktopShellMode.js';
 import {
   initialDesktopStartupProgress,
@@ -883,6 +884,21 @@ export function App() {
     if (!session?.id) return;
     setSearchOpen(false);
     await resumeAndOpenSession(session);
+  }, [resumeAndOpenSession]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onClick = (event) => {
+      const target = threadSessionTargetFromClickEvent(event);
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      resumeAndOpenSession(target).catch((error) => {
+        toast({ kind: 'err', text: '打开会话失败:' + (error?.message || '') });
+      });
+    };
+    window.addEventListener('click', onClick, true);
+    return () => window.removeEventListener('click', onClick, true);
   }, [resumeAndOpenSession]);
   const openConversationFind = useCallback(() => {
     setConversationFindRequest((request) => request + 1);

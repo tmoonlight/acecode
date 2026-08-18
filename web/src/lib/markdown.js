@@ -2,7 +2,7 @@
 // 由 markdown-it 14 + highlight.js core(12 种常用语言)驱动:
 //   - GFM 表格 / 任务清单 / 嵌套 list / 带 scheme 的 autolink(不识别裸域名)
 //   - 代码高亮(c/cpp/js/ts/python/bash/json/diff/markdown/rust/go/yaml)
-//   - HTML 解析关闭(html: false),URL scheme 白名单(http/https/mailto/相对)
+//   - HTML 解析关闭(html: false),URL scheme 白名单(http/https/mailto/thread/相对)
 // 公开 API: renderMarkdown(src) -> string,签名跟旧版一致,Message.jsx 零改。
 
 import MarkdownIt from 'markdown-it';
@@ -152,6 +152,16 @@ md.use(taskLists, { enabled: false, label: false });
 // 输出里这类假阳性远比裸域名常见,关掉 fuzzy,只保留 http(s)://、//host、
 // mailto: 以及邮箱。显式 [text](url) 不受影响。
 md.linkify.set({ fuzzyLink: false });
+md.linkify.add('thread:', {
+  validate(text, pos, self) {
+    const tail = text.slice(pos);
+    if (!self.re.acecodeThread) {
+      self.re.acecodeThread = /^\/\/[A-Za-z0-9_-]{1,64}(?:\?[A-Za-z0-9_.=&%-]*)?/;
+    }
+    const match = self.re.acecodeThread.exec(tail);
+    return match ? match[0].length : 0;
+  },
+});
 
 md.renderer.rules.fence = (tokens, idx, _options, env) => {
   const token = tokens[idx];
@@ -179,8 +189,9 @@ md.renderer.rules.fence = (tokens, idx, _options, env) => {
 };
 
 // URL scheme 白名单。markdown-it 的 validateLink 默认放过 javascript: + data:,
-// 我们靠 classifyFileLink 收紧:放行外链(http/https/mailto)、页内锚点、本地文件
-// 路径(相对 / POSIX 绝对 / Windows 盘符),拒绝 javascript:/data: 等危险 scheme。
+// 我们靠 classifyFileLink 收紧:放行外链(http/https/mailto)、会话(thread://)、
+// 页内锚点、本地文件路径(相对 / POSIX 绝对 / Windows 盘符),拒绝
+// javascript:/data: 等危险 scheme。
 // 旧实现的白名单 /^(https?:|mailto:|\/|\.|#)/ 会把裸相对路径 `docs/foo.md` 判非法,
 // 导致模型引用的文件链接被剥成纯文本 —— 见 fileLink.js。
 md.validateLink = (url) => classifyFileLink(url).kind !== 'reject';
@@ -188,6 +199,9 @@ md.validateLink = (url) => classifyFileLink(url).kind !== 'reject';
 // link_open:外链加 target=_blank rel=noreferrer(避免 referer 泄漏 + 新标签页);
 // 本地文件/目录链接打 data-file-path/data-file-kind/data-file-line + class,
 // 交给 Message.jsx 的点击拦截:文件走中间详情页预览,目录打开右侧文件栏并定位。
+// 会话链接打 data-session-* + 芯片样式,交给全局点击拦截切到对应会话。
+const SESSION_LINK_ICON = '<span class="ace-icon ace-cmd-token-glyph" style="width:12px;height:12px;--ace-icon-url:url(\'/vs-icons/NewSession.svg\')" data-monochrome="true" aria-hidden="true"></span>';
+
 function collectLinkLabel(tokens, openIdx) {
   let text = '';
   for (let i = openIdx + 1; i < tokens.length; i += 1) {
@@ -203,7 +217,8 @@ const defaultLinkOpen = md.renderer.rules.link_open
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const href = token.attrGet('href') || '';
-  const info = classifyFileLink(href, { label: collectLinkLabel(tokens, idx) });
+  const label = collectLinkLabel(tokens, idx);
+  const info = classifyFileLink(href, { label });
   if (info.kind === 'external') {
     token.attrSet('target', '_blank');
     token.attrSet('rel', 'noreferrer');
@@ -213,8 +228,16 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     if (info.line != null) token.attrSet('data-file-line', String(info.line));
     const cls = token.attrGet('class');
     token.attrSet('class', cls ? cls + ' ace-file-link' : 'ace-file-link');
+  } else if (info.kind === 'session') {
+    token.attrSet('data-session-id', info.sessionId);
+    if (info.workspaceHash) token.attrSet('data-session-workspace', info.workspaceHash);
+    if (info.noWorkspace) token.attrSet('data-session-no-workspace', 'true');
+    const cls = token.attrGet('class');
+    token.attrSet('class', cls ? `${cls} ace-cmd-token ace-thread-link` : 'ace-cmd-token ace-thread-link');
+    token.attrSet('title', label || info.sessionId);
   }
-  return defaultLinkOpen(tokens, idx, options, env, self);
+  const html = defaultLinkOpen(tokens, idx, options, env, self);
+  return info.kind === 'session' ? html + SESSION_LINK_ICON : html;
 };
 
 export function renderMarkdown(src) {

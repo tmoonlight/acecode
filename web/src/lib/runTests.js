@@ -16,6 +16,7 @@ import './sessionStatus.test.js';
 import './codeBlockCopy.test.js';
 import './markdownBlocks.test.js';
 import './fileLink.test.js';
+import './threadLinkArchitecture.test.js';
 import './fileTreeLocate.test.js';
 import './format.test.js';
 import './inputHistoryNavigation.test.js';
