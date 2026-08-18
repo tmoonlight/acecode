@@ -1,4 +1,4 @@
 interface:
   display_name: "ACECode Release"
-  short_description: "Release ACECode with Git tag and self-update server package."
-  default_prompt: "Release ACECode version <version>: commit release changes, tag it, build, publish the Windows updater package, and verify the update server."
+  short_description: "Release ACECode or a Windows prerelease validation package."
+  default_prompt: "Use /acecode-release to publish a stable ACECode release or a Jenkins Green Windows prerelease validation package."
