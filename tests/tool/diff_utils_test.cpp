@@ -10,6 +10,8 @@
 //   B. 单行替换 — 期望 Removed / Added 各 1,行号与 marker 对应
 //   C. 前后都有 context — 期望 context 行在 Removed/Added 两侧,且行号累加正确
 //   D. 内容相同 — 期望结构化结果为空向量(无 hunk)
+//   E. 两处相隔较远的替换 — 期望拆成两个 hunk,而不是中间整段替换
+//   F. 纯 CRLF/LF 差异 — 期望空 hunk / 零统计
 
 #include <gtest/gtest.h>
 
@@ -139,4 +141,52 @@ TEST(StructuredDiff, WithContextAround) {
 TEST(StructuredDiff, NoChangeEmptyHunks) {
     auto hunks = generate_structured_diff("x\ny\n", "x\ny\n", "/tmp/f.txt");
     EXPECT_TRUE(hunks.empty());
+}
+
+// 两处相隔较远的单行替换不应被合成一个"中间整段替换"。
+// 回归:旧算法只剥公共前后缀,会把 3..133 行全部标成改动。
+TEST(StructuredDiff, DistantEditsStaySeparateHunks) {
+    std::string old_text;
+    std::string new_text;
+    for (int i = 1; i <= 140; ++i) {
+        const std::string line = "line-" + std::to_string(i) + "\n";
+        old_text += line;
+        if (i == 3) new_text += "changed-3\n";
+        else if (i == 133) new_text += "changed-133\n";
+        else new_text += line;
+    }
+
+    DiffStats stats;
+    (void)generate_unified_diff(old_text, new_text, "/tmp/f.txt", stats);
+    EXPECT_EQ(stats.additions, 2);
+    EXPECT_EQ(stats.deletions, 2);
+
+    auto hunks = generate_structured_diff(old_text, new_text, "/tmp/f.txt");
+    ASSERT_EQ(hunks.size(), 2u);
+    EXPECT_EQ(hunks[0].old_start, 1);
+    EXPECT_EQ(hunks[0].new_start, 1);
+    EXPECT_EQ(hunks[1].old_start, 130);
+    EXPECT_EQ(hunks[1].new_start, 130);
+
+    int removed = 0;
+    int added = 0;
+    for (const auto& hunk : hunks) {
+        for (const auto& line : hunk.lines) {
+            if (line.kind == DiffLineKind::Removed) ++removed;
+            if (line.kind == DiffLineKind::Added) ++added;
+        }
+    }
+    EXPECT_EQ(removed, 2);
+    EXPECT_EQ(added, 2);
+}
+
+// 纯换行风格差异(LF vs CRLF)不算内容改动。
+TEST(StructuredDiff, CrlfOnlyDifferenceIsEmpty) {
+    auto hunks = generate_structured_diff("a\nb\nc\n", "a\r\nb\r\nc\r\n", "/tmp/f.txt");
+    EXPECT_TRUE(hunks.empty());
+
+    DiffStats stats;
+    (void)generate_unified_diff("a\nb\nc\n", "a\r\nb\r\nc\r\n", "/tmp/f.txt", stats);
+    EXPECT_EQ(stats.additions, 0);
+    EXPECT_EQ(stats.deletions, 0);
 }
