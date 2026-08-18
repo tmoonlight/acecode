@@ -256,19 +256,27 @@ export function reconcileSidebarSessions(previousSessions = [], incomingSessions
   return [...top, ...stable];
 }
 
-export function upsertSidebarSession(sessions = [], nextSession = null) {
+export function upsertSidebarSession(sessions = [], nextSession = null, options = {}) {
   const id = sessionId(nextSession);
   if (!id) return Array.isArray(sessions) ? sessions : [];
 
   const list = Array.isArray(sessions) ? sessions : [];
+  const promoteToTop = options?.promoteToTop === true;
   const nextKey = sessionKey(nextSession);
   const existingIndex = list.findIndex((session) => sessionKey(session) === nextKey);
-  if (existingIndex < 0) return sortSidebarSessionsNewestFirst([...list, { ...nextSession, id }]);
+  if (existingIndex < 0) {
+    const normalized = { ...nextSession, id };
+    return promoteToTop
+      ? [normalized, ...list]
+      : sortSidebarSessionsNewestFirst([...list, normalized]);
+  }
 
   const existing = list[existingIndex];
   const merged = { ...existing, ...nextSession, id };
-  const remaining = list.filter((_, index) => index !== existingIndex);
-  if (sessionContentChanged(existing, merged)) return [merged, ...remaining];
+  const remaining = list.filter((session, index) => (
+    promoteToTop ? sessionKey(session) !== nextKey : index !== existingIndex
+  ));
+  if (promoteToTop || sessionContentChanged(existing, merged)) return [merged, ...remaining];
   return [
     ...list.slice(0, existingIndex),
     merged,

@@ -2178,7 +2178,9 @@ export function Sidebar({
             });
           }
         } else {
-          setSessions((prev) => upsertSidebarSession(prev, session));
+          setSessions((prev) => upsertSidebarSession(prev, session, {
+            promoteToTop: detail.reason === 'session-created',
+          }));
         }
         setStatusBySession((prev) => applyStatusUpdate(prev, {
           ...session,

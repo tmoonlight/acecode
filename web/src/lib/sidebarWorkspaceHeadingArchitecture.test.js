@@ -60,6 +60,14 @@ test('workspace collapse-all keeps disclosure-only reopen session lists compact'
   assert.doesNotMatch(toggleSource, /workspaceCollapseAllRef\.current\s*=\s*false/);
 });
 
+test('created sessions are explicitly promoted before active-row reveal', () => {
+  const sidebar = source('components/Sidebar.jsx');
+  assert.match(
+    sidebar,
+    /setSessions\(\(prev\) => upsertSidebarSession\(prev, session, \{\s*promoteToTop: detail\.reason === 'session-created',\s*\}\)\);/,
+  );
+});
+
 test('workspace rows expose a shared menu button followed by the new-task shortcut', () => {
   const sidebar = source('components/Sidebar.jsx');
   const icons = source('components/Icon.jsx');

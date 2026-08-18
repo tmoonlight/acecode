@@ -338,6 +338,46 @@ test('upsertSidebarSession inserts new session newest-first', () => {
   assert.deepEqual(result.map((s) => s.id), ['fork', 'old']);
 });
 
+test('upsertSidebarSession promotes an incomplete created session immediately', () => {
+  const result = upsertSidebarSession([
+    { id: 'newest-known', workspace_hash: 'w1', updated_at: '2026-05-17T03:00:00Z' },
+    { id: 'older', workspace_hash: 'w1', updated_at: '2026-05-17T01:00:00Z' },
+  ], {
+    id: 'created',
+    workspace_hash: 'w1',
+  }, {
+    promoteToTop: true,
+  });
+  assert.deepEqual(result.map((s) => s.id), ['created', 'newest-known', 'older']);
+});
+
+test('upsertSidebarSession creation promotion wins a refresh race without duplicates', () => {
+  const result = upsertSidebarSession([
+    { id: 'other', workspace_hash: 'w1', updated_at: '2026-05-17T03:00:00Z' },
+    { id: 'created', workspace_hash: 'w1', updated_at: '2026-05-17T04:00:00Z', message_count: 0 },
+    { id: 'created', workspace_hash: 'w1', title: 'stale duplicate' },
+  ], {
+    id: 'created',
+    workspace_hash: 'w1',
+    title: 'Created task',
+  }, {
+    promoteToTop: true,
+  });
+  assert.deepEqual(result.map((s) => s.id), ['created', 'other']);
+  assert.equal(result[0].title, 'Created task');
+  assert.equal(result[0].updated_at, '2026-05-17T04:00:00Z');
+});
+
+test('upsertSidebarSession keeps non-creation inserts on timestamp order', () => {
+  const result = upsertSidebarSession([
+    { id: 'known', workspace_hash: 'w1', updated_at: '2026-05-17T03:00:00Z' },
+  ], {
+    id: 'metadata-pending',
+    workspace_hash: 'w1',
+  });
+  assert.deepEqual(result.map((s) => s.id), ['known', 'metadata-pending']);
+});
+
 test('upsertSidebarSession replaces existing session without duplicates', () => {
   const result = upsertSidebarSession([
     { id: 'other', updated_at: '2026-05-17T02:00:00Z' },
@@ -395,4 +435,55 @@ test('reconcileSidebarSessions promotes content changes and new sessions', () =>
   ];
   const result = reconcileSidebarSessions(previous, incoming);
   assert.deepEqual(result.map((s) => s.id), ['new', 'b', 'a', 'c']);
+});
+
+test('created session stays first across refreshes without expanding a compact list', () => {
+  const existing = Array.from({ length: 6 }, (_, index) => ({
+    id: `old-${index}`,
+    workspace_hash: 'w1',
+    updated_at: `2026-05-${String(16 - index).padStart(2, '0')}T01:00:00Z`,
+    message_count: 2,
+    turn_count: 1,
+  }));
+  const target = { sessionId: 'created', workspaceHash: 'w1' };
+  const optimistic = upsertSidebarSession(existing, {
+    id: 'created',
+    workspace_hash: 'w1',
+  }, {
+    promoteToTop: true,
+  });
+
+  assert.equal(optimistic[0].id, 'created');
+  assert.equal(sessionListNeedsRevealExpansion(optimistic, target, false), false);
+  assert.deepEqual(
+    sidebarSessionProjection(optimistic, false).visibleSessions.map((session) => session.id),
+    ['created', 'old-0', 'old-1', 'old-2', 'old-3'],
+  );
+
+  const withMetadata = reconcileSidebarSessions(optimistic, [
+    {
+      id: 'created',
+      workspace_hash: 'w1',
+      updated_at: '2026-05-17T04:00:00Z',
+      message_count: 0,
+      turn_count: 0,
+    },
+    ...existing,
+  ]);
+  const withContent = reconcileSidebarSessions(withMetadata, [
+    {
+      id: 'created',
+      workspace_hash: 'w1',
+      updated_at: '2026-05-17T04:01:00Z',
+      message_count: 2,
+      turn_count: 1,
+    },
+    ...existing,
+  ]);
+
+  assert.equal(withMetadata[0].id, 'created');
+  assert.equal(withMetadata[0].message_count, 0);
+  assert.equal(withContent[0].id, 'created');
+  assert.equal(withContent[0].message_count, 2);
+  assert.equal(sessionListNeedsRevealExpansion(withContent, target, false), false);
 });
