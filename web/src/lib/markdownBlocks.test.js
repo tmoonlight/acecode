@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { renderMarkdown, renderMarkdownBlocks } from './markdown.js';
+
+const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function source(relativePath) {
+  return fs.readFileSync(path.join(srcRoot, relativePath), 'utf8');
+}
 
 function run(name, fn) {
   try {
@@ -41,6 +50,37 @@ run('block html concatenation equals whole-document render', () => {
   const blocks = renderMarkdownBlocks(src);
   assert.ok(blocks.length >= 7, `期望切出多个块,实际 ${blocks.length}`);
   assert.equal(blocks.map((b) => b.html).join(''), renderMarkdown(src));
+});
+
+run('lists preserve starts, nesting, and task checkbox semantics', () => {
+  const ordered = renderMarkdown([
+    '3. 外层第三项',
+    '4. 外层第四项',
+    '   1. 嵌套第一项',
+  ].join('\n'));
+  assert.match(ordered, /<ol start="3">/);
+  assert.equal((ordered.match(/<ol(?:\s[^>]*)?>/g) || []).length, 2, ordered);
+  assert.match(ordered, /<ol start="3">[\s\S]*<ol>[\s\S]*<\/ol>[\s\S]*<\/ol>/);
+
+  const unordered = renderMarkdown('- 外层\n  - 嵌套');
+  assert.equal((unordered.match(/<ul(?:\s[^>]*)?>/g) || []).length, 2, unordered);
+
+  const tasks = renderMarkdown('- [ ] 待办\n- [x] 完成');
+  assert.match(tasks, /<ul class="contains-task-list">/);
+  assert.equal((tasks.match(/class="task-list-item"/g) || []).length, 2, tasks);
+  assert.equal((tasks.match(/type="checkbox"/g) || []).length, 2, tasks);
+  assert.equal((tasks.match(/checked=""/g) || []).length, 1, tasks);
+});
+
+run('shared markdown styles restore list markers in file previews', () => {
+  const styles = source('styles/globals.css');
+  assert.match(styles, /\.ace-md ul\s*\{[^}]*list-style-type:\s*disc\s*;/s);
+  assert.match(styles, /\.ace-md ol\s*\{[^}]*list-style-type:\s*decimal\s*;/s);
+  assert.match(styles, /\.ace-md li\.task-list-item\s*\{[^}]*list-style:\s*none\s*;/s);
+
+  const preview = source('components/FilePreviewContent.jsx');
+  assert.match(preview, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
+  assert.match(preview, /dangerouslySetInnerHTML=\{\{ __html: renderMarkdown\(state\.text\) \}\}/);
 });
 
 // 回归测试(fix 流式出字时消息区上下跳动):流式 append 时,已定稿的

@@ -6,6 +6,7 @@ import {
   buildQuestionAnswerPayload,
   buildQuestionCancelPayload,
   getNavigationState,
+  hasSelectedTextWithin,
   isQuestionAnswered,
   makeInitialAnswers,
   normalizeQuestionRequest,
@@ -91,4 +92,24 @@ run('未回答问题禁用推进和提交', () => {
   assert.equal(allQuestionsAnswered(request.questions, answers), false);
   assert.equal(state.canGoNext, false);
   assert.equal(state.canSubmit, false);
+});
+
+run('答案卡片内有鼠标选区时保留选区', () => {
+  const target = {};
+  const selection = {
+    isCollapsed: false,
+    rangeCount: 1,
+    getRangeAt: () => ({ intersectsNode: (node) => node === target }),
+  };
+  assert.equal(hasSelectedTextWithin(target, selection), true);
+  assert.equal(hasSelectedTextWithin({}, selection), false);
+});
+
+run('折叠选区不会阻止答案点击', () => {
+  const selection = {
+    isCollapsed: true,
+    rangeCount: 1,
+    getRangeAt: () => ({ intersectsNode: () => true }),
+  };
+  assert.equal(hasSelectedTextWithin({}, selection), false);
 });

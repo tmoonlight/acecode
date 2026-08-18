@@ -85,6 +85,15 @@ export function setAnswerCustom(answer = {}, custom) {
   return { ...answer, custom: toText(custom) };
 }
 
+export function hasSelectedTextWithin(target, selection) {
+  if (!target || !selection || selection.isCollapsed || selection.rangeCount <= 0) return false;
+  try {
+    return selection.getRangeAt(0).intersectsNode(target);
+  } catch {
+    return false;
+  }
+}
+
 export function buildQuestionAnswerPayload(request = {}, questions = [], answers = []) {
   const payload = {
     request_id: toText(request.requestId || request.request_id),

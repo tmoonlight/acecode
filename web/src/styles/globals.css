@@ -2555,6 +2555,8 @@ body {
 .ace-md p  { margin: 4px 0; }
 .ace-md ul,
 .ace-md ol { margin: 4px 0; padding-left: 22px; }
+.ace-md ul { list-style-type: disc; }
+.ace-md ol { list-style-type: decimal; }
 .ace-md li { margin: 2px 0; }
 .ace-md a  { color: var(--ace-accent); text-decoration: underline; text-underline-offset: 2px; }
 .ace-md strong { font-weight: 600; }

@@ -9,6 +9,7 @@ import {
   buildQuestionAnswerPayload,
   buildQuestionCancelPayload,
   getNavigationState,
+  hasSelectedTextWithin,
   makeInitialAnswers,
   normalizeQuestionRequest,
   setAnswerCustom,
@@ -16,6 +17,10 @@ import {
 } from '../lib/questionPicker.js';
 
 const READABLE_TEXT_STYLE = { overflowWrap: 'anywhere', wordBreak: 'break-word' };
+const SELECTABLE_OPTION_STYLE = {
+  WebkitUserSelect: 'text',
+  userSelect: 'text',
+};
 
 function focusSoon(ref) {
   requestAnimationFrame(() => ref.current?.focus());
@@ -223,9 +228,13 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
                 <button
                   key={`${opt.value}-${index}`}
                   type="button"
-                  onClick={() => selectOption(index)}
+                  onClick={(event) => {
+                    if (event.detail > 0 && hasSelectedTextWithin(event.currentTarget, window.getSelection())) return;
+                    selectOption(index);
+                  }}
                   onFocus={() => setFocusIndex(index)}
                   aria-pressed={selected}
+                  style={SELECTABLE_OPTION_STYLE}
                   className={clsx(
                     'w-full text-left rounded-lg border px-2.5 py-2 flex items-start gap-2 transition outline-none',
                     selected
