@@ -5140,6 +5140,14 @@ a.ace-thread-link:focus-visible {
 .ace-queue-card-action:hover {
   background: var(--ace-accent-bg);
 }
+.ace-queue-card-edit {
+  color: var(--ace-fg-mute);
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.ace-queue-card-edit:hover {
+  color: var(--ace-fg);
+  background: rgba(var(--ace-surface-hi-rgb), 0.72);
+}
 .ace-queue-card-guide {
   border: 1px solid rgba(var(--ace-accent-rgb), 0.40);
   color: var(--ace-accent);

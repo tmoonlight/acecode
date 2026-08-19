@@ -17,6 +17,7 @@ import {
   queuedInputsForSession,
   retryQueuedInput,
   shouldDrainQueuedInput,
+  updateQueuedInputContent,
 } from './chatInputQueue.js';
 
 function run(name, fn) {
@@ -183,6 +184,41 @@ run('cancelled 项不会出现在可见队列也不会被发送', () => {
 
   assert.equal(queuedInputsForSession(state, 's1').length, 0);
   assert.equal(nextQueuedInput(state, 's1'), null);
+});
+
+run('编辑排队项会更新可见文本和发送 payload，发送中不可改', () => {
+  let state = createChatInputQueueState();
+  state = enqueueQueuedInput(state, { sessionId: 's1', text: 'plain', now: 90 });
+  const textOnlyId = nextQueuedInput(state, 's1').queued.id;
+  const emptyTextOnly = updateQueuedInputContent(state, textOnlyId, '   ', { now: 95 });
+  assert.equal(emptyTextOnly, state);
+
+  state = enqueueQueuedInput(state, {
+    sessionId: 's1',
+    payload: {
+      text: 'old',
+      attachments: [{ id: 'att_1' }],
+      contexts: [],
+      swarm_mode: true,
+    },
+    now: 100,
+  });
+  const id = queuedInputsForSession(state, 's1')[1].queued.id;
+
+  state = updateQueuedInputContent(state, id, 'revised question', { now: 150 });
+  const edited = queuedInputsForSession(state, 's1')[1];
+  assert.equal(edited.content, 'revised question');
+  assert.equal(edited.queued.payload.text, 'revised question');
+  assert.deepEqual(edited.queued.payload.attachments, [{ id: 'att_1' }]);
+  assert.equal(edited.queued.payload.swarm_mode, true);
+  assert.equal(queuedInputRequestPayload(edited).text, 'revised question');
+
+  state = updateQueuedInputContent(state, id, '   ', { now: 160 });
+  assert.equal(queuedInputsForSession(state, 's1')[1].content, '   ');
+
+  state = markQueuedInputSending(state, id, { now: 200 });
+  const sendingUnchanged = updateQueuedInputContent(state, id, 'too late', { now: 210 });
+  assert.equal(sendingUnchanged, state);
 });
 
 run('failed 项保留可见状态并可重试', () => {

@@ -87,6 +87,7 @@ import {
   QUEUED_INPUT_STATE,
   queuedInputRequestPayload,
   retryQueuedInput,
+  updateQueuedInputContent,
 } from '../lib/chatInputQueue.js';
 import { findStickyUserContext, sameStickyUserContext, scrollTopForStickySourceRow } from '../lib/stickyUserContext.js';
 import { loadTranscriptHistory, useSessionTranscript } from '../lib/sessionTranscript.js';
@@ -2488,6 +2489,25 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
 
   const retryQueued = useCallback((queuedId) => {
     updateQueueState((prev) => retryQueuedInput(prev, queuedId));
+  }, [updateQueueState]);
+
+  const saveQueuedEdit = useCallback((queuedId, text) => {
+    const queuedItem = queueStateRef.current.items.find(
+      (item) => item?.queued?.id === queuedId,
+    );
+    if (queuedItem?.queued?.state !== QUEUED_INPUT_STATE.QUEUED &&
+        queuedItem?.queued?.state !== QUEUED_INPUT_STATE.FAILED) {
+      return;
+    }
+    const nextText = String(text ?? '');
+    const payload = queuedItem.queued.payload || {};
+    const hasExtras = (Array.isArray(payload.attachments) && payload.attachments.length > 0)
+      || (Array.isArray(payload.contexts) && payload.contexts.length > 0);
+    if (!nextText.trim() && !hasExtras) {
+      toast({ kind: 'err', text: '消息不能为空' });
+      return;
+    }
+    updateQueueState((prev) => updateQueuedInputContent(prev, queuedId, nextText));
   }, [updateQueueState]);
 
   const runSideQuestion = useCallback((
@@ -5218,6 +5238,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         onCancel={cancelQueued}
         onRetry={retryQueued}
         onGuide={guideQueued}
+        onSaveEdit={saveQueuedEdit}
         guideDisabled={!busy || !activeTurnId}
       />
       {readOnlyExternalSession ? (

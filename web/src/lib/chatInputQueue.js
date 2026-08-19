@@ -230,6 +230,33 @@ export function retryQueuedInput(state, id) {
   return setQueuedInputState(state, id, QUEUED_INPUT_STATE.QUEUED, { error: '' });
 }
 
+export function updateQueuedInputContent(state, id, text, { now = Date.now() } = {}) {
+  const nextText = normalizeText(text);
+  return updateQueuedInput(state, id, (item) => {
+    const currentState = item?.queued?.state;
+    if (currentState !== QUEUED_INPUT_STATE.QUEUED &&
+        currentState !== QUEUED_INPUT_STATE.FAILED) return item;
+    const payload = normalizePayload({
+      payload: {
+        ...(item.queued.payload || {}),
+        text: nextText,
+      },
+    });
+    const hasExtras = payload.attachments.length > 0 || payload.contexts.length > 0;
+    if (nextText.trim().length === 0 && !hasExtras) return item;
+    if (item.content === nextText && item.queued.payload?.text === nextText) return item;
+    return {
+      ...item,
+      content: nextText,
+      queued: {
+        ...item.queued,
+        payload,
+        updatedAt: now,
+      },
+    };
+  });
+}
+
 export function queuedInputsForSession(state, sessionId, { includeDone = false } = {}) {
   const sid = normalizeSessionId(sessionId);
   const doneStates = new Set([

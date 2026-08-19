@@ -123,6 +123,10 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '正在打断当前回合…': 'Interrupting the active turn…',
   '当前没有可插话的运行中回合': 'There is no running turn to interject into',
   '将排队消息插入当前回合': 'Interject queued message into the active turn',
+  '编辑排队消息': 'Edit queued message',
+  '排队消息内容': 'Queued message',
+  '编辑刚刚发出的内容': 'Edit the message you just sent',
+  '消息不能为空': 'Message cannot be empty',
   '插话提交失败:': 'Failed to submit interjection:',
   '插话中断': 'Interjection interrupted',
   '用法：/turn <插话内容>': 'Usage: /turn <interjection>',
@@ -776,6 +780,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '本地服务': 'Local services',
   '热门模型': 'Popular models',
   '自定义模型': 'Custom models',
+  '自营模型': 'First-party models',
   '运行中的会话正在使用该模型': 'A running session is using this model',
   '找不到该预设对应的 Provider 描述': 'The provider definition for this profile was not found',
   '这是当前默认模型。删除后默认模型将被清空。':

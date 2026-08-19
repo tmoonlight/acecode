@@ -59,6 +59,27 @@ test('queue-card and slash interjection both use the immediate interrupt endpoin
   );
 });
 
+test('queue cards expose an edit icon immediately left of interject and save via Modal', () => {
+  const list = source('components/QueueCardList.jsx');
+  const chat = source('components/ChatView.jsx');
+  const queue = source('lib/chatInputQueue.js');
+  const card = section(list, 'function QueueCard({', 'export function QueueCardList');
+  const dialog = section(list, 'function QueueCardEditDialog({', 'function QueueCard({');
+
+  assert.ok(
+    card.indexOf('aria-label="编辑排队消息"') < card.indexOf('aria-label="将排队消息插入当前回合"'),
+    'edit SVG must sit immediately left of the interject button',
+  );
+  assert.match(card, /<VsIcon name="edit"/);
+  assert.match(dialog, /<Modal/);
+  assert.match(dialog, /labelledBy="queue-card-edit-title"/);
+  assert.match(dialog, /编辑排队消息/);
+  assert.match(dialog, /aria-label="排队消息内容"/);
+  assert.match(chat, /onSaveEdit=\{saveQueuedEdit\}/);
+  assert.match(chat, /updateQueuedInputContent\(prev, queuedId, nextText\)/);
+  assert.match(queue, /export function updateQueuedInputContent/);
+});
+
 test('old-turn idle transition cannot restore or duplicate an accepted interjection', () => {
   const chat = source('components/ChatView.jsx');
   const queue = source('lib/chatInputQueue.js');

@@ -10,12 +10,79 @@
 //  - 卡片整体不变色 hover,按钮自身才有 hover
 //  - SENDING 短暂窗口卡片仍渲染但 opacity-60,接力到 transcript 由 WS 帧驱动
 
+import { useEffect, useState } from 'react';
 import { clsx } from '../lib/format.js';
 import { buildQueueCardItem } from '../lib/queueCardItem.js';
+import { Modal } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
 
-function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
-  const { queuedId, content, statusKind, statusLabel, dimmed, showRetry, canGuide } = card;
+function QueueCardEditDialog({ card, onClose, onSave }) {
+  const [draft, setDraft] = useState(card.editText || '');
+  const trimmed = draft.trim();
+  const canSave = trimmed.length > 0 || card.hasExtras;
+
+  useEffect(() => {
+    setDraft(card.editText || '');
+  }, [card.queuedId, card.editText]);
+
+  const submit = (event) => {
+    event.preventDefault();
+    if (!canSave) return;
+    onSave?.(card.queuedId, draft);
+    onClose?.();
+  };
+
+  return (
+    <Modal
+      onClose={onClose}
+      width={520}
+      labelledBy="queue-card-edit-title"
+    >
+      <form onSubmit={submit}>
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3.5">
+          <VsIcon name="edit" size={16} className="shrink-0 text-fg-mute" />
+          <h2 id="queue-card-edit-title" className="text-[14px] font-semibold text-fg">编辑排队消息</h2>
+        </div>
+        <div className="px-4 py-4">
+          <textarea
+            autoFocus
+            rows={7}
+            value={draft}
+            aria-label="排队消息内容"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && canSave) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+            className="min-h-[180px] w-full resize-none rounded-lg border border-border bg-surface-alt px-3 py-2.5 text-[13px] leading-5 text-fg outline-none transition focus:border-accent"
+          />
+          <div className="mt-1.5 text-[11px] text-fg-mute">Ctrl+Enter 保存</div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-8 rounded-md border border-border px-3 text-[12px] text-fg hover:bg-surface-hi"
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            disabled={!canSave}
+            className="flex h-8 min-w-[64px] items-center justify-center rounded-md bg-accent px-3 text-[12px] text-white hover:opacity-90 disabled:cursor-default disabled:opacity-50"
+          >
+            保存
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function QueueCard({ card, onCancel, onRetry, onGuide, onEdit, guideDisabled }) {
+  const { queuedId, content, statusKind, statusLabel, dimmed, showRetry, canEdit, canGuide } = card;
   return (
     <div
       role="listitem"
@@ -57,6 +124,17 @@ function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
           重试
         </button>
       )}
+      {canEdit && (
+        <button
+          type="button"
+          aria-label="编辑排队消息"
+          onClick={() => onEdit?.(queuedId)}
+          className="ace-queue-card-edit shrink-0 w-6 h-6 rounded flex items-center justify-center"
+          title="编辑刚刚发出的内容"
+        >
+          <VsIcon name="edit" size={12} />
+        </button>
+      )}
       {canGuide && (
         <button
           type="button"
@@ -83,28 +161,40 @@ function QueueCard({ card, onCancel, onRetry, onGuide, guideDisabled }) {
   );
 }
 
-export function QueueCardList({ items, onCancel, onRetry, onGuide, guideDisabled = false }) {
+export function QueueCardList({ items, onCancel, onRetry, onGuide, onSaveEdit, guideDisabled = false }) {
   const list = Array.isArray(items) ? items : [];
+  const [editingId, setEditingId] = useState('');
   if (list.length === 0) return null;
   const cards = list.map(buildQueueCardItem).filter((c) => c.queuedId);
   if (cards.length === 0) return null;
+  const editingCard = cards.find((card) => card.queuedId === editingId && card.canEdit) || null;
   return (
-    <div
-      role="list"
-      aria-label="排队中的待发送消息"
-      className="ace-queue-card-strip flex flex-col gap-1.5 px-2.5 pt-2 max-h-[30vh] overflow-y-auto"
-    >
-      {cards.map((card) => (
-        <QueueCard
-          key={card.queuedId}
-          card={card}
-          onCancel={onCancel}
-          onRetry={onRetry}
-          onGuide={onGuide}
-          guideDisabled={guideDisabled}
+    <>
+      <div
+        role="list"
+        aria-label="排队中的待发送消息"
+        className="ace-queue-card-strip flex flex-col gap-1.5 px-2.5 pt-2 max-h-[30vh] overflow-y-auto"
+      >
+        {cards.map((card) => (
+          <QueueCard
+            key={card.queuedId}
+            card={card}
+            onCancel={onCancel}
+            onRetry={onRetry}
+            onGuide={onGuide}
+            onEdit={setEditingId}
+            guideDisabled={guideDisabled}
+          />
+        ))}
+      </div>
+      {editingCard && (
+        <QueueCardEditDialog
+          card={editingCard}
+          onClose={() => setEditingId('')}
+          onSave={onSaveEdit}
         />
-      ))}
-    </div>
+      )}
+    </>
   );
 }
 

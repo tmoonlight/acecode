@@ -49,7 +49,10 @@ run('buildQueueCardItem QUEUED 默认排队中,无 retry', () => {
   assert.equal(card.statusLabel, '排队中');
   assert.equal(card.dimmed, false);
   assert.equal(card.showRetry, false);
+  assert.equal(card.canEdit, true);
   assert.equal(card.canGuide, true);
+  assert.equal(card.editText, 'hello');
+  assert.equal(card.hasExtras, false);
 });
 
 run('buildQueueCardItem SENDING 是 dimmed 的发送中状态', () => {
@@ -58,6 +61,7 @@ run('buildQueueCardItem SENDING 是 dimmed 的发送中状态', () => {
   assert.equal(card.statusLabel, '发送中…');
   assert.equal(card.dimmed, true);
   assert.equal(card.showRetry, false);
+  assert.equal(card.canEdit, false);
   assert.equal(card.canGuide, false);
 });
 
@@ -69,6 +73,7 @@ run('buildQueueCardItem FAILED 显示 error 文案并允许重试', () => {
   assert.equal(card.statusLabel, 'network blew up');
   assert.equal(card.dimmed, false);
   assert.equal(card.showRetry, true);
+  assert.equal(card.canEdit, true);
   assert.equal(card.canGuide, true);
 });
 
@@ -83,6 +88,7 @@ run('buildQueueCardItem GUIDING 显示插话中且不重复显示按钮', () => 
   assert.equal(card.statusKind, 'guiding');
   assert.equal(card.statusLabel, '正在提交插话…');
   assert.equal(card.dimmed, true);
+  assert.equal(card.canEdit, false);
   assert.equal(card.canGuide, false);
 
   const accepted = makeItem(QUEUED_INPUT_STATE.GUIDING, 'hi');
@@ -94,14 +100,20 @@ run('附件或上下文排队项也可以作为结构化引导', () => {
   const attachmentItem = makeItem(QUEUED_INPUT_STATE.QUEUED, 'with file');
   attachmentItem.queued.payload.attachments = [{ id: 'att-1' }];
   assert.equal(buildQueueCardItem(attachmentItem).canGuide, true);
+  assert.equal(buildQueueCardItem(attachmentItem).canEdit, true);
+  assert.equal(buildQueueCardItem(attachmentItem).hasExtras, true);
 
   const contextItem = makeItem(QUEUED_INPUT_STATE.FAILED, 'with context');
   contextItem.queued.payload.contexts = [{ type: 'selection' }];
   assert.equal(buildQueueCardItem(contextItem).canGuide, true);
+  assert.equal(buildQueueCardItem(contextItem).canEdit, true);
 
   const attachmentOnly = makeItem(QUEUED_INPUT_STATE.QUEUED, '');
   attachmentOnly.queued.payload.attachments = [{ id: 'att-2' }];
   assert.equal(buildQueueCardItem(attachmentOnly).canGuide, true);
+  assert.equal(buildQueueCardItem(attachmentOnly).canEdit, true);
+  assert.equal(buildQueueCardItem(attachmentOnly).editText, '');
+  assert.equal(buildQueueCardItem(attachmentOnly).hasExtras, true);
 });
 
 run('buildQueueCardItem 缺 queued 字段时不崩溃,默认按 QUEUED 渲染', () => {
@@ -109,6 +121,8 @@ run('buildQueueCardItem 缺 queued 字段时不崩溃,默认按 QUEUED 渲染', 
   assert.equal(card.queuedId, '');
   assert.equal(card.statusKind, 'queued');
   assert.equal(card.statusLabel, '排队中');
+  assert.equal(card.canEdit, true);
+  assert.equal(card.editText, 'x');
 });
 
 run('buildQueueCardItems 处理 null/非数组并保持 FIFO 顺序', () => {

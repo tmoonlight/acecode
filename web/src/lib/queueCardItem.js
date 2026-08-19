@@ -34,17 +34,23 @@ export function buildQueueCardItem(item) {
     statusKind = 'guiding';
     dimmed = true;
   }
-  const hasText = String(item?.content || '').trim().length > 0;
-  const canGuide = (hasText || attachmentCount > 0 || contextCount > 0) &&
+  const rawContent = String(item?.content || '');
+  const hasText = rawContent.trim().length > 0;
+  const hasExtras = attachmentCount > 0 || contextCount > 0;
+  const canEdit = (hasText || hasExtras) &&
     (state === QUEUED_INPUT_STATE.QUEUED || state === QUEUED_INPUT_STATE.FAILED);
+  const canGuide = canEdit;
   return {
     queuedId: queued.id || '',
-    content: String(item?.content || fallbackContent || ''),
+    content: String(rawContent || fallbackContent || ''),
+    editText: rawContent,
+    hasExtras,
     state,
     statusLabel,
     statusKind,
     dimmed,
     showRetry,
+    canEdit,
     canGuide,
   };
 }
