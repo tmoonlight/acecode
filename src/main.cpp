@@ -4714,9 +4714,15 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     workspace_tool_deps->projects_dir = workspace_projects_dir;
     register_workspace_tools(tools, workspace_tool_deps);
 
+    // Skill usage / dormancy state shared by the TUI session and any daemon
+    // surface. Best-effort: a read/write failure never blocks the session.
+    auto skill_usage_store = std::make_shared<SkillUsageStore>(
+        get_acecode_dir() + "/.skill_usage_state.json");
+
     TuiState state;
     initialize_tui_state_before_screen(state, config, working_dir, dangerous_mode,
                                        mcp_manager, provider_accessor());
+    state.skill_usage_store = skill_usage_store;
     state.slash_command_usage_counts = read_tui_slash_command_usage();
     if (!startup_worktree_banner.empty()) {
         state.conversation.push_back({"system", startup_worktree_banner, false});
@@ -5193,6 +5199,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     agent_loop.set_agent_loop_config(config.agent_loop);
     agent_loop.set_hook_manager(&hook_manager);
     agent_loop.set_skill_registry(&skill_registry);
+    agent_loop.set_skill_usage_store(skill_usage_store.get());
+    agent_loop.set_skill_idle_days(config.skills.idle_days);
     agent_loop.set_memory_registry(&memory_registry);
     agent_loop.set_memory_config(&runtime_memory_cfg);
     agent_loop.set_project_instructions_config(&config.project_instructions);
