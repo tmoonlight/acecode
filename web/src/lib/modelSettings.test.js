@@ -159,6 +159,9 @@ run('Web 严格 normalizer 消费与 C++ 共享的 canonical catalog fixture', (
   assert.equal(summary.catalog.version, 7);
   assert.equal(Object.hasOwn(summary, 'recommended_models'), false);
   assert.deepEqual(summary.providers.find((item) => item.id === 'copilot').endpoint_modes, []);
+  const acemodel = summary.providers.find((item) => item.id === 'acemodel');
+  assert.equal(acemodel.group, 'custom');
+  assert.equal(acemodel.base_url, 'https://ge.bigjuan.xyz/aceapi/v1');
   const custom = summary.providers.find((item) => item.id === 'custom-openai');
   assert.equal(custom.auth_mode, 'required');
   assert.deepEqual(custom.endpoint_modes, ['base_url', 'full_url']);

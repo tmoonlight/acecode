@@ -8,6 +8,20 @@
     },
     "providers": [
       {
+        "id": "acemodel",
+        "name": "ACEModel",
+        "runtime_provider": "openai",
+        "base_url": "https://ge.bigjuan.xyz/aceapi/v1",
+        "doc": "",
+        "auth_mode": "required",
+        "endpoint_editable": false,
+        "model_input": "catalog",
+        "api_key_env": "ACEMODEL_API_KEY",
+        "models_dev_provider_id": "acemodel",
+        "group": "custom",
+        "endpoint_modes": ["base_url"]
+      },
+      {
         "id": "copilot",
         "name": "GitHub Copilot",
         "runtime_provider": "copilot",

@@ -22,7 +22,7 @@ export const MODEL_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhi
 const RUNTIME_PROVIDERS = new Set(['openai', 'anthropic', 'copilot', 'grok']);
 const AUTH_MODES = new Set(['required', 'optional', 'none', 'managed']);
 const MODEL_INPUT_MODES = new Set(['catalog', 'manual']);
-const PROVIDER_GROUPS = new Set(['native', 'local', 'catalog', 'custom']);
+const PROVIDER_GROUPS = new Set(['first_party', 'native', 'local', 'catalog', 'custom']);
 const MODEL_METADATA_FIELDS = [
   'context_window',
   'max_output_tokens',

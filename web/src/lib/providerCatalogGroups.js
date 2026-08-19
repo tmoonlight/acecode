@@ -1,3 +1,7 @@
+const FIRST_PARTY_PROVIDER_SPECS = Object.freeze([
+  Object.freeze({ id: 'acemodel', label: 'ACEModel' }),
+]);
+
 const POPULAR_PROVIDER_SPECS = Object.freeze([
   Object.freeze({ id: 'deepseek', label: 'DeepSeek' }),
   Object.freeze({ id: 'zhipuai', label: 'GLM' }),
@@ -7,11 +11,16 @@ const POPULAR_PROVIDER_SPECS = Object.freeze([
   Object.freeze({ id: 'grok', label: 'Grok' }),
 ]);
 
+const FIRST_PARTY_PROVIDER_BY_ID = new Map(
+  FIRST_PARTY_PROVIDER_SPECS.map((item, index) => [item.id, { ...item, index }]),
+);
+
 const POPULAR_PROVIDER_BY_ID = new Map(
   POPULAR_PROVIDER_SPECS.map((item, index) => [item.id, { ...item, index }]),
 );
 
 export const PROVIDER_GROUP_LABELS = Object.freeze({
+  first_party: '自营模型',
   custom: '自定义模型',
   popular: '热门模型',
   native: '原生与受管',
@@ -20,6 +29,7 @@ export const PROVIDER_GROUP_LABELS = Object.freeze({
 });
 
 export const PROVIDER_GROUP_ORDER = Object.freeze([
+  'first_party',
   'custom',
   'popular',
   'native',
@@ -28,7 +38,11 @@ export const PROVIDER_GROUP_ORDER = Object.freeze([
 ]);
 
 export function providerDisplayName(provider) {
-  return POPULAR_PROVIDER_BY_ID.get(provider?.id)?.label || provider?.name || provider?.id || '';
+  return FIRST_PARTY_PROVIDER_BY_ID.get(provider?.id)?.label
+    || POPULAR_PROVIDER_BY_ID.get(provider?.id)?.label
+    || provider?.name
+    || provider?.id
+    || '';
 }
 
 function providerSearchText(provider) {
@@ -48,8 +62,9 @@ export function groupCatalogProviders(providers, query = '') {
   providers
     .filter((provider) => !needle || providerSearchText(provider).includes(needle))
     .forEach((provider) => {
+      const firstParty = FIRST_PARTY_PROVIDER_BY_ID.get(provider.id);
       const popular = POPULAR_PROVIDER_BY_ID.get(provider.id);
-      const group = popular ? 'popular' : (provider.group || 'catalog');
+      const group = firstParty ? 'first_party' : (popular ? 'popular' : (provider.group || 'catalog'));
       if (!groups.has(group)) groups.set(group, []);
       groups.get(group).push(provider);
     });

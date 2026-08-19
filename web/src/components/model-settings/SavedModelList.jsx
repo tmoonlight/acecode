@@ -6,6 +6,7 @@ import { ProviderIcon } from './ProviderIcon.jsx';
 function providerLabel(model) {
   if (model.provider === 'copilot') return 'GitHub Copilot';
   if (model.provider === 'anthropic') return 'Anthropic';
+  if (model.models_dev_provider_id === 'acemodel') return 'ACEModel';
   return model.models_dev_provider_id || 'OpenAI 兼容';
 }
 

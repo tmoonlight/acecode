@@ -90,11 +90,12 @@ run('API Key is prefilled behind a password mask with an accessible eye toggle',
 });
 
 run('catalog provider picker keeps queries bounded and supports docs manual fallback probe and multi-select', () => {
+  assert.match(providerGroups, /first_party: '自营模型'/);
   assert.match(providerGroups, /custom: '自定义模型'/);
   assert.match(providerGroups, /popular: '热门模型'/);
-  assert.match(providerGroups, /'custom',[\s\S]*?'popular',[\s\S]*?'native',[\s\S]*?'local',[\s\S]*?'catalog'/);
+  assert.match(providerGroups, /'first_party',[\s\S]*?'custom',[\s\S]*?'popular',[\s\S]*?'native',[\s\S]*?'local',[\s\S]*?'catalog'/);
   assert.match(picker, /groupCatalogProviders\(providers, providerQuery\)/);
-  assert.match(section, /providers\.find\(\(provider\) => provider\.id === 'custom-openai'\)/);
+  assert.match(section, /providers\.find\(\(provider\) => provider\.id === 'acemodel'\)/);
   assert.match(picker, /queryModelCatalog\(provider\.id, modelQuery, 50\)/);
   assert.match(picker, /queryModelCatalog\(provider\.id, currentId, 1\)/);
   assert.match(picker, /modelMetadataSummary\(model\)/);
@@ -160,6 +161,13 @@ run('Provider logos are local deduplicated assets within the package budget', ()
   assert.equal(providerLogoAssetId({ id: 'copilot' }), PROVIDER_LOGO_ASSET_BY_ID['github-copilot']);
   assert.equal(providerLogoAssetId({ id: 'grok' }), PROVIDER_LOGO_ASSET_BY_ID.xai);
   assert.equal(providerLogoAssetId({ id: 'custom-openai' }), PROVIDER_LOGO_ASSET_BY_ID.openai);
+  assert.equal(providerLogoAssetId({ id: 'acemodel' }), 'acemodel');
+  assert.equal(providerLogoPath({ id: 'acemodel' }), '/acemodel.svg');
+  assert.equal(
+    providerLogoAssetId({ provider: 'openai', models_dev_provider_id: 'acemodel' }),
+    'acemodel',
+  );
+  assert.ok(fs.existsSync(path.resolve(srcRoot, '../public/acemodel.svg')));
   assert.equal(
     providerLogoAssetId({ provider: 'openai', models_dev_provider_id: 'deepseek' }),
     PROVIDER_LOGO_ASSET_BY_ID.deepseek,

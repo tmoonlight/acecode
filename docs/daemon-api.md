@@ -1944,7 +1944,10 @@ Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
 `catalog.version` 是非负整数。`auth_mode` 只会是 `required`、`optional`、
 `none` 或 `managed`。Custom OpenAI-compatible Provider 明确支持
 `endpoint_modes:["base_url","full_url"]`，并要求 API Key 或兼容的
-`credential_source_name`；Copilot 与 Grok Coding Plan 使用 `managed`，分别由
+`credential_source_name`。一等自营 Provider `acemodel`（展示名 ACEModel）
+使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
+`https://ge.bigjuan.xyz/aceapi/v1`，`group` 为 `custom`（Web 再按 id 提到「自营模型」），查询时返回内置
+`starrylight` 与 `moonlight`。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
 ACECode 的 GitHub/xAI 设备登录与固定受管端点负责认证。普通 `xai` Provider
 仍保留为 OpenAI-compatible API Key 接入；只有目录 id `grok` 使用 Coding Plan。
 

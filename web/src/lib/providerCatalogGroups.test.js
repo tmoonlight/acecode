@@ -18,6 +18,7 @@ function run(name, fn) {
 const providers = [
   { id: 'openrouter', name: 'OpenRouter', group: 'catalog' },
   { id: 'anthropic', name: 'Anthropic', group: 'native' },
+  { id: 'acemodel', name: 'ACEModel', group: 'custom' },
   { id: 'custom-openai', name: 'Custom OpenAI-compatible API', group: 'custom' },
   { id: 'xai', name: 'xAI API', group: 'catalog' },
   { id: 'grok', name: 'Grok Coding Plan', group: 'native' },
@@ -31,10 +32,18 @@ const providers = [
 
 run('自定义模型置顶且热门模型按指定顺序单独分组', () => {
   const groups = groupCatalogProviders(providers);
-  assert.deepEqual(PROVIDER_GROUP_ORDER, ['custom', 'popular', 'native', 'local', 'catalog']);
+  assert.deepEqual(PROVIDER_GROUP_ORDER, [
+    'first_party',
+    'custom',
+    'popular',
+    'native',
+    'local',
+    'catalog',
+  ]);
   assert.deepEqual(groups.map((group) => group.group), PROVIDER_GROUP_ORDER);
-  assert.deepEqual(groups[0].items.map((provider) => provider.id), ['custom-openai']);
-  assert.deepEqual(groups[1].items.map((provider) => provider.id), [
+  assert.deepEqual(groups[0].items.map((provider) => provider.id), ['acemodel']);
+  assert.deepEqual(groups[1].items.map((provider) => provider.id), ['custom-openai']);
+  assert.deepEqual(groups[2].items.map((provider) => provider.id), [
     'deepseek',
     'zhipuai',
     'kimi-for-coding',
@@ -42,7 +51,7 @@ run('自定义模型置顶且热门模型按指定顺序单独分组', () => {
     'anthropic',
     'grok',
   ]);
-  assert.deepEqual(groups[2].items.map((provider) => provider.id), ['copilot']);
+  assert.deepEqual(groups[3].items.map((provider) => provider.id), ['copilot']);
 });
 
 run('热门模型使用用户可识别品牌名并保留原名称搜索', () => {

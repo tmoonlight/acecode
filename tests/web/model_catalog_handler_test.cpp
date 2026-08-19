@@ -103,6 +103,7 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     EXPECT_EQ(summary["catalog"]["version"], 7);
     EXPECT_EQ(summary["catalog"]["updated_at"], "2026-08-10T00:00:00Z");
 
+    const auto* acemodel = provider_by_id(summary["providers"], "acemodel");
     const auto* anthropic = provider_by_id(summary["providers"], "anthropic");
     const auto* copilot = provider_by_id(summary["providers"], "copilot");
     const auto* grok = provider_by_id(summary["providers"], "grok");
@@ -110,6 +111,7 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     const auto* local = provider_by_id(summary["providers"], "lmstudio");
     const auto* openrouter = provider_by_id(summary["providers"], "openrouter");
     const auto* xai = provider_by_id(summary["providers"], "xai");
+    ASSERT_NE(acemodel, nullptr);
     ASSERT_NE(anthropic, nullptr);
     ASSERT_NE(copilot, nullptr);
     ASSERT_NE(grok, nullptr);
@@ -117,6 +119,16 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     ASSERT_NE(local, nullptr);
     ASSERT_NE(openrouter, nullptr);
     ASSERT_NE(xai, nullptr);
+    EXPECT_EQ((*acemodel)["runtime_provider"], "openai");
+    EXPECT_EQ((*acemodel)["name"], "ACEModel");
+    EXPECT_EQ((*acemodel)["base_url"], "https://ge.bigjuan.xyz/aceapi/v1");
+    EXPECT_EQ((*acemodel)["auth_mode"], "required");
+    EXPECT_FALSE((*acemodel)["endpoint_editable"].get<bool>());
+    EXPECT_EQ((*acemodel)["model_input"], "catalog");
+    EXPECT_EQ((*acemodel)["api_key_env"], "ACEMODEL_API_KEY");
+    EXPECT_EQ((*acemodel)["models_dev_provider_id"], "acemodel");
+    EXPECT_EQ((*acemodel)["group"], "custom");
+    EXPECT_EQ((*acemodel)["endpoint_modes"], nlohmann::json::array({"base_url"}));
     EXPECT_EQ((*anthropic)["runtime_provider"], "anthropic");
     EXPECT_EQ((*anthropic)["doc"], "https://docs.anthropic.test");
     EXPECT_EQ((*copilot)["auth_mode"], "managed");
@@ -199,6 +211,24 @@ TEST(ModelCatalogHandler, NativeAliasesRemainUsable) {
     EXPECT_EQ((*grok)["models"][0]["id"], "grok-test");
     EXPECT_EQ((*grok)["models"][0]["context_window"], 100000);
     EXPECT_TRUE((*grok)["models"][0]["max_output_tokens"].is_null());
+}
+
+TEST(ModelCatalogHandler, AceModelUsesBuiltinCatalogEvenWithoutRegistryEntry) {
+    const auto providers = acecode::build_catalog(catalog_fixture());
+    auto all = acecode::web::query_model_catalog_to_json(
+        providers, "acemodel", "", 10);
+    ASSERT_TRUE(all.has_value());
+    ASSERT_EQ((*all)["models"].size(), 2u);
+    EXPECT_EQ((*all)["models"][0]["id"], "moonlight");
+    EXPECT_EQ((*all)["models"][0]["name"], "Moonlight");
+    EXPECT_EQ((*all)["models"][1]["id"], "starrylight");
+    EXPECT_EQ((*all)["models"][1]["name"], "Starrylight");
+
+    auto filtered = acecode::web::query_model_catalog_to_json(
+        providers, "ACEMODEL", "moon", 10);
+    ASSERT_TRUE(filtered.has_value());
+    ASSERT_EQ((*filtered)["models"].size(), 1u);
+    EXPECT_EQ((*filtered)["models"][0]["id"], "moonlight");
 }
 
 TEST(ModelCatalogHandler, SharedContractFixtureMatchesCanonicalResponses) {

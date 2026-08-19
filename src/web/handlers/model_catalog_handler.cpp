@@ -56,6 +56,25 @@ bool no_auth_openai_provider(const ProviderEntry& provider) {
     return model_profile_allows_no_api_key(profile);
 }
 
+constexpr const char* kAceModelProviderId = "acemodel";
+constexpr const char* kAceModelBaseUrl = "https://ge.bigjuan.xyz/aceapi/v1";
+
+ModelEntry builtin_catalog_model(const std::string& id, const std::string& name) {
+    ModelEntry model;
+    model.id = id;
+    model.name = name;
+    model.tool_call = true;
+    return model;
+}
+
+const std::vector<ModelEntry>& acemodel_builtin_models() {
+    static const std::vector<ModelEntry> models{
+        builtin_catalog_model("moonlight", "Moonlight"),
+        builtin_catalog_model("starrylight", "Starrylight"),
+    };
+    return models;
+}
+
 nlohmann::json provider_to_json(const std::string& id,
                                 const std::string& name,
                                 const std::string& runtime_provider,
@@ -114,6 +133,19 @@ std::vector<nlohmann::json> provider_descriptors(
         xai && xai->doc ? *xai->doc : "https://docs.x.ai",
         "managed", false, "catalog", "", std::string("xai"), "native", {}));
     result.push_back(provider_to_json(
+        kAceModelProviderId,
+        "ACEModel",
+        "openai",
+        kAceModelBaseUrl,
+        "",
+        "required",
+        false,
+        "catalog",
+        "ACEMODEL_API_KEY",
+        std::string(kAceModelProviderId),
+        "custom",
+        {"base_url"}));
+    result.push_back(provider_to_json(
         "custom-openai", "Custom OpenAI-compatible API", "openai", "", "",
         "required", true, "manual", "", std::nullopt, "custom",
         {"base_url", "full_url"}));
@@ -150,7 +182,7 @@ std::vector<nlohmann::json> provider_descriptors(
         if (!provider.openai_compatible || !provider.base_url.has_value()) continue;
         const std::string id = lower_ascii(provider.id);
         if (id == "anthropic" || id == "github-copilot" || id == "copilot" ||
-            id == "openai" || id == "xai") {
+            id == "openai" || id == "xai" || id == kAceModelProviderId) {
             continue;
         }
         result.push_back(provider_to_json(
@@ -226,7 +258,9 @@ nlohmann::json model_to_json(const ModelEntry& model) {
 const ProviderEntry* query_provider(const std::vector<ProviderEntry>& providers,
                                     const std::string& id) {
     const std::string normalized = lower_ascii(id);
-    if (normalized == "custom-openai") return nullptr;
+    if (normalized == "custom-openai" || normalized == kAceModelProviderId) {
+        return nullptr;
+    }
     if (normalized == "copilot") return by_id(providers, "github-copilot");
     if (normalized == "grok") return by_id(providers, "xai");
     return by_id(providers, normalized);
@@ -278,15 +312,22 @@ std::optional<nlohmann::json> query_model_catalog_to_json(
             {"limit", std::clamp(limit, 1, kMaxModelCatalogQueryLimit)},
         };
     }
-    const ProviderEntry* provider = query_provider(providers, provider_id);
-    if (!provider) return std::nullopt;
 
     const int effective_limit = limit <= 0
         ? kDefaultModelCatalogQueryLimit
         : std::min(limit, kMaxModelCatalogQueryLimit);
     const std::string needle = lower_ascii(query);
     std::vector<const ModelEntry*> matches;
-    for (const auto& model : provider->models) {
+    const std::vector<ModelEntry>* model_source = nullptr;
+    if (normalized_provider == kAceModelProviderId) {
+        model_source = &acemodel_builtin_models();
+    } else {
+        const ProviderEntry* provider = query_provider(providers, provider_id);
+        if (!provider) return std::nullopt;
+        model_source = &provider->models;
+    }
+
+    for (const auto& model : *model_source) {
         const std::string id = lower_ascii(model.id);
         const std::string name = lower_ascii(model.name);
         if (needle.empty() || id.find(needle) != std::string::npos ||
