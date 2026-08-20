@@ -74,3 +74,13 @@ hermes-agent/
 .acecode
 # openspec CLI (@fission-ai/openspec) 本地安装产物
 node_modules/
+.aider*
+
+# WorkBuddy agent local memory
+.workbuddy/
+
+# Release packaging output
+/dist/
+
+# Skills lock (generated)
+skills-lock.json
