@@ -2116,17 +2116,8 @@ int main(int argc, char** argv) {
             if (!arr.is_array() || arr.empty() || !arr[0].is_string()) {
                 return nlohmann::json{{"ok", false}, {"error", "expect [path]"}}.dump();
             }
-            std::vector<std::string> roots;
-            for (const auto& m : registry.list()) {
-                if (!m.cwd.empty()) roots.push_back(m.cwd);
-            }
-            // 全局 skills 与 session projects 不属于 workspace。前者供设置页
-            // 打开全局 Skill 目录，后者供附件右键定位持久化文件。
-            roots = acecode::desktop::append_acecode_managed_open_roots(
-                std::move(roots),
-                acecode::get_acecode_dir());
             auto result = acecode::desktop::open_path_in_file_manager(
-                arr[0].get<std::string>(), roots);
+                arr[0].get<std::string>());
             if (!result.ok) {
                 return nlohmann::json{{"ok", false}, {"error", result.error}}.dump();
             }

@@ -3,15 +3,13 @@
 #include "../session_reference_context.hpp"
 #include "../trajectory_legacy_projection.hpp"
 #include "../../session/compact_checkpoint.hpp"
+#include "../../session/global_session_catalog.hpp"
 #include "../../session/session_trajectory.hpp"
-#include "../../session/session_user_message_search.hpp"
 #include "../../utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace acecode::web {
 
@@ -91,14 +89,6 @@ std::string attachment_source_context(const AttachmentRecord& record,
         {"absolute_path", source_path},
     }.dump(2);
 }
-
-struct UserMessageSearchScope {
-    std::string project_dir;
-    std::string workspace_hash;
-    std::string workspace_name;
-    std::string cwd;
-    bool no_workspace = false;
-};
 
 } // namespace
 
@@ -591,6 +581,10 @@ void WebServer::Impl::register_sessions() {
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/session-search/sessions").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/session-search/user-messages").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
             return cors_preflight(req);
@@ -689,6 +683,52 @@ void WebServer::Impl::register_sessions() {
             return with_cors(req, std::move(r));
         });
 
+        // GET /api/session-search/sessions: global, unarchived top-level
+        // session catalog. Workspace visibility is descriptive metadata and
+        // never a discovery boundary.
+        CROW_ROUTE(app, "/api/session-search/sessions").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+
+            const auto active_sessions = deps.session_client
+                ? deps.session_client->list_sessions()
+                : std::vector<SessionInfo>{};
+            const auto catalog = build_global_session_catalog(
+                projects_dir(), active_sessions);
+
+            json sessions = json::array();
+            for (const auto& entry : catalog.entries) {
+                json item = entry.active
+                    ? session_info_to_json(*entry.active, &entry.meta)
+                    : session_meta_to_json(entry.meta, entry.workspace_hash);
+                item["workspaceName"] = entry.meta.no_workspace
+                    ? std::string{"\u65e0\u5de5\u4f5c\u533a"}
+                    : entry.workspace_name;
+                item["workspace_cwd"] = entry.meta.no_workspace
+                    ? std::string{}
+                    : entry.workspace_cwd;
+                item["workspace_visible"] = entry.workspace_visible;
+                sessions.push_back(std::move(item));
+            }
+
+            json errors = json::array();
+            for (const auto& error : catalog.errors) {
+                errors.push_back(json{
+                    {"hash", error.workspace_hash},
+                    {"project_dir", error.project_dir},
+                    {"stage", error.stage},
+                    {"message", error.message},
+                });
+            }
+
+            crow::response r(json{
+                {"sessions", sessions},
+                {"errors", errors},
+            }.dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
         CROW_ROUTE(app, "/api/session-search/user-messages").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -707,95 +747,42 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, std::move(r));
             }
 
-            std::vector<UserMessageSearchScope> scopes;
-            std::unordered_set<std::string> seen_scope_keys;
-            auto add_scope = [&](UserMessageSearchScope scope) {
-                if (scope.project_dir.empty()) return;
-                const std::string key = scope.project_dir + "|" + scope.workspace_hash +
-                    "|" + (scope.no_workspace ? "no-workspace" : "workspace");
-                if (!seen_scope_keys.insert(key).second) return;
-                scopes.push_back(std::move(scope));
-            };
-
-            std::vector<acecode::desktop::WorkspaceMeta> workspaces;
-            if (deps.workspace_registry) {
-                workspaces = deps.workspace_registry->list();
-            }
-            if (workspaces.empty()) {
-                workspaces.push_back(compatibility_workspace());
-            }
-            for (const auto& ws : workspaces) {
-                if (ws.cwd.empty()) continue;
-                add_scope(UserMessageSearchScope{
-                    SessionStorage::get_project_dir(ws.cwd),
-                    ws.hash,
-                    ws.name.empty() ? ws.cwd : ws.name,
-                    ws.cwd,
-                    false,
-                });
-            }
-            for (const auto& meta : no_workspace_disk_sessions()) {
-                if (meta.cwd.empty()) continue;
-                add_scope(UserMessageSearchScope{
-                    SessionStorage::get_project_dir(meta.cwd),
-                    std::string{},
-                    std::string{},
-                    meta.cwd,
-                    true,
-                });
-            }
-
+            GlobalSessionCatalogOptions options;
+            options.content_query = query;
+            options.content_limit_per_project = limit;
+            const auto active_sessions = deps.session_client
+                ? deps.session_client->list_sessions()
+                : std::vector<SessionInfo>{};
+            const auto catalog = build_global_session_catalog(
+                projects_dir(), active_sessions, options);
             json matches = json::array();
-            std::unordered_set<std::string> seen_sessions;
-            for (const auto& scope : scopes) {
-                SessionUserMessageIndex index(scope.project_dir);
-                std::string index_error;
-                if (!index.ensure_project_indexed(&index_error)) {
-                    LOG_WARN("[web] session user-message index refresh failed: " + index_error);
-                    continue;
-                }
-                auto scoped_matches = index.search(query, limit, &index_error);
-                if (!index_error.empty()) {
-                    LOG_WARN("[web] session user-message search failed: " + index_error);
-                    continue;
-                }
-
-                std::unordered_map<std::string, SessionMeta> metas;
-                for (const auto& meta : SessionStorage::list_sessions(scope.project_dir)) {
-                    if (meta.archived) continue;
-                    if (!meta.parent_session_id.empty()) continue;
-                    if (scope.no_workspace != meta.no_workspace) continue;
-                    metas.emplace(meta.id, meta);
-                }
-
-                for (const auto& match : scoped_matches) {
-                    auto meta_it = metas.find(match.session_id);
-                    if (meta_it == metas.end()) continue;
-                    const std::string session_key =
-                        (scope.no_workspace ? ("no:" + scope.project_dir) : scope.workspace_hash) +
-                        "|" + match.session_id;
-                    if (!seen_sessions.insert(session_key).second) continue;
-                    json item = session_meta_to_json(meta_it->second, scope.workspace_hash);
-                    item["workspaceName"] = scope.workspace_name;
-                    item["search_match"] = json{
-                        {"kind", "user_message"},
-                        {"score", match.score},
-                        {"message_ordinal", match.message_ordinal},
-                        {"snippet", match.snippet},
-                        {"attachments", match.matched_attachment_names},
-                    };
-                    matches.push_back(std::move(item));
-                }
+            for (const auto& entry : catalog.entries) {
+                if (!entry.content_match) continue;
+                json item = entry.active
+                    ? session_info_to_json(*entry.active, &entry.meta)
+                    : session_meta_to_json(entry.meta, entry.workspace_hash);
+                item["workspaceName"] = entry.meta.no_workspace
+                    ? std::string{"\u65e0\u5de5\u4f5c\u533a"}
+                    : entry.workspace_name;
+                item["workspace_cwd"] = entry.meta.no_workspace
+                    ? std::string{}
+                    : entry.workspace_cwd;
+                item["workspace_visible"] = entry.workspace_visible;
+                item["search_match"] = json{
+                    {"kind", "user_message"},
+                    {"score", entry.content_match->score},
+                    {"message_ordinal", entry.content_match->message_ordinal},
+                    {"snippet", entry.content_match->snippet},
+                    {"attachments", entry.content_match->matched_attachment_names},
+                };
+                matches.push_back(std::move(item));
             }
-
-            std::sort(matches.begin(), matches.end(), [](const json& a, const json& b) {
-                const int as = a.value("search_match", json::object()).value("score", 0);
-                const int bs = b.value("search_match", json::object()).value("score", 0);
-                if (as != bs) return as > bs;
-                return a.value("updated_at", std::string{}) > b.value("updated_at", std::string{});
-            });
             if (static_cast<int>(matches.size()) > limit) {
                 matches.erase(matches.begin() + limit, matches.end());
+            }
+            for (const auto& error : catalog.errors) {
+                LOG_WARN("[web] global session search " + error.stage +
+                         " failed for " + error.project_dir + ": " + error.message);
             }
 
             crow::response r(json{{"matches", matches}}.dump());

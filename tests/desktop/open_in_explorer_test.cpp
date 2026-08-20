@@ -9,8 +9,6 @@ namespace fs = std::filesystem;
 
 using acecode::desktop::open_directory_in_file_manager;
 using acecode::desktop::open_path_in_file_manager;
-using acecode::desktop::append_acecode_managed_open_roots;
-using acecode::desktop::append_allowed_open_root;
 using acecode::desktop::OpenInExplorerTargetKind;
 using acecode::desktop::validate_open_directory_request;
 using acecode::desktop::validate_open_in_explorer_request;
@@ -40,157 +38,107 @@ TEST(DesktopOpenInExplorer, RejectsEmptyAndRelativePaths) {
 
 TEST(DesktopOpenInExplorer, RejectsMissingDirectoryAndFiles) {
     auto root = make_tmp_dir("acecode_open_explorer_missing");
-    auto missing = validate_open_directory_request(path_string(root / "missing"), {path_string(root)});
+    auto missing = validate_open_directory_request(path_string(root / "missing"));
     EXPECT_FALSE(missing.ok);
 
     auto file = root / "file.txt";
     std::ofstream(file.string()) << "x";
-    auto not_dir = validate_open_directory_request(path_string(file), {path_string(root)});
+    auto not_dir = validate_open_directory_request(path_string(file));
     EXPECT_FALSE(not_dir.ok);
 
     std::error_code ec;
     fs::remove_all(root, ec);
 }
 
-TEST(DesktopOpenInExplorer, AllowsDirectoryInsideRegisteredWorkspaceRoot) {
-    auto root = make_tmp_dir("acecode_open_explorer_inside");
+TEST(DesktopOpenInExplorer, AllowsExistingDirectoryWithoutRootRegistration) {
+    auto root = make_tmp_dir("acecode_open_explorer_arbitrary_directory");
     auto nested = root / "a" / "b";
     fs::create_directories(nested);
 
-    auto result = validate_open_directory_request(path_string(nested), {path_string(root)});
+    auto result = validate_open_directory_request(path_string(nested));
     EXPECT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(result.path, fs::weakly_canonical(nested));
 
     std::error_code ec;
     fs::remove_all(root, ec);
 }
 
-TEST(DesktopOpenInExplorer, AllowsFileInsideRegisteredWorkspaceRoot) {
-    auto root = make_tmp_dir("acecode_reveal_file_inside");
+TEST(DesktopOpenInExplorer, AllowsExistingFileWithoutRootRegistration) {
+    auto root = make_tmp_dir("acecode_reveal_arbitrary_file");
     auto file = root / "file.txt";
     std::ofstream(file.string()) << "x";
 
-    auto result = validate_open_in_explorer_request(
-        path_string(file),
-        {path_string(root)});
+    auto result = validate_open_in_explorer_request(path_string(file));
     EXPECT_TRUE(result.ok) << result.error;
     EXPECT_EQ(result.kind, OpenInExplorerTargetKind::File);
-    EXPECT_EQ(result.path.filename(), file.filename());
+    EXPECT_EQ(result.path, fs::weakly_canonical(file));
 
     std::error_code ec;
     fs::remove_all(root, ec);
 }
 
-TEST(DesktopOpenInExplorer, RejectsDirectoryOutsideRegisteredWorkspaceRoots) {
-    auto root = make_tmp_dir("acecode_open_explorer_root");
-    auto outside = make_tmp_dir("acecode_open_explorer_outside");
-
-    auto result = validate_open_directory_request(path_string(outside), {path_string(root)});
-    EXPECT_FALSE(result.ok);
-    EXPECT_NE(result.error.find("outside"), std::string::npos);
-
-    std::error_code ec;
-    fs::remove_all(root, ec);
-    fs::remove_all(outside, ec);
-}
-
-TEST(DesktopOpenInExplorer, RejectsFileOutsideRegisteredWorkspaceRoots) {
-    auto root = make_tmp_dir("acecode_reveal_file_root");
-    auto outside = make_tmp_dir("acecode_reveal_file_outside");
-    auto file = outside / "file.txt";
-    std::ofstream(file.string()) << "x";
-
-    auto result = validate_open_in_explorer_request(
-        path_string(file),
-        {path_string(root)});
-    EXPECT_FALSE(result.ok);
-    EXPECT_NE(result.error.find("outside"), std::string::npos);
-
-    std::error_code ec;
-    fs::remove_all(root, ec);
-    fs::remove_all(outside, ec);
-}
-
-TEST(DesktopOpenInExplorer, AllowsExistingDirectoryWhenNoRegistryRootsProvided) {
-    auto root = make_tmp_dir("acecode_open_explorer_no_roots");
-
-    auto result = validate_open_directory_request(path_string(root));
-    EXPECT_TRUE(result.ok) << result.error;
-
-    std::error_code ec;
-    fs::remove_all(root, ec);
-}
-
-TEST(DesktopOpenInExplorer, AppendsGlobalSkillsRootOnce) {
-    auto root = make_tmp_dir("acecode_open_explorer_root_append");
-    auto skills = make_tmp_dir("acecode_open_explorer_skills_append");
-
-    auto roots = append_allowed_open_root({path_string(root)}, path_string(skills));
-    ASSERT_EQ(roots.size(), 2u);
-
-    roots = append_allowed_open_root(std::move(roots), path_string(skills));
-    EXPECT_EQ(roots.size(), 2u);
-
-    auto result = validate_open_directory_request(path_string(skills), roots);
-    EXPECT_TRUE(result.ok) << result.error;
-
-    std::error_code ec;
-    fs::remove_all(root, ec);
-    fs::remove_all(skills, ec);
-}
-
-TEST(DesktopOpenInExplorer, ManagedRootsAllowPersistedAttachmentsOnlyInsideManagedDirectories) {
-    auto acecode_dir = make_tmp_dir("acecode_open_explorer_managed");
-    auto skills = acecode_dir / "skills";
-    auto projects = acecode_dir / "projects";
-    auto attachment_dir =
-        projects / "0123456789abcdef" / "attachments" / "session-1";
+TEST(DesktopOpenInExplorer, AllowsFileOutsideFormerAcecodeManagedRoots) {
+    auto acecode_dir = make_tmp_dir("acecode_reveal_unmanaged_file");
     auto logs = acecode_dir / "logs";
-    fs::create_directories(skills);
-    fs::create_directories(attachment_dir);
     fs::create_directories(logs);
 
-    auto attachment = attachment_dir / "attachment.png";
-    std::ofstream(attachment.string()) << "png";
     auto log = logs / "daemon.log";
     std::ofstream(log.string()) << "log";
 
-    auto roots = append_acecode_managed_open_roots(
-        {},
-        path_string(acecode_dir));
-    ASSERT_EQ(roots.size(), 2u);
-    roots = append_acecode_managed_open_roots(
-        std::move(roots),
-        path_string(acecode_dir));
-    EXPECT_EQ(roots.size(), 2u);
-
-    auto allowed = validate_open_in_explorer_request(
-        path_string(attachment),
-        roots);
-    EXPECT_TRUE(allowed.ok) << allowed.error;
-    EXPECT_EQ(allowed.kind, OpenInExplorerTargetKind::File);
-
-    auto rejected = validate_open_in_explorer_request(
-        path_string(log),
-        roots);
-    EXPECT_FALSE(rejected.ok);
-    EXPECT_NE(rejected.error.find("outside"), std::string::npos);
+    auto result = validate_open_in_explorer_request(path_string(log));
+    EXPECT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(result.kind, OpenInExplorerTargetKind::File);
 
     std::error_code ec;
     fs::remove_all(acecode_dir, ec);
+}
+
+TEST(DesktopOpenInExplorer, CanonicalizesParentSegmentsWithoutWorkspaceBoundary) {
+    auto root = make_tmp_dir("acecode_open_explorer_canonical");
+    auto nested = root / "nested";
+    auto target = root / "target";
+    fs::create_directories(nested);
+    fs::create_directories(target);
+
+    auto requested = nested / ".." / "target";
+    auto result = validate_open_directory_request(path_string(requested));
+    EXPECT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(result.path, fs::weakly_canonical(target));
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
+TEST(DesktopOpenInExplorer, DoesNotInvokeLauncherForInvalidPath) {
+    auto root = make_tmp_dir("acecode_open_explorer_invalid_launch");
+    bool launched = false;
+
+    auto result = open_path_in_file_manager(
+        path_string(root / "missing"),
+        [&](const fs::path&, OpenInExplorerTargetKind, std::string&) {
+            launched = true;
+            return true;
+        });
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(launched);
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
 }
 
 TEST(DesktopOpenInExplorer, UsesInjectedLauncherAfterValidation) {
     auto root = make_tmp_dir("acecode_open_explorer_launch");
     fs::path launched;
 
-    auto result = open_directory_in_file_manager(path_string(root), {path_string(root)},
+    auto result = open_directory_in_file_manager(path_string(root),
         [&](const fs::path& path, std::string&) {
             launched = path;
             return true;
         });
 
     EXPECT_TRUE(result.ok) << result.error;
-    EXPECT_FALSE(launched.empty());
+    EXPECT_EQ(launched, fs::weakly_canonical(root));
 
     std::error_code ec;
     fs::remove_all(root, ec);
@@ -205,7 +153,6 @@ TEST(DesktopOpenInExplorer, FileRevealPassesFileKindToInjectedLauncher) {
 
     auto result = open_path_in_file_manager(
         path_string(file),
-        {path_string(root)},
         [&](const fs::path& path,
             OpenInExplorerTargetKind kind,
             std::string&) {
@@ -215,7 +162,7 @@ TEST(DesktopOpenInExplorer, FileRevealPassesFileKindToInjectedLauncher) {
         });
 
     EXPECT_TRUE(result.ok) << result.error;
-    EXPECT_EQ(launched.filename(), file.filename());
+    EXPECT_EQ(launched, fs::weakly_canonical(file));
     EXPECT_EQ(launched_kind, OpenInExplorerTargetKind::File);
 
     std::error_code ec;
@@ -228,7 +175,6 @@ TEST(DesktopOpenInExplorer, PathRevealPreservesDirectoryKind) {
 
     auto result = open_path_in_file_manager(
         path_string(root),
-        {path_string(root)},
         [&](const fs::path&,
             OpenInExplorerTargetKind kind,
             std::string&) {
@@ -246,7 +192,7 @@ TEST(DesktopOpenInExplorer, PathRevealPreservesDirectoryKind) {
 TEST(DesktopOpenInExplorer, PropagatesInjectedLauncherFailure) {
     auto root = make_tmp_dir("acecode_open_explorer_launch_fail");
 
-    auto result = open_directory_in_file_manager(path_string(root), {path_string(root)},
+    auto result = open_directory_in_file_manager(path_string(root),
         [](const fs::path&, std::string& error) {
             error = "mock failure";
             return false;

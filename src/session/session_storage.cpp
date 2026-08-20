@@ -561,7 +561,8 @@ bool SessionStorage::has_incompatible_pid_session_files(
     return false;
 }
 
-std::vector<SessionMeta> SessionStorage::list_sessions(const std::string& project_dir) {
+std::vector<SessionMeta> SessionStorage::list_session_metadata(
+    const std::string& project_dir) {
     std::vector<SessionMeta> sessions;
     fs::path project_path = path_from_utf8(project_dir);
     if (!fs::exists(project_path) || !fs::is_directory(project_path)) {
@@ -582,7 +583,6 @@ std::vector<SessionMeta> SessionStorage::list_sessions(const std::string& projec
 
         SessionMeta meta = read_meta(path_to_utf8(entry.path()));
         if (meta.id.empty()) continue;
-        enrich_meta_from_messages(project_dir, id, meta);
         sessions.push_back(std::move(meta));
     }
 
@@ -590,6 +590,15 @@ std::vector<SessionMeta> SessionStorage::list_sessions(const std::string& projec
         [](const SessionMeta& a, const SessionMeta& b) {
             return a.updated_at > b.updated_at;
         });
+    return sessions;
+}
+
+std::vector<SessionMeta> SessionStorage::list_sessions(
+    const std::string& project_dir) {
+    auto sessions = list_session_metadata(project_dir);
+    for (auto& meta : sessions) {
+        enrich_meta_from_messages(project_dir, meta.id, meta);
+    }
     return sessions;
 }
 

@@ -327,3 +327,63 @@ TEST(AskQuestionOverlayTest, TimeoutHintRowRenderedOnlyWhenConfigured) {
                   std::string::npos);
     }
 }
+
+// 场景:鼠标点击选项行命中测试(add-tui-ask-overlay-mouse-select)。
+// row_boxes 按可见顺序排列,layout row 由 scroll_offset + 可见下标还原。
+TEST(AskQuestionOverlayTest, HitOptionMapsVisibleRowToOptionIndex) {
+    using ftxui::Box;
+    // 可见 4 行:header / option0 / option1 / hint,scroll_offset=0。
+    const std::vector<Box> boxes = {
+        Box{2, 40, 10, 10},
+        Box{2, 40, 11, 11},
+        Box{2, 40, 12, 12},
+        Box{2, 40, 13, 13},
+    };
+    const std::vector<int> indices = {-1, 0, 1, -1};
+
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 0, indices, 5, 11),
+              0);
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 0, indices, 20, 12),
+              1);
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 0, indices, 5, 10),
+              -1);
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 0, indices, 5, 13),
+              -1);
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 0, indices, 0, 11),
+              -1);
+}
+
+// 场景:滚动后可见行对应 layout 后半段,点击仍映射到正确 option。
+TEST(AskQuestionOverlayTest, HitOptionHonorsScrollOffset) {
+    using ftxui::Box;
+    // 整页 6 行,可见后 3 行(offset=3):option1 / Other / hint。
+    const std::vector<Box> boxes = {
+        Box{2, 40, 20, 20},
+        Box{2, 40, 21, 21},
+        Box{2, 40, 22, 22},
+    };
+    const std::vector<int> indices = {-1, -1, 0, 1, 2, -1};
+
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 3, indices, 4, 20),
+              1);
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 3, indices, 4, 21),
+              2);
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 3, indices, 4, 22),
+              -1);
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 3, indices, 4, 19),
+              -1);
+}
+
+// 场景:空 box / 越界 scroll_offset 不崩溃,返回 -1。
+TEST(AskQuestionOverlayTest, HitOptionReturnsMinusOneWhenUnmapped) {
+    using ftxui::Box;
+    const std::vector<Box> empty_boxes;
+    const std::vector<int> indices = {0, 1};
+    EXPECT_EQ(
+        acecode::tui::ask_overlay_hit_option(empty_boxes, 0, indices, 0, 0),
+        -1);
+
+    const std::vector<Box> boxes = {Box{0, 10, 0, 0}};
+    EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 5, indices, 1, 0),
+              -1);
+}

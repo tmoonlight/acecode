@@ -530,10 +530,49 @@ std::optional<acecode::desktop::WorkspaceMeta> WebServer::Impl::resolve_workspac
         if (auto m = deps.workspace_registry->get(hash)) {
             return m;
         }
-        return std::nullopt;
+    } else {
+        auto compat = compatibility_workspace();
+        if (hash == compat.hash) return compat;
     }
-    auto compat = compatibility_workspace();
-    if (hash == compat.hash) return compat;
+
+    // Registry membership means "visible in Desktop", not "valid session
+    // workspace". Fall back to the exact persisted project directory without
+    // registering it or changing desktop_visible. Restrict the path component
+    // to the canonical 16-hex hash format before touching disk.
+    const bool safe_hash = hash.size() == 16 &&
+        std::all_of(hash.begin(), hash.end(), [](unsigned char c) {
+            return (c >= '0' && c <= '9') ||
+                   (c >= 'a' && c <= 'f') ||
+                   (c >= 'A' && c <= 'F');
+        });
+    if (!safe_hash) return std::nullopt;
+
+    if (auto persisted = acecode::desktop::load_workspace_metadata(
+            projects_dir(), hash)) {
+        if (acecode::desktop::workspace_hash_matches_cwd(hash, persisted->cwd)) {
+            return persisted;
+        }
+    }
+
+    const std::string project_dir = path_to_utf8(
+        path_from_utf8(projects_dir()) / hash);
+    try {
+        for (const auto& meta : SessionStorage::list_session_metadata(project_dir)) {
+            if (meta.no_workspace || meta.cwd.empty()) continue;
+            if (!acecode::desktop::workspace_hash_matches_cwd(hash, meta.cwd)) {
+                continue;
+            }
+            acecode::desktop::WorkspaceMeta inferred;
+            inferred.hash = hash;
+            inferred.cwd = meta.cwd;
+            inferred.name = acecode::desktop::default_workspace_name(meta.cwd);
+            inferred.desktop_visible = false;
+            return inferred;
+        }
+    } catch (const std::exception& e) {
+        LOG_WARN("[web] hidden workspace metadata scan failed for " + hash +
+                 ": " + e.what());
+    }
     return std::nullopt;
 }
 

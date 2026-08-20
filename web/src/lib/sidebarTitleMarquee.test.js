@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import {
   SIDEBAR_TITLE_MARQUEE_END_FADE_PX,
   SIDEBAR_TITLE_MARQUEE_ENDPOINT_HOLD_FRACTION,
-  SIDEBAR_TITLE_MARQUEE_MAX_DURATION_MS,
-  SIDEBAR_TITLE_MARQUEE_MIN_DURATION_MS,
   SIDEBAR_TITLE_MARQUEE_SPEED_PX_PER_SECOND,
   SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION,
   sidebarTitleMarqueeMetrics,
 } from './sidebarTitleMarquee.js';
+
+function expectedDurationMs(distancePx) {
+  return Math.round((
+    distancePx / SIDEBAR_TITLE_MARQUEE_SPEED_PX_PER_SECOND
+  ) * 1000 / SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION);
+}
 
 function test(name, fn) {
   try {
@@ -44,50 +48,34 @@ test('invalid or unavailable measurements stay idle', () => {
 });
 
 test('overflow distance clears the trailing fade so the final character becomes visible', () => {
+  const distancePx = 48 + SIDEBAR_TITLE_MARQUEE_END_FADE_PX;
   assert.deepEqual(sidebarTitleMarqueeMetrics(147.2, 100), {
     overflowing: true,
-    distancePx: 48 + SIDEBAR_TITLE_MARQUEE_END_FADE_PX,
-    durationMs: SIDEBAR_TITLE_MARQUEE_MIN_DURATION_MS,
+    distancePx,
+    durationMs: expectedDurationMs(distancePx),
   });
 });
 
-test('endpoint waits are halved without changing text travel time', () => {
+test('endpoint waits and travel fill the complete animation timeline', () => {
   assert.equal(
-    SIDEBAR_TITLE_MARQUEE_MIN_DURATION_MS
-      * SIDEBAR_TITLE_MARQUEE_ENDPOINT_HOLD_FRACTION,
-    270,
-  );
-  assert.equal(
-    SIDEBAR_TITLE_MARQUEE_MIN_DURATION_MS
-      * SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION,
-    2520,
-  );
-  assert.equal(
-    SIDEBAR_TITLE_MARQUEE_MAX_DURATION_MS
-      * SIDEBAR_TITLE_MARQUEE_ENDPOINT_HOLD_FRACTION,
-    1350,
-  );
-  assert.equal(
-    SIDEBAR_TITLE_MARQUEE_MAX_DURATION_MS
-      * SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION,
-    12600,
+    (2 * SIDEBAR_TITLE_MARQUEE_ENDPOINT_HOLD_FRACTION)
+      + SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION,
+    1,
   );
 });
 
-test('marquee duration scales with readable travel speed between bounds', () => {
-  const metrics = sidebarTitleMarqueeMetrics(356, 100);
-  const expected = Math.round((
-    metrics.distancePx / SIDEBAR_TITLE_MARQUEE_SPEED_PX_PER_SECOND
-  ) * 1000 / SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION);
+test('longer titles take proportionally longer instead of moving faster', () => {
+  const short = sidebarTitleMarqueeMetrics(147.2, 100);
+  const long = sidebarTitleMarqueeMetrics(356, 100);
 
-  assert.equal(metrics.distancePx, 256 + SIDEBAR_TITLE_MARQUEE_END_FADE_PX);
-  assert.equal(metrics.durationMs, expected);
-  assert.ok(metrics.durationMs > SIDEBAR_TITLE_MARQUEE_MIN_DURATION_MS);
-  assert.ok(metrics.durationMs < SIDEBAR_TITLE_MARQUEE_MAX_DURATION_MS);
+  assert.equal(short.durationMs, expectedDurationMs(short.distancePx));
+  assert.equal(long.distancePx, 256 + SIDEBAR_TITLE_MARQUEE_END_FADE_PX);
+  assert.equal(long.durationMs, expectedDurationMs(long.distancePx));
+  assert.ok(long.durationMs > short.durationMs);
 });
 
-test('extremely long titles use the maximum marquee duration', () => {
+test('extremely long titles keep the configured travel speed', () => {
   const metrics = sidebarTitleMarqueeMetrics(10000, 100);
   assert.equal(metrics.overflowing, true);
-  assert.equal(metrics.durationMs, SIDEBAR_TITLE_MARQUEE_MAX_DURATION_MS);
+  assert.equal(metrics.durationMs, expectedDurationMs(metrics.distancePx));
 });

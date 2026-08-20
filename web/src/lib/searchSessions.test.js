@@ -152,6 +152,27 @@ run('workspaceName 命中,无 title/summary 命中也能出现在结果中', () 
   assert.ok(sc >= 100 && sc < 500, `score ${sc} 应该在 [100, 500)`);
 });
 
+run('隐藏工作区的 cwd 与 hash 都是会话搜索属性', () => {
+  const sessions = [{
+    id: 'hidden',
+    title: 'unrelated',
+    summary: 'unrelated',
+    workspaceName: 'other',
+    workspace_cwd: 'N:/Users/shao/hidden-repository',
+    workspace_hash: '0123456789abcdef',
+    workspace_visible: false,
+    updated_at: iso(NOW),
+  }];
+  assert.deepEqual(
+    rankSessions(sessions, 'hidden-repository', NOW).map((session) => session.id),
+    ['hidden'],
+  );
+  assert.deepEqual(
+    rankSessions(sessions, '01234567', NOW).map((session) => session.id),
+    ['hidden'],
+  );
+});
+
 run('fuzzy 兜底:字符按顺序出现命中,非子串', () => {
   const sessions = [
     { id: 'a', title: 'desktop frameless window', updated_at: iso(NOW) },

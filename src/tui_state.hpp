@@ -253,6 +253,19 @@ struct TuiState {
     // question_policy=timeout 时的静态提示秒数(add-ask-question-policy);
     // >0 时 overlay 顶部渲染「N 秒无操作将自动选择推荐项」,0 = 无提示。
     int ask_timeout_hint_seconds = 0;
+    // 鼠标点击选项行支持(add-tui-ask-overlay-mouse-select):
+    //   左键按下命中选项行时记录按下位置与选项下标;松开时位移 ≤2 格
+    //   才视为一次点击(等价 Enter/Space),否则当作拖拽选词继续走复制
+    //   文本路径。submit_page/question 快照用于防止按下与松开之间翻页
+    //   后仍把旧下标的点击套到新页面上。
+    //   ask_row_option_indices 是渲染帧产出的 layout row → option_index
+    //   映射(非选项行为 -1),供事件线程把点击行映射回选项下标。
+    int ask_mouse_press_x = -1;
+    int ask_mouse_press_y = -1;
+    int ask_mouse_press_option = -1;
+    bool ask_mouse_press_submit_page = false;
+    int ask_mouse_press_question = -1;
+    std::vector<int> ask_row_option_indices;
 
     // Resume session picker state
     struct ResumeItem {

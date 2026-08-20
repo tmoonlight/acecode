@@ -1965,6 +1965,8 @@ TEST(WebServerHttp, LoopSessionListIncludesOriginWhileActiveAndAfterDestroy) {
 
 TEST(WebServerHttp, SessionUserMessageSearchFindsTextAndAttachmentNames) {
     WebServerFixture fx;
+    const std::string search_project_dir =
+        (fx.projects_dir / acecode::compute_cwd_hash(fx.cwd)).string();
 
     const std::string sid = "20260708-000000-0abc";
     acecode::ChatMessage user;
@@ -1986,7 +1988,7 @@ TEST(WebServerHttp, SessionUserMessageSearchFindsTextAndAttachmentNames) {
                                   {"path", "C:/private/report-final.pdf"}}}},
     });
     acecode::SessionStorage::write_messages(
-        acecode::SessionStorage::session_path(fx.project_dir, sid),
+        acecode::SessionStorage::session_path(search_project_dir, sid),
         {user, hidden, attachment});
 
     acecode::SessionMeta meta;
@@ -1999,7 +2001,7 @@ TEST(WebServerHttp, SessionUserMessageSearchFindsTextAndAttachmentNames) {
     meta.title = "unrelated title";
     meta.summary = "unrelated summary";
     acecode::SessionStorage::write_meta(
-        acecode::SessionStorage::meta_path(fx.project_dir, sid), meta);
+        acecode::SessionStorage::meta_path(search_project_dir, sid), meta);
 
     auto text = cpr::Get(
         cpr::Url{fx.url("/api/session-search/user-messages")},
@@ -2050,6 +2052,8 @@ TEST(WebServerHttp, SessionUserMessageSearchReturnsNoMatchesForEmptyQuery) {
 // 解码成空格("C++"→"C  ")、'%' 序列被错误展开,内容明明存在却搜不到。
 TEST(WebServerHttp, SessionUserMessageSearchKeepsLiteralPlusAndPercent) {
     WebServerFixture fx;
+    const std::string search_project_dir =
+        (fx.projects_dir / acecode::compute_cwd_hash(fx.cwd)).string();
 
     const std::string sid = "20260708-000001-0abd";
     acecode::ChatMessage user;
@@ -2057,7 +2061,7 @@ TEST(WebServerHttp, SessionUserMessageSearchKeepsLiteralPlusAndPercent) {
     user.content = "帮我优化 C++ 模板,目标覆盖率 95%";
     user.uuid = "u1";
     acecode::SessionStorage::write_messages(
-        acecode::SessionStorage::session_path(fx.project_dir, sid), {user});
+        acecode::SessionStorage::session_path(search_project_dir, sid), {user});
 
     acecode::SessionMeta meta;
     meta.id = sid;
@@ -2068,7 +2072,7 @@ TEST(WebServerHttp, SessionUserMessageSearchKeepsLiteralPlusAndPercent) {
     meta.turn_count = 1;
     meta.title = "unrelated title";
     acecode::SessionStorage::write_meta(
-        acecode::SessionStorage::meta_path(fx.project_dir, sid), meta);
+        acecode::SessionStorage::meta_path(search_project_dir, sid), meta);
 
     // cpr 会把 "C++" 编码为 q=C%2B%2B,服务端只应 decode 一次。
     auto plus = cpr::Get(
@@ -2084,6 +2088,213 @@ TEST(WebServerHttp, SessionUserMessageSearchKeepsLiteralPlusAndPercent) {
     ASSERT_EQ(percent.status_code, 200) << percent.text;
     ASSERT_EQ(json::parse(percent.text)["matches"].size(), 1u)
         << "字面 '%' 被二次解码,导致查询不命中";
+}
+
+TEST(WebServerHttp, GlobalSessionSearchIncludesHiddenAndMarkerlessProjects) {
+    WebServerFixture fx;
+
+    const auto hidden_cwd_path = fx.tmp_dir / "global-hidden-cwd";
+    const auto markerless_cwd_path = fx.tmp_dir / "global-markerless-cwd";
+    const auto broken_cwd_path = fx.tmp_dir / "global-broken-index-cwd";
+    std::filesystem::create_directories(hidden_cwd_path);
+    std::filesystem::create_directories(markerless_cwd_path);
+    std::filesystem::create_directories(broken_cwd_path);
+    const std::string hidden_cwd = hidden_cwd_path.string();
+    const std::string markerless_cwd = markerless_cwd_path.string();
+    const std::string broken_cwd = broken_cwd_path.string();
+    const std::string hidden_hash = acecode::compute_cwd_hash(hidden_cwd);
+    const std::string markerless_hash = acecode::compute_cwd_hash(markerless_cwd);
+    const std::string broken_hash = acecode::compute_cwd_hash(broken_cwd);
+    const auto hidden_project = fx.projects_dir / hidden_hash;
+    const auto markerless_project = fx.projects_dir / markerless_hash;
+    const auto broken_project = fx.projects_dir / broken_hash;
+    std::filesystem::create_directories(hidden_project);
+    std::filesystem::create_directories(markerless_project);
+    std::filesystem::create_directories(broken_project);
+    write_text(hidden_project / "workspace.json", json{
+        {"cwd", hidden_cwd},
+        {"name", "Hidden Search Project"},
+        {"desktop_visible", false},
+    }.dump());
+
+    auto seed = [](const std::filesystem::path& project,
+                   const std::string& cwd,
+                   const std::string& id,
+                   const std::string& updated_at,
+                   bool archived = false,
+                   const std::string& parent = std::string{}) {
+        acecode::SessionMeta meta;
+        meta.id = id;
+        meta.cwd = cwd;
+        meta.created_at = updated_at;
+        meta.updated_at = updated_at;
+        meta.title = "title-" + id;
+        meta.summary = "summary-" + id;
+        meta.message_count = 1;
+        meta.turn_count = 1;
+        meta.archived = archived;
+        meta.parent_session_id = parent;
+        ASSERT_TRUE(acecode::SessionStorage::write_meta(
+            acecode::SessionStorage::meta_path(project.string(), id), meta));
+    };
+
+    const std::string hidden_id = "global-hidden-session";
+    const std::string markerless_id = "global-markerless-session";
+    seed(hidden_project, hidden_cwd, hidden_id, "2026-08-20T01:00:00Z");
+    seed(markerless_project, markerless_cwd, markerless_id, "2026-08-20T02:00:00Z");
+    seed(hidden_project, hidden_cwd, "global-archived", "2026-08-20T03:00:00Z", true);
+    seed(hidden_project, hidden_cwd, "global-child", "2026-08-20T04:00:00Z", false,
+         hidden_id);
+
+    acecode::ChatMessage hidden_message;
+    hidden_message.role = "user";
+    hidden_message.content = "global-hidden-content-needle";
+    acecode::SessionStorage::write_messages(
+        acecode::SessionStorage::session_path(hidden_project.string(), hidden_id),
+        {hidden_message});
+
+    // One project has a valid session but an unusable derived SQLite index.
+    // Its failure must not suppress matches from other projects.
+    seed(broken_project, broken_cwd, "global-broken-index", "2026-08-20T05:00:00Z");
+    acecode::ChatMessage broken_message;
+    broken_message.role = "user";
+    broken_message.content = "unrelated broken project content";
+    acecode::SessionStorage::write_messages(
+        acecode::SessionStorage::session_path(
+            broken_project.string(), "global-broken-index"),
+        {broken_message});
+    std::filesystem::create_directories(
+        broken_project / "user_message_search.sqlite3");
+
+    auto preflight = cpr::Options(
+        cpr::Url{fx.url("/api/session-search/sessions")},
+        cpr::Header{{"Origin", "http://localhost:5173"},
+                    {"Access-Control-Request-Method", "GET"}});
+    EXPECT_EQ(preflight.status_code, 204);
+
+    auto response = cpr::Get(cpr::Url{fx.url("/api/session-search/sessions")});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto body = json::parse(response.text);
+    ASSERT_TRUE(body["sessions"].is_array());
+    ASSERT_TRUE(body["errors"].is_array());
+    auto find_session = [&](const std::string& id) {
+        return std::find_if(
+            body["sessions"].begin(), body["sessions"].end(),
+            [&](const auto& item) {
+                return item.value("id", std::string{}) == id;
+            });
+    };
+
+    const auto hidden = find_session(hidden_id);
+    ASSERT_NE(hidden, body["sessions"].end());
+    EXPECT_EQ((*hidden)["workspace_hash"], hidden_hash);
+    EXPECT_EQ((*hidden)["workspaceName"], "Hidden Search Project");
+    EXPECT_EQ((*hidden)["workspace_cwd"], hidden_cwd);
+    EXPECT_FALSE((*hidden)["workspace_visible"].get<bool>());
+
+    const auto markerless = find_session(markerless_id);
+    ASSERT_NE(markerless, body["sessions"].end());
+    EXPECT_EQ((*markerless)["workspace_hash"], markerless_hash);
+    EXPECT_EQ((*markerless)["workspace_cwd"], markerless_cwd);
+    EXPECT_FALSE((*markerless)["workspace_visible"].get<bool>());
+    EXPECT_EQ(find_session("global-archived"), body["sessions"].end());
+    EXPECT_EQ(find_session("global-child"), body["sessions"].end());
+
+    auto visible_workspaces = cpr::Get(cpr::Url{fx.url("/api/workspaces")});
+    ASSERT_EQ(visible_workspaces.status_code, 200) << visible_workspaces.text;
+    for (const auto& workspace : json::parse(visible_workspaces.text)) {
+        EXPECT_NE(workspace.value("hash", std::string{}), hidden_hash);
+        EXPECT_NE(workspace.value("hash", std::string{}), markerless_hash);
+    }
+
+    auto content = cpr::Get(
+        cpr::Url{fx.url("/api/session-search/user-messages")},
+        cpr::Parameters{{"q", "global-hidden-content-needle"}, {"limit", "10"}});
+    ASSERT_EQ(content.status_code, 200) << content.text;
+    const auto matches = json::parse(content.text)["matches"];
+    ASSERT_EQ(matches.size(), 1u);
+    EXPECT_EQ(matches[0]["id"], hidden_id);
+    EXPECT_EQ(matches[0]["workspace_hash"], hidden_hash);
+    EXPECT_FALSE(matches[0]["workspace_visible"].get<bool>());
+
+    // Markerless session metadata is also sufficient for safe read-only
+    // workspace resolution; the configured test storage root is intentionally
+    // separate from SessionStorage's real root, so this list is empty.
+    auto markerless_scoped = cpr::Get(cpr::Url{
+        fx.url("/api/workspaces/" + markerless_hash + "/sessions")});
+    EXPECT_EQ(markerless_scoped.status_code, 200) << markerless_scoped.text;
+}
+
+TEST(WebServerHttp, HiddenWorkspaceSearchResultResumesWithoutBecomingVisible) {
+    WebServerFixture fx;
+    const auto hidden_cwd_path = fx.tmp_dir / "resumable-hidden-cwd";
+    std::filesystem::create_directories(hidden_cwd_path);
+    const std::string hidden_cwd = hidden_cwd_path.string();
+    const std::string hidden_hash = acecode::compute_cwd_hash(hidden_cwd);
+    const auto catalog_project = fx.projects_dir / hidden_hash;
+    std::filesystem::create_directories(catalog_project);
+    const auto marker_path = catalog_project / "workspace.json";
+    write_text(marker_path, json{
+        {"cwd", hidden_cwd},
+        {"name", "Resumable Hidden"},
+        {"desktop_visible", false},
+    }.dump());
+
+    const std::string sid = "global-hidden-resume";
+    acecode::SessionMeta meta;
+    meta.id = sid;
+    meta.cwd = hidden_cwd;
+    meta.created_at = "2026-08-20T06:00:00Z";
+    meta.updated_at = meta.created_at;
+    meta.title = "Resume hidden search result";
+    meta.summary = "hidden resume";
+    meta.message_count = 1;
+    meta.turn_count = 1;
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(
+        acecode::SessionStorage::meta_path(catalog_project.string(), sid), meta));
+
+    const auto runtime_project = path_from_utf8(
+        acecode::SessionStorage::get_project_dir(hidden_cwd));
+    RemoveTreeOnExit cleanup{runtime_project};
+    std::filesystem::remove_all(runtime_project);
+    std::filesystem::create_directories(runtime_project);
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(
+        acecode::SessionStorage::meta_path(runtime_project.string(), sid), meta));
+    acecode::ChatMessage message;
+    message.role = "user";
+    message.content = "resume this hidden conversation";
+    acecode::SessionStorage::write_messages(
+        acecode::SessionStorage::session_path(runtime_project.string(), sid),
+        {message});
+
+    auto catalog = cpr::Get(cpr::Url{fx.url("/api/session-search/sessions")});
+    ASSERT_EQ(catalog.status_code, 200) << catalog.text;
+    auto sessions = json::parse(catalog.text)["sessions"];
+    auto found = std::find_if(sessions.begin(), sessions.end(), [&](const auto& item) {
+        return item.value("id", std::string{}) == sid;
+    });
+    ASSERT_NE(found, sessions.end());
+    EXPECT_FALSE((*found)["workspace_visible"].get<bool>());
+
+    auto resume = cpr::Post(cpr::Url{fx.url(
+        "/api/workspaces/" + hidden_hash + "/sessions/" + sid + "/resume")});
+    ASSERT_EQ(resume.status_code, 200) << resume.text;
+    EXPECT_EQ(json::parse(resume.text)["workspace_hash"], hidden_hash);
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(entry->cwd, hidden_cwd);
+    EXPECT_EQ(entry->workspace_hash, hidden_hash);
+    entry.reset();
+
+    const auto marker = json::parse(read_text(marker_path));
+    EXPECT_FALSE(marker["desktop_visible"].get<bool>());
+    auto visible_workspaces = cpr::Get(cpr::Url{fx.url("/api/workspaces")});
+    ASSERT_EQ(visible_workspaces.status_code, 200) << visible_workspaces.text;
+    for (const auto& workspace : json::parse(visible_workspaces.text)) {
+        EXPECT_NE(workspace.value("hash", std::string{}), hidden_hash);
+    }
+
+    fx.client->destroy_session(sid);
 }
 
 // 场景: 已有对话从 composer 选择专家时保持当前 session。端点先验证专家,
@@ -3156,7 +3367,7 @@ TEST(WebServerHttp, OpenInExplorerEndpointRequiresPath) {
 }
 
 // 场景: 回调成功(返回 nullopt)→ 200 {"ok":true};回调报错(返回错误串,
-// 例如路径越出已注册 workspace)→ 400 {"ok":false,"error":...}。错误信息
+// 例如系统文件管理器启动失败)→ 400 {"ok":false,"error":...}。错误信息
 // 必须原样透传给前端 toast。
 TEST(WebServerHttp, OpenInExplorerEndpointForwardsCallbackResult) {
     std::string received_path;
@@ -3175,14 +3386,14 @@ TEST(WebServerHttp, OpenInExplorerEndpointForwardsCallbackResult) {
     EXPECT_EQ(json::parse(ok.text)["ok"], true);
     EXPECT_EQ(received_path, "D:/proj");
 
-    next_result = std::string{"path is outside registered workspaces"};
+    next_result = std::string{"mock file manager failure"};
     auto rejected = cpr::Post(cpr::Url{fx.url("/api/open-in-explorer")},
                               cpr::Header{{"Content-Type", "application/json"}},
                               cpr::Body{R"({"path":"D:/elsewhere"})"});
     ASSERT_EQ(rejected.status_code, 400) << rejected.text;
     auto body = json::parse(rejected.text);
     EXPECT_EQ(body["ok"], false);
-    EXPECT_EQ(body["error"], "path is outside registered workspaces");
+    EXPECT_EQ(body["error"], "mock file manager failure");
 }
 
 // 场景:desktop bridge 直接改 workspace.json 后,daemon 的 /api/workspaces
@@ -3859,8 +4070,8 @@ TEST(WebServerHttp, CompatibilityPurgeAcceptsArchivedMainSession) {
 }
 
 // 场景: shared daemon 为 desktop onboarding 启动时,当前 cwd 只有 hidden
-// workspace marker。它可以服务普通 /api/sessions,但不能出现在 /api/workspaces。
-TEST(WebServerHttp, HiddenDefaultWorkspaceNotListedOrResolved) {
+// workspace marker。它可以按 hash 解析会话,但仍不能出现在 /api/workspaces。
+TEST(WebServerHttp, HiddenDefaultWorkspaceIsResolvedButNotListed) {
     WebServerFixture fx(/*register_default_workspace=*/false);
     const std::string hidden_hash = acecode::compute_cwd_hash(fx.cwd);
 
@@ -3871,7 +4082,8 @@ TEST(WebServerHttp, HiddenDefaultWorkspaceNotListedOrResolved) {
     EXPECT_TRUE(ws_list.empty());
 
     auto scoped = cpr::Get(cpr::Url{fx.url("/api/workspaces/" + hidden_hash + "/sessions")});
-    EXPECT_EQ(scoped.status_code, 404) << scoped.text;
+    EXPECT_EQ(scoped.status_code, 200) << scoped.text;
+    EXPECT_TRUE(json::parse(scoped.text).empty());
 
     auto local_sessions = cpr::Get(cpr::Url{fx.url("/api/sessions")});
     EXPECT_EQ(local_sessions.status_code, 200) << local_sessions.text;
@@ -3956,9 +4168,9 @@ TEST(WebServerHttp, WorkspacePutSessionTitleRenamesInactiveDiskSession) {
     EXPECT_EQ(out.title_source, "user");
 }
 
-// 场景: hidden workspace hash 不能通过 workspace-scoped endpoint 被直接访问;
-// 手动注册后,同一个 cwd 的旧 TUI sessions 会被列出来。
-TEST(WebServerHttp, HiddenWorkspaceRejectedUntilRegisteredThenListsExistingSession) {
+// 场景: hidden workspace hash 可被只读解析但不会进入可见列表;手动注册后,
+// 同一个 cwd 的旧 TUI sessions 仍按原路径列出来。
+TEST(WebServerHttp, HiddenWorkspaceResolvesBeforeRegistrationAndListsAfterRegistration) {
     WebServerFixture fx;
 
     auto legacy_cwd_path = fx.tmp_dir / "legacy-tui-cwd";
@@ -3968,7 +4180,8 @@ TEST(WebServerHttp, HiddenWorkspaceRejectedUntilRegisteredThenListsExistingSessi
 
     ASSERT_TRUE(acecode::desktop::ensure_workspace_metadata(fx.projects_dir.string(), legacy_cwd));
     auto hidden = cpr::Get(cpr::Url{fx.url("/api/workspaces/" + legacy_hash + "/sessions")});
-    ASSERT_EQ(hidden.status_code, 404) << hidden.text;
+    ASSERT_EQ(hidden.status_code, 200) << hidden.text;
+    EXPECT_TRUE(json::parse(hidden.text).empty());
 
     const auto legacy_project_dir = std::filesystem::path(acecode::SessionStorage::get_project_dir(legacy_cwd));
     RemoveTreeOnExit cleanup{legacy_project_dir};

@@ -1560,10 +1560,14 @@ static void insert_pasted_text_at_cursor_locked(TuiState& state,
     state.history_index = -1;
 }
 
-// 有 overlay 或 picker 时，不让剪贴板内容插进输入框。
+// 有 overlay 或 picker 时，不让剪贴板内容插进输入框。唯一例外:
+// AskUserQuestion 的 "Other..." 自定义文本输入态(ask_pending &&
+// ask_other_input_active)需要接收粘贴文本作为自定义答案。
 static bool can_accept_clipboard_paste_locked(const TuiState& state) {
-    return !state.ask_pending &&
-           !state.confirm_pending &&
+    if (state.ask_pending) {
+        return state.ask_other_input_active;
+    }
+    return !state.confirm_pending &&
            !state.rewind_picker_active &&
            !state.resume_picker_active &&
            !state.model_picker_open &&
@@ -3171,6 +3175,9 @@ struct TuiRendererContext {
     Box& scrollbar_box;
     Box& ask_scrollbar_box;
     Box& ask_overlay_box;
+    // add-tui-ask-overlay-mouse-select: overlay 每行可见行的屏幕 box,
+    // 渲染帧逐行 reflect,事件线程据此把鼠标点击映射回选项行。
+    std::vector<Box>& ask_row_boxes;
     Box& sidebar_content_box;
     Box& sidebar_viewport_box;
     Box& sidebar_scrollbar_box;
@@ -3204,6 +3211,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& scrollbar_box = ctx.scrollbar_box;
     auto& ask_scrollbar_box = ctx.ask_scrollbar_box;
     auto& ask_overlay_box = ctx.ask_overlay_box;
+    auto& ask_row_boxes = ctx.ask_row_boxes;
     auto& sidebar_content_box = ctx.sidebar_content_box;
     auto& sidebar_viewport_box = ctx.sidebar_viewport_box;
     auto& sidebar_scrollbar_box = ctx.sidebar_scrollbar_box;
@@ -4179,6 +4187,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     Element ask_overlay_element = emptyElement();
     ask_scrollbar_box = Box{};
     ask_overlay_box = Box{};
+    ask_row_boxes.clear();
     if (state.ask_pending && !state.ask_questions.empty() &&
         (state.ask_submit_page ||
          (state.ask_current_question >= 0 &&
@@ -4247,6 +4256,16 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         state.ask_scroll_total_rows = total;
         state.ask_scroll_visible_rows = visible;
 
+        // 鼠标点击选项行支持:记录 layout row → option_index 映射,
+        // 事件线程据此把点击坐标映射回选项下标。
+        state.ask_row_option_indices.assign(total, -1);
+        for (int i = 0; i < total; ++i) {
+            if (layout.rows[i].kind ==
+                acecode::tui::AskOverlayRowKind::Option) {
+                state.ask_row_option_indices[i] = layout.rows[i].option_index;
+            }
+        }
+
         Elements rows;
         const int begin = state.ask_scroll_offset;
         const int end = std::min(total, begin + visible);
@@ -4277,6 +4296,10 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
                 case acecode::tui::AskOverlayRowKind::Blank:
                     break;
             }
+            // 鼠标点击选项行支持:逐行 reflect,事件线程用这些 box 把
+            // 点击坐标映射回选项(只覆盖可见文本范围,拖拽选词不受影响)。
+            ask_row_boxes.push_back(Box{});
+            el = el | reflect(ask_row_boxes.back());
             rows.push_back(el);
         }
 
@@ -4705,6 +4728,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // It must not share hit-testing state with the chat transcript scrollbar.
     Box ask_scrollbar_box;
     Box ask_overlay_box;
+    // add-tui-ask-overlay-mouse-select: overlay 每行可见行的屏幕 box,
+    // 渲染帧逐行 reflect,事件线程据此把鼠标点击映射回选项行。
+    std::vector<Box> ask_row_boxes;
     // Ctrl+O expanded sidebar owns an independent document, viewport, and
     // scrollbar track. These boxes are refreshed by the sidebar renderer and
     // consumed only by sidebar mouse routing.
@@ -6065,7 +6091,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &ask_row_boxes, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
         if (event != Event::Custom &&
             !event.is_mouse() &&
             !event.is_cursor_position() &&
@@ -6141,10 +6167,16 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 ? state.paste_accumulator.feed_character(event.character())
                 : state.paste_accumulator.feed_special(event.input());
             if (pr.just_completed && !pr.completed_text.empty()) {
-                insert_pasted_text_at_cursor(pr.completed_text);
-                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-                lk.unlock();
-                screen.PostEvent(Event::Custom);
+                // 题目页吞掉粘贴,避免文本漏进隐藏 composer;Other 输入态
+                // 才把归一化文本插进自定义答案缓冲
+                // (add-tui-ask-overlay-mouse-select)。
+                if (can_accept_clipboard_paste_locked(state)) {
+                    insert_pasted_text_at_cursor(pr.completed_text);
+                    refresh_input_suggestions(
+                        state, cmd_registry, agent_loop.cwd());
+                    lk.unlock();
+                    screen.PostEvent(Event::Custom);
+                }
             }
             if (pr.consume) {
                 return true;
@@ -6256,6 +6288,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.ask_scroll_visible_rows = 0;
                     state.ask_scrollbar_dragging = false;
                     state.ask_scroll_to_focus_requested = false;
+                    state.ask_mouse_press_option = -1;
+                    state.ask_mouse_press_x = -1;
+                    state.ask_mouse_press_y = -1;
                 };
 
                 auto reset_ask_page_scroll_state = [&]() {
@@ -6474,6 +6509,71 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     }
                 };
 
+                // 鼠标点击选项行时执行的动作,与键盘行为等价
+                // (add-tui-ask-overlay-mouse-select):
+                //   - 提交页:0 = Submit answers,1 = Cancel;
+                //   - 显式单选选项:提交并推进(同 Enter);
+                //   - 显式多选选项:切换勾选并把焦点移到该行(同 Space);
+                //   - "Other..."(option_index == option_count):进入
+                //     自定义文本输入态(同 Enter)。
+                auto activate_ask_option_by_click = [&](int option_index) {
+                    if (state.ask_submit_page) {
+                        close_ask_overlay(option_index == 0);
+                        return;
+                    }
+                    if (q == nullptr || option_index < 0) {
+                        return;
+                    }
+                    if (option_index == option_count) {
+                        state.ask_option_focus = option_index;
+                        state.ask_other_input_active = true;
+                        state.input_text.clear(); state.pasted_texts.clear();
+                        state.input_cursor = 0;
+                        state.input_selection_anchor.reset();
+                        state.input_vertical_goal_column.reset();
+                        state.ask_scroll_to_focus_requested = true;
+                        return;
+                    }
+                    if (q->multi_select) {
+                        if (static_cast<int>(state.ask_multi_selected.size()) <=
+                            option_index) {
+                            state.ask_multi_selected.resize(option_count, false);
+                        }
+                        state.ask_multi_selected[option_index] =
+                            !state.ask_multi_selected[option_index];
+                        if (state.ask_current_question >= 0 &&
+                            state.ask_current_question <
+                                static_cast<int>(
+                                    state.ask_multi_selected_by_question
+                                        .size())) {
+                            state.ask_multi_selected_by_question
+                                [state.ask_current_question] =
+                                    state.ask_multi_selected;
+                        }
+                        state.ask_option_focus = option_index;
+                        if (state.ask_current_question >= 0 &&
+                            state.ask_current_question <
+                                static_cast<int>(
+                                    state.ask_question_option_focus.size())) {
+                            state.ask_question_option_focus
+                                [state.ask_current_question] = option_index;
+                        }
+                        state.ask_scroll_to_focus_requested = true;
+                        return;
+                    }
+                    state.ask_option_focus = option_index;
+                    if (state.ask_current_question >= 0 &&
+                        state.ask_current_question <
+                            static_cast<int>(
+                                state.ask_question_option_focus.size())) {
+                        state.ask_question_option_focus
+                            [state.ask_current_question] = option_index;
+                    }
+                    commit_current_answer(q->options[option_index].label,
+                                          false);
+                    advance_to_next_page();
+                };
+
                 if (event == Event::PageUp || event == Event::PageDown) {
                     const int page_step =
                         std::max(1, state.ask_scroll_visible_rows - 1);
@@ -6689,6 +6789,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_scroll_total_rows >
                             state.ask_scroll_visible_rows &&
                         contains_box(ask_scrollbar_box, mouse.x, mouse.y)) {
+                        state.ask_mouse_press_option = -1;
                         state.ask_scrollbar_dragging = true;
                         scroll_ask_to_mouse_y(mouse.y);
                         screen.PostEvent(Event::Custom);
@@ -6698,8 +6799,32 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     if (mouse.button == Mouse::Left &&
                         mouse.motion == Mouse::Pressed &&
                         contains_box(scrollbar_box, mouse.x, mouse.y)) {
+                        state.ask_mouse_press_option = -1;
                         begin_chat_scrollbar_drag();
                         return true;
+                    }
+
+                    // 鼠标点击选项行支持:左键按下时记录按下位置与命中的
+                    // 选项行(若有)。命中选项行仍 return false 让 FTXUI
+                    // 建立拖拽选区 —— 拖走 = 复制文本,原地松开 = 点击。
+                    if (mouse.button == Mouse::Left &&
+                        mouse.motion == Mouse::Pressed) {
+                        state.ask_mouse_press_x = mouse.x;
+                        state.ask_mouse_press_y = mouse.y;
+                        state.ask_mouse_press_option =
+                            acecode::tui::ask_overlay_hit_option(
+                                ask_row_boxes,
+                                state.ask_scroll_offset,
+                                state.ask_row_option_indices,
+                                mouse.x,
+                                mouse.y);
+                        state.ask_mouse_press_submit_page =
+                            state.ask_submit_page;
+                        state.ask_mouse_press_question =
+                            state.ask_current_question;
+                        if (state.ask_mouse_press_option >= 0) {
+                            return false;
+                        }
                     }
 
                     if (mouse.button == Mouse::Left &&
@@ -6740,6 +6865,33 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                             screen.PostEvent(Event::Custom);
                         }
                         return false;
+                    }
+
+                    // 鼠标点击选项行支持:松开时若与按下位置几乎重合
+                    // (≤2 格)且按下确实落在选项行上,视为一次点击并执行
+                    // 与键盘等价的选择动作。位移较大的拖拽不消费事件,
+                    // 保住 FTXUI 的文本选区供右键复制。
+                    if (mouse.button == Mouse::Left &&
+                        mouse.motion == Mouse::Released &&
+                        state.ask_mouse_press_option >= 0) {
+                        const int pressed_option =
+                            state.ask_mouse_press_option;
+                        const bool pressed_submit_page =
+                            state.ask_mouse_press_submit_page;
+                        const int pressed_question =
+                            state.ask_mouse_press_question;
+                        const int press_x = state.ask_mouse_press_x;
+                        const int press_y = state.ask_mouse_press_y;
+                        state.ask_mouse_press_option = -1;
+                        const int dx = mouse.x - press_x;
+                        const int dy = mouse.y - press_y;
+                        if (pressed_submit_page == state.ask_submit_page &&
+                            pressed_question == state.ask_current_question &&
+                            dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2) {
+                            activate_ask_option_by_click(pressed_option);
+                            screen.PostEvent(Event::Custom);
+                            return true;
+                        }
                     }
 
                     if (mouse.button == Mouse::Left &&
@@ -6913,7 +7065,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         return true;
                     }
                     if (event == Event::Return) {
-                        std::string answer = state.input_text;
+                        // 折叠占位符必须展开,否则多行粘贴只会把
+                        // "[Pasted text #N +M lines]" 当作答案交回模型。
+                        std::string answer = acecode::tui::expand_placeholders(
+                            state.input_text, state.pasted_texts);
                         state.input_text.clear(); state.pasted_texts.clear();
                         state.input_cursor = 0;
                         state.input_selection_anchor.reset();
@@ -8576,6 +8731,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         scrollbar_box,
         ask_scrollbar_box,
         ask_overlay_box,
+        ask_row_boxes,
         sidebar_content_box,
         sidebar_viewport_box,
         sidebar_scrollbar_box,

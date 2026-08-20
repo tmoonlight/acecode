@@ -246,7 +246,8 @@ public:
 
 private:
     bool ensure_created();  // Lazy creation of session files on first message
-    bool update_meta();     // Write current metadata to disk
+    bool update_meta(
+        std::optional<std::string> updated_at_override = std::nullopt);
     bool try_set_generated_session_title_locked(std::string title);
     void reset_auto_title_state_locked();
     std::string extract_summary(const std::string& content) const;

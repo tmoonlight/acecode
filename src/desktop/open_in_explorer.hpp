@@ -3,7 +3,6 @@
 #include <filesystem>
 #include <functional>
 #include <string>
-#include <vector>
 
 namespace acecode::desktop {
 
@@ -36,30 +35,18 @@ using OpenInExplorerLauncher = std::function<bool(
     OpenInExplorerTargetKind,
     std::string&)>;
 
-std::vector<std::string> append_allowed_open_root(
-    std::vector<std::string> allowed_roots_utf8,
-    const std::string& extra_root_utf8);
-
-std::vector<std::string> append_acecode_managed_open_roots(
-    std::vector<std::string> allowed_roots_utf8,
-    const std::string& acecode_dir_utf8);
-
 ValidatedOpenTarget validate_open_in_explorer_request(
-    const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8 = {});
+    const std::string& path_utf8);
 
 ValidatedOpenDirectory validate_open_directory_request(
-    const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8 = {});
+    const std::string& path_utf8);
 
 OpenInExplorerResult open_path_in_file_manager(
     const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8 = {},
     OpenInExplorerLauncher launcher = {});
 
 OpenInExplorerResult open_directory_in_file_manager(
     const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8 = {},
     DirectoryOpenLauncher launcher = {});
 
 } // namespace acecode::desktop

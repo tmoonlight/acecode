@@ -447,4 +447,24 @@ int scroll_offset_for_track_y(int mouse_y,
         static_cast<long long>(rel) * max_offset / (track_height - 1));
 }
 
+int ask_overlay_hit_option(const std::vector<ftxui::Box>& row_boxes,
+                           int scroll_offset,
+                           const std::vector<int>& row_option_indices,
+                           int x,
+                           int y) {
+    for (std::size_t k = 0; k < row_boxes.size(); ++k) {
+        const ftxui::Box& box = row_boxes[k];
+        if (box.x_min <= box.x_max && box.y_min <= box.y_max &&
+            box.Contain(x, y)) {
+            const int layout_row = scroll_offset + static_cast<int>(k);
+            if (layout_row >= 0 &&
+                layout_row < static_cast<int>(row_option_indices.size())) {
+                return row_option_indices[layout_row];
+            }
+            return -1;
+        }
+    }
+    return -1;
+}
+
 } // namespace acecode::tui

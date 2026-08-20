@@ -89,6 +89,22 @@ export function sessionJumpWorkspaceHash(target = {}, fallback = {}) {
   );
 }
 
+// Missing visibility is the legacy/visible-workspace behavior. Only an
+// explicit false marker from the global session catalog bypasses Desktop's
+// visible-workspace activation bridge.
+export function sessionJumpWorkspaceVisible(target = {}, fallback = {}) {
+  const value = firstDefined(
+    target.workspaceVisible,
+    target.workspace_visible,
+    fallback.workspaceVisible,
+    fallback.workspace_visible,
+  );
+  if (value === undefined) return true;
+  if (value === false || value === 0) return false;
+  const normalized = text(value).toLowerCase();
+  return normalized !== 'false' && normalized !== '0' && normalized !== 'no';
+}
+
 export function openSessionTargetFromSearch(search = '') {
   const raw = text(search);
   const params = new URLSearchParams(raw.startsWith('?') ? raw.slice(1) : raw);
@@ -197,6 +213,7 @@ export function sessionRefFromJumpTarget(target = {}, resumeResult = {}, fallbac
     ['message_count', ['message_count', 'messageCount']],
     ['created_at', ['created_at', 'createdAt']],
     ['updated_at', ['updated_at', 'updatedAt']],
+    ['workspace_visible', ['workspace_visible', 'workspaceVisible']],
   ];
   for (const [outKey, keys] of copyPairs) {
     const values = [];

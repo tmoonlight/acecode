@@ -2,8 +2,6 @@
 
 #include "../utils/utf8_path.hpp"
 
-#include <algorithm>
-#include <cctype>
 #include <system_error>
 
 #ifdef _WIN32
@@ -24,45 +22,6 @@ namespace fs = std::filesystem;
 
 namespace acecode::desktop {
 namespace {
-
-std::string compare_key(fs::path path) {
-    std::error_code ec;
-    path = path.lexically_normal();
-    std::string value = acecode::path_to_utf8_generic(path);
-    while (value.size() > 1 && value.back() == '/') value.pop_back();
-#ifdef _WIN32
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-#endif
-    return value;
-}
-
-bool is_same_or_descendant(const fs::path& child, const fs::path& root) {
-    const std::string child_key = compare_key(child);
-    const std::string root_key = compare_key(root);
-    if (child_key == root_key) return true;
-    if (root_key.empty() || child_key.size() <= root_key.size()) return false;
-    return child_key.compare(0, root_key.size(), root_key) == 0 &&
-           child_key[root_key.size()] == '/';
-}
-
-bool is_under_allowed_root(const fs::path& canonical_path,
-                           const std::vector<std::string>& allowed_roots_utf8) {
-    if (allowed_roots_utf8.empty()) return true;
-
-    bool had_valid_root = false;
-    for (const auto& root_text : allowed_roots_utf8) {
-        if (root_text.empty()) continue;
-        std::error_code ec;
-        auto root = fs::weakly_canonical(acecode::path_from_utf8(root_text), ec);
-        if (ec || root.empty()) continue;
-        if (!fs::is_directory(root, ec) || ec) continue;
-        had_valid_root = true;
-        if (is_same_or_descendant(canonical_path, root)) return true;
-    }
-    return !had_valid_root ? false : false;
-}
 
 bool platform_open_target(const fs::path& path,
                           OpenInExplorerTargetKind kind,
@@ -127,40 +86,8 @@ bool platform_open_target(const fs::path& path,
 
 } // namespace
 
-std::vector<std::string> append_allowed_open_root(
-    std::vector<std::string> allowed_roots_utf8,
-    const std::string& extra_root_utf8) {
-    if (extra_root_utf8.empty()) return allowed_roots_utf8;
-
-    const auto extra_key = compare_key(acecode::path_from_utf8(extra_root_utf8));
-    if (extra_key.empty()) return allowed_roots_utf8;
-
-    for (const auto& root : allowed_roots_utf8) {
-        if (compare_key(acecode::path_from_utf8(root)) == extra_key) {
-            return allowed_roots_utf8;
-        }
-    }
-    allowed_roots_utf8.push_back(extra_root_utf8);
-    return allowed_roots_utf8;
-}
-
-std::vector<std::string> append_acecode_managed_open_roots(
-    std::vector<std::string> allowed_roots_utf8,
-    const std::string& acecode_dir_utf8) {
-    if (acecode_dir_utf8.empty()) return allowed_roots_utf8;
-
-    const fs::path acecode_dir = acecode::path_from_utf8(acecode_dir_utf8);
-    allowed_roots_utf8 = append_allowed_open_root(
-        std::move(allowed_roots_utf8),
-        acecode::path_to_utf8(acecode_dir / "skills"));
-    return append_allowed_open_root(
-        std::move(allowed_roots_utf8),
-        acecode::path_to_utf8(acecode_dir / "projects"));
-}
-
 ValidatedOpenTarget validate_open_in_explorer_request(
-    const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8) {
+    const std::string& path_utf8) {
     if (path_utf8.empty()) {
         return {false, {}, OpenInExplorerTargetKind::Directory, "path required"};
     }
@@ -206,14 +133,6 @@ ValidatedOpenTarget validate_open_in_explorer_request(
             "path is not an existing file or directory",
         };
     }
-    if (!is_under_allowed_root(canonical_path, allowed_roots_utf8)) {
-        return {
-            false,
-            {},
-            OpenInExplorerTargetKind::Directory,
-            "path is outside allowed roots",
-        };
-    }
     return {
         true,
         canonical_path,
@@ -225,11 +144,8 @@ ValidatedOpenTarget validate_open_in_explorer_request(
 }
 
 ValidatedOpenDirectory validate_open_directory_request(
-    const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8) {
-    auto validated = validate_open_in_explorer_request(
-        path_utf8,
-        allowed_roots_utf8);
+    const std::string& path_utf8) {
+    auto validated = validate_open_in_explorer_request(path_utf8);
     if (!validated.ok) return {false, {}, validated.error};
     if (validated.kind != OpenInExplorerTargetKind::Directory) {
         return {false, {}, "path is not an existing directory"};
@@ -239,11 +155,8 @@ ValidatedOpenDirectory validate_open_directory_request(
 
 OpenInExplorerResult open_path_in_file_manager(
     const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8,
     OpenInExplorerLauncher launcher) {
-    auto validated = validate_open_in_explorer_request(
-        path_utf8,
-        allowed_roots_utf8);
+    auto validated = validate_open_in_explorer_request(path_utf8);
     if (!validated.ok) return {false, validated.error};
 
     std::string error;
@@ -259,9 +172,8 @@ OpenInExplorerResult open_path_in_file_manager(
 
 OpenInExplorerResult open_directory_in_file_manager(
     const std::string& path_utf8,
-    const std::vector<std::string>& allowed_roots_utf8,
     DirectoryOpenLauncher launcher) {
-    auto validated = validate_open_directory_request(path_utf8, allowed_roots_utf8);
+    auto validated = validate_open_directory_request(path_utf8);
     if (!validated.ok) return {false, validated.error};
 
     std::string error;

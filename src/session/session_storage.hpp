@@ -138,6 +138,12 @@ public:
     // PID-suffixed files are incompatible old data and are ignored.
     static std::vector<SessionMeta> list_sessions(const std::string& project_dir);
 
+    // Metadata-only variant for global discovery/index maintenance. Unlike
+    // list_sessions(), it never opens JSONL transcripts to backfill legacy
+    // summary/count fields.
+    static std::vector<SessionMeta> list_session_metadata(
+        const std::string& project_dir);
+
     // Canonical session file record used by resume/web history paths.
     struct SessionFileCandidate {
         std::string jsonl_path;

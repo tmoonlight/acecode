@@ -4,6 +4,7 @@ import {
   openSessionTargetFromSearch,
   sessionJumpMessageOrdinal,
   sessionJumpReadOnly,
+  sessionJumpWorkspaceVisible,
   sessionRefFromJumpTarget,
   stripOpenSessionParams,
 } from './sessionJump.js';
@@ -103,6 +104,22 @@ test('session ref from jump target merges resume result and search metadata', ()
   assert.equal(ref.searchMatch.messageOrdinal, 7);
   assert.equal(ref.searchMatch.message_ordinal, 7);
   assert.equal(ref.searchMatch.snippet, 'needle');
+});
+
+test('hidden workspace search targets bypass Desktop activation and preserve visibility', () => {
+  assert.equal(sessionJumpWorkspaceVisible({}), true);
+  assert.equal(sessionJumpWorkspaceVisible({ workspace_visible: true }), true);
+  assert.equal(sessionJumpWorkspaceVisible({ workspace_visible: false }), false);
+  assert.equal(sessionJumpWorkspaceVisible({ workspaceVisible: 'false' }), false);
+
+  const ref = sessionRefFromJumpTarget({
+    id: 'hidden-session',
+    workspace_hash: 'hidden-hash',
+    workspace_visible: false,
+  });
+  assert.equal(ref.workspaceHash, 'hidden-hash');
+  assert.equal(ref.workspace_visible, false);
+  assert.equal(sessionJumpWorkspaceVisible(ref), false);
 });
 
 test('desktop open session URL preserves matched message ordinal', () => {

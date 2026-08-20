@@ -2,6 +2,8 @@
 
 #include "tool/ask_user_question_tool.hpp"
 
+#include <ftxui/screen/box.hpp>
+
 #include <string>
 #include <vector>
 
@@ -71,5 +73,16 @@ int scroll_offset_for_track_y(int mouse_y,
                               int track_height,
                               int total_rows,
                               int visible_rows);
+
+// 鼠标点击选项行支持(add-tui-ask-overlay-mouse-select):
+// 给定渲染帧按可见顺序 reflect 出的每行屏幕 box(row_boxes,长度 =
+// 可见行数)、layout row → option_index 的映射(row_option_indices,
+// 非选项行为 -1)与当前滚动偏移 scroll_offset,把 (x, y) 命中的行
+// 映射回选项下标;未命中任何行返回 -1。
+int ask_overlay_hit_option(const std::vector<ftxui::Box>& row_boxes,
+                           int scroll_offset,
+                           const std::vector<int>& row_option_indices,
+                           int x,
+                           int y);
 
 } // namespace acecode::tui

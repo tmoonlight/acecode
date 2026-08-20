@@ -55,6 +55,24 @@ run('search palette renders task and project groups in one result sequence', () 
   assert.match(palette, /window\.addEventListener\(SESSION_LIST_CHANGED_EVENT/);
 });
 
+run('global session search is independent from visible workspace discovery', () => {
+  const api = source('lib/api.js');
+  const app = source('App.jsx');
+  const catalogCall = api.slice(
+    api.indexOf('listAllWorkspaceSessions:'),
+    api.indexOf('listAllArchivedSessions:'),
+  );
+
+  assert.match(catalogCall, /mergeGlobalSessionsAndWorkspaces/);
+  assert.match(catalogCall, /\/api\/session-search\/sessions/);
+  assert.match(catalogCall, /\/api\/workspaces/);
+  assert.doesNotMatch(catalogCall, /\/api\/workspaces\/\$\{[^}]+\}\/sessions/);
+  assert.match(
+    app,
+    /!noWorkspace[\s\S]*targetHash[\s\S]*sessionJumpWorkspaceVisible\(target\)[\s\S]*aceDesktop_activateWorkspace/,
+  );
+});
+
 run('project selection is handed from App to Sidebar activation', () => {
   const app = source('App.jsx');
   const sidebar = source('components/Sidebar.jsx');

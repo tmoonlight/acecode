@@ -113,6 +113,7 @@ import {
   sessionJumpNoWorkspace,
   sessionJumpReadOnly,
   sessionJumpWorkspaceHash,
+  sessionJumpWorkspaceVisible,
   sessionRefFromJumpTarget,
   stripOpenSessionParams,
 } from './lib/sessionJump.js';
@@ -525,6 +526,7 @@ export function App() {
 
       if (!noWorkspace
           && targetHash
+          && sessionJumpWorkspaceVisible(target)
           && options.allowDesktopActivate !== false
           && targetHash !== activeRefRef.current?.workspaceHash
           && typeof window !== 'undefined'

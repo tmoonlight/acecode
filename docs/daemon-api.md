@@ -245,6 +245,8 @@ when known.
 | GET | `/api/pinned-sessions/order` | read cross-workspace pin order |
 | PUT | `/api/pinned-sessions/order` | set cross-workspace pin order |
 | GET | `/api/sessions` | compatibility session list |
+| GET | `/api/session-search/sessions` | global unarchived session search catalog |
+| GET | `/api/session-search/user-messages?q=...&limit=N` | global visible-user-message search |
 | POST | `/api/sessions` | compatibility session create |
 | POST | `/api/sessions/:id/resume` | compatibility session resume |
 | DELETE | `/api/sessions/:id` | destroy active session |
@@ -531,13 +533,12 @@ Body:
 Opens an absolute directory in Explorer/Finder/xdg-open, or reveals an existing
 regular file in its containing folder. Windows Explorer and macOS Finder select
 the file; Linux opens the containing directory because there is no portable
-freedesktop selection protocol. The desktop callback validates that the path
-exists and is within an allowed root: a registered workspace, the daemon cwd,
-or an ACECode-managed directory. Managed roots are the user-global skills
-directory (`~/.acecode/skills`, for the settings page "open global skills
-directory" button) and project/session storage (`~/.acecode/projects`, which
-contains persisted attachments). Returns `{"ok":true}`. Returns `501` when the
-daemon has no desktop callback.
+freedesktop selection protocol. The desktop callback accepts any existing local
+absolute regular file or directory that the daemon process can access; it does
+not restrict the target to registered workspaces, the daemon cwd, or
+ACECode-managed roots. Empty, relative, missing, and unsupported target types
+remain invalid. Returns `{"ok":true}`. Returns `501` when the daemon has no
+desktop callback.
 
 ### `GET /api/workspaces/:hash/sessions?archived=1`
 
@@ -588,6 +589,14 @@ Loads an existing disk session into the current daemon registry. Returns
   or workspace path unavailable
 - `503` session client unavailable
 
+Workspace registration controls Desktop visibility, not whether a persisted
+session can be opened. An exact 16-hex workspace hash that is absent from the
+visible registry may be resolved read-only from
+`projects/<hash>/workspace.json`, or from a hash-matching ordinary session
+meta in that project directory. This fallback never registers the workspace
+or changes `desktop_visible`; `/api/workspaces` therefore remains a list of
+visible projects only.
+
 ### `DELETE /api/workspaces/:hash/sessions/:id?purge=1`
 
 Permanently deletes an archived session from the specified workspace. The
@@ -607,6 +616,61 @@ Guard rails and errors:
   the other known session data has been removed so the operation remains
   retryable
 - `503` session client unavailable
+
+### Global session search
+
+`GET /api/session-search/sessions` returns every unarchived top-level session
+discoverable under the daemon project store, merged with not-yet-persisted
+active sessions:
+
+```json
+{
+  "sessions": [
+    {
+      "id": "sid",
+      "workspace_hash": "0123456789abcdef",
+      "workspaceName": "repo",
+      "workspace_cwd": "C:/repo",
+      "workspace_visible": false,
+      "no_workspace": false,
+      "title": "Investigate search",
+      "summary": "...",
+      "updated_at": "2026-08-20T01:02:03Z"
+    }
+  ],
+  "errors": []
+}
+```
+
+Workspace visibility and even the presence of `workspace.json` do not control
+session inclusion. Workspace hash, name, cwd, and visibility are result
+attributes. `no_workspace` sessions use an empty workspace hash. Archived
+sessions and records with a non-empty `parent_session_id` are excluded. A
+project-level read failure is reported in `errors` without suppressing valid
+sessions from other projects.
+
+`GET /api/session-search/user-messages?q=<query>&limit=<1..100>` uses the same
+global session boundary and the existing per-project derived indexes. It
+returns `{"matches":[...]}` with at most the requested global limit, ordered
+by match score and session update time. Each match includes the ordinary
+session fields plus:
+
+```json
+{
+  "search_match": {
+    "kind": "user_message",
+    "score": 1200,
+    "message_ordinal": 7,
+    "snippet": "matching visible user text",
+    "attachments": ["design.pdf"]
+  }
+}
+```
+
+Only visible user-message text and attachment names are indexed; full
+transcripts, hidden context, assistant messages, and tool results are not
+returned. Empty queries return no matches, queries longer than 512 bytes
+return `400`, and one failed project index does not block other projects.
 
 ### Compatibility session routes
 

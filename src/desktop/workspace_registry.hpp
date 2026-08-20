@@ -67,6 +67,14 @@ private:
     std::unordered_map<std::string, WorkspaceMeta> entries_;
 };
 
+// Read one on-disk workspace marker without applying the Desktop visibility
+// filter and without mutating the registry or marker. Search/navigation code
+// uses this to treat workspace identity as session metadata while keeping the
+// sidebar's visible-workspace list unchanged.
+std::optional<WorkspaceMeta> load_workspace_metadata(
+    const std::string& projects_dir,
+    const std::string& hash);
+
 // 确保某 cwd 的 workspace.json 存在,但不把它暴露给 Desktop startup。若文件
 // 已存在,不读取也不覆盖,避免 TUI/daemon 启动把用户在 Desktop 里改过的 name
 // 或 desktop_visible marker 冲掉。

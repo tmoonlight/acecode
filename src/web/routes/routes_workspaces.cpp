@@ -292,8 +292,8 @@ void WebServer::Impl::register_workspaces() {
         });
 
         // webapp 兼容模式(Edge --app,无 webview bridge)的「在资源管理器中打开」。
-        // 路径校验(绝对路径 / 目录存在 / 在已注册 workspace 内)在回调内完成
-        // (desktop::open_directory_in_file_manager),这里只做形参与门控。
+        // 路径有效性校验(绝对路径 / 现存普通文件或目录)在回调内通过
+        // desktop::open_path_in_file_manager 完成,这里只做形参与门控。
         CROW_ROUTE(app, "/api/open-in-explorer").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);

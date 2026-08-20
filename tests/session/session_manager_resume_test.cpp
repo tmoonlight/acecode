@@ -77,6 +77,78 @@ TEST(SessionManagerResume, RepeatedResumeDoesNotDuplicateCanonicalJsonl) {
     fs::remove_all(cwd);
 }
 
+TEST(SessionManagerResume, ResumeWithoutNewContentPreservesActivityTimeAndOrder) {
+    auto cwd = make_temp_cwd("preserve_activity_order");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    fs::remove_all(project_dir);
+
+    const std::string older_id = "resume-order-older";
+    const std::string newer_id = "resume-order-newer";
+    {
+        SessionManager older;
+        older.start_session(cwd.string(), "test-provider", "test-model", older_id);
+        older.on_message(message("user", "older message"));
+        older.finalize();
+    }
+    {
+        SessionManager newer;
+        newer.start_session(cwd.string(), "test-provider", "test-model", newer_id);
+        newer.on_message(message("user", "newer message"));
+        newer.finalize();
+    }
+
+    const std::string older_time = "2001-01-01T00:00:00Z";
+    const std::string newer_time = "2002-01-01T00:00:00Z";
+    const auto older_meta_path = SessionStorage::meta_path(project_dir, older_id);
+    auto older_meta = SessionStorage::read_meta(older_meta_path);
+    ASSERT_EQ(older_meta.id, older_id);
+    older_meta.updated_at = older_time;
+    older_meta.message_count = 0;
+    older_meta.turn_count = 0;
+    ASSERT_TRUE(SessionStorage::write_meta(older_meta_path, older_meta));
+
+    const auto newer_meta_path = SessionStorage::meta_path(project_dir, newer_id);
+    auto newer_meta = SessionStorage::read_meta(newer_meta_path);
+    ASSERT_EQ(newer_meta.id, newer_id);
+    newer_meta.updated_at = newer_time;
+    ASSERT_TRUE(SessionStorage::write_meta(newer_meta_path, newer_meta));
+
+    auto sessions = SessionStorage::list_sessions(project_dir);
+    ASSERT_EQ(sessions.size(), 2u);
+    EXPECT_EQ(sessions[0].id, newer_id);
+    EXPECT_EQ(sessions[1].id, older_id);
+
+    SessionManager resumed;
+    resumed.start_session(cwd.string(), "test-provider", "test-model");
+    auto messages = resumed.resume_session(older_id);
+    ASSERT_EQ(messages.size(), 1u);
+
+    const auto after_resume = SessionStorage::read_meta(older_meta_path);
+    EXPECT_EQ(after_resume.updated_at, older_time);
+    EXPECT_EQ(after_resume.message_count, 1);
+    EXPECT_EQ(after_resume.turn_count, 1);
+
+    sessions = SessionStorage::list_sessions(project_dir);
+    ASSERT_EQ(sessions.size(), 2u);
+    EXPECT_EQ(sessions[0].id, newer_id);
+    EXPECT_EQ(sessions[1].id, older_id);
+
+    resumed.on_message(message("user", "continued message"));
+    const auto after_message = SessionStorage::read_meta(older_meta_path);
+    EXPECT_GT(after_message.updated_at, newer_time);
+    EXPECT_EQ(after_message.message_count, 2);
+    EXPECT_EQ(after_message.turn_count, 2);
+
+    sessions = SessionStorage::list_sessions(project_dir);
+    ASSERT_EQ(sessions.size(), 2u);
+    EXPECT_EQ(sessions[0].id, older_id);
+    EXPECT_EQ(sessions[1].id, newer_id);
+
+    resumed.finalize();
+    fs::remove_all(project_dir);
+    fs::remove_all(cwd);
+}
+
 TEST(SessionManagerResume, FailedAppendDoesNotAdvancePersistedCounters) {
     auto cwd = make_temp_cwd("append_failure");
     auto project_dir = SessionStorage::get_project_dir(cwd.string());

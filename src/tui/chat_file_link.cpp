@@ -190,7 +190,6 @@ TuiChatFileLinkResult open_tui_chat_file_link(
 
     const auto opened = acecode::desktop::open_path_in_file_manager(
         acecode::path_to_utf8(resolved.path),
-        {},
         std::move(launcher));
     if (!opened.ok) {
         resolved.ok = false;

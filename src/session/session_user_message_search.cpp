@@ -592,7 +592,7 @@ void SessionUserMessageIndex::prune_removed_sessions() {
 
 bool SessionUserMessageIndex::ensure_project_indexed(std::string* error) {
     if (!initialize(error)) return false;
-    for (const auto& meta : SessionStorage::list_sessions(project_dir_)) {
+    for (const auto& meta : SessionStorage::list_session_metadata(project_dir_)) {
         auto candidates = SessionStorage::find_session_files(project_dir_, meta.id);
         if (candidates.empty()) continue;
         std::string session_error;

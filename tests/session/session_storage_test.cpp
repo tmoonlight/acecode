@@ -429,6 +429,12 @@ TEST(SessionStorage, ListSessionsBackfillsSummaryAndCountFromJsonl) {
     assistant.role = "assistant";
     SessionStorage::append_message(SessionStorage::session_path(dir.string(), sid), assistant);
 
+    auto metadata_only = SessionStorage::list_session_metadata(dir.string());
+    ASSERT_EQ(metadata_only.size(), 1u);
+    EXPECT_TRUE(metadata_only[0].summary.empty());
+    EXPECT_EQ(metadata_only[0].message_count, 0);
+    EXPECT_EQ(metadata_only[0].turn_count, 0);
+
     auto sessions = SessionStorage::list_sessions(dir.string());
     ASSERT_EQ(sessions.size(), 1u);
     EXPECT_EQ(sessions[0].id, sid);

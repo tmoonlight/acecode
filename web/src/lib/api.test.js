@@ -11,6 +11,7 @@ import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   expertCapabilitiesPath,
   mergeAllWorkspaceSessions,
+  mergeGlobalSessionsAndWorkspaces,
   sessionDraftPath,
   sessionTrajectoryPath,
   sessionTodosPath,
@@ -189,6 +190,85 @@ await run('expert switch client keeps optional draft text in the atomic request 
     assert.equal(calls[3].url, 'http://acecode.test/api/sessions/session%2Fa/expert');
     assert.equal(calls[3].opts.method, 'DELETE');
     assert.equal(calls[3].opts.body, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await run('全局会话目录与可见项目并行合并且保留局部错误', async () => {
+  const calls = [];
+  const hidden = {
+    id: 'hidden-session',
+    workspace_hash: 'hidden-hash',
+    workspace_visible: false,
+  };
+  const result = await mergeGlobalSessionsAndWorkspaces({
+    listGlobalSessions: async () => {
+      calls.push('catalog');
+      await Promise.resolve();
+      return {
+        sessions: [hidden],
+        errors: [{ hash: 'bad-hash', stage: 'metadata', message: 'bad project' }],
+      };
+    },
+    listWorkspaces: async () => {
+      calls.push('workspaces');
+      return [{ hash: 'visible-hash', name: 'Visible' }];
+    },
+  });
+
+  assert.deepEqual(calls, ['catalog', 'workspaces']);
+  assert.deepEqual(result.sessions, [hidden]);
+  assert.deepEqual(result.workspaces, [{ hash: 'visible-hash', name: 'Visible' }]);
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.errors[0].hash, 'bad-hash');
+  assert.equal(result.errors[0].stage, 'metadata');
+});
+
+await run('全局目录或项目列表失败时保留另一侧数据', async () => {
+  const catalogFailed = await mergeGlobalSessionsAndWorkspaces({
+    listGlobalSessions: () => { throw new Error('catalog unavailable'); },
+    listWorkspaces: async () => [{ hash: 'visible' }],
+  });
+  assert.deepEqual(catalogFailed.sessions, []);
+  assert.deepEqual(catalogFailed.workspaces, [{ hash: 'visible' }]);
+  assert.match(catalogFailed.errors[0].message, /catalog unavailable/);
+
+  const workspaceFailed = await mergeGlobalSessionsAndWorkspaces({
+    listGlobalSessions: async () => ({ sessions: [{ id: 'still-searchable' }] }),
+    listWorkspaces: async () => { throw new Error('projects unavailable'); },
+  });
+  assert.deepEqual(workspaceFailed.sessions, [{ id: 'still-searchable' }]);
+  assert.deepEqual(workspaceFailed.workspaces, []);
+  assert.equal(workspaceFailed.errors[0].name, 'workspace list');
+  assert.match(workspaceFailed.errors[0].message, /projects unavailable/);
+});
+
+await run('listAllWorkspaceSessions 请求全局目录而非逐工作区会话', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, opts });
+    const payload = url.endsWith('/api/session-search/sessions')
+      ? { sessions: [{ id: 'hidden', workspace_visible: false }], errors: [] }
+      : [{ hash: 'visible' }];
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => payload,
+    };
+  };
+  try {
+    const result = await createApi({ origin: 'http://acecode.test', token: 'tok' })
+      .listAllWorkspaceSessions();
+    assert.deepEqual(result.sessions, [{ id: 'hidden', workspace_visible: false }]);
+    assert.deepEqual(result.workspaces, [{ hash: 'visible' }]);
+    assert.deepEqual(calls.map((call) => call.url), [
+      'http://acecode.test/api/session-search/sessions',
+      'http://acecode.test/api/workspaces',
+    ]);
+    assert.equal(calls.some((call) => /\/api\/workspaces\/[^/]+\/sessions/.test(call.url)), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

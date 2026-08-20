@@ -113,6 +113,13 @@ std::string default_workspace_name(const std::string& cwd) {
     return "workspace";
 }
 
+std::optional<WorkspaceMeta> load_workspace_metadata(
+    const std::string& projects_dir,
+    const std::string& hash) {
+    if (projects_dir.empty() || hash.empty()) return std::nullopt;
+    return read_workspace_json(projects_dir, hash);
+}
+
 void WorkspaceRegistry::scan(const std::string& projects_dir) {
     std::lock_guard<std::mutex> lk(mu_);
     entries_.clear();

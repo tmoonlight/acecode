@@ -5,7 +5,7 @@
 //   title 包含子串(非前缀):+500
 //   summary 包含子串:+200
 //   user-message content match:+150
-//   workspaceName 包含子串:+100
+//   workspace 名称/cwd/hash 包含子串:+100
 //   title 中所有查询字符按顺序出现(fuzzy 兜底):+50
 //   同档内按 updated_at 时间衰减加 0~50 浮动(越新越高)
 // 不命中(分数 = 0)→ 过滤掉。
@@ -84,7 +84,12 @@ export function freshnessScore(updatedAt, now = Date.now()) {
 export function scoreSession(session, query, now = Date.now()) {
   const title = lower(session?.title || sessionDisplayTitle(session, ''));
   const summary = lower(session?.summary);
-  const wsName = lower(session?.workspaceName);
+  const workspaceText = lower([
+    session?.workspaceName,
+    session?.workspace_cwd,
+    session?.workspace_hash,
+    session?.cwd,
+  ].filter(Boolean).join('\n'));
   const searchMatch = session?.search_match;
   const fresh = freshnessScore(session?.updated_at || session?.created_at, now);
 
@@ -108,7 +113,7 @@ export function scoreSession(session, query, now = Date.now()) {
       s = Math.max(s, 150);
     }
   }
-  if (wsName && wsName.includes(query)) s = Math.max(s, 100);
+  if (workspaceText && workspaceText.includes(query)) s = Math.max(s, 100);
 
   return s > 0 ? s + fresh : 0;
 }

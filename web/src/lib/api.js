@@ -518,15 +518,14 @@ export function createApi(base = null) {
         {},
         base),
 
-    // 跨 workspace 一次拿全 session 列表(SearchPalette 用),并补入
-    // /api/sessions 中的 no_workspace 活跃会话(包括尚未首条落盘的会话)。
-    // 返回 { sessions: [...], workspaces: [...], errors: [{hash, name, message}] }。
-    // 单个 workspace 拉取失败不阻塞其它 workspace。
-    listAllWorkspaceSessions: () => mergeAllWorkspaceSessions({
+    // SearchPalette 和 @ 会话引用的全局 session 数据源。会话由 global
+    // catalog 提供;可见 workspace 列表只用于 SearchPalette 的「项目」分栏。
+    // 两个请求并行,任一失败都保留另一份结果。
+    listAllWorkspaceSessions: () => mergeGlobalSessionsAndWorkspaces({
+      listGlobalSessions: () => request(
+        'GET', '/api/session-search/sessions', undefined, base,
+      ),
       listWorkspaces: () => request('GET', '/api/workspaces', undefined, base),
-      listSessions: (hash) => request('GET',
-        `/api/workspaces/${encodeURIComponent(hash)}/sessions`, undefined, base),
-      listNoWorkspaceSessions: () => request('GET', '/api/sessions', undefined, base),
     }),
     listAllArchivedSessions: () => mergeAllWorkspaceSessions({
       listWorkspaces: () => request('GET', '/api/workspaces', undefined, base),
@@ -605,6 +604,57 @@ export function createApi(base = null) {
 }
 
 export const api = createApi();
+
+// Search/session catalog 与 Desktop 可见 workspace 是两个独立集合。
+// 并行读取后保留 catalog 的局部扫描错误;任一端整体失败也不丢掉另一端数据。
+export async function mergeGlobalSessionsAndWorkspaces({
+  listGlobalSessions,
+  listWorkspaces,
+}) {
+  const [catalogResult, workspacesResult] = await Promise.allSettled([
+    Promise.resolve().then(() => listGlobalSessions()),
+    Promise.resolve().then(() => listWorkspaces()),
+  ]);
+
+  let sessions = [];
+  let workspaces = [];
+  const errors = [];
+
+  if (catalogResult.status === 'fulfilled') {
+    const payload = catalogResult.value;
+    sessions = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.sessions) ? payload.sessions : []);
+    const catalogErrors = Array.isArray(payload?.errors) ? payload.errors : [];
+    for (const error of catalogErrors) {
+      if (error && typeof error === 'object') {
+        errors.push({ hash: '', name: '', ...error });
+      } else {
+        errors.push({ hash: '', name: '', message: String(error || '') });
+      }
+    }
+  } else {
+    errors.push({
+      hash: '',
+      name: '',
+      message: (catalogResult.reason && catalogResult.reason.message)
+        || String(catalogResult.reason || ''),
+    });
+  }
+
+  if (workspacesResult.status === 'fulfilled') {
+    workspaces = Array.isArray(workspacesResult.value) ? workspacesResult.value : [];
+  } else {
+    errors.push({
+      hash: '',
+      name: 'workspace list',
+      message: (workspacesResult.reason && workspacesResult.reason.message)
+        || String(workspacesResult.reason || ''),
+    });
+  }
+
+  return { sessions, workspaces, errors };
+}
 
 // 抽出便于单测:对每个 workspace 并行 listSessions,同时从兼容 /api/sessions
 // 数据源筛出 no_workspace 会话。失败收集到 errors[],成功扁平化到 sessions[],

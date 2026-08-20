@@ -623,9 +623,15 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     reset_auto_title_state_locked();
     checkpoint_store_.load_from_messages(project_dir_, session_id_, messages);
 
-    // Restore persisted display/model metadata when present.
+    // Restore persisted display/model metadata when present. Resuming is not
+    // conversation activity, so keep the persisted activity timestamp while
+    // still rewriting repaired counters and compatibility fields below.
+    std::optional<std::string> persisted_updated_at;
     if (fs::exists(meta_path_str_)) {
         auto meta = SessionStorage::read_meta(meta_path_str_);
+        if (!meta.id.empty()) {
+            persisted_updated_at = meta.updated_at;
+        }
         created_at_ = meta.created_at;
         last_user_summary_ = meta.summary;
         pending_title_ = meta.title;
@@ -669,7 +675,7 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
             auto_title_session_id_ = session_id_;
         }
     }
-    update_meta();
+    update_meta(persisted_updated_at);
 
     return messages;
 }
@@ -1127,7 +1133,8 @@ const ThreadGoalStore* SessionManager::goal_store() const {
     return goal_store_.get();
 }
 
-bool SessionManager::update_meta() {
+bool SessionManager::update_meta(
+    std::optional<std::string> updated_at_override) {
     // Must be called under lock
     if (!created_) return true;
 
@@ -1135,7 +1142,9 @@ bool SessionManager::update_meta() {
     meta.id = session_id_;
     meta.cwd = cwd_;
     meta.created_at = created_at_;
-    meta.updated_at = SessionStorage::now_iso8601();
+    meta.updated_at = updated_at_override.has_value()
+        ? *updated_at_override
+        : SessionStorage::now_iso8601();
     meta.message_count = message_count_;
     meta.turn_count = turn_count_;
     meta.summary = last_user_summary_;

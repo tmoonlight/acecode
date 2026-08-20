@@ -5,8 +5,6 @@ export const SIDEBAR_TITLE_MARQUEE_SPEED_PX_PER_SECOND = 32;
 // travel time stays unchanged while each endpoint wait is exactly halved.
 export const SIDEBAR_TITLE_MARQUEE_ENDPOINT_HOLD_FRACTION = 3 / 34;
 export const SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION = 14 / 17;
-export const SIDEBAR_TITLE_MARQUEE_MIN_DURATION_MS = 3060;
-export const SIDEBAR_TITLE_MARQUEE_MAX_DURATION_MS = 15300;
 
 const IDLE_METRICS = Object.freeze({
   overflowing: false,
@@ -31,13 +29,11 @@ export function sidebarTitleMarqueeMetrics(contentWidth, viewportWidth) {
   const travelDurationMs = (
     distancePx / SIDEBAR_TITLE_MARQUEE_SPEED_PX_PER_SECOND
   ) * 1000;
-  const durationMs = Math.round(Math.min(
-    SIDEBAR_TITLE_MARQUEE_MAX_DURATION_MS,
-    Math.max(
-      SIDEBAR_TITLE_MARQUEE_MIN_DURATION_MS,
-      travelDurationMs / SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION,
-    ),
-  ));
+  // Do not clamp duration: any minimum or maximum would make some titles
+  // travel faster or slower than the configured visual speed.
+  const durationMs = Math.round(
+    travelDurationMs / SIDEBAR_TITLE_MARQUEE_TRAVEL_FRACTION,
+  );
 
   return {
     overflowing: true,
