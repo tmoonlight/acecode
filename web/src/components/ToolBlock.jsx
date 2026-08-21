@@ -21,6 +21,7 @@ import {
   DESKTOP_CONTEXT_ACTIONS,
 } from '../lib/desktopContextMenu.js';
 import { AttachmentStrip } from './AttachmentStrip.jsx';
+import { ActivityLine } from './ActivityLine.jsx';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -281,7 +282,6 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   const summaryLabel = summary
     ? [summary.verb, bashCommand || summary.object].filter(Boolean).join(' · ')
     : '';
-  const summaryObjectTitle = bashCommand || summary?.object || '';
   const buttonTooltip = joinTooltipParts(summaryLabel || toolName, fullToolOutput);
   const toolContextAttrs = {
     'data-desktop-tool-id': contextIdRef.current,
@@ -341,14 +341,17 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   if (isTaskComplete) {
     return (
       <div
-        className="ace-tool-call-text flex items-start gap-2 px-2.5 py-1 my-0.5 font-medium text-ok"
+        className="ace-tool-activity min-w-0"
         title={joinTooltipParts('Done', taskCompleteText)}
         {...toolContextAttrs}
       >
-        <VsIcon name="ok" size={13} mono={false} className="mt-[3px] shrink-0" />
-        <span className="shrink-0">Done ·</span>
+        <ActivityLine
+          icon={<VsIcon name="ok" size={13} mono={false} className="text-ok" />}
+          label="Done"
+          detail={compactOneLinePreview(taskCompleteText)}
+        />
         <div
-          className="ace-md ace-task-complete-md min-w-0 flex-1"
+          className="ace-md ace-task-complete-md min-w-0 max-w-[88%] pb-1"
           onClick={handleMarkdownCodeCopy}
           dangerouslySetInnerHTML={taskCompleteHtml}
         />
@@ -356,38 +359,33 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     );
   }
 
-  // summary 模式:透明背景 + 中性描边,成功/失败色只落在状态 icon 上
-  // (redesign 决策:整行红绿底噪音太大,与 Claude Code 的完成行观感对齐)。
+  // 完成态与运行态共用 ActivityLine；详情仍由 ToolBlock 自己负责。
   if (isDone && summary) {
     const ok = !!success;
     return (
       <div
         {...toolContextAttrs}
-        className="ace-tool-call-text rounded-md my-0.5 transition border border-border text-fg-mute"
+        className="ace-tool-activity min-w-0"
       >
-        <button
-          type="button"
-          className="w-full min-w-0 overflow-hidden text-left flex items-center gap-1.5 px-2.5 py-[5px] cursor-pointer whitespace-nowrap text-fg-mute hover:bg-surface-hi transition"
+        <ActivityLine
+          icon={<ToolSummaryIcon icon={summary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
+          label={summary.verb || title || tool || '工具完成'}
+          detail={summary.object || ''}
+          trailing={(
+            <>
+              <MetricList metrics={summary.metrics} />
+              {!ok && output && <span className="max-w-48 truncate" title={output}>· {outputPreview}</span>}
+              {liveElapsed > 0 && <span className="tabular-nums">{formatElapsed(liveElapsed)}</span>}
+            </>
+          )}
+          expandable
+          expanded={expanded}
+          onToggle={toggleExpanded}
           title={buttonTooltip || (expanded ? '收起' : '展开')}
-          aria-label={expanded ? '收起' : '展开'}
-          onClick={toggleExpanded}
-        >
-          <ToolSummaryIcon icon={summary.icon} ok={ok} className={clsx('shrink-0', ok ? 'text-ok' : 'text-danger')} />
-          <span className="font-medium shrink-0">{summary.verb || ''}</span>
-          {summary.object && <span className="text-fg-mute flex-1 min-w-0 truncate" title={summaryObjectTitle}>· {summary.object}</span>}
-          <MetricList metrics={summary.metrics} />
-          {!ok && output && <span className="text-fg-mute min-w-0 truncate" title={output}>· {outputPreview}</span>}
-          <span className="ml-auto flex items-center gap-1.5 shrink-0">
-            {liveElapsed > 0 && (
-              <span className="text-fg-mute tabular-nums">{formatElapsed(liveElapsed)}</span>
-            )}
-            <span className="opacity-60 flex items-center">
-              <VsIcon name={expanded ? 'expandUp' : 'expandDown'} size={12} />
-            </span>
-          </span>
-        </button>
+          ariaLabel={expanded ? '收起' : '展开'}
+        />
         {expanded && (
-          <div className="px-3 pb-2 pt-1">
+          <div className="max-w-[88%] pb-2 pt-1">
             {tool === 'bash' && bashPrompt && (
               <div className="text-fg-mute opacity-70 mb-1 break-all" title={bashPrompt}>
                 $ {bashPrompt}
@@ -406,7 +404,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
           </div>
         )}
         {attachmentItems.length > 0 && (
-          <div className="px-3 pb-2 pt-1">
+          <div className="max-w-[88%] pb-2 pt-1">
             <AttachmentStrip attachments={attachmentItems} align="left" compact />
           </div>
         )}
@@ -414,41 +412,32 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     );
   }
 
-  // done 但无 summary → fallback:同 summary 模式的透明底方案,
-  // 成功/失败色只保留在状态 icon 上。
+  // done 但无 summary → 仍复用相同首行，仅图标和文案走 fallback。
   if (isDone) {
     const ok = !!success;
     return (
       <div
         {...toolContextAttrs}
-        className="ace-tool-call-text rounded-md my-0.5 transition border border-border text-fg-mute"
+        className="ace-tool-activity min-w-0"
       >
-        <button
-          type="button"
-          className="w-full min-w-0 overflow-hidden text-left flex items-center gap-1.5 px-2.5 py-[5px] cursor-pointer whitespace-nowrap text-fg-mute hover:bg-surface-hi transition"
+        <ActivityLine
+          icon={<VsIcon name={ok ? 'ok' : 'warning'} size={13} mono={false} className={ok ? 'text-ok' : 'text-danger'} />}
+          label={title || tool || '工具完成'}
+          detail={output ? outputPreview : ''}
+          trailing={liveElapsed > 0 ? <span className="tabular-nums">{formatElapsed(liveElapsed)}</span> : null}
+          expandable
+          expanded={expanded}
+          onToggle={toggleExpanded}
           title={buttonTooltip || outputPreview || (expanded ? '收起' : '展开')}
-          aria-label={expanded ? '收起' : '展开'}
-          onClick={toggleExpanded}
-        >
-          <VsIcon name={ok ? 'ok' : 'warning'} size={13} mono={false} className="shrink-0" />
-          <span className="font-medium flex-1 min-w-0 truncate" title={toolName}>{title || tool || '工具完成'}</span>
-          {output && <span className="text-fg-mute min-w-0 truncate" title={output}>· {outputPreview}</span>}
-          <span className="ml-auto flex items-center gap-1.5 shrink-0">
-            {liveElapsed > 0 && (
-              <span className="text-fg-mute tabular-nums">{formatElapsed(liveElapsed)}</span>
-            )}
-            <span className="opacity-60 flex items-center">
-              <VsIcon name={expanded ? 'expandUp' : 'expandDown'} size={12} />
-            </span>
-          </span>
-        </button>
+          ariaLabel={expanded ? '收起' : '展开'}
+        />
         {attachmentItems.length > 0 && (
-          <div className="px-3 pb-2 pt-1">
+          <div className="max-w-[88%] pb-2 pt-1">
             <AttachmentStrip attachments={attachmentItems} align="left" compact />
           </div>
         )}
         {expanded && (output || bashPrompt) && (
-          <div className="px-3 pb-2 pt-1">
+          <div className="max-w-[88%] pb-2 pt-1">
             {tool === 'bash' && bashPrompt && (
               <div className="text-fg-mute opacity-70 mb-1 break-all" title={bashPrompt}>
                 $ {bashPrompt}
@@ -473,33 +462,29 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   const hasExpandableContent = !!(bashPrompt || tailLines.length > 0 || currentPartial || hidden > 0);
   return (
     <div
-      className="ace-tool-call-text rounded-md border border-border bg-surface my-0.5 overflow-hidden text-fg-mute"
+      className="ace-tool-activity min-w-0"
       {...toolContextAttrs}
       data-desktop-tool-toggle={hasExpandableContent ? 'true' : 'false'}
     >
-      <button
-        type="button"
-        className={clsx(
-          'w-full min-w-0 overflow-hidden px-2.5 py-1.5 flex items-center gap-2 text-left text-fg-mute transition whitespace-nowrap',
-          hasExpandableContent ? 'hover:bg-surface-hi cursor-pointer' : 'cursor-default',
+      <ActivityLine
+        running
+        spinnerStatic={!liveProgress}
+        label={title || displayOverride || tool || '正在执行工具'}
+        trailing={(
+          <>
+            <span>{totalLines} 行</span>
+            <span>{formatBytes(totalBytes)}</span>
+            <span>{formatElapsed(liveElapsed)}</span>
+          </>
         )}
+        expandable={hasExpandableContent}
+        expanded={expanded}
+        onToggle={hasExpandableContent ? toggleExpanded : undefined}
         title={buttonTooltip || outputPreview || (hasExpandableContent ? (expanded ? '收起' : '展开') : undefined)}
-        aria-label={hasExpandableContent ? (expanded ? '收起' : '展开') : undefined}
-        onClick={hasExpandableContent ? toggleExpanded : undefined}
-      >
-        <span className={clsx('ace-spinner w-3 h-3 shrink-0', !liveProgress && 'ace-spinner-static')} />
-        <span className="font-semibold flex-1 min-w-0 truncate" title={title}>{title}</span>
-        <span className="text-fg-mute shrink-0">{totalLines} 行</span>
-        <span className="text-fg-mute shrink-0">{formatBytes(totalBytes)}</span>
-        <span className="text-fg-mute shrink-0">{formatElapsed(liveElapsed)}</span>
-        {hasExpandableContent && (
-          <span className="ml-auto opacity-60 flex items-center shrink-0">
-            <VsIcon name={expanded ? 'expandUp' : 'expandDown'} size={12} />
-          </span>
-        )}
-      </button>
+        ariaLabel={hasExpandableContent ? (expanded ? '收起' : '展开') : undefined}
+      />
       {expanded && hasExpandableContent && (
-        <div className="px-2.5 pb-1.5">
+        <div className="max-w-[88%] pb-1.5">
           {tool === 'bash' && bashPrompt && (
             <div className="text-fg-mute opacity-70 mt-1 break-all" title={bashPrompt}>
               $ {bashPrompt}

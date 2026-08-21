@@ -31,6 +31,12 @@ function isAskUserQuestionResultTool(item) {
     && item.tool.askUserQuestionResult.items.length > 0;
 }
 
+function isAskUserQuestionTool(item) {
+  if (!isToolItem(item)) return false;
+  const name = normalizedToolName(item.tool).replace(/[_-]/g, '');
+  return name === 'askuserquestion' || isAskUserQuestionResultTool(item);
+}
+
 function isToolTranscriptMessage(item) {
   if (item?.kind !== 'msg') return false;
   const role = String(item.role || '').toLowerCase();
@@ -95,8 +101,21 @@ function isSuccessfulTaskComplete(item) {
 function isCompletedCollapsibleTool(item) {
   return isToolItem(item)
     && !isTaskCompleteTool(item)
-    && !isAskUserQuestionResultTool(item)
+    && !isAskUserQuestionTool(item)
     && item.tool?.isDone === true;
+}
+
+function isCollapsibleToolItem(item) {
+  return isToolItem(item)
+    && !isTaskCompleteTool(item)
+    && !isAskUserQuestionTool(item);
+}
+
+function isActivityBufferItem(item) {
+  return isCollapsibleToolItem(item)
+    || isToolTranscriptMessage(item)
+    || isEmptyAssistantMessage(item)
+    || item?.kind === 'subagent_group';
 }
 
 function isProcessedActivityItem(item) {
@@ -104,6 +123,7 @@ function isProcessedActivityItem(item) {
   if (isTaskCompleteTool(item)) return false;
   if (isAssistantMessage(item)) return true;
   if (isToolTranscriptMessage(item)) return true;
+  if (item?.kind === 'subagent_group') return true;
   return isCompletedCollapsibleTool(item);
 }
 
@@ -206,8 +226,13 @@ function summarizeToolItems(items) {
   const read = new Set();
   let commands = 0;
   let nonFileTools = 0;
+  let agents = 0;
 
   items.forEach((item, index) => {
+    if (item?.kind === 'subagent_group') {
+      agents += Math.max(1, Array.isArray(item.agents) ? item.agents.length : 0);
+      return;
+    }
     if (!isToolItem(item) || isTaskCompleteTool(item)) return;
     const tool = item.tool || {};
     const verb = normalizedVerb(tool);
@@ -258,11 +283,12 @@ function summarizeToolItems(items) {
   if (read.size > 0) parts.push(`读取 ${formatCount(read.size, 'files')}`);
   if (commands > 0) parts.push(formatCount(commands, 'commandsRun'));
   if (nonFileTools > 0) parts.push(formatCount(nonFileTools, 'toolsCalled'));
+  if (agents > 0) parts.push(`调用了 ${agents} 个智能体`);
   return parts.length > 0 ? parts.join('，') : '已调用工具';
 }
 
 function hasCollapsibleToolActivity(items) {
-  return items.some(isCompletedCollapsibleTool) || items.some(isToolTranscriptMessage);
+  return items.some(isActivityBufferItem);
 }
 
 function coveredIdsForItem(item) {
@@ -280,7 +306,16 @@ function collapsedId(mode, items) {
   const ids = coveredIds(items);
   const first = ids.length ? ids[0] : 'start';
   const last = ids.length ? ids[ids.length - 1] : 'end';
-  return `activity:${mode}:${first}:${last}`;
+  return mode === 'processed'
+    ? `activity:${mode}:${first}:${last}`
+    : `activity:${mode}:${first}`;
+}
+
+function activitySegmentId(items, options = {}, segmentIndex = 0) {
+  const liveTurnId = String(options.liveTurnId || '').trim();
+  return liveTurnId
+    ? `activity:turn:${liveTurnId}:${segmentIndex}`
+    : collapsedId('tools', items);
 }
 
 function collapsedTimestamps(items, fallbackEndItem) {
@@ -310,13 +345,64 @@ function persistedTurnDurationMs(items) {
   return null;
 }
 
-function makeToolSummaryItem(items) {
+function runningToolCount(items) {
+  return items.reduce((count, item) => {
+    if (isCollapsibleToolItem(item)) {
+      return count + (item.tool?.isDone === true ? 0 : 1);
+    }
+    if (item?.kind === 'subagent_group') {
+      return count + (Array.isArray(item.agents)
+        ? item.agents.filter((agent) => !agent?.done).length
+        : 0);
+    }
+    return count;
+  }, 0);
+}
+
+function toolActivityLabel(item) {
+  if (item?.kind === 'subagent_group') {
+    const count = Array.isArray(item.agents) ? item.agents.length : 0;
+    return count > 0 ? `正在运行 ${count} 个智能体` : '正在运行智能体';
+  }
+  const tool = item?.tool || {};
+  const direct = cleanSummaryText(tool.title || tool.displayOverride);
+  if (direct) return direct;
+  const verb = cleanSummaryText(tool.summary?.verb);
+  const object = cleanSummaryText(tool.summary?.object);
+  const summary = [verb, object].filter(Boolean).join(' · ');
+  return summary || cleanSummaryText(tool.tool) || '正在执行工具';
+}
+
+function liveToolActivityTitle(items) {
+  const runningCount = runningToolCount(items);
+  if (runningCount > 1) return `正在运行 ${runningCount} 个工具`;
+
+  const activityItems = items.filter((item) => (
+    isCollapsibleToolItem(item) || item?.kind === 'subagent_group'
+  ));
+  if (runningCount === 1) {
+    const running = [...activityItems].reverse().find((item) => (
+      item?.kind === 'subagent_group'
+        ? item.agents?.some((agent) => !agent?.done)
+        : item.tool?.isDone !== true
+    ));
+    if (running) return toolActivityLabel(running);
+  }
+
+  const latest = activityItems[activityItems.length - 1];
+  return latest ? toolActivityLabel(latest) : '正在处理请求';
+}
+
+function makeToolSummaryItem(items, options = {}) {
   const { startTs, endTs } = collapsedTimestamps(items);
+  const live = options.live === true;
   return {
     kind: 'activity_summary',
-    mode: 'tools',
-    id: collapsedId('tools', items),
-    title: summarizeToolItems(items),
+    mode: live ? 'live' : 'tools',
+    id: options.id || collapsedId('tools', items),
+    title: live ? liveToolActivityTitle(items) : summarizeToolItems(items),
+    live,
+    runningToolCount: runningToolCount(items),
     collapsedItems: items.slice(),
     coveredItemIds: coveredIds(items),
     ts: startTs || endTs || Date.now(),
@@ -820,37 +906,31 @@ function projectFinalCollapsedTurn(items, options = {}) {
   return null;
 }
 
-function flushToolBuffer(out, buffer, { collapse = true } = {}) {
-  if (buffer.length > 0) {
-    if (collapse && hasCollapsibleToolActivity(buffer)) {
-      out.push(makeToolSummaryItem(buffer));
-    } else if (!collapse && buffer.some(isCompletedCollapsibleTool)) {
-      out.push(...buffer.filter((item) => (
-        !isToolTranscriptMessage(item) && !isEmptyAssistantMessage(item)
-      )));
-    } else {
-      out.push(...buffer);
-    }
-    buffer.length = 0;
+function flushToolBuffer(out, buffer, { live = false, id = '' } = {}) {
+  if (buffer.length === 0) return false;
+  if (hasCollapsibleToolActivity(buffer)) {
+    out.push(makeToolSummaryItem(buffer, { live, id }));
+  } else {
+    out.push(...buffer);
   }
-}
-
-function flushWrapperNoiseBeforeStructuredTool(out, buffer) {
-  if (buffer.length === 0) return;
-  const onlyWrapperNoise = buffer.every((item) => (
-    isToolTranscriptMessage(item) || isEmptyAssistantMessage(item)
-  ));
-  if (onlyWrapperNoise) {
-    buffer.length = 0;
-    return;
-  }
-  flushToolBuffer(out, buffer);
+  buffer.length = 0;
+  return true;
 }
 
 function projectGenericTurn(items, options = {}) {
   const out = [];
   const tools = [];
   let suppressTaskCompleteResult = false;
+  let activitySegmentIndex = 0;
+  let reachedTerminalTool = false;
+
+  const flushActivity = ({ live = false } = {}) => {
+    if (tools.length === 0) return false;
+    const id = activitySegmentId(tools, options, activitySegmentIndex);
+    const flushed = flushToolBuffer(out, tools, { live, id });
+    if (flushed) activitySegmentIndex += 1;
+    return flushed;
+  };
 
   for (const item of items) {
     if (suppressTaskCompleteResult) {
@@ -866,23 +946,34 @@ function projectGenericTurn(items, options = {}) {
     }
 
     if (isTaskCompleteTool(item)) {
-      flushToolBuffer(out, tools);
+      flushActivity();
       out.push(makeCompletionSummaryItem(item));
       suppressTaskCompleteResult = true;
+      reachedTerminalTool = true;
       continue;
     }
 
-    if (isCompletedCollapsibleTool(item) || isToolTranscriptMessage(item) || isEmptyAssistantMessage(item)) {
+    if (isActivityBufferItem(item)) {
       tools.push(item);
       continue;
     }
 
-    if (isToolItem(item)) flushWrapperNoiseBeforeStructuredTool(out, tools);
-    else flushToolBuffer(out, tools);
+    flushActivity();
     out.push(item);
   }
 
-  flushToolBuffer(out, tools, { collapse: !options.deferTrailingToolSummary });
+  const flushedTrailingActivity = flushActivity({ live: !!options.deferTrailingToolSummary });
+  if (
+    !flushedTrailingActivity
+    && !reachedTerminalTool
+    && options.ensureLiveActivity
+    && options.deferTrailingToolSummary
+  ) {
+    out.push(makeToolSummaryItem([], {
+      live: true,
+      id: activitySegmentId([], options, activitySegmentIndex),
+    }));
+  }
   return out;
 }
 
@@ -928,6 +1019,7 @@ function projectCompletionTurn(items, options = {}) {
 
   const tools = [];
   let suppressTaskCompleteResult = false;
+  let reachedTerminalTool = false;
   for (let i = finalAssistantIndex + 1; i < items.length; i += 1) {
     const item = items[i];
     if (suppressTaskCompleteResult) {
@@ -946,27 +1038,38 @@ function projectCompletionTurn(items, options = {}) {
       flushToolBuffer(out, tools);
       out.push(makeCompletionSummaryItem(item));
       suppressTaskCompleteResult = true;
+      reachedTerminalTool = true;
       continue;
     }
-    if (isCompletedCollapsibleTool(item) || isToolTranscriptMessage(item) || isEmptyAssistantMessage(item)) {
+    if (isActivityBufferItem(item)) {
       tools.push(item);
       continue;
     }
-    if (isToolItem(item)) flushWrapperNoiseBeforeStructuredTool(out, tools);
-    else flushToolBuffer(out, tools);
+    flushToolBuffer(out, tools);
     out.push(item);
   }
-  flushToolBuffer(out, tools, { collapse: !options.deferTrailingToolSummary });
+  const flushedTrailingActivity = flushToolBuffer(out, tools, {
+    live: !!options.deferTrailingToolSummary,
+  });
+  if (
+    !flushedTrailingActivity
+    && !reachedTerminalTool
+    && options.ensureLiveActivity
+    && options.deferTrailingToolSummary
+  ) {
+    out.push(makeToolSummaryItem([], {
+      live: true,
+      id: activitySegmentId([], options, 0),
+    }));
+  }
 
   return out;
 }
 
 // ── 子代理调用分组(spawn_subagent / wait_subagent) ──────────────────
 //
-// 把一轮里连续的子代理工具项合并成一个 subagent_group 项,渲染成
-// 「调用了 N 个智能体」的可折叠卡片(展开列各智能体标题,点击打开子会话
-// transcript)。分组后该项对下游 projection 是不透明的,不进「已处理」/
-// 「调用 N 个工具」的通用折叠,始终独立成行。
+// 把同一活动段里的子代理工具项合并成一个 subagent_group 详情项。它会进入
+// 外层稳定 activity_summary；只有用户展开外层后，才显示可继续展开的智能体行。
 //
 // 关键:按子会话 id(subagent_session_id)去重 —— fan-out 场景里
 // spawn A/B/C + wait A/B/C 共 6 个工具项只对应 3 个子会话。wait_subagent
@@ -1028,12 +1131,7 @@ function makeSubagentGroupItem(run) {
   };
 }
 
-// 整轮合并:一轮里所有子代理项(不管是否连续)按子会话 id 去重成**一个**分组,
-// 落在第一个子代理项的位置,其余从流里移除。这样 fan-out 的 spawn(点火)与
-// wait(收结果)即便被中间的 assistant 推理隔开,也归到同一个「调用了 N 个
-// 智能体」里 —— 每个智能体的「开始」和「结束/结果」合并成一条,而不是先后
-// 各出现一个 N 个智能体的分组。
-function groupSubagentTools(items) {
+function groupSubagentToolsInSegment(items) {
   if (!Array.isArray(items) || items.length === 0) return items;
   const subagentIndices = [];
   items.forEach((item, i) => { if (isSubagentToolItem(item)) subagentIndices.push(i); });
@@ -1055,6 +1153,29 @@ function groupSubagentTools(items) {
   return out;
 }
 
+// assistant 可见文本是活动段边界。边界前后的子代理调用不能被重新并到同一行，
+// 否则已经稳定下来的上一段会在后续工具到达时再次换 key/换内容。
+function groupSubagentTools(items) {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  const out = [];
+  let segment = [];
+  const flushSegment = () => {
+    if (segment.length > 0) out.push(...groupSubagentToolsInSegment(segment));
+    segment = [];
+  };
+
+  for (const item of items) {
+    if (isActivityBufferItem(item) || isSubagentToolItem(item)) {
+      segment.push(item);
+      continue;
+    }
+    flushSegment();
+    out.push(item);
+  }
+  flushSegment();
+  return out;
+}
+
 function projectTurn(items, options = {}) {
   if (!Array.isArray(items) || items.length === 0) return [];
   const normalizedItems = groupSubagentTools(normalizeToolInvocationItems(items));
@@ -1067,7 +1188,14 @@ export function projectCollapsedTranscriptItems(items, options = {}) {
   const source = collapseCompletedCompactNoticeGroups(
     Array.isArray(items) ? items : [],
   );
-  if (source.length === 0) return [];
+  if (source.length === 0) {
+    return options.ensureLiveActivity && options.deferTrailingToolSummary
+      ? [makeToolSummaryItem([], {
+          live: true,
+          id: activitySegmentId([], options, 0),
+        })]
+      : [];
+  }
 
   const out = [];
   let turn = [];
@@ -1087,7 +1215,11 @@ export function projectCollapsedTranscriptItems(items, options = {}) {
       turn.push(item);
     }
   }
-  flushTurn({ deferTrailingToolSummary: !!options.deferTrailingToolSummary });
+  flushTurn({
+    deferTrailingToolSummary: !!options.deferTrailingToolSummary,
+    ensureLiveActivity: !!options.ensureLiveActivity,
+    liveTurnId: options.liveTurnId,
+  });
 
   return out;
 }

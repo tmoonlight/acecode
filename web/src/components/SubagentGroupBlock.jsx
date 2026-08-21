@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { clsx } from '../lib/format.js';
 import { SUBAGENT_TASK_STATUS, taskDisplayTitle } from '../lib/subagentTasks.js';
+import { ActivityLine } from './ActivityLine.jsx';
 import { VsIcon } from './Icon.jsx';
 
 function agentTitle(agent, task) {
@@ -66,22 +67,18 @@ export function SubagentGroupBlock({ agents = [], tasksById, onOpen }) {
   const byId = tasksById || new Map();
 
   return (
-    <div className="my-1 max-w-[88%]">
-      <button
-        type="button"
-        className="group inline-flex max-w-full items-center gap-2 px-0 py-0.5 text-left text-fg-mute/80 transition-colors"
-        onClick={() => setExpanded((v) => !v)}
+    <div className="min-w-0">
+      <ActivityLine
+        icon={<VsIcon name="embedding" size={13} className="opacity-80" />}
+        label={`调用了 ${count} 个智能体`}
+        expandable
+        expanded={expanded}
+        onToggle={() => setExpanded((v) => !v)}
         title={expanded ? '收起智能体' : '展开智能体'}
-        aria-label={expanded ? '收起智能体' : '展开智能体'}
-      >
-        <VsIcon name="embedding" size={13} className="shrink-0 opacity-80" />
-        <span className="text-[12px] font-medium min-w-0 truncate group-hover:text-fg transition-colors">
-          调用了 {count} 个智能体
-        </span>
-        <VsIcon name={expanded ? 'expandDown' : 'expandRight'} size={11} className="shrink-0 opacity-80" />
-      </button>
-      {expanded ? (
-        <div className="mt-1 ml-1 pl-2 border-l border-border/70 flex flex-col gap-0.5">
+        ariaLabel={expanded ? '收起智能体' : '展开智能体'}
+      />
+      {expanded && (
+        <div className="mt-1 flex flex-col gap-0.5">
           {agents.map((agent) => (
             <AgentRow
               key={agent.sessionId || agent.itemId}
@@ -91,8 +88,6 @@ export function SubagentGroupBlock({ agents = [], tasksById, onOpen }) {
             />
           ))}
         </div>
-      ) : (
-        <div className="mt-1 h-px w-full origin-top scale-y-50 bg-fg-mute/20" aria-hidden="true" />
       )}
     </div>
   );

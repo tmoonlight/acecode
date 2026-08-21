@@ -30,20 +30,19 @@ run('composer 附近不再存在重复的固定活动栏', () => {
   assert.match(input, /'border-t border-border px-2\.5 py-2 bg-surface shrink-0'/);
 });
 
-run('会话族状态只通过 transcript 尾部原有气泡呈现', () => {
+run('前台状态投影进统一活动行，后台状态仍在 transcript 尾部呈现', () => {
   const chat = source('components/ChatView.jsx');
   assert.match(chat, /selectConversationActivity\(\{/);
-  assert.match(
-    chat,
-    /permissionRequests\.map[\s\S]*?conversationActivity\.kind !== CONVERSATION_ACTIVITY_KIND\.IDLE[\s\S]*?<ActivityIndicator[\s\S]*?showConversationTurnScrubber/,
-  );
-  assert.match(chat, /data-conversation-activity-bubble="true"/);
+  assert.match(chat, /ensureLiveActivity: busy/);
+  assert.match(chat, /activity=\{it\.live \? conversationActivity : null\}/);
+  assert.match(chat, /conversationActivity\.kind === CONVERSATION_ACTIVITY_KIND\.BACKGROUND[\s\S]*?<ActivityLine/);
+  assert.doesNotMatch(chat, /data-conversation-activity-bubble|<ActivityIndicator/);
 });
 
-run('气泡状态不再由旧的文本或工具可见性条件漏掉', () => {
+run('活动行状态不再由旧的文本或工具可见性条件漏掉', () => {
   const chat = source('components/ChatView.jsx');
-  const start = chat.indexOf('{conversationActivity.kind !== CONVERSATION_ACTIVITY_KIND.IDLE');
-  const end = chat.indexOf('showConversationTurnScrubber', start);
+  const start = chat.indexOf('() => projectCollapsedTranscriptItems');
+  const end = chat.indexOf('// 尾部窗口', start);
   const mount = chat.slice(start, end);
   assert.ok(start >= 0 && end > start);
   assert.doesNotMatch(
@@ -52,16 +51,15 @@ run('气泡状态不再由旧的文本或工具可见性条件漏掉', () => {
   );
 });
 
-run('ActivityIndicator 保持流内气泡视觉且包含恢复和后台状态', () => {
+run('ActivityLine 保持流内固定单行且 selector 包含恢复和后台状态', () => {
   const chat = source('components/ChatView.jsx');
+  const line = source('components/ActivityLine.jsx');
   const selector = source('lib/conversationActivity.js');
-  const start = chat.indexOf('function ActivityIndicator');
-  const end = chat.indexOf('function ActivitySummaryBlock', start);
-  const indicator = chat.slice(start, end);
-  assert.ok(start >= 0 && end > start);
-  assert.match(indicator, /border-border bg-surface-hi/);
-  assert.doesNotMatch(indicator, /\bfixed\b|\bsticky\b|\babsolute\b|bottom-|inset-/);
-  assert.doesNotMatch(indicator, /#[0-9a-fA-F]{3,8}/);
+  assert.match(line, /flex h-7 w-full/);
+  assert.doesNotMatch(line, /rounded-2xl|shadow-sm|ace-pulse/);
+  assert.doesNotMatch(line, /\bfixed\b|\bsticky\b|\babsolute\b|bottom-|inset-/);
+  assert.doesNotMatch(line, /#[0-9a-fA-F]{3,8}/);
+  assert.doesNotMatch(chat, /function ActivityIndicator/);
   assert.match(selector, /正在恢复权限请求/);
   assert.match(selector, /正在恢复提问请求/);
   assert.match(selector, /主会话仍可继续输入/);

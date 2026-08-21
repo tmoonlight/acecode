@@ -1,6 +1,11 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '调用了 {{p0}} 个智能体': 'Used {{p0}} agents',
+  '正在处理': 'Working',
+  '正在运行 {{p0}} 个工具': 'Running {{p0}} tools',
+  '正在运行 {{p0}} 个智能体': 'Running {{p0}} agents',
+  '正在运行智能体': 'Running agent',
   '返回对话': 'Back to conversation',
   '查看会话轨迹': 'View session trajectory',
   '正在载入轨迹视图…': 'Loading trajectory view…',

@@ -253,7 +253,7 @@ run('空 assistant 和工具调用返回行不会把连续工具拆成多个摘�
   assert.equal(projected[2].content, 'all commands finished');
 });
 
-run('流式尾部工具段未遇到文字时保持原始连续工具', () => {
+run('流式尾部工具段未遇到文字时只投影一个稳定活动行', () => {
   const projected = projectCollapsedTranscriptItems([
     user(1),
     tool(2, { verb: 'Read', object: 'a.md', name: 'file_read' }),
@@ -261,10 +261,10 @@ run('流式尾部工具段未遇到文字时保持原始连续工具', () => {
     tool(4, { verb: 'Created', object: 'c.md', name: 'file_write' }),
   ], { deferTrailingToolSummary: true });
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'tool', 'tool', 'tool']);
-  assert.equal(projected[1].tool.summary.object, 'a.md');
-  assert.equal(projected[2].tool.summary.object, 'b.md');
-  assert.equal(projected[3].tool.summary.object, 'c.md');
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary']);
+  assert.equal(projected[1].mode, 'live');
+  assert.equal(projected[1].collapsedItems.length, 3);
+  assert.equal(projected[1].collapsedItems[2].tool.summary.object, 'c.md');
 });
 
 run('流式尾部结构化工具隐藏冗余 tool_call 和 tool_result 包装行', () => {
@@ -278,10 +278,13 @@ run('流式尾部结构化工具隐藏冗余 tool_call 和 tool_result 包装行
     { kind: 'msg', id: 7, role: 'tool_result', content: 'Created file: app/index.html', ts: 7000 },
   ], { deferTrailingToolSummary: true });
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'tool', 'tool']);
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary']);
   assert.deepEqual(projected.map((item) => item.role).filter(Boolean), ['user']);
-  assert.equal(projected[1].tool.summary.object, 'mkdir app');
-  assert.equal(projected[2].tool.summary.object, 'app/index.html');
+  assert.equal(projected[1].mode, 'live');
+  assert.deepEqual(
+    projected[1].collapsedItems.map((item) => item.tool.summary.object),
+    ['mkdir app', 'app/index.html'],
+  );
 });
 
 run('并行只读工具批量包装行不会误报旧记录缺少请求参数', () => {
@@ -307,18 +310,18 @@ run('并行只读工具批量包装行不会误报旧记录缺少请求参数', 
   assert.deepEqual(projected[1].collapsedItems.map((item) => item.tool.toolCallId), ['call-a', 'call-b', 'call-grep']);
 });
 
-run('没有结构化工具时保留 legacy tool wrapper 行', () => {
+run('没有结构化工具时也用稳定活动行承载 legacy wrapper', () => {
   const projected = projectCollapsedTranscriptItems([
     user(1),
     toolWrapper(2, 'tool_call', '[Tool: legacy] {}'),
     toolWrapper(3, 'tool_result', 'legacy output'),
   ], { deferTrailingToolSummary: true });
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'msg']);
-  assert.deepEqual(projected.map((item) => item.role), ['user', 'tool_result']);
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary']);
+  assert.equal(projected[1].mode, 'live');
   assert.deepEqual(projected[1].coveredItemIds, [2, 3]);
-  assert.match(projected[1].content, /\[Tool: legacy\]/);
-  assert.match(projected[1].content, /legacy output/);
+  assert.match(projected[1].collapsedItems[0].content, /\[Tool: legacy\]/);
+  assert.match(projected[1].collapsedItems[0].content, /legacy output/);
 });
 
 run('连续 legacy 工具返回标签在 assistant 文本前折叠成工具摘要', () => {
@@ -349,8 +352,9 @@ run('运行中的结构化工具隐藏前置 tool_call 包装行', () => {
     running,
   ], { deferTrailingToolSummary: true });
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'tool']);
-  assert.equal(projected[1].tool.isDone, false);
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary']);
+  assert.equal(projected[1].mode, 'live');
+  assert.equal(projected[1].collapsedItems[0].tool.isDone, false);
   assert.deepEqual(projected[1].coveredItemIds, [2, 3]);
 });
 
@@ -362,10 +366,12 @@ run('运行中的结构化工具按 tool_call_id 隐藏调用包装行', () => {
     tool(4, { isDone: false, name: 'bash', verb: 'Ran', object: 'pnpm test', toolCallId: 'call-run' }),
   ], { deferTrailingToolSummary: true });
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'tool']);
-  assert.equal(projected[1].tool.toolCallId, 'call-run');
-  assert.equal(projected[1].tool.isDone, false);
-  assert.deepEqual(projected[1].coveredItemIds, [2, 4]);
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary']);
+  assert.equal(projected[1].mode, 'live');
+  const runningTool = projected[1].collapsedItems.find((item) => item.kind === 'tool');
+  assert.equal(runningTool.tool.toolCallId, 'call-run');
+  assert.equal(runningTool.tool.isDone, false);
+  assert.deepEqual([...projected[1].coveredItemIds].sort((a, b) => a - b), [2, 3, 4]);
 });
 
 run('完成工具按 tool_call_id 合并调用和返回包装行', () => {
@@ -470,10 +476,9 @@ run('groupSubagentTools 把 spawn/wait 按子会话 id 去重合并成一个分�
   assert.deepEqual(grouped[0].coveredItemIds, [2, 3, 4, 5, 6, 7]);
 });
 
-run('groupSubagentTools 不改动非子代理工具，整轮子代理项并成一个分组', () => {
+run('groupSubagentTools 不改动非子代理工具，文本边界拆开子代理分组', () => {
   // 触发场景:bash 工具 + spawn A + assistant 文本 + spawn B。
-  // 期望行为:bash 原样;A、B 即便被 assistant 文本隔开也整轮合并成一个分组,
-  // 落在第一个子代理项位置,assistant 文本保留在原相对位置之后。
+  // 期望行为:bash 原样;assistant 文本结束前一活动段，A、B 不跨段合并。
   const grouped = __test__.groupSubagentTools([
     tool(2, { name: 'bash', verb: 'Ran', object: 'ls' }),
     subagentTool(3, { sessionId: 'A', prompt: 'p' }),
@@ -481,15 +486,16 @@ run('groupSubagentTools 不改动非子代理工具，整轮子代理项并成�
     subagentTool(5, { sessionId: 'B', prompt: 'q' }),
   ]);
 
-  assert.deepEqual(grouped.map((i) => i.kind), ['tool', 'subagent_group', 'msg']);
-  assert.deepEqual(grouped[1].agents.map((a) => a.sessionId), ['A', 'B']);
+  assert.deepEqual(grouped.map((i) => i.kind), ['tool', 'subagent_group', 'msg', 'subagent_group']);
+  assert.deepEqual(grouped[1].agents.map((a) => a.sessionId), ['A']);
   assert.equal(grouped[2].content, 'mid');
+  assert.deepEqual(grouped[3].agents.map((a) => a.sessionId), ['B']);
 });
 
-run('spawn 点火与 wait 收结果被推理隔开时仍合并成同一个分组', () => {
+run('spawn 点火与 wait 收结果被可见文本隔开时成为两个活动段', () => {
   // 回归(截图问题):fan-out 4 个子 agent —— 4 次 spawn(wait=false)点火,
   // 中间一段 assistant 推理,再 4 次 wait 收结果。spawn 与 wait 指向同一批
-  // 子会话,期望合并成**一个**「调用了 4 个智能体」,而不是先后两个各 4 个。
+  // 子会话；可见 assistant 文本是稳定活动行的边界，所以保留前后两个分组。
   const grouped = __test__.groupSubagentTools([
     subagentTool(2, { name: 'spawn_subagent', sessionId: 'A', prompt: '看 animal_cat' }),
     subagentTool(3, { name: 'spawn_subagent', sessionId: 'B', prompt: '看 drink_oolong_tea' }),
@@ -503,9 +509,10 @@ run('spawn 点火与 wait 收结果被推理隔开时仍合并成同一个分组
   ]);
 
   const groups = grouped.filter((i) => i.kind === 'subagent_group');
-  assert.equal(groups.length, 1);
+  assert.equal(groups.length, 2);
   assert.deepEqual(groups[0].agents.map((a) => a.sessionId), ['A', 'B', 'C', 'D']);
   assert.equal(groups[0].agents[0].prompt, '看 animal_cat');
+  assert.deepEqual(groups[1].agents.map((a) => a.sessionId), ['A', 'B', 'C', 'D']);
   // 中间的 assistant 推理仍保留一行
   assert.equal(grouped.some((i) => i.kind === 'msg' && i.content === '现在等待四个子代理返回'), true);
 });
@@ -549,19 +556,20 @@ run('reload 后工具名丢失也能靠 metadata.subagent_session_id 识别并�
   assert.equal(grouped[0].agents[0].prompt, '查看 random-fun');
 });
 
-run('projectCollapsedTranscriptItems 把子代理调用聚成独立 subagent_group 行', () => {
+run('projectCollapsedTranscriptItems 把子代理调用放进统一活动行', () => {
   // 触发场景:一轮里 spawn A/B 后跟一段 assistant 汇总文本。
-  // 期望行为:子代理项聚成 subagent_group 独立成行,不被折进「调用 N 个工具」,
-  // 汇总文本照常单独渲染。
+  // 期望行为:外层仍只有统一 activity_summary，展开后保留 subagent_group 交互。
   const projected = projectCollapsedTranscriptItems([
     user(1),
     subagentTool(2, { sessionId: 'A', prompt: '查看 random-fun' }),
     subagentTool(3, { sessionId: 'B', prompt: '查看 cpp_project' }),
-    assistant(4, '汇总完成'),
-  ], { deferTrailingToolSummary: false });
+    assistant(4, '汇总完成', 4000, { streaming: true }),
+  ], { deferTrailingToolSummary: true });
 
-  assert.deepEqual(projected.map((i) => i.kind), ['msg', 'subagent_group', 'msg']);
-  assert.equal(projected[1].agents.length, 2);
+  assert.deepEqual(projected.map((i) => i.kind), ['msg', 'activity_summary', 'msg']);
+  assert.equal(projected[1].collapsedItems[0].kind, 'subagent_group');
+  assert.equal(projected[1].collapsedItems[0].agents.length, 2);
+  assert.equal(projected[1].title, '调用了 2 个智能体');
   assert.equal(projected[2].content, '汇总完成');
 });
 
@@ -628,7 +636,7 @@ run('流式工具之间的空白 assistant 占位不会拆分工具摘要', () =
   assert.equal(projected[2].content, 'Visible answer');
 });
 
-run('运行中工具和 streaming assistant 不折叠', () => {
+run('streaming assistant 开始时把前一工具行切换为汇总但保持活动行', () => {
   const running = tool(2, { isDone: false, name: 'bash', verb: 'Ran' });
   const streaming = assistant(3, 'partial', 3000, { streaming: true });
   const projected = projectCollapsedTranscriptItems([
@@ -638,8 +646,89 @@ run('运行中工具和 streaming assistant 不折叠', () => {
   ]);
 
   assert.equal(projected.length, 3);
-  assert.equal(projected[1], running);
+  assert.equal(projected[1].kind, 'activity_summary');
+  assert.equal(projected[1].mode, 'tools');
+  assert.equal(projected[1].collapsedItems[0], running);
   assert.equal(projected[2], streaming);
+});
+
+run('loading、连续工具和文字边界复用同一活动段 key', () => {
+  const options = {
+    deferTrailingToolSummary: true,
+    ensureLiveActivity: true,
+    liveTurnId: 'turn-stable',
+  };
+  const loading = projectCollapsedTranscriptItems([user(1)], options);
+  const firstTool = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2, { isDone: false, name: 'bash', verb: 'Ran', object: 'first' }),
+  ], options);
+  const secondTool = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2, { isDone: true, name: 'bash', verb: 'Ran', object: 'first' }),
+    tool(3, { isDone: false, name: 'bash', verb: 'Ran', object: 'second' }),
+  ], options);
+  const textStarted = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2, { isDone: true, name: 'bash', verb: 'Ran', object: 'first' }),
+    tool(3, { isDone: true, name: 'bash', verb: 'Ran', object: 'second' }),
+    assistant(4, '开始输出正文', 4000, { streaming: true }),
+  ], options);
+
+  const stableId = 'activity:turn:turn-stable:0';
+  assert.equal(loading[1].id, stableId);
+  assert.equal(firstTool[1].id, stableId);
+  assert.equal(secondTool[1].id, stableId);
+  assert.equal(textStarted[1].id, stableId);
+  assert.equal(loading[1].mode, 'live');
+  assert.equal(firstTool[1].mode, 'live');
+  assert.equal(secondTool[1].title, 'Ran · second');
+  assert.deepEqual(secondTool[1].collapsedItems.map((item) => item.id), [2, 3]);
+  assert.equal(textStarted[1].mode, 'tools');
+  assert.equal(textStarted[1].title, '已运行 2 条命令，调用 2 个工具');
+  assert.equal(textStarted[2].content, '开始输出正文');
+  assert.equal(textStarted[3].id, 'activity:turn:turn-stable:1');
+  assert.equal(textStarted[3].mode, 'live');
+});
+
+run('并行运行工具的收起首行只显示并行数量', () => {
+  const projected = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2, { isDone: false, name: 'file_read', verb: 'Read', object: 'a.md' }),
+    tool(3, { isDone: false, name: 'grep', verb: 'Read', object: 'needle' }),
+  ], {
+    deferTrailingToolSummary: true,
+    ensureLiveActivity: true,
+    liveTurnId: 'turn-parallel',
+  });
+
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary']);
+  assert.equal(projected[1].runningToolCount, 2);
+  assert.equal(projected[1].title, '正在运行 2 个工具');
+});
+
+run('assistant 文本分隔后的下一批工具使用新的稳定活动段 key', () => {
+  const projected = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2, { name: 'file_read', verb: 'Read', object: 'a.md' }),
+    assistant(3, '先汇报第一批', 3000, { streaming: true }),
+    tool(4, { isDone: false, name: 'bash', verb: 'Ran', object: 'pnpm test' }),
+  ], {
+    deferTrailingToolSummary: true,
+    ensureLiveActivity: true,
+    liveTurnId: 'turn-bursts',
+  });
+
+  assert.deepEqual(projected.map((item) => item.kind), [
+    'msg',
+    'activity_summary',
+    'msg',
+    'activity_summary',
+  ]);
+  assert.equal(projected[1].id, 'activity:turn:turn-bursts:0');
+  assert.equal(projected[1].mode, 'tools');
+  assert.equal(projected[3].id, 'activity:turn:turn-bursts:1');
+  assert.equal(projected[3].mode, 'live');
 });
 
 run('final assistant text 加 task_complete 时保留 final 并折叠前序活动', () => {

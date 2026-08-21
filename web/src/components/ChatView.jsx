@@ -37,6 +37,7 @@ import {
   reserveComposerAttachmentFiles,
 } from '../lib/composerAttachmentReservations.js';
 import { Message, MessageActions } from './Message.jsx';
+import { ActivityLine } from './ActivityLine.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
 import InteractiveHomeLogo from './InteractiveHomeLogo.jsx';
@@ -161,7 +162,6 @@ import { buildCurrentSessionDesktopFeedbackPayload } from '../lib/desktopFeedbac
 import { buildWorktreeIntent } from '../lib/gitSessionPill.js';
 import { fileTreeRefreshKeyFromItems } from '../lib/fileTreeRefresh.js';
 import { buildAssistantRunDirectives } from '../lib/assistantRunDirectives.js';
-import { activityChromeState } from '../lib/assistantAvatarDisplay.js';
 import { notifySessionListChanged } from '../lib/sessionListEvents.js';
 import {
   DEFAULT_SUBAGENT_PANEL_WIDTH,
@@ -402,79 +402,20 @@ function chatRowClassName(item, extra = '') {
   const role = item?.kind === 'msg' ? (item.role || '') : (item?.kind || '');
   return clsx(
     'ace-chat-row flex flex-col',
-    (item?.kind === 'tool' || role === 'system') && 'ace-chat-row-assistant-gutter',
+    role === 'system' && 'ace-chat-row-assistant-gutter',
     extra,
   );
 }
 
-function formatElapsedSeconds(startedAtMs, nowMs) {
-  const start = Number(startedAtMs) || 0;
-  if (!start) return '';
-  const seconds = Math.max(0, Math.floor((nowMs - start) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return `${minutes}m ${rest}s`;
-}
-
-function ActivityIndicator({ activity, showAceCodeAvatar = false }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    setNowMs(Date.now());
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [activity?.startedAtMs, activity?.phase, activity?.toolCallId, activity?.toolIndex]);
-
-  const kind = activity?.kind || CONVERSATION_ACTIVITY_KIND.FOREGROUND;
-  const isWaiting = activity?.needsAction === true
-    || kind === CONVERSATION_ACTIVITY_KIND.RECOVERY;
-  const label = activity?.label || '正在处理请求';
-  const detail = [
-    activity?.detail || '',
-    kind !== CONVERSATION_ACTIVITY_KIND.BACKGROUND
-      && activity?.backgroundCount > 0
-      ? activity.backgroundLabel
-      : '',
-  ].filter(Boolean).join(' · ');
-  const elapsed = formatElapsedSeconds(activity?.startedAtMs, nowMs);
-  const chrome = activityChromeState(showAceCodeAvatar);
-  return (
-    <div
-      className={`flex ${chrome.gapClass} max-w-[85%]`}
-      data-conversation-activity-bubble="true"
-      data-activity-kind={kind}
-    >
-      {chrome.showAvatar ? (
-        <div className={clsx(
-          'w-6 h-6 rounded-full text-white text-[11px] font-bold flex items-center justify-center mt-[2px]',
-          isWaiting ? 'bg-warn' : 'bg-ok',
-        )}>A</div>
-      ) : chrome.showAvatarPlaceholder ? (
-        <div className="w-6 shrink-0" aria-hidden="true" />
-      ) : (
-        null
-      )}
-      <div className={clsx(
-        'rounded-2xl border px-3 py-2 text-[12px] text-fg shadow-sm min-w-[180px]',
-        isWaiting ? 'border-warn/50 bg-warn/10' : 'border-border bg-surface-hi',
-      )}>
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{label}</span>
-          {elapsed && <span className="text-fg-mute tabular-nums">{elapsed}</span>}
-        </div>
-        {detail && <div className="text-fg-mute mt-0.5 truncate max-w-[420px]">{detail}</div>}
-        <div className="flex gap-1 mt-2" aria-hidden="true">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className={clsx('w-1.5 h-1.5 rounded-full', isWaiting ? 'bg-warn' : 'bg-fg-mute')}
-              style={{ animation: `ace-pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+function currentTurnActivityId(items, activeTurnId, sessionId) {
+  const list = Array.isArray(items) ? items : [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const item = list[i];
+    if (item?.kind !== 'msg' || item.role !== 'user') continue;
+    const id = item.id ?? item.messageId;
+    if (id !== undefined && id !== null && String(id).trim()) return `user:${id}`;
+  }
+  return String(activeTurnId || sessionId || 'pending');
 }
 
 function ChatFileDropOverlay({ active }) {
@@ -502,24 +443,51 @@ function chatFileDropEventIsInsideScope(event) {
   return !!scope && !!target && scope.contains(target);
 }
 
-function ActivitySummaryBlock({ item, expanded, onToggle }) {
+function activitySummaryDetails(item) {
+  return item?.detailItems || item?.collapsedItems || [];
+}
+
+function ActivitySummaryBlock({ item, expanded, onToggle, activity = null }) {
+  const details = activitySummaryDetails(item);
+  const hasDetails = details.length > 0;
+  const live = item?.live === true;
+  const activityKind = activity?.kind || CONVERSATION_ACTIVITY_KIND.IDLE;
+  if (
+    live
+    && !hasDetails
+    && (activityKind === CONVERSATION_ACTIVITY_KIND.PERMISSION
+      || activityKind === CONVERSATION_ACTIVITY_KIND.QUESTION)
+  ) {
+    return null;
+  }
+
+  const parallelCount = Number(item?.runningToolCount) || 0;
+  const label = live && parallelCount > 1
+    ? `正在运行 ${parallelCount} 个工具`
+    : (live ? (activity?.label || item?.title || '正在处理请求') : (item?.title || '已处理'));
+  const detail = live
+    ? [
+        activity?.detail || '',
+        activityKind !== CONVERSATION_ACTIVITY_KIND.BACKGROUND
+          && activity?.backgroundCount > 0
+          ? activity.backgroundLabel
+          : '',
+      ].filter(Boolean).join(' · ')
+    : '';
+
   return (
-    <div className="my-1 max-w-[88%]">
-      <button
-        type="button"
-        className="group inline-flex max-w-full items-center gap-2 px-0 py-0.5 text-left text-fg-mute/80 transition-colors"
-        onClick={onToggle}
-        title={expanded ? '收起详情' : '展开详情'}
-        aria-label={expanded ? '收起详情' : '展开详情'}
-      >
-        <VsIcon name="edit" size={13} className="shrink-0 opacity-80" />
-        <span className="text-[12px] font-medium min-w-0 truncate group-hover:text-fg transition-colors">
-          {item?.title || '已处理'}
-        </span>
-        <VsIcon name={expanded ? 'expandDown' : 'expandRight'} size={11} className="shrink-0 opacity-80" />
-      </button>
-      <div className="mt-1 h-px w-full origin-top scale-y-50 bg-fg-mute/20" aria-hidden="true" />
-    </div>
+    <ActivityLine
+      icon={live ? null : <VsIcon name="edit" size={13} className="opacity-80" />}
+      running={live}
+      label={label}
+      detail={detail}
+      expandable={hasDetails}
+      expanded={expanded}
+      onToggle={hasDetails ? onToggle : undefined}
+      title={hasDetails ? (expanded ? '收起详情' : '展开详情') : label}
+      ariaLabel={hasDetails ? (expanded ? '收起详情' : '展开详情') : undefined}
+      live={live}
+    />
   );
 }
 
@@ -532,6 +500,7 @@ function CompletionSummaryBlock({
   onFork,
   forkPending = false,
   forkLoading = false,
+  showFooter = true,
 }) {
   const summaryText = completionSummaryText(item);
   const html = useMemo(() => ({ __html: renderMarkdown(summaryText) }), [summaryText]);
@@ -559,26 +528,52 @@ function CompletionSummaryBlock({
         onClick={handleMarkdownClick}
         dangerouslySetInnerHTML={html}
       />
-      <div className="min-h-6 flex items-center gap-1">
-        <MessageActions
-          messageId={item?.messageId}
-          getCopyText={() => summaryText}
-          onFork={onFork}
-          forkPending={forkPending}
-          forkLoading={forkLoading}
-        />
-        {item?.ts != null && (
-          <span className="text-[10px] text-fg-mute font-normal">{relativeTime(item.ts)}</span>
-        )}
-      </div>
+      {showFooter && (
+        <div className="min-h-6 flex items-center gap-1">
+          <MessageActions
+            messageId={item?.messageId}
+            getCopyText={() => summaryText}
+            onFork={onFork}
+            forkPending={forkPending}
+            forkLoading={forkLoading}
+          />
+          {item?.ts != null && (
+            <span className="text-[10px] text-fg-mute font-normal">{relativeTime(item.ts)}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function TerminationNoticeBlock({ item }) {
+function TerminationNoticeBlock({
+  item,
+  onFork,
+  forkPending = false,
+  forkLoading = false,
+  forkMessageId = '',
+  showFooter = false,
+}) {
+  const content = item?.content || '任务已终止';
   return (
-    <div className="max-w-[88%] px-1 py-0.5 text-[12px] leading-5 text-danger whitespace-pre-wrap break-words">
-      {item?.content || '任务已终止'}
+    <div className="group max-w-[88%] px-1 py-0.5">
+      <div className="text-[12px] leading-5 text-danger whitespace-pre-wrap break-words">
+        {content}
+      </div>
+      {showFooter && (
+        <div className="min-h-6 flex items-center gap-1">
+          <MessageActions
+            messageId={forkMessageId}
+            getCopyText={() => content}
+            onFork={onFork}
+            forkPending={forkPending}
+            forkLoading={forkLoading}
+          />
+          {item?.ts != null && (
+            <span className="text-[10px] text-fg-mute font-normal">{relativeTime(item.ts)}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -997,8 +992,12 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     [history, rawItems],
   );
   const renderedItems = useMemo(
-    () => projectCollapsedTranscriptItems(rawItems, { deferTrailingToolSummary: busy }),
-    [rawItems, busy],
+    () => projectCollapsedTranscriptItems(rawItems, {
+      deferTrailingToolSummary: busy,
+      ensureLiveActivity: busy,
+      liveTurnId: currentTurnActivityId(rawItems, activeTurnId, sid),
+    }),
+    [rawItems, busy, activeTurnId, sid],
   );
   // 尾部窗口(渐进虚拟化,见 lib/transcriptWindow.js):大会话初始只渲染
   // 最近的一段投影行,DOM 行数从数百降到 ≤ INITIAL_TAIL_ITEMS。窗口状态
@@ -1077,8 +1076,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   // 决定每条 assistant 消息的 run 边界;ACECode 头像永久隐藏,空内容(且非
   // streaming)直接隐藏整行。详见 lib/assistantRunDirectives.js。
   const assistantRunDirectives = useMemo(
-    () => buildAssistantRunDirectives(renderedItems),
-    [renderedItems],
+    () => buildAssistantRunDirectives(renderedItems, { deferLastFooter: busy }),
+    [renderedItems, busy],
   );
   const itemsRef = useRef(renderedItems);
   const stickyRafRef = useRef(0);
@@ -4677,7 +4676,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
               onToggle={() => toggleActivitySummary(child.id)}
             />
             {nestedExpanded && (
-              <div className="mt-1 ml-4 pl-3 border-l border-border/70 flex flex-col gap-2">
+              <div className="mt-1 flex flex-col gap-0.5">
                 {renderExpandedActivityItems(nestedItems, `${key}-nested`)}
               </div>
             )}
@@ -4699,6 +4698,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
               onFork={forkAndSwitch}
               forkPending={forkingMessageId !== ''}
               forkLoading={forkingMessageId !== '' && forkingMessageId === String(child.messageId || '')}
+              showFooter={false}
             />
           </div>
         );
@@ -4729,7 +4729,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             data-chat-kind={child.kind || ''}
             data-chat-role="termination_notice"
           >
-            <TerminationNoticeBlock item={child} />
+            <TerminationNoticeBlock item={child} showFooter={false} />
           </div>
         );
       }
@@ -4739,7 +4739,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         : undefined;
       if (childDirective?.hide) return null;
       const childContinuation = childDirective ? childDirective.showHeader === false : false;
-      const childShowFooter = childDirective ? childDirective.showFooter !== false : true;
+      // 活动摘要里的消息是当前 turn 的中间轨迹,不单独创建复制/分叉 footer。
+      const childShowFooter = false;
       return (
         <div
           key={key}
@@ -4957,6 +4958,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           )}
           {windowedItems.map((it) => {
             if (it.kind === 'termination_notice') {
+              const terminalDirective = assistantRunDirectives.get(it.id);
+              const terminalForkMessageId = terminalDirective?.forkMessageId || '';
               return (
                 <div
                   key={it.id}
@@ -4966,7 +4969,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                   data-chat-kind={it.kind || ''}
                   data-chat-role="termination_notice"
                 >
-                  <TerminationNoticeBlock item={it} />
+                  <TerminationNoticeBlock
+                    item={it}
+                    onFork={forkAndSwitch}
+                    forkPending={forkingMessageId !== ''}
+                    forkLoading={forkingMessageId !== '' && forkingMessageId === terminalForkMessageId}
+                    forkMessageId={terminalForkMessageId}
+                    showFooter={terminalDirective?.showFooter === true}
+                  />
                 </div>
               );
             }
@@ -4987,6 +4997,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                     onFork={forkAndSwitch}
                     forkPending={forkingMessageId !== ''}
                     forkLoading={forkingMessageId !== '' && forkingMessageId === String(it.messageId || '')}
+                    showFooter={assistantRunDirectives.get(it.id)?.showFooter === true}
                   />
                 </div>
               );
@@ -5027,9 +5038,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                       item={it}
                       expanded={expanded}
                       onToggle={() => toggleActivitySummary(it.id)}
+                      activity={it.live ? conversationActivity : null}
                     />
                     {expanded && (
-                      <div className="mt-1 ml-4 pl-3 border-l border-border/70 flex flex-col gap-2">
+                      <div className="mt-1 flex flex-col gap-0.5">
                         {renderExpandedActivityItems(detailItems, `activity-hidden-${it.id}`)}
                       </div>
                     )}
@@ -5037,15 +5049,18 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                 </Fragment>
               );
             }
-            const directive = it.kind === 'msg' && it.role === 'assistant'
+            const directive = it.kind === 'msg' && (it.role === 'assistant' || it.role === 'error')
               ? assistantRunDirectives.get(it.id)
               : undefined;
             // 空内容 + 非 streaming 的 assistant 行整体隐藏。
             if (directive?.hide) {
               return null;
             }
-            const continuation = directive ? directive.showHeader === false : false;
-            const showFooter = directive ? directive.showFooter !== false : true;
+            const continuation = it.role === 'assistant' && directive
+              ? directive.showHeader === false
+              : false;
+            const showFooter = directive ? directive.showFooter === true : true;
+            const forkMessageId = directive?.forkMessageId || it.messageId;
             const turnFileSetsBefore = it.kind === 'msg' && it.role === 'user'
               ? (turnFileListPlacement.before.get(it.id) || [])
               : [];
@@ -5089,11 +5104,11 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                       role={it.role} content={it.content} ts={it.ts}
                       contentParts={it.contentParts}
                       streaming={it.streaming}
-                      messageId={it.messageId}
+                      messageId={forkMessageId}
                       metadata={it.metadata}
                       onFork={forkAndSwitch}
                       forkPending={forkingMessageId !== ''}
-                      forkLoading={forkingMessageId !== '' && forkingMessageId === String(it.messageId || '')}
+                      forkLoading={forkingMessageId !== '' && forkingMessageId === String(forkMessageId || '')}
                       onOpenFilePreview={openFilePreview}
                       onLocateInFileTree={locateInFileTree}
                       continuation={continuation}
@@ -5141,10 +5156,12 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
               />
             </div>
           ))}
-          {conversationActivity.kind !== CONVERSATION_ACTIVITY_KIND.IDLE && (
-            <ActivityIndicator
-              activity={conversationActivity}
-              showAceCodeAvatar={showAceCodeAvatar}
+          {conversationActivity.kind === CONVERSATION_ACTIVITY_KIND.BACKGROUND && (
+            <ActivityLine
+              running
+              label={conversationActivity.label}
+              detail={conversationActivity.detail}
+              live
             />
           )}
           </div>

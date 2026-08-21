@@ -39,13 +39,15 @@ run('permission cards are chat rows inside the transcript before activity', () =
   assert.match(transcript, /data-chat-kind="permission"/);
   assert.match(transcript, /<PermissionCard/);
   assert.ok(
-    transcript.indexOf('permissionRequests.map') < transcript.indexOf('<ActivityIndicator'),
-    'permission card must appear before the shared activity bubble',
+    transcript.indexOf('permissionRequests.map') < transcript.indexOf('conversationActivity.kind === CONVERSATION_ACTIVITY_KIND.BACKGROUND'),
+    'permission card must appear before the background activity line',
   );
   assert.match(
     transcript,
-    /conversationActivity\.kind !== CONVERSATION_ACTIVITY_KIND\.IDLE/,
+    /conversationActivity\.kind === CONVERSATION_ACTIVITY_KIND\.BACKGROUND/,
   );
+  assert.match(chat, /activityKind === CONVERSATION_ACTIVITY_KIND\.PERMISSION[\s\S]*?CONVERSATION_ACTIVITY_KIND\.QUESTION/);
+  assert.doesNotMatch(chat, /ActivityIndicator|data-conversation-activity-bubble/);
   assert.match(chat, /permissionRequests,\s*questionRequest: questionForView/);
 });
 

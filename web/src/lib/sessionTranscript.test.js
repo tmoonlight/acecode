@@ -1184,8 +1184,10 @@ run('history load 展开 persisted assistant.tool_calls 并匹配无 summary 工
   const projected = projectLoadedItems(loaded.items);
   const serialized = JSON.stringify(projected);
   assert.equal(serialized.includes('请求未记录'), false);
-  assert.match(projected[1].content, /\[Tool: shell_command\] \{"command":"date"\}/);
-  assert.match(projected[1].content, /Thu Jun  4 12:00:00 CST 2026/);
+  assert.equal(projected[1].kind, 'activity_summary');
+  assert.equal(projected[1].mode, 'live');
+  assert.match(projected[1].collapsedItems[0].content, /\[Tool: shell_command\] \{"command":"date"\}/);
+  assert.match(projected[1].collapsedItems[0].content, /Thu Jun  4 12:00:00 CST 2026/);
 });
 
 run('transcript_replace 展开 persisted assistant.tool_calls 并匹配无 summary 工具返回', () => {

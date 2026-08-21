@@ -335,10 +335,32 @@ function SystemRow({ role, content, metadata }) {
   );
 }
 
-function ErrorRow({ content }) {
+function ErrorRow({
+  content,
+  ts,
+  messageId,
+  onFork,
+  forkPending,
+  forkLoading,
+  showFooter,
+}) {
   return (
-    <div className="ace-chat-message-content self-stretch max-w-[88%] rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[12px] leading-5 text-danger whitespace-pre-wrap break-words">
-      {content || '[Error]'}
+    <div className="group self-stretch max-w-[88%] flex flex-col gap-0.5">
+      <div className="ace-chat-message-content rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[12px] leading-5 text-danger whitespace-pre-wrap break-words">
+        {content || '[Error]'}
+      </div>
+      {showFooter && (
+        <div className="min-h-6 flex items-center gap-1">
+          <MessageActions
+            messageId={messageId}
+            getCopyText={() => content || '[Error]'}
+            onFork={onFork}
+            forkPending={forkPending}
+            forkLoading={forkLoading}
+          />
+          {ts != null && <span className="text-[10px] text-fg-mute font-normal">{relativeTime(ts)}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -391,7 +413,15 @@ export const Message = memo(function Message({
                              annotationPresentations={annotationPresentations} />;
   }
   if (role === 'error') {
-    return <ErrorRow content={content} />;
+    return <ErrorRow
+      content={content}
+      ts={ts}
+      messageId={messageId}
+      onFork={onFork}
+      forkPending={forkPending}
+      forkLoading={forkLoading}
+      showFooter={showFooter}
+    />;
   }
   return <SystemRow role={role} content={content} metadata={metadata} />;
 });
