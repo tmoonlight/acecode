@@ -79,6 +79,22 @@ run('all passive tool lifecycle rows reuse the same fixed-height ActivityLine sh
   assert.match(subagent, /<ActivityLine/);
 });
 
+run('single-line activity UI uses the same responsive font size as assistant body text', () => {
+  const styles = source('styles/globals.css');
+  const subagent = source('components/SubagentGroupBlock.jsx');
+
+  assert.match(
+    styles,
+    /\.ace-activity-line\s*\{\s*--ace-tool-call-font-size:\s*var\(--ace-font-size-body\);\s*\}/,
+  );
+  assert.match(
+    styles,
+    /font-size:\s*var\(--ace-tool-call-font-size,\s*var\(--ace-font-size-code-compact\)\)\s*!important;/,
+  );
+  assert.match(subagent, /truncate text-\[13px\] text-fg/);
+  assert.doesNotMatch(subagent, /truncate text-\[12\.5px\] text-fg/);
+});
+
 run('bottom loading is projected into ActivityLine and the old bubble is gone', () => {
   const chat = source('components/ChatView.jsx');
 

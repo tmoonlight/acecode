@@ -49,7 +49,7 @@ function AgentRow({ agent, task, onOpen }) {
         )}
         aria-hidden="true"
       />
-      <span className="flex-1 min-w-0 truncate text-[12.5px] text-fg">{title}</span>
+      <span className="flex-1 min-w-0 truncate text-[13px] text-fg">{title}</span>
       {clickable && (
         <VsIcon
           name="arrowRight"

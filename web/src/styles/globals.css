@@ -5188,7 +5188,7 @@ a.ace-thread-link:focus-visible {
   font-size: 14px !important;
 }
 
-/* Tool transcript chrome uses the body face at a fixed compact size. */
+/* Tool transcript chrome uses the body face at a compact size by default. */
 .ace-tool-call-text,
 .ace-tool-call-text button,
 .ace-tool-call-text div,
@@ -5198,8 +5198,12 @@ a.ace-thread-link:focus-visible {
 .ace-tool-call-text .ace-diff *,
 .ace-tool-call-text span:not(.ace-icon):not(.ace-file-type-icon) {
   font-family: var(--font-sans) !important;
-  font-size: var(--ace-font-size-code-compact) !important;
+  font-size: var(--ace-tool-call-font-size, var(--ace-font-size-code-compact)) !important;
   line-height: 1.45 !important;
+}
+
+.ace-activity-line {
+  --ace-tool-call-font-size: var(--ace-font-size-body);
 }
 
 /* Tool 中的真实代码与 diff 不继承上面的正文覆盖。 */
