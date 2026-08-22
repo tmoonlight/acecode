@@ -168,6 +168,21 @@ export function activePreviewTab(state, context = {}) {
   return tabs.find((tab) => tab.key === activeKey) || tabs[0] || null;
 }
 
+export function previewTabHasUnsavedDraft(tab) {
+  if (tab?.type !== PREVIEW_TAB_TYPES.FILE || !tab.edit) return false;
+  const baseline = String(tab.edit.baselineText ?? '');
+  const text = String(tab.edit.text ?? baseline);
+  return text !== baseline;
+}
+
+export function previewTabsWithUnsavedDrafts(tabs) {
+  return (Array.isArray(tabs) ? tabs : []).filter(previewTabHasUnsavedDraft);
+}
+
+export function visibleUnsavedPreviewTabs(state, context = {}) {
+  return previewTabsWithUnsavedDrafts(visiblePreviewTabs(state, context));
+}
+
 function fileTabKey(scopeKey, path) {
   return `file:${scopeKey}:${normalizeTreePath(path)}`;
 }
@@ -243,6 +258,73 @@ export function openFileTab(state, { scopeKey = '', sessionId = '', cwd = '', pa
     activeTabByView: {
       ...(source.activeTabByView || {}),
       [viewKey(scopeKey, sessionId)]: key,
+    },
+  };
+}
+
+export function updateFileTabDraft(state, {
+  scopeKey = '',
+  tabKey = '',
+  patch = {},
+} = {}) {
+  if (!scopeKey || !tabKey) return state || {};
+  const source = state && typeof state === 'object' ? state : {};
+  const tabs = source.fileTabsByScope?.[scopeKey] || [];
+  const index = tabs.findIndex((tab) => tab.key === tabKey && tab.type === PREVIEW_TAB_TYPES.FILE);
+  if (index < 0) return source;
+
+  const current = tabs[index].edit && typeof tabs[index].edit === 'object'
+    ? tabs[index].edit
+    : {};
+  const nextEdit = {
+    ...current,
+    ...(patch && typeof patch === 'object' ? patch : {}),
+  };
+  const baselineText = String(nextEdit.baselineText ?? '');
+  const text = String(nextEdit.text ?? baselineText);
+  nextEdit.baselineText = baselineText;
+  nextEdit.text = text;
+  nextEdit.editing = nextEdit.editing === true;
+  nextEdit.saving = nextEdit.saving === true;
+  nextEdit.externalChanged = nextEdit.externalChanged === true;
+  nextEdit.dirty = text !== baselineText;
+
+  const nextTabs = tabs.slice();
+  nextTabs[index] = { ...tabs[index], edit: nextEdit };
+  return {
+    ...source,
+    fileTabsByScope: {
+      ...(source.fileTabsByScope || {}),
+      [scopeKey]: nextTabs,
+    },
+  };
+}
+
+export function discardFileTabDraft(state, { scopeKey = '', tabKey = '' } = {}) {
+  if (!scopeKey || !tabKey) return state || {};
+  const source = state && typeof state === 'object' ? state : {};
+  const tabs = source.fileTabsByScope?.[scopeKey] || [];
+  if (!tabs.some((tab) => tab.key === tabKey && tab.edit)) return source;
+  return {
+    ...source,
+    fileTabsByScope: {
+      ...(source.fileTabsByScope || {}),
+      [scopeKey]: tabs.map((tab) => {
+        if (tab.key !== tabKey || !tab.edit) return tab;
+        const baselineText = String(tab.edit.baselineText ?? '');
+        return {
+          ...tab,
+          edit: {
+            ...tab.edit,
+            text: baselineText,
+            editing: false,
+            saving: false,
+            dirty: false,
+            externalChanged: false,
+            error: '',
+          },
+        };
+      }),
     },
   };
 }
@@ -488,7 +570,16 @@ export function refreshPreviewTab(state, {
       fileTabsByScope: {
         ...(source.fileTabsByScope || {}),
         [scopeKey]: tabs.map((tab) => (tab.key === tabKey
-          ? { ...tab, reloadRevision: (Number(tab.reloadRevision) || 0) + 1 }
+          ? (previewTabHasUnsavedDraft(tab)
+            ? {
+              ...tab,
+              edit: {
+                ...tab.edit,
+                externalChanged: true,
+                error: tab.edit?.error || '',
+              },
+            }
+            : { ...tab, reloadRevision: (Number(tab.reloadRevision) || 0) + 1 })
           : tab)),
       },
     };

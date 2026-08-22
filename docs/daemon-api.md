@@ -285,6 +285,7 @@ when known.
 | GET | `/api/files` | list directory |
 | GET | `/api/files/content` | read text file |
 | GET | `/api/files/blob` | read previewable binary file |
+| GET / PUT | `/api/files/editable` | read or safely save a Desktop workspace text file |
 | GET | `/api/git/info` | git repo info for a workspace |
 | POST | `/api/git/checkout` | switch branch (stash-aware) |
 | GET | `/api/git/changes` | working tree changes vs base |
@@ -1503,6 +1504,39 @@ The route caps preview bytes at 20 MB and sets `X-Content-Type-Options:
 nosniff`. It uses the same arbitrary-local-path resolution and authentication
 boundary as the text-content endpoint; the external parent directory remains
 unavailable to `/api/files` and Git routes.
+
+### `GET /api/files/editable?cwd=<abs>&path=<rel-or-abs>`
+
+Desktop-only authenticated read endpoint for the file editor. Unlike the
+read-only `/api/files/content` preview route, both `cwd` and the resolved file
+must stay inside a registered workspace (including its current worktree). The
+target must be an existing regular text file no larger than 5 MiB.
+
+The response returns normalized UTF-8/LF editor text plus the metadata needed
+for a lossless save:
+
+```json
+{
+  "text": "# Notes\n",
+  "read_id": "...",
+  "encoding": "utf-8",
+  "line_ending": "crlf",
+  "has_bom": true,
+  "size": 12
+}
+```
+
+### `PUT /api/files/editable`
+
+Safely replaces the same Desktop workspace file. The JSON body is
+`{"cwd":"<abs>","path":"<rel-or-abs>","text":"...","read_id":"..."}`.
+The server revalidates the workspace boundary and current file bytes before
+writing. If the file changed after the matching GET, it returns `409` without
+overwriting either version. A successful write preserves the detected
+encoding, BOM, and dominant line-ending style, uses the common safe-write
+path, invalidates Git snapshots, and clears the Agent file-read baseline so a
+later Agent edit must read the human-authored version first. This route is not
+registered on standalone Web daemons.
 
 ### `GET /api/git/info?cwd=<abs>`
 

@@ -37,7 +37,7 @@ run('desktop close dialog matches the themed requested decision surface', () => 
   assert.doesNotMatch(dialog, /window\.confirm|window\.alert/);
 });
 
-run('desktop close dialog follows the existing close-preview confirmation style', () => {
+run('desktop close dialog follows the unsaved-preview confirmation style', () => {
   const dialog = source('components/DesktopCloseDialog.jsx');
   const chatView = source('components/ChatView.jsx');
   const sharedClasses = [
@@ -48,7 +48,7 @@ run('desktop close dialog follows the existing close-preview confirmation style'
     'px-3 py-1.5 text-[12.5px] rounded-lg bg-accent text-white hover:opacity-90 transition-opacity',
   ];
 
-  assert.match(chatView, />关闭预览面板<\/div>/);
+  assert.match(chatView, />放弃未保存的更改？<\/div>/);
   for (const className of sharedClasses) {
     assert.ok(chatView.includes(className), `close-preview dialog is missing ${className}`);
     assert.ok(dialog.includes(className), `desktop close dialog is missing ${className}`);

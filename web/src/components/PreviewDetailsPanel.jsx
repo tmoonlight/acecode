@@ -5,6 +5,7 @@ import { clsx } from '../lib/format.js';
 import {
   PREVIEW_TAB_TYPES,
   previewAbsolutePath,
+  previewTabHasUnsavedDraft,
   resolveSessionChangesTabContent,
 } from '../lib/previewTabs.js';
 import { scrollLeftForVisibleTab } from '../lib/previewTabScroll.js';
@@ -59,6 +60,108 @@ function BrowserTabIcon({ favicon }) {
       className="ace-preview-details-tab-icon ace-preview-details-tab-favicon"
       onError={() => setFailed(true)}
     />
+  );
+}
+
+function PreviewAddMenu({
+  anchorRef,
+  onClose,
+  onOpenTerminal,
+  onOpenBrowser,
+  onOpenSideChat,
+}) {
+  const menuRef = useRef(null);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const items = useMemo(() => [
+    { key: 'terminal', label: '终端', icon: 'terminal', action: onOpenTerminal },
+    { key: 'browser', label: '浏览器', icon: 'globe', action: onOpenBrowser },
+    { key: 'side-chat', label: '侧边聊天', icon: 'brain', action: onOpenSideChat },
+  ], [onOpenBrowser, onOpenSideChat, onOpenTerminal]);
+
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const width = 190;
+    setPosition({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      top: Math.min(rect.bottom + 6, window.innerHeight - 146),
+    });
+  }, [anchorRef]);
+
+  useEffect(() => {
+    const menu = menuRef.current;
+    menu?.querySelector('button:not(:disabled)')?.focus();
+    const handlePointerDown = (event) => {
+      if (menu?.contains(event.target) || anchorRef.current?.contains(event.target)) return;
+      onClose?.();
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose?.();
+        anchorRef.current?.focus();
+      }
+    };
+    const handleViewportChange = () => onClose?.();
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [anchorRef, onClose]);
+
+  const moveFocus = (event, direction) => {
+    const buttons = Array.from(menuRef.current?.querySelectorAll('button:not(:disabled)') || []);
+    if (buttons.length === 0) return;
+    const current = buttons.indexOf(document.activeElement);
+    const next = direction === 'first'
+      ? 0
+      : direction === 'last'
+        ? buttons.length - 1
+        : (current + direction + buttons.length) % buttons.length;
+    event.preventDefault();
+    buttons[next]?.focus();
+  };
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="ace-preview-add-menu"
+      role="menu"
+      aria-label="打开工具"
+      data-ace-native-overlay="overlap"
+      style={{ left: position.left, top: position.top }}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowDown') moveFocus(event, 1);
+        else if (event.key === 'ArrowUp') moveFocus(event, -1);
+        else if (event.key === 'Home') moveFocus(event, 'first');
+        else if (event.key === 'End') moveFocus(event, 'last');
+      }}
+    >
+      {items.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          role="menuitem"
+          className="ace-preview-add-menu-item"
+          disabled={!item.action}
+          onClick={() => {
+            onClose?.();
+            item.action?.();
+          }}
+        >
+          <VsIcon name={item.icon} size={16} />
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </div>,
+    document.body,
   );
 }
 
@@ -213,10 +316,14 @@ export function PreviewDetailsPanel({
   onCloseToRight,
   onCloseAll,
   onRefreshTab,
+  onEditFileTab,
   onReorderTab,
   onToggleMaximize,
   onToggleSidePanelList,
+  onOpenTerminal,
   onOpenBrowser,
+  onOpenSideChat,
+  onHide,
   agentBrowserActive = false,
   nativeSurfacesVisible = true,
   onAddBrowserContext,
@@ -228,8 +335,10 @@ export function PreviewDetailsPanel({
   const tabDragRef = useRef(null);
   const tabAutoScrollFrameRef = useRef(null);
   const suppressTabClickRef = useRef(false);
+  const addButtonRef = useRef(null);
   const [tabDragState, setTabDragState] = useState(null);
   const [tabDragGhost, setTabDragGhost] = useState(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [wrapPreview, setWrapPreview] = usePreference(
     FILE_PREVIEW_WRAP_STORAGE_KEY,
     false,
@@ -327,11 +436,13 @@ export function PreviewDetailsPanel({
         reloadRevision={active.reloadRevision || 0}
         wrapPreview={wrapPreview}
         selectionContexts={selectionContexts}
+        editState={active.edit || null}
+        onEditStateChange={(patch) => onEditFileTab?.(active.key, patch)}
         onToggleWrapPreview={() => setWrapPreview((prev) => !prev)}
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, selectionContexts, setWrapPreview, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -688,6 +799,7 @@ export function PreviewDetailsPanel({
               const label = tabLabel(tab);
               const isFileTab = tab.type === PREVIEW_TAB_TYPES.FILE;
               const isBrowserTab = tab.type === PREVIEW_TAB_TYPES.BROWSER;
+              const dirty = previewTabHasUnsavedDraft(tab);
               const tabAbsolutePath = isFileTab
                 ? previewAbsolutePath({ cwd: tab.cwd || cwd || '', path: tab.path || '' })
                 : '';
@@ -704,6 +816,7 @@ export function PreviewDetailsPanel({
                   data-desktop-preview-tab-absolute-path={isFileTab ? tabAbsolutePath : undefined}
                   data-desktop-preview-tab-has-others={tabs.length > 1 ? 'true' : 'false'}
                   data-desktop-preview-tab-has-right={tabIndex < tabs.length - 1 ? 'true' : 'false'}
+                  data-preview-tab-dirty={dirty ? 'true' : undefined}
                   className={clsx(
                     'ace-preview-details-tab',
                     selected && 'is-active',
@@ -741,7 +854,7 @@ export function PreviewDetailsPanel({
                   <span
                     role="button"
                     tabIndex={-1}
-                    className="ace-preview-details-tab-close"
+                    className={clsx('ace-preview-details-tab-close', dirty && 'is-dirty')}
                     title="关闭标签页"
                     aria-label={`关闭 ${label}`}
                     onPointerDown={(event) => {
@@ -756,7 +869,8 @@ export function PreviewDetailsPanel({
                       onCloseTab?.(tab.key);
                     }}
                   >
-                    <VsIcon name="close" size={18} />
+                    {dirty && <span className="ace-preview-details-tab-dirty-dot" aria-hidden="true" />}
+                    <VsIcon name="close" size={18} className="ace-preview-details-tab-close-icon" />
                   </span>
                 </button>
               );
@@ -764,6 +878,18 @@ export function PreviewDetailsPanel({
           </div>
           <PreviewTabScrollbar scrollRef={tabListRef} />
         </div>
+        <button
+          ref={addButtonRef}
+          type="button"
+          className="ace-preview-details-add"
+          title="打开工具"
+          aria-label="打开工具"
+          aria-haspopup="menu"
+          aria-expanded={addMenuOpen}
+          onClick={() => setAddMenuOpen((open) => !open)}
+        >
+          <VsIcon name="add" size={15} />
+        </button>
         <div className="ace-preview-details-actions">
           {sidePanelListCollapsed && onToggleSidePanelList && (
             <button
@@ -787,24 +913,12 @@ export function PreviewDetailsPanel({
           >
             <VsIcon name={maximized ? 'screenNormal' : 'screenFull'} size={14} />
           </button>
-          {onOpenBrowser && (
-            <button
-              type="button"
-              className="ace-preview-details-action"
-              onClick={onOpenBrowser}
-              title="打开浏览器"
-              aria-label="打开浏览器"
-              aria-pressed={active.type === PREVIEW_TAB_TYPES.BROWSER}
-            >
-              <VsIcon name="globe" size={15} />
-            </button>
-          )}
           <button
             type="button"
             className="ace-preview-details-action"
-            onClick={onCloseAll}
-            title="关闭全部预览标签页"
-            aria-label="关闭全部预览标签页"
+            onClick={onHide}
+            title="隐藏详情面板"
+            aria-label="隐藏详情面板"
           >
             <VsIcon name="close" size={14} />
           </button>
@@ -833,6 +947,15 @@ export function PreviewDetailsPanel({
           <span className="ace-preview-details-tab-label">{tabDragGhost.label}</span>
         </div>,
         document.body,
+      )}
+      {addMenuOpen && (
+        <PreviewAddMenu
+          anchorRef={addButtonRef}
+          onClose={() => setAddMenuOpen(false)}
+          onOpenTerminal={onOpenTerminal}
+          onOpenBrowser={onOpenBrowser}
+          onOpenSideChat={onOpenSideChat}
+        />
       )}
     </div>
   );

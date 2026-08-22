@@ -218,6 +218,13 @@ void MtimeTracker::clear_read_observations() {
     read_observation_lru_.clear();
 }
 
+void MtimeTracker::invalidate_agent_read_state(const std::string& path) {
+    const std::string key = normalize_tracker_path_key(path);
+    std::lock_guard<std::mutex> lk(mu_);
+    records_.erase(key);
+    remove_read_observations_for_path_locked(read_observations_, read_observation_lru_, key);
+}
+
 bool MtimeTracker::was_externally_modified(const std::string& path) const {
     const std::string key = normalize_tracker_path_key(path);
     std::lock_guard<std::mutex> lk(mu_);

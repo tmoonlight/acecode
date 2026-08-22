@@ -45,7 +45,7 @@ run('shared Modal appears and closes without staged transitions or delay', () =>
   assert.match(modal, /backgroundColor: 'rgba\(0, 0, 0, 0\.35\)'/);
 });
 
-run('archived deletion and close-preview confirmations share Modal', () => {
+run('archived deletion and unsaved-preview confirmations share Modal', () => {
   const settingsFile = source('components/SettingsPage.jsx');
   const archived = between(
     settingsFile,
@@ -58,7 +58,8 @@ run('archived deletion and close-preview confirmations share Modal', () => {
   assert.match(archived, />\s*彻底删除\s*</);
   assert.doesNotMatch(archived, /window\.confirm|window\.alert/);
   assert.match(chatView, /<Modal onClose=\{\(\) => setPreviewCloseConfirm\(null\)\}/);
-  assert.match(chatView, />关闭预览面板</);
+  assert.match(chatView, />放弃未保存的更改？</);
+  assert.match(chatView, /previewTabsWithUnsavedDrafts\(affected\)/);
 });
 
 run('loop delete and desktop context-menu confirmations share Modal', () => {

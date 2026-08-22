@@ -2,6 +2,8 @@
 #include "../server_impl.hpp"
 #include "../../skills/skill_init.hpp"
 #include "../../config/config.hpp"
+#include "../../tool/mtime_tracker.hpp"
+#include "../../utils/text_file_buffer.hpp"
 
 namespace acecode::web {
 
@@ -17,6 +19,10 @@ void WebServer::Impl::register_files() {
             return cors_preflight(req);
         });
         CROW_ROUTE(app, "/api/files/blob").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/files/editable").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
@@ -149,6 +155,191 @@ void WebServer::Impl::register_files() {
             }
             crow::response r(std::get<std::string>(content));
             r.add_header("Content-Type", "text/plain; charset=utf-8");
+            r.add_header("Cache-Control", "no-cache");
+            return with_cors(req, std::move(r));
+        });
+
+        auto desktop_edit_rejected = [this](const crow::request& req) {
+            crow::response r(403);
+            r.add_header("Content-Type", "application/json");
+            r.body = R"({"error":"desktop file editing unavailable"})";
+            return with_cors(req, std::move(r));
+        };
+
+        auto editable_text_payload = [](const TextFileBuffer& buffer) {
+            return json{
+                {"text", buffer.text},
+                {"read_id", read_id_for_text_buffer(buffer.path, buffer.raw_bytes)},
+                {"encoding", text_encoding_label(buffer.metadata.encoding)},
+                {"line_ending", line_ending_label(buffer.metadata.line_ending)},
+                {"has_bom", buffer.metadata.has_bom},
+                {"size", buffer.raw_bytes.size()},
+            };
+        };
+
+        auto editable_error_response = [this](const crow::request& req,
+                                               int status,
+                                               const std::string& error,
+                                               const std::string& detail = "") {
+            crow::response r(status);
+            r.add_header("Content-Type", "application/json");
+            json body{{"error", error}};
+            if (!detail.empty()) body["detail"] = detail;
+            r.body = body.dump();
+            return with_cors(req, std::move(r));
+        };
+
+        auto validate_editable_target = [this](const std::string& cwd,
+                                                const std::string& path)
+            -> std::variant<std::filesystem::path, FileError> {
+            return validate_path_within(cwd, path, allowed_file_cwds());
+        };
+
+        // GET /api/files/editable?cwd=<registered-root>&path=<relative>
+        // Strictly decodes a text file and returns an original-byte revision for PUT.
+        CROW_ROUTE(app, "/api/files/editable").methods(crow::HTTPMethod::GET)
+        ([this, desktop_edit_rejected, editable_error_response, editable_text_payload,
+          validate_editable_target, error_response](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.desktop_managed) return desktop_edit_rejected(req);
+
+            const std::string cwd_q = req.url_params.get("cwd")
+                ? req.url_params.get("cwd") : "";
+            const std::string path_q = req.url_params.get("path")
+                ? req.url_params.get("path") : "";
+            if (cwd_q.empty() || path_q.empty()) {
+                return editable_error_response(
+                    req, 400, "cwd and path parameters required");
+            }
+
+            auto validated = validate_editable_target(cwd_q, path_q);
+            if (std::holds_alternative<FileError>(validated)) {
+                return error_response(req, std::get<FileError>(validated));
+            }
+            const auto abs_file = std::get<std::filesystem::path>(validated);
+            std::error_code ec;
+            if (!std::filesystem::exists(abs_file, ec) || ec ||
+                std::filesystem::is_directory(abs_file, ec)) {
+                return editable_error_response(req, 404, "not found");
+            }
+            const auto size = std::filesystem::file_size(abs_file, ec);
+            constexpr std::uint64_t kMaxEditableBytes = 5ull * 1024 * 1024;
+            if (ec) {
+                return editable_error_response(req, 500, "io error", ec.message());
+            }
+            if (size > kMaxEditableBytes) {
+                return editable_error_response(req, 415, "file too large");
+            }
+
+            const std::string abs_path = path_to_utf8(abs_file);
+            auto guard = MtimeTracker::instance().acquire_write_guard(abs_path);
+            auto decoded = read_text_file_buffer(abs_path, false);
+            if (!decoded.success) {
+                return editable_error_response(req, 415, "unsafe text", decoded.error);
+            }
+
+            crow::response r(editable_text_payload(decoded.buffer).dump());
+            r.add_header("Content-Type", "application/json");
+            r.add_header("Cache-Control", "no-cache");
+            return with_cors(req, std::move(r));
+        });
+
+        // PUT /api/files/editable body {cwd,path,text,read_id}
+        // Compares the original bytes while holding the same per-file lock used by
+        // agent file tools, then writes with the file's current encoding/EOL metadata.
+        CROW_ROUTE(app, "/api/files/editable").methods(crow::HTTPMethod::PUT)
+        ([this, desktop_edit_rejected, editable_error_response, editable_text_payload,
+          validate_editable_target, error_response](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.desktop_managed) return desktop_edit_rejected(req);
+
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const std::exception& e) {
+                return editable_error_response(req, 400, "invalid json", e.what());
+            }
+            if (!body.is_object() || !body.contains("cwd") || !body["cwd"].is_string() ||
+                !body.contains("path") || !body["path"].is_string() ||
+                !body.contains("text") || !body["text"].is_string() ||
+                !body.contains("read_id") || !body["read_id"].is_string()) {
+                return editable_error_response(
+                    req, 400, "cwd, path, text and read_id required");
+            }
+            const std::string cwd_q = body["cwd"].get<std::string>();
+            const std::string path_q = body["path"].get<std::string>();
+            const std::string text = body["text"].get<std::string>();
+            const std::string expected_read_id = body["read_id"].get<std::string>();
+            constexpr std::size_t kMaxEditableBytes = 5ull * 1024 * 1024;
+            if (cwd_q.empty() || path_q.empty() || expected_read_id.empty()) {
+                return editable_error_response(
+                    req, 400, "cwd, path and read_id must not be empty");
+            }
+            if (text.size() > kMaxEditableBytes) {
+                return editable_error_response(req, 413, "file too large");
+            }
+
+            auto validated = validate_editable_target(cwd_q, path_q);
+            if (std::holds_alternative<FileError>(validated)) {
+                return error_response(req, std::get<FileError>(validated));
+            }
+            const auto abs_file = std::get<std::filesystem::path>(validated);
+            std::error_code ec;
+            if (!std::filesystem::exists(abs_file, ec) || ec ||
+                std::filesystem::is_directory(abs_file, ec)) {
+                return editable_error_response(req, 404, "not found");
+            }
+            const auto current_size = std::filesystem::file_size(abs_file, ec);
+            if (ec) {
+                return editable_error_response(req, 500, "io error", ec.message());
+            }
+            if (current_size > kMaxEditableBytes) {
+                return editable_error_response(req, 415, "file too large");
+            }
+            const std::string abs_path = path_to_utf8(abs_file);
+            auto guard = MtimeTracker::instance().acquire_write_guard(abs_path);
+            auto current = read_text_file_buffer(abs_path, false);
+            if (!current.success) {
+                return editable_error_response(req, 415, "unsafe text", current.error);
+            }
+            const std::string current_read_id =
+                read_id_for_text_buffer(abs_path, current.buffer.raw_bytes);
+            if (current_read_id != expected_read_id) {
+                crow::response r(409);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{
+                    {"error", "file changed"},
+                    {"current_read_id", current_read_id},
+                }.dump();
+                return with_cors(req, std::move(r));
+            }
+
+            const std::string normalized_text = normalize_text_to_lf(text);
+            auto encoded = encode_text_for_write(normalized_text, current.buffer.metadata);
+            if (!encoded.success) {
+                return editable_error_response(req, 415, "unsafe text", encoded.error);
+            }
+            if (encoded.bytes.size() > kMaxEditableBytes) {
+                return editable_error_response(req, 413, "file too large");
+            }
+            auto written = safe_write_text_file(
+                abs_path, normalized_text, current.buffer.metadata);
+            if (!written.success) {
+                return editable_error_response(req, 500, "write failed", written.error);
+            }
+
+            auto updated = read_text_file_buffer(abs_path, false);
+            if (!updated.success) {
+                return editable_error_response(
+                    req, 500, "post-write read failed", updated.error);
+            }
+            MtimeTracker::instance().invalidate_agent_read_state(abs_path);
+            if (deps.session_registry) {
+                deps.session_registry->invalidate_git_snapshots_in_cwd(cwd_q);
+            }
+
+            crow::response r(editable_text_payload(updated.buffer).dump());
+            r.add_header("Content-Type", "application/json");
             r.add_header("Cache-Control", "no-cache");
             return with_cors(req, std::move(r));
         });

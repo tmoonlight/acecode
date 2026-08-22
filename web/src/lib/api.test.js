@@ -1405,6 +1405,53 @@ await run('readFileBlob fetches authenticated binary file content', async () => 
   }
 });
 
+await run('editable file client reads a byte revision and sends it back on save', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        text: 'hello\n',
+        read_id: calls.length === 1 ? 'rev-1' : 'rev-2',
+        encoding: 'utf-8',
+        line_ending: 'lf',
+      }),
+    };
+  };
+  try {
+    const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
+    const opened = await client.readEditableFile('/repo root', 'docs/a b.md');
+    assert.equal(opened.read_id, 'rev-1');
+    const saved = await client.saveEditableFile(
+      '/repo root',
+      'docs/a b.md',
+      'changed\n',
+      opened.read_id,
+    );
+    assert.equal(saved.read_id, 'rev-2');
+    assert.equal(
+      calls[0].url,
+      'http://127.0.0.1:4567/api/files/editable?cwd=%2Frepo%20root&path=docs%2Fa%20b.md',
+    );
+    assert.equal(calls[0].opts.method, 'GET');
+    assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
+    assert.equal(calls[1].url, 'http://127.0.0.1:4567/api/files/editable');
+    assert.equal(calls[1].opts.method, 'PUT');
+    assert.deepEqual(JSON.parse(calls[1].opts.body), {
+      cwd: '/repo root',
+      path: 'docs/a b.md',
+      text: 'changed\n',
+      read_id: 'rev-1',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await run('exportSession posts the selected session and workspace identity', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];

@@ -138,6 +138,11 @@ public:
     void invalidate_read_observations(const std::string& path);
     void clear_read_observations();
 
+    // A human or another trusted UI wrote the file outside the agent tool
+    // protocol. Drop both the edit baseline and repeated-read observations so
+    // the agent must read the new bytes before a later file_edit/file_write.
+    void invalidate_agent_read_state(const std::string& path);
+
     // Check if a file has been externally modified since the last recorded read.
     // Returns true if the file was modified externally (mtime changed).
     // Returns false if no record exists or mtime is unchanged.

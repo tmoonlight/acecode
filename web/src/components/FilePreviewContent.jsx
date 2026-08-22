@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import hljs from 'highlight.js/lib/core';
 import { renderAsync } from 'docx-preview';
 import 'x-data-spreadsheet/dist/xspreadsheet.css';
 import 'x-data-spreadsheet/dist/xspreadsheet.js';
 import { ApiError } from '../lib/api.js';
+import { isDesktopShell } from '../lib/desktopShellMode.js';
 import { langForFile } from '../lib/lang.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { parseWorkbookArrayBuffer } from '../lib/officePreview.js';
@@ -25,6 +26,7 @@ import {
 } from '../lib/filePreviewScroll.js';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
+import MarkdownWysiwygEditor from './MarkdownWysiwygEditor.jsx';
 import { SelectionAnnotationOverlay } from './SelectionAnnotationOverlay.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -42,6 +44,38 @@ async function copyWithToast(text, okText) {
   else toast({ kind: 'err', text: '复制失败:' + (result.error || '') });
 }
 
+function editableFileError(error, fallback = '无法编辑此文件') {
+  if (!(error instanceof ApiError)) return error?.message || fallback;
+  const body = error.body;
+  if (body && typeof body === 'object') {
+    if (body.error === 'file changed') return '磁盘内容已变化，未覆盖文件；请保留当前草稿并重新载入后再合并';
+    if (body.error === 'file too large') return '文件过大，无法在详情中编辑';
+    if (body.error === 'binary' || body.error === 'unsupported encoding') return '文件编码不受支持，只能只读预览';
+    if (body.error === 'unknown workspace') return '该文件不在当前工作区或 worktree 中，只能只读预览';
+    if (body.error === 'not found') return '文件不存在';
+    if (body.error) return String(body.error);
+  }
+  return `${fallback} (HTTP ${error.status})`;
+}
+
+function editableStatePatch(result, { editing = true } = {}) {
+  const text = String(result?.text ?? '');
+  return {
+    editing,
+    loading: false,
+    saving: false,
+    baselineText: text,
+    text,
+    readId: String(result?.read_id || ''),
+    encoding: String(result?.encoding || ''),
+    lineEnding: String(result?.line_ending || ''),
+    hasBom: result?.has_bom === true,
+    size: Number(result?.size || 0),
+    externalChanged: false,
+    error: '',
+  };
+}
+
 export function FilePreviewContent({
   api,
   cwd,
@@ -51,6 +85,8 @@ export function FilePreviewContent({
   reloadRevision = 0,
   wrapPreview,
   selectionContexts = [],
+  editState = null,
+  onEditStateChange,
   onToggleWrapPreview,
   onRefresh,
 }) {
@@ -71,6 +107,10 @@ export function FilePreviewContent({
   const loadedIdentityRef = useRef('');
   const pendingScrollSnapshotRef = useRef(null);
   const handledFocusRequestRef = useRef('');
+  const editStateRef = useRef(editState);
+  const onEditStateChangeRef = useRef(onEditStateChange);
+  editStateRef.current = editState;
+  onEditStateChangeRef.current = onEditStateChange;
   const sourceContentRevision = useMemo(
     () => (state.status === 'ok' && (state.kind === 'text' || state.kind === 'markdown')
       ? selectionSourceContentRevision(state.text)
@@ -193,6 +233,60 @@ export function FilePreviewContent({
       };
     }
 
+    const currentEdit = editStateRef.current;
+    if ((nextKind === 'text' || nextKind === 'markdown') && currentEdit?.editing) {
+      if (currentEdit.dirty) {
+        const baselineText = String(currentEdit.baselineText ?? '');
+        setState({
+          status: 'ok',
+          kind: nextKind,
+          text: baselineText,
+          error: null,
+          lang: langForFile(path),
+          size: Number(currentEdit.size || baselineText.length),
+          previewUrl: '',
+          contentType: '',
+          blob: null,
+        });
+        return () => { cancelled = true; };
+      }
+      api.readEditableFile(cwd, path).then((result) => {
+        if (cancelled) return;
+        const text = String(result?.text ?? '');
+        setState({
+          status: 'ok',
+          kind: nextKind,
+          text,
+          error: null,
+          lang: langForFile(path),
+          size: Number(result?.size || text.length),
+          previewUrl: '',
+          contentType: '',
+          blob: null,
+        });
+        onEditStateChangeRef.current?.(editableStatePatch(result));
+      }).catch((err) => {
+        if (cancelled) return;
+        const baselineText = String(currentEdit.baselineText ?? '');
+        setState({
+          status: 'ok',
+          kind: nextKind,
+          text: baselineText,
+          error: null,
+          lang: langForFile(path),
+          size: Number(currentEdit.size || baselineText.length),
+          previewUrl: '',
+          contentType: '',
+          blob: null,
+        });
+        onEditStateChangeRef.current?.({
+          loading: false,
+          error: editableFileError(err, '重新读取失败'),
+        });
+      });
+      return () => { cancelled = true; };
+    }
+
     api.readFile(cwd, path).then((text) => {
       if (cancelled) return;
       setState({
@@ -228,6 +322,68 @@ export function FilePreviewContent({
     });
     return () => { cancelled = true; };
   }, [api, cwd, path, reloadRevision]);
+
+  const beginEditing = useCallback(async () => {
+    if (!cwd || !path || editStateRef.current?.loading) return;
+    onEditStateChangeRef.current?.({ loading: true, error: '' });
+    try {
+      const result = await api.readEditableFile(cwd, path);
+      const text = String(result?.text ?? '');
+      setState((previous) => ({
+        ...previous,
+        status: 'ok',
+        text,
+        size: Number(result?.size || text.length),
+      }));
+      onEditStateChangeRef.current?.(editableStatePatch(result));
+    } catch (error) {
+      const message = editableFileError(error);
+      onEditStateChangeRef.current?.({ loading: false, error: message });
+      toast({ kind: 'err', text: message });
+    }
+  }, [api, cwd, path]);
+
+  const saveEditing = useCallback(async () => {
+    const current = editStateRef.current;
+    if (!current?.editing || current.saving || !current.dirty || !current.readId) return;
+    const text = String(current.text ?? '');
+    onEditStateChangeRef.current?.({ saving: true, error: '' });
+    try {
+      const result = await api.saveEditableFile(cwd, path, text, current.readId);
+      setState((previous) => ({
+        ...previous,
+        text,
+        size: Number(result?.size || text.length),
+      }));
+      onEditStateChangeRef.current?.({
+        ...editableStatePatch({ ...result, text }),
+        editing: true,
+      });
+      toast({ kind: 'ok', text: '文件已保存' });
+    } catch (error) {
+      const message = editableFileError(error, '保存失败');
+      onEditStateChangeRef.current?.({
+        saving: false,
+        externalChanged: error instanceof ApiError && error.status === 409,
+        error: message,
+      });
+      toast({ kind: 'err', text: message });
+    }
+  }, [api, cwd, path]);
+
+  const cancelEditing = useCallback(() => {
+    const current = editStateRef.current;
+    const baselineText = String(current?.baselineText ?? state.text ?? '');
+    setState((previous) => ({ ...previous, text: baselineText, size: baselineText.length }));
+    onEditStateChangeRef.current?.({
+      editing: false,
+      loading: false,
+      saving: false,
+      text: baselineText,
+      externalChanged: false,
+      error: '',
+    });
+  }, [state.text]);
 
   // 同一文件重新读取时，loading 会临时卸载滚动容器。新 DOM 落地后在布局
   // 阶段恢复位置，并按新内容高度/宽度钳制，避免空文件或大幅删减后越界。
@@ -349,6 +505,83 @@ export function FilePreviewContent({
     );
   }
 
+  const isMarkdown = state.kind === 'markdown';
+  const activeEdit = editState && typeof editState === 'object' ? editState : null;
+  if ((state.kind === 'text' || isMarkdown) && activeEdit?.editing) {
+    const draftText = String(activeEdit.text ?? activeEdit.baselineText ?? '');
+    const statusText = activeEdit.error
+      || (activeEdit.externalChanged ? '磁盘内容可能已变化；保存时会再次检查，绝不会静默覆盖' : '')
+      || (activeEdit.dirty ? '有未保存的更改' : '所有更改已保存');
+    return (
+      <div className="ace-file-editor-shell" {...previewAttrs}>
+        <div className="ace-file-editor-statusbar">
+          <div
+            className={clsx(
+              'ace-file-editor-status',
+              activeEdit.error && 'is-error',
+              !activeEdit.error && activeEdit.externalChanged && 'is-warning',
+              activeEdit.dirty && 'is-dirty',
+            )}
+            role={activeEdit.error ? 'alert' : 'status'}
+          >
+            {statusText}
+          </div>
+          <div className="ace-file-editor-actions">
+            <button
+              type="button"
+              className="ace-file-editor-button is-primary"
+              disabled={!activeEdit.dirty || activeEdit.saving}
+              onClick={saveEditing}
+            >
+              <VsIcon name="save" size={13} />
+              {activeEdit.saving ? '保存中...' : '保存'}
+            </button>
+            <button
+              type="button"
+              className="ace-file-editor-button"
+              disabled={activeEdit.saving}
+              onClick={cancelEditing}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+        {isMarkdown ? (
+          <MarkdownWysiwygEditor
+            value={draftText}
+            disabled={activeEdit.saving}
+            onChange={(text) => onEditStateChangeRef.current?.({ text, error: '' })}
+            onSave={saveEditing}
+          />
+        ) : (
+          <textarea
+            className="ace-file-text-editor"
+            aria-label={`编辑 ${path}`}
+            value={draftText}
+            wrap={wrapPreview ? 'soft' : 'off'}
+            disabled={activeEdit.saving}
+            spellCheck="false"
+            onChange={(event) => onEditStateChangeRef.current?.({
+              text: event.target.value,
+              error: '',
+            })}
+            onKeyDown={(event) => {
+              if (
+                (event.ctrlKey || event.metaKey)
+                && event.key.toLowerCase() === 's'
+              ) {
+                event.preventDefault();
+                if (!event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+                  saveEditing();
+                }
+              }
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   const lang = state.lang;
   const normalizedSourceText = normalizeSelectionSourceText(state.text);
   let codeHtml;
@@ -376,7 +609,6 @@ export function FilePreviewContent({
     ).join('')
   }</tbody></table>`;
   const wrapTitle = wrapPreview ? '关闭自动换行' : '开启自动换行';
-  const isMarkdown = state.kind === 'markdown';
   const showMarkdownRendered = isMarkdown && !markdownSource;
   const markdownToggleTitle = markdownSource ? '渲染 Markdown' : '查看 Markdown 原文';
   return (
@@ -387,6 +619,18 @@ export function FilePreviewContent({
         data-wrap={wrapPreview ? 'true' : 'false'}
         actions={(
           <>
+            {isDesktopShell() && (state.kind === 'text' || isMarkdown) && (
+              <button
+                type="button"
+                className="ace-code-action-btn ace-code-edit-btn"
+                title={activeEdit?.error || '编辑文件'}
+                aria-label="编辑文件"
+                disabled={activeEdit?.loading === true}
+                onClick={(event) => { event.stopPropagation(); beginEditing(); }}
+              >
+                <VsIcon name="edit" size={14} />
+              </button>
+            )}
             {isMarkdown && (
               <button
                 type="button"

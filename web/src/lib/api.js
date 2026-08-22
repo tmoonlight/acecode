@@ -572,6 +572,19 @@ export function createApi(base = null) {
       return resp.text();
     },
 
+    // Desktop-only safe text editing. The GET response includes a revision of
+    // the original bytes; PUT must echo it so the daemon can reject stale drafts.
+    readEditableFile: (cwd, path) => {
+      const qs = `?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+      return request('GET', '/api/files/editable' + qs, undefined, base);
+    },
+    saveEditableFile: (cwd, path, text, readId) => request(
+      'PUT',
+      '/api/files/editable',
+      { cwd, path, text, read_id: readId },
+      base,
+    ),
+
     // SidePanel browser-native previews use an authenticated binary fetch. A
     // plain <img>/<object data="/api/..."> cannot attach the daemon token header.
     readFileBlob: async (cwd, path) => {

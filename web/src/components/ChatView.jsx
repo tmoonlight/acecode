@@ -45,6 +45,7 @@ import { SelectionActionPopover } from './SelectionActionPopover.jsx';
 import { ExpertPickerDialog } from './ExpertCatalog.jsx';
 import { QueueCardList } from './QueueCardList.jsx';
 import { SideQuestionCard } from './SideQuestionCard.jsx';
+import { SideQuestionComposer } from './SideQuestionComposer.jsx';
 import { GitSessionPill } from './GitSessionPill.jsx';
 import { LspIndicator } from './LspIndicator.jsx';
 import { QuestionPicker } from './QuestionPicker.jsx';
@@ -189,7 +190,6 @@ import {
   closePreviewTab,
   closePreviewTabsToRight,
   closeVisiblePreviewTabs,
-  closeVisiblePreviewTabsConfirmationMessage,
   defaultBrowserTabTitle,
   openFileTab,
   openBrowserTab,
@@ -197,11 +197,13 @@ import {
   openSessionChangesTab,
   previewFileLocation,
   previewScopeKey,
+  previewTabsWithUnsavedDrafts,
   refreshPreviewTab,
   reorderPreviewTab,
   sessionWorkingCwd,
   updateGitChangesTab,
   updateBrowserTabMetadata,
+  updateFileTabDraft,
   updateSessionChangesTab,
   visiblePreviewTabs,
 } from '../lib/previewTabs.js';
@@ -694,7 +696,7 @@ const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
 
-export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
+export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onOpenConsole, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const stagedExpertDraft = expertDispatchDraftFromRef(ref);
@@ -902,6 +904,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const [fileLocateRequest, setFileLocateRequest] = useState({ path: '', token: 0 });
   const [previewTabState, setPreviewTabState] = useState({});
   const [previewCloseConfirm, setPreviewCloseConfirm] = useState(null);
+  const [previewPanelHidden, setPreviewPanelHidden] = useState(false);
   const [dismissedDockSignatures, setDismissedDockSignatures] = usePreference(
     CHANGE_DOCK_DISMISSALS_STORAGE_KEY,
     {},
@@ -980,6 +983,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const [queueState, setQueueState] = useState(() => createChatInputQueueState());
   const queueStateRef = useRef(queueState);
   const [sideQuestion, setSideQuestion] = useState(null);
+  const [sideQuestionComposerOpen, setSideQuestionComposerOpen] = useState(false);
+  const [sideQuestionDraft, setSideQuestionDraft] = useState('');
   const sideQuestionInFlightRef = useRef(false);
   const sideQuestionEpochRef = useRef(0);
   const turnInterruptInFlightRef = useRef(new Set());
@@ -1327,6 +1332,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   useEffect(() => {
     sideQuestionEpochRef.current += 1;
     setSideQuestion(null);
+    setSideQuestionComposerOpen(false);
+    setSideQuestionDraft('');
+    setPreviewPanelHidden(false);
+    setPreviewCloseConfirm(null);
   }, [sid]);
 
   const handleComposerChange = useCallback((next) => {
@@ -2742,6 +2751,17 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         sideQuestionInFlightRef.current = false;
       });
   }, [api, recordInputHistory]);
+
+  const openSideQuestionComposer = useCallback(() => {
+    setSideQuestionComposerOpen(true);
+  }, []);
+
+  const submitSideQuestionComposer = useCallback(() => {
+    const started = runSideQuestion(sideQuestionDraft, { command: 'side' });
+    if (!started) return;
+    setSideQuestionDraft('');
+    setSideQuestionComposerOpen(false);
+  }, [runSideQuestion, sideQuestionDraft]);
 
   const guideQueued = useCallback((queuedId) => {
     const targetSid = sidRef.current;
@@ -4319,10 +4339,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   );
   const previewTabsOpen = previewTabs.length > 0;
   // 总开关必须连最大化详情一起隐藏;恢复时仍保留最大化偏好与原页签。
-  const previewPanelVisible = previewTabsOpen && !sidePanelCollapsed;
+  const previewPanelVisible = previewTabsOpen && !sidePanelCollapsed && !previewPanelHidden;
   const previewPanelMaximized = sidePanelMaximized && previewPanelVisible;
   const previewCloseConfirmMessage = previewCloseConfirm
-    ? closeVisiblePreviewTabsConfirmationMessage(previewTabs.length) || previewCloseConfirm.message
+    ? `${previewCloseConfirm.dirtyCount} 个标签页含有未保存的修改。关闭后草稿将丢失，是否继续？`
     : '';
   const selectedChangeFile = activePreview?.type === PREVIEW_TAB_TYPES.SESSION_CHANGES
     ? activePreview.expandedFile || ''
@@ -4391,6 +4411,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     if (!sid || !previewScope || !location.cwd || !location.path) return;
     // 侧栏折叠时开预览 tab 也不会显示(previewPanelVisible 依赖非折叠),先展开。
     if (sidePanelCollapsed) onToggleSidePanel?.();
+    setPreviewPanelHidden(false);
     setPreviewTabState((prev) => openFileTab(prev, {
       scopeKey: previewScope,
       sessionId: sid,
@@ -4403,6 +4424,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const showBrowserPage = useCallback((pageId, title, favicon) => {
     if (!sid || !pageId) return;
     if (sidePanelCollapsed) onToggleSidePanel?.();
+    setPreviewPanelHidden(false);
     setPreviewTabState((prev) => openBrowserTab(prev, {
       scopeKey: previewScope,
       sessionId: sid,
@@ -4514,6 +4536,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const openSessionChangePreview = useCallback((filePath, turnUserMessageId = '') => {
     if (!sid || !filePath) return;
     if (sidePanelCollapsed) onToggleSidePanel?.();
+    setPreviewPanelHidden(false);
     const turnChangeSet = turnUserMessageId
       ? turnChangeSets.find((set) => set.userMessageId === turnUserMessageId)
       : null;
@@ -4534,6 +4557,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const openGitChangePreview = useCallback((filePath, gitBase, gitFileCount) => {
     if (!sid || !filePath) return;
     if (sidePanelCollapsed) onToggleSidePanel?.();
+    setPreviewPanelHidden(false);
     setPreviewTabState((prev) => openGitChangesTab(prev, {
       scopeKey: previewScope,
       sessionId: sid,
@@ -4570,6 +4594,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     }));
   }, [previewScope, sid]);
 
+  const updateFilePreviewDraft = useCallback((tabKey, patch) => {
+    setPreviewTabState((prev) => updateFileTabDraft(prev, {
+      scopeKey: previewScope,
+      tabKey,
+      patch,
+    }));
+  }, [previewScope]);
+
   useEffect(() => {
     const transition = nextAutoPreviewRefresh(previewAutoRefreshRef.current, {
       sid,
@@ -4582,71 +4614,82 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     if (transition.tabKey) refreshPreview(transition.tabKey);
   }, [activePreview, busy, lastUserTurnKey, latestSuccessfulChangedFiles, refreshPreview, sid]);
 
-  const closePreview = useCallback((tabKey) => {
-    const closingLastVisibleTab = previewTabs.length <= 1;
-    const tab = previewTabs.find((candidate) => candidate.key === tabKey);
-    if (tab?.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
-      void closeAgentBrowserPage(tab.pageId);
-    }
-    setPreviewTabState((prev) => closePreviewTab(prev, {
-      scopeKey: previewScope,
-      sessionId: sid,
-      tabKey,
-    }));
-    if (closingLastVisibleTab && sidePanelMaximized) onToggleSidePanelMaximized?.();
-  }, [onToggleSidePanelMaximized, previewScope, previewTabs, sid, sidePanelMaximized]);
+  const previewTabsForCloseAction = useCallback((kind, tabKey = '') => {
+    if (kind === 'all') return previewTabs;
+    const index = previewTabs.findIndex((tab) => tab.key === tabKey);
+    if (index < 0) return [];
+    if (kind === 'one') return [previewTabs[index]];
+    if (kind === 'others') return previewTabs.filter((tab) => tab.key !== tabKey);
+    if (kind === 'right') return previewTabs.slice(index + 1);
+    return [];
+  }, [previewTabs]);
 
-  const closePreviewPanelConfirmed = useCallback(() => {
-    setPreviewCloseConfirm(null);
-    previewTabs.forEach((tab) => {
+  const performPreviewClose = useCallback((kind, tabKey = '') => {
+    const affected = previewTabsForCloseAction(kind, tabKey);
+    if (affected.length === 0) {
+      setPreviewCloseConfirm(null);
+      return;
+    }
+    affected.forEach((tab) => {
       if (tab.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
         void closeAgentBrowserPage(tab.pageId);
       }
     });
-    setPreviewTabState((prev) => closeVisiblePreviewTabs(prev, {
-      scopeKey: previewScope,
-      sessionId: sid,
-    }));
-    if (sidePanelMaximized) onToggleSidePanelMaximized?.();
-  }, [onToggleSidePanelMaximized, previewScope, previewTabs, sid, sidePanelMaximized]);
+    setPreviewTabState((prev) => {
+      const options = { scopeKey: previewScope, sessionId: sid, tabKey };
+      if (kind === 'one') return closePreviewTab(prev, options);
+      if (kind === 'others') return closeOtherPreviewTabs(prev, options);
+      if (kind === 'right') return closePreviewTabsToRight(prev, options);
+      return closeVisiblePreviewTabs(prev, options);
+    });
+    setPreviewCloseConfirm(null);
+    if (affected.length >= previewTabs.length && sidePanelMaximized) {
+      onToggleSidePanelMaximized?.();
+    }
+  }, [
+    onToggleSidePanelMaximized,
+    previewScope,
+    previewTabs.length,
+    previewTabsForCloseAction,
+    sid,
+    sidePanelMaximized,
+  ]);
 
-  const closePreviewPanel = useCallback(() => {
-    const confirmMessage = closeVisiblePreviewTabsConfirmationMessage(previewTabs.length);
-    if (confirmMessage) {
-      setPreviewCloseConfirm({ message: confirmMessage });
+  const requestPreviewClose = useCallback((kind, tabKey = '') => {
+    const affected = previewTabsForCloseAction(kind, tabKey);
+    if (affected.length === 0) return;
+    const dirty = previewTabsWithUnsavedDrafts(affected);
+    if (dirty.length > 0) {
+      setPreviewCloseConfirm({
+        kind,
+        tabKey,
+        affectedCount: affected.length,
+        dirtyCount: dirty.length,
+      });
       return;
     }
-    closePreviewPanelConfirmed();
-  }, [closePreviewPanelConfirmed, previewTabs.length]);
+    performPreviewClose(kind, tabKey);
+  }, [performPreviewClose, previewTabsForCloseAction]);
+
+  const closePreview = useCallback((tabKey) => {
+    requestPreviewClose('one', tabKey);
+  }, [requestPreviewClose]);
+
+  const closeAllPreviews = useCallback(() => {
+    requestPreviewClose('all');
+  }, [requestPreviewClose]);
 
   const closeOtherPreviews = useCallback((tabKey) => {
-    previewTabs.forEach((tab) => {
-      if (tab.key !== tabKey && tab.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
-        void closeAgentBrowserPage(tab.pageId);
-      }
-    });
-    setPreviewTabState((prev) => closeOtherPreviewTabs(prev, {
-      scopeKey: previewScope,
-      sessionId: sid,
-      tabKey,
-    }));
-  }, [previewScope, previewTabs, sid]);
+    requestPreviewClose('others', tabKey);
+  }, [requestPreviewClose]);
 
   const closePreviewsToRight = useCallback((tabKey) => {
-    const tabIndex = previewTabs.findIndex((tab) => tab.key === tabKey);
-    if (tabIndex >= 0) {
-      previewTabs.slice(tabIndex + 1).forEach((tab) => {
-        if (tab.type === PREVIEW_TAB_TYPES.BROWSER && tab.pageId) {
-          void closeAgentBrowserPage(tab.pageId);
-        }
-      });
-    }
-    setPreviewTabState((prev) => closePreviewTabsToRight(prev, {
-      scopeKey: previewScope,
-      sessionId: sid,
-      tabKey,
-    }));
-  }, [previewScope, previewTabs, sid]);
+    requestPreviewClose('right', tabKey);
+  }, [requestPreviewClose]);
+
+  const hidePreviewPanel = useCallback(() => {
+    setPreviewPanelHidden(true);
+  }, []);
 
   const reorderPreview = useCallback((sourceKey, targetKey, placement) => {
     setPreviewTabState((prev) => reorderPreviewTab(prev, {
@@ -5451,6 +5494,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         />
       )}
 
+      <SideQuestionComposer
+        open={sideQuestionComposerOpen}
+        value={sideQuestionDraft}
+        busy={sideQuestion?.status === 'loading'}
+        onChange={setSideQuestionDraft}
+        onSubmit={submitSideQuestionComposer}
+        onClose={() => setSideQuestionComposerOpen(false)}
+      />
       <SideQuestionCard
         state={sideQuestion}
         onDismiss={() => setSideQuestion(null)}
@@ -5568,12 +5619,16 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             onCloseTab={closePreview}
             onCloseOthers={closeOtherPreviews}
             onCloseToRight={closePreviewsToRight}
-            onCloseAll={closePreviewPanel}
+            onCloseAll={closeAllPreviews}
             onRefreshTab={refreshPreview}
+            onEditFileTab={updateFilePreviewDraft}
             onReorderTab={reorderPreview}
             onToggleMaximize={onToggleSidePanelMaximized}
             onToggleSidePanelList={onToggleSidePanelList}
+            onOpenTerminal={onOpenConsole}
             onOpenBrowser={hasNativeAgentBrowser() ? openBrowserPreview : null}
+            onOpenSideChat={openSideQuestionComposer}
+            onHide={hidePreviewPanel}
             agentBrowserActive={agentBrowserActivity.active ? agentBrowserActivePageId : ''}
             nativeSurfacesVisible={nativeSurfacesVisible}
             onAddBrowserContext={addBrowserContext}
@@ -5587,7 +5642,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         <Modal onClose={() => setPreviewCloseConfirm(null)} width={440}>
           {({ close }) => (
             <div className="p-4">
-              <div className="text-[14px] font-semibold mb-2">关闭预览面板</div>
+              <div className="text-[14px] font-semibold mb-2">放弃未保存的更改？</div>
               <div className="text-[12.5px] text-fg-mute leading-relaxed mb-4">
                 {previewCloseConfirmMessage}
               </div>
@@ -5602,9 +5657,12 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                 <button
                   type="button"
                   className="px-3 py-1.5 text-[12.5px] rounded-lg bg-accent text-white hover:opacity-90 transition-opacity"
-                  onClick={closePreviewPanelConfirmed}
+                  onClick={() => performPreviewClose(
+                    previewCloseConfirm.kind,
+                    previewCloseConfirm.tabKey,
+                  )}
                 >
-                  关闭
+                  放弃并关闭
                 </button>
               </div>
             </div>

@@ -41,11 +41,13 @@
 #include "session/todo_state.hpp"
 #include "session/session_usage_ledger.hpp"
 #include "skills/skill_registry.hpp"
+#include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
 #include "upgrade/manifest.hpp"
 #include "utils/encoding.hpp"
 #include "utils/cwd_hash.hpp"
 #include "utils/state_file.hpp"
+#include "utils/text_file_buffer.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/remote_web_proxy.hpp"
 #include "web/server.hpp"
@@ -432,7 +434,8 @@ struct WebServerFixture {
         std::function<std::optional<std::string>(const std::string&)> open_in_explorer = {},
         bool dangerous = false,
         std::function<std::vector<std::string>()> remote_web_hosts = {},
-        SessionClientFactory session_client_factory = {}) {
+        SessionClientFactory session_client_factory = {},
+        bool desktop_managed = false) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -532,6 +535,7 @@ struct WebServerFixture {
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
         wdeps.dangerous = dangerous;
         wdeps.loop_store = loop_store.get();
+        wdeps.desktop_managed = desktop_managed;
 
         server = std::make_unique<acecode::web::WebServer>(std::move(wdeps));
         server_thread = std::thread([this] { server->run(); });
@@ -571,6 +575,21 @@ struct WebServerFixture {
               false,
               {},
               std::move(session_client_factory)) {}
+
+    struct DesktopManagedTag {};
+
+    explicit WebServerFixture(DesktopManagedTag)
+        : WebServerFixture(
+              true,
+              false,
+              {},
+              true,
+              {},
+              {},
+              false,
+              {},
+              {},
+              true) {}
 
     ~WebServerFixture() {
         if (server) server->stop();
@@ -3615,6 +3634,100 @@ TEST(WebServerHttp, FilePreviewEndpointsAllowExternalFilesButNotDirectoryListing
         cpr::Parameters{{"cwd", preview_cwd}, {"path", ""}});
     ASSERT_EQ(listing.status_code, 400) << listing.text;
     EXPECT_EQ(json::parse(listing.text)["error"], "unknown workspace");
+}
+
+TEST(WebServerHttp, EditableFilesEndpointRequiresDesktopManagedDaemon) {
+    WebServerFixture fx;
+    write_text(fx.cwd_dir / "readme.txt", "hello\n");
+
+    auto response = cpr::Get(
+        cpr::Url{fx.url("/api/files/editable")},
+        cpr::Parameters{{"cwd", fx.cwd}, {"path", "readme.txt"}});
+
+    ASSERT_EQ(response.status_code, 403) << response.text;
+    EXPECT_EQ(json::parse(response.text)["error"],
+              "desktop file editing unavailable");
+}
+
+TEST(WebServerHttp, EditableFilesEndpointPreservesBomAndCrlfAndInvalidatesAgentRead) {
+    WebServerFixture fx(WebServerFixture::DesktopManagedTag{});
+    const auto file = fx.cwd_dir / "notes.md";
+    write_text(file, std::string("\xEF\xBB\xBF") + "first\r\nsecond\r\n");
+    const std::string file_path = acecode::path_to_utf8(file);
+
+    auto& tracker = acecode::MtimeTracker::instance();
+    tracker.record_read(file_path, "first\nsecond\n", false);
+    tracker.record_read_observation(file_path, 1, 1);
+
+    auto opened = cpr::Get(
+        cpr::Url{fx.url("/api/files/editable")},
+        cpr::Parameters{{"cwd", fx.cwd}, {"path", "notes.md"}});
+    ASSERT_EQ(opened.status_code, 200) << opened.text;
+    const auto opened_json = json::parse(opened.text);
+    EXPECT_EQ(opened_json["text"], "first\nsecond\n");
+    EXPECT_EQ(opened_json["encoding"], "utf-8-bom");
+    EXPECT_EQ(opened_json["line_ending"], "crlf");
+    EXPECT_EQ(opened_json["has_bom"], true);
+
+    auto saved = cpr::Put(
+        cpr::Url{fx.url("/api/files/editable")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"cwd", fx.cwd},
+            {"path", "notes.md"},
+            {"text", "changed\nsecond\n"},
+            {"read_id", opened_json["read_id"]},
+        }.dump()});
+    ASSERT_EQ(saved.status_code, 200) << saved.text;
+    const auto saved_json = json::parse(saved.text);
+    EXPECT_NE(saved_json["read_id"], opened_json["read_id"]);
+    EXPECT_EQ(saved_json["encoding"], "utf-8-bom");
+    EXPECT_EQ(saved_json["line_ending"], "crlf");
+    EXPECT_EQ(read_text(file),
+              std::string("\xEF\xBB\xBF") + "changed\r\nsecond\r\n");
+
+    EXPECT_EQ(
+        tracker.validate_read_baseline_for_edit(
+            file_path, "changed\nsecond\n").status,
+        acecode::MtimeTracker::ReadBaselineStatus::NotRead);
+    EXPECT_FALSE(tracker.has_unchanged_read_observation(file_path, 1, 1));
+}
+
+TEST(WebServerHttp, EditableFilesEndpointRejectsStaleRevisionAndExternalRoot) {
+    WebServerFixture fx(WebServerFixture::DesktopManagedTag{});
+    const auto file = fx.cwd_dir / "conflict.txt";
+    write_text(file, "original\n");
+
+    auto opened = cpr::Get(
+        cpr::Url{fx.url("/api/files/editable")},
+        cpr::Parameters{{"cwd", fx.cwd}, {"path", "conflict.txt"}});
+    ASSERT_EQ(opened.status_code, 200) << opened.text;
+    const auto opened_json = json::parse(opened.text);
+
+    write_text(file, "external\n");
+    auto conflict = cpr::Put(
+        cpr::Url{fx.url("/api/files/editable")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{
+            {"cwd", fx.cwd},
+            {"path", "conflict.txt"},
+            {"text", "draft\n"},
+            {"read_id", opened_json["read_id"]},
+        }.dump()});
+    ASSERT_EQ(conflict.status_code, 409) << conflict.text;
+    EXPECT_EQ(json::parse(conflict.text)["error"], "file changed");
+    EXPECT_EQ(read_text(file), "external\n");
+
+    const auto external_dir = fx.tmp_dir / "outside-edit-root";
+    write_text(external_dir / "outside.txt", "outside\n");
+    auto outside = cpr::Get(
+        cpr::Url{fx.url("/api/files/editable")},
+        cpr::Parameters{
+            {"cwd", acecode::path_to_utf8(external_dir)},
+            {"path", "outside.txt"},
+        });
+    ASSERT_EQ(outside.status_code, 400) << outside.text;
+    EXPECT_EQ(json::parse(outside.text)["error"], "unknown workspace");
 }
 
 // 回归:任意路径预览继续覆盖 ~/.acecode/skills 下的全局 skill 文件,且该目录

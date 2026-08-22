@@ -6,6 +6,7 @@ import {
   closeVisiblePreviewTabs,
   closeVisiblePreviewTabsConfirmationMessage,
   defaultBrowserTabTitle,
+  discardFileTabDraft,
   normalizeBrowserTabFavicon,
   openFileTab,
   openBrowserTab,
@@ -14,6 +15,8 @@ import {
   previewAbsolutePath,
   previewFileLocation,
   previewScopeKey,
+  previewTabHasUnsavedDraft,
+  previewTabsWithUnsavedDrafts,
   refreshPreviewTab,
   reorderPreviewTab,
   resolveSessionChangesTabContent,
@@ -22,7 +25,9 @@ import {
   updateBrowserTabMetadata,
   updateBrowserTabTitle,
   updateGitChangesTab,
+  updateFileTabDraft,
   updateSessionChangesTab,
+  visibleUnsavedPreviewTabs,
   visiblePreviewTabs,
 } from './previewTabs.js';
 
@@ -45,6 +50,76 @@ run('openFileTab scopes files by workspace and reuses duplicate paths', () => {
   assert.equal(visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' }).length, 1);
   assert.equal(visiblePreviewTabs(state, { scopeKey: 'workspace-b', sessionId: 's2' }).length, 1);
   assert.equal(activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).path, 'src/main.cpp');
+});
+
+run('file preview drafts remain tab-scoped and derive the unsaved state from text', () => {
+  let state = openFileTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', cwd: 'C:/a', path: 'notes.md',
+  });
+  const tabKey = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).key;
+  state = updateFileTabDraft(state, {
+    scopeKey: 'workspace-a',
+    tabKey,
+    patch: {
+      editing: true,
+      baselineText: '# 原文\n',
+      text: '# 草稿\n',
+      readId: 'read-1',
+    },
+  });
+
+  const active = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(active.edit.text, '# 草稿\n');
+  assert.equal(active.edit.dirty, true);
+  assert.equal(previewTabHasUnsavedDraft(active), true);
+  assert.deepEqual(previewTabsWithUnsavedDrafts([active]), [active]);
+  assert.deepEqual(
+    visibleUnsavedPreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's1' }),
+    [active],
+  );
+
+  state = updateFileTabDraft(state, {
+    scopeKey: 'workspace-a', tabKey, patch: { baselineText: '# 草稿\n' },
+  });
+  assert.equal(
+    previewTabHasUnsavedDraft(activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' })),
+    false,
+  );
+});
+
+run('discarding a file draft restores the latest baseline and exits editing', () => {
+  let state = openFileTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', cwd: 'C:/a', path: 'a.txt',
+  });
+  const tabKey = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).key;
+  state = updateFileTabDraft(state, {
+    scopeKey: 'workspace-a',
+    tabKey,
+    patch: { editing: true, baselineText: 'saved', text: 'draft', error: 'conflict' },
+  });
+  state = discardFileTabDraft(state, { scopeKey: 'workspace-a', tabKey });
+  const tab = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(tab.edit.text, 'saved');
+  assert.equal(tab.edit.editing, false);
+  assert.equal(tab.edit.dirty, false);
+  assert.equal(tab.edit.error, '');
+});
+
+run('automatic file refresh preserves dirty drafts and marks possible disk changes', () => {
+  let state = openFileTab({}, {
+    scopeKey: 'workspace-a', sessionId: 's1', cwd: 'C:/a', path: 'a.txt',
+  });
+  const tabKey = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' }).key;
+  state = updateFileTabDraft(state, {
+    scopeKey: 'workspace-a',
+    tabKey,
+    patch: { editing: true, baselineText: 'saved', text: 'draft' },
+  });
+  state = refreshPreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1', tabKey });
+  const tab = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
+  assert.equal(tab.edit.text, 'draft');
+  assert.equal(tab.edit.externalChanged, true);
+  assert.equal(tab.reloadRevision || 0, 0);
 });
 
 run('openBrowserTab keeps distinct page-backed Browser tabs and deduplicates state events', () => {

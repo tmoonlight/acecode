@@ -59,6 +59,9 @@ importers:
       mdast-util-math:
         specifier: ^3.0.0
         version: 3.0.0
+      mdast-util-to-markdown:
+        specifier: ^2.1.2
+        version: 2.1.2
       mermaid:
         specifier: 11.16.0
         version: 11.16.0
