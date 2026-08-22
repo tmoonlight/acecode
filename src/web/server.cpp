@@ -13,6 +13,7 @@ namespace acecode::web {
 using nlohmann::json;
 
 WebServer::Impl::~Impl() {
+    if (global_session_search) global_session_search->stop();
     if (!shutdown_requested.exchange(true)) {
         std::lock_guard<std::mutex> stop_lock(listener_stop_mu);
         app.stop();

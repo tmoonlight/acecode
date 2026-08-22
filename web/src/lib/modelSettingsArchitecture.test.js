@@ -25,12 +25,21 @@ const settingsPage = source('components/SettingsPage.jsx');
 const section = source('components/model-settings/ModelSettingsSection.jsx');
 const dialog = source('components/model-settings/ModelProfileDialog.jsx');
 const picker = source('components/model-settings/ProviderCatalogPicker.jsx');
+const probeDialog = source('components/model-settings/ModelProbeDialog.jsx');
 const connection = source('components/model-settings/ModelConnectionCard.jsx');
 const providerIcon = source('components/model-settings/ProviderIcon.jsx');
 const providerGroups = source('lib/providerCatalogGroups.js');
 const saved = source('components/model-settings/SavedModelList.jsx');
 const helpers = source('lib/modelSettings.js');
-const focusedComponents = [section, dialog, picker, connection, providerIcon, saved].join('\n');
+const focusedComponents = [
+  section,
+  dialog,
+  picker,
+  probeDialog,
+  connection,
+  providerIcon,
+  saved,
+].join('\n');
 
 run('model settings navigation delegates to focused list-first components', () => {
   assert.match(
@@ -130,7 +139,7 @@ run('managed provider details use bounded desktop columns with independent scrol
   assert.match(picker, /className="min-w-0 p-3 md:min-h-0 md:overflow-y-auto"/);
 });
 
-run('manual OpenAI-compatible provider uses one direct Model ID field without chooser flow', () => {
+run('manual OpenAI-compatible provider keeps direct input and adds an explicit probe selector', () => {
   assert.match(picker, /const directModelIdInput = provider\?\.model_input === 'manual';/);
   assert.match(
     picker,
@@ -140,7 +149,38 @@ run('manual OpenAI-compatible provider uses one direct Model ID field without ch
     picker,
     /\{directModelIdInput \? \([\s\S]*?htmlFor="custom-openai-model-id"[\s\S]*?id="custom-openai-model-id"[\s\S]*?value=\{draft\.model\}[\s\S]*?onDraftChange\(\{ \.\.\.draft, model: event\.target\.value \}\)/,
   );
-  assert.match(picker, /直接输入 OpenAI 兼容接口实际使用的模型 ID/);
+  assert.match(
+    picker,
+    /htmlFor="custom-openai-model-id"[\s\S]*?onClick=\{openProbeDialog\}[\s\S]*?探测模型[\s\S]*?id="custom-openai-model-id"/,
+  );
+  assert.match(picker, /setProbeDialogOpen\(true\);[\s\S]*?void probeModels\(\);/);
+  assert.match(picker, /<ModelProbeDialog[\s\S]*?allowMultiple=\{allowMultiple\}/);
+  assert.match(picker, /replaceDraftModelsFromProbe\([\s\S]*?\{ allowMultiple \}/);
+  assert.match(
+    picker,
+    /onDraftChange\(nextDraft\);[\s\S]*?setProbeDialogOpen\(false\);/,
+  );
+  assert.match(picker, /使用逗号分隔[\s\S]*?探测后多选/);
+});
+
+run('custom model probe selector is multi-select and closes only through x or valid confirm', () => {
+  assert.match(probeDialog, /dismissOnBackdrop=\{false\}/);
+  assert.match(probeDialog, /dismissOnEscape=\{false\}/);
+  assert.match(probeDialog, /layerClassName="z-\[260\]"/);
+  assert.match(probeDialog, /onKeyDown=\{blockEscapeDismiss\}/);
+  assert.match(probeDialog, /event\.nativeEvent\?\.stopImmediatePropagation\?\.\(\);/);
+  assert.match(probeDialog, /aria-label="取消模型探测选择"/);
+  assert.match(probeDialog, /type=\{allowMultiple \? 'checkbox' : 'radio'\}/);
+  assert.match(probeDialog, /onChange=\{\(\) => toggleModel\(model\.id\)\}/);
+  assert.match(probeDialog, /if \(status !== 'ready' \|\| selectedModelIds\.length === 0\) return;/);
+  assert.match(probeDialog, /onConfirm\?\.\(selectedModelIds\);/);
+  assert.match(
+    probeDialog,
+    /disabled=\{status !== 'ready' \|\| selectedModelIds\.length === 0\}/,
+  );
+  assert.match(probeDialog, /已选择 \{selectedModelIds\.length\} 个模型/);
+  assert.match(probeDialog, /添加所选模型/);
+  assert.doesNotMatch(probeDialog, />\s*取消\s*</);
 });
 
 run('Provider logos are local deduplicated assets within the package budget', () => {

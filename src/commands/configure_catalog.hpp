@@ -3,11 +3,48 @@
 #include "../config/config.hpp"
 #include "../utils/models_dev_catalog.hpp"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace acecode {
+
+enum class ConfigureProviderKind {
+    CustomOpenAI,
+    CustomAnthropic,
+    Copilot,
+    Catalog,
+};
+
+// One row in the unified `acecode configure` provider picker. Synthetic rows
+// have a null catalog_provider; Catalog rows point into the process-wide
+// models.dev catalog cache and are consumed synchronously by the wizard.
+struct ConfigureProviderChoice {
+    ConfigureProviderKind kind = ConfigureProviderKind::CustomOpenAI;
+    std::string label;
+    std::string secondary;
+    const ProviderEntry* catalog_provider = nullptr;
+};
+
+// Build the single provider list shown by `acecode configure`: custom OpenAI,
+// custom Anthropic, managed Copilot, then models.dev presets. The raw
+// github-copilot catalog row is omitted because the managed preset owns that
+// authentication path.
+std::vector<ConfigureProviderChoice> build_configure_provider_choices(
+    const std::vector<const ProviderEntry*>& catalog_providers);
+
+// Resolve the initial highlight from the currently configured runtime
+// provider. Unknown/unconfigured providers fall back to the managed Copilot
+// row, preserving the old wizard default.
+std::size_t default_configure_provider_index(
+    const AppConfig& cfg,
+    const std::vector<ConfigureProviderChoice>& choices);
+
+// Run the unified autocomplete picker. Returns nullopt when the user cancels.
+std::optional<std::size_t> run_configure_provider_picker(
+    const std::vector<ConfigureProviderChoice>& choices,
+    std::size_t default_index);
 
 // Apply substring filtering to a provider list. Case-insensitive match against
 // id and name. Empty query returns the full input slice.
@@ -31,6 +68,7 @@ std::string format_model_summary(const ModelEntry& m);
 // Source label written into the configuration summary line.
 //   `cfg.openai.models_dev_provider_id` set     → "openai (provider=<id> via models.dev)"
 //   `cfg.provider == "openai"` w/o provider id  → "openai (custom)"
+//   `cfg.provider == "anthropic"`               → "anthropic (custom)"
 //   `cfg.provider == "copilot"`                 → "copilot"
 //   `cfg.provider == "codex"`                   → "codex"
 std::string format_source_line(const AppConfig& cfg);
@@ -64,5 +102,10 @@ ModelPickerResult run_model_picker(const ProviderEntry& provider,
 // Drive the catalog-based OpenAI compatible flow inside `configure`. Returns
 // true when the user finalised a selection; false when they backed out.
 bool configure_openai_via_catalog(AppConfig& cfg);
+
+// Configure a catalog provider that was already selected by the unified
+// provider picker. This skips the legacy second provider-selection step.
+bool configure_openai_from_catalog_provider(AppConfig& cfg,
+                                            const ProviderEntry& provider);
 
 } // namespace acecode

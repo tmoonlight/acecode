@@ -245,8 +245,9 @@ when known.
 | GET | `/api/pinned-sessions/order` | read cross-workspace pin order |
 | PUT | `/api/pinned-sessions/order` | set cross-workspace pin order |
 | GET | `/api/sessions` | compatibility session list |
-| GET | `/api/session-search/sessions` | global unarchived session search catalog |
-| GET | `/api/session-search/user-messages?q=...&limit=N` | global visible-user-message search |
+| GET | `/api/session-search/sessions?q=...&limit=N&cursor=...&request_id=...` | incremental global session catalog page |
+| GET | `/api/session-search/user-messages?q=...&limit=N&request_id=...` | advance one bounded visible-user-message search batch |
+| POST | `/api/session-search/requests/:request_id/cancel` | cancel/pause an incremental global search |
 | POST | `/api/sessions` | compatibility session create |
 | POST | `/api/sessions/:id/resume` | compatibility session resume |
 | DELETE | `/api/sessions/:id` | destroy active session |
@@ -620,9 +621,19 @@ Guard rails and errors:
 
 ### Global session search
 
-`GET /api/session-search/sessions` returns every unarchived top-level session
-discoverable under the daemon project store, merged with not-yet-persisted
-active sessions:
+`GET /api/session-search/sessions` reads a daemon-lifetime, per-project catalog
+that is prewarmed in the background. It never synchronously rescans the whole
+project store. The optional parameters are:
+
+- `request_id`: client-generated id shared by metadata and content calls;
+  required for explicit cancellation.
+- `q`: server-side title, summary, workspace, id, and fuzzy-title filter.
+- `limit`: `1..100`. An empty query is always capped at the 50 most recently
+  updated sessions.
+- `cursor`: opaque `generation:offset` value returned by a completed page.
+  Pagination is offered only after the current catalog generation is complete.
+
+The response uses a search-only DTO rather than the full session serializer:
 
 ```json
 {
@@ -639,9 +650,25 @@ active sessions:
       "updated_at": "2026-08-20T01:02:03Z"
     }
   ],
-  "errors": []
+  "errors": [],
+  "progress": {
+    "scanned_projects": 120,
+    "total_projects": 15864,
+    "generation": 121,
+    "complete": false,
+    "paused": false
+  },
+  "next_cursor": null
 }
 ```
+
+The search DTO is limited to identity, display title/summary/time, workspace
+navigation fields, and `active`/`busy`. It intentionally omits drafts, todos,
+permission state, token usage, transcripts, and other full-session fields.
+Clients should render every successful partial page immediately and poll again
+while `progress.complete` is false. Once complete, `next_cursor` loads another
+stable page. A cursor from an older generation returns
+`409 {"error":"SESSION_SEARCH_CURSOR_STALE"}`; restart from the first page.
 
 Workspace visibility and even the presence of `workspace.json` do not control
 session inclusion. Workspace hash, name, cwd, and visibility are result
@@ -650,11 +677,11 @@ sessions and records with a non-empty `parent_session_id` are excluded. A
 project-level read failure is reported in `errors` without suppressing valid
 sessions from other projects.
 
-`GET /api/session-search/user-messages?q=<query>&limit=<1..100>` uses the same
-global session boundary and the existing per-project derived indexes. It
-returns `{"matches":[...]}` with at most the requested global limit, ordered
-by match score and session update time. Each match includes the ordinary
-session fields plus:
+`GET /api/session-search/user-messages?q=<query>&limit=<1..100>&request_id=<id>`
+uses the same global boundary and existing per-project derived indexes. One
+call advances only a small project batch with a short wall-clock budget. The
+client repeats the call until `progress.complete` and renders accumulated
+matches after every response:
 
 ```json
 {
@@ -668,10 +695,34 @@ session fields plus:
 }
 ```
 
+The top-level response is:
+
+```json
+{
+  "matches": [],
+  "errors": [],
+  "progress": {
+    "scanned_projects": 32,
+    "total_projects": 15864,
+    "complete": false
+  }
+}
+```
+
 Only visible user-message text and attachment names are indexed; full
 transcripts, hidden context, assistant messages, and tool results are not
 returned. Empty queries return no matches, queries longer than 512 bytes
 return `400`, and one failed project index does not block other projects.
+
+`POST /api/session-search/requests/:request_id/cancel` is idempotent. It marks
+all metadata/content work for that id cancelled, interrupts SQLite work at its
+progress boundary, stops metadata/message enumeration at file or message
+boundaries, and pauses catalog prewarming when no other search is attached.
+Completed per-project shards remain cached, so a later search with a new id
+resumes rather than starting over. A late content poll for a cancelled id
+returns `409 {"error":"SESSION_SEARCH_CANCELLED"}`. UI close, Escape, backdrop,
+query replacement, and unmount should abort the local HTTP request and call
+this endpoint independently.
 
 ### Compatibility session routes
 

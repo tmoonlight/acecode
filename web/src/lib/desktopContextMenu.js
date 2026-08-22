@@ -66,6 +66,15 @@ export const DESKTOP_CONTEXT_ACTIONS = Object.freeze({
   INSPECT: 'inspect',
 });
 
+export const NATIVE_ONLY_CONTEXT_ACTIONS = Object.freeze([
+  DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+  DESKTOP_CONTEXT_ACTIONS.LOCATE_FILE,
+  DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION,
+  DESKTOP_CONTEXT_ACTIONS.INSPECT,
+]);
+
+const NATIVE_ONLY_CONTEXT_ACTION_SET = new Set(NATIVE_ONLY_CONTEXT_ACTIONS);
+
 export const OPEN_IN_EXPLORER_TARGET_SELECTOR = '[data-desktop-open-in-explorer-path]';
 export const SESSION_PIN_TARGET_SELECTOR = '[data-desktop-session-id]';
 export const SESSION_TARGET_SELECTOR = '[data-desktop-session-id]';
@@ -135,8 +144,17 @@ export function contextMenuOpenDelay({ hasVisibleMenu = false, hasPendingMenu = 
   return hasVisibleMenu || hasPendingMenu ? CONTEXT_MENU_REOPEN_DELAY_MS : 0;
 }
 
-export function shouldUseCustomContextMenu({ desktop = false, mermaidTarget = null } = {}) {
-  return !!desktop || !!mermaidTarget;
+export function isNativeOnlyContextMenuAction(action) {
+  const id = typeof action === 'string' ? action : action?.id;
+  return NATIVE_ONLY_CONTEXT_ACTION_SET.has(id);
+}
+
+export function canRunContextMenuAction(action, { allowNativeActions = true } = {}) {
+  return allowNativeActions || !isNativeOnlyContextMenuAction(action);
+}
+
+export function filterContextMenuItemsForRuntime(items = [], { allowNativeActions = true } = {}) {
+  return items.filter((item) => canRunContextMenuAction(item, { allowNativeActions }));
 }
 
 export function withMenuSeparators(items = []) {
@@ -149,10 +167,15 @@ export function withMenuSeparators(items = []) {
   });
 }
 
+function finalizeContextMenuItems(items, allowNativeActions) {
+  return withMenuSeparators(filterContextMenuItemsForRuntime(items, { allowNativeActions }));
+}
+
 export function buildDesktopContextMenuItems({
   editable = false,
   hasSelection = false,
   debug = false,
+  allowNativeActions = true,
   openInExplorer = false,
   openInExplorerTarget = null,
   sessionPinTarget = null,
@@ -173,7 +196,7 @@ export function buildDesktopContextMenuItems({
     addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_MERMAID_PNG, mermaidTarget, { group: GROUPS.CONTENT });
     addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_MERMAID_SVG, mermaidTarget, { group: GROUPS.CONTENT });
     addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_MERMAID_SOURCE, mermaidTarget, { group: GROUPS.CONTENT });
-    return withMenuSeparators(items);
+    return finalizeContextMenuItems(items, allowNativeActions);
   }
 
   if (!editable && previewTabTarget) {
@@ -186,7 +209,7 @@ export function buildDesktopContextMenuItems({
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH, previewTabTarget, { group: GROUPS.FILE, enabled: !!previewTabTarget.relativePath });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER, { path: previewTabTarget.absolutePath, kind: 'file' }, { group: GROUPS.CONTENT, enabled: !!previewTabTarget.absolutePath });
     }
-    return withMenuSeparators(items);
+    return finalizeContextMenuItems(items, allowNativeActions);
   }
 
   if (!editable && hasSelection && previewTarget &&
@@ -371,7 +394,7 @@ export function buildDesktopContextMenuItems({
   }
   if (debug) addAction(items, DESKTOP_CONTEXT_ACTIONS.INSPECT, null, { group: GROUPS.DEBUG });
 
-  return withMenuSeparators(items);
+  return finalizeContextMenuItems(items, allowNativeActions);
 }
 
 export function openInExplorerTargetFromElement(target) {

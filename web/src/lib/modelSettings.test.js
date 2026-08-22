@@ -17,6 +17,7 @@ import {
   normalizeProviderModelQuery,
   normalizeSavedModelList,
   redactModelDraftSecrets,
+  replaceDraftModelsFromProbe,
   serializeModelReasoningMutation,
   toggleCatalogModelInDraft,
   toggleModelCapability,
@@ -831,6 +832,72 @@ run('自定义 OpenAI 兼容 API 的空预设名称精确回退 Model ID', () =>
   }, openRouterProvider);
   assert.equal(catalog.ok, true);
   assert.equal(catalog.payloads[0].name, 'vendor-model-v1');
+});
+
+run('探测模型确认事务性替换选择并保留自定义连接草稿', () => {
+  const draft = {
+    ...applyCatalogProviderToDraft(emptyModelProfileDraft(), customProvider),
+    name: '',
+    model: 'manual/old-model',
+    base_url: 'https://gateway.example/v1',
+    api_key: 'sk-probe',
+    request_headers_json: '{"X-Team":"acecode"}',
+  };
+  const models = [
+    {
+      id: 'vendor/model-b',
+      name: 'Model B',
+      context_window: 200000,
+      max_output_tokens: null,
+      capabilities: [],
+      reasoning: null,
+    },
+    {
+      id: 'vendor/model-a',
+      name: 'Model A',
+      context_window: 100000,
+      max_output_tokens: null,
+      capabilities: [],
+      reasoning: null,
+    },
+  ];
+
+  const unchanged = replaceDraftModelsFromProbe(draft, models, [], { allowMultiple: true });
+  assert.equal(unchanged, draft);
+
+  const selected = replaceDraftModelsFromProbe(
+    draft,
+    models,
+    ['vendor/model-a', 'vendor/model-b'],
+    { allowMultiple: true },
+  );
+  assert.equal(selected.model, 'vendor/model-b, vendor/model-a');
+  assert.equal(selected.name, '');
+  assert.equal(selected.base_url, draft.base_url);
+  assert.equal(selected.api_key, draft.api_key);
+  assert.equal(selected.request_headers_json, draft.request_headers_json);
+  assert.equal(selected.context_window, '200000');
+  assert.equal(selected._catalog_model_metadata['vendor/model-a'].context_window, '100000');
+  assert.equal(selected._catalog_model_metadata['vendor/model-b'].context_window, '200000');
+
+  const built = buildModelMutationPayloads(selected, customProvider);
+  assert.equal(built.ok, true);
+  assert.deepEqual(built.payloads.map((payload) => payload.name), [
+    'vendor/model-b',
+    'vendor/model-a',
+  ]);
+  assert.deepEqual(built.payloads.map((payload) => payload.context_window), [
+    200000,
+    100000,
+  ]);
+
+  const single = replaceDraftModelsFromProbe(
+    { ...draft, name: 'stable-name' },
+    models,
+    ['vendor/model-a', 'vendor/model-b'],
+  );
+  assert.equal(single.model, 'vendor/model-b');
+  assert.equal(single.name, 'stable-name');
 });
 
 run('批量新增生成稳定名称并只发送凭据来源名称', () => {

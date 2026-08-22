@@ -4,8 +4,8 @@
 //   - 失败折叠: success=false 时 summary 行下显示前 3 行 stderr,可展开看完整 output
 // 用户点 chip 可切换"展开/收起"。task_complete 用 Done: <summary> 渲染。
 //
-// hunks 字段(file_edit / file_write):展开区继续直接走 diff2html，不套
-// ToolTextFrame。其余文本展开内容统一套 ToolTextFrame；bash 命令作为
+// hunks 字段(file_edit / file_write):新建文件直接展示可复制源码，覆盖和编辑
+// 继续走 diff2html。其余文本展开内容统一套 ToolTextFrame；bash 命令作为
 // `$ <command>` 首行和输出一起进入同一个可复制内容框。
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -13,8 +13,10 @@ import { useTranslation } from 'react-i18next';
 import { clsx, formatBytes, formatCount, formatElapsed } from '../lib/format.js';
 import { hunksToUnifiedDiff } from '../lib/diff.js';
 import { compactOneLinePreview } from '../lib/compactMessagePreview.js';
+import { createdFileSource } from '../lib/createdFileSource.js';
 import { normalizeAttachmentList } from '../lib/messageAttachments.js';
 import { renderMarkdown } from '../lib/markdown.js';
+import { highlightSourceForFile } from '../lib/sourceCodeHighlight.js';
 import { fallbackToolSummary } from '../lib/toolSummaryFallback.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { normalizeTaskCompleteMarkdown } from '../lib/taskCompleteSummary.js';
@@ -47,6 +49,32 @@ function ToolTextFrame({ text = '', children = null }) {
           {copyText}
         </pre>
       )}
+    </CopyableCodeFrame>
+  );
+}
+
+function CreatedFileFrame({ source }) {
+  const highlighted = useMemo(
+    () => highlightSourceForFile(source.path, source.content),
+    [source.content, source.path],
+  );
+  const codeClassName = highlighted.language
+    ? `hljs language-${highlighted.language}`
+    : undefined;
+
+  return (
+    <CopyableCodeFrame
+      text={source.content}
+      className="ace-tool-created-code"
+      data-created-file-source="true"
+      data-code-lang={highlighted.language || undefined}
+    >
+      <pre data-code-copy-source="true">
+        <code
+          className={codeClassName}
+          dangerouslySetInnerHTML={{ __html: highlighted.html }}
+        />
+      </pre>
     </CopyableCodeFrame>
   );
 }
@@ -274,6 +302,15 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     [askUserQuestionOutput, bashCommand, currentPartial, displayOverride, output, tailLines, title, tool],
   );
 
+  const createdFile = useMemo(() => createdFileSource({
+    success,
+    tool,
+    args,
+    summary,
+    hunks,
+    displayOverride,
+  }), [args, displayOverride, hunks, success, summary, tool]);
+
   // diff2html 渲染:先把 hunks 转 unified diff,再交给 diff2html。空 hunks 时
   // 不构造,避免每次 render 浪费。
   const diffText = useMemo(() => {
@@ -283,7 +320,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   }, [hunks, summary, displayOverride]);
 
   const diffHtml = useMemo(() => {
-    if (!diffText) return '';
+    if (createdFile || !diffText) return '';
     try {
       return Diff2Html.html(diffText, {
         drawFileList: false,
@@ -293,7 +330,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     } catch {
       return '';
     }
-  }, [diffText]);
+  }, [createdFile, diffText]);
 
   const fullOutput = output || askUserQuestionOutput || diffText || tailLines.join('\n') || currentPartial || '';
   const fullToolOutput = joinTooltipParts(expandedInvocationText, fullOutput) || fullOutput;
@@ -415,9 +452,11 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
           title={buttonTooltip || (expanded ? '收起' : '展开')}
           ariaLabel={expanded ? '收起' : '展开'}
         />
-        {expanded && (diffHtml || fullToolOutput) && (
+        {expanded && (createdFile || diffHtml || fullToolOutput) && (
           <div className="max-w-[88%] pb-2 pt-1">
-            {diffHtml ? (
+            {createdFile ? (
+              <CreatedFileFrame source={createdFile} />
+            ) : diffHtml ? (
               <div
                 className="ace-diff ace-tool-diff"
                 dangerouslySetInnerHTML={{ __html: diffHtml }}

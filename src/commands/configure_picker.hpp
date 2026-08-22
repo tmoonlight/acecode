@@ -20,6 +20,8 @@ struct PickerOptions {
     std::size_t default_index = 0; // initial highlight position
     std::size_t page_size = 30;  // rows per PageUp/PageDown jump
     bool allow_custom = false;   // when true, exposes a "<Custom ...>" entry
+    bool search_as_you_type = false; // always-visible input; typing filters rows
+    std::string search_placeholder = "Type to search";
 };
 
 struct PickerResult {
@@ -35,6 +37,13 @@ struct PickerResult {
 // callers do not regress.
 PickerResult run_ftxui_picker(const std::vector<PickerItem>& items,
                               const PickerOptions& opts);
+
+// Return original item indices whose label or secondary text contains `query`
+// case-insensitively. Order is stable so the first matching row is a
+// deterministic autocomplete suggestion.
+std::vector<std::size_t> filter_picker_items(
+    const std::vector<PickerItem>& items,
+    const std::string& query);
 
 // Pure row-rendering helper. Returns a single-line string combining `label`,
 // a two-space gutter, and `secondary`, truncated to `width` bytes. When the

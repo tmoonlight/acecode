@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import {
   buildDesktopContextMenuItems,
+  canRunContextMenuAction,
   clampContextMenuPosition,
   contextMenuOpenDelay,
   contextTargetsFromElement,
   DESKTOP_CONTEXT_ACTIONS,
+  filterContextMenuItemsForRuntime,
+  NATIVE_ONLY_CONTEXT_ACTIONS,
   CONTEXT_MENU_REOPEN_DELAY_MS,
   OPEN_IN_EXPLORER_TARGET_SELECTOR,
   SESSION_PIN_TARGET_SELECTOR,
@@ -23,7 +26,6 @@ import {
   sessionPinTargetFromElement,
   sessionTargetFromElement,
   workspaceTargetFromElement,
-  shouldUseCustomContextMenu,
 } from './desktopContextMenu.js';
 import { registerMermaidExportTarget } from './mermaidExport.js';
 
@@ -486,10 +488,90 @@ test('Mermaid 正文和预览目标共享三个导出动作', () => {
   ]);
 });
 
-test('普通浏览器只为 Mermaid 目标启用自定义右键菜单', () => {
-  assert.equal(shouldUseCustomContextMenu({ desktop: false, mermaidTarget: null }), false);
-  assert.equal(shouldUseCustomContextMenu({ desktop: false, mermaidTarget: { type: 'mermaid' } }), true);
-  assert.equal(shouldUseCustomContextMenu({ desktop: true, mermaidTarget: null }), true);
+test('native-only 动作集中分类且执行判断复用同一能力边界', () => {
+  assert.deepEqual(NATIVE_ONLY_CONTEXT_ACTIONS, [
+    DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+    DESKTOP_CONTEXT_ACTIONS.LOCATE_FILE,
+    DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.INSPECT,
+  ]);
+  assert.equal(canRunContextMenuAction(DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER, {
+    allowNativeActions: false,
+  }), false);
+  assert.equal(canRunContextMenuAction({ id: DESKTOP_CONTEXT_ACTIONS.LOCATE_FILE }, {
+    allowNativeActions: false,
+  }), false);
+  assert.equal(canRunContextMenuAction(DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION, {
+    allowNativeActions: false,
+  }), false);
+  assert.equal(canRunContextMenuAction(DESKTOP_CONTEXT_ACTIONS.LOCATE_IN_FILE_TREE, {
+    allowNativeActions: false,
+  }), true);
+  assert.equal(canRunContextMenuAction(DESKTOP_CONTEXT_ACTIONS.INSPECT), true);
+});
+
+test('普通 Web 过滤 native-only 动作并保留 Web 动作顺序与分隔线', () => {
+  const items = buildDesktopContextMenuItems({
+    allowNativeActions: false,
+    debug: true,
+    fileTarget: {
+      kind: 'file',
+      relativePath: 'src/a.cpp',
+      absolutePath: 'C:/repo/src/a.cpp',
+      locatePath: 'C:/repo/src',
+    },
+  });
+
+  assert.deepEqual(ids(items), [
+    DESKTOP_CONTEXT_ACTIONS.PREVIEW_FILE,
+    DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH,
+    DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
+    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
+  ]);
+  assert.deepEqual(items.map((item) => item.separatorBefore), [false, false, false, true]);
+  assert.deepEqual(filterContextMenuItemsForRuntime([
+    { id: DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER },
+    { id: DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH },
+    { id: DESKTOP_CONTEXT_ACTIONS.INSPECT },
+  ], { allowNativeActions: false }).map((item) => item.id), [
+    DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
+  ]);
+});
+
+test('普通 Web 的预览标签早返回路径同样过滤资源管理器动作', () => {
+  const items = buildDesktopContextMenuItems({
+    allowNativeActions: false,
+    previewTabTarget: {
+      tabType: 'file',
+      absolutePath: 'C:/repo/src/a.cpp',
+      relativePath: 'src/a.cpp',
+      hasOthers: true,
+      hasRight: true,
+    },
+  });
+
+  assert.equal(ids(items).includes(DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER), false);
+  assert.equal(ids(items).includes(DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH), true);
+  assert.equal(ids(items).includes(DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH), true);
+});
+
+test('普通 Web 会话菜单过滤原生目录选择导出并保留 Web 会话动作', () => {
+  assert.deepEqual(ids(buildDesktopContextMenuItems({
+    allowNativeActions: false,
+    sessionTarget: {
+      sessionId: 's1',
+      title: 'Session 1',
+      sessionPath: 'C:/repo/session.jsonl',
+      pinned: false,
+    },
+  })), [
+    DESKTOP_CONTEXT_ACTIONS.OPEN_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE,
+    DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID,
+    DESKTOP_CONTEXT_ACTIONS.PIN_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
+  ]);
 });
 
 test('聊天图片附件显示复制图片动作', () => {

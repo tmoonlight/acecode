@@ -21,6 +21,7 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/terminal.hpp>
 
 namespace acecode {
 
@@ -54,14 +55,16 @@ bool stdout_is_tty() {
 // Build a single Menu entry label by delegating to format_picker_row with a
 // generous width (FTXUI will clip at terminal width during layout; we only
 // guard here against pathologically long metadata).
-std::string menu_entry_label(const PickerItem& item) {
-    return format_picker_row(item.label, item.secondary, 160);
+std::string menu_entry_label(const PickerItem& item,
+                             std::size_t width = 160) {
+    return format_picker_row(item.label, item.secondary, width);
 }
 
-// Compute `filtered_indices` — the subset of `items` whose label or secondary
-// contains `query` (case-insensitive). Empty query → all indices.
-std::vector<std::size_t> compute_filter(const std::vector<PickerItem>& items,
-                                         const std::string& query) {
+} // namespace
+
+std::vector<std::size_t> filter_picker_items(
+    const std::vector<PickerItem>& items,
+    const std::string& query) {
     std::vector<std::size_t> out;
     out.reserve(items.size());
     for (std::size_t i = 0; i < items.size(); ++i) {
@@ -73,8 +76,6 @@ std::vector<std::size_t> compute_filter(const std::vector<PickerItem>& items,
     }
     return out;
 }
-
-} // namespace
 
 std::string format_picker_row(const std::string& label,
                                const std::string& secondary,
@@ -130,6 +131,7 @@ void print_page_plain(const std::vector<PickerItem>& items,
     }
     std::cout << "Commands: <number> select"
               << (opts.allow_custom ? " (0 = custom)" : "")
+              << (opts.search_as_you_type ? ", <text> search" : "")
               << ", /<query> filter, n/p next/prev page, q quit\n";
 }
 
@@ -142,7 +144,7 @@ PickerResult run_plain_stdin_picker(const std::vector<PickerItem>& items,
     }
 
     std::string query;
-    std::vector<std::size_t> filtered = compute_filter(items, query);
+    std::vector<std::size_t> filtered = filter_picker_items(items, query);
     std::size_t page = opts.default_index / std::max<std::size_t>(opts.page_size, 1);
 
     while (true) {
@@ -179,7 +181,7 @@ PickerResult run_plain_stdin_picker(const std::vector<PickerItem>& items,
         }
         if (input.front() == '/') {
             query = input.substr(1);
-            filtered = compute_filter(items, query);
+            filtered = filter_picker_items(items, query);
             page = 0;
             if (filtered.empty()) {
                 std::cout << "No matches for '" << query
@@ -187,17 +189,31 @@ PickerResult run_plain_stdin_picker(const std::vector<PickerItem>& items,
             }
             continue;
         }
+        bool parsed_number = false;
         try {
-            int n = std::stoi(input);
-            if (n == 0 && opts.allow_custom) {
-                result.custom = true;
-                return result;
-            }
-            if (n >= 1 && n <= static_cast<int>(filtered.size())) {
-                result.index = filtered[n - 1];
-                return result;
+            std::size_t consumed = 0;
+            int n = std::stoi(input, &consumed);
+            if (consumed == input.size()) {
+                parsed_number = true;
+                if (n == 0 && opts.allow_custom) {
+                    result.custom = true;
+                    return result;
+                }
+                if (n >= 1 && n <= static_cast<int>(filtered.size())) {
+                    result.index = filtered[n - 1];
+                    return result;
+                }
             }
         } catch (...) {}
+        if (opts.search_as_you_type && !parsed_number) {
+            query = input;
+            filtered = filter_picker_items(items, query);
+            page = 0;
+            if (filtered.empty()) {
+                std::cout << "No matches for '" << query << "'.\n";
+            }
+            continue;
+        }
         std::cout << "Unrecognised input.\n";
     }
 }
@@ -205,8 +221,6 @@ PickerResult run_plain_stdin_picker(const std::vector<PickerItem>& items,
 // -------------------------------------------------------------------------
 // FTXUI picker — interactive path
 // -------------------------------------------------------------------------
-
-constexpr int kCustomSyntheticRow = -1; // marker for the synthetic "<Custom>" entry
 
 PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
                                     const PickerOptions& opts) {
@@ -222,7 +236,14 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
     // FTXUI callbacks fire on the main loop thread, so no mutex is needed.
     std::string filter_query;
     bool filter_active = false;
-    std::vector<std::size_t> filtered = compute_filter(items, filter_query);
+    std::vector<std::size_t> filtered = filter_picker_items(items, filter_query);
+    std::size_t menu_width = 160;
+    if (opts.search_as_you_type) {
+        const int terminal_columns = Terminal::Size().dimx;
+        menu_width = terminal_columns > 20
+            ? static_cast<std::size_t>(terminal_columns - 8)
+            : 72;
+    }
 
     // The Menu entries are a flat vector<string>: optional "<Custom>" row at
     // index 0 when allow_custom, then the filtered items. Recomputed whenever
@@ -234,7 +255,7 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
             menu_entries.push_back("<Custom entry...>");
         }
         for (std::size_t idx : filtered) {
-            menu_entries.push_back(menu_entry_label(items[idx]));
+            menu_entries.push_back(menu_entry_label(items[idx], menu_width));
         }
     };
     rebuild_menu_entries();
@@ -250,6 +271,7 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
             }
         }
     }
+    const std::size_t page_size = std::max<std::size_t>(opts.page_size, 1);
 
     // Digit jump-select buffer — resets after 500ms of inactivity.
     std::uint32_t digit_buffer = 0;
@@ -264,6 +286,13 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
 
     // Menu component holds the selection highlight.
     MenuOption menu_option;
+    if (opts.search_as_you_type) {
+        menu_option.entries_option.transform = [](const EntryState& state) {
+            Element row = text((state.active ? "> " : "  ") + state.label);
+            if (state.active) row = row | inverted | bold;
+            return row;
+        };
+    }
     menu_option.on_enter = [&]() {
         // Commit: translate the highlight back to an original-items index or
         // the custom escape hatch.
@@ -282,19 +311,16 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
     };
     auto menu = Menu(&menu_entries, &highlight, menu_option);
 
-    // Filter input is a single-line Input we drive programmatically by
-    // appending/deleting characters in the event handler. We do not actually
-    // give it focus — keeping all typing in our CatchEvent simplifies the
-    // interaction state machine (design D3).
-
     auto renderer = Renderer(menu, [&]() {
         // Header + menu + status line.
         std::string status;
         {
             std::ostringstream oss;
             std::size_t total = filtered.size();
-            std::size_t visible_i = static_cast<std::size_t>(highlight) -
-                                     (opts.allow_custom ? 1 : 0);
+            const int base = opts.allow_custom ? 1 : 0;
+            std::size_t visible_i = highlight >= base
+                ? static_cast<std::size_t>(highlight - base)
+                : 0;
             if (opts.allow_custom && highlight == 0) {
                 oss << "custom/" << (total + 1);
             } else if (total == 0) {
@@ -302,48 +328,109 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
             } else {
                 oss << (visible_i + 1) << "/" << total;
             }
-            std::size_t pages = (total + opts.page_size - 1) / opts.page_size;
+            std::size_t pages = (total + page_size - 1) / page_size;
             if (pages == 0) pages = 1;
             std::size_t page =
                 opts.allow_custom && highlight == 0
                     ? 0
-                    : (visible_i / opts.page_size);
+                    : (visible_i / page_size);
             oss << "   page " << (page + 1) << "/" << pages;
-            if (filter_active || !filter_query.empty()) {
+            if (!opts.search_as_you_type &&
+                (filter_active || !filter_query.empty())) {
                 oss << "   filter: " << filter_query << (filter_active ? "_" : "");
             }
             status = oss.str();
         }
 
-        std::string hint = opts.hint.empty()
-            ? std::string("↑↓ move · PgUp/PgDn page · Home/End · Enter select · / filter"
-                          + std::string(opts.allow_custom ? " · c custom" : "")
-                          + " · Esc cancel")
-            : opts.hint;
+        std::string default_hint;
+        if (opts.search_as_you_type) {
+            default_hint = "Type search | Arrows/PgUp/PgDn move | Enter select | "
+                           "Esc clear/cancel";
+        } else {
+            default_hint = "Up/Down move | PgUp/PgDn page | Home/End | "
+                           "Enter select | / filter";
+            if (opts.allow_custom) default_hint += " | c custom";
+            default_hint += " | Esc cancel";
+        }
+        const std::string hint = opts.hint.empty() ? default_hint : opts.hint;
 
-        return vbox({
-                   text(opts.title) | bold,
-                   separator(),
-                   menu->Render() | vscroll_indicator | frame |
-                       size(HEIGHT, LESS_THAN,
-                            static_cast<int>(opts.page_size) + 2),
-                   separator(),
-                   text(status) | dim,
-                   text(hint) | dim,
-               }) |
-               border;
+        Elements rows;
+        rows.push_back(text(opts.title) | bold);
+        rows.push_back(separator());
+        if (opts.search_as_you_type) {
+            Element search_value = filter_query.empty()
+                ? text(opts.search_placeholder) | dim
+                : text(filter_query);
+            rows.push_back(hbox({
+                text(" Search: "),
+                search_value,
+                text("_"),
+            }) | border | size(HEIGHT, EQUAL, 3));
+            rows.push_back(separator());
+        }
+        Element menu_rows = menu_entries.empty()
+            ? text("No matches") | dim
+            : menu->Render() | vscroll_indicator | frame |
+                  size(HEIGHT, LESS_THAN, static_cast<int>(page_size) + 2);
+        rows.push_back(menu_rows);
+        rows.push_back(separator());
+        rows.push_back(text(status) | dim);
+        rows.push_back(text(hint) | dim);
+        return vbox(std::move(rows)) | border;
     });
 
     auto component = CatchEvent(renderer, [&](Event event) -> bool {
         auto now = std::chrono::steady_clock::now();
 
+        // ---------------- Always-visible autocomplete input ----------------
+        if (opts.search_as_you_type) {
+            if (event == Event::Escape) {
+                if (filter_query.empty()) {
+                    result.cancelled = true;
+                    screen.Exit();
+                } else {
+                    filter_query.clear();
+                    filtered = filter_picker_items(items, filter_query);
+                    rebuild_menu_entries();
+                    highlight = 0;
+                }
+                reset_digit_buffer();
+                return true;
+            }
+            if (event == Event::Return) {
+                menu_option.on_enter();
+                return true;
+            }
+            if (event == Event::Backspace) {
+                if (!filter_query.empty()) {
+                    filter_query.pop_back();
+                    filtered = filter_picker_items(items, filter_query);
+                    rebuild_menu_entries();
+                    highlight = 0;
+                }
+                return true;
+            }
+            if (event.is_character()) {
+                const std::string& character = event.character();
+                if (!character.empty()) {
+                    filter_query += character;
+                    filtered = filter_picker_items(items, filter_query);
+                    rebuild_menu_entries();
+                    highlight = 0;
+                }
+                return true;
+            }
+            // Navigation keys continue into the shared handlers below. Up and
+            // Down are intentionally left for the Menu component.
+        }
+
         // ---------------- Filter-mode input ----------------
-        if (filter_active) {
+        if (!opts.search_as_you_type && filter_active) {
             if (event == Event::Escape) {
                 // Exit filter mode, clear filter — do NOT cancel picker.
                 filter_active = false;
                 filter_query.clear();
-                filtered = compute_filter(items, filter_query);
+                filtered = filter_picker_items(items, filter_query);
                 rebuild_menu_entries();
                 highlight = std::min(highlight,
                     static_cast<int>(menu_entries.size()) - 1);
@@ -361,7 +448,7 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
             if (event == Event::Backspace) {
                 if (!filter_query.empty()) {
                     filter_query.pop_back();
-                    filtered = compute_filter(items, filter_query);
+                    filtered = filter_picker_items(items, filter_query);
                     rebuild_menu_entries();
                     highlight = std::min(highlight,
                         static_cast<int>(menu_entries.size()) - 1);
@@ -375,7 +462,7 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
                 // control codes, but guard against empty strings just in case.
                 if (!c.empty()) {
                     filter_query += c;
-                    filtered = compute_filter(items, filter_query);
+                    filtered = filter_picker_items(items, filter_query);
                     rebuild_menu_entries();
                     highlight = std::min(highlight,
                         static_cast<int>(menu_entries.size()) - 1);
@@ -416,14 +503,14 @@ PickerResult run_ftxui_picker_impl(const std::vector<PickerItem>& items,
         }
         if (event == Event::PageDown) {
             highlight = std::min(
-                static_cast<int>(menu_entries.size()) - 1,
-                highlight + static_cast<int>(opts.page_size));
+                std::max(0, static_cast<int>(menu_entries.size()) - 1),
+                highlight + static_cast<int>(page_size));
             reset_digit_buffer();
             return true;
         }
         if (event == Event::PageUp) {
             highlight =
-                std::max(0, highlight - static_cast<int>(opts.page_size));
+                std::max(0, highlight - static_cast<int>(page_size));
             reset_digit_buffer();
             return true;
         }

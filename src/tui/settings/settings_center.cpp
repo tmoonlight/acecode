@@ -77,7 +77,7 @@ bool is_ctrl_s_event(const Event& event) {
 }
 
 constexpr const char* kProjectUrl =
-    "https://github.com/shaohaozhi286/acecode";
+    "https://github.com/tmoonlight/acecode";
 constexpr const char* kFtxuiVersion = "7.0.3";
 
 std::string trim_ascii(std::string value) {

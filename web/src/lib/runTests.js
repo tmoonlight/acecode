@@ -14,6 +14,8 @@ import './imageLightboxArchitecture.test.js';
 import './framelessResize.test.js';
 import './sessionStatus.test.js';
 import './codeBlockCopy.test.js';
+import './createdFileSource.test.js';
+import './sourceCodeHighlight.test.js';
 import './markdownBlocks.test.js';
 import './markdownWysiwyg.test.js';
 import './previewWorkbenchArchitecture.test.js';

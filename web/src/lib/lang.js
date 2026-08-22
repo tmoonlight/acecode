@@ -1,9 +1,5 @@
-// 文件扩展名 → highlight.js 语言名映射,与 lib/markdown.js 注册的 12 种保持一致。
-// SidePanel 「预览」tab 用这个把 .cpp / .ts 等映射到 hljs 知道的 lang token。
-//
-// 注册的 hljs 语言(在 markdown.js 里):
-//   c, cpp, javascript, typescript, python, bash, json, diff, markdown, rust, go, yaml
-// 任何不在此列表的扩展名 → '' (返回空字符串,前端用 escape-only 渲染,不上色)。
+// 文件扩展名 → highlight.js 语言名映射。SidePanel 预览与新建文件源码框
+// 共用这张表；任何未识别扩展名都返回 ''，只 escape、不自动猜测语言。
 
 const EXT_TO_LANG = {
   c: 'c',
@@ -14,6 +10,10 @@ const EXT_TO_LANG = {
   hpp: 'cpp',
   hxx: 'cpp',
   inl: 'cpp',
+  cs: 'csharp',
+  java: 'java',
+  kt: 'kotlin',
+  kts: 'kotlin',
   js: 'javascript',
   jsx: 'javascript',
   mjs: 'javascript',
@@ -25,24 +25,56 @@ const EXT_TO_LANG = {
   sh: 'bash',
   bash: 'bash',
   zsh: 'bash',
+  ps1: 'powershell',
+  psm1: 'powershell',
+  psd1: 'powershell',
   json: 'json',
   jsonc: 'json',
+  html: 'xml',
+  htm: 'xml',
+  xhtml: 'xml',
+  xml: 'xml',
+  svg: 'xml',
+  vue: 'xml',
+  svelte: 'xml',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
   diff: 'diff',
   patch: 'diff',
   md: 'markdown',
   markdown: 'markdown',
   rs: 'rust',
   go: 'go',
+  rb: 'ruby',
+  php: 'php',
+  sql: 'sql',
+  swift: 'swift',
+  lua: 'lua',
+  pl: 'perl',
+  pm: 'perl',
+  r: 'r',
+  m: 'objectivec',
+  mm: 'objectivec',
+  vb: 'vbnet',
+  graphql: 'graphql',
+  gql: 'graphql',
+  ini: 'ini',
+  toml: 'ini',
+  mk: 'makefile',
+  wat: 'wasm',
+  cmake: 'cmake',
   yaml: 'yaml',
   yml: 'yaml',
 };
 
-// 一些常见无后缀文件名 → lang(Dockerfile / Makefile 都没标准 hljs lang,
-// 退到 bash 大致够用 — 真正的 dockerfile lang 没注册)。
+// 常见无后缀或特殊文件名。
 const NAME_TO_LANG = {
-  Dockerfile: 'bash',
-  Makefile: 'bash',
-  CMakeLists: '',
+  Dockerfile: 'dockerfile',
+  Makefile: 'makefile',
+  'CMakeLists.txt': 'cmake',
+  Gemfile: 'ruby',
+  Rakefile: 'ruby',
   '.gitignore': '',
   '.npmrc': '',
 };

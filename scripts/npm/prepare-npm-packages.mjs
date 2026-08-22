@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 const SCOPE = '@aceagent';
 const CLI_PACKAGE = '@aceagent/acecode';
 const DESKTOP_PACKAGE = `${SCOPE}/desktop`;
-const REPO_URL = 'https://github.com/shaohaozhi286/acecode';
+const REPO_URL = 'https://github.com/tmoonlight/acecode';
 const MODELS_DEV_FILES = ['LICENSE', 'MANIFEST.json', 'api.json'];
 const MODELS_DEV_RELATIVE_DIR = path.join('share', 'acecode', 'models_dev');
 

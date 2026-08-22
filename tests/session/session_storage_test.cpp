@@ -443,6 +443,26 @@ TEST(SessionStorage, ListSessionsBackfillsSummaryAndCountFromJsonl) {
     EXPECT_EQ(sessions[0].turn_count, 1);
 }
 
+TEST(SessionStorage, ListSessionMetadataStopsAtFileBoundary) {
+    auto dir = make_unique_tmp_dir("metadata-cancel");
+    for (int i = 0; i < 20; ++i) {
+        SessionMeta meta;
+        meta.id = "cancel-" + std::to_string(i);
+        meta.cwd = dir.string();
+        meta.created_at = "2026-08-23T00:00:00Z";
+        meta.updated_at = meta.created_at;
+        ASSERT_TRUE(SessionStorage::write_meta(
+            SessionStorage::meta_path(dir.string(), meta.id), meta));
+    }
+
+    int cancellation_checks = 0;
+    const auto metadata = SessionStorage::list_session_metadata(
+        dir.string(), [&] { return ++cancellation_checks > 5; });
+
+    EXPECT_GT(cancellation_checks, 5);
+    EXPECT_LT(metadata.size(), 20u);
+}
+
 // 场景:headless `-p --session-id` 允许调用方自定 id(如 "ci-run-42"),
 // 文件名不再是 YYYYMMDD-HHMMSS-XXXX 形状。回归背景:list_sessions 原来只认
 // 自动生成形状,自定 id 会话在 TUI /resume、Web 列表与 `-p -c` 里全部隐身

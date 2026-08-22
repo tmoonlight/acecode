@@ -3,6 +3,7 @@
 #include "../provider/llm_provider.hpp"
 #include "todo_state.hpp"
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -140,9 +141,12 @@ public:
 
     // Metadata-only variant for global discovery/index maintenance. Unlike
     // list_sessions(), it never opens JSONL transcripts to backfill legacy
-    // summary/count fields.
+    // summary/count fields. A non-empty cancellation check is observed before
+    // every directory entry so callers can stop even inside a project that
+    // contains thousands of sessions; already-read metadata is returned.
     static std::vector<SessionMeta> list_session_metadata(
-        const std::string& project_dir);
+        const std::string& project_dir,
+        const std::function<bool()>& should_cancel = {});
 
     // Canonical session file record used by resume/web history paths.
     struct SessionFileCandidate {

@@ -10,10 +10,10 @@
     "coding-assistant",
     "acecode"
   ],
-  "homepage": "https://github.com/shaohaozhi286/acecode",
+  "homepage": "https://github.com/tmoonlight/acecode",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shaohaozhi286/acecode.git"
+    "url": "git+https://github.com/tmoonlight/acecode.git"
   },
   "license": "SEE LICENSE IN README.md",
   "publishConfig": {

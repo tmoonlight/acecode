@@ -5,6 +5,7 @@ import {
   formatModelTokenLimit,
   normalizeProviderModelQuery,
   redactModelDraftSecrets,
+  replaceDraftModelsFromProbe,
   toggleCatalogModelInDraft,
 } from '../../lib/modelSettings.js';
 import { lookupErrorMessage } from '../../lib/errors.js';
@@ -21,6 +22,7 @@ import {
 import { openExternalUrl } from '../../lib/externalUrl.js';
 import { RefreshIcon, VsIcon } from '../Icon.jsx';
 import { ModelConnectionCard } from './ModelConnectionCard.jsx';
+import { ModelProbeDialog } from './ModelProbeDialog.jsx';
 import { ProviderIcon } from './ProviderIcon.jsx';
 
 function mergeCatalogModels(primary, exact) {
@@ -61,6 +63,7 @@ export function ProviderCatalogPicker({
   const [catalogError, setCatalogError] = useState('');
   const [probeStatus, setProbeStatus] = useState('idle');
   const [probeError, setProbeError] = useState('');
+  const [probeDialogOpen, setProbeDialogOpen] = useState(false);
   const [manualModel, setManualModel] = useState('');
   const selectedModels = splitModelIds(draft.model);
   const directModelIdInput = provider?.model_input === 'manual';
@@ -77,6 +80,7 @@ export function ProviderCatalogPicker({
     setCatalogError('');
     setProbeStatus('idle');
     setProbeError('');
+    setProbeDialogOpen(false);
   }, [provider?.id]);
 
   useEffect(() => {
@@ -166,6 +170,24 @@ export function ProviderCatalogPicker({
     }
   };
 
+  const openProbeDialog = () => {
+    if (!canProbe || probeStatus === 'loading') return;
+    setProbeDialogOpen(true);
+    void probeModels();
+  };
+
+  const confirmProbedModels = (modelIds) => {
+    const nextDraft = replaceDraftModelsFromProbe(
+      draft,
+      catalogModels,
+      modelIds,
+      { allowMultiple },
+    );
+    if (nextDraft === draft) return;
+    onDraftChange(nextDraft);
+    setProbeDialogOpen(false);
+  };
+
   const displayedModels = provider?.model_input === 'catalog'
     ? catalogModels
     : catalogModels.filter((model) => (
@@ -173,7 +195,8 @@ export function ProviderCatalogPicker({
     ));
 
   return (
-    <div className="grid min-h-[320px] grid-cols-1 overflow-hidden rounded-md border border-border bg-surface md:h-[420px] md:grid-cols-[220px_minmax(0,1fr)]">
+    <>
+      <div className="grid min-h-[320px] grid-cols-1 overflow-hidden rounded-md border border-border bg-surface md:h-[420px] md:grid-cols-[220px_minmax(0,1fr)]">
       <div className="border-b border-border bg-surface-alt p-2.5 md:flex md:min-h-0 md:flex-col md:border-b-0 md:border-r">
         <label className="relative block">
           <span className="sr-only">搜索 Provider</span>
@@ -295,12 +318,31 @@ export function ProviderCatalogPicker({
             {directModelIdInput ? (
               <div className="mt-4 space-y-4">
                 <div>
-                  <label
-                    htmlFor="custom-openai-model-id"
-                    className="mb-1.5 block text-[11px] font-medium text-fg-2"
-                  >
-                    Model ID
-                  </label>
+                  <div className="mb-1.5 flex items-center justify-between gap-3">
+                    <label
+                      htmlFor="custom-openai-model-id"
+                      className="block text-[11px] font-medium text-fg-2"
+                    >
+                      Model ID
+                    </label>
+                    {provider.runtime_provider === 'openai' && (
+                      <button
+                        type="button"
+                        onClick={openProbeDialog}
+                        disabled={!canProbe || probeStatus === 'loading'}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface px-2.5 text-[10px] font-medium text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
+                        title={!draft.base_url
+                          ? '请先填写 Base URL'
+                          : '从当前 Provider 探测真实模型列表'}
+                      >
+                        <RefreshIcon
+                          size={11}
+                          className={clsx(probeStatus === 'loading' && 'animate-spin')}
+                        />
+                        探测模型
+                      </button>
+                    )}
+                  </div>
                   <input
                     id="custom-openai-model-id"
                     type="text"
@@ -313,7 +355,9 @@ export function ProviderCatalogPicker({
                     className="h-9 w-full rounded-md border border-border bg-surface px-3 text-[12px] text-fg outline-none transition placeholder:text-fg-mute focus:border-accent focus:ring-1 focus:ring-accent-soft"
                   />
                   <p id="custom-openai-model-id-help" className="mt-1.5 text-[10px] text-fg-mute">
-                    直接输入 OpenAI 兼容接口实际使用的模型 ID。
+                    {allowMultiple
+                      ? '可直接输入一个或多个模型 ID（使用逗号分隔），也可探测后多选。'
+                      : '直接输入模型 ID，或从当前 OpenAI 兼容接口探测后选择。'}
                   </p>
                 </div>
                 {directModelDetails}
@@ -442,6 +486,19 @@ export function ProviderCatalogPicker({
           </div>
         )}
       </div>
-    </div>
+      </div>
+
+      {probeDialogOpen && (
+        <ModelProbeDialog
+          models={catalogModels}
+          status={probeStatus}
+          error={probeError}
+          initialModelIds={draft.model}
+          allowMultiple={allowMultiple}
+          onConfirm={confirmProbedModels}
+          onClose={() => setProbeDialogOpen(false)}
+        />
+      )}
+    </>
   );
 }

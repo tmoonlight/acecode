@@ -562,7 +562,8 @@ bool SessionStorage::has_incompatible_pid_session_files(
 }
 
 std::vector<SessionMeta> SessionStorage::list_session_metadata(
-    const std::string& project_dir) {
+    const std::string& project_dir,
+    const std::function<bool()>& should_cancel) {
     std::vector<SessionMeta> sessions;
     fs::path project_path = path_from_utf8(project_dir);
     if (!fs::exists(project_path) || !fs::is_directory(project_path)) {
@@ -572,6 +573,7 @@ std::vector<SessionMeta> SessionStorage::list_session_metadata(
     const auto& re = meta_filename_regex();
     const auto& pid_re = pid_meta_filename_regex();
     for (const auto& entry : fs::directory_iterator(project_path)) {
+        if (should_cancel && should_cancel()) break;
         if (!entry.is_regular_file()) continue;
         std::string fname = path_to_utf8(entry.path().filename());
         std::smatch m;

@@ -540,55 +540,49 @@ int run_configure(const AppConfig& current_config) {
 
     std::cout << "\n=== acecode Configuration Wizard ===\n" << std::endl;
 
-    auto compat_providers = openai_compat_providers();
-    bool catalog_ready = !compat_providers.empty();
-
-    int default_provider = 0;
-    if (cfg.provider == "openai") {
-        default_provider = (cfg.openai.models_dev_provider_id.has_value() && catalog_ready) ? 1 : 2;
-    } else if (cfg.provider == "anthropic") {
-        default_provider = 3;
+    const auto compat_providers = openai_compat_providers();
+    const auto provider_choices =
+        build_configure_provider_choices(compat_providers);
+    const std::size_t default_provider =
+        default_configure_provider_index(cfg, provider_choices);
+    const auto selected_index =
+        run_configure_provider_picker(provider_choices, default_provider);
+    if (!selected_index.has_value()) {
+        std::cout << "Configuration cancelled.\n";
+        return 0;
     }
 
+    const ConfigureProviderChoice& selected = provider_choices[*selected_index];
     std::optional<ModelProfile> configured_profile_override;
-    while (true) {
-        std::vector<std::string> options = {
-            "Copilot (GitHub)",
-            catalog_ready ? ("Browse models.dev catalog (" +
-                             std::to_string(compat_providers.size()) + " providers)")
-                          : "Browse models.dev catalog (unavailable: no bundled snapshot found)",
-            "Custom OpenAI compatible",
-            "Anthropic"
-        };
-        int choice = read_choice("Select provider:", options, default_provider);
-
-        if (choice == 0) {
+    switch (selected.kind) {
+        case ConfigureProviderKind::Copilot:
             cfg.provider = "copilot";
             // Switching to Copilot wipes the openai-side provider hint to avoid
             // stale source labels in future configure runs.
             cfg.openai.models_dev_provider_id.reset();
             configure_copilot(cfg);
             break;
-        }
-        if (choice == 1) {
-            if (!catalog_ready) {
-                std::cout << "Catalog unavailable; please pick another option.\n";
-                continue;
-            }
-            if (configure_openai_via_catalog(cfg)) break;
-            // user backed out — re-show menu
-            continue;
-        }
-        if (choice == 3) {
+        case ConfigureProviderKind::CustomAnthropic:
             cfg.provider = "anthropic";
             cfg.openai.models_dev_provider_id.reset();
             configured_profile_override = configure_anthropic(cfg);
             break;
-        }
-        cfg.provider = "openai";
-        cfg.openai.models_dev_provider_id.reset();
-        configure_openai(cfg);
-        break;
+        case ConfigureProviderKind::CustomOpenAI:
+            cfg.provider = "openai";
+            cfg.openai.models_dev_provider_id.reset();
+            configure_openai(cfg);
+            break;
+        case ConfigureProviderKind::Catalog:
+            if (!selected.catalog_provider) {
+                std::cerr << "Selected catalog provider is unavailable.\n";
+                return 1;
+            }
+            if (!configure_openai_from_catalog_provider(
+                    cfg, *selected.catalog_provider)) {
+                std::cout << "Configuration cancelled.\n";
+                return 0;
+            }
+            break;
     }
 
     if (configured_profile_override.has_value()) {

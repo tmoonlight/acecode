@@ -130,6 +130,9 @@ void WebServer::Impl::register_workspaces() {
             std::unordered_set<std::string> seen;
             if (deps.workspace_registry) {
                 deps.workspace_registry->scan(projects_dir());
+                if (global_session_search) {
+                    global_session_search->request_discovery();
+                }
                 for (const auto& m : deps.workspace_registry->list()) {
                     arr.push_back(workspace_to_json(m));
                     seen.insert(m.hash);
@@ -170,6 +173,9 @@ void WebServer::Impl::register_workspaces() {
                 return with_cors(req, std::move(r));
             }
             auto m = deps.workspace_registry->register_new(projects_dir(), cwd);
+            if (global_session_search) {
+                global_session_search->request_discovery();
+            }
             LOG_INFO("[web] workspace registered hash=" + m.hash + " cwd=" + m.cwd);
             crow::response r(201);
             r.body = workspace_to_json(m).dump();
@@ -237,6 +243,9 @@ void WebServer::Impl::register_workspaces() {
 
             auto workspace = deps.workspace_registry->register_new(
                 projects_dir(), created.project_dir);
+            if (global_session_search) {
+                global_session_search->request_discovery();
+            }
             json body = workspace_to_json(workspace);
             body["requested_name"] = created.requested_name;
             body["directory_name"] = created.directory_name;
@@ -284,6 +293,9 @@ void WebServer::Impl::register_workspaces() {
                 if (c == '\\') c = '/';
             }
             auto m = deps.workspace_registry->register_new(projects_dir(), cwd);
+            if (global_session_search) {
+                global_session_search->request_discovery();
+            }
             LOG_INFO("[web] native folder picker registered workspace hash=" + m.hash + " cwd=" + m.cwd);
             crow::response r(200);
             r.body = workspace_to_json(m).dump();
@@ -417,6 +429,9 @@ void WebServer::Impl::register_workspaces() {
                 final_status.job_id = job_id;
                 final_status.workspace_hash = opts.workspace_hash;
                 publish(final_status);
+                if (global_session_search) {
+                    global_session_search->invalidate_project(opts.workspace_hash);
+                }
             }).detach();
 
             crow::response r(202);
@@ -507,6 +522,9 @@ void WebServer::Impl::register_workspaces() {
                 return with_cors(req, std::move(r));
             }
             LOG_INFO("[web] workspace session created hash=" + ws->hash + " id=" + id);
+            if (global_session_search) {
+                global_session_search->invalidate_project(ws->hash);
+            }
             crow::response r(201);
             r.body = json{{"session_id", id}, {"id", id}, {"workspace_hash", ws->hash},
                           {"cwd", ws->cwd}, {"expert_id", opts.expert_id}}.dump();

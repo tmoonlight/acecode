@@ -29,4 +29,4 @@ acecode-desktop
 ## 许可
 
 版权所有。二进制可免费使用；源码许可见仓库
-<https://github.com/shaohaozhi286/acecode>。
+<https://github.com/tmoonlight/acecode>。

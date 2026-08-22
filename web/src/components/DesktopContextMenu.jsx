@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   buildDesktopContextMenuItems,
+  canRunContextMenuAction,
   clampContextMenuPosition,
   contextTargetsFromElement,
   contextMenuOpenDelay,
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
   SESSION_PIN_TOGGLE_EVENT,
-  shouldUseCustomContextMenu,
 } from '../lib/desktopContextMenu.js';
 import { exportMermaidAsset } from '../lib/mermaidExport.js';
 import { selectionContextFromWindowSelection } from '../lib/selectionChatContext.js';
@@ -282,10 +282,12 @@ async function runAction(
   rememberedText = '',
   rememberedSelectionContext = null,
   rememberedRichComposerSelection = null,
+  { allowNativeActions = false } = {},
 ) {
   const action = typeof item === 'string' ? item : item?.id;
   const actionTarget = typeof item === 'object' ? item.target : null;
   if (!action) return;
+  if (!canRunContextMenuAction(action, { allowNativeActions })) return;
 
   switch (action) {
     case DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER:
@@ -415,9 +417,9 @@ export function DesktopContextMenu() {
   const reopenTimerRef = useRef(0);
   const targetRef = useRef(null);
   const lastSelectionRef = useRef({ target: null, text: '' });
-  // webapp 兼容模式(Edge --app)没有 webview bridge,但定位仍是"桌面应用替身",
-  // 自定义右键菜单照常启用;只有普通浏览器直连保留原生右键。
-  const desktop = useMemo(() => isDesktopShell() || isWebappCompat(), []);
+  // 所有运行模式共享自定义菜单；只有 Desktop Shell / Edge WebApp 兼容模式
+  // 可以展示和执行资源管理器、DevTools 等 native-only 动作。
+  const allowNativeActions = useMemo(() => isDesktopShell() || isWebappCompat(), []);
 
   const setMenu = useCallback((nextMenu) => {
     menuRef.current = nextMenu;
@@ -469,14 +471,6 @@ export function DesktopContextMenu() {
       if (rawTarget instanceof Element && rawTarget.closest('.ace-console-term')) return;
 
       const candidateTargets = contextTargetsFromElement(rawTarget);
-      if (!shouldUseCustomContextMenu({
-        desktop,
-        mermaidTarget: candidateTargets.mermaidTarget,
-      })) {
-        close();
-        return;
-      }
-
       event.preventDefault();
       event.stopPropagation();
 
@@ -510,6 +504,7 @@ export function DesktopContextMenu() {
         editable,
         hasSelection,
         debug,
+        allowNativeActions,
         ...contextTargets,
         sessionPinTarget,
       });
@@ -552,7 +547,7 @@ export function DesktopContextMenu() {
       window.removeEventListener('resize', close);
       clearReopenTimer();
     };
-  }, [clearReopenTimer, close, desktop, openWithSwitchGap]);
+  }, [allowNativeActions, clearReopenTimer, close, openWithSwitchGap]);
 
   useLayoutEffect(() => {
     notifyNativeSurfaceOverlayChange();
@@ -606,6 +601,7 @@ export function DesktopContextMenu() {
                   selectedText,
                   selectionContext,
                   richComposerSelection,
+                  { allowNativeActions },
                 );
               }}
             >
@@ -642,6 +638,7 @@ export function DesktopContextMenu() {
                       pending.selectedText,
                       pending.selectionContext,
                       pending.richComposerSelection,
+                      { allowNativeActions },
                     );
                   }}
                 >

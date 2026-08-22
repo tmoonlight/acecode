@@ -54,7 +54,7 @@ async def fetch_feed(
     max_bytes: int = 5_000_000,
     max_redirects: int = 5,
 ) -> FetchResult:
-    headers = {"User-Agent": "AceCode-RSS-Search/0.1 (+https://github.com/shaohaozhi286/acecode)"}
+    headers = {"User-Agent": "AceCode-RSS-Search/0.1 (+https://github.com/tmoonlight/acecode)"}
     if etag:
         headers["If-None-Match"] = etag
     if last_modified:

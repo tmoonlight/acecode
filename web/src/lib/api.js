@@ -112,12 +112,31 @@ function desktopFeedbackSessionsPath(limit = 20) {
   return `/api/feedback/desktop/recent-sessions?limit=${encodeURIComponent(String(n))}`;
 }
 
-function sessionUserMessageSearchPath(query = '', limit = 50) {
+function sessionUserMessageSearchPath(query = '', limit = 50, options = {}) {
   const qs = new URLSearchParams();
   qs.set('q', String(query || ''));
   const n = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(100, Number(limit))) : 50;
   qs.set('limit', String(n));
+  if (options.requestId) qs.set('request_id', String(options.requestId));
   return `/api/session-search/user-messages?${qs.toString()}`;
+}
+
+function sessionCatalogSearchPath(options = {}) {
+  const qs = new URLSearchParams();
+  const query = String(options.query || '').trim();
+  if (query) qs.set('q', query);
+  if (options.limit != null) {
+    const n = Number.isFinite(Number(options.limit))
+      ? Math.max(1, Math.min(100, Math.trunc(Number(options.limit))))
+      : 50;
+    qs.set('limit', String(n));
+  }
+  if (options.requestId) qs.set('request_id', String(options.requestId));
+  if (options.cursor) qs.set('cursor', String(options.cursor));
+  const queryString = qs.toString();
+  return queryString
+    ? `/api/session-search/sessions?${queryString}`
+    : '/api/session-search/sessions';
 }
 
 function sessionMessagesPath(id, since = 0, base = null, workspaceHash = '') {
@@ -216,9 +235,24 @@ async function request(method, path, body, base, options = {}) {
     ? DEFAULT_REQUEST_TIMEOUT_MS
     : Number(rawTimeout) || 0;
 
+  const externalSignal = options.signal || null;
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  let timedOut = false;
+  let externallyAborted = !!externalSignal?.aborted;
+  const abortFromExternal = () => {
+    externallyAborted = true;
+    controller?.abort();
+  };
+  if (externalSignal && !externalSignal.aborted) {
+    externalSignal.addEventListener('abort', abortFromExternal, { once: true });
+  } else if (externallyAborted) {
+    controller?.abort();
+  }
   const timer = (controller && timeoutMs > 0)
-    ? setTimeout(() => controller.abort(), timeoutMs)
+    ? setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs)
     : null;
 
   try {
@@ -226,7 +260,10 @@ async function request(method, path, body, base, options = {}) {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      ...(controller ? { signal: controller.signal } : {}),
+      ...(options.keepalive ? { keepalive: true } : {}),
+      ...(controller
+        ? { signal: controller.signal }
+        : (externalSignal ? { signal: externalSignal } : {})),
     });
     const ctype = resp.headers.get('Content-Type') || '';
     let parsed = null;
@@ -242,11 +279,14 @@ async function request(method, path, body, base, options = {}) {
     // ApiError 分支(errors.js 查文案 + toast + 重试),而不是撞上一个语义
     // 不明的 DOMException。
     if (e && e.name === 'AbortError') {
+      if (externallyAborted || externalSignal?.aborted) throw e;
+      if (!timedOut) throw e;
       throw new ApiError(408, { error: 'TIMEOUT', message: '请求超时,请重试' });
     }
     throw e;
   } finally {
     if (timer !== null) clearTimeout(timer);
+    externalSignal?.removeEventListener?.('abort', abortFromExternal);
   }
 }
 
@@ -267,7 +307,9 @@ export function createApi(base = null) {
     listPtyShells:    ()             => request('GET',    '/api/pty/shells', undefined, base),
     setConsoleShellConfig: (patch={}) => request('PUT',   '/api/console/config', patch, base),
     getUsageStats:    (opts={})      => request('GET',    usagePath(opts), undefined, base),
-    listWorkspaces:   ()             => request('GET',    '/api/workspaces', undefined, base),
+    listWorkspaces:   (options={})   => request(
+      'GET', '/api/workspaces', undefined, base, { signal: options.signal },
+    ),
     listLoops:        ()             => request('GET',    '/api/loops', undefined, base),
     listExperts:      (workspace='') => request('GET',    expertsPath(workspace), undefined, base),
     listExpertCapabilities: (workspace='') =>
@@ -521,11 +563,19 @@ export function createApi(base = null) {
     // SearchPalette 和 @ 会话引用的全局 session 数据源。会话由 global
     // catalog 提供;可见 workspace 列表只用于 SearchPalette 的「项目」分栏。
     // 两个请求并行,任一失败都保留另一份结果。
-    listAllWorkspaceSessions: () => mergeGlobalSessionsAndWorkspaces({
+    listGlobalSessions: (options = {}) => request(
+      'GET', sessionCatalogSearchPath(options), undefined, base,
+      { signal: options.signal },
+    ),
+    listAllWorkspaceSessions: (options = {}) => mergeGlobalSessionsAndWorkspaces({
       listGlobalSessions: () => request(
-        'GET', '/api/session-search/sessions', undefined, base,
+        'GET', sessionCatalogSearchPath(options), undefined, base,
+        { signal: options.signal },
       ),
-      listWorkspaces: () => request('GET', '/api/workspaces', undefined, base),
+      listWorkspaces: () => request(
+        'GET', '/api/workspaces', undefined, base,
+        { signal: options.signal },
+      ),
     }),
     listAllArchivedSessions: () => mergeAllWorkspaceSessions({
       listWorkspaces: () => request('GET', '/api/workspaces', undefined, base),
@@ -533,8 +583,18 @@ export function createApi(base = null) {
         `/api/workspaces/${encodeURIComponent(hash)}/sessions?archived=1`, undefined, base),
       listNoWorkspaceSessions: () => request('GET', '/api/sessions?archived=1', undefined, base),
     }),
-    searchSessionUserMessages: (query, limit = 50) =>
-      request('GET', sessionUserMessageSearchPath(query, limit), undefined, base),
+    searchSessionUserMessages: (query, limit = 50, options = {}) =>
+      request(
+        'GET', sessionUserMessageSearchPath(query, limit, options), undefined, base,
+        { signal: options.signal },
+      ),
+    cancelSessionSearch: (requestId) => request(
+      'POST',
+      `/api/session-search/requests/${encodeURIComponent(String(requestId || ''))}/cancel`,
+      undefined,
+      base,
+      { keepalive: true },
+    ),
 
     // SidePanel "文件" tab — 列指定目录的直接子项(不递归)。
     // path='' 列 cwd 根本身。showHidden=true 透出 dot 文件,但 noise 黑名单
@@ -631,13 +691,23 @@ export async function mergeGlobalSessionsAndWorkspaces({
 
   let sessions = [];
   let workspaces = [];
+  let progress = null;
+  let nextCursor = null;
   const errors = [];
+
+  for (const settled of [catalogResult, workspacesResult]) {
+    if (settled.status === 'rejected' && settled.reason?.name === 'AbortError') {
+      throw settled.reason;
+    }
+  }
 
   if (catalogResult.status === 'fulfilled') {
     const payload = catalogResult.value;
     sessions = Array.isArray(payload)
       ? payload
       : (Array.isArray(payload?.sessions) ? payload.sessions : []);
+    progress = payload && !Array.isArray(payload) ? (payload.progress || null) : null;
+    nextCursor = payload && !Array.isArray(payload) ? (payload.next_cursor || null) : null;
     const catalogErrors = Array.isArray(payload?.errors) ? payload.errors : [];
     for (const error of catalogErrors) {
       if (error && typeof error === 'object') {
@@ -666,7 +736,7 @@ export async function mergeGlobalSessionsAndWorkspaces({
     });
   }
 
-  return { sessions, workspaces, errors };
+  return { sessions, workspaces, errors, progress, next_cursor: nextCursor };
 }
 
 // 抽出便于单测:对每个 workspace 并行 listSessions,同时从兼容 /api/sessions

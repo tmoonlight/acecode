@@ -5777,6 +5777,79 @@ a.ace-thread-link:focus-visible {
   font-family: var(--font-mono) !important;
 }
 
+/* Created 文件直接展示源码，不继承 diff 的行号、增删底色或暗色代码块背景。 */
+.ace-tool-created-code {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ace-border-soft);
+  border-radius: 12px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.025);
+}
+
+.ace-tool-created-code > pre {
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  padding: 14px 48px 14px 18px;
+  background: transparent !important;
+  color: var(--ace-fg) !important;
+  tab-size: 4;
+  white-space: pre;
+}
+
+.ace-tool-created-code > pre > code,
+.ace-tool-created-code > pre > code.hljs {
+  display: block;
+  overflow: visible;
+  padding: 0;
+  background: transparent !important;
+  color: inherit;
+}
+
+.ace-tool-created-code pre,
+.ace-tool-created-code code,
+.ace-tool-created-code .hljs,
+.ace-tool-created-code .hljs * {
+  font-family: var(--font-mono) !important;
+  font-size: var(--ace-font-size-code) !important;
+  line-height: 1.55 !important;
+}
+
+/* 截图式浅色语法色；暗色主题继续使用上方全局 Dracula token。 */
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-keyword,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-type,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-built_in,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-literal {
+  color: #b95000;
+}
+
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-title,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-function .hljs-title,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-property,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-attr {
+  color: #0969da;
+}
+
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-string,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-regexp,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-template-variable {
+  color: #0a7f2e;
+}
+
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-number,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-symbol,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-variable.language_ {
+  color: #8250df;
+}
+
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-comment,
+:root:not([data-theme="dark"]) .ace-tool-created-code .hljs-quote {
+  color: #8c959f;
+  font-style: normal;
+}
+
 .ace-qa-card {
   width: min(100%, 810px);
   border: 1px solid var(--ace-border);

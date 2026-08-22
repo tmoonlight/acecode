@@ -85,6 +85,110 @@ std::string format_provider_row(const ProviderEntry& p) {
     return oss.str();
 }
 
+std::vector<ConfigureProviderChoice> build_configure_provider_choices(
+    const std::vector<const ProviderEntry*>& catalog_providers) {
+    std::vector<ConfigureProviderChoice> choices;
+    choices.reserve(catalog_providers.size() + 3);
+
+    choices.push_back({
+        ConfigureProviderKind::CustomOpenAI,
+        "Custom OpenAI-compatible API",
+        "OpenAI chat/completions-style endpoint",
+        nullptr,
+    });
+    choices.push_back({
+        ConfigureProviderKind::CustomAnthropic,
+        "Custom Anthropic-compatible API",
+        "Anthropic Messages-style endpoint",
+        nullptr,
+    });
+    choices.push_back({
+        ConfigureProviderKind::Copilot,
+        "GitHub Copilot",
+        "Managed preset with GitHub device authentication",
+        nullptr,
+    });
+
+    for (const ProviderEntry* provider : catalog_providers) {
+        if (!provider || lower(provider->id) == "github-copilot") continue;
+        const std::string full = format_provider_row(*provider);
+        choices.push_back({
+            ConfigureProviderKind::Catalog,
+            provider->id,
+            strip_label_prefix(full, provider->id),
+            provider,
+        });
+    }
+    return choices;
+}
+
+std::size_t default_configure_provider_index(
+    const AppConfig& cfg,
+    const std::vector<ConfigureProviderChoice>& choices) {
+    if (choices.empty()) return 0;
+
+    auto find_kind = [&](ConfigureProviderKind kind) -> std::optional<std::size_t> {
+        for (std::size_t i = 0; i < choices.size(); ++i) {
+            if (choices[i].kind == kind) return i;
+        }
+        return std::nullopt;
+    };
+
+    if (cfg.provider == "openai") {
+        if (cfg.openai.models_dev_provider_id.has_value() &&
+            !cfg.openai.models_dev_provider_id->empty()) {
+            const std::string wanted = lower(*cfg.openai.models_dev_provider_id);
+            for (std::size_t i = 0; i < choices.size(); ++i) {
+                const auto& choice = choices[i];
+                if (choice.kind == ConfigureProviderKind::Catalog &&
+                    choice.catalog_provider &&
+                    lower(choice.catalog_provider->id) == wanted) {
+                    return i;
+                }
+            }
+        }
+        return find_kind(ConfigureProviderKind::CustomOpenAI).value_or(0);
+    }
+    if (cfg.provider == "anthropic") {
+        return find_kind(ConfigureProviderKind::CustomAnthropic).value_or(0);
+    }
+    if (cfg.provider == "copilot") {
+        return find_kind(ConfigureProviderKind::Copilot).value_or(0);
+    }
+    return find_kind(ConfigureProviderKind::Copilot).value_or(0);
+}
+
+std::optional<std::size_t> run_configure_provider_picker(
+    const std::vector<ConfigureProviderChoice>& choices,
+    std::size_t default_index) {
+    if (choices.empty()) return std::nullopt;
+
+    std::vector<PickerItem> items;
+    items.reserve(choices.size());
+    std::size_t preset_count = 0;
+    for (const auto& choice : choices) {
+        items.push_back({choice.label, choice.secondary});
+        if (choice.kind == ConfigureProviderKind::Copilot ||
+            choice.kind == ConfigureProviderKind::Catalog) {
+            ++preset_count;
+        }
+    }
+
+    PickerOptions opts;
+    opts.title = "Select or type a provider (" +
+                 std::to_string(preset_count) + " presets + 2 custom APIs)";
+    // Keep the input, status, and help rows visible on a conventional 80x24
+    // terminal. Autocomplete makes scanning 30 rows at once unnecessary.
+    opts.page_size = 10;
+    opts.default_index = std::min(default_index, choices.size() - 1);
+    opts.search_as_you_type = true;
+    opts.search_placeholder = "Type a provider name or id";
+
+    const PickerResult result = run_ftxui_picker(items, opts);
+    if (result.cancelled || result.index >= choices.size()) return std::nullopt;
+    return result.index;
+}
+
 std::string format_model_row(const ModelEntry& m) {
     std::ostringstream oss;
     oss << m.id;
@@ -122,6 +226,7 @@ std::string format_model_summary(const ModelEntry& m) {
 std::string format_source_line(const AppConfig& cfg) {
     if (cfg.provider == "codex") return "codex";
     if (cfg.provider == "copilot") return "copilot";
+    if (cfg.provider == "anthropic") return "anthropic (custom)";
     if (cfg.openai.models_dev_provider_id.has_value() &&
         !cfg.openai.models_dev_provider_id->empty()) {
         return "openai (provider=" + *cfg.openai.models_dev_provider_id + " via models.dev)";
@@ -239,21 +344,27 @@ bool configure_openai_via_catalog(AppConfig& cfg) {
         return false;
     }
 
-    std::cout << "\n--- Browse models.dev catalog ---\n";
     const ProviderEntry* provider = run_provider_picker(providers);
     if (!provider) {
         std::cout << "Cancelled.\n";
         return false;
     }
 
-    std::cout << "\nSelected provider: " << provider->id;
-    if (provider->id != provider->name) std::cout << " (" << provider->name << ")";
+    return configure_openai_from_catalog_provider(cfg, *provider);
+}
+
+bool configure_openai_from_catalog_provider(AppConfig& cfg,
+                                            const ProviderEntry& provider) {
+    std::cout << "\n--- models.dev Preset Configuration ---\n";
+
+    std::cout << "Selected provider: " << provider.id;
+    if (provider.id != provider.name) std::cout << " (" << provider.name << ")";
     std::cout << std::endl;
 
-    std::string base_default = provider->base_url.value_or(cfg.openai.base_url);
+    std::string base_default = provider.base_url.value_or(cfg.openai.base_url);
     cfg.openai.base_url = read_line("Base URL", base_default);
 
-    auto env_hit = lookup_env_key(*provider);
+    auto env_hit = lookup_env_key(provider);
     std::string current_key = cfg.openai.api_key;
     if (env_hit) {
         std::cout << "API Key (env: " << env_hit->env_name
@@ -267,19 +378,19 @@ bool configure_openai_via_catalog(AppConfig& cfg) {
         }
     } else {
         std::ostringstream env_names;
-        for (size_t i = 0; i < provider->env.size(); ++i) {
+        for (size_t i = 0; i < provider.env.size(); ++i) {
             if (i) env_names << " / ";
-            env_names << provider->env[i];
+            env_names << provider.env[i];
         }
-        if (provider->env.empty()) env_names << "(none documented)";
+        if (provider.env.empty()) env_names << "(none documented)";
         std::cout << "No env var (" << env_names.str() << ") found.\n";
         cfg.openai.api_key = read_password("API Key", current_key);
     }
 
     cfg.provider = "openai";
-    cfg.openai.models_dev_provider_id = provider->id;
+    cfg.openai.models_dev_provider_id = provider.id;
 
-    auto picked = run_model_picker(*provider, cfg.openai.model);
+    auto picked = run_model_picker(provider, cfg.openai.model);
     if (picked.cancelled) {
         std::cout << "Model selection cancelled — keeping previous model: "
                   << cfg.openai.model << "\n";

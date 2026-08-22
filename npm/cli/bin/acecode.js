@@ -10,7 +10,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const SCOPE = '@aceagent';
-const RELEASES_URL = 'https://github.com/shaohaozhi286/acecode/releases';
+const RELEASES_URL = 'https://github.com/tmoonlight/acecode/releases';
 const SUPPORTED = new Set([
   'linux-x64',
   'linux-arm64',

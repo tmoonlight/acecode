@@ -209,17 +209,25 @@ run('普通工具展开文本统一使用带复制图标的小字号内容框', 
   );
 });
 
-run('文件 diff 保留原有专用展开且不进入 ToolTextFrame', () => {
+run('新建文件展开源码框，覆盖和编辑仍保留专用 diff', () => {
   const toolBlockSource = readFileSync(
     new URL('../components/ToolBlock.jsx', import.meta.url),
+    'utf8',
+  );
+  const stylesSource = readFileSync(
+    new URL('../styles/globals.css', import.meta.url),
     'utf8',
   );
 
   assert.match(
     toolBlockSource,
-    /diffHtml \? \(\s*<div\s+className="ace-diff ace-tool-diff"/,
+    /createdFile \? \(\s*<CreatedFileFrame source=\{createdFile\} \/>\s*\) : diffHtml \? \(/,
   );
+  assert.match(toolBlockSource, /if \(createdFile \|\| !diffText\) return '';/);
+  assert.match(toolBlockSource, /className="ace-diff ace-tool-diff"/);
   assert.doesNotMatch(toolBlockSource, /<ToolTextFrame text=\{diffText\}/);
+  assert.match(stylesSource, /\.ace-tool-created-code\s*\{/);
+  assert.match(stylesSource, /:root:not\(\[data-theme="dark"\]\) \.ace-tool-created-code \.hljs-keyword/);
 });
 
 run('完成的压缩通知投影为一个可展开 Context compacted 消息', () => {

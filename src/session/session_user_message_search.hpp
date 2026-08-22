@@ -3,6 +3,7 @@
 #include "../provider/llm_provider.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -65,15 +66,18 @@ public:
     bool rebuild_session(const std::string& session_id,
                          const std::string& jsonl_path,
                          const std::vector<ChatMessage>& messages,
-                         std::string* error = nullptr);
+                         std::string* error = nullptr,
+                         const std::function<bool()>& should_cancel = {});
 
     bool rebuild_session(const std::string& session_id,
                          const std::string& jsonl_path,
-                         std::string* error = nullptr);
+                         std::string* error = nullptr,
+                         const std::function<bool()>& should_cancel = {});
 
     bool ensure_session_indexed(const std::string& session_id,
                                 const std::string& jsonl_path,
-                                std::string* error = nullptr);
+                                std::string* error = nullptr,
+                                const std::function<bool()>& should_cancel = {});
 
     // 永久删除一个 session 的全部索引数据(消息投影 + source 签名)。
     // purge_session_files 的调用方必须同步调用它:「清除」承诺删除全部
@@ -85,11 +89,14 @@ public:
     // 的文件级失败只记 warning 不中止(一个坏文件不能挡住整个 workspace
     // 的内容搜索)。随后对索引里 JSONL 已不存在的 session 做孤儿回收,
     // 兜住 purge 之外的删除路径(手工删文件等)。
-    bool ensure_project_indexed(std::string* error = nullptr);
+    bool ensure_project_indexed(
+        std::string* error = nullptr,
+        const std::function<bool()>& should_cancel = {});
 
     std::vector<SessionUserMessageSearchResult> search(const std::string& query,
                                                        int limit,
-                                                       std::string* error = nullptr);
+                                                       std::string* error = nullptr,
+                                                       const std::function<bool()>& should_cancel = {});
 
 private:
     bool open(std::string* error);

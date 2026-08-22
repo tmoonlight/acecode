@@ -21,6 +21,7 @@
 #include "../provider/model_pool_status.hpp"
 #include "../session/ask_user_question_prompter.hpp"
 #include "../session/attachment_store.hpp"
+#include "../session/global_session_search.hpp"
 #include "../session/local_session_client.hpp"
 #include "../session/opencode_import.hpp"
 #include "../session/session_attention.hpp"
@@ -295,11 +296,22 @@ struct WebServer::Impl {
     std::shared_ptr<UpdateJobRuntime> update_job_runtime =
         std::make_shared<UpdateJobRuntime>();
 
+    // Daemon-lifetime global search state. The catalog prewarms independently
+    // of HTTP requests; content jobs are short, request-scoped batches.
+    std::unique_ptr<GlobalSessionSearchService> global_session_search;
+
     explicit Impl(WebServerDeps d)
         : deps(std::move(d)),
           runtime_port(deps.web_cfg ? deps.web_cfg->port : 0) {
         subagent_tracker_state->impl = this;
         start_attention_flusher();
+        global_session_search = std::make_unique<GlobalSessionSearchService>(
+            projects_dir(), [this] {
+                return deps.session_client
+                    ? deps.session_client->list_sessions()
+                    : std::vector<SessionInfo>{};
+            });
+        global_session_search->start();
     }
     ~Impl();
 

@@ -2191,9 +2191,19 @@ TEST(WebServerHttp, GlobalSessionSearchIncludesHiddenAndMarkerlessProjects) {
                     {"Access-Control-Request-Method", "GET"}});
     EXPECT_EQ(preflight.status_code, 204);
 
-    auto response = cpr::Get(cpr::Url{fx.url("/api/session-search/sessions")});
-    ASSERT_EQ(response.status_code, 200) << response.text;
-    const auto body = json::parse(response.text);
+    cpr::Response response;
+    json body;
+    const auto catalog_deadline = std::chrono::steady_clock::now() + 3s;
+    do {
+        response = cpr::Get(
+            cpr::Url{fx.url("/api/session-search/sessions")},
+            cpr::Parameters{{"request_id", "hidden-catalog-smoke"}});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        body = json::parse(response.text);
+        if (body["progress"].value("complete", false)) break;
+        std::this_thread::sleep_for(5ms);
+    } while (std::chrono::steady_clock::now() < catalog_deadline);
+    ASSERT_TRUE(body["progress"].value("complete", false)) << response.text;
     ASSERT_TRUE(body["sessions"].is_array());
     ASSERT_TRUE(body["errors"].is_array());
     auto find_session = [&](const std::string& id) {
@@ -2228,7 +2238,8 @@ TEST(WebServerHttp, GlobalSessionSearchIncludesHiddenAndMarkerlessProjects) {
 
     auto content = cpr::Get(
         cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "global-hidden-content-needle"}, {"limit", "10"}});
+        cpr::Parameters{{"q", "global-hidden-content-needle"}, {"limit", "10"},
+                        {"request_id", "hidden-content-smoke"}});
     ASSERT_EQ(content.status_code, 200) << content.text;
     const auto matches = json::parse(content.text)["matches"];
     ASSERT_EQ(matches.size(), 1u);
@@ -2286,9 +2297,20 @@ TEST(WebServerHttp, HiddenWorkspaceSearchResultResumesWithoutBecomingVisible) {
         acecode::SessionStorage::session_path(runtime_project.string(), sid),
         {message});
 
-    auto catalog = cpr::Get(cpr::Url{fx.url("/api/session-search/sessions")});
-    ASSERT_EQ(catalog.status_code, 200) << catalog.text;
-    auto sessions = json::parse(catalog.text)["sessions"];
+    cpr::Response catalog;
+    json catalog_body;
+    const auto catalog_deadline = std::chrono::steady_clock::now() + 3s;
+    do {
+        catalog = cpr::Get(
+            cpr::Url{fx.url("/api/session-search/sessions")},
+            cpr::Parameters{{"request_id", "hidden-resume-smoke"}});
+        ASSERT_EQ(catalog.status_code, 200) << catalog.text;
+        catalog_body = json::parse(catalog.text);
+        if (catalog_body["progress"].value("complete", false)) break;
+        std::this_thread::sleep_for(5ms);
+    } while (std::chrono::steady_clock::now() < catalog_deadline);
+    ASSERT_TRUE(catalog_body["progress"].value("complete", false)) << catalog.text;
+    auto sessions = catalog_body["sessions"];
     auto found = std::find_if(sessions.begin(), sessions.end(), [&](const auto& item) {
         return item.value("id", std::string{}) == sid;
     });
@@ -2314,6 +2336,82 @@ TEST(WebServerHttp, HiddenWorkspaceSearchResultResumesWithoutBecomingVisible) {
     }
 
     fx.client->destroy_session(sid);
+}
+
+TEST(WebServerHttp, IncrementalSessionSearchIsBoundedMinimalPagedAndCancellable) {
+    WebServerFixture fx;
+    std::vector<std::filesystem::path> seeded_projects;
+    for (int i = 0; i < 55; ++i) {
+        const auto cwd_path = fx.tmp_dir / ("bounded-search-cwd-" + std::to_string(i));
+        std::filesystem::create_directories(cwd_path);
+        const std::string cwd = cwd_path.string();
+        const std::string hash = acecode::compute_cwd_hash(cwd);
+        const auto project = fx.projects_dir / hash;
+        std::filesystem::create_directories(project);
+        seeded_projects.push_back(project);
+        acecode::SessionMeta meta;
+        meta.id = "bounded-session-" + std::to_string(i);
+        meta.cwd = cwd;
+        meta.created_at = "2026-08-23T02:00:" + std::to_string(100 + i) + "Z";
+        meta.updated_at = meta.created_at;
+        meta.title = "Bounded task " + std::to_string(i);
+        meta.summary = "must stay minimal";
+        meta.input_draft = "must-not-leak";
+        meta.todos.push_back(acecode::TodoItem{
+            "todo-1", "secret todo", "pending"});
+        ASSERT_TRUE(acecode::SessionStorage::write_meta(
+            acecode::SessionStorage::meta_path(project.string(), meta.id), meta));
+    }
+
+    cpr::Response first_response;
+    json first;
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    do {
+        first_response = cpr::Get(
+            cpr::Url{fx.url("/api/session-search/sessions")},
+            cpr::Parameters{{"request_id", "bounded-http"}, {"limit", "100"}});
+        ASSERT_EQ(first_response.status_code, 200) << first_response.text;
+        first = json::parse(first_response.text);
+        if (first["progress"].value("complete", false)) break;
+        std::this_thread::sleep_for(5ms);
+    } while (std::chrono::steady_clock::now() < deadline);
+
+    ASSERT_TRUE(first["progress"].value("complete", false));
+    ASSERT_EQ(first["sessions"].size(), 50u);
+    ASSERT_TRUE(first["next_cursor"].is_string());
+    const auto& item = first["sessions"][0];
+    EXPECT_FALSE(item.contains("input_draft"));
+    EXPECT_FALSE(item.contains("todos"));
+    EXPECT_FALSE(item.contains("token_usage"));
+    EXPECT_FALSE(item.contains("permission_mode"));
+    EXPECT_TRUE(item.contains("id"));
+    EXPECT_TRUE(item.contains("workspace_hash"));
+
+    auto second_response = cpr::Get(
+        cpr::Url{fx.url("/api/session-search/sessions")},
+        cpr::Parameters{{"request_id", "bounded-http"}, {"limit", "50"},
+                        {"cursor", first["next_cursor"].get<std::string>()}});
+    ASSERT_EQ(second_response.status_code, 200) << second_response.text;
+    const auto second = json::parse(second_response.text);
+    EXPECT_EQ(second["sessions"].size(), 5u);
+    EXPECT_TRUE(second["next_cursor"].is_null());
+
+    auto cancel_first = cpr::Post(cpr::Url{
+        fx.url("/api/session-search/requests/bounded-http/cancel")});
+    auto cancel_second = cpr::Post(cpr::Url{
+        fx.url("/api/session-search/requests/bounded-http/cancel")});
+    ASSERT_EQ(cancel_first.status_code, 200) << cancel_first.text;
+    ASSERT_EQ(cancel_second.status_code, 200) << cancel_second.text;
+    EXPECT_FALSE(json::parse(cancel_first.text)["already_cancelled"].get<bool>());
+    EXPECT_TRUE(json::parse(cancel_second.text)["already_cancelled"].get<bool>());
+
+    auto late = cpr::Get(
+        cpr::Url{fx.url("/api/session-search/sessions")},
+        cpr::Parameters{{"request_id", "bounded-http"}});
+    ASSERT_EQ(late.status_code, 200) << late.text;
+    const auto late_body = json::parse(late.text);
+    EXPECT_TRUE(late_body["sessions"].empty());
+    EXPECT_TRUE(late_body["progress"].value("paused", false));
 }
 
 // 场景: 已有对话从 composer 选择专家时保持当前 session。端点先验证专家,

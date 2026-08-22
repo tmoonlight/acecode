@@ -192,6 +192,12 @@ int match_score(const std::string& user_text,
     return score + (std::min)(message_ordinal, 99);
 }
 
+int sqlite_cancel_check(void* context) {
+    const auto* should_cancel =
+        static_cast<const std::function<bool()>*>(context);
+    return should_cancel && *should_cancel && (*should_cancel)() ? 1 : 0;
+}
+
 } // namespace
 
 bool is_searchable_visible_user_message(const ChatMessage& msg) {
@@ -477,8 +483,13 @@ bool SessionUserMessageIndex::rebuild_session(
     const std::string& session_id,
     const std::string& jsonl_path,
     const std::vector<ChatMessage>& messages,
-    std::string* error) {
+    std::string* error,
+    const std::function<bool()>& should_cancel) {
     if (session_id.empty() || jsonl_path.empty()) return true;
+    if (should_cancel && should_cancel()) {
+        set_error(error, "cancelled");
+        return false;
+    }
     if (!initialize(error)) return false;
     const auto signature = session_user_message_file_signature(jsonl_path);
     if (!exec("BEGIN IMMEDIATE TRANSACTION;", error)) return false;
@@ -502,6 +513,11 @@ bool SessionUserMessageIndex::rebuild_session(
 
     if (ok) {
         for (std::size_t i = 0; i < messages.size(); ++i) {
+            if (should_cancel && should_cancel()) {
+                set_error(error, "cancelled");
+                ok = false;
+                break;
+            }
             auto searchable = build_searchable_user_message(
                 session_id, static_cast<int>(i), messages[i]);
             if (!searchable.has_value()) continue;
@@ -525,21 +541,31 @@ bool SessionUserMessageIndex::rebuild_session(
 bool SessionUserMessageIndex::rebuild_session(
     const std::string& session_id,
     const std::string& jsonl_path,
-    std::string* error) {
+    std::string* error,
+    const std::function<bool()>& should_cancel) {
+    if (should_cancel && should_cancel()) {
+        set_error(error, "cancelled");
+        return false;
+    }
     return rebuild_session(session_id, jsonl_path,
                            SessionStorage::load_messages(jsonl_path),
-                           error);
+                           error, should_cancel);
 }
 
 bool SessionUserMessageIndex::ensure_session_indexed(
     const std::string& session_id,
     const std::string& jsonl_path,
-    std::string* error) {
+    std::string* error,
+    const std::function<bool()>& should_cancel) {
     if (session_id.empty() || jsonl_path.empty()) return true;
+    if (should_cancel && should_cancel()) {
+        set_error(error, "cancelled");
+        return false;
+    }
     if (!initialize(error)) return false;
     const auto signature = session_user_message_file_signature(jsonl_path);
     if (source_matches_signature(session_id, signature, error)) return true;
-    return rebuild_session(session_id, jsonl_path, error);
+    return rebuild_session(session_id, jsonl_path, error, should_cancel);
 }
 
 bool SessionUserMessageIndex::remove_session(const std::string& session_id,
@@ -590,18 +616,33 @@ void SessionUserMessageIndex::prune_removed_sessions() {
     }
 }
 
-bool SessionUserMessageIndex::ensure_project_indexed(std::string* error) {
+bool SessionUserMessageIndex::ensure_project_indexed(
+    std::string* error,
+    const std::function<bool()>& should_cancel) {
     if (!initialize(error)) return false;
-    for (const auto& meta : SessionStorage::list_session_metadata(project_dir_)) {
+    for (const auto& meta : SessionStorage::list_session_metadata(
+             project_dir_, should_cancel)) {
+        if (should_cancel && should_cancel()) {
+            set_error(error, "cancelled");
+            return false;
+        }
         auto candidates = SessionStorage::find_session_files(project_dir_, meta.id);
         if (candidates.empty()) continue;
         std::string session_error;
         if (!ensure_session_indexed(meta.id, candidates.front().jsonl_path,
-                                    &session_error)) {
+                                    &session_error, should_cancel)) {
+            if (session_error == "cancelled") {
+                set_error(error, session_error);
+                return false;
+            }
             // 单个 session 的失败(文件被锁/损坏)不挡其它 session 的搜索。
             LOG_WARN("[session-search] index refresh skipped session " + meta.id +
                      ": " + session_error);
         }
+    }
+    if (should_cancel && should_cancel()) {
+        set_error(error, "cancelled");
+        return false;
     }
     prune_removed_sessions();
     return true;
@@ -610,13 +651,24 @@ bool SessionUserMessageIndex::ensure_project_indexed(std::string* error) {
 std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
     const std::string& query,
     int limit,
-    std::string* error) {
+    std::string* error,
+    const std::function<bool()>& should_cancel) {
     std::vector<SessionUserMessageSearchResult> out;
     const std::string query_norm = ascii_lower(trim_copy(query));
     if (query_norm.empty()) return out;
     if (limit <= 0) limit = kDefaultSearchLimit;
     limit = (std::min)(limit, kMaxSearchLimit);
     if (!initialize(error)) return out;
+    if (should_cancel && should_cancel()) {
+        set_error(error, "cancelled");
+        return out;
+    }
+
+    if (should_cancel) {
+        sqlite3_progress_handler(
+            db_, 1000, sqlite_cancel_check,
+            const_cast<std::function<bool()>*>(&should_cancel));
+    }
 
     sqlite3_stmt* stmt = nullptr;
     constexpr const char* sql =
@@ -633,6 +685,7 @@ std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
         "ORDER BY i.message_ordinal DESC "
         "LIMIT ?;";
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        sqlite3_progress_handler(db_, 0, nullptr, nullptr);
         set_error(error, sqlite_error(db_, "prepare user message search failed"));
         return out;
     }
@@ -666,8 +719,11 @@ std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
     }
     const bool completed = step_rc == SQLITE_DONE || step_rc == SQLITE_ROW;
     sqlite3_finalize(stmt);
+    sqlite3_progress_handler(db_, 0, nullptr, nullptr);
     if (!completed) {
-        set_error(error, sqlite_error(db_, "user message search failed"));
+        set_error(error, step_rc == SQLITE_INTERRUPT
+            ? std::string{"cancelled"}
+            : sqlite_error(db_, "user message search failed"));
     }
     std::sort(out.begin(), out.end(),
               [](const auto& a, const auto& b) {

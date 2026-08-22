@@ -587,6 +587,40 @@ export function addManualModelToDraft(draft, modelId, { allowMultiple = false } 
   return next;
 }
 
+export function replaceDraftModelsFromProbe(
+  draft,
+  rawModels,
+  selectedModelIds,
+  { allowMultiple = false } = {},
+) {
+  const selectedIds = new Set(splitModelIds(selectedModelIds));
+  if (selectedIds.size === 0 || !Array.isArray(rawModels)) return draft;
+
+  const seen = new Set();
+  const selectedModels = [];
+  for (const rawModel of rawModels) {
+    const id = String(rawModel?.id || '').trim();
+    if (!id || seen.has(id) || !selectedIds.has(id)) continue;
+    seen.add(id);
+    selectedModels.push({ raw: rawModel, id });
+    if (!allowMultiple) break;
+  }
+  if (selectedModels.length === 0) return draft;
+
+  const metadataById = {};
+  for (const model of selectedModels) {
+    metadataById[model.id] = catalogModelMetadataDraft(model.raw);
+  }
+  const activeId = selectedModels[0].id;
+  const overrides = draftMetadataOverrides(draft);
+  return applyVisibleModelMetadata({
+    ...draft,
+    model: selectedModels.map((model) => model.id).join(', '),
+    _catalog_model_metadata: metadataById,
+    _active_catalog_model_id: activeId,
+  }, metadataById[activeId], overrides);
+}
+
 export function emptyModelProfileDraft() {
   return {
     name: '',

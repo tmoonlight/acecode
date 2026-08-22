@@ -1188,6 +1188,9 @@ crow::response WebServer::Impl::set_session_archive_state(
     const auto project_dir = SessionStorage::get_project_dir(
         meta.no_workspace && !meta.cwd.empty() ? meta.cwd : ws.cwd);
     SessionStorage::write_meta(SessionStorage::meta_path(project_dir, id), meta);
+    if (global_session_search) {
+        global_session_search->invalidate_project(ws.hash);
+    }
 
     crow::response r(session_meta_to_json(meta, ws.hash).dump());
     r.add_header("Content-Type", "application/json");
@@ -1273,6 +1276,10 @@ crow::response WebServer::Impl::purge_session_data(
         return error_response(500, purge_error.empty()
             ? "failed to remove session files"
             : purge_error);
+    }
+
+    if (global_session_search) {
+        global_session_search->invalidate_project(ws.hash);
     }
 
     LOG_INFO("[web] permanently deleted session " + id +
@@ -1402,6 +1409,9 @@ crow::response WebServer::Impl::set_session_title_response(
                     entry->sm->current_title_source());
             }
             if (auto meta = find_session_meta_for_workspace(ws, id)) {
+                if (global_session_search) {
+                    global_session_search->invalidate_project(ws.hash);
+                }
                 crow::response r(session_info_to_json(
                     SessionInfo{
                         id,
@@ -1446,6 +1456,9 @@ crow::response WebServer::Impl::set_session_title_response(
     const auto project_dir = SessionStorage::get_project_dir(
         meta.no_workspace && !meta.cwd.empty() ? meta.cwd : ws.cwd);
     SessionStorage::write_meta(SessionStorage::meta_path(project_dir, id), meta);
+    if (global_session_search) {
+        global_session_search->invalidate_project(ws.hash);
+    }
 
     crow::response r(session_meta_to_json(meta, ws.hash).dump());
     r.add_header("Content-Type", "application/json");

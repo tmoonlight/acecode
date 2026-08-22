@@ -78,6 +78,70 @@ TEST(ConfigureCatalog, FormatProviderRow) {
     EXPECT_NE(row.find("doc=https://docs"), std::string::npos);
 }
 
+// 场景:统一列表固定以两个自定义入口和受管 Copilot 开头,目录项保持输入
+// 顺序,但普通 github-copilot 条目不得重复出现。
+TEST(ConfigureCatalog, UnifiedProviderChoicesOrderAndDeduplicateCopilot) {
+    ProviderEntry openrouter = make_provider("openrouter", "OpenRouter");
+    ProviderEntry catalog_copilot =
+        make_provider("github-copilot", "GitHub Copilot");
+    ProviderEntry deepseek = make_provider("deepseek", "DeepSeek");
+    std::vector<const ProviderEntry*> providers{
+        &openrouter, &catalog_copilot, nullptr, &deepseek};
+
+    const auto choices = build_configure_provider_choices(providers);
+    ASSERT_EQ(choices.size(), 5u);
+    EXPECT_EQ(choices[0].kind, ConfigureProviderKind::CustomOpenAI);
+    EXPECT_EQ(choices[0].label, "Custom OpenAI-compatible API");
+    EXPECT_EQ(choices[1].kind, ConfigureProviderKind::CustomAnthropic);
+    EXPECT_EQ(choices[1].label, "Custom Anthropic-compatible API");
+    EXPECT_EQ(choices[2].kind, ConfigureProviderKind::Copilot);
+    EXPECT_EQ(choices[2].label, "GitHub Copilot");
+    EXPECT_EQ(choices[3].kind, ConfigureProviderKind::Catalog);
+    ASSERT_NE(choices[3].catalog_provider, nullptr);
+    EXPECT_EQ(choices[3].catalog_provider->id, "openrouter");
+    EXPECT_EQ(choices[4].kind, ConfigureProviderKind::Catalog);
+    ASSERT_NE(choices[4].catalog_provider, nullptr);
+    EXPECT_EQ(choices[4].catalog_provider->id, "deepseek");
+
+    const auto without_catalog = build_configure_provider_choices({});
+    ASSERT_EQ(without_catalog.size(), 3u);
+    EXPECT_EQ(without_catalog[2].kind, ConfigureProviderKind::Copilot);
+}
+
+// 场景:当前运行时 Provider 决定初始高亮;未知状态保留旧向导的
+// Copilot 默认项,目录 id 匹配大小写不敏感。
+TEST(ConfigureCatalog, UnifiedProviderDefaultIndex) {
+    ProviderEntry openrouter = make_provider("openrouter", "OpenRouter");
+    ProviderEntry deepseek = make_provider("deepseek", "DeepSeek");
+    const auto choices = build_configure_provider_choices(
+        {&openrouter, &deepseek});
+    ASSERT_EQ(choices.size(), 5u);
+
+    AppConfig cfg;
+    cfg.provider.clear();
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 2u);
+
+    cfg.provider = "openai";
+    cfg.openai.models_dev_provider_id.reset();
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 0u);
+
+    cfg.openai.models_dev_provider_id = "OPENROUTER";
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 3u);
+
+    cfg.openai.models_dev_provider_id = "missing-provider";
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 0u);
+
+    cfg.provider = "anthropic";
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 1u);
+
+    cfg.provider = "copilot";
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 2u);
+
+    cfg.provider = "unknown";
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 2u);
+    EXPECT_EQ(default_configure_provider_index(cfg, {}), 0u);
+}
+
 // 场景：format_model_row 缺字段时不输出对应段。
 TEST(ConfigureCatalog, FormatModelRowOmitsMissingFields) {
     ModelEntry m;
@@ -119,8 +183,8 @@ TEST(ConfigureCatalog, FormatModelSummary) {
     EXPECT_NE(s.find("knowledge:     2025-02-28"), std::string::npos);
 }
 
-// 场景：format_source_line 区分 copilot / codex / catalog / custom。
-TEST(ConfigureCatalog, FormatSourceLineThreeStates) {
+// 场景：format_source_line 区分 copilot / codex / catalog / 两种 custom。
+TEST(ConfigureCatalog, FormatSourceLineStates) {
     AppConfig cfg;
     cfg.provider = "copilot";
     EXPECT_EQ(format_source_line(cfg), "copilot");
@@ -134,6 +198,9 @@ TEST(ConfigureCatalog, FormatSourceLineThreeStates) {
 
     cfg.openai.models_dev_provider_id = "openrouter";
     EXPECT_EQ(format_source_line(cfg), "openai (provider=openrouter via models.dev)");
+
+    cfg.provider = "anthropic";
+    EXPECT_EQ(format_source_line(cfg), "anthropic (custom)");
 }
 
 // 场景：lookup_env_key 命中第一个存在的 env 变量；都缺失返回 nullopt。

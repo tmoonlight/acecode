@@ -75,11 +75,14 @@ run('ready Mermaid images are native preview buttons backed by sanitized SVG det
   assert.match(styles, /cursor: zoom-in/);
 });
 
-run('shared context menu intercepts ordinary browser right clicks only for Mermaid targets', () => {
+run('shared context menu intercepts ordinary browser right clicks and gates native-only actions', () => {
   const component = source('components/DesktopContextMenu.jsx');
   assert.match(component, /const candidateTargets = contextTargetsFromElement\(rawTarget\)/);
-  assert.match(component, /shouldUseCustomContextMenu\(\{/);
-  assert.match(component, /mermaidTarget: candidateTargets\.mermaidTarget/);
+  assert.match(component, /rawTarget\.closest\('\.ace-console-term'\)\) return/);
+  assert.match(component, /const allowNativeActions = useMemo\(\(\) => isDesktopShell\(\) \|\| isWebappCompat\(\), \[\]\)/);
+  assert.match(component, /if \(!canRunContextMenuAction\(action, \{ allowNativeActions \}\)\) return/);
+  assert.match(component, /buildDesktopContextMenuItems\(\{[\s\S]*allowNativeActions,/);
+  assert.doesNotMatch(component, /shouldUseCustomContextMenu/);
   assert.match(component, /exportMermaidAsset\(target, format\)/);
   assert.doesNotMatch(component, /if \(!desktop\) return undefined/);
   assert.match(component, /if \(!menu && !pendingConfirm\) return null/);

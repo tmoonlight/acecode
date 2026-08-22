@@ -36,15 +36,87 @@ std::string trim_query_param(const char* raw) {
 }
 
 int parse_search_limit(const char* raw) {
-    if (!raw || !*raw) return 30;
+    if (!raw || !*raw) return 50;
     try {
         int value = std::stoi(raw);
         if (value < 1) return 1;
         if (value > 100) return 100;
         return value;
     } catch (...) {
-        return 30;
+        return 50;
     }
+}
+
+bool valid_search_request_id(const std::string& value) {
+    if (value.empty()) return true; // Legacy clients cannot explicitly cancel.
+    if (value.size() > 128) return false;
+    return std::all_of(value.begin(), value.end(), [](unsigned char c) {
+        return std::isalnum(c) != 0 || c == '-' || c == '_' || c == '.';
+    });
+}
+
+json global_search_entry_to_json(const GlobalSessionCatalogEntry& entry) {
+    const auto& meta = entry.meta;
+    const auto title = entry.active && !entry.active->title.empty()
+        ? entry.active->title
+        : meta.title;
+    const auto updated_at = entry.active && !entry.active->updated_at.empty()
+        ? entry.active->updated_at
+        : meta.updated_at;
+    json item{
+        {"id", meta.id},
+        {"title", title},
+        {"title_source", meta.title_source},
+        {"summary", meta.summary},
+        {"created_at", meta.created_at},
+        {"updated_at", updated_at},
+        {"cwd", meta.no_workspace ? std::string{} : meta.cwd},
+        {"workspace_hash", meta.no_workspace ? std::string{} : entry.workspace_hash},
+        {"workspaceName", meta.no_workspace
+            ? std::string{"\u65e0\u5de5\u4f5c\u533a"}
+            : entry.workspace_name},
+        {"workspace_cwd", meta.no_workspace
+            ? std::string{}
+            : entry.workspace_cwd},
+        {"workspace_visible", entry.workspace_visible},
+        {"no_workspace", meta.no_workspace},
+        {"active", entry.active.has_value()},
+        {"busy", entry.active ? entry.active->busy : false},
+    };
+    if (entry.content_match) {
+        item["search_match"] = json{
+            {"kind", "user_message"},
+            {"score", entry.content_match->score},
+            {"message_ordinal", entry.content_match->message_ordinal},
+            {"snippet", entry.content_match->snippet},
+            {"attachments", entry.content_match->matched_attachment_names},
+        };
+    }
+    return item;
+}
+
+json global_search_errors_to_json(
+    const std::vector<GlobalSessionCatalogError>& errors) {
+    json result = json::array();
+    for (const auto& error : errors) {
+        result.push_back(json{
+            {"hash", error.workspace_hash},
+            {"project_dir", error.project_dir},
+            {"stage", error.stage},
+            {"message", error.message},
+        });
+    }
+    return result;
+}
+
+json global_search_progress_to_json(const GlobalSessionCatalogProgress& progress) {
+    return json{
+        {"scanned_projects", progress.scanned_projects},
+        {"total_projects", progress.total_projects},
+        {"generation", progress.generation},
+        {"complete", progress.complete},
+        {"paused", progress.paused},
+    };
 }
 
 std::optional<std::string> verified_attachment_source_path(
@@ -589,6 +661,10 @@ void WebServer::Impl::register_sessions() {
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/session-search/requests/<string>/cancel").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/sessions/<string>").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
@@ -689,42 +765,44 @@ void WebServer::Impl::register_sessions() {
         CROW_ROUTE(app, "/api/session-search/sessions").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
-
-            const auto active_sessions = deps.session_client
-                ? deps.session_client->list_sessions()
-                : std::vector<SessionInfo>{};
-            const auto catalog = build_global_session_catalog(
-                projects_dir(), active_sessions);
-
+            const std::string request_id =
+                trim_query_param(req.url_params.get("request_id"));
+            if (!valid_search_request_id(request_id)) {
+                crow::response r(400);
+                r.body = R"({"error":"invalid request_id"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            const std::string query = trim_query_param(req.url_params.get("q"));
+            const std::string cursor = trim_query_param(req.url_params.get("cursor"));
+            const int limit = parse_search_limit(req.url_params.get("limit"));
+            const auto page = global_session_search->search_sessions(
+                request_id, query, static_cast<std::size_t>(limit), cursor);
+            if (page.cursor_stale) {
+                crow::response r(409);
+                r.body = json{
+                    {"error", "SESSION_SEARCH_CURSOR_STALE"},
+                    {"message", "search catalog changed; restart from the first page"},
+                    {"progress", global_search_progress_to_json(page.progress)},
+                }.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
             json sessions = json::array();
-            for (const auto& entry : catalog.entries) {
-                json item = entry.active
-                    ? session_info_to_json(*entry.active, &entry.meta)
-                    : session_meta_to_json(entry.meta, entry.workspace_hash);
-                item["workspaceName"] = entry.meta.no_workspace
-                    ? std::string{"\u65e0\u5de5\u4f5c\u533a"}
-                    : entry.workspace_name;
-                item["workspace_cwd"] = entry.meta.no_workspace
-                    ? std::string{}
-                    : entry.workspace_cwd;
-                item["workspace_visible"] = entry.workspace_visible;
-                sessions.push_back(std::move(item));
+            for (const auto& entry : page.entries) {
+                sessions.push_back(global_search_entry_to_json(entry));
             }
-
-            json errors = json::array();
-            for (const auto& error : catalog.errors) {
-                errors.push_back(json{
-                    {"hash", error.workspace_hash},
-                    {"project_dir", error.project_dir},
-                    {"stage", error.stage},
-                    {"message", error.message},
-                });
-            }
-
-            crow::response r(json{
+            json body{
                 {"sessions", sessions},
-                {"errors", errors},
-            }.dump());
+                {"errors", global_search_errors_to_json(page.errors)},
+                {"progress", global_search_progress_to_json(page.progress)},
+            };
+            if (page.next_cursor) {
+                body["next_cursor"] = *page.next_cursor;
+            } else {
+                body["next_cursor"] = nullptr;
+            }
+            crow::response r(body.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });
@@ -734,9 +812,24 @@ void WebServer::Impl::register_sessions() {
             if (auto rej = require_auth(req)) return std::move(*rej);
 
             const std::string query = trim_query_param(req.url_params.get("q"));
+            const std::string request_id =
+                trim_query_param(req.url_params.get("request_id"));
             const int limit = parse_search_limit(req.url_params.get("limit"));
+            if (!valid_search_request_id(request_id)) {
+                crow::response r(400);
+                r.body = R"({"error":"invalid request_id"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
             if (query.empty()) {
-                crow::response r(json{{"matches", json::array()}}.dump());
+                crow::response r(json{
+                    {"matches", json::array()},
+                    {"progress", json{
+                        {"scanned_projects", 0},
+                        {"total_projects", 0},
+                        {"complete", true},
+                    }},
+                }.dump());
                 r.add_header("Content-Type", "application/json");
                 return with_cors(req, std::move(r));
             }
@@ -747,45 +840,53 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, std::move(r));
             }
 
-            GlobalSessionCatalogOptions options;
-            options.content_query = query;
-            options.content_limit_per_project = limit;
-            const auto active_sessions = deps.session_client
-                ? deps.session_client->list_sessions()
-                : std::vector<SessionInfo>{};
-            const auto catalog = build_global_session_catalog(
-                projects_dir(), active_sessions, options);
+            const auto page = global_session_search->search_user_messages_batch(
+                request_id, query, static_cast<std::size_t>(limit));
+            if (page.cancelled) {
+                crow::response r(409);
+                r.body = json{
+                    {"error", "SESSION_SEARCH_CANCELLED"},
+                    {"message", "search request was cancelled"},
+                }.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
             json matches = json::array();
-            for (const auto& entry : catalog.entries) {
-                if (!entry.content_match) continue;
-                json item = entry.active
-                    ? session_info_to_json(*entry.active, &entry.meta)
-                    : session_meta_to_json(entry.meta, entry.workspace_hash);
-                item["workspaceName"] = entry.meta.no_workspace
-                    ? std::string{"\u65e0\u5de5\u4f5c\u533a"}
-                    : entry.workspace_name;
-                item["workspace_cwd"] = entry.meta.no_workspace
-                    ? std::string{}
-                    : entry.workspace_cwd;
-                item["workspace_visible"] = entry.workspace_visible;
-                item["search_match"] = json{
-                    {"kind", "user_message"},
-                    {"score", entry.content_match->score},
-                    {"message_ordinal", entry.content_match->message_ordinal},
-                    {"snippet", entry.content_match->snippet},
-                    {"attachments", entry.content_match->matched_attachment_names},
-                };
-                matches.push_back(std::move(item));
+            for (const auto& entry : page.entries) {
+                matches.push_back(global_search_entry_to_json(entry));
             }
-            if (static_cast<int>(matches.size()) > limit) {
-                matches.erase(matches.begin() + limit, matches.end());
-            }
-            for (const auto& error : catalog.errors) {
+            for (const auto& error : page.errors) {
                 LOG_WARN("[web] global session search " + error.stage +
                          " failed for " + error.project_dir + ": " + error.message);
             }
+            crow::response r(json{
+                {"matches", matches},
+                {"errors", global_search_errors_to_json(page.errors)},
+                {"progress", json{
+                    {"scanned_projects", page.scanned_projects},
+                    {"total_projects", page.total_projects},
+                    {"complete", page.complete},
+                }},
+            }.dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
 
-            crow::response r(json{{"matches", matches}}.dump());
+        CROW_ROUTE(app, "/api/session-search/requests/<string>/cancel").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& request_id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!valid_search_request_id(request_id) || request_id.empty()) {
+                crow::response r(400);
+                r.body = R"({"error":"invalid request_id"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            const bool first = global_session_search->cancel(request_id);
+            crow::response r(json{
+                {"request_id", request_id},
+                {"cancelled", true},
+                {"already_cancelled", !first},
+            }.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });
@@ -818,6 +919,9 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, std::move(r));
             }
             LOG_INFO("[web] compatibility /api/sessions create id=" + id + " cwd=" + ws.cwd);
+            if (global_session_search) {
+                global_session_search->invalidate_project(ws.hash);
+            }
             crow::response r(201);
             r.body = json{
                 {"session_id", id},

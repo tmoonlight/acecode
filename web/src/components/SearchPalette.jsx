@@ -1,7 +1,6 @@
-// 全局会话搜索面板:Ctrl/Cmd+K 触发,跨所有 workspace 列出 session,前端 fuzzy 过滤。
-//
-// 数据 60s TTL 缓存,WS session_status 事件命中 invalidate。键盘导航
-// (↑/↓/PgUp/PgDn/Home/End/Enter/Esc)优先级最高,绑在根节点的 keydown 上。
+// 全局会话搜索面板:服务端增量目录 + 有界正文短批次。
+// 每次打开/查询都有独立 request_id；本地 AbortController 与服务端取消
+// 同时执行，因此 Esc、关闭按钮、遮罩、查询替换和卸载都能真正停止工作。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
@@ -23,12 +22,65 @@ import { VsIcon } from './Icon.jsx';
 const CACHE_TTL_MS = 60_000;
 const PAGE_SIZE = 8;
 const MAX_EMPTY_RESULTS = 50;
+const CATALOG_POLL_MS = 80;
+const CONTENT_POLL_MS = 15;
 
-// 组件外缓存,跨 open/close 共享(关闭再打开 60s 内不再 fetch)。
+const emptyProgress = Object.freeze({
+  scanned_projects: 0,
+  total_projects: 0,
+  generation: 0,
+  complete: false,
+  paused: false,
+});
+
+// 仅缓存空查询最近结果；查询结果不会污染下一次打开的首页。
 const cache = {
   ts: 0,
-  data: { sessions: [], workspaces: [], errors: [] },
+  data: {
+    sessions: [],
+    workspaces: [],
+    errors: [],
+    progress: emptyProgress,
+    next_cursor: null,
+  },
 };
+
+let requestSequence = 0;
+
+function createSearchRequestId() {
+  requestSequence += 1;
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid || `search-${Date.now()}-${requestSequence}`;
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError';
+}
+
+function waitForPoll(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
+      resolve();
+    };
+    const onAbort = () => finish();
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+  });
+}
+
+function mergeUniqueSessions(previous = [], next = []) {
+  const byKey = new Map();
+  const keyFor = (session) => `${session?.no_workspace ? 'no' : (session?.workspace_hash || '')}::${session?.id || ''}`;
+  for (const session of previous) byKey.set(keyFor(session), session);
+  for (const session of next) byKey.set(keyFor(session), session);
+  return [...byKey.values()];
+}
 
 function isCacheFresh(now = Date.now()) {
   return cache.ts > 0 && now - cache.ts < CACHE_TTL_MS;
@@ -45,6 +97,13 @@ function searchMatchContext(match) {
   return String(match.snippet || '');
 }
 
+function progressLabel(progress, prefix) {
+  if (!progress || progress.complete) return '';
+  const scanned = Number(progress.scanned_projects) || 0;
+  const total = Number(progress.total_projects) || 0;
+  return total > 0 ? `${prefix} ${scanned}/${total}` : `${prefix}准备中`;
+}
+
 export function SearchPalette({
   open,
   onClose,
@@ -53,22 +112,43 @@ export function SearchPalette({
   onSelectWorkspace,
 }) {
   const [query, setQuery] = useState('');
-  const [loadState, setLoadState] = useState('idle'); // 'idle' | 'loading' | 'ready'
   const [data, setData] = useState(cache.data);
-  const [contentSearch, setContentSearch] = useState({ query: '', matches: [] });
+  const [contentSearch, setContentSearch] = useState({
+    query: '',
+    matches: [],
+    progress: { scanned_projects: 0, total_projects: 0, complete: true },
+  });
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [searchError, setSearchError] = useState('');
+  const [loadMoreBusy, setLoadMoreBusy] = useState(false);
+  const [searchRevision, setSearchRevision] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const rowRefs = useRef(new Map());
-  const reqIdRef = useRef(0);
-  const contentReqIdRef = useRef(0);
+  const activeSearchRef = useRef(null);
+  const workspaceAbortRef = useRef(null);
 
-  // WS / 本地 session-list 事件 invalidate 缓存(关闭面板时也监听,
-  // 确保刚创建且尚未落盘的会话下次打开立即可搜)。
+  const cancelSearch = useCallback((search = activeSearchRef.current) => {
+    if (!search || search.cancelled) return;
+    search.cancelled = true;
+    search.controller?.abort();
+    // 取消请求不能复用刚被 abort 的 signal；它独立、幂等、尽力送达。
+    api.cancelSessionSearch(search.requestId).catch(() => {});
+    if (activeSearchRef.current === search) activeSearchRef.current = null;
+  }, []);
+
+  const closePalette = useCallback(() => {
+    cancelSearch();
+    workspaceAbortRef.current?.abort();
+    onClose?.();
+  }, [cancelSearch, onClose]);
+
+  // WS / 本地列表事件只使空查询缓存失效；正在显示的成功结果保留到下一批。
   useEffect(() => {
-    const onMsg = (e) => {
-      const t = e.detail?.type;
-      if (t === 'session_status' || t === 'session_status_snapshot' || t === 'mark_session_read_ack') {
+    const onMsg = (event) => {
+      const type = event.detail?.type;
+      if (type === 'session_status' || type === 'session_status_snapshot'
+          || type === 'mark_session_read_ack') {
         invalidateCache();
       }
     };
@@ -81,66 +161,139 @@ export function SearchPalette({
     };
   }, []);
 
-  // 打开时:reset query/selection,fetch(若缓存过期)。
+  // 面板生命周期:立刻呈现缓存，同时单独读取项目列表；没有全局 loading 门。
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
     setQuery('');
-    setContentSearch({ query: '', matches: [] });
     setSelectedIndex(0);
+    setSearchError('');
+    setContentSearch({
+      query: '',
+      matches: [],
+      progress: { scanned_projects: 0, total_projects: 0, complete: true },
+    });
+    if (isCacheFresh()) setData(cache.data);
+    else setData((previous) => ({ ...previous, sessions: cache.data.sessions }));
     requestAnimationFrame(() => inputRef.current?.focus());
 
-    if (isCacheFresh()) {
-      setData(cache.data);
-      setLoadState('ready');
-      return;
-    }
-    const reqId = ++reqIdRef.current;
-    setLoadState('loading');
-    api.listAllWorkspaceSessions().then((result) => {
-      if (reqId !== reqIdRef.current) return; // 过期请求丢弃
-      cache.ts = Date.now();
-      cache.data = result;
-      setData(result);
-      setLoadState('ready');
-    }).catch(() => {
-      if (reqId !== reqIdRef.current) return;
-      setLoadState('ready');
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    workspaceAbortRef.current = controller;
+    api.listWorkspaces({ signal: controller?.signal }).then((workspaces) => {
+      if (controller?.signal.aborted) return;
+      setData((previous) => ({
+        ...previous,
+        workspaces: Array.isArray(workspaces) ? workspaces : [],
+      }));
+    }).catch((error) => {
+      if (!isAbortError(error)) setSearchError(error?.message || '项目列表加载失败');
     });
+    return () => {
+      controller?.abort();
+      if (workspaceAbortRef.current === controller) workspaceAbortRef.current = null;
+    };
   }, [open]);
 
+  // 查询生命周期:元数据和正文并行渐进推进。cleanup 是查询替换、open=false
+  // 和组件卸载的共同取消路径。
   useEffect(() => {
-    if (!open) return;
-    const q = query.trim();
-    if (!shouldSearchUserMessages(q)) {
-      contentReqIdRef.current++;
-      setContentSearch({ query: '', matches: [] });
-      return;
+    if (!open) return undefined;
+    const normalizedQuery = query.trim();
+    const requestId = createSearchRequestId();
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const search = { requestId, controller, cancelled: false, query: normalizedQuery };
+    activeSearchRef.current = search;
+    setSearchError('');
+    setLoadMoreBusy(false);
+    if (!normalizedQuery) {
+      setData((previous) => ({ ...previous, sessions: cache.data.sessions }));
     }
-    const reqId = ++contentReqIdRef.current;
-    const timer = setTimeout(() => {
-      api.searchSessionUserMessages(q, 50).then((result) => {
-        if (reqId !== contentReqIdRef.current) return;
-        const matches = Array.isArray(result?.matches) ? result.matches : [];
-        setContentSearch({ query: q, matches });
-      }).catch(() => {
-        if (reqId !== contentReqIdRef.current) return;
-        setContentSearch({ query: q, matches: [] });
-      });
-    }, 160);
-    return () => clearTimeout(timer);
-  }, [open, query]);
 
-  // 排序后的可见列表;空查询时取最近 50 条。
+    const runCatalog = async () => {
+      try {
+        while (!controller?.signal.aborted) {
+          const payload = await api.listGlobalSessions({
+            query: normalizedQuery,
+            limit: MAX_EMPTY_RESULTS,
+            requestId,
+            signal: controller?.signal,
+          });
+          if (controller?.signal.aborted || activeSearchRef.current !== search) return;
+          const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+          const errors = Array.isArray(payload?.errors) ? payload.errors : [];
+          const progress = payload?.progress || emptyProgress;
+          const next = {
+            sessions,
+            errors,
+            progress,
+            next_cursor: payload?.next_cursor || null,
+          };
+          setData((previous) => ({ ...previous, ...next }));
+          if (!normalizedQuery) {
+            cache.ts = Date.now();
+            cache.data = { ...cache.data, ...next };
+          }
+          if (progress.complete) return;
+          await waitForPoll(CATALOG_POLL_MS, controller?.signal);
+        }
+      } catch (error) {
+        if (!isAbortError(error) && activeSearchRef.current === search) {
+          setSearchError(error?.message || '搜索任务加载失败');
+        }
+      }
+    };
+
+    const runContent = async () => {
+      if (!shouldSearchUserMessages(normalizedQuery)) {
+        setContentSearch({
+          query: '',
+          matches: [],
+          progress: { scanned_projects: 0, total_projects: 0, complete: true },
+        });
+        return;
+      }
+      await waitForPoll(160, controller?.signal);
+      try {
+        while (!controller?.signal.aborted) {
+          const payload = await api.searchSessionUserMessages(
+            normalizedQuery,
+            50,
+            { requestId, signal: controller?.signal },
+          );
+          if (controller?.signal.aborted || activeSearchRef.current !== search) return;
+          const matches = Array.isArray(payload?.matches) ? payload.matches : [];
+          const progress = payload?.progress || {
+            scanned_projects: 0,
+            total_projects: 0,
+            complete: true,
+          };
+          setContentSearch({ query: normalizedQuery, matches, progress });
+          if (progress.complete) return;
+          await waitForPoll(CONTENT_POLL_MS, controller?.signal);
+        }
+      } catch (error) {
+        if (!isAbortError(error) && error?.code !== 'SESSION_SEARCH_CANCELLED'
+            && activeSearchRef.current === search) {
+          setSearchError(error?.message || '搜索正文失败');
+        }
+      }
+    };
+
+    runCatalog();
+    runContent();
+    return () => cancelSearch(search);
+  }, [open, query, searchRevision, cancelSearch]);
+
   const taskItems = useMemo(() => {
     const baseSessions = withNewSessionDisplayTitles(data.sessions || []);
-    const q = query.trim();
-    const matches = shouldSearchUserMessages(q) && contentSearch.query === q
+    const normalizedQuery = query.trim();
+    const matches = shouldSearchUserMessages(normalizedQuery)
+      && contentSearch.query === normalizedQuery
       ? contentSearch.matches
       : [];
     const merged = mergeSessionContentMatches(baseSessions, matches);
     const ranked = rankSessions(merged, query, Date.now());
-    return query.trim() ? ranked : ranked.slice(0, MAX_EMPTY_RESULTS);
-  }, [data, query, contentSearch]);
+    return normalizedQuery ? ranked : ranked.slice(0, MAX_EMPTY_RESULTS);
+  }, [data.sessions, query, contentSearch]);
   const projectItems = useMemo(
     () => rankWorkspaces(data.workspaces || [], query),
     [data.workspaces, query],
@@ -150,13 +303,8 @@ export function SearchPalette({
     [projectItems, taskItems],
   );
 
-  // query / items 变化时把 selectedIndex 钉到 0(避免滑出范围)。
-  // contentSearch 到达会重排列表,与 data 刷新同样处理。
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query, data, contentSearch]);
+  useEffect(() => setSelectedIndex(0), [query, data.sessions, contentSearch]);
 
-  // 选中项滚动到可视区。
   useEffect(() => {
     const row = rowRefs.current.get(selectedIndex);
     if (row) row.scrollIntoView({ block: 'nearest' });
@@ -177,7 +325,7 @@ export function SearchPalette({
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      onClose?.();
+      closePalette();
       return;
     }
     if (event.key === 'Enter') {
@@ -189,47 +337,84 @@ export function SearchPalette({
     }
     if (total === 0) return;
     let next = selectedIndex;
-    if (event.key === 'ArrowDown')      next = Math.min(total - 1, selectedIndex + 1);
-    else if (event.key === 'ArrowUp')   next = Math.max(0, selectedIndex - 1);
-    else if (event.key === 'PageDown')  next = Math.min(total - 1, selectedIndex + PAGE_SIZE);
-    else if (event.key === 'PageUp')    next = Math.max(0, selectedIndex - PAGE_SIZE);
-    else if (event.key === 'Home')      next = 0;
-    else if (event.key === 'End')       next = total - 1;
+    if (event.key === 'ArrowDown') next = Math.min(total - 1, selectedIndex + 1);
+    else if (event.key === 'ArrowUp') next = Math.max(0, selectedIndex - 1);
+    else if (event.key === 'PageDown') next = Math.min(total - 1, selectedIndex + PAGE_SIZE);
+    else if (event.key === 'PageUp') next = Math.max(0, selectedIndex - PAGE_SIZE);
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = total - 1;
     else return;
     event.preventDefault();
     event.stopPropagation();
     setSelectedIndex(next);
-  }, [items, selectedIndex, commit, onClose]);
+  }, [items, selectedIndex, commit, closePalette]);
+
+  const loadMore = useCallback(async () => {
+    const search = activeSearchRef.current;
+    if (!search || !data.next_cursor || loadMoreBusy) return;
+    setLoadMoreBusy(true);
+    try {
+      const payload = await api.listGlobalSessions({
+        query: search.query,
+        limit: 50,
+        cursor: data.next_cursor,
+        requestId: search.requestId,
+        signal: search.controller?.signal,
+      });
+      if (activeSearchRef.current !== search) return;
+      setData((previous) => ({
+        ...previous,
+        sessions: mergeUniqueSessions(previous.sessions, payload?.sessions || []),
+        errors: Array.isArray(payload?.errors) ? payload.errors : previous.errors,
+        progress: payload?.progress || previous.progress,
+        next_cursor: payload?.next_cursor || null,
+      }));
+    } catch (error) {
+      if (error?.code === 'SESSION_SEARCH_CURSOR_STALE') {
+        setSearchRevision((value) => value + 1);
+      } else if (!isAbortError(error)) {
+        setSearchError(error?.message || '加载更多失败');
+      }
+    } finally {
+      setLoadMoreBusy(false);
+    }
+  }, [data.next_cursor, loadMoreBusy]);
 
   if (!open) return null;
+
+  const catalogProgressText = progressLabel(data.progress, '正在建立任务索引');
+  const contentProgressText = shouldSearchUserMessages(query)
+    ? progressLabel(contentSearch.progress, '正在增量搜索正文')
+    : '';
+  const progressText = [catalogProgressText, contentProgressText].filter(Boolean).join(' · ');
+  const partialErrors = Array.isArray(data.errors) ? data.errors : [];
 
   return (
     <div
       data-ace-native-overlay="blocking"
       className="fixed inset-0 z-[300] flex items-start justify-center pt-[15vh] px-4"
       onKeyDown={onRootKeyDown}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) closePalette(); }}
       style={{ background: 'rgba(var(--ace-bg-rgb), 0.50)' }}
     >
       <div
         className="bg-surface border border-border rounded-xl ace-shadow-lg overflow-hidden flex flex-col"
         style={{ width: 'min(640px, 90vw)', maxHeight: '70vh' }}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
       >
-        {/* 顶部输入栏 */}
         <div className="h-12 px-3 flex items-center gap-2 border-b border-border shrink-0">
           <VsIcon name="search" size={14} className="text-fg-mute shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="搜索任务或项目"
             className="flex-1 bg-transparent border-0 outline-none text-[14px] text-fg placeholder:text-fg-mute"
           />
           <button
             type="button"
-            onClick={onClose}
+            onClick={closePalette}
             title="关闭 (Esc)"
             className="w-6 h-6 rounded-md text-fg-mute hover:text-fg hover:bg-surface-hi flex items-center justify-center"
           >
@@ -237,100 +422,125 @@ export function SearchPalette({
           </button>
         </div>
 
-        {/* 错误条:某 workspace 加载失败 */}
-        {loadState === 'ready' && data.errors?.length > 0 && (
+        {progressText && (
+          <div className="px-3 py-1.5 text-[11px] text-fg-mute bg-surface-alt border-b border-border shrink-0">
+            {progressText}（可随时关闭）
+          </div>
+        )}
+        {searchError && (
+          <div className="px-3 py-1.5 flex items-center justify-between gap-3 text-[11px] text-danger bg-danger-bg border-b border-border shrink-0">
+            <span className="truncate">搜索失败：{searchError}</span>
+            <button
+              type="button"
+              className="shrink-0 underline hover:no-underline"
+              onClick={() => setSearchRevision((value) => value + 1)}
+            >
+              重试
+            </button>
+          </div>
+        )}
+        {!searchError && partialErrors.length > 0 && (
           <div className="px-3 py-1.5 text-[11px] text-warning bg-warning-soft/30 border-b border-border shrink-0">
-            部分搜索数据加载失败:{data.errors.map((e) => e.name || e.hash).filter(Boolean).join(',')}
+            部分搜索数据加载失败：
+            {partialErrors.map((error) => error.name || error.hash || error.stage).filter(Boolean).join(', ')}
           </div>
         )}
 
-        {/* 列表区 */}
         <div ref={listRef} role="listbox" aria-label="搜索结果" className="flex-1 overflow-y-auto">
-          {loadState === 'loading' && (
-            <div className="px-4 py-8 text-center text-fg-mute text-[13px]">加载中…</div>
-          )}
-          {loadState === 'ready' && (
-            <>
-              <div className="px-3 py-1.5 flex items-center justify-between border-b border-border bg-surface-alt text-[11px] font-semibold text-fg-mute">
-                <span>任务</span>
-                <span>{taskItems.length}</span>
+          <div className="px-3 py-1.5 flex items-center justify-between border-b border-border bg-surface-alt text-[11px] font-semibold text-fg-mute">
+            <span>任务</span>
+            <span>{taskItems.length}</span>
+          </div>
+          {taskItems.map((session, index) => {
+            const item = items[index];
+            const selected = index === selectedIndex;
+            const showWorkspaceName = (session.workspace_hash || '') !== currentWorkspaceHash;
+            const relativeTime = searchRelativeTime(session.updated_at || session.created_at);
+            const matchContext = searchMatchContext(session.search_match);
+            const right = [
+              selected && 'Enter',
+              showWorkspaceName && (session.workspaceName || ''),
+              relativeTime,
+            ].filter(Boolean).join(' · ');
+            return (
+              <div
+                key={item?.key || `task:${session.id}`}
+                ref={(element) => {
+                  if (element) rowRefs.current.set(index, element);
+                  else rowRefs.current.delete(index);
+                }}
+                role="option"
+                aria-selected={selected}
+                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseDown={(event) => { event.preventDefault(); commit(index); }}
+                className={clsx(
+                  'min-h-12 px-3 py-2 flex items-center gap-3 cursor-pointer text-[13px]',
+                  selected ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
+                )}
+              >
+                <VsIcon name="code" size={16} className="text-fg-mute shrink-0" />
+                <span className="min-w-0 flex-1 flex flex-col gap-0.5">
+                  <span className="truncate">{sessionDisplayTitle(session)}</span>
+                  {matchContext ? (
+                    <span className="truncate text-[11px] text-fg-mute">{matchContext}</span>
+                  ) : null}
+                </span>
+                <span className="text-[12px] text-fg-mute shrink-0">{right}</span>
               </div>
-              {taskItems.map((s, idx) => {
-                const item = items[idx];
-                const selected = idx === selectedIndex;
-                const showWsName = (s.workspace_hash || '') !== currentWorkspaceHash;
-                const rel = searchRelativeTime(s.updated_at || s.created_at);
-                const matchContext = searchMatchContext(s.search_match);
-                const right = [
-                  selected && 'Enter',
-                  showWsName && (s.workspaceName || ''),
-                  rel,
-                ].filter(Boolean).join(' · ');
-                return (
-                  <div
-                    key={item?.key || `task:${s.id}`}
-                    ref={(el) => { if (el) rowRefs.current.set(idx, el); else rowRefs.current.delete(idx); }}
-                    role="option"
-                    aria-selected={selected}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                    onMouseDown={(e) => { e.preventDefault(); commit(idx); }}
-                    className={clsx(
-                      'min-h-12 px-3 py-2 flex items-center gap-3 cursor-pointer text-[13px]',
-                      selected ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
-                    )}
-                  >
-                    <VsIcon name="code" size={16} className="text-fg-mute shrink-0" />
-                    <span className="min-w-0 flex-1 flex flex-col gap-0.5">
-                      <span className="truncate">{sessionDisplayTitle(s)}</span>
-                      {matchContext ? (
-                        <span className="truncate text-[11px] text-fg-mute">{matchContext}</span>
-                      ) : null}
-                    </span>
-                    <span className="text-[12px] text-fg-mute shrink-0">{right}</span>
-                  </div>
-                );
-              })}
-              <div className="px-3 py-1.5 flex items-center justify-between border-y border-border bg-surface-alt text-[11px] font-semibold text-fg-mute">
-                <span>项目</span>
-                <span>{projectItems.length}</span>
-              </div>
-              {projectItems.map((workspace, projectIndex) => {
-                const idx = taskItems.length + projectIndex;
-                const item = items[idx];
-                const selected = idx === selectedIndex;
-                const active = (workspace.hash || '') === currentWorkspaceHash || !!workspace.active;
-                const right = [selected && 'Enter', active && '当前'].filter(Boolean).join(' · ');
-                const name = workspaceDisplayName(workspace);
-                const path = String(workspace.cwd || '').trim();
-                return (
-                  <div
-                    key={item?.key || `project:${workspace.hash || projectIndex}`}
-                    ref={(el) => { if (el) rowRefs.current.set(idx, el); else rowRefs.current.delete(idx); }}
-                    role="option"
-                    aria-selected={selected}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                    onMouseDown={(e) => { e.preventDefault(); commit(idx); }}
-                    className={clsx(
-                      'min-h-12 px-3 py-2 flex items-center gap-3 cursor-pointer text-[13px]',
-                      selected ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
-                    )}
-                  >
-                    <VsIcon name="folder" size={16} className="text-fg-mute shrink-0" />
-                    <span className="min-w-0 flex-1 flex flex-col gap-0.5">
-                      <span className="truncate font-medium">{name}</span>
-                      {path && path !== name ? (
-                        <span className="truncate text-[11px] text-fg-mute">{path}</span>
-                      ) : null}
-                    </span>
-                    <span className="text-[12px] text-fg-mute shrink-0">{right}</span>
-                  </div>
-                );
-              })}
-            </>
+            );
+          })}
+          {data.next_cursor && (
+            <button
+              type="button"
+              className="w-full px-3 py-2 text-[12px] text-accent hover:bg-surface-hi disabled:opacity-50"
+              disabled={loadMoreBusy}
+              onClick={loadMore}
+            >
+              {loadMoreBusy ? '加载中…' : '加载更多任务'}
+            </button>
           )}
-          {loadState === 'ready' && items.length === 0 && (
+          <div className="px-3 py-1.5 flex items-center justify-between border-y border-border bg-surface-alt text-[11px] font-semibold text-fg-mute">
+            <span>项目</span>
+            <span>{projectItems.length}</span>
+          </div>
+          {projectItems.map((workspace, projectIndex) => {
+            const index = taskItems.length + projectIndex;
+            const item = items[index];
+            const selected = index === selectedIndex;
+            const active = (workspace.hash || '') === currentWorkspaceHash || !!workspace.active;
+            const right = [selected && 'Enter', active && '当前'].filter(Boolean).join(' · ');
+            const name = workspaceDisplayName(workspace);
+            const path = String(workspace.cwd || '').trim();
+            return (
+              <div
+                key={item?.key || `project:${workspace.hash || projectIndex}`}
+                ref={(element) => {
+                  if (element) rowRefs.current.set(index, element);
+                  else rowRefs.current.delete(index);
+                }}
+                role="option"
+                aria-selected={selected}
+                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseDown={(event) => { event.preventDefault(); commit(index); }}
+                className={clsx(
+                  'min-h-12 px-3 py-2 flex items-center gap-3 cursor-pointer text-[13px]',
+                  selected ? 'bg-surface-hi text-fg' : 'text-fg hover:bg-surface-hi/60',
+                )}
+              >
+                <VsIcon name="folder" size={16} className="text-fg-mute shrink-0" />
+                <span className="min-w-0 flex-1 flex flex-col gap-0.5">
+                  <span className="truncate font-medium">{name}</span>
+                  {path && path !== name ? (
+                    <span className="truncate text-[11px] text-fg-mute">{path}</span>
+                  ) : null}
+                </span>
+                <span className="text-[12px] text-fg-mute shrink-0">{right}</span>
+              </div>
+            );
+          })}
+          {items.length === 0 && (
             <div className="px-4 py-8 text-center text-fg-mute text-[13px]">
-              {query.trim() ? '无匹配结果' : '暂无任务或项目'}
+              {progressText ? '正在增量搜索，可随时关闭' : (query.trim() ? '无匹配结果' : '暂无任务或项目')}
             </div>
           )}
         </div>

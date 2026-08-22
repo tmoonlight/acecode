@@ -195,6 +195,28 @@ await run('expert switch client keeps optional draft text in the atomic request 
   }
 });
 
+await run('external AbortSignal stays a silent caller cancellation', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => new Promise((_resolve, reject) => {
+    opts.signal.addEventListener('abort', () => {
+      const error = new Error('caller cancelled');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true });
+  });
+  try {
+    const controller = new AbortController();
+    const pending = createApi({ origin: 'http://acecode.test', token: '' })
+      .listGlobalSessions({ requestId: 'request-1', signal: controller.signal });
+    controller.abort();
+    await assert.rejects(pending, (error) => (
+      error?.name === 'AbortError' && !(error instanceof ApiError)
+    ));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await run('全局会话目录与可见项目并行合并且保留局部错误', async () => {
   const calls = [];
   const hidden = {
@@ -439,6 +461,49 @@ await run('searchSessionUserMessages uses bounded content search endpoint', asyn
     assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/session-search/user-messages?q=sqlite+%E7%B4%A2%E5%BC%95&limit=100');
     assert.equal(calls[0].opts.method, 'GET');
     assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+await run('incremental search API carries request, cursor, signal and cancel id', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ sessions: [], matches: [], progress: { complete: true } }),
+    };
+  };
+  try {
+    const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
+    const controller = new AbortController();
+    await client.listGlobalSessions({
+      query: '最近任务',
+      limit: 500,
+      cursor: '7:50',
+      requestId: 'search-7',
+      signal: controller.signal,
+    });
+    await client.searchSessionUserMessages(
+      '正文', 50, { requestId: 'search-7', signal: controller.signal },
+    );
+    await client.cancelSessionSearch('search-7');
+
+    assert.equal(
+      calls[0].url,
+      'http://127.0.0.1:4567/api/session-search/sessions?q=%E6%9C%80%E8%BF%91%E4%BB%BB%E5%8A%A1&limit=100&request_id=search-7&cursor=7%3A50',
+    );
+    assert.match(calls[1].url, /request_id=search-7/);
+    assert.equal(
+      calls[2].url,
+      'http://127.0.0.1:4567/api/session-search/requests/search-7/cancel',
+    );
+    assert.equal(calls[2].opts.method, 'POST');
+    assert.equal(calls[2].opts.keepalive, true);
   } finally {
     globalThis.fetch = previousFetch;
   }

@@ -55,6 +55,20 @@ run('search palette renders task and project groups in one result sequence', () 
   assert.match(palette, /window\.addEventListener\(SESSION_LIST_CHANGED_EVENT/);
 });
 
+run('every search palette exit converges on local abort and server cancellation', () => {
+  const palette = source('components/SearchPalette.jsx');
+  assert.match(palette, /search\.controller\?\.abort\(\)/);
+  assert.match(palette, /api\.cancelSessionSearch\(search\.requestId\)/);
+  assert.match(palette, /return \(\) => cancelSearch\(search\)/);
+  assert.match(palette, /event\.key === 'Escape'[\s\S]*closePalette\(\)/);
+  assert.match(palette, /onClick=\{closePalette\}/);
+  assert.match(palette, /event\.target === event\.currentTarget\) closePalette\(\)/);
+  assert.match(palette, /\[open, query, searchRevision, cancelSearch\]/);
+  assert.match(palette, /正在增量搜索正文/);
+  assert.match(palette, /可随时关闭/);
+  assert.doesNotMatch(palette, /loadState === 'loading'/);
+});
+
 run('global session search is independent from visible workspace discovery', () => {
   const api = source('lib/api.js');
   const app = source('App.jsx');
@@ -64,7 +78,8 @@ run('global session search is independent from visible workspace discovery', () 
   );
 
   assert.match(catalogCall, /mergeGlobalSessionsAndWorkspaces/);
-  assert.match(catalogCall, /\/api\/session-search\/sessions/);
+  assert.match(catalogCall, /sessionCatalogSearchPath/);
+  assert.match(api, /`\/api\/session-search\/sessions\?\$\{queryString\}`/);
   assert.match(catalogCall, /\/api\/workspaces/);
   assert.doesNotMatch(catalogCall, /\/api\/workspaces\/\$\{[^}]+\}\/sessions/);
   assert.match(

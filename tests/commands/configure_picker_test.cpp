@@ -11,6 +11,29 @@
 #include <string>
 
 using acecode::format_picker_row;
+using acecode::filter_picker_items;
+using acecode::PickerItem;
+
+// 场景:autocomplete 同时匹配 label 和 secondary,大小写不敏感且保持原顺序。
+TEST(FilterPickerItems, MatchesLabelAndSecondaryInStableOrder) {
+    const std::vector<PickerItem> items = {
+        {"Custom OpenAI-compatible API", "OpenAI chat/completions-style endpoint"},
+        {"openrouter", "(OpenRouter) models=300"},
+        {"GitHub Copilot", "Managed preset with GitHub device authentication"},
+    };
+
+    auto open_matches = filter_picker_items(items, "OPEN");
+    ASSERT_EQ(open_matches.size(), 2u);
+    EXPECT_EQ(open_matches[0], 0u);
+    EXPECT_EQ(open_matches[1], 1u);
+
+    auto secondary_match = filter_picker_items(items, "device auth");
+    ASSERT_EQ(secondary_match.size(), 1u);
+    EXPECT_EQ(secondary_match[0], 2u);
+
+    EXPECT_TRUE(filter_picker_items(items, "missing").empty());
+    EXPECT_EQ(filter_picker_items(items, "").size(), items.size());
+}
 
 // 场景:secondary 为空时只返回 label 本体,不加两空格 gutter,不加任何尾部空白
 TEST(FormatPickerRow, LabelOnly) {
