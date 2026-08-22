@@ -119,19 +119,6 @@ std::optional<ReadRequest> parse_read_request(
     const bool has_end = args.contains("end_line");
     const bool has_byte_offset = args.contains("byte_offset");
     const bool has_max_bytes = args.contains("max_bytes");
-    request.has_line_range = has_start || has_end;
-    request.byte_mode = has_byte_offset || has_max_bytes;
-
-    if (request.has_line_range && request.byte_mode) {
-        error = ToolErrors::incompatible_parameters(
-            "byte_offset/max_bytes", "start_line/end_line");
-        return std::nullopt;
-    }
-    if (has_max_bytes && !has_byte_offset) {
-        error = ToolErrors::invalid_parameter(
-            "max_bytes", "requires byte_offset");
-        return std::nullopt;
-    }
 
     if (has_start && !json_line_number(args["start_line"], request.start_line)) {
         error = ToolErrors::invalid_parameter(
@@ -151,18 +138,45 @@ std::optional<ReadRequest> parse_read_request(
         return std::nullopt;
     }
 
-    if (has_max_bytes) {
-        uint64_t max_bytes = 0;
-        if (!json_nonnegative_u64(args["max_bytes"], max_bytes) ||
-            max_bytes == 0 || max_bytes > kFileReadByteWindowLimit) {
+    // Providers that enforce OpenAI structured-output schemas promote every
+    // declared property into `required`, so a caller cannot omit an optional
+    // parameter and sends the zero value instead. Treat max_bytes=0 as unset
+    // rather than out of range.
+    uint64_t max_bytes = 0;
+    if (has_max_bytes &&
+        (!json_nonnegative_u64(args["max_bytes"], max_bytes) ||
+         max_bytes > kFileReadByteWindowLimit)) {
+        error = ToolErrors::invalid_parameter(
+            "max_bytes",
+            "must be between 1 and " +
+            std::to_string(kFileReadByteWindowLimit));
+        return std::nullopt;
+    }
+    if (max_bytes > 0) {
+        if (!has_byte_offset) {
             error = ToolErrors::invalid_parameter(
-                "max_bytes",
-                "must be between 1 and " +
-                std::to_string(kFileReadByteWindowLimit));
+                "max_bytes", "requires byte_offset");
             return std::nullopt;
         }
         request.requested_max_bytes = static_cast<size_t>(max_bytes);
         request.effective_max_bytes = request.requested_max_bytes;
+    }
+
+    // A line range is only requested when the numbers are meaningful: these are
+    // 1-indexed, so 0 means "unset" here exactly as it does downstream.
+    request.has_line_range = request.start_line > 0 || request.end_line > 0;
+    request.byte_mode = has_byte_offset || max_bytes > 0;
+
+    // Both modes can arrive together only because the caller was forced to send
+    // the byte parameters it never asked for. Rejecting the combination made
+    // file_read permanently unusable behind such a provider — every call failed
+    // and models retried the same read indefinitely. Prefer the explicit line
+    // range and drop the byte window instead.
+    if (request.has_line_range && request.byte_mode) {
+        request.byte_mode = false;
+        request.byte_offset = 0;
+        request.requested_max_bytes = 0;
+        request.effective_max_bytes = kFileReadByteWindowLimit;
     }
 
     return request;
@@ -1012,7 +1026,7 @@ ToolImpl create_file_read_tool() {
             }},
             {"byte_offset", {
                 {"type", "integer"},
-                {"description", "Zero-based source byte offset for byte-window mode. Cannot be combined with line ranges."}
+                {"description", "Zero-based source byte offset for byte-window mode. Ignored when start_line/end_line is given."}
             }},
             {"max_bytes", {
                 {"type", "integer"},

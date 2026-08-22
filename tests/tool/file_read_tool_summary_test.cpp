@@ -266,17 +266,9 @@ TEST(FileReadToolSummary, ByteWindowContinuationDoesNotSkipSplitUtf8Character) {
     fs::remove(p);
 }
 
-TEST(FileReadToolSummary, RejectsConflictingOrOversizedByteWindowArguments) {
+TEST(FileReadToolSummary, RejectsOversizedByteWindowArguments) {
     ToolImpl tool = create_file_read_tool();
     auto p = make_temp_file("alpha\n");
-
-    ToolResult conflict = tool.execute(nlohmann::json({
-        {"file_path", p.string()},
-        {"start_line", 1},
-        {"byte_offset", 0}
-    }).dump(), ToolContext{});
-    EXPECT_FALSE(conflict.success);
-    EXPECT_NE(conflict.output.find("cannot be combined"), std::string::npos);
 
     ToolResult oversized = tool.execute(nlohmann::json({
         {"file_path", p.string()},
@@ -285,6 +277,43 @@ TEST(FileReadToolSummary, RejectsConflictingOrOversizedByteWindowArguments) {
     }).dump(), ToolContext{});
     EXPECT_FALSE(oversized.success);
     EXPECT_NE(oversized.output.find("between 1 and 32768"), std::string::npos);
+
+    fs::remove(p);
+}
+
+// Providers enforcing OpenAI structured outputs mark every declared property
+// as required, so the caller must send byte_offset/max_bytes even when it only
+// wants a line range. Rejecting that combination made file_read fail on every
+// call behind such a provider; the line range now wins instead.
+TEST(FileReadToolSummary, LineRangeWinsOverForcedByteWindowArguments) {
+    ToolImpl tool = create_file_read_tool();
+    auto p = make_temp_file("alpha\nbeta\ngamma\n");
+
+    ToolResult ranged = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 2},
+        {"end_line", 3},
+        {"byte_offset", 0},
+        {"max_bytes", 32768}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(ranged.success) << ranged.output;
+    EXPECT_NE(ranged.output.find("beta"), std::string::npos);
+    EXPECT_EQ(ranged.output.find("alpha"), std::string::npos);
+    EXPECT_NE(ranged.output.find("range=\"2-3\""), std::string::npos);
+    EXPECT_EQ(ranged.output.find("byte_range="), std::string::npos);
+
+    // All-zero values mean "unset" for the same reason: a plain whole-file read
+    // must not be rejected for an out-of-range max_bytes.
+    ToolResult zeroed = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 0},
+        {"end_line", 0},
+        {"byte_offset", 0},
+        {"max_bytes", 0}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(zeroed.success) << zeroed.output;
+    EXPECT_NE(zeroed.output.find("alpha"), std::string::npos);
+    EXPECT_NE(zeroed.output.find("gamma"), std::string::npos);
 
     fs::remove(p);
 }
