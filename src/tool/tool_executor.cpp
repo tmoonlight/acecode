@@ -396,20 +396,25 @@ ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string
         auto it = tools_.find(tool_name);
         if (it == tools_.end()) {
             LOG_ERROR("execute: unknown tool '" + tool_name + "'");
-            return ToolResult{"[Error] Unknown tool: " + tool_name, false};
+            ToolResult result{"[Error] Unknown tool: " + tool_name, false};
+            ensure_tool_summary(tool_name, arguments_json, result);
+            return result;
         }
         const ToolCapabilityPolicy* policy =
             ctx.capability_policy ? &*ctx.capability_policy : nullptr;
         if (!tool_allowed_by_policy(it->second, policy)) {
             LOG_WARN("execute: expert capability policy denied tool '" +
                      tool_name + "'");
-            return expert_policy_denied_result(tool_name);
+            auto result = expert_policy_denied_result(tool_name);
+            ensure_tool_summary(tool_name, arguments_json, result);
+            return result;
         }
         impl = it->second;
     }
     ToolContext effective_ctx = ctx;
     effective_ctx.tool_executor = const_cast<ToolExecutor*>(this);
     auto result = impl.execute(arguments_json, effective_ctx);
+    ensure_tool_summary(tool_name, arguments_json, result);
     return result;
 }
 
@@ -447,6 +452,8 @@ ChatMessage ToolExecutor::format_tool_result(const std::string& tool_call_id, co
     if (result.metadata.is_object() && !result.metadata.empty()) {
         msg.metadata = result.metadata;
     }
+    if (!msg.metadata.is_object()) msg.metadata = nlohmann::json::object();
+    msg.metadata["tool_success"] = result.success;
     if (result.has_attachments()) {
         msg.content_parts = output_attachments_to_content_parts(result.attachments);
     }

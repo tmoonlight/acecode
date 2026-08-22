@@ -4,6 +4,8 @@ import { connection } from './connection.js';
 import { attachmentsFromContentParts, normalizeAttachmentList } from './messageAttachments.js';
 import { sessionDisplayTitle, titleFromMessages } from './sessionTitle.js';
 import { transcriptTimestampMs } from './timestamps.js';
+import { fallbackToolSummary } from './toolSummaryFallback.js';
+import { normalizeToolInvocationItems } from './transcriptProjection.js';
 
 export function messageKey(role, content) {
   return `${role || ''}\u0000${content || ''}`;
@@ -549,6 +551,8 @@ function genericHistoryMessageItem(next, m, extra = {}) {
     item.tool_index = toolIndex;
     item.toolIndex = toolIndex;
   }
+  const toolName = extra.toolName ?? m?.tool ?? m?.tool_name;
+  if (toolName) item.tool_name = String(toolName);
   return item;
 }
 
@@ -561,6 +565,9 @@ function historyItemFromMessage(next, m, messageOrdinal = null) {
     const askUserQuestionResult = normalizeAskUserQuestionResult(metadata);
     const attachments = attachmentsFromContentParts(m.content_parts);
     if (summary || hunks.length > 0 || attachments.length > 0 || askUserQuestionResult) {
+      const success = typeof metadata.tool_success === 'boolean'
+        ? metadata.tool_success
+        : true;
       return {
         kind: 'tool',
         id: allocateItemId(next),
@@ -568,7 +575,7 @@ function historyItemFromMessage(next, m, messageOrdinal = null) {
         tool: {
           isTaskComplete: false,
           isDone: true,
-          success: true,
+          success,
           tool: m.tool || '',
           toolCallId: m.tool_call_id || m.toolCallId || '',
           toolIndex: m.tool_index ?? m.toolIndex ?? null,
@@ -1361,7 +1368,10 @@ export function reduceTranscriptEvent(state, msg) {
             ...item.tool,
             isDone: true,
             success: !!p.success,
-            summary: p.summary || item.tool.summary,
+            summary: p.summary || item.tool.summary || fallbackToolSummary(
+              item.tool.tool || p.tool,
+              item.tool.args,
+            ),
             output: p.output || '',
             hunks: Array.isArray(p.hunks) ? p.hunks : [],
             attachments: normalizeAttachmentList(p.attachments),
@@ -1599,7 +1609,7 @@ export function canLiveMonitorSession(sessionRef, live = 'auto') {
 }
 
 export function projectCompactTranscriptItems(items, limit = 6) {
-  const source = Array.isArray(items) ? items : [];
+  const source = normalizeToolInvocationItems(items);
   const boundedLimit = Math.max(1, Number(limit) || 1);
   return source.slice(-boundedLimit);
 }

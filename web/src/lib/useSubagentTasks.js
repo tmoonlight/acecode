@@ -15,6 +15,7 @@ import { connection } from './connection.js';
 import {
   SUBAGENT_TASK_STATUS,
   applySubagentSessionEvent,
+  isSubagentSpawnStartEvent,
   markSubagentTaskAborted,
   mergeSubagentTaskList,
   removeSubagentTask,
@@ -22,11 +23,13 @@ import {
   shouldRefreshSubagentTasksFromStatus,
 } from './subagentTasks.js';
 
-export function useSubagentTasks(parentSessionId) {
+export function useSubagentTasks(parentSessionId, { onSpawnStart } = {}) {
   const [tasks, setTasks] = useState([]);
   const retainedRef = useRef(new Set());
   const parentRef = useRef(parentSessionId);
   useEffect(() => { parentRef.current = parentSessionId; }, [parentSessionId]);
+  const onSpawnStartRef = useRef(onSpawnStart);
+  useEffect(() => { onSpawnStartRef.current = onSpawnStart; }, [onSpawnStart]);
   const taskIdsRef = useRef(new Set());
   useEffect(() => { taskIdsRef.current = new Set(tasks.map((t) => t.id)); }, [tasks]);
 
@@ -54,6 +57,9 @@ export function useSubagentTasks(parentSessionId) {
       const msg = event.detail || {};
       const sid = msg.session_id || msg.payload?.session_id || '';
       if (sid === parentSessionId) {
+        if (isSubagentSpawnStartEvent(parentSessionId, msg)) {
+          onSpawnStartRef.current?.(msg);
+        }
         if (msg.type === 'tool_end') {
           const p = msg.payload || {};
           if ((p.tool === 'spawn_subagent' && p.metadata?.subagent_session_id) ||

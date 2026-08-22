@@ -1,5 +1,4 @@
 import { clsx } from '../lib/format.js';
-import { VsIcon } from './Icon.jsx';
 
 /**
  * 对话流中唯一的被动活动首行。
@@ -20,13 +19,14 @@ export function ActivityLine({
   title,
   ariaLabel,
   live = false,
+  preserveLabel = false,
   className = '',
 }) {
   const interactive = expandable && typeof onToggle === 'function';
   const handleKeyDown = (event) => {
     if (!interactive || (event.key !== 'Enter' && event.key !== ' ')) return;
     event.preventDefault();
-    onToggle();
+    onToggle(event);
   };
   const content = (
     <>
@@ -38,23 +38,46 @@ export function ActivityLine({
           <span className={clsx('ace-spinner h-3 w-3', spinnerStatic && 'ace-spinner-static')} />
         ) : icon}
       </span>
-      <span className="min-w-0 max-w-[62%] truncate font-medium text-fg-mute group-hover/activity:text-fg">
+      <span className={clsx(
+        'whitespace-nowrap font-medium text-fg-mute group-hover/activity:text-fg',
+        preserveLabel ? 'shrink-0' : 'min-w-0 max-w-[62%] truncate',
+      )}>
         {label || '正在处理'}
       </span>
       {detail && (
-        <span className="min-w-0 flex-1 truncate text-fg-mute" title={String(detail)}>
+        <span className="min-w-0 truncate text-fg-mute" title={String(detail)}>
           · {detail}
         </span>
       )}
-      {!detail && <span className="min-w-0 flex-1" aria-hidden="true" />}
+      {expandable && (
+        <span
+          className="ace-activity-line-chevron flex h-4 w-4 shrink-0 items-center justify-center"
+          aria-hidden="true"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="block shrink-0"
+            style={{ transform: `rotate(${expanded ? 0 : -90}deg)` }}
+            aria-hidden="true"
+          >
+            <path
+              d="M4 6L8 10L12 6"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      )}
+      <span className="min-w-0 flex-1" aria-hidden="true" />
       {trailing && (
         <span className="flex shrink-0 items-center gap-1.5 text-fg-mute">
           {trailing}
-        </span>
-      )}
-      {expandable && (
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-fg-mute/80">
-          <VsIcon name={expanded ? 'expandDown' : 'expandRight'} size={11} />
         </span>
       )}
     </>
@@ -82,6 +105,7 @@ export function ActivityLine({
         aria-label={interactive ? (ariaLabel || (expanded ? '收起详情' : '展开详情')) : undefined}
         title={title || (interactive ? (expanded ? '收起详情' : '展开详情') : undefined)}
         data-activity-expandable={expandable ? 'true' : 'false'}
+        data-activity-title-anchor="true"
       >
         {content}
       </div>

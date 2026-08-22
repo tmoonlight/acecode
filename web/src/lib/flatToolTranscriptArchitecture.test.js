@@ -50,8 +50,8 @@ run('top-level and recursively expanded activity items use a flat content stack'
     "const directive = it.kind === 'msg'",
   );
 
-  assert.match(recursiveItems, /className="mt-1 flex flex-col gap-0\.5"/);
-  assert.match(topLevelActivity, /className="mt-1 flex flex-col gap-0\.5"/);
+  assert.match(recursiveItems, /<ActivityDetailsReveal>/);
+  assert.match(topLevelActivity, /<ActivityDetailsReveal>/);
   assert.doesNotMatch(recursiveItems, treeLayoutClass);
   assert.doesNotMatch(topLevelActivity, treeLayoutClass);
 });
@@ -75,7 +75,8 @@ run('all passive tool lifecycle rows reuse the same fixed-height ActivityLine sh
   assert.doesNotMatch(activityLine, /<button/);
   assert.match(chat, /function ActivitySummaryBlock[\s\S]*?<ActivityLine/);
   assert.match(tool, /import \{ ActivityLine \}/);
-  assert.ok((tool.match(/<ActivityLine/g) || []).length >= 4);
+  assert.ok((tool.match(/<ActivityLine/g) || []).length >= 3);
+  assert.match(tool, /const completedSummary = summary \|\| genericSummary;/);
   assert.match(subagent, /<ActivityLine/);
 });
 
@@ -93,6 +94,80 @@ run('single-line activity UI uses the same responsive font size as assistant bod
   );
   assert.match(subagent, /truncate text-\[13px\] text-fg/);
   assert.doesNotMatch(subagent, /truncate text-\[12\.5px\] text-fg/);
+});
+
+run('processed summary divider paints across the row without changing layout height', () => {
+  const chat = source('components/ChatView.jsx');
+  const styles = source('styles/globals.css');
+  const divider = between(
+    styles,
+    '.ace-activity-line-processed::after',
+    '/* Tool 中的真实代码与 diff 不继承上面的正文覆盖。 */',
+  );
+
+  assert.match(chat, /item\?\.mode === 'processed' \? 'ace-activity-line-processed' : ''/);
+  assert.match(styles, /\.ace-activity-line-processed\s*\{\s*position:\s*relative;/);
+  assert.match(divider, /position:\s*absolute;/);
+  assert.match(divider, /right:\s*0;/);
+  assert.match(divider, /left:\s*0;/);
+  assert.match(divider, /height:\s*1px;/);
+  assert.doesNotMatch(divider, /(?:^|\n)\s*(?:margin|padding|border(?:-[a-z-]+)?):/);
+});
+
+run('activity chevrons sit beside content, reveal on hover, and stay visible for processed summaries', () => {
+  const activityLine = source('components/ActivityLine.jsx');
+  const styles = source('styles/globals.css');
+  const chevronIndex = activityLine.indexOf('ace-activity-line-chevron');
+  const spacerIndex = activityLine.indexOf('className="min-w-0 flex-1"', chevronIndex);
+  const trailingIndex = activityLine.indexOf('{trailing &&', chevronIndex);
+
+  assert.notEqual(chevronIndex, -1);
+  assert.ok(chevronIndex < spacerIndex);
+  assert.ok(spacerIndex < trailingIndex);
+  assert.match(activityLine, /d="M4 6L8 10L12 6"/);
+  assert.match(activityLine, /strokeWidth="1\.2"/);
+  assert.match(activityLine, /rotate\(\$\{expanded \? 0 : -90\}deg\)/);
+  assert.doesNotMatch(activityLine, /name=\{expanded \? 'expandDown' : 'expandRight'\}/);
+  assert.match(styles, /\.ace-activity-line-chevron\s*\{[\s\S]*?opacity:\s*0;/);
+  assert.match(styles, /\.ace-activity-line:hover \.ace-activity-line-chevron,[\s\S]*?color:\s*var\(--ace-fg\);[\s\S]*?opacity:\s*1;/);
+  assert.match(styles, /\.ace-activity-line-processed \.ace-activity-line-chevron\s*\{\s*opacity:\s*1;/);
+  assert.match(
+    styles,
+    /\.ace-activity-line-chevron svg\s*\{[\s\S]*?transition:\s*transform 150ms cubic-bezier\(\.2, 0, 0, 1\);/,
+  );
+});
+
+run('expanded activity details quickly draw downward and release clipping after entry', () => {
+  const chat = source('components/ChatView.jsx');
+  const styles = source('styles/globals.css');
+  const revealComponent = between(chat, 'function ActivityDetailsReveal', 'function ActivitySummaryBlock');
+  const revealStyles = between(
+    styles,
+    '@keyframes ace-activity-details-reveal',
+    '/* Tool 中的真实代码与 diff 不继承上面的正文覆盖。 */',
+  );
+
+  assert.match(revealComponent, /data-activity-details-reveal="true"/);
+  assert.match(revealComponent, /ace-activity-details-reveal-inner mt-1 flex min-h-0 flex-col gap-0\.5/);
+  assert.match(revealComponent, /event\.target === event\.currentTarget/);
+  assert.match(revealStyles, /from\s*\{[\s\S]*?grid-template-rows:\s*0fr;/);
+  assert.match(revealStyles, /to\s*\{[\s\S]*?grid-template-rows:\s*1fr;/);
+  assert.match(revealStyles, /animation:\s*ace-activity-details-reveal 150ms cubic-bezier\(\.2, 0, 0, 1\) both;/);
+  assert.match(revealStyles, /\.ace-activity-details-reveal\.is-settled\s*\{\s*overflow:\s*visible;\s*animation:\s*none;/);
+  assert.match(revealStyles, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none;/);
+  assert.match(revealStyles, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.ace-activity-line-chevron svg\s*\{\s*transition:\s*none;/);
+  assert.ok((chat.match(/&& \(\s*<ActivityDetailsReveal>/g) || []).length >= 2);
+});
+
+run('activity summaries pass their actual title element into expansion anchoring', () => {
+  const activityLine = source('components/ActivityLine.jsx');
+  const chat = source('components/ChatView.jsx');
+
+  assert.match(activityLine, /data-activity-title-anchor="true"/);
+  assert.match(activityLine, /onToggle\(event\);/);
+  assert.ok(
+    (chat.match(/onToggle=\{\(event\) => toggleActivitySummary\([^\n]+event\?\.currentTarget\)\}/g) || []).length >= 2,
+  );
 });
 
 run('bottom loading is projected into ActivityLine and the old bubble is gone', () => {

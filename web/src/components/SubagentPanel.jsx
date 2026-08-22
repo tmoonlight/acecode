@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
 import { DEFAULT_SUBAGENT_PANEL_WIDTH } from '../lib/singleLayout.js';
 import { useSessionTranscript } from '../lib/sessionTranscript.js';
+import { normalizeToolInvocationItems } from '../lib/transcriptProjection.js';
 import {
   SUBAGENT_TASK_STATUS,
   formatElapsed,
@@ -84,7 +85,7 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
 // AskUserQuestion 的工具行不进窄条(冒泡到主会话回答);其余 kind 里只保留
 // msg + tool,聚合/提示类行(activity_summary 等)在简化视图中省略。
 function transcriptItemsForPanel(items) {
-  return (Array.isArray(items) ? items : []).filter((it) => {
+  return normalizeToolInvocationItems(items).filter((it) => {
     if (it.kind === 'tool') return (it.tool?.tool || '') !== 'AskUserQuestion';
     return it.kind === 'msg';
   });

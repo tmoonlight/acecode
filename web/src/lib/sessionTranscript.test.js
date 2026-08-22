@@ -1093,6 +1093,31 @@ run('history load 将带 tool_hunks metadata 的 tool message 恢复为 tool ite
   assert.deepEqual(loaded.items[1].tool.hunks, [hunk]);
 });
 
+run('history load 从 tool_success 恢复失败状态', () => {
+  const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: [
+      {
+        id: 't1',
+        role: 'tool',
+        content: '[Error] glob failed',
+        tool_call_id: 'call-glob',
+        ts: 2,
+        metadata: {
+          tool_success: false,
+          tool_summary: { verb: 'Glob', object: '*.cpp · C:/repo', icon: '*', metrics: [] },
+        },
+      },
+    ],
+    events: [],
+  }).state;
+
+  assert.equal(loaded.items.length, 1);
+  assert.equal(loaded.items[0].kind, 'tool');
+  assert.equal(loaded.items[0].tool.success, false);
+  assert.equal(loaded.items[0].tool.summary.verb, 'Glob');
+  assert.equal(loaded.items[0].tool.summary.object, '*.cpp · C:/repo');
+});
+
 run('history load 将 AskUserQuestion metadata 恢复为确认卡片工具项', () => {
   const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
     messages: [
@@ -1186,8 +1211,12 @@ run('history load 展开 persisted assistant.tool_calls 并匹配无 summary 工
   assert.equal(serialized.includes('请求未记录'), false);
   assert.equal(projected[1].kind, 'activity_summary');
   assert.equal(projected[1].mode, 'live');
-  assert.match(projected[1].collapsedItems[0].content, /\[Tool: shell_command\] \{"command":"date"\}/);
-  assert.match(projected[1].collapsedItems[0].content, /Thu Jun  4 12:00:00 CST 2026/);
+  const tool = projected[1].collapsedItems[0].tool;
+  assert.equal(tool.summary.verb, 'Shell_command');
+  assert.equal(tool.summary.object, 'date');
+  assert.equal(tool.summary.icon, '*');
+  assert.match(tool.output, /\[Tool: shell_command\] \{"command":"date"\}/);
+  assert.match(tool.output, /Thu Jun  4 12:00:00 CST 2026/);
 });
 
 run('transcript_replace 展开 persisted assistant.tool_calls 并匹配无 summary 工具返回', () => {
@@ -1274,11 +1303,12 @@ run('history load 同名并行 persisted tool_calls 按 tool_call_id 匹配各�
   const summary = projected.find((item) => item.kind === 'activity_summary');
   assert.ok(summary);
   assert.equal(summary.collapsedItems.length, 2);
-  assert.deepEqual(summary.collapsedItems.map((item) => item.tool_call_id), ['call-a', 'call-b']);
-  assert.match(summary.collapsedItems[0].content, /\[Tool: grep\] \{"q":"A"\}/);
-  assert.match(summary.collapsedItems[0].content, /工具返回\nA result/);
-  assert.match(summary.collapsedItems[1].content, /\[Tool: grep\] \{"q":"B"\}/);
-  assert.match(summary.collapsedItems[1].content, /工具返回\nB result/);
+  assert.deepEqual(summary.collapsedItems.map((item) => item.tool.toolCallId), ['call-a', 'call-b']);
+  assert.deepEqual(summary.collapsedItems.map((item) => item.tool.summary.object), ['A', 'B']);
+  assert.match(summary.collapsedItems[0].tool.output, /\[Tool: grep\] \{"q":"A"\}/);
+  assert.match(summary.collapsedItems[0].tool.output, /工具返回\nA result/);
+  assert.match(summary.collapsedItems[1].tool.output, /\[Tool: grep\] \{"q":"B"\}/);
+  assert.match(summary.collapsedItems[1].tool.output, /工具返回\nB result/);
   assert.equal(JSON.stringify(projected).includes('请求未记录'), false);
 });
 
@@ -1294,6 +1324,10 @@ run('history load 对确实缺少请求的 tool result 保留请求未记录 fal
 
   const projected = projectLoadedItems(loaded.items);
   assert.match(JSON.stringify(projected), /请求未记录/);
+  const summary = projected.find((item) => item.kind === 'activity_summary');
+  assert.equal(summary.collapsedItems[0].kind, 'tool');
+  assert.equal(summary.collapsedItems[0].tool.summary.verb, 'Tool');
+  assert.equal(JSON.stringify(projected).includes('工具调用 / 返回'), false);
 });
 
 run('history load 消费 turn_timing 并用持久 duration 渲染 processed summary', () => {
@@ -1557,6 +1591,38 @@ run('tool lifecycle 保留进度、summary、失败输出、hunks 和附件', ()
   assert.equal(tool.output, 'failed');
   assert.deepEqual(tool.hunks, [hunk]);
   assert.deepEqual(tool.attachments, [attachment]);
+});
+
+run('旧 daemon 的无摘要 tool_end 使用 tool_start 参数生成通用摘要', () => {
+  const state = reduceMany([
+    {
+      type: 'tool_start',
+      payload: {
+        tool: 'glob',
+        tool_call_id: 'call-glob',
+        args: { pattern: '**/*', path: 'C:/repo', options: { hidden: true } },
+      },
+      seq: 1,
+    },
+    {
+      type: 'tool_end',
+      payload: {
+        tool: 'glob',
+        tool_call_id: 'call-glob',
+        success: true,
+        output: 'matched files',
+      },
+      seq: 2,
+    },
+  ]);
+
+  assert.equal(state.items.length, 1);
+  assert.deepEqual(state.items[0].tool.summary, {
+    verb: 'Glob',
+    object: '**/* · C:/repo · {"hidden":true}',
+    icon: '*',
+    metrics: [],
+  });
 });
 
 run('task_complete live tool_end 的持久消息 ID 进入完成总结投影', () => {
@@ -1879,6 +1945,32 @@ run('compact projection 只取最近窗口且不改写 item 内容', () => {
   const compact = projectCompactTranscriptItems(items, 4);
   assert.deepEqual(compact.map((item) => item.content), ['m7', 'm8', 'm9', 'm10']);
   assert.equal(compact[0], items[6]);
+});
+
+run('compact projection 将旧工具调用和返回统一为摘要工具项', () => {
+  const compact = projectCompactTranscriptItems([
+    { kind: 'msg', id: 1, role: 'user', content: 'find files' },
+    {
+      kind: 'msg',
+      id: 2,
+      role: 'tool_call',
+      content: '[Tool: glob] {"pattern":"**/*","path":"C:/work"}',
+      tool_call_id: 'call-glob',
+    },
+    {
+      kind: 'msg',
+      id: 3,
+      role: 'tool_result',
+      content: 'a.cpp',
+      tool_call_id: 'call-glob',
+    },
+  ], 4);
+
+  assert.equal(compact.length, 2);
+  assert.equal(compact[1].kind, 'tool');
+  assert.equal(compact[1].tool.summary.verb, 'Glob');
+  assert.equal(compact[1].tool.summary.object, '**/* · C:/work');
+  assert.equal(compact.some((item) => item.role === 'tool_call' || item.role === 'tool_result'), false);
 });
 
 run('live/static 判定区分 active running 与磁盘历史', () => {

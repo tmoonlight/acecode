@@ -1,5 +1,10 @@
 import { transcriptTimestampMs } from './timestamps.js';
 import { formatCount } from './format.js';
+import {
+  fallbackToolSummary,
+  inferLegacyToolSuccess,
+  parseLegacyToolCall,
+} from './toolSummaryFallback.js';
 
 function isUserMessage(item) {
   return item?.kind === 'msg' && item.role === 'user';
@@ -685,12 +690,12 @@ function suppressStructuredToolWrappers(items) {
     .filter(Boolean);
 }
 
-function legacyInvocationLabel() {
-  return '工具调用 / 返回';
-}
-
 function missingToolRequestText() {
   return '请求未记录（旧记录未保存工具调用参数）';
+}
+
+function missingToolResultText() {
+  return '结果未记录（旧记录未保存工具返回内容）';
 }
 
 function legacyRequestText(call, result) {
@@ -702,6 +707,7 @@ function legacyRequestText(call, result) {
 }
 
 function legacyResultText(result) {
+  if (!result) return missingToolResultText();
   const content = String(result?.content || '').trim();
   return content || '空内容';
 }
@@ -718,16 +724,49 @@ function legacyInvocationContent(call, result) {
 
 function makeLegacyInvocationItem(call, result, betweenItems) {
   const coveredItems = [call, ...(betweenItems || []), result].filter(Boolean);
+  const fallbackName = transcriptToolName(call) || transcriptToolName(result);
+  const invocation = parseLegacyToolCall(call?.content, fallbackName);
+  const toolName = invocation.toolName || fallbackName;
+  const summary = call
+    ? invocation.summary
+    : fallbackToolSummary(toolName, null);
+  const metadata = {
+    ...objectMetadata(result),
+    legacy_tool_invocation: true,
+    legacy_arguments_malformed: invocation.malformed,
+  };
+  const toolCallId = toolCallIdForItem(call) || toolCallIdForItem(result);
+  const toolIndex = call?.toolIndex ?? call?.tool_index
+    ?? result?.toolIndex ?? result?.tool_index ?? null;
+  const ts = itemTimestamp(call) || itemTimestamp(result);
   return {
-    ...result,
-    role: 'tool_result',
-    content: legacyInvocationContent(call, result),
+    kind: 'tool',
+    id: result?.id ?? call?.id ?? `legacy-tool-${toolCallId || ts || 'unknown'}`,
+    messageId: result?.messageId || call?.messageId || '',
     coveredItemIds: collectCoveredIds(coveredItems),
-    ts: itemTimestamp(call) || itemTimestamp(result),
-    metadata: {
-      ...objectMetadata(result),
-      legacyToolInvocation: true,
-      compact_label: legacyInvocationLabel(),
+    ts,
+    tool: {
+      isTaskComplete: false,
+      isDone: true,
+      success: result ? inferLegacyToolSuccess(result) : true,
+      tool: toolName,
+      toolCallId,
+      toolIndex,
+      args: invocation.args,
+      startedAtMs: ts,
+      displayOverride: '',
+      title: summary.object || summary.verb,
+      tailLines: [],
+      currentPartial: '',
+      totalLines: 0,
+      totalBytes: 0,
+      elapsed: 0,
+      summary,
+      output: legacyInvocationContent(call, result),
+      hunks: [],
+      attachments: [],
+      metadata,
+      askUserQuestionResult: null,
     },
   };
 }
@@ -768,7 +807,6 @@ function coalesceIdMatchedLegacyWrappers(items) {
   const resultIndexesById = new Map();
   items.forEach((item, index) => {
     if (!isToolTranscriptResultMessage(item)) return;
-    if (objectMetadata(item).legacyToolInvocation) return;
     const id = toolCallIdForItem(item);
     if (!id) return;
     const indexes = resultIndexesById.get(id) || [];
@@ -808,16 +846,25 @@ function coalesceIdMatchedLegacyWrappers(items) {
 function coalesceResultOnlyLegacyWrappers(items) {
   return items.map((item) => {
     if (!isToolTranscriptResultMessage(item)) return item;
-    if (objectMetadata(item).legacyToolInvocation) return item;
     return makeLegacyInvocationItem(null, item, []);
   });
 }
 
-function normalizeToolInvocationItems(items) {
+function coalesceCallOnlyLegacyWrappers(items) {
+  return items.map((item) => {
+    if (!isToolCallTranscriptMessage(item)) return item;
+    if (isTaskCompleteToolCallMessage(item)) return item;
+    return makeLegacyInvocationItem(item, null, []);
+  });
+}
+
+export function normalizeToolInvocationItems(items) {
   if (!Array.isArray(items) || items.length === 0) return [];
-  return coalesceResultOnlyLegacyWrappers(
-    coalesceAdjacentLegacyWrappers(
-      coalesceIdMatchedLegacyWrappers(suppressStructuredToolWrappers(items)),
+  return coalesceCallOnlyLegacyWrappers(
+    coalesceResultOnlyLegacyWrappers(
+      coalesceAdjacentLegacyWrappers(
+        coalesceIdMatchedLegacyWrappers(suppressStructuredToolWrappers(items)),
+      ),
     ),
   );
 }

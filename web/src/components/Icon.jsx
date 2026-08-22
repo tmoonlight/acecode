@@ -74,6 +74,7 @@ const ICONS = {
 };
 
 const TOOL_ICON_MAP = new Map([
+  ['*', 'tool'],
   ['$', 'terminal'],
   ['!', 'warning'],
   ['R', 'openFile'],

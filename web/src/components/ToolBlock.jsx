@@ -4,8 +4,9 @@
 //   - 失败折叠: success=false 时 summary 行下显示前 3 行 stderr,可展开看完整 output
 // 用户点 chip 可切换"展开/收起"。task_complete 用 Done: <summary> 渲染。
 //
-// hunks 字段(file_edit / file_write):展开区走 diff2html 渲染,而不是
-// 纯 <pre>{output}</pre>。bash 工具的展开区头部加 `$ <command>` prompt 行。
+// hunks 字段(file_edit / file_write):展开区继续直接走 diff2html，不套
+// ToolTextFrame。其余文本展开内容统一套 ToolTextFrame；bash 命令作为
+// `$ <command>` 首行和输出一起进入同一个可复制内容框。
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +15,7 @@ import { hunksToUnifiedDiff } from '../lib/diff.js';
 import { compactOneLinePreview } from '../lib/compactMessagePreview.js';
 import { normalizeAttachmentList } from '../lib/messageAttachments.js';
 import { renderMarkdown } from '../lib/markdown.js';
+import { fallbackToolSummary } from '../lib/toolSummaryFallback.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { normalizeTaskCompleteMarkdown } from '../lib/taskCompleteSummary.js';
 import {
@@ -26,6 +28,28 @@ import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 import * as Diff2Html from 'diff2html';
+
+function ToolTextFrame({ text = '', children = null }) {
+  const copyText = String(text ?? '');
+  if (!copyText && !children) return null;
+  return (
+    <CopyableCodeFrame
+      text={copyText}
+      className="ace-tool-output-frame overflow-hidden rounded-xl border border-border bg-surface"
+      data-tool-output-frame="true"
+    >
+      {children || (
+        <pre
+          className="m-0 max-h-[280px] overflow-auto whitespace-pre-wrap break-words px-5 py-3 pr-12 font-mono text-fg-2"
+          style={{ fontSize: 'var(--ace-font-size-code)', lineHeight: 1.55 }}
+          data-code-copy-source="true"
+        >
+          {copyText}
+        </pre>
+      )}
+    </CopyableCodeFrame>
+  );
+}
 
 function MetricList({ metrics }) {
   if (!metrics || !metrics.length) return null;
@@ -214,6 +238,11 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     askUserQuestionResult = null,
   } = entry || {};
   const attachmentItems = useMemo(() => normalizeAttachmentList(attachments), [attachments]);
+  const genericSummary = useMemo(
+    () => fallbackToolSummary(tool || 'tool', args),
+    [args, tool],
+  );
+  const completedSummary = summary || genericSummary;
   const askUserQuestionOutput = useMemo(() => {
     return askUserQuestionText(askUserQuestionResult);
   }, [askUserQuestionResult]);
@@ -349,6 +378,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
           icon={<VsIcon name="ok" size={13} mono={false} className="text-ok" />}
           label="Done"
           detail={compactOneLinePreview(taskCompleteText)}
+          preserveLabel
         />
         <div
           className="ace-md ace-task-complete-md min-w-0 max-w-[88%] pb-1"
@@ -360,59 +390,6 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   }
 
   // 完成态与运行态共用 ActivityLine；详情仍由 ToolBlock 自己负责。
-  if (isDone && summary) {
-    const ok = !!success;
-    return (
-      <div
-        {...toolContextAttrs}
-        className="ace-tool-activity min-w-0"
-      >
-        <ActivityLine
-          icon={<ToolSummaryIcon icon={summary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
-          label={summary.verb || title || tool || '工具完成'}
-          detail={summary.object || ''}
-          trailing={(
-            <>
-              <MetricList metrics={summary.metrics} />
-              {!ok && output && <span className="max-w-48 truncate" title={output}>· {outputPreview}</span>}
-              {liveElapsed > 0 && <span className="tabular-nums">{formatElapsed(liveElapsed)}</span>}
-            </>
-          )}
-          expandable
-          expanded={expanded}
-          onToggle={toggleExpanded}
-          title={buttonTooltip || (expanded ? '收起' : '展开')}
-          ariaLabel={expanded ? '收起' : '展开'}
-        />
-        {expanded && (
-          <div className="max-w-[88%] pb-2 pt-1">
-            {tool === 'bash' && bashPrompt && (
-              <div className="text-fg-mute opacity-70 mb-1 break-all" title={bashPrompt}>
-                $ {bashPrompt}
-              </div>
-            )}
-            {diffHtml ? (
-              <div
-                className="ace-diff ace-tool-diff"
-                dangerouslySetInnerHTML={{ __html: diffHtml }}
-              />
-            ) : output ? (
-              <CopyableCodeFrame text={output}>
-                <pre className="m-0 text-fg-2 whitespace-pre-wrap break-all max-h-[280px] overflow-y-auto" data-code-copy-source="true">{output}</pre>
-              </CopyableCodeFrame>
-            ) : null}
-          </div>
-        )}
-        {attachmentItems.length > 0 && (
-          <div className="max-w-[88%] pb-2 pt-1">
-            <AttachmentStrip attachments={attachmentItems} align="left" compact />
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // done 但无 summary → 仍复用相同首行，仅图标和文案走 fallback。
   if (isDone) {
     const ok = !!success;
     return (
@@ -421,33 +398,38 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         className="ace-tool-activity min-w-0"
       >
         <ActivityLine
-          icon={<VsIcon name={ok ? 'ok' : 'warning'} size={13} mono={false} className={ok ? 'text-ok' : 'text-danger'} />}
-          label={title || tool || '工具完成'}
-          detail={output ? outputPreview : ''}
-          trailing={liveElapsed > 0 ? <span className="tabular-nums">{formatElapsed(liveElapsed)}</span> : null}
+          icon={<ToolSummaryIcon icon={completedSummary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
+          label={completedSummary.verb || title || tool || '工具完成'}
+          detail={completedSummary.object || ''}
+          trailing={(
+            <>
+              <MetricList metrics={completedSummary.metrics} />
+              {!ok && output && <span className="max-w-48 truncate" title={output}>· {outputPreview}</span>}
+              {liveElapsed > 0 && <span className="tabular-nums">{formatElapsed(liveElapsed)}</span>}
+            </>
+          )}
+          preserveLabel
           expandable
           expanded={expanded}
           onToggle={toggleExpanded}
-          title={buttonTooltip || outputPreview || (expanded ? '收起' : '展开')}
+          title={buttonTooltip || (expanded ? '收起' : '展开')}
           ariaLabel={expanded ? '收起' : '展开'}
         />
+        {expanded && (diffHtml || fullToolOutput) && (
+          <div className="max-w-[88%] pb-2 pt-1">
+            {diffHtml ? (
+              <div
+                className="ace-diff ace-tool-diff"
+                dangerouslySetInnerHTML={{ __html: diffHtml }}
+              />
+            ) : (
+              <ToolTextFrame text={fullToolOutput} />
+            )}
+          </div>
+        )}
         {attachmentItems.length > 0 && (
           <div className="max-w-[88%] pb-2 pt-1">
             <AttachmentStrip attachments={attachmentItems} align="left" compact />
-          </div>
-        )}
-        {expanded && (output || bashPrompt) && (
-          <div className="max-w-[88%] pb-2 pt-1">
-            {tool === 'bash' && bashPrompt && (
-              <div className="text-fg-mute opacity-70 mb-1 break-all" title={bashPrompt}>
-                $ {bashPrompt}
-              </div>
-            )}
-            {output && (
-              <CopyableCodeFrame text={output}>
-                <pre className="m-0 text-fg-2 whitespace-pre-wrap break-all max-h-[280px] overflow-y-auto" data-code-copy-source="true">{output}</pre>
-              </CopyableCodeFrame>
-            )}
           </div>
         )}
       </div>
@@ -459,7 +441,13 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   // 工具刚启动、还没有任何可展示内容(无 bash 命令 / tail 输出 / partial)时,
   // 展开区渲染出来只有一圈 padding 的空框(高度就几个像素),观感像 bug。
   // 此时干脆不提供展开:箭头不显示、点击不响应,等有内容后恢复展开能力。
-  const hasExpandableContent = !!(bashPrompt || tailLines.length > 0 || currentPartial || hidden > 0);
+  const progressFrameText = [
+    expandedInvocationText,
+    hidden > 0 ? `... +${hidden} 行已折叠` : '',
+    tailLines.join('\n'),
+    currentPartial,
+  ].filter(Boolean).join('\n');
+  const hasExpandableContent = !!progressFrameText;
   return (
     <div
       className="ace-tool-activity min-w-0"
@@ -469,7 +457,8 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
       <ActivityLine
         running
         spinnerStatic={!liveProgress}
-        label={title || displayOverride || tool || '正在执行工具'}
+        label={genericSummary.verb || title || displayOverride || tool || '正在执行工具'}
+        detail={genericSummary.object || ''}
         trailing={(
           <>
             <span>{totalLines} 行</span>
@@ -477,6 +466,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
             <span>{formatElapsed(liveElapsed)}</span>
           </>
         )}
+        preserveLabel
         expandable={hasExpandableContent}
         expanded={expanded}
         onToggle={hasExpandableContent ? toggleExpanded : undefined}
@@ -484,23 +474,8 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         ariaLabel={hasExpandableContent ? (expanded ? '收起' : '展开') : undefined}
       />
       {expanded && hasExpandableContent && (
-        <div className="max-w-[88%] pb-1.5">
-          {tool === 'bash' && bashPrompt && (
-            <div className="text-fg-mute opacity-70 mt-1 break-all" title={bashPrompt}>
-              $ {bashPrompt}
-            </div>
-          )}
-          {hidden > 0 && (
-            <div className="text-fg-mute mt-1">... +{hidden} 行已折叠</div>
-          )}
-          {tailLines.length > 0 && (
-            <CopyableCodeFrame text={tailLines.join('\n')} className="mt-1">
-              <pre className="m-0 text-fg-2 whitespace-pre-wrap break-all max-h-[100px] overflow-hidden" title={tailLines.join('\n')} data-code-copy-source="true">{tailLines.join('\n')}</pre>
-            </CopyableCodeFrame>
-          )}
-          {currentPartial && (
-            <div className="text-fg-mute opacity-70 truncate" title={currentPartial}>{currentPartial}</div>
-          )}
+        <div className="max-w-[88%] pb-1.5 pt-1">
+          <ToolTextFrame text={progressFrameText} />
         </div>
       )}
     </div>

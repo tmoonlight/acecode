@@ -109,6 +109,10 @@ import { pickExistingWorkspace } from '../lib/workspacePicker.js';
 import { refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
 import { createPendingActionGuard } from '../lib/pendingActionGuard.js';
 import { homeComposerDraftText } from '../lib/homeComposerDrafts.js';
+import {
+  createPendingNewSessionFirstUserMessage,
+  withPendingNewSessionFirstUserMessage,
+} from '../lib/newSessionFirstUserMessage.js';
 import { extractSessionReferences } from '../lib/sessionReference.js';
 import {
   DEFAULT_HOME_WORKSPACE_SELECTION,
@@ -218,6 +222,11 @@ import {
   observeChatTailContent,
   shouldAutoFollowChatTail,
 } from '../lib/chatScrollFollow.js';
+import {
+  activityAnchorViewportTop,
+  matchesProgrammaticActivityScroll,
+  scrollTopForPreservedActivityAnchor,
+} from '../lib/activityExpansionAnchor.js';
 import {
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
@@ -447,6 +456,29 @@ function activitySummaryDetails(item) {
   return item?.detailItems || item?.collapsedItems || [];
 }
 
+function ActivityDetailsReveal({ children }) {
+  const [settled, setSettled] = useState(false);
+
+  useEffect(() => {
+    const fallback = window.setTimeout(() => setSettled(true), 220);
+    return () => window.clearTimeout(fallback);
+  }, []);
+
+  return (
+    <div
+      className={clsx('ace-activity-details-reveal', settled && 'is-settled')}
+      data-activity-details-reveal="true"
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget) setSettled(true);
+      }}
+    >
+      <div className="ace-activity-details-reveal-inner mt-1 flex min-h-0 flex-col gap-0.5">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ActivitySummaryBlock({ item, expanded, onToggle, activity = null }) {
   const details = activitySummaryDetails(item);
   const hasDetails = details.length > 0;
@@ -487,6 +519,7 @@ function ActivitySummaryBlock({ item, expanded, onToggle, activity = null }) {
       title={hasDetails ? (expanded ? '收起详情' : '展开详情') : label}
       ariaLabel={hasDetails ? (expanded ? '收起详情' : '展开详情') : undefined}
       live={live}
+      className={item?.mode === 'processed' ? 'ace-activity-line-processed' : ''}
     />
   );
 }
@@ -720,10 +753,15 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     setTitle: setTranscriptTitle,
   } = transcript;
 
-  // 后台任务(spawn_subagent 子会话):数据 hook 常驻(运行中任务保持 WS
-  // 订阅,权限/问题请求才能冒泡到主会话 UI),面板本身按需打开。
-  const subagentTasks = useSubagentTasks(sid);
   const [subagentPanelOpen, setSubagentPanelOpen] = useState(false);
+  const openSubagentPanelForSpawn = useCallback(() => {
+    setSubagentPanelOpen(true);
+  }, []);
+  // 后台任务(spawn_subagent 子会话):数据 hook 常驻(运行中任务保持 WS
+  // 订阅,权限/问题请求才能冒泡到主会话 UI);新调用开始时自动打开面板。
+  const subagentTasks = useSubagentTasks(sid, {
+    onSpawnStart: openSubagentPanelForSpawn,
+  });
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   // 聊天流「调用了 N 个智能体」分组点某个智能体 → 打开面板并定位其 transcript。
   // focus.n 单调递增,让同一 sessionId 的重复点击也能触发 SubagentPanel 内 effect。
@@ -816,6 +854,12 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     validateHomeWorkspaceSelection,
   );
   const [homeSubmitting, setHomeSubmitting] = useState(false);
+  const [pendingNewSessionFirstUserMessage, setPendingNewSessionFirstUserMessage] = useState(null);
+  useEffect(() => {
+    setPendingNewSessionFirstUserMessage((pending) => (
+      pending && pending.sessionId !== sid ? null : pending
+    ));
+  }, [sid]);
   const [forkingMessageId, setForkingMessageId] = useState('');
   const forkActionGuardRef = useRef(createPendingActionGuard());
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -877,6 +921,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const transcriptContentRef = useRef(null);
   const tailFollowStateRef = useRef(CHAT_TAIL_FOLLOW_STATE.FOLLOWING);
   const tailFollowScrollRafRef = useRef({ first: 0, second: 0 });
+  const activityExpansionAnchorRef = useRef(null);
   // 区分"用户滚动"与"流式渲染引起的 scrollTop 位移"用的上下文:上一次
   // scroll 事件的指标 + 指针是否按住(拖动滚动条/拖选期间的滚动算用户意图)。
   const scrollActivityRef = useRef({ prev: null, pointerActive: false });
@@ -982,7 +1027,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     homeDraftWorkspaceHash,
   );
   composerValueRef.current = composerValue;
-  const rawItems = items;
+  const rawItems = useMemo(
+    () => withPendingNewSessionFirstUserMessage(
+      items,
+      pendingNewSessionFirstUserMessage,
+      sid,
+    ),
+    [items, pendingNewSessionFirstUserMessage, sid],
+  );
   // GitSessionPill 的 sessionStarted 判定在 submit 回调里读(ref 免 dep churn)。
   const rawItemsLengthRef = useRef(0);
   rawItemsLengthRef.current = rawItems.length;
@@ -1320,6 +1372,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
 
   const createHomeComposerSession = useCallback(async (text, {
     createOptions = null,
+    firstUserMessageText = '',
     preserveExtras = false,
     title = '',
   } = {}) => {
@@ -1365,6 +1418,13 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       if (preserveExtras) {
         preserveComposerExtrasOnSessionChangeRef.current = true;
         preserveComposerInputOnSessionChangeRef.current = true;
+      }
+      const pendingFirstUserMessage = createPendingNewSessionFirstUserMessage({
+        sessionId: id,
+        text: firstUserMessageText,
+      });
+      if (pendingFirstUserMessage) {
+        setPendingNewSessionFirstUserMessage(pendingFirstUserMessage);
       }
       onSessionPromoted?.(next);
       notifySessionListChanged({
@@ -2049,8 +2109,98 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     tailFollowScrollRafRef.current = { first: 0, second: 0 };
   }, []);
 
+  const cancelActivityExpansionAnchor = useCallback(() => {
+    const anchor = activityExpansionAnchorRef.current;
+    if (!anchor) return;
+    if (anchor.firstFrame) cancelAnimationFrame(anchor.firstFrame);
+    if (anchor.secondFrame) cancelAnimationFrame(anchor.secondFrame);
+    activityExpansionAnchorRef.current = null;
+  }, []);
+
+  const preserveActivityExpansionAnchor = useCallback(() => {
+    const anchor = activityExpansionAnchorRef.current;
+    const container = scrollRef.current;
+    const titleElement = anchor?.element;
+    if (
+      !anchor
+      || !container
+      || !titleElement
+      || titleElement.isConnected === false
+      || !container.contains(titleElement)
+    ) {
+      if (anchor) cancelActivityExpansionAnchor();
+      return false;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const titleRect = titleElement.getBoundingClientRect();
+    const nextScrollTop = scrollTopForPreservedActivityAnchor({
+      scrollTop: container.scrollTop,
+      anchorViewportTop: anchor.viewportTop,
+      currentAnchorViewportTop: activityAnchorViewportTop({
+        containerTop: containerRect.top,
+        anchorTop: titleRect.top,
+      }),
+      clientHeight: container.clientHeight,
+      scrollHeight: container.scrollHeight,
+    });
+
+    if (Math.abs(nextScrollTop - container.scrollTop) > 0.25) {
+      container.scrollTop = nextScrollTop;
+      anchor.programmaticScrollTop = container.scrollTop;
+    }
+    return true;
+  }, [cancelActivityExpansionAnchor]);
+
+  const scheduleActivityExpansionAnchorMeasure = useCallback(() => {
+    const anchor = activityExpansionAnchorRef.current;
+    if (!anchor) return;
+    if (anchor.firstFrame) cancelAnimationFrame(anchor.firstFrame);
+    if (anchor.secondFrame) cancelAnimationFrame(anchor.secondFrame);
+    anchor.firstFrame = requestAnimationFrame(() => {
+      if (activityExpansionAnchorRef.current !== anchor) return;
+      anchor.firstFrame = 0;
+      if (!preserveActivityExpansionAnchor()) return;
+      anchor.secondFrame = requestAnimationFrame(() => {
+        if (activityExpansionAnchorRef.current !== anchor) return;
+        anchor.secondFrame = 0;
+        preserveActivityExpansionAnchor();
+      });
+    });
+  }, [preserveActivityExpansionAnchor]);
+
+  const beginActivityExpansionAnchor = useCallback((titleElement) => {
+    const container = scrollRef.current;
+    cancelActivityExpansionAnchor();
+    if (
+      !container
+      || !titleElement
+      || typeof titleElement.getBoundingClientRect !== 'function'
+      || !container.contains(titleElement)
+    ) {
+      return false;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const titleRect = titleElement.getBoundingClientRect();
+    cancelTailFollowScroll();
+    setTailFollowFromAction({ type: 'review_pause' });
+    activityExpansionAnchorRef.current = {
+      element: titleElement,
+      viewportTop: activityAnchorViewportTop({
+        containerTop: containerRect.top,
+        anchorTop: titleRect.top,
+      }),
+      programmaticScrollTop: null,
+      firstFrame: 0,
+      secondFrame: 0,
+    };
+    return true;
+  }, [cancelActivityExpansionAnchor, cancelTailFollowScroll, setTailFollowFromAction]);
+
   const scheduleTailFollowScroll = useCallback(() => {
     const scrollToBottom = () => {
+      if (activityExpansionAnchorRef.current) return false;
       if (!shouldAutoFollowChatTail(tailFollowStateRef.current)) return false;
       const el = scrollRef.current;
       if (!el) return false;
@@ -2081,26 +2231,54 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     const el = scrollRef.current;
     if (el) {
       const metrics = chatScrollMetrics(el);
-      setTailFollowFromAction({
-        type: 'scroll',
-        metrics,
-        prevMetrics: scrollActivityRef.current.prev,
-        userGesture: scrollActivityRef.current.pointerActive,
-      });
+      const prevMetrics = scrollActivityRef.current.prev;
+      const anchor = activityExpansionAnchorRef.current;
+      let anchorOwnsScroll = false;
+      if (anchor) {
+        const topChanged = !!prevMetrics
+          && Math.abs(metrics.scrollTop - prevMetrics.scrollTop) > 0.25;
+        const contentHeightChanged = !!prevMetrics
+          && metrics.scrollHeight !== prevMetrics.scrollHeight;
+        if (matchesProgrammaticActivityScroll(metrics.scrollTop, anchor.programmaticScrollTop)) {
+          anchor.programmaticScrollTop = null;
+          anchorOwnsScroll = true;
+        } else if (!prevMetrics || contentHeightChanged || !topChanged) {
+          anchorOwnsScroll = true;
+        } else {
+          cancelActivityExpansionAnchor();
+        }
+      }
+      if (!anchorOwnsScroll) {
+        setTailFollowFromAction({
+          type: 'scroll',
+          metrics,
+          prevMetrics,
+          userGesture: scrollActivityRef.current.pointerActive,
+        });
+      }
       scrollActivityRef.current.prev = metrics;
     }
     scheduleTranscriptMeasures();
-  }, [scheduleTranscriptMeasures, setTailFollowFromAction]);
+  }, [cancelActivityExpansionAnchor, scheduleTranscriptMeasures, setTailFollowFromAction]);
 
   // 滚轮上滚是最明确的"用户想往回看"信号,不等 scroll 事件的启发式判定,
   // 直接暂停跟随(仅回合进行中生效,见 pauseTailFollowForReview 内的门)。
   const handleMessagesWheel = useCallback((event) => {
+    cancelActivityExpansionAnchor();
     if (event.deltaY < 0) pauseTailFollowForReview();
-  }, [pauseTailFollowForReview]);
+  }, [cancelActivityExpansionAnchor, pauseTailFollowForReview]);
 
   const handleMessagesPointerDown = useCallback(() => {
+    cancelActivityExpansionAnchor();
     scrollActivityRef.current.pointerActive = true;
-  }, []);
+  }, [cancelActivityExpansionAnchor]);
+
+  const handleMessagesKeyDownCapture = useCallback((event) => {
+    if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+      return;
+    }
+    cancelActivityExpansionAnchor();
+  }, [cancelActivityExpansionAnchor]);
 
   useEffect(() => {
     const clearPointerActive = () => {
@@ -2202,19 +2380,22 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   }, [composerSubmitting, restoreChatInputFocusSoon]);
 
   useLayoutEffect(() => {
+    cancelActivityExpansionAnchor();
     setTailFollowFromAction({ type: 'session_reset' });
     lastUserTurnKeyRef.current = '';
     scrollActivityRef.current = { prev: null, pointerActive: false };
-  }, [sid, setTailFollowFromAction]);
+    return cancelActivityExpansionAnchor;
+  }, [cancelActivityExpansionAnchor, sid, setTailFollowFromAction]);
 
   useEffect(() => {
     if (!sid || !lastUserTurnKey) return;
     const prev = lastUserTurnKeyRef.current;
     if (!prev || prev !== lastUserTurnKey) {
+      cancelActivityExpansionAnchor();
       setTailFollowFromAction({ type: 'new_turn' });
     }
     lastUserTurnKeyRef.current = lastUserTurnKey;
-  }, [lastUserTurnKey, setTailFollowFromAction, sid]);
+  }, [cancelActivityExpansionAnchor, lastUserTurnKey, setTailFollowFromAction, sid]);
 
   // 只在用户仍跟随底部时自动滚到底。审查栏会异步测量高度并给消息区补
   // bottom padding,因此跟随模式下仍需在 padding 生效后补几帧滚动。
@@ -2236,10 +2417,15 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     sid,
   ]);
 
+  const handleTranscriptContentResize = useCallback(() => {
+    if (preserveActivityExpansionAnchor()) return;
+    scheduleTailFollowScroll();
+  }, [preserveActivityExpansionAnchor, scheduleTailFollowScroll]);
+
   useEffect(() => observeChatTailContent(
     transcriptContentRef.current,
-    scheduleTailFollowScroll,
-  ), [scheduleTailFollowScroll, sid]);
+    handleTranscriptContentResize,
+  ), [handleTranscriptContentResize, sid]);
 
   useLayoutEffect(() => {
     const previous = searchJumpRetryRef.current || {};
@@ -2790,9 +2976,11 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         ? { auto_start: false }
         : sessionCreateOptionsForText(payload.text);
       let sessionCreated = false;
+      let createdSessionId = '';
       setComposerSubmitting(true);
       createHomeComposerSession(payload.text, {
         createOptions,
+        firstUserMessageText: !isBuiltin ? payload.text : '',
         preserveExtras: hasExtras || hasSwarmMode,
         title: !payload.text.trim() && hasPendingAttachments
           ? (composerAttachments[0]?.name || '附件消息')
@@ -2802,6 +2990,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           const id = created?.id;
           if (!id) return;
           sessionCreated = true;
+          createdSessionId = id;
           const materializedAttachments = pendingAttachmentFiles.length > 0
             ? await persistMediaFilesToSession(id, pendingAttachmentFiles)
             : [];
@@ -2847,6 +3036,11 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           );
         })
         .catch((e) => {
+          if (explicitHomeSend && createdSessionId) {
+            setPendingNewSessionFirstUserMessage((pending) => (
+              pending?.sessionId === createdSessionId ? null : pending
+            ));
+          }
           if (explicitHomeSend) {
             applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
           }
@@ -4012,15 +4206,25 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     setExpandedActivityKeys(new Set());
   }, [sid]);
 
-  const toggleActivitySummary = useCallback((key) => {
-    pauseTailFollowForReview();
-    setExpandedActivityKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
+  const toggleActivitySummary = useCallback((key, titleElement) => {
+    const anchored = beginActivityExpansionAnchor(titleElement);
+    if (!anchored) pauseTailFollowForReview();
+    flushSync(() => {
+      setExpandedActivityKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
     });
-  }, [pauseTailFollowForReview]);
+    preserveActivityExpansionAnchor();
+    scheduleActivityExpansionAnchorMeasure();
+  }, [
+    beginActivityExpansionAnchor,
+    pauseTailFollowForReview,
+    preserveActivityExpansionAnchor,
+    scheduleActivityExpansionAnchorMeasure,
+  ]);
 
   const openReviewPanel = useCallback(() => {
     if (!showSidePanel || !sid) return;
@@ -4673,12 +4877,12 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             <ActivitySummaryBlock
               item={child}
               expanded={nestedExpanded}
-              onToggle={() => toggleActivitySummary(child.id)}
+              onToggle={(event) => toggleActivitySummary(child.id, event?.currentTarget)}
             />
             {nestedExpanded && (
-              <div className="mt-1 flex flex-col gap-0.5">
+              <ActivityDetailsReveal>
                 {renderExpandedActivityItems(nestedItems, `${key}-nested`)}
-              </div>
+              </ActivityDetailsReveal>
             )}
           </div>
         );
@@ -4934,6 +5138,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           onScroll={handleMessagesScroll}
           onWheel={handleMessagesWheel}
           onPointerDown={handleMessagesPointerDown}
+          onKeyDownCapture={handleMessagesKeyDownCapture}
           className="ace-chat-transcript-scroll h-full overflow-y-auto pl-[35px] pr-3.5 py-3"
           style={changeDockBottomPadding > 0 ? { paddingBottom: changeDockBottomPadding } : undefined}
         >
@@ -5037,13 +5242,13 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                     <ActivitySummaryBlock
                       item={it}
                       expanded={expanded}
-                      onToggle={() => toggleActivitySummary(it.id)}
+                      onToggle={(event) => toggleActivitySummary(it.id, event?.currentTarget)}
                       activity={it.live ? conversationActivity : null}
                     />
                     {expanded && (
-                      <div className="mt-1 flex flex-col gap-0.5">
+                      <ActivityDetailsReveal>
                         {renderExpandedActivityItems(detailItems, `activity-hidden-${it.id}`)}
-                      </div>
+                      </ActivityDetailsReveal>
                     )}
                   </div>
                 </Fragment>

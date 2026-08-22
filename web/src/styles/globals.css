@@ -5206,6 +5206,84 @@ a.ace-thread-link:focus-visible {
   --ace-tool-call-font-size: var(--ace-font-size-body);
 }
 
+.ace-activity-line-chevron {
+  color: var(--ace-fg-mute);
+  opacity: 0;
+  pointer-events: none;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.ace-activity-line-chevron svg {
+  transform-origin: 50% 50%;
+  transition: transform 150ms cubic-bezier(.2, 0, 0, 1);
+}
+
+.ace-activity-line:hover .ace-activity-line-chevron,
+.ace-activity-line:focus-within .ace-activity-line-chevron {
+  color: var(--ace-fg);
+  opacity: 1;
+}
+
+.ace-activity-line-processed .ace-activity-line-chevron {
+  opacity: 1;
+}
+
+.ace-activity-line-processed {
+  position: relative;
+}
+
+.ace-activity-line-processed::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--ace-border);
+  pointer-events: none;
+}
+
+@keyframes ace-activity-details-reveal {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ace-activity-details-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  overflow: hidden;
+  transform-origin: top;
+  animation: ace-activity-details-reveal 150ms cubic-bezier(.2, 0, 0, 1) both;
+}
+
+.ace-activity-details-reveal.is-settled {
+  overflow: visible;
+  animation: none;
+}
+
+.ace-activity-details-reveal-inner {
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ace-activity-details-reveal {
+    overflow: visible;
+    animation: none;
+  }
+
+  .ace-activity-line-chevron svg {
+    transition: none;
+  }
+}
+
 /* Tool 中的真实代码与 diff 不继承上面的正文覆盖。 */
 .ace-tool-call-text pre,
 .ace-tool-call-text code,

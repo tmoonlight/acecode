@@ -58,4 +58,21 @@ run('SubagentPanel consumes the constrained width without a fixed 380px class', 
   assert.doesNotMatch(panel, /max-w-\[85%\]/);
 });
 
+run('live spawn_subagent tool_start opens the panel through the task hook', () => {
+  const taskState = source('lib/subagentTasks.js');
+  const taskHook = source('lib/useSubagentTasks.js');
+  const chat = source('components/ChatView.jsx');
+
+  assert.match(taskState, /export function isSubagentSpawnStartEvent\(parentSessionId, msg\)/);
+  assert.match(taskState, /msg\?\.type !== 'tool_start'/);
+  assert.match(taskState, /eventSessionId === parentId && payload\.tool === 'spawn_subagent'/);
+  assert.match(taskHook, /useSubagentTasks\(parentSessionId, \{ onSpawnStart \} = \{\}\)/);
+  assert.match(taskHook, /isSubagentSpawnStartEvent\(parentSessionId, msg\)/);
+  assert.match(taskHook, /onSpawnStartRef\.current\?\.\(msg\)/);
+  assert.match(chat, /openSubagentPanelForSpawn[\s\S]*setSubagentPanelOpen\(true\)/);
+  assert.match(chat, /useSubagentTasks\(sid, \{\s*onSpawnStart: openSubagentPanelForSpawn,\s*\}\)/);
+  assert.match(chat, /onClick=\{\(\) => setSubagentPanelOpen\(\(v\) => !v\)\}/);
+  assert.match(chat, /onClose=\{\(\) => setSubagentPanelOpen\(false\)\}/);
+});
+
 console.log('subagentPanelSplitArchitecture.test.js: all tests passed');

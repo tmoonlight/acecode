@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { __test__, projectCollapsedTranscriptItems } from './transcriptProjection.js';
+import { fallbackToolSummary } from './toolSummaryFallback.js';
 
 function run(name, fn) {
   try {
@@ -128,6 +130,97 @@ function askQuestionTool(id, ts = id * 1000) {
     },
   };
 }
+
+run('通用摘要按参数原序显示值并固定工具图标', () => {
+  const summary = fallbackToolSummary('glob', '{"pattern":"**/*","path":"C:/repo","options":{"hidden":true}}');
+  assert.deepEqual(summary, {
+    verb: 'Glob',
+    object: '**/* · C:/repo · {"hidden":true}',
+    icon: '*',
+    metrics: [],
+  });
+});
+
+run('通用摘要折叠换行、掩码敏感值并安全处理畸形参数', () => {
+  const redacted = fallbackToolSummary('mcp_echo', {
+    text: 'first\n  second',
+    api_key: 'private',
+    nested: { db_password: 'also-private', value: 7 },
+  });
+  assert.equal(redacted.verb, 'Mcp_echo');
+  assert.equal(redacted.object, 'first second · [REDACTED] · {"db_password":"[REDACTED]","value":7}');
+  assert.equal(redacted.object.includes('private'), false);
+
+  const malformed = fallbackToolSummary('glob', '{bad json');
+  assert.equal(malformed.verb, 'Glob');
+  assert.equal(malformed.object, '{bad json');
+  assert.equal(malformed.icon, '*');
+});
+
+run('窄聊天栏保留完整单行工具名并只截断详情', () => {
+  const activityLineSource = readFileSync(
+    new URL('../components/ActivityLine.jsx', import.meta.url),
+    'utf8',
+  );
+  const toolBlockSource = readFileSync(
+    new URL('../components/ToolBlock.jsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(activityLineSource, /'whitespace-nowrap font-medium[^']*'/);
+  assert.match(
+    activityLineSource,
+    /preserveLabel \? 'shrink-0' : 'min-w-0 max-w-\[62%\] truncate'/,
+  );
+  assert.match(activityLineSource, /min-w-0 truncate text-fg-mute/);
+  assert.ok((toolBlockSource.match(/\bpreserveLabel\b/g) || []).length >= 3);
+  assert.match(toolBlockSource, /const completedSummary = summary \|\| genericSummary;/);
+});
+
+run('普通工具展开文本统一使用带复制图标的小字号内容框', () => {
+  const toolBlockSource = readFileSync(
+    new URL('../components/ToolBlock.jsx', import.meta.url),
+    'utf8',
+  );
+  const copyFrameSource = readFileSync(
+    new URL('../components/CopyableCodeFrame.jsx', import.meta.url),
+    'utf8',
+  );
+  const stylesSource = readFileSync(
+    new URL('../styles/globals.css', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(toolBlockSource, /function ToolTextFrame\(/);
+  assert.match(
+    toolBlockSource,
+    /ace-tool-output-frame overflow-hidden rounded-xl border border-border bg-surface/,
+  );
+  assert.match(toolBlockSource, /data-tool-output-frame="true"/);
+  assert.ok((toolBlockSource.match(/<ToolTextFrame\b/g) || []).length >= 2);
+  assert.ok((toolBlockSource.match(/fontSize: 'var\(--ace-font-size-code\)'/g) || []).length >= 1);
+  assert.match(toolBlockSource, /text=\{fullToolOutput\}/);
+  assert.match(toolBlockSource, /text=\{progressFrameText\}/);
+  assert.match(copyFrameSource, /<VsIcon name="copy" size=\{14\}/);
+  assert.match(copyFrameSource, /onClick=\{handleCopy\}/);
+  assert.match(
+    stylesSource,
+    /\.ace-code-actions\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*6px;[\s\S]*?right:\s*6px;/,
+  );
+});
+
+run('文件 diff 保留原有专用展开且不进入 ToolTextFrame', () => {
+  const toolBlockSource = readFileSync(
+    new URL('../components/ToolBlock.jsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(
+    toolBlockSource,
+    /diffHtml \? \(\s*<div\s+className="ace-diff ace-tool-diff"/,
+  );
+  assert.doesNotMatch(toolBlockSource, /<ToolTextFrame text=\{diffText\}/);
+});
 
 run('完成的压缩通知投影为一个可展开 Context compacted 消息', () => {
   const projected = projectCollapsedTranscriptItems([
@@ -320,8 +413,12 @@ run('没有结构化工具时也用稳定活动行承载 legacy wrapper', () => 
   assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary']);
   assert.equal(projected[1].mode, 'live');
   assert.deepEqual(projected[1].coveredItemIds, [2, 3]);
-  assert.match(projected[1].collapsedItems[0].content, /\[Tool: legacy\]/);
-  assert.match(projected[1].collapsedItems[0].content, /legacy output/);
+  const legacy = projected[1].collapsedItems[0];
+  assert.equal(legacy.kind, 'tool');
+  assert.equal(legacy.tool.summary.verb, 'Legacy');
+  assert.equal(legacy.tool.summary.icon, '*');
+  assert.match(legacy.tool.output, /\[Tool: legacy\]/);
+  assert.match(legacy.tool.output, /legacy output/);
 });
 
 run('连续 legacy 工具返回标签在 assistant 文本前折叠成工具摘要', () => {
@@ -337,10 +434,12 @@ run('连续 legacy 工具返回标签在 assistant 文本前折叠成工具摘�
   assert.equal(projected[1].title, '调用 2 个工具');
   assert.deepEqual(projected[1].coveredItemIds, [2, 3]);
   assert.equal(projected[1].collapsedItems.length, 2);
-  assert.equal(projected[1].collapsedItems[0].metadata.compact_label, '工具调用 / 返回');
-  assert.match(projected[1].collapsedItems[0].content, /工具调用\n请求未记录/);
-  assert.match(projected[1].collapsedItems[0].content, /工具返回\n\{"available_skills"/);
-  assert.match(projected[1].collapsedItems[1].content, /工具返回\n\{"available_categories"/);
+  assert.equal(projected[1].collapsedItems[0].kind, 'tool');
+  assert.equal(projected[1].collapsedItems[0].tool.summary.verb, 'Tool');
+  assert.match(projected[1].collapsedItems[0].tool.output, /工具调用\n请求未记录/);
+  assert.match(projected[1].collapsedItems[0].tool.output, /工具返回\n\{"available_skills"/);
+  assert.match(projected[1].collapsedItems[1].tool.output, /工具返回\n\{"available_categories"/);
+  assert.equal(JSON.stringify(projected).includes('工具调用 / 返回'), false);
   assert.equal(projected[2].content, 'continue');
 });
 
@@ -585,21 +684,72 @@ run('相邻 legacy 调用和返回折叠时保持为一个详情项', () => {
   assert.equal(projected[1].title, '调用 1 个工具');
   assert.equal(projected[1].collapsedItems.length, 1);
   assert.deepEqual(projected[1].collapsedItems[0].coveredItemIds, [2, 3]);
-  assert.equal(projected[1].collapsedItems[0].metadata.compact_label, '工具调用 / 返回');
-  assert.match(projected[1].collapsedItems[0].content, /工具调用\n\[Tool: legacy\]/);
-  assert.match(projected[1].collapsedItems[0].content, /工具返回\nlegacy output/);
-  assert.match(projected[1].collapsedItems[0].content, /\[Tool: legacy\]/);
-  assert.match(projected[1].collapsedItems[0].content, /legacy output/);
+  const legacy = projected[1].collapsedItems[0];
+  assert.equal(legacy.kind, 'tool');
+  assert.equal(legacy.tool.summary.verb, 'Legacy');
+  assert.equal(legacy.tool.summary.object, '1');
+  assert.match(legacy.tool.output, /工具调用\n\[Tool: legacy\]/);
+  assert.match(legacy.tool.output, /工具返回\nlegacy output/);
+  assert.equal(JSON.stringify(legacy).includes('工具调用 / 返回'), false);
 });
 
-run('不相邻的 ambiguous legacy wrapper 不会被推断合并', () => {
+run('不相邻的 ambiguous legacy wrapper 分别转换但不会被推断合并', () => {
   const normalized = __test__.normalizeToolInvocationItems([
     toolWrapper(2, 'tool_call', '[Tool: legacy] {"x":1}'),
     assistant(3, 'visible separator'),
     toolWrapper(4, 'tool_result', 'legacy output'),
   ]);
 
-  assert.deepEqual(normalized.map((item) => item.role), ['tool_call', 'assistant', 'tool_result']);
+  assert.deepEqual(normalized.map((item) => item.kind), ['tool', 'msg', 'tool']);
+  assert.equal(normalized[0].tool.summary.object, '1');
+  assert.match(normalized[0].tool.output, /结果未记录/);
+  assert.equal(normalized[2].tool.summary.verb, 'Tool');
+  assert.match(normalized[2].tool.output, /请求未记录/);
+});
+
+run('并行同名旧工具按 tool_call_id 匹配各自参数和返回', () => {
+  const normalized = __test__.normalizeToolInvocationItems([
+    toolWrapper(2, 'tool_call', '[Tool: glob] {"pattern":"A","path":"one"}', { tool_call_id: 'call-a' }),
+    toolWrapper(3, 'tool_call', '[Tool: glob] {"pattern":"B","path":"two"}', { tool_call_id: 'call-b' }),
+    toolWrapper(4, 'tool_result', 'B result', { tool_call_id: 'call-b' }),
+    toolWrapper(5, 'tool_result', 'A result', { tool_call_id: 'call-a' }),
+  ]);
+
+  assert.equal(normalized.length, 2);
+  assert.deepEqual(normalized.map((item) => item.tool.toolCallId), ['call-a', 'call-b']);
+  assert.deepEqual(normalized.map((item) => item.tool.summary.object), ['A · one', 'B · two']);
+  assert.match(normalized[0].tool.output, /A result/);
+  assert.match(normalized[1].tool.output, /B result/);
+});
+
+run('畸形和仅调用记录都转换为结构化工具项', () => {
+  const normalized = __test__.normalizeToolInvocationItems([
+    toolWrapper(2, 'tool_call', '[Tool: glob] {bad json'),
+  ]);
+
+  assert.equal(normalized.length, 1);
+  assert.equal(normalized[0].kind, 'tool');
+  assert.equal(normalized[0].tool.summary.verb, 'Glob');
+  assert.equal(normalized[0].tool.summary.object, '{bad json');
+  assert.equal(normalized[0].tool.metadata.legacy_arguments_malformed, true);
+  assert.match(normalized[0].tool.output, /结果未记录/);
+});
+
+run('正常投影后工具包装角色不会进入旧 SystemRow 路径', () => {
+  const projected = projectCollapsedTranscriptItems([
+    user(1),
+    toolWrapper(2, 'tool_call', '[Tool: glob] {"pattern":"*.js"}'),
+    toolWrapper(3, 'tool_result', 'ok'),
+    toolWrapper(4, 'tool_result', '[Error] missing request'),
+    assistant(5, 'done'),
+  ], { deferTrailingToolSummary: true });
+
+  const serialized = JSON.stringify(projected);
+  assert.equal(serialized.includes('"role":"tool_call"'), false);
+  assert.equal(serialized.includes('"role":"tool_result"'), false);
+  assert.equal(serialized.includes('工具调用 / 返回'), false);
+  const summary = projected.find((item) => item.kind === 'activity_summary');
+  assert.equal(summary.collapsedItems[1].tool.success, false);
 });
 
 run('流式遇到 assistant 文字时立刻合并前面的连续工具', () => {

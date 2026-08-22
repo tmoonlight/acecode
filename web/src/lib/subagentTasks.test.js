@@ -18,6 +18,7 @@ import {
   applySubagentSessionEvent,
   formatElapsed,
   formatTaskTokens,
+  isSubagentSpawnStartEvent,
   markSubagentTaskAborted,
   mergeSubagentTaskList,
   normalizeSubagentTask,
@@ -149,6 +150,36 @@ run('session_status 只为明确匹配当前 parent 的未知 child 触发刷新
       parent_session_id: 'parent-1',
       busy: true,
     },
+  }), false);
+});
+
+run('只有当前父会话的 spawn_subagent tool_start 触发面板自动打开', () => {
+  for (const wait of [false, true]) {
+    assert.equal(isSubagentSpawnStartEvent('parent-1', {
+      type: 'tool_start',
+      session_id: 'parent-1',
+      payload: { tool: 'spawn_subagent', args: { wait } },
+    }), true);
+  }
+  assert.equal(isSubagentSpawnStartEvent('parent-1', {
+    type: 'tool_start',
+    payload: { session_id: 'parent-1', tool: 'spawn_subagent' },
+  }), true);
+
+  const unrelatedEvents = [
+    { type: 'tool_start', session_id: 'parent-2', payload: { tool: 'spawn_subagent' } },
+    { type: 'tool_start', session_id: 'parent-1', payload: { tool: 'bash' } },
+    { type: 'session_status', session_id: 'child-1', payload: {
+      parent_session_id: 'parent-1', busy: true,
+    } },
+    { type: 'tool_end', session_id: 'parent-1', payload: { tool: 'spawn_subagent' } },
+    null,
+  ];
+  for (const event of unrelatedEvents) {
+    assert.equal(isSubagentSpawnStartEvent('parent-1', event), false);
+  }
+  assert.equal(isSubagentSpawnStartEvent('', {
+    type: 'tool_start', session_id: 'parent-1', payload: { tool: 'spawn_subagent' },
   }), false);
 });
 

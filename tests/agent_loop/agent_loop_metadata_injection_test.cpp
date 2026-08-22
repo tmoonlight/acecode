@@ -215,9 +215,9 @@ TEST(AgentLoopMetadataInjection, WritesToolHunksToMetadata) {
     EXPECT_EQ((*out)[0].lines.size(), orig_hunks[0].lines.size());
 }
 
-// ToolResult 不带 summary/hunks → tool_msg.metadata 不应该出现这两个 key
-// (避免空 object 污染)。
-TEST(AgentLoopMetadataInjection, SkipsMetadataWhenSummaryAbsent) {
+// ToolResult 不带专用 summary 时,执行边界必须补出通用摘要并落盘;
+// 没有 hunks 时仍不写空 tool_hunks。
+TEST(AgentLoopMetadataInjection, WritesFallbackSummaryWhenToolOmitsIt) {
     MetadataHarness h;
     h.register_mock("plain_mock", []() {
         ToolResult r;
@@ -231,11 +231,14 @@ TEST(AgentLoopMetadataInjection, SkipsMetadataWhenSummaryAbsent) {
 
     const auto* tool_msg = h.find_tool_msg();
     ASSERT_NE(tool_msg, nullptr);
-    // metadata 可能是 null(未触碰)或一个不含这两个 key 的对象;两种都接受。
-    if (tool_msg->metadata.is_object()) {
-        EXPECT_FALSE(tool_msg->metadata.contains("tool_summary"));
-        EXPECT_FALSE(tool_msg->metadata.contains("tool_hunks"));
-    }
+    ASSERT_TRUE(tool_msg->metadata.is_object());
+    ASSERT_TRUE(tool_msg->metadata.contains("tool_summary"));
+    auto summary = acecode::decode_tool_summary(
+        tool_msg->metadata["tool_summary"]);
+    ASSERT_TRUE(summary.has_value());
+    EXPECT_EQ(summary->verb, "Plain_mock");
+    EXPECT_EQ(summary->icon, "*");
+    EXPECT_FALSE(tool_msg->metadata.contains("tool_hunks"));
 }
 
 // 写 metadata 不能破坏 tool_msg 的其他字段(role/content/tool_call_id)。

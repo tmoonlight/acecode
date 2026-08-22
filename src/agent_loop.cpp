@@ -3287,6 +3287,8 @@ bool AgentLoop::execute_tool_calls(
         }
         materialize_result_attachments(result);
         mark_workspace_scratch_change(result, tool_ctx);
+        ensure_tool_summary(
+            tc.function_name, tc.function_arguments, result);
 
         auto elapsed_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -3439,6 +3441,10 @@ bool AgentLoop::execute_tool_calls(
                     results[idx] = item.future.get();
                 } catch (const std::exception& e) {
                     results[idx] = ToolResult{"[Error] " + std::string(e.what()), false};
+                    ensure_tool_summary(
+                        item.call.function_name,
+                        item.call.function_arguments,
+                        results[idx]);
                 }
                 result_ready[idx] = true;
                 record_doom_guard_result(item.call, results[idx]);
@@ -3797,8 +3803,13 @@ bool AgentLoop::execute_tool_calls(
                 tool_msg.metadata["tool_hunks"] = encode_tool_hunks(*results[i].hunks);
             }
         } else {
-            tool_msg = ToolExecutor::format_tool_result(tc.id,
-                ToolResult{"[Interrupted]", false});
+            ToolResult interrupted_result{"[Interrupted]", false};
+            ensure_tool_summary(
+                tc.function_name, tc.function_arguments, interrupted_result);
+            tool_msg = ToolExecutor::format_tool_result(
+                tc.id, interrupted_result);
+            tool_msg.metadata["tool_summary"] =
+                encode_tool_summary(*interrupted_result.summary);
         }
         messages_.push_back(tool_msg);
         if (session_manager_) session_manager_->on_message(tool_msg);

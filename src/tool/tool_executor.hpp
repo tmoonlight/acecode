@@ -37,9 +37,10 @@ struct ToolCapabilityPolicy {
     std::optional<std::unordered_set<std::string>> mcp_servers;
 };
 
-// Structured summary used by the TUI to render a single-line tool-result row
-// (icon + verb + object + dot-separated metrics). Unset on tools that have not
-// opted in; the TUI then falls back to the legacy 10-line fold path.
+// Structured summary used by tool-result UIs to render a single-line row
+// (icon + verb + object + dot-separated metrics). Tool implementations may
+// provide a domain-specific summary; the execution boundary supplies a generic
+// summary when they do not.
 struct ToolSummary {
     std::string verb;     // "Ran" / "Read" / "Wrote" / "Created" / "Edited" ...
     std::string object;   // file path or command preview
@@ -51,7 +52,7 @@ struct ToolSummary {
 struct ToolResult {
     std::string output;
     bool success = true;
-    std::optional<ToolSummary> summary; // populated by tools that opt in
+    std::optional<ToolSummary> summary; // always populated at the execution boundary
     // Optional UI/persistence metadata. This is never part of provider-visible
     // text; AgentLoop stores it on the ChatMessage and web lifecycle payloads.
     nlohmann::json metadata = nlohmann::json::object();
@@ -77,6 +78,17 @@ struct ToolResult {
         return attachments.is_array() && !attachments.empty();
     }
 };
+
+// Build and attach the shared fallback used by built-in, MCP, unknown, denied,
+// failed, and legacy tool calls that do not provide a domain-specific summary.
+// Existing summaries are never overwritten.
+ToolSummary build_fallback_tool_summary(
+    const std::string& tool_name,
+    const std::string& arguments_json);
+void ensure_tool_summary(
+    const std::string& tool_name,
+    const std::string& arguments_json,
+    ToolResult& result);
 
 struct ScratchPathResolution {
     bool success = true;

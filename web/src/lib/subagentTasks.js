@@ -94,6 +94,17 @@ export function shouldRefreshSubagentTasksFromStatus(
   return !(knownTaskIds instanceof Set && knownTaskIds.has(sessionId));
 }
 
+// 只有当前父会话实时开始执行 spawn_subagent 才是面板自动打开信号。
+// 初始 REST 快照、子会话状态和 tool_end 都不经过这条路径,避免打开旧会话
+// 或用户手动关闭后被同一次任务的后续事件强制重开。
+export function isSubagentSpawnStartEvent(parentSessionId, msg) {
+  const parentId = String(parentSessionId || '').trim();
+  if (!parentId || msg?.type !== 'tool_start') return false;
+  const payload = msg?.payload || {};
+  const eventSessionId = String(msg?.session_id || payload.session_id || '').trim();
+  return eventSessionId === parentId && payload.tool === 'spawn_subagent';
+}
+
 // 子会话自己的 WS 事件 → 任务增量。返回新数组;无关事件返回原引用
 // (调用方可用引用相等跳过 setState)。
 export function applySubagentSessionEvent(tasks, msg) {
