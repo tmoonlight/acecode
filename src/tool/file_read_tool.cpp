@@ -165,7 +165,16 @@ std::optional<ReadRequest> parse_read_request(
     // A line range is only requested when the numbers are meaningful: these are
     // 1-indexed, so 0 means "unset" here exactly as it does downstream.
     request.has_line_range = request.start_line > 0 || request.end_line > 0;
-    request.byte_mode = has_byte_offset || max_bytes > 0;
+
+    // A bare byte_offset is the legacy way to opt into byte mode and stays
+    // meaningful at 0. Once the caller also sends the other properties they are
+    // schema-filled defaults, so an all-zero combination means "no window
+    // requested" — reading from byte 0 there would reject empty files outright
+    // and cut long files down to a single 32 KiB window.
+    const bool explicit_window = request.byte_offset > 0 || max_bytes > 0;
+    const bool byte_offset_only =
+        has_byte_offset && !has_max_bytes && !has_start && !has_end;
+    request.byte_mode = explicit_window || byte_offset_only;
 
     // Both modes can arrive together only because the caller was forced to send
     // the byte parameters it never asked for. Rejecting the combination made

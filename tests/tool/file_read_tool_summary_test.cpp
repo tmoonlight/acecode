@@ -302,8 +302,8 @@ TEST(FileReadToolSummary, LineRangeWinsOverForcedByteWindowArguments) {
     EXPECT_NE(ranged.output.find("range=\"2-3\""), std::string::npos);
     EXPECT_EQ(ranged.output.find("byte_range="), std::string::npos);
 
-    // All-zero values mean "unset" for the same reason: a plain whole-file read
-    // must not be rejected for an out-of-range max_bytes.
+    // All-zero values mean "unset" for the same reason, so this must behave as
+    // a plain whole-file read — not as a byte window starting at 0.
     ToolResult zeroed = tool.execute(nlohmann::json({
         {"file_path", p.string()},
         {"start_line", 0},
@@ -314,6 +314,64 @@ TEST(FileReadToolSummary, LineRangeWinsOverForcedByteWindowArguments) {
     ASSERT_TRUE(zeroed.success) << zeroed.output;
     EXPECT_NE(zeroed.output.find("alpha"), std::string::npos);
     EXPECT_NE(zeroed.output.find("gamma"), std::string::npos);
+    EXPECT_EQ(zeroed.output.find("byte_range="), std::string::npos);
+    EXPECT_EQ(zeroed.output.find("next_byte_offset="), std::string::npos);
+
+    fs::remove(p);
+}
+
+// An all-zero argument set must not enter byte mode: byte_offset=0 on an empty
+// file is "outside" it, so treating the schema-filled default as a real window
+// made every empty-file read fail behind a strict-schema provider.
+TEST(FileReadToolSummary, ForcedZeroArgumentsReadEmptyFile) {
+    ToolImpl tool = create_file_read_tool();
+    auto p = make_temp_file("");
+
+    ToolResult r = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 0},
+        {"end_line", 0},
+        {"byte_offset", 0},
+        {"max_bytes", 0}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(r.success) << r.output;
+    EXPECT_EQ(r.output.find("outside"), std::string::npos);
+
+    fs::remove(p);
+}
+
+// Same reason, opposite end of the size range: a byte window would cap the read
+// at 32 KiB, while an unbounded read runs to the 49152-byte content limit.
+TEST(FileReadToolSummary, ForcedZeroArgumentsKeepUnboundedReadLimit) {
+    ToolImpl tool = create_file_read_tool();
+    auto p = make_temp_file(std::string(60000, 'z'));
+
+    ToolResult r = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 0},
+        {"end_line", 0},
+        {"byte_offset", 0},
+        {"max_bytes", 0}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(r.success) << r.output;
+    EXPECT_NE(r.output.find("next_byte_offset=\"49152\""), std::string::npos);
+    EXPECT_EQ(r.output.find("byte_range="), std::string::npos);
+
+    fs::remove(p);
+}
+
+// The legacy opt-in must survive: byte_offset alone still selects byte mode
+// even at 0, because nothing else in the call could have supplied it.
+TEST(FileReadToolSummary, BareZeroByteOffsetStillSelectsByteMode) {
+    ToolImpl tool = create_file_read_tool();
+    auto p = make_temp_file(std::string(60000, 'z'));
+
+    ToolResult r = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"byte_offset", 0}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(r.success) << r.output;
+    EXPECT_NE(r.output.find("byte_range=\"0-32768\""), std::string::npos);
 
     fs::remove(p);
 }
