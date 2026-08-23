@@ -83,15 +83,50 @@ run('editable file details open directly with highlighted source or semantic Mar
   assert.match(draft, /api\.saveEditableFile\(cwd, path, text, readId\)/);
   assert.match(filePreview, /<MarkdownWysiwygEditor/);
   assert.match(filePreview, /function HighlightedTextEditor/);
-  assert.match(filePreview, /hljs\.highlight\(source/);
-  assert.match(filePreview, /<pre[\s\S]*className="ace-file-source-highlight"/);
-  assert.match(filePreview, /<textarea[\s\S]*className="ace-file-text-editor"/);
+  assert.match(filePreview, /hljs\.highlight\(normalizedSourceText/);
+  assert.match(filePreview, /className="h-full overflow-auto text-\[11px\] ace-preview"/);
+  assert.match(filePreview, /<textarea[\s\S]*'ace-file-text-editor'/);
+  assert.match(filePreview, /data-ace-editable-preview-text="true"/);
   assert.match(filePreview, /onCompositionStart=\{\(\) => setComposing\(true\)\}/);
   assert.doesNotMatch(filePreview, /aria-label="编辑文件"|beginEditing|ace-file-editor-button/);
   assert.match(markdownEditor, /markdownToSlate\(normalizedValue\)/);
   assert.match(markdownEditor, /slateToMarkdown\(legalDocument\(document\)\)/);
   assert.match(markdownEditor, /compositionRef\.current\.active/);
   assert.match(markdownEditor, /event\.key\.toLowerCase\(\) === 's'/);
+});
+
+run('editing reuses the original preview chrome without save status or Markdown toolbar', () => {
+  const filePreview = source('../components/FilePreviewContent.jsx');
+  const markdownEditor = source('../components/MarkdownWysiwygEditor.jsx');
+  const chat = source('../components/ChatView.jsx');
+
+  assert.doesNotMatch(filePreview, /ace-file-editor-shell|ace-file-editor-statusbar/);
+  assert.doesNotMatch(filePreview, /所有更改已保存|文件已保存/);
+  assert.doesNotMatch(chat, /kind: 'ok', text: [^\n]*(?:文件已保存|已保存 \$\{saveResult\.savedCount\} 个文件)/);
+  assert.doesNotMatch(markdownEditor, /MarkdownToolbar|ace-markdown-toolbar/);
+  assert.match(filePreview, /<CopyableCodeFrame[\s\S]*<MarkdownWysiwygEditor/);
+  assert.match(markdownEditor, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
+});
+
+run('editable previews retain selection, inactive marks and annotation decorations', () => {
+  const filePreview = source('../components/FilePreviewContent.jsx');
+  const markdownEditor = source('../components/MarkdownWysiwygEditor.jsx');
+  const overlay = source('../components/SelectionAnnotationOverlay.jsx');
+  const chat = source('../components/ChatView.jsx');
+  const context = source('./selectionChatContext.js');
+  const decorations = source('./selectionSourceDecorations.js');
+
+  assert.match(filePreview, /inactiveRange=\{inactiveSourceSelection\}/);
+  assert.match(filePreview, /managedDecorations/);
+  assert.match(markdownEditor, /ace-inactive-selection-mark/);
+  assert.match(markdownEditor, /ace-selection-reference-mark/);
+  assert.match(overlay, /managedDecorations/);
+  assert.match(chat, /selectionContextFromWindowSelection\(\{ target: selectionTarget \}\)/);
+  assert.match(chat, /document\.addEventListener\('select'/);
+  assert.match(context, /managedSlateTextOffsetWithinElement/);
+  assert.match(context, /\[data-slate-string="true"\]/);
+  assert.match(decorations, /\[data-slate-string="true"\]/);
+  assert.match(decorations, /\.ace-markdown-code-highlight/);
 });
 
 run('side chat owns a separate draft and dispatches through the existing side-question API', () => {

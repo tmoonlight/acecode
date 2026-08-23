@@ -255,7 +255,7 @@ export function buildDesktopContextMenuItems({
     return finalizeContextMenuItems(items, allowNativeActions);
   }
 
-  if (!editable && hasSelection && previewTarget &&
+  if (hasSelection && previewTarget &&
       (previewTarget.kind === 'text' || previewTarget.kind === 'markdown')) {
     addAction(items, DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT, previewTarget, { group: GROUPS.SELECTION });
   }

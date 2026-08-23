@@ -1,6 +1,7 @@
 import { unwrapMarks, wrapTextNodeRange } from './domTextMarks.js';
 
 export const PREVIEW_SELECTOR = '.ace-side-preview-code';
+export const CLEAR_PREVIEW_SELECTION_EVENT = 'acecode:clear-preview-selection';
 
 const INACTIVE_SELECTION_MARK = 'ace-inactive-selection-mark';
 
@@ -24,6 +25,11 @@ export function previewElementFromTarget(target, selector = PREVIEW_SELECTOR) {
 function isInPreview(sel) {
   if (!sel || sel.rangeCount === 0) return false;
   return !!previewElementFromTarget(sel.anchorNode);
+}
+
+function usesManagedInactiveSelection(sel) {
+  const element = elementFromNode(sel?.anchorNode);
+  return !!element?.closest?.('[data-ace-managed-inactive-selection="true"]');
 }
 
 function docForRange(range) {
@@ -122,6 +128,10 @@ export function clearPreviewSelection() {
   savedRanges = [];
   clearHighlight();
   globalThis.window?.getSelection?.()?.removeAllRanges?.();
+  const view = globalThis.window;
+  if (view?.dispatchEvent && view.Event) {
+    view.dispatchEvent(new view.Event(CLEAR_PREVIEW_SELECTION_EVENT));
+  }
 }
 
 function onPreviewMouseDown(event) {
@@ -164,6 +174,7 @@ function onSelectionChange() {
   if (hasContent && isInPreview(sel)) {
     clearHighlight();
     savedRanges = [];
+    if (usesManagedInactiveSelection(sel)) return;
     for (let i = 0; i < sel.rangeCount; i++) {
       savedRanges.push(sel.getRangeAt(i).cloneRange());
     }

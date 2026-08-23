@@ -98,3 +98,22 @@ export function selectionRangeViewportRect(selection = globalThis.window?.getSel
     return null;
   }
 }
+
+export function selectionTargetViewportRect(target) {
+  if (!target || typeof target.getBoundingClientRect !== 'function') return null;
+  try {
+    const rect = target.getBoundingClientRect();
+    const left = finite(rect.left) + Math.min(12, Math.max(0, finite(rect.width)) / 2);
+    const top = finite(rect.top) + Math.min(12, Math.max(0, finite(rect.height)) / 2);
+    return {
+      left,
+      top,
+      right: left,
+      bottom: top,
+      width: 0,
+      height: 0,
+    };
+  } catch {
+    return null;
+  }
+}

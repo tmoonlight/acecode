@@ -251,6 +251,16 @@ export function renderMarkdown(src) {
   }
 }
 
+export function renderMarkdownInline(src) {
+  if (!src) return '';
+  try {
+    const text = String(src);
+    return md.renderInline(text, markdownEnv(text));
+  } catch {
+    return escapeHtml(String(src));
+  }
+}
+
 // 按 top-level block 切块渲染,给流式 assistant 消息用(参考 assistant-ui
 // 的 markdown block memoization):每块独立产出 HTML,流式追加时只有尾部
 // 块的 HTML 变化,前缀块字符串不变 → React 对 dangerouslySetInnerHTML 做

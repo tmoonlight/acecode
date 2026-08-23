@@ -136,6 +136,21 @@ test('预览选区把引用到聊天放在第一行', () => {
   assert.equal(items[0].target.path, 'README.md');
 });
 
+test('可编辑预览仍保留引用到聊天并同时提供文本编辑动作', () => {
+  const items = buildDesktopContextMenuItems({
+    editable: true,
+    hasSelection: true,
+    previewTarget: { type: 'preview', path: 'src/a.js', kind: 'text' },
+  });
+  assert.deepEqual(ids(items), [
+    DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT,
+    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
+    DESKTOP_CONTEXT_ACTIONS.COPY,
+    DESKTOP_CONTEXT_ACTIONS.PASTE,
+    DESKTOP_CONTEXT_ACTIONS.CUT,
+  ]);
+});
+
 test('图片预览显示复制图片动作且非图片预览不显示', () => {
   const imageItems = buildDesktopContextMenuItems({
     previewTarget: {

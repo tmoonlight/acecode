@@ -17,6 +17,7 @@ import {
   normalizeSelectionSourceText,
   selectionSourceContentRevision,
 } from '../lib/selectionSourceDecorations.js';
+import { CLEAR_PREVIEW_SELECTION_EVENT } from '../lib/inactiveSelection.js';
 import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { clsx, formatBytes } from '../lib/format.js';
 import { filePreviewKind, isBlobFilePreview } from '../lib/filePreviewKind.js';
@@ -50,81 +51,102 @@ async function copyWithToast(text, okText) {
   else toast({ kind: 'err', text: '复制失败:' + (result.error || '') });
 }
 
-function highlightedSourceHtml(text, lang) {
-  const source = String(text ?? '');
-  let html = '';
-  if (lang && hljs.getLanguage(lang)) {
-    try {
-      html = hljs.highlight(source, { language: lang, ignoreIllegals: true }).value;
-    } catch {
-      html = escapeHtml(source);
-    }
-  } else {
-    html = escapeHtml(source);
-  }
-  if (!html) return ' ';
-  return source.endsWith('\n') ? `${html} ` : html;
-}
-
 function HighlightedTextEditor({
   value,
-  lang,
   path,
   wrap,
   disabled,
+  previewRef,
   onChange,
+  onInactiveSelectionChange,
   onSave,
 }) {
-  const highlightRef = useRef(null);
   const textareaRef = useRef(null);
   const [composing, setComposing] = useState(false);
-  const highlightedHtml = useMemo(
-    () => highlightedSourceHtml(value, lang),
-    [lang, value],
-  );
   const syncScroll = useCallback((textarea) => {
-    if (!textarea || !highlightRef.current) return;
-    highlightRef.current.scrollTop = textarea.scrollTop;
-    highlightRef.current.scrollLeft = textarea.scrollLeft;
-  }, []);
+    const preview = previewRef?.current;
+    if (!textarea || !preview) return;
+    preview.scrollTop = textarea.scrollTop;
+    preview.scrollLeft = textarea.scrollLeft;
+  }, [previewRef]);
+
+  const captureInactiveSelection = useCallback((textarea) => {
+    const start = Number(textarea?.selectionStart);
+    const end = Number(textarea?.selectionEnd);
+    onInactiveSelectionChange?.(
+      Number.isFinite(start) && Number.isFinite(end) && end > start
+        ? { start, end }
+        : null,
+    );
+  }, [onInactiveSelectionChange]);
 
   useLayoutEffect(() => {
-    syncScroll(textareaRef.current);
-  }, [highlightedHtml, syncScroll, wrap]);
+    const textarea = textareaRef.current;
+    const preview = previewRef?.current;
+    if (!textarea || !preview) return undefined;
+    const align = () => {
+      const firstCodeCell = preview.querySelector('.ace-line-code');
+      textarea.style.left = `${Math.max(0, Number(firstCodeCell?.offsetLeft) || 0)}px`;
+    };
+    textarea.scrollTop = preview.scrollTop;
+    textarea.scrollLeft = preview.scrollLeft;
+    syncScroll(textarea);
+    align();
+    const syncFromPreview = () => {
+      if (textarea.scrollTop !== preview.scrollTop) textarea.scrollTop = preview.scrollTop;
+      if (textarea.scrollLeft !== preview.scrollLeft) textarea.scrollLeft = preview.scrollLeft;
+    };
+    preview.addEventListener('scroll', syncFromPreview, { passive: true });
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(align) : null;
+    observer?.observe(preview);
+    return () => {
+      preview.removeEventListener('scroll', syncFromPreview);
+      observer?.disconnect();
+    };
+  }, [previewRef, syncScroll, value, wrap]);
+
+  useEffect(() => {
+    const clear = () => {
+      const textarea = textareaRef.current;
+      if (textarea && textarea.selectionStart !== textarea.selectionEnd) {
+        const end = textarea.selectionEnd;
+        textarea.setSelectionRange(end, end);
+      }
+      onInactiveSelectionChange?.(null);
+    };
+    window.addEventListener(CLEAR_PREVIEW_SELECTION_EVENT, clear);
+    return () => window.removeEventListener(CLEAR_PREVIEW_SELECTION_EVENT, clear);
+  }, [onInactiveSelectionChange]);
 
   return (
-    <div
-      className={clsx('ace-file-source-editor', composing && 'is-composing')}
-      data-wrap={wrap ? 'true' : 'false'}
-    >
-      <pre ref={highlightRef} className="ace-file-source-highlight" aria-hidden="true">
-        <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
-      </pre>
-      <textarea
-        ref={textareaRef}
-        className="ace-file-text-editor"
-        aria-label={`编辑 ${path}`}
-        value={value}
-        wrap={wrap ? 'soft' : 'off'}
-        disabled={disabled}
-        spellCheck="false"
-        onChange={(event) => onChange?.(event.target.value)}
-        onCompositionStart={() => setComposing(true)}
-        onCompositionEnd={() => setComposing(false)}
-        onScroll={(event) => syncScroll(event.currentTarget)}
-        onKeyDown={(event) => {
-          if (
-            (event.ctrlKey || event.metaKey)
-            && event.key.toLowerCase() === 's'
-          ) {
-            event.preventDefault();
-            if (!event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
-              onSave?.();
-            }
+    <textarea
+      ref={textareaRef}
+      className={clsx('ace-file-text-editor', composing && 'is-composing')}
+      data-ace-editable-preview-text="true"
+      aria-label={`编辑 ${path}`}
+      aria-busy={disabled ? 'true' : undefined}
+      value={value}
+      wrap={wrap ? 'soft' : 'off'}
+      readOnly={disabled}
+      spellCheck="false"
+      onChange={(event) => onChange?.(event.target.value)}
+      onFocus={() => onInactiveSelectionChange?.(null)}
+      onBlur={(event) => captureInactiveSelection(event.currentTarget)}
+      onCompositionStart={() => setComposing(true)}
+      onCompositionEnd={() => setComposing(false)}
+      onScroll={(event) => syncScroll(event.currentTarget)}
+      onKeyDown={(event) => {
+        if (
+          (event.ctrlKey || event.metaKey)
+          && event.key.toLowerCase() === 's'
+        ) {
+          event.preventDefault();
+          if (!event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+            onSave?.();
           }
-        }}
-      />
-    </div>
+        }
+      }}
+    />
   );
 }
 
@@ -155,6 +177,7 @@ export function FilePreviewContent({
   });
   const [markdownSource, setMarkdownSource] = useState(false);
   const [imagePreview, setImagePreview] = useState(null);
+  const [inactiveSourceSelection, setInactiveSourceSelection] = useState(null);
   const previewScrollRef = useRef(null);
   const loadedIdentityRef = useRef('');
   const pendingScrollSnapshotRef = useRef(null);
@@ -163,12 +186,20 @@ export function FilePreviewContent({
   const onEditStateChangeRef = useRef(onEditStateChange);
   editStateRef.current = editState;
   onEditStateChangeRef.current = onEditStateChange;
+  const activeEdit = editState && typeof editState === 'object' ? editState : null;
+  const previewText = activeEdit?.editing
+    ? String(activeEdit.text ?? activeEdit.baselineText ?? state.text ?? '')
+    : String(state.text ?? '');
   const sourceContentRevision = useMemo(
     () => (state.status === 'ok' && (state.kind === 'text' || state.kind === 'markdown')
-      ? selectionSourceContentRevision(state.text)
+      ? selectionSourceContentRevision(previewText)
       : ''),
-    [state.kind, state.status, state.text],
+    [previewText, state.kind, state.status],
   );
+
+  useEffect(() => {
+    setInactiveSourceSelection(null);
+  }, [cwd, markdownSource, path]);
 
   useEffect(() => {
     const handler = (event) => {
@@ -368,7 +399,6 @@ export function FilePreviewContent({
         size: Number(saved.result?.size || saved.text.length),
       }));
       onEditStateChangeRef.current?.(saved.patch);
-      toast({ kind: 'ok', text: '文件已保存' });
     } catch (error) {
       const message = editableFileError(error, '保存失败');
       onEditStateChangeRef.current?.({
@@ -392,7 +422,7 @@ export function FilePreviewContent({
     const restored = restoredFilePreviewScroll(snapshot, host);
     host.scrollTop = restored.top;
     host.scrollLeft = restored.left;
-  }, [cwd, markdownSource, path, reloadRevision, state.blob, state.kind, state.previewUrl, state.status, state.text]);
+  }, [cwd, markdownSource, path, previewText, reloadRevision, state.blob, state.kind, state.previewUrl, state.status]);
 
   // 聊天正文 foo.md:42 链接定位 markdown 文件时切到源码视图 —— 渲染视图没有行的
   // 概念,滚不到指定行。必须声明在上方加载 effect 之后:同一 commit 内 effect 按
@@ -501,59 +531,9 @@ export function FilePreviewContent({
   }
 
   const isMarkdown = state.kind === 'markdown';
-  const activeEdit = editState && typeof editState === 'object' ? editState : null;
-  if ((state.kind === 'text' || isMarkdown) && activeEdit?.editing) {
-    const draftText = String(activeEdit.text ?? activeEdit.baselineText ?? '');
-    const statusText = activeEdit.saving
-      ? '正在保存...'
-      : activeEdit.error
-      || (activeEdit.externalChanged ? '磁盘内容可能已变化；保存时会再次检查，绝不会静默覆盖' : '')
-      || (activeEdit.dirty ? '有未保存的更改 · Ctrl+S 保存' : '所有更改已保存');
-    return (
-      <div className="ace-file-editor-shell" {...previewAttrs}>
-        <div className="ace-file-editor-statusbar">
-          <div
-            className={clsx(
-              'ace-file-editor-status',
-              activeEdit.error && 'is-error',
-              !activeEdit.error && activeEdit.externalChanged && 'is-warning',
-              activeEdit.dirty && 'is-dirty',
-            )}
-            role={activeEdit.error ? 'alert' : 'status'}
-          >
-            {statusText}
-          </div>
-        </div>
-        {isMarkdown ? (
-          <MarkdownWysiwygEditor
-            value={draftText}
-            disabled={activeEdit.saving}
-            onChange={(text) => {
-              setState((previous) => ({ ...previous, text, size: text.length }));
-              onEditStateChangeRef.current?.({ text, error: '' });
-            }}
-            onSave={saveEditing}
-          />
-        ) : (
-          <HighlightedTextEditor
-            value={draftText}
-            lang={state.lang}
-            path={path}
-            wrap={wrapPreview}
-            disabled={activeEdit.saving}
-            onChange={(text) => {
-              setState((previous) => ({ ...previous, text, size: text.length }));
-              onEditStateChangeRef.current?.({ text, error: '' });
-            }}
-            onSave={saveEditing}
-          />
-        )}
-      </div>
-    );
-  }
-
   const lang = state.lang;
-  const normalizedSourceText = normalizeSelectionSourceText(state.text);
+  const editing = (state.kind === 'text' || isMarkdown) && activeEdit?.editing;
+  const normalizedSourceText = normalizeSelectionSourceText(previewText);
   let codeHtml;
   if (lang && hljs.getLanguage(lang)) {
     try {
@@ -584,8 +564,8 @@ export function FilePreviewContent({
   return (
     <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
       <CopyableCodeFrame
-        text={state.text}
-        className="flex-1 min-h-0 ace-side-preview-code"
+        text={previewText}
+        className={clsx('flex-1 min-h-0 ace-side-preview-code', editing && 'is-editing')}
         data-wrap={wrapPreview ? 'true' : 'false'}
         actions={(
           <>
@@ -596,7 +576,11 @@ export function FilePreviewContent({
                 title={markdownToggleTitle}
                 aria-label={markdownToggleTitle}
                 aria-pressed={showMarkdownRendered}
-                onClick={(event) => { event.stopPropagation(); setMarkdownSource((prev) => !prev); }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setInactiveSourceSelection(null);
+                  setMarkdownSource((prev) => !prev);
+                }}
               >
                 <VsIcon name={markdownSource ? 'document' : 'code'} size={14} />
               </button>
@@ -618,11 +602,27 @@ export function FilePreviewContent({
       >
         {showMarkdownRendered ? (
           <>
-            <div
-              ref={previewScrollRef}
-              className="h-full overflow-auto ace-md ace-side-markdown-preview"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(state.text) }}
-            />
+            {editing ? (
+              <MarkdownWysiwygEditor
+                value={previewText}
+                disabled={activeEdit.saving}
+                hostRef={previewScrollRef}
+                selectionContexts={selectionContexts}
+                sourcePath={sourcePath}
+                contentRevision={sourceContentRevision}
+                onChange={(text) => {
+                  setState((previous) => ({ ...previous, text, size: text.length }));
+                  onEditStateChangeRef.current?.({ text, error: '' });
+                }}
+                onSave={saveEditing}
+              />
+            ) : (
+              <div
+                ref={previewScrollRef}
+                className="h-full overflow-auto ace-md ace-side-markdown-preview"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(previewText) }}
+              />
+            )}
             <SelectionAnnotationOverlay
               hostRef={previewScrollRef}
               contexts={selectionContexts}
@@ -630,6 +630,7 @@ export function FilePreviewContent({
               sourceText={normalizedSourceText}
               contentRevision={sourceContentRevision}
               rendered
+              managedDecorations={editing}
             />
           </>
         ) : (
@@ -639,12 +640,28 @@ export function FilePreviewContent({
               className="h-full overflow-auto text-[11px] ace-preview"
               dangerouslySetInnerHTML={{ __html: html }}
             />
+            {editing && (
+              <HighlightedTextEditor
+                value={previewText}
+                path={path}
+                wrap={wrapPreview}
+                disabled={activeEdit.saving}
+                previewRef={previewScrollRef}
+                onInactiveSelectionChange={setInactiveSourceSelection}
+                onChange={(text) => {
+                  setState((previous) => ({ ...previous, text, size: text.length }));
+                  onEditStateChangeRef.current?.({ text, error: '' });
+                }}
+                onSave={saveEditing}
+              />
+            )}
             <SelectionAnnotationOverlay
               hostRef={previewScrollRef}
               contexts={selectionContexts}
               sourcePath={sourcePath}
               sourceText={normalizedSourceText}
               contentRevision={sourceContentRevision}
+              inactiveRange={inactiveSourceSelection}
             />
           </>
         )}

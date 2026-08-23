@@ -529,6 +529,36 @@ function sourceElementForPreview(preview) {
     || preview;
 }
 
+function textControlFromTarget(target) {
+  const element = elementFromNode(target);
+  if (!element) return null;
+  if (element.matches?.('[data-ace-editable-preview-text="true"]')) return element;
+  return element.closest?.('[data-ace-editable-preview-text="true"]') || null;
+}
+
+function lineNumberAtTextOffset(text, offset) {
+  return selectionLineCount(String(text || '').slice(0, Math.max(0, Number(offset) || 0)));
+}
+
+export function textControlSelection(target) {
+  const control = textControlFromTarget(target);
+  if (!control) return null;
+  const value = String(control.value || '');
+  const startOffset = Math.max(0, Number(control.selectionStart) || 0);
+  const endOffset = Math.max(startOffset, Number(control.selectionEnd) || startOffset);
+  if (endOffset <= startOffset) return null;
+  return {
+    target: control,
+    text: value.slice(startOffset, endOffset),
+    value,
+    startOffset,
+    endOffset,
+    startLine: lineNumberAtTextOffset(value, startOffset),
+    endLine: lineNumberAtTextOffset(value, endOffset),
+    view: 'source',
+  };
+}
+
 export function selectionPreviewKindSupportsActions(kind) {
   return kind === 'text' || kind === 'markdown';
 }
@@ -544,6 +574,62 @@ function textOffsetWithinElement(root, node, offset) {
     return length;
   } catch {
     return -1;
+  }
+}
+
+function managedSlateTextNodes(root) {
+  if (!root?.ownerDocument?.createTreeWalker) return [];
+  const doc = root.ownerDocument;
+  const view = doc.defaultView || globalThis.window || {};
+  const nodeFilter = view.NodeFilter || globalThis.NodeFilter || {};
+  const walker = doc.createTreeWalker(
+    root,
+    nodeFilter.SHOW_TEXT || 4,
+    {
+      acceptNode(node) {
+        const parent = node?.parentElement;
+        return parent?.closest?.('[data-slate-string="true"]')
+          ? (nodeFilter.FILTER_ACCEPT || 1)
+          : (nodeFilter.FILTER_REJECT || 2);
+      },
+    },
+  );
+  const nodes = [];
+  let node = walker.nextNode();
+  while (node) {
+    nodes.push(node);
+    node = walker.nextNode();
+  }
+  return nodes;
+}
+
+function managedSlateText(root) {
+  return managedSlateTextNodes(root).map((node) => String(node.nodeValue || '')).join('');
+}
+
+function managedSlateTextOffsetWithinElement(root, pointNode, pointOffset) {
+  if (!root?.contains?.(pointNode) || !root.ownerDocument?.createRange) return -1;
+  const prefix = root.ownerDocument.createRange();
+  try {
+    prefix.selectNodeContents(root);
+    prefix.setEnd(pointNode, pointOffset);
+    let length = 0;
+    for (const node of managedSlateTextNodes(root)) {
+      const textLength = String(node.nodeValue || '').length;
+      const startRelation = prefix.comparePoint(node, 0);
+      if (startRelation > 0) break;
+      const endRelation = prefix.comparePoint(node, textLength);
+      if (endRelation <= 0) {
+        length += textLength;
+      } else if (node === pointNode) {
+        length += Math.max(0, Math.min(textLength, Number(pointOffset) || 0));
+      }
+    }
+    return length;
+  } catch {
+    return -1;
+  } finally {
+    prefix.detach?.();
   }
 }
 
@@ -575,8 +661,13 @@ function sourceOffsetsForRange(source, range) {
       };
     }
   }
-  const startOffset = textOffsetWithinElement(source, range.startContainer, range.startOffset);
-  const endOffset = textOffsetWithinElement(source, range.endContainer, range.endOffset);
+  const managedSlate = source.matches?.('[data-ace-managed-inactive-selection="true"]');
+  const startOffset = managedSlate
+    ? managedSlateTextOffsetWithinElement(source, range.startContainer, range.startOffset)
+    : textOffsetWithinElement(source, range.startContainer, range.startOffset);
+  const endOffset = managedSlate
+    ? managedSlateTextOffsetWithinElement(source, range.endContainer, range.endOffset)
+    : textOffsetWithinElement(source, range.endContainer, range.endOffset);
   return {
     startOffset,
     endOffset,
@@ -603,6 +694,10 @@ export function selectionLineNumberAt(source, node, offset) {
     const sourceLine = positiveInt(sourceLineCell.getAttribute('data-source-line'));
     if (sourceLine) return sourceLine;
   }
+  if (source.matches?.('[data-ace-managed-inactive-selection="true"]')) {
+    const textOffset = managedSlateTextOffsetWithinElement(source, node, offset);
+    return textOffset >= 0 ? selectionLineCount(managedSlateText(source).slice(0, textOffset)) : 0;
+  }
   if (nodeElement && !source.contains(nodeElement) && source !== nodeElement) return 0;
   try {
     const range = document.createRange();
@@ -624,12 +719,13 @@ export function selectionContextFromWindowSelection({
 } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return null;
   const selection = window.getSelection?.();
-  let text = selectedText || selection?.toString?.() || '';
+  const controlSelection = textControlSelection(target);
+  let text = controlSelection?.text || selectedText || selection?.toString?.() || '';
   if (!text.trim()) return null;
 
   let preview = closestPreviewElement(target);
   let range = null;
-  if (selection?.rangeCount) {
+  if (!controlSelection && selection?.rangeCount) {
     range = selection.getRangeAt(0);
     const startPreview = closestPreviewElement(range.startContainer);
     const endPreview = closestPreviewElement(range.endContainer);
@@ -650,10 +746,10 @@ export function selectionContextFromWindowSelection({
   if (!selectionPreviewKindSupportsActions(kind)) return null;
   const contentRevision = preview.getAttribute('data-selection-source-revision') || '';
 
-  let startLine = 0;
-  let endLine = 0;
+  let startLine = controlSelection?.startLine || 0;
+  let endLine = controlSelection?.endLine || 0;
   const source = sourceElementForPreview(preview);
-  const offsets = sourceOffsetsForRange(source, range);
+  const offsets = controlSelection || sourceOffsetsForRange(source, range);
   if (offsets.view === 'source' && offsets.startOffset >= 0 && offsets.endOffset > offsets.startOffset) {
     const sourceText = selectionSourceTextFromCells(source);
     const exactText = sourceText.slice(offsets.startOffset, offsets.endOffset);

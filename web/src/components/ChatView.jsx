@@ -255,6 +255,7 @@ import {
 import {
   selectionPointerViewportRect,
   selectionRangeViewportRect,
+  selectionTargetViewportRect,
 } from '../lib/selectionActionPopover.js';
 import { clearPreviewSelection } from '../lib/inactiveSelection.js';
 import {
@@ -1660,12 +1661,22 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   useEffect(() => {
     let raf = 0;
     let pendingActionTrigger = null;
+    let pendingSelectionTarget = null;
     const updatePreview = () => {
       raf = 0;
       const actionTrigger = pendingActionTrigger;
+      const selectionTarget = pendingSelectionTarget || document.activeElement;
       pendingActionTrigger = null;
-      const next = selectionContextFromWindowSelection();
-      const rangeRect = next ? selectionRangeViewportRect() : null;
+      pendingSelectionTarget = null;
+      const next = selectionContextFromWindowSelection({ target: selectionTarget });
+      const isEditablePreviewText = selectionTarget?.matches?.(
+        '[data-ace-editable-preview-text="true"]',
+      );
+      const rangeRect = next
+        ? (isEditablePreviewText
+            ? selectionTargetViewportRect(selectionTarget)
+            : selectionRangeViewportRect() || selectionTargetViewportRect(selectionTarget))
+        : null;
       const actionRect = actionTrigger?.rect || rangeRect;
       if (!next || !rangeRect) {
         selectionPreviewFingerprintRef.current = '';
@@ -1690,12 +1701,13 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         return prev?.mode === 'annotation' ? prev : null;
       });
     };
-    const schedulePreviewUpdate = (actionTrigger = null) => {
+    const schedulePreviewUpdate = (actionTrigger = null, selectionTarget = null) => {
       if (actionTrigger) pendingActionTrigger = actionTrigger;
+      if (selectionTarget) pendingSelectionTarget = selectionTarget;
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(updatePreview);
     };
-    const handleSelectionChange = () => schedulePreviewUpdate();
+    const handleSelectionChange = () => schedulePreviewUpdate(null, document.activeElement);
     const handleMouseUp = (event) => {
       if (event.button !== 0) return;
       const target = event.target?.nodeType === Node.ELEMENT_NODE
@@ -1706,7 +1718,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         show: true,
         anchor: 'pointer',
         rect: selectionPointerViewportRect(event),
-      });
+      }, target);
     };
     const handleKeyUp = (event) => {
       const target = event.target?.nodeType === Node.ELEMENT_NODE
@@ -1717,15 +1729,18 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         show: true,
         anchor: 'selection',
         rect: null,
-      });
+      }, target);
     };
+    const handleSelect = (event) => schedulePreviewUpdate(null, event.target);
 
     document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('select', handleSelect, true);
     document.addEventListener('mouseup', handleMouseUp, true);
     document.addEventListener('keyup', handleKeyUp, true);
     return () => {
       if (raf) cancelAnimationFrame(raf);
       document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('select', handleSelect, true);
       document.removeEventListener('mouseup', handleMouseUp, true);
       document.removeEventListener('keyup', handleKeyUp, true);
     };
@@ -4716,7 +4731,6 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       return;
     }
 
-    toast({ kind: 'ok', text: saveResult.savedCount === 1 ? '文件已保存' : `已保存 ${saveResult.savedCount} 个文件` });
     performPreviewClose(pending.kind, pending.tabKey);
   }, [
     api,

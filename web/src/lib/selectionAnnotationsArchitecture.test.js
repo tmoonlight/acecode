@@ -53,13 +53,13 @@ run('file previews expose precise source offsets and both supported decoration s
   assert.match(preview, /data-source-start=/);
   assert.match(preview, /data-source-length=/);
   assert.match(preview, /data-selection-source-revision/);
-  assert.match(preview, /selectionSourceContentRevision\(state\.text\)/);
+  assert.match(preview, /selectionSourceContentRevision\(previewText\)/);
   const contexts = source('lib/selectionChatContext.js');
   assert.match(contexts, /getAttribute\('data-selection-source-revision'\)/);
   assert.equal((preview.match(/<SelectionAnnotationOverlay/g) || []).length, 2);
   assert.match(preview, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
   assert.match(preview, /className="h-full overflow-auto text-\[11px\] ace-preview"/);
-  assert.match(preview, /rendered\s*\/>/);
+  assert.match(preview, /rendered[\s\S]*managedDecorations=\{editing\}/);
   const styles = source('styles/globals.css');
   assert.match(styles, /\.ace-preview,\s*\.ace-side-markdown-preview\s*\{[^}]*user-select:\s*text;/s);
 });

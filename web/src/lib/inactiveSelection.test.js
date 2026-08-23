@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  CLEAR_PREVIEW_SELECTION_EVENT,
   PREVIEW_SELECTOR,
   previewElementFromTarget,
   shouldClearPreviewSelectionOnMouseDown,
@@ -66,4 +67,8 @@ run('outside and non-left preview clicks do not clear selection state', () => {
     ),
     false,
   );
+});
+
+run('managed editors share one explicit clear-selection event', () => {
+  assert.equal(CLEAR_PREVIEW_SELECTION_EVENT, 'acecode:clear-preview-selection');
 });

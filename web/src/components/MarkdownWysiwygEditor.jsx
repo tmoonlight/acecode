@@ -5,24 +5,29 @@ import {
   useRef,
   useState,
 } from 'react';
+import hljs from 'highlight.js/lib/core';
 import {
   createEditor,
   Editor,
-  Element as SlateElement,
+  Node as SlateNode,
+  Range as SlateRange,
   Transforms,
 } from 'slate';
 import {
   Editable,
   ReactEditor,
   Slate,
-  useSlate,
   withReact,
 } from 'slate-react';
 import {
   HistoryEditor,
   withHistory,
 } from 'slate-history';
+import { slateSelectionDecorationModel } from '../lib/editablePreviewSelection.js';
+import { CLEAR_PREVIEW_SELECTION_EVENT } from '../lib/inactiveSelection.js';
+import { renderMarkdown, renderMarkdownInline } from '../lib/markdown.js';
 import { markdownToSlate, slateToMarkdown } from '../lib/markdownWysiwyg.js';
+import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 
 const EDITABLE_BLOCK_TYPES = new Set([
   'paragraph',
@@ -30,6 +35,23 @@ const EDITABLE_BLOCK_TYPES = new Set([
   'blockquote',
   'code-block',
 ]);
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function highlightedCodeHtml(value, language) {
+  const source = String(value || '');
+  if (language && hljs.getLanguage(language)) {
+    try {
+      return hljs.highlight(source, { language, ignoreIllegals: true }).value;
+    } catch { /* Fall back to escaped source. */ }
+  }
+  return escapeHtml(source);
+}
 
 function legalDocument(document) {
   return Array.isArray(document) && document.length > 0
@@ -93,234 +115,28 @@ function replaceDocument(editor, document) {
   }
 }
 
-function isBlockActive(editor, type, attributes = {}) {
-  if (!editor.selection) return false;
-  const [match] = Editor.nodes(editor, {
-    at: editor.selection,
-    match: (node) => (
-      !Editor.isEditor(node)
-      && SlateElement.isElement(node)
-      && node.type === type
-      && Object.entries(attributes).every(([key, value]) => node[key] === value)
-    ),
-  });
-  return !!match;
-}
-
-function isMarkActive(editor, mark) {
-  return Editor.marks(editor)?.[mark] === true;
-}
-
-function toggleMark(editor, mark) {
-  if (isMarkActive(editor, mark)) Editor.removeMark(editor, mark);
-  else Editor.addMark(editor, mark, true);
-}
-
-function setTextBlock(editor, type, attributes = {}) {
-  if (!editor.selection) return;
-  Transforms.setNodes(editor, { type, ...attributes }, {
-    match: (node) => (
-      !Editor.isEditor(node)
-      && SlateElement.isElement(node)
-      && ['paragraph', 'heading', 'code-block'].includes(node.type)
-    ),
-  });
-}
-
-function toggleQuote(editor) {
-  if (!editor.selection) return;
-  if (isBlockActive(editor, 'blockquote')) {
-    Transforms.unwrapNodes(editor, {
-      match: (node) => SlateElement.isElement(node) && node.type === 'blockquote',
-      split: true,
-    });
-    return;
-  }
-  Transforms.wrapNodes(editor, { type: 'blockquote', children: [] }, {
-    match: (node) => (
-      SlateElement.isElement(node)
-      && ['paragraph', 'heading', 'code-block'].includes(node.type)
-    ),
-    split: true,
-  });
-}
-
-function toggleList(editor, { ordered = false, task = false } = {}) {
-  if (!editor.selection) return;
-  const active = isBlockActive(editor, 'list', { ordered });
-  if (active) {
-    Transforms.unwrapNodes(editor, {
-      match: (node) => SlateElement.isElement(node) && node.type === 'list',
-      split: true,
-    });
-    Transforms.unwrapNodes(editor, {
-      match: (node) => SlateElement.isElement(node) && node.type === 'list-item',
-      split: true,
-    });
-    return;
-  }
-
-  Transforms.unwrapNodes(editor, {
-    match: (node) => SlateElement.isElement(node) && node.type === 'list',
-    split: true,
-  });
-  Transforms.wrapNodes(editor, {
-    type: 'list-item',
-    checked: task ? false : null,
-    children: [],
-  }, {
-    match: (node) => (
-      SlateElement.isElement(node)
-      && ['paragraph', 'heading', 'code-block'].includes(node.type)
-    ),
-    split: true,
-  });
-  Transforms.wrapNodes(editor, {
-    type: 'list',
-    ordered,
-    start: null,
-    spread: false,
-    children: [],
-  }, {
-    match: (node) => SlateElement.isElement(node) && node.type === 'list-item',
-    split: true,
-  });
-}
-
-function ToolbarButton({ active = false, disabled = false, label, title, onPress }) {
-  return (
-    <button
-      type="button"
-      className={`ace-markdown-toolbar-button${active ? ' is-active' : ''}`}
-      aria-label={title || label}
-      aria-pressed={active ? 'true' : undefined}
-      disabled={disabled}
-      title={title || label}
-      onMouseDown={(event) => {
-        event.preventDefault();
-        if (!disabled) onPress?.();
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function MarkdownToolbar({ disabled }) {
-  const editor = useSlate();
-  const heading = [1, 2, 3].find((level) => isBlockActive(editor, 'heading', { level }));
-  const blockValue = heading ? `h${heading}` : (
-    isBlockActive(editor, 'code-block') ? 'code' : 'paragraph'
-  );
-
-  return (
-    <div className="ace-markdown-toolbar" role="toolbar" aria-label="Markdown 格式">
-      <select
-        className="ace-markdown-toolbar-select"
-        aria-label="段落样式"
-        value={blockValue}
-        disabled={disabled}
-        onChange={(event) => {
-          const next = event.target.value;
-          if (next === 'paragraph') setTextBlock(editor, 'paragraph');
-          else if (next === 'code') setTextBlock(editor, 'code-block', { lang: '', meta: '' });
-          else setTextBlock(editor, 'heading', { level: Number(next.slice(1)) || 1 });
-          try { ReactEditor.focus(editor); } catch { /* Selection remains usable without focus. */ }
-        }}
-      >
-        <option value="paragraph">正文</option>
-        <option value="h1">一级标题</option>
-        <option value="h2">二级标题</option>
-        <option value="h3">三级标题</option>
-        <option value="code">代码块</option>
-      </select>
-      <span className="ace-markdown-toolbar-separator" aria-hidden="true" />
-      <ToolbarButton
-        label="B"
-        title="粗体"
-        active={isMarkActive(editor, 'bold')}
-        disabled={disabled}
-        onPress={() => toggleMark(editor, 'bold')}
-      />
-      <ToolbarButton
-        label="I"
-        title="斜体"
-        active={isMarkActive(editor, 'italic')}
-        disabled={disabled}
-        onPress={() => toggleMark(editor, 'italic')}
-      />
-      <ToolbarButton
-        label="S"
-        title="删除线"
-        active={isMarkActive(editor, 'strike')}
-        disabled={disabled}
-        onPress={() => toggleMark(editor, 'strike')}
-      />
-      <ToolbarButton
-        label="&lt;/&gt;"
-        title="行内代码"
-        active={isMarkActive(editor, 'code')}
-        disabled={disabled}
-        onPress={() => toggleMark(editor, 'code')}
-      />
-      <span className="ace-markdown-toolbar-separator" aria-hidden="true" />
-      <ToolbarButton
-        label="引用"
-        active={isBlockActive(editor, 'blockquote')}
-        disabled={disabled}
-        onPress={() => toggleQuote(editor)}
-      />
-      <ToolbarButton
-        label="• 列表"
-        active={isBlockActive(editor, 'list', { ordered: false })}
-        disabled={disabled}
-        onPress={() => toggleList(editor)}
-      />
-      <ToolbarButton
-        label="1. 列表"
-        active={isBlockActive(editor, 'list', { ordered: true })}
-        disabled={disabled}
-        onPress={() => toggleList(editor, { ordered: true })}
-      />
-      <ToolbarButton
-        label="任务"
-        title="任务列表"
-        active={isBlockActive(editor, 'list-item', { checked: true })}
-        disabled={disabled}
-        onPress={() => toggleList(editor, { task: true })}
-      />
-      <span className="ace-markdown-toolbar-spacer" />
-      <ToolbarButton
-        label="撤销"
-        disabled={disabled || editor.history.undos.length === 0}
-        onPress={() => HistoryEditor.undo(editor)}
-      />
-      <ToolbarButton
-        label="重做"
-        disabled={disabled || editor.history.redos.length === 0}
-        onPress={() => HistoryEditor.redo(editor)}
-      />
-    </div>
-  );
-}
-
 function OpaqueNode({ attributes, children, element, inline = false }) {
   const Tag = inline ? 'span' : 'div';
+  const html = inline
+    ? renderMarkdownInline(element.raw || '')
+    : renderMarkdown(element.raw || '');
   return (
     <Tag
       {...attributes}
       contentEditable={false}
-      className={`ace-markdown-opaque${inline ? ' is-inline' : ' is-block'}`}
+      className="ace-markdown-opaque"
       title="此 Markdown 结构按原文保留"
     >
       <span className="ace-markdown-opaque-children">{children}</span>
-      <code>{element.raw || ''}</code>
+      <Tag
+        className="ace-markdown-opaque-rendered"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     </Tag>
   );
 }
 
-function MarkdownElement({ attributes, children, element }) {
-  const editor = useSlate();
+function MarkdownElement({ attributes, children, element, editor }) {
   switch (element.type) {
     case 'heading': {
       const Tag = `h${Math.min(6, Math.max(1, Number(element.level) || 1))}`;
@@ -329,24 +145,41 @@ function MarkdownElement({ attributes, children, element }) {
     case 'blockquote':
       return <blockquote {...attributes}>{children}</blockquote>;
     case 'code-block':
-      return <pre {...attributes}><code>{children}</code></pre>;
+      return (
+        <CopyableCodeFrame
+          {...attributes}
+          className="ace-markdown-code-frame"
+          text={SlateNode.string(element)}
+        >
+          <pre className={element.lang ? 'hljs' : undefined}>
+            <code
+              className="ace-markdown-code-highlight"
+              contentEditable={false}
+              aria-hidden="true"
+              dangerouslySetInnerHTML={{
+                __html: highlightedCodeHtml(SlateNode.string(element), element.lang),
+              }}
+            />
+            <code className="ace-markdown-code-input" data-code-copy-source="true">
+              {children}
+            </code>
+          </pre>
+        </CopyableCodeFrame>
+      );
     case 'list': {
       const Tag = element.ordered ? 'ol' : 'ul';
       return <Tag {...attributes} start={element.ordered ? element.start || undefined : undefined}>{children}</Tag>;
     }
     case 'list-item':
       return (
-        <li {...attributes} className={element.checked == null ? undefined : 'is-task'}>
+        <li {...attributes} className={element.checked == null ? undefined : 'task-list-item'}>
           {element.checked == null ? null : (
             <input
               type="checkbox"
               contentEditable={false}
               checked={element.checked === true}
+              disabled
               aria-label="任务完成状态"
-              onChange={() => {
-                const path = ReactEditor.findPath(editor, element);
-                Transforms.setNodes(editor, { checked: element.checked !== true }, { at: path });
-              }}
             />
           )}
           {children}
@@ -357,7 +190,13 @@ function MarkdownElement({ attributes, children, element }) {
     case 'table-row':
       return <tr {...attributes}>{children}</tr>;
     case 'table-cell':
-      return <td {...attributes}>{children}</td>;
+      try {
+        const path = ReactEditor.findPath(editor, element);
+        const Tag = path[path.length - 2] === 0 ? 'th' : 'td';
+        return <Tag {...attributes}>{children}</Tag>;
+      } catch {
+        return <td {...attributes}>{children}</td>;
+      }
     case 'thematic-break':
       return <div {...attributes} contentEditable={false}>{children}<hr /></div>;
     case 'link':
@@ -388,7 +227,32 @@ function MarkdownLeaf({ attributes, children, leaf }) {
   if (leaf.italic) content = <em>{content}</em>;
   if (leaf.strike) content = <del>{content}</del>;
   if (leaf.code) content = <code>{content}</code>;
-  return <span {...attributes}>{content}</span>;
+  const decorationId = leaf.selectionDecorationId || '';
+  const className = [
+    leaf.inactiveSelection ? 'ace-inactive-selection-mark' : '',
+    decorationId ? 'ace-selection-reference-mark' : '',
+  ].filter(Boolean).join(' ') || undefined;
+  const setGroupHovered = (target, hovered) => {
+    if (!decorationId) return;
+    const root = target?.closest?.('.ace-side-markdown-preview');
+    for (const mark of Array.from(root?.querySelectorAll?.('[data-selection-decoration-id]') || [])) {
+      if (mark.getAttribute('data-selection-decoration-id') === decorationId) {
+        mark.classList.toggle('is-hovered', hovered);
+      }
+    }
+  };
+  return (
+    <span
+      {...attributes}
+      className={className}
+      data-selection-decoration-id={decorationId || undefined}
+      data-selection-annotated={decorationId ? (leaf.selectionAnnotated ? 'true' : 'false') : undefined}
+      onMouseEnter={(event) => setGroupHovered(event.currentTarget, true)}
+      onMouseLeave={(event) => setGroupHovered(event.currentTarget, false)}
+    >
+      {content}
+    </span>
+  );
 }
 
 export default function MarkdownWysiwygEditor({
@@ -396,6 +260,10 @@ export default function MarkdownWysiwygEditor({
   onChange,
   onSave,
   disabled = false,
+  hostRef = null,
+  selectionContexts = [],
+  sourcePath = '',
+  contentRevision = '',
 }) {
   const normalizedValue = String(value ?? '');
   const initialValueRef = useRef(null);
@@ -409,10 +277,20 @@ export default function MarkdownWysiwygEditor({
   const compositionRef = useRef({ active: false, settling: false });
   const compositionTimerRef = useRef(0);
   const [syncRevision, setSyncRevision] = useState(0);
+  const [inactiveSelection, setInactiveSelection] = useState(null);
 
   useEffect(() => () => {
     if (compositionTimerRef.current) window.clearTimeout(compositionTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    const clear = () => {
+      setInactiveSelection(null);
+      safeDeselect(editor);
+    };
+    window.addEventListener(CLEAR_PREVIEW_SELECTION_EVENT, clear);
+    return () => window.removeEventListener(CLEAR_PREVIEW_SELECTION_EVENT, clear);
+  }, [editor]);
 
   useEffect(() => {
     if (normalizedValue === lastAppliedValueRef.current) return;
@@ -436,14 +314,16 @@ export default function MarkdownWysiwygEditor({
     onChange?.(markdown);
   }, [editor, onChange]);
 
-  const handleCompositionStart = useCallback(() => {
+  const handleCompositionStart = useCallback((event) => {
+    event.currentTarget.classList.add('is-composing');
     if (compositionTimerRef.current) window.clearTimeout(compositionTimerRef.current);
     compositionTimerRef.current = 0;
     compositionRef.current.active = true;
     compositionRef.current.settling = false;
   }, []);
 
-  const handleCompositionEnd = useCallback(() => {
+  const handleCompositionEnd = useCallback((event) => {
+    event.currentTarget.classList.remove('is-composing');
     compositionRef.current.active = false;
     compositionRef.current.settling = true;
     if (compositionTimerRef.current) window.clearTimeout(compositionTimerRef.current);
@@ -469,30 +349,69 @@ export default function MarkdownWysiwygEditor({
     }
   }, [disabled, editor, onSave]);
 
-  const renderElement = useCallback((props) => <MarkdownElement {...props} />, []);
+  const decorationModel = useMemo(
+    () => slateSelectionDecorationModel(
+      Array.isArray(editor.children) && editor.children.length > 0
+        ? editor.children
+        : initialValueRef.current,
+      {
+        contexts: selectionContexts,
+        sourcePath,
+        contentRevision,
+        inactiveSelection,
+      },
+    ),
+    [contentRevision, editor, inactiveSelection, normalizedValue, selectionContexts, sourcePath],
+  );
+
+  const decorate = useCallback(([, path]) => (
+    decorationModel.rangesByPath.get(path.join('.')) || []
+  ), [decorationModel]);
+
+  const setEditableRef = useCallback((node) => {
+    if (hostRef && typeof hostRef === 'object') hostRef.current = node;
+    else if (typeof hostRef === 'function') hostRef(node);
+  }, [hostRef]);
+
+  const handleBlur = useCallback(() => {
+    if (editor.selection && !SlateRange.isCollapsed(editor.selection)) {
+      setInactiveSelection({
+        anchor: { ...editor.selection.anchor, path: [...editor.selection.anchor.path] },
+        focus: { ...editor.selection.focus, path: [...editor.selection.focus.path] },
+      });
+    }
+  }, [editor]);
+
+  const renderElement = useCallback(
+    (props) => <MarkdownElement {...props} editor={editor} />,
+    [editor],
+  );
   const renderLeaf = useCallback((props) => <MarkdownLeaf {...props} />, []);
 
   return (
-    <div className="ace-markdown-editor">
-      <Slate
-        editor={editor}
-        initialValue={initialValueRef.current}
-        onValueChange={handleValueChange}
-      >
-        <MarkdownToolbar disabled={disabled} />
-        <Editable
-          className="ace-markdown-editable"
-          aria-label="Markdown 所见即所得编辑器"
-          readOnly={disabled}
-          renderElement={renderElement}
-          renderLeaf={renderLeaf}
-          onKeyDown={handleKeyDown}
-          onCompositionStart={handleCompositionStart}
-          onCompositionEnd={handleCompositionEnd}
-          spellCheck
-        />
-      </Slate>
-    </div>
+    <Slate
+      editor={editor}
+      initialValue={initialValueRef.current}
+      onValueChange={handleValueChange}
+    >
+      <Editable
+        ref={setEditableRef}
+        className="h-full overflow-auto ace-md ace-side-markdown-preview"
+        data-ace-managed-inactive-selection="true"
+        aria-label="Markdown 所见即所得编辑器"
+        aria-busy={disabled ? 'true' : undefined}
+        readOnly={disabled}
+        decorate={decorate}
+        renderElement={renderElement}
+        renderLeaf={renderLeaf}
+        onFocus={() => setInactiveSelection(null)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
+        spellCheck={false}
+      />
+    </Slate>
   );
 }
 
