@@ -37,6 +37,7 @@ import './sessionReferenceComposerArchitecture.test.js';
 import './dropdownPlacement.test.js';
 import './slashDropdownArchitecture.test.js';
 import './desktopContextPicker.test.js';
+import './desktopPreviewFilePicker.test.js';
 import './desktopFilesystemTransfer.test.js';
 import './desktopNativeFilesystemDrop.test.js';
 import './desktopNativeFilesystemDropArchitecture.test.js';

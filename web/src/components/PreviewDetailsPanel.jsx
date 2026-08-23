@@ -8,7 +8,10 @@ import {
   previewTabHasUnsavedDraft,
   resolveSessionChangesTabContent,
 } from '../lib/previewTabs.js';
-import { scrollLeftForVisibleTab } from '../lib/previewTabScroll.js';
+import {
+  previewTabListOverflows,
+  scrollLeftForVisibleTab,
+} from '../lib/previewTabScroll.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 import { FilePreviewContent } from './FilePreviewContent.jsx';
 import { AgentBrowserPanel } from './AgentBrowserPanel.jsx';
@@ -66,17 +69,17 @@ function BrowserTabIcon({ favicon }) {
 function PreviewAddMenu({
   anchorRef,
   onClose,
-  onOpenTerminal,
+  onOpenFile,
   onOpenBrowser,
   onOpenSideChat,
 }) {
   const menuRef = useRef(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const items = useMemo(() => [
-    { key: 'terminal', label: '终端', icon: 'terminal', action: onOpenTerminal },
+    { key: 'file', label: '文件', icon: 'openFile', action: onOpenFile },
     { key: 'browser', label: '浏览器', icon: 'globe', action: onOpenBrowser },
     { key: 'side-chat', label: '侧边聊天', icon: 'brain', action: onOpenSideChat },
-  ], [onOpenBrowser, onOpenSideChat, onOpenTerminal]);
+  ], [onOpenBrowser, onOpenFile, onOpenSideChat]);
 
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
@@ -179,7 +182,7 @@ const TAB_DRAG_START_PX = 5;
 const TAB_EDGE_SCROLL_PX = 36;
 const TAB_EDGE_SCROLL_STEP = 16;
 
-function PreviewTabScrollbar({ scrollRef }) {
+function PreviewTabScrollbar({ scrollRef, onOverflowChange }) {
   const dragRef = useRef(null);
   const cleanupDragRef = useRef(null);
   const [metrics, setMetrics] = useState({ overflow: false, left: 0, width: 0 });
@@ -189,7 +192,11 @@ function PreviewTabScrollbar({ scrollRef }) {
     if (!el) return;
     const client = el.clientWidth;
     const scroll = el.scrollWidth;
-    const overflow = scroll > client + 1;
+    const overflow = previewTabListOverflows({
+      clientWidth: client,
+      scrollWidth: scroll,
+    });
+    onOverflowChange?.(overflow);
     if (!overflow) {
       setMetrics((prev) => (
         !prev.overflow && prev.left === 0 && prev.width === 0
@@ -207,7 +214,7 @@ function PreviewTabScrollbar({ scrollRef }) {
         ? prev
         : { overflow: true, left, width }
     ));
-  }, [scrollRef]);
+  }, [onOverflowChange, scrollRef]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -320,7 +327,7 @@ export function PreviewDetailsPanel({
   onReorderTab,
   onToggleMaximize,
   onToggleSidePanelList,
-  onOpenTerminal,
+  onOpenFile,
   onOpenBrowser,
   onOpenSideChat,
   onHide,
@@ -339,6 +346,7 @@ export function PreviewDetailsPanel({
   const [tabDragState, setTabDragState] = useState(null);
   const [tabDragGhost, setTabDragGhost] = useState(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
   const [wrapPreview, setWrapPreview] = usePreference(
     FILE_PREVIEW_WRAP_STORAGE_KEY,
     false,
@@ -787,12 +795,37 @@ export function PreviewDetailsPanel({
     if (next !== el.scrollLeft) el.scrollLeft = next;
   }, [active?.key, tabs]);
 
+  useEffect(() => {
+    setAddMenuOpen(false);
+  }, [tabsOverflow]);
+
   if (!active || tabs.length === 0) return null;
+
+  const addButton = (
+    <button
+      ref={addButtonRef}
+      type="button"
+      className="ace-preview-details-add"
+      title="打开工具"
+      aria-label="打开工具"
+      aria-haspopup="menu"
+      aria-expanded={addMenuOpen}
+      onClick={() => setAddMenuOpen((open) => !open)}
+    >
+      <VsIcon name="add" size={15} />
+    </button>
+  );
 
   return (
     <div className="ace-preview-details-panel" data-maximized={maximized ? 'true' : 'false'}>
       <div className="ace-preview-details-tabs">
-        <div className="ace-preview-details-tab-scroll-shell" onWheel={handleTabWheel}>
+        <div
+          className={clsx(
+            'ace-preview-details-tab-scroll-shell',
+            !tabsOverflow && 'is-add-inline',
+          )}
+          onWheel={handleTabWheel}
+        >
           <div ref={tabListRef} className="ace-preview-details-tab-list" role="tablist" aria-label="预览标签页">
             {tabs.map((tab, tabIndex) => {
               const selected = active.key === tab.key;
@@ -876,20 +909,13 @@ export function PreviewDetailsPanel({
               );
             })}
           </div>
-          <PreviewTabScrollbar scrollRef={tabListRef} />
+          {!tabsOverflow && addButton}
+          <PreviewTabScrollbar
+            scrollRef={tabListRef}
+            onOverflowChange={setTabsOverflow}
+          />
         </div>
-        <button
-          ref={addButtonRef}
-          type="button"
-          className="ace-preview-details-add"
-          title="打开工具"
-          aria-label="打开工具"
-          aria-haspopup="menu"
-          aria-expanded={addMenuOpen}
-          onClick={() => setAddMenuOpen((open) => !open)}
-        >
-          <VsIcon name="add" size={15} />
-        </button>
+        {tabsOverflow && addButton}
         <div className="ace-preview-details-actions">
           {sidePanelListCollapsed && onToggleSidePanelList && (
             <button
@@ -952,7 +978,7 @@ export function PreviewDetailsPanel({
         <PreviewAddMenu
           anchorRef={addButtonRef}
           onClose={() => setAddMenuOpen(false)}
-          onOpenTerminal={onOpenTerminal}
+          onOpenFile={onOpenFile}
           onOpenBrowser={onOpenBrowser}
           onOpenSideChat={onOpenSideChat}
         />

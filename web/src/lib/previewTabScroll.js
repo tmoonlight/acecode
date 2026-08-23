@@ -7,6 +7,17 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+export function previewTabListOverflows({
+  clientWidth = 0,
+  scrollWidth = 0,
+  tolerance = 1,
+} = {}) {
+  const client = Math.max(0, finiteNumber(clientWidth));
+  const scroll = Math.max(0, finiteNumber(scrollWidth));
+  const slack = Math.max(0, finiteNumber(tolerance));
+  return client > 0 && scroll > client + slack;
+}
+
 export function scrollLeftForVisibleTab({
   scrollLeft = 0,
   clientWidth = 0,

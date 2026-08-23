@@ -23,17 +23,59 @@ function run(name, fn) {
   }
 }
 
-run('preview plus menu exposes exactly terminal, browser and side chat actions', () => {
+run('preview plus menu exposes exactly file, browser and side chat actions', () => {
   const preview = source('../components/PreviewDetailsPanel.jsx');
   const menu = between(preview, 'const items = useMemo(() => [', '], [onOpenBrowser');
   assert.deepEqual(
     [...menu.matchAll(/label: '([^']+)'/g)].map((match) => match[1]),
-    ['终端', '浏览器', '侧边聊天'],
+    ['文件', '浏览器', '侧边聊天'],
   );
   assert.equal((menu.match(/key:/g) || []).length, 3);
+  assert.match(menu, /action: onOpenFile/);
+  assert.doesNotMatch(menu, /终端|onOpenTerminal/);
   assert.match(preview, /aria-haspopup="menu"/);
   assert.match(preview, /data-ace-native-overlay="overlap"/);
   assert.match(preview, /event\.key === 'Escape'/);
+});
+
+run('preview plus button follows the last tab until measured overflow pins it', () => {
+  const preview = source('../components/PreviewDetailsPanel.jsx');
+  const scroll = source('./previewTabScroll.js');
+  const styles = source('../styles/globals.css');
+
+  assert.match(scroll, /export function previewTabListOverflows/);
+  assert.match(preview, /const \[tabsOverflow, setTabsOverflow\] = useState\(false\)/);
+  assert.match(preview, /onOverflowChange\?\.\(overflow\)/);
+  assert.match(preview, /!tabsOverflow && addButton/);
+  assert.match(preview, /\{tabsOverflow && addButton\}/);
+  assert.match(preview, /!tabsOverflow && 'is-add-inline'/);
+  assert.match(
+    styles,
+    /\.ace-preview-details-tab-scroll-shell\.is-add-inline \.ace-preview-details-tab-list\s*\{[\s\S]*?flex: 0 1 auto;/,
+  );
+});
+
+run('preview file action uses a dedicated native single-file picker and existing preview tabs', () => {
+  const picker = source('./desktopPreviewFilePicker.js');
+  const chat = source('../components/ChatView.jsx');
+  const desktop = source('../../../src/desktop/main.cpp');
+  const nativePicker = source('../../../src/desktop/context_picker.cpp');
+  const singleFilePicker = between(
+    nativePicker,
+    'SingleFilePickOutcome pick_single_file(',
+    '} // namespace acecode::desktop',
+  );
+
+  assert.match(picker, /aceDesktop_pickPreviewFile\(\{ cwd:/);
+  assert.match(chat, /const openPreviewFilePicker = useCallback\(async/);
+  assert.match(chat, /pickNativePreviewFile\(sidePanelCwd\)/);
+  assert.match(chat, /openFilePreview\(picked\.path\)/);
+  assert.match(chat, /onOpenFile=\{sidePanelCwd && hasNativePreviewFilePicker\(\)/);
+  assert.match(desktop, /host\.bind\("aceDesktop_pickPreviewFile"/);
+  assert.match(desktop, /acecode::desktop::pick_single_file/);
+  assert.match(singleFilePicker, /set_default_folder\(dialog, default_folder\)/);
+  assert.match(singleFilePicker, /FOS_FILEMUSTEXIST/);
+  assert.doesNotMatch(singleFilePicker, /FOS_ALLOWMULTISELECT/);
 });
 
 run('details close button hides the panel without closing tabs or Browser pages', () => {
@@ -97,11 +139,10 @@ run('editable file details open directly with highlighted source or semantic Mar
 run('side chat owns a separate draft and dispatches through the existing side-question API', () => {
   const chat = source('../components/ChatView.jsx');
   const composer = source('../components/SideQuestionComposer.jsx');
-  const app = source('../App.jsx');
 
   assert.match(chat, /const \[sideQuestionDraft, setSideQuestionDraft\] = useState\(''\)/);
   assert.match(chat, /runSideQuestion\(sideQuestionDraft, \{ command: 'side' \}\)/);
   assert.match(chat, /<SideQuestionComposer[\s\S]*value=\{sideQuestionDraft\}/);
   assert.match(composer, /不会改变主输入草稿/);
-  assert.match(app, /onOpenConsole=\{consoleAvailable \? \(\) => setConsoleDockOpen\(true\) : null\}/);
+  assert.match(chat, /onOpenSideChat=\{openSideQuestionComposer\}/);
 });

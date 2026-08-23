@@ -2478,9 +2478,40 @@ int main(int argc, char** argv) {
         return response.dump();
     });
 
+    // Preview file picker: return one absolute path without materializing the
+    // selected file as a composer attachment.
+#ifdef _WIN32
+    host.bind("aceDesktop_pickPreviewFile", [&](const std::string& req) -> std::string {
+        try {
+            std::string default_folder;
+            auto args = nlohmann::json::parse(req);
+            if (args.is_array() && !args.empty() && args[0].is_object()) {
+                default_folder = args[0].value("cwd", std::string{});
+            }
+
+            auto picked = acecode::desktop::pick_single_file(
+                host.native_window(), default_folder);
+            if (!picked.error.empty()) {
+                return nlohmann::json{{"ok", false}, {"error", picked.error}}.dump();
+            }
+            if (!picked.file_path) {
+                return nlohmann::json{{"ok", true}, {"cancelled", true}}.dump();
+            }
+            return nlohmann::json{
+                {"ok", true},
+                {"cancelled", false},
+                {"path", *picked.file_path},
+            }.dump();
+        } catch (const std::exception& e) {
+            return nlohmann::json{
+                {"ok", false},
+                {"error", std::string("preview file picker: ") + e.what()},
+            }.dump();
+        }
+    });
+
     // Composer context picker: one Windows common file dialog handles normal
     // file multi-selection plus a custom "select current folder" action.
-#ifdef _WIN32
     host.bind("aceDesktop_pickContextItems", [&](const std::string& req) -> std::string {
         try {
             std::string default_folder;

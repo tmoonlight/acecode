@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { scrollLeftForVisibleTab } from './previewTabScroll.js';
+import {
+  previewTabListOverflows,
+  scrollLeftForVisibleTab,
+} from './previewTabScroll.js';
 
 function run(name, fn) {
   try {
@@ -52,4 +55,16 @@ run('active preview tab scroll clamps to the end', () => {
     tabOffsetWidth: 100,
     gutter: 8,
   }), 300);
+});
+
+run('preview tab overflow ignores the one-pixel layout tolerance', () => {
+  assert.equal(previewTabListOverflows({ clientWidth: 300, scrollWidth: 300 }), false);
+  assert.equal(previewTabListOverflows({ clientWidth: 300, scrollWidth: 301 }), false);
+  assert.equal(previewTabListOverflows({ clientWidth: 300, scrollWidth: 302 }), true);
+});
+
+run('preview tab overflow requires a measurable viewport', () => {
+  assert.equal(previewTabListOverflows({ clientWidth: 0, scrollWidth: 500 }), false);
+  assert.equal(previewTabListOverflows({ clientWidth: -10, scrollWidth: 500 }), false);
+  assert.equal(previewTabListOverflows({ clientWidth: 300, scrollWidth: 301, tolerance: 0 }), true);
 });

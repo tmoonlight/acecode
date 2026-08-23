@@ -1951,7 +1951,6 @@ export function App() {
                 onHomeWorkspaceChange={replaceHomeWorkspace}
                 onCommandWorkspaceChange={setCommandWorkspaceHash}
                 onConsoleCwdChange={setConsoleCwd}
-                onOpenConsole={consoleAvailable ? () => setConsoleDockOpen(true) : null}
                 onFindInConversation={openConversationFind}
                 onOpenModelSettings={() => openSettingsSection('models')}
                 health={health}

@@ -14,10 +14,22 @@ struct ContextPickOutcome {
     std::string error;
 };
 
+// Result from a native single-file picker. An empty file path with no error
+// means that the user cancelled.
+struct SingleFilePickOutcome {
+    std::optional<std::string> file_path;
+    std::string error;
+};
+
 // Opens one native window for files and folders. On Windows the common file
 // dialog keeps normal file multi-selection and adds a "select current folder"
 // action. Empty paths with no error mean that the user cancelled.
 ContextPickOutcome pick_context_items(void* parent_hwnd,
                                       const std::string& default_folder = {});
+
+// Opens a native picker that accepts exactly one existing file. The dialog
+// starts in default_folder when that path can be resolved by the platform.
+SingleFilePickOutcome pick_single_file(void* parent_hwnd,
+                                       const std::string& default_folder = {});
 
 } // namespace acecode::desktop

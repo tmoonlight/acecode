@@ -24,8 +24,27 @@ namespace {
 constexpr DWORD kSelectCurrentFolderButton = 0xACE1;
 constexpr const wchar_t* kContextPickerTitle =
     L"\u6dfb\u52a0\u56fe\u7247\u3001\u6587\u4ef6\u6216\u6587\u4ef6\u5939";
+constexpr const wchar_t* kSingleFilePickerTitle = L"\u9009\u62e9\u6587\u4ef6";
 constexpr const wchar_t* kSelectCurrentFolderLabel =
     L"\u9009\u62e9\u5f53\u524d\u6587\u4ef6\u5939";
+
+class ComApartment final {
+public:
+    ComApartment()
+        : result_(::CoInitializeEx(
+              nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)) {}
+
+    ~ComApartment() {
+        if (SUCCEEDED(result_)) ::CoUninitialize();
+    }
+
+    bool available() const {
+        return SUCCEEDED(result_) || result_ == RPC_E_CHANGED_MODE;
+    }
+
+private:
+    HRESULT result_;
+};
 
 std::string wide_to_utf8(const std::wstring& value) {
     if (value.empty()) return {};
@@ -171,10 +190,8 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
                                       const std::string& default_folder) {
     ContextPickOutcome outcome;
 
-    const HRESULT init = ::CoInitializeEx(
-        nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    const bool uninitialize = SUCCEEDED(init);
-    if (!uninitialize && init != RPC_E_CHANGED_MODE && init != S_FALSE) {
+    ComApartment apartment;
+    if (!apartment.available()) {
         outcome.error = "failed to initialize native context picker";
         return outcome;
     }
@@ -184,7 +201,6 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
         CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
     if (FAILED(hr) || !dialog) {
         outcome.error = "failed to create native context picker";
-        if (uninitialize) ::CoUninitialize();
         return outcome;
     }
 
@@ -209,7 +225,6 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
     if (!folder_button_added) {
         outcome.error = "failed to add folder action to native context picker";
         dialog->Release();
-        if (uninitialize) ::CoUninitialize();
         return outcome;
     }
 
@@ -220,7 +235,6 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
         outcome.error = "failed to attach native context picker events";
         events->Release();
         dialog->Release();
-        if (uninitialize) ::CoUninitialize();
         return outcome;
     }
 
@@ -255,7 +269,53 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
     dialog->Unadvise(cookie);
     events->Release();
     dialog->Release();
-    if (uninitialize) ::CoUninitialize();
+    return outcome;
+}
+
+SingleFilePickOutcome pick_single_file(void* parent_hwnd,
+                                       const std::string& default_folder) {
+    SingleFilePickOutcome outcome;
+
+    ComApartment apartment;
+    if (!apartment.available()) {
+        outcome.error = "failed to initialize native file picker";
+        return outcome;
+    }
+
+    IFileOpenDialog* dialog = nullptr;
+    HRESULT hr = ::CoCreateInstance(
+        CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+    if (FAILED(hr) || !dialog) {
+        outcome.error = "failed to create native file picker";
+        return outcome;
+    }
+
+    DWORD options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options))) {
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST |
+                           FOS_PATHMUSTEXIST);
+    }
+    dialog->SetTitle(kSingleFilePickerTitle);
+    set_default_folder(dialog, default_folder);
+
+    hr = dialog->Show(reinterpret_cast<HWND>(parent_hwnd));
+    if (SUCCEEDED(hr)) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+            if (!shell_item_is_folder(item)) {
+                outcome.file_path = filesystem_path(item);
+            }
+            item->Release();
+        }
+        if (!outcome.file_path) {
+            outcome.error = "selected file is unavailable";
+        }
+    } else if (hr != HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+        outcome.error = "native file picker failed";
+        LOG_WARN("[context_picker] single-file IFileOpenDialog::Show failed");
+    }
+
+    dialog->Release();
     return outcome;
 }
 
@@ -268,6 +328,12 @@ namespace acecode::desktop {
 ContextPickOutcome pick_context_items(void*, const std::string&) {
     ContextPickOutcome outcome;
     outcome.error = "unified native context picker is unavailable";
+    return outcome;
+}
+
+SingleFilePickOutcome pick_single_file(void*, const std::string&) {
+    SingleFilePickOutcome outcome;
+    outcome.error = "native file picker is unavailable";
     return outcome;
 }
 

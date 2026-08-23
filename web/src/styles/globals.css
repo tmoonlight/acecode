@@ -3742,6 +3742,9 @@ a.ace-thread-link:focus-visible {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
+.ace-preview-details-tab-scroll-shell.is-add-inline .ace-preview-details-tab-list {
+  flex: 0 1 auto;
+}
 .ace-preview-details-tab-list::-webkit-scrollbar {
   width: 0;
   height: 0;
@@ -3941,6 +3944,10 @@ a.ace-thread-link:focus-visible {
   background: transparent;
   color: var(--ace-fg-mute);
   cursor: pointer;
+}
+.ace-preview-details-tab-scroll-shell.is-add-inline .ace-preview-details-add {
+  border-left: 0;
+  border-right: 1px solid var(--ace-border);
 }
 .ace-preview-details-add:hover,
 .ace-preview-details-add[aria-expanded="true"] {
