@@ -48,7 +48,7 @@
       "name": "acecode-desktop-usage",
       "source_id": "acecode:acecode-desktop-usage@2026-07-20",
       "relative_path": "acecode/acecode-desktop-usage",
-      "skill_md_sha256": "6f9cd7c39a49b4583a64224599acd3a31701d3aa9ae7491149df364ed8c0881a"
+      "skill_md_sha256": "2f01e8b0efdce8bea4223c84bc98fb40494d4a295f12b0f247fba3f641f6f1a6"
     },
     {
       "name": "vision-image-reader",
