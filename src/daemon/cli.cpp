@@ -15,6 +15,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <system_error>
 #include <thread>
 
 namespace fs = std::filesystem;
@@ -335,6 +336,16 @@ static int do_start(const Args& a, const std::string& exe_path) {
     }
     if (a.dangerous) argv.push_back("-dangerous");
 
+    // The spawned worker redirects its stdio to /dev/null before exec, so an
+    // exec failure there is invisible. Reject an unusable path up front, while
+    // stderr still reaches the user.
+    std::error_code exe_ec;
+    if (!fs::is_regular_file(fs::path(exe_path), exe_ec)) {
+        std::cerr << "cannot locate the acecode executable to spawn: "
+                  << exe_path << "\n";
+        return 7;
+    }
+
     auto child = spawn_detached(argv);
     if (child == 0) {
         std::cerr << "spawn_detached failed; check log\n";
@@ -410,7 +421,20 @@ int run(const std::vector<std::string>& tokens, const std::string& exe_path) {
         return a.sub.empty() ? 11 : 0;
     }
 
-    std::string exe = exe_path.empty() ? current_executable_path() : exe_path;
+    // argv[0] is only ever a hint: a POSIX shell passes the bare word the user
+    // typed ("acecode" when it was found on PATH), and spawn_detached execv()s
+    // argv[0] verbatim — execv never searches PATH, so a bare name resolves
+    // against the current directory and the worker dies before it can log.
+    // Ask the OS for our own image first (/proc/self/exe on Linux,
+    // _NSGetExecutablePath on macOS, GetModuleFileName on Windows) and keep
+    // argv[0] only as a last resort.
+    std::string exe = current_executable_path();
+    if (!exe.empty()) {
+        std::error_code ec;
+        const fs::path canonical = fs::weakly_canonical(fs::path(exe), ec);
+        if (!ec) exe = canonical.string();
+    }
+    if (exe.empty()) exe = exe_path;
     if (a.sub != "stop" && a.sub != "status" && exe.empty()) {
         std::cerr << "cannot resolve current executable path\n";
         return 12;
