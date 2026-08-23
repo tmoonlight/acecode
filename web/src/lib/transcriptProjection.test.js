@@ -230,6 +230,27 @@ run('新建文件展开源码框，覆盖和编辑仍保留专用 diff', () => {
   assert.match(stylesSource, /:root:not\(\[data-theme="dark"\]\) \.ace-tool-created-code \.hljs-keyword/);
 });
 
+run('Created 源码框随窄聊天容器收缩且只在 pre 内横向滚动', () => {
+  const toolBlockSource = readFileSync(
+    new URL('../components/ToolBlock.jsx', import.meta.url),
+    'utf8',
+  );
+  const stylesSource = readFileSync(
+    new URL('../styles/globals.css', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(toolBlockSource, /className="w-full min-w-0 max-w-\[88%\] pb-2 pt-1"/);
+  assert.match(
+    stylesSource,
+    /\.ace-tool-created-code\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
+  );
+  assert.match(
+    stylesSource,
+    /\.ace-tool-created-code > pre\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;[\s\S]*?overflow:\s*auto;/,
+  );
+});
+
 run('完成的压缩通知投影为一个可展开 Context compacted 消息', () => {
   const projected = projectCollapsedTranscriptItems([
     user(1),

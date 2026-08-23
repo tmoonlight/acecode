@@ -5743,6 +5743,8 @@ a.ace-thread-link:focus-visible {
 
 .ace-activity-details-reveal {
   display: grid;
+  min-width: 0;
+  width: 100%;
   grid-template-rows: 1fr;
   overflow: hidden;
   transform-origin: top;
@@ -5755,6 +5757,8 @@ a.ace-thread-link:focus-visible {
 }
 
 .ace-activity-details-reveal-inner {
+  min-width: 0;
+  width: 100%;
   min-height: 0;
 }
 
@@ -5780,6 +5784,10 @@ a.ace-thread-link:focus-visible {
 /* Created 文件直接展示源码，不继承 diff 的行号、增删底色或暗色代码块背景。 */
 .ace-tool-created-code {
   position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid var(--ace-border-soft);
   border-radius: 12px;
@@ -5789,6 +5797,10 @@ a.ace-thread-link:focus-visible {
 }
 
 .ace-tool-created-code > pre {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   max-height: 360px;
   margin: 0;
   overflow: auto;

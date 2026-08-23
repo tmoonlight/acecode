@@ -48,10 +48,10 @@ run('file_edit 仅在空 old_string 创建文件时读取 new_string', () => {
   }), null);
 });
 
-run('历史 Created 结果可从全新增 hunk 按行号还原', () => {
+run('历史 Created 结果在工具名未持久化时可从全新增 hunk 按行号还原', () => {
   const source = createdFileSource({
     success: true,
-    tool: 'file_write',
+    tool: '',
     args: null,
     summary: { verb: 'Created', object: 'notes.txt' },
     hunks: [{
@@ -63,6 +63,19 @@ run('历史 Created 结果可从全新增 hunk 按行号还原', () => {
     }],
   });
   assert.deepEqual(source, { path: 'notes.txt', content: 'first\nsecond' });
+});
+
+run('已知的非文件工具即使声称 Created 也不使用源码框', () => {
+  assert.equal(createdFileSource({
+    success: true,
+    tool: 'bash',
+    args: null,
+    summary: { verb: 'Created', object: 'notes.txt' },
+    hunks: [{
+      old_count: 0,
+      lines: [{ kind: 'added', text: 'first', new_line_no: 1 }],
+    }],
+  }), null);
 });
 
 run('不安全 hunk、编辑和失败结果不伪装成新建源码', () => {

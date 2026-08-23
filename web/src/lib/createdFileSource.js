@@ -58,9 +58,16 @@ function sourceFromAddedHunks(hunks) {
 export function createdFileSource(entry) {
   if (!entry || entry.success === false) return null;
   const tool = String(entry.tool || '').toLowerCase();
-  if (!CREATED_FILE_TOOLS.has(tool) || entry.summary?.verb !== 'Created') return null;
+  if (entry.summary?.verb !== 'Created') return null;
 
   const hasArgs = !!entry.args && typeof entry.args === 'object' && !Array.isArray(entry.args);
+  const isCreatedFileTool = CREATED_FILE_TOOLS.has(tool);
+  // 持久化的 tool result 只有 tool_call_id、summary 和 hunks，不会重复保存
+  // assistant.tool_calls 中的工具名/参数。实时事件必须有明确的文件工具名；历史
+  // 结果只有在工具名缺失且后面的全新增 hunk 能独立证明是新文件时才允许还原。
+  if ((hasArgs && !isCreatedFileTool) || (!hasArgs && tool && !isCreatedFileTool)) {
+    return null;
+  }
   const content = hasArgs
     ? sourceFromArgs(tool, entry.args)
     : sourceFromAddedHunks(entry.hunks);

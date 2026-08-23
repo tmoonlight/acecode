@@ -152,6 +152,14 @@ run('expanded activity details quickly draw downward and release clipping after 
   assert.match(revealComponent, /event\.target === event\.currentTarget/);
   assert.match(revealStyles, /from\s*\{[\s\S]*?grid-template-rows:\s*0fr;/);
   assert.match(revealStyles, /to\s*\{[\s\S]*?grid-template-rows:\s*1fr;/);
+  assert.match(
+    revealStyles,
+    /\.ace-activity-details-reveal\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;/,
+  );
+  assert.match(
+    revealStyles,
+    /\.ace-activity-details-reveal-inner\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;/,
+  );
   assert.match(revealStyles, /animation:\s*ace-activity-details-reveal 150ms cubic-bezier\(\.2, 0, 0, 1\) both;/);
   assert.match(revealStyles, /\.ace-activity-details-reveal\.is-settled\s*\{\s*overflow:\s*visible;\s*animation:\s*none;/);
   assert.match(revealStyles, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none;/);

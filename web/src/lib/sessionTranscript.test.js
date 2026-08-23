@@ -14,6 +14,7 @@ import {
   replaySinceForLiveCatchup,
 } from './sessionTranscript.js';
 import { projectCollapsedTranscriptItems } from './transcriptProjection.js';
+import { createdFileSource } from './createdFileSource.js';
 
 function run(name, fn) {
   try {
@@ -1091,6 +1092,57 @@ run('history load 将带 tool_hunks metadata 的 tool message 恢复为 tool ite
     { label: '-', value: '1' },
   ]);
   assert.deepEqual(loaded.items[1].tool.hunks, [hunk]);
+});
+
+run('history load 后 Created tool result 可在工具名缺失时从安全 hunk 恢复源码', () => {
+  const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: [
+      { id: 'u1', role: 'user', content: 'create file', ts: 1 },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        tool_calls: [persistedToolCall(
+          'call-create',
+          'file_write',
+          '{"file_path":"src/index.html","content":"<h1>Hello</h1>"}',
+          0,
+        )],
+        ts: 2,
+      },
+      {
+        id: 't1',
+        role: 'tool',
+        content: 'Created file: src/index.html',
+        tool_call_id: 'call-create',
+        tool_index: 0,
+        ts: 3,
+        metadata: {
+          tool_success: true,
+          tool_summary: { verb: 'Created', object: 'src/index.html', metrics: [['+', '1']] },
+          tool_hunks: [{
+            old_start: 1,
+            old_count: 0,
+            new_start: 1,
+            new_count: 1,
+            lines: [{ kind: 'added', text: '<h1>Hello</h1>', new_line_no: 1 }],
+          }],
+        },
+      },
+    ],
+    events: [],
+  }).state;
+
+  const projected = projectLoadedItems(loaded.items);
+  const activity = projected.find((item) => item.kind === 'activity_summary');
+  const tool = activity?.collapsedItems?.find((item) => item.kind === 'tool')?.tool;
+  assert.ok(tool);
+  assert.equal(tool.tool, '');
+  assert.equal(tool.args, null);
+  assert.deepEqual(createdFileSource(tool), {
+    path: 'src/index.html',
+    content: '<h1>Hello</h1>',
+  });
 });
 
 run('history load 从 tool_success 恢复失败状态', () => {

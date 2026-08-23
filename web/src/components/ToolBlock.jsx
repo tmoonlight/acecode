@@ -453,7 +453,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
           ariaLabel={expanded ? '收起' : '展开'}
         />
         {expanded && (createdFile || diffHtml || fullToolOutput) && (
-          <div className="max-w-[88%] pb-2 pt-1">
+          <div className="w-full min-w-0 max-w-[88%] pb-2 pt-1">
             {createdFile ? (
               <CreatedFileFrame source={createdFile} />
             ) : diffHtml ? (
@@ -467,7 +467,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
           </div>
         )}
         {attachmentItems.length > 0 && (
-          <div className="max-w-[88%] pb-2 pt-1">
+          <div className="w-full min-w-0 max-w-[88%] pb-2 pt-1">
             <AttachmentStrip attachments={attachmentItems} align="left" compact />
           </div>
         )}
@@ -513,7 +513,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         ariaLabel={hasExpandableContent ? (expanded ? '收起' : '展开') : undefined}
       />
       {expanded && hasExpandableContent && (
-        <div className="max-w-[88%] pb-1.5 pt-1">
+        <div className="w-full min-w-0 max-w-[88%] pb-1.5 pt-1">
           <ToolTextFrame text={progressFrameText} />
         </div>
       )}
