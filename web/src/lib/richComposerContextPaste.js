@@ -1,4 +1,5 @@
 export const RICH_COMPOSER_CONTEXT_PASTE_EVENT = 'acecode:rich-composer-context-paste';
+export const RICH_COMPOSER_ROOT_ATTRIBUTE = 'data-ace-rich-composer';
 
 export const RICH_COMPOSER_CONTEXT_PASTE_ACTIONS = Object.freeze({
   CAPTURE_SELECTION: 'capture-selection',
@@ -17,6 +18,18 @@ export function normalizeRichComposerContextSelection(value) {
   return { start: safeStart, end: safeEnd, direction };
 }
 
+export function richComposerRootFromTarget(target) {
+  let element = target && typeof target === 'object' ? target : null;
+  while (element) {
+    if (typeof element.getAttribute === 'function'
+      && element.getAttribute(RICH_COMPOSER_ROOT_ATTRIBUTE) === 'true') {
+      return element;
+    }
+    element = element.parentElement || null;
+  }
+  return null;
+}
+
 function defaultCreateEvent(type, init) {
   if (typeof CustomEvent !== 'function') return null;
   return new CustomEvent(type, init);
@@ -26,7 +39,7 @@ function dispatchRichComposerContextPasteAction(target, detail, { createEvent } 
   if (!target || typeof target.dispatchEvent !== 'function') return false;
   const event = (createEvent || defaultCreateEvent)(
     RICH_COMPOSER_CONTEXT_PASTE_EVENT,
-    { detail },
+    { detail, bubbles: true },
   );
   if (!event) return false;
   target.dispatchEvent(event);

@@ -92,6 +92,16 @@ export const SESSION_PIN_TOGGLE_EVENT = 'acecode:session-pin-toggle';
 export const DESKTOP_CONTEXT_ACTION_EVENT = 'acecode:desktop-context-action';
 export const CONTEXT_MENU_REOPEN_DELAY_MS = 10;
 
+const EDITABLE_TEXT_INPUT_TYPES = new Set([
+  '',
+  'email',
+  'password',
+  'search',
+  'tel',
+  'text',
+  'url',
+]);
+
 const GROUPS = Object.freeze({
   OBJECT: 'object',
   FILE: 'file',
@@ -121,6 +131,39 @@ function numberAttr(el, name, datasetName = '') {
 function closest(target, selector) {
   if (!target || typeof target.closest !== 'function') return null;
   return target.closest(selector);
+}
+
+function editableTagName(element) {
+  return String(element?.tagName || element?.nodeName || '').toLowerCase();
+}
+
+function explicitContentEditableValue(element) {
+  if (!element || typeof element.getAttribute !== 'function') return null;
+  const value = element.getAttribute('contenteditable');
+  return value == null ? null : String(value).trim().toLowerCase();
+}
+
+export function editableTargetFromElement(target) {
+  let element = target && typeof target === 'object' ? target : null;
+  while (element) {
+    const tagName = editableTagName(element);
+    if (tagName === 'textarea') {
+      return element.disabled || element.readOnly ? null : element;
+    }
+    if (tagName === 'input') {
+      const type = String(element.type || '').toLowerCase();
+      return !element.disabled && !element.readOnly && EDITABLE_TEXT_INPUT_TYPES.has(type)
+        ? element
+        : null;
+    }
+
+    const contentEditable = explicitContentEditableValue(element);
+    if (contentEditable === '' || contentEditable === 'true' || contentEditable === 'plaintext-only') {
+      return element;
+    }
+    element = element.parentElement || null;
+  }
+  return null;
 }
 
 function actionDescriptor(id, target = null, opts = {}) {

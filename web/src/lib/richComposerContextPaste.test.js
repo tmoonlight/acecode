@@ -5,6 +5,8 @@ import {
   normalizeRichComposerContextSelection,
   RICH_COMPOSER_CONTEXT_PASTE_ACTIONS,
   RICH_COMPOSER_CONTEXT_PASTE_EVENT,
+  RICH_COMPOSER_ROOT_ATTRIBUTE,
+  richComposerRootFromTarget,
 } from './richComposerContextPaste.js';
 
 function run(name, fn) {
@@ -28,7 +30,7 @@ function eventHarness(listener) {
       },
     },
     createEvent(type, init) {
-      return { type, detail: init.detail };
+      return { type, ...init };
     },
     seen,
   };
@@ -56,9 +58,30 @@ run('context selection normalization clamps offsets and direction', () => {
   assert.equal(normalizeRichComposerContextSelection({ start: 'x', end: 2 }), null);
 });
 
+run('composer root lookup climbs from a Slate leaf and ignores unrelated editables', () => {
+  const root = {
+    parentElement: null,
+    getAttribute(name) {
+      return name === RICH_COMPOSER_ROOT_ATTRIBUTE ? 'true' : null;
+    },
+  };
+  const leaf = {
+    parentElement: root,
+    getAttribute() { return null; },
+  };
+  const unrelated = {
+    parentElement: null,
+    getAttribute() { return null; },
+  };
+
+  assert.equal(richComposerRootFromTarget(leaf), root);
+  assert.equal(richComposerRootFromTarget(unrelated), null);
+});
+
 run('capture dispatches once and returns the handled composer selection', () => {
   const harness = eventHarness((event) => {
     assert.equal(event.type, RICH_COMPOSER_CONTEXT_PASTE_EVENT);
+    assert.equal(event.bubbles, true);
     assert.equal(event.detail.action, RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.CAPTURE_SELECTION);
     event.detail.selection = { start: 3, end: 7, direction: 'forward' };
     event.detail.handled = true;
@@ -115,4 +138,30 @@ run('insert reports unhandled targets so generic controls can fall back', () => 
   assert.equal(insertRichComposerContextText(null, 'hello', null, {
     createEvent: harness.createEvent,
   }), false);
+});
+
+run('child dispatch bubbles once to the owning composer listener', () => {
+  let rootDispatchCount = 0;
+  const root = {
+    dispatchEvent(event) {
+      rootDispatchCount += 1;
+      event.detail.selection = { start: 4, end: 4, direction: 'none' };
+      event.detail.handled = true;
+      return true;
+    },
+  };
+  const child = {
+    dispatchEvent(event) {
+      if (event.bubbles) root.dispatchEvent(event);
+      return true;
+    },
+  };
+  const createEvent = (type, init) => ({ type, ...init });
+
+  assert.deepEqual(captureRichComposerContextSelection(child, { createEvent }), {
+    start: 4,
+    end: 4,
+    direction: 'none',
+  });
+  assert.equal(rootDispatchCount, 1);
 });

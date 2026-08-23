@@ -9,6 +9,7 @@ import {
   appendComposerLocalEcho,
   classifyComposerExternalSync,
   clipboardHasRichText,
+  clipboardHasTextFormat,
   composerAdjacentAttachmentKey,
   composerAdjacentTagDeletionRange,
   composerAttachmentItemsSignature,
@@ -24,6 +25,7 @@ import {
   isComposerImageAttachment,
   normalizeComposerPlainText,
   plainTextFromClipboardData,
+  plainTextFromClipboardHtml,
   richComposerModelFromText,
   richComposerTextFromModel,
 } from './richComposerModel.js';
@@ -398,7 +400,7 @@ run('clipboard rich text detection is based on clipboard types', () => {
   assert.equal(clipboardHasRichText({ types: ['TEXT/RTF'] }), true);
 });
 
-run('plainTextFromClipboardData returns only text/plain and normalizes newlines', () => {
+run('plainTextFromClipboardData prefers text/plain and normalizes newlines', () => {
   const clipboardData = {
     types: ['text/html', 'text/plain'],
     getData(type) {
@@ -410,14 +412,65 @@ run('plainTextFromClipboardData returns only text/plain and normalizes newlines'
   assert.equal(plainTextFromClipboardData(clipboardData), 'hello\nworld');
 });
 
-run('rich clipboard without text/plain is detected but contributes no formatted text', () => {
+run('clipboard text format detection covers Windows-compatible text payloads', () => {
+  assert.equal(clipboardHasTextFormat({ types: ['text/plain'] }), true);
+  assert.equal(clipboardHasTextFormat({ types: ['TEXT'] }), true);
+  assert.equal(clipboardHasTextFormat({ types: ['text/html'] }), true);
+  assert.equal(clipboardHasTextFormat({ types: ['image/png'] }), false);
+});
+
+run('plainTextFromClipboardData falls back to the legacy Windows text alias', () => {
+  const clipboardData = {
+    types: ['text/plain'],
+    getData(type) {
+      if (type === 'text/plain') throw new Error('first format unavailable');
+      if (type === 'text') return 'first\rsecond';
+      return '';
+    },
+  };
+  assert.equal(plainTextFromClipboardData(clipboardData), 'first\nsecond');
+});
+
+run('HTML-only clipboard data is converted to normalized plain text', () => {
+  const textNode = (nodeValue) => ({ nodeType: 3, nodeValue });
+  const elementNode = (tagName, childNodes = []) => ({ nodeType: 1, tagName, childNodes });
   const clipboardData = {
     types: ['text/html'],
     getData(type) {
-      if (type === 'text/html') return '<span style="color:red">styled</span>';
+      if (type === 'text/html') return '<div>styled<br>line</div>';
       return '';
     },
   };
   assert.equal(clipboardHasRichText(clipboardData), true);
-  assert.equal(plainTextFromClipboardData(clipboardData), '');
+  assert.equal(plainTextFromClipboardData(clipboardData, {
+    parseHtml(html) {
+      assert.equal(html, '<div>styled<br>line</div>');
+      return {
+        body: elementNode('BODY', [
+          elementNode('DIV', [textNode('styled'), elementNode('BR'), textNode('line')]),
+        ]),
+      };
+    },
+  }), 'styled\nline');
+});
+
+run('HTML clipboard conversion preserves block boundaries and ignores active content', () => {
+  const textNode = (nodeValue) => ({ nodeType: 3, nodeValue });
+  const elementNode = (tagName, childNodes = []) => ({ nodeType: 1, tagName, childNodes });
+  const parseHtml = () => ({
+    body: elementNode('BODY', [
+      elementNode('DIV', [textNode('first')]),
+      elementNode('P', [textNode('second'), elementNode('BR'), textNode('line')]),
+      elementNode('SCRIPT', [textNode('doNotPaste()')]),
+    ]),
+  });
+
+  assert.equal(plainTextFromClipboardHtml('<ignored>', { parseHtml }), 'first\nsecond\nline');
+});
+
+run('plainTextFromClipboardHtml fails closed when parsing is unavailable', () => {
+  assert.equal(plainTextFromClipboardHtml('<b>styled</b>', { parseHtml: () => null }), '');
+  assert.equal(plainTextFromClipboardHtml('<b>styled</b>', {
+    parseHtml() { throw new Error('invalid clipboard html'); },
+  }), '');
 });

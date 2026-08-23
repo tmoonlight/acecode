@@ -26,7 +26,7 @@ import {
 import { clsx } from '../lib/format.js';
 import { isDesktopShell } from '../lib/desktopShellMode.js';
 import {
-  clipboardHasRichText,
+  clipboardHasTextFormat,
   COMPOSER_EXTERNAL_SYNC_ACTIONS,
   appendComposerLocalEcho,
   classifyComposerExternalSync,
@@ -49,7 +49,7 @@ import {
   normalizeComposerPlainText,
   plainTextFromClipboardData,
 } from '../lib/richComposerModel.js';
-import { filesFromClipboardEvent, filesFromTransfer } from '../lib/composerFileTransfer.js';
+import { filesFromTransfer } from '../lib/composerFileTransfer.js';
 import {
   RICH_COMPOSER_CONTEXT_PASTE_ACTIONS,
   RICH_COMPOSER_CONTEXT_PASTE_EVENT,
@@ -423,6 +423,8 @@ function RichComposerShell({
   });
   const compositionStateRef = useRef({ active: false, settling: false });
   const compositionSettleTimerRef = useRef(0);
+  const handledPasteEventsRef = useRef(new WeakSet());
+  const pasteBeforeInputGuardRef = useRef(0);
   const [syncRevision, setSyncRevision] = useState(0);
   const selectionRef = useRef({
     start: latestTextRef.current.length,
@@ -485,10 +487,90 @@ function RichComposerShell({
     onSelectionChange?.(next);
   }, [editor, onSelectionChange]);
 
+  const capturePasteSelection = useCallback(() => {
+    const editable = editableRef.current;
+    const domSelection = window.getSelection?.();
+    const anchorNode = domSelection?.anchorNode;
+    const focusNode = domSelection?.focusNode;
+    const ownsSelection = editable
+      && domSelection?.rangeCount > 0
+      && anchorNode
+      && focusNode
+      && (anchorNode === editable || editable.contains(anchorNode))
+      && (focusNode === editable || editable.contains(focusNode));
+    if (ownsSelection) {
+      try {
+        const slateSelection = ReactEditor.toSlateRange(editor, domSelection, {
+          exactMatch: false,
+          suppressThrow: true,
+        });
+        if (slateSelection) return currentPlainSelection(editor.children, slateSelection);
+      } catch {
+        // Fall through to Slate's last synchronized selection. Browser engines
+        // can briefly expose a DOM selection while Slate is reconciling it.
+      }
+    }
+    try {
+      return currentPlainSelection(editor.children, editor.selection);
+    } catch {
+      const fallback = selectionRef.current;
+      const end = composerTextFromDocument(editor.children).length;
+      return {
+        start: Number.isFinite(fallback?.start) ? fallback.start : end,
+        end: Number.isFinite(fallback?.end) ? fallback.end : end,
+        direction: fallback?.direction || 'none',
+      };
+    }
+  }, [editor]);
+
+  const applyPlainTextPaste = useCallback((text, capturedSelection = null) => {
+    const normalizedText = normalizeComposerPlainText(text);
+    if (!normalizedText) return false;
+
+    ensureLegalEditorDocument(editor);
+    const currentText = composerTextFromDocument(editor.children);
+    const fallbackEnd = currentText.length;
+    const requestedSelection = capturedSelection || capturePasteSelection();
+    const start = Number.isFinite(Number(requestedSelection?.start))
+      ? Number(requestedSelection.start)
+      : fallbackEnd;
+    const end = Number.isFinite(Number(requestedSelection?.end))
+      ? Number(requestedSelection.end)
+      : start;
+    const direction = requestedSelection?.direction || 'none';
+
+    try {
+      Transforms.select(editor, composerSelectionFromPlainTextRange(
+        editor.children,
+        start,
+        end,
+        direction,
+      ));
+      insertPlainText(editor, normalizedText);
+      publishSelection(editor.selection);
+      return true;
+    } catch {
+      // Never let an obsolete browser selection leave the editor without a
+      // legal root/selection. The paste safely fails instead of touching DOM.
+      ensureLegalEditorDocument(editor);
+      const safeEnd = composerTextFromDocument(editor.children).length;
+      try {
+        const safeSelection = composerSelectionFromPlainTextRange(
+          editor.children,
+          safeEnd,
+          safeEnd,
+        );
+        Transforms.select(editor, safeSelection);
+        publishSelection(safeSelection);
+      } catch {}
+      return false;
+    }
+  }, [capturePasteSelection, editor, publishSelection]);
+
   const handleContextPasteAction = useCallback((event) => {
     const detail = event?.detail;
     if (detail?.action === RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.CAPTURE_SELECTION) {
-      detail.selection = currentPlainSelection(editor.children, editor.selection);
+      detail.selection = capturePasteSelection();
       detail.handled = true;
       return;
     }
@@ -499,15 +581,6 @@ function RichComposerShell({
     detail.handled = true;
     if (disabled) return;
 
-    if (detail.selection) {
-      Transforms.select(editor, composerSelectionFromPlainTextRange(
-        editor.children,
-        detail.selection.start,
-        detail.selection.end,
-        detail.selection.direction,
-      ));
-    }
-
     let focused = false;
     try {
       ReactEditor.focus(editor);
@@ -516,13 +589,13 @@ function RichComposerShell({
       // The menu can close in the same frame as a Slate render. Retry after
       // React has reconciled the editable DOM rather than writing into it.
     }
-    if (detail.text) insertPlainText(editor, detail.text);
+    if (detail.text) applyPlainTextPaste(detail.text, detail.selection);
     if (!focused) {
       window.requestAnimationFrame(() => {
         try { ReactEditor.focus(editor); } catch {}
       });
     }
-  }, [disabled, editor]);
+  }, [applyPlainTextPaste, capturePasteSelection, disabled, editor]);
 
   useEffect(() => {
     const editable = editableRef.current;
@@ -822,19 +895,42 @@ function RichComposerShell({
     }
   }, [disabled, editor, isComposingKeyEvent, onKeyDown, onRemoveAttachment, onSubmit]);
 
-  const handlePaste = useCallback((event) => {
-    if (disabled) {
-      event.preventDefault();
+  const requestClipboardTextFallback = useCallback((capturedSelection) => {
+    const clipboard = window.navigator?.clipboard;
+    if (!clipboard || typeof clipboard.readText !== 'function') return;
+    const generation = syncIdentityRef.current.generation;
+    let request;
+    try {
+      request = clipboard.readText();
+    } catch {
       return;
     }
-    const clipboardData = event.clipboardData || event.nativeEvent?.clipboardData;
-    const files = filesFromClipboardEvent(event);
+    Promise.resolve(request)
+      .then((text) => {
+        if (disabled || syncIdentityRef.current.generation !== generation) return;
+        applyPlainTextPaste(text, capturedSelection);
+      })
+      .catch(() => {});
+  }, [applyPlainTextPaste, disabled]);
+
+  const handleClipboardPaste = useCallback((event, clipboardData) => {
+    const consume = () => {
+      event.preventDefault?.();
+      event.stopPropagation?.();
+    };
+    if (disabled) {
+      consume();
+      return true;
+    }
+
+    const files = filesFromTransfer(clipboardData, { source: 'paste' });
     const text = plainTextFromClipboardData(clipboardData);
-    const hasRichText = clipboardHasRichText(clipboardData);
+    const hasTextFormat = clipboardHasTextFormat(clipboardData);
     const handlesFilesystemItems = typeof onPasteFilesystemItems === 'function';
-    if (files.length === 0 && !text && !hasRichText && !handlesFilesystemItems) return;
-    event.preventDefault();
-    event.stopPropagation();
+    if (files.length === 0 && !text && !hasTextFormat && !handlesFilesystemItems) return false;
+
+    const capturedSelection = capturePasteSelection();
+    consume();
     if (handlesFilesystemItems) {
       let uriList = '';
       try { uriList = clipboardData?.getData?.('text/uri-list') || ''; } catch { /* ignored */ }
@@ -842,8 +938,77 @@ function RichComposerShell({
     } else if (files.length > 0) {
       onPasteFiles?.(files);
     }
-    if (text) insertPlainText(editor, text);
-  }, [disabled, editor, onPasteFiles, onPasteFilesystemItems]);
+    if (text) {
+      applyPlainTextPaste(text, capturedSelection);
+    } else if (files.length === 0 && hasTextFormat) {
+      requestClipboardTextFallback(capturedSelection);
+    }
+    return true;
+  }, [
+    applyPlainTextPaste,
+    capturePasteSelection,
+    disabled,
+    onPasteFiles,
+    onPasteFilesystemItems,
+    requestClipboardTextFallback,
+  ]);
+
+  const markPasteHandled = useCallback(() => {
+    const token = pasteBeforeInputGuardRef.current + 1;
+    pasteBeforeInputGuardRef.current = token;
+    window.setTimeout(() => {
+      if (pasteBeforeInputGuardRef.current === token) pasteBeforeInputGuardRef.current = 0;
+    }, 0);
+  }, []);
+
+  const handlePaste = useCallback((event) => {
+    const nativeEvent = event.nativeEvent || event;
+    if (nativeEvent && handledPasteEventsRef.current.has(nativeEvent)) return;
+    const clipboardData = event.clipboardData || nativeEvent?.clipboardData;
+    if (!handleClipboardPaste(event, clipboardData)) return;
+    if (nativeEvent) handledPasteEventsRef.current.add(nativeEvent);
+    markPasteHandled();
+  }, [handleClipboardPaste, markPasteHandled]);
+
+  const handleNativePaste = useCallback((event) => {
+    if (handledPasteEventsRef.current.has(event)) return;
+    if (!handleClipboardPaste(event, event.clipboardData)) return;
+    handledPasteEventsRef.current.add(event);
+    markPasteHandled();
+  }, [handleClipboardPaste, markPasteHandled]);
+
+  const handleDOMBeforeInput = useCallback((event) => {
+    if (event.inputType !== 'insertFromPaste') return;
+    if (pasteBeforeInputGuardRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (event.dataTransfer && handleClipboardPaste(event, event.dataTransfer)) return;
+
+    const capturedSelection = capturePasteSelection();
+    event.preventDefault();
+    event.stopPropagation();
+    if (disabled) return;
+    if (typeof event.data === 'string' && event.data) {
+      applyPlainTextPaste(event.data, capturedSelection);
+      return;
+    }
+    requestClipboardTextFallback(capturedSelection);
+  }, [
+    applyPlainTextPaste,
+    capturePasteSelection,
+    disabled,
+    handleClipboardPaste,
+    requestClipboardTextFallback,
+  ]);
+
+  useEffect(() => {
+    const editable = editableRef.current;
+    if (!editable) return undefined;
+    editable.addEventListener('paste', handleNativePaste, true);
+    return () => editable.removeEventListener('paste', handleNativePaste, true);
+  }, [handleNativePaste]);
 
   const handleCopy = useCallback((event) => {
     writeSelectedPlainText(event, editor);
@@ -874,6 +1039,7 @@ function RichComposerShell({
     >
       <Editable
         ref={editableRef}
+        data-ace-rich-composer="true"
         aria-label={placeholder}
         aria-disabled={disabled ? 'true' : undefined}
         readOnly={disabled}
@@ -884,6 +1050,7 @@ function RichComposerShell({
         renderPlaceholder={renderPlaceholder}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
+        onDOMBeforeInput={handleDOMBeforeInput}
         onCopy={handleCopy}
         onCut={handleCut}
         onDrop={handleDrop}

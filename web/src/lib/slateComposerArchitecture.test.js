@@ -237,8 +237,13 @@ run('desktop context-menu paste captures Slate selection and bridges before DOM 
   assert.match(menu, /captureRichComposerContextSelection\(editableTarget\)/);
   assert.match(menu, /openWithSwitchGap\(\{[\s\S]*richComposerSelection,[\s\S]*\}\);/);
   assert.match(menu, /pasteIntoTarget\(target, rememberedRichComposerSelection\)/);
+  assert.match(menu, /editableTargetFromElement\(target\)/);
+  assert.doesNotMatch(menu, /\.isContentEditable/);
   assert.ok(insertBody.indexOf('insertRichComposerContextText') >= 0);
+  assert.ok(insertBody.indexOf('richComposerRootFromTarget') >= 0);
   assert.ok(insertBody.indexOf('insertRichComposerContextText') < insertBody.indexOf("document.execCommand('insertText'"));
+  assert.ok(insertBody.indexOf('richComposerRootFromTarget') < insertBody.indexOf("document.execCommand('insertText'"));
+  assert.match(menu, /if \(richComposerRootFromTarget\(editable\)\) return;[\s\S]*document\.execCommand\('paste'\)/);
 });
 
 run('rich context paste mutates Slate state while send gating reads the controlled value', () => {
@@ -247,10 +252,46 @@ run('rich context paste mutates Slate state while send gating reads the controll
   const chatView = source('components/ChatView.jsx');
 
   assert.match(composer, /addEventListener\(RICH_COMPOSER_CONTEXT_PASTE_EVENT, handleContextPasteAction\)/);
-  assert.match(composer, /CAPTURE_SELECTION[\s\S]*currentPlainSelection\(editor\.children, editor\.selection\)/);
-  assert.match(composer, /INSERT_TEXT[\s\S]*composerSelectionFromPlainTextRange[\s\S]*insertPlainText\(editor, detail\.text\)/);
+  assert.match(composer, /CAPTURE_SELECTION[\s\S]*capturePasteSelection\(\)/);
+  assert.match(composer, /INSERT_TEXT[\s\S]*applyPlainTextPaste\(detail\.text, detail\.selection\)/);
+  assert.match(composer, /const applyPlainTextPaste = useCallback\([\s\S]*ensureLegalEditorDocument\(editor\)[\s\S]*Transforms\.select[\s\S]*insertPlainText\(editor, normalizedText\)/);
   assert.doesNotMatch(composer, /execCommand/);
   assert.match(inputBar, /getInputBarActionState\(\{ value, disabled, busy, hasExtras \}\)/);
   assert.match(inputBar, /<RichComposer[\s\S]*onChange=\{handleComposerChange\}/);
   assert.match(chatView, /const handleComposerChange = useCallback\(\(next\) => \{[\s\S]*setComposerValue\(next\)/);
+});
+
+run('keyboard paste uses native capture, React fallback, and beforeinput through one Slate transaction', () => {
+  const composer = source('components/RichComposer.jsx');
+  const handleStart = composer.indexOf('const handleClipboardPaste = useCallback');
+  const handleEnd = composer.indexOf('const markPasteHandled = useCallback', handleStart);
+  const handleBody = composer.slice(handleStart, handleEnd);
+
+  assert.ok(handleStart >= 0);
+  assert.ok(handleEnd > handleStart);
+  assert.match(handleBody, /plainTextFromClipboardData\(clipboardData\)/);
+  assert.match(handleBody, /clipboardHasTextFormat\(clipboardData\)/);
+  assert.match(handleBody, /applyPlainTextPaste\(text, capturedSelection\)/);
+  assert.match(handleBody, /requestClipboardTextFallback\(capturedSelection\)/);
+  assert.match(composer, /ReactEditor\.toSlateRange\(editor, domSelection,[\s\S]*suppressThrow: true/);
+  assert.match(composer, /handledPasteEventsRef = useRef\(new WeakSet\(\)\)/);
+  assert.match(composer, /addEventListener\('paste', handleNativePaste, true\)/);
+  assert.match(composer, /removeEventListener\('paste', handleNativePaste, true\)/);
+  assert.match(composer, /event\.inputType !== 'insertFromPaste'/);
+  assert.match(composer, /onPaste=\{handlePaste\}/);
+  assert.match(composer, /onDOMBeforeInput=\{handleDOMBeforeInput\}/);
+  assert.match(composer, /data-ace-rich-composer="true"/);
+});
+
+run('paste format and context bridge fallbacks preserve plain state ownership', () => {
+  const model = source('lib/richComposerModel.js');
+  const bridge = source('lib/richComposerContextPaste.js');
+
+  assert.match(model, /clipboardDataValue\(clipboardData, 'text\/plain'\)/);
+  assert.match(model, /clipboardDataValue\(clipboardData, 'text'\)/);
+  assert.match(model, /plainTextFromClipboardHtml\(clipboardDataValue\(clipboardData, 'text\/html'\), options\)/);
+  assert.match(model, /new DOMParser\(\)\.parseFromString\(html, 'text\/html'\)/);
+  assert.match(bridge, /RICH_COMPOSER_ROOT_ATTRIBUTE = 'data-ace-rich-composer'/);
+  assert.match(bridge, /\{ detail, bubbles: true \}/);
+  assert.match(bridge, /richComposerRootFromTarget/);
 });

@@ -720,13 +720,102 @@ export function normalizePastedPlainText(text = '') {
   return normalizeComposerPlainText(text);
 }
 
-export function plainTextFromClipboardData(clipboardData) {
+function clipboardDataValue(clipboardData, type) {
   if (!clipboardData || typeof clipboardData.getData !== 'function') return '';
   try {
-    return normalizePastedPlainText(clipboardData.getData('text/plain') || '');
+    return String(clipboardData.getData(type) || '');
   } catch {
     return '';
   }
+}
+
+function defaultParseClipboardHtml(html) {
+  if (typeof DOMParser !== 'function') return null;
+  return new DOMParser().parseFromString(html, 'text/html');
+}
+
+const CLIPBOARD_HTML_BLOCK_TAGS = new Set([
+  'address', 'article', 'aside', 'blockquote', 'body', 'dd', 'div', 'dl', 'dt',
+  'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4',
+  'h5', 'h6', 'header', 'hr', 'li', 'main', 'nav', 'ol', 'p', 'pre', 'section',
+  'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
+]);
+
+const CLIPBOARD_HTML_IGNORED_TAGS = new Set([
+  'noscript', 'script', 'style', 'template',
+]);
+
+function clipboardHtmlTreeText(root) {
+  const segments = [];
+  const endsWithNewline = () => segments.length > 0
+    && segments[segments.length - 1].text.endsWith('\n');
+  const appendBoundary = () => {
+    if (segments.length > 0 && !endsWithNewline()) {
+      segments.push({ text: '\n', structural: true });
+    }
+  };
+  const visit = (node) => {
+    if (!node) return;
+    if (node.nodeType === 3) {
+      const text = String(node.nodeValue ?? node.textContent ?? '');
+      if (text) segments.push({ text, structural: false });
+      return;
+    }
+
+    const tagName = String(node.tagName || node.nodeName || '').toLowerCase();
+    if (CLIPBOARD_HTML_IGNORED_TAGS.has(tagName)) return;
+    if (tagName === 'br') {
+      segments.push({ text: '\n', structural: false });
+      return;
+    }
+
+    const isBlock = CLIPBOARD_HTML_BLOCK_TAGS.has(tagName);
+    if (isBlock) appendBoundary();
+    Array.from(node.childNodes || []).forEach(visit);
+    if (isBlock) appendBoundary();
+  };
+
+  visit(root);
+  while (segments.length > 0 && segments[segments.length - 1].structural) segments.pop();
+  return segments.map((segment) => segment.text).join('');
+}
+
+export function plainTextFromClipboardHtml(html, { parseHtml = defaultParseClipboardHtml } = {}) {
+  const source = String(html || '');
+  if (!source || typeof parseHtml !== 'function') return '';
+  try {
+    const body = parseHtml(source)?.body;
+    const text = body?.childNodes
+      ? clipboardHtmlTreeText(body)
+      : (typeof body?.innerText === 'string' ? body.innerText : body?.textContent);
+    return normalizePastedPlainText(text || '');
+  } catch {
+    return '';
+  }
+}
+
+export function plainTextFromClipboardData(clipboardData, options) {
+  const plainText = clipboardDataValue(clipboardData, 'text/plain');
+  if (plainText) return normalizePastedPlainText(plainText);
+
+  // Some Windows/WebView clipboard providers expose only the legacy alias on
+  // the first read even though their type list advertises text/plain.
+  const compatibleText = clipboardDataValue(clipboardData, 'text');
+  if (compatibleText) return normalizePastedPlainText(compatibleText);
+
+  return plainTextFromClipboardHtml(clipboardDataValue(clipboardData, 'text/html'), options);
+}
+
+export function clipboardHasTextFormat(clipboardData) {
+  if (!clipboardData) return false;
+  const types = Array.from(clipboardData.types || []);
+  return types.some((type) => {
+    const normalized = String(type || '').toLowerCase();
+    return normalized === 'text/plain'
+      || normalized === 'text'
+      || normalized === 'text/html'
+      || normalized === 'text/rtf';
+  });
 }
 
 export function clipboardHasRichText(clipboardData) {

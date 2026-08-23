@@ -20,6 +20,7 @@ import {
   TOOL_TARGET_SELECTOR,
   ATTACHMENT_TARGET_SELECTOR,
   containingWorkspacePath,
+  editableTargetFromElement,
   joinWorkspacePath,
   mermaidTargetFromElement,
   openInExplorerTargetFromElement,
@@ -53,6 +54,60 @@ function elementFor(selector, attrs) {
     },
   };
 }
+
+function editableElement(tagName, {
+  parentElement = null,
+  contentEditable = null,
+  disabled = false,
+  readOnly = false,
+  type = '',
+  inheritedEditable = false,
+} = {}) {
+  return {
+    tagName,
+    parentElement,
+    disabled,
+    readOnly,
+    type,
+    isContentEditable: inheritedEditable,
+    getAttribute(name) {
+      return name === 'contenteditable' ? contentEditable : null;
+    },
+  };
+}
+
+test('editable target climbs through inherited Slate leaves to the explicit host', () => {
+  const root = editableElement('DIV', { contentEditable: 'true' });
+  const leaf = editableElement('SPAN', { parentElement: root, inheritedEditable: true });
+  const zeroWidth = editableElement('SPAN', { parentElement: leaf, inheritedEditable: true });
+
+  assert.equal(editableTargetFromElement(zeroWidth), root);
+  assert.notEqual(editableTargetFromElement(zeroWidth), leaf);
+});
+
+test('editable target accepts explicit rich/plain hosts and skips false descendants', () => {
+  const rich = editableElement('DIV', { contentEditable: '' });
+  const blockedChild = editableElement('SPAN', { parentElement: rich, contentEditable: 'false' });
+  const plain = editableElement('DIV', { contentEditable: 'PLAINTEXT-ONLY' });
+
+  assert.equal(editableTargetFromElement(blockedChild), rich);
+  assert.equal(editableTargetFromElement(plain), plain);
+});
+
+test('editable target preserves writable text controls and rejects unsafe controls', () => {
+  const textInput = editableElement('INPUT', { type: 'text' });
+  const disabledInput = editableElement('INPUT', { type: 'text', disabled: true });
+  const checkbox = editableElement('INPUT', { type: 'checkbox' });
+  const textarea = editableElement('TEXTAREA');
+  const readOnlyTextarea = editableElement('TEXTAREA', { readOnly: true });
+
+  assert.equal(editableTargetFromElement(textInput), textInput);
+  assert.equal(editableTargetFromElement(textarea), textarea);
+  assert.equal(editableTargetFromElement(disabledInput), null);
+  assert.equal(editableTargetFromElement(checkbox), null);
+  assert.equal(editableTargetFromElement(readOnlyTextarea), null);
+  assert.equal(editableTargetFromElement(null), null);
+});
 
 test('普通区域只显示全选', () => {
   assert.deepEqual(ids(buildDesktopContextMenuItems({})), [

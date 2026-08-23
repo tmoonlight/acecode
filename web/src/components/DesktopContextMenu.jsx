@@ -7,6 +7,7 @@ import {
   contextMenuOpenDelay,
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
+  editableTargetFromElement,
   SESSION_PIN_TOGGLE_EVENT,
 } from '../lib/desktopContextMenu.js';
 import { exportMermaidAsset } from '../lib/mermaidExport.js';
@@ -17,6 +18,7 @@ import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoor
 import {
   captureRichComposerContextSelection,
   insertRichComposerContextText,
+  richComposerRootFromTarget,
 } from '../lib/richComposerContextPaste.js';
 import { api } from '../lib/api.js';
 import { Modal } from './Modal.jsx';
@@ -88,16 +90,6 @@ const ACTION_LABELS = {
   [DESKTOP_CONTEXT_ACTIONS.INSPECT]: '检查',
 };
 
-const TEXT_INPUT_TYPES = new Set([
-  '',
-  'email',
-  'password',
-  'search',
-  'tel',
-  'text',
-  'url',
-]);
-
 function parseDesktopResult(value) {
   if (value == null) return value;
   if (typeof value !== 'string') return value;
@@ -106,24 +98,8 @@ function parseDesktopResult(value) {
   return JSON.parse(text);
 }
 
-function editableElementFrom(node) {
-  let el = node instanceof Element ? node : null;
-  while (el) {
-    if (el instanceof HTMLTextAreaElement) {
-      return el.disabled || el.readOnly ? null : el;
-    }
-    if (el instanceof HTMLInputElement) {
-      const type = String(el.type || '').toLowerCase();
-      return !el.disabled && !el.readOnly && TEXT_INPUT_TYPES.has(type) ? el : null;
-    }
-    if (el.isContentEditable) return el;
-    el = el.parentElement;
-  }
-  return null;
-}
-
 function selectedTextForTarget(target) {
-  const editable = editableElementFrom(target);
+  const editable = editableTargetFromElement(target);
   if (editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement) {
     const start = editable.selectionStart ?? 0;
     const end = editable.selectionEnd ?? start;
@@ -146,7 +122,7 @@ function selectEditableContents(editable) {
 }
 
 function selectAllForTarget(target) {
-  const editable = editableElementFrom(target);
+  const editable = editableTargetFromElement(target);
   if (editable) {
     selectEditableContents(editable);
     return;
@@ -174,6 +150,7 @@ function insertTextIntoEditable(editable, text, richComposerSelection = null) {
     return;
   }
   if (insertRichComposerContextText(editable, text, richComposerSelection)) return;
+  if (richComposerRootFromTarget(editable)) return;
   editable.focus();
   document.execCommand('insertText', false, text);
 }
@@ -220,13 +197,14 @@ export async function copyImageWithToast(target) {
 }
 
 async function pasteIntoTarget(target, richComposerSelection = null) {
-  const editable = editableElementFrom(target);
+  const editable = editableTargetFromElement(target);
   if (!editable) return;
   if (navigator.clipboard?.readText) {
     const text = await navigator.clipboard.readText();
     insertTextIntoEditable(editable, text, richComposerSelection);
     return;
   }
+  if (richComposerRootFromTarget(editable)) return;
   editable.focus();
   document.execCommand('paste');
 }
@@ -391,7 +369,7 @@ async function runAction(
       await pasteIntoTarget(target, rememberedRichComposerSelection);
       break;
     case DESKTOP_CONTEXT_ACTIONS.CUT:
-      editableElementFrom(target)?.focus();
+      editableTargetFromElement(target)?.focus();
       document.execCommand('cut');
       break;
     case DESKTOP_CONTEXT_ACTIONS.INSPECT:
@@ -458,7 +436,7 @@ export function DesktopContextMenu() {
     const rememberSelection = () => {
       const target = document.activeElement;
       const text = selectedTextForTarget(target);
-      if (text) lastSelectionRef.current = { target: editableElementFrom(target) || target, text };
+      if (text) lastSelectionRef.current = { target: editableTargetFromElement(target) || target, text };
     };
     const closeFromPointer = (event) => {
       if (event.target instanceof Element && event.target.closest('.ace-desktop-context-menu')) return;
@@ -476,7 +454,7 @@ export function DesktopContextMenu() {
 
       const target = event.target;
       targetRef.current = target;
-      const editableTarget = editableElementFrom(target);
+      const editableTarget = editableTargetFromElement(target);
       const editable = !!editableTarget;
       const richComposerSelection = editableTarget
         && !(editableTarget instanceof HTMLInputElement)
