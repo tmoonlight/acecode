@@ -5139,57 +5139,84 @@ a.ace-thread-link:focus-visible {
 .ace-file-editor-status.is-error {
   color: var(--ace-danger);
 }
-.ace-file-editor-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ace-file-editor-button {
-  min-height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 9px;
-  border: 1px solid var(--ace-border);
-  border-radius: 6px;
-  background: var(--ace-surface);
-  color: var(--ace-fg-2);
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-.ace-file-editor-button:hover:not(:disabled) {
-  background: var(--ace-surface-alt);
-  color: var(--ace-fg);
-}
-.ace-file-editor-button.is-primary {
-  border-color: var(--ace-accent);
-  background: var(--ace-accent);
-  color: white;
-}
-.ace-file-editor-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.ace-file-text-editor {
+.ace-file-source-editor {
   flex: 1 1 auto;
+  position: relative;
   width: 100%;
   min-width: 0;
   min-height: 0;
-  resize: none;
-  padding: 12px 14px 28px;
-  border: 0;
-  outline: 0;
+  overflow: hidden;
   background: var(--ace-code-bg);
-  color: var(--ace-code-fg);
+}
+.ace-file-source-highlight,
+.ace-file-text-editor {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 12px 14px 28px;
+  overflow: auto;
+  border: 0;
   font-family: var(--font-mono);
   font-size: var(--ace-font-size-code-compact);
+  font-variant-ligatures: none;
   line-height: 1.55;
   tab-size: 4;
 }
-.ace-file-text-editor:focus {
+.ace-file-source-highlight {
+  z-index: 0;
+  pointer-events: none;
+  scrollbar-width: none;
+  color: var(--ace-code-fg);
+}
+.ace-file-source-highlight::-webkit-scrollbar {
+  display: none;
+}
+.ace-file-source-highlight .hljs {
+  display: block;
+  min-width: max-content;
+  min-height: 100%;
+  padding: 0;
+  overflow: visible;
+  background: transparent !important;
+  color: var(--ace-code-fg);
+}
+.ace-file-text-editor {
+  z-index: 1;
+  resize: none;
+  outline: 0;
+  background: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--ace-code-fg);
+  scrollbar-color: rgba(var(--ace-fg-mute-rgb), 0.38) var(--ace-code-bg);
+}
+.ace-file-text-editor::selection {
+  background: rgba(var(--ace-accent-rgb), 0.34);
+}
+.ace-file-source-editor.is-composing .ace-file-source-highlight {
+  visibility: hidden;
+}
+.ace-file-source-editor.is-composing .ace-file-text-editor {
+  color: var(--ace-code-fg);
+  -webkit-text-fill-color: var(--ace-code-fg);
+}
+.ace-file-source-editor[data-wrap="false"] .ace-file-source-highlight,
+.ace-file-source-editor[data-wrap="false"] .ace-file-text-editor {
+  white-space: pre;
+}
+.ace-file-source-editor[data-wrap="true"] .ace-file-source-highlight,
+.ace-file-source-editor[data-wrap="true"] .ace-file-text-editor {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.ace-file-source-editor[data-wrap="true"] .ace-file-source-highlight .hljs {
+  min-width: 0;
+}
+.ace-file-source-editor:focus-within {
   box-shadow: inset 0 0 0 1px rgba(var(--ace-accent-rgb), 0.45);
 }
 .ace-markdown-editor {

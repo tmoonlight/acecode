@@ -208,6 +208,11 @@ import {
   visiblePreviewTabs,
 } from '../lib/previewTabs.js';
 import {
+  editableFileConflict,
+  editableFileError,
+  saveEditableFileDraftBatch,
+} from '../lib/editableFileDraft.js';
+import {
   AGENT_BROWSER_STATE_EVENT,
   agentBrowserActivityFromItems,
   closeAgentBrowserPage,
@@ -4342,7 +4347,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const previewPanelVisible = previewTabsOpen && !sidePanelCollapsed && !previewPanelHidden;
   const previewPanelMaximized = sidePanelMaximized && previewPanelVisible;
   const previewCloseConfirmMessage = previewCloseConfirm
-    ? `${previewCloseConfirm.dirtyCount} 个标签页含有未保存的修改。关闭后草稿将丢失，是否继续？`
+    ? `${previewCloseConfirm.dirtyCount} 个文件含有未保存的修改。请选择保存后关闭或不保存直接关闭；取消会保留所有页签。`
     : '';
   const selectedChangeFile = activePreview?.type === PREVIEW_TAB_TYPES.SESSION_CHANGES
     ? activePreview.expandedFile || ''
@@ -4665,11 +4670,62 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         tabKey,
         affectedCount: affected.length,
         dirtyCount: dirty.length,
+        saving: false,
+        error: '',
       });
       return;
     }
     performPreviewClose(kind, tabKey);
   }, [performPreviewClose, previewTabsForCloseAction]);
+
+  const saveAndClosePreviews = useCallback(async () => {
+    const pending = previewCloseConfirm;
+    if (!pending || pending.saving) return;
+    const affected = previewTabsForCloseAction(pending.kind, pending.tabKey);
+    const dirtyTabs = previewTabsWithUnsavedDrafts(affected);
+    if (dirtyTabs.length === 0) {
+      performPreviewClose(pending.kind, pending.tabKey);
+      return;
+    }
+
+    setPreviewCloseConfirm((current) => (current ? {
+      ...current,
+      saving: true,
+      error: '',
+    } : current));
+
+    const saveResult = await saveEditableFileDraftBatch(api, {
+      tabs: dirtyTabs,
+      fallbackCwd: sidePanelCwd,
+      onSaving: (tab) => updateFilePreviewDraft(tab.key, { saving: true, error: '' }),
+      onSaved: (tab, saved) => updateFilePreviewDraft(tab.key, saved.patch),
+    });
+    if (!saveResult.ok) {
+      const message = editableFileError(saveResult.error, '保存失败');
+      updateFilePreviewDraft(saveResult.tab.key, {
+        saving: false,
+        externalChanged: editableFileConflict(saveResult.error),
+        error: message,
+      });
+      setPreviewCloseConfirm((current) => (current ? {
+        ...current,
+        saving: false,
+        error: `${saveResult.tab.title || saveResult.tab.path}：${message}`,
+      } : current));
+      toast({ kind: 'err', text: message });
+      return;
+    }
+
+    toast({ kind: 'ok', text: saveResult.savedCount === 1 ? '文件已保存' : `已保存 ${saveResult.savedCount} 个文件` });
+    performPreviewClose(pending.kind, pending.tabKey);
+  }, [
+    api,
+    performPreviewClose,
+    previewCloseConfirm,
+    previewTabsForCloseAction,
+    sidePanelCwd,
+    updateFilePreviewDraft,
+  ]);
 
   const closePreview = useCallback((tabKey) => {
     requestPreviewClose('one', tabKey);
@@ -5639,30 +5695,50 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         </div>
       )}
       {previewCloseConfirm && (
-        <Modal onClose={() => setPreviewCloseConfirm(null)} width={440}>
-          {({ close }) => (
+        <Modal
+          onClose={() => {
+            if (!previewCloseConfirm.saving) setPreviewCloseConfirm(null);
+          }}
+          width={440}
+        >
+          {() => (
             <div className="p-4">
-              <div className="text-[14px] font-semibold mb-2">放弃未保存的更改？</div>
+              <div className="text-[14px] font-semibold mb-2">保存文件后关闭？</div>
               <div className="text-[12.5px] text-fg-mute leading-relaxed mb-4">
                 {previewCloseConfirmMessage}
               </div>
+              {previewCloseConfirm.error && (
+                <div className="mb-4 text-[12px] leading-relaxed text-danger" role="alert">
+                  {previewCloseConfirm.error}
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  className="px-3 py-1.5 text-[12.5px] rounded-lg border border-border hover:bg-surface-hi transition-colors"
-                  onClick={close}
+                  className="px-3 py-1.5 text-[12.5px] rounded-lg border border-border hover:bg-surface-hi transition-colors disabled:opacity-50"
+                  disabled={previewCloseConfirm.saving}
+                  onClick={() => setPreviewCloseConfirm(null)}
                 >
                   取消
                 </button>
                 <button
                   type="button"
-                  className="px-3 py-1.5 text-[12.5px] rounded-lg bg-accent text-white hover:opacity-90 transition-opacity"
+                  className="px-3 py-1.5 text-[12.5px] rounded-lg border border-border hover:bg-surface-hi transition-colors disabled:opacity-50"
+                  disabled={previewCloseConfirm.saving}
                   onClick={() => performPreviewClose(
                     previewCloseConfirm.kind,
                     previewCloseConfirm.tabKey,
                   )}
                 >
-                  放弃并关闭
+                  不保存
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-[12.5px] rounded-lg bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                  disabled={previewCloseConfirm.saving}
+                  onClick={saveAndClosePreviews}
+                >
+                  {previewCloseConfirm.saving ? '保存中...' : '保存并关闭'}
                 </button>
               </div>
             </div>
