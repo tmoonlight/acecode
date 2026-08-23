@@ -1011,7 +1011,7 @@ function SessionRow({
           )}
           title="归档"
           aria-label={sessionMarker === 'loop'
-            ? '循环任务，归档'
+            ? '定时任务，归档'
             : sessionMarker === 'worktree'
               ? '工作树会话，归档'
               : '归档'}

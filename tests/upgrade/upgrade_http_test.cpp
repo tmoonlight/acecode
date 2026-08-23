@@ -74,13 +74,18 @@ std::string manifest_for(const std::string& version,
     })";
 }
 
+std::string current_manifest_target() {
+    return acecode::upgrade::manifest_target_for_platform(
+        acecode::upgrade::current_target());
+}
+
 } // namespace
 
 TEST(UpgradeHttp, NoUpdateReturnsSuccessWithoutTui) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::string sha = acecode::sha256_hex("pkg");
-            res.set_content(manifest_for("0.1.2", acecode::upgrade::current_target(),
+            res.set_content(manifest_for("0.1.2", current_manifest_target(),
                                          "pkg.zip", sha), "application/json");
         });
     });
@@ -99,7 +104,7 @@ TEST(UpgradeHttp, UpgradeIgnoresLegacyTotalTimeout) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::this_thread::sleep_for(50ms);
             std::string sha = acecode::sha256_hex("pkg");
-            res.set_content(manifest_for("0.1.2", acecode::upgrade::current_target(),
+            res.set_content(manifest_for("0.1.2", current_manifest_target(),
                                          "pkg.zip", sha), "application/json");
         });
     });
@@ -127,11 +132,34 @@ TEST(UpgradeHttp, Manifest404ReturnsActionableError) {
     EXPECT_NE(err.str().find("manifest not found"), std::string::npos);
 }
 
+TEST(UpgradeHttp, MissingCompatiblePackageReturnsActionableError) {
+    LocalHttpServer server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(manifest_for(
+                "9.9.9", "other-platform", "pkg.zip",
+                acecode::sha256_hex("pkg")), "application/json");
+        });
+    });
+
+    std::ostringstream out;
+    std::ostringstream err;
+    const int code = acecode::upgrade::run_upgrade_command(
+        upgrade_config_for(server), "acecode-test", "0.1.2", out, err);
+
+    EXPECT_NE(code, 0);
+    EXPECT_NE(err.str().find("no compatible update package is published"),
+              std::string::npos);
+    EXPECT_NE(err.str().find(acecode::upgrade::current_target()),
+              std::string::npos);
+    EXPECT_NE(err.str().find("Manifest latest: v9.9.9"), std::string::npos);
+    EXPECT_EQ(out.str().find("already up to date"), std::string::npos);
+}
+
 TEST(UpgradeHttp, DownloadFailureReturnsBeforeApply) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::string sha = acecode::sha256_hex("pkg");
-            res.set_content(manifest_for("9.9.9", acecode::upgrade::current_target(),
+            res.set_content(manifest_for("9.9.9", current_manifest_target(),
                                          "pkg.zip", sha), "application/json");
         });
         s.Get("/pkg.zip", [](const httplib::Request&, httplib::Response& res) {
@@ -222,7 +250,7 @@ TEST(UpgradeHttp, UpgradeCancellationUsesDedicatedExitCodeBeforeInstall) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             const std::string body = "not-a-real-zip";
-            res.set_content(manifest_for("9.9.9", acecode::upgrade::current_target(),
+            res.set_content(manifest_for("9.9.9", current_manifest_target(),
                                          "pkg.zip", acecode::sha256_hex(body)),
                             "application/json");
         });
@@ -253,7 +281,7 @@ TEST(UpgradeHttp, ChecksumMismatchReturnsBeforeExtraction) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::string sha = acecode::sha256_hex("expected");
-            res.set_content(manifest_for("9.9.9", acecode::upgrade::current_target(),
+            res.set_content(manifest_for("9.9.9", current_manifest_target(),
                                          "pkg.zip", sha), "application/json");
         });
         s.Get("/pkg.zip", [](const httplib::Request&, httplib::Response& res) {
@@ -281,7 +309,7 @@ TEST(UpgradeHttp, UpdateCheckReportsAvailableWithoutDownloadingPackage) {
     bool package_requested = false;
     LocalHttpServer server([&](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
-            res.set_content(manifest_for("9.9.9", acecode::upgrade::current_target(),
+            res.set_content(manifest_for("9.9.9", current_manifest_target(),
                                          "acecode.zip", std::string(64, 'a')),
                             "application/json");
         });
@@ -305,6 +333,31 @@ TEST(UpgradeHttp, UpdateCheckReportsAvailableWithoutDownloadingPackage) {
     EXPECT_FALSE(package_requested);
 }
 
+TEST(UpgradeHttp, UpdateCheckReportsMissingCompatiblePackage) {
+    LocalHttpServer server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(manifest_for(
+                "9.9.9", "other-platform", "acecode.zip",
+                std::string(64, 'a')), "application/json");
+        });
+    });
+
+    auto result = acecode::upgrade::check_for_update(
+        upgrade_config_for(server), "0.1.2");
+
+    EXPECT_EQ(result.status,
+              acecode::upgrade::UpdateCheckStatus::NoCompatiblePackage);
+    EXPECT_STREQ(acecode::upgrade::update_check_status_name(result.status),
+                 "no_compatible_package");
+    EXPECT_FALSE(result.update_available());
+    EXPECT_EQ(result.latest_version, "9.9.9");
+    EXPECT_EQ(result.target, acecode::upgrade::current_target());
+    EXPECT_NE(result.error.find("no compatible update package is published"),
+              std::string::npos);
+    EXPECT_NE(result.error.find("manifest latest: v9.9.9"),
+              std::string::npos);
+}
+
 TEST(UpgradeHttp, UpdateCheckReportsUpToDate) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
@@ -313,7 +366,7 @@ TEST(UpgradeHttp, UpdateCheckReportsUpToDate) {
               "latest": "0.1.2",
               "releases": [
                 {"version": "0.1.2", "packages": [
-                  {"target": ")" + acecode::upgrade::current_target() +
+                  {"target": ")" + current_manifest_target() +
                   R"(", "file": "acecode.zip", "sha256": ")" +
                   std::string(64, 'a') + R"("}
                 ]}

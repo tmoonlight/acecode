@@ -36,6 +36,7 @@
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -130,6 +131,46 @@ ToolImpl create_noop_tool() {
     };
     impl.is_read_only = true;  // 避免触发 permission 确认
     impl.source = ToolSource::Builtin;
+    return impl;
+}
+
+ToolImpl create_terminal_session_tool(
+    const std::shared_ptr<std::atomic<int>>& executions,
+    const std::shared_ptr<std::atomic<int>>& post_turn_actions) {
+    ToolImpl impl;
+    impl.definition.name = "terminal_session_action";
+    impl.definition.description = "Test-only terminal session action.";
+    impl.definition.parameters = {
+        {"type", "object"},
+        {"properties", nlohmann::json::object()}
+    };
+    impl.execute = [executions, post_turn_actions](
+                       const std::string&, const acecode::ToolContext&) {
+        ++*executions;
+        ToolResult result{"scheduled", true};
+        result.terminate_session_after_turn = true;
+        result.post_turn_action = [post_turn_actions] {
+            ++*post_turn_actions;
+        };
+        return result;
+    };
+    return impl;
+}
+
+ToolImpl create_counting_write_tool(
+    const std::shared_ptr<std::atomic<int>>& executions) {
+    ToolImpl impl;
+    impl.definition.name = "counting_write";
+    impl.definition.description = "Test-only write tool.";
+    impl.definition.parameters = {
+        {"type", "object"},
+        {"properties", nlohmann::json::object()}
+    };
+    impl.execute = [executions](
+                       const std::string&, const acecode::ToolContext&) {
+        ++*executions;
+        return ToolResult{"unexpected", true};
+    };
     return impl;
 }
 
@@ -245,6 +286,14 @@ public:
     }
     void push_tool_call(std::string name, std::string args, std::string id = "c1") {
         provider_->push_tool_call(std::move(name), std::move(args), std::move(id));
+    }
+    void push_tool_calls(std::vector<acecode::ToolCall> calls) {
+        ScriptedResponse response;
+        response.tool_calls = std::move(calls);
+        provider_->push_response(std::move(response));
+    }
+    void register_tool(ToolImpl tool) {
+        tools_.register_tool(std::move(tool));
     }
     void push_task_complete(std::string summary, std::string id = "c-done") {
         nlohmann::json args = {{"summary", std::move(summary)}};
@@ -1037,6 +1086,41 @@ TEST(AgentLoopTermination, TaskCompleteTerminatesImmediately) {
     ASSERT_TRUE(tool_end->payload.contains("message_id"));
     EXPECT_EQ(tool_end->payload["message_id"],
               acecode::web::compute_message_id(*tool_result));
+}
+
+TEST(AgentLoopTermination, TerminalSessionActionRunsAfterDoneAndStopsLaterWrites) {
+    AgentLoopHarness h;
+    h.enable_session_manager();
+    auto terminal_executions = std::make_shared<std::atomic<int>>(0);
+    auto later_write_executions = std::make_shared<std::atomic<int>>(0);
+    auto post_turn_actions = std::make_shared<std::atomic<int>>(0);
+    h.register_tool(create_terminal_session_tool(
+        terminal_executions, post_turn_actions));
+    h.register_tool(create_counting_write_tool(later_write_executions));
+    h.push_tool_calls({
+        {"terminal-call", "terminal_session_action", "{}"},
+        {"later-call", "counting_write", "{}"},
+    });
+
+    ASSERT_TRUE(h.submit_and_wait("delete this session"));
+    ASSERT_TRUE(h.wait_for_event(acecode::SessionEventKind::Done));
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::seconds(2);
+    while (post_turn_actions->load() == 0 &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    EXPECT_EQ(terminal_executions->load(), 1);
+    EXPECT_EQ(later_write_executions->load(), 0);
+    EXPECT_EQ(post_turn_actions->load(), 1);
+    EXPECT_EQ(h.turn_count(), 1);
+
+    const auto persisted = h.persisted_session_messages();
+    EXPECT_TRUE(std::any_of(persisted.begin(), persisted.end(), [](const auto& msg) {
+        return msg.role == "tool" && msg.content == "[Interrupted]";
+    }));
+    EXPECT_FALSE(turn_timings_from(persisted).empty());
 }
 
 TEST(AgentLoopTermination, TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult) {

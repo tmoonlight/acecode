@@ -191,6 +191,13 @@ std::string current_target() {
     return std::string(os) + "-" + arch;
 }
 
+std::string manifest_target_for_platform(const std::string& platform_target) {
+    if (platform_target == "linux-x64" || platform_target == "linux-arm64") {
+        return platform_target + "-updater-v1";
+    }
+    return platform_target;
+}
+
 SelectionResult select_update_package(const UpdateManifest& manifest,
                                       const std::string& current_version,
                                       const std::string& target,
@@ -206,6 +213,7 @@ SelectionResult select_update_package(const UpdateManifest& manifest,
     }
 
     std::optional<SelectedPackage> best;
+    std::optional<SemVersion> newest_eligible_release;
     for (const auto& rel : manifest.releases) {
         auto parsed = parse_sem_version(rel.version);
         if (!parsed) {
@@ -213,6 +221,11 @@ SelectionResult select_update_package(const UpdateManifest& manifest,
         }
         if (!force && compare_sem_version(*parsed, *current) <= 0) {
             continue;
+        }
+        if (!newest_eligible_release ||
+            compare_sem_version(*parsed, *newest_eligible_release) > 0) {
+            newest_eligible_release = *parsed;
+            result.latest_version = rel.version;
         }
 
         for (const auto& pkg : rel.packages) {
@@ -235,7 +248,9 @@ SelectionResult select_update_package(const UpdateManifest& manifest,
     }
 
     if (!best) {
-        result.status = SelectionStatus::UpToDate;
+        result.status = (force || newest_eligible_release)
+            ? SelectionStatus::NoCompatiblePackage
+            : SelectionStatus::UpToDate;
         return result;
     }
     result.status = SelectionStatus::UpdateAvailable;

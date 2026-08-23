@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include "provider/builtin_model_catalog.hpp"
 #include "web/handlers/model_catalog_handler.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -28,6 +30,12 @@ nlohmann::json catalog_fixture() {
         {"deprecated", true},
     };
     return {
+        {"acemodel", {
+            {"name", "Registry ACEModel"},
+            {"api", "https://wrong.example/v1"},
+            {"env", {"WRONG_API_KEY"}},
+            {"models", {{"registry-only", {{"name", "Registry Only"}}}}},
+        }},
         {"anthropic", {
             {"name", "Anthropic"},
             {"env", {"ANTHROPIC_API_KEY"}},
@@ -111,6 +119,13 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     const auto* local = provider_by_id(summary["providers"], "lmstudio");
     const auto* openrouter = provider_by_id(summary["providers"], "openrouter");
     const auto* xai = provider_by_id(summary["providers"], "xai");
+    const auto& expected_acemodel = acecode::acemodel_catalog_provider();
+    const auto acemodel_count = std::count_if(
+        summary["providers"].begin(), summary["providers"].end(),
+        [](const nlohmann::json& provider) {
+            return provider.value("id", "") == "acemodel";
+        });
+    EXPECT_EQ(acemodel_count, 1);
     ASSERT_NE(acemodel, nullptr);
     ASSERT_NE(anthropic, nullptr);
     ASSERT_NE(copilot, nullptr);
@@ -120,13 +135,13 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     ASSERT_NE(openrouter, nullptr);
     ASSERT_NE(xai, nullptr);
     EXPECT_EQ((*acemodel)["runtime_provider"], "openai");
-    EXPECT_EQ((*acemodel)["name"], "ACEModel");
-    EXPECT_EQ((*acemodel)["base_url"], "https://ge.bigjuan.xyz/aceapi/v1");
+    EXPECT_EQ((*acemodel)["name"], expected_acemodel.name);
+    EXPECT_EQ((*acemodel)["base_url"], *expected_acemodel.base_url);
     EXPECT_EQ((*acemodel)["auth_mode"], "required");
     EXPECT_FALSE((*acemodel)["endpoint_editable"].get<bool>());
     EXPECT_EQ((*acemodel)["model_input"], "catalog");
-    EXPECT_EQ((*acemodel)["api_key_env"], "ACEMODEL_API_KEY");
-    EXPECT_EQ((*acemodel)["models_dev_provider_id"], "acemodel");
+    EXPECT_EQ((*acemodel)["api_key_env"], expected_acemodel.env.front());
+    EXPECT_EQ((*acemodel)["models_dev_provider_id"], expected_acemodel.id);
     EXPECT_EQ((*acemodel)["group"], "custom");
     EXPECT_EQ((*acemodel)["endpoint_modes"], nlohmann::json::array({"base_url"}));
     EXPECT_EQ((*anthropic)["runtime_provider"], "anthropic");

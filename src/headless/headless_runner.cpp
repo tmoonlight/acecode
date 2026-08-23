@@ -25,6 +25,7 @@
 #include "../tool/skills_tool.hpp"
 #include "../tool/tool_executor.hpp"
 #include "../tool/thread_tools.hpp"
+#include "../tool/workspace_tools.hpp"
 #include "../tool/web_search/backend_router.hpp"
 #include "../tool/web_search/region_detector.hpp"
 #include "../tool/web_search/runtime.hpp"
@@ -197,7 +198,8 @@ void register_headless_tools(
     const AppConfig& cfg,
     SkillRegistry* skill_registry,
     const std::shared_ptr<SubagentToolDeps>& subagent_deps,
-    const std::shared_ptr<ThreadToolDeps>& thread_deps) {
+    const std::shared_ptr<ThreadToolDeps>& thread_deps,
+    const std::shared_ptr<WorkspaceToolDeps>& workspace_deps) {
     register_session_builtin_tools(tools, cfg);
     tools.register_tool(create_ask_user_question_tool_async());
     if (skill_registry && cfg.skills.allowed &&
@@ -208,6 +210,7 @@ void register_headless_tools(
     tools.register_tool(create_spawn_subagent_tool(subagent_deps));
     tools.register_tool(create_wait_subagent_tool(subagent_deps));
     register_codex_thread_tools(tools, thread_deps);
+    register_workspace_tools(tools, workspace_deps);
 }
 
 int print_available_capabilities(const HeadlessCliOptions& opts) {
@@ -241,8 +244,10 @@ int print_available_capabilities(const HeadlessCliOptions& opts) {
             ToolExecutor tools;
             auto subagent_deps = std::make_shared<SubagentToolDeps>();
             auto thread_deps = std::make_shared<ThreadToolDeps>();
+            auto workspace_deps = std::make_shared<WorkspaceToolDeps>();
             register_headless_tools(
-                tools, cfg, nullptr, subagent_deps, thread_deps);
+                tools, cfg, nullptr, subagent_deps, thread_deps,
+                workspace_deps);
             for (const auto& def :
                  tools.get_tool_definitions_by_source(ToolSource::Builtin)) {
                 entries.push_back({def.name, {}});
@@ -411,12 +416,13 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         // 用不上还会拖慢退出),让 web_search 首次调用时自行 fallback。
     }
 
-    // workspace 元数据:让 -p 创建的会话在 Web/桌面端的 workspace 列表可见。
-    {
-        std::string projects_dir = acecode::path_to_utf8(
-            acecode::path_from_utf8(acecode::get_acecode_dir()) / "projects");
-        acecode::desktop::ensure_workspace_metadata(projects_dir, cwd);
-    }
+    // workspace 元数据:让 -p 创建的会话在 Web/桌面端的 workspace 列表可见,
+    // 同时给 create_workspace 复用同一份进程内注册表。
+    const std::string projects_dir = acecode::path_to_utf8(
+        acecode::path_from_utf8(acecode::get_acecode_dir()) / "projects");
+    acecode::desktop::ensure_workspace_metadata(projects_dir, cwd);
+    acecode::desktop::WorkspaceRegistry workspace_registry;
+    workspace_registry.scan(projects_dir);
 
     // ---- hooks ----
     std::string hook_load_error;
@@ -448,10 +454,14 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     acecode::ToolExecutor tools;
     auto subagent_deps = std::make_shared<acecode::SubagentToolDeps>();
     auto thread_deps = std::make_shared<acecode::ThreadToolDeps>();
+    auto workspace_deps = std::make_shared<acecode::WorkspaceToolDeps>();
+    workspace_deps->registry = &workspace_registry;
+    workspace_deps->projects_dir = projects_dir;
     // async 版 AskUserQuestion:headless::active() 分支在工具内部自动应答,
     // 不会真的走到 prompter。仍注册它是为了让模型看到与 daemon 一致的工具面。
     register_headless_tools(
-        tools, cfg, &skill_registry, subagent_deps, thread_deps);
+        tools, cfg, &skill_registry, subagent_deps, thread_deps,
+        workspace_deps);
 
     acecode::daemon::DaemonMcpRuntime mcp_runtime;
 

@@ -2241,6 +2241,10 @@ int main(int argc, char** argv) {
 
     // bridge: listWorkspaces
     host.bind("aceDesktop_listWorkspaces", [&](const std::string& /*req*/) -> std::string {
+        // The shared daemon can register a workspace while Desktop is already
+        // running. Its WorkspaceRegistry is a separate in-process cache, so
+        // refresh from the persisted marker before serving native operations.
+        registry.scan(proj_dir);
         nlohmann::json arr = nlohmann::json::array();
         auto entries = registry.list();
         std::string cur;
@@ -2285,6 +2289,7 @@ int main(int argc, char** argv) {
 
     // bridge: activateWorkspace
     auto activate_fn = [&](const std::string& hash) -> nlohmann::json {
+        registry.scan(proj_dir);
         auto m = registry.get(hash);
         if (!m) {
             return {{"error", "unknown workspace hash"}};
@@ -2340,6 +2345,7 @@ int main(int argc, char** argv) {
             }
             std::string hash = arr[0].get<std::string>();
             std::string session_id = arr[1].get<std::string>();
+            registry.scan(proj_dir);
             auto m = registry.get(hash);
             if (!m) return nlohmann::json{{"error", "unknown workspace hash"}}.dump();
             if (!is_existing_directory(m->cwd)) {
@@ -2389,6 +2395,7 @@ int main(int argc, char** argv) {
             }
             std::string h = arr[0].get<std::string>();
             std::string n = arr[1].get<std::string>();
+            registry.scan(proj_dir);
             bool ok = registry.set_name(proj_dir, h, n);
             if (!ok) return nlohmann::json{{"error", "rename failed"}}.dump();
             return nlohmann::json{{"ok", true}}.dump();
@@ -2411,6 +2418,7 @@ int main(int argc, char** argv) {
                 was_active = (active_hash_dynamic == h);
             }
 
+            registry.scan(proj_dir);
             bool ok = registry.hide(proj_dir, h);
             if (!ok) return nlohmann::json{{"error", "remove failed"}}.dump();
 

@@ -577,7 +577,7 @@ int run_configure(const AppConfig& current_config) {
                 std::cerr << "Selected catalog provider is unavailable.\n";
                 return 1;
             }
-            if (!configure_openai_from_catalog_provider(
+            if (!configure_openai_from_provider_preset(
                     cfg, *selected.catalog_provider)) {
                 std::cout << "Configuration cancelled.\n";
                 return 0;

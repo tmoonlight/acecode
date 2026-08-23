@@ -167,7 +167,9 @@ std::vector<LspServerDef> builtin_server_defs() {
 std::vector<LspServerDef> merge_server_defs(const LspConfig& cfg) {
     std::vector<LspServerDef> defs = builtin_server_defs();
 
-    for (const auto& [name, entry] : cfg.servers) {
+    for (const auto& server : cfg.servers) {
+        const auto& name = server.first;
+        const auto& entry = server.second;
         auto it = std::find_if(defs.begin(), defs.end(),
                                [&](const LspServerDef& d) { return d.id == name; });
         if (it != defs.end()) {

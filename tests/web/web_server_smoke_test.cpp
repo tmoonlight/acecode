@@ -642,7 +642,12 @@ struct LocalUpdateServer {
     }
 };
 
-std::string update_manifest_for(const std::string& version) {
+std::string update_manifest_for(const std::string& version,
+                                const std::string& target = {}) {
+    const std::string package_target = target.empty()
+        ? acecode::upgrade::manifest_target_for_platform(
+              acecode::upgrade::current_target())
+        : target;
     return R"({
       "schema_version": 1,
       "latest": ")" + version + R"(",
@@ -652,7 +657,7 @@ std::string update_manifest_for(const std::string& version) {
           "published_at": "2026-07-20T08:00:00Z",
           "notes": "Desktop release tip.",
           "packages": [
-          {"target": ")" + acecode::upgrade::current_target() + R"(", "file": "acecode.zip", "sha256": ")" + std::string(64, 'a') + R"("}
+          {"target": ")" + package_target + R"(", "file": "acecode.zip", "sha256": ")" + std::string(64, 'a') + R"("}
         ]}
       ]
     })";
@@ -7136,6 +7141,37 @@ TEST(WebServerHttp, GetUpdateStatusReportsAvailableVersion) {
     EXPECT_EQ(j["releases"][0]["published_at"], "2026-07-20T08:00:00Z");
     EXPECT_EQ(j["releases"][0]["notes"], "Desktop release tip.");
     EXPECT_FALSE(j["releases"][0].contains("packages"));
+}
+
+// 场景:manifest 有更高版本但没有当前能力目标时,状态与启动接口不得误报已最新。
+TEST(WebServerHttp, UpdateApisReportMissingCompatiblePackage) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9", "other-platform"),
+                            "application/json");
+        });
+    });
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.timeout_ms = 3000;
+
+    auto status_response = cpr::Get(cpr::Url{fx.url("/api/update/status")});
+    ASSERT_EQ(status_response.status_code, 200) << status_response.text;
+    const auto status = json::parse(status_response.text);
+    EXPECT_EQ(status["status"], "no_compatible_package");
+    EXPECT_EQ(status["update_available"], false);
+    EXPECT_EQ(status["latest_version"], "9.9.9");
+    EXPECT_EQ(status["target"], acecode::upgrade::current_target());
+    EXPECT_NE(status["error"].get<std::string>().find(
+                  "no compatible update package is published"),
+              std::string::npos);
+
+    auto start_response = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start_response.status_code, 409) << start_response.text;
+    const auto start = json::parse(start_response.text);
+    EXPECT_EQ(start["error"], "NO_COMPATIBLE_PACKAGE");
+    EXPECT_EQ(start["status"]["status"], "no_compatible_package");
+    EXPECT_EQ(start["status"]["latest_version"], "9.9.9");
 }
 
 // 场景:POST 创建可轮询 GUI 升级任务,成功后保留重启提示与 latest-job 状态。

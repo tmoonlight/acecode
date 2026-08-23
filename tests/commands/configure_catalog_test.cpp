@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "commands/configure_catalog.hpp"
+#include "provider/builtin_model_catalog.hpp"
 
 #include <cstdlib>
 
@@ -78,34 +79,40 @@ TEST(ConfigureCatalog, FormatProviderRow) {
     EXPECT_NE(row.find("doc=https://docs"), std::string::npos);
 }
 
-// 场景:统一列表固定以两个自定义入口和受管 Copilot 开头,目录项保持输入
-// 顺序,但普通 github-copilot 条目不得重复出现。
-TEST(ConfigureCatalog, UnifiedProviderChoicesOrderAndDeduplicateCopilot) {
+// 场景:统一列表固定以两个自定义入口、内置 ACEModel 和受管 Copilot 开头,
+// 目录项保持输入顺序,但普通 acemodel/github-copilot 条目不得重复出现。
+TEST(ConfigureCatalog, UnifiedProviderChoicesOrderAndDeduplicateBuiltins) {
     ProviderEntry openrouter = make_provider("openrouter", "OpenRouter");
+    ProviderEntry catalog_acemodel = make_provider("ACEMODEL", "Registry ACEModel");
     ProviderEntry catalog_copilot =
         make_provider("github-copilot", "GitHub Copilot");
     ProviderEntry deepseek = make_provider("deepseek", "DeepSeek");
     std::vector<const ProviderEntry*> providers{
-        &openrouter, &catalog_copilot, nullptr, &deepseek};
+        &openrouter, &catalog_acemodel, &catalog_copilot, nullptr, &deepseek};
 
     const auto choices = build_configure_provider_choices(providers);
-    ASSERT_EQ(choices.size(), 5u);
+    ASSERT_EQ(choices.size(), 6u);
     EXPECT_EQ(choices[0].kind, ConfigureProviderKind::CustomOpenAI);
     EXPECT_EQ(choices[0].label, "Custom OpenAI-compatible API");
     EXPECT_EQ(choices[1].kind, ConfigureProviderKind::CustomAnthropic);
     EXPECT_EQ(choices[1].label, "Custom Anthropic-compatible API");
-    EXPECT_EQ(choices[2].kind, ConfigureProviderKind::Copilot);
-    EXPECT_EQ(choices[2].label, "GitHub Copilot");
-    EXPECT_EQ(choices[3].kind, ConfigureProviderKind::Catalog);
-    ASSERT_NE(choices[3].catalog_provider, nullptr);
-    EXPECT_EQ(choices[3].catalog_provider->id, "openrouter");
+    EXPECT_EQ(choices[2].kind, ConfigureProviderKind::Catalog);
+    EXPECT_EQ(choices[2].label, "acemodel");
+    EXPECT_EQ(choices[2].catalog_provider, &acemodel_catalog_provider());
+    EXPECT_NE(choices[2].secondary.find("ACEModel"), std::string::npos);
+    EXPECT_EQ(choices[3].kind, ConfigureProviderKind::Copilot);
+    EXPECT_EQ(choices[3].label, "GitHub Copilot");
     EXPECT_EQ(choices[4].kind, ConfigureProviderKind::Catalog);
     ASSERT_NE(choices[4].catalog_provider, nullptr);
-    EXPECT_EQ(choices[4].catalog_provider->id, "deepseek");
+    EXPECT_EQ(choices[4].catalog_provider->id, "openrouter");
+    EXPECT_EQ(choices[5].kind, ConfigureProviderKind::Catalog);
+    ASSERT_NE(choices[5].catalog_provider, nullptr);
+    EXPECT_EQ(choices[5].catalog_provider->id, "deepseek");
 
     const auto without_catalog = build_configure_provider_choices({});
-    ASSERT_EQ(without_catalog.size(), 3u);
-    EXPECT_EQ(without_catalog[2].kind, ConfigureProviderKind::Copilot);
+    ASSERT_EQ(without_catalog.size(), 4u);
+    EXPECT_EQ(without_catalog[2].catalog_provider, &acemodel_catalog_provider());
+    EXPECT_EQ(without_catalog[3].kind, ConfigureProviderKind::Copilot);
 }
 
 // 场景:当前运行时 Provider 决定初始高亮;未知状态保留旧向导的
@@ -115,18 +122,21 @@ TEST(ConfigureCatalog, UnifiedProviderDefaultIndex) {
     ProviderEntry deepseek = make_provider("deepseek", "DeepSeek");
     const auto choices = build_configure_provider_choices(
         {&openrouter, &deepseek});
-    ASSERT_EQ(choices.size(), 5u);
+    ASSERT_EQ(choices.size(), 6u);
 
     AppConfig cfg;
     cfg.provider.clear();
-    EXPECT_EQ(default_configure_provider_index(cfg, choices), 2u);
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 3u);
 
     cfg.provider = "openai";
     cfg.openai.models_dev_provider_id.reset();
     EXPECT_EQ(default_configure_provider_index(cfg, choices), 0u);
 
+    cfg.openai.models_dev_provider_id = "ACEMODEL";
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 2u);
+
     cfg.openai.models_dev_provider_id = "OPENROUTER";
-    EXPECT_EQ(default_configure_provider_index(cfg, choices), 3u);
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 4u);
 
     cfg.openai.models_dev_provider_id = "missing-provider";
     EXPECT_EQ(default_configure_provider_index(cfg, choices), 0u);
@@ -135,10 +145,10 @@ TEST(ConfigureCatalog, UnifiedProviderDefaultIndex) {
     EXPECT_EQ(default_configure_provider_index(cfg, choices), 1u);
 
     cfg.provider = "copilot";
-    EXPECT_EQ(default_configure_provider_index(cfg, choices), 2u);
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 3u);
 
     cfg.provider = "unknown";
-    EXPECT_EQ(default_configure_provider_index(cfg, choices), 2u);
+    EXPECT_EQ(default_configure_provider_index(cfg, choices), 3u);
     EXPECT_EQ(default_configure_provider_index(cfg, {}), 0u);
 }
 
@@ -198,6 +208,9 @@ TEST(ConfigureCatalog, FormatSourceLineStates) {
 
     cfg.openai.models_dev_provider_id = "openrouter";
     EXPECT_EQ(format_source_line(cfg), "openai (provider=openrouter via models.dev)");
+
+    cfg.openai.models_dev_provider_id = "ACEMODEL";
+    EXPECT_EQ(format_source_line(cfg), "openai (provider=acemodel)");
 
     cfg.provider = "anthropic";
     EXPECT_EQ(format_source_line(cfg), "anthropic (custom)");

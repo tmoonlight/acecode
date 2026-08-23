@@ -200,6 +200,7 @@ const char* update_check_status_name(UpdateCheckStatus status) {
     switch (status) {
         case UpdateCheckStatus::UpdateAvailable: return "available";
         case UpdateCheckStatus::UpToDate: return "up_to_date";
+        case UpdateCheckStatus::NoCompatiblePackage: return "no_compatible_package";
         case UpdateCheckStatus::InvalidConfig: return "invalid_config";
         case UpdateCheckStatus::UnsupportedTarget: return "unsupported_target";
         case UpdateCheckStatus::ManifestUnavailable: return "manifest_unavailable";
@@ -253,8 +254,9 @@ UpdateCheckResult check_for_update(const AppConfig& config,
         return result;
     }
 
-    SelectionResult selection =
-        select_update_package(*parsed_manifest, current_version, result.target);
+    SelectionResult selection = select_update_package(
+        *parsed_manifest, current_version,
+        manifest_target_for_platform(result.target));
     if (selection.status == SelectionStatus::InvalidManifest) {
         result.status = UpdateCheckStatus::ManifestInvalid;
         result.error = selection.error;
@@ -268,9 +270,21 @@ UpdateCheckResult check_for_update(const AppConfig& config,
             release.notes,
         });
     }
-    if (selection.status == SelectionStatus::UpToDate || !selection.selected) {
+    result.latest_version = parsed_manifest->latest;
+    if (selection.status == SelectionStatus::NoCompatiblePackage) {
+        result.status = UpdateCheckStatus::NoCompatiblePackage;
+        result.error = "no compatible update package is published for " +
+                       result.target + " (manifest latest: v" +
+                       parsed_manifest->latest + ")";
+        return result;
+    }
+    if (selection.status == SelectionStatus::UpToDate) {
         result.status = UpdateCheckStatus::UpToDate;
-        result.latest_version = parsed_manifest->latest;
+        return result;
+    }
+    if (!selection.selected) {
+        result.status = UpdateCheckStatus::ManifestInvalid;
+        result.error = "update package selection returned no package";
         return result;
     }
 
@@ -366,19 +380,28 @@ int run_upgrade_command(const AppConfig& config,
         return 1;
     }
 
-    SelectionResult selection = select_update_package(*parsed_manifest, current_version, target, force);
+    SelectionResult selection = select_update_package(
+        *parsed_manifest, current_version,
+        manifest_target_for_platform(target), force);
     if (selection.status == SelectionStatus::InvalidManifest) {
         err << "acecode upgrade: invalid update manifest: " << selection.error << "\n";
         return 1;
     }
-    if (selection.status == SelectionStatus::UpToDate || !selection.selected) {
-        if (force) {
-            out << "\nNo compatible update package found for " << target << ".\n";
-        } else {
-            out << "\n" << styled(out, ConsoleStyle::Green, "ACECode is already up to date")
-                << " (v" << current_version << ").\n";
-        }
+    if (selection.status == SelectionStatus::NoCompatiblePackage) {
+        err << "acecode upgrade: no compatible update package is published for "
+            << target << ".\n"
+            << "Manifest latest: v" << parsed_manifest->latest << "\n"
+            << "Package target : " << manifest_target_for_platform(target) << "\n";
+        return 1;
+    }
+    if (selection.status == SelectionStatus::UpToDate) {
+        out << "\n" << styled(out, ConsoleStyle::Green, "ACECode is already up to date")
+            << " (v" << current_version << ").\n";
         return 0;
+    }
+    if (!selection.selected) {
+        err << "acecode upgrade: package selection returned no package\n";
+        return 1;
     }
     if (cancellation_requested()) return report_upgrade_cancelled(err);
 

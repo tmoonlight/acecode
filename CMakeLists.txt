@@ -411,6 +411,18 @@ if(UNIX AND NOT APPLE)
     find_library(ACECODE_LIBUTIL util)
     if(ACECODE_LIBUTIL)
         target_link_libraries(acecode_testable PUBLIC ${ACECODE_LIBUTIL})
+    elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
+        # CMake 的宿主搜索路径可能找不到交叉 sysroot 内的 libutil，
+        # 但目标编译器驱动能够按 gnueabihf sysroot 正确解析 -lutil。
+        target_link_libraries(acecode_testable PUBLIC util)
+    endif()
+
+    # ARMv7 是 32 位目标，64 位 std::atomic 操作通常由 GCC/Clang 的
+    # libatomic 提供。vcpkg arm-linux triplet 将处理器标记为 armv7l。
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4
+       AND CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7"
+       AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
+        target_link_libraries(acecode_testable PUBLIC atomic)
     endif()
 endif()
 

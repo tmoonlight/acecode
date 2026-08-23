@@ -6,6 +6,7 @@
 #include "version.hpp"
 #include "../tool/spawn_subagent_tool.hpp"
 #include "../tool/thread_tools.hpp"
+#include "../tool/workspace_tools.hpp"
 #include "../desktop/workspace_registry.hpp"
 #include "../experts/expert_registry.hpp"
 #include "../connectors/connector_first_start_auth.hpp"
@@ -519,6 +520,11 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     tools.register_tool(acecode::create_wait_subagent_tool(subagent_deps));
     auto thread_tool_deps = std::make_shared<acecode::ThreadToolDeps>();
     acecode::register_codex_thread_tools(tools, thread_tool_deps);
+    auto workspace_tool_deps =
+        std::make_shared<acecode::WorkspaceToolDeps>();
+    workspace_tool_deps->registry = &workspace_registry;
+    workspace_tool_deps->projects_dir = projects_dir;
+    acecode::register_workspace_tools(tools, workspace_tool_deps);
 
     acecode::daemon::DaemonMcpRuntime mcp_runtime;
     mcp_runtime.start(cfg_mut, tools);

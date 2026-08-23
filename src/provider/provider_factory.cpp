@@ -30,11 +30,6 @@ ProviderRequestOptions request_options_from_entry(const ModelProfile& entry) {
     ProviderRequestOptions options;
     options.endpoint_mode = entry.endpoint_mode.value_or("base_url");
     options.max_output_tokens = entry.max_output_tokens;
-    if (entry.capabilities_source.has_value()) {
-        options.tools_enabled = std::find(entry.capabilities.begin(),
-                                          entry.capabilities.end(),
-                                          "tool_use") != entry.capabilities.end();
-    }
     options.reasoning = entry.reasoning;
     if (entry.provider == "anthropic" && entry.reasoning.has_value()) {
         options.reasoning_protocol = ReasoningWireProtocol::Anthropic;
@@ -98,12 +93,7 @@ std::shared_ptr<LlmProvider> create_provider_from_entry(const ModelProfile& entr
                      "credential, output, or reasoning customization");
             return nullptr;
         }
-        // Copilot endpoint/auth/output/reasoning options are rejected by schema
-        // validation. The authoritative tool capability remains meaningful.
-        ProviderRequestOptions copilot_options;
-        copilot_options.tools_enabled = request_options.tools_enabled;
-        provider = std::make_shared<CopilotProvider>(
-            entry.model, std::move(copilot_options));
+        provider = std::make_shared<CopilotProvider>(entry.model);
     } else if (entry.provider == "grok") {
         if (!entry.base_url.empty() || !entry.api_key.empty() ||
             !entry.request_headers.empty() || entry.endpoint_mode.has_value() ||
@@ -113,10 +103,7 @@ std::shared_ptr<LlmProvider> create_provider_from_entry(const ModelProfile& entr
                      "credential, timeout, output, or reasoning customization");
             return nullptr;
         }
-        ProviderRequestOptions grok_options;
-        grok_options.tools_enabled = request_options.tools_enabled;
-        provider = std::make_shared<GrokProvider>(
-            entry.model, std::move(grok_options));
+        provider = std::make_shared<GrokProvider>(entry.model);
     } else if (entry.provider == "codex") {
         LOG_WARN(std::string("[provider_factory] ") +
                  disabled_model_provider_reason(entry.provider));

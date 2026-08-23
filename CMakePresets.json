@@ -176,6 +176,26 @@
       }
     },
     {
+      "name": "linux-armv7-release",
+      "displayName": "Linux ARMv7 Release",
+      "inherits": "release-base",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm-linux",
+        "VCPKG_TARGET_ARCHITECTURE": "arm",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/toolchains/linux.cmake"
+      }
+    },
+    {
+      "name": "linux-armv7-debug",
+      "displayName": "Linux ARMv7 Debug",
+      "inherits": "debug-base",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm-linux",
+        "VCPKG_TARGET_ARCHITECTURE": "arm",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/toolchains/linux.cmake"
+      }
+    },
+    {
       "name": "macos-x64-release",
       "displayName": "macOS x64 Release",
       "inherits": "release-base",
@@ -432,6 +452,42 @@
       ]
     },
     {
+      "name": "linux-armv7-release",
+      "displayName": "Build Linux ARMv7 Release",
+      "configurePreset": "linux-armv7-release",
+      "configuration": "Release",
+      "targets": [
+        "acecode"
+      ]
+    },
+    {
+      "name": "linux-armv7-debug",
+      "displayName": "Build Linux ARMv7 Debug",
+      "configurePreset": "linux-armv7-debug",
+      "configuration": "Debug",
+      "targets": [
+        "acecode"
+      ]
+    },
+    {
+      "name": "linux-armv7-release-tests",
+      "displayName": "Build Linux ARMv7 Release Tests",
+      "configurePreset": "linux-armv7-release",
+      "configuration": "Release",
+      "targets": [
+        "acecode_unit_tests"
+      ]
+    },
+    {
+      "name": "linux-armv7-debug-tests",
+      "displayName": "Build Linux ARMv7 Debug Tests",
+      "configurePreset": "linux-armv7-debug",
+      "configuration": "Debug",
+      "targets": [
+        "acecode_unit_tests"
+      ]
+    },
+    {
       "name": "macos-x64-release",
       "displayName": "Build macOS x64 Release",
       "configurePreset": "macos-x64-release",
@@ -599,6 +655,24 @@
       "name": "linux-arm64-debug-tests",
       "displayName": "Test Linux arm64 Debug",
       "configurePreset": "linux-arm64-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-armv7-release-tests",
+      "displayName": "Test Linux ARMv7 Release",
+      "configurePreset": "linux-armv7-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-armv7-debug-tests",
+      "displayName": "Test Linux ARMv7 Debug",
+      "configurePreset": "linux-armv7-debug",
       "configuration": "Debug",
       "output": {
         "outputOnFailure": true

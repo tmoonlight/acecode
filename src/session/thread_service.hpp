@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,10 @@ struct ThreadServiceResult {
     bool success = false;
     nlohmann::json value = nlohmann::json::object();
     std::string error;
+    // Runtime-only control used by delete_thread self-deletion. The tool layer
+    // forwards these fields to ToolResult; they are never written as JSON.
+    bool terminate_caller_after_turn = false;
+    std::function<void()> post_turn_action;
 
     static ThreadServiceResult ok(
         nlohmann::json value = nlohmann::json::object());

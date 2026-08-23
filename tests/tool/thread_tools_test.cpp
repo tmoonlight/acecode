@@ -9,10 +9,12 @@
 #include "tool/thread_tools.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <random>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -193,6 +195,114 @@ TEST(ThreadTools, DeleteCascadesToDescendantsAndCleansPins) {
     const auto pins =
         acecode::session_pins::read_pinned_sessions_state(pin_path);
     EXPECT_EQ(pins.session_ids, std::vector<std::string>{unrelated});
+
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+TEST(ThreadTools, SelfDeleteWaitsForTuiTurnBoundaryBeforePurging) {
+    const auto cwd = unique_cwd("self_delete_tui");
+    const std::string cwd_string = cwd.string();
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(cwd_string);
+    std::filesystem::remove_all(project_dir);
+    const std::string caller = "20260823-100000-self";
+    const std::string child = "20260823-100001-child";
+
+    acecode::SessionManager manager;
+    manager.start_session(cwd_string, "stub", "model", caller);
+    manager.on_message(message("user", "delete this thread"));
+    persist_thread(cwd_string, child, caller, "child work");
+    const auto pin_path = std::filesystem::path(project_dir) /
+        "pinned_sessions.json";
+    ASSERT_TRUE(acecode::session_pins::write_pinned_sessions_state(
+        pin_path, {{caller, child}}));
+
+    acecode::ThreadService service({});
+    acecode::ThreadScope scope;
+    scope.cwd = cwd_string;
+    scope.caller_thread_id = caller;
+    scope.caller_manager = &manager;
+    auto result = service.delete_thread(scope, caller);
+
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_TRUE(result.terminate_caller_after_turn);
+    EXPECT_TRUE(result.value.value("scheduled", false));
+    ASSERT_TRUE(static_cast<bool>(result.post_turn_action));
+    EXPECT_FALSE(acecode::SessionStorage::find_session_files(
+        project_dir, caller).empty());
+    EXPECT_FALSE(acecode::SessionStorage::find_session_files(
+        project_dir, child).empty());
+
+    result.post_turn_action();
+
+    EXPECT_TRUE(manager.current_session_id().empty());
+    EXPECT_TRUE(acecode::SessionStorage::find_session_files(
+        project_dir, caller).empty());
+    EXPECT_TRUE(acecode::SessionStorage::find_session_files(
+        project_dir, child).empty());
+    EXPECT_TRUE(acecode::session_pins::read_pinned_sessions_state(
+        pin_path).session_ids.empty());
+
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+TEST(ThreadTools, RegistrySelfDeleteUsesExternalLifecycleWithEntrySnapshotHeld) {
+    const auto cwd = unique_cwd("self_delete_registry");
+    const std::string cwd_string = cwd.string();
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(cwd_string);
+    std::filesystem::remove_all(project_dir);
+
+    {
+        acecode::ToolExecutor registry_tools;
+        acecode::PermissionManager registry_permissions;
+        acecode::SessionRegistryDeps registry_deps;
+        registry_deps.provider_accessor = [] {
+            return std::shared_ptr<acecode::LlmProvider>{};
+        };
+        registry_deps.tools = &registry_tools;
+        registry_deps.cwd = cwd_string;
+        registry_deps.template_permissions = &registry_permissions;
+        acecode::SessionRegistry registry(std::move(registry_deps));
+        acecode::LocalSessionClient client(registry);
+        acecode::SessionOptions options;
+        options.cwd = cwd_string;
+        const std::string caller = registry.create(options);
+        auto held_entry = registry.acquire(caller);
+        ASSERT_NE(held_entry, nullptr);
+        ASSERT_NE(held_entry->sm, nullptr);
+        held_entry->sm->on_message(message("user", "delete registry thread"));
+
+        acecode::ThreadService service({&registry, &client});
+        acecode::ThreadScope scope;
+        scope.cwd = cwd_string;
+        scope.caller_thread_id = caller;
+        scope.caller_manager = held_entry->sm.get();
+        auto result = service.delete_thread(scope, caller);
+        ASSERT_TRUE(result.success) << result.error;
+        ASSERT_TRUE(static_cast<bool>(result.post_turn_action));
+
+        result.post_turn_action();
+        const auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < deadline &&
+               (registry.acquire(caller) ||
+                !acecode::SessionStorage::find_session_files(
+                    project_dir, caller).empty())) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        EXPECT_EQ(registry.acquire(caller), nullptr);
+        EXPECT_TRUE(acecode::SessionStorage::find_session_files(
+            project_dir, caller).empty());
+        // Keeping the entry snapshot alive must not keep its worker running or
+        // allow persistent cleanup to race ahead of shutdown.
+        ASSERT_NE(held_entry->loop, nullptr);
+        EXPECT_TRUE(held_entry->sm->current_session_id().empty());
+        held_entry.reset();
+    } // SessionRegistry joins the deferred lifecycle task before cleanup.
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);

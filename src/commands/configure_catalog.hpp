@@ -18,8 +18,9 @@ enum class ConfigureProviderKind {
 };
 
 // One row in the unified `acecode configure` provider picker. Synthetic rows
-// have a null catalog_provider; Catalog rows point into the process-wide
-// models.dev catalog cache and are consumed synchronously by the wizard.
+// have a null catalog_provider; Catalog rows point to either a process-lifetime
+// built-in preset or the process-wide models.dev cache and are consumed
+// synchronously by the wizard.
 struct ConfigureProviderChoice {
     ConfigureProviderKind kind = ConfigureProviderKind::CustomOpenAI;
     std::string label;
@@ -28,9 +29,9 @@ struct ConfigureProviderChoice {
 };
 
 // Build the single provider list shown by `acecode configure`: custom OpenAI,
-// custom Anthropic, managed Copilot, then models.dev presets. The raw
-// github-copilot catalog row is omitted because the managed preset owns that
-// authentication path.
+// custom Anthropic, built-in ACEModel, managed Copilot, then models.dev
+// presets. Raw acemodel/github-copilot rows are omitted because the built-in
+// and managed presets own those identities.
 std::vector<ConfigureProviderChoice> build_configure_provider_choices(
     const std::vector<const ProviderEntry*>& catalog_providers);
 
@@ -66,7 +67,8 @@ std::string format_model_row(const ModelEntry& m);
 std::string format_model_summary(const ModelEntry& m);
 
 // Source label written into the configuration summary line.
-//   `cfg.openai.models_dev_provider_id` set     → "openai (provider=<id> via models.dev)"
+//   `cfg.openai.models_dev_provider_id=acemodel` → "openai (provider=acemodel)"
+//   other `models_dev_provider_id` set           → "openai (provider=<id> via models.dev)"
 //   `cfg.provider == "openai"` w/o provider id  → "openai (custom)"
 //   `cfg.provider == "anthropic"`               → "anthropic (custom)"
 //   `cfg.provider == "copilot"`                 → "copilot"
@@ -103,9 +105,9 @@ ModelPickerResult run_model_picker(const ProviderEntry& provider,
 // true when the user finalised a selection; false when they backed out.
 bool configure_openai_via_catalog(AppConfig& cfg);
 
-// Configure a catalog provider that was already selected by the unified
+// Configure a catalog-backed preset that was already selected by the unified
 // provider picker. This skips the legacy second provider-selection step.
-bool configure_openai_from_catalog_provider(AppConfig& cfg,
-                                            const ProviderEntry& provider);
+bool configure_openai_from_provider_preset(AppConfig& cfg,
+                                           const ProviderEntry& provider);
 
 } // namespace acecode

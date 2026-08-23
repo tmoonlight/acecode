@@ -20,6 +20,17 @@ TEST(UpgradeVersion, ParsesAndComparesSemanticVersions) {
     EXPECT_FALSE(parse_sem_version("0.1").has_value());
 }
 
+TEST(UpgradeManifest, UsesCapabilityVersionedTargetsOnlyForSupportedLinuxBuilds) {
+    EXPECT_EQ(manifest_target_for_platform("linux-x64"),
+              "linux-x64-updater-v1");
+    EXPECT_EQ(manifest_target_for_platform("linux-arm64"),
+              "linux-arm64-updater-v1");
+    EXPECT_EQ(manifest_target_for_platform("linux-unknown"),
+              "linux-unknown");
+    EXPECT_EQ(manifest_target_for_platform("windows-x64"), "windows-x64");
+    EXPECT_EQ(manifest_target_for_platform("macos-arm64"), "macos-arm64");
+}
+
 TEST(UpgradeManifest, SelectsNewestCompatiblePackage) {
     std::string sha = acecode::sha256_hex("package");
     std::string text = R"({
@@ -97,6 +108,31 @@ TEST(UpgradeManifest, ReportsUpToDateWhenNoNewerCompatiblePackageExists) {
     ASSERT_TRUE(manifest.has_value()) << err;
     auto selected = select_update_package(*manifest, "0.1.2", "windows-x64");
     EXPECT_EQ(selected.status, SelectionStatus::UpToDate);
+    EXPECT_TRUE(selected.latest_version.empty());
+}
+
+TEST(UpgradeManifest, ReportsNoCompatiblePackageWhenNewerReleasesExist) {
+    std::string sha = acecode::sha256_hex("package");
+    std::string text = R"({
+      "schema_version": 1,
+      "latest": "0.1.4",
+      "releases": [
+        {"version": "0.1.4", "packages": [
+          {"target": "windows-x64", "file": "acecode-0.1.4-windows-x64.zip", "sha256": ")" + sha + R"("}
+        ]},
+        {"version": "not-semver", "packages": []}
+      ]
+    })";
+
+    std::string err;
+    auto manifest = parse_update_manifest(text, &err);
+    ASSERT_TRUE(manifest.has_value()) << err;
+    auto selected = select_update_package(
+        *manifest, "0.1.2", "linux-arm64-updater-v1");
+
+    EXPECT_EQ(selected.status, SelectionStatus::NoCompatiblePackage);
+    EXPECT_FALSE(selected.selected.has_value());
+    EXPECT_EQ(selected.latest_version, "0.1.4");
 }
 
 TEST(UpgradeManifest, ForceSelectsNewestCompatiblePackageIgnoringCurrentVersion) {
@@ -123,6 +159,29 @@ TEST(UpgradeManifest, ForceSelectsNewestCompatiblePackageIgnoringCurrentVersion)
     ASSERT_TRUE(selected.selected.has_value());
     EXPECT_EQ(selected.selected->version, "0.1.4");
     EXPECT_EQ(selected.selected->package.file, "acecode-0.1.4-windows-x64.zip");
+}
+
+TEST(UpgradeManifest, ForceReportsNoCompatiblePackageForMissingTarget) {
+    std::string sha = acecode::sha256_hex("package");
+    std::string text = R"({
+      "schema_version": 1,
+      "latest": "0.1.4",
+      "releases": [
+        {"version": "0.1.4", "packages": [
+          {"target": "windows-x64", "file": "acecode-0.1.4-windows-x64.zip", "sha256": ")" + sha + R"("}
+        ]}
+      ]
+    })";
+
+    std::string err;
+    auto manifest = parse_update_manifest(text, &err);
+    ASSERT_TRUE(manifest.has_value()) << err;
+    auto selected = select_update_package(
+        *manifest, "not-semver", "linux-x64-updater-v1", true);
+
+    EXPECT_EQ(selected.status, SelectionStatus::NoCompatiblePackage);
+    EXPECT_FALSE(selected.selected.has_value());
+    EXPECT_EQ(selected.latest_version, "0.1.4");
 }
 
 TEST(UpgradeManifest, RejectsInvalidManifestAndUnsafePackage) {

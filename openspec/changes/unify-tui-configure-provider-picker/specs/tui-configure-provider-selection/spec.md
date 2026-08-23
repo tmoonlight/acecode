@@ -2,15 +2,16 @@
 
 ### Requirement: configure 使用统一 Provider 候选列表
 
-`acecode configure` MUST 在同一个 Provider picker 中展示自定义接口、受管 Copilot 和可运行的 models.dev 预置，不得要求用户先在四项顶层菜单中选择是否浏览 catalog。
+`acecode configure` MUST 在同一个 Provider picker 中展示自定义接口、ACEModel、受管 Copilot 和可运行的 models.dev 预置，不得要求用户先在四项顶层菜单中选择是否浏览 catalog。
 
 #### Scenario: catalog 可用时的固定顺序
 
 - **WHEN** models.dev catalog 含可运行的 OpenAI 兼容 Provider
 - **THEN** 候选列表第一项 MUST 是自定义 OpenAI 兼容 API
 - **AND** 第二项 MUST 是自定义 Anthropic 兼容 API
-- **AND** 第三项 MUST 是 GitHub Copilot
-- **AND** models.dev 预置 MUST 从第四项开始依照 catalog 顺序展示
+- **AND** 第三项 MUST 是 ACEModel
+- **AND** 第四项 MUST 是 GitHub Copilot
+- **AND** models.dev 预置 MUST 从第五项开始依照 catalog 顺序展示
 
 #### Scenario: Copilot 不重复出现
 
@@ -18,11 +19,27 @@
 - **THEN** 统一列表 MUST 只显示受管 GitHub Copilot 预置
 - **AND** MUST NOT 再把 `github-copilot` 显示为普通 API Key 目录项
 
+#### Scenario: ACEModel 不重复出现
+
+- **WHEN** models.dev 可运行 Provider 中包含 ID 为 `acemodel` 的条目
+- **THEN** 统一列表 MUST 保留共享内置 ACEModel 预置
+- **AND** MUST NOT 再显示同 ID 的 models.dev 条目
+
 #### Scenario: catalog 不可用
 
 - **WHEN** models.dev catalog 缺失、无效或没有可运行 Provider
-- **THEN** 统一列表 MUST 仍显示两个自定义接口和 GitHub Copilot
+- **THEN** 统一列表 MUST 仍显示两个自定义接口、ACEModel 和 GitHub Copilot
 - **AND** MUST NOT 显示一个不可选择的 Browse catalog 占位入口
+
+### Requirement: ACEModel 元数据只有一个共享来源
+
+系统 MUST 以一个非 Web 专属的共享定义提供 ACEModel 的 Provider ID、名称、Base URL、API Key 环境变量和内置模型，并由 Web 模型目录与 TUI configure 同时消费。
+
+#### Scenario: Web 与 TUI 读取同一预置
+
+- **WHEN** 系统构造 Web catalog 摘要、查询 ACEModel 模型或构造 TUI Provider 候选
+- **THEN** 三条路径 MUST 使用同一个共享 ACEModel `ProviderEntry`
+- **AND** ACEModel MUST 使用 `https://ge.bigjuan.xyz/aceapi/v1`、`ACEMODEL_API_KEY`、`moonlight` 与 `starrylight`
 
 ### Requirement: Provider picker 提供直接输入 autocomplete
 
@@ -76,6 +93,13 @@
 - **THEN** 系统 MUST 执行现有 GitHub 设备认证和 Copilot 模型选择流程
 - **AND** MUST NOT 要求用户填写 Base URL 或 API Key
 
+#### Scenario: 选择 ACEModel
+
+- **WHEN** 用户选择 ACEModel 预置
+- **THEN** 系统 MUST 使用共享 ACEModel Base URL、API Key 环境变量和内置模型进入 OpenAI 兼容预置配置流程
+- **AND** 保存时 MUST 使用运行时 Provider `openai`
+- **AND** `models_dev_provider_id` MUST 为 `acemodel`
+
 #### Scenario: 选择 models.dev 预置
 
 - **WHEN** 用户选择一个 models.dev 目录 Provider
@@ -98,6 +122,8 @@
 
 - **WHEN** 当前 Provider 是 `copilot`
 - **THEN** 初始高亮 MUST 是 GitHub Copilot
+- **WHEN** 当前 Provider 是 `openai` 且 `models_dev_provider_id` 是 `acemodel`
+- **THEN** 初始高亮 MUST 是 ACEModel
 - **WHEN** 当前 Provider 是 `openai` 且 `models_dev_provider_id` 命中统一列表中的目录项
 - **THEN** 初始高亮 MUST 是该目录项
 

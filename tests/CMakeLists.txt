@@ -16,6 +16,15 @@ if(UNIX)
     set_tests_properties(macos_pkg_installation_contract PROPERTIES LABELS "unit")
 endif()
 
+if(UNIX AND NOT APPLE)
+    add_test(
+        NAME linux_update_zip_contract
+        COMMAND /bin/bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/linux_update_zip_test.sh
+    )
+    set_tests_properties(linux_update_zip_contract PROPERTIES LABELS "unit")
+endif()
+
 file(GLOB_RECURSE ACECODE_TEST_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/*_test.cpp
 )

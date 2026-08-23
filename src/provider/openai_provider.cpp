@@ -1005,7 +1005,7 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
     body["messages"] = patched;
 
     // Build tools array
-    if (!tools.empty() && request_options_.tools_enabled.value_or(true)) {
+    if (!tools.empty()) {
         nlohmann::json tools_json = nlohmann::json::array();
         for (const auto& tool : tools) {
             nlohmann::json t;

@@ -12,6 +12,7 @@ namespace acecode::upgrade {
 enum class UpdateCheckStatus {
     UpdateAvailable,
     UpToDate,
+    NoCompatiblePackage,
     InvalidConfig,
     UnsupportedTarget,
     ManifestUnavailable,

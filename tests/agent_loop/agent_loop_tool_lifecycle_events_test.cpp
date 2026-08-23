@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
+#include "desktop/workspace_registry.hpp"
 #include "permissions.hpp"
 #include "provider/llm_provider.hpp"
 #include "session/event_dispatcher.hpp"
@@ -17,6 +18,8 @@
 #include "tool/file_write_tool.hpp"
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
+#include "tool/workspace_tools.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -150,6 +153,9 @@ public:
     std::atomic<int>& confirm_count() { return confirm_count_; }
     void set_tool_capability_policy(acecode::ToolCapabilityPolicy policy) {
         loop_->set_tool_capability_policy(std::move(policy));
+    }
+    void set_loop_execution_policy(acecode::LoopExecutionPolicy policy) {
+        loop_->set_loop_execution_policy(std::move(policy));
     }
 
     bool submit_and_wait(std::chrono::milliseconds timeout = 5s) {
@@ -642,6 +648,76 @@ TEST(AgentLoopToolLifecycleEvents, FileReadOutsideCwdExecutes) {
               std::string::npos);
 
     fs::remove(outside);
+    fs::remove_all(cwd);
+}
+
+TEST(AgentLoopToolLifecycleEvents, CreateWorkspaceOutsideCwdExecutes) {
+    auto cwd = make_temp_dir("acecode_lifecycle_create_workspace");
+    const auto outside = cwd.parent_path() /
+        (cwd.filename().string() + "_registered_workspace");
+    const auto projects_dir = cwd / "workspace_registry";
+    fs::create_directories(outside);
+
+    acecode::desktop::WorkspaceRegistry registry;
+    auto deps = std::make_shared<acecode::WorkspaceToolDeps>();
+    deps->registry = &registry;
+    deps->projects_dir = acecode::path_to_utf8(projects_dir);
+
+    AllowingToolHarness h(cwd.string());
+    acecode::register_workspace_tools(h.tools(), deps);
+
+    ScriptedResponse tools_turn;
+    tools_turn.tool_calls.push_back({
+        "call-create-workspace",
+        "create_workspace",
+        nlohmann::json{{"path", acecode::path_to_utf8(outside)}}.dump(),
+    });
+    h.provider().push_response(std::move(tools_turn));
+    h.provider().push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait());
+
+    const auto results = h.results();
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].first, "create_workspace");
+    ASSERT_TRUE(results[0].second.success) << results[0].second.output;
+    const auto output = nlohmann::json::parse(results[0].second.output);
+    ASSERT_EQ(registry.list().size(), 1u);
+    EXPECT_EQ(registry.list()[0].hash,
+              output["hash"].get<std::string>());
+
+    fs::remove_all(outside);
+    fs::remove_all(cwd);
+}
+
+TEST(AgentLoopToolLifecycleEvents, LoopYoloCreateWorkspaceOutsideCwdExecutes) {
+    auto cwd = make_temp_dir("acecode_loop_create_workspace");
+    const auto outside = cwd.parent_path() /
+        (cwd.filename().string() + "_registered_workspace");
+    const auto projects_dir = cwd / "workspace_registry";
+    fs::create_directories(outside);
+
+    acecode::desktop::WorkspaceRegistry registry;
+    auto deps = std::make_shared<acecode::WorkspaceToolDeps>();
+    deps->registry = &registry;
+    deps->projects_dir = acecode::path_to_utf8(projects_dir);
+
+    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo);
+    h.set_loop_execution_policy({true, "loop test"});
+    acecode::register_workspace_tools(h.tools(), deps);
+    h.provider().push_tool_call(
+        "create_workspace",
+        nlohmann::json{{"path", acecode::path_to_utf8(outside)}}.dump(),
+        "call-loop-create-workspace");
+    h.provider().push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait());
+    const auto ends = h.events_of(SessionEventKind::ToolEnd);
+    ASSERT_EQ(ends.size(), 1u);
+    EXPECT_TRUE(ends[0].payload.value("success", false));
+    EXPECT_EQ(registry.list().size(), 1u);
+
+    fs::remove_all(outside);
     fs::remove_all(cwd);
 }
 

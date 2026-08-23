@@ -18,8 +18,6 @@ enum class ReasoningWireProtocol {
 struct ProviderRequestOptions {
     std::string endpoint_mode = "base_url";
     std::optional<int> max_output_tokens;
-    // nullopt means legacy behavior: forward the supplied tool definitions.
-    std::optional<bool> tools_enabled;
     std::optional<ModelReasoningOptions> reasoning;
     ReasoningWireProtocol reasoning_protocol = ReasoningWireProtocol::None;
 };

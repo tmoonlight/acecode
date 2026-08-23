@@ -71,6 +71,7 @@
 #include "tool/mcp_manager.hpp"
 #include "tool/mcp_startup_coordination.hpp"
 #include "tool/thread_tools.hpp"
+#include "tool/workspace_tools.hpp"
 #include "tool/skills_tool.hpp"
 #include "tool/skill_view_tool.hpp"
 #include "tool/memory_read_tool.hpp"
@@ -4704,6 +4705,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     McpManager mcp_manager;
     MemoryConfig runtime_memory_cfg = initialize_tui_tools_and_registries(
         tools, skill_registry, memory_registry, mcp_manager, config, working_dir);
+    const std::string workspace_projects_dir = path_to_utf8(
+        path_from_utf8(get_acecode_dir()) / "projects");
+    desktop::WorkspaceRegistry workspace_registry;
+    workspace_registry.scan(workspace_projects_dir);
+    auto workspace_tool_deps = std::make_shared<WorkspaceToolDeps>();
+    workspace_tool_deps->registry = &workspace_registry;
+    workspace_tool_deps->projects_dir = workspace_projects_dir;
+    register_workspace_tools(tools, workspace_tool_deps);
 
     TuiState state;
     initialize_tui_state_before_screen(state, config, working_dir, dangerous_mode,

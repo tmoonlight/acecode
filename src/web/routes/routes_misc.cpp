@@ -1397,10 +1397,17 @@ void WebServer::Impl::register_ui_preferences() {
                 config_snapshot = *deps.app_config;
             }
             if (!result.update_available()) {
+                const bool no_compatible_package =
+                    result.status ==
+                    acecode::upgrade::UpdateCheckStatus::NoCompatiblePackage;
                 crow::response r(409);
                 r.add_header("Content-Type", "application/json");
-                r.body = json{{"error", "NO_UPDATE"},
-                              {"message", "no compatible update is available"},
+                r.body = json{{"error", no_compatible_package
+                                           ? "NO_COMPATIBLE_PACKAGE"
+                                           : "NO_UPDATE"},
+                              {"message", no_compatible_package
+                                             ? result.error
+                                             : "no compatible update is available"},
                               {"status", update_check_to_json(result)}}.dump();
                 return with_cors(req, std::move(r));
             }

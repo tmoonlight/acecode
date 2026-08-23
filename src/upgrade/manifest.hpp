@@ -32,6 +32,7 @@ struct UpdateManifest {
 enum class SelectionStatus {
     UpdateAvailable,
     UpToDate,
+    NoCompatiblePackage,
     InvalidManifest,
 };
 
@@ -44,6 +45,7 @@ struct SelectedPackage {
 struct SelectionResult {
     SelectionStatus status = SelectionStatus::InvalidManifest;
     std::optional<SelectedPackage> selected;
+    std::string latest_version;
     std::string error;
 };
 
@@ -55,6 +57,7 @@ std::string normalize_update_base_url(const std::string& base_url);
 std::string resolve_package_url(const std::string& base_url, const std::string& file);
 std::string manifest_url(const std::string& base_url);
 std::string current_target();
+std::string manifest_target_for_platform(const std::string& platform_target);
 SelectionResult select_update_package(const UpdateManifest& manifest,
                                       const std::string& current_version,
                                       const std::string& target,

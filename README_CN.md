@@ -121,3 +121,4 @@ acecode --resume
 - [架构说明](ARCHITECTURE.md) — 运行界面、共享核心与源码归属。
 - [Skills 指南](docs/skills.md) — 创建和使用可复用工作流。
 - [Desktop 工作区](docs/desktop-shell/multi-workspace.md) — 桌面应用中的工作区与任务行为。
+- [Linux 自升级](docs/linux-self-update.md) — updater ZIP、旧版一次性引导与发布校验。

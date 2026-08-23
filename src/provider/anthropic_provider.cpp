@@ -590,7 +590,7 @@ nlohmann::json AnthropicProvider::build_request_body(
     if (!system_text.empty()) body["system"] = system_text;
     body["messages"] = std::move(anthropic_messages);
 
-    if (!tools.empty() && request_options_.tools_enabled.value_or(true)) {
+    if (!tools.empty()) {
         nlohmann::json tools_json = nlohmann::json::array();
         for (const auto& tool : tools) {
             nlohmann::json t;

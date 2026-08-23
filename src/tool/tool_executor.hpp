@@ -74,6 +74,13 @@ struct ToolResult {
     nlohmann::json attachments = nlohmann::json::array();
     std::vector<std::string> attachment_warnings;
 
+    // Runtime-only terminal control. A tool that permanently removes the
+    // calling session uses this to stop the current model turn after its
+    // canonical tool result and terminal lifecycle events have been persisted.
+    // Neither field is serialized into the provider-visible result.
+    bool terminate_session_after_turn = false;
+    std::function<void()> post_turn_action;
+
     bool has_attachments() const {
         return attachments.is_array() && !attachments.empty();
     }

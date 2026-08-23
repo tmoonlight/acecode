@@ -777,11 +777,11 @@ The compatibility `POST /api/sessions` response includes:
 }
 ```
 
-### Model-facing thread tools
+### Model-facing thread and workspace tools
 
-Daemon, TUI, and headless runtimes expose the same in-process thread tools to
-the model. They reuse the session registry and storage directly; they do not
-call the daemon HTTP API:
+Daemon, TUI, and headless runtimes expose the same in-process thread and
+workspace tools to the model. They reuse the session/workspace registries and
+storage directly; they do not call the daemon HTTP API:
 
 | Tool | Behavior |
 |---|---|
@@ -796,12 +796,25 @@ call the daemon HTTP API:
 | `set_thread_archived` | archive or unarchive a thread |
 | `delete_thread` | permanently delete a thread and all descendants |
 | `repair_thread` | append a deterministic repair checkpoint to another thread |
+| `create_workspace` | register an existing absolute directory as a visible workspace |
 
-`delete_thread` also removes search-index and pin records. A running tool call
-cannot delete its own thread. `repair_thread` does not invoke a model, replay
-tools, or rewrite visible transcript rows. It reconstructs provider history,
-repairs malformed tool-call/result structure, and prunes only complete old user
-turn groups while preserving the current input.
+`delete_thread` also removes search-index and pin records. It may target its
+calling thread, including a cascade whose tree contains the caller. In that
+case it records the canonical tool result and turn timing, emits the terminal
+turn events, stops any later write tool calls in the same response, and only
+then tears down and purges the calling thread. The returned payload includes
+`"scheduled":true`; no later model turn runs in the deleted thread.
+
+`repair_thread` does not invoke a model, replay tools, or rewrite visible
+transcript rows. It reconstructs provider history, repairs malformed
+tool-call/result structure, and prunes only complete old user turn groups while
+preserving the current input.
+
+`create_workspace({"path":"C:/repo"})` accepts only an existing absolute
+directory, resolves it to a canonical path, and idempotently persists the same
+visible workspace record used by `POST /api/workspaces`. It returns
+`{"hash","cwd","name","available":true}`. It never creates the target
+directory, switches the calling thread's cwd, or starts a thread/worktree.
 
 Separately, an explicit pre-output provider context-overflow error triggers a
 finite recovery sequence inside `AgentLoop`: one history-repair retry, then one
@@ -2548,6 +2561,13 @@ lists, hashes, and URLs are not duplicated into each entry. Legacy entries with
 missing notes are returned with `notes: ""`. `http_status` and `error` are
 included when present.
 
+`status` can also be `up_to_date`, `no_compatible_package`, `invalid_config`,
+`unsupported_target`, `manifest_unavailable`, or `manifest_invalid`.
+`no_compatible_package` means the manifest contains a newer semantic version but
+does not publish a package for this client's updater-capability target; it is not
+an up-to-date result. Linux keeps the user-facing `target` as `linux-x64` or
+`linux-arm64` while matching packages through the internal `updater-v1` target.
+
 Manifest checks and package transfers do not use a fixed total request timeout.
 Transport, HTTP, and file-write failures are still reported normally.
 
@@ -2574,7 +2594,11 @@ job reuses the normal upgrade engine without creating a console window. Returns
 }
 ```
 
-Returns `409 NO_UPDATE` when no compatible update is available.
+Returns `409 NO_UPDATE` when the running version is already current. Returns
+`409 NO_COMPATIBLE_PACKAGE` when newer releases exist but the service has no
+package for this updater-capability target; the nested status object includes
+`status: "no_compatible_package"`, `latest_version`, the physical `target`, and
+an actionable `error`.
 
 Returns `409 UPDATE_IN_PROGRESS` when another job is pending or running. The
 response includes that job under `job`, so another WebUI tab can attach to it.

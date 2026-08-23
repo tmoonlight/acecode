@@ -9,6 +9,7 @@
 #include "thread_repair.hpp"
 #include "../commands/compact.hpp"
 #include "../utils/encoding.hpp"
+#include "../utils/logger.hpp"
 #include "../utils/utf8_path.hpp"
 
 #include <algorithm>
@@ -848,21 +849,11 @@ ThreadServiceResult ThreadService::set_archived(
     });
 }
 
-ThreadServiceResult ThreadService::delete_thread(
-    const ThreadScope& scope,
-    const std::string& thread_id) const {
-    if (thread_id.empty()) return ThreadServiceResult::fail("threadId is required");
-    if (thread_id == scope.caller_thread_id) {
-        return ThreadServiceResult::fail(
-            "the calling thread cannot delete itself; use another thread");
-    }
-    auto target = resolve_thread(deps_, scope, thread_id);
-    if (!target) {
-        return ThreadServiceResult::fail(
-            "thread is unavailable in the current workspace");
-    }
+namespace {
 
-    const std::string project_dir = target->project_dir;
+std::vector<std::string> child_first_delete_order(
+    const std::string& project_dir,
+    const std::string& root_thread_id) {
     const auto metas = SessionStorage::list_sessions(project_dir);
     std::unordered_multimap<std::string, std::string> children;
     for (const auto& meta : metas) {
@@ -882,24 +873,35 @@ ThreadServiceResult ThreadService::delete_thread(
             }
             delete_order.push_back(id);
         };
-    collect(thread_id);
-    if (std::find(delete_order.begin(), delete_order.end(),
-                  scope.caller_thread_id) != delete_order.end()) {
-        return ThreadServiceResult::fail(
-            "delete tree contains the calling thread");
-    }
+    collect(root_thread_id);
+    return delete_order;
+}
 
-    if (deps_.client) {
-        for (const auto& id : delete_order) {
-            if (deps_.registry && deps_.registry->acquire(id)) {
-                deps_.client->abort(id);
-                deps_.client->destroy_session(id);
-            }
-        }
+json deleted_ids_json(const std::vector<std::string>& delete_order) {
+    json deleted = json::array();
+    for (const auto& id : delete_order) deleted.push_back(id);
+    return deleted;
+}
+
+void destroy_active_threads(const ThreadService::Deps& deps,
+                            const std::vector<std::string>& delete_order) {
+    if (!deps.registry) return;
+    for (const auto& id : delete_order) {
+        if (!deps.registry->acquire(id)) continue;
+        // Lifecycle tasks are owned and joined by the registry. Calling it
+        // directly avoids retaining a SessionClient pointer whose stack
+        // lifetime may end before SessionRegistry teardown joins the task.
+        deps.registry->destroy(id);
     }
+}
+
+ThreadServiceResult purge_thread_delete_plan(
+    const ThreadService::Deps& deps,
+    const std::string& project_dir,
+    const std::vector<std::string>& delete_order) {
+    destroy_active_threads(deps, delete_order);
 
     SessionUserMessageIndex search_index(project_dir);
-    json deleted = json::array();
     for (const auto& id : delete_order) {
         std::string error;
         if (!SessionStorage::purge_session_files(project_dir, id, &error)) {
@@ -911,7 +913,6 @@ ThreadServiceResult ThreadService::delete_thread(
                 "thread files deleted but search index cleanup failed for " +
                 id + ": " + error);
         }
-        deleted.push_back(id);
     }
 
     const auto pin_path = path_from_utf8(project_dir) /
@@ -929,8 +930,82 @@ ThreadServiceResult ThreadService::delete_thread(
     }
 
     return ThreadServiceResult::ok(json{
-        {"deletedThreadIds", std::move(deleted)},
+        {"deletedThreadIds", deleted_ids_json(delete_order)},
     });
+}
+
+} // namespace
+
+ThreadServiceResult ThreadService::delete_thread(
+    const ThreadScope& scope,
+    const std::string& thread_id) const {
+    if (thread_id.empty()) return ThreadServiceResult::fail("threadId is required");
+    auto target = resolve_thread(deps_, scope, thread_id);
+    if (!target) {
+        return ThreadServiceResult::fail(
+            "thread is unavailable in the current workspace");
+    }
+
+    const std::string project_dir = target->project_dir;
+    const auto delete_order = child_first_delete_order(project_dir, thread_id);
+    const bool contains_caller =
+        !scope.caller_thread_id.empty() &&
+        std::find(delete_order.begin(), delete_order.end(),
+                  scope.caller_thread_id) != delete_order.end();
+    if (!contains_caller) {
+        return purge_thread_delete_plan(deps_, project_dir, delete_order);
+    }
+    if (!scope.caller_manager) {
+        return ThreadServiceResult::fail(
+            "calling thread manager is unavailable for deferred deletion");
+    }
+
+    const bool caller_in_registry =
+        deps_.registry &&
+        static_cast<bool>(deps_.registry->acquire(scope.caller_thread_id));
+    const auto deps = deps_;
+    const std::string caller_id = scope.caller_thread_id;
+    SessionManager* const caller_manager = scope.caller_manager;
+
+    ThreadServiceResult scheduled = ThreadServiceResult::ok(json{
+        {"deletedThreadIds", deleted_ids_json(delete_order)},
+        {"scheduled", true},
+    });
+    scheduled.terminate_caller_after_turn = true;
+    scheduled.post_turn_action =
+        [deps, project_dir, delete_order, caller_id, caller_manager,
+         caller_in_registry]() {
+            auto delete_after_boundary =
+                [deps, project_dir, delete_order, caller_id, caller_manager,
+                 caller_in_registry]() {
+                    if (!caller_in_registry && caller_manager) {
+                        // The TUI root loop is not owned by its subagent
+                        // registry. Its worker is already at the post-turn
+                        // boundary, so releasing the writer here is safe.
+                        caller_manager->end_current_session();
+                    }
+                    auto result = purge_thread_delete_plan(
+                        deps, project_dir, delete_order);
+                    if (!result.success) {
+                        LOG_ERROR("[thread/delete] deferred deletion failed for " +
+                                  caller_id + ": " + result.error);
+                    } else {
+                        LOG_INFO("[thread/delete] deferred deletion completed for " +
+                                 caller_id);
+                    }
+                };
+
+            if (caller_in_registry && deps.registry) {
+                if (!deps.registry->enqueue_lifecycle_task(
+                        std::move(delete_after_boundary))) {
+                    LOG_ERROR("[thread/delete] failed to queue deferred deletion for " +
+                              caller_id);
+                }
+                return;
+            }
+            delete_after_boundary();
+        };
+    return scheduled;
 }
 
 ThreadServiceResult ThreadService::repair(

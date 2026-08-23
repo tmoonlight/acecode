@@ -240,6 +240,26 @@ TEST(WorkspaceRegistry, RegisterNewCreatesEntryAndFile) {
     EXPECT_EQ(r.list().size(), 1u);
 }
 
+// 场景: Desktop 启动后 daemon 用另一份 registry 新增 workspace；Desktop
+// 操作前重扫持久化 marker 后必须能解析新 hash，无需重启进程。
+TEST(WorkspaceRegistry, RescanFindsWorkspaceRegisteredByAnotherInstance) {
+    TmpProjectsDir tmp;
+    WorkspaceRegistry desktop_registry;
+    desktop_registry.scan(tmp.path());
+    EXPECT_TRUE(desktop_registry.list().empty());
+
+    WorkspaceRegistry daemon_registry;
+    auto created = daemon_registry.register_new(tmp.path(), "/home/u/live-created");
+    EXPECT_FALSE(desktop_registry.get(created.hash).has_value());
+
+    desktop_registry.scan(tmp.path());
+    auto refreshed = desktop_registry.get(created.hash);
+    ASSERT_TRUE(refreshed.has_value());
+    EXPECT_EQ(refreshed->cwd, created.cwd);
+    EXPECT_EQ(refreshed->name, created.name);
+    EXPECT_TRUE(refreshed->desktop_visible);
+}
+
 // 场景: 手动添加一个已有 TUI 项目目录时,只写 workspace.json marker,
 // 不重写已有 session meta;后续 session listing 仍能看到旧会话。
 TEST(WorkspaceRegistry, RegisterNewImportsExistingTuiSessionsWithoutRewritingThem) {

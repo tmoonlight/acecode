@@ -721,6 +721,14 @@ SessionRegistry::~SessionRegistry() {
     for (auto& t : threads) {
         if (t.joinable()) t.join();
     }
+    threads.clear();
+    {
+        std::lock_guard<std::mutex> lk(lifecycle_threads_mu_);
+        threads.swap(lifecycle_threads_);
+    }
+    for (auto& t : threads) {
+        if (t.joinable()) t.join();
+    }
     // entries_ 析构会触发每个 SessionEntry 析构 → AgentLoop::shutdown 等等
     // worker thread join。锁不需要 — 此时没人再调 lookup/destroy(daemon
     // 退出路径)。
@@ -1842,6 +1850,30 @@ SideQuestionResult SessionRegistry::ask_side_question(
     return entry->loop->ask_side_question(question);
 }
 
+bool SessionRegistry::enqueue_lifecycle_task(std::function<void()> task) {
+    if (!task || shutting_down_.load()) return false;
+    std::lock_guard<std::mutex> lk(lifecycle_threads_mu_);
+    if (shutting_down_.load()) return false;
+    try {
+        lifecycle_threads_.emplace_back(
+            [task = std::move(task)]() mutable {
+                try {
+                    task();
+                } catch (const std::exception& e) {
+                    LOG_ERROR(std::string("[registry] lifecycle task failed: ") +
+                              e.what());
+                } catch (...) {
+                    LOG_ERROR("[registry] lifecycle task failed with unknown exception");
+                }
+            });
+    } catch (const std::exception& e) {
+        LOG_ERROR(std::string("[registry] failed to start lifecycle task: ") +
+                  e.what());
+        return false;
+    }
+    return true;
+}
+
 void SessionRegistry::destroy(const std::string& id) {
     std::shared_ptr<SessionEntry> moved;
     {
@@ -1854,7 +1886,20 @@ void SessionRegistry::destroy(const std::string& id) {
     if (deps_.power_guard) deps_.power_guard->release_session(id);
     // 析构走出锁外: AgentLoop::shutdown 会 join worker,可能耗时(等当前
     // tool 跑完)。在锁内会阻塞所有别的 create/lookup/destroy。
-    if (moved && moved->loop) moved->loop->abort();
+    if (moved && moved->loop) {
+        moved->loop->abort();
+        // Do not rely on the last shared_ptr to run AgentLoop's destructor.
+        // A lifecycle caller may still hold an entry snapshot, but persistent
+        // cleanup is safe as soon as this explicit external shutdown returns.
+        moved->loop->shutdown();
+    }
+    if (moved && moved->sm) {
+        // Finalize and invalidate the active writer even when another
+        // subsystem (for example auto-title generation) still holds the
+        // SessionEntry. Any late per-session update then observes an empty
+        // active id instead of recreating files after a purge.
+        moved->sm->end_current_session();
+    }
     moved.reset();
     LOG_INFO("[registry] destroyed session " + id);
 }

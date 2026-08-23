@@ -24,6 +24,8 @@ ToolResult service_result(ThreadServiceResult result) {
     if (!result.success) return tool_error(result.error);
     ToolResult output;
     output.output = result.value.dump();
+    output.terminate_session_after_turn = result.terminate_caller_after_turn;
+    output.post_turn_action = std::move(result.post_turn_action);
     return output;
 }
 
@@ -393,7 +395,8 @@ ToolImpl delete_thread_tool(std::shared_ptr<ThreadToolDeps> deps) {
     return make_tool(
         "delete_thread",
         "Permanently delete an ACECode thread and its spawned descendant "
-        "threads. The calling thread cannot delete itself.",
+        "threads. The calling thread may delete itself; self-deletion ends "
+        "the current turn and completes cleanup after the safe turn boundary.",
         object_schema(json{
             {"threadId", json{{"type", "string"}, {"minLength", 1}}},
         }, json::array({"threadId"})),

@@ -1,6 +1,7 @@
 #include "configure_catalog.hpp"
 
 #include "configure_picker.hpp"
+#include "../provider/builtin_model_catalog.hpp"
 #include "../utils/encoding.hpp"
 #include "../utils/terminal_input.hpp"
 
@@ -88,7 +89,7 @@ std::string format_provider_row(const ProviderEntry& p) {
 std::vector<ConfigureProviderChoice> build_configure_provider_choices(
     const std::vector<const ProviderEntry*>& catalog_providers) {
     std::vector<ConfigureProviderChoice> choices;
-    choices.reserve(catalog_providers.size() + 3);
+    choices.reserve(catalog_providers.size() + 4);
 
     choices.push_back({
         ConfigureProviderKind::CustomOpenAI,
@@ -102,6 +103,18 @@ std::vector<ConfigureProviderChoice> build_configure_provider_choices(
         "Anthropic Messages-style endpoint",
         nullptr,
     });
+
+    auto append_preset = [&](const ProviderEntry& provider) {
+        const std::string full = format_provider_row(provider);
+        choices.push_back({
+            ConfigureProviderKind::Catalog,
+            provider.id,
+            strip_label_prefix(full, provider.id),
+            &provider,
+        });
+    };
+    append_preset(acemodel_catalog_provider());
+
     choices.push_back({
         ConfigureProviderKind::Copilot,
         "GitHub Copilot",
@@ -110,14 +123,11 @@ std::vector<ConfigureProviderChoice> build_configure_provider_choices(
     });
 
     for (const ProviderEntry* provider : catalog_providers) {
-        if (!provider || lower(provider->id) == "github-copilot") continue;
-        const std::string full = format_provider_row(*provider);
-        choices.push_back({
-            ConfigureProviderKind::Catalog,
-            provider->id,
-            strip_label_prefix(full, provider->id),
-            provider,
-        });
+        if (!provider || lower(provider->id) == "github-copilot" ||
+            is_acemodel_provider_id(provider->id)) {
+            continue;
+        }
+        append_preset(*provider);
     }
     return choices;
 }
@@ -229,6 +239,9 @@ std::string format_source_line(const AppConfig& cfg) {
     if (cfg.provider == "anthropic") return "anthropic (custom)";
     if (cfg.openai.models_dev_provider_id.has_value() &&
         !cfg.openai.models_dev_provider_id->empty()) {
+        if (is_acemodel_provider_id(*cfg.openai.models_dev_provider_id)) {
+            return "openai (provider=" + acemodel_catalog_provider().id + ")";
+        }
         return "openai (provider=" + *cfg.openai.models_dev_provider_id + " via models.dev)";
     }
     return "openai (custom)";
@@ -350,12 +363,12 @@ bool configure_openai_via_catalog(AppConfig& cfg) {
         return false;
     }
 
-    return configure_openai_from_catalog_provider(cfg, *provider);
+    return configure_openai_from_provider_preset(cfg, *provider);
 }
 
-bool configure_openai_from_catalog_provider(AppConfig& cfg,
-                                            const ProviderEntry& provider) {
-    std::cout << "\n--- models.dev Preset Configuration ---\n";
+bool configure_openai_from_provider_preset(AppConfig& cfg,
+                                           const ProviderEntry& provider) {
+    std::cout << "\n--- Provider Preset Configuration ---\n";
 
     std::cout << "Selected provider: " << provider.id;
     if (provider.id != provider.name) std::cout << " (" << provider.name << ")";

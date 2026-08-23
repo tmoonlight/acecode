@@ -202,6 +202,11 @@ public:
     // 销毁 session。abort 当前 LLM/tool + join worker + 移出 map。
     void destroy(const std::string& id);
 
+    // Queue lifecycle work on a registry-owned external thread. Self-deletion
+    // uses this after its turn boundary so destroy() never joins the AgentLoop
+    // from that loop's own worker. All queued tasks are joined on destruction.
+    bool enqueue_lifecycle_task(std::function<void()> task);
+
     // 列出当前 daemon 内活跃 session 的元数据(只看内存,不读磁盘历史)。
     std::vector<SessionInfo> list_active() const;
 
@@ -331,6 +336,8 @@ private:
     ExternalCommandHandler                                        external_command_handler_;
     mutable std::mutex                                            title_threads_mu_;
     std::vector<std::thread>                                      title_threads_;
+    mutable std::mutex                                            lifecycle_threads_mu_;
+    std::vector<std::thread>                                      lifecycle_threads_;
     std::atomic<bool>                                              shutting_down_{false};
     // 同 id resume 单飞:web 端 resume 从独占 app_config_mu 降级为共享锁后,
     // 同一会话的并发 resume 不再被外层锁偶然串行化。两个 make_entry 同时

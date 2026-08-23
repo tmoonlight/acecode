@@ -3,6 +3,7 @@
 #include "config/saved_models.hpp"
 #include "provider/anthropic_provider.hpp"
 #include "provider/copilot_provider.hpp"
+#include "provider/grok_provider.hpp"
 #include "provider/openai_provider.hpp"
 #include "provider/provider_factory.hpp"
 
@@ -39,6 +40,12 @@ public:
 class TestableCopilotProvider : public acecode::CopilotProvider {
 public:
     using CopilotProvider::CopilotProvider;
+    using OpenAiCompatProvider::build_request_body;
+};
+
+class TestableGrokProvider : public acecode::GrokProvider {
+public:
+    using GrokProvider::GrokProvider;
     using OpenAiCompatProvider::build_request_body;
 };
 
@@ -180,24 +187,34 @@ TEST(ModelProfileRuntimeOptions, OpenRouterBudgetWinsAndDisableIsExplicit) {
               nlohmann::json({{"effort", "high"}}));
 }
 
-TEST(ModelProfileRuntimeOptions, ExplicitToolDisableAppliesAcrossProviders) {
-    ProviderRequestOptions disabled;
-    disabled.tools_enabled = false;
-
+TEST(ModelProfileRuntimeOptions, ToolDefinitionsAreForwardedAcrossProviderProtocols) {
+    ProviderRequestOptions options;
     TestableOpenAiProvider openai(
-        "https://example.test/v1", "key", "model", 1000, {}, disabled);
-    EXPECT_FALSE(openai.build_request_body(
+        "https://example.test/v1", "key", "model", 1000, {}, options);
+    EXPECT_TRUE(openai.build_request_body(
         {user_message()}, {test_tool()}, false).contains("tools"));
+    EXPECT_TRUE(openai.build_request_body(
+        {user_message()}, {test_tool()}, true).contains("tools"));
 
     AnthropicProvider anthropic(
         AnthropicProvider::kDefaultBaseUrl, "key", "model", 1000, {},
-        disabled);
-    EXPECT_FALSE(anthropic.build_request_body(
+        options);
+    EXPECT_TRUE(anthropic.build_request_body(
+        {user_message()}, {test_tool()}, false).contains("tools"));
+    EXPECT_TRUE(anthropic.build_request_body(
         {user_message()}, {test_tool()}, true).contains("tools"));
 
-    TestableCopilotProvider copilot("model", disabled);
-    EXPECT_FALSE(copilot.build_request_body(
+    TestableCopilotProvider copilot("model", options);
+    EXPECT_TRUE(copilot.build_request_body(
         {user_message()}, {test_tool()}, false).contains("tools"));
+    EXPECT_TRUE(copilot.build_request_body(
+        {user_message()}, {test_tool()}, true).contains("tools"));
+
+    TestableGrokProvider grok("model", options);
+    EXPECT_TRUE(grok.build_request_body(
+        {user_message()}, {test_tool()}, false).contains("tools"));
+    EXPECT_TRUE(grok.build_request_body(
+        {user_message()}, {test_tool()}, true).contains("tools"));
 }
 
 TEST(ModelProfileRuntimeOptions, FullUrlIsExactForStreamingAndNonStreaming) {
@@ -254,7 +271,29 @@ TEST(ModelProfileRuntimeOptions, FullUrlIsExactForStreamingAndNonStreaming) {
     EXPECT_TRUE(requests[1].value("stream", false));
     for (const auto& request : requests) {
         EXPECT_EQ(request["max_tokens"], 12345);
-        EXPECT_FALSE(request.contains("tools"));
+        ASSERT_TRUE(request.contains("tools"));
+        EXPECT_EQ(request["tools"].size(), 1u);
+    }
+}
+
+TEST(ModelProfileRuntimeOptions, AnthropicCapabilityMetadataCannotDisableTools) {
+    ModelProfile profile;
+    profile.name = "anthropic-without-tool-capability";
+    profile.provider = "anthropic";
+    profile.base_url = AnthropicProvider::kDefaultBaseUrl;
+    profile.api_key = "test-key";
+    profile.model = "claude-test";
+    profile.capabilities_source = "catalog";
+    profile.capabilities = {"vision"};
+
+    auto provider = acecode::create_provider_from_entry(profile);
+    auto anthropic = std::dynamic_pointer_cast<AnthropicProvider>(provider);
+    ASSERT_NE(anthropic, nullptr);
+    for (bool stream : {false, true}) {
+        const auto body = anthropic->build_request_body(
+            {user_message()}, {test_tool()}, stream);
+        ASSERT_TRUE(body.contains("tools"));
+        EXPECT_EQ(body["tools"].size(), 1u);
     }
 }
 
@@ -370,26 +409,24 @@ TEST(ModelProfileRuntimeOptions, SameProviderReconfigureReplacesRuntimeOptions) 
     ProviderRequestOptions openai_options;
     openai_options.endpoint_mode = "full_url";
     openai_options.max_output_tokens = 6000;
-    openai_options.tools_enabled = false;
     openai.reconfigure(" https://new.test/exact/chat ", "new", 2000, {},
                        openai_options);
     EXPECT_EQ(openai.request_url(), "https://new.test/exact/chat");
     const auto openai_body = openai.build_request_body(
         {user_message()}, {test_tool()}, false);
     EXPECT_EQ(openai_body["max_tokens"], 6000);
-    EXPECT_FALSE(openai_body.contains("tools"));
+    EXPECT_TRUE(openai_body.contains("tools"));
 
     AnthropicProvider anthropic(
         AnthropicProvider::kDefaultBaseUrl, "old", "model");
     ProviderRequestOptions anthropic_options;
     anthropic_options.max_output_tokens = 7000;
-    anthropic_options.tools_enabled = false;
     anthropic.reconfigure("https://new-anthropic.test/v1/", "new", 2000, {},
                           anthropic_options);
     const auto anthropic_body = anthropic.build_request_body(
         {user_message()}, {test_tool()}, false);
     EXPECT_EQ(anthropic_body["max_tokens"], 7000);
-    EXPECT_FALSE(anthropic_body.contains("tools"));
+    EXPECT_TRUE(anthropic_body.contains("tools"));
 }
 
 TEST(ModelProfileRuntimeOptions, CopilotRemainsManagedAndRejectsCustomRuntime) {

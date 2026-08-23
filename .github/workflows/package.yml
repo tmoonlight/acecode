@@ -108,6 +108,16 @@ jobs:
             archive_extension: tar.gz
             build_desktop: true
             cmake_extra_args: -DACECODE_BUILD_DESKTOP=ON
+          - id: linux-armv7
+            os: ubuntu-22.04
+            triplet: arm-linux
+            executable: acecode
+            archive_extension: tar.gz
+            build_desktop: false
+            cmake_extra_args: >-
+              -DACECODE_BUILD_DESKTOP=OFF
+              -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/toolchains/linux.cmake"
+              -DVCPKG_TARGET_ARCHITECTURE=arm
           - id: windows-x64
             os: windows-2022
             triplet: x64-windows-static
@@ -227,6 +237,17 @@ jobs:
         with:
           arch: ${{ matrix.msvc_arch }}
 
+      - name: Install Linux ARMv7 cross toolchain
+        if: matrix.id == 'linux-armv7'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils-arm-linux-gnueabihf \
+            gcc-arm-linux-gnueabihf \
+            g++-arm-linux-gnueabihf \
+            qemu-user
+
       - name: Run vcpkg
         uses: lukka/run-vcpkg@v11
 
@@ -270,6 +291,28 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
+      - name: Verify Linux ARMv7 executable
+        if: matrix.id == 'linux-armv7'
+        shell: bash
+        run: |
+          export LC_ALL=C
+          elf_header="$(arm-linux-gnueabihf-readelf -h build/acecode)"
+          arm_attributes="$(arm-linux-gnueabihf-readelf -A build/acecode)"
+          program_headers="$(arm-linux-gnueabihf-readelf -l build/acecode)"
+
+          printf '%s\n' "$elf_header"
+          printf '%s\n' "$arm_attributes"
+
+          grep -Eq 'Class:[[:space:]]+ELF32' <<<"$elf_header"
+          grep -Eq 'Machine:[[:space:]]+ARM' <<<"$elf_header"
+          grep -Eq 'Tag_CPU_arch:[[:space:]]+v7' <<<"$arm_attributes"
+          grep -Eq 'Tag_ABI_VFP_args:[[:space:]]+VFP registers' <<<"$arm_attributes"
+          grep -Fq '/lib/ld-linux-armhf.so.3' <<<"$program_headers"
+
+          version_output="$(qemu-arm -L /usr/arm-linux-gnueabihf build/acecode --version)"
+          printf '%s\n' "$version_output"
+          grep -Eq '^acecode v[^[:space:]]+$' <<<"$version_output"
+
       - name: Verify models.dev resources in macOS app
         if: runner.os == 'macOS' && matrix.build_desktop
         shell: bash
@@ -292,9 +335,17 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          objcopy --only-keep-debug "build/${{ matrix.executable }}" "build/${{ matrix.executable }}.debug"
-          strip --strip-unneeded "build/${{ matrix.executable }}"
-          objcopy --add-gnu-debuglink="build/${{ matrix.executable }}.debug" "build/${{ matrix.executable }}"
+          binutils_prefix=""
+          if [ "${{ matrix.id }}" = "linux-armv7" ]; then
+            binutils_prefix="arm-linux-gnueabihf-"
+          fi
+          "${binutils_prefix}objcopy" --only-keep-debug \
+            "build/${{ matrix.executable }}" \
+            "build/${{ matrix.executable }}.debug"
+          "${binutils_prefix}strip" --strip-unneeded "build/${{ matrix.executable }}"
+          "${binutils_prefix}objcopy" \
+            --add-gnu-debuglink="build/${{ matrix.executable }}.debug" \
+            "build/${{ matrix.executable }}"
 
       - name: Extract desktop debug symbols (Linux)
         if: runner.os == 'Linux' && matrix.build_desktop
@@ -541,6 +592,18 @@ jobs:
           fi
           rm -rf -- "$verify_root"
 
+      - name: Create Linux self-update archive
+        if: matrix.id == 'linux-x64' || matrix.id == 'linux-arm64'
+        id: linux-update
+        shell: bash
+        run: |
+          update_path="acecode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}-update.zip"
+          bash scripts/linux_create_update_zip.sh \
+            --package-dir "dist/acecode-${{ matrix.id }}" \
+            --output "$update_path" \
+            --expected-version "${{ steps.package-version.outputs.version }}"
+          echo "path=$update_path" >> "$GITHUB_OUTPUT"
+
       - name: Create current-user macOS PKG
         if: runner.os == 'macOS' && steps.macos-release.outputs.pkg_enabled == 'true'
         id: macos-pkg
@@ -673,6 +736,14 @@ jobs:
           path: acecode-${{ matrix.id }}.${{ matrix.archive_extension }}
           if-no-files-found: error
 
+      - name: Upload Linux self-update archive
+        if: matrix.id == 'linux-x64' || matrix.id == 'linux-arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: acecode-${{ matrix.id }}-update
+          path: ${{ steps.linux-update.outputs.path }}
+          if-no-files-found: error
+
       - name: Upload macOS PKG
         if: runner.os == 'macOS' && steps.macos-release.outputs.pkg_enabled == 'true'
         uses: actions/upload-artifact@v4
@@ -758,11 +829,35 @@ jobs:
             triplet: x64-linux
             executable: acecode
             archive_extension: tar.gz
+            build_desktop: true
+            cmake_extra_args: >-
+              -DACECODE_BUILD_DESKTOP=ON
+              -DWEBVIEW_WEBKITGTK_API=4.0
           - id: linux-old-arm64
             os: ubuntu-22.04-arm
             triplet: arm64-linux
             executable: acecode
             archive_extension: tar.gz
+            build_desktop: true
+            cmake_extra_args: >-
+              -DACECODE_BUILD_DESKTOP=ON
+              -DWEBVIEW_WEBKITGTK_API=4.0
+          - id: linux-old-armv7
+            os: ubuntu-22.04
+            triplet: arm-linux
+            executable: acecode
+            archive_extension: tar.gz
+            build_desktop: false
+            cmake_extra_args: >-
+              -DACECODE_BUILD_DESKTOP=OFF
+              -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/toolchains/linux.cmake"
+              -DVCPKG_TARGET_ARCHITECTURE=arm
+              -DCMAKE_C_COMPILER=clang-11
+              -DCMAKE_CXX_COMPILER=clang++-11
+              -DCMAKE_C_COMPILER_TARGET=arm-linux-gnueabihf
+              -DCMAKE_CXX_COMPILER_TARGET=arm-linux-gnueabihf
+              -DCMAKE_C_STANDARD_INCLUDE_DIRECTORIES=/usr/arm-linux-gnueabihf/include
+              -DCMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES="/usr/arm-linux-gnueabihf/include/c++/8;/usr/arm-linux-gnueabihf/include/c++/8/arm-linux-gnueabihf;/usr/arm-linux-gnueabihf/include"
 
     steps:
       - name: Checkout
@@ -780,15 +875,13 @@ jobs:
             /etc/apt/sources.list
           printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99no-check-valid-until
           apt-get update
-          apt-get install -y --no-install-recommends \
+          packages=(
             binutils \
             build-essential \
             ca-certificates \
             curl \
             file \
             git \
-            libgtk-3-dev \
-            libwebkit2gtk-4.0-dev \
             ninja-build \
             perl \
             pkg-config \
@@ -797,6 +890,20 @@ jobs:
             tar \
             unzip \
             zip
+          )
+          if [ "${{ matrix.build_desktop }}" = "true" ]; then
+            packages+=(libgtk-3-dev libwebkit2gtk-4.0-dev)
+          fi
+          if [ "${{ matrix.id }}" = "linux-old-armv7" ]; then
+            packages+=(
+              binutils-arm-linux-gnueabihf
+              clang-11
+              gcc-arm-linux-gnueabihf
+              g++-arm-linux-gnueabihf
+              qemu-user
+            )
+          fi
+          apt-get install -y --no-install-recommends "${packages[@]}"
           rm -rf /var/lib/apt/lists/*
 
       - name: Set up CMake
@@ -829,22 +936,26 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
             -DBUILD_TESTING=OFF \
-            -DACECODE_BUILD_DESKTOP=ON \
-            -DWEBVIEW_WEBKITGTK_API=4.0
+            ${{ matrix.cmake_extra_args }}
 
       - name: Build
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode
 
       - name: Build desktop
+        if: matrix.build_desktop
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
       - name: Verify old Linux ABI
         shell: bash
         run: |
+          abi_binaries=(build/acecode)
+          if [ "${{ matrix.build_desktop }}" = "true" ]; then
+            abi_binaries+=(build/acecode-desktop)
+          fi
           max_glibc="$(
-            strings build/acecode build/acecode-desktop |
+            strings "${abi_binaries[@]}" |
               grep -Eo 'GLIBC_[0-9]+\.[0-9]+' |
               sed 's/GLIBC_//' |
               sort -Vu |
@@ -860,23 +971,57 @@ jobs:
             exit 1
           fi
 
-          ldd build/acecode-desktop | tee build/acecode-desktop.ldd
-          grep -E 'libwebkit2gtk-4\.0\.so\.37' build/acecode-desktop.ldd
-          if grep -E 'libwebkit2gtk-4\.1|libwebkitgtk-6' build/acecode-desktop.ldd; then
-            echo "Old Linux desktop linked against a newer WebKitGTK ABI" >&2
-            exit 1
+          if [ "${{ matrix.build_desktop }}" = "true" ]; then
+            ldd build/acecode-desktop | tee build/acecode-desktop.ldd
+            grep -E 'libwebkit2gtk-4\.0\.so\.37' build/acecode-desktop.ldd
+            if grep -E 'libwebkit2gtk-4\.1|libwebkitgtk-6' build/acecode-desktop.ldd; then
+              echo "Old Linux desktop linked against a newer WebKitGTK ABI" >&2
+              exit 1
+            fi
           fi
+
+      - name: Verify old Linux ARMv7 executable
+        if: matrix.id == 'linux-old-armv7'
+        shell: bash
+        run: |
+          export LC_ALL=C
+          elf_header="$(arm-linux-gnueabihf-readelf -h build/acecode)"
+          arm_attributes="$(arm-linux-gnueabihf-readelf -A build/acecode)"
+          program_headers="$(arm-linux-gnueabihf-readelf -l build/acecode)"
+
+          printf '%s\n' "$elf_header"
+          printf '%s\n' "$arm_attributes"
+
+          grep -Eq 'Class:[[:space:]]+ELF32' <<<"$elf_header"
+          grep -Eq 'Machine:[[:space:]]+ARM' <<<"$elf_header"
+          grep -Eq 'Tag_CPU_arch:[[:space:]]+v7' <<<"$arm_attributes"
+          grep -Eq 'Tag_ABI_VFP_args:[[:space:]]+VFP registers' <<<"$arm_attributes"
+          grep -Fq '/lib/ld-linux-armhf.so.3' <<<"$program_headers"
+
+          version_output="$(qemu-arm -L /usr/arm-linux-gnueabihf build/acecode --version)"
+          printf '%s\n' "$version_output"
+          grep -Eq '^acecode v[^[:space:]]+$' <<<"$version_output"
 
       - name: Extract debug symbols
         shell: bash
         run: |
-          objcopy --only-keep-debug "build/${{ matrix.executable }}" "build/${{ matrix.executable }}.debug"
-          strip --strip-unneeded "build/${{ matrix.executable }}"
-          objcopy --add-gnu-debuglink="build/${{ matrix.executable }}.debug" "build/${{ matrix.executable }}"
+          binutils_prefix=""
+          if [ "${{ matrix.id }}" = "linux-old-armv7" ]; then
+            binutils_prefix="arm-linux-gnueabihf-"
+          fi
+          "${binutils_prefix}objcopy" --only-keep-debug \
+            "build/${{ matrix.executable }}" \
+            "build/${{ matrix.executable }}.debug"
+          "${binutils_prefix}strip" --strip-unneeded "build/${{ matrix.executable }}"
+          "${binutils_prefix}objcopy" \
+            --add-gnu-debuglink="build/${{ matrix.executable }}.debug" \
+            "build/${{ matrix.executable }}"
 
-          objcopy --only-keep-debug "build/acecode-desktop" "build/acecode-desktop.debug"
-          strip --strip-unneeded "build/acecode-desktop"
-          objcopy --add-gnu-debuglink="build/acecode-desktop.debug" "build/acecode-desktop"
+          if [ "${{ matrix.build_desktop }}" = "true" ]; then
+            objcopy --only-keep-debug "build/acecode-desktop" "build/acecode-desktop.debug"
+            strip --strip-unneeded "build/acecode-desktop"
+            objcopy --add-gnu-debuglink="build/acecode-desktop.debug" "build/acecode-desktop"
+          fi
 
       - name: Package
         shell: bash
@@ -912,12 +1057,14 @@ jobs:
             --component models_dev_registry
           validate_models_dev_registry "$package_dir/share/acecode/models_dev"
 
-          if [ ! -f "build/acecode-desktop" ]; then
-            echo "Missing desktop executable: build/acecode-desktop" >&2
-            exit 1
+          if [ "${{ matrix.build_desktop }}" = "true" ]; then
+            if [ ! -f "build/acecode-desktop" ]; then
+              echo "Missing desktop executable: build/acecode-desktop" >&2
+              exit 1
+            fi
+            cp "build/acecode-desktop" "$package_dir/"
+            cp "web/dist/acecode-logo.png" "$package_dir/"
           fi
-          cp "build/acecode-desktop" "$package_dir/"
-          cp "web/dist/acecode-logo.png" "$package_dir/"
 
           legacy="$(find "$package_dir" -maxdepth 1 -iname 'ace-browser-*' -print -quit)"
           if [ -n "$legacy" ]; then
@@ -947,6 +1094,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload desktop debug symbols
+        if: matrix.build_desktop
         uses: actions/upload-artifact@v4
         with:
           name: acecode-${{ matrix.id }}-desktop-debug

@@ -639,6 +639,11 @@ private:
     // Worker-thread-only flag derived from the current root UserInput. It
     // remains active across all provider iterations in that turn.
     bool active_turn_swarm_mode_ = false;
+    // Worker-only control populated by terminal tool results. Actions run only
+    // after canonical tool results, turn timing, BusyChanged and Done have all
+    // been emitted/persisted.
+    bool terminate_session_after_turn_ = false;
+    std::vector<std::function<void()>> post_turn_actions_;
     std::string goal_accounting_thread_id_;
     std::string goal_accounting_goal_id_;
     std::string budget_notice_goal_id_;

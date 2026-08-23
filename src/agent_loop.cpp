@@ -2954,7 +2954,7 @@ bool AgentLoop::execute_tool_calls(
 
     auto is_cwd_validation_exempt = [this](const std::string& tool_name,
                                            const std::string& path) {
-        if (tool_name == "file_read" ||
+        if (tool_name == "file_read" || tool_name == "create_workspace" ||
             (loop_execution_policy_.active &&
              permissions_.mode() == PermissionMode::Yolo &&
              tools_.is_read_only(tool_name))) return true;
@@ -2972,7 +2972,8 @@ bool AgentLoop::execute_tool_calls(
         if (path.empty() || tool_name == "bash") return {};
         if (loop_execution_policy_.active &&
             permissions_.mode() == PermissionMode::Yolo &&
-            !tools_.is_read_only(tool_name)) {
+            !tools_.is_read_only(tool_name) &&
+            tool_name != "create_workspace") {
             const std::string boundary_error = PathValidator(cwd_, false).validate(path);
             if (!boundary_error.empty()) {
                 return "LOOP Yolo external write blocked: " + path;
@@ -3732,6 +3733,10 @@ bool AgentLoop::execute_tool_calls(
         // 结果行紧跟派发。调用行在执行前已显示(权限确认弹窗需要上下文),
         // 写工具串行执行,顺序天然成对。
         dispatch_tool_result_display(tc, results[entry.original_index]);
+        if (results[entry.original_index].terminate_session_after_turn) {
+            LOG_INFO("Stopping remaining write tools after terminal session action");
+            break;
+        }
     }
 
     std::vector<ToolResultReplacementRecord> replacement_records;
@@ -3856,6 +3861,22 @@ bool AgentLoop::execute_tool_calls(
         if (session_manager_) session_manager_->on_message(meta_msg);
     }
 
+    // A session-terminal action takes precedence over ordinary terminators.
+    // Move its callback only after every canonical result has been recorded.
+    for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
+        if (!result_ready[i] ||
+            !results[i].terminate_session_after_turn) {
+            continue;
+        }
+        terminate_session_after_turn_ = true;
+        if (results[i].post_turn_action) {
+            post_turn_actions_.push_back(
+                std::move(results[i].post_turn_action));
+        }
+        LOG_INFO("Terminal session action queued after turn boundary");
+    }
+    if (terminate_session_after_turn_) return true;
+
     // Terminator detection. A failed ExitPlanMode is a user/runtime boundary:
     // retrying it in the same turn only replays the approval request while the
     // session correctly remains in Plan mode.
@@ -3878,6 +3899,8 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     abort_requested_ = false;
     turn_interrupt_requested_ = false;
     busy_ = true;
+    terminate_session_after_turn_ = false;
+    post_turn_actions_.clear();
     restore_goal_runtime();
     // 上一回合没来得及消费的 steering 标记直接丢弃(等价 Codex
     // inject_if_running 在无活动回合时静默跳过)。
@@ -4415,12 +4438,13 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         emit_model_step_finish(
             current_model_step, provider_result.accumulated.finish_reason,
             step_usage);
-        if (terminator_fired &&
+        if (!terminate_session_after_turn_ && terminator_fired &&
             maybe_continue_from_stop_hook(provider_result.accumulated.content)) {
             terminator_fired = false;
             continue;
         }
-        if (terminator_fired && drain_active_turn_inputs(true)) {
+        if (!terminate_session_after_turn_ && terminator_fired &&
+            drain_active_turn_inputs(true)) {
             terminator_fired = false;
             continue;
         }
@@ -4498,7 +4522,26 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     });
     events_.emit(SessionEventKind::Done, nlohmann::json{
         {"outcome", turn_timing_status}});
-    maybe_continue_goal();
+    if (terminate_session_after_turn_) {
+        // There must be no provider-visible state left for a deleted session.
+        // The post-turn action owns writer teardown and persistent cleanup.
+        messages_.clear();
+        auto actions = std::move(post_turn_actions_);
+        post_turn_actions_.clear();
+        for (auto& action : actions) {
+            if (!action) continue;
+            try {
+                action();
+            } catch (const std::exception& e) {
+                LOG_ERROR(std::string("Post-turn terminal action failed: ") +
+                          e.what());
+            } catch (...) {
+                LOG_ERROR("Post-turn terminal action failed with unknown exception");
+            }
+        }
+    } else {
+        maybe_continue_goal();
+    }
 }
 
 void AgentLoop::run_compact() {
