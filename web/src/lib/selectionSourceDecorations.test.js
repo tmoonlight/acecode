@@ -4,6 +4,7 @@ import {
   normalizeSelectionSourcePath,
   resolveSelectionAnchor,
   sameSelectionSourcePath,
+  selectionAnnotationAnchorRect,
   selectionAnnotationBubbleLeft,
   selectionSourceContentRevision,
   sourceLineStartOffset,
@@ -53,6 +54,43 @@ run('annotation bubbles sit immediately left of marked content and stay inside t
     selectionAnnotationBubbleLeft({ left: 900 }, frame),
     471,
   );
+});
+
+run('annotation anchor uses the first visual fragment instead of a wrapped union rectangle', () => {
+  const firstFragment = {
+    left: 260, top: 40, right: 420, bottom: 60, width: 160, height: 20,
+  };
+  const wrappedFragment = {
+    left: 120, top: 62, right: 360, bottom: 82, width: 240, height: 20,
+  };
+  const unionRect = {
+    left: 120, top: 40, right: 420, bottom: 82, width: 300, height: 42,
+  };
+  const mark = {
+    getClientRects: () => [firstFragment, wrappedFragment],
+    getBoundingClientRect: () => unionRect,
+  };
+
+  const anchorRect = selectionAnnotationAnchorRect(mark);
+  assert.equal(anchorRect, firstFragment);
+  assert.equal(
+    selectionAnnotationBubbleLeft(anchorRect, { left: 100, width: 500 }),
+    129,
+  );
+  assert.equal(
+    selectionAnnotationBubbleLeft(unionRect, { left: 100, width: 500 }),
+    6,
+  );
+});
+
+run('annotation anchor falls back to the union rectangle without visual fragments', () => {
+  const unionRect = {
+    left: 180, top: 40, right: 300, bottom: 60, width: 120, height: 20,
+  };
+  assert.equal(selectionAnnotationAnchorRect({
+    getClientRects: () => [],
+    getBoundingClientRect: () => unionRect,
+  }), unionRect);
 });
 
 run('anchor resolution follows the nearest exact text after edits', () => {

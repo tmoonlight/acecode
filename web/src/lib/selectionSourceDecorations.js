@@ -31,6 +31,28 @@ function finiteNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function nonEmptyClientRect(rect) {
+  if (!rect) return false;
+  const left = finiteNumber(rect.left);
+  const top = finiteNumber(rect.top);
+  const width = finiteNumber(rect.width, finiteNumber(rect.right) - left);
+  const height = finiteNumber(rect.height, finiteNumber(rect.bottom) - top);
+  return width > 0 && height > 0;
+}
+
+export function selectionAnnotationAnchorRect(mark) {
+  try {
+    const fragment = Array.from(mark?.getClientRects?.() || [])
+      .find(nonEmptyClientRect);
+    if (fragment) return fragment;
+  } catch { /* Fall through to the union rectangle. */ }
+  try {
+    return mark?.getBoundingClientRect?.() || null;
+  } catch {
+    return null;
+  }
+}
+
 export function selectionAnnotationBubbleLeft(markRect = {}, frameRect = {}, {
   bubbleWidth = SELECTION_ANNOTATION_BUBBLE_WIDTH,
   gap = 8,

@@ -7,6 +7,7 @@ import {
   groupSelectionDecorations,
   renderedPreviewTextIndex,
   resolveSelectionAnchor,
+  selectionAnnotationAnchorRect,
   selectionAnnotationBubbleLeft,
 } from '../lib/selectionSourceDecorations.js';
 
@@ -25,7 +26,8 @@ function measuredMarkers(frame, host, groups) {
     if (!group.annotations?.length || !group.annotationNumber) continue;
     const firstMark = group.marks?.find((mark) => mark?.isConnected);
     if (group.anchor?.status === 'resolved' && firstMark) {
-      const rect = firstMark.getBoundingClientRect();
+      const rect = selectionAnnotationAnchorRect(firstMark);
+      if (!rect) continue;
       if (
         rect.bottom < hostRect.top
         || rect.top > hostRect.bottom
