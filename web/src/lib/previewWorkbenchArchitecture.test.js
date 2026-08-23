@@ -73,7 +73,9 @@ run('preview file action uses a dedicated native single-file picker and existing
   assert.match(chat, /onOpenFile=\{sidePanelCwd && hasNativePreviewFilePicker\(\)/);
   assert.match(desktop, /host\.bind\("aceDesktop_pickPreviewFile"/);
   assert.match(desktop, /acecode::desktop::pick_single_file/);
-  assert.match(singleFilePicker, /set_default_folder\(dialog, default_folder\)/);
+  assert.match(singleFilePicker, /set_initial_folder\(dialog, default_folder, true\)/);
+  assert.match(nativePicker, /dialog->SetFolder\(item\)/);
+  assert.match(nativePicker, /std::replace\(wide_path\.begin\(\), wide_path\.end\(\), L'\/', L'\\\\'\)/);
   assert.match(singleFilePicker, /FOS_FILEMUSTEXIST/);
   assert.doesNotMatch(singleFilePicker, /FOS_ALLOWMULTISELECT/);
 });

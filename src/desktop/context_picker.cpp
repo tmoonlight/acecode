@@ -14,6 +14,7 @@
 #include <shobjidl.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <atomic>
 #include <string>
 
@@ -172,16 +173,26 @@ private:
     std::optional<std::string> folder_path_;
 };
 
-void set_default_folder(IFileDialog* dialog, const std::string& path) {
-    if (!dialog || path.empty()) return;
-    const std::wstring wide_path = utf8_to_wide(path);
-    if (wide_path.empty()) return;
+bool set_initial_folder(IFileDialog* dialog,
+                        const std::string& path,
+                        bool force_current_folder = false) {
+    if (!dialog || path.empty()) return false;
+    std::wstring wide_path = utf8_to_wide(path);
+    if (wide_path.empty()) return false;
+    std::replace(wide_path.begin(), wide_path.end(), L'/', L'\\');
+
     IShellItem* item = nullptr;
-    if (SUCCEEDED(::SHCreateItemFromParsingName(
-            wide_path.c_str(), nullptr, IID_PPV_ARGS(&item))) && item) {
-        dialog->SetDefaultFolder(item);
-        item->Release();
+    if (FAILED(::SHCreateItemFromParsingName(
+            wide_path.c_str(), nullptr, IID_PPV_ARGS(&item))) || !item) {
+        return false;
     }
+
+    HRESULT hr = dialog->SetDefaultFolder(item);
+    if (force_current_folder) {
+        hr = dialog->SetFolder(item);
+    }
+    item->Release();
+    return SUCCEEDED(hr);
 }
 
 } // namespace
@@ -210,7 +221,7 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
                            FOS_PATHMUSTEXIST | FOS_ALLOWMULTISELECT);
     }
     dialog->SetTitle(kContextPickerTitle);
-    set_default_folder(dialog, default_folder);
+    set_initial_folder(dialog, default_folder);
 
     IFileDialogCustomize* customize = nullptr;
     bool folder_button_added = false;
@@ -296,7 +307,11 @@ SingleFilePickOutcome pick_single_file(void* parent_hwnd,
                            FOS_PATHMUSTEXIST);
     }
     dialog->SetTitle(kSingleFilePickerTitle);
-    set_default_folder(dialog, default_folder);
+    if (!set_initial_folder(dialog, default_folder, true)) {
+        outcome.error = "failed to open native file picker in current workspace";
+        dialog->Release();
+        return outcome;
+    }
 
     hr = dialog->Show(reinterpret_cast<HWND>(parent_hwnd));
     if (SUCCEEDED(hr)) {
