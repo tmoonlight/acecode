@@ -317,7 +317,7 @@ export function discardFileTabDraft(state, { scopeKey = '', tabKey = '' } = {}) 
           edit: {
             ...tab.edit,
             text: baselineText,
-            editing: false,
+            editing: true,
             saving: false,
             dirty: false,
             externalChanged: false,

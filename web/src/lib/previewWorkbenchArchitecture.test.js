@@ -66,17 +66,28 @@ run('dirty file tabs show a solid dot and every destructive tab action is guarde
   for (const kind of ['one', 'all', 'others', 'right']) {
     assert.match(chat, new RegExp(`requestPreviewClose\\('${kind}'`));
   }
-  assert.match(chat, />\s*放弃并关闭\s*</);
+  assert.match(chat, /'保存中\.\.\.' : '保存并关闭'/);
+  assert.match(chat, />\s*不保存\s*</);
+  assert.match(chat, />\s*取消\s*</);
+  assert.match(chat, /saveEditableFileDraftBatch\(api/);
+  assert.match(chat, /保存失败[\s\S]*return;/);
 });
 
-run('file details use source editing for text and semantic WYSIWYG for Markdown', () => {
+run('editable file details open directly with highlighted source or semantic Markdown', () => {
   const filePreview = source('../components/FilePreviewContent.jsx');
   const markdownEditor = source('../components/MarkdownWysiwygEditor.jsx');
+  const draft = source('./editableFileDraft.js');
 
+  assert.match(filePreview, /\(nextKind === 'text' \|\| nextKind === 'markdown'\) && isDesktopShell\(\)/);
   assert.match(filePreview, /api\.readEditableFile\(cwd, path\)/);
-  assert.match(filePreview, /api\.saveEditableFile\(cwd, path, text, current\.readId\)/);
+  assert.match(draft, /api\.saveEditableFile\(cwd, path, text, readId\)/);
   assert.match(filePreview, /<MarkdownWysiwygEditor/);
+  assert.match(filePreview, /function HighlightedTextEditor/);
+  assert.match(filePreview, /hljs\.highlight\(source/);
+  assert.match(filePreview, /<pre[\s\S]*className="ace-file-source-highlight"/);
   assert.match(filePreview, /<textarea[\s\S]*className="ace-file-text-editor"/);
+  assert.match(filePreview, /onCompositionStart=\{\(\) => setComposing\(true\)\}/);
+  assert.doesNotMatch(filePreview, /aria-label="编辑文件"|beginEditing|ace-file-editor-button/);
   assert.match(markdownEditor, /markdownToSlate\(normalizedValue\)/);
   assert.match(markdownEditor, /slateToMarkdown\(legalDocument\(document\)\)/);
   assert.match(markdownEditor, /compositionRef\.current\.active/);

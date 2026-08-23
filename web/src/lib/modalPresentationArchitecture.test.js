@@ -57,8 +57,8 @@ run('archived deletion and unsaved-preview confirmations share Modal', () => {
   assert.match(archived, /<Modal onClose=\{\(\) => setPurgeConfirmation\(null\)\}/);
   assert.match(archived, />\s*彻底删除\s*</);
   assert.doesNotMatch(archived, /window\.confirm|window\.alert/);
-  assert.match(chatView, /<Modal onClose=\{\(\) => setPreviewCloseConfirm\(null\)\}/);
-  assert.match(chatView, />放弃未保存的更改？</);
+  assert.match(chatView, /<Modal[\s\S]*if \(!previewCloseConfirm\.saving\) setPreviewCloseConfirm\(null\)/);
+  assert.match(chatView, />保存文件后关闭？</);
   assert.match(chatView, /previewTabsWithUnsavedDrafts\(affected\)/);
 });
 

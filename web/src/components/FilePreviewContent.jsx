@@ -21,6 +21,12 @@ import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { clsx, formatBytes } from '../lib/format.js';
 import { filePreviewKind, isBlobFilePreview } from '../lib/filePreviewKind.js';
 import {
+  editableFileConflict,
+  editableFileError,
+  editableStatePatch,
+  saveEditableFileDraft,
+} from '../lib/editableFileDraft.js';
+import {
   captureFilePreviewScroll,
   restoredFilePreviewScroll,
 } from '../lib/filePreviewScroll.js';
@@ -44,36 +50,82 @@ async function copyWithToast(text, okText) {
   else toast({ kind: 'err', text: '复制失败:' + (result.error || '') });
 }
 
-function editableFileError(error, fallback = '无法编辑此文件') {
-  if (!(error instanceof ApiError)) return error?.message || fallback;
-  const body = error.body;
-  if (body && typeof body === 'object') {
-    if (body.error === 'file changed') return '磁盘内容已变化，未覆盖文件；请保留当前草稿并重新载入后再合并';
-    if (body.error === 'file too large') return '文件过大，无法在详情中编辑';
-    if (body.error === 'binary' || body.error === 'unsupported encoding') return '文件编码不受支持，只能只读预览';
-    if (body.error === 'unknown workspace') return '该文件不在当前工作区或 worktree 中，只能只读预览';
-    if (body.error === 'not found') return '文件不存在';
-    if (body.error) return String(body.error);
+function highlightedSourceHtml(text, lang) {
+  const source = String(text ?? '');
+  let html = '';
+  if (lang && hljs.getLanguage(lang)) {
+    try {
+      html = hljs.highlight(source, { language: lang, ignoreIllegals: true }).value;
+    } catch {
+      html = escapeHtml(source);
+    }
+  } else {
+    html = escapeHtml(source);
   }
-  return `${fallback} (HTTP ${error.status})`;
+  if (!html) return ' ';
+  return source.endsWith('\n') ? `${html} ` : html;
 }
 
-function editableStatePatch(result, { editing = true } = {}) {
-  const text = String(result?.text ?? '');
-  return {
-    editing,
-    loading: false,
-    saving: false,
-    baselineText: text,
-    text,
-    readId: String(result?.read_id || ''),
-    encoding: String(result?.encoding || ''),
-    lineEnding: String(result?.line_ending || ''),
-    hasBom: result?.has_bom === true,
-    size: Number(result?.size || 0),
-    externalChanged: false,
-    error: '',
-  };
+function HighlightedTextEditor({
+  value,
+  lang,
+  path,
+  wrap,
+  disabled,
+  onChange,
+  onSave,
+}) {
+  const highlightRef = useRef(null);
+  const textareaRef = useRef(null);
+  const [composing, setComposing] = useState(false);
+  const highlightedHtml = useMemo(
+    () => highlightedSourceHtml(value, lang),
+    [lang, value],
+  );
+  const syncScroll = useCallback((textarea) => {
+    if (!textarea || !highlightRef.current) return;
+    highlightRef.current.scrollTop = textarea.scrollTop;
+    highlightRef.current.scrollLeft = textarea.scrollLeft;
+  }, []);
+
+  useLayoutEffect(() => {
+    syncScroll(textareaRef.current);
+  }, [highlightedHtml, syncScroll, wrap]);
+
+  return (
+    <div
+      className={clsx('ace-file-source-editor', composing && 'is-composing')}
+      data-wrap={wrap ? 'true' : 'false'}
+    >
+      <pre ref={highlightRef} className="ace-file-source-highlight" aria-hidden="true">
+        <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+      </pre>
+      <textarea
+        ref={textareaRef}
+        className="ace-file-text-editor"
+        aria-label={`编辑 ${path}`}
+        value={value}
+        wrap={wrap ? 'soft' : 'off'}
+        disabled={disabled}
+        spellCheck="false"
+        onChange={(event) => onChange?.(event.target.value)}
+        onCompositionStart={() => setComposing(true)}
+        onCompositionEnd={() => setComposing(false)}
+        onScroll={(event) => syncScroll(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (
+            (event.ctrlKey || event.metaKey)
+            && event.key.toLowerCase() === 's'
+          ) {
+            event.preventDefault();
+            if (!event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              onSave?.();
+            }
+          }
+        }}
+      />
+    </div>
+  );
 }
 
 export function FilePreviewContent({
@@ -233,61 +285,7 @@ export function FilePreviewContent({
       };
     }
 
-    const currentEdit = editStateRef.current;
-    if ((nextKind === 'text' || nextKind === 'markdown') && currentEdit?.editing) {
-      if (currentEdit.dirty) {
-        const baselineText = String(currentEdit.baselineText ?? '');
-        setState({
-          status: 'ok',
-          kind: nextKind,
-          text: baselineText,
-          error: null,
-          lang: langForFile(path),
-          size: Number(currentEdit.size || baselineText.length),
-          previewUrl: '',
-          contentType: '',
-          blob: null,
-        });
-        return () => { cancelled = true; };
-      }
-      api.readEditableFile(cwd, path).then((result) => {
-        if (cancelled) return;
-        const text = String(result?.text ?? '');
-        setState({
-          status: 'ok',
-          kind: nextKind,
-          text,
-          error: null,
-          lang: langForFile(path),
-          size: Number(result?.size || text.length),
-          previewUrl: '',
-          contentType: '',
-          blob: null,
-        });
-        onEditStateChangeRef.current?.(editableStatePatch(result));
-      }).catch((err) => {
-        if (cancelled) return;
-        const baselineText = String(currentEdit.baselineText ?? '');
-        setState({
-          status: 'ok',
-          kind: nextKind,
-          text: baselineText,
-          error: null,
-          lang: langForFile(path),
-          size: Number(currentEdit.size || baselineText.length),
-          previewUrl: '',
-          contentType: '',
-          blob: null,
-        });
-        onEditStateChangeRef.current?.({
-          loading: false,
-          error: editableFileError(err, '重新读取失败'),
-        });
-      });
-      return () => { cancelled = true; };
-    }
-
-    api.readFile(cwd, path).then((text) => {
+    const showTextPreview = (text, size = text.length) => {
       if (cancelled) return;
       setState({
         status: 'ok',
@@ -295,11 +293,23 @@ export function FilePreviewContent({
         text,
         error: null,
         lang: langForFile(path),
-        size: text.length,
+        size: Number(size || text.length),
         previewUrl: '',
         contentType: '',
         blob: null,
       });
+    };
+    const readOnlyPreview = (editableError = null) => api.readFile(cwd, path).then((text) => {
+      showTextPreview(text);
+      if (editableError) {
+        onEditStateChangeRef.current?.({
+          editing: false,
+          loading: false,
+          saving: false,
+          error: '',
+          readOnlyReason: editableFileError(editableError),
+        });
+      }
     }).catch((err) => {
       if (cancelled) return;
       pendingScrollSnapshotRef.current = null;
@@ -320,70 +330,55 @@ export function FilePreviewContent({
       }
       setState({ status: 'error', kind: nextKind, text: '', error: msg, lang: '', size: extraSize, previewUrl: '', contentType: '', blob: null });
     });
+
+    const currentEdit = editStateRef.current;
+    if ((nextKind === 'text' || nextKind === 'markdown') && isDesktopShell()) {
+      if (currentEdit?.dirty) {
+        const baselineText = String(currentEdit.baselineText ?? '');
+        const draftText = String(currentEdit.text ?? baselineText);
+        showTextPreview(draftText, Number(currentEdit.size || draftText.length));
+        onEditStateChangeRef.current?.({ editing: true, loading: false });
+        return () => { cancelled = true; };
+      }
+      api.readEditableFile(cwd, path).then((result) => {
+        if (cancelled) return;
+        const text = String(result?.text ?? '');
+        showTextPreview(text, Number(result?.size || text.length));
+        onEditStateChangeRef.current?.(editableStatePatch(result));
+      }).catch((error) => {
+        if (cancelled) return;
+        void readOnlyPreview(error);
+      });
+      return () => { cancelled = true; };
+    }
+
+    void readOnlyPreview();
     return () => { cancelled = true; };
   }, [api, cwd, path, reloadRevision]);
-
-  const beginEditing = useCallback(async () => {
-    if (!cwd || !path || editStateRef.current?.loading) return;
-    onEditStateChangeRef.current?.({ loading: true, error: '' });
-    try {
-      const result = await api.readEditableFile(cwd, path);
-      const text = String(result?.text ?? '');
-      setState((previous) => ({
-        ...previous,
-        status: 'ok',
-        text,
-        size: Number(result?.size || text.length),
-      }));
-      onEditStateChangeRef.current?.(editableStatePatch(result));
-    } catch (error) {
-      const message = editableFileError(error);
-      onEditStateChangeRef.current?.({ loading: false, error: message });
-      toast({ kind: 'err', text: message });
-    }
-  }, [api, cwd, path]);
 
   const saveEditing = useCallback(async () => {
     const current = editStateRef.current;
     if (!current?.editing || current.saving || !current.dirty || !current.readId) return;
-    const text = String(current.text ?? '');
     onEditStateChangeRef.current?.({ saving: true, error: '' });
     try {
-      const result = await api.saveEditableFile(cwd, path, text, current.readId);
+      const saved = await saveEditableFileDraft(api, { cwd, path, edit: current });
       setState((previous) => ({
         ...previous,
-        text,
-        size: Number(result?.size || text.length),
+        text: saved.text,
+        size: Number(saved.result?.size || saved.text.length),
       }));
-      onEditStateChangeRef.current?.({
-        ...editableStatePatch({ ...result, text }),
-        editing: true,
-      });
+      onEditStateChangeRef.current?.(saved.patch);
       toast({ kind: 'ok', text: '文件已保存' });
     } catch (error) {
       const message = editableFileError(error, '保存失败');
       onEditStateChangeRef.current?.({
         saving: false,
-        externalChanged: error instanceof ApiError && error.status === 409,
+        externalChanged: editableFileConflict(error),
         error: message,
       });
       toast({ kind: 'err', text: message });
     }
   }, [api, cwd, path]);
-
-  const cancelEditing = useCallback(() => {
-    const current = editStateRef.current;
-    const baselineText = String(current?.baselineText ?? state.text ?? '');
-    setState((previous) => ({ ...previous, text: baselineText, size: baselineText.length }));
-    onEditStateChangeRef.current?.({
-      editing: false,
-      loading: false,
-      saving: false,
-      text: baselineText,
-      externalChanged: false,
-      error: '',
-    });
-  }, [state.text]);
 
   // 同一文件重新读取时，loading 会临时卸载滚动容器。新 DOM 落地后在布局
   // 阶段恢复位置，并按新内容高度/宽度钳制，避免空文件或大幅删减后越界。
@@ -509,9 +504,11 @@ export function FilePreviewContent({
   const activeEdit = editState && typeof editState === 'object' ? editState : null;
   if ((state.kind === 'text' || isMarkdown) && activeEdit?.editing) {
     const draftText = String(activeEdit.text ?? activeEdit.baselineText ?? '');
-    const statusText = activeEdit.error
+    const statusText = activeEdit.saving
+      ? '正在保存...'
+      : activeEdit.error
       || (activeEdit.externalChanged ? '磁盘内容可能已变化；保存时会再次检查，绝不会静默覆盖' : '')
-      || (activeEdit.dirty ? '有未保存的更改' : '所有更改已保存');
+      || (activeEdit.dirty ? '有未保存的更改 · Ctrl+S 保存' : '所有更改已保存');
     return (
       <div className="ace-file-editor-shell" {...previewAttrs}>
         <div className="ace-file-editor-statusbar">
@@ -526,56 +523,29 @@ export function FilePreviewContent({
           >
             {statusText}
           </div>
-          <div className="ace-file-editor-actions">
-            <button
-              type="button"
-              className="ace-file-editor-button is-primary"
-              disabled={!activeEdit.dirty || activeEdit.saving}
-              onClick={saveEditing}
-            >
-              <VsIcon name="save" size={13} />
-              {activeEdit.saving ? '保存中...' : '保存'}
-            </button>
-            <button
-              type="button"
-              className="ace-file-editor-button"
-              disabled={activeEdit.saving}
-              onClick={cancelEditing}
-            >
-              取消
-            </button>
-          </div>
         </div>
         {isMarkdown ? (
           <MarkdownWysiwygEditor
             value={draftText}
             disabled={activeEdit.saving}
-            onChange={(text) => onEditStateChangeRef.current?.({ text, error: '' })}
+            onChange={(text) => {
+              setState((previous) => ({ ...previous, text, size: text.length }));
+              onEditStateChangeRef.current?.({ text, error: '' });
+            }}
             onSave={saveEditing}
           />
         ) : (
-          <textarea
-            className="ace-file-text-editor"
-            aria-label={`编辑 ${path}`}
+          <HighlightedTextEditor
             value={draftText}
-            wrap={wrapPreview ? 'soft' : 'off'}
+            lang={state.lang}
+            path={path}
+            wrap={wrapPreview}
             disabled={activeEdit.saving}
-            spellCheck="false"
-            onChange={(event) => onEditStateChangeRef.current?.({
-              text: event.target.value,
-              error: '',
-            })}
-            onKeyDown={(event) => {
-              if (
-                (event.ctrlKey || event.metaKey)
-                && event.key.toLowerCase() === 's'
-              ) {
-                event.preventDefault();
-                if (!event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
-                  saveEditing();
-                }
-              }
+            onChange={(text) => {
+              setState((previous) => ({ ...previous, text, size: text.length }));
+              onEditStateChangeRef.current?.({ text, error: '' });
             }}
+            onSave={saveEditing}
           />
         )}
       </div>
@@ -619,18 +589,6 @@ export function FilePreviewContent({
         data-wrap={wrapPreview ? 'true' : 'false'}
         actions={(
           <>
-            {isDesktopShell() && (state.kind === 'text' || isMarkdown) && (
-              <button
-                type="button"
-                className="ace-code-action-btn ace-code-edit-btn"
-                title={activeEdit?.error || '编辑文件'}
-                aria-label="编辑文件"
-                disabled={activeEdit?.loading === true}
-                onClick={(event) => { event.stopPropagation(); beginEditing(); }}
-              >
-                <VsIcon name="edit" size={14} />
-              </button>
-            )}
             {isMarkdown && (
               <button
                 type="button"

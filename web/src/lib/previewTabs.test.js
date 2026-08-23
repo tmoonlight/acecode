@@ -87,7 +87,7 @@ run('file preview drafts remain tab-scoped and derive the unsaved state from tex
   );
 });
 
-run('discarding a file draft restores the latest baseline and exits editing', () => {
+run('discarding a file draft restores the latest baseline and keeps direct editing open', () => {
   let state = openFileTab({}, {
     scopeKey: 'workspace-a', sessionId: 's1', cwd: 'C:/a', path: 'a.txt',
   });
@@ -100,7 +100,7 @@ run('discarding a file draft restores the latest baseline and exits editing', ()
   state = discardFileTabDraft(state, { scopeKey: 'workspace-a', tabKey });
   const tab = activePreviewTab(state, { scopeKey: 'workspace-a', sessionId: 's1' });
   assert.equal(tab.edit.text, 'saved');
-  assert.equal(tab.edit.editing, false);
+  assert.equal(tab.edit.editing, true);
   assert.equal(tab.edit.dirty, false);
   assert.equal(tab.edit.error, '');
 });
