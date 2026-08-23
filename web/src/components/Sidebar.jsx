@@ -78,6 +78,10 @@ import {
   sidebarFullTitleRequestKey,
   sidebarTitleHydrationState,
 } from '../lib/sidebarFullTitle.js';
+import {
+  createSidebarSessionLoadPool,
+  sidebarSessionLoadKey,
+} from '../lib/sidebarSessionLoadPool.js';
 import { sidebarTitleMarqueeMetrics } from '../lib/sidebarTitleMarquee.js';
 import {
   computeSessionHoverCardPosition,
@@ -163,6 +167,62 @@ function expertReferenceForSession(session = {}) {
       ? session.expert
       : null,
   };
+}
+
+function sidebarSessionTarget(workspace = {}, session = {}, resumeResult = {}) {
+  const noWorkspace = isNoWorkspaceSession(session) || !!workspace?.noWorkspace;
+  const sessionId = resumeResult.session_id || resumeResult.sessionId || session.id || '';
+  const workspaceHash = noWorkspace
+    ? ''
+    : (resumeResult.workspace_hash
+      || resumeResult.workspaceHash
+      || session.workspace_hash
+      || session.workspaceHash
+      || workspace.hash
+      || '');
+  return {
+    workspaceHash,
+    noWorkspace,
+    contextId: resumeResult.context_id || resumeResult.contextId || 'default',
+    sessionId,
+    active: resumeResult.active ?? session.active ?? false,
+    displayTitle: session.displayTitle || session.display_title,
+    port: resumeResult.port || workspace.port,
+    token: resumeResult.token || workspace.token,
+    cwd: noWorkspace
+      ? ''
+      : (resumeResult.cwd || session.cwd || workspace.cwd || ''),
+    sessionPath: session.sessionPath
+      || session.session_path
+      || resumeResult.sessionPath
+      || resumeResult.session_path
+      || '',
+    title: session.title,
+    summary: session.summary,
+    provider: session.provider,
+    model: session.model,
+    model_name: session.model_name,
+    model_preset: session.model_preset,
+    context_window: session.context_window,
+    deleted: session.deleted || session.model_deleted || session.modelDeleted || false,
+    message_count: session.message_count,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+    ...expertReferenceForSession(session),
+  };
+}
+
+function sidebarNavigationIdentity(ref = {}) {
+  const sessionKey = sidebarRevealTargetKey(ref);
+  if (sessionKey) return `session\u0000${sessionKey}`;
+  const workspaceHash = String(ref?.workspaceHash || ref?.workspace_hash || ref?.hash || '').trim();
+  if (ref?.loop) return `loop\u0000${workspaceHash}`;
+  if (ref?.expertComponents) return `experts\u0000${workspaceHash}`;
+  return [
+    'home',
+    isNoWorkspaceSession(ref) ? 'no-workspace' : 'workspace',
+    workspaceHash,
+  ].join('\u0000');
 }
 
 function sameStringArray(a = [], b = []) {
@@ -1472,6 +1532,8 @@ export function Sidebar({
   activeId,
   activeRef,
   onSelect,
+  onSessionLoadStateChange,
+  sessionLoadResetSequence = 0,
   collapsed,
   width = 200,
   onOpenHome,
@@ -1521,9 +1583,55 @@ export function Sidebar({
   const sessionRevealTargetRef = useRef('');
   const revealedSessionTargetRef = useRef('');
   const handledWorkspaceActivationRequestRef = useRef(0);
+  const handledSessionLoadResetSequenceRef = useRef(sessionLoadResetSequence);
   const remoteControlSurgeSequenceRef = useRef(0);
   const [remoteControlSurgeRequest, setRemoteControlSurgeRequest] = useState(null);
+  const [sessionSelectionIntent, setSessionSelectionIntent] = useState(null);
+  const sessionSelectionIntentRef = useRef(null);
+  const sessionSelectionSequenceRef = useRef(0);
+  const onSessionLoadStateChangeRef = useRef(onSessionLoadStateChange);
+  onSessionLoadStateChangeRef.current = onSessionLoadStateChange;
+  const sessionLoadPoolRef = useRef(null);
+  if (!sessionLoadPoolRef.current) {
+    sessionLoadPoolRef.current = createSidebarSessionLoadPool({
+      onChange: (snapshot) => {
+        const intent = sessionSelectionIntentRef.current;
+        if (!intent) return;
+        let phase = '';
+        if (snapshot.pendingKey === intent.loadKey) phase = 'queued';
+        else if (snapshot.runningKeys.includes(intent.loadKey)) phase = 'loading';
+        onSessionLoadStateChangeRef.current?.(phase ? {
+          phase,
+          sessionId: intent.target.sessionId,
+          workspaceHash: intent.target.workspaceHash,
+          noWorkspace: intent.target.noWorkspace,
+          title: intent.target.displayTitle || intent.target.title || '',
+        } : null);
+      },
+    });
+  }
   const revealTarget = useMemo(() => sidebarRevealTarget(activeRef), [activeRef]);
+  const selectedRevealTarget = useMemo(
+    () => sidebarRevealTarget(sessionSelectionIntent?.target || activeRef),
+    [activeRef, sessionSelectionIntent],
+  );
+  const activeNavigationIdentity = useMemo(
+    () => sidebarNavigationIdentity(activeRef),
+    [activeRef],
+  );
+
+  const replaceSessionSelectionIntent = useCallback((nextIntent) => {
+    sessionSelectionIntentRef.current = nextIntent;
+    setSessionSelectionIntent(nextIntent);
+  }, []);
+
+  const cancelSessionSelection = useCallback(({ cancelPending = true } = {}) => {
+    sessionSelectionSequenceRef.current += 1;
+    if (cancelPending) sessionLoadPoolRef.current?.cancelPending();
+    sessionSelectionIntentRef.current = null;
+    setSessionSelectionIntent(null);
+    onSessionLoadStateChangeRef.current?.(null);
+  }, []);
 
   const updateExpanded = useCallback((updater) => {
     setExpanded((prev) => {
@@ -1552,6 +1660,31 @@ export function Sidebar({
   useEffect(() => () => {
     syncRetainedSessionIds([]);
   }, [syncRetainedSessionIds]);
+
+  useEffect(() => {
+    const intent = sessionSelectionIntentRef.current;
+    if (!intent) return;
+    if (sidebarRevealTargetKey(revealTarget) === intent.revealKey) {
+      cancelSessionSelection({ cancelPending: false });
+      return;
+    }
+    if (activeNavigationIdentity !== intent.baselineNavigationIdentity) {
+      cancelSessionSelection();
+    }
+  }, [activeNavigationIdentity, cancelSessionSelection, revealTarget]);
+
+  useEffect(() => {
+    if (handledSessionLoadResetSequenceRef.current === sessionLoadResetSequence) return;
+    handledSessionLoadResetSequenceRef.current = sessionLoadResetSequence;
+    cancelSessionSelection();
+  }, [cancelSessionSelection, sessionLoadResetSequence]);
+
+  useEffect(() => () => {
+    sessionSelectionSequenceRef.current += 1;
+    sessionSelectionIntentRef.current = null;
+    sessionLoadPoolRef.current?.dispose();
+    onSessionLoadStateChangeRef.current?.(null);
+  }, []);
 
   const setPinnedMap = useCallback((updater) => {
     setPinnedByWorkspace((prev) => {
@@ -2057,6 +2190,11 @@ export function Sidebar({
     const noWorkspace = isNoWorkspaceSession(session);
     const workspaceHash = noWorkspace ? '' : (session?.workspace_hash || session?.workspaceHash || activeWorkspaceHash || '');
     if (!id) return;
+    const loadKey = sidebarSessionLoadKey({ sessionId: id, workspaceHash, noWorkspace });
+    sessionLoadPoolRef.current?.invalidate(loadKey);
+    if (sessionSelectionIntentRef.current?.loadKey === loadKey) {
+      cancelSessionSelection();
+    }
 
     try {
       if (workspaceHash && workspaceHash !== '__local__') {
@@ -2101,7 +2239,7 @@ export function Sidebar({
     } catch (e) {
       toast({ kind: 'err', text: '归档失败:' + (e.message || '') });
     }
-  }, [activeId, activeWorkspaceHash, onOpenHome, refresh, setPinnedOrder, setPinnedWorkspaceIds]);
+  }, [activeId, activeWorkspaceHash, cancelSessionSelection, onOpenHome, refresh, setPinnedOrder, setPinnedWorkspaceIds]);
 
   const renameSession = useCallback(async (session, title) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
@@ -2225,52 +2363,52 @@ export function Sidebar({
   );
 
   useEffect(() => {
-    if (!revealTarget.sessionId) {
+    if (!selectedRevealTarget.sessionId) {
       sessionRevealTargetRef.current = '';
       revealedSessionTargetRef.current = '';
       return undefined;
     }
-    const targetKey = sidebarRevealTargetKey(revealTarget);
+    const targetKey = sidebarRevealTargetKey(selectedRevealTarget);
     if (sessionRevealTargetRef.current !== targetKey) {
       sessionRevealTargetRef.current = targetKey;
       revealedSessionTargetRef.current = '';
     }
-    const pinnedTarget = pinnedSessions.some((session) => sessionMatchesRevealTarget(session, revealTarget));
+    const pinnedTarget = pinnedSessions.some((session) => sessionMatchesRevealTarget(session, selectedRevealTarget));
     const targetSection = pinnedTarget
       ? SIDEBAR_SECTION_IDS.PINNED
-      : (revealTarget.noWorkspace ? SIDEBAR_SECTION_IDS.TASKS : SIDEBAR_SECTION_IDS.WORKSPACES);
-    const sectionTargetKey = `${targetSection}\u0000${revealTarget.workspaceHash || ''}\u0000${revealTarget.sessionId}`;
+      : (selectedRevealTarget.noWorkspace ? SIDEBAR_SECTION_IDS.TASKS : SIDEBAR_SECTION_IDS.WORKSPACES);
+    const sectionTargetKey = `${targetSection}\u0000${selectedRevealTarget.workspaceHash || ''}\u0000${selectedRevealTarget.sessionId}`;
     if (revealedSectionTargetRef.current !== sectionTargetKey) {
       revealedSectionTargetRef.current = sectionTargetKey;
       setSectionExpansion((prev) => (
         prev[targetSection] ? prev : { ...prev, [targetSection]: true }
       ));
     }
-    const listKey = revealTarget.noWorkspace ? NO_WORKSPACE_SESSION_LIST_KEY : revealTarget.workspaceHash;
-    const sourceSessions = revealTarget.noWorkspace
+    const listKey = selectedRevealTarget.noWorkspace ? NO_WORKSPACE_SESSION_LIST_KEY : selectedRevealTarget.workspaceHash;
+    const sourceSessions = selectedRevealTarget.noWorkspace
       ? noWorkspaceSessions
       : workspaceSessions.filter((session) => (
-        !revealTarget.workspaceHash ||
-        (session.workspace_hash || session.workspaceHash || '') === revealTarget.workspaceHash
+        !selectedRevealTarget.workspaceHash ||
+        (session.workspace_hash || session.workspaceHash || '') === selectedRevealTarget.workspaceHash
       ));
 
     if (
-      !revealTarget.noWorkspace
-      && revealTarget.workspaceHash
+      !selectedRevealTarget.noWorkspace
+      && selectedRevealTarget.workspaceHash
       && !workspaceCollapseAllRef.current
     ) {
       updateExpanded((prev) => {
-        if (prev.has(revealTarget.workspaceHash)) return prev;
-        return new Set(prev).add(revealTarget.workspaceHash);
+        if (prev.has(selectedRevealTarget.workspaceHash)) return prev;
+        return new Set(prev).add(selectedRevealTarget.workspaceHash);
       });
     }
 
     if (
       listKey
-      && (revealTarget.noWorkspace || !workspaceCollapseAllRef.current)
+      && (selectedRevealTarget.noWorkspace || !workspaceCollapseAllRef.current)
       && sessionListNeedsRevealExpansion(
         sourceSessions,
-        revealTarget,
+        selectedRevealTarget,
         expandedSessionLists.has(listKey),
       )
     ) {
@@ -2287,11 +2425,11 @@ export function Sidebar({
       if (!scrollRoot) return;
       const rows = Array.from(scrollRoot.querySelectorAll('.ace-sidebar-session-row[data-desktop-session-id]'));
       const matches = rows.filter((row) => {
-        if (row.getAttribute('data-desktop-session-id') !== revealTarget.sessionId) return false;
+        if (row.getAttribute('data-desktop-session-id') !== selectedRevealTarget.sessionId) return false;
         const rowWorkspace = row.getAttribute('data-desktop-session-workspace') || '';
-        if (revealTarget.noWorkspace) return !rowWorkspace;
-        if (!revealTarget.workspaceHash) return !!rowWorkspace;
-        return rowWorkspace === revealTarget.workspaceHash;
+        if (selectedRevealTarget.noWorkspace) return !rowWorkspace;
+        if (!selectedRevealTarget.workspaceHash) return !!rowWorkspace;
+        return rowWorkspace === selectedRevealTarget.workspaceHash;
       });
       const row = matches.find((item) => item.getAttribute('data-desktop-session-pinned') !== 'true') || matches[0];
       if (!row) return;
@@ -2300,7 +2438,7 @@ export function Sidebar({
       row.scrollIntoView?.({ block: 'nearest' });
     });
     return () => window.cancelAnimationFrame?.(frame);
-  }, [expandedSessionLists, noWorkspaceSessions, pinnedSessions, revealTarget, setSectionExpansion, updateExpanded, workspaceSessions]);
+  }, [expandedSessionLists, noWorkspaceSessions, pinnedSessions, selectedRevealTarget, setSectionExpansion, updateExpanded, workspaceSessions]);
 
   // 把已加载的跨 workspace sessions / pinned order / workspaceName 推到桌面 tray 菜单。
   // pushTrayMenu 内部 100ms debounce + 无 bridge 时 no-op。
@@ -2381,6 +2519,7 @@ export function Sidebar({
   };
 
   const onActivate = useCallback(async (ws) => {
+    cancelSessionSelection();
     workspaceCollapseAllRef.current = false;
     setSessionWorkspaceLoading([ws.hash], true);
     setActiveWorkspaceHash(ws.hash);
@@ -2402,7 +2541,7 @@ export function Sidebar({
         refresh(ws.hash).catch(() => {});
       }
     } catch (e) { toast({ kind: 'err', text: '切换异常:' + (e.message || '') }); }
-  }, [onOpenHome, refresh, setSessionWorkspaceLoading, updateExpanded]);
+  }, [cancelSessionSelection, onOpenHome, refresh, setSessionWorkspaceLoading, updateExpanded]);
 
   useEffect(() => {
     const requestId = Number(workspaceActivationRequest?.requestId || 0);
@@ -2591,91 +2730,88 @@ export function Sidebar({
     setOpencodeImportDialog(null);
   }, []);
 
+  const resumeSidebarSession = async (ws, session) => {
+    const noWorkspace = isNoWorkspaceSession(session) || !!ws?.noWorkspace;
+    try {
+      let resumed;
+      if (noWorkspace) {
+        resumed = await api.resumeSession(session.id);
+      } else if (ws?.hash && ws.hash !== '__local__') {
+        resumed = await api.resumeWorkspaceSession(ws.hash, session.id);
+      } else {
+        resumed = await api.resumeSession(session.id);
+      }
+      refresh().catch(() => {});
+      return { ...(resumed || {}), active: true };
+    } catch (error) {
+      if (noWorkspace || !hasDesktopBridge() || !ws?.hash) throw error;
+      const resumed = parseDesktopResult(
+        await window.aceDesktop_resumeSession(ws.hash, session.id),
+      );
+      if (!resumed || typeof resumed !== 'object') {
+        throw new Error('desktop resume returned an invalid response');
+      }
+      if (resumed?.error) throw new Error(resumed.error);
+      refresh().catch(() => {});
+      return { ...(resumed || {}), active: true };
+    }
+  };
+
   const selectSession = async (ws, session) => {
     if (!session?.id) return;
-    const noWorkspace = isNoWorkspaceSession(session) || !!ws?.noWorkspace;
-    if (!noWorkspace) workspaceCollapseAllRef.current = false;
-    if (!session.active) {
+    const target = sidebarSessionTarget(ws, session);
+    const loadKey = sidebarSessionLoadKey(target);
+    const revealKey = sidebarRevealTargetKey(target);
+    if (!loadKey || !revealKey) return;
+
+    const sequence = ++sessionSelectionSequenceRef.current;
+    const intent = {
+      sequence,
+      loadKey,
+      revealKey,
+      target,
+      baselineNavigationIdentity: activeNavigationIdentity,
+    };
+    replaceSessionSelectionIntent(intent);
+    if (!target.noWorkspace) workspaceCollapseAllRef.current = false;
+
+    let selectedTarget = target;
+    if (session.active) {
+      sessionLoadPoolRef.current.cancelPending();
+      onSessionLoadStateChangeRef.current?.(null);
+    } else {
+      let result;
       try {
-        if (noWorkspace) {
-          await api.resumeSession(session.id);
-        } else if (ws?.hash && ws.hash !== '__local__') {
-          await api.resumeWorkspaceSession(ws.hash, session.id);
-        } else {
-          await api.resumeSession(session.id);
-        }
-        refresh().catch(() => {});
-      } catch (e) {
-        if (!noWorkspace && hasDesktopBridge() && ws?.hash) {
-          try {
-            const r = parseDesktopResult(await window.aceDesktop_resumeSession(ws.hash, session.id));
-            if (r.error) { toast({ kind: 'err', text: '恢复失败:' + r.error }); return; }
-            markSessionRead({
-              ...session,
-              id: r.session_id || session.id,
-              workspace_hash: r.workspace_hash || ws.hash,
-              cwd: r.cwd || ws.cwd,
-            });
-            onSelect?.({
-              workspaceHash: r.workspace_hash || ws.hash,
-              contextId: r.context_id,
-              sessionId: r.session_id || session.id,
-              displayTitle: session.displayTitle || session.display_title,
-              port: r.port,
-              token: r.token,
-              cwd: r.cwd || ws.cwd,
-              sessionPath: session.sessionPath || session.session_path || r.sessionPath || r.session_path || '',
-              title: session.title,
-              summary: session.summary,
-              provider: session.provider,
-              model: session.model,
-              model_name: session.model_name,
-              model_preset: session.model_preset,
-              context_window: session.context_window,
-              deleted: session.deleted || session.model_deleted || session.modelDeleted || false,
-              message_count: session.message_count,
-              created_at: session.created_at,
-              updated_at: session.updated_at,
-              ...expertReferenceForSession(session),
-            });
-            return;
-          } catch (inner) {
-            toast({ kind: 'err', text: '恢复异常:' + (inner.message || '') });
-            return;
-          }
-        } else {
-          toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
-          return;
-        }
+        result = await sessionLoadPoolRef.current.request(
+          loadKey,
+          () => resumeSidebarSession(ws, session),
+        );
+      } catch (error) {
+        if (sessionSelectionIntentRef.current?.sequence !== sequence) return;
+        cancelSessionSelection({ cancelPending: false });
+        toast({ kind: 'err', text: '恢复失败:' + (error?.message || '') });
+        return;
       }
+      if (result.status === 'superseded') return;
+      if (sessionSelectionIntentRef.current?.sequence !== sequence) return;
+      selectedTarget = sidebarSessionTarget(ws, session, result.value || {});
     }
-    const selectedSession = noWorkspace ? normalizeNoWorkspaceSession(session) : session;
-    if (noWorkspace) {
+
+    if (sessionSelectionIntentRef.current?.sequence !== sequence) return;
+    if (selectedTarget.noWorkspace) {
       setActiveWorkspaceHash('');
       setWorkspaces((prev) => prev.map((item) => ({ ...item, active: false })));
     }
-    markSessionRead(selectedSession);
+    markSessionRead({
+      ...(selectedTarget.noWorkspace ? normalizeNoWorkspaceSession(session) : session),
+      id: selectedTarget.sessionId,
+      workspace_hash: selectedTarget.workspaceHash,
+      cwd: selectedTarget.cwd,
+    });
+    onSessionLoadStateChangeRef.current?.(null);
     onSelect?.({
-      workspaceHash: noWorkspace ? '' : (session.workspace_hash || ws?.hash),
-      noWorkspace,
-      contextId: 'default',
-      sessionId: session.id,
-      displayTitle: session.displayTitle || session.display_title,
-      port: ws?.port,
-      token: ws?.token,
-      cwd: noWorkspace ? '' : (session.cwd || ws?.cwd),
-      sessionPath: session.sessionPath || session.session_path || '',
-      title: session.title,
-      summary: session.summary,
-      provider: session.provider,
-      model: session.model,
-      model_name: session.model_name,
-      model_preset: session.model_preset,
-      context_window: session.context_window,
-      deleted: session.deleted || session.model_deleted || session.modelDeleted || false,
-      message_count: session.message_count,
-      created_at: session.created_at,
-      updated_at: session.updated_at,
+      ...selectedTarget,
+      active: true,
       ...expertReferenceForSession(session),
     });
   };
@@ -2690,6 +2826,9 @@ export function Sidebar({
 
   const removeWorkspace = async (ws) => {
     if (!ws?.hash) return;
+    if (sessionSelectionIntentRef.current?.target?.workspaceHash === ws.hash) {
+      cancelSessionSelection();
+    }
     if (!hasDesktopRemoveWorkspace()) {
       toast({ kind: 'info', text: '需在 desktop shell 中使用' });
       return;
@@ -2724,6 +2863,7 @@ export function Sidebar({
   };
 
   const openNewTaskInWorkspace = useCallback((ws) => {
+    cancelSessionSelection();
     const workspaceHash = ws?.hash || '';
     if (!workspaceHash) return;
     workspaceCollapseAllRef.current = false;
@@ -2734,7 +2874,7 @@ export function Sidebar({
       active: item.hash === workspaceHash,
     })));
     onOpenHome?.(ws);
-  }, [onOpenHome, updateExpanded]);
+  }, [cancelSessionSelection, onOpenHome, updateExpanded]);
 
   const onAddWorkspace = async () => {
     try {
@@ -2760,9 +2900,18 @@ export function Sidebar({
   }, [updateExpanded, workspaces]);
 
   const sidebarNavCallbacks = {
-    onNewTask,
-    onNewLoop,
-    onSearchTasks,
+    onNewTask: () => {
+      cancelSessionSelection();
+      onNewTask?.();
+    },
+    onNewLoop: () => {
+      cancelSessionSelection();
+      onNewLoop?.();
+    },
+    onSearchTasks: () => {
+      cancelSessionSelection();
+      onSearchTasks?.();
+    },
   };
   const workspaceForSession = (session) => {
     const hash = session.workspace_hash || session.workspaceHash || '';
@@ -2812,7 +2961,7 @@ export function Sidebar({
                       key={`pinned-${s.workspace_hash || ''}-${s.id}`}
                       s={s}
                       pinned
-                      active={sessionMatchesRevealTarget(s, revealTarget) || (!revealTarget.sessionId && s.id === activeId)}
+                      active={sessionMatchesRevealTarget(s, selectedRevealTarget) || (!selectedRevealTarget.sessionId && s.id === activeId)}
                       pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
                       pendingQuestion={sessionHasPendingQuestion(s, pendingQuestionSessionIds)}
                       dragging={pinnedDragState?.sourceKey === rowKey}
@@ -2845,7 +2994,7 @@ export function Sidebar({
                 sessionListExpanded={expandedSessionLists.has(NO_WORKSPACE_SESSION_LIST_KEY)}
                 onToggleSessionList={toggleSessionListExpanded}
                 activeId={activeId}
-                activeTarget={revealTarget}
+                activeTarget={selectedRevealTarget}
                 onSelect={(session) => selectSession({ noWorkspace: true }, session)}
                 onArchive={archiveSession}
                 onRenameSession={renameSession}
@@ -2902,7 +3051,7 @@ export function Sidebar({
                       sessionListExpanded={expandedSessionLists.has(ws.hash)}
                       onToggleSessionList={toggleSessionListExpanded}
                       activeId={activeId}
-                      activeTarget={revealTarget}
+                      activeTarget={selectedRevealTarget}
                       onSelect={(session) => selectSession(ws, session)}
                       onRename={onRename}
                       onActivate={onActivate}
@@ -2943,8 +3092,14 @@ export function Sidebar({
         </div>
         <CustomSidebarSection
           workspaceHash={activeRef?.workspaceHash || activeRef?.workspace_hash || ''}
-          onOpenSettingsSection={onOpenSettingsSection}
-          onOpenExpertComponents={onOpenExpertComponents}
+          onOpenSettingsSection={(section) => {
+            cancelSessionSelection();
+            onOpenSettingsSection?.(section);
+          }}
+          onOpenExpertComponents={() => {
+            cancelSessionSelection();
+            onOpenExpertComponents?.();
+          }}
         />
       </div>
       </aside>

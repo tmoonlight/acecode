@@ -323,10 +323,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         std::thread([] { refresh_registry_from_network(); }).detach();
     }
 
-    // 模型池负载监控:池成员由接口的 modelPoolName 决定,不能再靠模型名前缀预判。
-    // 有任意已配置模型时启动 30s 发现轮询;空配置不发请求。停在 worker 收尾段。
-    if (!cfg.saved_models.empty()) {
-        LOG_INFO("[model_pool] configured model(s) present; starting 30s load monitor");
+    // 模型池负载监控只服务 wizard-ai 地址,避免普通模型配置访问企业接口。
+    if (acecode::should_start_model_pool_monitor(cfg.saved_models)) {
+        LOG_INFO("[model_pool] wizard-ai model configured; starting 30s load monitor");
         acecode::model_pool_status_service().start();
     }
 

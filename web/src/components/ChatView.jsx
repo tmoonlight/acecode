@@ -51,6 +51,7 @@ import { LspIndicator } from './LspIndicator.jsx';
 import { QuestionPicker } from './QuestionPicker.jsx';
 import { PermissionCard } from './PermissionCard.jsx';
 import { StickyUserContext } from './StickyUserContext.jsx';
+import { SessionContentLoading } from './SessionContentLoading.jsx';
 import { SidePanel } from './SidePanel.jsx';
 import { SubagentPanel } from './SubagentPanel.jsx';
 import { SubagentGroupBlock } from './SubagentGroupBlock.jsx';
@@ -4804,6 +4805,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       <div
         className="ace-chat-file-drop-scope flex-1 min-w-0 flex flex-col bg-bg"
         data-chat-file-drop-scope="true"
+        data-session-content-loading-anchor="true"
         data-file-drop-active={chatFileDropActive ? 'true' : undefined}
         onDragEnter={handleChatFileDragEnter}
         onDragOver={handleChatFileDragOver}
@@ -5145,6 +5147,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           previewPanelMaximized && 'hidden',
         )}
         data-chat-file-drop-scope="true"
+        data-session-content-loading-anchor="true"
         data-file-drop-active={chatFileDropActive ? 'true' : undefined}
         onDragEnter={handleChatFileDragEnter}
         onDragOver={handleChatFileDragOver}
@@ -5666,6 +5669,11 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           />
         </div>
       )}
+      <SessionContentLoading
+        phase={transcriptLoadState === 'loading'
+          ? 'transcript'
+          : (transcriptLoadState === 'error' ? 'error' : '')}
+      />
       <ChatFileDropOverlay active={chatFileDropActive} />
       </div>
       {previewPanelVisible && !previewPanelMaximized && (

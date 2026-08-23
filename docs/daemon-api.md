@@ -2058,6 +2058,11 @@ catalog parsing accepts the official `id`、`model`、`modelId` and `_meta`
 fallback shapes, ignores hidden entries, preserves first-seen order, and
 deduplicates model ids.
 
+ACEModel 官方端点的内置 `starrylight`、`moonlight` 和 `aurora`
+统一使用 `200000` Token 上下文上限。当上游 `/models` 未返回
+上下文时，Daemon 从内置目录回填 `model_context_windows`；上游值
+超过 `200000` 时按该上限截断，更小的有效值则保留。
+
 Success:
 
 ```json
@@ -2109,7 +2114,7 @@ Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
 `credential_source_name`。一等自营 Provider `acemodel`（展示名 ACEModel）
 使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
 `https://ge.bigjuan.xyz/aceapi/v1`，`group` 为 `custom`（Web 再按 id 提到「自营模型」），查询时返回内置
-`starrylight` 与 `moonlight`。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
+`starrylight`、`moonlight` 与 `aurora`，三者 `context_window` 均为 `200000`。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
 ACECode 的 GitHub/xAI 设备登录与固定受管端点负责认证。普通 `xai` Provider
 仍保留为 OpenAI-compatible API Key 接入；只有目录 id `grok` 使用 Coding Plan。
 

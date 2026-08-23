@@ -1330,8 +1330,27 @@ body {
 }
 .ace-composer-permission-control,
 .ace-composer-model-control {
-  min-width: 0;
+  min-width: 28px;
   flex: 0 1 auto;
+  overflow: hidden;
+}
+.ace-composer-adaptive-chip {
+  min-width: 28px;
+  overflow: hidden;
+}
+[data-adaptive-composer-control="true"][data-compact="true"] {
+  width: 28px !important;
+  min-width: 28px;
+  max-width: 28px !important;
+}
+.ace-composer-adaptive-chip[data-compact="true"] {
+  padding-right: 7px;
+  padding-left: 7px;
+  gap: 0;
+}
+.ace-composer-session-footer[data-ultra-compact="true"] [data-composer-control="model-load"],
+.ace-composer-session-footer[data-ultra-compact="true"] [data-composer-control="token-budget"] {
+  display: none;
 }
 .ace-composer-context-strip {
   display: flex;
@@ -1400,6 +1419,42 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.35;
+}
+.ace-composer-model-glyph {
+  display: none;
+}
+.ace-composer-swarm-chip[data-compact="true"] .ace-composer-adaptive-content {
+  display: none;
+}
+.ace-composer-swarm-chip[data-compact="true"] > :first-child {
+  margin-right: auto;
+  margin-left: auto;
+}
+.ace-composer-expert-chip[data-compact="true"] .ace-composer-adaptive-content {
+  display: none;
+}
+.ace-composer-expert-chip[data-compact="true"] [role="status"] {
+  width: 100%;
+  justify-content: center;
+}
+.ace-composer-permission-control[data-compact="true"] .ace-composer-adaptive-content {
+  display: none;
+}
+.ace-composer-permission-control[data-compact="true"] .ace-composer-permission-button {
+  padding-right: 6px;
+  padding-left: 6px;
+  gap: 0;
+}
+.ace-composer-model-control[data-compact="true"] .ace-composer-adaptive-content {
+  display: none;
+}
+.ace-composer-model-control[data-compact="true"] .ace-composer-model-button {
+  padding-right: 6px;
+  padding-left: 6px;
+  gap: 0;
+}
+.ace-composer-model-control[data-compact="true"] .ace-composer-model-glyph {
+  display: inline-block;
 }
 .ace-composer-model-load {
   height: 28px;
@@ -5094,6 +5149,9 @@ a.ace-thread-link:focus-visible {
 }
 
 .ace-side-markdown-preview {
+  flex: 1 1 auto;
+  width: 100%;
+  box-sizing: border-box;
   height: 100%;
   min-width: 0;
   padding: 12px 14px 24px;

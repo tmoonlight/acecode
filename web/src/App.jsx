@@ -68,6 +68,7 @@ import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchPalette } from './components/SearchPalette.jsx';
 import { SessionNavigationMask } from './components/SessionNavigationMask.jsx';
+import { SessionContentLoading } from './components/SessionContentLoading.jsx';
 import { TokenPrompt } from './components/TokenPrompt.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
 import { DesktopContextMenu } from './components/DesktopContextMenu.jsx';
@@ -204,6 +205,8 @@ export function App() {
   );
 
   const [activeRef,    setActiveRef]    = useState(null);
+  const [sidebarSessionLoadState, setSidebarSessionLoadState] = useState(null);
+  const [sidebarSessionLoadResetSequence, setSidebarSessionLoadResetSequence] = useState(0);
   const [homeLogoEffectEnabled, setHomeLogoEffectEnabled] = useState(true);
   const [homeComposerDrafts, setHomeComposerDrafts] = useState({});
   const [navHistory, setNavHistory] = useState(() => (
@@ -428,16 +431,23 @@ export function App() {
   useEffect(() => { subagentDirectoryRef.current = subagentDirectory; }, [subagentDirectory]);
   useEffect(() => { navHistoryRef.current = navHistory; }, [navHistory]);
 
+  const resetSidebarSessionLoading = useCallback(() => {
+    setSidebarSessionLoadState(null);
+    setSidebarSessionLoadResetSequence((sequence) => sequence + 1);
+  }, []);
+
   const replaceActiveRef = useCallback((nextRefOrUpdater) => {
+    resetSidebarSessionLoading();
     const current = activeRefRef.current;
     const next = typeof nextRefOrUpdater === 'function'
       ? nextRefOrUpdater(current)
       : nextRefOrUpdater;
     activeRefRef.current = next;
     setActiveRef(next);
-  }, []);
+  }, [resetSidebarSessionLoading]);
 
   const navigateToRef = useCallback((nextRefOrUpdater) => {
+    resetSidebarSessionLoading();
     const current = activeRefRef.current;
     const next = typeof nextRefOrUpdater === 'function'
       ? nextRefOrUpdater(current)
@@ -447,15 +457,16 @@ export function App() {
     activeRefRef.current = next;
     setNavHistory(nextHistory);
     setActiveRef(next);
-  }, []);
+  }, [resetSidebarSessionLoading]);
 
   const replaceNavigationState = useCallback((nextRef, nextHistory) => {
+    resetSidebarSessionLoading();
     const normalized = normalizeHistory(nextHistory);
     navHistoryRef.current = normalized;
     activeRefRef.current = nextRef;
     setNavHistory(normalized);
     setActiveRef(nextRef);
-  }, []);
+  }, [resetSidebarSessionLoading]);
 
   const finishSessionNavigation = useCallback((navigationId) => {
     const timer = sessionNavigationTimersRef.current.get(navigationId);
@@ -503,6 +514,7 @@ export function App() {
   const resumeAndOpenSession = useCallback(async (target, options = {}) => {
     const sessionId = sessionJumpId(target);
     if (!sessionId) return false;
+    resetSidebarSessionLoading();
     const navigationId = beginSessionNavigation();
     const navigationIsPending = () =>
       pendingSessionNavigationIdsRef.current.has(navigationId);
@@ -600,6 +612,7 @@ export function App() {
     navigateToRef,
     replaceActiveRef,
     replaceNavigationState,
+    resetSidebarSessionLoading,
   ]);
 
   const openHistoryDestination = useCallback((result) => {
@@ -1894,6 +1907,8 @@ export function App() {
           activeId={activeId}
           activeRef={activeRef}
           onSelect={navigateToRef}
+          onSessionLoadStateChange={setSidebarSessionLoadState}
+          sessionLoadResetSequence={sidebarSessionLoadResetSequence}
           collapsed={sidebarCollapsed}
           width={singleLayout.sidebar}
           onOpenHome={openHomeForWorkspace}
@@ -1925,7 +1940,7 @@ export function App() {
             'opacity-100 scale-100',
           ].join(' ')}
         >
-          <div className="flex-1 flex overflow-hidden min-h-0">
+          <div className="relative flex-1 flex overflow-hidden min-h-0">
             {view === 'single' && activeRef?.loop && (
               <LoopPage onOpenSession={openLoopRun} />
             )}
@@ -1983,6 +1998,11 @@ export function App() {
                 nativeSurfacesVisible={nativeSurfacesVisible}
               />
             )}
+            <SessionContentLoading
+              phase={sidebarSessionLoadState?.phase || ''}
+              title={sidebarSessionLoadState?.title || ''}
+              anchorSelector="[data-session-content-loading-anchor='true']"
+            />
           </div>
           {consoleAvailable && (
             <ConsoleDock

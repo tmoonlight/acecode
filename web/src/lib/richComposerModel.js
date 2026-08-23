@@ -195,6 +195,14 @@ function horizontalSpace(ch) {
   return ch === ' ' || ch === '\t' || ch === '\r';
 }
 
+function resolveCommittedLeadingSlashCommand(text, commands = []) {
+  const command = resolveLeadingSlashCommand(text, commands);
+  if (!command) return null;
+  return command.token.length < text.length && /\s/.test(text[command.token.length])
+    ? command
+    : null;
+}
+
 function pathTagAt(text, at, { lineTerminated = false } = {}) {
   if (text[at] !== '@') return null;
   if (at > 0 && !horizontalSpace(text[at - 1])) return null;
@@ -269,7 +277,7 @@ function composerParagraphFromLine(line, {
 
 export function composerDocumentFromText(value = '', commands = [], attachments = []) {
   const text = normalizeComposerPlainText(value);
-  const command = resolveLeadingSlashCommand(text, commands);
+  const command = resolveCommittedLeadingSlashCommand(text, commands);
   const lines = text.split('\n');
   const document = lines.map((line, index) => composerParagraphFromLine(line, {
     command: index === 0 ? command : null,
@@ -391,7 +399,7 @@ export function composerDocumentWithSynchronizedLeadingCommand(document, value =
   const firstBlock = blocks[0];
   const children = Array.isArray(firstBlock?.children) ? firstBlock.children : [{ text: '' }];
   const currentTagIndex = leadingCommandTagIndex(children);
-  const command = resolveLeadingSlashCommand(text, commands);
+  const command = resolveCommittedLeadingSlashCommand(text, commands);
 
   if (command && currentTagIndex >= 0) {
     children[currentTagIndex] = composerCommandTag(command);

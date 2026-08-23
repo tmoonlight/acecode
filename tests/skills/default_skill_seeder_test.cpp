@@ -758,7 +758,7 @@ TEST(DefaultSkillSeedRegistryTest,
     EXPECT_TRUE(outcome->acecode_owned);
     EXPECT_TRUE(read_json(target / "hooks.json")["hooks"].contains(
         "SessionTitleChanged"));
-    EXPECT_EQ(trim_ascii(read_file(home / "seed.version")), "2026-08-14.2");
+    EXPECT_EQ(trim_ascii(read_file(home / "seed.version")), "2026-08-24.1");
     const auto state = read_json(home / ".seed_skills_state.json");
     ASSERT_EQ(state["hooks"].size(), 1u);
     EXPECT_TRUE(state["hooks"][0]["acecode_owned"].get<bool>());
@@ -789,7 +789,7 @@ TEST(DefaultSkillSeedRegistryTest,
             acecode::sha256_hex(previous_official.dump())),
         hook_seed.previous_definition_sha256s.end());
     write_file(target / "hooks.json", previous_official.dump(2) + "\n");
-    write_file(home / "seed.version", "2026-08-14.2\n");
+    write_file(home / "seed.version", "2026-08-24.1\n");
 
     const auto result = acecode::reconcile_default_global_skills(
         home, packaged_seed / "skills");
@@ -1613,7 +1613,7 @@ TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
     const auto state =
         read_json(acecode::default_skill_seed_state_path(home));
     EXPECT_TRUE(state["completed"].get<bool>());
-    EXPECT_EQ(state["bundle_version"], "2026-08-14.2");
+    EXPECT_EQ(state["bundle_version"], "2026-08-24.1");
 
     std::error_code cleanup_error;
     fs::remove_all(temp_root, cleanup_error);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   buildReviewStatusMap,
-  entriesWithReviewRows,
+  entriesWithReviewStatuses,
   normalizeTreePath,
   normalizeWorkspaceRelativePath,
   reviewStatusForGroup,
@@ -79,27 +79,32 @@ run('buildReviewStatusMap: 绝对路径变更状态映射到相对文件树路�
   assert.equal(statuses.get('src/deep/main.cpp'), 'M');
 });
 
-run('entriesWithReviewRows: 审查里有但文件列表未返回的直接子项会补行', () => {
+run('entriesWithReviewStatuses: 只标记当前文件列表中的条目,不补历史文件', () => {
   const statuses = buildReviewStatusMap([
+    { file: 'Editor161_export.ps1', totalAdditions: 1, totalDeletions: 0, hunks: [{ old_count: 0, new_count: 1 }] },
+    { file: 'Editor161_zip.ps1', totalAdditions: 1, totalDeletions: 0, hunks: [{ old_count: 0, new_count: 1 }] },
     { file: 'gone.txt', totalAdditions: 0, totalDeletions: 1, hunks: [{ old_count: 1, new_count: 0 }] },
-    { file: 'src/deep.cpp', totalAdditions: 1, totalDeletions: 1, hunks: [{ old_count: 1, new_count: 1 }] },
+    { file: 'present.txt', totalAdditions: 1, totalDeletions: 1, hunks: [{ old_count: 1, new_count: 1 }] },
   ]);
 
-  const root = entriesWithReviewRows([], '', statuses);
-  assert.deepEqual(root, [{
-    name: 'gone.txt',
-    path: 'gone.txt',
+  const visible = entriesWithReviewStatuses([{
+    name: 'present.txt',
+    path: 'present.txt',
     kind: 'file',
-    review_status: 'D',
-    review_synthetic: true,
-  }]);
-
-  const src = entriesWithReviewRows([], 'src', statuses);
-  assert.deepEqual(src, [{
-    name: 'deep.cpp',
-    path: 'src/deep.cpp',
+  }, {
+    name: 'unchanged.txt',
+    path: 'unchanged.txt',
+    kind: 'file',
+  }], statuses);
+  assert.deepEqual(visible, [{
+    name: 'present.txt',
+    path: 'present.txt',
     kind: 'file',
     review_status: 'M',
-    review_synthetic: true,
+  }, {
+    name: 'unchanged.txt',
+    path: 'unchanged.txt',
+    kind: 'file',
   }]);
+  assert.deepEqual(entriesWithReviewStatuses([], statuses), []);
 });

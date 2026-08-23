@@ -63,6 +63,12 @@ export const zhCN = {
   },
   sessionNavigation: {
     opening: '正在打开会话…',
+    conversation: '会话',
+    sidebarQueued: '等待加载“{{title}}”…',
+    sidebarLoading: '正在加载“{{title}}”…',
+    sidebarQueueHint: '只保留最近一次点击，空闲后自动打开',
+    transcriptLoading: '正在读取会话内容…',
+    transcriptError: '会话内容加载失败，请切换后重试',
   },
   counts: {
     filesChanged_one: '{{formattedCount}} 个文件已更改',

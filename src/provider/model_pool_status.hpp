@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../config/saved_models.hpp"
+
 // 模型池负载监控(model-pool load monitor)。
 //
 // 背景:wizard-ai code_pilot 的模型池负载查询接口
@@ -45,6 +47,10 @@ enum class ModelLoadTier { Unknown, Green, Yellow, Red };
 // 不是 generateParam 里的嵌套值。
 std::unordered_map<std::string, ModelPoolStatus>
 parse_model_pool_status(const std::string& body);
+
+// 仅当配置中存在 base_url 包含 wizard-ai 的模型时才允许访问企业模型池接口。
+// 匹配忽略 ASCII 大小写;不根据 provider / model / profile name 推断。
+bool should_start_model_pool_monitor(const std::vector<ModelProfile>& saved_models);
 
 // 负载 -> 色阶。规则(用户定义):
 //   usage < 70        → 绿

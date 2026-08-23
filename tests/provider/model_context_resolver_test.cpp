@@ -187,6 +187,26 @@ TEST(ModelContextResolver, NonblockingFallsBackWithoutEndpointProbe) {
     EXPECT_EQ(got, 77777);
 }
 
+// 场景:ACEModel 不存在于 models.dev 且 /models 没有上下文元数据时，
+// 三个内置模型仍从一等本地目录解析到 200K，不落回全局 128K。
+TEST(ModelContextResolver, NonblockingUsesAceModelBuiltinContext) {
+    acecode::reset_model_context_window_cache_for_test();
+    acecode::AppConfig cfg;
+    cfg.provider = "openai";
+    cfg.context_window = 128000;
+    cfg.openai.models_dev_provider_id = "acemodel";
+    cfg.openai.base_url.clear();
+
+    for (const char* model : {"moonlight", "starrylight", "aurora"}) {
+        EXPECT_EQ(acecode::resolve_model_context_window_nonblocking(
+                      cfg, "openai", model, cfg.context_window),
+                  200000);
+    }
+    EXPECT_EQ(acecode::resolve_model_context_window_nonblocking(
+                  cfg, "openai", "unknown", cfg.context_window),
+              cfg.context_window);
+}
+
 // 场景:Codex provider 使用 Codex CLI 模型 catalog 的运行上下文,不回退到全局 128k。
 TEST(ModelContextResolver, NonblockingUsesCodexModelContext) {
     acecode::reset_model_context_window_cache_for_test();

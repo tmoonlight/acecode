@@ -75,10 +75,9 @@ TEST_F(SystemPromptTest, EmptyInputsOmitSections) {
     EXPECT_EQ(out.find("# Project Instructions"), std::string::npos);
 }
 
-// 场景:# Environment 携带会话级稳定的环境事实(cwd + 日期)。日期是模型
-// 推理必需的背景信息(库版本新旧、changelog 年份、相对期限),模型不会
-// 意识到要主动查询,所以必须 push 进 prompt 而不是留给工具。
-TEST_F(SystemPromptTest, EnvironmentCarriesWorkingDirectoryAndDate) {
+// 场景:# Environment 只携带不会随时间变化的环境事实。当前日期不得动态
+// 注入 system prompt,避免跨日期改变缓存前缀。
+TEST_F(SystemPromptTest, EnvironmentOmitsDynamicDate) {
     acecode::ToolExecutor tools;
     std::string out = acecode::build_system_prompt(tools, temp_home.string());
 
@@ -87,7 +86,7 @@ TEST_F(SystemPromptTest, EnvironmentCarriesWorkingDirectoryAndDate) {
     EXPECT_NE(out.find("- Shell: "), std::string::npos);
     EXPECT_NE(out.find("- Working directory: " + temp_home.string()),
               std::string::npos);
-    EXPECT_NE(out.find("- Today's date: "), std::string::npos);
+    EXPECT_EQ(out.find("- Today's date: "), std::string::npos);
     EXPECT_NE(out.find("- Session worktree: inactive"), std::string::npos);
     EXPECT_NE(out.find("Worktree session switches are exclusive"),
               std::string::npos);

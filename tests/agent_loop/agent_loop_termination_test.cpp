@@ -879,8 +879,8 @@ TEST(AgentLoopTermination, TextOnlyEndsTurnUnconditionally) {
 // 的 prompt cache 每轮都从注入点被截断,整条工具调用尾巴全价重算。
 //
 // 回归背景:注入到最后一条真实 user 消息之前的可变上下文块曾经拼进一个
-// 秒级时间戳,于是每一轮工具往返都换一份内容,缓存前缀在此断开。日期与
-// cwd 现在留在静态 system prompt 里(普通采样迭代间稳定),可变块只随内容变化。
+// 秒级时间戳,于是每一轮工具往返都换一份内容,缓存前缀在此断开。cwd
+// 留在静态 system prompt 里,动态日期不再进入该前缀,可变块只随内容变化。
 TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossIterationsInATurn) {
     AgentLoopHarness h;
     h.push_tool_call("noop", "{}", "c1");
@@ -905,9 +905,9 @@ TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossIterationsInATurn) {
             << " - this breaks provider prompt caching for the whole turn";
     }
 
-    // 静态 system prompt 携带低频变化的日期与 cwd,时分秒不进 prompt。
+    // 静态 system prompt 保留 cwd,但不得携带会跨日期改变的动态日期。
     EXPECT_EQ(first.front().role, "system");
-    EXPECT_NE(first.front().content.find("- Today's date: "), std::string::npos);
+    EXPECT_EQ(first.front().content.find("- Today's date: "), std::string::npos);
     EXPECT_NE(first.front().content.find("- Working directory: "), std::string::npos);
     EXPECT_EQ(first.front().content.find("[当前环境状态]"), std::string::npos);
 }

@@ -2,6 +2,7 @@
 #include "../server_impl.hpp"
 #include "../../config/settings_mutations.hpp"
 #include "../../feedback/feedback_upload.hpp"
+#include "../../provider/builtin_model_catalog.hpp"
 #include "../../tool/mcp_manager.hpp"  // /api/mcp/toggle 运行时 enable/disable
 #include "../../utils/state_file.hpp"
 
@@ -2008,11 +2009,14 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             try {
-                auto parsed = parse_openai_models(json::parse(response.text));
+                auto parsed_models = parse_openai_models(json::parse(response.text));
+                if (is_acemodel_base_url(parsed->base_url)) {
+                    apply_acemodel_context_limits(parsed_models);
+                }
                 json out;
-                out["models"] = parsed.ids;
-                if (!parsed.context_windows.empty()) {
-                    out["model_context_windows"] = parsed.context_windows;
+                out["models"] = parsed_models.ids;
+                if (!parsed_models.context_windows.empty()) {
+                    out["model_context_windows"] = parsed_models.context_windows;
                 }
                 crow::response r(out.dump());
                 r.add_header("Content-Type", "application/json");

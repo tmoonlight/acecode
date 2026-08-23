@@ -34,7 +34,7 @@ import {
 import { fileTreeLocatePlan } from '../lib/fileTreeLocate.js';
 import {
   buildReviewStatusMap,
-  entriesWithReviewRows,
+  entriesWithReviewStatuses,
   fileChangeStatusTitle,
   normalizeTreePath,
   statusForTreeEntry,
@@ -320,7 +320,9 @@ function FileTree({ api, cwd, treeCache, setTreeCache, expandedDirs, setExpanded
       );
     }
     if (!entries) return null;
-    const displayEntries = entriesWithReviewRows(entries, parentPath, reviewStatusByPath);
+    // /api/files 是行可见性的唯一来源。会话变更只能标记实际条目，不能重新
+    // 创建已经不存在的文件。
+    const displayEntries = entriesWithReviewStatuses(entries, reviewStatusByPath);
     if (displayEntries.length === 0) {
       return (
         <div className="ace-file-tree-message text-fg-mute italic">

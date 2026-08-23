@@ -36,7 +36,7 @@ test('workspace heading actions stay mounted and reveal on pointer or keyboard i
   );
   assert.match(
     sidebar,
-    /!revealTarget\.noWorkspace\s*&& revealTarget\.workspaceHash\s*&& !workspaceCollapseAllRef\.current/,
+    /!selectedRevealTarget\.noWorkspace\s*&& selectedRevealTarget\.workspaceHash\s*&& !workspaceCollapseAllRef\.current/,
   );
   assert.match(sidebar, /data-tour-target="sidebar-add-project"/);
   assert.match(styles, /\.ace-sidebar-section-actions\s*\{\s*opacity: 0;\s*pointer-events: none;/);
@@ -50,7 +50,7 @@ test('workspace collapse-all keeps disclosure-only reopen session lists compact'
   const sidebar = source('components/Sidebar.jsx');
   assert.match(
     sidebar,
-    /listKey\s*&& \(revealTarget\.noWorkspace \|\| !workspaceCollapseAllRef\.current\)\s*&& sessionListNeedsRevealExpansion/,
+    /listKey\s*&& \(selectedRevealTarget\.noWorkspace \|\| !workspaceCollapseAllRef\.current\)\s*&& sessionListNeedsRevealExpansion/,
   );
 
   const toggleStart = sidebar.indexOf('const onToggle = (hash) => {');

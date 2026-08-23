@@ -1,4 +1,4 @@
-# Merge ACEModel moonlight / starrylight profiles into the current user's
+# Merge ACEModel moonlight / starrylight / aurora profiles into the current user's
 # ACECode config without flattening existing JSON arrays/objects.
 # The API key is read from a temporary file so it never appears on the
 # process command line or in Inno Setup's log.
@@ -108,6 +108,7 @@ function New-AceModelProfile([string]$name, [string]$key) {
     $profile["api_key"] = $key
     $profile["models_dev_provider_id"] = "acemodel"
     $profile["endpoint_mode"] = "base_url"
+    $profile["context_window"] = 200000
     $profile["capabilities"] = @("tool_use")
     $profile["capabilities_source"] = "catalog"
     return $profile
@@ -127,6 +128,7 @@ function Upsert-AceModel($models, [string]$name, [string]$key) {
             $current["base_url"] = "https://ge.bigjuan.xyz/aceapi/v1"
             $current["api_key"] = $key
             $current["models_dev_provider_id"] = "acemodel"
+            $current["context_window"] = 200000
             if (-not (Config-HasKey $current "endpoint_mode") -or [string]::IsNullOrWhiteSpace([string]$current["endpoint_mode"])) {
                 $current["endpoint_mode"] = "base_url"
             }
@@ -158,6 +160,7 @@ if (Test-Path -LiteralPath $ConfigPath) {
 $models = Get-SavedModels $config
 $models = Upsert-AceModel -models $models -name "moonlight" -key $key
 $models = Upsert-AceModel -models $models -name "starrylight" -key $key
+$models = Upsert-AceModel -models $models -name "aurora" -key $key
 $config["saved_models"] = $models
 
 if (-not (Config-HasKey $config "default_model_name") -or [string]::IsNullOrWhiteSpace([string]$config["default_model_name"])) {

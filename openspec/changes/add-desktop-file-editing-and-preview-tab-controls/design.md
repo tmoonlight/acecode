@@ -45,6 +45,8 @@
 
 Markdown 打开后直接在原有排版预览表面进入 `MarkdownWysiwygEditor`，不复用 `RichComposer`：后者的 schema 只有纯文本和行内标签，且承担聊天输入法、补全和附件协议。Slate 的可编辑节点复用原 `ace-md ace-side-markdown-preview` 类与渲染语义，不显示工具栏，不改变标题、正文、引用、列表、表格、代码块和复杂节点在浏览状态下的视觉。
 
+只读渲染节点与 Slate `Editable` 都是预览框中的直接 flex 子项。共享的 `ace-side-markdown-preview` 表面必须参与主轴伸展并占满可用宽度，不能按短内容的固有宽度收缩；修正只作用于共享表面尺寸，不改变原有内边距、滚动或 Markdown 排版。
+
 Markdown 管线为 GFM Markdown → MDAST → Slate → MDAST → Markdown。支持直接编辑段落、标题、粗体、斜体、删除线、行内代码、链接文字、引用、代码块、有序/无序/任务列表，以及已有表格的单元格文字。格式能力通过直接编辑和已有键盘语义提供，不新增格式工具栏。
 
 图片、Mermaid、数学、原始 HTML、脚注、引用定义和未知扩展转换成只读的 opaque 节点，节点保留原始 Markdown 片段并由自定义序列化处理器原样写回。受支持节点允许采用确定性的 GFM 输出；编辑器不得因为不认识某个复杂节点而删除它。`mdast-util-to-markdown` 作为直接依赖声明，避免依赖 pnpm 的传递依赖布局。

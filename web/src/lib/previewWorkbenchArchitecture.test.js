@@ -152,6 +152,20 @@ run('editing reuses the original preview chrome without save status or Markdown 
   assert.match(markdownEditor, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
 });
 
+run('read-only and editable Markdown surfaces fill the available preview width', () => {
+  const filePreview = source('../components/FilePreviewContent.jsx');
+  const markdownEditor = source('../components/MarkdownWysiwygEditor.jsx');
+  const styles = source('../styles/globals.css');
+
+  assert.match(filePreview, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
+  assert.match(markdownEditor, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
+  assert.match(styles, /\.ace-side-preview-code\s*\{[^}]*display:\s*flex;/s);
+  assert.match(
+    styles,
+    /\.ace-side-markdown-preview\s*\{[^}]*flex:\s*1 1 auto;[^}]*width:\s*100%;[^}]*box-sizing:\s*border-box;/s,
+  );
+});
+
 run('editable previews retain selection, inactive marks and annotation decorations', () => {
   const filePreview = source('../components/FilePreviewContent.jsx');
   const markdownEditor = source('../components/MarkdownWysiwygEditor.jsx');

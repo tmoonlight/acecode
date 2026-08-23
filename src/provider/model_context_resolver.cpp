@@ -2,6 +2,7 @@
 
 #include "../network/proxy_resolver.hpp"
 #include "../utils/logger.hpp"
+#include "builtin_model_catalog.hpp"
 #include "codex/codex_model_catalog.hpp"
 #include "models_dev_registry.hpp"
 
@@ -179,6 +180,14 @@ const nlohmann::json* find_model_entry(const nlohmann::json& models, const std::
 int lookup_models_dev_context(const std::string& provider_id, const std::string& model) {
     if (provider_id.empty() || model.empty()) {
         return 0;
+    }
+
+    if (is_acemodel_provider_id(provider_id)) {
+        const ModelEntry* entry = find_acemodel_catalog_model(model);
+        if (!entry || !entry->context.has_value() || *entry->context <= 0) return 0;
+        LOG_INFO("Resolved model context via ACEModel built-in catalog model=" + model +
+                 " context=" + std::to_string(*entry->context));
+        return *entry->context;
     }
 
     auto registry = current_registry();

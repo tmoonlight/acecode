@@ -52,18 +52,6 @@ function strongerStatus(current, candidate) {
   return a;
 }
 
-function parentPathFor(path) {
-  const normalized = normalizeTreePath(path);
-  const idx = normalized.lastIndexOf('/');
-  return idx < 0 ? '' : normalized.slice(0, idx);
-}
-
-function baseNameFor(path) {
-  const normalized = normalizeTreePath(path);
-  const idx = normalized.lastIndexOf('/');
-  return idx < 0 ? normalized : normalized.slice(idx + 1);
-}
-
 function isDescendantPath(child, parent) {
   const c = normalizeTreePath(child);
   const p = normalizeTreePath(parent);
@@ -125,34 +113,10 @@ export function statusForTreeEntry(entry, statusByPath) {
   return status;
 }
 
-export function entriesWithReviewRows(entries, parentPath, statusByPath) {
-  const out = Array.isArray(entries) ? entries.map((entry) => ({ ...entry })) : [];
-  if (!(statusByPath instanceof Map) || statusByPath.size === 0) return out;
-
-  const currentParent = normalizeTreePath(parentPath);
-  const existing = new Set(out.map((entry) => normalizeTreePath(entry?.path)));
-  let changed = false;
-
-  for (const [changedPath, status] of statusByPath.entries()) {
-    if (parentPathFor(changedPath) !== currentParent) continue;
-    if (existing.has(changedPath)) continue;
-
-    const name = baseNameFor(changedPath);
-    if (!name) continue;
-    out.push({
-      name,
-      path: changedPath,
-      kind: 'file',
-      review_status: status,
-      review_synthetic: true,
-    });
-    existing.add(changedPath);
-    changed = true;
-  }
-
-  if (!changed) return out;
-  return out.sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1;
-    return String(a.name || '').localeCompare(String(b.name || ''));
+export function entriesWithReviewStatuses(entries, statusByPath) {
+  const listedEntries = Array.isArray(entries) ? entries : [];
+  return listedEntries.map((entry) => {
+    const reviewStatus = statusForTreeEntry(entry, statusByPath);
+    return reviewStatus ? { ...entry, review_status: reviewStatus } : { ...entry };
   });
 }

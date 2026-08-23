@@ -3,11 +3,28 @@
 
 #include <gtest/gtest.h>
 
+#include <ftxui/screen/terminal.hpp>
+
 #include "tui/theme_palette.hpp"
 
 using namespace acecode::tui;
 
 namespace {
+
+class ScopedTrueColorSupport {
+public:
+    ScopedTrueColorSupport()
+        : previous_(ftxui::Terminal::ColorSupport()) {
+        ftxui::Terminal::SetColorSupport(ftxui::Terminal::Color::TrueColor);
+    }
+
+    ~ScopedTrueColorSupport() {
+        ftxui::Terminal::SetColorSupport(previous_);
+    }
+
+private:
+    ftxui::Terminal::Color previous_;
+};
 
 // ftxui::Color 默认构造是 Default(无色),用 == Default 判断槽位是否被赋值
 bool is_default(const ftxui::Color& c) {
@@ -71,6 +88,7 @@ void assert_all_slots_assigned(const ThemePalette& p) {
 
 // 场景:dark 调色板所有槽位都已赋值,防止新增字段时漏初始化
 TEST(ThemePalette, DarkPaletteAllSlotsAssigned) {
+    ScopedTrueColorSupport color_support;
     auto p = make_dark_palette();
     EXPECT_EQ(p.name, "dark");
     assert_all_slots_assigned(p);
@@ -78,6 +96,7 @@ TEST(ThemePalette, DarkPaletteAllSlotsAssigned) {
 
 // 场景:light 调色板所有槽位都已赋值
 TEST(ThemePalette, LightPaletteAllSlotsAssigned) {
+    ScopedTrueColorSupport color_support;
     auto p = make_light_palette();
     EXPECT_EQ(p.name, "light");
     assert_all_slots_assigned(p);

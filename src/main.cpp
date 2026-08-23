@@ -5196,14 +5196,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     agent_loop.set_callbacks(callbacks);
 
     // ---- Model-pool load monitor ----
-    // 池成员由接口的 modelPoolName 决定,不能再靠模型名前缀预判。有任意已配置模型时
-    // 启动 30s 发现轮询;空配置不发请求。
+    // 只为 base_url 包含 wizard-ai 的配置启动轮询,避免普通用户访问企业接口。
     // 负载实时写 g_model_load_percent 供底栏 chip 展示;maxWindowTokens 稳定,故只需在
     // 每次成功轮询时把 0.8x 有效窗口回灌到 config + agent_loop(UI 线程 Post,改的是 int,
     // 安全),token% 下个回合自然重算。service 在 run_tui_loop 返回后 stop(),保证回调
     // 不晚于这些局部变量析构。
     {
-        if (!config.saved_models.empty()) {
+        if (acecode::should_start_model_pool_monitor(config.saved_models)) {
             auto on_pool_update = [&provider_slot, &config, &agent_loop]() {
                 std::string model_id;
                 {

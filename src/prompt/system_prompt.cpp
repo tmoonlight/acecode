@@ -2,7 +2,6 @@
 
 #include "../experts/expert_registry.hpp"
 #include "../commands/compact.hpp"
-#include "system_datetime.hpp"
 #include "../config/config.hpp"
 #include "../gitinfo/git_context_collector.hpp"
 #include "../memory/memory_registry.hpp"
@@ -293,16 +292,11 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "automatically attached. Inspect it only as needed with available read or search "
         << "tools; do not assume a referenced directory was recursively loaded.\n\n";
 
-    // Working directory and date live here rather than in a per-request
-    // context block: both are stable across ordinary sampling iterations
-    // (cwd changes only on worktree enter/exit, the date once a day), so
-    // keeping them in the static system prompt preserves the cacheable prefix
-    // throughout a normal turn.
+    // Keep environment facts here only when they do not change with time.
     oss << "# Environment\n\n"
         << "- OS: " << get_os_name() << "\n"
         << "- Shell: " << get_default_shell() << "\n"
         << "- Working directory: " << cwd << "\n"
-        << "- Today's date: " << current_prompt_date() << "\n"
         << "- Is directory a git repo: "
         << (gitinfo::is_inside_git_repo(cwd) ? "Yes" : "No") << "\n";
     if (worktree && worktree->active) {

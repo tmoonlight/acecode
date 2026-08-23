@@ -233,11 +233,16 @@ TEST(ModelCatalogHandler, AceModelUsesBuiltinCatalogEvenWithoutRegistryEntry) {
     auto all = acecode::web::query_model_catalog_to_json(
         providers, "acemodel", "", 10);
     ASSERT_TRUE(all.has_value());
-    ASSERT_EQ((*all)["models"].size(), 2u);
-    EXPECT_EQ((*all)["models"][0]["id"], "moonlight");
-    EXPECT_EQ((*all)["models"][0]["name"], "Moonlight");
-    EXPECT_EQ((*all)["models"][1]["id"], "starrylight");
-    EXPECT_EQ((*all)["models"][1]["name"], "Starrylight");
+    ASSERT_EQ((*all)["models"].size(), 3u);
+    EXPECT_EQ((*all)["models"][0]["id"], "aurora");
+    EXPECT_EQ((*all)["models"][0]["name"], "Aurora");
+    EXPECT_EQ((*all)["models"][1]["id"], "moonlight");
+    EXPECT_EQ((*all)["models"][1]["name"], "Moonlight");
+    EXPECT_EQ((*all)["models"][2]["id"], "starrylight");
+    EXPECT_EQ((*all)["models"][2]["name"], "Starrylight");
+    for (const auto& model : (*all)["models"]) {
+        EXPECT_EQ(model["context_window"], 200000);
+    }
 
     auto filtered = acecode::web::query_model_catalog_to_json(
         providers, "ACEMODEL", "moon", 10);

@@ -75,4 +75,9 @@ struct ParsedOpenAiModels {
 ParsedOpenAiModels parse_openai_models(const nlohmann::json& body);
 std::vector<std::string> parse_openai_model_ids(const nlohmann::json& body);
 
+// Applies the canonical ACEModel context caps to already-parsed model ids:
+// missing values are filled, values over the product cap are clamped, and
+// smaller upstream values are preserved.
+void apply_acemodel_context_limits(ParsedOpenAiModels& parsed);
+
 } // namespace acecode::web

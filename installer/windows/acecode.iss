@@ -113,7 +113,7 @@ begin
   AceModelIntro.WordWrap := True;
   AceModelIntro.Width := AceModelPage.SurfaceWidth;
   AceModelIntro.Caption :=
-    '如果你已经有 ACEModel API Key，填写后安装程序会把 moonlight 和 starrylight 写入当前用户的 ACECode 配置。' + #13#10 +
+    '如果你已经有 ACEModel API Key，填写后安装程序会把 moonlight、starrylight 和 aurora 写入当前用户的 ACECode 配置。' + #13#10 +
     '也可以跳过这一步，稍后在 ACECode「新增模型」里自行添加。';
 
   AceModelEdit := TPasswordEdit.Create(AceModelPage);

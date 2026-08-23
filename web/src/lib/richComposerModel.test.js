@@ -42,7 +42,10 @@ function run(name, fn) {
 }
 
 const COMMANDS = flattenCommands({
-  builtins: [{ name: 'init', description: 'Generate AGENT.md' }],
+  builtins: [
+    { name: 'init', description: 'Generate AGENT.md' },
+    { name: 'goal', description: 'Manage thread goal' },
+  ],
   commands: [{ name: 'opsx-apply', description: 'Apply OpenSpec change' }],
   skills: [{ name: 'openspec-explore', description: 'Explore a change' }],
 });
@@ -410,6 +413,42 @@ run('plainTextFromClipboardData prefers text/plain and normalizes newlines', () 
     },
   };
   assert.equal(plainTextFromClipboardData(clipboardData), 'hello\nworld');
+});
+
+run('Slate composer defers a command tag until the command has a whitespace boundary', () => {
+  const unfinished = composerDocumentFromText('/goal', COMMANDS);
+  const continued = composerDocumentFromText('/goal继续输入', COMMANDS);
+  const committed = composerDocumentFromText('/goal ', COMMANDS);
+  const committedWithTab = composerDocumentFromText('/goal\tcontinue', COMMANDS);
+  const committedWithBreak = composerDocumentFromText('/goal\ncontinue', COMMANDS);
+
+  assert.equal(unfinished[0].children.some((child) => child.type === COMPOSER_COMMAND_TAG), false);
+  assert.equal(continued[0].children.some((child) => child.type === COMPOSER_COMMAND_TAG), false);
+  assert.equal(committed[0].children.some((child) => child.type === COMPOSER_COMMAND_TAG), true);
+  assert.equal(committedWithTab[0].children.some((child) => child.type === COMPOSER_COMMAND_TAG), true);
+  assert.equal(committedWithBreak[0].children.some((child) => child.type === COMPOSER_COMMAND_TAG), true);
+  assert.equal(composerTextFromDocument(unfinished), '/goal');
+  assert.equal(composerTextFromDocument(continued), '/goal继续输入');
+  assert.equal(composerTextFromDocument(committed), '/goal ');
+  assert.equal(composerTextFromDocument(committedWithTab), '/goal\tcontinue');
+  assert.equal(composerTextFromDocument(committedWithBreak), '/goal\ncontinue');
+});
+
+run('leading command synchronization commits and restores tags at the whitespace boundary', () => {
+  const plain = [{ type: 'paragraph', children: [{ text: '/goal ' }] }];
+  const committed = composerDocumentWithSynchronizedLeadingCommand(plain, '/goal ', COMMANDS);
+  assert.equal(committed[0].children.some((child) => child.type === COMPOSER_COMMAND_TAG), true);
+  assert.equal(composerTextFromDocument(committed), '/goal ');
+
+  const withoutBoundary = structuredClone(committed);
+  withoutBoundary[0].children[withoutBoundary[0].children.length - 1].text = '';
+  const uncommitted = composerDocumentWithSynchronizedLeadingCommand(
+    withoutBoundary,
+    '/goal',
+    COMMANDS,
+  );
+  assert.equal(uncommitted[0].children.some((child) => child.type === COMPOSER_COMMAND_TAG), false);
+  assert.equal(composerTextFromDocument(uncommitted), '/goal');
 });
 
 run('clipboard text format detection covers Windows-compatible text payloads', () => {

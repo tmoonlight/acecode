@@ -45,19 +45,25 @@ try {
 
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $names = @($config.saved_models | ForEach-Object { $_.name })
-    if ($names -notcontains "moonlight" -or $names -notcontains "starrylight") {
-        throw "expected both ACEModel profiles, got: $($names -join ', ')"
+    if ($names -notcontains "moonlight" -or $names -notcontains "starrylight" -or $names -notcontains "aurora") {
+        throw "expected all three ACEModel profiles, got: $($names -join ', ')"
     }
     $moon = $config.saved_models | Where-Object { $_.name -eq "moonlight" } | Select-Object -First 1
     $star = $config.saved_models | Where-Object { $_.name -eq "starrylight" } | Select-Object -First 1
-    if ($moon.api_key -ne "test-ace-key-123" -or $star.api_key -ne "test-ace-key-123") {
-        throw "API key was not written into both profiles"
+    $aurora = $config.saved_models | Where-Object { $_.name -eq "aurora" } | Select-Object -First 1
+    if ($moon.api_key -ne "test-ace-key-123" -or $star.api_key -ne "test-ace-key-123" -or $aurora.api_key -ne "test-ace-key-123") {
+        throw "API key was not written into all three profiles"
     }
     if ($moon.base_url -ne "https://ge.bigjuan.xyz/aceapi/v1") {
         throw "existing moonlight profile was not upgraded to ACEModel"
     }
-    if ($moon.models_dev_provider_id -ne "acemodel" -or $star.models_dev_provider_id -ne "acemodel") {
+    if ($moon.models_dev_provider_id -ne "acemodel" -or $star.models_dev_provider_id -ne "acemodel" -or $aurora.models_dev_provider_id -ne "acemodel") {
         throw "models_dev_provider_id was not set"
+    }
+    foreach ($profile in @($moon, $star, $aurora)) {
+        if ($profile.context_window -ne 200000) {
+            throw "context_window was not set to 200000 for $($profile.name)"
+        }
     }
     if ($config.default_model_name -ne "moonlight") {
         throw "default model was not seeded"
@@ -73,7 +79,7 @@ try {
     if (@($qwen.capabilities).Count -ne 1 -or @($qwen.capabilities)[0] -ne "tool_use") {
         throw "existing qwen capabilities were damaged"
     }
-    Write-Host "[pass] ACEModel seeder writes and upgrades both profiles"
+    Write-Host "[pass] ACEModel seeder writes and upgrades all three profiles"
 }
 finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force

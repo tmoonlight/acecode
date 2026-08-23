@@ -281,6 +281,7 @@ run('every current floating-surface owner participates in the native overlay con
     'SelectionActionPopover.jsx',
     'SelectionAnnotationBadge.jsx',
     'SelectionAnnotationOverlay.jsx',
+    'SessionContentLoading.jsx',
     'SessionNavigationMask.jsx',
     'SettingsPage.jsx',
     'Sidebar.jsx',

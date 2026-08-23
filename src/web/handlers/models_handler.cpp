@@ -2,6 +2,7 @@
 
 #include "../../config/model_provider_registry.hpp"
 #include "../../config/request_headers.hpp"
+#include "../../provider/builtin_model_catalog.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -411,6 +412,18 @@ ParsedOpenAiModels parse_openai_models(const nlohmann::json& body) {
         }
     }
     return {{unique.begin(), unique.end()}, std::move(context_windows)};
+}
+
+void apply_acemodel_context_limits(ParsedOpenAiModels& parsed) {
+    for (const auto& id : parsed.ids) {
+        const ModelEntry* model = find_acemodel_catalog_model(id);
+        if (!model || !model->context.has_value() || *model->context <= 0) continue;
+        const int cap = *model->context;
+        auto it = parsed.context_windows.find(id);
+        if (it == parsed.context_windows.end() || it->second > cap) {
+            parsed.context_windows[id] = cap;
+        }
+    }
 }
 
 std::vector<std::string> parse_openai_model_ids(const nlohmann::json& body) {

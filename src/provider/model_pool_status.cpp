@@ -5,12 +5,29 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <utility>
 
 #include <cpr/cpr.h>
 
 namespace acecode {
+
+bool should_start_model_pool_monitor(const std::vector<ModelProfile>& saved_models) {
+    constexpr const char* needle = "wizard-ai";
+    for (const auto& profile : saved_models) {
+        auto it = std::search(
+            profile.base_url.begin(), profile.base_url.end(),
+            needle, needle + std::char_traits<char>::length(needle),
+            [](char lhs, char rhs) {
+                return std::tolower(static_cast<unsigned char>(lhs)) ==
+                       std::tolower(static_cast<unsigned char>(rhs));
+            });
+        if (it != profile.base_url.end()) return true;
+    }
+    return false;
+}
 
 std::unordered_map<std::string, ModelPoolStatus>
 parse_model_pool_status(const std::string& body) {

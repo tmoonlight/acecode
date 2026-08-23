@@ -21,7 +21,7 @@ function test(name, fn) {
 
 test('active-session reveal consumes each stable target only after its row renders', () => {
   const sidebar = source('components/Sidebar.jsx');
-  const effectStart = sidebar.indexOf('const targetKey = sidebarRevealTargetKey(revealTarget);');
+  const effectStart = sidebar.indexOf('const targetKey = sidebarRevealTargetKey(selectedRevealTarget);');
   const effectEnd = sidebar.indexOf(
     '\n  // 把已加载的跨 workspace sessions / pinned order / workspaceName 推到桌面 tray 菜单。',
     effectStart,
@@ -54,6 +54,6 @@ test('clearing the active target resets one-time reveal identity', () => {
   const sidebar = source('components/Sidebar.jsx');
   assert.match(
     sidebar,
-    /if \(!revealTarget\.sessionId\) \{\s*sessionRevealTargetRef\.current = '';\s*revealedSessionTargetRef\.current = '';\s*return undefined;\s*\}/,
+    /if \(!selectedRevealTarget\.sessionId\) \{\s*sessionRevealTargetRef\.current = '';\s*revealedSessionTargetRef\.current = '';\s*return undefined;\s*\}/,
   );
 });

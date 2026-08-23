@@ -169,7 +169,7 @@ run('selected contexts remain accessible while the composer footer stays on one 
   );
   assert.match(
     styles,
-    /\.ace-composer-permission-control,[\s\S]*?\.ace-composer-model-control\s*\{[^}]*flex: 0 1 auto;/,
+    /\.ace-composer-permission-control,[\s\S]*?\.ace-composer-model-control\s*\{[^}]*min-width: 28px;[^}]*flex: 0 1 auto;[^}]*overflow: hidden;/,
   );
   assert.match(
     component,
@@ -180,7 +180,7 @@ run('selected contexts remain accessible while the composer footer stays on one 
     /data-composer-control="model"\s+className="ace-composer-model-control relative min-w-0"/,
   );
   assert.doesNotMatch(styles, /@container \(max-width: 560px\)/);
-  assert.doesNotMatch(styles, /container-type:\s*inline-size/);
+  assert.match(styles, /\.ace-composer-adaptive-chip\s*\{[^}]*min-width: 28px;[^}]*overflow: hidden;/s);
   assert.doesNotMatch(styles, /@container \(max-width: 410px\)/);
 });
 
@@ -269,10 +269,26 @@ run('both composer variants deep-link model settings through the app callback', 
   assert.match(app, /onOpenModelSettings=\{\(\) => openSettingsSection\('models'\)\}/);
 });
 
-run('model selector shows its label without the legacy A glyph', () => {
+run('compressed composer controls fall back to one representative SVG icon', () => {
   const component = source('components/ComposerSessionControls.jsx');
   const styles = source('styles/globals.css');
 
-  assert.doesNotMatch(component, /ModelGlyph|ace-composer-model-glyph/);
-  assert.doesNotMatch(styles, /\.ace-composer-model-glyph/);
+  assert.match(component, /ace-composer-swarm-chip/);
+  assert.match(component, /ace-composer-expert-chip/);
+  assert.match(component, /<VsIcon name="embedding" size=\{16\} className="ace-composer-model-glyph shrink-0"/);
+  assert.match(component, /ace-composer-adaptive-content ace-composer-permission-label/);
+  assert.match(component, /ace-composer-adaptive-content ace-composer-model-label/);
+  assert.match(component, /function useAdaptiveComposerControls\(rootRef, measureKey\)[\s\S]*?new ResizeObserver\(schedule\)/s);
+  assert.match(component, /const compactOrder = \['permission', 'expert', 'swarm-mode', 'model'\]/);
+  assert.match(component, /content\.scrollWidth > content\.clientWidth \+ 1/);
+  assert.match(component, /root\.setAttribute\('data-ultra-compact', 'true'\)/);
+  assert.match(component, /window\.addEventListener\('resize', schedule\)/);
+  assert.match(component, /data-adaptive-composer-control="true"\s+data-compact=\{compactControls\.has\('model'\) \? 'true' : 'false'\}\s+data-composer-control="model"/);
+  assert.match(styles, /\[data-adaptive-composer-control="true"\]\[data-compact="true"\]\s*\{[^}]*width: 28px !important;[^}]*max-width: 28px !important;/s);
+  assert.match(styles, /data-ultra-compact="true"[^}]*data-composer-control="token-budget"[^}]*\{\s*display: none;/s);
+  assert.match(styles, /\.ace-composer-swarm-chip\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
+  assert.match(styles, /\.ace-composer-expert-chip\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
+  assert.match(styles, /\.ace-composer-permission-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
+  assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
+  assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-model-glyph\s*\{[^}]*display: inline-block;/s);
 });

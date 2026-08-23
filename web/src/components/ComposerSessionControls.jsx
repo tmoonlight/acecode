@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
 import { loadTier, loadTierTextClass } from '../lib/modelLoad.js';
 import { PERMISSION_MODES, normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
@@ -11,6 +11,114 @@ function permissionTextClass(color) {
   if (color === 'ok') return 'text-ok';
   if (color === 'warn') return 'text-warn';
   return 'text-danger';
+}
+
+function useAdaptiveComposerControls(rootRef, measureKey) {
+  const [compactControls, setCompactControls] = useState(() => new Set());
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    let frame = 0;
+    const update = () => {
+      const controls = [...root.querySelectorAll('[data-adaptive-composer-control="true"]')];
+      if (controls.length === 0) return;
+      root.setAttribute('data-ultra-compact', 'false');
+
+      controls.forEach((element) => {
+        element.setAttribute('data-compact', 'false');
+        element.style.width = 'max-content';
+        element.style.flex = '0 0 auto';
+      });
+      root.getBoundingClientRect();
+
+      const desiredWidths = controls.map((element) => {
+        const cap = Number.parseFloat(getComputedStyle(element).maxWidth);
+        const natural = Math.ceil(Math.max(element.getBoundingClientRect().width, element.scrollWidth));
+        return Number.isFinite(cap) ? Math.min(natural, cap) : natural;
+      });
+
+      controls.forEach((element, index) => {
+        element.style.width = '';
+        element.style.flex = `0 0 ${desiredWidths[index]}px`;
+      });
+      root.getBoundingClientRect();
+
+      const isCrowded = () => {
+        const rootRect = root.getBoundingClientRect();
+        const right = root.querySelector('.ace-composer-session-right');
+        const leftControls = [...root.querySelectorAll('.ace-composer-session-left > [data-composer-control]')]
+          .filter((element) => element.getBoundingClientRect().width > 0);
+        const leftEdge = leftControls.length > 0
+          ? Math.max(...leftControls.map((element) => element.getBoundingClientRect().right))
+          : rootRect.left;
+        const rightRect = right?.getBoundingClientRect();
+        return root.scrollWidth > root.clientWidth + 1
+          || (rightRect && rightRect.right > rootRect.right + 1)
+          || (rightRect && leftEdge > rightRect.left - 1);
+      };
+
+      const compactOrder = ['permission', 'expert', 'swarm-mode', 'model'];
+      const nextCompact = new Set();
+      for (const controlName of compactOrder) {
+        if (!isCrowded()) break;
+        const element = controls.find((item) => item.dataset.composerControl === controlName);
+        if (!element) continue;
+        nextCompact.add(controlName);
+        element.setAttribute('data-compact', 'true');
+        element.style.flex = '0 0 28px';
+        root.getBoundingClientRect();
+      }
+      controls.forEach((element) => {
+        if (nextCompact.has(element.dataset.composerControl)) return;
+        const contentClipped = [...element.querySelectorAll('.ace-composer-adaptive-content')]
+          .some((content) => getComputedStyle(content).display !== 'none'
+            && content.scrollWidth > content.clientWidth + 1);
+        if (!contentClipped) return;
+        nextCompact.add(element.dataset.composerControl);
+        element.setAttribute('data-compact', 'true');
+        element.style.flex = '0 0 28px';
+        root.getBoundingClientRect();
+      });
+      if (isCrowded()) {
+        root.setAttribute('data-ultra-compact', 'true');
+        root.getBoundingClientRect();
+      }
+      controls.forEach((element) => {
+        element.setAttribute(
+          'data-compact',
+          nextCompact.has(element.dataset.composerControl) ? 'true' : 'false',
+        );
+      });
+      setCompactControls((current) => {
+        if (current.size === nextCompact.size
+          && [...current].every((item) => nextCompact.has(item))) return current;
+        return nextCompact;
+      });
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(update);
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', schedule);
+      return () => {
+        cancelAnimationFrame(frame);
+        window.removeEventListener('resize', schedule);
+      };
+    }
+    const observer = new ResizeObserver(schedule);
+    observer.observe(root);
+    window.addEventListener('resize', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+    };
+  }, [measureKey]);
+
+  return compactControls;
 }
 
 function PermissionShieldIcon({ className = '' }) {
@@ -97,6 +205,10 @@ export function ComposerSessionControls({
   const [localMode, setLocalMode] = useState(normalizePermissionMode(permissionMode));
   const [openMenu, setOpenMenu] = useState('');
   const rootRef = useRef(null);
+  const compactControls = useAdaptiveComposerControls(
+    rootRef,
+    `${swarmMode}|${expertName}|${permissionMode}|${selectedModelName}|${model}`,
+  );
 
   useEffect(() => {
     setLocalMode(normalizePermissionMode(permissionMode));
@@ -168,21 +280,23 @@ export function ComposerSessionControls({
 
         {swarmMode && (
           <div
+            data-adaptive-composer-control="true"
+            data-compact={compactControls.has('swarm-mode') ? 'true' : 'false'}
             data-composer-control="swarm-mode"
             role="status"
             aria-label="已开启蜂群模式"
             title="下一条普通消息将积极派遣子 Agent"
-            className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md bg-accent-bg px-2 text-accent"
+            className="ace-composer-adaptive-chip ace-composer-swarm-chip flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md bg-accent-bg px-2 text-accent"
           >
             <SwarmModeIcon size={14} className="shrink-0" />
-            <span className="text-[11px] font-medium">蜂群模式</span>
+            <span className="ace-composer-adaptive-content text-[11px] font-medium">蜂群模式</span>
             <button
               type="button"
               onPointerDown={(event) => event.preventDefault()}
               onClick={onDisableSwarm}
               title="关闭蜂群模式"
               aria-label="关闭蜂群模式"
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-accent opacity-70 hover:bg-accent-bg hover:opacity-100"
+              className="ace-composer-adaptive-content flex h-4 w-4 shrink-0 items-center justify-center rounded text-accent opacity-70 hover:bg-accent-bg hover:opacity-100"
             >
               <VsIcon name="close" size={11} />
             </button>
@@ -191,11 +305,13 @@ export function ComposerSessionControls({
 
         {expertName && (
           <div
+            data-adaptive-composer-control="true"
+            data-compact={compactControls.has('expert') ? 'true' : 'false'}
             data-composer-control="expert"
             data-expert-id={expertId || undefined}
             data-expert-type={expertType === 'team' ? 'team' : 'agent'}
             title={`当前专家组件：${expertName}`}
-            className="flex h-7 min-w-0 max-w-[210px] items-center gap-1.5 rounded-md bg-accent-bg px-2 text-accent"
+            className="ace-composer-adaptive-chip ace-composer-expert-chip flex h-7 min-w-0 max-w-[210px] shrink items-center gap-1.5 rounded-md bg-accent-bg px-2 text-accent"
           >
             <span
               role="status"
@@ -203,8 +319,8 @@ export function ComposerSessionControls({
               className="flex min-w-0 items-center gap-1.5"
             >
               <VsIcon name={expertType === 'team' ? 'extension' : 'brain'} size={14} className="shrink-0" />
-              <span className="min-w-0 truncate text-[11px] font-medium">{expertName}</span>
-              <span className="shrink-0 text-[9px] opacity-70">
+              <span className="ace-composer-adaptive-content min-w-0 truncate text-[11px] font-medium">{expertName}</span>
+              <span className="ace-composer-adaptive-content shrink-0 text-[9px] opacity-70">
                 {expertType === 'team' ? '专家团' : '专家'}
               </span>
             </span>
@@ -216,7 +332,7 @@ export function ComposerSessionControls({
               title={`解除${expertType === 'team' ? '专家团' : '专家'} ${expertName}`}
               aria-label={`解除${expertType === 'team' ? '专家团' : '专家'}：${expertName}`}
               className={clsx(
-                'ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded text-accent opacity-70 hover:bg-accent-bg hover:opacity-100',
+                'ace-composer-adaptive-content ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded text-accent opacity-70 hover:bg-accent-bg hover:opacity-100',
                 expertRemoving && 'cursor-wait opacity-50',
               )}
             >
@@ -256,6 +372,8 @@ export function ComposerSessionControls({
         )}
 
         <div
+          data-adaptive-composer-control="true"
+          data-compact={compactControls.has('permission') ? 'true' : 'false'}
           data-composer-control="permission"
           className="ace-composer-permission-control relative min-w-0"
         >
@@ -273,8 +391,8 @@ export function ComposerSessionControls({
             )}
           >
             <PermissionShieldIcon className="shrink-0" />
-            <span className="ace-composer-permission-label">{permission.label}</span>
-            <VsIcon name="glyphDown" size={10} className="shrink-0 opacity-75" />
+            <span className="ace-composer-adaptive-content ace-composer-permission-label">{permission.label}</span>
+            <VsIcon name="glyphDown" size={10} className="ace-composer-adaptive-content shrink-0 opacity-75" />
           </button>
 
           {openMenu === 'permission' && (
@@ -338,6 +456,8 @@ export function ComposerSessionControls({
         )}
 
         <div
+          data-adaptive-composer-control="true"
+          data-compact={compactControls.has('model') ? 'true' : 'false'}
           data-composer-control="model"
           className="ace-composer-model-control relative min-w-0"
         >
@@ -357,8 +477,9 @@ export function ComposerSessionControls({
               (modelSwitching || !canOpenModelMenu) && 'cursor-wait opacity-60',
             )}
           >
-            <span className="ace-composer-model-label">{compactModelLabel}</span>
-            <VsIcon name="glyphDown" size={10} className="shrink-0 opacity-75" />
+            <VsIcon name="embedding" size={16} className="ace-composer-model-glyph shrink-0" />
+            <span className="ace-composer-adaptive-content ace-composer-model-label">{compactModelLabel}</span>
+            <VsIcon name="glyphDown" size={10} className="ace-composer-adaptive-content shrink-0 opacity-75" />
           </button>
 
           {openMenu === 'model' && (

@@ -10,6 +10,7 @@ using acecode::ModelLoadTier;
 using acecode::ModelPoolFetchResult;
 using acecode::ModelPoolStatusService;
 using acecode::parse_model_pool_status;
+using acecode::should_start_model_pool_monitor;
 
 namespace {
 
@@ -34,6 +35,25 @@ const char* kMixedNameResponse = R"JSON(
 )JSON";
 
 } // namespace
+
+TEST(ModelPoolStatus, StartsMonitorOnlyForWizardAiBaseUrl) {
+    acecode::ModelProfile ordinary;
+    ordinary.base_url = "https://api.example.com/v1";
+
+    acecode::ModelProfile empty;
+
+    acecode::ModelProfile wizard;
+    wizard.base_url = "https://wizard-ai.paic.com.cn/code_pilot/api";
+
+    acecode::ModelProfile mixed_case_wizard;
+    mixed_case_wizard.base_url = "HTTPS://WIZARD-AI.PAIC.COM.CN/code_pilot/api";
+
+    EXPECT_FALSE(should_start_model_pool_monitor({}));
+    EXPECT_FALSE(should_start_model_pool_monitor({empty}));
+    EXPECT_FALSE(should_start_model_pool_monitor({ordinary, empty}));
+    EXPECT_TRUE(should_start_model_pool_monitor({ordinary, wizard}));
+    EXPECT_TRUE(should_start_model_pool_monitor({mixed_case_wizard}));
+}
 
 // 场景:解析图1的真实样本。
 // 期望:两个池都被解析出来;usageRate / 顶层 maxWindowTokens 正确。

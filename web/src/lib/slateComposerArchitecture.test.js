@@ -120,6 +120,18 @@ run('placeholder stays top-aligned without the inset shorthand', () => {
   );
 });
 
+run('slash candidate confirmation commits the command with a trailing space and caret after it', () => {
+  const inputBar = source('components/InputBar.jsx');
+  const start = inputBar.indexOf('const handleSelectCommand = (item) => {');
+  const end = inputBar.indexOf('\n  };', start);
+  const handler = inputBar.slice(start, end);
+
+  assert.ok(start >= 0 && end > start);
+  assert.match(handler, /const next = '\/' \+ item\.name \+ ' ';/);
+  assert.match(handler, /updateValue\(next\)/);
+  assert.match(handler, /setSelectionRange\(next\.length, next\.length\)/);
+});
+
 run('composer external sync is composition-safe, generation-aware, and semantic', () => {
   const inputBar = source('components/InputBar.jsx');
   const composer = source('components/RichComposer.jsx');
