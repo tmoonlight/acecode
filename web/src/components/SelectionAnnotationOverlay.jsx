@@ -1,7 +1,12 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import {
   applySelectionSourceDecorations,
+  applyInactiveSourceSelection,
+  clearInactiveSourceSelection,
   clearSelectionSourceDecorations,
+  groupSelectionDecorations,
+  renderedPreviewTextIndex,
+  resolveSelectionAnchor,
   selectionAnnotationBubbleLeft,
 } from '../lib/selectionSourceDecorations.js';
 
@@ -69,6 +74,8 @@ export function SelectionAnnotationOverlay({
   sourceText = '',
   contentRevision = '',
   rendered = false,
+  inactiveRange = null,
+  managedDecorations = false,
 }) {
   const frameRef = useRef(0);
   const [appliedGroups, setAppliedGroups] = useState([]);
@@ -80,18 +87,51 @@ export function SelectionAnnotationOverlay({
       setAppliedGroups([]);
       return undefined;
     }
-    const groups = applySelectionSourceDecorations(host, {
-      contexts,
-      sourcePath,
-      sourceText,
-      contentRevision,
-      rendered,
-    });
+    let groups;
+    if (managedDecorations) {
+      const targetText = renderedPreviewTextIndex(host).text;
+      const marks = Array.from(
+        host.querySelectorAll?.('[data-selection-decoration-id]') || [],
+      );
+      groups = groupSelectionDecorations(
+        contexts,
+        sourcePath,
+        rendered ? 'rendered' : 'source',
+        contentRevision,
+      ).map((group) => ({
+        ...group,
+        anchor: resolveSelectionAnchor(targetText, group.context),
+        marks: marks.filter(
+          (mark) => mark.getAttribute('data-selection-decoration-id') === group.id,
+        ),
+      }));
+    } else {
+      groups = applySelectionSourceDecorations(host, {
+        contexts,
+        sourcePath,
+        sourceText,
+        contentRevision,
+        rendered,
+      });
+      if (!rendered && inactiveRange) applyInactiveSourceSelection(host, inactiveRange);
+    }
     setAppliedGroups(groups);
     return () => {
-      clearSelectionSourceDecorations(host);
+      if (!managedDecorations) {
+        clearInactiveSourceSelection(host);
+        clearSelectionSourceDecorations(host);
+      }
     };
-  }, [contentRevision, contexts, hostRef, rendered, sourcePath, sourceText]);
+  }, [
+    contentRevision,
+    contexts,
+    hostRef,
+    inactiveRange,
+    managedDecorations,
+    rendered,
+    sourcePath,
+    sourceText,
+  ]);
 
   useLayoutEffect(() => {
     const host = hostRef?.current;

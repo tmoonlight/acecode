@@ -17,6 +17,7 @@ import {
   selectionLineCount,
   selectionPreviewKindSupportsActions,
   selectionSourceTextFromCells,
+  textControlSelection,
   truncateSelectionAnchorText,
   truncateSelectionAnnotation,
   truncateSelectionText,
@@ -81,6 +82,28 @@ run('source selections rebuild blank lines without preview placeholder spaces', 
     },
   };
   assert.equal(selectionSourceTextFromCells(source), '# Title\n\nParagraph\n');
+});
+
+run('editable source textarea selections expose exact text, offsets and lines', () => {
+  const target = {
+    nodeType: 1,
+    value: 'first\nsecond\nthird',
+    selectionStart: 3,
+    selectionEnd: 14,
+    matches(selector) {
+      return selector === '[data-ace-editable-preview-text="true"]';
+    },
+  };
+  assert.deepEqual(textControlSelection(target), {
+    target,
+    text: 'st\nsecond\nt',
+    value: 'first\nsecond\nthird',
+    startOffset: 3,
+    endOffset: 14,
+    startLine: 1,
+    endLine: 3,
+    view: 'source',
+  });
 });
 
 run('selection contexts keep text when normalized for composer payload', () => {

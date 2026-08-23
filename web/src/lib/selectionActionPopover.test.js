@@ -3,6 +3,7 @@ import {
   selectionActionPopoverPosition,
   selectionPointerViewportRect,
   selectionRangeViewportRect,
+  selectionTargetViewportRect,
 } from './selectionActionPopover.js';
 
 function run(name, fn) {
@@ -107,4 +108,18 @@ run('keyboard fallback uses the first visible range fragment instead of a multil
     },
   };
   assert.deepEqual(selectionRangeViewportRect(selection), first);
+});
+
+run('editable controls provide a stable keyboard-selection fallback anchor', () => {
+  assert.deepEqual(selectionTargetViewportRect({
+    getBoundingClientRect: () => ({ left: 20, top: 30, right: 220, bottom: 130, width: 200, height: 100 }),
+  }), {
+    left: 32,
+    top: 42,
+    right: 32,
+    bottom: 42,
+    width: 0,
+    height: 0,
+  });
+  assert.equal(selectionTargetViewportRect({}), null);
 });

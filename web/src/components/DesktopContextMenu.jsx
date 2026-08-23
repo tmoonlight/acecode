@@ -461,7 +461,9 @@ export function DesktopContextMenu() {
         && !(editableTarget instanceof HTMLTextAreaElement)
         ? captureRichComposerContextSelection(editableTarget)
         : null;
-      const contextTargets = editable ? {} : candidateTargets;
+      const contextTargets = editable
+        ? { previewTarget: candidateTargets.previewTarget || null }
+        : candidateTargets;
       const sessionPinTarget = contextTargets.sessionTarget
         ? {
             sessionId: contextTargets.sessionTarget.sessionId,

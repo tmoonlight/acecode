@@ -80,7 +80,7 @@ run('shared markdown styles restore list markers in file previews', () => {
 
   const preview = source('components/FilePreviewContent.jsx');
   assert.match(preview, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
-  assert.match(preview, /dangerouslySetInnerHTML=\{\{ __html: renderMarkdown\(state\.text\) \}\}/);
+  assert.match(preview, /dangerouslySetInnerHTML=\{\{ __html: renderMarkdown\(previewText\) \}\}/);
 });
 
 // 回归测试(fix 流式出字时消息区上下跳动):流式 append 时,已定稿的

@@ -14,6 +14,7 @@ export {
 };
 
 export const SELECTION_REFERENCE_MARK_CLASS = 'ace-selection-reference-mark';
+export const INACTIVE_SOURCE_SELECTION_MARK_CLASS = 'ace-inactive-selection-mark';
 export const SELECTION_ANNOTATION_BUBBLE_WIDTH = 23;
 
 function asString(value) {
@@ -246,14 +247,57 @@ function sourceRangeMarks(root, anchor, groupId, annotated = false) {
   return marks;
 }
 
+export function clearInactiveSourceSelection(root) {
+  unwrapMarks(root, INACTIVE_SOURCE_SELECTION_MARK_CLASS);
+}
+
+export function applyInactiveSourceSelection(root, range = null) {
+  clearInactiveSourceSelection(root);
+  const start = offsetInt(range?.start);
+  const end = offsetInt(range?.end);
+  if (start < 0 || end <= start) return [];
+  const marks = [];
+  const cells = Array.from(root?.querySelectorAll?.('.ace-line-code[data-source-start]') || []);
+  for (const cell of cells) {
+    const cellStart = offsetInt(cell.getAttribute('data-source-start'));
+    const cellLength = offsetInt(cell.getAttribute('data-source-length'));
+    if (cellStart < 0 || cellLength < 0) continue;
+    const cellEnd = cellStart + cellLength;
+    if (cellEnd <= start || cellStart >= end || cellLength === 0) continue;
+    const parts = textNodeParts(
+      cell,
+      Math.max(0, start - cellStart),
+      Math.min(cellLength, end - cellStart),
+    );
+    for (const part of parts.reverse()) {
+      const mark = wrapTextNodeRange(
+        part.node,
+        part.start,
+        part.end,
+        INACTIVE_SOURCE_SELECTION_MARK_CLASS,
+      );
+      if (mark) marks.push(mark);
+    }
+  }
+  return marks.reverse();
+}
+
 function ignoredRenderedTextNode(node) {
   const parent = node?.parentElement;
   return !!parent?.closest?.(
-    '.ace-code-actions, button, script, style, .ace-selection-annotation-layer',
+    '.ace-code-actions, button, script, style, .ace-selection-annotation-layer, '
+      + '.ace-markdown-code-highlight, .ace-markdown-opaque-children',
   );
 }
 
 export function renderedPreviewTextIndex(root) {
+  if (root?.matches?.('[data-ace-managed-inactive-selection="true"]')) {
+    const strings = Array.from(root.querySelectorAll?.('[data-slate-string="true"]') || []);
+    return {
+      text: strings.map((element) => asString(element.textContent)).join(''),
+      nodes: [],
+    };
+  }
   if (!root?.ownerDocument?.createTreeWalker) return { text: '', nodes: [] };
   const doc = root.ownerDocument;
   const view = doc.defaultView || globalThis.window || {};

@@ -18,6 +18,7 @@ import './createdFileSource.test.js';
 import './sourceCodeHighlight.test.js';
 import './markdownBlocks.test.js';
 import './markdownWysiwyg.test.js';
+import './editablePreviewSelection.test.js';
 import './previewWorkbenchArchitecture.test.js';
 import './editableFileDraft.test.js';
 import './fileLink.test.js';
