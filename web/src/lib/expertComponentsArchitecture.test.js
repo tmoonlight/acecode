@@ -65,10 +65,13 @@ test('new expert split control stages Expert Manager without sending and keeps t
     'const dispatchExpertToNewTask =',
   );
 
-  assert.match(app, /const EXPERT_MANAGER_CREATION_DRAFT = '\/expert-manager ';/);
+  assert.match(
+    app,
+    /function expertManagerCreationDraft\(\) \{\s+return '\/expert-manager 帮我创建一个 XXX 专家，擅长 XXXXX。我的经验是：\[请补充你的行业背景、相关经验\]。';\s+\}/,
+  );
   assert.match(conversationalCreation, /homeRefFromWorkspace\(current, current, health\)/);
   assert.match(conversationalCreation, /refreshWorkspaceGitInfo\(createApi\(base\), base\)/);
-  assert.match(conversationalCreation, /initialDraftText: EXPERT_MANAGER_CREATION_DRAFT/);
+  assert.match(conversationalCreation, /initialDraftText: expertManagerCreationDraft\(\)/);
   assert.doesNotMatch(conversationalCreation, /expertId|expert_id|createSession|sendInput/);
   assert.match(app, /onStartConversationalCreation=\{startConversationalExpertCreation\}/);
 

@@ -72,13 +72,16 @@ export function SessionContentLoading({
   if (!phase) return null;
 
   const displayTitle = title || t('sessionNavigation.conversation');
+  const loadingLabel = title
+    ? t('sessionNavigation.sidebarLoading', { title })
+    : t('sessionNavigation.sidebarLoadingFallback');
   const label = phase === 'queued'
     ? t('sessionNavigation.sidebarQueued', { title: displayTitle })
     : phase === 'error'
       ? t('sessionNavigation.transcriptError')
         : phase === 'transcript'
           ? t('sessionNavigation.transcriptLoading')
-          : t('sessionNavigation.sidebarLoading', { title: displayTitle });
+          : loadingLabel;
   const noticeStyle = anchorFrame
     ? {
         position: 'absolute',

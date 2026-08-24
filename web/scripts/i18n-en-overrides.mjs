@@ -350,6 +350,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '显示名称': 'Display name',
   '新建专家组件': 'New expert component',
   '新建专家': 'New expert',
+  '/expert-manager 帮我创建一个 XXX 专家，擅长 XXXXX。我的经验是：[请补充你的行业背景、相关经验]。':
+    '/expert-manager Help me create an XXX expert specializing in XXXXX. My experience is: [add your industry background and relevant experience].',
   '打开高级模式菜单': 'Open Advanced Mode menu',
   '新建专家选项': 'New expert options',
   '高级模式': 'Advanced Mode',

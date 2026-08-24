@@ -91,6 +91,10 @@ run('右侧局部遮罩不复用全屏导航遮罩且不会挡住侧栏', () => 
   assert.match(loading, /sessionContentLoadingAnchorFrame\(/);
   assert.match(loading, /new window\.ResizeObserver\(update\)/);
   assert.match(loading, /role="status"/);
+  assert.match(
+    loading,
+    /title\s*\? t\('sessionNavigation\.sidebarLoading', \{ title \}\)\s*:\s*t\('sessionNavigation\.sidebarLoadingFallback'\)/,
+  );
   assert.match(app, /<SessionNavigationMask\s+open=\{sessionNavigationPending\}/);
 });
 
@@ -106,6 +110,7 @@ run('ChatView 在 transcript 加载和失败时给出局部反馈', () => {
   for (const catalog of [zh, en]) {
     assert.match(catalog, /sidebarQueued:/);
     assert.match(catalog, /sidebarLoading:/);
+    assert.match(catalog, /sidebarLoadingFallback:/);
     assert.match(catalog, /transcriptLoading:/);
     assert.match(catalog, /transcriptError:/);
   }

@@ -172,7 +172,9 @@ const SESSION_NAVIGATION_MASK_TIMEOUT_MS = 45000;
 // 控制台停靠区偏好(add-console-dock):开关 + 高度跨刷新持久化。
 const CONSOLE_DOCK_STORAGE_KEY = 'acecode.consoleDock.v1';
 const DEFAULT_CONSOLE_DOCK = { open: false, height: CONSOLE_DOCK_DEFAULT_HEIGHT };
-const EXPERT_MANAGER_CREATION_DRAFT = '/expert-manager ';
+function expertManagerCreationDraft() {
+  return '/expert-manager 帮我创建一个 XXX 专家，擅长 XXXXX。我的经验是：[请补充你的行业背景、相关经验]。';
+}
 function validateConsoleDock(value) {
   return !!value && typeof value === 'object'
     && typeof value.open === 'boolean'
@@ -1361,7 +1363,7 @@ export function App() {
     void refreshWorkspaceGitInfo(createApi(base), base).catch(() => {});
     navigateToRef({
       ...base,
-      initialDraftText: EXPERT_MANAGER_CREATION_DRAFT,
+      initialDraftText: expertManagerCreationDraft(),
     });
     return true;
   }, [health, navigateToRef]);
