@@ -5,12 +5,16 @@ import {
 } from '../../lib/providerLogos.js';
 import { VsIcon } from '../Icon.jsx';
 
-export function ProviderIcon({ provider, active = false }) {
+export function ProviderIcon({ provider, active = false, size = 'md', className = '' }) {
   const logoPath = providerLogoPath(provider);
+  const small = size === 'sm';
   const frameClass = clsx(
-    'flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-surface',
+    'flex shrink-0 items-center justify-center overflow-hidden rounded-full border bg-surface',
+    small ? 'h-5 w-5' : 'h-6 w-6',
     active ? 'border-accent-soft text-accent' : 'border-border text-fg-2',
+    className,
   );
+  const logoClass = small ? 'block h-3.5 w-3.5 object-contain' : 'block h-4 w-4 object-contain';
 
   if (!logoPath) {
     return (
@@ -31,11 +35,11 @@ export function ProviderIcon({ provider, active = false }) {
           loading="lazy"
           decoding="async"
           draggable="false"
-          className="block h-4 w-4 object-contain"
+          className={logoClass}
         />
       ) : (
         <span
-          className="ace-provider-logo-mask block h-4 w-4"
+          className={clsx('ace-provider-logo-mask', logoClass)}
           style={{ '--ace-provider-logo-url': `url("${logoPath}")` }}
         />
       )}

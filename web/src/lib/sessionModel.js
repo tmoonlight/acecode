@@ -6,6 +6,7 @@ export function normalizeModelState(raw) {
     name: String(raw.name || raw.model_name || raw.model_preset || ''),
     provider: String(raw.provider || ''),
     model: String(raw.model || ''),
+    models_dev_provider_id: String(raw.models_dev_provider_id || raw.modelsDevProviderId || ''),
     contextWindow: Number(raw.context_window || raw.contextWindow || 0) || 0,
     deleted: !!(raw.deleted || raw.model_deleted || raw.modelDeleted),
   };
@@ -76,6 +77,7 @@ export function buildStatusBarModelMenu({ modelOptions = [], selectedModelName =
     label: optionLabel(option),
     provider: option.provider,
     model: option.model,
+    models_dev_provider_id: option.models_dev_provider_id,
     deleted: option.deleted,
     active: option.name === selected,
   }));
@@ -86,6 +88,7 @@ export function buildStatusBarModelMenu({ modelOptions = [], selectedModelName =
   return {
     displayLabel,
     displayDeleted: !!selectedOption?.deleted,
+    selectedOption: selectedOption || null,
     widthLabel: widthLabel || displayLabel,
     items,
   };

@@ -169,7 +169,7 @@ run('selected contexts remain accessible while the composer footer stays on one 
   );
   assert.match(
     styles,
-    /\.ace-composer-permission-control,[\s\S]*?\.ace-composer-model-control\s*\{[^}]*min-width: 28px;[^}]*flex: 0 1 auto;[^}]*overflow: hidden;/,
+    /\.ace-composer-permission-control,[\s\S]*?\.ace-composer-model-control\s*\{[^}]*min-width: 28px;[^}]*flex: 0 1 auto;[^}]*overflow: visible;/,
   );
   assert.match(
     component,
@@ -275,7 +275,9 @@ run('compressed composer controls fall back to one representative SVG icon', () 
 
   assert.match(component, /ace-composer-swarm-chip/);
   assert.match(component, /ace-composer-expert-chip/);
-  assert.match(component, /<VsIcon name="embedding" size=\{16\} className="ace-composer-model-glyph shrink-0"/);
+  assert.match(component, /<ProviderIcon\s+provider=\{modelMenu\.selectedOption\}\s+size="sm"\s+className="ace-composer-model-glyph"/s);
+  assert.match(component, /<ProviderIcon provider=\{item\} size="sm" \/>/);
+  assert.match(component, /<span className="min-w-0 flex-1 truncate text-\[12px\]">\{item\.label\}<\/span>[\s\S]*?item\.active && <VsIcon name="ok"/);
   assert.match(component, /ace-composer-adaptive-content ace-composer-permission-label/);
   assert.match(component, /ace-composer-adaptive-content ace-composer-model-label/);
   assert.match(component, /function useAdaptiveComposerControls\(rootRef, measureKey\)[\s\S]*?new ResizeObserver\(schedule\)/s);
@@ -290,5 +292,6 @@ run('compressed composer controls fall back to one representative SVG icon', () 
   assert.match(styles, /\.ace-composer-expert-chip\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
   assert.match(styles, /\.ace-composer-permission-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
   assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
-  assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-model-glyph\s*\{[^}]*display: inline-block;/s);
+  assert.match(styles, /\.ace-composer-model-glyph\s*\{[^}]*display: inline-flex;/s);
+  assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-model-glyph\s*\{[^}]*display: inline-flex;/s);
 });

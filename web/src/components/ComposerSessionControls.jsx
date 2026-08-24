@@ -6,6 +6,7 @@ import { buildStatusBarModelMenu } from '../lib/sessionModel.js';
 import { RefreshIcon, VsIcon } from './Icon.jsx';
 import { SwarmModeIcon } from './SwarmModeIcon.jsx';
 import { TokenBudgetRing } from './TokenBudgetRing.jsx';
+import { ProviderIcon } from './model-settings/ProviderIcon.jsx';
 
 function permissionTextClass(color) {
   if (color === 'ok') return 'text-ok';
@@ -477,7 +478,11 @@ export function ComposerSessionControls({
               (modelSwitching || !canOpenModelMenu) && 'cursor-wait opacity-60',
             )}
           >
-            <VsIcon name="embedding" size={16} className="ace-composer-model-glyph shrink-0" />
+            <ProviderIcon
+              provider={modelMenu.selectedOption}
+              size="sm"
+              className="ace-composer-model-glyph"
+            />
             <span className="ace-composer-adaptive-content ace-composer-model-label">{compactModelLabel}</span>
             <VsIcon name="glyphDown" size={10} className="ace-composer-adaptive-content shrink-0 opacity-75" />
           </button>
@@ -531,10 +536,11 @@ export function ComposerSessionControls({
                     )}
                     title={item.label}
                   >
+                    <ProviderIcon provider={item} size="sm" />
+                    <span className="min-w-0 flex-1 truncate text-[12px]">{item.label}</span>
                     <span className="w-3 shrink-0 text-center">
                       {item.active && <VsIcon name="ok" size={11} mono={false} />}
                     </span>
-                    <span className="truncate text-[12px]">{item.label}</span>
                   </button>
                 )) : (
                   <div className="px-3 py-4 text-center text-[11px] text-fg-mute">

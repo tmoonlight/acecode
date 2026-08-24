@@ -59,6 +59,25 @@ run('model options dedupe by preset name', () => {
   assert.equal(optionLabel(options[0]), 'fast (copilot/gpt-5)');
 });
 
+run('model options preserve the catalog provider used by prefix icons', () => {
+  const options = normalizeModelOptions([
+    {
+      name: 'aurora-moonlight',
+      provider: 'openai',
+      model: 'moonlight',
+      models_dev_provider_id: 'acemodel',
+    },
+  ]);
+  assert.equal(options[0].models_dev_provider_id, 'acemodel');
+
+  const menu = buildStatusBarModelMenu({
+    modelOptions: options,
+    selectedModelName: 'aurora-moonlight',
+  });
+  assert.equal(menu.selectedOption.models_dev_provider_id, 'acemodel');
+  assert.equal(menu.items[0].models_dev_provider_id, 'acemodel');
+});
+
 run('pending select value rolls back to previous model when pending clears', () => {
   const previous = normalizeModelState({ name: 'slow', provider: 'copilot', model: 'slow-model' });
   assert.equal(selectedModelName(previous), 'slow');

@@ -1332,7 +1332,7 @@ body {
 .ace-composer-model-control {
   min-width: 28px;
   flex: 0 1 auto;
-  overflow: hidden;
+  overflow: visible;
 }
 .ace-composer-adaptive-chip {
   min-width: 28px;
@@ -1421,7 +1421,7 @@ body {
   line-height: 1.35;
 }
 .ace-composer-model-glyph {
-  display: none;
+  display: inline-flex;
 }
 .ace-composer-swarm-chip[data-compact="true"] .ace-composer-adaptive-content {
   display: none;
@@ -1449,12 +1449,12 @@ body {
   display: none;
 }
 .ace-composer-model-control[data-compact="true"] .ace-composer-model-button {
-  padding-right: 6px;
-  padding-left: 6px;
+  padding-right: 4px;
+  padding-left: 4px;
   gap: 0;
 }
 .ace-composer-model-control[data-compact="true"] .ace-composer-model-glyph {
-  display: inline-block;
+  display: inline-flex;
 }
 .ace-composer-model-load {
   height: 28px;
