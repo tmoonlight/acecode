@@ -2,6 +2,7 @@
 // 对应 openspec/changes/model-profiles 的 Section 1 —— ModelProfile 数据模型。
 #pragma once
 
+#include <cstddef>
 #include <map>
 #include <optional>
 #include <string>
@@ -54,10 +55,23 @@ struct SavedModelsValidationError {
     int line_hint = -1;
 };
 
+struct SavedModelNameRepair {
+    std::size_t index = 0;
+    std::string original_name;
+    std::string repaired_name;
+};
+
 // 纯函数:把 `saved_models` JSON 数组解析为 ModelProfile vector。
 // 成功返回 vector(可为空);失败返回 nullopt 并向 err 写入详细原因。
 std::optional<std::vector<ModelProfile>> parse_saved_models(const nlohmann::json& node,
-                                                          std::string& err);
+                                                           std::string& err);
+
+// 纯函数:把同名 entry 的最后一条视为最新并保留原名;更旧的条目追加
+// `-` + 6 位小写十六进制 hash。生成名称会避开输入及本轮已生成的全部名称。
+// 失败时 entries 保持不变。
+std::optional<std::vector<SavedModelNameRepair>>
+repair_duplicate_saved_model_names(std::vector<ModelProfile>& entries,
+                                   std::string& err);
 
 // 纯函数:校验 entry 列表 + default_name 的合法性。
 // 校验点:

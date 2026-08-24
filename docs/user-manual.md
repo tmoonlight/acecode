@@ -81,6 +81,8 @@ ACECode 是一个运行在终端里的 AI 编程助手，基于 FTXUI 提供交�
 
 配置保存在 `~/.acecode/config.json`。配置向导会写入一条默认 `saved_models` 条目并设置 `default_model_name`，之后启动无需重复配置。
 
+启动加载配置时，`saved_models` 数组顺序按旧到新解释。如果出现同名条目，ACECode 会保留最后一条（最新条目）的原名，把前面的同名条目依次重命名为 `原名-<6位小写十六进制hash>`，避开已有名称后原子写回 `config.json`，再继续启动。因此 `default_model_name` 仍会指向保留原名的最新条目。若自动修复无法写入，或修复后仍有保留前缀、必填字段、默认引用等其他配置错误，启动仍会报告配置错误并退出。
+
 #### 选 provider / model 的键位
 
 `configure` 里浏览 models.dev catalog 或选 Copilot 模型时，会进入一个 FTXUI 的交互选单：

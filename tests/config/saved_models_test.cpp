@@ -7,13 +7,44 @@
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <set>
+#include <sstream>
 #include <string>
 
 using namespace acecode;
+
+namespace {
+
+ModelProfile make_valid_openai_profile(const std::string& name,
+                                       const std::string& model) {
+    ModelProfile profile;
+    profile.name = name;
+    profile.provider = "openai";
+    profile.base_url = "https://models.example/v1";
+    profile.api_key = "test-key";
+    profile.model = model;
+    return profile;
+}
+
+bool has_six_lower_hex_suffix(const std::string& value,
+                              const std::string& original_name) {
+    const std::string prefix = original_name + "-";
+    if (value.size() != prefix.size() + 6 || value.rfind(prefix, 0) != 0) {
+        return false;
+    }
+    return std::all_of(value.begin() + static_cast<std::ptrdiff_t>(prefix.size()),
+                       value.end(), [](unsigned char ch) {
+                           return (ch >= '0' && ch <= '9') ||
+                                  (ch >= 'a' && ch <= 'f');
+                       });
+}
+
+} // namespace
 
 // 额外 — OpenAI 兼容请求默认超时必须是 666 秒。
 TEST(SavedModelsTest, OpenAiStreamTimeoutDefaultIs666Seconds) {
@@ -63,6 +94,208 @@ TEST(SavedModelsTest, DuplicateNameFails) {
     EXPECT_FALSE(validate_saved_models(entries, "", err));
     EXPECT_NE(err.find("duplicate"), std::string::npos) << err;
     EXPECT_NE(err.find("dup"), std::string::npos) << err;
+}
+
+// 场景:两条同名模型按旧到新修复,旧条目获得稳定 6 位 hash,最新条目保留原名。
+TEST(SavedModelsTest, DuplicateNameRepairKeepsLatestAndIsDeterministic) {
+    const std::vector<ModelProfile> original{
+        make_valid_openai_profile("dup", "older-model"),
+        make_valid_openai_profile("dup", "newest-model"),
+    };
+
+    std::vector<ModelProfile> first = original;
+    std::string error;
+    auto first_repairs = repair_duplicate_saved_model_names(first, error);
+    ASSERT_TRUE(first_repairs.has_value()) << error;
+    ASSERT_EQ(first_repairs->size(), 1u);
+    EXPECT_EQ((*first_repairs)[0].index, 0u);
+    EXPECT_EQ((*first_repairs)[0].original_name, "dup");
+    EXPECT_TRUE(has_six_lower_hex_suffix(first[0].name, "dup"));
+    EXPECT_EQ((*first_repairs)[0].repaired_name, first[0].name);
+    EXPECT_EQ(first[0].model, "older-model");
+    EXPECT_EQ(first[1].name, "dup");
+    EXPECT_EQ(first[1].model, "newest-model");
+
+    std::vector<ModelProfile> second = original;
+    error.clear();
+    auto second_repairs = repair_duplicate_saved_model_names(second, error);
+    ASSERT_TRUE(second_repairs.has_value()) << error;
+    ASSERT_EQ(second_repairs->size(), 1u);
+    EXPECT_EQ(second[0].name, first[0].name);
+    EXPECT_EQ(second[1].name, first[1].name);
+
+    error.clear();
+    EXPECT_TRUE(validate_saved_models(first, "dup", error)) << error;
+}
+
+// 场景:多个 duplicate 组交错出现时,所有旧条目都按原数组顺序得到唯一名称。
+TEST(SavedModelsTest, DuplicateNameRepairHandlesMultipleGroupsInArrayOrder) {
+    std::vector<ModelProfile> entries{
+        make_valid_openai_profile("alpha", "alpha-oldest"),
+        make_valid_openai_profile("beta", "beta-old"),
+        make_valid_openai_profile("alpha", "alpha-middle"),
+        make_valid_openai_profile("alpha", "alpha-newest"),
+        make_valid_openai_profile("beta", "beta-newest"),
+    };
+
+    std::string error;
+    auto repairs = repair_duplicate_saved_model_names(entries, error);
+    ASSERT_TRUE(repairs.has_value()) << error;
+    ASSERT_EQ(repairs->size(), 3u);
+    EXPECT_EQ((*repairs)[0].index, 0u);
+    EXPECT_EQ((*repairs)[1].index, 1u);
+    EXPECT_EQ((*repairs)[2].index, 2u);
+    EXPECT_TRUE(has_six_lower_hex_suffix(entries[0].name, "alpha"));
+    EXPECT_TRUE(has_six_lower_hex_suffix(entries[1].name, "beta"));
+    EXPECT_TRUE(has_six_lower_hex_suffix(entries[2].name, "alpha"));
+    EXPECT_EQ(entries[3].name, "alpha");
+    EXPECT_EQ(entries[4].name, "beta");
+
+    std::set<std::string> names;
+    for (const auto& entry : entries) names.insert(entry.name);
+    EXPECT_EQ(names.size(), entries.size());
+}
+
+// 场景:首选 6 位 hash 已被另一个模型占用时,修复器继续探测并保留原有名称。
+TEST(SavedModelsTest, DuplicateNameRepairAvoidsExistingNameCollision) {
+    std::vector<ModelProfile> baseline{
+        make_valid_openai_profile("dup", "old"),
+        make_valid_openai_profile("dup", "new"),
+    };
+    std::string error;
+    auto baseline_repairs = repair_duplicate_saved_model_names(baseline, error);
+    ASSERT_TRUE(baseline_repairs.has_value()) << error;
+    ASSERT_EQ(baseline_repairs->size(), 1u);
+    const std::string occupied_candidate = baseline[0].name;
+
+    std::vector<ModelProfile> entries{
+        make_valid_openai_profile("dup", "old"),
+        make_valid_openai_profile("dup", "new"),
+        make_valid_openai_profile(occupied_candidate, "already-present"),
+    };
+    error.clear();
+    auto repairs = repair_duplicate_saved_model_names(entries, error);
+    ASSERT_TRUE(repairs.has_value()) << error;
+    ASSERT_EQ(repairs->size(), 1u);
+    EXPECT_TRUE(has_six_lower_hex_suffix(entries[0].name, "dup"));
+    EXPECT_NE(entries[0].name, occupied_candidate);
+    EXPECT_EQ(entries[1].name, "dup");
+    EXPECT_EQ(entries[2].name, occupied_candidate);
+
+    std::set<std::string> names;
+    for (const auto& entry : entries) names.insert(entry.name);
+    EXPECT_EQ(names.size(), entries.size());
+}
+
+// 场景:名称本来唯一时,修复器返回空记录且不修改任何条目。
+TEST(SavedModelsTest, DuplicateNameRepairLeavesUniqueRegistryUnchanged) {
+    std::vector<ModelProfile> entries{
+        make_valid_openai_profile("alpha", "model-a"),
+        make_valid_openai_profile("beta", "model-b"),
+    };
+
+    std::string error;
+    auto repairs = repair_duplicate_saved_model_names(entries, error);
+    ASSERT_TRUE(repairs.has_value()) << error;
+    EXPECT_TRUE(repairs->empty());
+    EXPECT_EQ(entries[0].name, "alpha");
+    EXPECT_EQ(entries[0].model, "model-a");
+    EXPECT_EQ(entries[1].name, "beta");
+    EXPECT_EQ(entries[1].model, "model-b");
+}
+
+// 场景:启动加载遇到同名模型时自动写回旧条目新名,默认名仍指向最新模型且二次加载不再写盘。
+TEST(SavedModelsTest, LoadConfigRepairsDuplicateNamesAndPersistsIdempotently) {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto path = std::filesystem::temp_directory_path() /
+        ("acecode-duplicate-model-repair-" + std::to_string(suffix) + ".json");
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    const nlohmann::json source{
+        {"default_model_name", "dup"},
+        {"unknown_root_field", {{"preserve", true}}},
+        {"saved_models", nlohmann::json::array({
+            {
+                {"name", "dup"},
+                {"provider", "openai"},
+                {"base_url", "https://oldest.example/v1"},
+                {"api_key", "oldest-secret"},
+                {"model", "oldest-model"},
+                {"context_window", 64000},
+                {"capabilities", nlohmann::json::array({"vision"})},
+                {"request_headers", {{"X-Oldest", "keep-me"}}},
+            },
+            {
+                {"name", "dup"},
+                {"provider", "copilot"},
+                {"model", "middle-model"},
+                {"context_window", 128000},
+            },
+            {
+                {"name", "dup"},
+                {"provider", "anthropic"},
+                {"base_url", "https://newest.example/v1"},
+                {"api_key", "newest-secret"},
+                {"model", "newest-model"},
+                {"max_output_tokens", 8192},
+            },
+        })},
+    };
+    {
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(output.is_open());
+        output << source.dump(2) << '\n';
+        ASSERT_TRUE(output.good());
+    }
+
+    const AppConfig first = load_config_from_path(path.string());
+    ASSERT_EQ(first.saved_models.size(), 3u);
+    EXPECT_TRUE(has_six_lower_hex_suffix(first.saved_models[0].name, "dup"));
+    EXPECT_TRUE(has_six_lower_hex_suffix(first.saved_models[1].name, "dup"));
+    EXPECT_NE(first.saved_models[0].name, first.saved_models[1].name);
+    EXPECT_EQ(first.saved_models[2].name, "dup");
+    EXPECT_EQ(first.saved_models[2].model, "newest-model");
+    EXPECT_EQ(first.default_model_name, "dup");
+    EXPECT_EQ(first.saved_models[0].api_key, "oldest-secret");
+    EXPECT_EQ(first.saved_models[0].request_headers.at("X-Oldest"), "keep-me");
+    EXPECT_EQ(first.saved_models[1].context_window, 128000);
+    EXPECT_EQ(first.saved_models[2].max_output_tokens, 8192);
+
+    nlohmann::json persisted;
+    std::string first_bytes;
+    {
+        std::ifstream input(path, std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        first_bytes = buffer.str();
+        persisted = nlohmann::json::parse(first_bytes);
+    }
+    ASSERT_EQ(persisted["saved_models"].size(), 3u);
+    EXPECT_EQ(persisted["saved_models"][0]["name"], first.saved_models[0].name);
+    EXPECT_EQ(persisted["saved_models"][1]["name"], first.saved_models[1].name);
+    EXPECT_EQ(persisted["saved_models"][2]["name"], "dup");
+    EXPECT_EQ(persisted["default_model_name"], "dup");
+    EXPECT_EQ(persisted["unknown_root_field"], source["unknown_root_field"]);
+    for (std::size_t i = 0; i < 3; ++i) {
+        nlohmann::json expected = source["saved_models"][i];
+        expected["name"] = persisted["saved_models"][i]["name"];
+        EXPECT_EQ(persisted["saved_models"][i], expected);
+    }
+
+    const AppConfig second = load_config_from_path(path.string());
+    ASSERT_EQ(second.saved_models.size(), first.saved_models.size());
+    for (std::size_t i = 0; i < first.saved_models.size(); ++i) {
+        EXPECT_EQ(second.saved_models[i].name, first.saved_models[i].name);
+    }
+    std::ifstream second_input(path, std::ios::binary);
+    ASSERT_TRUE(second_input.is_open());
+    std::ostringstream second_buffer;
+    second_buffer << second_input.rdbuf();
+    EXPECT_EQ(second_buffer.str(), first_bytes);
+
+    std::filesystem::remove(path, ec);
 }
 
 // 7.4 — name 以 `(` 开头 → 校验失败,err 含 "reserved prefix"。

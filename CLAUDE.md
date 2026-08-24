@@ -456,7 +456,7 @@ The existing region detector still probes DuckDuckGo once at startup through `Pr
 
 `mcp_servers` entries without `transport` default to `stdio`. `sse` = legacy two-endpoint protocol; `http` = 2025-03-26 Streamable HTTP single-endpoint (default `/mcp`).
 
-`saved_models` is a named registry; `default_model_name` points into it. Each entry needs `name` (must NOT start with `(` — reserved for synthesized `(session:<id>)`), `provider`, `model`. OpenAI entries also need `base_url` + `api_key`. `load_config` rejects on duplicate names, reserved prefixes, missing fields, or dangling `default_model_name`.
+`saved_models` is a named registry; `default_model_name` points into it. Each entry needs `name` (must NOT start with `(` — reserved for synthesized `(session:<id>)`), `provider`, `model`. OpenAI entries also need `base_url` + `api_key`. On load, array order is oldest-to-newest: for duplicate names, every occurrence except the last is atomically persisted as `<name>-<6-lowercase-hex-hash>`, while the last keeps the original name. Repair-write failures and all other invalid states (reserved prefixes, missing fields, dangling `default_model_name`, etc.) remain fatal.
 `acecode configure` upserts one named `saved_models` entry from the selected provider/model and sets it as `default_model_name`; normal startup no longer derives a selectable model from top-level provider fields.
 
 ### Model profile resolution

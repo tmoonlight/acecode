@@ -1445,6 +1445,37 @@ AppConfig load_config_from_path(
                     std::exit(1);
                 }
                 cfg.saved_models = std::move(*parsed);
+
+                std::string repair_error;
+                auto repairs = repair_duplicate_saved_model_names(
+                    cfg.saved_models, repair_error);
+                if (!repairs.has_value()) {
+                    fatal_config_value(
+                        "failed to repair duplicate saved model names: " +
+                        repair_error);
+                }
+                if (!repairs->empty()) {
+                    for (const auto& repair : *repairs) {
+                        j["saved_models"][repair.index]["name"] =
+                            repair.repaired_name;
+                    }
+
+                    // Windows may reject replacing a file that this process still
+                    // has open, so close the startup read handle before atomic rename.
+                    ifs.close();
+                    if (!atomic_write_file(config_path, j.dump(2) + "\n", true)) {
+                        fatal_config_value(
+                            "failed to persist repaired duplicate saved model names to " +
+                            config_path);
+                    }
+                    for (const auto& repair : *repairs) {
+                        LOG_WARN(
+                            "[config] repaired duplicate saved model name at index " +
+                            std::to_string(repair.index) + ": " +
+                            nlohmann::json(repair.original_name).dump() + " -> " +
+                            nlohmann::json(repair.repaired_name).dump());
+                    }
+                }
             }
             if (j.contains("default_model_name") && j["default_model_name"].is_string()) {
                 cfg.default_model_name = j["default_model_name"].get<std::string>();

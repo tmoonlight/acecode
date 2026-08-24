@@ -4,10 +4,14 @@
 
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
+#include "../utils/sha256.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
+#include <iomanip>
 #include <limits>
+#include <map>
 #include <set>
 #include <sstream>
 
@@ -292,6 +296,59 @@ std::optional<std::vector<ModelProfile>> parse_saved_models(const nlohmann::json
         out.push_back(std::move(*entry));
     }
     return out;
+}
+
+std::optional<std::vector<SavedModelNameRepair>>
+repair_duplicate_saved_model_names(std::vector<ModelProfile>& entries,
+                                   std::string& err) {
+    constexpr std::uint32_t kShortHashSpace = 1u << 24;
+    constexpr std::uint32_t kShortHashMask = kShortHashSpace - 1;
+
+    err.clear();
+    std::map<std::string, std::size_t> last_indices;
+    std::set<std::string> occupied_names;
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        last_indices[entries[i].name] = i;
+        occupied_names.insert(entries[i].name);
+    }
+
+    std::vector<ModelProfile> repaired_entries = entries;
+    std::vector<SavedModelNameRepair> repairs;
+    for (std::size_t i = 0; i < repaired_entries.size(); ++i) {
+        const std::string original_name = repaired_entries[i].name;
+        if (last_indices[original_name] == i) continue;
+
+        std::string hash_input = original_name;
+        hash_input.push_back('\0');
+        hash_input += std::to_string(i);
+        const std::string digest = sha256_hex(hash_input);
+        const std::uint32_t hash_start = static_cast<std::uint32_t>(
+            std::stoul(digest.substr(0, 6), nullptr, 16));
+
+        bool found = false;
+        for (std::uint32_t offset = 0; offset < kShortHashSpace; ++offset) {
+            const std::uint32_t suffix_value =
+                (hash_start + offset) & kShortHashMask;
+            std::ostringstream suffix;
+            suffix << std::hex << std::nouppercase << std::setfill('0')
+                   << std::setw(6) << suffix_value;
+            std::string candidate = original_name + "-" + suffix.str();
+            if (!occupied_names.insert(candidate).second) continue;
+
+            repaired_entries[i].name = candidate;
+            repairs.push_back({i, original_name, std::move(candidate)});
+            found = true;
+            break;
+        }
+        if (!found) {
+            err = "saved_models duplicate name '" + original_name +
+                  "' has no available 6-hex repair suffix";
+            return std::nullopt;
+        }
+    }
+
+    entries = std::move(repaired_entries);
+    return repairs;
 }
 
 bool validate_saved_models(const std::vector<ModelProfile>& entries,
