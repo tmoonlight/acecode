@@ -1138,6 +1138,8 @@ bool SessionManager::update_meta(
     // Must be called under lock
     if (!created_) return true;
 
+    adopt_foreign_user_title_locked();
+
     SessionMeta meta;
     meta.id = session_id_;
     meta.cwd = cwd_;
@@ -1172,6 +1174,30 @@ bool SessionManager::update_meta(
         refresh_writer_lease_locked();
     }
     return written;
+}
+
+// A rename can be persisted by a process that does not hold this session in
+// memory: Desktop runs one daemon per workspace, and the daemon serving the
+// sidebar writes the meta of sessions owned by another workspace's daemon
+// directly on disk. The in-memory title outranks the persisted one everywhere
+// (SessionRegistry::list_active feeds session_info_to_json), so without this
+// adoption the next meta write would silently restore the old title and the
+// rename would look like it never happened. Only sessions that carry no user
+// title of their own adopt; a local rename always wins over a foreign one.
+void SessionManager::adopt_foreign_user_title_locked() {
+    if (user_title_touched_) return;
+    if (meta_path_str_.empty()) return;
+    std::error_code ec;
+    if (!fs::is_regular_file(path_from_utf8(meta_path_str_), ec)) return;
+    const auto persisted = SessionStorage::read_meta(meta_path_str_);
+    if (persisted.id.empty()) return;
+    if (persisted.title_source != "user" &&
+        persisted.title_source != "user-cleared") {
+        return;
+    }
+    pending_title_ = persisted.title;
+    title_source_ = persisted.title_source;
+    user_title_touched_ = true;
 }
 
 void SessionManager::set_session_title(std::string title) {

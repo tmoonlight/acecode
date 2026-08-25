@@ -775,8 +775,24 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     o["cwd"]           = cwd;
     o["session_path"]  = existing_session_jsonl_path(storage_cwd, s.id);
     o["no_workspace"]  = no_workspace;
-    o["title"]         = !s.title.empty() ? s.title : (m ? m->title : "");
-    o["title_source"]  = !s.title_source.empty() ? s.title_source : (m ? m->title_source : "");
+    // A user rename persisted by another process (Desktop keeps one daemon per
+    // workspace, and only the active one serves the UI) leaves this daemon's
+    // in-memory title stale. A persisted user title therefore outranks a live
+    // title that no user set, otherwise the rename would look reverted until
+    // the owning daemon happens to rewrite the meta.
+    const bool live_user_title =
+        s.title_source == "user" || s.title_source == "user-cleared";
+    const bool meta_user_title =
+        m && (m->title_source == "user" || m->title_source == "user-cleared");
+    if (meta_user_title && !live_user_title) {
+        o["title"]        = m->title;
+        o["title_source"] = m->title_source;
+    } else {
+        o["title"]        = !s.title.empty() ? s.title : (m ? m->title : "");
+        o["title_source"] = !s.title_source.empty()
+            ? s.title_source
+            : (m ? m->title_source : "");
+    }
     o["summary"]       = !s.summary.empty() ? s.summary : (m ? m->summary : "");
     o["created_at"]    = !s.created_at.empty() ? s.created_at : (m ? m->created_at : "");
     o["updated_at"]    = !s.updated_at.empty() ? s.updated_at : (m ? m->updated_at : "");
@@ -1458,6 +1474,27 @@ crow::response WebServer::Impl::set_session_title_response(
     SessionStorage::write_meta(SessionStorage::meta_path(project_dir, id), meta);
     if (global_session_search) {
         global_session_search->invalidate_project(ws.hash);
+    }
+
+    // The session can still be live in this process even though it failed the
+    // workspace scoping check above: no-workspace sessions never match a
+    // workspace, and a cwd recorded in a different path form does not either.
+    // list_active()'s in-memory title shadows the meta written just above and
+    // the entry's next update_meta() would write the stale title back, so the
+    // live copy has to learn about the rename too. The session id already
+    // identified the target uniquely, and reaching this point means the meta
+    // lookup accepted it for this workspace.
+    if (deps.session_registry) {
+        if (auto live = deps.session_registry->acquire(id); live && live->sm) {
+            live->sm->set_session_title(title);
+            emit_session_title_update(*live);
+            if (live->loop) {
+                live->loop->dispatch_session_title_changed_hook(
+                    live->sm->current_title(),
+                    "user",
+                    live->sm->current_title_source());
+            }
+        }
     }
 
     crow::response r(session_meta_to_json(meta, ws.hash).dump());

@@ -120,6 +120,76 @@ TEST(SessionTitle, ExplicitClearRemainsUserOwnedAfterResume) {
     reader.finalize();
 }
 
+// Desktop runs one daemon per workspace and only the active one serves the UI,
+// so a rename can be persisted by a process that does not hold the session in
+// memory. The in-memory title must not write itself back over that rename.
+TEST(SessionTitle, ForeignUserRenameSurvivesLaterLocalMetaWrite) {
+    const auto cwd = temp_cwd("foreign_rename");
+    ProjectCleanup cleanup(cwd.string());
+    const std::string session_id = "20260610-020306-abcd";
+
+    acecode::SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model", session_id);
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "original task";
+    sm.on_message(user);
+    ASSERT_EQ(sm.ensure_active_session_id(), session_id);
+
+    const auto meta_path =
+        acecode::SessionStorage::meta_path(cleanup.project_dir, session_id);
+    auto meta = acecode::SessionStorage::read_meta(meta_path);
+    ASSERT_EQ(meta.id, session_id);
+    meta.title = "Renamed elsewhere";
+    meta.title_source = "user";
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(meta_path, meta));
+
+    acecode::ChatMessage assistant;
+    assistant.role = "assistant";
+    assistant.content = "ack";
+    sm.on_message(assistant);
+
+    const auto after = acecode::SessionStorage::read_meta(meta_path);
+    EXPECT_EQ(after.title, "Renamed elsewhere");
+    EXPECT_EQ(after.title_source, "user");
+    EXPECT_EQ(sm.current_title(), "Renamed elsewhere");
+    EXPECT_EQ(sm.current_title_source(), "user");
+    EXPECT_FALSE(sm.try_set_generated_session_title("Generated after rename"));
+    sm.finalize();
+}
+
+TEST(SessionTitle, LocalUserTitleIsNotReplacedByPersistedUserTitle) {
+    const auto cwd = temp_cwd("local_rename_wins");
+    ProjectCleanup cleanup(cwd.string());
+    const std::string session_id = "20260610-020307-abcd";
+
+    acecode::SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model", session_id);
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "original task";
+    sm.on_message(user);
+    sm.set_session_title("Local title");
+
+    const auto meta_path =
+        acecode::SessionStorage::meta_path(cleanup.project_dir, session_id);
+    auto meta = acecode::SessionStorage::read_meta(meta_path);
+    ASSERT_EQ(meta.title, "Local title");
+    meta.title = "Stale title";
+    meta.title_source = "user";
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(meta_path, meta));
+
+    acecode::ChatMessage assistant;
+    assistant.role = "assistant";
+    assistant.content = "ack";
+    sm.on_message(assistant);
+
+    const auto after = acecode::SessionStorage::read_meta(meta_path);
+    EXPECT_EQ(after.title, "Local title");
+    EXPECT_EQ(sm.current_title(), "Local title");
+    sm.finalize();
+}
+
 TEST(SessionTitle, GeneratedTitleForSessionRequiresActiveSessionMatch) {
     const auto cwd = temp_cwd("session_match");
     ProjectCleanup cleanup(cwd.string());

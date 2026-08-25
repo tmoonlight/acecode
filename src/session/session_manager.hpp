@@ -249,6 +249,11 @@ private:
     bool update_meta(
         std::optional<std::string> updated_at_override = std::nullopt);
     bool try_set_generated_session_title_locked(std::string title);
+    // Adopt a user title that another process persisted while this one held
+    // the session in memory (Desktop's per-workspace daemon pool). Called
+    // before every meta write so the in-memory title never silently
+    // overwrites a rename that landed on disk from elsewhere.
+    void adopt_foreign_user_title_locked();
     void reset_auto_title_state_locked();
     std::string extract_summary(const std::string& content) const;
     bool acquire_writer_lease_locked();
