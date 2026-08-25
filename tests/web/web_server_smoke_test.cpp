@@ -4384,6 +4384,87 @@ TEST(WebServerHttp, WorkspacePutSessionTitleRenamesInactiveDiskSession) {
     EXPECT_EQ(out.title_source, "user");
 }
 
+// 场景: 「不使用工作区」的会话永远匹配不上任何 workspace,重命名因此走磁盘
+// 分支。活跃会话的内存标题会盖住磁盘 meta(list_active -> session_info_to_json),
+// 所以磁盘分支必须同时把新标题写进内存那份,否则列表立刻回滚成旧标题。
+TEST(WebServerHttp, PutSessionTitleUpdatesLiveNoWorkspaceSession) {
+    WebServerFixture fx;
+
+    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                             cpr::Header{{"Content-Type", "application/json"}},
+                             cpr::Body{R"({"no_workspace":true})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const auto sid = json::parse(created.text)["session_id"].get<std::string>();
+
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    ASSERT_EQ(entry->sm->ensure_active_session_id(), sid);
+    ASSERT_TRUE(entry->sm->try_set_generated_session_title("Auto title"));
+
+    auto put = cpr::Put(cpr::Url{fx.url("/api/sessions/" + sid + "/title")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{R"({"title":"Manual rename"})"});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    EXPECT_EQ(json::parse(put.text)["title"], "Manual rename");
+
+    EXPECT_EQ(entry->sm->current_title(), "Manual rename");
+    EXPECT_EQ(entry->sm->current_title_source(), "user");
+
+    auto list = cpr::Get(cpr::Url{fx.url("/api/sessions")});
+    ASSERT_EQ(list.status_code, 200) << list.text;
+    auto sessions = json::parse(list.text);
+    auto it = std::find_if(sessions.begin(), sessions.end(), [&](const auto& item) {
+        return item.value("id", std::string{}) == sid;
+    });
+    ASSERT_NE(it, sessions.end());
+    EXPECT_EQ((*it)["title"], "Manual rename");
+    EXPECT_EQ((*it)["title_source"], "user");
+
+    const auto project_dir = acecode::SessionStorage::get_project_dir(
+        acecode::no_workspace_session_cwd(sid, fx.no_workspace_cache_root.string()));
+    fx.client->destroy_session(sid);
+    std::filesystem::remove_all(project_dir);
+}
+
+// 场景: 另一个进程(Desktop 每个 workspace 一个 daemon)改名后只落了磁盘,
+// 本进程内存里的旧标题不能继续盖住它。
+TEST(WebServerHttp, PersistedUserTitleOutranksStaleLiveTitle) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+
+    auto created = cpr::Post(cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+                             cpr::Header{{"Content-Type", "application/json"}},
+                             cpr::Body{R"({})"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const auto sid = json::parse(created.text)["session_id"].get<std::string>();
+
+    auto* entry = fx.registry->lookup(sid);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->sm, nullptr);
+    ASSERT_EQ(entry->sm->ensure_active_session_id(), sid);
+    ASSERT_TRUE(entry->sm->try_set_generated_session_title("Auto title"));
+
+    const auto meta_path = acecode::SessionStorage::meta_path(fx.project_dir, sid);
+    auto meta = acecode::SessionStorage::read_meta(meta_path);
+    ASSERT_EQ(meta.id, sid);
+    meta.title = "Renamed by another daemon";
+    meta.title_source = "user";
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(meta_path, meta));
+
+    auto list = cpr::Get(cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")});
+    ASSERT_EQ(list.status_code, 200) << list.text;
+    auto sessions = json::parse(list.text);
+    auto it = std::find_if(sessions.begin(), sessions.end(), [&](const auto& item) {
+        return item.value("id", std::string{}) == sid;
+    });
+    ASSERT_NE(it, sessions.end());
+    EXPECT_EQ((*it)["title"], "Renamed by another daemon");
+    EXPECT_EQ((*it)["title_source"], "user");
+
+    fx.client->destroy_session(sid);
+}
+
 // 场景: hidden workspace hash 可被只读解析但不会进入可见列表;手动注册后,
 // 同一个 cwd 的旧 TUI sessions 仍按原路径列出来。
 TEST(WebServerHttp, HiddenWorkspaceResolvesBeforeRegistrationAndListsAfterRegistration) {

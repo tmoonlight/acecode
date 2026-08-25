@@ -70,6 +70,8 @@ Old `<session-id>-<pid>.jsonl` / `<session-id>-<pid>.meta.json` files are unsupp
 
 Canonical shared transcripts are protected by a lightweight writer lease under the project session directory. TUI and daemon session activation acquire the lease, refresh it after writes, and release it on session end/finalize. Stale leases are recoverable when the owner PID is dead or the heartbeat timestamp is old.
 
+**会话标题有两份且内存那份优先(改名回滚的坑)**:`SessionRegistry::list_active()` 报的是 `SessionManager` 内存里的 title,`session_info_to_json` 让它盖过磁盘 meta。所以任何**只写磁盘**的改名都会被内存那份盖掉:活跃会话的下一次 `update_meta()` 把旧标题写回去,列表也立刻显示旧标题 —— 用户看到的就是「重命名无效」。两条路径会走到只写磁盘:(1) `set_session_title_response` 的 workspace 归属判定失败(`no_workspace` 会话永远匹配不上任何 workspace,cwd 形态不同也匹配不上),(2) Desktop 每个 workspace 一个 daemon、只有 active 的那个服务 UI,改别的 workspace 的会话时落到的是没有这份内存的 daemon。修法两端都在:web 层在磁盘分支后按 id 同步本进程的活跃 entry;`SessionManager::update_meta` 写前调 `adopt_foreign_user_title_locked()`,自己没有 user 标题时采纳磁盘上的 `user`/`user-cleared` 标题(本地改名永远赢外来的);`session_info_to_json` 里磁盘 user 标题压过非 user 的内存标题。回归测试:`tests/session/session_title_test.cpp` + `tests/web/web_server_smoke_test.cpp` 的两条 title 用例。
+
 Rewind support uses per-user-turn checkpoints. `SessionManager::track_file_write_before` is the hook file-mutating tools call so `/rewind` can restore file state.
 
 Daemon session multiplexing uses `SessionRegistry`. Each session entry owns its own `SessionManager`, `PermissionManager`, `AgentLoop`, async permission prompter, and question prompter. `EventDispatcher` gives each emitted event a monotonic sequence number and keeps a bounded replay ring.
