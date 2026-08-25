@@ -271,6 +271,7 @@ void SessionManager::start_session(const std::string& cwd,
     title_source_.clear();
     reset_auto_title_state_locked();
     user_title_touched_ = false;
+    local_user_title_write_pending_ = false;
     input_draft_.clear();
     permission_mode_ = "default";
     pre_plan_permission_mode_.clear();
@@ -345,7 +346,9 @@ bool SessionManager::ensure_created() {
     meta.loop_id = loop_id_;
     meta.loop_run_id = loop_run_id_;
     meta.worktree = worktree_;
-    SessionStorage::write_meta(meta_path_str_, meta);
+    if (SessionStorage::write_meta(meta_path_str_, meta)) {
+        local_user_title_write_pending_ = false;
+    }
     return true;
 }
 
@@ -620,6 +623,7 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     pending_title_.clear();
     title_source_.clear();
     user_title_touched_ = false;
+    local_user_title_write_pending_ = false;
     reset_auto_title_state_locked();
     checkpoint_store_.load_from_messages(project_dir_, session_id_, messages);
 
@@ -756,6 +760,7 @@ void SessionManager::end_current_session() {
     title_source_.clear();
     reset_auto_title_state_locked();
     user_title_touched_ = false;
+    local_user_title_write_pending_ = false;
     input_draft_.clear();
     last_token_usage_ = {};
     session_token_usage_ = {};
@@ -1171,6 +1176,7 @@ bool SessionManager::update_meta(
     meta.worktree = worktree_;
     const bool written = SessionStorage::write_meta(meta_path_str_, meta);
     if (written) {
+        local_user_title_write_pending_ = false;
         refresh_writer_lease_locked();
     }
     return written;
@@ -1182,10 +1188,12 @@ bool SessionManager::update_meta(
 // directly on disk. The in-memory title outranks the persisted one everywhere
 // (SessionRegistry::list_active feeds session_info_to_json), so without this
 // adoption the next meta write would silently restore the old title and the
-// rename would look like it never happened. Only sessions that carry no user
-// title of their own adopt; a local rename always wins over a foreign one.
+// rename would look like it never happened. A resumed session can already
+// carry an older user title, so user_title_touched_ cannot distinguish a local
+// write from an external update. Only the explicit local write in progress is
+// allowed to win; later persisted user titles are adopted as shared state.
 void SessionManager::adopt_foreign_user_title_locked() {
-    if (user_title_touched_) return;
+    if (local_user_title_write_pending_) return;
     if (meta_path_str_.empty()) return;
     std::error_code ec;
     if (!fs::is_regular_file(path_from_utf8(meta_path_str_), ec)) return;
@@ -1205,6 +1213,7 @@ void SessionManager::set_session_title(std::string title) {
     pending_title_ = std::move(title);
     title_source_ = pending_title_.empty() ? "user-cleared" : "user";
     user_title_touched_ = true;
+    local_user_title_write_pending_ = true;
     if (created_) {
         update_meta();
     }

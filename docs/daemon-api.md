@@ -869,10 +869,11 @@ meta is updated, and a copy of the same session that is live in this daemon also
 gets the new title even when it did not match the request's workspace (a
 no-workspace session never matches one). Across daemons — Desktop runs one per
 workspace and only the active one serves the UI — the write only lands on disk,
-so a persisted `title_source` of `user`/`user-cleared` outranks a live title
-that no user set: session listings report the persisted rename, and the daemon
-holding the stale copy adopts it instead of writing it back on its next meta
-write.
+so a persisted `title_source` of `user`/`user-cleared` outranks a stale live
+title, including an older manual title: session listings report the persisted
+rename, and the daemon holding the stale copy adopts it instead of writing it
+back on its next meta write. Only an explicit local title write that is
+currently being committed outranks the disk snapshot.
 
 ### `GET /api/sessions/:id/messages?since=N`
 

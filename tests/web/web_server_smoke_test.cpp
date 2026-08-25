@@ -4400,7 +4400,7 @@ TEST(WebServerHttp, PutSessionTitleUpdatesLiveNoWorkspaceSession) {
     ASSERT_NE(entry, nullptr);
     ASSERT_NE(entry->sm, nullptr);
     ASSERT_EQ(entry->sm->ensure_active_session_id(), sid);
-    ASSERT_TRUE(entry->sm->try_set_generated_session_title("Auto title"));
+    entry->sm->set_session_title("First manual title");
 
     auto put = cpr::Put(cpr::Url{fx.url("/api/sessions/" + sid + "/title")},
                         cpr::Header{{"Content-Type", "application/json"}},
@@ -4443,7 +4443,7 @@ TEST(WebServerHttp, PersistedUserTitleOutranksStaleLiveTitle) {
     ASSERT_NE(entry, nullptr);
     ASSERT_NE(entry->sm, nullptr);
     ASSERT_EQ(entry->sm->ensure_active_session_id(), sid);
-    ASSERT_TRUE(entry->sm->try_set_generated_session_title("Auto title"));
+    entry->sm->set_session_title("First manual title");
 
     const auto meta_path = acecode::SessionStorage::meta_path(fx.project_dir, sid);
     auto meta = acecode::SessionStorage::read_meta(meta_path);

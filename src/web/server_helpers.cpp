@@ -777,14 +777,12 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     o["no_workspace"]  = no_workspace;
     // A user rename persisted by another process (Desktop keeps one daemon per
     // workspace, and only the active one serves the UI) leaves this daemon's
-    // in-memory title stale. A persisted user title therefore outranks a live
-    // title that no user set, otherwise the rename would look reverted until
-    // the owning daemon happens to rewrite the meta.
-    const bool live_user_title =
-        s.title_source == "user" || s.title_source == "user-cleared";
+    // in-memory title stale. The disk snapshot is read after list_active(), so
+    // a persisted user title is authoritative even when the live copy already
+    // carries an older user title from an earlier rename.
     const bool meta_user_title =
         m && (m->title_source == "user" || m->title_source == "user-cleared");
-    if (meta_user_title && !live_user_title) {
+    if (meta_user_title) {
         o["title"]        = m->title;
         o["title_source"] = m->title_source;
     } else {

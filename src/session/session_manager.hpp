@@ -252,7 +252,8 @@ private:
     // Adopt a user title that another process persisted while this one held
     // the session in memory (Desktop's per-workspace daemon pool). Called
     // before every meta write so the in-memory title never silently
-    // overwrites a rename that landed on disk from elsewhere.
+    // overwrites a rename that landed on disk from elsewhere. An explicit
+    // local title write is the only operation allowed to outrank the disk.
     void adopt_foreign_user_title_locked();
     void reset_auto_title_state_locked();
     std::string extract_summary(const std::string& content) const;
@@ -296,6 +297,7 @@ private:
     bool auto_title_first_turn_completed_ = false;
     bool auto_title_cycle_exhausted_ = false;
     bool user_title_touched_ = false;
+    bool local_user_title_write_pending_ = false;
     std::string input_draft_;
     std::string permission_mode_ = "default";
     std::string pre_plan_permission_mode_;

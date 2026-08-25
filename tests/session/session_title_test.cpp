@@ -158,7 +158,7 @@ TEST(SessionTitle, ForeignUserRenameSurvivesLaterLocalMetaWrite) {
     sm.finalize();
 }
 
-TEST(SessionTitle, LocalUserTitleIsNotReplacedByPersistedUserTitle) {
+TEST(SessionTitle, ExplicitLocalUserTitleOutranksExistingPersistedTitle) {
     const auto cwd = temp_cwd("local_rename_wins");
     ProjectCleanup cleanup(cwd.string());
     const std::string session_id = "20260610-020307-abcd";
@@ -169,15 +169,16 @@ TEST(SessionTitle, LocalUserTitleIsNotReplacedByPersistedUserTitle) {
     user.role = "user";
     user.content = "original task";
     sm.on_message(user);
-    sm.set_session_title("Local title");
 
     const auto meta_path =
         acecode::SessionStorage::meta_path(cleanup.project_dir, session_id);
     auto meta = acecode::SessionStorage::read_meta(meta_path);
-    ASSERT_EQ(meta.title, "Local title");
-    meta.title = "Stale title";
+    ASSERT_EQ(meta.id, session_id);
+    meta.title = "Older persisted title";
     meta.title_source = "user";
     ASSERT_TRUE(acecode::SessionStorage::write_meta(meta_path, meta));
+
+    sm.set_session_title("Local title");
 
     acecode::ChatMessage assistant;
     assistant.role = "assistant";
@@ -187,6 +188,40 @@ TEST(SessionTitle, LocalUserTitleIsNotReplacedByPersistedUserTitle) {
     const auto after = acecode::SessionStorage::read_meta(meta_path);
     EXPECT_EQ(after.title, "Local title");
     EXPECT_EQ(sm.current_title(), "Local title");
+    sm.finalize();
+}
+
+TEST(SessionTitle, ForeignUserRenameReplacesPreviouslyPersistedUserTitle) {
+    const auto cwd = temp_cwd("repeated_foreign_rename");
+    ProjectCleanup cleanup(cwd.string());
+    const std::string session_id = "20260610-020308-abcd";
+
+    acecode::SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model", session_id);
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "original task";
+    sm.on_message(user);
+    sm.set_session_title("First manual title");
+
+    const auto meta_path =
+        acecode::SessionStorage::meta_path(cleanup.project_dir, session_id);
+    auto meta = acecode::SessionStorage::read_meta(meta_path);
+    ASSERT_EQ(meta.title, "First manual title");
+    meta.title = "Renamed elsewhere again";
+    meta.title_source = "user";
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(meta_path, meta));
+
+    acecode::ChatMessage assistant;
+    assistant.role = "assistant";
+    assistant.content = "ack";
+    sm.on_message(assistant);
+
+    const auto after = acecode::SessionStorage::read_meta(meta_path);
+    EXPECT_EQ(after.title, "Renamed elsewhere again");
+    EXPECT_EQ(after.title_source, "user");
+    EXPECT_EQ(sm.current_title(), "Renamed elsewhere again");
+    EXPECT_EQ(sm.current_title_source(), "user");
     sm.finalize();
 }
 
