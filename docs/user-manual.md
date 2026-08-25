@@ -848,16 +848,18 @@ WebSocket 接口。这样可以：
 | 形态 | 命令 | 适用场景 |
 |---|---|---|
 | **前台** | `acecode daemon --foreground` | 调试 — 阻塞当前终端，日志同时输出到 stderr |
-| **detach 后台** | `acecode daemon start` | 个人本地用 — 启动后立即返回，daemon 在后台跑 |
+| **detach 后台** | `acecode daemon` | 个人本地用 — 启动后立即返回，daemon 在后台跑 |
 | **Windows 服务** | `acecode service install` + `service start` | 服务器 / 云 VM — 开机时早于登录框启动 |
 
 `daemon` 三种形态最终都进同一个 `run_worker()` 主流程，区别只在进程启动方式
-和日志去向。
+和日志去向。`acecode daemon start` 继续作为显式兼容别名。没有传 `--cwd`
+时，daemon 使用执行命令时的当前目录；需要指定其他 workspace 时可传
+`--cwd=<PATH>`。
 
 ### 16.2 detach 模式生命周期
 
 ```bash
-./acecode daemon start          # 起后台进程，5 秒内确认 pid 文件出现
+./acecode daemon                # 起后台进程，5 秒内确认 pid 文件出现
 ./acecode daemon status         # {pid, port, guid, last_heartbeat_age_ms}
 ./acecode daemon stop           # 优雅 SIGTERM，最多等 10 秒
 ```
@@ -865,12 +867,12 @@ WebSocket 接口。这样可以：
 后台进程会写：
 
 - `~/.acecode/run/daemon.pid` — 进程 id
-- `~/.acecode/run/daemon.port` — HTTP 端口（默认 28080）
+- `~/.acecode/run/daemon.port` — HTTP 端口（未配置时固定 12399）
 - `~/.acecode/run/daemon.guid` — 唯一标识（互斥 + 事后追溯）
 - `~/.acecode/run/heartbeat` — JSON `{pid, guid, timestamp_ms}`，每 2 秒重写
 - `~/.acecode/run/token` — 鉴权 token（文件权限 0600 / Windows 仅当前用户 ACL）
 
-**GUID 互斥**：第二次 `daemon start` 会被拒：
+**GUID 互斥**：第二次 `daemon` / `daemon start` 会被拒：
 ```
 daemon already running (pid=18204); stop it first or check `acecode daemon status`
 ```
@@ -918,10 +920,10 @@ daemon already running (pid=18204); stop it first or check `acecode daemon statu
 TOKEN=$(cat ~/.acecode/run/token)        # service 模式下是 %PROGRAMDATA%\acecode\run\token
 
 # HTTP header
-curl -sH "X-ACECode-Token: $TOKEN" http://127.0.0.1:28080/api/health
+curl -sH "X-ACECode-Token: $TOKEN" http://127.0.0.1:12399/api/health
 
 # WebSocket query
-wscat -c "ws://127.0.0.1:28080/ws/sessions/<sid>?token=$TOKEN"
+wscat -c "ws://127.0.0.1:12399/ws/sessions/<sid>?token=$TOKEN"
 ```
 
 YOLO / `-dangerous` 下不会启动远程反向代理；daemon 仍可以本地启动，
@@ -929,20 +931,25 @@ YOLO / `-dangerous` 下不会启动远程反向代理；daemon 仍可以本地�
 
 ### 16.5 端口配置
 
-默认 daemon 地址为 `127.0.0.1:28080`。改 `~/.acecode/config.json`（service
-模式下是 `%PROGRAMDATA%\acecode\config.json`）的 `web.port` 及远程代理配置：
+没有 CLI 和配置覆盖时，daemon 地址固定为 `127.0.0.1:12399`，端口被占时
+直接启动失败，不会扫描或随机改用其他端口。可改 `~/.acecode/config.json`
+（service 模式下是 `%PROGRAMDATA%\acecode\config.json`）的 `web.port` 及远程代理配置：
 
 ```json
 {
   "web": {
     "enabled": true,
     "bind": "127.0.0.1",
-    "port": 28080,
+    "port": 12399,
     "remote_enabled": false,
     "remote_port": 0
   }
 }
 ```
+
+端口优先级为 `daemon --port=<N>` > 显式 `web.port` > 默认 `12399`。
+已有配置若明确写了 `"port": 28080` 会继续使用 `28080`；需要迁移回旧地址时
+也可显式保留该值。
 
 Desktop/Web 管理界面的“设置 > 常规”底部提供“远程 Web 模式”。开启后，
 ACECode 会启动一个独立的反向代理子进程，把外部连接转发到仍在
@@ -967,7 +974,7 @@ token。危险模式（`--yolo` / `-dangerous`）下不能开启远程 Web 模�
 
 **daemon 端口被占仍会直接拒启**，不 retry / 不 fallback。日志会提示：
 ```
-[web] port 28080 may be in use — change web.port in config.json
+[web] port 12399 may be in use — change web.port in config.json
 or stop the conflicting process; daemon will not retry
 ```
 

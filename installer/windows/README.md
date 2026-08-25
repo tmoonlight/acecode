@@ -14,7 +14,7 @@ The compiled setup is written to `installer/windows/output/ACECode-<version>-win
 
 ## ACEModel page
 
-The last wizard page asks for an ACEModel API key. If the user fills it in, the installer writes `moonlight`, `starrylight`, and `aurora` with a 200,000-token context window into `%USERPROFILE%\.acecode\config.json`. The key can be skipped.
+The last wizard page asks for an ACEModel API key. If the user fills it in, the installer writes `moonlight`, `starrylight`, and `aurora` with a 250,000-token fallback context window into `%USERPROFILE%\.acecode\config.json`. Server-provided context metadata remains authoritative when the models are probed. The key can be skipped.
 
 ## Verify the seeder
 

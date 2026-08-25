@@ -131,6 +131,25 @@ std::optional<ReadRequest> parse_read_request(
         return std::nullopt;
     }
 
+    // Some models use start/count semantics even though the public field is
+    // named end_line. A positive reversed pair cannot describe a valid
+    // inclusive absolute range, so accept that otherwise-invalid shape as the
+    // common compatibility form: start_line plus a line count.
+    if (request.start_line > 0 &&
+        request.end_line > 0 &&
+        request.end_line < request.start_line) {
+        const int64_t normalized_end =
+            static_cast<int64_t>(request.start_line) +
+            static_cast<int64_t>(request.end_line) - 1;
+        if (normalized_end > std::numeric_limits<int>::max()) {
+            error = ToolErrors::invalid_parameter(
+                "end_line",
+                "line count produces an end line beyond the supported range");
+            return std::nullopt;
+        }
+        request.end_line = static_cast<int>(normalized_end);
+    }
+
     if (has_byte_offset &&
         !json_nonnegative_u64(args["byte_offset"], request.byte_offset)) {
         error = ToolErrors::invalid_parameter(
@@ -1013,7 +1032,9 @@ ToolImpl create_file_read_tool() {
     def.description =
         "Read a bounded portion of a text file regardless of total file size. "
         "Use start_line/end_line for line ranges, or byte_offset/max_bytes to "
-        "continue through an exceptionally long line. Follow next_line or "
+        "continue through an exceptionally long line. A positive end_line "
+        "smaller than start_line is accepted as a line count for compatibility. "
+        "Follow next_line or "
         "next_byte_offset in truncated result metadata. Do not re-read the "
         "same file/range or byte window if its contents are already current in the "
         "conversation; repeated unchanged reads return a compact stub. "
@@ -1031,7 +1052,7 @@ ToolImpl create_file_read_tool() {
             }},
             {"end_line", {
                 {"type", "integer"},
-                {"description", "End line number (1-indexed, inclusive). Optional."}
+                {"description", "End line number (1-indexed, inclusive). For compatibility, a positive value smaller than start_line is treated as the number of lines to read. Optional."}
             }},
             {"byte_offset", {
                 {"type", "integer"},

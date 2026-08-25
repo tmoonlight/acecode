@@ -183,7 +183,7 @@ TEST(ModelsHandler, ModelStateToJsonIncludesDeletedFlag) {
 
 using acecode::SavedModelDraft;
 using acecode::SavedModelEditError;
-using acecode::web::apply_acemodel_context_limits;
+using acecode::web::apply_acemodel_context_fallbacks;
 using acecode::web::http_status_for_edit_error;
 using acecode::web::parse_model_probe_request;
 using acecode::web::parse_openai_model_ids;
@@ -553,23 +553,23 @@ TEST(ModelsHandler, ParseOpenAiModelIdsAcceptsFallbackShapes) {
     EXPECT_EQ(from_array[1], "z-model");
 }
 
-// 场景:ACEModel 官方 /models 省略上下文时回填 200K；显式值不得超过
-// 产品上限，但更小的上游限制必须保留。
-TEST(ModelsHandler, ApplyAceModelContextLimitsFillsAndClamps) {
+// 场景:ACEModel 官方 /models 的有效服务器值保持原样；字段缺失或无效时
+// 才回填 250K，且不影响非内置模型。
+TEST(ModelsHandler, ApplyAceModelContextFallbacksPreservesServerValues) {
     auto parsed = parse_openai_models(nlohmann::json{
         {"data", nlohmann::json::array({
-            {{"id", "moonlight"}},
-            {{"id", "starrylight"}, {"context_window", 500000}},
-            {{"id", "aurora"}, {"context_window", 120000}},
+            {{"id", "moonlight"}, {"context_window", "unavailable"}},
+            {{"id", "starrylight"}, {"context_window", 128000}},
+            {{"id", "aurora"}, {"max_context_tokens", "1000000"}},
             {{"id", "other-model"}},
         })},
     });
 
-    apply_acemodel_context_limits(parsed);
+    apply_acemodel_context_fallbacks(parsed);
 
-    EXPECT_EQ(parsed.context_windows["moonlight"], 200000);
-    EXPECT_EQ(parsed.context_windows["starrylight"], 200000);
-    EXPECT_EQ(parsed.context_windows["aurora"], 120000);
+    EXPECT_EQ(parsed.context_windows["moonlight"], 250000);
+    EXPECT_EQ(parsed.context_windows["starrylight"], 128000);
+    EXPECT_EQ(parsed.context_windows["aurora"], 1000000);
     EXPECT_EQ(parsed.context_windows.count("other-model"), 0u);
 }
 

@@ -7,6 +7,7 @@
 namespace acecode {
 
 // Canonical first-party ACEModel catalog entry shared by every UI surface.
+// Model context values are local fallbacks; valid `/models` metadata wins.
 // The returned object has process lifetime so callers may safely retain its
 // address while running a synchronous picker or serializer.
 const ProviderEntry& acemodel_catalog_provider();

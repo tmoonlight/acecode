@@ -462,6 +462,44 @@ TEST(SavedModelsTest, OptionalContextWindowParsesAndValidates) {
     EXPECT_TRUE(validate_saved_models(*parsed, "local-lm", err)) << err;
 }
 
+// 旧版 ACEModel catalog 自动写入的 200K 是回退值而非手动覆盖；加载时
+// 迁移到 250K。用户明确标记为 manual 的 200K 保持不变。
+TEST(SavedModelsTest, LegacyAceModelCatalogContextMigratesToFallback) {
+    nlohmann::json j = nlohmann::json::array({
+        {
+            {"name", "legacy-aurora"},
+            {"provider", "openai"},
+            {"base_url", "HTTPS://GE.BIGJUAN.XYZ/aceapi/v1/"},
+            {"api_key", "x"},
+            {"model", "Aurora"},
+            {"models_dev_provider_id", "ACEModel"},
+            {"context_window", 200000},
+            {"capabilities_source", "catalog"},
+        },
+        {
+            {"name", "manual-aurora"},
+            {"provider", "openai"},
+            {"base_url", "https://ge.bigjuan.xyz/aceapi/v1"},
+            {"api_key", "x"},
+            {"model", "aurora"},
+            {"models_dev_provider_id", "acemodel"},
+            {"context_window", 200000},
+            {"capabilities_source", "manual"},
+        },
+    });
+
+    std::string err;
+    auto parsed = parse_saved_models(j, err);
+    ASSERT_TRUE(parsed.has_value()) << err;
+    ASSERT_EQ(parsed->size(), 2u);
+    ASSERT_TRUE((*parsed)[0].context_window.has_value());
+    EXPECT_EQ(*(*parsed)[0].context_window, 250000);
+    EXPECT_TRUE(is_acemodel_catalog_context_fallback((*parsed)[0]));
+    ASSERT_TRUE((*parsed)[1].context_window.has_value());
+    EXPECT_EQ(*(*parsed)[1].context_window, 200000);
+    EXPECT_FALSE(is_acemodel_catalog_context_fallback((*parsed)[1]));
+}
+
 // 额外 — stream_timeout_ms 是可选正整数;解析后参与 validate。
 TEST(SavedModelsTest, OptionalStreamTimeoutParsesAndValidates) {
     nlohmann::json j = nlohmann::json::array();

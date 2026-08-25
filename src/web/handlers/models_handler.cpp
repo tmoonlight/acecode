@@ -3,91 +3,15 @@
 #include "../../config/model_provider_registry.hpp"
 #include "../../config/request_headers.hpp"
 #include "../../provider/builtin_model_catalog.hpp"
+#include "../../provider/model_context_metadata.hpp"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
-#include <limits>
 #include <set>
 #include <string>
 
 namespace acecode::web {
 
 namespace {
-
-std::optional<int> positive_int_from_json(const nlohmann::json& value) {
-    long long parsed = 0;
-    if (value.is_number_integer() || value.is_number_unsigned()) {
-        parsed = value.get<long long>();
-    } else if (value.is_number_float()) {
-        const double d = value.get<double>();
-        if (!std::isfinite(d)) return std::nullopt;
-        parsed = static_cast<long long>(std::llround(d));
-        if (std::fabs(d - static_cast<double>(parsed)) > 0.000001) return std::nullopt;
-    } else if (value.is_string()) {
-        const std::string s = value.get<std::string>();
-        std::size_t start = 0;
-        while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start]))) ++start;
-        std::size_t end = s.size();
-        while (end > start && std::isspace(static_cast<unsigned char>(s[end - 1]))) --end;
-        if (start == end) return std::nullopt;
-        long long acc = 0;
-        for (std::size_t i = start; i < end; ++i) {
-            unsigned char ch = static_cast<unsigned char>(s[i]);
-            if (!std::isdigit(ch)) return std::nullopt;
-            acc = acc * 10 + static_cast<long long>(ch - '0');
-            if (acc > std::numeric_limits<int>::max()) return std::nullopt;
-        }
-        parsed = acc;
-    } else {
-        return std::nullopt;
-    }
-    if (parsed <= 0 || parsed > std::numeric_limits<int>::max()) return std::nullopt;
-    return static_cast<int>(parsed);
-}
-
-int context_window_from_model_item(const nlohmann::json& item) {
-    if (!item.is_object()) return 0;
-    static constexpr const char* kContextKeys[] = {
-        "context_window",
-        "contextWindow",
-        "context_length",
-        "contextLength",
-        "max_context",
-        "maxContext",
-        "max_context_length",
-        "maxContextLength",
-        "max_context_tokens",
-        "maxContextTokens",
-        "max_input_tokens",
-        "maxInputTokens",
-        "input_token_limit",
-        "inputTokenLimit",
-        "max_window_tokens",
-        "maxWindowTokens",
-        "max_model_len",
-        "maxModelLen",
-        "n_ctx",
-    };
-
-    auto scan_object = [&](const nlohmann::json& obj) -> int {
-        if (!obj.is_object()) return 0;
-        for (const char* key : kContextKeys) {
-            auto it = obj.find(key);
-            if (it == obj.end()) continue;
-            if (auto parsed = positive_int_from_json(*it)) return *parsed;
-        }
-        return 0;
-    };
-
-    if (int parsed = scan_object(item); parsed > 0) return parsed;
-    for (const char* nested_key : {"metadata", "meta", "model_info", "modelInfo", "limits"}) {
-        auto it = item.find(nested_key);
-        if (it == item.end()) continue;
-        if (int parsed = scan_object(*it); parsed > 0) return parsed;
-    }
-    return 0;
-}
 
 // 构造单个条目的模型管理 JSON。该响应只从经过认证的模型路由返回，
 // 因而保留 API Key 原值供编辑弹窗回填；调用方不得记录该对象。
@@ -407,21 +331,19 @@ ParsedOpenAiModels parse_openai_models(const nlohmann::json& body) {
         if (value.empty()) continue;
         unique.insert(value);
         if (item.is_object()) {
-            int context_window = context_window_from_model_item(item);
+            int context_window = model_context_window_from_metadata(item);
             if (context_window > 0) context_windows[value] = context_window;
         }
     }
     return {{unique.begin(), unique.end()}, std::move(context_windows)};
 }
 
-void apply_acemodel_context_limits(ParsedOpenAiModels& parsed) {
+void apply_acemodel_context_fallbacks(ParsedOpenAiModels& parsed) {
     for (const auto& id : parsed.ids) {
         const ModelEntry* model = find_acemodel_catalog_model(id);
         if (!model || !model->context.has_value() || *model->context <= 0) continue;
-        const int cap = *model->context;
-        auto it = parsed.context_windows.find(id);
-        if (it == parsed.context_windows.end() || it->second > cap) {
-            parsed.context_windows[id] = cap;
+        if (parsed.context_windows.find(id) == parsed.context_windows.end()) {
+            parsed.context_windows[id] = *model->context;
         }
     }
 }

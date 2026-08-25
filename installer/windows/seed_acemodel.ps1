@@ -108,7 +108,7 @@ function New-AceModelProfile([string]$name, [string]$key) {
     $profile["api_key"] = $key
     $profile["models_dev_provider_id"] = "acemodel"
     $profile["endpoint_mode"] = "base_url"
-    $profile["context_window"] = 200000
+    $profile["context_window"] = 250000
     $profile["capabilities"] = @("tool_use")
     $profile["capabilities_source"] = "catalog"
     return $profile
@@ -128,7 +128,7 @@ function Upsert-AceModel($models, [string]$name, [string]$key) {
             $current["base_url"] = "https://ge.bigjuan.xyz/aceapi/v1"
             $current["api_key"] = $key
             $current["models_dev_provider_id"] = "acemodel"
-            $current["context_window"] = 200000
+            $current["context_window"] = 250000
             if (-not (Config-HasKey $current "endpoint_mode") -or [string]::IsNullOrWhiteSpace([string]$current["endpoint_mode"])) {
                 $current["endpoint_mode"] = "base_url"
             }

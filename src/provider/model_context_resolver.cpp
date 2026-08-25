@@ -4,6 +4,7 @@
 #include "../utils/logger.hpp"
 #include "builtin_model_catalog.hpp"
 #include "codex/codex_model_catalog.hpp"
+#include "model_context_metadata.hpp"
 #include "models_dev_registry.hpp"
 
 #include <cpr/cpr.h>
@@ -20,7 +21,6 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include <vector>
 
 namespace acecode {
 namespace {
@@ -63,92 +63,6 @@ bool model_matches(const std::string& candidate, const std::string& target) {
     }
 
     return strip_provider_prefix(normalized_candidate) == strip_provider_prefix(normalized_target);
-}
-
-int json_int_value(const nlohmann::json& value) {
-    if (value.is_number_integer()) {
-        return value.get<int>();
-    }
-    if (value.is_number_unsigned()) {
-        return static_cast<int>(value.get<unsigned int>());
-    }
-    if (value.is_number_float()) {
-        return static_cast<int>(value.get<double>());
-    }
-    return 0;
-}
-
-int first_positive_integer_for_keys(
-    const nlohmann::json& value,
-    const std::vector<std::string>& keys) {
-    if (!value.is_object()) return 0;
-    for (const auto& key : keys) {
-        auto it = value.find(key);
-        if (it == value.end()) continue;
-        const int parsed = json_int_value(*it);
-        if (parsed > 0) return parsed;
-    }
-    return 0;
-}
-
-int extract_context_length(const nlohmann::json& value) {
-    // Only read fields whose schema describes token capacity. A model object
-    // can also contain `cost.input` (price) and `modalities.input` (array);
-    // recursively accepting a bare `input` turns e.g. price 2 into a 2-token
-    // context window before the later `limit.context` key is visited.
-    static const std::vector<std::string> direct_keys = {
-        "context_length",
-        "context_window",
-        "max_context_length",
-        "max_input_tokens",
-        "input_token_limit",
-        "input_tokens",
-        "context"
-    };
-    static const std::vector<std::string> limit_container_keys = {
-        "limit", "limits", "token_limit", "token_limits"
-    };
-    static const std::vector<std::string> metadata_container_keys = {
-        "_meta", "metadata", "capabilities"
-    };
-    static const std::vector<std::string> short_limit_keys = {"input"};
-
-    if (!value.is_object()) return 0;
-    if (int parsed = first_positive_integer_for_keys(value, direct_keys);
-        parsed > 0) {
-        return parsed;
-    }
-
-    auto read_limit_container = [&](const nlohmann::json& parent) {
-        for (const auto& container_key : limit_container_keys) {
-            auto it = parent.find(container_key);
-            if (it == parent.end() || !it->is_object()) continue;
-            if (int parsed = first_positive_integer_for_keys(*it, direct_keys);
-                parsed > 0) {
-                return parsed;
-            }
-            if (int parsed = first_positive_integer_for_keys(
-                    *it, short_limit_keys);
-                parsed > 0) {
-                return parsed;
-            }
-        }
-        return 0;
-    };
-
-    if (int parsed = read_limit_container(value); parsed > 0) return parsed;
-
-    for (const auto& metadata_key : metadata_container_keys) {
-        auto it = value.find(metadata_key);
-        if (it == value.end() || !it->is_object()) continue;
-        if (int parsed = first_positive_integer_for_keys(*it, direct_keys);
-            parsed > 0) {
-            return parsed;
-        }
-        if (int parsed = read_limit_container(*it); parsed > 0) return parsed;
-    }
-
-    return 0;
 }
 
 const nlohmann::json* find_model_entry(const nlohmann::json& models, const std::string& model) {
@@ -206,7 +120,7 @@ int lookup_models_dev_context(const std::string& provider_id, const std::string&
         return 0;
     }
 
-    int context = extract_context_length(*entry);
+    int context = model_context_window_from_metadata(*entry);
     if (context > 0) {
         LOG_INFO("Resolved model context via models.dev provider=" + provider_id +
                  " model=" + model + " context=" + std::to_string(context));
@@ -255,7 +169,7 @@ int fetch_models_endpoint_context(const std::string& base_url,
             return 0;
         }
 
-        int context = extract_context_length(*entry);
+        int context = model_context_window_from_metadata(*entry);
         if (context > 0) {
             LOG_INFO("Resolved model context via endpoint model=" + model +
                      " context=" + std::to_string(context));
@@ -356,6 +270,28 @@ void remember_context(const std::string& key, int context) {
     g_context_cache[key] = context;
 }
 
+int acemodel_fallback_context(const AppConfig& config,
+                              const std::string& provider_name,
+                              const std::string& model) {
+    const std::string normalized_provider = to_lower_copy(
+        provider_name.empty() ? config.provider : provider_name);
+    if (normalized_provider != "openai") return 0;
+
+    const bool catalog_identity =
+        config.openai.models_dev_provider_id.has_value() &&
+        is_acemodel_provider_id(*config.openai.models_dev_provider_id);
+    if (!catalog_identity && !is_acemodel_base_url(config.openai.base_url)) return 0;
+
+    const ModelEntry* entry = find_acemodel_catalog_model(model);
+    if (!entry || !entry->context.has_value() || *entry->context <= 0) return 0;
+    return *entry->context;
+}
+
+bool profile_has_authoritative_context_override(const ModelProfile& profile) {
+    return profile.context_window.has_value() && *profile.context_window > 0 &&
+           !is_acemodel_catalog_context_fallback(profile);
+}
+
 int cached_or_local_context(const AppConfig& config,
                             const std::string& provider_name,
                             const std::string& model) {
@@ -373,6 +309,11 @@ int cached_or_local_context(const AppConfig& config,
             return context;
         }
     }
+
+    // ACEModel's built-in value is only a fallback. Returning and caching it
+    // here would prevent both blocking and background `/models` probes from
+    // ever observing the server-provided context window.
+    if (acemodel_fallback_context(config, provider_name, model) > 0) return 0;
 
     const std::string models_dev_provider = detect_models_dev_provider(config, provider_name);
     if (!models_dev_provider.empty()) {
@@ -436,6 +377,8 @@ int resolve_model_context_window(const AppConfig& config,
                                  const std::string& model,
                                  int fallback_context_window) {
     const std::string key = context_cache_key(config, provider_name, model);
+    const int acemodel_fallback =
+        acemodel_fallback_context(config, provider_name, model);
     if (int context = cached_or_local_context(config, provider_name, model); context > 0) {
         return context;
     }
@@ -449,6 +392,7 @@ int resolve_model_context_window(const AppConfig& config,
         }
     }
 
+    if (acemodel_fallback > 0) return acemodel_fallback;
     return fallback_context_window;
 }
 
@@ -456,17 +400,20 @@ int resolve_model_context_window_nonblocking(const AppConfig& config,
                                              const std::string& provider_name,
                                              const std::string& model,
                                              int fallback_context_window) {
+    const int acemodel_fallback =
+        acemodel_fallback_context(config, provider_name, model);
     if (int context = cached_or_local_context(config, provider_name, model); context > 0) {
         return context;
     }
     warm_context_async(config, provider_name, model);
+    if (acemodel_fallback > 0) return acemodel_fallback;
     return fallback_context_window;
 }
 
 int resolve_model_profile_context_window(const AppConfig& config,
                                          const ModelProfile& profile,
                                          int fallback_context_window) {
-    if (profile.context_window.has_value() && *profile.context_window > 0) {
+    if (profile_has_authoritative_context_override(profile)) {
         return *profile.context_window;
     }
     auto context_cfg = config_for_profile_context(config, profile);
@@ -477,7 +424,7 @@ int resolve_model_profile_context_window(const AppConfig& config,
 int resolve_model_profile_context_window_nonblocking(const AppConfig& config,
                                                      const ModelProfile& profile,
                                                      int fallback_context_window) {
-    if (profile.context_window.has_value() && *profile.context_window > 0) {
+    if (profile_has_authoritative_context_override(profile)) {
         return *profile.context_window;
     }
     auto context_cfg = config_for_profile_context(config, profile);
@@ -492,7 +439,7 @@ int resolve_runtime_model_profile_context_window_nonblocking(
     int model_pool_context_window) {
     const int resolved = resolve_model_profile_context_window_nonblocking(
         config, profile, fallback_context_window);
-    if (profile.context_window.has_value() && *profile.context_window > 0) {
+    if (profile_has_authoritative_context_override(profile)) {
         return resolved;
     }
     return model_pool_context_window > 0 ? model_pool_context_window : resolved;

@@ -25,17 +25,18 @@ namespace acecode::daemon::cli {
 namespace {
 
 void print_help(std::ostream& os) {
-    os << "Usage: acecode daemon <subcommand> [options]\n"
+    os << "Usage: acecode daemon [subcommand] [options]\n"
        << "\n"
        << "Subcommands:\n"
-       << "  start                  spawn worker as detached background process\n"
+       << "  (none)                 start detached daemon (default)\n"
+       << "  start                  explicit alias for the default detached start\n"
        << "  stop                   terminate running worker, clean runtime files\n"
        << "  status                 print {pid, port, guid, uptime}\n"
        << "  --foreground           run worker in current console (debug mode)\n"
        << "\n"
        << "Options (advanced):\n"
-       << "  --cwd=<PATH>           run worker as if started from PATH\n"
-       << "  --port=<N>             override web.port for this worker\n"
+       << "  --cwd=<PATH>           worker directory (default: current directory)\n"
+       << "  --port=<N>             override web.port (unconfigured default: 12399)\n"
        << "  --static-dir=<PATH>    serve front-end assets from PATH\n"
        << "  --run-dir=<PATH>       isolate runtime files (heartbeat/pid/port/token) to PATH\n"
        << "  --native-folder-picker enable Desktop native folder picker API\n"
@@ -206,6 +207,9 @@ Args parse(const std::vector<std::string>& tokens) {
             return a;
         }
     }
+    if (a.sub.empty()) {
+        a.sub = "start";
+    }
     if (a.supervised && a.guid.empty()) {
         a.error = "--supervised requires --guid=<G>";
     }
@@ -224,6 +228,11 @@ Args parse(const std::vector<std::string>& tokens) {
                   "and --desktop-owner-instance";
     }
     return a;
+}
+
+std::string resolve_startup_cwd(const Args& args,
+                                const std::string& caller_cwd) {
+    return args.cwd_override.empty() ? caller_cwd : args.cwd_override;
 }
 
 static int do_foreground(const Args& a, const std::string& exe_path) {
@@ -416,9 +425,12 @@ int run(const std::vector<std::string>& tokens, const std::string& exe_path) {
         print_help(std::cerr);
         return 10;
     }
-    if (a.sub.empty() || a.sub == "help") {
+    if (a.sub == "help") {
         print_help(std::cout);
-        return a.sub.empty() ? 11 : 0;
+        return 0;
+    }
+    if (a.sub == "start" || a.sub == "foreground") {
+        a.cwd_override = resolve_startup_cwd(a, acecode::current_path_utf8());
     }
 
     // argv[0] is only ever a hint: a POSIX shell passes the bare word the user

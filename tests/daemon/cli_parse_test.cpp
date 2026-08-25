@@ -6,10 +6,13 @@
 
 #include <gtest/gtest.h>
 
+#include "config/config.hpp"
 #include "daemon/cli.hpp"
+#include "utils/constants.hpp"
 
 using acecode::daemon::cli::Args;
 using acecode::daemon::cli::parse;
+using acecode::daemon::cli::resolve_startup_cwd;
 
 // 场景: 仅 "start" → sub=start,无 dangerous/supervised
 TEST(DaemonCliParse, BareStart) {
@@ -75,11 +78,27 @@ TEST(DaemonCliParse, MultipleSubcommandsRejected) {
     EXPECT_FALSE(a.error.empty());
 }
 
-// 场景: 空 argv → sub 留空(调用方应打印 help 并以非零退出)
+// 场景: 空 argv → 直接走默认后台启动。
 TEST(DaemonCliParse, EmptyTokens) {
     Args a = parse({});
-    EXPECT_TRUE(a.sub.empty());
+    EXPECT_EQ(a.sub, "start");
     EXPECT_TRUE(a.error.empty());
+}
+
+// 场景: 只给启动选项、不写 start,仍按后台启动解析。
+TEST(DaemonCliParse, StartOptionsDoNotRequireExplicitSubcommand) {
+    Args a = parse({"--port=49321", "--cwd=C:\\workspace"});
+    EXPECT_TRUE(a.error.empty()) << a.error;
+    EXPECT_EQ(a.sub, "start");
+    EXPECT_EQ(a.port_override, 49321);
+    EXPECT_EQ(a.cwd_override, "C:\\workspace");
+}
+
+// 场景: --help 仍显式选择帮助,不触发默认启动。
+TEST(DaemonCliParse, HelpRemainsExplicit) {
+    Args a = parse({"--help"});
+    EXPECT_TRUE(a.error.empty()) << a.error;
+    EXPECT_EQ(a.sub, "help");
 }
 
 // 场景: --port=N 正常解析,与 --foreground 共用(desktop 父进程预选空闲端口注入子进程)
@@ -205,6 +224,27 @@ TEST(DaemonCliParse, CwdOverrideMissingPathRejected) {
 TEST(DaemonCliParse, CwdOverrideEmptyRejected) {
     Args a = parse({"--foreground", "--cwd="});
     EXPECT_FALSE(a.error.empty());
+}
+
+// 场景: 未传 --cwd 时快照调用者当前目录,供 foreground 与 detached 共用。
+TEST(DaemonCliParse, StartupCwdDefaultsToCallerDirectory) {
+    Args a = parse({});
+    EXPECT_EQ(resolve_startup_cwd(a, "C:/caller/workspace"),
+              "C:/caller/workspace");
+}
+
+// 场景: 显式 --cwd 始终覆盖调用者当前目录。
+TEST(DaemonCliParse, StartupCwdOverrideTakesPrecedence) {
+    Args a = parse({"--cwd=D:/selected/project"});
+    EXPECT_EQ(resolve_startup_cwd(a, "C:/caller/workspace"),
+              "D:/selected/project");
+}
+
+// 场景: 配置未提供端口时,WebConfig 与共享常量都固定为 12399。
+TEST(DaemonCliParse, DefaultDaemonPortIs12399) {
+    EXPECT_EQ(acecode::constants::DEFAULT_WEB_PORT, 12399);
+    EXPECT_EQ(acecode::WebConfig{}.port,
+              acecode::constants::DEFAULT_WEB_PORT);
 }
 
 // ---- add-ask-question-policy: --question-policy ----

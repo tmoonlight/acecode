@@ -21,7 +21,7 @@ TEST(BuiltinModelCatalog, AceModelCanonicalMetadata) {
     EXPECT_EQ(provider.models[2].id, "aurora");
     for (const auto& model : provider.models) {
         ASSERT_TRUE(model.context.has_value());
-        EXPECT_EQ(*model.context, 200000);
+        EXPECT_EQ(*model.context, 250000);
         EXPECT_TRUE(model.tool_call);
     }
 }
@@ -38,7 +38,7 @@ TEST(BuiltinModelCatalog, AceModelLookupAndEndpointIdentityAreCanonical) {
     const ModelEntry* aurora = find_acemodel_catalog_model("AURORA");
     ASSERT_NE(aurora, nullptr);
     ASSERT_TRUE(aurora->context.has_value());
-    EXPECT_EQ(*aurora->context, 200000);
+    EXPECT_EQ(*aurora->context, 250000);
     EXPECT_EQ(find_acemodel_catalog_model("unknown"), nullptr);
 
     EXPECT_TRUE(is_acemodel_base_url(" HTTPS://GE.BIGJUAN.XYZ/aceapi/v1/ "));

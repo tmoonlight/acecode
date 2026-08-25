@@ -61,8 +61,8 @@ try {
         throw "models_dev_provider_id was not set"
     }
     foreach ($profile in @($moon, $star, $aurora)) {
-        if ($profile.context_window -ne 200000) {
-            throw "context_window was not set to 200000 for $($profile.name)"
+        if ($profile.context_window -ne 250000) {
+            throw "context_window was not set to 250000 for $($profile.name)"
         }
     }
     if ($config.default_model_name -ne "moonlight") {

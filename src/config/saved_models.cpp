@@ -102,6 +102,21 @@ std::string ascii_lower(std::string value) {
     return value;
 }
 
+bool is_acemodel_catalog_profile(const ModelProfile& profile) {
+    if (ascii_lower(profile.provider) != "openai" ||
+        !profile.models_dev_provider_id.has_value() ||
+        ascii_lower(*profile.models_dev_provider_id) != "acemodel" ||
+        profile.capabilities_source.value_or("") != "catalog") {
+        return false;
+    }
+
+    // The explicit catalog provider identity must survive endpoint edits (for
+    // example a user-selected proxy). Tying this to the official URL would
+    // turn the generated fallback into a manual override after such an edit.
+    const std::string model = ascii_lower(profile.model);
+    return model == "aurora" || model == "starrylight" || model == "moonlight";
+}
+
 bool is_loopback_endpoint(const std::string& endpoint) {
     const std::string normalized = normalize_model_endpoint_identity(endpoint);
     const auto scheme_end = normalized.find("://");
@@ -274,6 +289,13 @@ std::optional<ModelProfile> parse_one_entry(const nlohmann::json& node, std::siz
     }
     if (node.contains("readonly") && node["readonly"].is_boolean()) {
         e.readonly = node["readonly"].get<bool>();
+    }
+
+    // The previous first-party catalog and Windows seeder persisted 200K as
+    // if it were a manual override. Normalize that generated value to the new
+    // 250K fallback while keeping manual 200K overrides untouched.
+    if (is_acemodel_catalog_profile(e) && e.context_window == 200000) {
+        e.context_window = 250000;
     }
 
     return e;
@@ -671,6 +693,14 @@ std::string normalize_model_endpoint_identity(const std::string& value) {
         }
     }
     return normalized;
+}
+
+bool is_acemodel_catalog_context_fallback(const ModelProfile& profile) {
+    if (!is_acemodel_catalog_profile(profile) ||
+        !profile.context_window.has_value()) {
+        return false;
+    }
+    return *profile.context_window == 200000 || *profile.context_window == 250000;
 }
 
 } // namespace acecode

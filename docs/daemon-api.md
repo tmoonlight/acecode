@@ -17,6 +17,12 @@ endpoints below.
 
 ## 1. Connecting
 
+### Starting the daemon
+
+Run `acecode daemon` to start a detached daemon; `acecode daemon start` remains
+an explicit compatibility alias. Without `--cwd`, the worker uses the directory
+from which the command was invoked. `--cwd=<PATH>` selects another workspace.
+
 ### Runtime files
 
 After the daemon starts, runtime files are written to `<data_dir>/run/`:
@@ -53,8 +59,11 @@ current process.
 
 ### Bind and auth
 
-The daemon always uses the canonical loopback bind `127.0.0.1` and defaults to
-port `28080` (`config.web.port`). It is fail-fast on a daemon-port collision.
+The daemon always uses the canonical loopback bind `127.0.0.1`. Its fixed,
+unconfigured port is `12399`; an explicit `config.web.port` overrides that
+default, and `daemon --port=<N>` overrides both. It is fail-fast on a
+daemon-port collision and never scans for another port. Existing configurations
+that explicitly set `28080` continue to use `28080`.
 Remote Web access uses a distinct supervised proxy process configured by
 `config.web.remote_enabled` / `config.web.remote_port`.
 
@@ -367,7 +376,7 @@ returned.
 {
   "guid": "ea86842a-fb1c-4242-b2b4-74be2aff1058",
   "pid": 18204,
-  "port": 28080,
+  "port": 12399,
   "version": "0.5.10",
   "cwd": "C:/repo",
   "uptime_seconds": 423,
@@ -2059,9 +2068,9 @@ fallback shapes, ignores hidden entries, preserves first-seen order, and
 deduplicates model ids.
 
 ACEModel 官方端点的内置 `starrylight`、`moonlight` 和 `aurora`
-统一使用 `200000` Token 上下文上限。当上游 `/models` 未返回
-上下文时，Daemon 从内置目录回填 `model_context_windows`；上游值
-超过 `200000` 时按该上限截断，更小的有效值则保留。
+优先使用上游 `/models` 返回的有效最大上下文字段。Daemon 会将该值
+原样写入 `model_context_windows`，不按本地默认值截断；字段缺失、无效
+或无法解析时，才从内置目录回填 `250000` Token。
 
 Success:
 
@@ -2114,7 +2123,7 @@ Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
 `credential_source_name`。一等自营 Provider `acemodel`（展示名 ACEModel）
 使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
 `https://ge.bigjuan.xyz/aceapi/v1`，`group` 为 `custom`（Web 再按 id 提到「自营模型」），查询时返回内置
-`starrylight`、`moonlight` 与 `aurora`，三者 `context_window` 均为 `200000`。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
+`starrylight`、`moonlight` 与 `aurora`，三者本地回退 `context_window` 均为 `250000`；模型探测得到的有效服务器值优先。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
 ACECode 的 GitHub/xAI 设备登录与固定受管端点负责认证。普通 `xai` Provider
 仍保留为 OpenAI-compatible API Key 接入；只有目录 id `grok` 使用 Coding Plan。
 
@@ -2370,7 +2379,7 @@ and always sends `Cache-Control: no-store`.
   "configured_bind": "127.0.0.1",
   "effective_bind": "0.0.0.0",
   "daemon_bind": "127.0.0.1",
-  "daemon_port": 28080,
+  "daemon_port": 12399,
   "proxy_bind": "0.0.0.0",
   "proxy_pid": 4242,
   "proxy_state": "running",

@@ -19,6 +19,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -316,6 +317,94 @@ TEST(FileReadToolSummary, LineRangeWinsOverForcedByteWindowArguments) {
     EXPECT_NE(zeroed.output.find("gamma"), std::string::npos);
     EXPECT_EQ(zeroed.output.find("byte_range="), std::string::npos);
     EXPECT_EQ(zeroed.output.find("next_byte_offset="), std::string::npos);
+
+    fs::remove(p);
+}
+
+TEST(FileReadToolSummary, ReversedPositiveRangeUsesEndAsLineCount) {
+    ToolImpl tool = create_file_read_tool();
+    std::string body;
+    for (int line = 1; line <= 3200; ++line) {
+        body += "line-" + std::to_string(line) + "\n";
+    }
+    auto p = make_temp_file(body);
+
+    // Reproduce the strict-schema provider shape observed in a real session:
+    // the model supplied start_line=2480 and used end_line=420 as a count,
+    // while the provider populated the byte-window fields too.
+    ToolResult ranged = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 2480},
+        {"end_line", 420},
+        {"byte_offset", 0},
+        {"max_bytes", 32768}
+    }).dump(), ToolContext{});
+
+    ASSERT_TRUE(ranged.success) << ranged.output;
+    EXPECT_NE(ranged.output.find("2480: line-2480"), std::string::npos);
+    EXPECT_NE(ranged.output.find("2899: line-2899"), std::string::npos);
+    EXPECT_EQ(ranged.output.find("2900: line-2900"), std::string::npos);
+    EXPECT_NE(ranged.output.find("range=\"2480-2899\""), std::string::npos);
+    EXPECT_EQ(ranged.output.find("byte_range="), std::string::npos);
+
+    fs::remove(p);
+}
+
+TEST(FileReadToolSummary, AbsoluteAndZeroBoundRangesKeepExistingMeaning) {
+    ToolImpl tool = create_file_read_tool();
+    auto p = make_temp_file(
+        "line-1\nline-2\nline-3\nline-4\n"
+        "line-5\nline-6\nline-7\nline-8\n");
+
+    ToolResult absolute = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 5},
+        {"end_line", 7}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(absolute.success) << absolute.output;
+    EXPECT_NE(absolute.output.find("5: line-5"), std::string::npos);
+    EXPECT_NE(absolute.output.find("7: line-7"), std::string::npos);
+    EXPECT_EQ(absolute.output.find("8: line-8"), std::string::npos);
+    EXPECT_NE(absolute.output.find("range=\"5-7\""), std::string::npos);
+
+    ToolResult open_ended = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 5},
+        {"end_line", 0}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(open_ended.success) << open_ended.output;
+    EXPECT_EQ(open_ended.output.find("4: line-4"), std::string::npos);
+    EXPECT_NE(open_ended.output.find("8: line-8"), std::string::npos);
+    EXPECT_NE(open_ended.output.find("range=\"5-8\""), std::string::npos);
+
+    ToolResult from_beginning = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", 0},
+        {"end_line", 3}
+    }).dump(), ToolContext{});
+    ASSERT_TRUE(from_beginning.success) << from_beginning.output;
+    EXPECT_NE(from_beginning.output.find("1: line-1"), std::string::npos);
+    EXPECT_NE(from_beginning.output.find("3: line-3"), std::string::npos);
+    EXPECT_EQ(from_beginning.output.find("4: line-4"), std::string::npos);
+    EXPECT_NE(from_beginning.output.find("range=\"1-3\""), std::string::npos);
+
+    fs::remove(p);
+}
+
+TEST(FileReadToolSummary, RejectsStartCountRangeOverflow) {
+    ToolImpl tool = create_file_read_tool();
+    auto p = make_temp_file("alpha\n");
+
+    ToolResult overflow = tool.execute(nlohmann::json({
+        {"file_path", p.string()},
+        {"start_line", std::numeric_limits<int>::max()},
+        {"end_line", 2}
+    }).dump(), ToolContext{});
+
+    EXPECT_FALSE(overflow.success);
+    EXPECT_NE(overflow.output.find(
+        "line count produces an end line beyond the supported range"),
+        std::string::npos);
 
     fs::remove(p);
 }

@@ -8,13 +8,44 @@
 #include "provider/model_context_resolver.hpp"
 #include "provider/models_dev_registry.hpp"
 
+#include <httplib.h>
+
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
 
 namespace {
+
+using namespace std::chrono_literals;
+
+struct LocalModelMetadataServer {
+    httplib::Server server;
+    int port = 0;
+    std::thread thread;
+
+    explicit LocalModelMetadataServer(std::function<void(httplib::Server&)> setup) {
+        setup(server);
+        port = server.bind_to_any_port("127.0.0.1");
+        thread = std::thread([this] { server.listen_after_bind(); });
+        for (int i = 0; i < 50 && !server.is_running(); ++i) {
+            std::this_thread::sleep_for(10ms);
+        }
+    }
+
+    ~LocalModelMetadataServer() {
+        server.stop();
+        if (thread.joinable()) thread.join();
+    }
+
+    std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port);
+    }
+};
 
 fs::path tmp_dir(const std::string& tag) {
     auto p = fs::temp_directory_path() / ("acecode_model_ctx_" + tag);
@@ -188,7 +219,7 @@ TEST(ModelContextResolver, NonblockingFallsBackWithoutEndpointProbe) {
 }
 
 // 场景:ACEModel 不存在于 models.dev 且 /models 没有上下文元数据时，
-// 三个内置模型仍从一等本地目录解析到 200K，不落回全局 128K。
+// 三个内置模型仍使用 250K 本地回退，不落回全局 128K。
 TEST(ModelContextResolver, NonblockingUsesAceModelBuiltinContext) {
     acecode::reset_model_context_window_cache_for_test();
     acecode::AppConfig cfg;
@@ -200,11 +231,78 @@ TEST(ModelContextResolver, NonblockingUsesAceModelBuiltinContext) {
     for (const char* model : {"moonlight", "starrylight", "aurora"}) {
         EXPECT_EQ(acecode::resolve_model_context_window_nonblocking(
                       cfg, "openai", model, cfg.context_window),
-                  200000);
+                  250000);
     }
     EXPECT_EQ(acecode::resolve_model_context_window_nonblocking(
                   cfg, "openai", "unknown", cfg.context_window),
               cfg.context_window);
+}
+
+// 场景:ACEModel 阻塞解析优先读取 /models。大于和小于 250K 的有效
+// 服务器值都保持原样，只有缺失字段的模型使用 250K 回退。
+TEST(ModelContextResolver, BlockingAceModelUsesServerContextBeforeFallback) {
+    acecode::reset_model_context_window_cache_for_test();
+    LocalModelMetadataServer metadata_server([](httplib::Server& server) {
+        server.Get("/models", [](const httplib::Request&, httplib::Response& response) {
+            response.set_content(R"({
+                "data": [
+                    {"id":"aurora","max_context_tokens":"1000000"},
+                    {"id":"starrylight","context_window":128000},
+                    {"id":"moonlight"}
+                ]
+            })", "application/json");
+        });
+    });
+
+    acecode::AppConfig cfg;
+    cfg.provider = "openai";
+    cfg.context_window = 128000;
+    cfg.openai.models_dev_provider_id = "acemodel";
+    cfg.openai.base_url = metadata_server.base_url();
+
+    EXPECT_EQ(acecode::resolve_model_context_window(
+                  cfg, "openai", "aurora", cfg.context_window),
+              1000000);
+    EXPECT_EQ(acecode::resolve_model_context_window(
+                  cfg, "openai", "starrylight", cfg.context_window),
+              128000);
+    EXPECT_EQ(acecode::resolve_model_context_window(
+                  cfg, "openai", "moonlight", cfg.context_window),
+              250000);
+}
+
+// 场景:catalog/seeder 写入的 250K 只是回退，不能遮蔽服务器元数据；
+// 用户标记为 manual 的同值仍是最终覆盖。
+TEST(ModelContextResolver, AceModelCatalogFallbackIsNotManualOverride) {
+    acecode::reset_model_context_window_cache_for_test();
+    LocalModelMetadataServer metadata_server([](httplib::Server& server) {
+        server.Get("/models", [](const httplib::Request&, httplib::Response& response) {
+            response.set_content(
+                R"({"data":[{"id":"aurora","context_window":1000000}]})",
+                "application/json");
+        });
+    });
+
+    acecode::AppConfig cfg;
+    cfg.context_window = 128000;
+    acecode::ModelProfile profile;
+    profile.name = "aurora";
+    profile.provider = "openai";
+    profile.base_url = metadata_server.base_url();
+    profile.api_key = "test";
+    profile.model = "aurora";
+    profile.models_dev_provider_id = "acemodel";
+    profile.context_window = 250000;
+    profile.capabilities_source = "catalog";
+
+    EXPECT_EQ(acecode::resolve_model_profile_context_window(
+                  cfg, profile, cfg.context_window),
+              1000000);
+
+    profile.capabilities_source = "manual";
+    EXPECT_EQ(acecode::resolve_model_profile_context_window(
+                  cfg, profile, cfg.context_window),
+              250000);
 }
 
 // 场景:Codex provider 使用 Codex CLI 模型 catalog 的运行上下文,不回退到全局 128k。

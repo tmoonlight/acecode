@@ -6,7 +6,7 @@
 namespace acecode {
 namespace {
 
-constexpr int kAceModelContextWindow = 200000;
+constexpr int kAceModelFallbackContextWindow = 250000;
 
 std::string lower_ascii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(),
@@ -36,7 +36,7 @@ ModelEntry builtin_model(const std::string& id, const std::string& name) {
     ModelEntry model;
     model.id = id;
     model.name = name;
-    model.context = kAceModelContextWindow;
+    model.context = kAceModelFallbackContextWindow;
     model.tool_call = true;
     return model;
 }

@@ -97,4 +97,8 @@ nlohmann::json model_reasoning_options_to_json(
 bool model_profile_allows_no_api_key(const ModelProfile& profile);
 std::string normalize_model_endpoint_identity(const std::string& value);
 
+// True only for the generated ACEModel catalog defaults (legacy 200K or
+// current 250K). These values are fallbacks, not manual runtime overrides.
+bool is_acemodel_catalog_context_fallback(const ModelProfile& profile);
+
 } // namespace acecode

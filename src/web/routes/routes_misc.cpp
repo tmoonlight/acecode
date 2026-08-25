@@ -2011,7 +2011,7 @@ void WebServer::Impl::register_ui_preferences() {
             try {
                 auto parsed_models = parse_openai_models(json::parse(response.text));
                 if (is_acemodel_base_url(parsed->base_url)) {
-                    apply_acemodel_context_limits(parsed_models);
+                    apply_acemodel_context_fallbacks(parsed_models);
                 }
                 json out;
                 out["models"] = parsed_models.ids;

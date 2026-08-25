@@ -1,6 +1,6 @@
 #pragma once
 
-// daemon CLI 子命令分发: acecode daemon {start|stop|status|--foreground}
+// daemon CLI 子命令分发: acecode daemon [start|stop|status|--foreground]
 // 负责 argv 解析、与 worker.cpp 交互、维护 ~/.acecode/run/ 文件状态。
 //
 // 接口设计上,run() 接收一个 argv 切片(去掉 "daemon" 这个前缀字)和当前
@@ -13,7 +13,8 @@
 namespace acecode::daemon::cli {
 
 struct Args {
-    // 解析后的子命令: "start" / "stop" / "status" / "foreground" / ""(无参 = 显示帮助)
+    // 解析后的子命令: "start" / "stop" / "status" / "foreground" / "help"。
+    // 未显式指定子命令时默认为 "start"。
     std::string sub;
     bool dangerous = false;     // 透传给 worker
     bool supervised = false;    // --supervised 标记(launcher 派 worker 用)
@@ -36,6 +37,11 @@ struct Args {
 };
 
 Args parse(const std::vector<std::string>& tokens);
+
+// 将未设置的 --cwd 解析为调用者启动 daemon 时的当前目录。该 helper
+// 不访问文件系统,路径存在性仍由 worker 的 apply_cwd_override 校验。
+std::string resolve_startup_cwd(const Args& args,
+                                const std::string& caller_cwd);
 
 // 主入口。tokens 是 daemon 子命令之后的参数(不含 argv[0] 也不含 "daemon")。
 // exe_path 用于 spawn_detached 时找到自身;留空则使用 current_executable_path。

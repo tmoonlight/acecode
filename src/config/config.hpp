@@ -2,6 +2,7 @@
 
 #include "desktop_close_behavior.hpp"
 #include "saved_models.hpp"
+#include "../utils/constants.hpp"
 
 #include <cstddef>
 #include <map>
@@ -157,7 +158,7 @@ struct DaemonConfig {
 struct WebConfig {
     bool enabled = true;
     std::string bind = "127.0.0.1";
-    int port = 28080;
+    int port = constants::DEFAULT_WEB_PORT;
     // Remote access is provided by a separately supervised reverse proxy.
     // The daemon listener itself remains on the canonical loopback bind.
     bool remote_enabled = false;
@@ -320,7 +321,7 @@ struct RemoteControlConfig {
         nlohmann::json settings = nlohmann::json::object(); // 透传给插件
     };
 
-    int port = 28190;          // loopback listener 端口(避开 daemon 默认 28080)
+    int port = 28190;          // loopback listener 端口(避开 daemon 默认 12399)
     std::string token;         // 空 = 首次启用时生成并持久化
     std::string outbound_url;  // manual 出站 webhook;空 = 仅入站/等待插件
     std::string default_channel;

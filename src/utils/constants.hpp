@@ -15,9 +15,9 @@ constexpr size_t MAX_GREP_RESULTS = 200;
 constexpr int DEFAULT_BASH_TIMEOUT_MS = 120000; // 2 minutes
 
 // Daemon / web defaults
-// 28080 是高位端口,大概率不与常用开发服务(3000/5173/8080/8000/9000)冲撞;
-// 用户可在 config.json 的 web.port 覆盖。Service 模式下端口被占直接拒启,不 retry。
-constexpr int DEFAULT_WEB_PORT = 28080;
+// 固定默认端口。用户可通过 config.json 的 web.port 或 daemon --port 覆盖;
+// Service 模式下端口被占直接拒启,不 retry。
+constexpr int DEFAULT_WEB_PORT = 12399;
 constexpr int DEFAULT_HEARTBEAT_INTERVAL_MS = 2000;
 constexpr int DEFAULT_HEARTBEAT_TIMEOUT_MS = 15000;
 constexpr int TOKEN_BYTES = 32; // raw bytes; url-safe base64 encodes to ~43 chars
