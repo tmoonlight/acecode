@@ -96,8 +96,8 @@ import { findStickyUserContext, sameStickyUserContext, scrollTopForStickySourceR
 import { loadTranscriptHistory, useSessionTranscript } from '../lib/sessionTranscript.js';
 import { projectCollapsedTranscriptItems } from '../lib/transcriptProjection.js';
 import {
-  initialWindowAnchorId,
-  revealEarlierAnchorId,
+  reconcileTranscriptWindowAnchorKey,
+  revealEarlierAnchorKey,
   windowTranscriptItems,
 } from '../lib/transcriptWindow.js';
 import { buildComposerHistory } from '../lib/inputHistoryNavigation.js';
@@ -1069,26 +1069,23 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   );
   // 尾部窗口(渐进虚拟化,见 lib/transcriptWindow.js):大会话初始只渲染
   // 最近的一段投影行,DOM 行数从数百降到 ≤ INITIAL_TAIL_ITEMS。窗口状态
-  // 用「首个可见行的 id」锚定;anchorId === undefined 表示该会话还没初始化
-  // (等第一批条目到达)。下面两处 setState 是 React 文档的 render-phase
-  // 状态调整模式 —— 必须在首次带条目的渲染前定好窗口,useEffect 会先全量
-  // 渲染一遍,虚拟化就白做了。
-  const [transcriptWindow, setTranscriptWindow] = useState({ sid: '', anchorId: undefined });
-  if (transcriptWindow.sid !== sid) {
-    setTranscriptWindow({ sid, anchorId: undefined });
-  }
-  let windowAnchorId = transcriptWindow.sid === sid ? transcriptWindow.anchorId : undefined;
-  if (windowAnchorId === undefined && renderedItems.length > 0) {
-    windowAnchorId = initialWindowAnchorId(renderedItems);
-    setTranscriptWindow({ sid, anchorId: windowAnchorId });
-  } else if (windowAnchorId !== undefined && renderedItems.length === 0) {
-    // 条目清零 = transcript 重置(重载/自愈重建会重新分配 item id,旧锚点
-    // 指向的 id 会被复用到完全不同的行)→ 回到未初始化,等新条目重定锚。
-    setTranscriptWindow({ sid, anchorId: undefined });
+  // 用「首个可见行的稳定 key」锚定;anchorKey === undefined 表示该会话
+  // 还没初始化,anchorKey === null 表示显式全量视图。render-phase 协调
+  // 必须在当前投影切片前完成;useEffect 会先全量渲染一遍,虚拟化就白做了。
+  const [transcriptWindow, setTranscriptWindow] = useState({ sid: '', anchorKey: undefined });
+  const storedWindowAnchorKey = transcriptWindow.sid === sid
+    ? transcriptWindow.anchorKey
+    : undefined;
+  const windowAnchorKey = reconcileTranscriptWindowAnchorKey(
+    renderedItems,
+    storedWindowAnchorKey,
+  );
+  if (transcriptWindow.sid !== sid || transcriptWindow.anchorKey !== windowAnchorKey) {
+    setTranscriptWindow({ sid, anchorKey: windowAnchorKey });
   }
   const { visible: windowedItems, hiddenCount: windowHiddenCount } = useMemo(
-    () => windowTranscriptItems(renderedItems, windowAnchorId === undefined ? null : windowAnchorId),
-    [renderedItems, windowAnchorId],
+    () => windowTranscriptItems(renderedItems, windowAnchorKey),
+    [renderedItems, windowAnchorKey],
   );
   const windowHiddenCountRef = useRef(0);
   windowHiddenCountRef.current = windowHiddenCount;
@@ -1101,8 +1098,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       windowRevealScrollRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
     }
     setTranscriptWindow((prev) => {
-      if (prev.sid !== sid || !prev.anchorId) return prev;
-      return { sid, anchorId: revealEarlierAnchorId(itemsRef.current, prev.anchorId) };
+      if (prev.sid !== sid || !prev.anchorKey) return prev;
+      return { sid, anchorKey: revealEarlierAnchorKey(itemsRef.current, prev.anchorKey) };
     });
   }, [sid]);
   const expandTranscriptWindow = useCallback((options = {}) => {
@@ -1114,7 +1111,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       }
     }
     setTranscriptWindow((prev) => (
-      prev.sid === sid && prev.anchorId ? { sid, anchorId: null } : prev
+      prev.sid === sid && prev.anchorKey ? { sid, anchorKey: null } : prev
     ));
   }, [sid]);
   useLayoutEffect(() => {
