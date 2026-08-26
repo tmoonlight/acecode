@@ -62,8 +62,13 @@ revealed historical boundary rather than jump it back to the latest tail.
 A pure helper will resolve `(renderedItems, previousAnchorKey)` with three distinct states:
 
 - `undefined`: uninitialized or empty transcript; initialize when rows appear;
-- `null`: explicit full view; preserve without re-windowing;
+- `null`: full view, either explicitly selected or because the current transcript does not
+  exceed the initial tail threshold; preserve without re-windowing;
 - string key: preserve when present, otherwise select a fresh initial tail boundary.
+
+After the empty-transcript check, reconciliation resolves a projection at or below the
+initial tail threshold to `null` before testing whether a previous string key still exists.
+This prevents a shortened replacement from retaining an obsolete hidden prefix.
 
 `ChatView` will compute this result during render, update per-session state only when the
 resolved value differs, and use the resolved value immediately for

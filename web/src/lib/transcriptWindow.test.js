@@ -209,6 +209,33 @@ run('transcript_replace 重建临时 id 后保留稳定有界窗口', () => {
   assert.equal(windowTranscriptItems(afterItems, explicitFullKey).hiddenCount, 0);
 });
 
+run('transcript_replace 大转短时即使旧 key 仍存在也显示全部 100 行', () => {
+  const messages = makePersistedMessages(140);
+  const loaded = loadTranscriptHistory(createTranscriptState(), { messages });
+  const beforeItems = projectCollapsedTranscriptItems(loaded.state.items);
+  const anchorKey = initialWindowAnchorKey(beforeItems);
+
+  assert.ok(windowTranscriptItems(beforeItems, anchorKey).hiddenCount > 0);
+
+  // 保留 turn 75..124:100 个投影行,原 anchor user-80 仍在新索引 10。
+  const shortenedMessages = messages.slice(75 * 2, 125 * 2);
+  const replaced = reduceTranscriptEvent(loaded.state, {
+    type: 'transcript_replace',
+    seq: 1,
+    payload: { messages: shortenedMessages },
+  }).state;
+  const afterItems = projectCollapsedTranscriptItems(replaced.items);
+
+  assert.equal(afterItems.length, 100);
+  assert.equal(indexForAnchor(afterItems, anchorKey), 10, '旧稳定 key 必须仍存在');
+
+  const resolvedKey = reconcileTranscriptWindowAnchorKey(afterItems, anchorKey);
+  const afterWindow = windowTranscriptItems(afterItems, resolvedKey);
+  assert.equal(resolvedKey, null);
+  assert.equal(afterWindow.hiddenCount, 0);
+  assert.equal(afterWindow.visible.length, 100);
+});
+
 // 架构守护:ChatView 的 transcript 行渲染必须走窗口化列表,不能退回全量 map。
 const chatViewSource = (await import('node:fs')).readFileSync(
   new URL('../components/ChatView.jsx', import.meta.url),

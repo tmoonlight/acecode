@@ -55,7 +55,7 @@ transcript_replace:
 | 值 | 语义 | 替换后的行为 |
 |---|---|---|
 | `undefined` | 尚未初始化或当前无条目 | 有条目后选择初始尾部边界 |
-| `null` | 用户显式显示全部 | 保持全量，不自动收回 |
+| `null` | 全量视图（显式显示全部或短会话不需窗口） | 保持全量，不自动收回 |
 | 非空字符串 | 窗口首行的稳定身份 | 存在则保留，不存在则同步重选 |
 
 稳定身份的优先级：
@@ -71,6 +71,10 @@ transcript_replace:
 
 ```text
 items empty? -------------------------- yes --> undefined
+      |
+      no
+      v
+items <= initial tail threshold? ------ yes --> null (full view)
       |
       no
       v

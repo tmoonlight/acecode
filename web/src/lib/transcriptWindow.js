@@ -70,6 +70,7 @@ export function reconcileTranscriptWindowAnchorKey(
 ) {
   const list = Array.isArray(items) ? items : [];
   if (list.length === 0) return undefined;
+  if (list.length <= tailCount) return null;
   if (anchorKey === null) return null;
   if (typeof anchorKey === 'string' && anchorIndex(list, anchorKey) >= 0) {
     return anchorKey;
