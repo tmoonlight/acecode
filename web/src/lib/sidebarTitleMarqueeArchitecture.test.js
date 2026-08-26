@@ -47,7 +47,7 @@ test('SessionRow measures only its non-editing title viewport', () => {
   );
   assert.match(row, /loadSidebarFullTitle\(api, s\)/);
   assert.match(row, /onMouseEnter=\{\(\) => \{[\s\S]*ensureCompleteMarqueeTitle\(\)/);
-  assert.match(row, /onFocusCapture=\{\(\) => \{[\s\S]*ensureCompleteMarqueeTitle\(\)/);
+  assert.match(row, /onFocusCapture=\{\(event\) => \{[\s\S]*ensureCompleteMarqueeTitle\(\)/);
   assert.match(row, /aria-label=\{marqueeTitle \|\| title\}/);
   assert.match(
     row,

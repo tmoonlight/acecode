@@ -51,6 +51,11 @@ namespace acecode::web {
 
 class RemoteWebProxyController;
 
+struct NativeSaveFilePickResult {
+    std::optional<std::string> path;
+    std::string error;
+};
+
 struct WebServerDeps {
     const WebConfig*           web_cfg = nullptr;
     const DaemonConfig*        daemon_cfg = nullptr;
@@ -88,6 +93,9 @@ struct WebServerDeps {
     std::mutex*                    provider_mu = nullptr;
     bool                       native_folder_picker_enabled = false;
     std::function<std::optional<std::string>()> native_folder_picker;
+    // 会话导出等显式写盘操作使用的原生“另存为”回调。参数是预填文件名,
+    // 返回值是用户确认的完整文件路径;空 path + 空 error 表示取消。
+    std::function<NativeSaveFilePickResult(const std::string&)> native_save_file_picker;
     // POST /api/open-in-explorer 的执行回调:输入 UTF-8 绝对文件/目录路径,成功返回
     // std::nullopt,失败返回错误信息。null = 端点 501(与 native_folder_picker
     // 同款门控,仅 desktop 壳启动的 daemon 填入;webapp 兼容模式的右键菜单依赖它)。

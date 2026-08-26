@@ -52,6 +52,9 @@ using json = nlohmann::json;
 constexpr std::size_t kMaxConsoleEntries = 1000;
 constexpr std::size_t kMaxConsoleEntryBytes = 16 * 1024;
 constexpr std::size_t kMaxFaviconBytes = 256 * 1024;
+constexpr std::size_t kMaxNativeErrorFieldBytes = 4 * 1024;
+constexpr std::size_t kMaxNativeErrorDiagnosticBytes = 16 * 1024;
+constexpr std::size_t kMaxUnderlyingErrorDepth = 4;
 constexpr char kConsoleHandlerName[] = "__acecodeAgentBrowserConsoleV1";
 constexpr char kAutomationWorldName[] = "dev.acecode.agent-browser.automation";
 constexpr char kElementPickerKey[] = "__acecodeAgentBrowserElementPickerV1";
@@ -86,6 +89,131 @@ std::string clipped(std::string value, std::size_t max_bytes) {
     value.resize(max_bytes);
     value += "\n[truncated]";
     return value;
+}
+
+std::string native_description(id value) {
+    if (!value) return {};
+    NSString* description = [value isKindOfClass:[NSString class]]
+        ? static_cast<NSString*>(value)
+        : [value description];
+    return clipped(utf8_string(description), kMaxNativeErrorFieldBytes);
+}
+
+json native_error_details(NSError* error, std::size_t depth = 0) {
+    if (!error) {
+        return {
+            {"domain", "unknown"},
+            {"code", 0},
+            {"description", "WKWebView navigation failed"},
+        };
+    }
+
+    json details{
+        {"domain", native_description([error domain])},
+        {"code", static_cast<long long>([error code])},
+        {"description", native_description([error localizedDescription])},
+    };
+    const std::string failure_reason =
+        native_description([error localizedFailureReason]);
+    const std::string recovery_suggestion =
+        native_description([error localizedRecoverySuggestion]);
+    if (!failure_reason.empty()) details["failure_reason"] = failure_reason;
+    if (!recovery_suggestion.empty()) {
+        details["recovery_suggestion"] = recovery_suggestion;
+    }
+
+    NSDictionary* user_info = [error userInfo];
+    id failing_url = [user_info objectForKey:@"NSErrorFailingURLKey"];
+    if (!failing_url) {
+        failing_url = [user_info objectForKey:@"NSErrorFailingURLStringKey"];
+    }
+    const std::string failing_url_text = native_description(failing_url);
+    if (!failing_url_text.empty()) details["failing_url"] = failing_url_text;
+
+    std::vector<std::string> user_info_keys;
+    for (id key in user_info) {
+        const std::string key_text = native_description(key);
+        if (!key_text.empty()) user_info_keys.push_back(key_text);
+    }
+    std::sort(user_info_keys.begin(), user_info_keys.end());
+    if (!user_info_keys.empty()) details["user_info_keys"] = user_info_keys;
+    details["peer_trust_present"] =
+        [user_info objectForKey:@"NSURLErrorFailingURLPeerTrustErrorKey"] != nil;
+
+    id underlying = [user_info objectForKey:NSUnderlyingErrorKey];
+    if (depth + 1 < kMaxUnderlyingErrorDepth &&
+        [underlying isKindOfClass:[NSError class]] && underlying != error) {
+        details["underlying"] = native_error_details(
+            static_cast<NSError*>(underlying), depth + 1);
+    }
+    return details;
+}
+
+void append_native_error_diagnostic(std::ostringstream& output,
+                                    const json& details,
+                                    std::size_t depth = 0) {
+    output << (depth == 0 ? "NSError" : "Underlying NSError")
+           << " domain=" << details.value("domain", "unknown")
+           << " code=" << details.value("code", 0LL) << '\n';
+    output << "Description: "
+           << details.value("description", "WKWebView navigation failed")
+           << '\n';
+    for (const auto* field : {"failing_url", "failure_reason",
+                              "recovery_suggestion"}) {
+        const auto found = details.find(field);
+        if (found == details.end() || !found->is_string() || found->empty()) {
+            continue;
+        }
+        if (std::strcmp(field, "failing_url") == 0) output << "Failing URL: ";
+        else if (std::strcmp(field, "failure_reason") == 0) {
+            output << "Failure reason: ";
+        } else {
+            output << "Recovery suggestion: ";
+        }
+        output << found->get<std::string>() << '\n';
+    }
+    const auto keys = details.find("user_info_keys");
+    if (keys != details.end() && keys->is_array() && !keys->empty()) {
+        output << "User info keys: ";
+        bool first = true;
+        for (const auto& key : *keys) {
+            if (!key.is_string()) continue;
+            if (!first) output << ", ";
+            output << key.get<std::string>();
+            first = false;
+        }
+        output << '\n';
+    }
+    if (details.value("peer_trust_present", false)) {
+        output << "Peer trust: present\n";
+    }
+    const auto underlying = details.find("underlying");
+    if (underlying != details.end() && underlying->is_object()) {
+        append_native_error_diagnostic(output, *underlying, depth + 1);
+    }
+}
+
+std::string native_error_diagnostic(NSError* error) {
+    std::ostringstream output;
+    append_native_error_diagnostic(output, native_error_details(error));
+    return clipped(output.str(), kMaxNativeErrorDiagnosticBytes);
+}
+
+NSError* url_loading_error(NSError* error) {
+    NSError* current = error;
+    for (std::size_t depth = 0;
+         current && depth < kMaxUnderlyingErrorDepth;
+         ++depth) {
+        NSString* domain = [current domain];
+        if ([domain isEqualToString:NSURLErrorDomain] ||
+            [domain isEqualToString:@"kCFErrorDomainCFNetwork"]) {
+            return current;
+        }
+        id underlying = [[current userInfo] objectForKey:NSUnderlyingErrorKey];
+        current = [underlying isKindOfClass:[NSError class]]
+            ? static_cast<NSError*>(underlying) : nil;
+    }
+    return error;
 }
 
 bool valid_favicon(const std::string& value) {
@@ -249,21 +377,60 @@ const char* element_picker_expression() {
 })())JS";
 }
 
-std::string navigation_failure_kind(NSError* error) {
+std::string navigation_failure_kind(NSError* error,
+                                    bool proxy_authentication_challenge) {
+    error = url_loading_error(error);
     if (!error) return "unexpected";
     switch ([error code]) {
     case NSURLErrorTimedOut: return "timeout";
-    case NSURLErrorCannotFindHost: return "name_not_resolved";
+    case NSURLErrorCannotFindHost:
+    case NSURLErrorDNSLookupFailed:
+        return "name_not_resolved";
     case NSURLErrorCannotConnectToHost: return "cannot_connect";
+    case NSURLErrorResourceUnavailable:
+    case NSURLErrorCannotLoadFromNetwork:
+        return "server_unreachable";
     case NSURLErrorNetworkConnectionLost: return "connection_reset";
     case NSURLErrorNotConnectedToInternet: return "disconnected";
-    case NSURLErrorCancelled: return "cancelled";
+    case NSURLErrorCancelled: return "connection_aborted";
+    case NSURLErrorHTTPTooManyRedirects:
+    case NSURLErrorRedirectToNonExistentLocation:
+        return "redirect_failed";
+    case NSURLErrorBadServerResponse:
+    case NSURLErrorCannotDecodeRawData:
+    case NSURLErrorCannotDecodeContentData:
+    case NSURLErrorCannotParseResponse:
+    case NSURLErrorZeroByteResource:
+        return "invalid_response";
+    case NSURLErrorUserCancelledAuthentication:
+    case NSURLErrorUserAuthenticationRequired:
+        return proxy_authentication_challenge
+            ? "proxy_authentication_required" : "authentication_required";
+    case NSURLErrorAppTransportSecurityRequiresSecureConnection:
+        return "app_transport_security";
+    case NSURLErrorSecureConnectionFailed:
+        return "secure_connection_failed";
+    case NSURLErrorClientCertificateRejected:
+    case NSURLErrorClientCertificateRequired:
+        return "authentication_required";
     case NSURLErrorServerCertificateUntrusted:
     case NSURLErrorServerCertificateHasBadDate:
     case NSURLErrorServerCertificateHasUnknownRoot:
     case NSURLErrorServerCertificateNotYetValid:
         return "certificate";
     default: return "unexpected";
+    }
+}
+
+const char* navigation_type_name(WKNavigationType type) {
+    switch (type) {
+    case WKNavigationTypeLinkActivated: return "link_activated";
+    case WKNavigationTypeFormSubmitted: return "form_submitted";
+    case WKNavigationTypeBackForward: return "back_forward";
+    case WKNavigationTypeReload: return "reload";
+    case WKNavigationTypeFormResubmitted: return "form_resubmitted";
+    case WKNavigationTypeOther: return "other";
+    default: return "unknown";
     }
 }
 
@@ -294,8 +461,15 @@ class MacAgentBrowserDelegateSink {
 public:
     virtual ~MacAgentBrowserDelegateSink() = default;
     virtual void navigation_started(const std::string&, WKWebView*) = 0;
+    virtual void navigation_redirected(const std::string&, WKWebView*) = 0;
+    virtual void navigation_committed(const std::string&, WKWebView*) = 0;
     virtual void navigation_finished(const std::string&, WKWebView*) = 0;
-    virtual void navigation_failed(const std::string&, WKWebView*, NSError*) = 0;
+    virtual void navigation_failed(const std::string&, WKWebView*, NSError*,
+                                   const std::string&) = 0;
+    virtual void navigation_policy_decided(
+        const std::string&, WKWebView*, WKNavigationAction*, bool) = 0;
+    virtual void authentication_challenge(
+        const std::string&, WKWebView*, NSURLAuthenticationChallenge*) = 0;
     virtual void page_identity_changed(const std::string&, WKWebView*) = 0;
     virtual void process_terminated(const std::string&) = 0;
     virtual void console_message(const std::string&, id) = 0;
@@ -474,6 +648,17 @@ static void* kACECodeAgentBrowserStateObservation =
     if (owner_) owner_->navigation_started([self pageIDValue], webView);
 }
 
+- (void)webView:(WKWebView*)webView
+    didReceiveServerRedirectForProvisionalNavigation:(WKNavigation*)navigation {
+    (void)navigation;
+    if (owner_) owner_->navigation_redirected([self pageIDValue], webView);
+}
+
+- (void)webView:(WKWebView*)webView didCommitNavigation:(WKNavigation*)navigation {
+    (void)navigation;
+    if (owner_) owner_->navigation_committed([self pageIDValue], webView);
+}
+
 - (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation {
     (void)navigation;
     if (owner_) owner_->navigation_finished([self pageIDValue], webView);
@@ -483,14 +668,31 @@ static void* kACECodeAgentBrowserStateObservation =
     didFailProvisionalNavigation:(WKNavigation*)navigation
                       withError:(NSError*)error {
     (void)navigation;
-    if (owner_) owner_->navigation_failed([self pageIDValue], webView, error);
+    if (owner_) {
+        owner_->navigation_failed(
+            [self pageIDValue], webView, error, "provisional");
+    }
 }
 
 - (void)webView:(WKWebView*)webView
     didFailNavigation:(WKNavigation*)navigation
              withError:(NSError*)error {
     (void)navigation;
-    if (owner_) owner_->navigation_failed([self pageIDValue], webView, error);
+    if (owner_) {
+        owner_->navigation_failed(
+            [self pageIDValue], webView, error, "committed");
+    }
+}
+
+- (void)webView:(WKWebView*)webView
+    didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge*)challenge
+                   completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition,
+                                                NSURLCredential* credential))completionHandler {
+    if (owner_) {
+        owner_->authentication_challenge(
+            [self pageIDValue], webView, challenge);
+    }
+    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
 }
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView*)webView {
@@ -519,9 +721,13 @@ static void* kACECodeAgentBrowserStateObservation =
 - (void)webView:(WKWebView*)webView
     decidePolicyForNavigationAction:(WKNavigationAction*)navigationAction
                    decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-    (void)webView;
     NSURL* url = navigationAction.request.URL;
-    decisionHandler(acecode::desktop::safe_navigation_url(url)
+    const bool allowed = acecode::desktop::safe_navigation_url(url);
+    if (owner_) {
+        owner_->navigation_policy_decided(
+            [self pageIDValue], webView, navigationAction, allowed);
+    }
+    decisionHandler(allowed
         ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
 }
 
@@ -708,6 +914,7 @@ struct AgentBrowserHost::Impl final
         std::vector<std::string> console_logs;
         std::vector<WKBackForwardListItem*> history_items;
         std::uint64_t element_selection_generation = 0;
+        bool last_authentication_was_proxy = false;
         bool closing = false;
         bool observing_state = false;
         std::string dialog_kind;
@@ -1032,6 +1239,12 @@ struct AgentBrowserHost::Impl final
             page_order.push_back(page->id);
         }
         emit_state(page->state);
+        LOG_INFO("[agent-browser][macos] " + json{
+            {"event", "page_created"},
+            {"page_id", page->id},
+            {"shared_with_agent", shared_with_agent},
+            {"ready", page->state.ready},
+        }.dump());
         std::string ignored;
         select_page_on_ui(page->id, &ignored);
         return page->id;
@@ -1147,6 +1360,11 @@ struct AgentBrowserHost::Impl final
         page->state.visible = false;
         page->state.active = false;
         emit_state(page->state);
+        LOG_INFO("[agent-browser][macos] " + json{
+            {"event", "page_closed"},
+            {"page_id", page->id},
+            {"url", page->state.url},
+        }.dump());
         if (closed_page) *closed_page = page->id;
         if (!next_page.empty()) {
             std::string ignored;
@@ -1178,7 +1396,20 @@ struct AgentBrowserHost::Impl final
             return false;
         }
         auto normalized = normalize_agent_browser_url(input, error);
-        if (!normalized) return false;
+        if (!normalized) {
+            LOG_WARN("[agent-browser][macos] " + json{
+                {"event", "navigation_rejected"},
+                {"page_id", page_id},
+                {"input", clipped(input, kMaxNativeErrorFieldBytes)},
+                {"error", error ? *error : std::string{}},
+            }.dump());
+            return false;
+        }
+        LOG_INFO("[agent-browser][macos] " + json{
+            {"event", "navigation_requested"},
+            {"page_id", page_id},
+            {"url", *normalized},
+        }.dump());
         if (*normalized == "about:blank") {
             [page->webview loadHTMLString:@"" baseURL:nil];
         } else {
@@ -1215,17 +1446,126 @@ struct AgentBrowserHost::Impl final
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
         page->console_logs.clear();
+        page->last_authentication_was_proxy = false;
         const std::string url = utf8_string(webview.URL.absoluteString);
+        LOG_INFO("[agent-browser][macos] " + json{
+            {"event", "navigation_started"},
+            {"page_id", page_id},
+            {"url", url},
+        }.dump());
         update_page(page, [&](AgentBrowserState& value) {
             value.loading = true;
             value.visible = false;
             value.content_state = kAgentBrowserContentStateLoading;
             value.failure_kind.clear();
             value.error.clear();
+            value.diagnostic.clear();
             value.favicon.clear();
             if (!url.empty()) value.url = url;
         });
         apply_bounds(page);
+    }
+
+    void navigation_redirected(const std::string& page_id,
+                               WKWebView* webview) override {
+        auto page = find_page(page_id);
+        if (!page || page->webview != webview) return;
+        LOG_INFO("[agent-browser][macos] " + json{
+            {"event", "navigation_redirected"},
+            {"page_id", page_id},
+            {"url", native_description(webview.URL.absoluteString)},
+        }.dump());
+    }
+
+    void navigation_committed(const std::string& page_id,
+                              WKWebView* webview) override {
+        auto page = find_page(page_id);
+        if (!page || page->webview != webview) return;
+        LOG_INFO("[agent-browser][macos] " + json{
+            {"event", "navigation_committed"},
+            {"page_id", page_id},
+            {"url", native_description(webview.URL.absoluteString)},
+        }.dump());
+    }
+
+    void navigation_policy_decided(const std::string& page_id,
+                                   WKWebView* webview,
+                                   WKNavigationAction* action,
+                                   bool allowed) override {
+        auto page = find_page(page_id);
+        if (!page || page->webview != webview || !action) return;
+        WKFrameInfo* source_frame = [action sourceFrame];
+        WKFrameInfo* target_frame = [action targetFrame];
+        NSURL* url = action.request.URL;
+        json event{
+            {"event", "navigation_policy"},
+            {"page_id", page_id},
+            {"url", native_description(url.absoluteString)},
+            {"scheme", native_description([url scheme])},
+            {"navigation_type", navigation_type_name([action navigationType])},
+            {"source_main_frame", source_frame &&
+                [source_frame isMainFrame] == YES},
+            {"target_frame_present", target_frame != nil},
+            {"target_main_frame", target_frame &&
+                [target_frame isMainFrame] == YES},
+            {"decision", allowed ? "allow" : "cancel"},
+        };
+        const std::string log_line =
+            "[agent-browser][macos] " + event.dump();
+        if (allowed) LOG_INFO(log_line);
+        else LOG_WARN(log_line);
+    }
+
+    void authentication_challenge(
+        const std::string& page_id,
+        WKWebView* webview,
+        NSURLAuthenticationChallenge* challenge) override {
+        auto page = find_page(page_id);
+        if (!page || page->webview != webview || !challenge) return;
+
+        NSURLProtectionSpace* protection_space = [challenge protectionSpace];
+        const bool is_proxy = protection_space &&
+            [protection_space isProxy] == YES;
+        page->last_authentication_was_proxy = is_proxy;
+
+        json event{
+            {"event", "authentication_challenge"},
+            {"page_id", page_id},
+            {"url", native_description(webview.URL.absoluteString)},
+            {"authentication_method", protection_space
+                ? native_description([protection_space authenticationMethod])
+                : std::string{}},
+            {"host", protection_space
+                ? native_description([protection_space host])
+                : std::string{}},
+            {"port", protection_space
+                ? static_cast<long long>([protection_space port]) : 0LL},
+            {"protocol", protection_space
+                ? native_description([protection_space protocol])
+                : std::string{}},
+            {"realm", protection_space
+                ? native_description([protection_space realm])
+                : std::string{}},
+            {"is_proxy", is_proxy},
+            {"receives_credential_securely", protection_space &&
+                [protection_space receivesCredentialSecurely] == YES},
+            {"server_trust_present", protection_space &&
+                [protection_space serverTrust] != nullptr},
+            {"client_certificate_issuer_count", protection_space
+                ? static_cast<std::size_t>(
+                    [[protection_space distinguishedNames] count]) : 0U},
+            {"previous_failure_count",
+                static_cast<long long>([challenge previousFailureCount])},
+            {"proposed_credential_present",
+                [challenge proposedCredential] != nil},
+            {"disposition", "perform_default_handling"},
+        };
+        NSURLResponse* response = [challenge failureResponse];
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            event["failure_response_status"] = static_cast<long long>(
+                [(NSHTTPURLResponse*)response statusCode]);
+        }
+        LOG_WARN("[agent-browser][macos] " + event.dump());
     }
 
     void refresh_page_identity(const std::shared_ptr<Page>& page) {
@@ -1309,28 +1649,52 @@ struct AgentBrowserHost::Impl final
             value.content_state = kAgentBrowserContentStateLive;
             value.failure_kind.clear();
             value.error.clear();
+            value.diagnostic.clear();
         });
         apply_bounds(page);
         refresh_favicon(page);
+        const AgentBrowserState snapshot = state(page_id);
+        LOG_INFO("[agent-browser][macos] " + json{
+            {"event", "navigation_finished"},
+            {"page_id", page_id},
+            {"url", snapshot.url},
+            {"title", snapshot.title},
+        }.dump());
         // Warm the isolated world after cold WKWebView startup.
         evaluate_value(page, "true", [](bool, json, std::string) {});
     }
 
     void navigation_failed(const std::string& page_id,
                            WKWebView* webview,
-                           NSError* native_error) override {
+                           NSError* native_error,
+                           const std::string& phase) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
         const std::string message = utf8_string(
             [native_error localizedDescription]);
+        const std::string diagnostic = native_error_diagnostic(native_error);
+        const std::string failure_kind = navigation_failure_kind(
+            native_error, page->last_authentication_was_proxy);
         refresh_page_identity(page);
         update_page(page, [&](AgentBrowserState& value) {
             value.loading = false;
             value.visible = false;
             value.content_state = kAgentBrowserContentStateNavigationError;
-            value.failure_kind = navigation_failure_kind(native_error);
+            value.failure_kind = failure_kind;
             value.error = message.empty() ? "WKWebView navigation failed" : message;
+            value.diagnostic = diagnostic;
         });
+        const AgentBrowserState snapshot = state(page_id);
+        LOG_ERROR("[agent-browser][macos] " + json{
+            {"event", "navigation_failed"},
+            {"phase", phase},
+            {"page_id", page_id},
+            {"url", snapshot.url},
+            {"failure_kind", failure_kind},
+            {"proxy_authentication_challenge",
+                page->last_authentication_was_proxy},
+            {"native_error", native_error_details(native_error)},
+        }.dump());
         apply_bounds(page);
     }
 
@@ -1345,12 +1709,18 @@ struct AgentBrowserHost::Impl final
     void process_terminated(const std::string& page_id) override {
         auto page = find_page(page_id);
         if (!page) return;
+        LOG_ERROR("[agent-browser][macos] " + json{
+            {"event", "web_content_process_terminated"},
+            {"page_id", page_id},
+            {"url", page->state.url},
+        }.dump());
         update_page(page, [](AgentBrowserState& value) {
             value.loading = false;
             value.visible = false;
             value.content_state = kAgentBrowserContentStateProcessFailed;
             value.failure_kind = "web_content_process_terminated";
             value.error = "WKWebView content process terminated";
+            value.diagnostic.clear();
         });
         apply_bounds(page);
     }
@@ -1375,8 +1745,21 @@ struct AgentBrowserHost::Impl final
     void load_popup_in_page(const std::string& page_id,
                             NSURLRequest* request) override {
         auto page = find_page(page_id);
-        if (page && request.URL && safe_navigation_url(request.URL)) {
+        const bool allowed = page && request.URL &&
+            safe_navigation_url(request.URL);
+        const std::string log_line = "[agent-browser][macos] " + json{
+            {"event", "popup_navigation"},
+            {"page_id", page_id},
+            {"url", request.URL
+                ? native_description(request.URL.absoluteString)
+                : std::string{}},
+            {"decision", allowed ? "load_in_page" : "cancel"},
+        }.dump();
+        if (allowed) {
+            LOG_INFO(log_line);
             load_agent_browser_request(page->webview, request);
+        } else {
+            LOG_WARN(log_line);
         }
     }
 

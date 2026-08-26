@@ -4,6 +4,20 @@
 export const SESSION_HOVER_CARD_VIEWPORT_MARGIN_PX = 8;
 export const SESSION_HOVER_CARD_GAP_PX = 8;
 export const SESSION_HOVER_GIT_CACHE_TTL_MS = 30_000;
+export const SESSION_HOVER_LIFECYCLE_ACTIONS = Object.freeze({
+  POINTER_ENTER: 'pointer-enter',
+  POINTER_LEAVE: 'pointer-leave',
+  KEYBOARD_ENTER: 'keyboard-enter',
+  KEYBOARD_LEAVE: 'keyboard-leave',
+  CLEAR_KEYBOARD: 'clear-keyboard',
+  CLEAR_OWNER: 'clear-owner',
+  CLEAR_ALL: 'clear-all',
+});
+
+const EMPTY_SESSION_HOVER_LIFECYCLE_STATE = Object.freeze({
+  pointerOwner: '',
+  keyboardOwner: '',
+});
 
 function finiteNumber(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -15,6 +29,72 @@ function nonNegativeNumber(value, fallback = 0) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(min, value), Math.max(min, max));
+}
+
+function hoverOwner(value) {
+  return typeof value === 'string' ? value : '';
+}
+
+export function createSessionHoverLifecycleState() {
+  return { ...EMPTY_SESSION_HOVER_LIFECYCLE_STATE };
+}
+
+export function activeSessionHoverOwner(state = EMPTY_SESSION_HOVER_LIFECYCLE_STATE) {
+  return hoverOwner(state?.pointerOwner) || hoverOwner(state?.keyboardOwner);
+}
+
+export function reduceSessionHoverLifecycle(
+  state = EMPTY_SESSION_HOVER_LIFECYCLE_STATE,
+  action = {},
+) {
+  const current = state && typeof state === 'object'
+    ? state
+    : EMPTY_SESSION_HOVER_LIFECYCLE_STATE;
+  const pointerOwner = hoverOwner(current.pointerOwner);
+  const keyboardOwner = hoverOwner(current.keyboardOwner);
+  const owner = hoverOwner(action.owner);
+
+  switch (action.type) {
+    case SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_ENTER:
+      if (!owner || pointerOwner === owner) return current;
+      return { pointerOwner: owner, keyboardOwner };
+    case SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_LEAVE:
+      if (!owner || pointerOwner !== owner) return current;
+      return { pointerOwner: '', keyboardOwner };
+    case SESSION_HOVER_LIFECYCLE_ACTIONS.KEYBOARD_ENTER:
+      if (!owner || keyboardOwner === owner) return current;
+      return { pointerOwner, keyboardOwner: owner };
+    case SESSION_HOVER_LIFECYCLE_ACTIONS.KEYBOARD_LEAVE:
+      if (!owner || keyboardOwner !== owner) return current;
+      return { pointerOwner, keyboardOwner: '' };
+    case SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_KEYBOARD:
+      if (!keyboardOwner) return current;
+      return { pointerOwner, keyboardOwner: '' };
+    case SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_OWNER: {
+      if (!owner || (pointerOwner !== owner && keyboardOwner !== owner)) return current;
+      return {
+        pointerOwner: pointerOwner === owner ? '' : pointerOwner,
+        keyboardOwner: keyboardOwner === owner ? '' : keyboardOwner,
+      };
+    }
+    case SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_ALL:
+      if (!pointerOwner && !keyboardOwner) return current;
+      return createSessionHoverLifecycleState();
+    default:
+      return current;
+  }
+}
+
+export function sessionHoverFocusIsVisible(target, { pointerInitiated = false } = {}) {
+  if (pointerInitiated) return false;
+  if (typeof target?.matches !== 'function') return true;
+  try {
+    return target.matches(':focus-visible');
+  } catch {
+    // Older embedded WebViews may not parse :focus-visible. Pointer origin is
+    // still known synchronously, so non-pointer focus remains accessible.
+    return true;
+  }
 }
 
 export function sessionHoverDetails(session, gitInfo = null) {

@@ -32,6 +32,11 @@ std::wstring folder_picker_title() {
         std::string(native_string(DesktopStringId::FolderPickerTitle)));
 }
 
+std::wstring session_export_save_title() {
+    return acecode::utf8_to_wide(
+        std::string(native_string(DesktopStringId::SessionExportSaveTitle)));
+}
+
 // UTF-16 → UTF-8。基础实现,夹带不可解码字节直接落空(MVP 容忍,实际选目录路径都是
 // 系统合法 UTF-16)。
 std::string wide_to_utf8(const std::wstring& w) {
@@ -243,6 +248,99 @@ FolderPickOutcome pick_folder_outcome(void* parent_hwnd) {
     return outcome;
 }
 
+SaveFilePickOutcome pick_save_file_outcome(
+    void* parent_hwnd,
+    const std::string& suggested_filename) {
+    SaveFilePickOutcome outcome;
+    const auto fail = [&outcome](const std::string& stage) {
+        LOG_WARN("[folder_picker] save dialog failed at " + stage);
+        outcome.error = std::string(
+            native_string(DesktopStringId::SessionExportSaveFailed));
+    };
+
+    const HRESULT hr_init = ::CoInitializeEx(
+        nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    const bool we_init_com = SUCCEEDED(hr_init);
+    if (!we_init_com && hr_init != RPC_E_CHANGED_MODE && hr_init != S_FALSE) {
+        fail("CoInitializeEx");
+        return outcome;
+    }
+
+    IFileSaveDialog* dialog = nullptr;
+    HRESULT hr = ::CoCreateInstance(
+        CLSID_FileSaveDialog,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&dialog));
+    if (FAILED(hr) || !dialog) {
+        fail("CoCreateInstance(IFileSaveDialog)");
+        if (we_init_com) ::CoUninitialize();
+        return outcome;
+    }
+
+    DWORD options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options))) {
+        dialog->SetOptions(options |
+                           FOS_FORCEFILESYSTEM |
+                           FOS_PATHMUSTEXIST |
+                           FOS_OVERWRITEPROMPT |
+                           FOS_NOREADONLYRETURN);
+    }
+
+    const std::wstring title = session_export_save_title();
+    const std::wstring file_type = acecode::utf8_to_wide(
+        std::string(native_string(DesktopStringId::SessionExportMarkdownType)));
+    const std::wstring suggested = acecode::utf8_to_wide(suggested_filename);
+    const COMDLG_FILTERSPEC filters[] = {
+        {file_type.c_str(), L"*.md"},
+    };
+    dialog->SetTitle(title.c_str());
+    dialog->SetFileTypes(1, filters);
+    dialog->SetFileTypeIndex(1);
+    dialog->SetDefaultExtension(L"md");
+    if (!suggested.empty()) dialog->SetFileName(suggested.c_str());
+
+    HWND requested_parent = reinterpret_cast<HWND>(parent_hwnd);
+    HWND parent = resolve_dialog_owner(requested_parent);
+    DialogForegroundPulse foreground_pulse;
+    if (!requested_parent || !parent) foreground_pulse.start();
+    hr = dialog->Show(parent);
+    foreground_pulse.stop();
+
+    if (SUCCEEDED(hr)) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+            PWSTR path = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) {
+                const std::string selected = wide_to_utf8(std::wstring(path));
+                if (!selected.empty()) {
+                    outcome.path = selected;
+                } else {
+                    fail("UTF-16 path conversion");
+                }
+                ::CoTaskMemFree(path);
+            } else {
+                fail("GetDisplayName");
+            }
+            item->Release();
+        } else {
+            fail("GetResult");
+        }
+    } else if (hr != HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+        fail("Show");
+    }
+
+    dialog->Release();
+    if (we_init_com) ::CoUninitialize();
+    return outcome;
+}
+
+std::optional<std::string> pick_save_file(
+    void* parent_hwnd,
+    const std::string& suggested_filename) {
+    return pick_save_file_outcome(parent_hwnd, suggested_filename).path;
+}
+
 } // namespace acecode::desktop
 
 #elif !defined(__APPLE__) // POSIX stub (Linux etc.)
@@ -384,6 +482,67 @@ FolderPickOutcome pick_folder_outcome(void* /*parent*/) {
 
 std::optional<std::string> pick_folder(void* parent) {
     return pick_folder_outcome(parent).path;
+}
+
+SaveFilePickOutcome pick_save_file_outcome(
+    void* /*parent*/,
+    const std::string& suggested_filename) {
+    SaveFilePickOutcome outcome;
+    std::string path;
+
+    const std::string title = std::string(
+        native_string(DesktopStringId::SessionExportSaveTitle));
+    const std::string file_type = std::string(
+        native_string(DesktopStringId::SessionExportMarkdownType));
+    const std::string suggestion = suggested_filename.empty()
+        ? std::string("session.md")
+        : suggested_filename;
+    const std::string zenity_title = "--title=" + title;
+    const std::string zenity_filename = "--filename=" + suggestion;
+    const std::string zenity_filter = "--file-filter=" + file_type + " | *.md";
+    auto zenity = run_folder_picker_command({
+        "zenity",
+        "--file-selection",
+        "--save",
+        "--confirm-overwrite",
+        zenity_title.c_str(),
+        zenity_filename.c_str(),
+        zenity_filter.c_str(),
+        nullptr,
+    }, path);
+    if (zenity == RunStatus::Picked) {
+        outcome.path = path;
+        return outcome;
+    }
+    if (zenity == RunStatus::Cancelled) return outcome;
+
+    const std::string initial_path = "./" + suggestion;
+    const std::string kdialog_filter = "*.md|" + file_type;
+    auto kdialog = run_folder_picker_command({
+        "kdialog",
+        "--getsavefilename",
+        initial_path.c_str(),
+        kdialog_filter.c_str(),
+        "--title",
+        title.c_str(),
+        nullptr,
+    }, path);
+    if (kdialog == RunStatus::Picked) {
+        outcome.path = path;
+        return outcome;
+    }
+    if (kdialog == RunStatus::Cancelled) return outcome;
+
+    LOG_WARN("[folder_picker] no save-file picker tool available (tried zenity, kdialog)");
+    outcome.error = std::string(
+        native_string(DesktopStringId::SessionExportSaveMissing));
+    return outcome;
+}
+
+std::optional<std::string> pick_save_file(
+    void* parent,
+    const std::string& suggested_filename) {
+    return pick_save_file_outcome(parent, suggested_filename).path;
 }
 
 } // namespace acecode::desktop

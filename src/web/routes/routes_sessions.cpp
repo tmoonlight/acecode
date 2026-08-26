@@ -1428,8 +1428,8 @@ void WebServer::Impl::register_sessions() {
             return with_cors(req, std::move(r));
         });
 
-        // POST /api/sessions/:id/export-markdown: 选择目录并导出完整可见 transcript。
-        // 目录选择和最终写盘都留在 daemon,避免浏览器下载目录权限/路径能力不足。
+        // POST /api/sessions/:id/export-markdown: 用原生“另存为”导出完整可见 transcript。
+        // 文件选择和最终写盘都留在 daemon,避免浏览器下载权限/路径能力不足。
         CROW_ROUTE(app, "/api/sessions/<string>/export-markdown").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req, const std::string& id) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -1485,28 +1485,43 @@ void WebServer::Impl::register_sessions() {
             }
 
             if (!deps.native_folder_picker_enabled) {
-                return export_error(501, "native folder picker unavailable");
+                return export_error(501, "native save-file picker unavailable");
             }
-            if (!deps.native_folder_picker) {
-                return export_error(503, "native folder picker callback unavailable");
+            if (!deps.native_save_file_picker) {
+                return export_error(503, "native save-file picker callback unavailable");
             }
-            const auto picked = deps.native_folder_picker();
-            if (!picked.has_value() || picked->empty()) {
+            const std::string suggested_filename =
+                session_export::suggested_markdown_filename(
+                    meta.title.empty() ? meta.summary : meta.title,
+                    meta.id.empty() ? id : meta.id);
+            const auto picked = deps.native_save_file_picker(suggested_filename);
+            if (!picked.error.empty()) {
+                return export_error(500, picked.error);
+            }
+            if (!picked.path.has_value() || picked.path->empty()) {
                 crow::response r(200);
                 r.body = json{{"ok", true}, {"cancelled", true}}.dump();
                 r.add_header("Content-Type", "application/json");
                 return with_cors(req, std::move(r));
             }
 
-            const auto folder = path_from_utf8(*picked);
-            std::error_code ec;
-            if (!std::filesystem::is_directory(folder, ec) || ec) {
-                return export_error(400, "destination folder unavailable");
+            auto output_path = path_from_utf8(*picked.path);
+            if (output_path.extension().empty()) output_path += ".md";
+            if (!output_path.is_absolute() || output_path.filename().empty()) {
+                return export_error(400, "destination file path unavailable");
             }
 
-            const std::string filename = session_export::choose_markdown_filename(
-                folder, meta.title, meta.id.empty() ? id : meta.id);
-            const auto output_path = folder / path_from_utf8(filename);
+            const auto destination_directory = output_path.parent_path();
+            std::error_code ec;
+            if (!std::filesystem::is_directory(destination_directory, ec) || ec) {
+                return export_error(400, "destination directory unavailable");
+            }
+            ec.clear();
+            if (std::filesystem::is_directory(output_path, ec) && !ec) {
+                return export_error(400, "destination file path unavailable");
+            }
+
+            const std::string filename = path_to_utf8(output_path.filename());
             const std::string markdown = session_export::build_markdown(meta, visible_messages);
             std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
             if (!output) return export_error(500, "unable to create Markdown file");

@@ -440,7 +440,7 @@ export function createApi(base = null) {
       undefined,
       base,
     ),
-    // 同 pickWorkspaceFolder:后端弹原生目录选择框等用户操作,不设超时。
+    // 后端弹原生“另存为”框等待用户选择文件名/位置,不设超时。
     exportSession:    (id, workspaceHash = '') => request(
       'POST',
       `/api/sessions/${encodeURIComponent(id)}/export-markdown`,

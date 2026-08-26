@@ -113,6 +113,7 @@ nlohmann::json agent_browser_state_json(
         {"content_state", state.content_state},
         {"failure_kind", state.failure_kind},
         {"error", state.error},
+        {"diagnostic", state.diagnostic},
         {"page_id", state.page_id},
     };
     if (!state.selected_element_json.empty()) {

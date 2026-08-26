@@ -2,9 +2,6 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <fstream>
-
 namespace acecode {
 
 TEST(SessionMarkdownExportTest, BuildsMetadataRolesToolCallsAndStructuredContent) {
@@ -49,20 +46,13 @@ TEST(SessionMarkdownExportTest, BuildsMetadataRolesToolCallsAndStructuredContent
     EXPECT_NE(markdown.find("2026-07-12T10:00:01Z"), std::string::npos);
 }
 
-TEST(SessionMarkdownExportTest, SanitizesWindowsFilenameAndAvoidsCollision) {
+TEST(SessionMarkdownExportTest, BuildsSafeSuggestedMarkdownFilename) {
     EXPECT_EQ(session_export::sanitize_filename_stem("CON: invalid? ", "fallback"), "CON_ invalid_");
     EXPECT_EQ(session_export::sanitize_filename_stem("...", "session-1"), "session-1");
-
-    const auto dir = std::filesystem::temp_directory_path() / "acecode-session-export-test";
-    std::error_code ec;
-    std::filesystem::remove_all(dir, ec);
-    std::filesystem::create_directories(dir, ec);
-    ASSERT_FALSE(ec);
-    {
-        std::ofstream(dir / "My Session.md") << "existing";
-    }
-    EXPECT_EQ(session_export::choose_markdown_filename(dir, "My Session", "sid"), "My Session (2).md");
-    std::filesystem::remove_all(dir, ec);
+    EXPECT_EQ(session_export::suggested_markdown_filename("会话标题", "sid"),
+              "会话标题.md");
+    EXPECT_EQ(session_export::suggested_markdown_filename("...", "session-1"),
+              "session-1.md");
 }
 
 TEST(SessionMarkdownExportTest, KeepsVisibleSystemAndErrorRoles) {

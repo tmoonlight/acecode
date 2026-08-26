@@ -47,6 +47,14 @@ const NAVIGATION_FAILURES = Object.freeze({
     title: '页面重定向失败',
     detail: '网站无法完成跳转，请稍后重试。',
   },
+  app_transport_security: {
+    title: 'macOS 已阻止此连接',
+    detail: '此页面不符合 App Transport Security 的安全连接要求。',
+  },
+  secure_connection_failed: {
+    title: '无法建立安全连接',
+    detail: 'TLS 安全连接失败，请检查网站和网络安全配置。',
+  },
   authentication_required: {
     title: '此页面需要身份验证',
     detail: '请确认登录信息后重新加载页面。',
@@ -137,9 +145,11 @@ export function agentBrowserSurfacePresentation(state = {}) {
       title: '无法打开此页面',
       detail: '请检查网站地址和网络连接，然后重试。',
     };
+    const diagnostic = String(state.diagnostic || '').trim();
     return {
       ...common,
       ...failure,
+      ...(diagnostic ? { diagnostic } : {}),
       canRetry: true,
       icon: 'warning',
       role: 'alert',

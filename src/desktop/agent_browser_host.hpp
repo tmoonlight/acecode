@@ -55,6 +55,9 @@ struct AgentBrowserState {
     std::string content_state = kAgentBrowserContentStateEmpty;
     std::string failure_kind;
     std::string error;
+    // Optional native diagnostics for the current failure. macOS populates
+    // this with bounded NSError details; other platforms leave it empty.
+    std::string diagnostic;
     // Transient event payload. It is populated only on the state snapshot that
     // completes a user element pick and is not retained in the page state.
     std::string selected_element_json;

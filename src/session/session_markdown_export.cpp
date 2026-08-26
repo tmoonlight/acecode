@@ -136,20 +136,9 @@ std::string sanitize_filename_stem(const std::string& preferred,
     return result;
 }
 
-std::string choose_markdown_filename(const std::filesystem::path& directory,
-                                     const std::string& preferred,
-                                     const std::string& fallback) {
-    const std::string stem = sanitize_filename_stem(preferred, fallback);
-    for (int suffix = 0; suffix < 100000; ++suffix) {
-        const std::string filename = suffix == 0
-            ? stem + ".md"
-            : stem + " (" + std::to_string(suffix + 1) + ").md";
-        std::error_code ec;
-        if (!std::filesystem::exists(directory / std::filesystem::u8path(filename), ec) && !ec) {
-            return filename;
-        }
-    }
-    return stem + " (" + std::to_string(100001) + ").md";
+std::string suggested_markdown_filename(const std::string& preferred,
+                                        const std::string& fallback) {
+    return sanitize_filename_stem(preferred, fallback) + ".md";
 }
 
 std::string build_markdown(const SessionMeta& meta,

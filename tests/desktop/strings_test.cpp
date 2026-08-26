@@ -45,6 +45,10 @@ TEST(DesktopStrings, FolderPickerAndDaemonFailuresUseSelectedLocale) {
               "选择");
     EXPECT_EQ(desktop_string(DesktopStringId::FolderPickerPrompt, "en-US"),
               "Select");
+    EXPECT_EQ(desktop_string(DesktopStringId::SessionExportSaveTitle, "zh-CN"),
+              "导出会话");
+    EXPECT_EQ(desktop_string(DesktopStringId::SessionExportSavePrompt, "en-US"),
+              "Save");
     EXPECT_NE(format_daemon_workspace_failed_message(
                   u8"用户项目", "exit 1", "en-US").find(u8"用户项目"),
               std::string::npos);

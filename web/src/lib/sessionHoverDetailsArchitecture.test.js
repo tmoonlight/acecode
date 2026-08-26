@@ -19,7 +19,7 @@ function test(name, fn) {
   }
 }
 
-test('shared SessionRow gates the portal on workspace hover or focus', () => {
+test('shared SessionRow renders only the Sidebar-owned hover card', () => {
   const sidebar = source('components/Sidebar.jsx');
   const rowStart = sidebar.indexOf('function SessionRow({');
   const rowEnd = sidebar.indexOf('\nfunction OpencodeImportSelectAllCheckbox(', rowStart);
@@ -27,17 +27,35 @@ test('shared SessionRow gates the portal on workspace hover or focus', () => {
   const row = sidebar.slice(rowStart, rowEnd);
 
   assert.match(row, /const hoverDetails = sessionHoverDetails\(s\);/);
-  assert.match(row, /const hoverCardVisible = !!hoverDetails && \(hovered \|\| focusWithin\);/);
-  assert.match(
-    row,
-    /onMouseEnter=\{\(\) => \{\s*if \(hoverDetails\) setHovered\(true\);[\s\S]*?ensureCompleteMarqueeTitle\(\);\s*\}\}/,
-  );
-  assert.match(
-    row,
-    /onFocusCapture=\{\(\) => \{\s*if \(hoverDetails\) setFocusWithin\(true\);[\s\S]*?ensureCompleteMarqueeTitle\(\);\s*\}\}/,
-  );
+  assert.match(row, /useContext\(SessionHoverLifecycleContext\)/);
+  assert.match(row, /sessionHoverLifecycle\.activeOwner === hoverCardId/);
+  assert.doesNotMatch(row, /const \[(?:hovered|focusWithin),/);
+  assert.match(row, /SESSION_HOVER_LIFECYCLE_ACTIONS\.POINTER_ENTER/);
+  assert.match(row, /SESSION_HOVER_LIFECYCLE_ACTIONS\.POINTER_LEAVE/);
+  assert.match(row, /sessionHoverFocusIsVisible\(event\.target/);
+  assert.match(row, /SESSION_HOVER_LIFECYCLE_ACTIONS\.KEYBOARD_ENTER/);
+  assert.match(row, /SESSION_HOVER_LIFECYCLE_ACTIONS\.KEYBOARD_LEAVE/);
   assert.match(row, /\{hoverCardVisible && \(\s*<SessionHoverCard/);
+  assert.equal((row.match(/<SessionHoverCard/g) || []).length, 1);
   assert.match(row, /aria-describedby=\{hoverCardVisible \? hoverCardId : undefined\}/);
+});
+
+test('Sidebar owns one lifecycle reducer and clears stale trigger boundaries', () => {
+  const sidebar = source('components/Sidebar.jsx');
+
+  assert.match(sidebar, /const SessionHoverLifecycleContext = createContext\(/);
+  assert.match(
+    sidebar,
+    /useReducer\(\s*reduceSessionHoverLifecycle,\s*undefined,\s*createSessionHoverLifecycleState/,
+  );
+  assert.match(sidebar, /activeOwner: activeSessionHoverOwner\(sessionHoverState\)/);
+  assert.match(sidebar, /<SessionHoverLifecycleContext\.Provider value=\{sessionHoverContextValue\}>/);
+  assert.match(sidebar, /if \(collapsed\) clearSessionHover\(\)/);
+  assert.match(sidebar, /onScroll=\{clearSessionHover\}/);
+  assert.match(sidebar, /window\.addEventListener\('pointerdown', handlePointerDown, true\)/);
+  assert.match(sidebar, /window\.addEventListener\('blur', clearSessionHover\)/);
+  assert.match(sidebar, /document\.addEventListener\('visibilitychange', handleVisibilityChange\)/);
+  assert.match(sidebar, /SESSION_HOVER_LIFECYCLE_ACTIONS\.CLEAR_OWNER/);
 });
 
 test('hover card lazily shares Git lookup and invalidates on Git state changes', () => {

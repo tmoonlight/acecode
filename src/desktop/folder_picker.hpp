@@ -23,4 +23,18 @@ struct FolderPickOutcome {
 };
 FolderPickOutcome pick_folder_outcome(void* parent_hwnd);
 
+// 原生“另存为”对话框。suggested_filename 只包含建议文件名(例如
+// "会话标题.md"),用户可在系统对话框里修改文件名和保存位置。
+struct SaveFilePickOutcome {
+    std::optional<std::string> path;  // 有值 = 用户确认的完整文件路径
+    std::string error;                // 非空 = 对话框环境/系统错误
+    // path 为空且 error 为空 = 用户取消
+};
+SaveFilePickOutcome pick_save_file_outcome(
+    void* parent_hwnd,
+    const std::string& suggested_filename);
+std::optional<std::string> pick_save_file(
+    void* parent_hwnd,
+    const std::string& suggested_filename);
+
 } // namespace acecode::desktop

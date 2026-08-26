@@ -7,11 +7,14 @@
 // 收起态(view !== 'single')→ width 0,sidebar 整个折叠让出主区。
 
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from 'react';
@@ -84,8 +87,13 @@ import {
 } from '../lib/sidebarSessionLoadPool.js';
 import { sidebarTitleMarqueeMetrics } from '../lib/sidebarTitleMarquee.js';
 import {
+  SESSION_HOVER_LIFECYCLE_ACTIONS,
+  activeSessionHoverOwner,
   computeSessionHoverCardPosition,
+  createSessionHoverLifecycleState,
+  reduceSessionHoverLifecycle,
   sessionHoverDetails,
+  sessionHoverFocusIsVisible,
 } from '../lib/sessionHoverDetails.js';
 // hover 卡片与 GitSessionPill 共用同一份 git info 缓存(见 gitInfoCache.js)。
 import { gitInfoCache } from '../lib/gitInfoCache.js';
@@ -122,6 +130,10 @@ const PINNED_DRAG_EDGE_SCROLL_PX = 34;
 const PINNED_DRAG_EDGE_SCROLL_STEP = 16;
 const NO_WORKSPACE_SESSION_LIST_KEY = '__no_workspace__';
 const REMOTE_CONTROL_SURGE_FALLBACK_MS = 950;
+const SessionHoverLifecycleContext = createContext({
+  activeOwner: '',
+  dispatch: () => {},
+});
 
 function pinnedSessionKey(workspaceHash, sessionId) {
   const ws = String(workspaceHash || '');
@@ -728,18 +740,21 @@ function SessionRow({
   const sessionMarker = sidebarSessionMarker(s);
   const remoteControlBound = Boolean(s.remote_control_bound ?? s.remoteControlBound);
   const hoverDetails = sessionHoverDetails(s);
+  const hasHoverDetails = Boolean(hoverDetails);
   const hoverCardId = useId();
   const rowRef = useRef(null);
+  const pointerFocusRef = useRef(false);
+  const pointerFocusResetTimerRef = useRef(null);
+  const sessionHoverLifecycle = useContext(SessionHoverLifecycleContext);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
-  const [hovered, setHovered] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
   const [remoteControlSurging, setRemoteControlSurging] = useState(false);
   const previousRemoteControlBoundRef = useRef(remoteControlBound);
   const remoteControlSurgeTimerRef = useRef(null);
   const activeRemoteControlSurgeSequenceRef = useRef(0);
   const committingRef = useRef(false);
-  const hoverCardVisible = !!hoverDetails && (hovered || focusWithin);
+  const hoverCardVisible = hasHoverDetails
+    && sessionHoverLifecycle.activeOwner === hoverCardId;
   const remoteControlSurgeSequence = remoteControlSurgeRequest?.targetKey === remoteControlSurgeTargetKey(s)
     ? Number(remoteControlSurgeRequest.sequence) || 0
     : 0;
@@ -793,6 +808,24 @@ function SessionRow({
   useEffect(() => {
     if (!editing) setDraft(title);
   }, [editing, title]);
+
+  useEffect(() => () => {
+    if (pointerFocusResetTimerRef.current) {
+      window.clearTimeout(pointerFocusResetTimerRef.current);
+    }
+    sessionHoverLifecycle.dispatch({
+      type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_OWNER,
+      owner: hoverCardId,
+    });
+  }, [hoverCardId, sessionHoverLifecycle.dispatch]);
+
+  useEffect(() => {
+    if (hasHoverDetails) return;
+    sessionHoverLifecycle.dispatch({
+      type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_OWNER,
+      owner: hoverCardId,
+    });
+  }, [hasHoverDetails, hoverCardId, sessionHoverLifecycle.dispatch]);
 
   useEffect(() => {
     const wasBound = previousRemoteControlBoundRef.current;
@@ -929,16 +962,52 @@ function SessionRow({
         attention === 'unread' && !active && 'font-semibold',
       )}
       onMouseEnter={() => {
-        if (hoverDetails) setHovered(true);
+        if (hoverDetails) {
+          sessionHoverLifecycle.dispatch({
+            type: SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_ENTER,
+            owner: hoverCardId,
+          });
+        }
         ensureCompleteMarqueeTitle();
       }}
-      onMouseLeave={hoverDetails ? () => setHovered(false) : undefined}
-      onFocusCapture={() => {
-        if (hoverDetails) setFocusWithin(true);
+      onMouseLeave={hoverDetails ? () => {
+        sessionHoverLifecycle.dispatch({
+          type: SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_LEAVE,
+          owner: hoverCardId,
+        });
+      } : undefined}
+      onPointerDownCapture={hoverDetails ? () => {
+        pointerFocusRef.current = true;
+        if (pointerFocusResetTimerRef.current) {
+          window.clearTimeout(pointerFocusResetTimerRef.current);
+        }
+        pointerFocusResetTimerRef.current = window.setTimeout(() => {
+          pointerFocusRef.current = false;
+          pointerFocusResetTimerRef.current = null;
+        }, 0);
+        sessionHoverLifecycle.dispatch({
+          type: SESSION_HOVER_LIFECYCLE_ACTIONS.KEYBOARD_LEAVE,
+          owner: hoverCardId,
+        });
+      } : undefined}
+      onFocusCapture={(event) => {
+        if (hoverDetails && sessionHoverFocusIsVisible(event.target, {
+          pointerInitiated: pointerFocusRef.current,
+        })) {
+          sessionHoverLifecycle.dispatch({
+            type: SESSION_HOVER_LIFECYCLE_ACTIONS.KEYBOARD_ENTER,
+            owner: hoverCardId,
+          });
+        }
         ensureCompleteMarqueeTitle();
       }}
       onBlurCapture={hoverDetails ? (event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setFocusWithin(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          sessionHoverLifecycle.dispatch({
+            type: SESSION_HOVER_LIFECYCLE_ACTIONS.KEYBOARD_LEAVE,
+            owner: hoverCardId,
+          });
+        }
       } : undefined}
       onPointerDown={pinned ? (event) => onPinnedPointerDown?.(event, s, title) : undefined}
       onClick={(event) => {
@@ -1546,6 +1615,15 @@ export function Sidebar({
   pendingPermissionSessionIds = new Set(),
   pendingQuestionSessionIds = new Set(),
 }) {
+  const [sessionHoverState, dispatchSessionHover] = useReducer(
+    reduceSessionHoverLifecycle,
+    undefined,
+    createSessionHoverLifecycleState,
+  );
+  const sessionHoverContextValue = useMemo(() => ({
+    activeOwner: activeSessionHoverOwner(sessionHoverState),
+    dispatch: dispatchSessionHover,
+  }), [sessionHoverState]);
   const [workspaces,  setWorkspaces]  = useState([]);
   const [sessions,    setSessions]    = useState([]);
   const [statusBySession, setStatusBySession] = useState(() => new Map());
@@ -1619,6 +1697,32 @@ export function Sidebar({
     () => sidebarNavigationIdentity(activeRef),
     [activeRef],
   );
+
+  const clearSessionHover = useCallback(() => {
+    dispatchSessionHover({ type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_ALL });
+  }, []);
+
+  useEffect(() => {
+    if (collapsed) clearSessionHover();
+  }, [clearSessionHover, collapsed]);
+
+  useEffect(() => {
+    const handlePointerDown = () => {
+      dispatchSessionHover({ type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_KEYBOARD });
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden || document.visibilityState === 'hidden') clearSessionHover();
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('blur', clearSessionHover);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('blur', clearSessionHover);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [clearSessionHover]);
 
   const replaceSessionSelectionIntent = useCallback((nextIntent) => {
     sessionSelectionIntentRef.current = nextIntent;
@@ -2925,6 +3029,7 @@ export function Sidebar({
 
   return (
     <>
+      <SessionHoverLifecycleContext.Provider value={sessionHoverContextValue}>
       <aside
         data-tour-target="sidebar"
         className={[
@@ -2945,7 +3050,11 @@ export function Sidebar({
               />
             ))}
           </div>
-          <div ref={sidebarScrollRef} className="ace-sidebar-scroll flex-1 overflow-y-auto pb-2">
+          <div
+            ref={sidebarScrollRef}
+            className="ace-sidebar-scroll flex-1 overflow-y-auto pb-2"
+            onScroll={clearSessionHover}
+          >
             <SidebarSectionHeader
               sectionId={SIDEBAR_SECTION_IDS.PINNED}
               count={sectionCounts.pinned}
@@ -3103,6 +3212,7 @@ export function Sidebar({
         />
       </div>
       </aside>
+      </SessionHoverLifecycleContext.Provider>
       <OpencodeImportDialog
         dialog={opencodeImportDialog}
         onCancel={closeOpencodeImportDialog}

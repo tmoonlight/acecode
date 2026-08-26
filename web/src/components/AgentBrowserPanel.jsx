@@ -52,6 +52,7 @@ const INITIAL_STATE = Object.freeze({
   content_state: 'empty',
   failure_kind: '',
   error: '',
+  diagnostic: '',
 });
 
 export function AgentBrowserPanel({
@@ -485,6 +486,14 @@ export function AgentBrowserPanel({
               <div className="ace-agent-browser-status-detail">
                 {surface.detail}
               </div>
+              {surface.diagnostic && (
+                <pre
+                  className="ace-agent-browser-status-diagnostic"
+                  aria-label="NSError"
+                >
+                  {surface.diagnostic}
+                </pre>
+              )}
               {surface.canRetry && (
                 <div className="ace-agent-browser-status-actions">
                   <button

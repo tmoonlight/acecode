@@ -393,6 +393,9 @@ struct WebServerFixture {
     using SessionClientFactory = std::function<
         std::unique_ptr<acecode::LocalSessionClient>(
             acecode::SessionRegistry&)>;
+    using NativeSaveFilePicker = std::function<
+        acecode::web::NativeSaveFilePickResult(const std::string&)>;
+    struct NativeSavePickerTag {};
 
     acecode::ToolExecutor tools;
     acecode::PermissionManager template_perm;
@@ -435,7 +438,8 @@ struct WebServerFixture {
         bool dangerous = false,
         std::function<std::vector<std::string>()> remote_web_hosts = {},
         SessionClientFactory session_client_factory = {},
-        bool desktop_managed = false) {
+        bool desktop_managed = false,
+        NativeSaveFilePicker native_save_file_picker = {}) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -523,6 +527,7 @@ struct WebServerFixture {
         wdeps.workspace_registry = workspace_registry.get();
         wdeps.native_folder_picker_enabled = native_folder_picker_enabled;
         wdeps.native_folder_picker = std::move(native_folder_picker);
+        wdeps.native_save_file_picker = std::move(native_save_file_picker);
         wdeps.open_in_explorer = std::move(open_in_explorer);
         wdeps.remote_web_hosts = std::move(remote_web_hosts);
         wdeps.remote_web_computer_name = [] {
@@ -550,6 +555,22 @@ struct WebServerFixture {
         }
         // 起不来的话后续测试会失败 — 不在这里 throw,让 GTest 给清晰报错
     }
+
+    explicit WebServerFixture(
+        NativeSavePickerTag,
+        NativeSaveFilePicker native_save_file_picker)
+        : WebServerFixture(
+              true,
+              true,
+              {},
+              true,
+              {},
+              {},
+              false,
+              {},
+              {},
+              false,
+              std::move(native_save_file_picker)) {}
 
     explicit WebServerFixture(
         std::function<std::vector<std::string>()> remote_web_hosts,
@@ -1717,15 +1738,25 @@ TEST(WebServerHttp, SessionListMarksOnlyRemoteControlBoundSession) {
     }
 }
 
-TEST(WebServerHttp, ExportSessionMarkdownWritesVisibleTranscriptToPickedFolder) {
+TEST(WebServerHttp, ExportSessionMarkdownUsesSuggestedAndUserSelectedFilename) {
     const auto export_dir = std::filesystem::temp_directory_path() /
                             ("acecode_session_export_success_" + std::to_string(std::random_device{}()));
     RemoveTreeOnExit cleanup{export_dir};
     std::filesystem::create_directories(export_dir);
+    const auto selected_path = export_dir / "custom-export-name";
+    const auto expected_path = export_dir / "custom-export-name.md";
+    std::atomic<bool> received_expected_suggestion{false};
     WebServerFixture fx(
-        true,
-        true,
-        [export_dir] { return std::optional<std::string>(export_dir.string()); });
+        WebServerFixture::NativeSavePickerTag{},
+        [selected_path, &received_expected_suggestion](const std::string& suggested) {
+            received_expected_suggestion.store(
+                suggested == "导出成功测试.md",
+                std::memory_order_relaxed);
+            return acecode::web::NativeSaveFilePickResult{
+                std::optional<std::string>(selected_path.string()),
+                {},
+            };
+        });
 
     auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
                           cpr::Header{{"Content-Type", "application/json"}},
@@ -1757,6 +1788,9 @@ TEST(WebServerHttp, ExportSessionMarkdownWritesVisibleTranscriptToPickedFolder) 
     const auto result = json::parse(exported.text);
     EXPECT_TRUE(result["ok"].get<bool>());
     EXPECT_FALSE(result["cancelled"].get<bool>());
+    EXPECT_TRUE(received_expected_suggestion.load(std::memory_order_relaxed));
+    EXPECT_EQ(result["filename"], "custom-export-name.md");
+    EXPECT_TRUE(std::filesystem::is_regular_file(expected_path));
 
     std::vector<std::filesystem::path> files;
     for (const auto& item : std::filesystem::directory_iterator(export_dir)) {
@@ -1775,7 +1809,11 @@ TEST(WebServerHttp, ExportSessionMarkdownCancellationDoesNotCreateFile) {
                             ("acecode_session_export_cancel_" + std::to_string(std::random_device{}()));
     RemoveTreeOnExit cleanup{export_dir};
     std::filesystem::create_directories(export_dir);
-    WebServerFixture fx(true, true, [] { return std::optional<std::string>{}; });
+    WebServerFixture fx(
+        WebServerFixture::NativeSavePickerTag{},
+        [](const std::string&) {
+            return acecode::web::NativeSaveFilePickResult{};
+        });
 
     auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
                           cpr::Header{{"Content-Type", "application/json"}},
@@ -1803,16 +1841,20 @@ TEST(WebServerHttp, ExportSessionMarkdownReportsPickerUnavailableAndWriteFailure
     auto unavailable_result = cpr::Post(
         cpr::Url{unavailable.url("/api/sessions/" + url_encode_component(sid) + "/export-markdown")});
     EXPECT_EQ(unavailable_result.status_code, 501);
-    EXPECT_EQ(json::parse(unavailable_result.text)["error"], "native folder picker unavailable");
+    EXPECT_EQ(json::parse(unavailable_result.text)["error"], "native save-file picker unavailable");
 
     const auto not_folder = std::filesystem::temp_directory_path() /
                             ("acecode_session_export_not_folder_" + std::to_string(std::random_device{}()));
     RemoveTreeOnExit cleanup{not_folder};
     std::ofstream(not_folder) << "not a folder";
     WebServerFixture write_failure(
-        true,
-        true,
-        [not_folder] { return std::optional<std::string>(not_folder.string()); });
+        WebServerFixture::NativeSavePickerTag{},
+        [not_folder](const std::string&) {
+            return acecode::web::NativeSaveFilePickResult{
+                std::optional<std::string>((not_folder / "session.md").string()),
+                {},
+            };
+        });
     auto write_post = cpr::Post(cpr::Url{write_failure.url("/api/sessions")},
                                 cpr::Header{{"Content-Type", "application/json"}},
                                 cpr::Body{R"({})"});
@@ -1821,7 +1863,25 @@ TEST(WebServerHttp, ExportSessionMarkdownReportsPickerUnavailableAndWriteFailure
     auto write_result = cpr::Post(
         cpr::Url{write_failure.url("/api/sessions/" + url_encode_component(write_sid) + "/export-markdown")});
     EXPECT_EQ(write_result.status_code, 400);
-    EXPECT_EQ(json::parse(write_result.text)["error"], "destination folder unavailable");
+    EXPECT_EQ(json::parse(write_result.text)["error"], "destination directory unavailable");
+
+    WebServerFixture picker_failure(
+        WebServerFixture::NativeSavePickerTag{},
+        [](const std::string&) {
+            return acecode::web::NativeSaveFilePickResult{
+                std::nullopt,
+                "save dialog failed",
+            };
+        });
+    auto picker_post = cpr::Post(cpr::Url{picker_failure.url("/api/sessions")},
+                                 cpr::Header{{"Content-Type", "application/json"}},
+                                 cpr::Body{R"({})"});
+    ASSERT_EQ(picker_post.status_code, 201) << picker_post.text;
+    const auto picker_sid = json::parse(picker_post.text)["session_id"].get<std::string>();
+    auto picker_result = cpr::Post(
+        cpr::Url{picker_failure.url("/api/sessions/" + url_encode_component(picker_sid) + "/export-markdown")});
+    EXPECT_EQ(picker_result.status_code, 500);
+    EXPECT_EQ(json::parse(picker_result.text)["error"], "save dialog failed");
 }
 
 // 场景:active session 走 SessionInfo 序列化,也必须保留持久化 meta 中的

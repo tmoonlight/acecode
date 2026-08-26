@@ -72,9 +72,23 @@ run('Agent Browser maps navigation failures to concise recovery states', () => {
     ready: true,
     content_state: 'navigation_error',
     failure_kind: 'unexpected',
+    diagnostic: 'NSError domain=NSURLErrorDomain code=-1013\nDescription: Authentication required',
   });
   assert.equal(generic.title, '无法打开此页面');
   assert.doesNotMatch(generic.detail, /WebView2|status|ERR_/i);
+  assert.match(generic.diagnostic, /NSURLErrorDomain code=-1013/);
+
+  const ats = agentBrowserSurfacePresentation({
+    supported: true,
+    ready: true,
+    content_state: 'navigation_error',
+    failure_kind: 'app_transport_security',
+    diagnostic: '  NSError domain=NSURLErrorDomain code=-1022  ',
+  });
+  assert.equal(ats.title, 'macOS 已阻止此连接');
+  assert.match(ats.detail, /App Transport Security/);
+  assert.equal(ats.diagnostic, 'NSError domain=NSURLErrorDomain code=-1022');
+  assert.equal('diagnostic' in missing, false);
 });
 
 run('Agent Browser gives OOM and renderer failures dedicated surfaces', () => {

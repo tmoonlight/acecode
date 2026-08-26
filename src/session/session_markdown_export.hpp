@@ -2,7 +2,6 @@
 
 #include "session_storage.hpp"
 
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -16,10 +15,8 @@ std::string build_markdown(const SessionMeta& meta,
 std::string sanitize_filename_stem(const std::string& preferred,
                                   const std::string& fallback);
 
-// Select a non-existing UTF-8 Markdown filename in the destination directory.
-// The returned string is a filename only, not an absolute path.
-std::string choose_markdown_filename(const std::filesystem::path& directory,
-                                     const std::string& preferred,
-                                     const std::string& fallback);
+// Build the safe UTF-8 filename prefilled in the native Save As dialog.
+std::string suggested_markdown_filename(const std::string& preferred,
+                                        const std::string& fallback);
 
 } // namespace acecode::session_export

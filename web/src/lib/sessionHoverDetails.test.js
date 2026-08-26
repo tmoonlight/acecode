@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import {
+  SESSION_HOVER_LIFECYCLE_ACTIONS,
   SESSION_HOVER_GIT_CACHE_TTL_MS,
+  activeSessionHoverOwner,
   computeSessionHoverCardPosition,
+  createSessionHoverLifecycleState,
   createSessionHoverGitInfoCache,
+  reduceSessionHoverLifecycle,
   sessionHoverDetails,
+  sessionHoverFocusIsVisible,
 } from './sessionHoverDetails.js';
 
 async function test(name, fn) {
@@ -46,6 +51,98 @@ await test('no-workspace marker is authoritative even when malformed input has c
   assert.equal(sessionHoverDetails({ noWorkspace: true, cwd: '/private' }), null);
   assert.equal(sessionHoverDetails({ cwd: '   ' }), null);
   assert.equal(sessionHoverDetails(null), null);
+});
+
+await test('session hover lifecycle keeps one active owner and ignores stale exits', () => {
+  let state = createSessionHoverLifecycleState();
+  state = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_ENTER,
+    owner: 'row-a',
+  });
+  assert.equal(activeSessionHoverOwner(state), 'row-a');
+
+  state = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_ENTER,
+    owner: 'row-b',
+  });
+  assert.equal(activeSessionHoverOwner(state), 'row-b');
+
+  const afterStaleLeave = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_LEAVE,
+    owner: 'row-a',
+  });
+  assert.equal(afterStaleLeave, state);
+  assert.equal(activeSessionHoverOwner(afterStaleLeave), 'row-b');
+});
+
+await test('pointer hover overrides keyboard owner and restores it on leave', () => {
+  let state = createSessionHoverLifecycleState();
+  state = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.KEYBOARD_ENTER,
+    owner: 'keyboard-row',
+  });
+  state = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_ENTER,
+    owner: 'pointer-row',
+  });
+  assert.deepEqual(state, {
+    pointerOwner: 'pointer-row',
+    keyboardOwner: 'keyboard-row',
+  });
+  assert.equal(activeSessionHoverOwner(state), 'pointer-row');
+
+  state = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.POINTER_LEAVE,
+    owner: 'pointer-row',
+  });
+  assert.equal(activeSessionHoverOwner(state), 'keyboard-row');
+
+  state = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_OWNER,
+    owner: 'keyboard-row',
+  });
+  assert.deepEqual(state, createSessionHoverLifecycleState());
+});
+
+await test('clear-all removes both owners and is idempotent when already empty', () => {
+  let state = {
+    pointerOwner: 'pointer-row',
+    keyboardOwner: 'keyboard-row',
+  };
+  state = reduceSessionHoverLifecycle(state, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_ALL,
+  });
+  assert.deepEqual(state, createSessionHoverLifecycleState());
+  assert.equal(
+    reduceSessionHoverLifecycle(state, { type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_ALL }),
+    state,
+  );
+});
+
+await test('pointer modality clears keyboard ownership without hiding pointer hover', () => {
+  const state = reduceSessionHoverLifecycle({
+    pointerOwner: 'pointer-row',
+    keyboardOwner: 'keyboard-row',
+  }, {
+    type: SESSION_HOVER_LIFECYCLE_ACTIONS.CLEAR_KEYBOARD,
+  });
+  assert.deepEqual(state, {
+    pointerOwner: 'pointer-row',
+    keyboardOwner: '',
+  });
+  assert.equal(activeSessionHoverOwner(state), 'pointer-row');
+});
+
+await test('focus intent excludes pointer focus and safely detects keyboard-visible focus', () => {
+  const visibleTarget = { matches: (selector) => selector === ':focus-visible' };
+  const hiddenTarget = { matches: () => false };
+  const unsupportedTarget = { matches: () => { throw new SyntaxError('unsupported selector'); } };
+
+  assert.equal(sessionHoverFocusIsVisible(visibleTarget), true);
+  assert.equal(sessionHoverFocusIsVisible(hiddenTarget), false);
+  assert.equal(sessionHoverFocusIsVisible(visibleTarget, { pointerInitiated: true }), false);
+  assert.equal(sessionHoverFocusIsVisible({}, { pointerInitiated: false }), true);
+  assert.equal(sessionHoverFocusIsVisible(unsupportedTarget), true);
 });
 
 await test('position prefers the right side and vertically centers when room exists', () => {

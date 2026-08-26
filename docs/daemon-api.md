@@ -269,7 +269,7 @@ when known.
 | DELETE | `/api/sessions/:id/todos` | clear compatibility todos |
 | GET | `/api/sessions/:id/messages` | transcript snapshot or event replay |
 | GET | `/api/sessions/:id/trajectory` | paged durable session trajectory and legacy projection |
-| POST | `/api/sessions/:id/export-markdown` | choose a folder and export the visible transcript as Markdown |
+| POST | `/api/sessions/:id/export-markdown` | open Save As and export the visible transcript as Markdown |
 | POST | `/api/sessions/:id/messages` | queue user input |
 | POST | `/api/sessions/:id/turn/steer` | append input to the matching active turn |
 | POST | `/api/sessions/:id/turn/interrupt` | interrupt the matching active turn and start a priority replacement turn |
@@ -994,8 +994,11 @@ affecting the canonical transcript.
 ### `POST /api/sessions/:id/export-markdown`
 
 Exports the current session's visible transcript as a UTF-8 Markdown file. This
-endpoint is available only when the desktop native folder picker is enabled.
-The optional body identifies the workspace when the session id is not globally
+endpoint is available only when the desktop native save-file picker is enabled.
+After resolving the session, the daemon opens the platform Save As dialog with
+a filesystem-safe `<session-title>.md` filename prefilled. The user can edit the
+filename and destination; the daemon writes to the confirmed full path. The
+optional body identifies the workspace when the session id is not globally
 unique:
 
 ```json
@@ -1014,12 +1017,14 @@ On success, the response is:
 }
 ```
 
-If the user cancels the folder picker, the response is `{"ok":true,"cancelled":true}`
-and no file is created. Hidden goal context, compact checkpoints, and file
-checkpoints are excluded from the export. The endpoint does not mutate the
-session. Errors use `400` for invalid JSON or destination folders, `404` for
-unknown sessions/workspaces, `501` when the native picker is unavailable, `503`
-when its callback is unavailable, and `500` for file creation or write failures.
+If the user cancels Save As, the response is `{"ok":true,"cancelled":true}` and
+no file is created. Native dialogs provide their normal overwrite confirmation;
+paths returned without an extension receive `.md`. Hidden goal context, compact
+checkpoints, and file checkpoints are excluded from the export. The endpoint
+does not mutate the session. Errors use `400` for invalid JSON or destination
+paths, `404` for unknown sessions/workspaces, `501` when the native picker is
+unavailable, `503` when its callback is unavailable, and `500` for picker, file
+creation, or write failures.
 
 ### `POST /api/sessions/:id/messages`
 

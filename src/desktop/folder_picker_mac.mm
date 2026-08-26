@@ -85,6 +85,65 @@ FolderPickOutcome pick_folder_outcome(void* parent_window) {
     return outcome;
 }
 
+SaveFilePickOutcome pick_save_file_outcome(
+    void* /* parent_window */,
+    const std::string& suggested_filename) {
+    __block SaveFilePickOutcome outcome;
+
+    dispatch_block_t work = ^{
+        NSApplication* app = [NSApplication sharedApplication];
+        if (app.activationPolicy == NSApplicationActivationPolicyProhibited) {
+            [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [app activateIgnoringOtherApps:YES];
+#pragma clang diagnostic pop
+
+        NSSavePanel* panel = [NSSavePanel savePanel];
+        panel.canCreateDirectories = YES;
+        panel.allowsOtherFileTypes = NO;
+        panel.extensionHidden = NO;
+        panel.allowedFileTypes = @[@"md"];
+        const std::string title = std::string(
+            native_string(DesktopStringId::SessionExportSaveTitle));
+        const std::string prompt = std::string(
+            native_string(DesktopStringId::SessionExportSavePrompt));
+        panel.title = [NSString stringWithUTF8String:title.c_str()];
+        panel.prompt = [NSString stringWithUTF8String:prompt.c_str()];
+        if (!suggested_filename.empty()) {
+            panel.nameFieldStringValue = [NSString
+                stringWithUTF8String:suggested_filename.c_str()];
+        }
+        panel.level = NSModalPanelWindowLevel;
+        [panel orderFrontRegardless];
+
+        if ([panel runModal] == NSModalResponseOK) {
+            NSURL* url = panel.URL;
+            const char* path = url ? url.fileSystemRepresentation : nullptr;
+            if (path && *path) {
+                outcome.path = std::string(path);
+            } else {
+                outcome.error = std::string(
+                    native_string(DesktopStringId::SessionExportSaveFailed));
+            }
+        }
+    };
+
+    if ([NSThread isMainThread]) {
+        work();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), work);
+    }
+    return outcome;
+}
+
+std::optional<std::string> pick_save_file(
+    void* parent_window,
+    const std::string& suggested_filename) {
+    return pick_save_file_outcome(parent_window, suggested_filename).path;
+}
+
 } // namespace acecode::desktop
 
 #endif // __APPLE__

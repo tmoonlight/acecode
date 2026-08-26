@@ -2975,9 +2975,6 @@ a.ace-thread-link:focus-visible {
 
 .ace-change-glass-wrap {
   --ace-todo-wrap-bg: rgba(var(--ace-surface-rgb), 0.92);
-  --ace-todo-dock-bg: var(--ace-surface-hi);
-  --ace-todo-dock-border: rgba(var(--ace-border-rgb), 0.64);
-  --ace-todo-shadow: 0 12px 34px rgba(0, 0, 0, 0.14);
   --ace-todo-title-color: var(--ace-fg);
   --ace-todo-text-color: var(--ace-fg-2);
   --ace-todo-active-color: var(--ace-fg);
@@ -2997,9 +2994,6 @@ a.ace-thread-link:focus-visible {
 }
 [data-theme="dark"] .ace-change-glass-wrap {
   --ace-todo-wrap-bg: var(--ace-surface);
-  --ace-todo-dock-bg: var(--ace-surface-alt);
-  --ace-todo-dock-border: rgba(var(--ace-border-rgb), 0.78);
-  --ace-todo-shadow: 0 16px 36px rgba(0, 0, 0, 0.38);
   --ace-todo-title-color: var(--ace-fg);
   --ace-todo-text-color: var(--ace-fg-2);
   --ace-todo-active-color: var(--ace-fg);
@@ -3011,18 +3005,10 @@ a.ace-thread-link:focus-visible {
   border-top-color: transparent;
   padding-top: 4px;
 }
-.ace-change-glass-dock {
+.ace-change-glass-dock,
+.ace-todo-glass-dock {
   position: relative;
-  width: auto;
-  max-width: calc(100% - 24px);
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 0 7px 0 13px;
   border: 1px solid rgba(var(--ace-border-rgb), 0.58);
-  border-radius: 999px;
   background: var(--ace-surface);
   color: var(--ace-fg);
   box-shadow: var(--ace-shadow);
@@ -3031,7 +3017,19 @@ a.ace-thread-link:focus-visible {
   transform: translateZ(0);
   pointer-events: auto;
 }
-.ace-change-glass-dock::before {
+.ace-change-glass-dock {
+  width: auto;
+  max-width: calc(100% - 24px);
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 7px 0 13px;
+  border-radius: 999px;
+}
+.ace-change-glass-dock::before,
+.ace-todo-glass-dock::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -3041,17 +3039,20 @@ a.ace-thread-link:focus-visible {
   pointer-events: none;
 }
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .ace-change-glass-dock {
+  .ace-change-glass-dock,
+  .ace-todo-glass-dock {
     background: rgba(var(--ace-surface-rgb), 0.58);
     -webkit-backdrop-filter: blur(8px) saturate(1.08);
     backdrop-filter: blur(8px) saturate(1.08);
   }
 
-  .ace-change-glass-dock::before {
+  .ace-change-glass-dock::before,
+  .ace-todo-glass-dock::before {
     background: rgba(var(--ace-surface-rgb), 0.12);
   }
 }
-.ace-change-glass-dock::after {
+.ace-change-glass-dock::after,
+.ace-todo-glass-dock::after {
   content: none;
 }
 .ace-change-glass-dock:hover {
@@ -3146,9 +3147,6 @@ a.ace-thread-link:focus-visible {
   color: var(--ace-fg);
 }
 .ace-change-glass-todo-popover {
-  --ace-todo-dock-bg: var(--ace-surface-hi);
-  --ace-todo-dock-border: rgba(var(--ace-border-rgb), 0.64);
-  --ace-todo-shadow: 0 12px 34px rgba(0, 0, 0, 0.14);
   --ace-todo-title-color: var(--ace-fg);
   --ace-todo-text-color: var(--ace-fg-2);
   --ace-todo-active-color: var(--ace-fg);
@@ -3166,9 +3164,6 @@ a.ace-thread-link:focus-visible {
   pointer-events: none;
 }
 [data-theme="dark"] .ace-change-glass-todo-popover {
-  --ace-todo-dock-bg: var(--ace-surface-alt);
-  --ace-todo-dock-border: rgba(var(--ace-border-rgb), 0.78);
-  --ace-todo-shadow: 0 16px 36px rgba(0, 0, 0, 0.38);
   --ace-todo-title-color: var(--ace-fg);
   --ace-todo-text-color: var(--ace-fg-2);
   --ace-todo-active-color: var(--ace-fg);
@@ -3197,10 +3192,7 @@ a.ace-thread-link:focus-visible {
 }
 
 .ace-todo-glass-wrap {
-  --ace-todo-wrap-bg: rgba(var(--ace-surface-rgb), 0.92);
-  --ace-todo-dock-bg: var(--ace-surface-hi);
-  --ace-todo-dock-border: rgba(var(--ace-border-rgb), 0.64);
-  --ace-todo-shadow: 0 8px 26px rgba(0, 0, 0, 0.10);
+  --ace-todo-wrap-bg: var(--ace-surface);
   --ace-todo-title-color: var(--ace-fg);
   --ace-todo-text-color: var(--ace-fg-2);
   --ace-todo-active-color: var(--ace-fg);
@@ -3214,9 +3206,6 @@ a.ace-thread-link:focus-visible {
 }
 [data-theme="dark"] .ace-todo-glass-wrap {
   --ace-todo-wrap-bg: var(--ace-surface);
-  --ace-todo-dock-bg: var(--ace-surface-alt);
-  --ace-todo-dock-border: rgba(var(--ace-border-rgb), 0.78);
-  --ace-todo-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
   --ace-todo-title-color: var(--ace-fg);
   --ace-todo-text-color: var(--ace-fg-2);
   --ace-todo-active-color: var(--ace-fg);
@@ -3231,15 +3220,11 @@ a.ace-thread-link:focus-visible {
   align-items: flex-start;
   gap: 10px;
   padding: 9px 10px 9px 12px;
-  border: 1px solid var(--ace-todo-dock-border);
   border-radius: 7px;
-  background: var(--ace-todo-dock-bg);
-  color: var(--ace-fg);
-  box-shadow: var(--ace-todo-shadow);
-  backdrop-filter: blur(12px) saturate(1.08);
-  -webkit-backdrop-filter: blur(12px) saturate(1.08);
 }
 .ace-todo-glass-content {
+  position: relative;
+  z-index: 2;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -3296,6 +3281,8 @@ a.ace-thread-link:focus-visible {
   color: var(--ace-todo-cancelled-color);
 }
 .ace-todo-glass-clear {
+  position: relative;
+  z-index: 2;
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
@@ -4293,6 +4280,25 @@ a.ace-thread-link:focus-visible {
   max-width: 380px;
   font-size: 12.5px;
   line-height: 1.55;
+}
+.ace-agent-browser-status-diagnostic {
+  width: min(560px, calc(100% - 24px));
+  max-height: 168px;
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--ace-border);
+  border-radius: 5px;
+  background: var(--ace-bg);
+  color: var(--ace-fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+  user-select: text;
 }
 .ace-agent-browser-status-actions {
   display: flex;

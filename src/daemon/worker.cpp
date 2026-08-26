@@ -614,6 +614,14 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         web_deps.native_folder_picker = [] {
             return acecode::desktop::pick_folder(nullptr);
         };
+        web_deps.native_save_file_picker = [](const std::string& suggested_filename) {
+            const auto outcome = acecode::desktop::pick_save_file_outcome(
+                nullptr, suggested_filename);
+            return acecode::web::NativeSaveFilePickResult{
+                outcome.path,
+                outcome.error,
+            };
+        };
         // webapp 兼容模式右键菜单的「在资源管理器中打开」。显式的现存绝对
         // 文件或目录可直接交给系统文件管理器，不在这里维护独立路径白名单。
         web_deps.open_in_explorer =

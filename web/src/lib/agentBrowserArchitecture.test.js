@@ -205,6 +205,73 @@ run('Agent Browser hides WebView2 blank and failure documents behind React surfa
   );
 });
 
+run('macOS Agent Browser exposes NSError diagnostics and keeps system authentication handling', () => {
+  const header = source('src/desktop/agent_browser_host.hpp');
+  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+  const desktop = source('src/desktop/main.cpp');
+  const surface = source('web/src/lib/agentBrowserSurface.js');
+  const panel = source('web/src/components/AgentBrowserPanel.jsx');
+  const styles = source('web/src/styles/globals.css');
+  const authStart = macHost.indexOf('didReceiveAuthenticationChallenge:');
+  const authEnd = macHost.indexOf('webViewWebContentProcessDidTerminate:', authStart);
+  const authHandler = macHost.slice(authStart, authEnd);
+
+  assert.match(header, /std::string diagnostic/);
+  assert.match(desktop, /\{"diagnostic", state\.diagnostic\}/);
+  assert.match(macHost, /native_error_details\(NSError\* error/);
+  assert.match(macHost, /native_error_diagnostic\(NSError\* error\)/);
+  assert.match(macHost, /"domain"/);
+  assert.match(macHost, /"code"/);
+  assert.match(macHost, /"description"/);
+  assert.match(macHost, /"failing_url"/);
+  assert.match(macHost, /"underlying"/);
+  assert.match(macHost, /NSURLErrorAppTransportSecurityRequiresSecureConnection/);
+  assert.match(macHost, /NSURLErrorUserAuthenticationRequired/);
+  assert.match(macHost, /NSURLErrorSecureConnectionFailed/);
+
+  assert.ok(authStart >= 0 && authEnd > authStart);
+  assert.match(authHandler, /authentication_challenge/);
+  assert.match(
+    authHandler,
+    /completionHandler\(NSURLSessionAuthChallengePerformDefaultHandling, nil\)/,
+  );
+  assert.doesNotMatch(
+    authHandler,
+    /NSURLSessionAuthChallengeUseCredential|credentialForTrust|serverTrustCredential/,
+  );
+  for (const field of [
+    'authentication_method',
+    'host',
+    'port',
+    'realm',
+    'is_proxy',
+    'previous_failure_count',
+    'proposed_credential_present',
+    'perform_default_handling',
+  ]) {
+    assert.match(macHost, new RegExp(field));
+  }
+  for (const event of [
+    'navigation_requested',
+    'navigation_policy',
+    'navigation_started',
+    'navigation_redirected',
+    'navigation_committed',
+    'navigation_finished',
+    'navigation_failed',
+    'web_content_process_terminated',
+  ]) {
+    assert.match(macHost, new RegExp(event));
+  }
+
+  assert.match(surface, /diagnostic = String\(state\.diagnostic/);
+  assert.match(panel, /ace-agent-browser-status-diagnostic/);
+  assert.match(panel, /aria-label="NSError"/);
+  assert.match(styles, /\.ace-agent-browser-status-diagnostic/);
+  assert.match(styles, /overflow:\s*auto/);
+  assert.match(styles, /user-select:\s*text/);
+});
+
 run('application state explicitly gates the native Agent Browser surface', () => {
   const app = source('web/src/App.jsx');
   const chatView = source('web/src/components/ChatView.jsx');
