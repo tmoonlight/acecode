@@ -291,6 +291,8 @@ run('application state explicitly gates the native Agent Browser surface', () =>
 
 run('local overlays use declared blocking and overlap semantics', () => {
   const modal = source('web/src/components/Modal.jsx');
+  const goalStatus = source('web/src/components/GoalStatusBar.jsx');
+  const queueCards = source('web/src/components/QueueCardList.jsx');
   const contextMenu = source('web/src/components/DesktopContextMenu.jsx');
   const findOverlay = source('web/src/components/GlobalFindOverlay.jsx');
   const imageLightbox = source('web/src/components/ImageLightbox.jsx');
@@ -302,6 +304,8 @@ run('local overlays use declared blocking and overlap semantics', () => {
   const coordinator = source('web/src/lib/agentBrowserSurfaceCoordinator.js');
 
   assert.match(modal, /data-ace-native-overlay="blocking"/);
+  assert.match(goalStatus, /function GoalEditModal[\s\S]*<Modal/);
+  assert.match(queueCards, /function QueueCardEditDialog[\s\S]*<Modal/);
   assert.match(contextMenu, /data-ace-native-overlay="overlap"/);
   assert.match(findOverlay, /data-ace-native-overlay="overlap"/);
   assert.match(imageLightbox, /data-ace-native-overlay="blocking"/);
@@ -324,6 +328,26 @@ run('local overlays use declared blocking and overlap semantics', () => {
   assert.match(panel, /new IntersectionObserver\(scheduleLayout\)/);
   assert.match(panel, /window\.visualViewport/);
   assert.doesNotMatch(panel, /modalIsOpen|\.ace-desktop-context-menu/);
+});
+
+run('explicit overlay notifications submit native layout before the next frame', () => {
+  const panel = source('web/src/components/AgentBrowserPanel.jsx');
+  const handlerStart = panel.indexOf('const onNativeSurfaceOverlayChange =');
+  const handlerEnd = panel.indexOf('const visualViewport =', handlerStart);
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  const handler = panel.slice(handlerStart, handlerEnd);
+
+  assert.match(handler, /syncNativeSurface\(\)/);
+  assert.match(handler, /scheduleLayout\(\)/);
+  assert.ok(handler.indexOf('syncNativeSurface()') < handler.indexOf('scheduleLayout()'));
+  assert.match(
+    panel,
+    /addEventListener\(NATIVE_SURFACE_OVERLAY_EVENT, onNativeSurfaceOverlayChange\)/,
+  );
+  assert.match(
+    panel,
+    /removeEventListener\(NATIVE_SURFACE_OVERLAY_EVENT, onNativeSurfaceOverlayChange\)/,
+  );
 });
 
 run('every current floating-surface owner participates in the native overlay contract', () => {

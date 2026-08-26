@@ -231,6 +231,14 @@ export function AgentBrowserPanel({
         scheduleLayout();
       }
     };
+    const onNativeSurfaceOverlayChange = () => {
+      if (disposed) return;
+      // Explicit overlay notifications run from layout effects after the DOM
+      // is committed. Submit the native hide/occlusion now so a sibling
+      // WebView cannot paint over the overlay while waiting for the next frame.
+      syncNativeSurface();
+      scheduleLayout();
+    };
 
     scheduleLayout();
     const resizeObserver = typeof ResizeObserver === 'function'
@@ -269,7 +277,7 @@ export function AgentBrowserPanel({
     ];
     window.addEventListener('resize', scheduleLayout);
     window.addEventListener('scroll', scheduleLayout, true);
-    window.addEventListener(NATIVE_SURFACE_OVERLAY_EVENT, scheduleLayout);
+    window.addEventListener(NATIVE_SURFACE_OVERLAY_EVENT, onNativeSurfaceOverlayChange);
     visualViewport?.addEventListener('resize', scheduleLayout);
     visualViewport?.addEventListener('scroll', scheduleLayout);
     documentEvents.forEach((name) => document.addEventListener(name, scheduleLayout, true));
@@ -281,7 +289,7 @@ export function AgentBrowserPanel({
       mutationObserver?.disconnect();
       window.removeEventListener('resize', scheduleLayout);
       window.removeEventListener('scroll', scheduleLayout, true);
-      window.removeEventListener(NATIVE_SURFACE_OVERLAY_EVENT, scheduleLayout);
+      window.removeEventListener(NATIVE_SURFACE_OVERLAY_EVENT, onNativeSurfaceOverlayChange);
       visualViewport?.removeEventListener('resize', scheduleLayout);
       visualViewport?.removeEventListener('scroll', scheduleLayout);
       documentEvents.forEach((name) => document.removeEventListener(name, scheduleLayout, true));
