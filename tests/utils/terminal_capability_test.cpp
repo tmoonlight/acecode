@@ -204,3 +204,134 @@ TEST(TerminalCapability, LegacyConhostUsesCompatLayout) {
     EXPECT_TRUE(caps.is_legacy_conhost);
     EXPECT_TRUE(should_use_conhost_compat_layout(caps));
 }
+
+// ---------- detect_synchronized_output_support_with ----------
+// 同步刷新(DEC mode 2026)探测:白名单开、黑名单关、未知关、黑名单优先。
+
+namespace {
+
+// 全字段可注入的 env_lookup:只认识同步刷新判定用到的 5 个环境变量。
+auto make_sync_env_lookup(std::optional<std::string> conemu_pid,
+                          std::optional<std::string> wt_session,
+                          std::optional<std::string> kitty_window_id,
+                          std::optional<std::string> term_program,
+                          std::optional<std::string> term) {
+    return [conemu_pid, wt_session, kitty_window_id, term_program, term](
+               const char* name) -> std::optional<std::string> {
+        std::string n(name);
+        if (n == "ConEmuPID") return conemu_pid;
+        if (n == "WT_SESSION") return wt_session;
+        if (n == "KITTY_WINDOW_ID") return kitty_window_id;
+        if (n == "TERM_PROGRAM") return term_program;
+        if (n == "TERM") return term;
+        return std::nullopt;
+    };
+}
+
+} // namespace
+
+// 场景:Windows Terminal(WT_SESSION 命中)→ 开启
+TEST(SynchronizedOutputSupport, WindowsTerminalOn) {
+    TerminalCapabilities caps;
+    EXPECT_TRUE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::string("guid"),
+                                   std::nullopt, std::nullopt, std::nullopt)));
+}
+
+// 场景:kitty(KITTY_WINDOW_ID 命中)→ 开启
+TEST(SynchronizedOutputSupport, KittyWindowIdOn) {
+    TerminalCapabilities caps;
+    EXPECT_TRUE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt,
+                                   std::string("1"), std::nullopt, std::nullopt)));
+}
+
+// 场景:kitty(TERM=xterm-kitty)→ 开启
+TEST(SynchronizedOutputSupport, KittyTermOn) {
+    TerminalCapabilities caps;
+    EXPECT_TRUE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt, std::string("xterm-kitty"))));
+}
+
+// 场景:TERM_PROGRAM 白名单(iTerm.app / WezTerm / ghostty / vscode /
+// Apple_Terminal / WarpTerminal / contour / mintty)→ 开启
+TEST(SynchronizedOutputSupport, TermProgramWhitelistOn) {
+    for (const char* name : {"iTerm.app", "WezTerm", "ghostty", "vscode",
+                             "Apple_Terminal", "WarpTerminal", "contour",
+                             "mintty"}) {
+        TerminalCapabilities caps;
+        EXPECT_TRUE(detect_synchronized_output_support_with(
+            caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                       std::string(name), std::nullopt)))
+            << "TERM_PROGRAM=" << name;
+    }
+}
+
+// 场景:TERM 前缀白名单(foot / ghostty)→ 开启
+TEST(SynchronizedOutputSupport, TermPrefixWhitelistOn) {
+    for (const char* term : {"foot", "foot-256color", "ghostty",
+                             "xterm-ghostty"}) {
+        TerminalCapabilities caps;
+        EXPECT_TRUE(detect_synchronized_output_support_with(
+            caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                       std::nullopt, std::string(term))))
+            << "TERM=" << term;
+    }
+}
+
+// 场景:ConEmu/Cmder → 关闭(即使 WT_SESSION 也命中,黑名单优先)
+TEST(SynchronizedOutputSupport, ConEmuOffEvenWithWt) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::string("12345"),
+                                   std::string("guid"), std::nullopt,
+                                   std::nullopt, std::nullopt)));
+}
+
+// 场景:legacy conhost → 关闭(即使 TERM_PROGRAM 白名单命中)
+TEST(SynchronizedOutputSupport, LegacyConhostOff) {
+    TerminalCapabilities caps;
+    caps.is_legacy_conhost = true;
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("iTerm.app"), std::nullopt)));
+}
+
+// 场景:classic conhost → 关闭
+TEST(SynchronizedOutputSupport, ClassicConhostOff) {
+    TerminalCapabilities caps;
+    caps.is_classic_conhost = true;
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt, std::nullopt)));
+}
+
+// 场景:复用器 tmux / screen → 关闭(即使 TERM_PROGRAM 白名单命中)
+TEST(SynchronizedOutputSupport, TmuxOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("iTerm.app"),
+                                   std::string("tmux-256color"))));
+}
+
+TEST(SynchronizedOutputSupport, ScreenOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt,
+                                   std::string("screen.xterm-256color"))));
+}
+
+// 场景:全空 / 未知终端(裸 xterm-256color、Alacritty 无标记)→ 默认关闭
+TEST(SynchronizedOutputSupport, UnknownOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt, std::nullopt)));
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt,
+                                   std::string("xterm-256color"))));
+}

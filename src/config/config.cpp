@@ -1242,6 +1242,16 @@ AppConfig load_config_from_path(
                             cfg.tui.alt_screen_mode = "auto";
                         }
                     }
+                    if (tj.contains("sync_output_mode") && tj["sync_output_mode"].is_string()) {
+                        std::string m = tj["sync_output_mode"].get<std::string>();
+                        if (m == "auto" || m == "always" || m == "never") {
+                            cfg.tui.sync_output_mode = std::move(m);
+                        } else {
+                            LOG_WARN("[config] invalid tui.sync_output_mode value '" + m +
+                                     "', falling back to 'auto'");
+                            cfg.tui.sync_output_mode = "auto";
+                        }
+                    }
                     if (tj.contains("page_keys_single_line") &&
                         tj["page_keys_single_line"].is_boolean()) {
                         cfg.tui.page_keys_single_line =
@@ -1797,6 +1807,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         nlohmann::json tj = nlohmann::json::object();
         if (cfg.tui.alt_screen_mode != tui_d.alt_screen_mode)
             tj["alt_screen_mode"] = cfg.tui.alt_screen_mode;
+        if (cfg.tui.sync_output_mode != tui_d.sync_output_mode)
+            tj["sync_output_mode"] = cfg.tui.sync_output_mode;
         if (cfg.tui.page_keys_single_line != tui_d.page_keys_single_line)
             tj["page_keys_single_line"] = cfg.tui.page_keys_single_line;
         if (cfg.tui.theme != tui_d.theme)

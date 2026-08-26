@@ -4778,6 +4778,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     auto screen = acecode::tui::make_screen_interactive(render_mode);
     screen.EnableKittyKeyboard();
+    // synchronized-output: 按终端能力探测 + tui.sync_output_mode 决定是否把
+    // 每帧包进 CSI ?2026h/?2026l(整帧原子呈现,消除半帧闪烁)。必须在
+    // Loop() 之前调用;老 conhost / ConEmu / 未知终端默认关闭(输出与未启用
+    // 特性时一致),见 openspec/changes/add-synchronized-output/。
+    screen.EnableSynchronizedOutput(acecode::tui::decide_synchronized_output(
+        config.tui, acecode::detect_synchronized_output_support()));
     auto redraw_pacer = std::make_shared<acecode::tui::TuiRedrawPacer>();
     std::atomic<std::int64_t> last_keyboard_input_at_ms{0};
     auto request_scheduled_redraw =

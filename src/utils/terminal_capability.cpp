@@ -107,6 +107,38 @@ std::optional<std::string> default_env_lookup(const char* name) {
     return std::string(v);
 }
 
+// TERM_PROGRAM 白名单:已确认实现 DEC mode 2026 的终端。
+// (Windows Terminal 走 WT_SESSION,kitty 走 KITTY_WINDOW_ID/TERM,不在此表。)
+bool term_program_whitelisted(const std::string& value) {
+    static const char* kKnown[] = {
+        "iTerm.app",       // iTerm2
+        "WezTerm",
+        "ghostty",
+        "vscode",          // VS Code 内嵌终端(xterm.js)
+        "Apple_Terminal",  // macOS Terminal.app
+        "WarpTerminal",
+        "contour",
+        "mintty",
+    };
+    for (const char* name : kKnown) {
+        if (value == name) return true;
+    }
+    return false;
+}
+
+// TERM 白名单:kitty / foot / ghostty 会用 TERM 标记自己。
+// ghostty 的实际默认值是 "xterm-ghostty",所以按任意位置匹配;foot 用前缀
+// (foot / foot-256color)。
+bool term_whitelisted(const std::string& term) {
+    return term == "xterm-kitty" || term.find("ghostty") != std::string::npos ||
+           term.rfind("foot", 0) == 0;
+}
+
+// TERM 黑名单:复用器版本无法从环境判定,保守关闭(可配置强制开)。
+bool term_blacklisted(const std::string& term) {
+    return term.rfind("tmux", 0) == 0 || term.rfind("screen", 0) == 0;
+}
+
 } // namespace
 
 TerminalCapabilities detect_terminal_capabilities_with(
@@ -153,6 +185,50 @@ TerminalCapabilities detect_terminal_capabilities_with(
 TerminalCapabilities detect_terminal_capabilities() {
     return detect_terminal_capabilities_with(
         default_env_lookup, probe_windows_build, probe_classic_conhost);
+}
+
+bool detect_synchronized_output_support_with(
+    const TerminalCapabilities& caps,
+    const std::function<std::optional<std::string>(const char* name)>& env_lookup) {
+    // 黑名单优先:任何一条命中都关闭。
+    auto conemu = env_lookup("ConEmuPID");
+    if (conemu.has_value() && !conemu->empty()) {
+        return false;
+    }
+    if (caps.is_legacy_conhost || caps.is_classic_conhost) {
+        return false;
+    }
+    auto term = env_lookup("TERM");
+    if (term.has_value() && term_blacklisted(*term)) {
+        return false;
+    }
+
+    // 白名单:命中任意一条即开启。
+    auto wt_session = env_lookup("WT_SESSION");
+    if (wt_session.has_value() && !wt_session->empty()) {
+        return true;  // Windows Terminal
+    }
+    auto kitty_window_id = env_lookup("KITTY_WINDOW_ID");
+    if (kitty_window_id.has_value() && !kitty_window_id->empty()) {
+        return true;  // kitty
+    }
+    auto term_program = env_lookup("TERM_PROGRAM");
+    if (term_program.has_value() && term_program_whitelisted(*term_program)) {
+        return true;
+    }
+    if (term.has_value() && term_whitelisted(*term)) {
+        return true;
+    }
+
+    // 未知终端:默认关闭(保守)。
+    return false;
+}
+
+bool detect_synchronized_output_support() {
+    // 先跑一次完整能力探测,确保 legacy/classic conhost 黑名单在真实环境下生效
+    // (不能传空 TerminalCapabilities,否则 Windows 上的黑名单分支永远不会命中)。
+    return detect_synchronized_output_support_with(detect_terminal_capabilities(),
+                                                   default_env_lookup);
 }
 
 } // namespace acecode
