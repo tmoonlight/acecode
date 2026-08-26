@@ -1,7 +1,7 @@
 ---
 id: chat-scroll-001
 scope: web-chat/transcript-window
-status: in-progress
+status: done
 depends-on: []
 ---
 
@@ -43,3 +43,10 @@ depends-on: []
 - 在 `web/` 运行 `pnpm build`。
 - 运行 `openspec validate stabilize-long-session-transcript-window --strict`。
 - 运行 `git diff --check`。
+
+# delivery
+
+- 两轮独立 verify 完成；首轮发现的短 transcript 旧 key 问题已修复，第二轮
+  Findings 为零并通过交付。
+- 合并后的 `master` 已通过完整 `pnpm test`、`pnpm build`、OpenSpec strict
+  validation 和 diff check。
