@@ -39,7 +39,7 @@ daemon WebSocket / history API
 
 | 状态或动作 | 所有者 | 说明 |
 |---|---|---|
-| 实时状态所有权 | `transcriptStore.js` | 单写者 store,`commit(producer)` 是唯一写入口 |
+| 实时状态所有权 | `singleWriterStore.js` | 单写者 store,`commit(producer)` 是唯一写入口;transcript 与排队输入共用 |
 | 原始 transcript items | `sessionTranscript.js` | 历史加载与实时事件归并 |
 | 折叠后的投影行 | `transcriptProjection.js` | 只影响展示，不删除原始数据 |
 | 窗口边界 | `transcriptWindow.js` + `ChatView.jsx` | 纯函数计算，组件持有 per-session 状态 |
@@ -58,7 +58,7 @@ daemon WebSocket / history API
 ## 入口与约束
 
 - 组件入口：`web/src/components/ChatView.jsx`
-- 实时状态 store：`web/src/lib/transcriptStore.js`
+- 实时状态 store：`web/src/lib/singleWriterStore.js`
 - Transcript reducer：`web/src/lib/sessionTranscript.js`
 - 展示投影：`web/src/lib/transcriptProjection.js`
 - 尾部窗口：`web/src/lib/transcriptWindow.js`

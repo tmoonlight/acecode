@@ -72,7 +72,7 @@ C 已被正确接收并推进了序号，所以这条路径在观测面上完全
 WebSocket 事件 / 历史加载 / 追赶重放 / 定时刷新 / UI 动作
                         |
                         v
-        transcriptStore.commit(producer)      <- 唯一写入口
+        singleWriterStore.commit(producer)    <- 唯一写入口
                         |
                         v
               已提交状态(单一真相)
@@ -86,7 +86,7 @@ WebSocket 事件 / 历史加载 / 追赶重放 / 定时刷新 / UI 动作
 
 ## 写入契约
 
-`web/src/lib/transcriptStore.js`
+`web/src/lib/singleWriterStore.js`
 
 | 成员 | 契约 |
 | --- | --- |
@@ -156,6 +156,25 @@ const state = useSyncExternalStore(subscribeStore, getStoreSnapshot, getStoreSna
   调整混在一起。
 - 不改 daemon 事件生成、`seq` 语义、replay ring、Markdown 渲染与投影折叠。
 
+## 第二个消费者：聊天排队输入
+
+`ChatView` 的排队输入状态（busy 期间提交、渲染成 `QueueCardList` 卡片堆）原本
+是同一种双写结构：`updateQueueState` 命令式写 `queueStateRef.current`，另一个
+被动 `useEffect` 又把渲染快照写回同一个引用。可见后果是排队消息被吞，或者已经
+取消的卡片重新出现并被真的发出去。
+
+它现在复用同一个 `createSingleWriterStore`：
+
+| 写路径 | 提交内容 |
+| --- | --- |
+| 入队 / 取消 / 重试 / 编辑 | 对应的 `chatInputQueue` 纯函数 |
+| `drainQueuedInput` | 取出队首与标记 `SENDING` 在同一次提交内完成 |
+| 发送成功 / 失败 | 按 id 标记完成或失败 |
+| 用户消息落库 | 整轮遍历与写回在同一次提交内完成 |
+
+`chatInputQueue.js` 的状态机与 `QueueCardList` 的渲染行为不变，只是状态所有权
+换成了 store。
+
 ## 验证契约
 
 | 门槛 | 内容 |
@@ -166,8 +185,11 @@ const state = useSyncExternalStore(subscribeStore, getStoreSnapshot, getStoreSna
 | 幂等 | 重复与低序号事件不改变正文，也不升版本 |
 | 并发 | 更旧的历史快照不截断实时尾巴 |
 | 会话切换 | 重置后不残留上一会话内容 |
-| 架构守护 | hook 不出现渲染快照回写、`useState` 承载 transcript、值形式 `updateState`；`ChatView` 自愈在单次提交内读写 |
+| 排队回归见证 | 按同一时序驱动旧的双写模型，证明它确实吞掉中间那条排队消息 |
+| 排队原子性 | 取消后 drain 取不到该条；取件与标记 `SENDING` 同次提交；整轮完成标记不覆盖期间的新入队 |
+| 架构守护 | hook 与 `ChatView` 都不出现渲染快照回写、本地 state 承载实时状态、值形式写入；自愈与 drain 在单次提交内读写 |
 
-对应测试：`web/src/lib/transcriptStore.test.js`、
+对应测试：`web/src/lib/singleWriterStore.test.js`、
 `web/src/lib/transcriptStreamIntegrity.test.js`、
-`web/src/lib/transcriptStateOwnershipArchitecture.test.js`。
+`web/src/lib/chatInputQueueIntegrity.test.js`、
+`web/src/lib/singleWriterOwnershipArchitecture.test.js`。

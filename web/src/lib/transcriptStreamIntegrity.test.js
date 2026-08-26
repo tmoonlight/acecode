@@ -6,7 +6,7 @@ import {
   preserveLiveAssistantTailOnLoad,
   reduceTranscriptEvent,
 } from './sessionTranscript.js';
-import { createTranscriptStore } from './transcriptStore.js';
+import { createSingleWriterStore } from './singleWriterStore.js';
 
 function run(name, fn) {
   try {
@@ -68,7 +68,7 @@ function initialState() {
 // 这是本次修复的核心不变量 —— 正常流式输出永远只是最终答案的前缀,不应该
 // 中间随机缺块。
 run('高速流式重放:任意时刻流式正文都是最终正文的前缀', () => {
-  const store = createTranscriptStore(initialState());
+  const store = createSingleWriterStore(initialState());
   const events = tokenEvents(CHUNKS);
 
   // React 侧只订阅:拿到通知后重新读取快照,没有任何写回入口。
@@ -112,7 +112,7 @@ run('旧的渲染快照回写时序会丢片段,store 的写入口拒绝该时�
   assert.equal(staleRef.lastSeq, events[events.length - 1].seq);
 
   // --- 新模型:同样时序,渲染侧只能读 ---
-  const store = createTranscriptStore(initialState());
+  const store = createSingleWriterStore(initialState());
   const rendered = [];
   store.subscribe(() => { rendered.push(store.getState()); });
   events.forEach((event, index) => {
@@ -130,7 +130,7 @@ run('旧的渲染快照回写时序会丢片段,store 的写入口拒绝该时�
 // 触发场景:WebSocket 重复投递或迟到的低序号事件在流式过程中到达。
 // 期望行为:序号不大于已应用序号的事件被忽略,流式正文保持不变、不重复拼接。
 run('重复与乱序事件在流式过程中保持幂等', () => {
-  const store = createTranscriptStore(initialState());
+  const store = createSingleWriterStore(initialState());
   const events = tokenEvents(CHUNKS.slice(0, 20));
   events.forEach((event) => {
     store.commit((prev) => reduceTranscriptEvent(prev, event).state);
@@ -152,7 +152,7 @@ run('重复与乱序事件在流式过程中保持幂等', () => {
 // 期望行为:读取当前状态、与实时尾巴合并、写回在同一次提交内完成,已收到的
 // 流式尾巴不被这份更旧的快照截断。
 run('历史加载与流式并发时在单次提交内合并,不截断实时尾巴', () => {
-  const store = createTranscriptStore(initialState());
+  const store = createSingleWriterStore(initialState());
   tokenEvents(CHUNKS).forEach((event) => {
     store.commit((prev) => reduceTranscriptEvent(prev, event).state);
   });
@@ -177,7 +177,7 @@ run('历史加载与流式并发时在单次提交内合并,不截断实时尾�
 // 期望行为:store 提交一份属于新会话的初始状态,旧会话残留内容不再出现;
 // 新会话的事件从空状态开始拼接。
 run('会话切换提交新会话初始状态,不残留上一会话内容', () => {
-  const store = createTranscriptStore(initialState());
+  const store = createSingleWriterStore(initialState());
   tokenEvents(CHUNKS.slice(0, 30)).forEach((event) => {
     store.commit((prev) => reduceTranscriptEvent(prev, event).state);
   });

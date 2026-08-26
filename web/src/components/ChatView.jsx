@@ -18,6 +18,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { flushSync } from 'react-dom';
 import { createApi } from '../lib/api.js';
@@ -94,6 +95,7 @@ import {
 } from '../lib/chatInputQueue.js';
 import { findStickyUserContext, sameStickyUserContext, scrollTopForStickySourceRow } from '../lib/stickyUserContext.js';
 import { loadTranscriptHistory, useSessionTranscript } from '../lib/sessionTranscript.js';
+import { createSingleWriterStore } from '../lib/singleWriterStore.js';
 import { projectCollapsedTranscriptItems } from '../lib/transcriptProjection.js';
 import {
   reconcileTranscriptWindowAnchorKey,
@@ -999,8 +1001,17 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   }
   const restoreComposerFocusAfterSubmitRef = useRef(false);
   const selectionPreviewFingerprintRef = useRef('');
-  const [queueState, setQueueState] = useState(() => createChatInputQueueState());
-  const queueStateRef = useRef(queueState);
+  // 排队状态归 store 所有,渲染层只订阅。原来是 useState 镜像 + 一个可变引用
+  // 的双写:被动 effect 把旧渲染快照写回引用,这中间提交的排队变更会被吞掉
+  // (排队消息丢失或已取消的重新出现)。同 sessionTranscript 的实时状态修复。
+  const queueStoreRef = useRef(null);
+  if (queueStoreRef.current === null) {
+    queueStoreRef.current = createSingleWriterStore(createChatInputQueueState());
+  }
+  const queueStore = queueStoreRef.current;
+  const subscribeQueueStore = useCallback((listener) => queueStore.subscribe(listener), [queueStore]);
+  const getQueueSnapshot = useCallback(() => queueStore.getState(), [queueStore]);
+  const queueState = useSyncExternalStore(subscribeQueueStore, getQueueSnapshot, getQueueSnapshot);
   const [sideQuestion, setSideQuestion] = useState(null);
   const [sideQuestionComposerOpen, setSideQuestionComposerOpen] = useState(false);
   const [sideQuestionDraft, setSideQuestionDraft] = useState('');
@@ -1344,7 +1355,6 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
 
   useEffect(() => { sidRef.current = sid; }, [sid]);
   useEffect(() => { draftSessionKeyRef.current = draftSessionKey; }, [draftSessionKey]);
-  useEffect(() => { queueStateRef.current = queueState; }, [queueState]);
   useEffect(() => {
     sideQuestionEpochRef.current += 1;
     setSideQuestion(null);
@@ -2054,12 +2064,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     return () => { cancelled = true; };
   }, [api, ref?.permission_mode, sid]);
 
-  const updateQueueState = useCallback((updater) => {
-    const base = queueStateRef.current;
-    const next = typeof updater === 'function' ? updater(base) : updater;
-    queueStateRef.current = next;
-    setQueueState(next);
-  }, []);
+  // 只接受 producer:值形式允许调用方传入一份过期快照,正是这里要根除的写法。
+  const updateQueueState = useCallback((producer) => queueStore.commit(producer), [queueStore]);
 
   const measureStickyContext = useCallback((rowMetrics = null) => {
     const el = scrollRef.current;
@@ -2716,7 +2722,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   }, [updateQueueState]);
 
   const saveQueuedEdit = useCallback((queuedId, text) => {
-    const queuedItem = queueStateRef.current.items.find(
+    const queuedItem = queueStore.getState().items.find(
       (item) => item?.queued?.id === queuedId,
     );
     if (queuedItem?.queued?.state !== QUEUED_INPUT_STATE.QUEUED &&
@@ -2732,7 +2738,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       return;
     }
     updateQueueState((prev) => updateQueuedInputContent(prev, queuedId, nextText));
-  }, [updateQueueState]);
+  }, [queueStore, updateQueueState]);
 
   const runSideQuestion = useCallback((
     rawQuestion,
@@ -2800,7 +2806,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       toast({ kind: 'err', text: '当前没有可插话的运行中回合' });
       return null;
     }
-    const queuedItem = queueStateRef.current.items.find(
+    const queuedItem = queueStore.getState().items.find(
       (item) => item?.queued?.id === queuedId,
     );
     if (queuedItem?.queued?.state !== QUEUED_INPUT_STATE.QUEUED &&
@@ -2839,7 +2845,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         toast({ kind: 'err', text: '插话提交失败:' + (e?.message || '未知错误') });
         return false;
       });
-  }, [activeTurnId, api, busy, updateQueueState]);
+  }, [activeTurnId, api, busy, queueStore, updateQueueState]);
 
   const executeBuiltinCommand = useCallback((targetSid, command) => (
     api.executeCommand(targetSid, command).then((result) => {
@@ -3164,12 +3170,19 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const drainQueuedInput = useCallback(() => {
     const targetSid = sidRef.current;
     if (!targetSid || busy || drainRef.current) return;
-    const queuedItem = nextQueuedInput(queueStateRef.current, targetSid);
-    if (!queuedItem) return;
-
+    // 取出待发送项与标记 sending 在同一次提交内完成,避免这中间的取消/编辑被
+    // 一份过期快照覆盖。drainRef 仍在提交之前置位,保持原来的重入保护顺序。
     drainRef.current = true;
+    let queuedItem = null;
+    queueStore.commit((prev) => {
+      queuedItem = nextQueuedInput(prev, targetSid);
+      return queuedItem ? markQueuedInputSending(prev, queuedItem.queued.id) : prev;
+    });
+    if (!queuedItem) {
+      drainRef.current = false;
+      return;
+    }
     setTailFollowFromAction({ type: 'new_turn' });
-    updateQueueState((prev) => markQueuedInputSending(prev, queuedItem.queued.id));
     const queuedPayload = queuedItem.queued?.payload || queuedItem.content;
     const queuedIsBuiltin = !payloadHasExtras(queuedPayload) &&
       inputRouteForText(payloadText(queuedPayload)).kind === 'builtin';
@@ -3198,7 +3211,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       .finally(() => {
         drainRef.current = false;
       });
-  }, [applyEvent, busy, sendInputOrBuiltin, setTailFollowFromAction, updateQueueState]);
+  }, [applyEvent, busy, queueStore, sendInputOrBuiltin, setTailFollowFromAction, updateQueueState]);
 
   const prevBusyRef = useRef(busy);
   useEffect(() => {
@@ -3220,22 +3233,21 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
 
   useEffect(() => {
     if (!sid || items.length === 0) return;
-    let nextState = queueStateRef.current;
-    let changed = false;
-    for (const item of items) {
-      if (item.kind !== 'msg' || item.role !== 'user') continue;
-      const candidate = completeQueuedInputForMessage(nextState, {
-        sessionId: sid,
-        content: item.content || '',
-        ts: item.ts,
-        clientMessageId: item.metadata?.client_message_id,
-      });
-      if (candidate !== nextState) {
-        nextState = candidate;
-        changed = true;
+    // 整轮遍历与写回必须在同一次提交内:拆成"先读引用、后写回"时,这中间新入队
+    // 的消息会被这份过期快照覆盖掉。producer 返回同一对象时 store 自动跳过。
+    updateQueueState((prev) => {
+      let nextState = prev;
+      for (const item of items) {
+        if (item.kind !== 'msg' || item.role !== 'user') continue;
+        nextState = completeQueuedInputForMessage(nextState, {
+          sessionId: sid,
+          content: item.content || '',
+          ts: item.ts,
+          clientMessageId: item.metadata?.client_message_id,
+        });
       }
-    }
-    if (changed) updateQueueState(nextState);
+      return nextState;
+    });
   }, [items, sid, updateQueueState]);
 
   const abort = useCallback(() => {

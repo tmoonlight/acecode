@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createTranscriptStore } from './transcriptStore.js';
+import { createSingleWriterStore } from './singleWriterStore.js';
 
 function run(name, fn) {
   try {
@@ -14,7 +14,7 @@ function run(name, fn) {
 // 触发场景:连续多次提交发生在同一轮事件循环里(WebSocket 高速下发 token)。
 // 期望行为:每个 producer 都读到上一次提交的结果,提交顺序与调用顺序一致。
 run('每次提交的 producer 都读到最新已提交状态', () => {
-  const store = createTranscriptStore({ text: '' });
+  const store = createSingleWriterStore({ text: '' });
   const seen = [];
 
   store.commit((prev) => { seen.push(prev.text); return { text: `${prev.text}A` }; });
@@ -30,7 +30,7 @@ run('每次提交的 producer 都读到最新已提交状态', () => {
 // 期望行为:不升版本、不通知订阅者,避免无意义的重渲染。
 run('producer 返回同一对象或空值时不产生新版本', () => {
   const initial = { text: 'A' };
-  const store = createTranscriptStore(initial);
+  const store = createSingleWriterStore(initial);
   let notified = 0;
   store.subscribe(() => { notified += 1; });
 
@@ -47,7 +47,7 @@ run('producer 返回同一对象或空值时不产生新版本', () => {
 // 的 token(长会话喷字时正文中间随机缺字)。store 的写入口只接受 producer,
 // 值形式的写入在入口就被拒绝,那条时序无法再被表达出来。
 run('commit 拒绝值形式的写入', () => {
-  const store = createTranscriptStore({ text: 'A' });
+  const store = createSingleWriterStore({ text: 'A' });
   const staleSnapshot = store.getState();
   store.commit((prev) => ({ text: `${prev.text}B` }));
 
@@ -60,7 +60,7 @@ run('commit 拒绝值形式的写入', () => {
 // 触发场景:订阅者在收到通知时又提交一次(例如自愈覆写最近一轮)。
 // 期望行为:嵌套 producer 仍读到最新状态,通知不丢失,也不递归重复广播同一份。
 run('订阅者内部再次提交时顺序与通知都保持正确', () => {
-  const store = createTranscriptStore({ text: '' });
+  const store = createSingleWriterStore({ text: '' });
   const observed = [];
   let nested = false;
 
@@ -83,7 +83,7 @@ run('订阅者内部再次提交时顺序与通知都保持正确', () => {
 // 触发场景:组件卸载 / 会话切换时退订。
 // 期望行为:退订后不再收到通知,其余订阅者不受影响。
 run('订阅与退订相互独立', () => {
-  const store = createTranscriptStore({ text: '' });
+  const store = createSingleWriterStore({ text: '' });
   let a = 0;
   let b = 0;
   const offA = store.subscribe(() => { a += 1; });
@@ -102,7 +102,7 @@ run('订阅与退订相互独立', () => {
 // 触发场景:传入非函数订阅者(防御性调用)。
 // 期望行为:静默忽略并返回一个可安全调用的退订函数,不抛错。
 run('非函数订阅者被安全忽略', () => {
-  const store = createTranscriptStore({ text: '' });
+  const store = createSingleWriterStore({ text: '' });
   const off = store.subscribe(null);
   assert.equal(typeof off, 'function');
   off();

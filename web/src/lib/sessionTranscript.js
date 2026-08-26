@@ -6,7 +6,7 @@ import { sessionDisplayTitle, titleFromMessages } from './sessionTitle.js';
 import { transcriptTimestampMs } from './timestamps.js';
 import { fallbackToolSummary } from './toolSummaryFallback.js';
 import { normalizeToolInvocationItems } from './transcriptProjection.js';
-import { createTranscriptStore } from './transcriptStore.js';
+import { createSingleWriterStore } from './singleWriterStore.js';
 
 export function messageKey(role, content) {
   return `${role || ''}\u0000${content || ''}`;
@@ -1640,10 +1640,10 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const initialTitle = sid ? sessionDisplayTitle(ref) : '';
   // 实时状态归 store 所有,React 只订阅。历史上这里是 useState + 一个可变
   // 引用的双写:被动 effect 把渲染快照写回引用,吞掉这之后已到达的 token,
-  // 表现为长会话流式出字时正文中间随机缺字(见 transcriptStore.js 顶部注释)。
+  // 表现为长会话流式出字时正文中间随机缺字(见 singleWriterStore.js 顶部注释)。
   const storeRef = useRef(null);
   if (storeRef.current === null) {
-    storeRef.current = createTranscriptStore(
+    storeRef.current = createSingleWriterStore(
       createTranscriptState({ title: initialTitle, isLive, loadState: sid ? 'loading' : 'idle' }),
     );
   }

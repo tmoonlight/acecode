@@ -1,18 +1,21 @@
-// 单写者 transcript store。
+// 单写者状态 store。
 //
-// 存在理由:实时 transcript 状态曾经同时被两个入口写入 —— WebSocket 事件到达
-// 时同步写一个可变引用,React 的被动 effect 又把某次渲染保存的旧快照写回同一
-// 个引用。被动 effect 的刷新时机与 WebSocket 消息在事件循环里互相穿插,一旦
+// 存在理由:实时状态曾经同时被两个入口写入 —— 异步回调(WebSocket 事件、REST
+// 回调、定时器)同步写一个可变引用,React 的被动 effect 又把某次渲染保存的旧
+// 快照写回同一个引用。被动 effect 的刷新时机与 WebSocket 消息在事件循环里互相穿插,一旦
 // 回写发生在“提交之后、下一次提交之前”,其后到达的增量就会从旧快照继续拼接,
-// 中间已经收到的 token 被永久覆盖。这条路径在传输层完全不可见:事件序号仍然
-// 单调增长,去重逻辑不会报警,服务端数据是完整的,只有页面正文随机缺片段。
+// 中间已经提交的变更被永久覆盖。这条路径在传输层完全不可见:事件序号仍然单调
+// 增长,去重逻辑不会报警,服务端数据是完整的,只有页面内容随机缺片段。
+//
+// 当前消费者:transcript 实时状态(sessionTranscript.js)与聊天排队输入状态
+// (ChatView.jsx)。两者原本都是同一种双写结构。
 //
 // 因此这里把状态所有权移出 React:
 // - `commit` 是唯一写入口,且只接受 producer 函数,入参恒为最新已提交状态。
 //   值形式的写入天然允许调用方传入过期快照,producer 形式在入口就消灭了它。
 // - `subscribe` 的通知不携带状态,订阅者必须重新 `getState()`,所以订阅者手里
 //   永远不会出现“一份可以拿去回写的旧状态”。
-export function createTranscriptStore(initialState) {
+export function createSingleWriterStore(initialState) {
     let state = initialState;
     let revision = 0;
     let notifying = false;
@@ -53,7 +56,7 @@ export function createTranscriptStore(initialState) {
         // 不升版本、不通知订阅者。
         commit(producer) {
             if (typeof producer !== 'function') {
-                throw new TypeError('transcript store commit requires a producer function');
+                throw new TypeError('single-writer store commit requires a producer function');
             }
             const next = producer(state);
             if (!next || next === state) return state;
