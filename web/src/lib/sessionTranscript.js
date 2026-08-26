@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createApi } from './api.js';
 import { connection } from './connection.js';
 import { attachmentsFromContentParts, normalizeAttachmentList } from './messageAttachments.js';
@@ -6,6 +6,7 @@ import { sessionDisplayTitle, titleFromMessages } from './sessionTitle.js';
 import { transcriptTimestampMs } from './timestamps.js';
 import { fallbackToolSummary } from './toolSummaryFallback.js';
 import { normalizeToolInvocationItems } from './transcriptProjection.js';
+import { createTranscriptStore } from './transcriptStore.js';
 
 export function messageKey(role, content) {
   return `${role || ''}\u0000${content || ''}`;
@@ -1637,8 +1638,19 @@ export function useSessionTranscript(sessionRef, options = {}) {
     Number(options.refreshIntervalMs) || 0,
   );
   const initialTitle = sid ? sessionDisplayTitle(ref) : '';
-  const [state, setState] = useState(() => createTranscriptState({ title: initialTitle, isLive, loadState: sid ? 'loading' : 'idle' }));
-  const stateRef = useRef(state);
+  // 实时状态归 store 所有,React 只订阅。历史上这里是 useState + 一个可变
+  // 引用的双写:被动 effect 把渲染快照写回引用,吞掉这之后已到达的 token,
+  // 表现为长会话流式出字时正文中间随机缺字(见 transcriptStore.js 顶部注释)。
+  const storeRef = useRef(null);
+  if (storeRef.current === null) {
+    storeRef.current = createTranscriptStore(
+      createTranscriptState({ title: initialTitle, isLive, loadState: sid ? 'loading' : 'idle' }),
+    );
+  }
+  const store = storeRef.current;
+  const subscribeStore = useCallback((listener) => store.subscribe(listener), [store]);
+  const getStoreSnapshot = useCallback(() => store.getState(), [store]);
+  const state = useSyncExternalStore(subscribeStore, getStoreSnapshot, getStoreSnapshot);
   const optionsRef = useRef(options);
   // 加载 effect 里只用 ref 取展示标题,不依赖它的对象身份 —— 见下方 deps 注释。
   const sessionRefRef = useRef(ref);
@@ -1649,37 +1661,32 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const refreshSignatureRef = useRef('');
 
   useEffect(() => { optionsRef.current = options; }, [options]);
-  useEffect(() => { stateRef.current = state; }, [state]);
 
   const applyEvent = useCallback((msg, { emitEffects = true } = {}) => {
-    const prevState = stateRef.current;
-    const reduced = reduceTranscriptEvent(prevState, msg);
-    // transcript_replace 是重试/compact 的有意重置,合法变短,不报警。
-    if (msg?.type !== 'transcript_replace') {
-      detectAssistantTailRegression(`event:${msg?.type || '?'}`, prevState, reduced.state);
-    }
-    stateRef.current = reduced.state;
-    setState(reduced.state);
-    if (emitEffects) dispatchEffects(reduced.effects, sid, optionsRef.current);
-    return reduced.state;
-  }, [sid]);
+    let effects = [];
+    // reducer 的附带产物用闭包带出 producer:先把数据落进 store,再派发副作用。
+    const nextState = store.commit((prevState) => {
+      const reduced = reduceTranscriptEvent(prevState, msg);
+      effects = reduced.effects;
+      // transcript_replace 是重试/compact 的有意重置,合法变短,不报警。
+      if (msg?.type !== 'transcript_replace') {
+        detectAssistantTailRegression(`event:${msg?.type || '?'}`, prevState, reduced.state);
+      }
+      return reduced.state;
+    });
+    if (emitEffects) dispatchEffects(effects, sid, optionsRef.current);
+    return nextState;
+  }, [sid, store]);
 
   const setTitle = useCallback((title) => {
-    const nextState = { ...stateRef.current, title: title || '' };
-    stateRef.current = nextState;
-    setState(nextState);
-  }, []);
+    store.commit((prevState) => ({ ...prevState, title: title || '' }));
+  }, [store]);
 
-  const getState = useCallback(() => stateRef.current, []);
+  const getState = useCallback(() => store.getState(), [store]);
 
-  const updateState = useCallback((producer) => {
-    const currentState = stateRef.current;
-    const nextState = typeof producer === 'function' ? producer(currentState) : producer;
-    if (!nextState || nextState === currentState) return currentState;
-    stateRef.current = nextState;
-    setState(nextState);
-    return nextState;
-  }, []);
+  // 只接受 producer:值形式允许调用方传入一份过期快照,正是本次修复要根除的
+  // 写法。调用方需要“读当前状态 -> 计算 -> 写回”时,整段计算放进 producer。
+  const updateState = useCallback((producer) => store.commit(producer), [store]);
 
   useEffect(() => {
     stateSessionIdRef.current = sid;
@@ -1689,9 +1696,8 @@ export function useSessionTranscript(sessionRef, options = {}) {
       isLive,
       loadState: sid ? 'loading' : 'idle',
     });
-    stateRef.current = reset;
+    store.commit(() => reset);
     refreshSignatureRef.current = '';
-    setState(reset);
     if (!sid) return undefined;
 
     let off = false;
@@ -1701,21 +1707,26 @@ export function useSessionTranscript(sessionRef, options = {}) {
       refreshSignatureRef.current = `${messages.length}:${
         messages.length > 0 ? JSON.stringify(messages[messages.length - 1]) : ''
       }`;
-      const loaded = loadTranscriptHistory(stateRef.current, data || {});
-      // 防回退:实时 WS 可能在 getMessages(0) 解析期间已累积了更完整的当前
-      // 回合内容,而这份 REST 快照更旧(messages 尚未含进行中的 assistant)。
-      // 直接覆盖会把界面截断,这里保留更完整的实时尾巴。
-      const runtimeGuarded = preserveLiveRuntimeOnLoad(loaded.state, stateRef.current);
-      const guarded = preserveLiveAssistantTailOnLoad(runtimeGuarded, stateRef.current);
-      const nextState = {
-        ...guarded,
-        isLive,
-        loadState: 'loaded',
-      };
-      detectAssistantTailRegression('load', stateRef.current, nextState);
-      stateRef.current = nextState;
-      setState(nextState);
-      dispatchEffects(loaded.effects, sid, optionsRef.current);
+      let loadEffects = [];
+      // 读取当前状态、与实时尾巴合并、写回必须是一次原子提交:拆成多步读写会
+      // 重新打开“基于过期快照计算”的窗口。
+      const nextState = store.commit((prevState) => {
+        const loaded = loadTranscriptHistory(prevState, data || {});
+        loadEffects = loaded.effects;
+        // 防回退:实时 WS 可能在 getMessages(0) 解析期间已累积了更完整的当前
+        // 回合内容,而这份 REST 快照更旧(messages 尚未含进行中的 assistant)。
+        // 直接覆盖会把界面截断,这里保留更完整的实时尾巴。
+        const runtimeGuarded = preserveLiveRuntimeOnLoad(loaded.state, prevState);
+        const guarded = preserveLiveAssistantTailOnLoad(runtimeGuarded, prevState);
+        const merged = {
+          ...guarded,
+          isLive,
+          loadState: 'loaded',
+        };
+        detectAssistantTailRegression('load', prevState, merged);
+        return merged;
+      });
+      dispatchEffects(loadEffects, sid, optionsRef.current);
 
       const loadedSeq = nextState.lastSeq || 0;
       // busy 取防回退保护之后的值:REST 快照说 idle 但实时 WS 已看到更新的
@@ -1733,37 +1744,40 @@ export function useSessionTranscript(sessionRef, options = {}) {
             ? replayData
             : (Array.isArray(replayData?.events) ? replayData.events : []);
           if (replayEvents.length > 0) {
-            const replayed = applyTranscriptReplayEvents(stateRef.current, replayEvents);
-            const replayState = replayed.state;
-            detectAssistantTailRegression('catchup', stateRef.current, replayState);
-            stateRef.current = replayState;
-            setState(replayState);
-            dispatchEffects(replayed.effects, sid, optionsRef.current);
+            let replayEffects = [];
+            store.commit((prevState) => {
+              const replayed = applyTranscriptReplayEvents(prevState, replayEvents);
+              replayEffects = replayed.effects;
+              detectAssistantTailRegression('catchup', prevState, replayed.state);
+              return replayed.state;
+            });
+            dispatchEffects(replayEffects, sid, optionsRef.current);
             return;
           }
           if (loadedSeq === 0 && Array.isArray(replayData?.messages)) {
-            const refreshed = loadTranscriptHistory(stateRef.current, replayData);
-            const refreshedState = {
-              ...refreshed.state,
-              isLive,
-              loadState: 'loaded',
-            };
-            detectAssistantTailRegression('refresh', stateRef.current, refreshedState);
-            stateRef.current = refreshedState;
-            setState(refreshedState);
-            dispatchEffects(refreshed.effects, sid, optionsRef.current);
+            let refreshEffects = [];
+            store.commit((prevState) => {
+              const refreshed = loadTranscriptHistory(prevState, replayData);
+              refreshEffects = refreshed.effects;
+              const refreshedState = {
+                ...refreshed.state,
+                isLive,
+                loadState: 'loaded',
+              };
+              detectAssistantTailRegression('refresh', prevState, refreshedState);
+              return refreshedState;
+            });
+            dispatchEffects(refreshEffects, sid, optionsRef.current);
           }
         }).catch(() => {});
       }
     }).catch((error) => {
       if (off) return;
-      const nextState = {
-        ...stateRef.current,
+      store.commit((prevState) => ({
+        ...prevState,
         loadState: 'error',
         error: error?.message || 'load failed',
-      };
-      stateRef.current = nextState;
-      setState(nextState);
+      }));
       optionsRef.current.onError?.('加载会话失败:' + (error?.message || ''));
     });
 
@@ -1794,14 +1808,11 @@ export function useSessionTranscript(sessionRef, options = {}) {
           }`;
           if (signature === refreshSignatureRef.current) return;
           refreshSignatureRef.current = signature;
-          const loaded = loadTranscriptHistory(stateRef.current, data || {});
-          const nextState = {
-            ...loaded.state,
+          store.commit((prevState) => ({
+            ...loadTranscriptHistory(prevState, data || {}).state,
             isLive,
             loadState: 'loaded',
-          };
-          stateRef.current = nextState;
-          setState(nextState);
+          }));
         })
         .catch(() => {})
         .finally(() => {

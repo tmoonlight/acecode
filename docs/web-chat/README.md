@@ -39,6 +39,7 @@ daemon WebSocket / history API
 
 | 状态或动作 | 所有者 | 说明 |
 |---|---|---|
+| 实时状态所有权 | `transcriptStore.js` | 单写者 store,`commit(producer)` 是唯一写入口 |
 | 原始 transcript items | `sessionTranscript.js` | 历史加载与实时事件归并 |
 | 折叠后的投影行 | `transcriptProjection.js` | 只影响展示，不删除原始数据 |
 | 窗口边界 | `transcriptWindow.js` + `ChatView.jsx` | 纯函数计算，组件持有 per-session 状态 |
@@ -57,6 +58,7 @@ daemon WebSocket / history API
 ## 入口与约束
 
 - 组件入口：`web/src/components/ChatView.jsx`
+- 实时状态 store：`web/src/lib/transcriptStore.js`
 - Transcript reducer：`web/src/lib/sessionTranscript.js`
 - 展示投影：`web/src/lib/transcriptProjection.js`
 - 尾部窗口：`web/src/lib/transcriptWindow.js`
@@ -64,6 +66,8 @@ daemon WebSocket / history API
 
 跨模块约束：
 
+- 实时 transcript 状态只有一个写入者;渲染层只订阅,不得反向写回渲染快照。
+- 流式过程中任意时刻已呈现的 assistant 正文,必须是该回合最终正文的前缀。
 - 窗口边界必须使用跨 reducer 重建仍稳定的消息身份。
 - 任意自动滚动都必须尊重既有 follow/review 状态。
 - 窗口化不得改变查找、回合跳转、fork 或 raw transcript 消费者的数据范围。
@@ -72,4 +76,5 @@ daemon WebSocket / history API
 
 ## 模块文档
 
+- [transcript-state.md](transcript-state.md)：实时状态所有权、单写者提交契约和流式前缀不变量。
 - [transcript-window.md](transcript-window.md)：大会话尾部窗口、替换协调和测试契约。

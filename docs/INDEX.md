@@ -7,7 +7,7 @@
 
 | 范围 | 入口 | 说明 |
 |---|---|---|
-| Web/Desktop 聊天 | [web-chat/README.md](web-chat/README.md) | Transcript 投影、窗口化、滚动与交互边界 |
+| Web/Desktop 聊天 | [web-chat/README.md](web-chat/README.md) | Transcript 状态所有权、投影、窗口化、滚动与交互边界 |
 | Desktop Shell | [desktop-shell/design.md](desktop-shell/design.md) | 原生窗口、WebView 和多工作区外壳 |
 | Agent Browser | [agent-browser.md](agent-browser.md) | 浏览器面板、宿主桥接和网络诊断 |
 | Daemon API | [daemon-api.md](daemon-api.md) | HTTP、WebSocket 与 session 事件协议 |

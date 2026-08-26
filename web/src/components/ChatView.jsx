@@ -829,14 +829,22 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         selfHealRuntimeRef.current.api?.getMessages(sessionId, 0)
       ),
       applyCanonicalHistory: (data, snapshot) => {
-        const current = selfHealTranscriptRef.current.getState?.();
-        if (!current) return { replaced: false, reason: 'missing_state', state: current };
-        const canonical = loadTranscriptHistory(current, data || {}).state;
-        const result = reconcileLatestCompletedTurn(current, canonical, snapshot);
-        if (result.replaced) {
-          selfHealTranscriptRef.current.updateState?.(result.state);
-        }
-        return result;
+        const updateState = selfHealTranscriptRef.current.updateState;
+        if (!updateState) return { replaced: false, reason: 'missing_state', state: null };
+        // 读取当前状态、加载权威历史、比对最近一轮、覆写必须在同一次提交内完成。
+        // 拆成“先 getState 再 updateState”会让这中间到达的流式增量被这份旧快照
+        // 覆盖掉 —— 那正是长会话喷字丢片段的成因。
+        let result = null;
+        updateState((current) => {
+          if (!current) {
+            result = { replaced: false, reason: 'missing_state', state: current };
+            return current;
+          }
+          const canonical = loadTranscriptHistory(current, data || {}).state;
+          result = reconcileLatestCompletedTurn(current, canonical, snapshot);
+          return result.replaced ? result.state : current;
+        });
+        return result || { replaced: false, reason: 'missing_state', state: null };
       },
     });
   }
