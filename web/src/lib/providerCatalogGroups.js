@@ -29,8 +29,8 @@ export const PROVIDER_GROUP_LABELS = Object.freeze({
 });
 
 export const PROVIDER_GROUP_ORDER = Object.freeze([
-  'first_party',
   'custom',
+  'first_party',
   'popular',
   'native',
   'local',

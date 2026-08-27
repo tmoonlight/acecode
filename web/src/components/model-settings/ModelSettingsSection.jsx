@@ -19,10 +19,10 @@ import { ModelProfileDialog } from './ModelProfileDialog.jsx';
 import { SavedModelList } from './SavedModelList.jsx';
 
 function initialProvider(providers) {
-  return providers.find((provider) => provider.id === 'acemodel')
-    || providers.find((provider) => provider.group === 'first_party')
-    || providers.find((provider) => provider.id === 'custom-openai')
+  return providers.find((provider) => provider.id === 'custom-openai')
     || providers.find((provider) => provider.group === 'custom')
+    || providers.find((provider) => provider.id === 'acemodel')
+    || providers.find((provider) => provider.group === 'first_party')
     || providers.find((provider) => !['copilot', 'grok'].includes(provider.runtime_provider))
     || providers[0]
     || null;

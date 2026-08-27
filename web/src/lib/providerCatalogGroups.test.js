@@ -30,19 +30,19 @@ const providers = [
   { id: 'ollama', name: 'Ollama', group: 'local' },
 ];
 
-run('自定义模型置顶且热门模型按指定顺序单独分组', () => {
+run('自定义模型置顶且自营模型紧随其后', () => {
   const groups = groupCatalogProviders(providers);
   assert.deepEqual(PROVIDER_GROUP_ORDER, [
-    'first_party',
     'custom',
+    'first_party',
     'popular',
     'native',
     'local',
     'catalog',
   ]);
   assert.deepEqual(groups.map((group) => group.group), PROVIDER_GROUP_ORDER);
-  assert.deepEqual(groups[0].items.map((provider) => provider.id), ['acemodel']);
-  assert.deepEqual(groups[1].items.map((provider) => provider.id), ['custom-openai']);
+  assert.deepEqual(groups[0].items.map((provider) => provider.id), ['custom-openai']);
+  assert.deepEqual(groups[1].items.map((provider) => provider.id), ['acemodel']);
   assert.deepEqual(groups[2].items.map((provider) => provider.id), [
     'deepseek',
     'zhipuai',

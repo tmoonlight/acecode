@@ -102,9 +102,12 @@ run('catalog provider picker keeps queries bounded and supports docs manual fall
   assert.match(providerGroups, /first_party: '自营模型'/);
   assert.match(providerGroups, /custom: '自定义模型'/);
   assert.match(providerGroups, /popular: '热门模型'/);
-  assert.match(providerGroups, /'first_party',[\s\S]*?'custom',[\s\S]*?'popular',[\s\S]*?'native',[\s\S]*?'local',[\s\S]*?'catalog'/);
+  assert.match(providerGroups, /'custom',[\s\S]*?'first_party',[\s\S]*?'popular',[\s\S]*?'native',[\s\S]*?'local',[\s\S]*?'catalog'/);
   assert.match(picker, /groupCatalogProviders\(providers, providerQuery\)/);
-  assert.match(section, /providers\.find\(\(provider\) => provider\.id === 'acemodel'\)/);
+  assert.match(
+    section,
+    /providers\.find\(\(provider\) => provider\.id === 'custom-openai'\)[\s\S]*?provider\.group === 'custom'[\s\S]*?provider\.id === 'acemodel'[\s\S]*?provider\.group === 'first_party'/,
+  );
   assert.match(picker, /queryModelCatalog\(provider\.id, modelQuery, 50\)/);
   assert.match(picker, /queryModelCatalog\(provider\.id, currentId, 1\)/);
   assert.match(picker, /modelMetadataSummary\(model\)/);
