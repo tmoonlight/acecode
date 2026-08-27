@@ -85,6 +85,7 @@ test('session ref from jump target merges resume result and search metadata', ()
       display_title: 'Search title',
       session_path: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
       message_count: 3,
+      remote_control_bound: true,
       search_match: { kind: 'user_message', message_ordinal: 7, snippet: 'needle' },
     },
     {
@@ -100,6 +101,7 @@ test('session ref from jump target merges resume result and search metadata', ()
   assert.equal(ref.displayTitle, 'Search title');
   assert.equal(ref.sessionPath, 'C:/Users/test/.acecode/projects/hash/s1.jsonl');
   assert.equal(ref.message_count, 3);
+  assert.equal(ref.remote_control_bound, true);
   assert.equal(ref.contextId, 'default');
   assert.equal(ref.searchMatch.messageOrdinal, 7);
   assert.equal(ref.searchMatch.message_ordinal, 7);

@@ -21,6 +21,7 @@ import {
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api.js';
 import { connection } from '../lib/connection.js';
+import { tr } from '../i18n/index.js';
 import {
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
@@ -60,11 +61,16 @@ import {
   workspaceHasUnread,
 } from '../lib/sessionStatus.js';
 import {
+  allowSidebarSessionListRevealExpansion,
+  allowSidebarWorkspaceAutoExpand,
   applyRemoteControlSessionSelection,
+  clearRemoteControlSessionBindings,
   completeRemoteControlSurgeRequest,
   expandedSessionListsAfterWorkspaceCollapseAll,
+  expandedSessionListsAfterWorkspaceDisclosure,
   nextRemoteControlSurgeRequest,
   reconcileSidebarSessions,
+  reorderSidebarWorkspaceSession,
   remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
@@ -74,6 +80,7 @@ import {
   sidebarRevealTarget,
   sidebarRevealTargetKey,
   sidebarSessionProjection,
+  sidebarWorkspaceListKeys,
   upsertSidebarSession,
 } from '../lib/sidebarSessions.js';
 import {
@@ -125,9 +132,9 @@ import { VsIcon } from './Icon.jsx';
 
 const SIDEBAR_SECTIONS_STORAGE_KEY = 'acecode.sidebarSectionsExpanded.v1';
 const SIDEBAR_CUSTOM_STORAGE_KEY = 'acecode.sidebarCustomSectionExpanded.v2';
-const PINNED_DRAG_START_PX = 5;
-const PINNED_DRAG_EDGE_SCROLL_PX = 34;
-const PINNED_DRAG_EDGE_SCROLL_STEP = 16;
+const SESSION_DRAG_START_PX = 5;
+const SESSION_DRAG_EDGE_SCROLL_PX = 34;
+const SESSION_DRAG_EDGE_SCROLL_STEP = 16;
 const NO_WORKSPACE_SESSION_LIST_KEY = '__no_workspace__';
 const REMOTE_CONTROL_SURGE_FALLBACK_MS = 950;
 const SessionHoverLifecycleContext = createContext({
@@ -135,7 +142,7 @@ const SessionHoverLifecycleContext = createContext({
   dispatch: () => {},
 });
 
-function pinnedSessionKey(workspaceHash, sessionId) {
+function sidebarSessionDragKey(workspaceHash, sessionId) {
   const ws = String(workspaceHash || '');
   const id = String(sessionId || '');
   return ws && id ? `${ws}\u0000${id}` : '';
@@ -216,6 +223,7 @@ function sidebarSessionTarget(workspace = {}, session = {}, resumeResult = {}) {
     model_name: session.model_name,
     model_preset: session.model_preset,
     context_window: session.context_window,
+    remote_control_bound: Boolean(session.remote_control_bound ?? session.remoteControlBound),
     deleted: session.deleted || session.model_deleted || session.modelDeleted || false,
     message_count: session.message_count,
     created_at: session.created_at,
@@ -252,9 +260,7 @@ function samePinnedOrderItems(a = [], b = []) {
   ));
 }
 
-function pinnedDropTargetForPointer(clientY) {
-  if (typeof document === 'undefined') return null;
-  const rows = Array.from(document.querySelectorAll('[data-sidebar-pinned-key]'));
+function sidebarDropTargetForPointer(clientY, rows, targetForRow) {
   if (rows.length === 0) return null;
 
   const first = rows[0];
@@ -262,34 +268,44 @@ function pinnedDropTargetForPointer(clientY) {
   const firstRect = first.getBoundingClientRect();
   const lastRect = last.getBoundingClientRect();
   if (clientY <= firstRect.top) {
-    return {
-      targetWorkspaceHash: first.dataset.sidebarPinnedWorkspace || '',
-      targetId: first.dataset.sidebarPinnedId || '',
-      targetKey: first.dataset.sidebarPinnedKey || '',
-      placement: 'before',
-    };
+    return { ...targetForRow(first), placement: 'before' };
   }
   if (clientY >= lastRect.bottom) {
-    return {
-      targetWorkspaceHash: last.dataset.sidebarPinnedWorkspace || '',
-      targetId: last.dataset.sidebarPinnedId || '',
-      targetKey: last.dataset.sidebarPinnedKey || '',
-      placement: 'after',
-    };
+    return { ...targetForRow(last), placement: 'after' };
   }
 
   for (const row of rows) {
     const rect = row.getBoundingClientRect();
     if (clientY >= rect.top && clientY <= rect.bottom) {
       return {
-        targetWorkspaceHash: row.dataset.sidebarPinnedWorkspace || '',
-        targetId: row.dataset.sidebarPinnedId || '',
-        targetKey: row.dataset.sidebarPinnedKey || '',
+        ...targetForRow(row),
         placement: clientY < rect.top + rect.height / 2 ? 'before' : 'after',
       };
     }
   }
   return null;
+}
+
+function pinnedDropTargetForPointer(clientY) {
+  if (typeof document === 'undefined') return null;
+  const rows = Array.from(document.querySelectorAll('[data-sidebar-pinned-key]'));
+  return sidebarDropTargetForPointer(clientY, rows, (row) => ({
+    targetWorkspaceHash: row.dataset.sidebarPinnedWorkspace || '',
+    targetId: row.dataset.sidebarPinnedId || '',
+    targetKey: row.dataset.sidebarPinnedKey || '',
+  }));
+}
+
+function workspaceDropTargetForPointer(clientY, workspaceHash) {
+  if (typeof document === 'undefined') return null;
+  const workspace = String(workspaceHash || '');
+  const rows = Array.from(document.querySelectorAll('[data-sidebar-workspace-session-key]'))
+    .filter((row) => row.dataset.sidebarWorkspaceSessionWorkspace === workspace);
+  return sidebarDropTargetForPointer(clientY, rows, (row) => ({
+    targetWorkspaceHash: workspace,
+    targetId: row.dataset.sidebarWorkspaceSessionId || '',
+    targetKey: row.dataset.sidebarWorkspaceSessionKey || '',
+  }));
 }
 
 function pinnedOrderItemsFromDom() {
@@ -298,6 +314,113 @@ function pinnedOrderItemsFromDom() {
     workspace_hash: row.dataset.sidebarPinnedWorkspace || '',
     session_id: row.dataset.sidebarPinnedId || '',
   })));
+}
+
+function startSidebarSessionPointerDrag({
+  event,
+  session,
+  title,
+  dragRef,
+  conflictingDragRef,
+  finishDrag,
+  setDragState,
+  setDragGhost,
+  updateDragScroll,
+  updateDragTarget,
+}) {
+  if (event.button !== 0 || dragRef.current || conflictingDragRef?.current) return;
+  if (event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
+
+  const workspaceHash = session?.workspace_hash || session?.workspaceHash || '';
+  const sourceId = session?.id || session?.session_id || session?.sessionId || '';
+  const sourceKey = sidebarSessionDragKey(workspaceHash, sourceId);
+  if (!workspaceHash || !sourceId || !sourceKey) return;
+
+  const pointerId = event.pointerId;
+  const pointerTarget = event.currentTarget;
+  const rect = pointerTarget.getBoundingClientRect();
+  try {
+    pointerTarget.setPointerCapture?.(pointerId);
+  } catch {
+    // Best effort; window-level listeners below still own cleanup.
+  }
+
+  const cleanup = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
+    try {
+      pointerTarget.releasePointerCapture?.(pointerId);
+    } catch {
+      // The pointer can already be released if the row unmounted.
+    }
+  };
+
+  const beginDragIfNeeded = (moveEvent) => {
+    const drag = dragRef.current;
+    if (!drag || drag.dragging) return true;
+    const dx = moveEvent.clientX - drag.startX;
+    const dy = moveEvent.clientY - drag.startY;
+    if (Math.hypot(dx, dy) < SESSION_DRAG_START_PX) return false;
+    drag.dragging = true;
+    document.body.classList.add('ace-sidebar-session-reordering');
+    setDragState({
+      sourceKey: drag.sourceKey,
+      targetKey: drag.sourceKey,
+      placement: 'before',
+    });
+    return true;
+  };
+
+  function onMove(moveEvent) {
+    const drag = dragRef.current;
+    if (!drag || moveEvent.pointerId !== pointerId) return;
+    if (!beginDragIfNeeded(moveEvent)) return;
+    moveEvent.preventDefault();
+    setDragGhost({
+      left: drag.rect.left,
+      top: moveEvent.clientY - drag.offsetY,
+      width: drag.rect.width,
+      title: drag.title,
+      timeText: drag.timeText,
+    });
+    updateDragScroll(moveEvent.clientY);
+    updateDragTarget(moveEvent.clientY);
+  }
+
+  function onUp(upEvent) {
+    const drag = dragRef.current;
+    if (!drag || upEvent.pointerId !== pointerId) return;
+    if (drag.dragging) upEvent.preventDefault();
+    finishDrag(true);
+  }
+
+  function onCancel(cancelEvent) {
+    const drag = dragRef.current;
+    if (!drag || cancelEvent.pointerId !== pointerId) return;
+    finishDrag(false);
+  }
+
+  dragRef.current = {
+    workspaceHash,
+    sourceId,
+    sourceKey,
+    targetWorkspaceHash: workspaceHash,
+    targetId: sourceId,
+    targetKey: sourceKey,
+    placement: 'before',
+    startX: event.clientX,
+    startY: event.clientY,
+    offsetY: event.clientY - rect.top,
+    rect,
+    title,
+    timeText: relativeTime(session.updated_at || session.created_at),
+    dragging: false,
+    cleanup,
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onCancel);
 }
 
 function hasDesktopBridge() {
@@ -683,6 +806,7 @@ function SidebarSessionTitle({ title, marqueeReady = true }) {
       ref={viewportRef}
       className={clsx(
         'ace-sidebar-session-title-viewport',
+        'min-w-0 flex-1',
         metrics.overflowing && 'is-overflowing',
         metrics.overflowing && marqueeReady && 'is-marquee-ready',
       )}
@@ -710,6 +834,8 @@ function SessionRow({
   onArchive,
   onRename,
   onPinnedPointerDown,
+  onWorkspacePointerDown,
+  workspaceReorderable = false,
   dragging = false,
   dropPlacement = '',
   importHighlighted = false,
@@ -720,7 +846,9 @@ function SessionRow({
   const meta = attentionMeta(attention);
   const workspaceHash = s.workspace_hash || s.workspaceHash || '';
   const sessionPath = s.session_path || s.sessionPath || '';
-  const rowKey = pinned ? pinnedSessionKey(workspaceHash, s.id) : '';
+  const rowKey = (pinned || workspaceReorderable)
+    ? sidebarSessionDragKey(workspaceHash, s.id)
+    : '';
   const title = sessionDisplayTitle(s, s.name || '');
   const titleHydration = useMemo(
     () => sidebarTitleHydrationState(s, title),
@@ -944,13 +1072,17 @@ function SessionRow({
       data-desktop-session-title={title || undefined}
       data-desktop-session-archive="true"
       data-remote-control-bound={remoteControlBound ? 'true' : undefined}
-      data-sidebar-pinned-key={rowKey || undefined}
+      data-sidebar-pinned-key={pinned ? rowKey || undefined : undefined}
       data-sidebar-pinned-id={pinned ? s.id || undefined : undefined}
       data-sidebar-pinned-workspace={pinned ? workspaceHash || undefined : undefined}
+      data-sidebar-workspace-session-key={workspaceReorderable ? rowKey || undefined : undefined}
+      data-sidebar-workspace-session-id={workspaceReorderable ? s.id || undefined : undefined}
+      data-sidebar-workspace-session-workspace={workspaceReorderable ? workspaceHash || undefined : undefined}
       aria-describedby={hoverCardVisible ? hoverCardId : undefined}
       className={clsx(
         'ace-sidebar-session-row ace-sidebar-tree-row-grid ace-sidebar-primary-text group grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[5px] mx-1.5 my-px px-2 rounded-md text-[14px] transition',
         pinned && 'ace-sidebar-pinned-session-row',
+        workspaceReorderable && 'ace-sidebar-workspace-session-row',
         dragging && 'is-dragging',
         dropPlacement === 'before' && 'is-drop-before',
         dropPlacement === 'after' && 'is-drop-after',
@@ -1009,7 +1141,11 @@ function SessionRow({
           });
         }
       } : undefined}
-      onPointerDown={pinned ? (event) => onPinnedPointerDown?.(event, s, title) : undefined}
+      onPointerDown={pinned
+        ? (event) => onPinnedPointerDown?.(event, s, title)
+        : workspaceReorderable
+          ? (event) => onWorkspacePointerDown?.(event, s, title)
+          : undefined}
       onClick={(event) => {
         if (event.defaultPrevented) return;
         if (event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
@@ -1098,9 +1234,19 @@ function SessionRow({
           type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSelect(s); }}
           aria-describedby={hoverCardVisible ? hoverCardId : undefined}
-          aria-label={marqueeTitle || title}
-          className="ace-sidebar-session-title-button min-w-0 w-full py-[5px] bg-transparent text-left cursor-pointer"
+          aria-label={remoteControlBound
+            ? tr('remoteControl.connectedSessionAria', { title: marqueeTitle || title })
+            : (marqueeTitle || title)}
+          className="ace-sidebar-session-title-button flex min-w-0 w-full items-center gap-1.5 py-[5px] bg-transparent text-left cursor-pointer"
         >
+          {remoteControlBound && (
+            <VsIcon
+              name="computer"
+              size={14}
+              className="text-accent"
+              data-remote-control-session-icon="true"
+            />
+          )}
           <SidebarSessionTitle title={marqueeTitle} marqueeReady={marqueeReady} />
         </button>
       )}
@@ -1346,6 +1492,8 @@ function WorkspaceGroup({
   onTogglePin,
   onArchive,
   onRenameSession,
+  onWorkspacePointerDown,
+  workspaceDragState = null,
   pendingPermissionSessionIds,
   pendingQuestionSessionIds,
   sessionsLoading = false,
@@ -1502,22 +1650,29 @@ function WorkspaceGroup({
             </div>
           ) : (
             <>
-              {projectedSessions.visibleSessions.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  s={s}
-                  active={sessionMatchesRevealTarget(s, activeTarget) || (!activeTarget?.sessionId && s.id === activeId)}
-                  pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
-                  pendingQuestion={sessionHasPendingQuestion(s, pendingQuestionSessionIds)}
-                  onSelect={onSelect}
-                  onTogglePin={onTogglePin}
-                  onArchive={onArchive}
-                  onRename={onRenameSession}
-                  importHighlighted={opencodeImportedHighlightKeys.has(opencodeImportedSessionHighlightKey(ws.hash, s.id))}
-                  remoteControlSurgeRequest={remoteControlSurgeRequest}
-                  onRemoteControlSurgeCompleted={onRemoteControlSurgeCompleted}
-                />
-              ))}
+              {projectedSessions.visibleSessions.map((s) => {
+                const rowKey = sidebarSessionDragKey(ws.hash, s.id);
+                return (
+                  <SessionRow
+                    key={s.id}
+                    s={s}
+                    workspaceReorderable
+                    active={sessionMatchesRevealTarget(s, activeTarget) || (!activeTarget?.sessionId && s.id === activeId)}
+                    pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
+                    pendingQuestion={sessionHasPendingQuestion(s, pendingQuestionSessionIds)}
+                    dragging={workspaceDragState?.sourceKey === rowKey}
+                    dropPlacement={workspaceDragState?.targetKey === rowKey ? workspaceDragState.placement : ''}
+                    onWorkspacePointerDown={onWorkspacePointerDown}
+                    onSelect={onSelect}
+                    onTogglePin={onTogglePin}
+                    onArchive={onArchive}
+                    onRename={onRenameSession}
+                    importHighlighted={opencodeImportedHighlightKeys.has(opencodeImportedSessionHighlightKey(ws.hash, s.id))}
+                    remoteControlSurgeRequest={remoteControlSurgeRequest}
+                    onRemoteControlSurgeCompleted={onRemoteControlSurgeCompleted}
+                  />
+                );
+              })}
               {projectedSessions.collapsible && (
                 <div className="ace-sidebar-tree-row-grid grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[5px] mx-1.5 px-2">
                   <span aria-hidden="true" />
@@ -1601,6 +1756,7 @@ export function Sidebar({
   activeId,
   activeRef,
   onSelect,
+  onActiveRemoteControlBoundChange,
   onSessionLoadStateChange,
   sessionLoadResetSequence = 0,
   collapsed,
@@ -1643,14 +1799,18 @@ export function Sidebar({
   const pendingRefreshHashRef = useRef('');
   const expandedRef = useRef(new Set());
   const workspaceCollapseAllRef = useRef(false);
+  const userCollapsedWorkspacesRef = useRef(new Set());
+  const sessionListDisclosureCompactRef = useRef(new Set());
   const pinnedByWorkspaceRef = useRef(new Map());
   const pinnedOrderItemsRef = useRef([]);
   const retainedSessionIdsRef = useRef(new Set());
   const sidebarScrollRef = useRef(null);
   const pinnedDragRef = useRef(null);
-  const suppressPinnedClickRef = useRef(false);
+  const workspaceDragRef = useRef(null);
+  const suppressSessionClickRef = useRef(false);
   const [pinnedDragState, setPinnedDragState] = useState(null);
-  const [pinnedDragGhost, setPinnedDragGhost] = useState(null);
+  const [workspaceDragState, setWorkspaceDragState] = useState(null);
+  const [sessionDragGhost, setSessionDragGhost] = useState(null);
   const [opencodeImportPreviews, setOpencodeImportPreviews] = useState(() => new Map());
   const opencodeImportPreviewsRef = useRef(new Map());
   const [opencodeImportDialog, setOpencodeImportDialog] = useState(null);
@@ -1920,14 +2080,14 @@ export function Sidebar({
     });
   }, []);
 
-  const updatePinnedDragScroll = useCallback((clientY) => {
+  const updateSessionDragScroll = useCallback((clientY) => {
     const scrollEl = sidebarScrollRef.current;
     if (!scrollEl) return;
     const rect = scrollEl.getBoundingClientRect();
-    if (clientY < rect.top + PINNED_DRAG_EDGE_SCROLL_PX) {
-      scrollEl.scrollTop -= PINNED_DRAG_EDGE_SCROLL_STEP;
-    } else if (clientY > rect.bottom - PINNED_DRAG_EDGE_SCROLL_PX) {
-      scrollEl.scrollTop += PINNED_DRAG_EDGE_SCROLL_STEP;
+    if (clientY < rect.top + SESSION_DRAG_EDGE_SCROLL_PX) {
+      scrollEl.scrollTop -= SESSION_DRAG_EDGE_SCROLL_STEP;
+    } else if (clientY > rect.bottom - SESSION_DRAG_EDGE_SCROLL_PX) {
+      scrollEl.scrollTop += SESSION_DRAG_EDGE_SCROLL_STEP;
     }
   }, []);
 
@@ -1936,13 +2096,13 @@ export function Sidebar({
     if (!drag) return;
     drag.cleanup?.();
     pinnedDragRef.current = null;
-    document.body.classList.remove('ace-sidebar-pinned-reordering');
+    document.body.classList.remove('ace-sidebar-session-reordering');
     setPinnedDragState(null);
-    setPinnedDragGhost(null);
+    setSessionDragGhost(null);
     if (drag.dragging) {
-      suppressPinnedClickRef.current = true;
+      suppressSessionClickRef.current = true;
       window.setTimeout(() => {
-        suppressPinnedClickRef.current = false;
+        suppressSessionClickRef.current = false;
       }, 80);
     }
     if (commit && drag.dragging) {
@@ -1957,109 +2117,82 @@ export function Sidebar({
   }, [applyPinnedReorder]);
 
   const handlePinnedPointerDown = useCallback((event, session, title) => {
-    if (event.button !== 0) return;
-    if (pinnedDragRef.current) return;
-    if (event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
-
-    const workspaceHash = session?.workspace_hash || session?.workspaceHash || '';
-    const sourceId = session?.id || session?.session_id || session?.sessionId || '';
-    const sourceKey = pinnedSessionKey(workspaceHash, sourceId);
-    if (!workspaceHash || !sourceId || !sourceKey) return;
-
-    finishPinnedDrag(false);
-    const pointerId = event.pointerId;
-    const pointerTarget = event.currentTarget;
-    const rect = pointerTarget.getBoundingClientRect();
-    try {
-      pointerTarget.setPointerCapture?.(pointerId);
-    } catch {
-      // Best effort; window-level listeners below still own cleanup.
-    }
-
-    const cleanup = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      try {
-        pointerTarget.releasePointerCapture?.(pointerId);
-      } catch {
-        // The pointer can already be released if the row unmounted.
-      }
-    };
-
-    const beginDragIfNeeded = (moveEvent) => {
-      const drag = pinnedDragRef.current;
-      if (!drag || drag.dragging) return true;
-      const dx = moveEvent.clientX - drag.startX;
-      const dy = moveEvent.clientY - drag.startY;
-      if (Math.hypot(dx, dy) < PINNED_DRAG_START_PX) return false;
-      drag.dragging = true;
-      document.body.classList.add('ace-sidebar-pinned-reordering');
-      setPinnedDragState({
-        sourceKey: drag.sourceKey,
-        targetKey: drag.sourceKey,
-        placement: 'before',
-      });
-      return true;
-    };
-
-    function onMove(moveEvent) {
-      const drag = pinnedDragRef.current;
-      if (!drag || moveEvent.pointerId !== pointerId) return;
-      if (!beginDragIfNeeded(moveEvent)) return;
-      moveEvent.preventDefault();
-      const nextY = moveEvent.clientY - drag.offsetY;
-      setPinnedDragGhost({
-        left: drag.rect.left,
-        top: nextY,
-        width: drag.rect.width,
-        title: drag.title,
-        timeText: drag.timeText,
-      });
-      updatePinnedDragScroll(moveEvent.clientY);
-      updatePinnedDragTarget(moveEvent.clientY);
-    }
-
-    function onUp(upEvent) {
-      const drag = pinnedDragRef.current;
-      if (!drag || upEvent.pointerId !== pointerId) return;
-      if (drag.dragging) upEvent.preventDefault();
-      finishPinnedDrag(true);
-    }
-
-    function onCancel(cancelEvent) {
-      const drag = pinnedDragRef.current;
-      if (!drag || cancelEvent.pointerId !== pointerId) return;
-      finishPinnedDrag(false);
-    }
-
-    pinnedDragRef.current = {
-      workspaceHash,
-      sourceId,
-      sourceKey,
-      targetWorkspaceHash: workspaceHash,
-      targetId: sourceId,
-      targetKey: sourceKey,
-      placement: 'before',
-      startX: event.clientX,
-      startY: event.clientY,
-      offsetY: event.clientY - rect.top,
-      rect,
+    startSidebarSessionPointerDrag({
+      event,
+      session,
       title,
-      timeText: relativeTime(session.updated_at || session.created_at),
-      dragging: false,
-      cleanup,
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onCancel);
-  }, [finishPinnedDrag, updatePinnedDragScroll, updatePinnedDragTarget]);
+      dragRef: pinnedDragRef,
+      conflictingDragRef: workspaceDragRef,
+      finishDrag: finishPinnedDrag,
+      setDragState: setPinnedDragState,
+      setDragGhost: setSessionDragGhost,
+      updateDragScroll: updateSessionDragScroll,
+      updateDragTarget: updatePinnedDragTarget,
+    });
+  }, [finishPinnedDrag, updatePinnedDragTarget, updateSessionDragScroll]);
+
+  const updateWorkspaceDragTarget = useCallback((clientY) => {
+    const drag = workspaceDragRef.current;
+    if (!drag) return;
+    const target = workspaceDropTargetForPointer(clientY, drag.workspaceHash);
+    if (!target) return;
+    drag.targetWorkspaceHash = drag.workspaceHash;
+    drag.targetId = target.targetId;
+    drag.targetKey = target.targetKey;
+    drag.placement = target.placement;
+    setWorkspaceDragState({
+      sourceKey: drag.sourceKey,
+      targetKey: target.targetKey,
+      placement: target.placement,
+    });
+  }, []);
+
+  const finishWorkspaceDrag = useCallback((commit) => {
+    const drag = workspaceDragRef.current;
+    if (!drag) return;
+    drag.cleanup?.();
+    workspaceDragRef.current = null;
+    document.body.classList.remove('ace-sidebar-session-reordering');
+    setWorkspaceDragState(null);
+    setSessionDragGhost(null);
+    if (drag.dragging) {
+      suppressSessionClickRef.current = true;
+      window.setTimeout(() => {
+        suppressSessionClickRef.current = false;
+      }, 80);
+    }
+    if (commit && drag.dragging) {
+      setSessions((prev) => reorderSidebarWorkspaceSession(
+        prev,
+        drag.workspaceHash,
+        drag.sourceId,
+        drag.targetId,
+        drag.placement || 'before',
+      ));
+    }
+  }, []);
+
+  const handleWorkspacePointerDown = useCallback((event, session, title) => {
+    startSidebarSessionPointerDrag({
+      event,
+      session,
+      title,
+      dragRef: workspaceDragRef,
+      conflictingDragRef: pinnedDragRef,
+      finishDrag: finishWorkspaceDrag,
+      setDragState: setWorkspaceDragState,
+      setDragGhost: setSessionDragGhost,
+      updateDragScroll: updateSessionDragScroll,
+      updateDragTarget: updateWorkspaceDragTarget,
+    });
+  }, [finishWorkspaceDrag, updateSessionDragScroll, updateWorkspaceDragTarget]);
 
   useEffect(() => () => {
-    const drag = pinnedDragRef.current;
-    drag?.cleanup?.();
+    pinnedDragRef.current?.cleanup?.();
+    workspaceDragRef.current?.cleanup?.();
     pinnedDragRef.current = null;
-    document.body.classList.remove('ace-sidebar-pinned-reordering');
+    workspaceDragRef.current = null;
+    document.body.classList.remove('ace-sidebar-session-reordering');
   }, []);
 
   const togglePinnedSession = useCallback(async (session, nextPinned) => {
@@ -2095,12 +2228,15 @@ export function Sidebar({
 
   const toggleSessionListExpanded = useCallback((hash) => {
     if (!hash) return;
+    const collapsing = expandedSessionLists.has(hash);
+    if (collapsing) sessionListDisclosureCompactRef.current.add(hash);
+    else sessionListDisclosureCompactRef.current.delete(hash);
     setExpandedSessionLists((prev) => {
       const next = new Set(prev);
       next.has(hash) ? next.delete(hash) : next.add(hash);
       return next;
     });
-  }, []);
+  }, [expandedSessionLists]);
 
   const setSessionWorkspaceLoading = useCallback((hashes, loading) => {
     const normalized = Array.from(new Set(Array.from(hashes || []).filter(Boolean)));
@@ -2177,7 +2313,10 @@ export function Sidebar({
       }
 
       const availableHashes = new Set(workspaceArr.map((w) => w.hash).filter(Boolean));
-      const shouldAutoExpandWorkspace = !workspaceCollapseAllRef.current;
+      const canAutoExpandWorkspace = (hash) => allowSidebarWorkspaceAutoExpand(hash, {
+        workspaceCollapseAll: workspaceCollapseAllRef.current,
+        userCollapsedWorkspaces: userCollapsedWorkspacesRef.current,
+      });
       const chosen = activeNoWorkspace
         ? ''
         : ((requestedHash && availableHashes.has(requestedHash))
@@ -2185,8 +2324,8 @@ export function Sidebar({
           : (workspaceArr.find((w) => w.active)?.hash || workspaceArr[0]?.hash || ''));
       const withActive = workspaceArr.map((w) => ({ ...w, active: !!chosen && w.hash === chosen }));
       const expandedHashes = new Set(expandedRef.current);
-      if (shouldAutoExpandWorkspace && chosen) expandedHashes.add(chosen);
-      if (shouldAutoExpandWorkspace && revealWorkspaceHash && availableHashes.has(revealWorkspaceHash)) {
+      if (canAutoExpandWorkspace(chosen)) expandedHashes.add(chosen);
+      if (canAutoExpandWorkspace(revealWorkspaceHash) && availableHashes.has(revealWorkspaceHash)) {
         expandedHashes.add(revealWorkspaceHash);
       }
       setActiveWorkspaceHash(chosen);
@@ -2226,9 +2365,11 @@ export function Sidebar({
 
       updateExpanded((prev) => {
         const next = new Set(prev);
-        if (!workspaceCollapseAllRef.current) {
-          for (const w of withActive) if (w.active) next.add(w.hash);
-          if (revealWorkspaceHash && availableHashes.has(revealWorkspaceHash)) next.add(revealWorkspaceHash);
+        for (const w of withActive) {
+          if (w.active && canAutoExpandWorkspace(w.hash)) next.add(w.hash);
+        }
+        if (canAutoExpandWorkspace(revealWorkspaceHash) && availableHashes.has(revealWorkspaceHash)) {
+          next.add(revealWorkspaceHash);
         }
         return next;
       });
@@ -2398,6 +2539,16 @@ export function Sidebar({
         updateExpanded((prev) => new Set(prev).add(workspaceHash));
         connection.subscribeWorkspaceStatus(workspaceHash);
       }
+      if (detail.reason === 'remote-control-bound' && detail.sessionId) {
+        setSessions((prev) => applyRemoteControlSessionSelection(prev, {
+          ...(detail.session || {}),
+          id: detail.sessionId,
+          workspace_hash: workspaceHash,
+          no_workspace: noWorkspace,
+        }));
+      } else if (detail.reason === 'remote-control-unbound') {
+        setSessions((prev) => clearRemoteControlSessionBindings(prev));
+      }
       if (detail.session) {
         const session = noWorkspace
           ? normalizeNoWorkspaceSession(detail.session)
@@ -2419,7 +2570,7 @@ export function Sidebar({
               );
             });
           }
-        } else {
+        } else if (detail.reason !== 'remote-control-bound') {
           setSessions((prev) => upsertSidebarSession(prev, session, {
             promoteToTop: detail.reason === 'session-created',
           }));
@@ -2449,6 +2600,20 @@ export function Sidebar({
     () => withNewSessionDisplayTitles(mergeSessionsWithStatus(sessions, statusBySession)),
     [sessions, statusBySession],
   );
+  useEffect(() => {
+    if (!revealTarget.sessionId || !onActiveRemoteControlBoundChange) return;
+    const activeSession = renderedSessions.find((session) => (
+      sessionMatchesRevealTarget(session, revealTarget)
+    ));
+    if (!activeSession) return;
+    onActiveRemoteControlBoundChange({
+      sessionId: activeSession.id || activeSession.session_id || activeSession.sessionId || '',
+      workspaceHash: activeSession.workspace_hash || activeSession.workspaceHash || '',
+      remoteControlBound: Boolean(
+        activeSession.remote_control_bound ?? activeSession.remoteControlBound
+      ),
+    });
+  }, [onActiveRemoteControlBoundChange, renderedSessions, revealTarget]);
   const noWorkspaceSessions = useMemo(
     () => renderedSessions.filter(isNoWorkspaceSession).map(normalizeNoWorkspaceSession),
     [renderedSessions],
@@ -2472,10 +2637,15 @@ export function Sidebar({
       revealedSessionTargetRef.current = '';
       return undefined;
     }
+    const listKey = selectedRevealTarget.noWorkspace ? NO_WORKSPACE_SESSION_LIST_KEY : selectedRevealTarget.workspaceHash;
     const targetKey = sidebarRevealTargetKey(selectedRevealTarget);
     if (sessionRevealTargetRef.current !== targetKey) {
       sessionRevealTargetRef.current = targetKey;
       revealedSessionTargetRef.current = '';
+      if (listKey) sessionListDisclosureCompactRef.current.delete(listKey);
+      if (!selectedRevealTarget.noWorkspace && selectedRevealTarget.workspaceHash) {
+        userCollapsedWorkspacesRef.current.delete(selectedRevealTarget.workspaceHash);
+      }
     }
     const pinnedTarget = pinnedSessions.some((session) => sessionMatchesRevealTarget(session, selectedRevealTarget));
     const targetSection = pinnedTarget
@@ -2488,7 +2658,6 @@ export function Sidebar({
         prev[targetSection] ? prev : { ...prev, [targetSection]: true }
       ));
     }
-    const listKey = selectedRevealTarget.noWorkspace ? NO_WORKSPACE_SESSION_LIST_KEY : selectedRevealTarget.workspaceHash;
     const sourceSessions = selectedRevealTarget.noWorkspace
       ? noWorkspaceSessions
       : workspaceSessions.filter((session) => (
@@ -2497,9 +2666,11 @@ export function Sidebar({
       ));
 
     if (
-      !selectedRevealTarget.noWorkspace
-      && selectedRevealTarget.workspaceHash
-      && !workspaceCollapseAllRef.current
+      allowSidebarWorkspaceAutoExpand(selectedRevealTarget.workspaceHash, {
+        noWorkspace: selectedRevealTarget.noWorkspace,
+        workspaceCollapseAll: workspaceCollapseAllRef.current,
+        userCollapsedWorkspaces: userCollapsedWorkspacesRef.current,
+      })
     ) {
       updateExpanded((prev) => {
         if (prev.has(selectedRevealTarget.workspaceHash)) return prev;
@@ -2508,8 +2679,12 @@ export function Sidebar({
     }
 
     if (
-      listKey
-      && (selectedRevealTarget.noWorkspace || !workspaceCollapseAllRef.current)
+      allowSidebarSessionListRevealExpansion({
+        listKey,
+        noWorkspace: selectedRevealTarget.noWorkspace,
+        workspaceCollapseAll: workspaceCollapseAllRef.current,
+        disclosureCompactKeys: sessionListDisclosureCompactRef.current,
+      })
       && sessionListNeedsRevealExpansion(
         sourceSessions,
         selectedRevealTarget,
@@ -2612,10 +2787,19 @@ export function Sidebar({
     if (!hash) return;
     const next = new Set(expandedRef.current);
     const willExpand = !next.has(hash);
-    if (willExpand) next.add(hash);
-    else next.delete(hash);
+    if (willExpand) {
+      next.add(hash);
+      userCollapsedWorkspacesRef.current.delete(hash);
+    } else {
+      next.delete(hash);
+      userCollapsedWorkspacesRef.current.add(hash);
+    }
     expandedRef.current = next;
+    sessionListDisclosureCompactRef.current.add(hash);
     setExpanded(next);
+    setExpandedSessionLists((previous) => (
+      expandedSessionListsAfterWorkspaceDisclosure(previous, hash)
+    ));
     if (willExpand) {
       setSessionWorkspaceLoading([hash], true);
       refresh(hash).catch(() => {});
@@ -2625,6 +2809,17 @@ export function Sidebar({
   const onActivate = useCallback(async (ws) => {
     cancelSessionSelection();
     workspaceCollapseAllRef.current = false;
+    const workspaceHash = ws.hash || '';
+    const wasCollapsed = !!workspaceHash && !expandedRef.current.has(workspaceHash);
+    if (workspaceHash) {
+      userCollapsedWorkspacesRef.current.delete(workspaceHash);
+      if (wasCollapsed) {
+        sessionListDisclosureCompactRef.current.add(workspaceHash);
+        setExpandedSessionLists((previous) => (
+          expandedSessionListsAfterWorkspaceDisclosure(previous, workspaceHash)
+        ));
+      }
+    }
     setSessionWorkspaceLoading([ws.hash], true);
     setActiveWorkspaceHash(ws.hash);
     updateExpanded((prev) => new Set(prev).add(ws.hash));
@@ -2877,7 +3072,13 @@ export function Sidebar({
       baselineNavigationIdentity: activeNavigationIdentity,
     };
     replaceSessionSelectionIntent(intent);
-    if (!target.noWorkspace) workspaceCollapseAllRef.current = false;
+    if (!target.noWorkspace) {
+      workspaceCollapseAllRef.current = false;
+      if (target.workspaceHash) {
+        userCollapsedWorkspacesRef.current.delete(target.workspaceHash);
+        sessionListDisclosureCompactRef.current.delete(target.workspaceHash);
+      }
+    }
 
     let selectedTarget = target;
     if (session.active) {
@@ -2971,6 +3172,14 @@ export function Sidebar({
     const workspaceHash = ws?.hash || '';
     if (!workspaceHash) return;
     workspaceCollapseAllRef.current = false;
+    const wasCollapsed = !expandedRef.current.has(workspaceHash);
+    userCollapsedWorkspacesRef.current.delete(workspaceHash);
+    if (wasCollapsed) {
+      sessionListDisclosureCompactRef.current.add(workspaceHash);
+      setExpandedSessionLists((previous) => (
+        expandedSessionListsAfterWorkspaceDisclosure(previous, workspaceHash)
+      ));
+    }
     setActiveWorkspaceHash(workspaceHash);
     updateExpanded((prev) => new Set(prev).add(workspaceHash));
     setWorkspaces((prev) => prev.map((item) => ({
@@ -2998,6 +3207,10 @@ export function Sidebar({
   const collapseAllWorkspaces = useCallback(() => {
     workspaceCollapseAllRef.current = true;
     updateExpanded(new Set());
+    for (const hash of sidebarWorkspaceListKeys(workspaces)) {
+      userCollapsedWorkspacesRef.current.add(hash);
+      sessionListDisclosureCompactRef.current.add(hash);
+    }
     setExpandedSessionLists((previous) => (
       expandedSessionListsAfterWorkspaceCollapseAll(previous, workspaces)
     ));
@@ -3064,7 +3277,7 @@ export function Sidebar({
             {sidebarSectionIsVisible(sectionCounts.pinned) && sectionExpansion.pinned && (
               <div className="my-1">
                 {pinnedSessions.map((s) => {
-                  const rowKey = pinnedSessionKey(s.workspace_hash || s.workspaceHash || '', s.id);
+                  const rowKey = sidebarSessionDragKey(s.workspace_hash || s.workspaceHash || '', s.id);
                   return (
                     <SessionRow
                       key={`pinned-${s.workspace_hash || ''}-${s.id}`}
@@ -3077,7 +3290,7 @@ export function Sidebar({
                       dropPlacement={pinnedDragState?.targetKey === rowKey ? pinnedDragState.placement : ''}
                       onPinnedPointerDown={handlePinnedPointerDown}
                       onSelect={(session) => {
-                        if (suppressPinnedClickRef.current) return;
+                        if (suppressSessionClickRef.current) return;
                         selectSession(workspaceForSession(session), session);
                       }}
                       onTogglePin={togglePinnedSession}
@@ -3161,7 +3374,10 @@ export function Sidebar({
                       onToggleSessionList={toggleSessionListExpanded}
                       activeId={activeId}
                       activeTarget={selectedRevealTarget}
-                      onSelect={(session) => selectSession(ws, session)}
+                      onSelect={(session) => {
+                        if (suppressSessionClickRef.current) return;
+                        selectSession(ws, session);
+                      }}
                       onRename={onRename}
                       onActivate={onActivate}
                       onNewSession={openNewTaskInWorkspace}
@@ -3170,6 +3386,8 @@ export function Sidebar({
                       onTogglePin={togglePinnedSession}
                       onArchive={archiveSession}
                       onRenameSession={renameSession}
+                      onWorkspacePointerDown={handleWorkspacePointerDown}
+                      workspaceDragState={workspaceDragState}
                       pendingPermissionSessionIds={pendingPermissionSessionIds}
                       pendingQuestionSessionIds={pendingQuestionSessionIds}
                       sessionsLoading={sessionLoadingWorkspaces.has(ws.hash) || !sessionLoadedWorkspaces.has(ws.hash)}
@@ -3183,19 +3401,19 @@ export function Sidebar({
               </div>
             )}
           </div>
-          {pinnedDragGhost && (
+          {sessionDragGhost && (
             <div
-              className="ace-sidebar-pinned-drag-ghost"
+              className="ace-sidebar-session-drag-ghost"
               data-ace-native-overlay="overlap"
               style={{
-                left: pinnedDragGhost.left,
-                top: pinnedDragGhost.top,
-                width: pinnedDragGhost.width,
+                left: sessionDragGhost.left,
+                top: sessionDragGhost.top,
+                width: sessionDragGhost.width,
               }}
             >
               <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-fg-mute/45" />
-              <span className="flex-1 min-w-0 truncate">{pinnedDragGhost.title}</span>
-              <span className="text-[10px] text-fg-mute shrink-0">{pinnedDragGhost.timeText}</span>
+              <span className="flex-1 min-w-0 truncate">{sessionDragGhost.title}</span>
+              <span className="text-[10px] text-fg-mute shrink-0">{sessionDragGhost.timeText}</span>
             </div>
           )}
         </div>

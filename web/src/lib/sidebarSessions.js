@@ -103,6 +103,21 @@ export function applyRemoteControlSessionSelection(sessions = [], selectedSessio
   return found ? cleared : upsertSidebarSession(cleared, selected);
 }
 
+export function clearRemoteControlSessionBindings(sessions = []) {
+  const source = Array.isArray(sessions) ? sessions : [];
+  let changed = false;
+  const cleared = source.map((session) => {
+    if (!session?.remote_control_bound && !session?.remoteControlBound) return session;
+    changed = true;
+    return {
+      ...session,
+      remote_control_bound: false,
+      remoteControlBound: false,
+    };
+  });
+  return changed ? cleared : source;
+}
+
 export function nextRemoteControlSurgeRequest(currentRequest, targetKey, sequence) {
   const normalizedTargetKey = String(targetKey || '').trim();
   if (!normalizedTargetKey) return currentRequest || null;
@@ -127,15 +142,11 @@ export function shouldRunRemoteControlForcedSurge(
   return Boolean(remoteControlBound) && scheduled > 0 && scheduled === current;
 }
 
-export function expandedSessionListsAfterWorkspaceCollapseAll(
-  currentExpanded = new Set(),
-  workspaces = [],
-) {
-  const next = currentExpanded instanceof Set
-    ? new Set(currentExpanded)
-    : new Set();
+export function sidebarWorkspaceListKeys(workspaces = []) {
+  const keys = [];
+  const seen = new Set();
   const list = Array.isArray(workspaces) ? workspaces : [];
-  list.forEach((workspace) => {
+  for (const workspace of list) {
     const hash = typeof workspace === 'string'
       ? workspace.trim()
       : String(
@@ -144,9 +155,64 @@ export function expandedSessionListsAfterWorkspaceCollapseAll(
         || workspace?.workspaceHash
         || '',
       ).trim();
-    if (hash) next.delete(hash);
-  });
+    if (!hash || seen.has(hash)) continue;
+    seen.add(hash);
+    keys.push(hash);
+  }
+  return keys;
+}
+
+export function expandedSessionListsAfterWorkspaceCollapseAll(
+  currentExpanded = new Set(),
+  workspaces = [],
+) {
+  const next = currentExpanded instanceof Set
+    ? new Set(currentExpanded)
+    : new Set();
+  for (const hash of sidebarWorkspaceListKeys(workspaces)) {
+    next.delete(hash);
+  }
   return next;
+}
+
+export function expandedSessionListsAfterWorkspaceDisclosure(
+  currentExpanded = new Set(),
+  workspaceHash = '',
+) {
+  const hash = String(workspaceHash || '').trim();
+  const current = currentExpanded instanceof Set ? currentExpanded : new Set();
+  if (!hash || !current.has(hash)) return current;
+  const next = new Set(current);
+  next.delete(hash);
+  return next;
+}
+
+export function allowSidebarWorkspaceAutoExpand(
+  workspaceHash = '',
+  {
+    noWorkspace = false,
+    workspaceCollapseAll = false,
+    userCollapsedWorkspaces = new Set(),
+  } = {},
+) {
+  if (noWorkspace) return false;
+  const hash = String(workspaceHash || '').trim();
+  if (!hash) return false;
+  if (workspaceCollapseAll) return false;
+  return !(userCollapsedWorkspaces instanceof Set && userCollapsedWorkspaces.has(hash));
+}
+
+export function allowSidebarSessionListRevealExpansion({
+  listKey = '',
+  noWorkspace = false,
+  workspaceCollapseAll = false,
+  disclosureCompactKeys = new Set(),
+} = {}) {
+  const key = String(listKey || '').trim();
+  if (!key) return false;
+  if (disclosureCompactKeys instanceof Set && disclosureCompactKeys.has(key)) return false;
+  if (!noWorkspace && workspaceCollapseAll) return false;
+  return true;
 }
 
 export function sidebarSessionProjection(sessions = [], expanded = false, limit = SIDEBAR_SESSION_COLLAPSE_LIMIT) {
@@ -211,6 +277,45 @@ export function sortSidebarSessionsNewestFirst(sessions = []) {
       return a.index - b.index;
     })
     .map((item) => item.session);
+}
+
+export function reorderSidebarWorkspaceSession(
+  sessions = [],
+  workspaceHash = '',
+  sourceId = '',
+  targetId = '',
+  placement = 'before',
+) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const workspace = String(workspaceHash || '').trim();
+  const source = String(sourceId || '').trim();
+  const target = String(targetId || '').trim();
+  if (!workspace || !source || !target || source === target) return list;
+
+  const workspaceIndexes = [];
+  const workspaceSessions = [];
+  list.forEach((session, index) => {
+    if (!isNoWorkspaceSession(session) && sessionWorkspace(session) === workspace) {
+      workspaceIndexes.push(index);
+      workspaceSessions.push(session);
+    }
+  });
+
+  const sourceIndex = workspaceSessions.findIndex((session) => sessionId(session) === source);
+  const targetIndex = workspaceSessions.findIndex((session) => sessionId(session) === target);
+  if (sourceIndex < 0 || targetIndex < 0) return list;
+
+  const reordered = [...workspaceSessions];
+  const [sourceSession] = reordered.splice(sourceIndex, 1);
+  const targetAfterRemoval = reordered.findIndex((session) => sessionId(session) === target);
+  if (targetAfterRemoval < 0) return list;
+  reordered.splice(targetAfterRemoval + (placement === 'after' ? 1 : 0), 0, sourceSession);
+
+  const next = [...list];
+  workspaceIndexes.forEach((index, workspaceIndex) => {
+    next[index] = reordered[workspaceIndex];
+  });
+  return next;
 }
 
 export function reconcileSidebarSessions(previousSessions = [], incomingSessions = []) {

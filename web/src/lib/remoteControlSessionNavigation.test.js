@@ -30,6 +30,7 @@ test('normalizes the selected-session payload into a session jump target', () =>
     workspaceHash: 'workspace-1',
     noWorkspace: false,
     active: true,
+    remote_control_bound: true,
     cwd: 'C:/work/project',
     title: 'Remote task',
     updated_at: '2026-08-05T12:00:00Z',
@@ -61,6 +62,7 @@ test('accepts a top-level session id and normalizes no-workspace selection', () 
   assert.equal(result.workspaceHash, '');
   assert.equal(result.noWorkspace, true);
   assert.equal(result.active, true);
+  assert.equal(result.remote_control_bound, true);
   assert.deepEqual(result.session, {
     id: 'session-8',
     session_id: 'session-8',

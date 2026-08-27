@@ -113,6 +113,10 @@ export const enUS = {
       remoteControl: 'Activate a configured channel plugin or manage manual remote-control webhooks',
     },
   },
+  remoteControl: {
+    connectedSession: '/rc remote control connected',
+    connectedSessionAria: '{{title}}, /rc remote control connected',
+  },
   feedbackCommand: {
     requiresSession: 'Open a session before using /feedback.',
     textOnly: '/feedback accepts text only. Remove attachments or context first.',

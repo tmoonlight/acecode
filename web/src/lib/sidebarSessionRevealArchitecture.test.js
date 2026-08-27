@@ -31,7 +31,7 @@ test('active-session reveal consumes each stable target only after its row rende
   const revealEffect = sidebar.slice(effectStart, effectEnd);
   assert.match(
     revealEffect,
-    /if \(sessionRevealTargetRef\.current !== targetKey\) \{\s*sessionRevealTargetRef\.current = targetKey;\s*revealedSessionTargetRef\.current = '';\s*\}/,
+    /if \(sessionRevealTargetRef\.current !== targetKey\) \{\s*sessionRevealTargetRef\.current = targetKey;\s*revealedSessionTargetRef\.current = '';\s*if \(listKey\) sessionListDisclosureCompactRef\.current\.delete\(listKey\);\s*if \(!selectedRevealTarget\.noWorkspace && selectedRevealTarget\.workspaceHash\) \{\s*userCollapsedWorkspacesRef\.current\.delete\(selectedRevealTarget\.workspaceHash\);\s*\}\s*\}/,
   );
   assert.match(
     revealEffect,

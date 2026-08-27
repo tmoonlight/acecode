@@ -178,6 +178,7 @@ import './navigationHistoryHandoffArchitecture.test.js';
 import './gridPinnedSessions.test.js';
 import './sidebarNavigation.test.js';
 import './sidebarWorkspaceHeadingArchitecture.test.js';
+import './sidebarWorkspaceDragArchitecture.test.js';
 import './sessionCreationActionGuardsArchitecture.test.js';
 import './sidebarSessionRevealArchitecture.test.js';
 import './sidebarCustomSectionArchitecture.test.js';

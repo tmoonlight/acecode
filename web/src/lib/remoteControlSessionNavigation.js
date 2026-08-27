@@ -51,6 +51,7 @@ export function normalizeRemoteControlSessionSelected(message = {}) {
     // The daemon has already resumed and bound this session before emitting
     // the event.  resumeAndOpenSession therefore only commits the UI ref.
     active: true,
+    remote_control_bound: true,
     cwd,
     title,
     updated_at: updatedAt,

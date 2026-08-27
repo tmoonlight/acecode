@@ -40,7 +40,11 @@ import {
   visibleQuestionRequest,
 } from './lib/pendingQuestions.js';
 import { sessionDisplayTitle } from './lib/sessionTitle.js';
-import { notifySessionListChanged } from './lib/sessionListEvents.js';
+import {
+  normalizeSessionListChangedDetail,
+  notifySessionListChanged,
+  SESSION_LIST_CHANGED_EVENT,
+} from './lib/sessionListEvents.js';
 import { normalizeRemoteControlSessionSelected } from './lib/remoteControlSessionNavigation.js';
 import { usePreference } from './lib/usePreference.js';
 import {
@@ -460,6 +464,40 @@ export function App() {
     setNavHistory(nextHistory);
     setActiveRef(next);
   }, [resetSidebarSessionLoading]);
+
+  const syncActiveRemoteControlBound = useCallback((detail = {}) => {
+    const sessionId = String(detail.sessionId || detail.session_id || '').trim();
+    if (!sessionId) return;
+    const current = activeRefRef.current;
+    if (sessionJumpId(current) !== sessionId) return;
+    const workspaceHash = String(detail.workspaceHash || detail.workspace_hash || '').trim();
+    const currentWorkspaceHash = sessionJumpWorkspaceHash(current);
+    if (workspaceHash && currentWorkspaceHash && workspaceHash !== currentWorkspaceHash) return;
+    const remoteControlBound = detail.remoteControlBound === true;
+    const currentBound = Boolean(current?.remote_control_bound ?? current?.remoteControlBound);
+    if (currentBound === remoteControlBound) return;
+    const next = {
+      ...current,
+      remote_control_bound: remoteControlBound,
+      remoteControlBound,
+    };
+    activeRefRef.current = next;
+    setActiveRef(next);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event) => {
+      const detail = normalizeSessionListChangedDetail(event.detail || {});
+      if (detail.reason !== 'remote-control-bound'
+          && detail.reason !== 'remote-control-unbound') return;
+      syncActiveRemoteControlBound({
+        ...detail,
+        remoteControlBound: detail.reason === 'remote-control-bound',
+      });
+    };
+    window.addEventListener(SESSION_LIST_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(SESSION_LIST_CHANGED_EVENT, handler);
+  }, [syncActiveRemoteControlBound]);
 
   const replaceNavigationState = useCallback((nextRef, nextHistory) => {
     resetSidebarSessionLoading();
@@ -1909,6 +1947,7 @@ export function App() {
           activeId={activeId}
           activeRef={activeRef}
           onSelect={navigateToRef}
+          onActiveRemoteControlBoundChange={syncActiveRemoteControlBound}
           onSessionLoadStateChange={setSidebarSessionLoadState}
           sessionLoadResetSequence={sidebarSessionLoadResetSequence}
           collapsed={sidebarCollapsed}

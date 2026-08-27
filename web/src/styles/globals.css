@@ -1974,20 +1974,9 @@ body {
   }
 }
 /*
- * /rc 绑定态：亮色 surge 只跑一次，底层的低对比背景一直保留到解绑。
- * 覆盖层不吃鼠标，也不改变 session title / unread / active 的文字语义。
+ * /rc 绑定态：绑定成功时的亮色 surge 只跑一次；持久态由标题前的电脑图标呈现，
+ * 不再给整行增加常驻背景。覆盖层不吃鼠标，也不改变文字语义。
  */
-.ace-sidebar-session-row.is-remote-control-bound {
-  background-color: rgba(var(--ace-accent-rgb), 0.11);
-  background-image:
-    linear-gradient(100deg,
-      rgba(var(--ace-accent-rgb), 0.16) 0%,
-      rgba(var(--ace-accent-rgb), 0.08) 46%,
-      rgba(var(--ace-accent-rgb), 0.13) 100%);
-  box-shadow:
-    inset 2px 0 0 rgba(var(--ace-accent-rgb), 0.78),
-    inset 0 0 0 1px rgba(var(--ace-accent-rgb), 0.20);
-}
 .ace-sidebar-session-row.is-remote-control-bound > :not(.ace-session-remote-control-surge) {
   position: relative;
   z-index: 1;
@@ -2062,19 +2051,25 @@ body {
     display: none;
   }
 }
-.ace-sidebar-pinned-session-row {
+.ace-sidebar-pinned-session-row,
+.ace-sidebar-workspace-session-row {
   cursor: grab;
   user-select: none;
 }
 .ace-sidebar-pinned-session-row:active,
-.ace-sidebar-pinned-reordering .ace-sidebar-pinned-session-row {
+.ace-sidebar-workspace-session-row:active,
+.ace-sidebar-session-reordering .ace-sidebar-pinned-session-row,
+.ace-sidebar-session-reordering .ace-sidebar-workspace-session-row {
   cursor: grabbing;
 }
-.ace-sidebar-pinned-session-row.is-dragging {
+.ace-sidebar-pinned-session-row.is-dragging,
+.ace-sidebar-workspace-session-row.is-dragging {
   opacity: 0.46;
 }
 .ace-sidebar-pinned-session-row.is-drop-before::before,
-.ace-sidebar-pinned-session-row.is-drop-after::after {
+.ace-sidebar-pinned-session-row.is-drop-after::after,
+.ace-sidebar-workspace-session-row.is-drop-before::before,
+.ace-sidebar-workspace-session-row.is-drop-after::after {
   content: "";
   position: absolute;
   left: 22px;
@@ -2085,13 +2080,15 @@ body {
   z-index: 2;
   pointer-events: none;
 }
-.ace-sidebar-pinned-session-row.is-drop-before::before {
+.ace-sidebar-pinned-session-row.is-drop-before::before,
+.ace-sidebar-workspace-session-row.is-drop-before::before {
   top: -2px;
 }
-.ace-sidebar-pinned-session-row.is-drop-after::after {
+.ace-sidebar-pinned-session-row.is-drop-after::after,
+.ace-sidebar-workspace-session-row.is-drop-after::after {
   bottom: -2px;
 }
-.ace-sidebar-pinned-drag-ghost {
+.ace-sidebar-session-drag-ghost {
   position: fixed;
   z-index: 80;
   display: flex;

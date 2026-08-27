@@ -45,6 +45,27 @@ run('shared Modal appears and closes without staged transitions or delay', () =>
   assert.match(modal, /backgroundColor: 'rgba\(0, 0, 0, 0\.35\)'/);
 });
 
+run('shared Modal escapes chat and details stacking contexts through a body portal', () => {
+  const modalFile = source('components/Modal.jsx');
+  const modal = between(
+    modalFile,
+    'export function Modal',
+    '// 右侧滑出面板',
+  );
+  const goalStatus = source('components/GoalStatusBar.jsx');
+  const queueCards = source('components/QueueCardList.jsx');
+
+  assert.match(modalFile, /import \{ createPortal \} from 'react-dom';/);
+  assert.match(modal, /const modalLayer = \([\s\S]*data-ace-native-overlay="blocking"/);
+  assert.match(
+    modal,
+    /return typeof document === 'undefined'[\s\S]*createPortal\(modalLayer, document\.body\)/,
+  );
+  assert.match(modal, /notifyNativeSurfaceOverlayChange/);
+  assert.match(goalStatus, /function GoalEditModal[\s\S]*<Modal/);
+  assert.match(queueCards, /function QueueCardEditDialog[\s\S]*<Modal/);
+});
+
 run('archived deletion and unsaved-preview confirmations share Modal', () => {
   const settingsFile = source('components/SettingsPage.jsx');
   const archived = between(

@@ -113,6 +113,10 @@ export const zhCN = {
       remoteControl: '启用已配置的频道插件，或管理手动远程控制 Webhook',
     },
   },
+  remoteControl: {
+    connectedSession: '/rc 远程控制已连接',
+    connectedSessionAria: '{{title}}，/rc 远程控制已连接',
+  },
   feedbackCommand: {
     requiresSession: '请先进入一个会话，再使用 /feedback',
     textOnly: '/feedback 仅支持文字反馈，请先移除附件或上下文',

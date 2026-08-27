@@ -32,11 +32,11 @@ test('workspace heading actions stay mounted and reveal on pointer or keyboard i
   );
   assert.match(
     sidebar,
-    /updateExpanded\(\(prev\) => \{\s*const next = new Set\(prev\);\s*if \(!workspaceCollapseAllRef\.current\) \{/,
+    /updateExpanded\(\(prev\) => \{\s*const next = new Set\(prev\);\s*for \(const w of withActive\) \{\s*if \(w\.active && canAutoExpandWorkspace\(w\.hash\)\) next\.add\(w\.hash\);/,
   );
   assert.match(
     sidebar,
-    /!selectedRevealTarget\.noWorkspace\s*&& selectedRevealTarget\.workspaceHash\s*&& !workspaceCollapseAllRef\.current/,
+    /allowSidebarWorkspaceAutoExpand\(selectedRevealTarget\.workspaceHash, \{\s*noWorkspace: selectedRevealTarget\.noWorkspace,\s*workspaceCollapseAll: workspaceCollapseAllRef\.current,\s*userCollapsedWorkspaces: userCollapsedWorkspacesRef\.current,/,
   );
   assert.match(sidebar, /data-tour-target="sidebar-add-project"/);
   assert.match(styles, /\.ace-sidebar-section-actions\s*\{\s*opacity: 0;\s*pointer-events: none;/);
@@ -50,7 +50,11 @@ test('workspace collapse-all keeps disclosure-only reopen session lists compact'
   const sidebar = source('components/Sidebar.jsx');
   assert.match(
     sidebar,
-    /listKey\s*&& \(selectedRevealTarget\.noWorkspace \|\| !workspaceCollapseAllRef\.current\)\s*&& sessionListNeedsRevealExpansion/,
+    /allowSidebarSessionListRevealExpansion\(\{\s*listKey,\s*noWorkspace: selectedRevealTarget\.noWorkspace,\s*workspaceCollapseAll: workspaceCollapseAllRef\.current,\s*disclosureCompactKeys: sessionListDisclosureCompactRef\.current,/,
+  );
+  assert.match(
+    sidebar,
+    /for \(const hash of sidebarWorkspaceListKeys\(workspaces\)\) \{\s*userCollapsedWorkspacesRef\.current\.add\(hash\);\s*sessionListDisclosureCompactRef\.current\.add\(hash\);/,
   );
 
   const toggleStart = sidebar.indexOf('const onToggle = (hash) => {');
@@ -58,6 +62,45 @@ test('workspace collapse-all keeps disclosure-only reopen session lists compact'
   assert.ok(toggleStart >= 0 && toggleEnd > toggleStart);
   const toggleSource = sidebar.slice(toggleStart, toggleEnd);
   assert.doesNotMatch(toggleSource, /workspaceCollapseAllRef\.current\s*=\s*false/);
+  assert.match(toggleSource, /sessionListDisclosureCompactRef\.current\.add\(hash\)/);
+  assert.match(
+    toggleSource,
+    /setExpandedSessionLists\(\(previous\) => \(\s*expandedSessionListsAfterWorkspaceDisclosure\(previous, hash\)\s*\)\);/,
+  );
+  assert.match(toggleSource, /userCollapsedWorkspacesRef\.current\.add\(hash\)/);
+  assert.match(toggleSource, /userCollapsedWorkspacesRef\.current\.delete\(hash\)/);
+});
+
+test('reopening a collapsed workspace always restores the compact five-row session list', () => {
+  const sidebar = source('components/Sidebar.jsx');
+  const toggleStart = sidebar.indexOf('const onToggle = (hash) => {');
+  const toggleEnd = sidebar.indexOf('\n  const onActivate', toggleStart);
+  const activateStart = sidebar.indexOf('const onActivate = useCallback(async (ws) => {');
+  const activateEnd = sidebar.indexOf('\n  useEffect(() => {\n    const requestId = Number(workspaceActivationRequest', activateStart);
+  const collapseStart = sidebar.indexOf('if (collapsing) sessionListDisclosureCompactRef.current.add(hash);');
+  assert.ok(toggleStart >= 0 && toggleEnd > toggleStart);
+  assert.ok(activateStart >= 0 && activateEnd > activateStart);
+  assert.ok(collapseStart >= 0);
+
+  const toggleSource = sidebar.slice(toggleStart, toggleEnd);
+  const activateSource = sidebar.slice(activateStart, activateEnd);
+  assert.match(toggleSource, /const willExpand = !next\.has\(hash\)/);
+  assert.match(
+    toggleSource,
+    /sessionListDisclosureCompactRef\.current\.add\(hash\);\s*setExpanded\(next\);\s*setExpandedSessionLists\(\(previous\) => \(\s*expandedSessionListsAfterWorkspaceDisclosure\(previous, hash\)\s*\)\);/,
+  );
+  assert.match(
+    activateSource,
+    /const wasCollapsed = !!workspaceHash && !expandedRef\.current\.has\(workspaceHash\);/,
+  );
+  assert.match(
+    activateSource,
+    /if \(wasCollapsed\) \{\s*sessionListDisclosureCompactRef\.current\.add\(workspaceHash\);\s*setExpandedSessionLists\(\(previous\) => \(\s*expandedSessionListsAfterWorkspaceDisclosure\(previous, workspaceHash\)\s*\)\);/,
+  );
+  assert.match(
+    sidebar,
+    /if \(collapsing\) sessionListDisclosureCompactRef\.current\.add\(hash\);\s*else sessionListDisclosureCompactRef\.current\.delete\(hash\);/,
+  );
 });
 
 test('created sessions are explicitly promoted before active-row reveal', () => {

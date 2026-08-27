@@ -3,6 +3,7 @@
 // 不依赖 bootstrap modal,纯 Tailwind + 内联状态。
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { clsx } from '../lib/format.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 
@@ -76,7 +77,7 @@ export function Modal({
 
   const handleClose = () => onClose?.();
 
-  return (
+  const modalLayer = (
     <div
       data-ace-native-overlay="blocking"
       className={clsx('fixed inset-0 flex items-center justify-center p-4', layerClassName)}
@@ -98,6 +99,10 @@ export function Modal({
       </div>
     </div>
   );
+
+  return typeof document === 'undefined'
+    ? modalLayer
+    : createPortal(modalLayer, document.body);
 }
 
 // 右侧滑出面板(MCPPanel 用)

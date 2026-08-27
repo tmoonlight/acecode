@@ -214,6 +214,7 @@ export function sessionRefFromJumpTarget(target = {}, resumeResult = {}, fallbac
     ['created_at', ['created_at', 'createdAt']],
     ['updated_at', ['updated_at', 'updatedAt']],
     ['workspace_visible', ['workspace_visible', 'workspaceVisible']],
+    ['remote_control_bound', ['remote_control_bound', 'remoteControlBound']],
   ];
   for (const [outKey, keys] of copyPairs) {
     const values = [];

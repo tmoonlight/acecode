@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import {
   SIDEBAR_SESSION_COLLAPSE_LIMIT,
+  allowSidebarSessionListRevealExpansion,
+  allowSidebarWorkspaceAutoExpand,
   applyRemoteControlSessionSelection,
+  clearRemoteControlSessionBindings,
   completeRemoteControlSurgeRequest,
   expandedSessionListsAfterWorkspaceCollapseAll,
+  expandedSessionListsAfterWorkspaceDisclosure,
   nextRemoteControlSurgeRequest,
   reconcileSidebarSessions,
+  reorderSidebarWorkspaceSession,
   remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
@@ -16,6 +21,7 @@ import {
   sidebarRevealTarget,
   sidebarRevealTargetKey,
   sidebarSessionProjection,
+  sidebarWorkspaceListKeys,
   sortSidebarSessionsNewestFirst,
   upsertSidebarSession,
 } from './sidebarSessions.js';
@@ -220,6 +226,84 @@ test('collapse all workspaces resets registered session lists to the default com
   assert.equal(projection.action, 'expand');
   assert.deepEqual(projection.visibleSessions.map((session) => session.id), ['0', '1', '2', '3', '4']);
   assert.equal(expanded.has('__no_workspace__'), true);
+  assert.deepEqual(sidebarWorkspaceListKeys([
+    { hash: 'w1' },
+    { workspace_hash: 'w1' },
+    { workspaceHash: 'w2' },
+    { hash: '' },
+    'w3',
+  ]), ['w1', 'w2', 'w3']);
+});
+
+test('workspace disclosure forgets an expanded session list and restores the compact five-row mode', () => {
+  const expanded = new Set(['w1', 'w2', '__no_workspace__']);
+  const afterCollapse = expandedSessionListsAfterWorkspaceDisclosure(expanded, 'w1');
+  assert.deepEqual(Array.from(afterCollapse), ['w2', '__no_workspace__']);
+  assert.equal(expandedSessionListsAfterWorkspaceDisclosure(afterCollapse, 'w1'), afterCollapse);
+  assert.equal(expandedSessionListsAfterWorkspaceDisclosure(afterCollapse, ''), afterCollapse);
+
+  const sessions = Array.from({ length: 7 }, (_, index) => ({
+    id: String(index),
+    workspace_hash: 'w1',
+  }));
+  const compact = sidebarSessionProjection(sessions, afterCollapse.has('w1'));
+  assert.equal(compact.action, 'expand');
+  assert.deepEqual(compact.visibleSessions.map((session) => session.id), ['0', '1', '2', '3', '4']);
+  assert.equal(sessionListNeedsRevealExpansion(sessions, {
+    sessionId: '6',
+    workspaceHash: 'w1',
+  }, afterCollapse.has('w1')), true);
+});
+
+test('user-collapsed workspaces and disclosure-compact lists block sticky reveal expansion', () => {
+  assert.equal(allowSidebarWorkspaceAutoExpand('w1'), true);
+  assert.equal(allowSidebarWorkspaceAutoExpand('w1', { workspaceCollapseAll: true }), false);
+  assert.equal(allowSidebarWorkspaceAutoExpand('w1', {
+    userCollapsedWorkspaces: new Set(['w1']),
+  }), false);
+  assert.equal(allowSidebarWorkspaceAutoExpand('w1', {
+    userCollapsedWorkspaces: new Set(['w2']),
+  }), true);
+  assert.equal(allowSidebarWorkspaceAutoExpand('w1', { noWorkspace: true }), false);
+  assert.equal(allowSidebarWorkspaceAutoExpand(''), false);
+
+  assert.equal(allowSidebarSessionListRevealExpansion({ listKey: 'w1' }), true);
+  assert.equal(allowSidebarSessionListRevealExpansion({
+    listKey: 'w1',
+    workspaceCollapseAll: true,
+  }), false);
+  assert.equal(allowSidebarSessionListRevealExpansion({
+    listKey: 'w1',
+    noWorkspace: true,
+    workspaceCollapseAll: true,
+  }), true);
+  assert.equal(allowSidebarSessionListRevealExpansion({
+    listKey: 'w1',
+    disclosureCompactKeys: new Set(['w1']),
+  }), false);
+  assert.equal(allowSidebarSessionListRevealExpansion({
+    listKey: 'w1',
+    noWorkspace: true,
+    workspaceCollapseAll: true,
+    disclosureCompactKeys: new Set(['w1']),
+  }), false);
+  assert.equal(allowSidebarSessionListRevealExpansion({ listKey: '' }), false);
+
+  const sessions = Array.from({ length: 7 }, (_, index) => ({
+    id: String(index),
+    workspace_hash: 'w1',
+  }));
+  const hiddenTarget = { sessionId: '6', workspaceHash: 'w1' };
+  const compactKeys = new Set(['w1']);
+  assert.equal(sessionListNeedsRevealExpansion(sessions, hiddenTarget, false), true);
+  assert.equal(allowSidebarSessionListRevealExpansion({
+    listKey: 'w1',
+    disclosureCompactKeys: compactKeys,
+  }), false);
+  assert.deepEqual(
+    sidebarSessionProjection(sessions, false).visibleSessions.map((session) => session.id),
+    ['0', '1', '2', '3', '4'],
+  );
 });
 
 test('sidebarRevealTarget keeps workspace session identity', () => {
@@ -435,6 +519,77 @@ test('reconcileSidebarSessions promotes content changes and new sessions', () =>
   ];
   const result = reconcileSidebarSessions(previous, incoming);
   assert.deepEqual(result.map((s) => s.id), ['new', 'b', 'a', 'c']);
+});
+
+test('remote-control off clears the bound row without rewriting unrelated sessions', () => {
+  const untouched = { id: 'other', workspace_hash: 'w2' };
+  const result = clearRemoteControlSessionBindings([
+    { id: 'bound', workspace_hash: 'w1', remote_control_bound: true },
+    untouched,
+  ]);
+  assert.equal(result[0].remote_control_bound, false);
+  assert.equal(result[0].remoteControlBound, false);
+  assert.equal(result[1], untouched);
+  assert.equal(clearRemoteControlSessionBindings([untouched])[0], untouched);
+});
+
+test('reorderSidebarWorkspaceSession moves rows within one workspace only', () => {
+  const sessions = [
+    { id: 'a', workspace_hash: 'w1' },
+    { id: 'x', workspace_hash: 'w2' },
+    { id: 'b', workspace_hash: 'w1' },
+    { id: 'task', no_workspace: true },
+    { id: 'c', workspace_hash: 'w1' },
+    { id: 'y', workspace_hash: 'w2' },
+  ];
+
+  const movedUp = reorderSidebarWorkspaceSession(sessions, 'w1', 'c', 'a', 'before');
+  assert.deepEqual(movedUp.map((session) => session.id), ['c', 'x', 'a', 'task', 'b', 'y']);
+  assert.equal(movedUp[1], sessions[1]);
+  assert.equal(movedUp[3], sessions[3]);
+  assert.equal(movedUp[5], sessions[5]);
+
+  const movedDown = reorderSidebarWorkspaceSession(sessions, 'w1', 'a', 'c', 'after');
+  assert.deepEqual(movedDown.map((session) => session.id), ['b', 'x', 'c', 'task', 'a', 'y']);
+});
+
+test('reorderSidebarWorkspaceSession rejects invalid and cross-workspace targets', () => {
+  const sessions = [
+    { id: 'a', workspace_hash: 'w1' },
+    { id: 'x', workspace_hash: 'w2' },
+    { id: 'b', workspace_hash: 'w1' },
+    { id: 'task', no_workspace: true },
+  ];
+
+  assert.equal(reorderSidebarWorkspaceSession(sessions, 'w1', 'a', 'x'), sessions);
+  assert.equal(reorderSidebarWorkspaceSession(sessions, 'w1', 'missing', 'b'), sessions);
+  assert.equal(reorderSidebarWorkspaceSession(sessions, '', 'a', 'b'), sessions);
+  assert.equal(reorderSidebarWorkspaceSession(sessions, 'w1', 'a', 'a'), sessions);
+  assert.equal(reorderSidebarWorkspaceSession(sessions, 'w1', 'task', 'a'), sessions);
+});
+
+test('manual workspace reorder composes with automatic sidebar promotion', () => {
+  const sessions = [
+    { id: 'a', workspace_hash: 'w1', updated_at: '2026-05-17T03:00:00Z', message_count: 2, turn_count: 1 },
+    { id: 'b', workspace_hash: 'w1', updated_at: '2026-05-17T02:00:00Z', message_count: 4, turn_count: 2 },
+    { id: 'c', workspace_hash: 'w1', updated_at: '2026-05-17T01:00:00Z', message_count: 6, turn_count: 3 },
+  ];
+  const manuallyReordered = reorderSidebarWorkspaceSession(sessions, 'w1', 'a', 'c', 'after');
+  assert.deepEqual(manuallyReordered.map((session) => session.id), ['b', 'c', 'a']);
+
+  const metadataOnly = reconcileSidebarSessions(manuallyReordered, [
+    { ...sessions[0], updated_at: '2026-05-17T09:00:00Z' },
+    sessions[2],
+    sessions[1],
+  ]);
+  assert.deepEqual(metadataOnly.map((session) => session.id), ['b', 'c', 'a']);
+
+  const contentChanged = reconcileSidebarSessions(metadataOnly, [
+    { ...sessions[0], updated_at: '2026-05-17T10:00:00Z', message_count: 3 },
+    sessions[1],
+    sessions[2],
+  ]);
+  assert.deepEqual(contentChanged.map((session) => session.id), ['a', 'b', 'c']);
 });
 
 test('created session stays first across refreshes without expanding a compact list', () => {

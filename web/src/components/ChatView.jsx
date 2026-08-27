@@ -712,6 +712,7 @@ const FORK_ACTION_KEY = 'fork-session';
 export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, onHomeComposerDraftChange, onHomeComposerDraftAccepted, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, showAceCodeAvatar = false, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
+  const remoteControlBound = Boolean(ref?.remote_control_bound ?? ref?.remoteControlBound);
   const stagedExpertDraft = expertDispatchDraftFromRef(ref);
   const readOnlyExternalSession = !!(
     ref?.readOnly || ref?.read_only
@@ -2850,10 +2851,19 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const executeBuiltinCommand = useCallback((targetSid, command) => (
     api.executeCommand(targetSid, command).then((result) => {
       const refreshDetail = remoteControlSessionRefreshForCommand(command, targetSid);
-      if (refreshDetail) notifySessionListChanged(refreshDetail);
+      if (refreshDetail) {
+        const noWorkspace = sid
+          ? Boolean(ref?.noWorkspace || ref?.no_workspace)
+          : Boolean(selectedHomeWorkspace?.noWorkspace);
+        notifySessionListChanged({
+          ...refreshDetail,
+          workspaceHash: noWorkspace ? '' : commandWorkspaceHash,
+          noWorkspace,
+        });
+      }
       return result;
     })
-  ), [api]);
+  ), [api, commandWorkspaceHash, ref?.noWorkspace, ref?.no_workspace, selectedHomeWorkspace?.noWorkspace, sid]);
 
   const sendInputOrBuiltin = useCallback((targetSid, payload) => {
     const text = payloadText(payload);
@@ -5174,7 +5184,18 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       >
       <div className="h-9 px-3 flex items-center justify-between bg-surface border-b border-border shrink-0 gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[13px] font-semibold text-fg truncate">{title}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            {remoteControlBound && (
+              <VsIcon
+                name="computer"
+                size={14}
+                className="text-accent"
+                alt={tr('remoteControl.connectedSession')}
+                data-remote-control-session-icon="true"
+              />
+            )}
+            <span className="text-[13px] font-semibold text-fg truncate">{title}</span>
+          </span>
           <span
             className={clsx(
               'px-2.5 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap',

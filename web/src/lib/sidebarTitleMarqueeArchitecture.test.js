@@ -48,7 +48,10 @@ test('SessionRow measures only its non-editing title viewport', () => {
   assert.match(row, /loadSidebarFullTitle\(api, s\)/);
   assert.match(row, /onMouseEnter=\{\(\) => \{[\s\S]*ensureCompleteMarqueeTitle\(\)/);
   assert.match(row, /onFocusCapture=\{\(event\) => \{[\s\S]*ensureCompleteMarqueeTitle\(\)/);
-  assert.match(row, /aria-label=\{marqueeTitle \|\| title\}/);
+  assert.match(
+    row,
+    /aria-label=\{remoteControlBound[\s\S]*\? tr\('remoteControl\.connectedSessionAria', \{ title: marqueeTitle \|\| title \}\)[\s\S]*: \(marqueeTitle \|\| title\)\}/,
+  );
   assert.match(
     row,
     /\{editing \? \([\s\S]*?<input[\s\S]*?\) : \([\s\S]*?<SidebarSessionTitle title=\{marqueeTitle\} marqueeReady=\{marqueeReady\} \/>/,
