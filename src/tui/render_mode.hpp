@@ -35,6 +35,17 @@ inline ScreenRenderMode decide_render_mode(const TuiConfig& cfg,
     return ScreenRenderMode::AltScreen;
 }
 
+// 同步刷新(DEC mode 2026)启用策略 —— 纯函数,只看配置和探测结果。
+// 配置同步 tui.sync_output_mode:auto(默认,跟随探测)/ always(强制开)/
+// never(强制关)。terminal_supported 由 detect_synchronized_output_support()
+// 提供;两者分离,便于各自独立单测。
+inline bool decide_synchronized_output(const TuiConfig& cfg,
+                                       bool terminal_supported) {
+    if (cfg.sync_output_mode == "always") return true;
+    if (cfg.sync_output_mode == "never")  return false;
+    return terminal_supported;  // auto
+}
+
 } // namespace acecode::tui
 
 // 工厂在 render_mode.cpp 实现,声明放在外层命名空间避免 picker_scroll

@@ -836,6 +836,9 @@ AppConfig load_config_from_path(
                 if (sj.contains("reuse_opencode") && sj["reuse_opencode"].is_boolean()) {
                     cfg.skills.reuse_opencode = sj["reuse_opencode"].get<bool>();
                 }
+                if (sj.contains("idle_days") && sj["idle_days"].is_number_integer()) {
+                    cfg.skills.idle_days = sj["idle_days"].get<int>();
+                }
             }
             if (j.contains("memory") && j["memory"].is_object()) {
                 const auto& mj = j["memory"];
@@ -1240,6 +1243,16 @@ AppConfig load_config_from_path(
                             LOG_WARN("[config] invalid tui.alt_screen_mode value '" + m +
                                      "', falling back to 'auto'");
                             cfg.tui.alt_screen_mode = "auto";
+                        }
+                    }
+                    if (tj.contains("sync_output_mode") && tj["sync_output_mode"].is_string()) {
+                        std::string m = tj["sync_output_mode"].get<std::string>();
+                        if (m == "auto" || m == "always" || m == "never") {
+                            cfg.tui.sync_output_mode = std::move(m);
+                        } else {
+                            LOG_WARN("[config] invalid tui.sync_output_mode value '" + m +
+                                     "', falling back to 'auto'");
+                            cfg.tui.sync_output_mode = "auto";
                         }
                     }
                     if (tj.contains("page_keys_single_line") &&
@@ -1676,12 +1689,15 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
     SkillsConfig skills_d;
     if (!cfg.skills.disabled.empty() ||
         !cfg.skills.external_dirs.empty() ||
-        cfg.skills.reuse_opencode != skills_d.reuse_opencode) {
+        cfg.skills.reuse_opencode != skills_d.reuse_opencode ||
+        cfg.skills.idle_days != skills_d.idle_days) {
         nlohmann::json sj = nlohmann::json::object();
         if (!cfg.skills.disabled.empty()) sj["disabled"] = cfg.skills.disabled;
         if (!cfg.skills.external_dirs.empty()) sj["external_dirs"] = cfg.skills.external_dirs;
         if (cfg.skills.reuse_opencode != skills_d.reuse_opencode)
             sj["reuse_opencode"] = cfg.skills.reuse_opencode;
+        if (cfg.skills.idle_days != skills_d.idle_days)
+            sj["idle_days"] = cfg.skills.idle_days;
         j["skills"] = sj;
     }
 
@@ -1797,6 +1813,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         nlohmann::json tj = nlohmann::json::object();
         if (cfg.tui.alt_screen_mode != tui_d.alt_screen_mode)
             tj["alt_screen_mode"] = cfg.tui.alt_screen_mode;
+        if (cfg.tui.sync_output_mode != tui_d.sync_output_mode)
+            tj["sync_output_mode"] = cfg.tui.sync_output_mode;
         if (cfg.tui.page_keys_single_line != tui_d.page_keys_single_line)
             tj["page_keys_single_line"] = cfg.tui.page_keys_single_line;
         if (cfg.tui.theme != tui_d.theme)

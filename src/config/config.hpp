@@ -70,6 +70,9 @@ struct SkillsConfig {
     std::vector<std::string> disabled;       // skill names to hide even if present on disk
     std::vector<std::string> external_dirs;  // extra directories to scan (supports ~ and ${ENV})
     bool reuse_opencode = true;              // reuse opencode-compatible skill roots by default
+    // Days without use before a skill is treated as dormant (hidden from the
+    // automatic <available_skills> list). 0 disables dormancy entirely.
+    int idle_days = 30;
     // Runtime-only exact allowlist. nullopt keeps normal discovery behavior;
     // an engaged empty vector hides every skill. This field is intentionally
     // not loaded from or saved to config.json — headless mode uses it on its
@@ -245,6 +248,13 @@ struct AgentLoopConfig {
 // 非法值会在 load_config 中被规范化为 "auto" 并 LOG_WARN。
 struct TuiConfig {
     std::string alt_screen_mode = "auto";
+    // 同步刷新(DEC mode 2026):把每帧输出包在 CSI ?2026h/?2026l 里,终端
+    // 整帧一次上屏,消除闪烁。见 openspec/changes/add-synchronized-output/。
+    //   "auto"   = 默认。仅对已确认支持 2026 的终端启用(环境变量白名单)。
+    //   "always" = 始终启用(包括老 conhost / 未知终端,依赖终端忽略未知序列)。
+    //   "never"  = 始终关闭(输出与未实现该特性时完全一致)。
+    // 非法值会在 load_config 中被规范化为 "auto" 并 LOG_WARN。
+    std::string sync_output_mode = "auto";
     // 把 PgUp / PgDn 当成单行滚动 (等同 Alt+↑/↓). 部分终端 (老 conhost / Cmder /
     // 某些远程 SSH 客户端) 吞掉 Alt+方向键序列, 用户拿不到 Alt+Arrow; 默认打开,
     // 需要整页滚动时可通过 /page-step off 写入 tui.page_keys_single_line=false.

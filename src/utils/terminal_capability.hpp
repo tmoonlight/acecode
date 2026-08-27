@@ -55,4 +55,26 @@ inline bool should_use_conhost_compat_layout(const TerminalCapabilities& caps) {
            (caps.is_classic_conhost || caps.is_legacy_conhost);
 }
 
+// 同步刷新(DEC mode 2026, CSI ?2026h / ?2026l)支持判定 —— 环境变量启发式。
+//
+// 决策表(黑名单优先):
+//   - ConEmu/Cmder(ConEmuPID)                     → false
+//   - legacy / classic conhost                    → false
+//   - TERM 以 "tmux" / "screen" 开头(复用器)      → false
+//   - WT_SESSION / KITTY_WINDOW_ID 存在            → true
+//   - TERM_PROGRAM ∈ {iTerm.app, WezTerm, ghostty, vscode,
+//                     Apple_Terminal, WarpTerminal, contour, mintty} → true
+//   - TERM == xterm-kitty 或以 foot/ghostty 开头    → true
+//   - 其它(未知终端,如 Alacritty / 裸 xterm-256color) → false
+//
+// 未知默认关闭是刻意保守:不支持 2026 的终端(如老 conhost)如果不识别该
+// 序列,行为不可控;支持方通过 tui.sync_output_mode="always" 可强制开启。
+// 与 detect_terminal_capabilities_with 一样,env_lookup 可注入以便单测。
+bool detect_synchronized_output_support_with(
+    const TerminalCapabilities& caps,
+    const std::function<std::optional<std::string>(const char* name)>& env_lookup);
+
+// 真实探测:读当前进程环境变量。
+bool detect_synchronized_output_support();
+
 } // namespace acecode

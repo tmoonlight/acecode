@@ -95,3 +95,34 @@ TEST(RenderModeDecide, AutoNoSignalsUsesAltScreenDefault) {
                                   make_caps(false, false, false)),
               ScreenRenderMode::AltScreen);
 }
+
+// ---------- decide_synchronized_output ----------
+// 同步刷新策略:tui.sync_output_mode 的 auto/always/never 三态,纯函数。
+
+// 场景:always → 无视探测结果,强制开启
+TEST(SynchronizedOutputDecide, AlwaysForcesOn) {
+    TuiConfig t;
+    t.sync_output_mode = "always";
+    EXPECT_TRUE(decide_synchronized_output(t, false));
+    EXPECT_TRUE(decide_synchronized_output(t, true));
+}
+
+// 场景:never → 无视探测结果,强制关闭
+TEST(SynchronizedOutputDecide, NeverForcesOff) {
+    TuiConfig t;
+    t.sync_output_mode = "never";
+    EXPECT_FALSE(decide_synchronized_output(t, false));
+    EXPECT_FALSE(decide_synchronized_output(t, true));
+}
+
+// 场景:auto(默认)+ 终端支持 → 开启
+TEST(SynchronizedOutputDecide, AutoFollowsSupported) {
+    TuiConfig t;  // 默认 "auto"
+    EXPECT_TRUE(decide_synchronized_output(t, true));
+}
+
+// 场景:auto(默认)+ 终端不支持 → 关闭
+TEST(SynchronizedOutputDecide, AutoFollowsUnsupported) {
+    TuiConfig t;  // 默认 "auto"
+    EXPECT_FALSE(decide_synchronized_output(t, false));
+}
