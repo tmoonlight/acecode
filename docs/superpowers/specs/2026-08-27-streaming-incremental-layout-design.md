@@ -110,9 +110,10 @@ on_delta(token)
 | L3 | 可续 lexer 属性测试 `append(d1)+append(d2)==lex(full)`;围栏/列表/标题/表格/引用/超长行边界 | `tests/markdown/` 新增 |
 
 ### 基准脚本(验收依据)
-- 扩展 `demos/09_streaming_markdown.py` → 输出**单帧 lex+构建耗时 vs 累计内容长度**曲线。
+- **C++ 侧基准(实际测量)**:新增一个可重复的 C++ 基准(单测式 harness,可在 `tests/` 下用 `--benchmark` 或独立二进制运行),直接测量 `format_markdown`(全量)与增量路径(`LexerState.append` + StreamingFormatter)的**单帧 lex+构建耗时 vs 累计内容长度**曲线。
 - 三种负载:长散文、长代码块、混合。
-- 目标:改动后耗时不随长度线性上涨,长文档流式不触发自适应背压。
+- `demos/09_streaming_markdown.py` 仅作**概念演示参考**(Python 模拟,不代表实际 C++ 渲染路径);验收以 C++ 基准为准。
+- 目标:增量路径耗时不随长度线性上涨(趋近 O(1)/帧),长文档流式不触发自适应背压;输出 before/after 对比曲线。
 
 ### 手动 TUI 验证(per AGENTS.md)
 100KB+ 长对话/长代码块流式输出:主观流畅、无卡顿、resize/主题切换不崩、滚动正确。
