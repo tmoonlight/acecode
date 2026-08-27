@@ -1607,6 +1607,7 @@ await run('archive API methods use expected endpoints and archived query flag', 
     const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
     await client.listSessions({ archived: true });
     await client.listWorkspaceSessions('w/a', { archived: true });
+    await client.listWorkspaceSessions('w/a', { limit: 5 });
     await client.archiveSession('s/a');
     await client.unarchiveWorkspaceSession('w/a', 's/a');
     await client.purgeArchivedSession('s/a');
@@ -1615,14 +1616,16 @@ await run('archive API methods use expected endpoints and archived query flag', 
     assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/sessions?archived=1');
     assert.equal(calls[0].opts.method, 'GET');
     assert.equal(calls[1].url, 'http://127.0.0.1:4567/api/workspaces/w%2Fa/sessions?archived=1');
-    assert.equal(calls[2].url, 'http://127.0.0.1:4567/api/sessions/s%2Fa/archive');
-    assert.equal(calls[2].opts.method, 'PUT');
-    assert.equal(calls[3].url, 'http://127.0.0.1:4567/api/workspaces/w%2Fa/sessions/s%2Fa/archive');
-    assert.equal(calls[3].opts.method, 'DELETE');
-    assert.equal(calls[4].url, 'http://127.0.0.1:4567/api/sessions/s%2Fa?purge=1');
+    assert.equal(calls[2].url, 'http://127.0.0.1:4567/api/workspaces/w%2Fa/sessions?limit=5');
+    assert.equal(calls[2].opts.method, 'GET');
+    assert.equal(calls[3].url, 'http://127.0.0.1:4567/api/sessions/s%2Fa/archive');
+    assert.equal(calls[3].opts.method, 'PUT');
+    assert.equal(calls[4].url, 'http://127.0.0.1:4567/api/workspaces/w%2Fa/sessions/s%2Fa/archive');
     assert.equal(calls[4].opts.method, 'DELETE');
-    assert.equal(calls[5].url, 'http://127.0.0.1:4567/api/workspaces/w%2Fa/sessions/s%2Fa?purge=1');
+    assert.equal(calls[5].url, 'http://127.0.0.1:4567/api/sessions/s%2Fa?purge=1');
     assert.equal(calls[5].opts.method, 'DELETE');
+    assert.equal(calls[6].url, 'http://127.0.0.1:4567/api/workspaces/w%2Fa/sessions/s%2Fa?purge=1');
+    assert.equal(calls[6].opts.method, 'DELETE');
   } finally {
     globalThis.fetch = previousFetch;
   }

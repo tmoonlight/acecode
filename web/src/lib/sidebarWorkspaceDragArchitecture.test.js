@@ -54,7 +54,7 @@ test('workspace drops update sidebar state while automatic reconciliation stays 
     /setSessions\(\(prev\) => reorderSidebarWorkspaceSession\(\s*prev,\s*drag\.workspaceHash,\s*drag\.sourceId,\s*drag\.targetId,\s*drag\.placement \|\| 'before'/,
   );
   assert.doesNotMatch(finishWorkspaceDrag, /api\.|setPinnedSessions|setPinnedSessionOrder/);
-  assert.match(sidebar, /setSessions\(\(prev\) => reconcileSidebarSessions\(prev, incoming\)\)/);
+  assert.match(sidebar, /setSessions\(\(prev\) => retainUnrefreshedSidebarSessions\(prev, incoming,/);
   assert.match(sidebar, /promoteToTop: detail\.reason === 'session-created'/);
 });
 

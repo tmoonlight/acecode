@@ -2,6 +2,8 @@
 #include "../server_impl.hpp"
 #include "../project_creation.hpp"
 
+#include <cstddef>
+
 namespace acecode::web {
 
 using nlohmann::json;
@@ -474,11 +476,15 @@ void WebServer::Impl::register_workspaces() {
                 return with_cors(req, std::move(r));
             }
             const char* parent_raw = req.url_params.get("parent");
+            const int limit = parse_session_list_limit(req.url_params.get("limit"));
+            std::size_t total = 0;
             auto arr = sessions_for_workspace(
                 *ws, archived_query_requested(req),
                 /*include_no_workspace=*/false,
-                parent_raw ? std::string(parent_raw) : std::string{});
-            crow::response r(arr.dump());
+                parent_raw ? std::string(parent_raw) : std::string{},
+                limit,
+                &total);
+            crow::response r(bounded_session_list_body(std::move(arr), total, limit).dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });

@@ -215,16 +215,17 @@ export function allowSidebarSessionListRevealExpansion({
   return true;
 }
 
-export function sidebarSessionProjection(sessions = [], expanded = false, limit = SIDEBAR_SESSION_COLLAPSE_LIMIT) {
+export function sidebarSessionProjection(sessions = [], expanded = false, limit = SIDEBAR_SESSION_COLLAPSE_LIMIT, total = null) {
   const list = Array.isArray(sessions) ? sessions : [];
   const max = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : SIDEBAR_SESSION_COLLAPSE_LIMIT;
-  const collapsible = list.length > max;
+  const knownTotal = Number.isFinite(total) && total > list.length ? Math.floor(total) : list.length;
+  const collapsible = knownTotal > max;
   const visibleSessions = collapsible && !expanded ? list.slice(0, max) : list;
   return {
     visibleSessions,
     collapsible,
     action: collapsible ? (expanded ? 'collapse' : 'expand') : '',
-    hiddenCount: collapsible && !expanded ? list.length - max : 0,
+    hiddenCount: collapsible && !expanded ? Math.max(0, knownTotal - visibleSessions.length) : 0,
   };
 }
 

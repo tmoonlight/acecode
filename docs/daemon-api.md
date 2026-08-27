@@ -236,7 +236,7 @@ when known.
 | GET | `/api/projects/defaults` | new-project default parent directory |
 | POST | `/api/projects` | create and register a new project directory |
 | POST | `/api/open-in-explorer` | open a folder or reveal a file in the OS file manager |
-| GET | `/api/workspaces/:hash/sessions` | list sessions in workspace |
+| GET | `/api/workspaces/:hash/sessions` | list sessions in workspace; `limit=N` returns `{sessions,total}` |
 | POST | `/api/workspaces/:hash/sessions` | create workspace session |
 | POST | `/api/workspaces/:hash/sessions/:id/resume` | resume workspace session |
 | DELETE | `/api/workspaces/:hash/sessions/:id?purge=1` | permanently delete archived workspace session |
@@ -557,6 +557,23 @@ Returns `SessionSummary[]` for a workspace. Without `archived=1`, active and
 unarchived disk sessions are returned. With `archived=1`, only archived disk
 sessions are returned.
 
+Listing reads session metadata only; it does not open JSONL transcripts to
+backfill legacy summary or count fields.
+
+`limit=N` (positive integer, capped at 10000) returns a compact page instead of
+the raw array:
+
+```json
+{
+  "sessions": [ { "id": "..." } ],
+  "total": 42
+}
+```
+
+`sessions` is the first N items in the same order as the unlimited list.
+`total` is the untruncated count after archive and parent filters. Omitting
+`limit`, or passing `0`, keeps the original array body.
+
 ### `POST /api/workspaces/:hash/sessions`
 
 Creates a session in the workspace. Body fields are optional:
@@ -748,7 +765,9 @@ The following routes operate on the daemon compatibility workspace:
 - `PUT /api/sessions/:id/draft`
 - `DELETE /api/sessions/:id/todos`
 
-`GET /api/sessions` returns `SessionSummary[]`, not a wrapper object.
+`GET /api/sessions` returns `SessionSummary[]`, not a wrapper object. Both this
+route and the workspace-scoped list read session metadata only; they do not
+open JSONL transcripts to backfill legacy summary or count fields.
 
 Sub-agent sessions (created by the `spawn_subagent` tool; their meta carries a
 persisted `parent_session_id`) are excluded from session lists by default so

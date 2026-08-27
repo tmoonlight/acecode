@@ -77,7 +77,7 @@ test('reopening a collapsed workspace always restores the compact five-row sessi
   const toggleEnd = sidebar.indexOf('\n  const onActivate', toggleStart);
   const activateStart = sidebar.indexOf('const onActivate = useCallback(async (ws) => {');
   const activateEnd = sidebar.indexOf('\n  useEffect(() => {\n    const requestId = Number(workspaceActivationRequest', activateStart);
-  const collapseStart = sidebar.indexOf('if (collapsing) sessionListDisclosureCompactRef.current.add(hash);');
+  const collapseStart = sidebar.indexOf('if (collapsing) {\n      sessionListDisclosureCompactRef.current.add(hash);');
   assert.ok(toggleStart >= 0 && toggleEnd > toggleStart);
   assert.ok(activateStart >= 0 && activateEnd > activateStart);
   assert.ok(collapseStart >= 0);
@@ -89,6 +89,8 @@ test('reopening a collapsed workspace always restores the compact five-row sessi
     toggleSource,
     /sessionListDisclosureCompactRef\.current\.add\(hash\);\s*setExpanded\(next\);\s*setExpandedSessionLists\(\(previous\) => \(\s*expandedSessionListsAfterWorkspaceDisclosure\(previous, hash\)\s*\)\);/,
   );
+  assert.doesNotMatch(toggleSource, /refresh\(hash\)/);
+  assert.match(toggleSource, /loadWorkspaceSessions\(hash, \{ silent: cached \}\)/);
   assert.match(
     activateSource,
     /const wasCollapsed = !!workspaceHash && !expandedRef\.current\.has\(workspaceHash\);/,
@@ -99,8 +101,9 @@ test('reopening a collapsed workspace always restores the compact five-row sessi
   );
   assert.match(
     sidebar,
-    /if \(collapsing\) sessionListDisclosureCompactRef\.current\.add\(hash\);\s*else sessionListDisclosureCompactRef\.current\.delete\(hash\);/,
+    /if \(collapsing\) \{\s*sessionListDisclosureCompactRef\.current\.add\(hash\);/,
   );
+  assert.match(sidebar, /loadWorkspaceSessions\(hash, \{\s*full: true,/);
 });
 
 test('created sessions are explicitly promoted before active-row reveal', () => {

@@ -69,7 +69,6 @@ import {
   expandedSessionListsAfterWorkspaceCollapseAll,
   expandedSessionListsAfterWorkspaceDisclosure,
   nextRemoteControlSurgeRequest,
-  reconcileSidebarSessions,
   reorderSidebarWorkspaceSession,
   remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
@@ -83,6 +82,12 @@ import {
   sidebarWorkspaceListKeys,
   upsertSidebarSession,
 } from '../lib/sidebarSessions.js';
+import {
+  normalizeWorkspaceSessionListResponse,
+  retainUnrefreshedSidebarSessions,
+  sidebarWorkspaceSessionListQuery,
+  workspaceHasCachedSidebarSessions,
+} from '../lib/sidebarWorkspaceSessions.js';
 import {
   loadSidebarFullTitle,
   sidebarFullTitleRequestKey,
@@ -1480,6 +1485,7 @@ function WorkspaceGroup({
   onToggle,
   sessions,
   sessionListExpanded,
+  sessionListTotal = null,
   onToggleSessionList,
   activeId,
   activeTarget,
@@ -1505,7 +1511,12 @@ function WorkspaceGroup({
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(ws.name);
   const hasUnread = workspaceHasUnread(sessions);
-  const projectedSessions = sidebarSessionProjection(sessions, sessionListExpanded);
+  const projectedSessions = sidebarSessionProjection(
+    sessions,
+    sessionListExpanded,
+    undefined,
+    sessionListTotal,
+  );
 
   useEffect(() => {
     if (!editing) setDraft(ws.name);
@@ -1787,6 +1798,8 @@ export function Sidebar({
   const [pinnedOrderItems, setPinnedOrderItems] = useState([]);
   const [sessionLoadingWorkspaces, setSessionLoadingWorkspaces] = useState(() => new Set());
   const [sessionLoadedWorkspaces, setSessionLoadedWorkspaces] = useState(() => new Set());
+  const [sessionFullyLoadedWorkspaces, setSessionFullyLoadedWorkspaces] = useState(() => new Set());
+  const [sessionListTotals, setSessionListTotals] = useState(() => new Map());
   const [expanded,    setExpanded]    = useState(new Set());
   const [expandedSessionLists, setExpandedSessionLists] = useState(new Set());
   const [sectionExpansion, setSectionExpansion] = usePreference(
@@ -1798,6 +1811,11 @@ export function Sidebar({
   const refreshingRef = useRef(false);
   const pendingRefreshHashRef = useRef('');
   const expandedRef = useRef(new Set());
+  const sessionLoadedWorkspacesRef = useRef(new Set());
+  const sessionFullyLoadedWorkspacesRef = useRef(new Set());
+  const workspaceSessionLoadSeqRef = useRef(new Map());
+  sessionLoadedWorkspacesRef.current = sessionLoadedWorkspaces;
+  sessionFullyLoadedWorkspacesRef.current = sessionFullyLoadedWorkspaces;
   const workspaceCollapseAllRef = useRef(false);
   const userCollapsedWorkspacesRef = useRef(new Set());
   const sessionListDisclosureCompactRef = useRef(new Set());
@@ -2226,18 +2244,6 @@ export function Sidebar({
     }
   }, [activeWorkspaceHash, setPinnedOrder, setPinnedWorkspaceIds]);
 
-  const toggleSessionListExpanded = useCallback((hash) => {
-    if (!hash) return;
-    const collapsing = expandedSessionLists.has(hash);
-    if (collapsing) sessionListDisclosureCompactRef.current.add(hash);
-    else sessionListDisclosureCompactRef.current.delete(hash);
-    setExpandedSessionLists((prev) => {
-      const next = new Set(prev);
-      next.has(hash) ? next.delete(hash) : next.add(hash);
-      return next;
-    });
-  }, [expandedSessionLists]);
-
   const setSessionWorkspaceLoading = useCallback((hashes, loading) => {
     const normalized = Array.from(new Set(Array.from(hashes || []).filter(Boolean)));
     if (normalized.length === 0) return;
@@ -2260,9 +2266,110 @@ export function Sidebar({
         if (loaded) next.add(hash);
         else next.delete(hash);
       }
+      sessionLoadedWorkspacesRef.current = next;
       return next;
     });
   }, []);
+
+  const markWorkspaceSessionsFullyLoaded = useCallback((hash, fullyLoaded) => {
+    const workspaceHash = String(hash || '').trim();
+    if (!workspaceHash) return;
+    setSessionFullyLoadedWorkspaces((prev) => {
+      const next = new Set(prev);
+      if (fullyLoaded) next.add(workspaceHash);
+      else next.delete(workspaceHash);
+      sessionFullyLoadedWorkspacesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const applyWorkspaceSessionList = useCallback((workspace, list, total) => {
+    const hash = workspace?.hash || '';
+    if (!hash) return;
+    const incoming = (Array.isArray(list) ? list : [])
+      .filter((session) => !isNoWorkspaceSession(session))
+      .map((session) => normalizeWorkspaceSession(session, workspace));
+    const knownTotal = Number.isFinite(total) && total >= incoming.length
+      ? Math.floor(total)
+      : incoming.length;
+    setSessionListTotals((prev) => {
+      const next = new Map(prev);
+      next.set(hash, knownTotal);
+      return next;
+    });
+    setSessions((prev) => retainUnrefreshedSidebarSessions(prev, incoming, {
+      refreshedWorkspaceHashes: [hash],
+      pinnedByWorkspace: pinnedByWorkspaceRef.current,
+      refreshNoWorkspace: false,
+    }));
+    setStatusBySession((prev) => incoming.reduce((map, session) => applyStatusUpdate(map, {
+      ...session,
+      session_id: session.id,
+      state: session.attention_state || session.read_state,
+      cursor: session.status_cursor,
+    }), prev));
+    setSessionWorkspacesLoaded([hash], true);
+    markWorkspaceSessionsFullyLoaded(hash, incoming.length >= knownTotal);
+  }, [markWorkspaceSessionsFullyLoaded, setSessionWorkspacesLoaded]);
+
+  const loadWorkspaceSessions = useCallback(async (hash, { full = false, silent = false } = {}) => {
+    const workspaceHash = String(hash || '').trim();
+    if (!workspaceHash) return;
+    const workspace = workspaces.find((item) => item.hash === workspaceHash)
+      || { hash: workspaceHash };
+    const wantFull = full || sessionFullyLoadedWorkspacesRef.current.has(workspaceHash);
+    const cached = silent || sessionLoadedWorkspacesRef.current.has(workspaceHash);
+    if (!cached) setSessionWorkspaceLoading([workspaceHash], true);
+
+    const sequence = (workspaceSessionLoadSeqRef.current.get(workspaceHash) || 0) + 1;
+    workspaceSessionLoadSeqRef.current.set(workspaceHash, sequence);
+    try {
+      let payload;
+      if (workspaceHash === '__local__') {
+        const list = await api.listSessions();
+        payload = normalizeWorkspaceSessionListResponse(
+          (Array.isArray(list) ? list : []).filter((session) => !isNoWorkspaceSession(session)),
+        );
+      } else {
+        payload = normalizeWorkspaceSessionListResponse(
+          await api.listWorkspaceSessions(workspaceHash, sidebarWorkspaceSessionListQuery({ full: wantFull })),
+        );
+      }
+      if (workspaceSessionLoadSeqRef.current.get(workspaceHash) !== sequence) return;
+      applyWorkspaceSessionList(workspace, payload.sessions, payload.total);
+    } catch {
+      /* 鉴权失败不致命 */
+    } finally {
+      if (workspaceSessionLoadSeqRef.current.get(workspaceHash) === sequence) {
+        setSessionWorkspaceLoading([workspaceHash], false);
+      }
+    }
+  }, [applyWorkspaceSessionList, setSessionWorkspaceLoading, workspaces]);
+
+  const toggleSessionListExpanded = useCallback((hash) => {
+    if (!hash) return;
+    const collapsing = expandedSessionLists.has(hash);
+    if (collapsing) {
+      sessionListDisclosureCompactRef.current.add(hash);
+      setExpandedSessionLists((prev) => {
+        const next = new Set(prev);
+        next.delete(hash);
+        return next;
+      });
+      return;
+    }
+    sessionListDisclosureCompactRef.current.delete(hash);
+    if (hash === NO_WORKSPACE_SESSION_LIST_KEY || sessionFullyLoadedWorkspaces.has(hash)) {
+      setExpandedSessionLists((prev) => new Set(prev).add(hash));
+      return;
+    }
+    loadWorkspaceSessions(hash, {
+      full: true,
+      silent: sessionLoadedWorkspaces.has(hash),
+    }).then(() => {
+      setExpandedSessionLists((prev) => new Set(prev).add(hash));
+    }).catch(() => {});
+  }, [expandedSessionLists, loadWorkspaceSessions, sessionFullyLoadedWorkspaces, sessionLoadedWorkspaces]);
 
   useEffect(() => {
     const handler = (event) => {
@@ -2383,7 +2490,6 @@ export function Sidebar({
       const hiddenWorkspaceHashes = withActive
         .map((w) => w.hash)
         .filter((hash) => hash && !visibleWorkspaceHashSet.has(hash));
-      setSessionWorkspacesLoaded(hiddenWorkspaceHashes, false);
       setSessionWorkspaceLoading(hiddenWorkspaceHashes, false);
       setSessionWorkspaceLoading(visibleWorkspaceHashes, true);
       try {
@@ -2391,24 +2497,48 @@ export function Sidebar({
         const perWorkspace = await Promise.all(visibleWorkspaces.map(async (w) => {
           if (w.hash === '__local__') {
             const list = await api.listSessions();
-            return (Array.isArray(list) ? list : [])
-              .filter((s) => !isNoWorkspaceSession(s))
-              .map((s) => normalizeWorkspaceSession(s, w));
+            const payload = normalizeWorkspaceSessionListResponse(
+              (Array.isArray(list) ? list : []).filter((session) => !isNoWorkspaceSession(session)),
+            );
+            return { workspace: w, ...payload };
           }
-          const list = await api.listWorkspaceSessions(w.hash);
-          return (Array.isArray(list) ? list : [])
-            .filter((s) => !isNoWorkspaceSession(s))
-            .map((s) => normalizeWorkspaceSession(s, w));
+          const wantFull = sessionFullyLoadedWorkspacesRef.current.has(w.hash);
+          const payload = normalizeWorkspaceSessionListResponse(
+            await api.listWorkspaceSessions(w.hash, sidebarWorkspaceSessionListQuery({ full: wantFull })),
+          );
+          return { workspace: w, ...payload };
         }));
         const noWorkspaceRaw = await noWorkspaceListPromise;
         const noWorkspaceIncoming = (Array.isArray(noWorkspaceRaw) ? noWorkspaceRaw : [])
           .filter(isNoWorkspaceSession)
           .map(normalizeNoWorkspaceSession);
+        const incomingWorkspaceSessions = perWorkspace.flatMap((item) => (
+          (Array.isArray(item.sessions) ? item.sessions : [])
+            .filter((session) => !isNoWorkspaceSession(session))
+            .map((session) => normalizeWorkspaceSession(session, item.workspace))
+        ));
+        setSessionListTotals((prev) => {
+          const next = new Map(prev);
+          for (const item of perWorkspace) {
+            if (item.workspace?.hash) next.set(item.workspace.hash, item.total);
+          }
+          return next;
+        });
+        for (const item of perWorkspace) {
+          markWorkspaceSessionsFullyLoaded(
+            item.workspace?.hash,
+            (item.sessions || []).length >= item.total,
+          );
+        }
         const incoming = [
-          ...perWorkspace.flat().filter((s) => !isNoWorkspaceSession(s)),
+          ...incomingWorkspaceSessions,
           ...noWorkspaceIncoming,
         ];
-        setSessions((prev) => reconcileSidebarSessions(prev, incoming));
+        setSessions((prev) => retainUnrefreshedSidebarSessions(prev, incoming, {
+          refreshedWorkspaceHashes: visibleWorkspaceHashes,
+          pinnedByWorkspace: pinnedByWorkspaceRef.current,
+          refreshNoWorkspace: true,
+        }));
         setStatusBySession((prev) => incoming.reduce((map, s) => applyStatusUpdate(map, {
           ...s,
           session_id: s.id,
@@ -2428,7 +2558,7 @@ export function Sidebar({
       pendingRefreshHashRef.current = '';
       if (pendingHash) setTimeout(() => refresh(pendingHash).catch(() => {}), 0);
     }
-  }, [activeWorkspaceHash, refreshOpencodeImportPreview, revealTarget, setPinnedMap, setPinnedOrder, setSessionWorkspaceLoading, setSessionWorkspacesLoaded, syncRetainedSessionIds, updateExpanded]);
+  }, [activeWorkspaceHash, markWorkspaceSessionsFullyLoaded, refreshOpencodeImportPreview, revealTarget, setPinnedMap, setPinnedOrder, setSessionWorkspaceLoading, setSessionWorkspacesLoaded, syncRetainedSessionIds, updateExpanded]);
 
   const archiveSession = useCallback(async (session) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
@@ -2801,8 +2931,9 @@ export function Sidebar({
       expandedSessionListsAfterWorkspaceDisclosure(previous, hash)
     ));
     if (willExpand) {
-      setSessionWorkspaceLoading([hash], true);
-      refresh(hash).catch(() => {});
+      const cached = sessionLoadedWorkspaces.has(hash)
+        || workspaceHasCachedSidebarSessions(sessions, hash);
+      loadWorkspaceSessions(hash, { silent: cached }).catch(() => {});
     }
   };
 
@@ -3371,6 +3502,7 @@ export function Sidebar({
                       onToggle={onToggle}
                       sessions={items}
                       sessionListExpanded={expandedSessionLists.has(ws.hash)}
+                      sessionListTotal={sessionListTotals.get(ws.hash)}
                       onToggleSessionList={toggleSessionListExpanded}
                       activeId={activeId}
                       activeTarget={selectedRevealTarget}

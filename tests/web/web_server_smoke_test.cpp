@@ -3101,6 +3101,44 @@ TEST(WebServerHttp, SessionListExposesOnlyExistingCanonicalJsonlPath) {
     EXPECT_EQ(inactive_item->value("session_path", std::string{}), expected_path);
 }
 
+TEST(WebServerHttp, WorkspaceSessionListLimitReturnsEnvelope) {
+    WebServerFixture fx;
+    const std::string workspace_hash = acecode::compute_cwd_hash(fx.cwd);
+
+    auto create = [&]() {
+        auto response = cpr::Post(
+            cpr::Url{fx.url("/api/workspaces/" + workspace_hash + "/sessions")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{R"({})"});
+        EXPECT_EQ(response.status_code, 201) << response.text;
+        return json::parse(response.text).value("session_id", std::string{});
+    };
+    const std::string first = create();
+    const std::string second = create();
+    ASSERT_FALSE(first.empty());
+    ASSERT_FALSE(second.empty());
+
+    auto unlimited = cpr::Get(cpr::Url{
+        fx.url("/api/workspaces/" + workspace_hash + "/sessions")});
+    ASSERT_EQ(unlimited.status_code, 200) << unlimited.text;
+    auto unlimited_body = json::parse(unlimited.text);
+    ASSERT_TRUE(unlimited_body.is_array());
+    ASSERT_GE(unlimited_body.size(), 2u);
+
+    auto limited = cpr::Get(cpr::Url{
+        fx.url("/api/workspaces/" + workspace_hash + "/sessions?limit=1")});
+    ASSERT_EQ(limited.status_code, 200) << limited.text;
+    auto limited_body = json::parse(limited.text);
+    ASSERT_TRUE(limited_body.is_object());
+    ASSERT_TRUE(limited_body.contains("sessions"));
+    ASSERT_TRUE(limited_body.at("sessions").is_array());
+    EXPECT_EQ(limited_body.at("sessions").size(), 1u);
+    EXPECT_GE(limited_body.value("total", 0), 2);
+
+    fx.client->destroy_session(first);
+    fx.client->destroy_session(second);
+}
+
 // 场景:daemon 运行期间 TUI/其它进程改写 config.json 的默认模型和默认
 // 权限模式,后续 create-session 必须在解析前观察磁盘新值。
 TEST(WebServerHttp, CreateSessionRefreshesExternalDefaultPreferences) {

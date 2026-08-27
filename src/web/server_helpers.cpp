@@ -1022,12 +1022,14 @@ void WebServer::Impl::append_session_runtime_snapshot(json& wrapper,
 json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMeta& ws,
                                                bool archived_only,
                                                bool include_no_workspace,
-                                               const std::string& parent_filter) const {
+                                               const std::string& parent_filter,
+                                               int limit,
+                                               std::size_t* total_out) const {
     std::vector<SessionInfo> active;
     if (deps.session_client) active = deps.session_client->list_sessions();
 
     auto project_dir = SessionStorage::get_project_dir(ws.cwd);
-    auto disk = SessionStorage::list_sessions(project_dir);
+    auto disk = SessionStorage::list_session_metadata(project_dir);
     if (include_no_workspace) {
         auto no_workspace_disk = no_workspace_disk_sessions();
         disk.insert(disk.end(), no_workspace_disk.begin(), no_workspace_disk.end());
@@ -1051,6 +1053,10 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
 
     std::unordered_set<std::string> seen;
     json arr = json::array();
+    std::size_t total = 0;
+    const auto want_more = [&]() {
+        return limit <= 0 || arr.size() < static_cast<json::size_type>(limit);
+    };
     for (const auto& s : active) {
         if (parent_mismatch(s.parent_session_id)) continue;
         if (parent_filter.empty()) {
@@ -1067,14 +1073,18 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
         const SessionMeta* m = meta_it == disk_by_id.end() ? nullptr : &meta_it->second;
         const bool archived = m ? m->archived : false;
         if (archived != archived_only) continue;
-        arr.push_back(session_info_to_json(s, m));
+        ++total;
+        if (want_more()) arr.push_back(session_info_to_json(s, m));
     }
     for (const auto& m : disk) {
         if (seen.count(m.id)) continue;
         if (parent_mismatch(m.parent_session_id)) continue;
         if (m.archived != archived_only) continue;
         if (m.no_workspace && !include_no_workspace) continue;
-        arr.push_back(session_meta_to_json(m, m.no_workspace ? std::string{} : ws.hash));
+        ++total;
+        if (want_more()) {
+            arr.push_back(session_meta_to_json(m, m.no_workspace ? std::string{} : ws.hash));
+        }
     }
 
     // Desktop 的 /rc 会话背景以 daemon 持久化绑定为权威。只在锁内快照
@@ -1090,13 +1100,14 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
             !remote_control_session_id.empty() &&
             item.value("id", std::string{}) == remote_control_session_id;
     }
+    if (total_out) *total_out = total;
     return arr;
 }
 
 std::vector<SessionMeta> WebServer::Impl::no_workspace_disk_sessions() const {
     std::vector<SessionMeta> out;
     for (const auto& cwd : list_no_workspace_session_cwds(no_workspace_cache_root())) {
-        for (const auto& meta : SessionStorage::list_sessions(SessionStorage::get_project_dir(cwd))) {
+        for (const auto& meta : SessionStorage::list_session_metadata(SessionStorage::get_project_dir(cwd))) {
             if (meta.no_workspace) out.push_back(meta);
         }
     }

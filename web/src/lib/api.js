@@ -80,6 +80,8 @@ function sessionsPath(path, opts = {}) {
   if (opts && opts.archived) qs.set('archived', '1');
   // 后台任务反查:只返回该父会话派生的 spawn_subagent 子会话。
   if (opts && opts.parent) qs.set('parent', String(opts.parent));
+  const limit = Number(opts?.limit);
+  if (Number.isFinite(limit) && limit > 0) qs.set('limit', String(Math.floor(limit)));
   const text = qs.toString();
   return text ? `${path}?${text}` : path;
 }
@@ -339,7 +341,13 @@ export function createApi(base = null) {
     listSessions:     (opts={})      => request('GET',    sessionsPath('/api/sessions', opts), undefined, base),
     createSession:    (opts={})      => request('POST',   '/api/sessions', opts, base),
     resumeSession:    (id)           => request('POST',   `/api/sessions/${encodeURIComponent(id)}/resume`, {}, base),
-    listWorkspaceSessions:  (hash, opts={}) => request('GET',  sessionsPath(`/api/workspaces/${encodeURIComponent(hash)}/sessions`, opts), undefined, base),
+    listWorkspaceSessions:  (hash, opts={}) => request('GET',  sessionsPath(`/api/workspaces/${encodeURIComponent(hash)}/sessions`, opts), undefined, base)
+      .then((data) => {
+        if (Number(opts?.limit) > 0) return data;
+        if (Array.isArray(data)) return data;
+        if (data && Array.isArray(data.sessions)) return data.sessions;
+        return [];
+      }),
     createWorkspaceSession: (hash, opts={}) => request('POST', `/api/workspaces/${encodeURIComponent(hash)}/sessions`, opts, base),
     resumeWorkspaceSession: (hash, id)    => request('POST', `/api/workspaces/${encodeURIComponent(hash)}/sessions/${encodeURIComponent(id)}/resume`, {}, base),
     getOpencodeImportPreview: (hash) =>

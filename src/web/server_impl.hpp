@@ -56,6 +56,7 @@
 #include "handlers/commands_handler.hpp"
 #include "handlers/opencode_command_expander.hpp"
 #include "handlers/skill_command_expander.hpp"
+#include "handlers/session_list_handler.hpp"
 #include "handlers/skills_handler.hpp"
 #include "../skills/skill_init.hpp"
 #include "message_payload.hpp"
@@ -64,6 +65,7 @@
 
 // Crow 头一定在 ASIO_STANDALONE PUBLIC 定义之后才 include。CMakeLists.txt 已
 // 给 acecode_testable 加 PUBLIC 的 ASIO_STANDALONE,所以这里直接 include 即可。
+#include <cstddef>
 #include <crow.h>
 
 #include "../utils/utf8_path.hpp"
@@ -364,7 +366,9 @@ struct WebServer::Impl {
     nlohmann::json sessions_for_workspace(const acecode::desktop::WorkspaceMeta& ws,
                                           bool archived_only = false,
                                           bool include_no_workspace = false,
-                                          const std::string& parent_filter = {}) const;
+                                          const std::string& parent_filter = {},
+                                          int limit = 0,
+                                          std::size_t* total_out = nullptr) const;
     bool session_entry_matches_workspace(const SessionEntry& entry,
                                           const acecode::desktop::WorkspaceMeta& ws) const;
     std::optional<SessionMeta> find_session_meta_for_workspace(
