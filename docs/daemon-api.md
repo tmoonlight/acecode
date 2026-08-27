@@ -236,7 +236,7 @@ when known.
 | GET | `/api/projects/defaults` | new-project default parent directory |
 | POST | `/api/projects` | create and register a new project directory |
 | POST | `/api/open-in-explorer` | open a folder or reveal a file in the OS file manager |
-| GET | `/api/workspaces/:hash/sessions` | list sessions in workspace; `limit=N` returns `{sessions,total}` |
+| GET | `/api/workspaces/:hash/sessions` | list sessions in workspace; `limit=N` returns `{sessions,total,total_exact,has_more}` |
 | POST | `/api/workspaces/:hash/sessions` | create workspace session |
 | POST | `/api/workspaces/:hash/sessions/:id/resume` | resume workspace session |
 | DELETE | `/api/workspaces/:hash/sessions/:id?purge=1` | permanently delete archived workspace session |
@@ -566,13 +566,32 @@ the raw array:
 ```json
 {
   "sessions": [ { "id": "..." } ],
-  "total": 42
+  "total": 42,
+  "total_exact": true,
+  "has_more": false
 }
 ```
 
-`sessions` is the first N items in the same order as the unlimited list.
-`total` is the untruncated count after archive and parent filters. Omitting
-`limit`, or passing `0`, keeps the original array body.
+`sessions` is the newest N rows, ordered by `updated_at` descending — the same
+order the unlimited list uses. Omitting `limit`, or passing `0`, keeps the
+original array body and never adds the paging fields.
+
+A bounded page stops reading the project directory as soon as it has enough
+rows, so it does not learn the exact post-filter count:
+
+- `total_exact: true` — the whole directory was read; `total` is the exact
+  count after archive and parent filters.
+- `total_exact: false` — reading stopped early; `total` is an upper bound
+  derived from the number of candidate metadata files (it still counts
+  archived rows, sub-agent sessions, and rows already reported as active).
+- `has_more` is authoritative in either case. **Clients deciding whether a
+  workspace still has unloaded rows must read `has_more`**, not compare
+  `sessions.length` against `total` — that comparison is wrong whenever
+  `total_exact` is false.
+
+This bound is why the sidebar's collapsed 5-row list is cheap: a workspace with
+1400 sessions opens ~13 metadata files instead of all 1400, which on Windows is
+the difference between roughly 7 s and a few ms per request.
 
 ### `POST /api/workspaces/:hash/sessions`
 

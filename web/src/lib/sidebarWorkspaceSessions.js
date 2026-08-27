@@ -33,16 +33,23 @@ function pinnedIdsForWorkspace(pinnedByWorkspace, workspaceHash) {
   return new Set();
 }
 
+// 分页响应在读满一页后就停止扫描项目目录,所以 total 只有 total_exact 为
+// true 时才是精确值,否则是个上界(偏大方向)。判断「这个 workspace 还有没
+// 加载完的会话」一律以 has_more 为准,不要拿 sessions.length 和 total 比。
 export function normalizeWorkspaceSessionListResponse(data) {
   if (Array.isArray(data)) {
-    return { sessions: data, total: data.length };
+    return { sessions: data, total: data.length, totalExact: true, hasMore: false };
   }
   const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
   const rawTotal = Number(data?.total);
   const total = Number.isFinite(rawTotal) && rawTotal >= sessions.length
     ? Math.floor(rawTotal)
     : sessions.length;
-  return { sessions, total };
+  const totalExact = data?.total_exact !== false;
+  const hasMore = typeof data?.has_more === 'boolean'
+    ? data.has_more
+    : sessions.length < total;
+  return { sessions, total, totalExact, hasMore };
 }
 
 export function sidebarWorkspaceSessionListQuery({ full = false } = {}) {

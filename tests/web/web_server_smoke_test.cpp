@@ -3135,6 +3135,28 @@ TEST(WebServerHttp, WorkspaceSessionListLimitReturnsEnvelope) {
     EXPECT_EQ(limited_body.at("sessions").size(), 1u);
     EXPECT_GE(limited_body.value("total", 0), 2);
 
+    // 截断必须发生在排序之后。旧实现把内存活跃会话和磁盘会话各自成段地
+    // push,截断落在这个拼接顺序上 —— 取出来的第一条并不保证是最新那条。
+    // 这里不写死是哪个会话(同秒创建时 id 的随机后缀决定先后),只要求
+    // 「limit=1 拿到的」与「全量列表的第一条」是同一个。
+    ASSERT_FALSE(unlimited_body.empty());
+    EXPECT_EQ(limited_body.at("sessions")[0].value("id", std::string{}),
+              unlimited_body[0].value("id", std::string{}));
+
+    // 还有没返回的行时 has_more 必须为真:前端据此决定展开时是否补发
+    // 一次全量请求。
+    EXPECT_TRUE(limited_body.value("has_more", false));
+
+    // limit 大于实际条数:目录被完整读过一遍,total 是精确值,也没有更多。
+    auto roomy = cpr::Get(cpr::Url{
+        fx.url("/api/workspaces/" + workspace_hash + "/sessions?limit=50")});
+    ASSERT_EQ(roomy.status_code, 200) << roomy.text;
+    auto roomy_body = json::parse(roomy.text);
+    ASSERT_TRUE(roomy_body.is_object());
+    EXPECT_FALSE(roomy_body.value("has_more", true));
+    EXPECT_TRUE(roomy_body.value("total_exact", false));
+    EXPECT_EQ(roomy_body.at("sessions").size(), unlimited_body.size());
+
     fx.client->destroy_session(first);
     fx.client->destroy_session(second);
 }

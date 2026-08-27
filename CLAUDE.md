@@ -74,6 +74,19 @@ Canonical shared transcripts are protected by a lightweight writer lease under t
 
 Rewind support uses per-user-turn checkpoints. `SessionManager::track_file_write_before` is the hook file-mutating tools call so `/rewind` can restore file state.
 
+**会话列表的成本在文件个数,不在数据量。** 一个项目目录里每个会话一个 `.meta.json`,总字节可能只有几百 KB,但 `list_session_metadata()` 会把它们逐个 open/parse —— Windows 上每次 open/close 都过一遍杀软,实测 1428 个文件冷缓存要 **7.3 秒**(热缓存 55ms),而这些文件加起来才 421KB。所以侧边栏折叠列表这种「只要最新 5 行」的场景必须走 `SessionStorage::list_session_metadata_page(project_dir, limit, accept)`:它先只枚举文件名 + mtime(Windows 的 FindNextFile 顺带返回,不产生额外 syscall),按 mtime 降序后只打开 `limit + max(8, limit)` 个文件,最后按 `updated_at` 重排截断(多读的那段 margin 就是给 mtime 与 updated_at 的细微偏差留的容错)。同一目录 604 会话实测:冷缓存 3087ms → **71ms**,热缓存 25ms → 1.2ms。
+
+配套的三条,改这块前都要一起看:
+
+- **`accept` 拒掉的条目不占 limit 名额**,否则一串归档会话就能把整页挤空,侧边栏会显示成「这个 workspace 没有会话」。
+- **`sessions_for_workspace` 里活跃会话逐个点读自己那一个 meta**(`read_meta(meta_path(dir, id))`),不要为了给它们配 meta 而把整个目录读一遍 —— 那正是这条路径原来 100% 的耗时来源。行先攒成 (updated_at, id, body) 再统一排序截断:旧实现按「active 一段 + disk 一段」的拼接顺序截断,取出来的前 N 条并不是最新的 N 条。
+- **截断后 `total` 只是上界**(目录里的候选文件数),精确总数拿不到。REST 因此多回 `total_exact` 与 `has_more`,前端判断「是否已全量加载」只能看 `has_more`;拿 `sessions.length >= total` 比会在上界下判错,展开时该补的全量请求就被跳过了。
+- 文件名判定(`is_canonical_meta_filename`)是手写字符扫描而不是 `std::regex` —— 上千条目的目录里每项跑两次正则的开销已经能量到。改它要同时守住:PID 后缀的旧实验数据必须排除,headless `--session-id` 的自定义 id 字符集必须接受。
+
+回归测试:[tests/session/session_metadata_page_test.cpp](tests/session/session_metadata_page_test.cpp)(其中 `BoundedPageStopsReadingOnceItHasEnough` 的 `accepted <= 13` 就是「没退化成读全部再截断」的哨兵)+ `tests/web/session_list_handler_test.cpp` + `web_server_smoke_test.cpp::WorkspaceSessionListLimitReturnsEnvelope`。
+
+**仍未分页的两条全量路径**(已知,尚未优化):`GET /api/sessions`(`include_no_workspace=true`,要并 no-workspace 缓存目录)与 WS 连接建立时的 `send_status_snapshot()` —— 后者每次建连都对当前 workspace 全量枚举一次。
+
 Daemon session multiplexing uses `SessionRegistry`. Each session entry owns its own `SessionManager`, `PermissionManager`, `AgentLoop`, async permission prompter, and question prompter. `EventDispatcher` gives each emitted event a monotonic sequence number and keeps a bounded replay ring.
 
 ### Worktree 隔离(EnterWorktree / ExitWorktree / --worktree,复刻 Claude Code)

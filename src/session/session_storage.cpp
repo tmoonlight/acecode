@@ -20,6 +20,7 @@
 #include <regex>
 #include <mutex>
 #include <iterator>
+#include <string_view>
 
 namespace fs = std::filesystem;
 
@@ -420,18 +421,6 @@ static const std::regex& session_filename_regex() {
     return re;
 }
 
-// 自动生成的 id 是 YYYYMMDD-HHMMSS-XXXX,但 headless `-p --session-id`
-// 允许调用方自定 [A-Za-z0-9_-]{1,64} 的 id(否则自定 id 会话在 TUI /resume、
-// Web 列表与 -p -c 里全部隐身)。匹配放宽到同一字符集;PID 后缀的旧实验
-// 数据(<canonical>-<pid>.meta.json)会被这个宽正则误吞,调用方必须先用
-// pid_meta_filename_regex 排除。workspace.json / model_override.json 等
-// 邻居文件没有 .meta.json 后缀,不会被误认。
-static const std::regex& meta_filename_regex() {
-    static const std::regex re(
-        R"(^([A-Za-z0-9_-]{1,64})\.meta\.json$)");
-    return re;
-}
-
 static const std::regex& pid_session_filename_regex() {
     static const std::regex re(
         R"(^(\d{8}-\d{6}-[0-9a-f]{4})-(\d+)\.jsonl$)");
@@ -451,6 +440,114 @@ static std::int64_t file_mtime_epoch(const fs::path& p) {
     auto ftime = fs::last_write_time(p, ec);
     if (ec) return 0;
     return static_cast<std::int64_t>(ftime.time_since_epoch().count());
+}
+
+// directory_entry 版本:属性由目录枚举(Windows 上是 FindNextFile 的
+// WIN32_FIND_DATA)顺带带出并缓存,不像路径版 fs::last_write_time 那样
+// 再去 open 一次文件。上千条目的目录靠这个差别把枚举保持在常数次 syscall。
+static std::int64_t file_mtime_epoch(const fs::directory_entry& entry) {
+    std::error_code ec;
+    auto ftime = entry.last_write_time(ec);
+    if (ec) return 0;
+    return static_cast<std::int64_t>(ftime.time_since_epoch().count());
+}
+
+// 自动生成的 id 是 YYYYMMDD-HHMMSS-XXXX,但 headless `-p --session-id`
+// 允许调用方自定 [A-Za-z0-9_-]{1,64} 的 id(否则自定 id 会话在 TUI /resume、
+// Web 列表与 -p -c 里全部隐身)。下面这组手写判定就是按这个宽字符集匹配的,
+// 语义与原来的 meta_filename_regex + pid_meta_filename_regex 组合逐字符
+// 等价 —— 换掉正则是因为列表路径要对每个目录项跑一次匹配,上千会话的目录
+// 里 std::regex 的开销已经能在热缓存路径上量到。pid_* 两条正则仍保留给
+// has_incompatible_pid_session_files() 这类低频调用方。
+static bool is_session_id_charset(std::string_view text) {
+    if (text.empty() || text.size() > 64) return false;
+    for (char c : text) {
+        const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                        (c >= '0' && c <= '9') || c == '_' || c == '-';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+static bool all_ascii_digits(std::string_view text) {
+    if (text.empty()) return false;
+    for (char c : text) {
+        if (c < '0' || c > '9') return false;
+    }
+    return true;
+}
+
+static bool all_lower_hex(std::string_view text) {
+    if (text.empty()) return false;
+    for (char c : text) {
+        const bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        if (!ok) return false;
+    }
+    return true;
+}
+
+// <8位数字>-<6位数字>-<4位小写hex>-<1位以上数字>,即 PID 后缀的旧实验数据。
+// 这类 stem 同样落在 session id 的宽字符集里,必须单独排除,否则
+// <canonical>-<pid> 会被当成一个独立会话。
+static bool is_pid_suffixed_session_stem(std::string_view stem) {
+    constexpr std::size_t kMinLength = 8 + 1 + 6 + 1 + 4 + 1 + 1;
+    if (stem.size() < kMinLength) return false;
+    if (stem[8] != '-' || stem[15] != '-' || stem[20] != '-') return false;
+    if (!all_ascii_digits(stem.substr(0, 8))) return false;
+    if (!all_ascii_digits(stem.substr(9, 6))) return false;
+    if (!all_lower_hex(stem.substr(16, 4))) return false;
+    return all_ascii_digits(stem.substr(21));
+}
+
+// 是不是一个 canonical 的 `<session-id>.meta.json`。workspace.json /
+// model_override.json 等邻居文件没有这个后缀,不会被误认。
+static bool is_canonical_meta_filename(std::string_view filename) {
+    constexpr std::string_view kSuffix = ".meta.json";
+    if (filename.size() <= kSuffix.size()) return false;
+    if (filename.substr(filename.size() - kSuffix.size()) != kSuffix) return false;
+    const auto stem = filename.substr(0, filename.size() - kSuffix.size());
+    if (!is_session_id_charset(stem)) return false;
+    return !is_pid_suffixed_session_stem(stem);
+}
+
+struct MetaFileCandidate {
+    fs::path path;
+    std::int64_t mtime = 0;
+};
+
+// 只枚举候选 .meta.json 的路径(need_mtime 时连 mtime 一起),不打开任何文件。
+static std::vector<MetaFileCandidate> collect_meta_candidates(
+    const fs::path& project_path,
+    bool need_mtime,
+    const std::function<bool()>& should_cancel,
+    bool& cancelled) {
+    std::vector<MetaFileCandidate> candidates;
+    std::error_code ec;
+    fs::directory_iterator it(project_path, ec);
+    if (ec) return candidates;
+    for (const fs::directory_iterator end; it != end; it.increment(ec)) {
+        if (ec) break;
+        if (should_cancel && should_cancel()) {
+            cancelled = true;
+            break;
+        }
+        std::error_code entry_ec;
+        if (!it->is_regular_file(entry_ec) || entry_ec) continue;
+        const std::string fname = path_to_utf8(it->path().filename());
+        if (!is_canonical_meta_filename(fname)) continue;
+        MetaFileCandidate candidate;
+        candidate.path = it->path();
+        if (need_mtime) candidate.mtime = file_mtime_epoch(*it);
+        candidates.push_back(std::move(candidate));
+    }
+    return candidates;
+}
+
+// updated_at 降序;同一秒内按 id 降序,让同批写入的会话之间也有确定顺序
+// (原来的裸 std::sort 在大量同秒 updated_at 下顺序不稳定)。
+static bool session_meta_newer_first(const SessionMeta& a, const SessionMeta& b) {
+    if (a.updated_at != b.updated_at) return a.updated_at > b.updated_at;
+    return a.id > b.id;
 }
 
 size_t utf8_safe_prefix_length_storage(const std::string& text, size_t max_bytes) {
@@ -564,35 +661,68 @@ bool SessionStorage::has_incompatible_pid_session_files(
 std::vector<SessionMeta> SessionStorage::list_session_metadata(
     const std::string& project_dir,
     const std::function<bool()>& should_cancel) {
-    std::vector<SessionMeta> sessions;
+    auto page = list_session_metadata_page(project_dir, /*limit=*/0, {}, should_cancel);
+    return std::move(page.sessions);
+}
+
+SessionStorage::MetadataPage SessionStorage::list_session_metadata_page(
+    const std::string& project_dir,
+    int limit,
+    const std::function<bool(const SessionMeta&)>& accept,
+    const std::function<bool()>& should_cancel) {
+    MetadataPage page;
     fs::path project_path = path_from_utf8(project_dir);
-    if (!fs::exists(project_path) || !fs::is_directory(project_path)) {
-        return sessions;
+    std::error_code dir_ec;
+    if (!fs::is_directory(project_path, dir_ec) || dir_ec) return page;
+
+    const bool bounded = limit > 0;
+    bool cancelled = false;
+    auto candidates = collect_meta_candidates(
+        project_path, /*need_mtime=*/bounded, should_cancel, cancelled);
+    page.candidate_files = candidates.size();
+    if (cancelled) {
+        // 枚举阶段就被打断:一条也没读,但也不能声称读完了。
+        page.exhausted = false;
+        return page;
     }
 
-    const auto& re = meta_filename_regex();
-    const auto& pid_re = pid_meta_filename_regex();
-    for (const auto& entry : fs::directory_iterator(project_path)) {
-        if (should_cancel && should_cancel()) break;
-        if (!entry.is_regular_file()) continue;
-        std::string fname = path_to_utf8(entry.path().filename());
-        std::smatch m;
-        // PID 后缀的旧实验数据不进列表(项目不支持迁移,只提示用户删除);
-        // 必须先于宽正则判断,否则 <canonical>-<pid> 会被当成普通会话 id。
-        if (std::regex_match(fname, m, pid_re)) continue;
-        if (!std::regex_match(fname, m, re)) continue;
-        std::string id = m[1].str();
+    // 有 limit 时按 mtime 降序,让「最新的那几个」排在最前面先被打开。
+    std::size_t scan_target = 0;
+    if (bounded) {
+        std::sort(candidates.begin(), candidates.end(),
+                  [](const MetaFileCandidate& a, const MetaFileCandidate& b) {
+                      if (a.mtime != b.mtime) return a.mtime > b.mtime;
+                      return a.path > b.path;
+                  });
+        // 多读一段余量,给 mtime 与文件内 updated_at 的细微偏差留容错:
+        // 收集完仍按 updated_at 重排后才截断,所以边界几条不会错位。
+        const auto want = static_cast<std::size_t>(limit);
+        scan_target = want + std::max<std::size_t>(8, want);
+    }
 
-        SessionMeta meta = read_meta(path_to_utf8(entry.path()));
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        if (should_cancel && should_cancel()) {
+            page.exhausted = false;
+            break;
+        }
+        SessionMeta meta = read_meta(path_to_utf8(candidates[i].path));
         if (meta.id.empty()) continue;
-        sessions.push_back(std::move(meta));
+        // 被 accept 拒掉的条目不占 limit 名额,否则一串归档会话就能把整页挤空。
+        if (accept && !accept(meta)) continue;
+        page.sessions.push_back(std::move(meta));
+        ++page.accepted;
+        if (scan_target > 0 && page.sessions.size() >= scan_target &&
+            i + 1 < candidates.size()) {
+            page.exhausted = false;
+            break;
+        }
     }
 
-    std::sort(sessions.begin(), sessions.end(),
-        [](const SessionMeta& a, const SessionMeta& b) {
-            return a.updated_at > b.updated_at;
-        });
-    return sessions;
+    std::sort(page.sessions.begin(), page.sessions.end(), session_meta_newer_first);
+    if (bounded && page.sessions.size() > static_cast<std::size_t>(limit)) {
+        page.sessions.resize(static_cast<std::size_t>(limit));
+    }
+    return page;
 }
 
 std::vector<SessionMeta> SessionStorage::list_sessions(

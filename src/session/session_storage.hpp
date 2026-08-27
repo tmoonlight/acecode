@@ -148,6 +148,39 @@ public:
         const std::string& project_dir,
         const std::function<bool()>& should_cancel = {});
 
+    // list_session_metadata() 的分页结果。sessions 已按 updated_at 降序,
+    // 同一秒内按 id 降序保证顺序确定。
+    struct MetadataPage {
+        std::vector<SessionMeta> sessions;
+        // 目录里候选 .meta.json 的总数。accept 过滤之前的上界,截断时
+        // 用它给调用方一个「至少这么多」的量级。
+        std::size_t candidate_files = 0;
+        // 通过 accept 的条数。只有 exhausted 为 true 时才是全量精确值。
+        std::size_t accepted = 0;
+        // 是否读完了全部候选文件。false 表示提前停在了 limit 上,
+        // 或者被 should_cancel 打断。
+        bool exhausted = true;
+    };
+
+    // 只取最新 N 条的元数据枚举。侧边栏折叠列表一次只显示 5 行,但
+    // list_session_metadata() 会把项目目录里每个 .meta.json 都打开一遍 ——
+    // 上千会话的目录在 Windows 上(每次 open/close 都过一遍杀软)实测要
+    // 数秒,而数据总量只有几百 KB,开销几乎全在 syscall 次数上。
+    //
+    // 这里先只枚举文件名和 mtime(Windows 的 FindNextFile 顺带返回,不产生
+    // 额外 syscall),按 mtime 降序后只打开需要的那几个文件。meta 每次落盘
+    // 都会重写,所以 mtime 与文件内的 updated_at 一致;为容忍两者的细微
+    // 偏差,实际会多读一小段余量,最终仍按 updated_at 排序后截断。
+    //
+    // limit <= 0 等价于 list_session_metadata():读全部并返回精确计数。
+    // accept 为空表示不过滤。被过滤掉的条目不占用 limit 名额,所以调用方
+    // 可以安全地在这里做 archived / 子会话过滤。
+    static MetadataPage list_session_metadata_page(
+        const std::string& project_dir,
+        int limit,
+        const std::function<bool(const SessionMeta&)>& accept = {},
+        const std::function<bool()>& should_cancel = {});
+
     // Canonical session file record used by resume/web history paths.
     struct SessionFileCandidate {
         std::string jsonl_path;

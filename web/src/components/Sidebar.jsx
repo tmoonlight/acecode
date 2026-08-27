@@ -2283,9 +2283,11 @@ export function Sidebar({
     });
   }, []);
 
-  const applyWorkspaceSessionList = useCallback((workspace, list, total) => {
+  const applyWorkspaceSessionList = useCallback((workspace, page) => {
     const hash = workspace?.hash || '';
     if (!hash) return;
+    const list = page?.sessions;
+    const total = page?.total;
     const incoming = (Array.isArray(list) ? list : [])
       .filter((session) => !isNoWorkspaceSession(session))
       .map((session) => normalizeWorkspaceSession(session, workspace));
@@ -2309,7 +2311,9 @@ export function Sidebar({
       cursor: session.status_cursor,
     }), prev));
     setSessionWorkspacesLoaded([hash], true);
-    markWorkspaceSessionsFullyLoaded(hash, incoming.length >= knownTotal);
+    // 后端截断时 total 只是上界,拿 length 比它会把「已全量」判错;has_more
+    // 才是权威信号。
+    markWorkspaceSessionsFullyLoaded(hash, page?.hasMore === false);
   }, [markWorkspaceSessionsFullyLoaded, setSessionWorkspacesLoaded]);
 
   const loadWorkspaceSessions = useCallback(async (hash, { full = false, silent = false } = {}) => {
@@ -2336,7 +2340,7 @@ export function Sidebar({
         );
       }
       if (workspaceSessionLoadSeqRef.current.get(workspaceHash) !== sequence) return;
-      applyWorkspaceSessionList(workspace, payload.sessions, payload.total);
+      applyWorkspaceSessionList(workspace, payload);
     } catch {
       /* 鉴权失败不致命 */
     } finally {
@@ -2525,10 +2529,7 @@ export function Sidebar({
           return next;
         });
         for (const item of perWorkspace) {
-          markWorkspaceSessionsFullyLoaded(
-            item.workspace?.hash,
-            (item.sessions || []).length >= item.total,
-          );
+          markWorkspaceSessionsFullyLoaded(item.workspace?.hash, item.hasMore === false);
         }
         const incoming = [
           ...incomingWorkspaceSessions,

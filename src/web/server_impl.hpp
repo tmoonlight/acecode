@@ -363,12 +363,20 @@ struct WebServer::Impl {
     // parent_filter 语义:空 = 常规列表,排除所有 spawn_subagent 子会话;
     // 非空 = 后台任务查询,只返回 parent_session_id == parent_filter 的子会话
     // (active 部分不做 workspace 过滤,子会话跟随父会话归属)。
+    // sessions_for_workspace 的分页回执。total 在 total_exact 为 false 时
+    // 是个上界:磁盘侧提前停在了 limit 上,只能按目录里的候选文件数报量级。
+    struct SessionListPage {
+        std::size_t total = 0;
+        bool total_exact = true;
+        bool has_more = false;
+    };
+
     nlohmann::json sessions_for_workspace(const acecode::desktop::WorkspaceMeta& ws,
                                           bool archived_only = false,
                                           bool include_no_workspace = false,
                                           const std::string& parent_filter = {},
                                           int limit = 0,
-                                          std::size_t* total_out = nullptr) const;
+                                          SessionListPage* page_out = nullptr) const;
     bool session_entry_matches_workspace(const SessionEntry& entry,
                                           const acecode::desktop::WorkspaceMeta& ws) const;
     std::optional<SessionMeta> find_session_meta_for_workspace(

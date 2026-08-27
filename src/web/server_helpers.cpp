@@ -1024,25 +1024,11 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
                                                bool include_no_workspace,
                                                const std::string& parent_filter,
                                                int limit,
-                                               std::size_t* total_out) const {
+                                               SessionListPage* page_out) const {
     std::vector<SessionInfo> active;
     if (deps.session_client) active = deps.session_client->list_sessions();
 
-    auto project_dir = SessionStorage::get_project_dir(ws.cwd);
-    auto disk = SessionStorage::list_session_metadata(project_dir);
-    if (include_no_workspace) {
-        auto no_workspace_disk = no_workspace_disk_sessions();
-        disk.insert(disk.end(), no_workspace_disk.begin(), no_workspace_disk.end());
-        std::sort(disk.begin(), disk.end(),
-                  [](const SessionMeta& a, const SessionMeta& b) {
-                      return a.updated_at > b.updated_at;
-                  });
-    }
-
-    std::unordered_map<std::string, SessionMeta> disk_by_id;
-    for (const auto& m : disk) {
-        disk_by_id[m.id] = m;
-    }
+    const auto project_dir = SessionStorage::get_project_dir(ws.cwd);
 
     // 子会话过滤:常规列表(parent_filter 空)隐藏所有后台任务子会话;
     // 后台任务查询(parent_filter 非空)只保留指定父会话的子会话。
@@ -1051,12 +1037,29 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
         return parent_id != parent_filter;
     };
 
-    std::unordered_set<std::string> seen;
-    json arr = json::array();
-    std::size_t total = 0;
-    const auto want_more = [&]() {
-        return limit <= 0 || arr.size() < static_cast<json::size_type>(limit);
+    // include_no_workspace(/api/sessions 的兼容 workspace)要把 no-workspace
+    // 缓存目录一起并进来,那条路径本来就得全量枚举,分页在这里没有意义。
+    const bool bounded = limit > 0 && !include_no_workspace;
+
+    // 行先攒成 (updated_at, id, JSON) 再统一排序截断。旧实现是 active 一段、
+    // disk 一段各自 push,截断落在拼接顺序上 —— 取出来的前 N 条不保证是
+    // 最新的 N 条。
+    struct Row {
+        std::string updated_at;
+        std::string id;
+        json body;
     };
+    std::vector<Row> rows;
+    std::unordered_set<std::string> seen;
+
+    const auto push_row = [&rows](std::string id, json body) {
+        Row row;
+        row.updated_at = body.value("updated_at", std::string{});
+        row.id = std::move(id);
+        row.body = std::move(body);
+        rows.push_back(std::move(row));
+    };
+
     for (const auto& s : active) {
         if (parent_mismatch(s.parent_session_id)) continue;
         if (parent_filter.empty()) {
@@ -1069,23 +1072,75 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
             }
         }
         seen.insert(s.id);
-        auto meta_it = disk_by_id.find(s.id);
-        const SessionMeta* m = meta_it == disk_by_id.end() ? nullptr : &meta_it->second;
-        const bool archived = m ? m->archived : false;
-        if (archived != archived_only) continue;
-        ++total;
-        if (want_more()) arr.push_back(session_info_to_json(s, m));
-    }
-    for (const auto& m : disk) {
-        if (seen.count(m.id)) continue;
-        if (parent_mismatch(m.parent_session_id)) continue;
-        if (m.archived != archived_only) continue;
-        if (m.no_workspace && !include_no_workspace) continue;
-        ++total;
-        if (want_more()) {
-            arr.push_back(session_meta_to_json(m, m.no_workspace ? std::string{} : ws.hash));
+        // 活跃会话是内存里的个位数,逐个点读它自己那一个 .meta.json 就够了。
+        // 旧实现为了给它们配 meta 先把整个项目目录读了一遍,上千会话的
+        // workspace 里这一步就是列表接口的全部耗时。
+        std::optional<SessionMeta> meta;
+        if (s.no_workspace) {
+            meta = find_no_workspace_session_meta(s.id);
+        } else {
+            auto disk_meta = SessionStorage::read_meta(
+                SessionStorage::meta_path(project_dir, s.id));
+            if (!disk_meta.id.empty()) meta = std::move(disk_meta);
         }
+        const bool archived = meta ? meta->archived : false;
+        if (archived != archived_only) continue;
+        push_row(s.id, session_info_to_json(s, meta ? &*meta : nullptr));
     }
+    const std::size_t active_rows = rows.size();
+
+    const auto accept_disk = [&](const SessionMeta& m) {
+        if (seen.count(m.id)) return false;
+        if (parent_mismatch(m.parent_session_id)) return false;
+        if (m.archived != archived_only) return false;
+        if (m.no_workspace && !include_no_workspace) return false;
+        return true;
+    };
+
+    SessionStorage::MetadataPage disk_page;
+    if (include_no_workspace) {
+        auto metas = SessionStorage::list_session_metadata(project_dir);
+        auto no_workspace_disk = no_workspace_disk_sessions();
+        metas.insert(metas.end(), no_workspace_disk.begin(), no_workspace_disk.end());
+        disk_page.candidate_files = metas.size();
+        for (auto& m : metas) {
+            if (!accept_disk(m)) continue;
+            disk_page.sessions.push_back(std::move(m));
+            ++disk_page.accepted;
+        }
+    } else {
+        disk_page = SessionStorage::list_session_metadata_page(
+            project_dir, bounded ? limit : 0, accept_disk);
+    }
+    for (auto& m : disk_page.sessions) {
+        const std::string hash = m.no_workspace ? std::string{} : ws.hash;
+        const std::string id = m.id;
+        push_row(id, session_meta_to_json(m, hash));
+    }
+
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+        if (a.updated_at != b.updated_at) return a.updated_at > b.updated_at;
+        return a.id > b.id;
+    });
+
+    SessionListPage page;
+    page.total = active_rows + disk_page.accepted;
+    page.total_exact = disk_page.exhausted;
+    if (!disk_page.exhausted) {
+        // 磁盘侧提前停在了 limit 上,精确总数拿不到。退回目录里的候选文件
+        // 数当上界(含归档、子会话、以及已从 active 算过一次的那些)。宁可
+        // 偏大:前端据此保留展开入口,点开会走全量拉取。
+        page.total = std::max(page.total, disk_page.candidate_files);
+    }
+
+    json arr = json::array();
+    const std::size_t emit = bounded
+        ? std::min(rows.size(), static_cast<std::size_t>(limit))
+        : rows.size();
+    for (std::size_t i = 0; i < emit; ++i) {
+        arr.push_back(std::move(rows[i].body));
+    }
+    page.has_more = emit < rows.size() || !disk_page.exhausted;
 
     // Desktop 的 /rc 会话背景以 daemon 持久化绑定为权威。只在锁内快照
     // session id，随后再标注列表，避免序列化每一项时重复持锁，也绝不把
@@ -1100,7 +1155,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
             !remote_control_session_id.empty() &&
             item.value("id", std::string{}) == remote_control_session_id;
     }
-    if (total_out) *total_out = total;
+    if (page_out) *page_out = page;
     return arr;
 }
 
