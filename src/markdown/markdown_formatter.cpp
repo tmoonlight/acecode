@@ -844,8 +844,7 @@ bool line_is_safe_to_freeze(const std::string& line) {
     const std::size_t end = line.find_last_not_of(" \t\r\n");
     if (end != std::string::npos) {
         const char last = line[end];
-        if (last == '*' || last == '~' || last == '[' || last == '`' ||
-            last == '\\') {
+        if (last == '\\') {
             return false;
         }
     }
