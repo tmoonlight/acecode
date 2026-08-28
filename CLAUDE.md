@@ -87,6 +87,28 @@ Rewind support uses per-user-turn checkpoints. `SessionManager::track_file_write
 
 **仍未分页的两条全量路径**(已知,尚未优化):`GET /api/sessions`(`include_no_workspace=true`,要并 no-workspace 缓存目录)与 WS 连接建立时的 `send_status_snapshot()` —— 后者每次建连都对当前 workspace 全量枚举一次。
 
+**侧边栏卡顿的第二个来源:请求条数,不是单个请求的耗时。** 侧边栏有个 5 秒的 `setInterval(refresh)`,而 `refresh()` 里对**全部** workspace 各扇出一次 `pinned-sessions`(还是 `await Promise.all`,阻塞后续)和一次 `opencode-import`。14 个 workspace 就是 28 个请求/轮,浏览器对同一域名只有 6 条并发连接 —— 实测页面开着 30 秒发了 **220 个 API 请求**,`pinned-sessions` 84 次累计 8974ms、`opencode-import` 84 次累计 7660ms,而**每个请求的 `responseStart - startTime` 几乎等于它的总耗时**,即 400ms+ 全是排队,服务端处理只要十几毫秒。用户点击展开时那个几毫秒的会话列表请求排在一百多个请求后面,表现就是侧边栏长时间停在「加载中...」。
+
+诊断这类问题不要看服务端日志,要看 `performance.getEntriesByType('resource')`:按路径分组数 count 与 totalMs,再比 `responseStart - startTime` 与 `duration` —— 两者接近就说明是排队而非服务端慢,这时优化端点本身是白费力气,要减的是**条数**。
+
+三处已修(`web/src/lib/sidebarAuxiliaryFetch.js` 是纯函数 + Node 单测):
+
+- **`pinned-sessions` 只对可见 workspace 重取**,折叠的沿用 `pinnedByWorkspaceRef` 缓存值 —— 注意是「沿用」不是「清空」,否则展开时置顶标记会闪一下。
+- **`opencode-import` 首轮全探、之后只重探可见的**。它探的是「这个目录有没有 opencode 数据可导入」,近乎静态,5 秒一次对全部 workspace 重探纯属浪费;新出现的 workspace 仍会补探一次,导入提示不会丢。
+- **`session_ids_for_workspace` 曾用 `list_sessions()`** —— 它只需要 id 与 archived,却让 `enrich_meta_from_messages` 逐个打开 JSONL(单个 workspace 实测 523MB),而且把同一个目录扫了两遍。改用 `list_session_metadata()` 后单次 `pinned-sessions` 从 9~16ms 降到 5.7ms(冷缓存差距更大)。
+
+**`WorkspaceRegistry::scan()` 的负缓存。** `~/.acecode/projects` 下每个用过的 cwd 都留一个 hash 目录,实测 **16568 个**,而带 `workspace.json` 的只有 34 个。拆开测:枚举全部目录连 mtime 只要 **12.8ms**,逐个探 `workspace.json` 却要 **267ms** —— 95% 的时间花在对一万六千个目录做 `fs::exists`。而 `/api/workspaces` 与 `/api/pinned-sessions/order` 每轮 refresh 各调一次 scan。
+
+现在每次仍完整枚举目录(可见性语义不变),但以**每个 hash 目录自身的 mtime**为键缓存结论,连「这个目录没有 marker」也缓存。实测 `/api/workspaces` 285ms → **12.4ms**,`/api/pinned-sessions/order` 300ms → **30ms**。
+
+改这块必须守住的三条:
+
+- **不能只比 mtime。** 文件系统时间戳有粒度(Windows 实测约 15ms),若某目录在上次扫描后的同一个 tick 内被写入,mtime 不会变 —— 而且此后再也不会变,那次写入被**永久**漏掉。所以最近 `kFreshDirectoryWindow`(2 秒)内动过的目录一律不信任缓存。曾经的纯 mtime 版本直接打穿了既有回归 `RescanFindsWorkspaceRegisteredByAnotherInstance`。
+- **父目录 mtime 不能替代子目录 mtime。** 在已有 hash 目录里新建 `workspace.json` 不会改 `projects_dir` 的 mtime,只会改那个 hash 目录的。所以缓存键必须是每个 hash 目录自己的时间戳。
+- **写路径主动失效。** `register_new` / `set_name` / `hide` 都 `dir_probes_.erase(hash)`。写盘走 atomic_file 的 tmp+rename、rename 本就会推进目录 mtime,这层只是不把可见性正确性押在文件系统的时间戳行为上。
+
+回归测试:`tests/desktop/workspace_registry_test.cpp` 的 `WorkspaceRegistryProbeCache.*`(其中 `MarkerAddedLaterIsStillPickedUp` 就是负缓存不能挡住后补 marker 的哨兵)+ `web/src/lib/sidebarAuxiliaryFetch.test.js`。
+
 Daemon session multiplexing uses `SessionRegistry`. Each session entry owns its own `SessionManager`, `PermissionManager`, `AgentLoop`, async permission prompter, and question prompter. `EventDispatcher` gives each emitted event a monotonic sequence number and keeps a bounded replay ring.
 
 ### Worktree 隔离(EnterWorktree / ExitWorktree / --worktree,复刻 Claude Code)

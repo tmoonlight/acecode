@@ -89,6 +89,10 @@ import {
   workspaceHasCachedSidebarSessions,
 } from '../lib/sidebarWorkspaceSessions.js';
 import {
+  opencodePreviewTargets,
+  pinnedRefreshTargets,
+} from '../lib/sidebarAuxiliaryFetch.js';
+import {
   loadSidebarFullTitle,
   sidebarFullTitleRequestKey,
   sidebarTitleHydrationState,
@@ -1814,6 +1818,9 @@ export function Sidebar({
   const sessionLoadedWorkspacesRef = useRef(new Set());
   const sessionFullyLoadedWorkspacesRef = useRef(new Set());
   const workspaceSessionLoadSeqRef = useRef(new Map());
+  // 已经探过 opencode 导入预览的 workspace。探测结果近乎静态,没必要每轮
+  // 对全部 workspace 重问一遍(见 lib/sidebarAuxiliaryFetch.js)。
+  const opencodePreviewProbedRef = useRef(new Set());
   sessionLoadedWorkspacesRef.current = sessionLoadedWorkspaces;
   sessionFullyLoadedWorkspacesRef.current = sessionFullyLoadedWorkspaces;
   const workspaceCollapseAllRef = useRef(false);
@@ -2441,17 +2448,32 @@ export function Sidebar({
       }
       setActiveWorkspaceHash(chosen);
       setWorkspaces(withActive);
-      withActive
-        .filter((w) => w.hash && w.hash !== '__local__')
-        .forEach((w) => refreshOpencodeImportPreview(w).catch(() => {}));
       const earlyVisibleWorkspaceHashes = withActive
         .filter((w) => w.active || w.hash === '__local__' || expandedHashes.has(w.hash) || w.hash === revealWorkspaceHash)
         .map((w) => w.hash)
         .filter(Boolean);
+
+      // refresh 由 5 秒定时器驱动,所以这两处扇出决定了侧边栏的稳态请求量。
+      // 对全部 workspace 各发一次会占满浏览器仅有的 6 条并发连接,把用户点击
+      // 展开时那个会话列表请求挤到队尾 —— 服务端只要十几毫秒,排队却要 400ms+。
+      const opencodeTargets = new Set(opencodePreviewTargets(
+        withActive, earlyVisibleWorkspaceHashes, opencodePreviewProbedRef.current));
+      withActive
+        .filter((w) => w.hash && opencodeTargets.has(w.hash))
+        .forEach((w) => {
+          opencodePreviewProbedRef.current.add(w.hash);
+          refreshOpencodeImportPreview(w).catch(() => {});
+        });
       setSessionWorkspaceLoading(earlyVisibleWorkspaceHashes, true);
 
+      const pinnedTargets = new Set(pinnedRefreshTargets(withActive, earlyVisibleWorkspaceHashes));
       const pinnedPairs = await Promise.all(withActive.map(async (w) => {
         if (!w.hash) return [w.hash, []];
+        // 不在本轮目标里的沿用缓存值,绝不能清空 —— 否则展开折叠已久的
+        // workspace 时置顶标记会先消失再回来。
+        if (!pinnedTargets.has(w.hash)) {
+          return [w.hash, normalizePinnedIds(pinnedByWorkspaceRef.current.get(w.hash) || [])];
+        }
         try {
           const state = await api.getPinnedSessions(w.hash);
           return [w.hash, normalizePinnedIds(state?.session_ids || [])];

@@ -15,6 +15,7 @@
 // 所有操作线程安全,内部用 std::mutex 保护 entries_。所有写盘走 atomic_write
 // (.tmp + rename),失败时内存 cache 回滚。
 
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -36,8 +37,24 @@ public:
 
     // 扫 projects_dir 下所有子目录,把可读 + 含 cwd 字段 + desktop_visible=true
     // 的 workspace.json 入册。
-    // 重复调用会清空再重扫(MVP 不做增量)。
+    //
+    // 每次都完整枚举目录,可见性语义与逐个重读时完全一致;省掉的只是对没动过
+    // 的目录重复探 workspace.json。projects_dir 下每个用过的 cwd 都留了一个
+    // hash 目录(实测 16568 个),而带 marker 的只有几十个 —— 实测枚举全部目录
+    // 连 mtime 只要 12.8ms,逐个探 workspace.json 却要 267ms。侧边栏 5 秒轮询
+    // 里 /api/workspaces 与 /api/pinned-sessions/order 各调一次 scan,那 267ms
+    // 会一直占着连接,把用户点击展开的请求挤到队尾。
+    //
+    // 缓存以每个 hash 目录自身的 mtime 为键(目录枚举顺带返回,不产生额外
+    // syscall),并且连「这个目录没有 marker」也一并缓存。新目录不在缓存里必然
+    // 被读到;marker 的新增/重命名/隐藏都走 atomic_file 的 tmp+rename,rename
+    // 会推进所在目录的 mtime,同样必然被读到。文件系统时间戳有粒度(Windows
+    // 上约 15ms),所以最近两秒内动过的目录一律不信任缓存 —— 否则与上次扫描
+    // 落在同一 tick 的那次写入会被永久漏掉。
     void scan(const std::string& projects_dir);
+
+    // 丢弃缓存后重扫。诊断用;正常路径不需要,scan() 本身已是精确的。
+    void force_full_scan(const std::string& projects_dir);
 
     // 当前快照。线程安全(内部加锁后 copy)。
     std::vector<WorkspaceMeta> list() const;
@@ -63,8 +80,19 @@ public:
     // 测试 hook:让单测注入空 registry(scan 一个临时目录),不必涉及共享状态。
 
 private:
+    // 一个 hash 目录上次被读取时的结论。has_marker=false 是负缓存:该目录没有
+    // 可见 marker,下次目录 mtime 没变就不必再探一次文件。
+    struct DirProbe {
+        std::int64_t mtime = 0;
+        bool has_marker = false;
+        WorkspaceMeta meta;
+    };
+
+    void scan_locked(const std::string& projects_dir);
+
     mutable std::mutex mu_;
     std::unordered_map<std::string, WorkspaceMeta> entries_;
+    std::unordered_map<std::string, DirProbe> dir_probes_;
 };
 
 // Read one on-disk workspace marker without applying the Desktop visibility

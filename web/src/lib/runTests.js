@@ -184,6 +184,7 @@ import './sidebarSessionRevealArchitecture.test.js';
 import './sidebarCustomSectionArchitecture.test.js';
 import './sidebarSessions.test.js';
 import './sidebarWorkspaceSessions.test.js';
+import './sidebarAuxiliaryFetch.test.js';
 import './sidebarFullTitle.test.js';
 import './sidebarTitleMarquee.test.js';
 import './sidebarTitleMarqueeArchitecture.test.js';

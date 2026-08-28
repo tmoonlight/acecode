@@ -10,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -487,4 +488,119 @@ TEST(WorkspaceRegistry, ConcurrentSetNameDoesNotCorrupt) {
 TEST(WorkspaceRegistry, GetMissing) {
     WorkspaceRegistry r;
     EXPECT_FALSE(r.get("nope").has_value());
+}
+
+// 触发场景:~/.acecode/projects 下每个用过的 cwd 都留一个 hash 目录,实测
+// 16568 个,其中带 workspace.json 的只有几十个。侧边栏 5 秒轮询里
+// /api/workspaces 与 /api/pinned-sessions/order 各调一次 scan(),而逐个探
+// workspace.json 实测要 267ms(纯目录枚举只要 12.8ms)—— 这 267ms 一直占着
+// 浏览器仅有的并发连接,把用户点击展开时的会话列表请求挤到队尾,表现为
+// 侧边栏长时间停在「加载中...」。
+//
+// 期望行为:目录没动过就沿用上次结论,不再重读它的 workspace.json。
+// 观测手段:绕开 atomic 写(直接覆写文件内容)改掉 marker —— 这不会推进所在
+// 目录的 mtime,所以缓存应当仍返回旧值。真实写路径走 atomic_file 的
+// tmp+rename,rename 会推进目录 mtime,不受此影响(见下一条测试)。
+TEST(WorkspaceRegistryProbeCache, UnchangedDirectoryIsNotReRead) {
+    TmpProjectsDir tmp;
+    const std::string hash = "aaaaaaaaaaaaaaaa";
+    seed_workspace_json(tmp.path(), hash, "/tmp/a", "A");
+
+    WorkspaceRegistry reg;
+    reg.scan(tmp.path());
+    ASSERT_TRUE(reg.get(hash).has_value());
+    ASSERT_EQ(reg.get(hash)->name, "A");
+
+    // 把目录时间戳推到「新鲜窗口」(2 秒)之外,缓存才允许生效。真实数据里
+    // 老项目目录的时间戳本来就是旧的;窗口内的目录会被强制重读,那是为了
+    // 不漏掉与上次扫描落在同一时钟 tick 的写入。
+    fs::last_write_time(fs::path(tmp.path()) / hash,
+                        fs::file_time_type::clock::now() - std::chrono::hours(1));
+    WorkspaceRegistry warm;
+    warm.scan(tmp.path());
+
+    // 原地覆写(非 rename),文件 mtime 变、目录 mtime 不变。
+    const auto marker = fs::path(tmp.path()) / hash / "workspace.json";
+    const auto dir_mtime_before = fs::last_write_time(fs::path(tmp.path()) / hash);
+    {
+        std::ofstream ofs(marker.string(), std::ios::trunc);
+        nlohmann::json j;
+        j["cwd"] = "/tmp/a";
+        j["name"] = "A rewritten in place";
+        j["desktop_visible"] = true;
+        ofs << j.dump();
+    }
+    fs::last_write_time(fs::path(tmp.path()) / hash, dir_mtime_before);
+
+    warm.scan(tmp.path());
+    ASSERT_TRUE(warm.get(hash).has_value());
+    EXPECT_EQ(warm.get(hash)->name, "A") << "目录没动过时不应重读 workspace.json";
+
+    // force_full_scan 丢掉缓存,重新读盘。
+    warm.force_full_scan(tmp.path());
+    ASSERT_TRUE(warm.get(hash).has_value());
+    EXPECT_EQ(warm.get(hash)->name, "A rewritten in place");
+}
+
+// 触发场景:用户行内重命名 workspace,或把它从列表隐藏。
+// 期望行为:立刻生效。这两条走的都是 write_workspace_json 的 tmp+rename,
+// rename 会推进所在目录的 mtime,缓存据此失效;set_name/hide 另外还会主动
+// 丢掉该 hash 的 probe,不把正确性押在文件系统的 mtime 行为上。
+TEST(WorkspaceRegistryProbeCache, RenameAndHideTakeEffectImmediately) {
+    TmpProjectsDir tmp;
+    WorkspaceRegistry reg;
+    auto created = reg.register_new(tmp.path(), "/home/u/cache-rename");
+    reg.scan(tmp.path());
+    ASSERT_TRUE(reg.get(created.hash).has_value());
+
+    ASSERT_TRUE(reg.set_name(tmp.path(), created.hash, "Renamed"));
+    reg.scan(tmp.path());
+    ASSERT_TRUE(reg.get(created.hash).has_value());
+    EXPECT_EQ(reg.get(created.hash)->name, "Renamed");
+
+    ASSERT_TRUE(reg.hide(tmp.path(), created.hash));
+    reg.scan(tmp.path());
+    EXPECT_FALSE(reg.get(created.hash).has_value());
+}
+
+// 触发场景:一个目录没有 marker(纯 TUI 历史目录)。这类目录占了那 16568 个
+// 里的绝大多数,负缓存正是省下 267ms 的关键。
+// 期望行为:负缓存不能把「后来补上的 marker」挡住 —— 新建 workspace.json
+// 会推进所在目录的 mtime,必须被重新读到。
+TEST(WorkspaceRegistryProbeCache, MarkerAddedLaterIsStillPickedUp) {
+    TmpProjectsDir tmp;
+    const std::string hash = "bbbbbbbbbbbbbbbb";
+    fs::create_directories(fs::path(tmp.path()) / hash);
+
+    WorkspaceRegistry reg;
+    reg.scan(tmp.path());
+    ASSERT_FALSE(reg.get(hash).has_value());
+
+    seed_workspace_json(tmp.path(), hash, "/tmp/b", "B");
+    reg.scan(tmp.path());
+    ASSERT_TRUE(reg.get(hash).has_value());
+    EXPECT_EQ(reg.get(hash)->name, "B");
+}
+
+// 触发场景:workspace 目录被外部删掉。
+// 期望行为:从注册表消失,并且它的 probe 也不能留在缓存里 —— 否则同名目录
+// 再出现时会命中一条陈旧的结论。
+TEST(WorkspaceRegistryProbeCache, RemovedDirectoryLeavesTheRegistry) {
+    TmpProjectsDir tmp;
+    const std::string hash = "cccccccccccccccc";
+    seed_workspace_json(tmp.path(), hash, "/tmp/c", "C");
+
+    WorkspaceRegistry reg;
+    reg.scan(tmp.path());
+    ASSERT_TRUE(reg.get(hash).has_value());
+
+    fs::remove_all(fs::path(tmp.path()) / hash);
+    reg.scan(tmp.path());
+    EXPECT_FALSE(reg.get(hash).has_value());
+
+    // 同名目录带着不同内容回来,必须读到新内容而不是旧缓存。
+    seed_workspace_json(tmp.path(), hash, "/tmp/c2", "C2");
+    reg.scan(tmp.path());
+    ASSERT_TRUE(reg.get(hash).has_value());
+    EXPECT_EQ(reg.get(hash)->name, "C2");
 }

@@ -1662,8 +1662,13 @@ std::vector<std::string> WebServer::Impl::session_ids_for_workspace(
     };
 
     auto project_dir = SessionStorage::get_project_dir(ws.cwd);
+    // 这里只用到 id 与 archived。list_sessions() 会为补全 summary /
+    // message_count 逐个打开 JSONL,而一个项目目录的 transcript 可达数百 MB
+    // (实测单个 workspace 523MB);而且原实现把同一个目录扫了两遍。
+    // list_session_metadata() 只读 .meta.json,一遍就够。
+    const auto disk = SessionStorage::list_session_metadata(project_dir);
     std::unordered_set<std::string> archived_ids;
-    for (const auto& m : SessionStorage::list_sessions(project_dir)) {
+    for (const auto& m : disk) {
         if (m.archived) archived_ids.insert(m.id);
     }
 
@@ -1676,7 +1681,7 @@ std::vector<std::string> WebServer::Impl::session_ids_for_workspace(
         }
     }
 
-    for (const auto& m : SessionStorage::list_sessions(project_dir)) {
+    for (const auto& m : disk) {
         if (m.archived) continue;
         add(m.id);
     }

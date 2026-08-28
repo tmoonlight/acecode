@@ -7,6 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -120,30 +121,90 @@ std::optional<WorkspaceMeta> load_workspace_metadata(
     return read_workspace_json(projects_dir, hash);
 }
 
-void WorkspaceRegistry::scan(const std::string& projects_dir) {
-    std::lock_guard<std::mutex> lk(mu_);
+namespace {
+
+// 文件系统时间戳有粒度(Windows 上实测约 15ms)。若某个目录在上次扫描之后的
+// 同一个 tick 内被写入,它的 mtime 不会变 —— 只比 mtime 就会**永久**漏掉那次
+// 写入,因为 mtime 此后再也不动了。所以刚变动过的目录一律不信任缓存,重读几
+// 轮直到它的时间戳落到窗口之外。窗口取得比时钟粒度宽得多,代价只是对少数
+// 刚动过的目录多读几次文件。
+constexpr auto kFreshDirectoryWindow = std::chrono::seconds(2);
+
+struct DirStamp {
+    std::int64_t tick = 0;  // 0 = 读不到,调用方退回「每次都重读」
+    bool recent = false;    // 落在 kFreshDirectoryWindow 内,缓存不可信
+};
+
+// 目录项自身的时间戳。属性由目录枚举顺带带出(Windows 上是 FindNextFile 的
+// WIN32_FIND_DATA),不像路径版 fs::last_write_time 那样再 stat 一次。
+DirStamp dir_entry_stamp(const fs::directory_entry& entry) {
+    std::error_code ec;
+    auto t = entry.last_write_time(ec);
+    if (ec) return DirStamp{};
+    DirStamp stamp;
+    stamp.tick = static_cast<std::int64_t>(t.time_since_epoch().count());
+    const auto now = fs::file_time_type::clock::now();
+    stamp.recent = now >= t && (now - t) < kFreshDirectoryWindow;
+    return stamp;
+}
+
+} // namespace
+
+void WorkspaceRegistry::scan_locked(const std::string& projects_dir) {
     entries_.clear();
 
     std::error_code ec;
     fs::path native_projects_dir = path_from_utf8(projects_dir);
     if (!fs::exists(native_projects_dir, ec) || !fs::is_directory(native_projects_dir, ec)) {
+        dir_probes_.clear();
         return; // 空目录或不存在 — 注册表保持空
     }
 
+    // next_probes 只保留这一轮真实存在的目录,消失的目录自然从缓存里掉出去。
+    std::unordered_map<std::string, DirProbe> next_probes;
     for (auto it = fs::directory_iterator(native_projects_dir, ec);
          !ec && it != fs::directory_iterator();
          it.increment(ec)) {
         if (ec) break;
-        if (!it->is_directory(ec)) continue;
+        std::error_code entry_ec;
+        if (!it->is_directory(entry_ec) || entry_ec) continue;
         std::string hash = path_to_utf8(it->path().filename());
         // hash 目录名约定: 16 位 hex。不强制(防止过滤掉合法案例),只防过短目录。
         if (hash.size() < 4) continue;
 
+        const DirStamp stamp = dir_entry_stamp(*it);
+        auto cached = dir_probes_.find(hash);
+        if (stamp.tick != 0 && !stamp.recent &&
+            cached != dir_probes_.end() && cached->second.mtime == stamp.tick) {
+            // 这个目录自上次以来没动过,沿用上次的结论(包括「没有 marker」)。
+            if (cached->second.has_marker) entries_[hash] = cached->second.meta;
+            next_probes.emplace(hash, cached->second);
+            continue;
+        }
+
+        DirProbe probe;
+        // 刚动过的目录仍然记下时间戳,等它落到新鲜窗口之外就能进入缓存。
+        probe.mtime = stamp.tick;
         auto m = read_workspace_json(projects_dir, hash);
-        if (!m) continue;
-        if (!m->desktop_visible) continue;
-        entries_[hash] = std::move(*m);
+        if (m && m->desktop_visible) {
+            probe.has_marker = true;
+            probe.meta = *m;
+            entries_[hash] = std::move(*m);
+        }
+        next_probes.emplace(std::move(hash), std::move(probe));
     }
+    dir_probes_ = std::move(next_probes);
+}
+
+void WorkspaceRegistry::scan(const std::string& projects_dir) {
+    std::lock_guard<std::mutex> lk(mu_);
+    scan_locked(projects_dir);
+}
+
+void WorkspaceRegistry::force_full_scan(const std::string& projects_dir) {
+    std::lock_guard<std::mutex> lk(mu_);
+    dir_probes_.clear();
+    scan_locked(projects_dir);
 }
 
 std::vector<WorkspaceMeta> WorkspaceRegistry::list() const {
@@ -178,6 +239,7 @@ WorkspaceMeta WorkspaceRegistry::register_new(const std::string& projects_dir,
             LOG_WARN("[workspace_registry] register_new restore write failed for cwd=" + cwd);
         }
         std::lock_guard<std::mutex> lk(mu_);
+        dir_probes_.erase(hash);
         entries_[hash] = *existing;
         return *existing;
     }
@@ -196,6 +258,7 @@ WorkspaceMeta WorkspaceRegistry::register_new(const std::string& projects_dir,
 
     {
         std::lock_guard<std::mutex> lk(mu_);
+        dir_probes_.erase(hash);
         entries_[hash] = m;
     }
     return m;
@@ -235,6 +298,7 @@ bool WorkspaceRegistry::set_name(const std::string& projects_dir,
     if (!write_workspace_json(projects_dir, updated)) return false;
 
     std::lock_guard<std::mutex> lk(mu_);
+    dir_probes_.erase(hash);
     auto it = entries_.find(hash);
     if (it == entries_.end()) return false; // 极端竞态:写盘期间被 scan 清空
     it->second = updated;
@@ -265,6 +329,7 @@ bool WorkspaceRegistry::hide(const std::string& projects_dir, const std::string&
     if (!write_workspace_json(projects_dir, updated)) return false;
 
     std::lock_guard<std::mutex> lk(mu_);
+    dir_probes_.erase(hash);
     entries_.erase(hash);
     return true;
 }
