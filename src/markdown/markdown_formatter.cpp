@@ -11,6 +11,7 @@
 
 #include <array>
 #include <string_view>
+#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
@@ -790,59 +791,96 @@ Element format_markdown(const std::string& raw_text, const FormatOptions& opts) 
 
 namespace {
 
-// A completed line is safe to freeze when it ends with no unclosed inline
-// delimiter that could legitimately continue onto the next line: unpaired
-// `*`, `~`, `[`, backtick, or a trailing backslash escape.
+// A completed line is safe to freeze when no inline delimiter opened on this
+// line remains open at its end. R7: stack-based matching replaces odd/even
+// counting, which cannot distinguish an unclosed opener at line end from a
+// pair closed on the same line. Unclosed `**`/`*`/`~`/`~~`/`[`/backtick keep
+// the line in the tail, as does a line whose last (trimmed) char is an opener
+// character, because the delimiter may legitimately continue onto the next
+// line (e.g. **bold across\nlines**).
 bool line_is_safe_to_freeze(const std::string& line) {
-    int stars = 0, tildes = 0, brackets = 0, backticks = 0;
-    bool escaped = false;
-    for (char c : line) {
-        if (escaped) {
-            escaped = false;
-            continue;
-        }
+    // Stack of unclosed inline delimiters: `**`/`*`/`~`/`~~`/`[`/backtick
+    // push on open, a matching close pops.
+    std::vector<char> open;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
         if (c == '\\') {
-            escaped = true;
+            if (i + 1 < line.size()) ++i;
             continue;
         }
-        if (c == '*') {
-            stars ^= 1;
-        } else if (c == '~') {
-            tildes ^= 1;
+        if (c == '`') {
+            if (!open.empty() && open.back() == '`') {
+                open.pop_back();
+            } else {
+                open.push_back('`');
+            }
         } else if (c == '[') {
-            brackets ^= 1;
-        } else if (c == '`') {
-            backticks ^= 1;
+            open.push_back('[');
+        } else if (c == ']') {
+            if (!open.empty() && open.back() == '[') open.pop_back();
+        } else if (c == '*') {
+            // Prefer `**` (strong) over `*` (em).
+            const bool strong = i + 1 < line.size() && line[i + 1] == '*';
+            const char m = strong ? 'S' : 's';
+            if (!open.empty() && open.back() == m) {
+                open.pop_back();
+            } else {
+                open.push_back(m);
+            }
+            if (strong) ++i;
+        } else if (c == '~') {
+            const bool dbl = i + 1 < line.size() && line[i + 1] == '~';
+            const char m = dbl ? 'D' : 'd';
+            if (!open.empty() && open.back() == m) {
+                open.pop_back();
+            } else {
+                open.push_back(m);
+            }
+            if (dbl) ++i;
         }
     }
-    return stars == 0 && tildes == 0 && brackets == 0 && backticks == 0;
+    if (!open.empty()) return false;
+    // A line whose last (trimmed) char is an opener may be mid-delimiter.
+    const std::size_t end = line.find_last_not_of(" \t\r\n");
+    if (end != std::string::npos) {
+        const char last = line[end];
+        if (last == '*' || last == '~' || last == '[' || last == '`' ||
+            last == '\\') {
+            return false;
+        }
+    }
+    return true;
 }
 
-// Code fence open/close line: optional leading whitespace, then at least
-// three backticks or tildes, and no other content on the line.
+// Code fence open/close line, aligned with the real lexer: optional leading
+// whitespace, then at least three backticks or tildes. An info string (e.g.
+// ```cpp) is allowed on the opening fence; for backtick fences the info
+// string must not itself contain a backtick.
 bool is_code_fence_line(const std::string& line) {
-    size_t i = 0;
+    std::size_t i = 0;
     while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
         ++i;
     }
     if (i >= line.size()) {
         return false;
     }
-    const char fence_ch = line[i];
-    if (fence_ch != '`' && fence_ch != '~') {
+    const char ch = line[i];
+    if (ch != '`' && ch != '~') {
         return false;
     }
-    size_t j = i;
-    while (j < line.size() && line[j] == fence_ch) {
+    std::size_t j = i;
+    while (j < line.size() && line[j] == ch) {
         ++j;
     }
     if (j - i < 3) {
         return false;
     }
-    while (j < line.size() && (line[j] == ' ' || line[j] == '\t')) {
-        ++j;
+    if (ch == '`') {
+        for (std::size_t k = j; k < line.size(); ++k) {
+            if (line[k] == '`') return false;
+        }
     }
-    return j == line.size();
+    return true;
 }
 
 } // namespace
@@ -862,8 +900,10 @@ Element StreamingFormatter::append_delta(const std::string& delta,
 
     // Advance the frozen boundary across completed lines (those ending in
     // '\n') that start at or after the current stable prefix. Fence state is
-    // tracked over the whole buffer; the stable prefix can never contain a
-    // fence line, so the state at the scan point is always accurate.
+    // tracked over the whole buffer, so it is accurate regardless of how far
+    // the stable prefix has advanced. Fence lines never freeze (hard
+    // invariant): the fence opener stays in the tail so everything inside the
+    // code block is rendered atomically with it.
     size_t stable_end = stable_prefix_.size();
     bool in_code_fence = false;
     size_t line_start = 0;
@@ -873,12 +913,14 @@ Element StreamingFormatter::append_delta(const std::string& delta,
         }
         const std::string line =
             full_content_.substr(line_start, i - line_start);
-        if (is_code_fence_line(line)) {
+        const bool is_fence = is_code_fence_line(line);
+        if (is_fence) {
             in_code_fence = !in_code_fence;
         }
         if (line_start >= stable_prefix_.size()) {
-            if (in_code_fence) {
-                // Keep the whole code block in the tail.
+            if (is_fence || in_code_fence) {
+                // Fence lines and everything inside a code block stay in the
+                // tail so the block renders as a single atomic unit.
             } else if (line_is_safe_to_freeze(line)) {
                 stable_end = i + 1;
             } else {
