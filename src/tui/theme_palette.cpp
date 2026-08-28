@@ -139,6 +139,7 @@ ThemePalette make_light_palette() {
 static ThemePalette g_dark  = make_dark_palette();
 static ThemePalette g_light = make_light_palette();
 static std::atomic<const ThemePalette*> g_active{&g_dark};
+static std::uint32_t g_theme_version = 0;
 
 const ThemePalette& theme() {
     return *g_active.load(std::memory_order_acquire);
@@ -153,7 +154,12 @@ void init_theme_palette(const std::string& name) {
 }
 
 void swap_theme_palette(const std::string& name) {
+    ++g_theme_version;
     init_theme_palette(name);
+}
+
+std::uint32_t theme_palette_version() {
+    return g_theme_version;
 }
 
 const std::string& current_theme_name() {
