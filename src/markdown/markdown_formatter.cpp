@@ -788,74 +788,140 @@ Element format_markdown(const std::string& raw_text, const FormatOptions& opts) 
 // Streaming formatter
 // ---------------------------------------------------------------------------
 
-Element StreamingFormatter::append_delta(const std::string& delta,
-                                         const FormatOptions& opts) {
-    full_content_ += delta;
+namespace {
 
-    // Find the stable prefix boundary: the last complete top-level block.
-    // We look for the position after the last double-newline (block boundary).
-    size_t stable_end = 0;
-    size_t search_pos = 0;
-
-    // Find block boundaries (double newlines not inside code fences)
-    bool in_code_fence = false;
-    size_t last_block_end = 0;
-
-    for (size_t i = 0; i < full_content_.size(); i++) {
-        // Track code fences
-        if (i == 0 || (i > 0 && full_content_[i - 1] == '\n')) {
-            // Check for code fence at start of line
-            size_t j = i;
-            while (j < full_content_.size() && (full_content_[j] == ' ' || full_content_[j] == '\t')) j++;
-            int bt_count = 0;
-            char fence_ch = 0;
-            if (j < full_content_.size() && (full_content_[j] == '`' || full_content_[j] == '~')) {
-                fence_ch = full_content_[j];
-                while (j < full_content_.size() && full_content_[j] == fence_ch) { bt_count++; j++; }
-                if (bt_count >= 3) {
-                    in_code_fence = !in_code_fence;
-                }
-            }
+// A completed line is safe to freeze when it ends with no unclosed inline
+// delimiter that could legitimately continue onto the next line: unpaired
+// `*`, `~`, `[`, backtick, or a trailing backslash escape.
+bool line_is_safe_to_freeze(const std::string& line) {
+    int stars = 0, tildes = 0, brackets = 0, backticks = 0;
+    bool escaped = false;
+    for (char c : line) {
+        if (escaped) {
+            escaped = false;
+            continue;
         }
-
-        // Track double-newlines as block boundaries (not inside code fences)
-        if (!in_code_fence && full_content_[i] == '\n' &&
-            i + 1 < full_content_.size() && full_content_[i + 1] == '\n') {
-            last_block_end = i + 2;
+        if (c == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (c == '*') {
+            stars ^= 1;
+        } else if (c == '~') {
+            tildes ^= 1;
+        } else if (c == '[') {
+            brackets ^= 1;
+        } else if (c == '`') {
+            backticks ^= 1;
         }
     }
+    return stars == 0 && tildes == 0 && brackets == 0 && backticks == 0;
+}
 
-    // If we're inside a code fence, don't advance stable prefix past last boundary
-    if (!in_code_fence && last_block_end > 0) {
-        stable_end = last_block_end;
+// Code fence open/close line: optional leading whitespace, then at least
+// three backticks or tildes, and no other content on the line.
+bool is_code_fence_line(const std::string& line) {
+    size_t i = 0;
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
+        ++i;
+    }
+    if (i >= line.size()) {
+        return false;
+    }
+    const char fence_ch = line[i];
+    if (fence_ch != '`' && fence_ch != '~') {
+        return false;
+    }
+    size_t j = i;
+    while (j < line.size() && line[j] == fence_ch) {
+        ++j;
+    }
+    if (j - i < 3) {
+        return false;
+    }
+    while (j < line.size() && (line[j] == ' ' || line[j] == '\t')) {
+        ++j;
+    }
+    return j == line.size();
+}
+
+} // namespace
+
+Element StreamingFormatter::append_delta(const std::string& delta,
+                                         const FormatOptions& opts) {
+    // A width change invalidates the stable prefix. Theme changes arrive
+    // through set_context, which clears the stable prefix itself, so only
+    // the width is compared here (FormatOptions carries no theme version).
+    if (width_ != opts.terminal_width) {
+        stable_prefix_.clear();
+        cached_stable_ = text("");
+        width_ = opts.terminal_width;
+    }
+
+    full_content_ += delta;
+
+    // Advance the frozen boundary across completed lines (those ending in
+    // '\n') that start at or after the current stable prefix. Fence state is
+    // tracked over the whole buffer; the stable prefix can never contain a
+    // fence line, so the state at the scan point is always accurate.
+    size_t stable_end = stable_prefix_.size();
+    bool in_code_fence = false;
+    size_t line_start = 0;
+    for (size_t i = 0; i < full_content_.size(); ++i) {
+        if (full_content_[i] != '\n') {
+            continue;
+        }
+        const std::string line =
+            full_content_.substr(line_start, i - line_start);
+        if (is_code_fence_line(line)) {
+            in_code_fence = !in_code_fence;
+        }
+        if (line_start >= stable_prefix_.size()) {
+            if (in_code_fence) {
+                // Keep the whole code block in the tail.
+            } else if (line_is_safe_to_freeze(line)) {
+                stable_end = i + 1;
+            } else {
+                break;
+            }
+        }
+        line_start = i + 1;
     }
 
     if (stable_end > stable_prefix_.size()) {
-        // Stable prefix grew — update cache
+        // Stable prefix grew - update cache.
         stable_prefix_ = full_content_.substr(0, stable_end);
         cached_stable_ = format_markdown(stable_prefix_, opts);
     }
 
-    // Render everything
-    if (stable_prefix_.empty()) {
-        // No stable prefix — render everything as unstable
-        return format_markdown(full_content_, opts);
+    // Render the unstable tail and keep the result for last_element().
+    const std::string tail = full_content_.substr(stable_prefix_.size());
+    if (tail.empty()) {
+        last_element_ = cached_stable_;
+    } else {
+        last_element_ = vbox({cached_stable_, format_markdown(tail, opts)});
     }
+    return last_element_;
+}
 
-    // Render unstable suffix
-    std::string unstable = full_content_.substr(stable_prefix_.size());
-    if (unstable.empty()) {
-        return cached_stable_;
+const Element& StreamingFormatter::last_element() const {
+    return last_element_;
+}
+
+void StreamingFormatter::set_context(int width, std::uint32_t theme_version) {
+    if (width != width_ || theme_version != theme_) {
+        stable_prefix_.clear();
+        cached_stable_ = text("");
     }
-
-    Element unstable_elem = format_markdown(unstable, opts);
-    return vbox({cached_stable_, unstable_elem});
+    width_ = width;
+    theme_ = theme_version;
 }
 
 void StreamingFormatter::reset() {
     full_content_.clear();
     stable_prefix_.clear();
     cached_stable_ = text("");
+    last_element_ = text("");
 }
 
 } // namespace acecode::markdown

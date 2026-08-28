@@ -1,6 +1,7 @@
 #pragma once
 
 #include "markdown_types.hpp"
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <string>
@@ -41,13 +42,21 @@ public:
     // Append new delta text and return the full rendered Element.
     ftxui::Element append_delta(const std::string& delta,
                                 const FormatOptions& opts = {});
+    // Most recently produced Element, reusable for cheap re-render.
+    const ftxui::Element& last_element() const;
     // Reset state (new conversation turn).
     void reset();
+    // Width/theme changes invalidate the stable prefix; the next append
+    // rebuilds from scratch to avoid stale wrapping/colors.
+    void set_context(int width, std::uint32_t theme_version);
 
 private:
     std::string full_content_;
     std::string stable_prefix_;
     ftxui::Element cached_stable_;
+    ftxui::Element last_element_;
+    int width_ = -1;
+    std::uint32_t theme_ = 0;
 };
 
 } // namespace acecode::markdown
