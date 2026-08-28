@@ -657,6 +657,13 @@ std::vector<std::string> WebServer::Impl::allowed_file_cwds() const {
     }
     if (deps.session_registry) {
         for (const auto& session : deps.session_registry->list_active()) {
+            // A session's own cwd is a legitimate file root: it is where that
+            // session's tools already read and write. no-workspace sessions live
+            // under <data_dir>/cache/no-workspace/<id> and belong to no registered
+            // workspace, so without this they matched nothing in the allow list and
+            // every preview request came back 400 — files the agent had just
+            // created in that very directory were unopenable.
+            add(session.cwd);
             add(session.worktree_path);
         }
     }
@@ -773,6 +780,11 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     }
     o["workspace_hash"] = workspace_hash;
     o["cwd"]           = cwd;
+    // `cwd` stays empty for no-workspace sessions because callers treat it as the
+    // workspace binding. File preview needs the real directory regardless of
+    // workspace membership, so it is published separately instead of overloading
+    // `cwd` and disturbing workspace attribution.
+    o["working_cwd"]   = storage_cwd;
     o["session_path"]  = existing_session_jsonl_path(storage_cwd, s.id);
     o["no_workspace"]  = no_workspace;
     // A user rename persisted by another process (Desktop keeps one daemon per

@@ -9,6 +9,7 @@ import {
   stripOpenSessionParams,
 } from './sessionJump.js';
 import { navigationHistoryFromHash } from './navigationHistory.js';
+import { sessionWorkingCwd } from './previewTabs.js';
 
 function test(name, fn) {
   try {
@@ -175,4 +176,77 @@ test('desktop open session URL transfers navigation history in a client-only fra
     }],
     forward: [],
   });
+});
+
+// 触发场景：打开一个 no-workspace 会话（模型在 <data_dir>/cache/no-workspace/<id>
+// 里生成了文件），用户点正文里的文件链接想预览。
+// 期望行为：ref 仍然不带 workspace 归属（cwd 空、workspaceHash 空），
+// 但携带 workingCwd —— 文件预览靠它定位目录。
+// 回归背景：以前 ref 只有 cwd，而后端对 no-workspace 会话故意把 cwd 清成空串
+// （它表达的是 workspace 归属，不是“文件在哪”），于是前端算出的预览根目录
+// 恒为空，openFilePreview 第一行就 return，用户点自己刚生成的文件毫无反应。
+test('no-workspace session ref carries a working directory for file preview', () => {
+  const ref = sessionRefFromJumpTarget(
+    { sessionId: 's1', noWorkspace: true },
+    { session_id: 's1', no_workspace: true, cwd: '', working_cwd: 'C:\data\cache\no-workspace\s1' },
+  );
+
+  assert.equal(ref.noWorkspace, true);
+  assert.equal(ref.workspaceHash, '');
+  assert.equal(ref.cwd, '');
+  assert.equal(ref.workingCwd, 'C:\data\cache\no-workspace\s1');
+});
+
+// 期望行为：普通 workspace 会话两个字段都有值且一致，
+// workingCwd 只是把“工作目录”从 workspace 归属里拆出来，不改既有语义。
+test('workspace session ref keeps cwd and workingCwd consistent', () => {
+  const ref = sessionRefFromJumpTarget(
+    { sessionId: 's2', workspaceHash: 'w1' },
+    { session_id: 's2', cwd: 'N:/proj', working_cwd: 'N:/proj' },
+  );
+
+  assert.equal(ref.workspaceHash, 'w1');
+  assert.equal(ref.cwd, 'N:/proj');
+  assert.equal(ref.workingCwd, 'N:/proj');
+});
+
+// 触发场景：no-workspace 会话里模型生成了文件，用户点链接预览。
+// 期望行为：预览根目录取会话自己的工作目录，而不是 daemon 进程的 cwd。
+// 回归背景：ref.cwd 对 no-workspace 会话恒为空，旧逻辑会回退到 health.cwd
+// （daemon 自己的工作目录）。实测中文件实际在
+// C:/Users/shao/.acecode/cache/no-workspace/<id>/ 下，预览却去 N:/Users/shao/se/ 里找，
+// 结果是一个看上去照模照样的「文件不存在」—— 比干脆打不开更难排查。
+test('no-workspace preview root comes from the session, never the daemon cwd', () => {
+  const ref = sessionRefFromJumpTarget(
+    { sessionId: 's1', noWorkspace: true },
+    { session_id: 's1', no_workspace: true, cwd: '', working_cwd: 'C:/data/cache/no-workspace/s1' },
+  );
+
+  // ChatView 算预览根目录的同一条优先级：workingCwd 赢，no-workspace 不取 daemon 兑底。
+  const daemonCwd = 'N:/Users/shao/se';
+  const previewRoot = sessionWorkingCwd({
+    worktree: null,
+    cwd: ref.workingCwd || ref.cwd || '',
+    fallbackCwd: ref.noWorkspace ? '' : daemonCwd,
+  });
+
+  assert.equal(previewRoot, 'C:/data/cache/no-workspace/s1');
+  assert.notEqual(previewRoot, daemonCwd);
+});
+
+// 期望行为：即使 working_cwd 缺失（连的是旧 daemon），no-workspace 会话也宁可算不出
+// 根目录（预览不打开），也不能指向 daemon 的 cwd 去报一个错误的「文件不存在」。
+test('no-workspace session without working_cwd yields no preview root at all', () => {
+  const ref = sessionRefFromJumpTarget(
+    { sessionId: 's1', noWorkspace: true },
+    { session_id: 's1', no_workspace: true, cwd: '' },
+  );
+
+  const previewRoot = sessionWorkingCwd({
+    worktree: null,
+    cwd: ref.workingCwd || ref.cwd || '',
+    fallbackCwd: ref.noWorkspace ? '' : 'N:/Users/shao/se',
+  });
+
+  assert.equal(previewRoot, '');
 });

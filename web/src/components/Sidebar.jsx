@@ -220,6 +220,16 @@ function sidebarSessionTarget(workspace = {}, session = {}, resumeResult = {}) {
     cwd: noWorkspace
       ? ''
       : (resumeResult.cwd || session.cwd || workspace.cwd || ''),
+    // 会话真实工作目录,与 workspace 归属无关,所以不跟着 noWorkspace 清空。
+    // 这份 target 是显式字段白名单:漏掉一个字段就等于在这条入口把它删了。
+    // 已 active 的会话点进来时不会发 resume(resumeResult 为空),ref 只能从
+    // 这里取值 —— 漏掉 workingCwd 的后果是侧边栏进来的会话预览根目录为空、
+    // 文件链接点了没反应,而带 ?open=<id> 的入口因为会 resume 反而正常。
+    workingCwd: resumeResult.working_cwd
+      || resumeResult.workingCwd
+      || session.working_cwd
+      || session.workingCwd
+      || (noWorkspace ? '' : (resumeResult.cwd || session.cwd || workspace.cwd || '')),
     sessionPath: session.sessionPath
       || session.session_path
       || resumeResult.sessionPath

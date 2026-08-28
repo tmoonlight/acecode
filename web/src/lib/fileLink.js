@@ -99,8 +99,27 @@ export function threadSessionTargetFromClickEvent(event) {
 // path/line 仅在 kind==='file' / 'directory' 有意义。
 // sessionId 仅在 kind==='session' 有意义。
 // 目录判定:href 或可见链接文案以 / 或 \ 结尾(模型/AGENT.md 的目录型链接约定)。
+// markdown-it 在 parse 阶段就对 href 做百分号编码(mdurl.encode):中文文件名变成
+// %E9%9A%8F%E6%9C%BA...,Windows 路径的反斜杠变成 %5C。这对 http 外链是必要的,
+// 对本地路径却是两个真实故障:
+//   1) data-file-path 带着编码值传给文件预览,拼 API URL 时再编码一次,服务端
+//      收到 %E9%9A%8F 字面量找不到文件 —— 任何非 ASCII 文件名的链接必定点不开;
+//   2) 反斜杠变 %5C 后 `N:\Users\x.md` 漏过盘符判定,`N:` 被当成 URL scheme
+//      直接 reject,链接被剥成纯文本。
+// 因此判定前先还原。放在 classifyFileLink 内部而不是各调用点,是为了让
+// validateLink 与 link_open 继续共用同一套判据(见文件头的单一事实源说明);
+// 顺带把 `javascript%3Aalert(1)` 这种编码绕过也还原成可识别的危险 scheme。
+function decodePercentEncoding(value) {
+  if (value.indexOf('%') < 0) return value;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value; // 非法 % 序列保持原样,后续判据照常处理
+  }
+}
+
 export function classifyFileLink(rawHref, options = {}) {
-  const href = String(rawHref == null ? '' : rawHref).trim();
+  const href = decodePercentEncoding(String(rawHref == null ? '' : rawHref).trim());
   if (!href) return { kind: 'reject', path: '', line: null };
   // 页内锚点保持原样(当前页滚动)。
   if (href[0] === '#') return { kind: 'anchor', path: '', line: null };

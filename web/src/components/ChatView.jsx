@@ -1036,14 +1036,22 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         path: localWorktree.path || ref?.worktree?.path || '',
       }
     : (ref?.worktree || null);
-  const sidePanelFilesEnabled = !(ref?.noWorkspace || ref?.no_workspace);
-  const sidePanelCwd = sidePanelFilesEnabled
-    ? sessionWorkingCwd({
-        worktree: sessionWorktree,
-        cwd: ref?.cwd || '',
-        fallbackCwd: health?.cwd || '',
-      })
-    : '';
+  // 文件预览的根目录只取决于「这个会话在哪个目录里干活」,与它属不属于某个
+  // workspace 无关。ref.cwd 对 no-workspace 会话恒为空(后端刻意清掉,那是
+  // workspace 归属字段),真实目录走 workingCwd —— 没有它的时候整条预览链路
+  // 从头就是死的:cwd 为空 → openFilePreview 直接 return,用户点自己刚生成的
+  // 文件毫无反应。no-workspace 会话的文件同样在磁盘上,同样应该能预览。
+  const sessionIsNoWorkspace = !!(ref?.noWorkspace || ref?.no_workspace);
+  const sidePanelCwd = sessionWorkingCwd({
+    worktree: sessionWorktree,
+    cwd: ref?.workingCwd || ref?.working_cwd || ref?.cwd || '',
+    // health.cwd 是 daemon 进程自己的工作目录,只有当会话确实属于这个 daemon 服务的
+    // workspace 时才是合理兜底。no-workspace 会话与它毫无关系,回退过去会让预览跑到一个
+    // 无关目录里找文件并报「文件不存在」—— 一个看起来煞有介事的错误路径,比干脆打不开
+    // 更难排查(实测把 cache/no-workspace/<id>/a.xlsx 找成了 N:/Users/shao/se/a.xlsx)。
+    fallbackCwd: sessionIsNoWorkspace ? '' : (health?.cwd || ''),
+  });
+  const sidePanelFilesEnabled = !!sidePanelCwd;
   const drainRef = useRef(false);
   // 排队消息从 transcript 中分离出来,只喂给 InputBar 上方的 QueueCardList。
   // transcript 只渲染后端真实落库的消息,避免把"草稿/未发送"和"已发送"混在一起。
@@ -1444,6 +1452,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         next.workspaceName = target?.name || ref?.workspaceName;
         next.cwd = r.cwd || target?.cwd || ref?.cwd;
       }
+      // workingCwd 与 workspace 归属无关,两个分支都要带上:no-workspace 会话
+      // 首轮生成的文件就靠它才能预览。
+      const nextWorkingCwd = r.working_cwd || r.cwd || target?.cwd || '';
+      if (nextWorkingCwd) next.workingCwd = nextWorkingCwd;
       next.title = title || text;
       if (homeExpertId) {
         const selectedExpert = experts.find((expert) => expert.id === homeExpertId) || ref?.expert || null;
@@ -3012,6 +3024,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           toast({ kind: 'err', text: '插话提交失败:' + (e?.message || '未知错误') });
         })
         .finally(() => {
+          turnInterruptInFlightRef.current.delete(interruptRequestKey);
           setComposerSubmitting(false);
           restoreChatInputFocusSoon(false);
         });
@@ -3116,7 +3129,6 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           });
         })
         .finally(() => {
-          turnInterruptInFlightRef.current.delete(interruptRequestKey);
           setComposerSubmitting(false);
           restoreChatInputFocusSoon(false);
         });
@@ -3570,6 +3582,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       const noWorkspace = !!(ref?.noWorkspace || r?.no_workspace || r?.noWorkspace);
       const workspaceHash = noWorkspace ? '' : (r.workspace_hash || ref?.workspaceHash || '');
       const cwd = noWorkspace ? '' : (r.cwd || ref?.cwd || '');
+      const workingCwd = r.working_cwd || r.cwd || ref?.workingCwd || ref?.cwd || '';
       const now = new Date().toISOString();
       const forkedSession = {
         ...r,
@@ -3582,6 +3595,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         noWorkspace,
         workspace_hash: workspaceHash,
         cwd,
+        working_cwd: workingCwd,
         title: r.title,
         created_at: r.created_at || now,
         updated_at: r.updated_at || now,
@@ -3591,6 +3605,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         title: r.title,
         workspaceHash,
         cwd,
+        workingCwd,
         noWorkspace,
       });
       notifySessionListChanged({
@@ -4473,6 +4488,24 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     }));
   }, [previewScope, sid, sidePanelCwd, sidePanelCollapsed, onToggleSidePanel]);
 
+  // transcript 里本地文件链接的兜底入口。assistant 气泡在 Message.jsx 里自带
+  // 拦截,但同一片区域还有别的 markdown 渲染位置没有各自的拦截器
+  // (ToolBlock 的 task_complete 完成总结、会话摘要),那里的文件链接以前点了
+  // 没有任何反应。链接本身已经没有 href(markdown.js 里删掉了),不会跳走,
+  // 这里只负责把它们接回预览/文件树。
+  const handleTranscriptFileLink = useCallback((event) => {
+    if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+    const anchor = event.target?.closest?.('a[data-file-path]');
+    if (!anchor) return;
+    const path = anchor.getAttribute('data-file-path') || '';
+    if (!path) return;
+    event.preventDefault();
+    const kind = anchor.getAttribute('data-file-kind') || 'file';
+    const lineAttr = anchor.getAttribute('data-file-line');
+    if (kind === 'directory') locateInFileTree(path);
+    else openFilePreview(path, lineAttr ? Number(lineAttr) : null);
+  }, [locateInFileTree, openFilePreview]);
+
   const openPreviewFilePicker = useCallback(async () => {
     if (!sidePanelCwd || !hasNativePreviewFilePicker()) return;
     try {
@@ -5307,6 +5340,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           onWheel={handleMessagesWheel}
           onPointerDown={handleMessagesPointerDown}
           onKeyDownCapture={handleMessagesKeyDownCapture}
+          onClick={handleTranscriptFileLink}
+          onKeyDown={handleTranscriptFileLink}
           className="ace-chat-transcript-scroll h-full overflow-y-auto pl-[35px] pr-3.5 py-3"
           style={changeDockBottomPadding > 0 ? { paddingBottom: changeDockBottomPadding } : undefined}
         >

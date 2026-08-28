@@ -271,4 +271,47 @@ await run('markdown still linkifies explicit URLs, emails, and [text](url)', () 
   assert.match(mdLink, /<a[^>]*data-file-path="SKILL\.MD"/);
 });
 
+// 触发场景:模型输出 [下载随机销售数据.xlsx](随机销售数据.xlsx) 这类指向本地
+// 文件的相对路径链接,用户在 Web UI 里点击。
+// 期望行为:渲染出的 <a> 不带 href,真实路径只留在 data-file-path 上。
+// 回归背景:带 href 时浏览器会按相对 URL 导航到 http://<daemon>/<路径>,而 daemon
+// 对任何未知路径都走 SPA fallback 回 200 + index.html —— 整页重载、React 树重建、
+// 会话与滚动位置全丢,用户的实际观感是「点个链接前端就崩溃重启回首页」。
+// 光靠各组件自己 preventDefault 挡不住:transcript 里有多处 markdown 渲染位置
+// (ToolBlock 的完成总结、会话摘要、SidePanel 预览)没有各自的拦截器,漏一处就复现。
+// 因此把「不可导航」做进渲染层,让它不依赖任何调用方是否记得挂拦截。
+await run('local file links render without a navigable href', () => {
+  const relative = renderMarkdown('see [下载](随机销售数据.xlsx) here');
+  assert.match(relative, /<a[^>]*data-file-path="随机销售数据\.xlsx"/);
+  assert.doesNotMatch(relative, /<a[^>]*href=/);
+
+  const nested = renderMarkdown('see [spec](docs/spec.md:42) here');
+  assert.match(nested, /<a[^>]*data-file-path="docs\/spec\.md"/);
+  assert.match(nested, /<a[^>]*data-file-line="42"/);
+  assert.doesNotMatch(nested, /<a[^>]*href=/);
+
+  const dir = renderMarkdown('see [src](src/headless/) here');
+  assert.match(dir, /<a[^>]*data-file-kind="directory"/);
+  assert.doesNotMatch(dir, /<a[^>]*href=/);
+});
+
+// 期望行为:去掉 href 会连带去掉原生的可聚焦性,渲染层补 role/tabindex 顶上,
+// 键盘用户仍能 Tab 到文件链接并用 Enter 触发(点击拦截器同时处理 keydown)。
+await run('local file links stay keyboard reachable without href', () => {
+  const html = renderMarkdown('see [spec](docs/spec.md) here');
+  assert.match(html, /<a[^>]*role="link"/);
+  assert.match(html, /<a[^>]*tabindex="0"/);
+});
+
+// 期望行为:去 href 只针对本地路径。真外链与会话链接必须保留 href,
+// 否则外链无法在新标签页打开、thread:// 芯片也会失去可复制的地址。
+await run('external and thread links keep their href', () => {
+  const external = renderMarkdown('see [site](https://example.com/a) here');
+  assert.match(external, /<a[^>]*href="https:\/\/example\.com\/a"/);
+  assert.match(external, /target="_blank"/);
+
+  const thread = renderMarkdown('see [chat](thread://20260818-041607-0315) here');
+  assert.match(thread, /<a[^>]*href="thread:\/\/20260818-041607-0315"/);
+});
+
 console.log('all fileLink tests passed');

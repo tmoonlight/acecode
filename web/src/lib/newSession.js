@@ -23,6 +23,14 @@ export function sessionRefFromCreateResponse(response, fallbackRef = {}, health 
     sessionId,
     contextId: r.context_id || fallback.contextId || 'default',
     cwd: noWorkspace ? '' : (r.cwd || fallback.cwd || health?.cwd || ''),
+    // 会话真实工作目录:与 workspace 归属无关,no-workspace 会话同样有。
+    // 注意这里刻意不回退到 health.cwd —— 那是 daemon 进程自己的目录,对
+    // no-workspace 会话毫无关系,回退过去只会让文件预览跑到无关目录报
+    // 「文件不存在」,比干脆打不开更难排查。
+    workingCwd: r.working_cwd
+      || r.workingCwd
+      || fallback.workingCwd
+      || (noWorkspace ? '' : (r.cwd || fallback.cwd || health?.cwd || '')),
   };
   if (noWorkspace) next.noWorkspace = true;
   else if (workspaceHash) next.workspaceHash = workspaceHash;

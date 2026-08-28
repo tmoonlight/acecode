@@ -223,9 +223,20 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     token.attrSet('target', '_blank');
     token.attrSet('rel', 'noreferrer');
   } else if (info.kind === 'file' || info.kind === 'directory') {
+    // href 必须删掉,不能只靠 JS 拦截。本地路径是相对 URL,一旦有哪个渲染位置
+    // 忘了挂点击拦截(ToolBlock 的完成总结、会话摘要、SidePanel 预览里的
+    // markdown 都曾如此),浏览器就会导航到 http://<daemon>/<路径>,而 daemon 的
+    // SPA fallback 对任何未知路径都回 200 + index.html —— 整页重载、React 树重建,
+    // 用户看到的是「点个链接前端就崩溃重启回首页」。没有 href 的 <a> 不可导航,
+    // 最坏情况只是点了没反应,真实路径只留在 data-file-path 上交给拦截器。
+    const hrefIdx = token.attrIndex('href');
+    if (hrefIdx >= 0) token.attrs.splice(hrefIdx, 1);
     token.attrSet('data-file-path', info.path);
     token.attrSet('data-file-kind', info.kind);
     if (info.line != null) token.attrSet('data-file-line', String(info.line));
+    // 去掉 href 也去掉了原生可聚焦性,补回键盘可达(Enter 由点击拦截器一并处理)。
+    token.attrSet('role', 'link');
+    token.attrSet('tabindex', '0');
     const cls = token.attrGet('class');
     token.attrSet('class', cls ? cls + ' ace-file-link' : 'ace-file-link');
   } else if (info.kind === 'session') {

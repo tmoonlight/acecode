@@ -74,6 +74,7 @@ import './transcriptSelfHeal.test.js';
 import './singleWriterStore.test.js';
 import './transcriptStreamIntegrity.test.js';
 import './singleWriterOwnershipArchitecture.test.js';
+import './previewRootArchitecture.test.js';
 import './sessionChanges.test.js';
 import './previewRefresh.test.js';
 import './turnFileList.test.js';

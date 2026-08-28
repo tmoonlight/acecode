@@ -71,6 +71,9 @@ json global_search_entry_to_json(const GlobalSessionCatalogEntry& entry) {
         {"created_at", meta.created_at},
         {"updated_at", updated_at},
         {"cwd", meta.no_workspace ? std::string{} : meta.cwd},
+        // Real working directory, published regardless of workspace membership so
+        // file preview works in no-workspace sessions too (see session_info_to_json).
+        {"working_cwd", meta.cwd},
         {"workspace_hash", meta.no_workspace ? std::string{} : entry.workspace_hash},
         {"workspaceName", meta.no_workspace
             ? std::string{"\u65e0\u5de5\u4f5c\u533a"}
@@ -928,6 +931,9 @@ void WebServer::Impl::register_sessions() {
                 {"id", id},
                 {"workspace_hash", opts.no_workspace ? std::string{} : ws.hash},
                 {"cwd", opts.no_workspace ? std::string{} : ws.cwd},
+                {"working_cwd", opts.no_workspace
+                    ? no_workspace_session_cwd(id, no_workspace_cache_root())
+                    : ws.cwd},
                 {"no_workspace", opts.no_workspace},
                 {"expert_id", opts.expert_id}
             }.dump();
@@ -1014,6 +1020,7 @@ void WebServer::Impl::register_sessions() {
                 {"active", true},
                 {"workspace_hash", opts.no_workspace ? std::string{} : ws.hash},
                 {"cwd", opts.no_workspace ? std::string{} : ws.cwd},
+                {"working_cwd", opts.cwd.empty() ? ws.cwd : opts.cwd},
                 {"no_workspace", opts.no_workspace}
             }.dump();
             r.add_header("Content-Type", "application/json");
@@ -2264,6 +2271,7 @@ void WebServer::Impl::register_sessions() {
             resp["fork_message_id"] = at_message_id;
             resp["workspace_hash"]   = entry->no_workspace ? std::string{} : entry->workspace_hash;
             resp["cwd"]              = entry->no_workspace ? std::string{} : entry->cwd;
+            resp["working_cwd"]      = entry->cwd;
             resp["no_workspace"]     = entry->no_workspace;
             crow::response r(resp.dump());
             r.add_header("Content-Type", "application/json");

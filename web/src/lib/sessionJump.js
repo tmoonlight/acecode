@@ -209,6 +209,9 @@ export function sessionRefFromJumpTarget(target = {}, resumeResult = {}, fallbac
     ['model_name', ['model_name']],
     ['model_preset', ['model_preset']],
     ['context_window', ['context_window']],
+    // 会话真实工作目录。cwd 对 no-workspace 会话恒为空(它表达的是 workspace 归属),
+    // 文件预览要的是「文件到底在哪个目录」,与是否属于某个 workspace 无关。
+    ['workingCwd', ['workingCwd', 'working_cwd']],
     ['sessionPath', ['sessionPath', 'session_path']],
     ['message_count', ['message_count', 'messageCount']],
     ['created_at', ['created_at', 'createdAt']],

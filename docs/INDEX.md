@@ -23,3 +23,7 @@
 - [plan/tasks/](plan/tasks/)：可独立验证的交付任务。
 - [plan/reviews/](plan/reviews/)：独立审查结论。
 - [plan/backlog.md](plan/backlog.md)：非阻塞后续事项。
+
+## 复盘
+
+- [postmortem-file-link-preview.md](postmortem-file-link-preview.md)：AI 生成的文件链接点不开 —— 渲染、编码、路径、数据传递四层缺陷的定位过程与回归防线。

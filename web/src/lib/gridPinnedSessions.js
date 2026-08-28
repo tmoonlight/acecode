@@ -65,6 +65,8 @@ export function sessionRefFromGridPayload(session) {
     contextId: session.contextId || session.context_id || 'default',
     workspaceHash,
     cwd: session.cwd || '',
+    // 见 newSession.js:预览根目录跟着会话走,不跟着 workspace 归属走。
+    workingCwd: session.workingCwd || session.working_cwd || session.cwd || '',
     active: !!(session.active ?? session.is_active),
     busy: !!(session.busy ?? session.is_busy),
     status: session.status || 'idle',
