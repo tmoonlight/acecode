@@ -142,12 +142,18 @@ git commit -m "feat: include content hash in message render revision (L1)"
 
 **Interfaces:**
 - Consumes: `MessageRenderCache`、`MessageRenderCacheKey`、`CachedLinkRegion`、`theme_palette_version()`(Task 4 提供;**执行顺序:先完成 Task 4 再做本任务**,否则 `theme_palette_version()` 未定义无法编译)
+- Ruling R5:共享 `message_render_revision` **不包含** content(Task 2 已 revert,以保留布局缓存的流式实测高度跟踪);content 哈希只在**本任务的渲染缓存键**中显式加入(渲染缓存需 content 感知)。
 
 - [ ] **Step 1: 挂缓存进 ChatScrollRuntime**
 `ChatScrollRuntime` 加成员 `acecode::tui::MessageRenderCache message_render_cache;`;`reset_chat_line_measure_state_runtime` 末尾加 `scroll.message_render_cache.invalidate_all();`;`invalidate_chat_line_measure_at_runtime` 里 `message_layout_valid[index]=0` 后加 `scroll.message_render_cache.invalidate(index);`。
 
 - [ ] **Step 2: render 循环用缓存构建每条消息**
-把 render 循环里 `render_message_markdown(msg.content, ...)` 的调用改为:先算 `MessageRenderCacheKey cache_key{message_render_revision(msg,state.transcript_expanded), current_message_width, acecode::tui::theme_palette_version(), /*syntax*/true};` 若 `scroll.message_render_cache.valid(i, cache_key)` → 复用 `*element(i)`,并把 `link_regions(i)` 的 href 逐条 `chat_link_regions.add(href)`(精确 box 由 reflect 流程补,与现状一致);否则走原 `format_markdown` 路径,构建后把本消息新增链接区域(本帧 collect 的、属于该消息盒子的区域)转成 `CachedLinkRegion{href, x - msgbox.x_min, y - msgbox.y_min, w, h}` 与 Element 一起 `store(i, cache_key, md_content, cached_links)`。用户消息/工具消息同法(角色消息无 markdown,仍可缓存其 `paragraph`/`parse_tool_row` Element)。
+把 render 循环里 `render_message_markdown(msg.content, ...)` 的调用改为:先算缓存键(R5:content 只进渲染缓存键,不进布局 revision):
+```cpp
+std::size_t rev = message_render_revision(msg, state.transcript_expanded);
+rev = acecode::tui::combine_render_hash(rev, std::hash<std::string>{}(msg.content)); // R5: 渲染缓存 content 感知
+acecode::tui::MessageRenderCacheKey cache_key{rev, current_message_width, acecode::tui::theme_palette_version(), /*syntax*/true};
+``` 若 `scroll.message_render_cache.valid(i, cache_key)` → 复用 `*element(i)`,并把 `link_regions(i)` 的 href 逐条 `chat_link_regions.add(href)`(精确 box 由 reflect 流程补,与现状一致);否则走原 `format_markdown` 路径,构建后把本消息新增链接区域(本帧 collect 的、属于该消息盒子的区域)转成 `CachedLinkRegion{href, x - msgbox.x_min, y - msgbox.y_min, w, h}` 与 Element 一起 `store(i, cache_key, md_content, cached_links)`。用户消息/工具消息同法(角色消息无 markdown,仍可缓存其 `paragraph`/`parse_tool_row` Element)。
 
 - [ ] **Step 3: 构建 + 全量单测回归**
 Run: `cmake --build build/macos-x64-debug --target acecode_unit_tests && ./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='MessageRenderCache.*:*ChatScroll*:*ChatRenderWindow*'`
