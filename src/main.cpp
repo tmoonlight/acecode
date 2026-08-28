@@ -163,6 +163,7 @@
 #include "tool/spawn_subagent_tool.hpp"
 #include "tui/todo_checklist_view.hpp"
 #include "tui/input_history_navigation.hpp"
+#include "tui/message_render_cache.hpp"
 #include "tui/ctrl_c_exit.hpp"
 #include "utils/base64.hpp"
 #include "utils/clipboard.hpp"
@@ -1287,6 +1288,7 @@ struct ChatScrollRuntime {
     std::vector<int>& message_line_counts;
     std::vector<int>& message_spacer_rows_after;
     int& message_line_count_width;
+    acecode::tui::MessageRenderCache message_render_cache;
 };
 
 // 聊天视口高度来自上一帧布局；还没布局时按 0 行处理。
@@ -1374,6 +1376,8 @@ static void reset_chat_line_measure_state_runtime(ChatScrollRuntime& scroll,
         scroll.message_line_measures, static_cast<int>(n_msgs));
     acecode::tui::invalidate_chat_line_measures(scroll.message_line_measures);
     rebuild_message_line_counts_runtime(scroll, state);
+    scroll.message_render_cache.resize(n_msgs);
+    scroll.message_render_cache.invalidate_all();
 }
 
 // 某一条消息样式变化时，只废掉这一条的高度缓存。
@@ -1389,6 +1393,7 @@ static void invalidate_chat_line_measure_at_runtime(ChatScrollRuntime& scroll,
         index < static_cast<int>(scroll.message_layout_valid.size())) {
         scroll.message_layout_valid[static_cast<std::size_t>(index)] = 0;
     }
+    scroll.message_render_cache.invalidate(static_cast<std::size_t>(index));
 }
 
 // 把上一帧 FTXUI 布局结果同步到聊天行数缓存。
@@ -3186,6 +3191,7 @@ struct TuiRendererContext {
     std::vector<Box>& message_boxes;
     std::vector<Box>& path_reference_boxes;
     acecode::markdown::MarkdownLinkRegionCollector& chat_link_regions;
+    acecode::tui::MessageRenderCache& message_render_cache;
     std::vector<Box>& message_layout_boxes;
     std::vector<char>& message_layout_valid;
     std::vector<std::size_t>& message_layout_revisions;
@@ -3220,6 +3226,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& message_boxes = ctx.message_boxes;
     auto& path_reference_boxes = ctx.path_reference_boxes;
     auto& chat_link_regions = ctx.chat_link_regions;
+    auto& message_render_cache = ctx.message_render_cache;
     auto& message_layout_boxes = ctx.message_layout_boxes;
     auto& message_layout_valid = ctx.message_layout_valid;
     auto& message_layout_revisions = ctx.message_layout_revisions;
@@ -3435,6 +3442,35 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             return paragraph(content) | color(fallback_color);
         }
     };
+    // L1 消息级 Element 缓存:内容与渲染上下文(宽度/主题/语法)不变时复用
+    // 上帧构建的 Element,跳过 format_markdown。Ruling R6:仅缓存无链接
+    // 消息 —— format_markdown 会给链接元素 bake reflect(region.box),
+    // 其指向每帧 clear() 的 collector 区域,跨帧复用会悬垂;无链接消息无
+    // reflect 装饰器,可安全复用。含链接消息永不缓存,走原全量路径。
+    auto render_cached_message_markdown =
+        [&](size_t index, const std::string& content,
+            Color fallback_color) -> Element {
+        std::size_t rev = message_render_revision(
+            state.conversation[index], state.transcript_expanded);
+        // R5:content 哈希只进渲染缓存键(布局 revision 不含 content)。
+        rev = combine_render_hash(rev, std::hash<std::string>{}(content));
+        const acecode::tui::MessageRenderCacheKey cache_key{
+            rev, current_message_width,
+            acecode::tui::theme_palette_version(), /*syntax=*/true};
+        if (message_render_cache.valid(index, cache_key)) {
+            return *message_render_cache.element(index);
+        }
+        const std::size_t links_before = chat_link_regions.regions().size();
+        Element element = render_message_markdown(content, fallback_color);
+        const bool has_links =
+            chat_link_regions.regions().size() > links_before;
+        if (!has_links) {
+            message_render_cache.store(
+                index, cache_key, element,
+                std::vector<acecode::tui::CachedLinkRegion>{});
+        }
+        return element;
+    };
     const size_t render_first =
         static_cast<size_t>(std::max(0, render_window.first_message));
     const size_t render_last = std::min(
@@ -3472,9 +3508,9 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             message_elements.push_back(
                 tracked_message(i, line | focus_decorator));
         } else if (msg.role == "assistant") {
-            // Render with Markdown formatting
-            Element md_content = render_message_markdown(
-                msg.content, tui::theme().semantic.success);
+            // Render with Markdown formatting (L1 缓存:无链接消息复用)。
+            Element md_content = render_cached_message_markdown(
+                i, msg.content, tui::theme().semantic.success);
             auto line = hbox({
                 text(" * ") | bold | color(tui::theme().semantic.success),
                 md_content | flex,
@@ -3553,8 +3589,8 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             auto line = hbox({
                 text("  \xE2\x94\x94 ") |
                     color(tui::theme().ui.text_dim), // "└"
-                render_message_markdown(
-                    summary_markdown,
+                render_cached_message_markdown(
+                    i, summary_markdown,
                     tui::theme().ui.text_primary) | flex,
             });
             if (focused_message) {
@@ -8761,6 +8797,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         message_boxes,
         path_reference_boxes,
         chat_link_regions,
+        chat_scroll.message_render_cache,
         message_layout_boxes,
         message_layout_valid,
         message_layout_revisions,
