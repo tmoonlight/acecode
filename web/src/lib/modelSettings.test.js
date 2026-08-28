@@ -16,6 +16,7 @@ import {
   normalizeModelCatalogSummary,
   normalizeProviderModelQuery,
   normalizeSavedModelList,
+  providerForSavedModel,
   redactModelDraftSecrets,
   replaceDraftModelsFromProbe,
   serializeModelReasoningMutation,
@@ -71,6 +72,15 @@ const customProvider = {
   model_input: 'manual',
   models_dev_provider_id: null,
   group: 'custom',
+};
+
+const aceModelProvider = {
+  ...customProvider,
+  id: 'acemodel',
+  name: 'ACEModel',
+  base_url: 'https://ge.bigjuan.xyz/aceapi/v1',
+  api_key_env: 'ACEMODEL_API_KEY',
+  models_dev_provider_id: 'acemodel',
 };
 
 const copilotProvider = {
@@ -153,6 +163,31 @@ run('目录摘要严格保留 Provider 元数据且不再暴露热门预置', ()
   assert.equal(normalized.catalog.version, 7);
   assert.equal(normalized.providers[0].doc, 'https://openrouter.ai/docs');
   assert.equal(Object.hasOwn(normalized, 'recommended_models'), false);
+});
+
+run('编辑预设按持久化 Provider 身份解析且不受 ACEModel 目录顺序影响', () => {
+  const providers = [aceModelProvider, customProvider, openRouterProvider];
+
+  assert.equal(providerForSavedModel(providers, {
+    provider: 'openai',
+    model: 'aurora',
+    models_dev_provider_id: '',
+  })?.id, 'custom-openai');
+  assert.equal(providerForSavedModel(providers, {
+    provider: 'openai',
+    model: 'aurora',
+    models_dev_provider_id: 'acemodel',
+  })?.id, 'acemodel');
+  assert.equal(providerForSavedModel(providers, {
+    provider: 'openai',
+    model: 'some-model',
+    models_dev_provider_id: 'openrouter',
+  })?.id, 'openrouter');
+  assert.equal(providerForSavedModel(providers, {
+    provider: 'openai',
+    model: 'some-model',
+    models_dev_provider_id: 'missing-provider',
+  }), null);
 });
 
 run('Web 严格 normalizer 消费与 C++ 共享的 canonical catalog fixture', () => {

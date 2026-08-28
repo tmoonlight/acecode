@@ -11,6 +11,8 @@
 #include "../utils/logger.hpp"
 #include "../utils/paths.hpp"
 #include "../utils/utf8_path.hpp"
+#include "../web/http_address.hpp"
+#include "../web/remote_web.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -366,8 +368,13 @@ static int do_start(const Args& a, const std::string& exe_path) {
     while (std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
         auto p = read_pid_file();
-        if (p.has_value() && is_pid_alive(*p)) {
+        auto port = read_port_file();
+        if (p.has_value() && port.has_value() && is_pid_alive(*p)) {
             std::cout << "daemon started pid=" << *p << "\n";
+            std::cout << "Web UI: "
+                      << acecode::web::format_http_address(
+                             acecode::web::kRemoteWebLoopbackBind, *port)
+                      << "\n";
             return 0;
         }
     }

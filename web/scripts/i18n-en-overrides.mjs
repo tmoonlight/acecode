@@ -897,4 +897,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '重做': 'Redo',
   'Markdown 格式': 'Markdown formatting',
   'Markdown 所见即所得编辑器': 'Markdown WYSIWYG editor',
+  '从添加项目、开始新对话到模型设置':
+    'From adding a project to starting a new session to model setup',
 });

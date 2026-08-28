@@ -431,6 +431,44 @@ export function normalizeSavedModelList(payload) {
   return requireArray(payload, 'saved models response').map(normalizeSavedModelProfile);
 }
 
+export function providerForSavedModel(providers, model) {
+  const choices = Array.isArray(providers) ? providers : [];
+  const normalizeIdentity = (value) => (
+    typeof value === 'string' ? value.trim().toLowerCase() : ''
+  );
+  const runtimeProvider = normalizeIdentity(model?.provider);
+  const providerHint = normalizeIdentity(model?.models_dev_provider_id);
+  if (!runtimeProvider) return null;
+
+  if (providerHint) {
+    return choices.find((provider) => (
+      normalizeIdentity(provider?.runtime_provider) === runtimeProvider
+        && (normalizeIdentity(provider?.id) === providerHint
+          || normalizeIdentity(provider?.models_dev_provider_id) === providerHint)
+    )) || null;
+  }
+
+  if (runtimeProvider === 'openai') {
+    return choices.find((provider) => (
+      normalizeIdentity(provider?.runtime_provider) === 'openai'
+        && normalizeIdentity(provider?.id) === 'custom-openai'
+    )) || null;
+  }
+
+  return choices.find((provider) => (
+    normalizeIdentity(provider?.runtime_provider) === runtimeProvider
+      && normalizeIdentity(provider?.id) === runtimeProvider
+  ))
+    || choices.find((provider) => (
+      normalizeIdentity(provider?.runtime_provider) === runtimeProvider
+        && !normalizeIdentity(provider?.models_dev_provider_id)
+    ))
+    || choices.find((provider) => (
+      normalizeIdentity(provider?.runtime_provider) === runtimeProvider
+    ))
+    || null;
+}
+
 function emptyModelMetadataDraft() {
   return {
     context_window: '',

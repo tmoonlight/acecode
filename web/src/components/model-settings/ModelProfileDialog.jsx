@@ -275,6 +275,7 @@ export function ModelProfileDialog({
       width="min(920px, calc(100vw - 32px))"
       dismissOnBackdrop={false}
       dismissOnEscape={!submitting}
+      layerClassName="z-[310]"
       labelledBy="model-profile-dialog-title"
     >
       <div

@@ -9,6 +9,7 @@ import {
   normalizeModelCatalogSummary,
   normalizeSavedModelList,
   normalizeSavedModelProfile,
+  providerForSavedModel,
 } from '../../lib/modelSettings.js';
 import { copyTextToSystemClipboard } from '../../lib/systemClipboard.js';
 import { openExternalUrl } from '../../lib/externalUrl.js';
@@ -26,21 +27,6 @@ function initialProvider(providers) {
     || providers.find((provider) => !['copilot', 'grok'].includes(provider.runtime_provider))
     || providers[0]
     || null;
-}
-
-function providerForSavedModel(providers, model) {
-  return providers.find((provider) => (
-    provider.runtime_provider === model.provider
-      && !!model.models_dev_provider_id
-      && (provider.id === model.models_dev_provider_id
-        || provider.models_dev_provider_id === model.models_dev_provider_id)
-  ))
-    || providers.find((provider) => provider.id === model.models_dev_provider_id)
-    || providers.find((provider) => (
-      provider.runtime_provider === model.provider
-        && (model.provider !== 'openai' || provider.group === 'custom')
-    ))
-    || initialProvider(providers);
 }
 
 function catalogErrorCopy(error) {
@@ -624,6 +610,7 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
           width={440}
           dismissOnBackdrop={!mutationBusy}
           dismissOnEscape={!mutationBusy}
+          layerClassName="z-[310]"
           labelledBy="delete-model-title"
         >
           <div className="p-5">

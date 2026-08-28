@@ -6,6 +6,7 @@
 
 #include "server_impl.hpp"
 
+#include "http_address.hpp"
 #include "remote_web_proxy.hpp"
 
 namespace acecode::web {
@@ -115,8 +116,7 @@ int WebServer::run() {
         impl_->effective_port = cfg.port;
     }
     LOG_INFO(
-        "[web] listening on " + cfg.bind + ":" +
-        std::to_string(cfg.port));
+        "[web] Web UI: " + format_http_address(cfg.bind, cfg.port));
     try {
         impl_->app
             .bindaddr(cfg.bind)

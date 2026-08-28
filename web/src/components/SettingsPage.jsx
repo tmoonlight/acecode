@@ -741,9 +741,6 @@ function SectionGeneral({
           <label htmlFor="settings-ui-locale" className="text-[13px] font-medium">
             {t('locale.label')}
           </label>
-          <div className="text-[11px] text-fg-mute mt-0.5 max-w-lg">
-            {t('locale.description')}
-          </div>
         </div>
         <select
           id="settings-ui-locale"
@@ -880,7 +877,7 @@ function SectionGeneral({
           <div className="flex items-center justify-between gap-4 px-3.5 py-3 rounded-md bg-surface border border-border mb-2">
             <div>
               <div className="text-[13px] font-medium">新手指引</div>
-              <div className="text-[11px] text-fg-mute mt-0.5">从添加项目、开始新对话到模型设置，重新查看 7 步入门说明</div>
+              <div className="text-[11px] text-fg-mute mt-0.5">从添加项目、开始新对话到模型设置</div>
             </div>
             <button
               type="button"

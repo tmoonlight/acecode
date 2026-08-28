@@ -225,8 +225,7 @@ export function ChangeCompactList({
   if (!changeSummary.hasChanges) {
     return (
       <div className="ace-empty-state">
-        <div>本会话暂无可审查的结构化文件变更</div>
-        <div className="text-[10px] opacity-70">shell / script 等无结构化 hunks 的改动可能不会出现在这里</div>
+        <div>本会话暂无文件变更</div>
       </div>
     );
   }

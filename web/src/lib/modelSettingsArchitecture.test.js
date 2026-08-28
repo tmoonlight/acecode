@@ -21,6 +21,12 @@ function run(name, fn) {
   }
 }
 
+function layerIndex(text, pattern, label) {
+  const match = text.match(pattern);
+  assert.ok(match, `missing explicit ${label} layer`);
+  return Number(match[1]);
+}
+
 const settingsPage = source('components/SettingsPage.jsx');
 const section = source('components/model-settings/ModelSettingsSection.jsx');
 const dialog = source('components/model-settings/ModelProfileDialog.jsx');
@@ -56,6 +62,8 @@ run('model settings navigation delegates to focused list-first components', () =
 });
 
 run('one adaptive profile Modal owns add and edit flows without backdrop draft loss', () => {
+  assert.match(section, /providerForSavedModel,/);
+  assert.doesNotMatch(section, /function providerForSavedModel/);
   assert.match(section, /mode: 'add'/);
   assert.match(section, /mode: 'edit'/);
   assert.doesNotMatch(section, /mode: 'template'/);
@@ -65,6 +73,33 @@ run('one adaptive profile Modal owns add and edit flows without backdrop draft l
   assert.match(dialog, /<ProviderCatalogPicker/);
   assert.match(dialog, /dismissOnBackdrop=\{false\}/);
   assert.match(dialog, /dismissOnEscape=\{!submitting\}/);
+});
+
+run('model dialogs stack above Settings and nested probe stacks above the profile dialog', () => {
+  const settingsLayer = layerIndex(
+    settingsPage,
+    /fixed inset-0 z-\[(\d+)\] bg-bg/,
+    'Settings',
+  );
+  const profileLayer = layerIndex(
+    dialog,
+    /<Modal[\s\S]*?layerClassName="z-\[(\d+)\]"[\s\S]*?labelledBy="model-profile-dialog-title"/,
+    'model profile dialog',
+  );
+  const deleteLayer = layerIndex(
+    section,
+    /\{deleteTarget && \([\s\S]*?<Modal[\s\S]*?layerClassName="z-\[(\d+)\]"[\s\S]*?labelledBy="delete-model-title"/,
+    'model delete dialog',
+  );
+  const probeLayer = layerIndex(
+    probeDialog,
+    /<Modal[\s\S]*?layerClassName="z-\[(\d+)\]"[\s\S]*?labelledBy="model-probe-dialog-title"/,
+    'model probe dialog',
+  );
+
+  assert.ok(profileLayer > settingsLayer, 'model profile dialog must render above Settings');
+  assert.ok(deleteLayer > settingsLayer, 'model delete dialog must render above Settings');
+  assert.ok(probeLayer > profileLayer, 'model probe dialog must render above profile dialog');
 });
 
 run('Copilot and Grok remain managed saved profiles without key or endpoint controls', () => {
@@ -169,7 +204,7 @@ run('manual OpenAI-compatible provider keeps direct input and adds an explicit p
 run('custom model probe selector is multi-select and closes only through x or valid confirm', () => {
   assert.match(probeDialog, /dismissOnBackdrop=\{false\}/);
   assert.match(probeDialog, /dismissOnEscape=\{false\}/);
-  assert.match(probeDialog, /layerClassName="z-\[260\]"/);
+  assert.match(probeDialog, /layerClassName="z-\[330\]"/);
   assert.match(probeDialog, /onKeyDown=\{blockEscapeDismiss\}/);
   assert.match(probeDialog, /event\.nativeEvent\?\.stopImmediatePropagation\?\.\(\);/);
   assert.match(probeDialog, /aria-label="取消模型探测选择"/);

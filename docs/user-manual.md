@@ -859,10 +859,21 @@ WebSocket 接口。这样可以：
 ### 16.2 detach 模式生命周期
 
 ```bash
-./acecode daemon                # 起后台进程，5 秒内确认 pid 文件出现
+./acecode daemon                # 起后台进程，5 秒内确认 pid 和 port 文件出现
 ./acecode daemon status         # {pid, port, guid, last_heartbeat_age_ms}
 ./acecode daemon stop           # 优雅 SIGTERM，最多等 10 秒
 ```
+
+启动成功后，控制台会打印可直接在浏览器打开的完整 Web UI 地址：
+
+```text
+daemon started pid=18204
+Web UI: http://127.0.0.1:12399/
+```
+
+地址中的端口是 worker 最终采用的实际端口，因此也会正确反映
+`--port=<N>` 或 `web.port` 覆盖。前台模式会在 Web listener 日志中打印同样的
+完整 HTTP 地址。
 
 后台进程会写：
 

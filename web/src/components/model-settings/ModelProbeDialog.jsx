@@ -61,7 +61,7 @@ export function ModelProbeDialog({
       width="min(560px, calc(100vw - 32px))"
       dismissOnBackdrop={false}
       dismissOnEscape={false}
-      layerClassName="z-[260]"
+      layerClassName="z-[330]"
       labelledBy="model-probe-dialog-title"
     >
       <div

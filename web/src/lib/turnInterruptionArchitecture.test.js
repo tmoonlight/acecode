@@ -59,6 +59,31 @@ test('queue-card and slash interjection both use the immediate interrupt endpoin
   );
 });
 
+test('slash interjection and home session creation release only their own request state', () => {
+  const chat = source('components/ChatView.jsx');
+  const slashFlow = section(
+    chat,
+    "if (route.kind === 'turn_steer') {",
+    '\n    const isBuiltin',
+  );
+  const homeFlow = section(
+    chat,
+    "const isBuiltin = !hasExtras && route.kind === 'builtin';",
+    '\n    if (composerSubmitting) return;',
+  );
+
+  assert.ok(
+    slashFlow.indexOf('api.interruptTurn') <
+      slashFlow.indexOf('turnInterruptInFlightRef.current.delete(interruptRequestKey)'),
+    'slash interjection must release its duplicate-request key after its request settles',
+  );
+  assert.doesNotMatch(
+    homeFlow,
+    /interruptRequestKey/,
+    'home session creation must not reference slash-interjection request state',
+  );
+});
+
 test('queue cards expose an edit icon immediately left of interject and save via Modal', () => {
   const list = source('components/QueueCardList.jsx');
   const chat = source('components/ChatView.jsx');
