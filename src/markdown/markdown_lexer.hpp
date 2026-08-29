@@ -21,11 +21,25 @@ std::vector<Token> parse_inline(const std::string& text);
 // StreamingFormatter to decide where the stable prefix may advance.
 bool line_is_safe_to_freeze(const std::string& line);
 
-// True when a line opens or closes a fenced code block: optional leading
-// whitespace, then at least three backticks or tildes. An info string is
-// allowed on the opening fence; for backtick fences it must not contain a
-// backtick. Shared by LexerState and StreamingFormatter.
-bool is_code_fence_line(const std::string& line);
+// True when a line opens a fenced code block: optional leading whitespace,
+// then at least three identical backticks or tildes. An info string is
+// allowed on the opening fence (e.g. ```cpp); for backtick fences the info
+// string must not contain a backtick. On success fills fence_char with the
+// fence character and fence_count with the fence run length, which the
+// caller must retain to match a closing fence via line_closes_code_fence.
+// Shared by LexerState and StreamingFormatter.
+bool is_code_fence_line(const std::string& line, char& fence_char,
+                        int& fence_count);
+
+// True when `line` closes a fenced code block opened by a fence with
+// `open_char`/`open_count`. Mirrors the real lexer's closing rule: the line
+// starts with the same fence character as the opener, the run is at least as
+// long as the opener's (and at least three), and the whole (trimmed) line
+// consists only of fence characters (no info string). Any other fence-shaped
+// line is code content and leaves the fence open. Shared by LexerState and
+// StreamingFormatter.
+bool line_closes_code_fence(const std::string& line, char open_char,
+                            int open_count);
 
 // Resumable lexer for incremental rendering. append() ingests a delta; a
 // completed line (ending in '\n') that is outside any open code fence and

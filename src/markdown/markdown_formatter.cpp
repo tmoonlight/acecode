@@ -767,6 +767,8 @@ Element StreamingFormatter::append_delta(const std::string& delta,
     // code block is rendered atomically with it.
     size_t stable_end = stable_prefix_.size();
     bool in_code_fence = false;
+    char fence_char = 0;
+    int fence_count = 0;
     size_t line_start = 0;
     for (size_t i = 0; i < full_content_.size(); ++i) {
         if (full_content_[i] != '\n') {
@@ -774,12 +776,23 @@ Element StreamingFormatter::append_delta(const std::string& delta,
         }
         const std::string line =
             full_content_.substr(line_start, i - line_start);
-        const bool is_fence = is_code_fence_line(line);
-        if (is_fence) {
-            in_code_fence = !in_code_fence;
+        // Fence open/close semantics match the real lexer: outside a fence a
+        // fence-shaped line opens one (recording its char/count); inside, only
+        // a strict close (same char, run >= opener's, no info string) ends it.
+        bool is_fence_line = false;
+        if (in_code_fence) {
+            if (line_closes_code_fence(line, fence_char, fence_count)) {
+                in_code_fence = false;
+                fence_char = 0;
+                fence_count = 0;
+                is_fence_line = true;
+            }
+        } else if (is_code_fence_line(line, fence_char, fence_count)) {
+            in_code_fence = true;
+            is_fence_line = true;
         }
         if (line_start >= stable_prefix_.size()) {
-            if (is_fence || in_code_fence) {
+            if (is_fence_line || in_code_fence) {
                 // Fence lines and everything inside a code block stay in the
                 // tail so the block renders as a single atomic unit.
             } else if (line_is_safe_to_freeze(line)) {

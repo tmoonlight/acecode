@@ -42,4 +42,29 @@ TEST(LexerState, ResetClears) {
     EXPECT_TRUE(st.stable_tokens().empty());
     EXPECT_TRUE(st.tail_tokens().empty());
 }
+// P1(R10):围栏闭合必须与真实 lexer 一致。``` extra 行(含 info 内容)不是闭合,
+// 不得提前冻结代码块;只有严格匹配开围栏的行才闭合。
+TEST(LexerState, FenceNotClosedByExtraInfoLine) {
+    LexerState st;
+    st.append("```cpp\nint x;\n``` extra\n");   // ``` extra 不是闭合行
+    EXPECT_TRUE(st.stable_tokens().empty());       // 仍在围栏内,不得提前冻结
+    st.append("still code\n```\n");              // 真正的 ``` 闭合
+    EXPECT_FALSE(st.stable_tokens().empty());
+}
+// P1(R10):异字符围栏不闭合。~~~ 开围栏后 ``` 是代码内容,不是闭合行。
+TEST(LexerState, FenceNotClosedByDifferentChar) {
+    LexerState st;
+    st.append("~~~\nint x;\n```\n");             // ``` 不闭合 ~~~ 围栏
+    EXPECT_TRUE(st.stable_tokens().empty());
+    st.append("~~~\n");                          // 同字符 ~~~ 才闭合
+    EXPECT_FALSE(st.stable_tokens().empty());
+}
+// P1(R10):闭合 run 长度不足不闭合。```` 开围栏(4 个)后 ```(3 个)是代码内容。
+TEST(LexerState, FenceNotClosedByShortRun) {
+    LexerState st;
+    st.append("````\nint x;\n```\n");            // 3 个反引号不足 4,不闭合
+    EXPECT_TRUE(st.stable_tokens().empty());
+    st.append("````\n");                         // 4 个反引号才闭合
+    EXPECT_FALSE(st.stable_tokens().empty());
+}
 } // namespace acecode::markdown

@@ -67,11 +67,14 @@ bool line_is_safe_to_freeze(const std::string& line) {
     return true;
 }
 
-bool is_code_fence_line(const std::string& line) {
-    // Code fence open/close line, aligned with the real lexer: optional
-    // leading whitespace, then at least three backticks or tildes. An info
-    // string (e.g. ```cpp) is allowed on the opening fence; for backtick
-    // fences the info string must not itself contain a backtick.
+bool is_code_fence_line(const std::string& line, char& fence_char,
+                        int& fence_count) {
+    // Code fence opening line, aligned with the real lexer's is_code_fence:
+    // optional leading whitespace, then a run of at least three identical
+    // backticks or tildes. An info string (e.g. ```cpp) is allowed on the
+    // opening fence; for backtick fences the info string must not itself
+    // contain a backtick. Closing fences are matched strictly by
+    // line_closes_code_fence.
     std::size_t i = 0;
     while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
         ++i;
@@ -95,7 +98,36 @@ bool is_code_fence_line(const std::string& line) {
             if (line[k] == '`') return false;
         }
     }
+    fence_char = ch;
+    fence_count = static_cast<int>(j - i);
     return true;
+}
+
+bool line_closes_code_fence(const std::string& line, char open_char,
+                            int open_count) {
+    // Strict closing match, mirroring the real lexer's fence-closing rule:
+    // the line starts with the same fence character as the opener, the run
+    // is at least as long as the opener's (and at least three), and the
+    // whole (trimmed) line consists only of fence characters. Lines with an
+    // info string (``` extra), a different fence character, or a shorter run
+    // are code content and keep the fence open.
+    std::size_t i = 0;
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
+        ++i;
+    }
+    if (i >= line.size() || line[i] != open_char) {
+        return false;
+    }
+    std::size_t j = i;
+    while (j < line.size() && line[j] == open_char) {
+        ++j;
+    }
+    const int close_count = static_cast<int>(j - i);
+    if (close_count < 3 || close_count < open_count) {
+        return false;
+    }
+    // No info string: after the fence run only whitespace may follow.
+    return line.find_first_not_of(" \t\r\n", j) == std::string::npos;
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,22 +1075,33 @@ void LexerState::append(const std::string& delta) {
     std::size_t stable_end = 0;
     std::size_t line_start = 0;
     bool in_code_fence = false;
+    char fence_char = 0;
+    int fence_count = 0;
     const std::string& s = pending_;
     for (std::size_t i = 0; i < s.size(); ++i) {
         if (s[i] != '\n') {
             continue;
         }
         const std::string line = s.substr(line_start, i - line_start);
-        const bool is_fence = is_code_fence_line(line);
-        if (is_fence) {
-            in_code_fence = !in_code_fence;
-            // Opening fence keeps everything in the tail (the block may
-            // still grow); a closing fence completes the block, which is a
-            // clean freeze boundary.
-            if (!in_code_fence) {
+        if (in_code_fence) {
+            // Inside a code block: only a strict close (same character, run
+            // at least as long as the opener's, no info string) ends the
+            // fence; any other fence-shaped line is code content and keeps
+            // the block open.
+            if (line_closes_code_fence(line, fence_char, fence_count)) {
+                in_code_fence = false;
+                fence_char = 0;
+                fence_count = 0;
+                // Closing fence completes the block, which is a clean freeze
+                // boundary.
                 stable_end = i + 1;
             }
-        } else if (!in_code_fence && line_is_safe_to_freeze(s.substr(0, i + 1))) {
+        } else if (is_code_fence_line(line, fence_char, fence_count)) {
+            // Opening fence keeps everything in the tail (the block may
+            // still grow); record the fence character/count for later close
+            // matching.
+            in_code_fence = true;
+        } else if (line_is_safe_to_freeze(s.substr(0, i + 1))) {
             stable_end = i + 1;
         }
         // Unsafe lines do not stop the scan: a later line may complete a
