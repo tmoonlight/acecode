@@ -3283,6 +3283,18 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     const int current_message_width = chat_box.x_max >= chat_box.x_min
         ? chat_box.x_max - chat_box.x_min + 1
         : 0;
+    // Task 6:把本帧实际生效的 markdown 渲染宽度写回 state(render 全程持
+    // mu)。on_delta(worker 线程)用同一宽度喂 StreamingFormatter 的
+    // set_context / append_delta,保证与 render 侧完全一致(规避 Task 5
+    // "默认 opts 宽度陷阱"——宽度不一致会让 append_delta 每帧清空稳定前缀)。
+    {
+        const int fallback_width = terminal_width -
+            (show_regular_sidebar ? kRegularSidebarWidthCols + 9 : 6);
+        state.streaming_render_width =
+            std::max(20, (current_message_width > 0
+                ? current_message_width
+                : fallback_width) - 6);
+    }
     sync_chat_line_counts_from_layout();
     clamp_chat_focus();
 
@@ -3427,12 +3439,9 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         [&](const std::string& content, Color fallback_color) -> Element {
         try {
             acecode::markdown::FormatOptions md_opts;
-            const int fallback_width = terminal_width -
-                (show_regular_sidebar ? kRegularSidebarWidthCols + 9 : 6);
-            md_opts.terminal_width =
-                std::max(20, (current_message_width > 0
-                    ? current_message_width
-                    : fallback_width) - 6);
+            // 与 state.streaming_render_width 保持同源,确保 render 与 on_delta
+            // 两侧宽度一致。
+            md_opts.terminal_width = state.streaming_render_width;
             md_opts.syntax_highlight = true;
             md_opts.hyperlinks = true;
             md_opts.strip_xml = true;
@@ -3508,9 +3517,21 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             message_elements.push_back(
                 tracked_message(i, line | focus_decorator));
         } else if (msg.role == "assistant") {
-            // Render with Markdown formatting (L1 缓存:无链接消息复用)。
-            Element md_content = render_cached_message_markdown(
-                i, msg.content, tui::theme().semantic.success);
+            // Task 6:仅对"正在流式的最后一条 assistant 消息"复用
+            // StreamingFormatter 上一帧产物(last_element),跳过全量
+            // format_markdown;其余消息走 L1 渲染缓存。render 全程持
+            // state.mu,此处拷贝 Element(shared_ptr 值语义)后再渲染,线程安全。
+            Element md_content;
+            const bool streaming_last =
+                i == state.conversation.size() - 1 &&
+                state.streaming_output_chars > 0 &&
+                state.streaming_formatter != nullptr;
+            if (streaming_last) {
+                md_content = state.streaming_formatter->last_element();
+            } else {
+                md_content = render_cached_message_markdown(
+                    i, msg.content, tui::theme().semantic.success);
+            }
             auto line = hbox({
                 text(" * ") | bold | color(tui::theme().semantic.success),
                 md_content | flex,
@@ -4997,6 +5018,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                                                      const std::string& content,
                                                      bool is_tool) {
         std::lock_guard<std::mutex> lk(state.mu);
+        // Task 6:on_message 意味着当前消息流已结束(新 turn / 消息完成),复位
+        // 流式 formatter 并置空,避免上一 turn 的增量状态串入下一 turn。
+        state.streaming_formatter.reset();
         if (!is_tool && role == "assistant") {
             tui_turn_assistant_text = content;
         }
@@ -5056,6 +5080,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             state.thinking_start_time = std::chrono::steady_clock::now();
             state.streaming_output_chars = 0;
             state.turn_completion_tokens_confirmed = 0;
+            // Task 6:新 turn 边界(含被中断的流 —— 中断的 assistant 消息
+            // 不一定有 on_message 收尾)复位流式 formatter,避免残留状态串入
+            // 新 turn。
+            state.streaming_formatter.reset();
         }
         state.is_waiting = busy;
         if (!busy) state.is_compacting = false;
@@ -5106,6 +5134,29 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             state.conversation.back().content += token;
             state.streaming_output_chars += token.size();
+            // Task 6:锁内把增量 token 喂给 StreamingFormatter(增量工作摊薄
+            // 到 delta 到达时,render 不再每帧全量 format_markdown)。首次创建
+            // 时 set_context —— 宽度必须与 append_delta 的 opts.terminal_width
+            // 一致(都用 state.streaming_render_width),否则稳定前缀反复失效。
+            // md_opts 与 render 侧保持一致(terminal_width / syntax_highlight /
+            // hyperlinks / strip_xml);link_regions 故意不传 —— render 的
+            // chat_link_regions 每帧 clear(),而流式 Element 跨帧存活,若 bake
+            // reflect(region.box) 会在下帧 clear 后悬垂。流式内容不带链接反射;
+            // 消息完成(on_message)后走缓存/全量路径重新渲染,链接正常可点。
+            if (!state.streaming_formatter) {
+                state.streaming_formatter =
+                    std::make_unique<acecode::markdown::StreamingFormatter>();
+                state.streaming_formatter->set_context(
+                    state.streaming_render_width,
+                    acecode::tui::theme_palette_version());
+            }
+            acecode::markdown::FormatOptions md_opts;
+            md_opts.terminal_width = state.streaming_render_width;
+            md_opts.syntax_highlight = true;
+            md_opts.hyperlinks = true;
+            md_opts.strip_xml = true;
+            md_opts.link_regions = nullptr;
+            state.streaming_formatter->append_delta(token, md_opts);
             clamp_chat_focus();
         }
         const std::int64_t now_ms = monotonic_milliseconds();
@@ -5200,6 +5251,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             !state.conversation.back().is_tool) {
             state.conversation.pop_back();
         }
+        // Task 6:重试会丢弃当前部分消息,同步复位流式 formatter,避免残留
+        // 增量状态串入重试后的新一轮 delta。
+        state.streaming_formatter.reset();
         tui_turn_assistant_text.clear();
         state.streaming_output_chars = 0;
         clamp_chat_focus();
