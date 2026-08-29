@@ -325,9 +325,7 @@ git commit -m "feat: add apply_model_to_session shared helper
 
 抽出 per-session 模型切换的纯逻辑(创建 provider + 替换 slot + 更新 loop +
 写 meta),给 daemon 与 TUI 后续共用。本提交只新增 helper + 测试,调用方
-切换在后续任务里做。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+切换在后续任务里做。"
 ```
 
 ---
@@ -424,9 +422,7 @@ git add src/session/session_registry.cpp
 git commit -m "refactor: SessionRegistry::switch_model delegates to shared helper
 
 把 per-session 切换的副作用统一到 apply_model_to_session,daemon 路径
-现在与未来的 TUI 路径走同一份代码。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+现在与未来的 TUI 路径走同一份代码。"
 ```
 
 ---
@@ -801,9 +797,7 @@ git add src/config/saved_models_editor.hpp \
 git commit -m "feat: add saved_models_editor module
 
 纯逻辑 add/update/remove for saved_models 注册表。九个错误码覆盖每个失
-败分支,失败时 cfg 不变。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+败分支,失败时 cfg 不变。"
 ```
 
 ---
@@ -1144,9 +1138,7 @@ git add src/web/handlers/models_handler.hpp \
 git commit -m "feat: daemon endpoints for saved_models CRUD + default-model
 
 POST/PUT/DELETE /api/models 与 POST /api/config/default-model;失败时
-内存回滚保证 config.json 不会半保存。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+内存回滚保证 config.json 不会半保存。"
 ```
 
 ---
@@ -1307,9 +1299,7 @@ git commit -m "refactor(tui): replace provider_handle/provider_mu with ProviderS
 
 CommandContext 与 main.cpp 升级到 SessionEntry::ProviderSlot。本提交不改
 切换语义,/model 与 resume 仍走 swap_provider_if_needed,下一提交切到
-apply_model_to_session。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+apply_model_to_session。"
 ```
 
 ---
@@ -1421,9 +1411,7 @@ Expected: 全 PASS。如果有依赖 `swap_provider_if_needed` 的测试,改成�
 git add -A
 git commit -m "refactor(tui): /model & /resume use apply_model_to_session
 
-TUI 与 daemon 现在共用同一份切换 helper,provider_swap 模块删除。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+TUI 与 daemon 现在共用同一份切换 helper,provider_swap 模块删除。"
 ```
 
 ---
@@ -1627,9 +1615,7 @@ git add src/tui/model_picker.hpp src/tui/model_picker.cpp \
 git commit -m "feat(tui): replace /model text list with FTXUI picker
 
 /model 无参时弹出 modal 选择器,↑↓ + Enter 切换,Esc 关闭。当前模型行
-打 *。复用 build_model_picker_options 纯逻辑给单测覆盖。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+打 *。复用 build_model_picker_options 纯逻辑给单测覆盖。"
 ```
 
 ---
@@ -1986,9 +1972,7 @@ git add src/commands/model_command.hpp src/commands/model_command.cpp \
 git commit -m "feat(tui): /model add|edit|rm|set-default subcommands
 
 支持在 TUI 内增删改 saved_models 与设置全局默认。失败时 cfg 内存与磁盘
-保持同步(回滚)。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+保持同步(回滚)。"
 ```
 
 ---
@@ -2185,9 +2169,7 @@ git add web/src/lib/errors.js web/src/lib/modelPicker.js web/src/lib/modelManage
 git commit -m "feat(web): error code i18n + model picker/manager helpers
 
 errors.js / modelPicker.js / modelManager.js 是 ModelPicker 与 ModelManager
-组件的纯逻辑底座,Node 单测覆盖。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+组件的纯逻辑底座,Node 单测覆盖。"
 ```
 
 ---
@@ -2224,9 +2206,7 @@ git add web/src/lib/api.js
 git commit -m "feat(web): api client methods for saved_models CRUD
 
 addModel / updateModel / removeModel / setDefaultModel 给 ModelManager
-组件用。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+组件用。"
 ```
 
 ---
@@ -2336,9 +2316,7 @@ cd .. && cmake --build build --target acecode
 git add web/src/components/ModelPicker.jsx web/src/lib/api.js
 git commit -m "feat(web): model picker i18n toasts + orphan placeholder
 
-切换失败时用 errors.js 文案;当前值不在列表时插 disabled 灰条提示用户。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+切换失败时用 errors.js 文案;当前值不在列表时插 disabled 灰条提示用户。"
 ```
 
 ---
@@ -2637,9 +2615,7 @@ git add web/src/components/Settings.jsx web/src/components/ModelManager.jsx \
 git commit -m "feat(web): saved_models management drawer
 
 Sidebar 齿轮 → 设置抽屉,左侧列表(默认带 ★),右侧表单。增/删/改/设默
-认全在前端。
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+认全在前端。"
 ```
 
 ---

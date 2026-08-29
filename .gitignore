@@ -84,3 +84,8 @@ node_modules/
 
 # Skills lock (generated)
 skills-lock.json
+
+# 误重定向产物(git status/git log 少打字母时生成)
+/tatus
+/tatu
+/tat
