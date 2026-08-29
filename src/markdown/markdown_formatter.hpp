@@ -33,6 +33,13 @@ private:
 ftxui::Element format_markdown(const std::string& raw_text,
                                const FormatOptions& opts = {});
 
+// Render a list of block-level tokens into an FTXUI Element tree. The
+// reusable "tokens -> Element" half of format_markdown; the L3 incremental
+// path calls this directly to re-render a token stream without re-normalizing
+// raw text.
+ftxui::Element render_token_blocks(const std::vector<Token>& tokens,
+                                   const FormatOptions& opts);
+
 // Strip AI prompt XML tags (<thinking>, <context>, etc.)
 std::string strip_xml_tags(const std::string& content);
 
