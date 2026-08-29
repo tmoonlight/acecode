@@ -6,6 +6,99 @@
 namespace acecode::markdown {
 
 // ---------------------------------------------------------------------------
+// Incremental freeze helpers (shared with StreamingFormatter)
+// ---------------------------------------------------------------------------
+
+bool line_is_safe_to_freeze(const std::string& line) {
+    // Stack of unclosed inline delimiters: `**`/`*`/`~`/`~~`/`[`/backtick
+    // push on open, a matching close pops. R7: stack-based matching replaces
+    // odd/even counting, which cannot distinguish an unclosed opener at line
+    // end from a pair closed on the same line. Unclosed `**`/`*`/`~`/`~~`/`[`
+    // or backtick keep the line in the tail, as does a line whose last
+    // (trimmed) char is an opener character, because the delimiter may
+    // legitimately continue onto the next line (e.g. **bold across\nlines**).
+    std::vector<char> open;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if (c == '\\') {
+            if (i + 1 < line.size()) ++i;
+            continue;
+        }
+        if (c == '`') {
+            if (!open.empty() && open.back() == '`') {
+                open.pop_back();
+            } else {
+                open.push_back('`');
+            }
+        } else if (c == '[') {
+            open.push_back('[');
+        } else if (c == ']') {
+            if (!open.empty() && open.back() == '[') open.pop_back();
+        } else if (c == '*') {
+            // Prefer `**` (strong) over `*` (em).
+            const bool strong = i + 1 < line.size() && line[i + 1] == '*';
+            const char m = strong ? 'S' : 's';
+            if (!open.empty() && open.back() == m) {
+                open.pop_back();
+            } else {
+                open.push_back(m);
+            }
+            if (strong) ++i;
+        } else if (c == '~') {
+            const bool dbl = i + 1 < line.size() && line[i + 1] == '~';
+            const char m = dbl ? 'D' : 'd';
+            if (!open.empty() && open.back() == m) {
+                open.pop_back();
+            } else {
+                open.push_back(m);
+            }
+            if (dbl) ++i;
+        }
+    }
+    if (!open.empty()) return false;
+    // A line whose last (trimmed) char is an opener may be mid-delimiter.
+    const std::size_t end = line.find_last_not_of(" \t\r\n");
+    if (end != std::string::npos) {
+        const char last = line[end];
+        if (last == '\\') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_code_fence_line(const std::string& line) {
+    // Code fence open/close line, aligned with the real lexer: optional
+    // leading whitespace, then at least three backticks or tildes. An info
+    // string (e.g. ```cpp) is allowed on the opening fence; for backtick
+    // fences the info string must not itself contain a backtick.
+    std::size_t i = 0;
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) {
+        ++i;
+    }
+    if (i >= line.size()) {
+        return false;
+    }
+    const char ch = line[i];
+    if (ch != '`' && ch != '~') {
+        return false;
+    }
+    std::size_t j = i;
+    while (j < line.size() && line[j] == ch) {
+        ++j;
+    }
+    if (j - i < 3) {
+        return false;
+    }
+    if (ch == '`') {
+        for (std::size_t k = j; k < line.size(); ++k) {
+            if (line[k] == '`') return false;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Helper utilities
 // ---------------------------------------------------------------------------
 
@@ -930,6 +1023,74 @@ static void parse_list(const std::vector<std::string>& lines, size_t& idx,
     }
 
     tokens.push_back(std::move(list_tok));
+}
+
+// ---------------------------------------------------------------------------
+// Resumable LexerState
+// ---------------------------------------------------------------------------
+
+void LexerState::append(const std::string& delta) {
+    pending_ += delta;
+    last_stable_size_ = stable_.size();
+
+    // Scan the completed lines of pending_ in order. stable_end advances
+    // monotonically, so everything before it is frozen as one unit. The
+    // freeze check runs over the accumulated text since the start of
+    // pending_ (line_is_safe_to_freeze operates on arbitrary text, not just
+    // a single line), so a delimiter opened on one line and closed on a
+    // later line keeps both in pending until the pair is complete (e.g.
+    // **bold across\nlines** freezes only as a whole).
+    std::size_t stable_end = 0;
+    std::size_t line_start = 0;
+    bool in_code_fence = false;
+    const std::string& s = pending_;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if (s[i] != '\n') {
+            continue;
+        }
+        const std::string line = s.substr(line_start, i - line_start);
+        const bool is_fence = is_code_fence_line(line);
+        if (is_fence) {
+            in_code_fence = !in_code_fence;
+            // Opening fence keeps everything in the tail (the block may
+            // still grow); a closing fence completes the block, which is a
+            // clean freeze boundary.
+            if (!in_code_fence) {
+                stable_end = i + 1;
+            }
+        } else if (!in_code_fence && line_is_safe_to_freeze(s.substr(0, i + 1))) {
+            stable_end = i + 1;
+        }
+        // Unsafe lines do not stop the scan: a later line may complete a
+        // delimiter opened here, making the whole pending prefix freezable.
+        line_start = i + 1;
+    }
+
+    if (stable_end > 0) {
+        std::string stable_text = pending_.substr(0, stable_end);
+        pending_ = pending_.substr(stable_end);
+        auto toks = lex(stable_text);
+        stable_.insert(stable_.end(), toks.begin(), toks.end());
+    }
+}
+
+void LexerState::reset() {
+    pending_.clear();
+    stable_.clear();
+    last_stable_size_ = 0;
+}
+
+const std::vector<Token>& LexerState::stable_tokens() const {
+    return stable_;
+}
+
+std::vector<Token> LexerState::tail_tokens() const {
+    if (pending_.empty()) return {};
+    return lex(pending_);
+}
+
+std::size_t LexerState::new_stable_count() const {
+    return stable_.size() - last_stable_size_;
 }
 
 } // namespace acecode::markdown
