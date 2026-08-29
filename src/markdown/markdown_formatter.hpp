@@ -1,5 +1,6 @@
 #pragma once
 
+#include "markdown_lexer.hpp"
 #include "markdown_types.hpp"
 #include <cstdint>
 #include <deque>
@@ -43,7 +44,11 @@ ftxui::Element render_token_blocks(const std::vector<Token>& tokens,
 // Strip AI prompt XML tags (<thinking>, <context>, etc.)
 std::string strip_xml_tags(const std::string& content);
 
-// Streaming formatter: caches stable prefix, only re-renders unstable tail.
+// Streaming formatter: ingests delta text through a resumable LexerState and
+// builds one Element per stable token. Only newly frozen tokens (from
+// LexerState::new_stable_count()) and the unstable tail are re-rendered per
+// append; previously built stable Elements are reused as-is, so long
+// documents cost O(incremental) per frame instead of a full rebuild.
 class StreamingFormatter {
 public:
     // Append new delta text and return the full rendered Element.
@@ -53,14 +58,14 @@ public:
     const ftxui::Element& last_element() const;
     // Reset state (new conversation turn).
     void reset();
-    // Width/theme changes invalidate the stable prefix; the next append
-    // rebuilds from scratch to avoid stale wrapping/colors.
+    // Width/theme changes invalidate the token cache; the next append rebuilds
+    // from scratch to avoid stale wrapping/colors. Callers pass the same width
+    // that append_delta will receive (see the on_delta path in main.cpp).
     void set_context(int width, std::uint32_t theme_version);
 
 private:
-    std::string full_content_;
-    std::string stable_prefix_;
-    ftxui::Element cached_stable_;
+    LexerState lexer_;
+    std::vector<ftxui::Element> stable_elements_;
     ftxui::Element last_element_;
     int width_ = -1;
     std::uint32_t theme_ = 0;

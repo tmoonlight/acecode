@@ -89,4 +89,22 @@ TEST(StreamingFormatter, ContextChangeInvalidatesStable) {
     ASSERT_NE(e.get(), nullptr);
 }
 
+TEST(StreamingFormatter, StableElementsBuiltOncePerNewToken) {
+    StreamingFormatter f; f.set_context(80, 1);
+    // 多块流式:稳定区只增量构建,不整段重建。若稳定区缓存被误清空
+    // (例如把 stable_elements_ move 进 vbox),第二次 append 会丢失前面段落,
+    // 因此渲染结果必须仍覆盖全部多段内容。
+    auto e = f.append_delta("a\n\nb\n\nc\n", {});
+    ASSERT_NE(e.get(), nullptr);
+    auto e2 = f.append_delta("d\n", {});
+    ASSERT_NE(e2.get(), nullptr);
+    ftxui::Screen s(80, 20);
+    ftxui::Render(s, e2);
+    const std::string out = strip_ansi(s.ToString());
+    EXPECT_NE(out.find("a"), std::string::npos);
+    EXPECT_NE(out.find("b"), std::string::npos);
+    EXPECT_NE(out.find("c"), std::string::npos);
+    EXPECT_NE(out.find("d"), std::string::npos);
+}
+
 } // namespace acecode::markdown

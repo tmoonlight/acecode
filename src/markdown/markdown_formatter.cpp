@@ -748,75 +748,38 @@ Element format_markdown(const std::string& raw_text, const FormatOptions& opts) 
 
 Element StreamingFormatter::append_delta(const std::string& delta,
                                          const FormatOptions& opts) {
-    // A width change invalidates the stable prefix. Theme changes arrive
-    // through set_context, which clears the stable prefix itself, so only
-    // the width is compared here (FormatOptions carries no theme version).
+    // A width change invalidates the per-token Element cache. set_context owns
+    // the normal invalidation path (it is called with the same width used here
+    // before the first append); this check is a defensive fallback so a width
+    // mismatch can never mix stale and fresh wrapping. Note: unlike the old
+    // full_content_ rebuild, a mid-stream width change without set_context
+    // cannot replay earlier text, so the stream restarts from this delta.
     if (width_ != opts.terminal_width) {
-        stable_prefix_.clear();
-        cached_stable_ = text("");
+        lexer_.reset();
+        stable_elements_.clear();
         width_ = opts.terminal_width;
     }
 
-    full_content_ += delta;
-
-    // Advance the frozen boundary across completed lines (those ending in
-    // '\n') that start at or after the current stable prefix. Fence state is
-    // tracked over the whole buffer, so it is accurate regardless of how far
-    // the stable prefix has advanced. Fence lines never freeze (hard
-    // invariant): the fence opener stays in the tail so everything inside the
-    // code block is rendered atomically with it.
-    size_t stable_end = stable_prefix_.size();
-    bool in_code_fence = false;
-    char fence_char = 0;
-    int fence_count = 0;
-    size_t line_start = 0;
-    for (size_t i = 0; i < full_content_.size(); ++i) {
-        if (full_content_[i] != '\n') {
-            continue;
+    lexer_.append(delta);
+    const std::size_t new_count = lexer_.new_stable_count();
+    if (new_count > 0) {
+        const auto& stable = lexer_.stable_tokens();
+        const std::size_t begin = stable.size() - new_count;
+        for (std::size_t k = begin; k < stable.size(); ++k) {
+            stable_elements_.push_back(
+                render_token_blocks({stable[k]}, opts));
         }
-        const std::string line =
-            full_content_.substr(line_start, i - line_start);
-        // Fence open/close semantics match the real lexer: outside a fence a
-        // fence-shaped line opens one (recording its char/count); inside, only
-        // a strict close (same char, run >= opener's, no info string) ends it.
-        bool is_fence_line = false;
-        if (in_code_fence) {
-            if (line_closes_code_fence(line, fence_char, fence_count)) {
-                in_code_fence = false;
-                fence_char = 0;
-                fence_count = 0;
-                is_fence_line = true;
-            }
-        } else if (is_code_fence_line(line, fence_char, fence_count)) {
-            in_code_fence = true;
-            is_fence_line = true;
-        }
-        if (line_start >= stable_prefix_.size()) {
-            if (is_fence_line || in_code_fence) {
-                // Fence lines and everything inside a code block stay in the
-                // tail so the block renders as a single atomic unit.
-            } else if (line_is_safe_to_freeze(line)) {
-                stable_end = i + 1;
-            } else {
-                break;
-            }
-        }
-        line_start = i + 1;
     }
-
-    if (stable_end > stable_prefix_.size()) {
-        // Stable prefix grew - update cache.
-        stable_prefix_ = full_content_.substr(0, stable_end);
-        cached_stable_ = format_markdown(stable_prefix_, opts);
-    }
-
-    // Render the unstable tail and keep the result for last_element().
-    const std::string tail = full_content_.substr(stable_prefix_.size());
-    if (tail.empty()) {
-        last_element_ = cached_stable_;
-    } else {
-        last_element_ = vbox({cached_stable_, format_markdown(tail, opts)});
-    }
+    auto tail = lexer_.tail_tokens();
+    Element tail_elem = tail.empty() ? emptyElement()
+                                     : render_token_blocks(tail, opts);
+    // Copy (not move) stable_elements_ into the vbox: the per-token cache must
+    // survive across append_delta calls so future deltas only append newly
+    // frozen tokens. Elements are shared_ptrs, so the copy is shallow.
+    Element stable_elem = stable_elements_.empty()
+        ? emptyElement() : vbox(stable_elements_);
+    last_element_ = (tail.empty())
+        ? stable_elem : vbox({stable_elem, tail_elem});
     return last_element_;
 }
 
@@ -826,17 +789,17 @@ const Element& StreamingFormatter::last_element() const {
 
 void StreamingFormatter::set_context(int width, std::uint32_t theme_version) {
     if (width != width_ || theme_version != theme_) {
-        stable_prefix_.clear();
-        cached_stable_ = text("");
+        lexer_.reset();
+        stable_elements_.clear();
+        last_element_ = text("");
     }
     width_ = width;
     theme_ = theme_version;
 }
 
 void StreamingFormatter::reset() {
-    full_content_.clear();
-    stable_prefix_.clear();
-    cached_stable_ = text("");
+    lexer_.reset();
+    stable_elements_.clear();
     last_element_ = text("");
 }
 
