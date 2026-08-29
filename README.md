@@ -14,6 +14,7 @@
   <a href="https://github.com/tmoonlight/acecode/network/members"><img src="https://img.shields.io/github/forks/tmoonlight/acecode?style=flat-square" alt="GitHub forks"></a>
   <a href="https://github.com/tmoonlight/acecode/issues"><img src="https://img.shields.io/github/issues/tmoonlight/acecode?style=flat-square" alt="GitHub issues"></a>
   <a href="https://github.com/tmoonlight/acecode/commits"><img src="https://img.shields.io/github/last-commit/tmoonlight/acecode?style=flat-square" alt="Last commit"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
 <p align="center">
@@ -27,7 +28,7 @@
   <a href="#documentation">Documentation</a>
 </p>
 
-ACECode is a repository-aware AI coding agent with two first-class interfaces: a visual Desktop app and a keyboard-first terminal TUI. Both use the same agent core, model profiles, permission system, built-in tools, Skills, and MCP integrations.
+ACECode is a repository-aware AI coding agent with two first-class interfaces: a visual Desktop app and a keyboard-first terminal TUI. Both use the same agent core, model profiles, permission system, and session storage.
 
 ## See ACECode
 
@@ -84,7 +85,7 @@ acecode --resume
 ```
 
 > [!IMPORTANT]
-> In the default permission mode, ACECode normally reads project context automatically and asks before sensitive writes or command execution. Review permission requests, tool output, and file changes before accepting them.
+> In the default permission mode, ACECode normally reads project context automatically and asks before sensitive writes or command execution. Review permission requests, tool output, and file changes carefully.
 
 ## Good first requests
 
@@ -122,3 +123,7 @@ The best requests name the desired outcome, relevant files or constraints, and h
 - [Skills guide](docs/skills.md) — create and use reusable workflows.
 - [Desktop workspaces](docs/desktop-shell/multi-workspace.md) — workspace and task behavior in the desktop app.
 - [Linux self-update](docs/linux-self-update.md) — updater ZIPs, one-time legacy bootstrap, and release verification.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
