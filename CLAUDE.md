@@ -393,7 +393,7 @@ The existing region detector still probes DuckDuckGo once at startup through `Pr
     "max_depth": 8,
     "max_bytes": 262144,
     "max_total_bytes": 1048576,
-    "filenames": ["AGENT.md", "CLAUDE.md"],
+    "filenames": ["AGENT.md", "AGENTS.md", "CLAUDE.md"],
     "read_claude_md": true
   },
   "models_dev": {

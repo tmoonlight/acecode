@@ -93,8 +93,9 @@ struct ProjectInstructionsConfig {
     std::size_t max_bytes = 256 * 1024;        // per-file cap
     std::size_t max_total_bytes = 1024 * 1024; // aggregate cap for merged text
     // Priority order. Each directory contributes at most the first filename that
-    // exists. AGENT.md is native; CLAUDE.md is compat.
-    std::vector<std::string> filenames = {"AGENT.md", "CLAUDE.md"};
+    // exists. AGENT.md is native; AGENTS.md is the plural sibling convention;
+    // CLAUDE.md is compat.
+    std::vector<std::string> filenames = {"AGENT.md", "AGENTS.md", "CLAUDE.md"};
     // Per-filename gate. Setting this to false removes CLAUDE.md from the
     // effective search list at runtime (overriding its presence in filenames).
     bool read_claude_md = true;
@@ -435,7 +436,7 @@ struct AppConfig {
     std::map<std::string, McpServerConfig> mcp_servers; // MCP stdio servers (optional)
     SkillsConfig skills;                         // skill system configuration (optional)
     MemoryConfig memory;                         // persistent user memory settings
-    ProjectInstructionsConfig project_instructions; // AGENT.md / CLAUDE.md loader
+    ProjectInstructionsConfig project_instructions; // AGENT.md / AGENTS.md / CLAUDE.md loader
     CustomInstructionsConfig custom_instructions; // Desktop/Web user-authored prompt context
     std::vector<ConnectorConfig> connectors;      // user-configured desktop connectors
     DaemonConfig daemon;                         // daemon process supervision settings

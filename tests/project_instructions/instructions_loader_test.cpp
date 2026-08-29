@@ -123,6 +123,31 @@ TEST_F(InstructionsLoaderTest, AgentBeatsLegacyFilesByDefault) {
     EXPECT_EQ(merged.sources.size(), 1u);
 }
 
+// 场景:cwd 下有 AGENTS.md(复数形式,外部工具惯例)时也能被加载
+TEST_F(InstructionsLoaderTest, LoadsAgentsMd) {
+    fs::path repo = temp_home / "repo";
+    write_file(repo / "AGENTS.md", "# agents rules\nuse agents\n");
+
+    acecode::ProjectInstructionsConfig cfg;
+    auto merged = acecode::load_project_instructions(repo.string(), cfg);
+    EXPECT_NE(merged.merged_body.find("agents rules"), std::string::npos);
+    EXPECT_NE(merged.merged_body.find("AGENTS.md"), std::string::npos);
+    EXPECT_EQ(merged.sources.size(), 1u);
+}
+
+// 场景:同一目录同时存在 AGENT.md 与 AGENTS.md 时,默认优先级选 AGENT.md(原生优先)
+TEST_F(InstructionsLoaderTest, AgentMdBeatsAgentsMdByDefault) {
+    fs::path repo = temp_home / "repo";
+    write_file(repo / "AGENTS.md", "agents content\n");
+    write_file(repo / "AGENT.md", "agent content\n");
+
+    acecode::ProjectInstructionsConfig cfg;
+    auto merged = acecode::load_project_instructions(repo.string(), cfg);
+    EXPECT_NE(merged.merged_body.find("agent content"), std::string::npos);
+    EXPECT_EQ(merged.merged_body.find("agents content"), std::string::npos);
+    EXPECT_EQ(merged.sources.size(), 1u);
+}
+
 // 场景:自定义 filenames 顺序把 CLAUDE.md 抬到首位
 TEST_F(InstructionsLoaderTest, CustomFilenamesOrderOverridesDefault) {
     fs::path repo = temp_home / "repo";
