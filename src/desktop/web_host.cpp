@@ -1269,17 +1269,68 @@ HWND create_offscreen_host_window(RECT& target_monitor) {
     return hwnd;
 }
 
-void center_window_on_monitor(HWND hwnd, const RECT& monitor) {
-    RECT rect{};
-    if (!::GetWindowRect(hwnd, &rect)) return;
+HMONITOR startup_monitor_for_window(HWND hwnd, const RECT& remembered_work_area) {
+    if (remembered_work_area.right > remembered_work_area.left &&
+        remembered_work_area.bottom > remembered_work_area.top) {
+        POINT center{
+            remembered_work_area.left +
+                (remembered_work_area.right - remembered_work_area.left) / 2,
+            remembered_work_area.top +
+                (remembered_work_area.bottom - remembered_work_area.top) / 2,
+        };
+        if (HMONITOR monitor =
+                ::MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST)) {
+            return monitor;
+        }
+    }
+    if (hwnd) {
+        if (HMONITOR monitor =
+                ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)) {
+            return monitor;
+        }
+    }
+    return active_monitor();
+}
 
-    const int w = rect.right - rect.left;
-    const int h = rect.bottom - rect.top;
-    const int monitor_w = monitor.right - monitor.left;
-    const int monitor_h = monitor.bottom - monitor.top;
-    const int x = monitor.left + std::max(0, (monitor_w - w) / 2);
-    const int y = monitor.top + std::max(0, (monitor_h - h) / 2);
-    ::SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+void fit_native_window_to_work_area(HWND hwnd,
+                                    const RECT& work_area,
+                                    UINT dpi,
+                                    bool center) {
+    RECT current{};
+    if (!hwnd || !::GetWindowRect(hwnd, &current)) return;
+
+    const WindowSize actual_size{
+        normalized_window_extent(current.left, current.right),
+        normalized_window_extent(current.top, current.bottom),
+    };
+    if (!center) {
+        const WindowSize fitted = fit_desktop_window_to_safe_work_area(
+            actual_size,
+            {normalized_window_extent(work_area.left, work_area.right),
+             normalized_window_extent(work_area.top, work_area.bottom)},
+            static_cast<int>(dpi));
+        ::SetWindowPos(hwnd,
+                       nullptr,
+                       0,
+                       0,
+                       fitted.width,
+                       fitted.height,
+                       SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+        return;
+    }
+
+    const WindowRect fitted =
+        fit_centered_desktop_window_rect_to_safe_work_area(
+            actual_size,
+            {work_area.left, work_area.top, work_area.right, work_area.bottom},
+            static_cast<int>(dpi));
+    ::SetWindowPos(hwnd,
+                   nullptr,
+                   fitted.left,
+                   fitted.top,
+                   fitted.right - fitted.left,
+                   fitted.bottom - fitted.top,
+                   SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 } // namespace
@@ -1654,7 +1705,8 @@ struct WebHost::Impl {
         : custom_window(startup_mode == StartupWindowMode::OffscreenUntilReady
                             ? create_offscreen_host_window(target_monitor)
                             : nullptr),
-          offscreen_until_ready(custom_window != nullptr),
+          center_on_first_show(
+              startup_mode == StartupWindowMode::OffscreenUntilReady),
           com(custom_window != nullptr) {
         // 三段式构造:
         //   (1) 默认 Loader 路径,优先 offscreen custom_window;失败 → 切
@@ -1692,7 +1744,6 @@ struct WebHost::Impl {
                     ::DestroyWindow(custom_window);
                 }
                 custom_window = nullptr;
-                offscreen_until_ready = false;
                 return std::make_unique<webview::webview>(debug, nullptr);
             }
         };
@@ -1794,7 +1845,7 @@ struct WebHost::Impl {
 #ifdef _WIN32
     RECT target_monitor{};
     HWND custom_window = nullptr;
-    bool offscreen_until_ready = false;
+    bool center_on_first_show = false;
     ComApartment com{false};
 
     HWND hwnd() const {
@@ -1831,16 +1882,10 @@ void WebHost::set_size(int width, int height) {
 #else
 #ifdef _WIN32
     RECT work_area = impl_->target_monitor;
-    HMONITOR target_monitor = nullptr;
+    HMONITOR target_monitor =
+        startup_monitor_for_window(impl_->hwnd(), work_area);
     if (work_area.right <= work_area.left || work_area.bottom <= work_area.top) {
-        target_monitor = active_monitor();
         work_area = monitor_work_rect(target_monitor);
-    } else {
-        POINT center{
-            work_area.left + (work_area.right - work_area.left) / 2,
-            work_area.top + (work_area.bottom - work_area.top) / 2,
-        };
-        target_monitor = ::MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST);
     }
     const auto clamped = fit_desktop_window_to_safe_work_area(
         {adjusted.first, adjusted.second},
@@ -1850,8 +1895,16 @@ void WebHost::set_size(int width, int height) {
 #endif
     impl_->w->set_size(adjusted.first, adjusted.second, WEBVIEW_HINT_NONE);
 #ifdef _WIN32
-    if (impl_->custom_window) {
-        resize_webview_widget(impl_->custom_window);
+    if (HWND hwnd = impl_->hwnd()) {
+        // webview::set_size treats its input as 96-DPI logical client size and
+        // can therefore enlarge the actual outer HWND after our initial clamp.
+        // Fit that post-scaling native size before it can become visible.
+        HMONITOR monitor =
+            startup_monitor_for_window(hwnd, impl_->target_monitor);
+        const RECT live_work_area = monitor_work_rect(monitor);
+        fit_native_window_to_work_area(
+            hwnd, live_work_area, monitor_dpi(monitor), /*center=*/false);
+        resize_webview_widget(hwnd);
     }
 #endif
 #endif
@@ -1863,9 +1916,16 @@ void WebHost::set_visible(bool visible) {
 #ifdef _WIN32
     HWND hwnd = impl_->hwnd();
     if (!hwnd) return;
-    if (visible && impl_->offscreen_until_ready) {
-        center_window_on_monitor(hwnd, impl_->target_monitor);
-        impl_->offscreen_until_ready = false;
+    if (visible && impl_->center_on_first_show) {
+        // Re-read rcWork at the last possible moment so taskbar size/position
+        // changes during startup are reflected in the first visible rectangle.
+        HMONITOR monitor =
+            startup_monitor_for_window(hwnd, impl_->target_monitor);
+        const RECT live_work_area = monitor_work_rect(monitor);
+        fit_native_window_to_work_area(
+            hwnd, live_work_area, monitor_dpi(monitor), /*center=*/true);
+        impl_->target_monitor = live_work_area;
+        impl_->center_on_first_show = false;
         ::RemovePropW(hwnd, kHostWindowStartupMonitorProperty);
     }
     ::ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE);

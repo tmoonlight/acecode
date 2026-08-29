@@ -10,6 +10,13 @@ struct WindowSize {
     int height = 1;
 };
 
+struct WindowRect {
+    int left = 0;
+    int top = 0;
+    int right = 1;
+    int bottom = 1;
+};
+
 inline constexpr int kDesktopWindowSafeHorizontalMarginDip = 40;
 inline constexpr int kDesktopWindowSafeVerticalMarginDip = 60;
 
@@ -55,6 +62,42 @@ inline WindowSize fit_desktop_window_to_safe_work_area(WindowSize requested,
     return clamp_window_size_to_work_area(
         requested,
         {static_cast<int>(safe_width), static_cast<int>(safe_height)});
+}
+
+inline int normalized_window_extent(int start, int end) {
+    const long long extent =
+        static_cast<long long>(end) - static_cast<long long>(start);
+    return static_cast<int>(std::min<long long>(
+        std::numeric_limits<int>::max(), std::max<long long>(1, extent)));
+}
+
+// Fit an already DPI-scaled native outer-window size into an absolute work-area
+// rectangle and center it. This is intentionally applied after platform WebView
+// sizing because that layer can scale a logical request and add its own frame.
+inline WindowRect fit_centered_desktop_window_rect_to_safe_work_area(
+    WindowSize actual_outer_size,
+    WindowRect work_area,
+    int dpi) {
+    const int work_width = normalized_window_extent(work_area.left, work_area.right);
+    const int work_height = normalized_window_extent(work_area.top, work_area.bottom);
+    const WindowSize fitted = fit_desktop_window_to_safe_work_area(
+        actual_outer_size, {work_width, work_height}, dpi);
+
+    const long long left = static_cast<long long>(work_area.left) +
+        (static_cast<long long>(work_width) - fitted.width) / 2;
+    const long long top = static_cast<long long>(work_area.top) +
+        (static_cast<long long>(work_height) - fitted.height) / 2;
+    auto to_int = [](long long value) {
+        return static_cast<int>(std::min<long long>(
+            std::numeric_limits<int>::max(),
+            std::max<long long>(std::numeric_limits<int>::min(), value)));
+    };
+    return {
+        to_int(left),
+        to_int(top),
+        to_int(left + fitted.width),
+        to_int(top + fitted.height),
+    };
 }
 
 } // namespace acecode::desktop

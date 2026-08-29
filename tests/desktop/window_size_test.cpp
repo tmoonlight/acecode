@@ -61,5 +61,36 @@ TEST(WindowSizeTest, SafeMarginsNormalizeDegenerateWorkArea) {
     EXPECT_EQ(size.height, 1);
 }
 
+TEST(WindowSizeTest, FinalRectExcludesBottomTaskbarAfterHighDpiScaling) {
+    const auto rect = fit_centered_desktop_window_rect_to_safe_work_area(
+        {1920, 1230}, {0, 0, 1920, 1040}, 144);
+
+    EXPECT_EQ(rect.left, 60);
+    EXPECT_EQ(rect.top, 90);
+    EXPECT_EQ(rect.right, 1860);
+    EXPECT_EQ(rect.bottom, 950);
+    EXPECT_LT(rect.bottom, 1040);
+}
+
+TEST(WindowSizeTest, FinalRectCentersInsideOffsetMonitorWorkArea) {
+    const auto rect = fit_centered_desktop_window_rect_to_safe_work_area(
+        {1280, 820}, {-1920, 40, 0, 1080}, 96);
+
+    EXPECT_EQ(rect.left, -1600);
+    EXPECT_EQ(rect.top, 150);
+    EXPECT_EQ(rect.right, -320);
+    EXPECT_EQ(rect.bottom, 970);
+}
+
+TEST(WindowSizeTest, FinalRectNormalizesDegenerateWorkArea) {
+    const auto rect = fit_centered_desktop_window_rect_to_safe_work_area(
+        {1280, 820}, {50, 70, 40, 60}, 96);
+
+    EXPECT_EQ(rect.left, 50);
+    EXPECT_EQ(rect.top, 70);
+    EXPECT_EQ(rect.right, 51);
+    EXPECT_EQ(rect.bottom, 71);
+}
+
 } // namespace
 } // namespace acecode::desktop
