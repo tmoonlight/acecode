@@ -181,4 +181,70 @@ run('changeTreeAncestorPaths returns the selected file directory chain', () => {
   );
 });
 
+run('single-child directory chains compact without consuming the file leaf', () => {
+  const tree = buildChangeFileTree([{ path: 'a/b/c/file.ts' }]);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].type, 'directory');
+  assert.equal(tree[0].name, 'a/b/c');
+  assert.equal(tree[0].path, 'a/b/c');
+  assert.equal(tree[0].key, 'directory:a/b/c');
+  assert.deepEqual(tree[0].segments, ['a', 'b', 'c']);
+  assert.deepEqual(
+    tree[0].children.map((node) => `${node.type}:${node.name}`),
+    ['file:file.ts'],
+  );
+  assert.deepEqual(
+    flattenVisibleChangeTree(tree).map(({ node, depth }) => `${depth}:${node.name}`),
+    ['0:a/b/c', '1:file.ts'],
+  );
+});
+
+run('directory compaction stops at changed-path branches', () => {
+  const tree = buildChangeFileTree([
+    { path: 'a/b/c/file.ts' },
+    { path: 'a/b/d/other.ts' },
+  ]);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].name, 'a/b');
+  assert.equal(tree[0].path, 'a/b');
+  assert.deepEqual(
+    tree[0].children.map((node) => `${node.type}:${node.name}`),
+    ['directory:c', 'directory:d'],
+  );
+});
+
+run('directory compaction stops before a direct changed file', () => {
+  const tree = buildChangeFileTree([
+    { path: 'a/root.ts' },
+    { path: 'a/b/deep.ts' },
+  ]);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].name, 'a');
+  assert.deepEqual(
+    tree[0].children.map((node) => `${node.type}:${node.name}`),
+    ['directory:b', 'file:root.ts'],
+  );
+});
+
+run('Unicode rows create only real changed-path nodes', () => {
+  const tree = buildChangeFileTree([{ path: '项目/文档/待办.md' }]);
+  assert.deepEqual(tree.map((node) => node.name), ['项目/文档']);
+  assert.deepEqual(tree[0].segments, ['项目', '文档']);
+  assert.equal(tree[0].children[0].name, '待办.md');
+  assert.equal(
+    flattenVisibleChangeTree(tree).some(({ node }) => /^\d{3}$/.test(node.name)),
+    false,
+  );
+});
+
+run('compact endpoint paths drive collapse and selected-file expansion', () => {
+  const tree = buildChangeFileTree([{ path: 'a/b/c/file.ts' }]);
+  const collapsed = flattenVisibleChangeTree(tree, new Set(['a/b/c']));
+  assert.deepEqual(collapsed.map(({ node }) => node.name), ['a/b/c']);
+  assert.deepEqual(
+    changeTreeAncestorPaths('a/b/c/file.ts'),
+    ['a', 'a/b', 'a/b/c'],
+  );
+});
+
 console.log('changeFileTree.test.js: all tests passed');

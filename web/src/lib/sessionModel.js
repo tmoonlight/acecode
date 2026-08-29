@@ -17,7 +17,8 @@ export function modelDisplayLabel(state, fallback = '加载中') {
   if (!normalized) return fallback;
   if (normalized.deleted && normalized.name) return `${normalized.name} (deleted)`;
   if (normalized.name) return normalized.name;
-  if (normalized.provider && normalized.model) return `${normalized.provider}/${normalized.model}`;
+  const displayProvider = normalized.models_dev_provider_id || normalized.provider;
+  if (displayProvider && normalized.model) return `${displayProvider}/${normalized.model}`;
   return normalized.model || fallback;
 }
 
@@ -51,8 +52,9 @@ export function optionLabel(option) {
   const state = normalizeModelState(option);
   if (!state) return '';
   if (state.deleted && state.name) return `${state.name} (deleted)`;
-  if (state.name && state.provider && state.model) {
-    return `${state.name} (${state.provider}/${state.model})`;
+  const displayProvider = state.models_dev_provider_id || state.provider;
+  if (state.name && displayProvider && state.model) {
+    return `${state.name} (${displayProvider}/${state.model})`;
   }
   return modelDisplayLabel(state, '');
 }

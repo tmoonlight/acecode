@@ -132,7 +132,7 @@ export function SavedModelList({
               type="search"
               value={query}
               onChange={(event) => onQueryChange?.(event.target.value)}
-              placeholder="搜索名称、Provider 或模型 ID"
+              placeholder="搜索模型"
               className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-2.5 text-[11px] text-fg outline-none transition placeholder:text-fg-mute focus:border-accent focus:ring-1 focus:ring-accent-soft"
             />
           </label>

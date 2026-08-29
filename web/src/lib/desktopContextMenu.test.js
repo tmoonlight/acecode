@@ -694,8 +694,30 @@ test('右键目标提取 session pin metadata', () => {
   assert.deepEqual(sessionPinTargetFromElement(element), {
     sessionId: 's1',
     workspaceHash: 'w1',
+    noWorkspace: false,
     pinned: true,
   });
+});
+
+test('右键目标显式保留无工作区任务身份', () => {
+  const element = elementFor(SESSION_PIN_TARGET_SELECTOR, {
+    'data-desktop-session-id': 'task-1',
+    'data-desktop-session-workspace': '',
+    'data-desktop-session-no-workspace': 'true',
+    'data-desktop-session-pinned': 'false',
+  });
+  assert.deepEqual(sessionPinTargetFromElement(element), {
+    sessionId: 'task-1',
+    workspaceHash: '',
+    noWorkspace: true,
+    pinned: false,
+  });
+  const items = buildDesktopContextMenuItems({
+    sessionTarget: sessionTargetFromElement(element),
+  });
+  const pin = items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.PIN_SESSION);
+  assert.equal(pin.target.noWorkspace, true);
+  assert.equal(pin.target.workspaceHash, '');
 });
 
 test('右键目标提取 session JSONL path', () => {
@@ -711,6 +733,7 @@ test('右键目标提取 session JSONL path', () => {
     type: 'session',
     sessionId: 's1',
     workspaceHash: 'w1',
+    noWorkspace: false,
     title: 'Session 1',
     sessionPath: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
     pinned: false,

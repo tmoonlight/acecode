@@ -98,19 +98,30 @@ std::string canonical_or_original(const std::string& p) {
 GitResult run_git(const std::vector<std::string>& args,
                   const std::string& cwd,
                   int timeout_ms,
-                  bool no_prompt) {
+                  bool no_prompt,
+                  bool preserve_stdout_nuls) {
     HookCommandSpec spec;
     spec.command = "git";
     spec.args = args;
+
+    const auto run_process = [&]() {
+        if (!preserve_stdout_nuls) {
+            return run_hook_process(spec, "", timeout_ms, cwd);
+        }
+        HookProcessOptions options;
+        options.timeout_ms = timeout_ms;
+        options.preserve_stdout_nuls = true;
+        return run_hook_process(spec, "", cwd, options);
+    };
 
     HookProcessResult raw;
     if (no_prompt) {
         std::lock_guard<std::mutex> lk(git_env_mu());
         ScopedEnvVar terminal_prompt("GIT_TERMINAL_PROMPT", "0");
         ScopedEnvVar askpass("GIT_ASKPASS", "");
-        raw = run_hook_process(spec, "", timeout_ms, cwd);
+        raw = run_process();
     } else {
-        raw = run_hook_process(spec, "", timeout_ms, cwd);
+        raw = run_process();
     }
 
     GitResult result;

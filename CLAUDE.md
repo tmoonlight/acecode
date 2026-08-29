@@ -80,6 +80,7 @@ Rewind support uses per-user-turn checkpoints. `SessionManager::track_file_write
 
 - **`accept` 拒掉的条目不占 limit 名额**,否则一串归档会话就能把整页挤空,侧边栏会显示成「这个 workspace 没有会话」。
 - **`sessions_for_workspace` 里活跃会话逐个点读自己那一个 meta**(`read_meta(meta_path(dir, id))`),不要为了给它们配 meta 而把整个目录读一遍 —— 那正是这条路径原来 100% 的耗时来源。行先攒成 (updated_at, id, body) 再统一排序截断:旧实现按「active 一段 + disk 一段」的拼接顺序截断,取出来的前 N 条并不是最新的 N 条。
+- **那个 `dir` 必须由会话自己的 cwd 推导,不能用调用方 workspace 的 cwd。** 会话 meta 的落盘目录恒为 `get_project_dir(该会话的 cwd)`(`SessionManager::ensure_created` 就是这么定 `project_dir_` 的),而**一个 daemon 经 routes_workspaces 服务多个 workspace** —— 侧栏切项目不换进程,`compatibility_workspace()` 始终是进程 cwd。拿进程 cwd 去读别的 workspace 的会话 meta 只会读到空,而 `SessionRegistry::list_active()` 出于热路径考虑本来就不填 `created_at`/`updated_at`(靠这次点读补),于是这两个字段静默变成空串。实测症状:Web「后台任务」面板卡片耗时**永远停在 00s**(前端 `taskElapsedSeconds` 在 `createdAtMs` 为 0 时直接 return 0,每秒 tick 也推不动),`GET /api/sessions?parent=<id>` 整个返回 `[]` 而同一时刻 `GET /api/workspaces/<hash>/sessions?parent=<id>` 返回完整两条。同理,后台任务查询的**磁盘枚举**要用父会话 cwd 的 project_dir,否则已结束的子任务在面板里整个消失。这是 junction 教训(见 LSP 一节)的同族问题 —— 凡是拿路径当 key 的地方,两侧形态必须同源。回归测试:`web_server_smoke_test.cpp::SubagentQueryReadsMetaFromSessionOwnWorkspace`。注意该用例必须给子会话补一条消息才有意义 —— meta 是 lazy 落盘的,只 create 不发消息时磁盘上根本没有 meta,测到的就不是「读错目录」。
 - **截断后 `total` 只是上界**(目录里的候选文件数),精确总数拿不到。REST 因此多回 `total_exact` 与 `has_more`,前端判断「是否已全量加载」只能看 `has_more`;拿 `sessions.length >= total` 比会在上界下判错,展开时该补的全量请求就被跳过了。
 - 文件名判定(`is_canonical_meta_filename`)是手写字符扫描而不是 `std::regex` —— 上千条目的目录里每项跑两次正则的开销已经能量到。改它要同时守住:PID 后缀的旧实验数据必须排除,headless `--session-id` 的自定义 id 字符集必须接受。
 
@@ -329,6 +330,22 @@ JS↔C++ bridge(同进程,webview `bind`,无 HTTP):
 **webapp 兼容模式**(WebView2 不可用或 `--webapp`):`main.cpp::run_browser_fallback` 用外部浏览器打开 `<url>?ace_webapp=1` —— Edge `--app`(`launch_edge_app`)优先,失败退到系统默认浏览器(`open_external_url`)。**关键**:不再用 `WaitForSingleObject(msedge)` 当生命周期(Chromium single-instance 转交会让被等的进程瞬间退出 → daemon 被 `stop_all` 提前杀 → Edge 窗口连不上 → 白屏)。改为托盘 + Win32 消息循环托住进程,daemon 全程存活;Edge `--app` 这条额外挂 watcher 线程(`WaitForMultipleObjects(msedge, stop_event)`)实现关窗即退出。`launch_edge_app` 每次启动用一个 PID 唯一的干净 `edge-app-profile/u<pid>` 子目录(开机清旧的)杜绝转交 —— 代价是该兜底路径下 Edge profile 的 localStorage(主题/布局偏好)不跨启动持久。前端 `lib/desktopShellMode.js` 在 mount 前把该参数固化到 sessionStorage(`ace.webappCompat`,App 内多处 replaceState 会抹 query,只靠 URL 会丢)并设 `window.__ACECODE_WEBAPP_COMPAT__`;`DesktopContextMenu` 的门控 = `isDesktopShell() || isWebappCompat()`,即兼容模式照常出自定义右键菜单(普通浏览器直连仍保留原生右键)。bridge 依赖项的降级:「在资源管理器中打开/显示」走 `POST /api/open-in-explorer` REST 兜底;剪贴板走 `navigator.clipboard`(loopback 是 secure context);「检查」(DevTools) 仅 debug 且兼容模式不可用。选目录对话框由 daemon 进程弹出(无前台权),`folder_picker_win.cpp` 用 owner=GetForegroundWindow + #32770/pid 匹配的 TOPMOST 脉冲 + AttachThreadInput 组合置前;mac 在 runModal 前升 activation policy 到 Accessory + activate + NSModalPanelWindowLevel;Linux zenity/kdialog 受 WM 焦点防抢限制,无可靠通用解(future: xdg-desktop-portal FileChooser)。
 
 设计文档:`docs/desktop-shell/design.md` + `docs/desktop-shell/multi-workspace.md`,change:`openspec/changes/add-desktop-multi-workspace/`。
+
+### Agent Browser 是永久开发宽松浏览器(make-agent-browser-development-permissive)
+
+**这是有意的产品定位,不是漏掉的安全加固。** Agent Browser 用来开发调试,开发环境本来就一堆自签名证书、明文 HTTP、旧 TLS 和内网服务;凡是宿主能覆盖的挡板一律静默放行,**没有开关、没有徽标、没有确认页、没有逐站点例外、没有任何用户可见的策略提示**。看到「怎么不校验证书」时不要顺手加回来 —— 先看这一节。
+
+- macOS(`agent_browser_host_mac.mm`):`didReceiveAuthenticationChallenge` 对 `NSURLAuthenticationMethodServerTrust` 用 `credentialForTrust` 直接接受;`shouldAllowDeprecatedTLS` 恒 YES;`WKPreferences.fraudulentWebsiteWarningEnabled = NO`;Bundle 声明 `NSAllowsArbitraryLoadsInWebContent`(**不是**全局 `NSAllowsArbitraryLoads`)。
+- Windows(`agent_browser_host.cpp`):`ICoreWebView2_14::ServerCertificateErrorDetected` 一律 `ALWAYS_ALLOW`(顶层 + 子资源);`ICoreWebView2Settings8::IsReputationCheckingRequired = FALSE` 关 SmartScreen;`IsBuiltInErrorPageEnabled = FALSE` 让真实失败只走 ACECode 自己的内容状态。缺接口时只记能力缺失日志,不引入回退开关。
+- **边界**:放宽只在这两个原生宿主 + Agent Browser 专用 Profile 内。Provider / MCP / daemon / 升级器等共享 HTTP/TLS 栈**不受影响**,`agentBrowserArchitecture.test.js` 有一条断言扫描整个 `src/`,任何第三个文件出现 `credentialForTrust` / `ALWAYS_ALLOW` / `put_IsReputationCheckingRequired` 就失败。凭据类挑战(Basic/Digest/NTLM/Negotiate/Kerberos/代理/客户端证书)仍走系统默认 —— 宽松只解决「客户端挡板」,解决不了服务器不给内容的 401/403。
+
+**导航状态按「最终结果」而不是单个回调决定**(`src/desktop/agent_browser_navigation_state.{hpp,cpp}`,纯逻辑无平台依赖,两端共用)。起因是 mac 上刷新时闪白屏并停在「无法打开此页面」:WebKit 把被重定向/被新导航取代的旧请求报成 `NSURLErrorCancelled (-999)`,而 macOS 端把它一律当最终失败(Windows 端当时已经会恢复上一状态)。现在:
+
+- 导航身份 = Windows 的 NavigationId / macOS 的 `WKNavigation` 指针值,0 表示未知按当前处理;旧身份或已关闭页面的回调一律忽略。
+- `-999` / `OPERATION_CANCELED` / 外部 URI 交接后的 `CONNECTION_ABORTED` → 恢复导航前快照,不发布错误页。
+- Windows 的证书失败 `NavigationCompleted` 与 `ServerCertificateErrorDetected` 谁先到都能处理:先失败就挂起等放行,先放行就直接重试。
+- **重试全页最多一次**。重试会以新的 navigation id 重新开始一次导航,所以「已用掉重试」必须靠 `carry_retry_marker_` 跨过那一次 `begin_navigation` —— 去掉它,证书始终失败的站点就无限重试。回归测试 `tests/desktop/agent_browser_navigation_state_test.cpp::CertificateRetryHappensAtMostOnce`。
+- 系统已注册的外部 URI/SSO scheme 静默交给操作系统(mac `NSWorkspace`,Windows `ShellExecuteW` + `ICoreWebView2_18::LaunchingExternalUriScheme` 取消自带确认框),`javascript:`/`data:`/`blob:` 不参与交接;没有 handler 时如实记一次外部启动失败,不谎称 HTTP(S) 页面自己出了证书问题。
 
 ### Web UI: 控制台停靠区(ConsoleDock)
 

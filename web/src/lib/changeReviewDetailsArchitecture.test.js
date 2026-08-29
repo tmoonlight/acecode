@@ -125,6 +125,33 @@ run('Git and session compact changes share one flat/tree renderer and one cwd-sc
   assert.match(compactList, /data-change-compact-file=\{row\.path\}/);
 });
 
+run('Compact Changes directories preserve canonical paths and use responsive middle ellipsis', () => {
+  const gitList = source('GitChangesPanel.jsx');
+  const sessionReview = source('ChangeReview.jsx');
+  const compactList = source('ChangeFileList.jsx');
+  const globals = styles('globals.css');
+
+  assert.match(gitList, /<ChangeFileList[\s\S]*?rows=\{rows\}/);
+  assert.match(sessionReview, /<ChangeFileList[\s\S]*?rows=\{rows\}/);
+  assert.match(compactList, /function ChangeDirectoryName\(\{ node \}\)/);
+  assert.match(compactList, /Array\.isArray\(node\.segments\)/);
+  assert.match(compactList, /ace-change-tree-path-prefix/);
+  assert.match(compactList, /ace-change-tree-path-separator/);
+  assert.match(compactList, /ace-change-tree-path-suffix/);
+  assert.match(compactList, /onClick=\{\(\) => onToggle\(node\.path\)\}/);
+  assert.match(compactList, /title=\{node\.path\}/);
+  assert.match(compactList, /aria-label=\{node\.path\}/);
+
+  assert.match(
+    globals,
+    /\.ace-change-tree-path-prefix \{[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/,
+  );
+  assert.match(
+    globals,
+    /\.ace-change-tree-path-suffix \{[\s\S]*?flex: 0 0 auto;[\s\S]*?max-width: 60%;/,
+  );
+});
+
 run('Top bar keeps direct task search while new-conversation and loop stay in quick actions', () => {
   const topBar = source('TopBar.jsx');
   assert.doesNotMatch(topBar, /<QuickBtn[^>]*title="新对话"/);

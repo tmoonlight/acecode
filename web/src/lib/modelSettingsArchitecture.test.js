@@ -59,6 +59,12 @@ run('model settings navigation delegates to focused list-first components', () =
   assert.ok(savedIndex >= 0);
   assert.doesNotMatch(section, /<ModelConnectionCard/);
   assert.doesNotMatch(section, /RecommendedModelList|recommendedModels|热门预置/);
+  assert.doesNotMatch(section, /更新模型目录|refreshModelCatalog/);
+});
+
+run('saved model search uses concise placeholder copy', () => {
+  assert.match(saved, /placeholder="搜索模型"/);
+  assert.doesNotMatch(saved, /搜索名称、Provider 或模型 ID/);
 });
 
 run('one adaptive profile Modal owns add and edit flows without backdrop draft loss', () => {
@@ -159,6 +165,35 @@ run('catalog provider picker keeps queries bounded and supports docs manual fall
   assert.match(picker, /flex h-9 w-full items-center gap-2/);
   assert.match(picker, /focus:ring-1 focus:ring-inset focus:ring-accent/);
   assert.doesNotMatch(picker, /item\.runtime_provider === 'copilot'[\s\S]*?item\.id/);
+});
+
+run('latest successful provider probe owns the list and search until provider changes', () => {
+  assert.match(picker, /const \[modelResultSource, setModelResultSource\] = useState\('catalog'\);/);
+  assert.match(picker, /const modelResultSourceRef = useRef\('catalog'\);/);
+  assert.match(picker, /const catalogRequestRevisionRef = useRef\(0\);/);
+  assert.match(picker, /const probeRequestRevisionRef = useRef\(0\);/);
+  assert.match(picker, /const providerIdRef = useRef\(provider\?\.id \|\| ''\);/);
+  assert.match(picker, /providerIdRef\.current = provider\?\.id \|\| '';/);
+  assert.match(
+    picker,
+    /modelResultSourceRef\.current = 'catalog';[\s\S]*?catalogRequestRevisionRef\.current \+= 1;[\s\S]*?probeRequestRevisionRef\.current \+= 1;[\s\S]*?setModelResultSource\('catalog'\);/,
+  );
+  assert.match(
+    picker,
+    /provider\.model_input !== 'catalog'[\s\S]*?modelResultSource === 'probe'\) return undefined;/,
+  );
+  assert.match(
+    picker,
+    /providerIdRef\.current !== requestProviderId[\s\S]*?modelResultSourceRef\.current !== 'catalog'[\s\S]*?requestRevision !== catalogRequestRevisionRef\.current/,
+  );
+  assert.match(
+    picker,
+    /modelResultSourceRef\.current = 'probe';[\s\S]*?catalogRequestRevisionRef\.current \+= 1;[\s\S]*?setCatalogModels\(models\);[\s\S]*?setModelResultSource\('probe'\);/,
+  );
+  assert.match(
+    picker,
+    /const displayedModels = modelResultSource === 'probe'[\s\S]*?filterProviderModels\(catalogModels, modelQuery\)[\s\S]*?: catalogModels;/,
+  );
 });
 
 run('managed provider details use bounded desktop columns with independent scrolling', () => {

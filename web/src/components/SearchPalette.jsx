@@ -97,11 +97,20 @@ function searchMatchContext(match) {
   return String(match.snippet || '');
 }
 
-function progressLabel(progress, prefix) {
-  if (!progress || progress.complete) return '';
-  const scanned = Number(progress.scanned_projects) || 0;
-  const total = Number(progress.total_projects) || 0;
-  return total > 0 ? `${prefix} ${scanned}/${total}` : `${prefix}准备中`;
+function progressFraction(progress) {
+  if (!progress) return 0;
+  if (progress.complete) return 1;
+  const total = Math.max(0, Number(progress.total_projects) || 0);
+  if (total === 0) return 0;
+  const scanned = Math.max(0, Number(progress.scanned_projects) || 0);
+  return Math.min(scanned, total) / total;
+}
+
+function searchProgressPercent(catalogProgress, contentProgress = null) {
+  const stages = [catalogProgress, contentProgress].filter(Boolean);
+  if (stages.length === 0 || stages.every((stage) => stage.complete)) return null;
+  const fraction = stages.reduce((sum, stage) => sum + progressFraction(stage), 0) / stages.length;
+  return Math.max(1, Math.round(Math.min(1, fraction) * 1000) / 10);
 }
 
 export function SearchPalette({
@@ -303,12 +312,22 @@ export function SearchPalette({
     [projectItems, taskItems],
   );
 
-  useEffect(() => setSelectedIndex(0), [query, data.sessions, contentSearch]);
+  useEffect(() => {
+    setSelectedIndex(0);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [query]);
 
   useEffect(() => {
-    const row = rowRefs.current.get(selectedIndex);
-    if (row) row.scrollIntoView({ block: 'nearest' });
-  }, [selectedIndex, items.length]);
+    setSelectedIndex((previous) => Math.min(previous, Math.max(0, items.length - 1)));
+  }, [items.length]);
+
+  const revealKeyboardSelection = useCallback((index) => {
+    setSelectedIndex(index);
+    window.requestAnimationFrame(() => {
+      const row = rowRefs.current.get(index);
+      if (row) row.scrollIntoView({ block: 'nearest' });
+    });
+  }, []);
 
   const commit = useCallback((index) => {
     const item = items[index];
@@ -346,8 +365,8 @@ export function SearchPalette({
     else return;
     event.preventDefault();
     event.stopPropagation();
-    setSelectedIndex(next);
-  }, [items, selectedIndex, commit, closePalette]);
+    revealKeyboardSelection(next);
+  }, [items, selectedIndex, commit, closePalette, revealKeyboardSelection]);
 
   const loadMore = useCallback(async () => {
     const search = activeSearchRef.current;
@@ -382,11 +401,12 @@ export function SearchPalette({
 
   if (!open) return null;
 
-  const catalogProgressText = progressLabel(data.progress, '正在建立任务索引');
-  const contentProgressText = shouldSearchUserMessages(query)
-    ? progressLabel(contentSearch.progress, '正在增量搜索正文')
-    : '';
-  const progressText = [catalogProgressText, contentProgressText].filter(Boolean).join(' · ');
+  const normalizedQuery = query.trim();
+  const contentSearchRequired = shouldSearchUserMessages(normalizedQuery);
+  const currentContentProgress = contentSearchRequired
+    ? (contentSearch.query === normalizedQuery ? contentSearch.progress : emptyProgress)
+    : null;
+  const progressPercent = searchProgressPercent(data.progress, currentContentProgress);
   const partialErrors = Array.isArray(data.errors) ? data.errors : [];
 
   return (
@@ -400,9 +420,10 @@ export function SearchPalette({
       <div
         className="bg-surface border border-border rounded-xl ace-shadow-lg overflow-hidden flex flex-col"
         style={{ width: 'min(640px, 90vw)', maxHeight: '70vh' }}
+        aria-busy={progressPercent !== null}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="h-12 px-3 flex items-center gap-2 border-b border-border shrink-0">
+        <div className="relative h-12 px-3 flex items-center gap-2 border-b border-border shrink-0">
           <VsIcon name="search" size={14} className="text-fg-mute shrink-0" />
           <input
             ref={inputRef}
@@ -420,13 +441,19 @@ export function SearchPalette({
           >
             <VsIcon name="close" size={12} />
           </button>
+          {progressPercent !== null && (
+            <div
+              aria-hidden="true"
+              className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
+            >
+              <div
+                className="h-full bg-accent transition-[width] duration-150 ease-out motion-reduce:transition-none"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
         </div>
 
-        {progressText && (
-          <div className="px-3 py-1.5 text-[11px] text-fg-mute bg-surface-alt border-b border-border shrink-0">
-            {progressText}（可随时关闭）
-          </div>
-        )}
         {searchError && (
           <div className="px-3 py-1.5 flex items-center justify-between gap-3 text-[11px] text-danger bg-danger-bg border-b border-border shrink-0">
             <span className="truncate">搜索失败：{searchError}</span>
@@ -538,9 +565,9 @@ export function SearchPalette({
               </div>
             );
           })}
-          {items.length === 0 && (
+          {items.length === 0 && progressPercent === null && (
             <div className="px-4 py-8 text-center text-fg-mute text-[13px]">
-              {progressText ? '正在增量搜索，可随时关闭' : (query.trim() ? '无匹配结果' : '暂无任务或项目')}
+              {query.trim() ? '无匹配结果' : '暂无任务或项目'}
             </div>
           )}
         </div>

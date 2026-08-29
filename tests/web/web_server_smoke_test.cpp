@@ -34,6 +34,7 @@
 #include "session/local_session_client.hpp"
 #include "session/attachment_store.hpp"
 #include "session/session_manager.hpp"
+#include "session/session_pin_store.hpp"
 #include "session/session_registry.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_trajectory.hpp"
@@ -396,6 +397,7 @@ struct WebServerFixture {
     using NativeSaveFilePicker = std::function<
         acecode::web::NativeSaveFilePickResult(const std::string&)>;
     struct NativeSavePickerTag {};
+    struct SideQuestionProviderTag {};
 
     acecode::ToolExecutor tools;
     acecode::PermissionManager template_perm;
@@ -439,7 +441,8 @@ struct WebServerFixture {
         std::function<std::vector<std::string>()> remote_web_hosts = {},
         SessionClientFactory session_client_factory = {},
         bool desktop_managed = false,
-        NativeSaveFilePicker native_save_file_picker = {}) {
+        NativeSaveFilePicker native_save_file_picker = {},
+        std::shared_ptr<acecode::LlmProvider> registry_provider = {}) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -485,11 +488,11 @@ struct WebServerFixture {
         hook_manager = std::make_unique<acecode::HookManager>(
             acecode::HookRegistrySnapshot{});
         acecode::SessionRegistryDeps deps;
-        deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+        deps.provider_accessor = [registry_provider] { return registry_provider; };
         deps.tools = &tools;
         deps.cwd = cwd;
         deps.no_workspace_cache_root = no_workspace_cache_root.string();
-        deps.config = &cfg;
+        deps.config = registry_provider ? nullptr : &cfg;
         deps.expert_registry = expert_registry.get();
         deps.template_permissions = &template_perm;
         deps.hook_manager = hook_manager.get();
@@ -571,6 +574,23 @@ struct WebServerFixture {
               {},
               false,
               std::move(native_save_file_picker)) {}
+
+    explicit WebServerFixture(
+        SideQuestionProviderTag,
+        std::shared_ptr<acecode::LlmProvider> registry_provider)
+        : WebServerFixture(
+              true,
+              false,
+              {},
+              true,
+              {},
+              {},
+              false,
+              {},
+              {},
+              false,
+              {},
+              std::move(registry_provider)) {}
 
     explicit WebServerFixture(
         std::function<std::vector<std::string>()> remote_web_hosts,
@@ -4009,7 +4029,7 @@ TEST(WebServerHttp, FilesBlobEndpointServesPdfPreview) {
 }
 
 // /api/files/blob serves modern Office files for browser rendering while
-// keeping legacy binary doc/xls formats unsupported.
+// keeping legacy binary doc/xls/ppt formats unsupported.
 TEST(WebServerHttp, FilesBlobEndpointServesModernOfficePreviewOnly) {
     WebServerFixture fx;
 
@@ -4027,6 +4047,10 @@ TEST(WebServerHttp, FilesBlobEndpointServesModernOfficePreviewOnly) {
         {
             "macro.xlsm",
             "application/vnd.ms-excel.sheet.macroEnabled.12",
+        },
+        {
+            "roadmap.pptx",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         },
     };
 
@@ -4050,7 +4074,7 @@ TEST(WebServerHttp, FilesBlobEndpointServesModernOfficePreviewOnly) {
             << name << " content-type: " << content_type;
     }
 
-    for (const auto& name : {"legacy.doc", "legacy.xls"}) {
+    for (const auto& name : {"legacy.doc", "legacy.xls", "legacy.ppt"}) {
         {
             std::ofstream ofs(docs_dir / name, std::ios::binary);
             ofs << "legacy-office-bytes";
@@ -4133,6 +4157,69 @@ TEST(WebServerHttp, WorkspacePinnedSessionsPersistAndPruneIds) {
     EXPECT_EQ(get_body["session_ids"][0], session_id);
 }
 
+// 场景:无工作区任务使用独立 pin store;重复、workspace 和缺失 id 被剪枝,
+// 活跃任务销毁后仍可从磁盘恢复置顶状态,归档后再自动清理。
+TEST(WebServerHttp, NoWorkspacePinnedSessionsPersistAndPruneIds) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+
+    auto create_task = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                                 cpr::Header{{"Content-Type", "application/json"}},
+                                 cpr::Body{R"({"no_workspace":true})"});
+    ASSERT_EQ(create_task.status_code, 201) << create_task.text;
+    const std::string task_id =
+        json::parse(create_task.text).value("session_id", std::string{});
+    ASSERT_FALSE(task_id.empty());
+    auto* task_entry = fx.registry->lookup(task_id);
+    ASSERT_NE(task_entry, nullptr);
+    ASSERT_NE(task_entry->sm, nullptr);
+    EXPECT_EQ(task_entry->sm->ensure_active_session_id(), task_id);
+
+    auto create_workspace_session = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(create_workspace_session.status_code, 201)
+        << create_workspace_session.text;
+    const std::string workspace_session_id = json::parse(
+        create_workspace_session.text).value("session_id", std::string{});
+    ASSERT_FALSE(workspace_session_id.empty());
+
+    auto put = cpr::Put(
+        cpr::Url{fx.url("/api/no-workspace/pinned-sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"session_ids", json::array({
+            "missing", workspace_session_id, task_id, task_id,
+        })}}.dump()});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    const auto put_body = json::parse(put.text);
+    EXPECT_TRUE(put_body.value("no_workspace", false));
+    EXPECT_EQ(put_body.value("pin_scope", std::string{}), "__no_workspace__");
+    ASSERT_EQ(put_body["session_ids"].size(), 1u);
+    EXPECT_EQ(put_body["session_ids"][0], task_id);
+
+    const auto persisted = acecode::session_pins::read_pinned_sessions_state(
+        fx.no_workspace_cache_root / "pinned_sessions.json");
+    EXPECT_EQ(persisted.session_ids, (std::vector<std::string>{task_id}));
+
+    // 模拟进程重启后只剩磁盘 metadata 的发现路径。
+    fx.client->destroy_session(task_id);
+    auto get = cpr::Get(cpr::Url{
+        fx.url("/api/no-workspace/pinned-sessions")});
+    ASSERT_EQ(get.status_code, 200) << get.text;
+    const auto get_body = json::parse(get.text);
+    ASSERT_EQ(get_body["session_ids"].size(), 1u);
+    EXPECT_EQ(get_body["session_ids"][0], task_id);
+
+    auto archive = cpr::Put(cpr::Url{
+        fx.url("/api/sessions/" + task_id + "/archive")});
+    ASSERT_EQ(archive.status_code, 200) << archive.text;
+    auto after_archive = cpr::Get(cpr::Url{
+        fx.url("/api/no-workspace/pinned-sessions")});
+    ASSERT_EQ(after_archive.status_code, 200) << after_archive.text;
+    EXPECT_TRUE(json::parse(after_archive.text)["session_ids"].empty());
+}
+
 // 场景:全局 pinned 视觉顺序可跨 workspace 保存,并按当前 pinned 状态裁剪旧项。
 TEST(WebServerHttp, PinnedSessionVisualOrderPersistsAcrossWorkspacesAndPrunes) {
     WebServerFixture fx;
@@ -4199,6 +4286,73 @@ TEST(WebServerHttp, PinnedSessionVisualOrderPersistsAcrossWorkspacesAndPrunes) {
     ASSERT_EQ(get_body["items"].size(), 1u);
     EXPECT_EQ(get_body["items"][0]["workspace_hash"], hash2);
     EXPECT_EQ(get_body["items"][0]["session_id"], session2);
+}
+
+// 场景:全局 pinned 视觉顺序把无工作区任务作为独立 scope 与 workspace
+// 会话交错保存,取消置顶任务后只剪掉对应项。
+TEST(WebServerHttp, PinnedSessionVisualOrderIncludesNoWorkspaceTasks) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+
+    auto create_workspace_session = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{R"({})"});
+    ASSERT_EQ(create_workspace_session.status_code, 201)
+        << create_workspace_session.text;
+    const std::string workspace_session_id = json::parse(
+        create_workspace_session.text).value("session_id", std::string{});
+    ASSERT_FALSE(workspace_session_id.empty());
+
+    auto create_task = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                                 cpr::Header{{"Content-Type", "application/json"}},
+                                 cpr::Body{R"({"no_workspace":true})"});
+    ASSERT_EQ(create_task.status_code, 201) << create_task.text;
+    const std::string task_id =
+        json::parse(create_task.text).value("session_id", std::string{});
+    ASSERT_FALSE(task_id.empty());
+
+    auto pin_workspace = cpr::Put(
+        cpr::Url{fx.url("/api/workspaces/" + hash + "/pinned-sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"session_ids", json::array({workspace_session_id})}}.dump()});
+    ASSERT_EQ(pin_workspace.status_code, 200) << pin_workspace.text;
+    auto pin_task = cpr::Put(
+        cpr::Url{fx.url("/api/no-workspace/pinned-sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"session_ids", json::array({task_id})}}.dump()});
+    ASSERT_EQ(pin_task.status_code, 200) << pin_task.text;
+
+    const json order = {
+        {"items", json::array({
+            json{{"workspace_hash", "__no_workspace__"}, {"session_id", task_id}},
+            json{{"workspace_hash", hash}, {"session_id", workspace_session_id}},
+        })},
+    };
+    auto put_order = cpr::Put(
+        cpr::Url{fx.url("/api/pinned-sessions/order")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{order.dump()});
+    ASSERT_EQ(put_order.status_code, 200) << put_order.text;
+    const auto put_body = json::parse(put_order.text);
+    ASSERT_EQ(put_body["items"].size(), 2u);
+    EXPECT_EQ(put_body["items"][0]["workspace_hash"], "__no_workspace__");
+    EXPECT_EQ(put_body["items"][0]["session_id"], task_id);
+    EXPECT_EQ(put_body["items"][1]["workspace_hash"], hash);
+    EXPECT_EQ(put_body["items"][1]["session_id"], workspace_session_id);
+
+    auto unpin_task = cpr::Put(
+        cpr::Url{fx.url("/api/no-workspace/pinned-sessions")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"session_ids", json::array()}}.dump()});
+    ASSERT_EQ(unpin_task.status_code, 200) << unpin_task.text;
+    auto get_order = cpr::Get(cpr::Url{
+        fx.url("/api/pinned-sessions/order")});
+    ASSERT_EQ(get_order.status_code, 200) << get_order.text;
+    const auto get_body = json::parse(get_order.text);
+    ASSERT_EQ(get_body["items"].size(), 1u);
+    EXPECT_EQ(get_body["items"][0]["workspace_hash"], hash);
+    EXPECT_EQ(get_body["items"][0]["session_id"], workspace_session_id);
 }
 
 // 场景:归档 workspace 会话后,默认列表隐藏它;专用 archived 查询能看到,
@@ -4733,6 +4887,71 @@ TEST(WebServerHttp, SubagentSessionsHiddenFromListAndQueryableByParent) {
     ASSERT_EQ(child_arr.size(), 1u) << child_arr.dump();
     EXPECT_EQ(child_arr[0]["id"], child_id);
     EXPECT_EQ(child_arr[0]["parent_session_id"], parent_id);
+}
+
+// 场景: daemon 进程 cwd 与会话自己的 cwd 不是同一个 workspace —— 单 daemon
+// 经 routes_workspaces 服务多个 workspace 时这是常态(侧栏切项目并不换进程)。
+// 父会话和它 spawn_subagent 出来的子会话都活在另一个 workspace 里,此时
+// GET /api/sessions?parent=<id> 仍须返回带完整时间戳的子任务快照。
+//
+// 期望: 子任务的 created_at / updated_at 非空。这两个字段的真值只存在于
+// 「会话自己 cwd 推导出的 project_dir」下的 .meta.json 里
+// (SessionManager::start_session 就是这么定 project_dir_ 的),而不是调用方
+// workspace 的目录 —— SessionRegistry::list_active() 出于热路径考虑不填这
+// 两个字段,列表接口必须回磁盘补,补的时候就必须找对目录。
+//
+// 回归表现: Web 端「后台任务」面板的卡片耗时永远停在 "00s"。前端
+// taskElapsedSeconds 在 createdAtMs 为 0 时直接 return 0,面板每秒 tick 也
+// 推不动它;同时已结束的子任务会因为磁盘枚举扫错目录而整个消失。
+TEST(WebServerHttp, SubagentQueryReadsMetaFromSessionOwnWorkspace) {
+    WebServerFixture fx;
+    // 另一个 workspace:与 daemon 的 fx.cwd 不同目录 → project_dir 也不同。
+    const auto other_dir = fx.tmp_dir / "other-workspace";
+    std::filesystem::create_directories(other_dir);
+    const std::string other_cwd = acecode::path_to_utf8(other_dir);
+    ASSERT_NE(other_cwd, fx.cwd);
+
+    acecode::SessionOptions parent_opts;
+    parent_opts.cwd = other_cwd;
+    parent_opts.preset_session_id = "xws-parent";
+    const auto parent_id = fx.registry->create(parent_opts);
+
+    acecode::SessionOptions child_opts;
+    child_opts.cwd = other_cwd;
+    child_opts.preset_session_id = "xws-child";
+    child_opts.parent_session_id = parent_id;
+    child_opts.subagent_depth = 1;
+    const auto child_id = fx.registry->create(child_opts);
+
+    // 会话 meta 是 lazy 落盘的:SessionManager::start_session 只填内存字段,
+    // 真正建目录写 meta 的是首条消息时的 ensure_created()。真实子代理一
+    // spawn 就带着 prompt 开跑,这里补一条消息对齐那个状态,否则测到的是
+    // 「meta 还没写」而不是「meta 写在别的 workspace 目录里读不到」。
+    {
+        auto child = fx.registry->acquire(child_id);
+        ASSERT_NE(child, nullptr);
+        ASSERT_NE(child->sm, nullptr);
+        acecode::ChatMessage child_msg;
+        child_msg.role = "user";
+        child_msg.content = "子任务 prompt";
+        child->sm->on_message(child_msg);
+    }
+
+    auto children = cpr::Get(cpr::Url{fx.url("/api/sessions?parent=" + parent_id)});
+    ASSERT_EQ(children.status_code, 200) << children.text;
+    auto arr = json::parse(children.text);
+    ASSERT_EQ(arr.size(), 1u) << arr.dump();
+    EXPECT_EQ(arr[0]["id"], child_id);
+    EXPECT_FALSE(arr[0].value("created_at", std::string{}).empty())
+        << "跨 workspace 时子任务 created_at 读空 → 后台任务卡片耗时恒为 00s: "
+        << arr.dump();
+    EXPECT_FALSE(arr[0].value("updated_at", std::string{}).empty())
+        << "updated_at 同源,读空后已结束任务的耗时也算不出来";
+
+    // 会话存储落在真实 acecode 数据目录(fixture 只托管 tmp_dir),自己收尾。
+    std::error_code cleanup_ec;
+    std::filesystem::remove_all(
+        path_from_utf8(acecode::SessionStorage::get_project_dir(other_cwd)), cleanup_ec);
 }
 
 // 场景: DELETE /api/sessions/:id?purge=1 是「后台任务-清除」——只允许子会话,
@@ -5755,8 +5974,9 @@ TEST(WebServerHttp, PostBuiltinCommandRejectsUnsupportedCommand) {
     EXPECT_EQ(body["command"], "model");
 }
 
-TEST(WebServerHttp, PostSideQuestionValidatesSessionQuestionAndContext) {
-    WebServerFixture fx;
+TEST(WebServerHttp, PostSideQuestionWorksBeforeFirstMainRequest) {
+    auto provider = std::make_shared<TurnSteeringProvider>();
+    WebServerFixture fx(WebServerFixture::SideQuestionProviderTag{}, provider);
 
     auto invalid = cpr::Post(
         cpr::Url{fx.url("/api/sessions/missing-session/side-question")},
@@ -5778,13 +5998,14 @@ TEST(WebServerHttp, PostSideQuestionValidatesSessionQuestionAndContext) {
     ASSERT_EQ(create.status_code, 201) << create.text;
     auto sid = json::parse(create.text)["session_id"].get<std::string>();
 
-    auto not_ready = cpr::Post(
+    auto direct = cpr::Post(
         cpr::Url{fx.url("/api/sessions/" + sid + "/side-question")},
         cpr::Header{{"Content-Type", "application/json"}},
         cpr::Body{R"({"question":"why?"})"});
-    ASSERT_EQ(not_ready.status_code, 409) << not_ready.text;
-    EXPECT_EQ(json::parse(not_ready.text)["error"],
-              "SIDE_QUESTION_CONTEXT_NOT_READY");
+    ASSERT_EQ(direct.status_code, 200) << direct.text;
+    auto direct_body = json::parse(direct.text);
+    EXPECT_EQ(direct_body["question"], "why?");
+    EXPECT_EQ(direct_body["answer"], "side");
 }
 
 // 场景: inactive 磁盘历史不在 registry 内存里时,GET messages 也应能返回

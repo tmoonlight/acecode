@@ -60,6 +60,14 @@ run('new-conversation hero composer alone uses the 700 by 120 layout', () => {
   );
   assert.match(
     styles,
+    /\.ace-home-panel\s*\{[^}]*display: grid;[^}]*grid-template-rows: minmax\(95px, 1fr\) auto minmax\(0, 1fr\);[^}]*padding: 0 28px;/s,
+  );
+  assert.match(
+    styles,
+    /\.ace-home-content\s*\{[^}]*grid-row: 2;[^}]*justify-self: center;/s,
+  );
+  assert.match(
+    styles,
     /\.ace-home-composer\s*\{[^}]*width: 700px;[^}]*max-width: calc\(100% \+ 40px\);/s,
   );
   assert.match(

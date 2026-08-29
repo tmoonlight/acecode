@@ -76,6 +76,7 @@ function workspaceNameMap(workspaces) {
 function workspaceSubtitle(session, { workspaceName, workspaceByHash }) {
   const direct = String(session?.workspaceName || session?.workspace_name || '').trim();
   if (direct) return direct;
+  if (session?.no_workspace || session?.noWorkspace) return '';
   const hash = sessionWorkspaceHash(session);
   const mapped = hash ? String(workspaceByHash.get(hash) || '').trim() : '';
   if (mapped) return mapped;

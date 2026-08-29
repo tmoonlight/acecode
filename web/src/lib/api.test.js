@@ -988,6 +988,36 @@ await run('Pinned session visual order API reads and writes global order endpoin
   }
 });
 
+await run('No-workspace pinned session API reads and writes dedicated endpoint', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ no_workspace: true, session_ids: ['task-1'] }),
+    };
+  };
+  try {
+    const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
+    const got = await client.getNoWorkspacePinnedSessions();
+    const saved = await client.setNoWorkspacePinnedSessions(['task-2']);
+
+    assert.deepEqual(got, { no_workspace: true, session_ids: ['task-1'] });
+    assert.deepEqual(saved, { no_workspace: true, session_ids: ['task-1'] });
+    assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/no-workspace/pinned-sessions');
+    assert.equal(calls[0].opts.method, 'GET');
+    assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
+    assert.equal(calls[1].url, 'http://127.0.0.1:4567/api/no-workspace/pinned-sessions');
+    assert.equal(calls[1].opts.method, 'PUT');
+    assert.deepEqual(JSON.parse(calls[1].opts.body), { session_ids: ['task-2'] });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 await run('Default permission mode API reads and writes config endpoint', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];

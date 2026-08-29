@@ -3,7 +3,8 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'i
 const PDF_EXTENSIONS = new Set(['pdf']);
 const WORD_EXTENSIONS = new Set(['docx']);
 const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xlsm']);
-const UNSUPPORTED_BINARY_EXTENSIONS = new Set(['doc', 'xls']);
+const PRESENTATION_EXTENSIONS = new Set(['pptx']);
+const UNSUPPORTED_BINARY_EXTENSIONS = new Set(['doc', 'xls', 'ppt']);
 
 export function extensionForPath(path) {
   const name = String(path || '').split(/[\\/]/).pop() || '';
@@ -18,6 +19,7 @@ export function filePreviewKind(path) {
   if (PDF_EXTENSIONS.has(ext)) return 'pdf';
   if (WORD_EXTENSIONS.has(ext)) return 'word';
   if (SPREADSHEET_EXTENSIONS.has(ext)) return 'spreadsheet';
+  if (PRESENTATION_EXTENSIONS.has(ext)) return 'presentation';
   if (UNSUPPORTED_BINARY_EXTENSIONS.has(ext)) return 'unsupported';
   if (MARKDOWN_EXTENSIONS.has(ext)) return 'markdown';
   return 'text';
@@ -25,5 +27,9 @@ export function filePreviewKind(path) {
 
 export function isBlobFilePreview(path) {
   const kind = filePreviewKind(path);
-  return kind === 'image' || kind === 'pdf' || kind === 'word' || kind === 'spreadsheet';
+  return kind === 'image'
+    || kind === 'pdf'
+    || kind === 'word'
+    || kind === 'spreadsheet'
+    || kind === 'presentation';
 }

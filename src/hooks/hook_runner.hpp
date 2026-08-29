@@ -42,6 +42,9 @@ struct HookProcessOptions {
     bool terminate_on_stdout_limit = false;
     bool terminate_process_tree = false;
     bool append_output_truncation_notice = true;
+    // Preserve NUL record delimiters while normalizing each field to UTF-8.
+    // Text-oriented callers keep the existing whole-buffer behavior by default.
+    bool preserve_stdout_nuls = false;
 };
 
 std::string resolve_hook_command_path(const std::string& command);

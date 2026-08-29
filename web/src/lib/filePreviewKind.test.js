@@ -27,10 +27,12 @@ run('filePreviewKind routes browser-native binary previews before text', () => {
   assert.equal(filePreviewKind('docs/spec.DOCX'), 'word');
   assert.equal(filePreviewKind('docs/report.xlsx'), 'spreadsheet');
   assert.equal(filePreviewKind('docs/macro.xlsm'), 'spreadsheet');
+  assert.equal(filePreviewKind('docs/roadmap.PPTX'), 'presentation');
   assert.equal(filePreviewKind('README.markdown'), 'markdown');
   assert.equal(filePreviewKind('src/main.cpp'), 'text');
   assert.equal(filePreviewKind('docs/legacy.doc'), 'unsupported');
   assert.equal(filePreviewKind('docs/legacy.xls'), 'unsupported');
+  assert.equal(filePreviewKind('docs/legacy.ppt'), 'unsupported');
 });
 
 run('isBlobFilePreview includes browser-rendered binary previews only', () => {
@@ -39,8 +41,10 @@ run('isBlobFilePreview includes browser-rendered binary previews only', () => {
   assert.equal(isBlobFilePreview('docs/spec.docx'), true);
   assert.equal(isBlobFilePreview('docs/report.xlsx'), true);
   assert.equal(isBlobFilePreview('docs/macro.xlsm'), true);
+  assert.equal(isBlobFilePreview('docs/roadmap.pptx'), true);
   assert.equal(isBlobFilePreview('README.md'), false);
   assert.equal(isBlobFilePreview('docs/legacy.doc'), false);
   assert.equal(isBlobFilePreview('docs/legacy.xls'), false);
+  assert.equal(isBlobFilePreview('docs/legacy.ppt'), false);
   assert.equal(isBlobFilePreview('archive.zip'), false);
 });

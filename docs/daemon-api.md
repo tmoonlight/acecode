@@ -251,8 +251,10 @@ when known.
 | GET | `/api/workspaces/:hash/opencode-import/:job_id` | poll opencode import job |
 | GET | `/api/workspaces/:hash/pinned-sessions` | list pinned session ids |
 | PUT | `/api/workspaces/:hash/pinned-sessions` | set pinned session ids |
-| GET | `/api/pinned-sessions/order` | read cross-workspace pin order |
-| PUT | `/api/pinned-sessions/order` | set cross-workspace pin order |
+| GET | `/api/no-workspace/pinned-sessions` | list pinned no-workspace task ids |
+| PUT | `/api/no-workspace/pinned-sessions` | set pinned no-workspace task ids |
+| GET | `/api/pinned-sessions/order` | read global cross-scope pin order |
+| PUT | `/api/pinned-sessions/order` | set global cross-scope pin order |
 | GET | `/api/sessions` | compatibility session list |
 | GET | `/api/session-search/sessions?q=...&limit=N&cursor=...&request_id=...` | incremental global session catalog page |
 | GET | `/api/session-search/user-messages?q=...&limit=N&request_id=...` | advance one bounded visible-user-message search batch |
@@ -1197,7 +1199,10 @@ endpoint.
 ### `POST /api/sessions/:id/side-question`
 
 Runs one isolated `/btw` or `/side` side question against the active session's
-latest thread-safe provider-facing context snapshot:
+latest thread-safe provider-facing context snapshot. The registry primes this
+snapshot when a new session is configured and refreshes it after persisted
+history/worktree state is restored, so the endpoint can be used before the
+session's first main provider request:
 
 ```json
 {"question":"Why did the current approach choose a mutex?"}
@@ -1219,8 +1224,9 @@ Errors use structured codes:
 - `400 INVALID_SIDE_QUESTION`: `question` is missing, empty, not a string, or
   exceeds 16,000 UTF-8 bytes.
 - `404 UNKNOWN_SESSION`: the target session is not active.
-- `409 SIDE_QUESTION_CONTEXT_NOT_READY`: the main loop has not yet published a
-  safe provider-facing context snapshot.
+- `409 SIDE_QUESTION_CONTEXT_NOT_READY`: the registry could not publish a safe
+  provider-facing context snapshot (an internal lifecycle invariant failure,
+  not a prompt for the user to send a main-chat message first).
 - `503 SIDE_QUESTION_PROVIDER_UNAVAILABLE`: the session has no current model.
 - `502 SIDE_QUESTION_FAILED`: the provider call failed, returned no answer, or
   attempted a tool call.
@@ -1555,12 +1561,44 @@ Body:
 
 Normalizes, prunes, persists, and echoes the same shape as `GET`.
 
-### `GET /api/pinned-sessions/order`
+### `GET /api/no-workspace/pinned-sessions`
 
-Returns cross-workspace ordering:
+Returns the ordered pin state for main sessions created without a workspace:
 
 ```json
-{"items":[{"workspace_hash":"abc123","session_id":"sid-1"}]}
+{
+  "no_workspace": true,
+  "pin_scope": "__no_workspace__",
+  "session_ids": ["task-1"]
+}
+```
+
+The state is stored under the no-workspace cache root. The daemon prunes ids
+that are missing, archived, workspace-owned, or background child sessions.
+
+### `PUT /api/no-workspace/pinned-sessions`
+
+Body:
+
+```json
+{"session_ids":["task-1","task-2"]}
+```
+
+Normalizes, prunes, persists, and echoes the same shape as `GET`.
+
+### `GET /api/pinned-sessions/order`
+
+Returns the global ordering across registered workspaces and no-workspace
+tasks. No-workspace items use the reserved `__no_workspace__` pin scope; this
+value is not a workspace registration or a session `workspace_hash`:
+
+```json
+{
+  "items": [
+    {"workspace_hash":"__no_workspace__","session_id":"task-1"},
+    {"workspace_hash":"abc123","session_id":"sid-1"}
+  ]
+}
 ```
 
 ### `PUT /api/pinned-sessions/order`
@@ -1625,7 +1663,7 @@ filesystem permissions, and read-only response behavior.
 Returns raw bytes for browser-native preview types:
 
 - images: `png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `ico`, `svg`
-- documents: `pdf`, `docx`, `xlsx`, `xlsm`
+- documents: `pdf`, `docx`, `xlsx`, `xlsm`, `pptx`
 
 The route caps preview bytes at 20 MB and sets `X-Content-Type-Options:
 nosniff`. It uses the same arbitrary-local-path resolution and authentication

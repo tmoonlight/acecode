@@ -20,6 +20,7 @@ import {
   __peekQueuedPayloadForTest,
   __resetForTest,
 } from './desktopTrayMenu.js';
+import { NO_WORKSPACE_PIN_SCOPE } from './pinnedSessions.js';
 
 function run(name, fn) {
   try {
@@ -64,6 +65,31 @@ run('buildTrayMenuPayload pinned 按全局视觉顺序输出并带 workspace 副
   assert.deepEqual(p.pinned.map((item) => item.session_id), ['y', 'a', 'x']);
   assert.deepEqual(p.pinned.map((item) => item.subtitle), ['shz_test', 'acecode', 'shz_test']);
   assert.equal(p.pinned[0].workspace_hash, 'w2');
+});
+
+run('buildTrayMenuPayload 将置顶任务纳入全局顺序且保留空 workspace 身份', () => {
+  const sessions = [
+    { id: 'task', title: 'Task', no_workspace: true, workspace_hash: '', updated_at: '2026-06-04T00:00:00Z' },
+    { id: 'chat', title: 'Chat', workspace_hash: 'w1', updated_at: '2026-06-03T00:00:00Z' },
+    { id: 'recent-task', title: 'Recent task', no_workspace: true, workspace_hash: '', updated_at: '2026-06-05T00:00:00Z' },
+  ];
+  const p = buildTrayMenuPayload({
+    sessions,
+    pinnedByWorkspace: new Map([
+      [NO_WORKSPACE_PIN_SCOPE, ['task']],
+      ['w1', ['chat']],
+    ]),
+    pinnedOrderItems: [
+      { workspace_hash: NO_WORKSPACE_PIN_SCOPE, session_id: 'task' },
+      { workspace_hash: 'w1', session_id: 'chat' },
+    ],
+    workspaces: [{ hash: 'w1', name: 'acecode' }],
+    workspaceName: 'acecode',
+  });
+  assert.deepEqual(p.pinned.map((item) => item.session_id), ['task', 'chat']);
+  assert.equal(p.pinned[0].workspace_hash, '');
+  assert.equal(p.pinned[0].subtitle, '');
+  assert.deepEqual(p.recent.map((item) => item.session_id), ['recent-task']);
 });
 
 run('buildTrayMenuPayload recent 排除 pinned 并按 updated_at 倒序', () => {

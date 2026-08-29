@@ -9,6 +9,7 @@ import {
   capabilitySearchText,
   filterSavedModels,
   filterModelIds,
+  filterProviderModels,
   formatRequestHeadersJson,
   formatContextWindowK,
   isIntegerContextWindowKInput,
@@ -230,6 +231,23 @@ run('filterModelIds 支持多个空格分隔条件', () => {
     filterModelIds(['gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini'], 'gpt mini'),
     ['gpt-4o-mini', 'gpt-4.1-mini'],
   );
+});
+
+run('filterProviderModels 按 ID 或显示名过滤最新探测结果', () => {
+  const models = [
+    { id: 'z-ai/glm-5.3', name: 'GLM 5.3' },
+    { id: 'z-ai/glm-5.3-flash', name: 'GLM 5.3 Flash' },
+    { id: 'openai/gpt-5.6-luna', name: 'GPT-5.6 Luna' },
+  ];
+  assert.deepEqual(
+    filterProviderModels(models, 'GLM-5.3-FLASH').map((model) => model.id),
+    ['z-ai/glm-5.3-flash'],
+  );
+  assert.deepEqual(
+    filterProviderModels(models, '5.3 flash').map((model) => model.id),
+    ['z-ai/glm-5.3-flash'],
+  );
+  assert.equal(filterProviderModels(models, ''), models);
 });
 
 run('capabilitySearchText 展开标签别名', () => {

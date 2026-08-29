@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../../lib/format.js';
 import {
   addManualModelToDraft,
@@ -15,6 +15,7 @@ import {
   PROVIDER_GROUP_LABELS,
 } from '../../lib/providerCatalogGroups.js';
 import {
+  filterProviderModels,
   normalizeModelProbeResult,
   parseRequestHeadersJson,
   splitModelIds,
@@ -59,12 +60,18 @@ export function ProviderCatalogPicker({
   const [providerQuery, setProviderQuery] = useState('');
   const [modelQuery, setModelQuery] = useState('');
   const [catalogModels, setCatalogModels] = useState([]);
+  const [modelResultSource, setModelResultSource] = useState('catalog');
   const [catalogStatus, setCatalogStatus] = useState('idle');
   const [catalogError, setCatalogError] = useState('');
   const [probeStatus, setProbeStatus] = useState('idle');
   const [probeError, setProbeError] = useState('');
   const [probeDialogOpen, setProbeDialogOpen] = useState(false);
   const [manualModel, setManualModel] = useState('');
+  const modelResultSourceRef = useRef('catalog');
+  const catalogRequestRevisionRef = useRef(0);
+  const probeRequestRevisionRef = useRef(0);
+  const providerIdRef = useRef(provider?.id || '');
+  providerIdRef.current = provider?.id || '';
   const selectedModels = splitModelIds(draft.model);
   const directModelIdInput = provider?.model_input === 'manual';
 
@@ -74,6 +81,10 @@ export function ProviderCatalogPicker({
   );
 
   useEffect(() => {
+    modelResultSourceRef.current = 'catalog';
+    catalogRequestRevisionRef.current += 1;
+    probeRequestRevisionRef.current += 1;
+    setModelResultSource('catalog');
     setModelQuery('');
     setCatalogModels([]);
     setCatalogStatus('idle');
@@ -84,9 +95,16 @@ export function ProviderCatalogPicker({
   }, [provider?.id]);
 
   useEffect(() => {
-    if (!provider || provider.model_input !== 'catalog') return undefined;
+    if (!provider || provider.model_input !== 'catalog'
+        || modelResultSource === 'probe') return undefined;
     let cancelled = false;
+    const requestRevision = ++catalogRequestRevisionRef.current;
+    const requestProviderId = provider.id;
     const timer = window.setTimeout(async () => {
+      if (cancelled
+          || providerIdRef.current !== requestProviderId
+          || modelResultSourceRef.current !== 'catalog'
+          || requestRevision !== catalogRequestRevisionRef.current) return;
       setCatalogStatus('loading');
       setCatalogError('');
       try {
@@ -99,11 +117,17 @@ export function ProviderCatalogPicker({
           const exactResponse = await apiClient.queryModelCatalog(provider.id, currentId, 1);
           exactModels = normalizeProviderModelQuery(exactResponse, provider.id).models;
         }
-        if (cancelled) return;
+        if (cancelled
+            || providerIdRef.current !== requestProviderId
+            || modelResultSourceRef.current !== 'catalog'
+            || requestRevision !== catalogRequestRevisionRef.current) return;
         setCatalogModels(mergeCatalogModels(normalized.models, exactModels));
         setCatalogStatus('ready');
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled
+            || providerIdRef.current !== requestProviderId
+            || modelResultSourceRef.current !== 'catalog'
+            || requestRevision !== catalogRequestRevisionRef.current) return;
         setCatalogModels([]);
         setCatalogError(error?.message || '目录查询失败');
         setCatalogStatus('error');
@@ -113,7 +137,7 @@ export function ProviderCatalogPicker({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [apiClient, draft.model, modelQuery, provider]);
+  }, [apiClient, draft.model, modelQuery, modelResultSource, provider]);
 
   const updateSelectedModels = (modelId, metadata = null) => {
     onDraftChange(toggleCatalogModelInDraft(
@@ -139,6 +163,8 @@ export function ProviderCatalogPicker({
 
   const probeModels = async () => {
     if (!canProbe || probeStatus === 'loading') return;
+    const requestRevision = ++probeRequestRevisionRef.current;
+    const requestProviderId = provider?.id || '';
     setProbeStatus('loading');
     setProbeError('');
     try {
@@ -151,6 +177,8 @@ export function ProviderCatalogPicker({
         request_headers: headers.headers,
       });
       const normalized = normalizeModelProbeResult(response);
+      if (providerIdRef.current !== requestProviderId
+          || requestRevision !== probeRequestRevisionRef.current) return;
       const models = normalized.models.map((id) => ({
         id,
         name: id,
@@ -159,9 +187,16 @@ export function ProviderCatalogPicker({
         capabilities: [],
         reasoning: null,
       }));
+      modelResultSourceRef.current = 'probe';
+      catalogRequestRevisionRef.current += 1;
       setCatalogModels(models);
+      setModelResultSource('probe');
+      setCatalogStatus('ready');
+      setCatalogError('');
       setProbeStatus('ready');
     } catch (error) {
+      if (providerIdRef.current !== requestProviderId
+          || requestRevision !== probeRequestRevisionRef.current) return;
       setProbeError(redactModelDraftSecrets(
         lookupErrorMessage(error?.code, error?.message || 'Provider 探测失败'),
         draft,
@@ -188,11 +223,9 @@ export function ProviderCatalogPicker({
     setProbeDialogOpen(false);
   };
 
-  const displayedModels = provider?.model_input === 'catalog'
-    ? catalogModels
-    : catalogModels.filter((model) => (
-      !modelQuery.trim() || model.id.toLowerCase().includes(modelQuery.trim().toLowerCase())
-    ));
+  const displayedModels = modelResultSource === 'probe'
+    ? filterProviderModels(catalogModels, modelQuery)
+    : catalogModels;
 
   return (
     <>

@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { fileTypeIconForPath } from './fileTypeIcons.js';
 
 function run(name, fn) {
@@ -33,6 +34,15 @@ run('fileTypeIconForPath maps Seti theme extension associations', () => {
   assertIcon('styles/theme.less', '_less');
   assertIcon('compile_commands.json', '_json');
   assertIcon('web/src/Component.vue', '_vue');
+});
+
+run('fileTypeIconForPath supplies a shared PowerPoint icon for pptx files', () => {
+  assertIcon('slides/roadmap.pptx', '_pptx');
+  assertIcon('slides/ROADMAP.PPTX', '_pptx');
+  assert.equal(fileTypeIconForPath('slides/roadmap.pptx').color, '#e37933');
+  const iconComponent = readFileSync(new URL('../components/Icon.jsx', import.meta.url), 'utf8');
+  assert.match(iconComponent, /icon\.id === '_pptx'/);
+  assert.match(iconComponent, /className="ace-pptx-file-icon"/);
 });
 
 run('fileTypeIconForPath prefers exact filename associations', () => {

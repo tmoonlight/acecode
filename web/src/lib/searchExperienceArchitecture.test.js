@@ -64,9 +64,38 @@ run('every search palette exit converges on local abort and server cancellation'
   assert.match(palette, /onClick=\{closePalette\}/);
   assert.match(palette, /event\.target === event\.currentTarget\) closePalette\(\)/);
   assert.match(palette, /\[open, query, searchRevision, cancelSearch\]/);
-  assert.match(palette, /正在增量搜索正文/);
-  assert.match(palette, /可随时关闭/);
   assert.doesNotMatch(palette, /loadState === 'loading'/);
+});
+
+run('search progress is a one-pixel accent edge with no status-row copy', () => {
+  const palette = source('components/SearchPalette.jsx');
+  assert.match(palette, /const progressPercent = searchProgressPercent\(/);
+  assert.match(palette, /aria-busy=\{progressPercent !== null\}/);
+  assert.match(
+    palette,
+    /\{progressPercent !== null && \(\s*<div\s+aria-hidden="true"\s+className="absolute inset-x-0 bottom-0 h-px pointer-events-none"/,
+  );
+  assert.match(palette, /className="h-full bg-accent transition-\[width\] duration-150 ease-out motion-reduce:transition-none"/);
+  assert.doesNotMatch(palette, /progressText|正在建立任务索引|正在增量搜索正文|可随时关闭/);
+});
+
+run('polling refresh preserves manual result scrolling', () => {
+  const palette = source('components/SearchPalette.jsx');
+  assert.match(
+    palette,
+    /useEffect\(\(\) => \{\s*setSelectedIndex\(0\);\s*if \(listRef\.current\) listRef\.current\.scrollTop = 0;\s*\}, \[query\]\);/,
+  );
+  assert.match(
+    palette,
+    /setSelectedIndex\(\(previous\) => Math\.min\(previous, Math\.max\(0, items\.length - 1\)\)\)/,
+  );
+  assert.match(
+    palette,
+    /const revealKeyboardSelection = useCallback\(\(index\) => \{[\s\S]*?scrollIntoView\(\{ block: 'nearest' \}\);[\s\S]*?\}, \[\]\);/,
+  );
+  assert.equal((palette.match(/scrollIntoView/g) || []).length, 1);
+  assert.doesNotMatch(palette, /\[query, data\.sessions, contentSearch\]/);
+  assert.doesNotMatch(palette, /\[selectedIndex, items\.length\]/);
 });
 
 run('global session search is independent from visible workspace discovery', () => {

@@ -1011,6 +1011,11 @@ SessionRegistry::make_entry_locked(const std::string& id,
         entry->loop->events(), ask_timeout);
     entry->loop->set_ask_question_prompter(entry->ask_prompter.get());
 
+    // A newly created Desktop/Web session must support side chat immediately,
+    // before any main request has caused the worker to publish a prompt. Resume
+    // primes again after persisted history and worktree state are restored.
+    if (!resumed_meta) entry->loop->prime_side_question_context();
+
     return entry;
 }
 
@@ -1120,6 +1125,7 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
     if (auto goal = current_active_goal(*entry)) {
         emit_goal_audit_message(*entry, *goal, "session_resume", "Continuing");
     }
+    entry->loop->prime_side_question_context();
     entry->loop->maybe_continue_goal();
     entry->loop->dispatch_session_start_hook("resume");
     entry->loop->dispatch_session_title_changed_hook(

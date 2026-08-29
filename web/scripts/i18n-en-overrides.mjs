@@ -759,7 +759,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '刷新后的本地目录无法读取': 'The refreshed local catalog could not be read',
   '刷新已保存模型': 'Refresh saved models',
   '搜索 Provider': 'Search providers',
-  '搜索名称、Provider 或模型 ID': 'Search name, provider, or model ID',
   '搜索模型': 'Search models',
   '搜索目录模型': 'Search catalog models',
   '搜索已保存模型': 'Search saved models',

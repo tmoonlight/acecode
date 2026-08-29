@@ -40,6 +40,22 @@ long long elapsed_ms_since(std::chrono::steady_clock::time_point start) {
         std::chrono::steady_clock::now() - start).count();
 }
 
+std::string ensure_nul_delimited_utf8(const std::string& input) {
+    std::string output;
+    output.reserve(input.size());
+    std::size_t field_start = 0;
+    while (field_start < input.size()) {
+        const std::size_t delimiter = input.find('\0', field_start);
+        const bool has_delimiter = delimiter != std::string::npos;
+        const std::size_t field_end = has_delimiter ? delimiter : input.size();
+        output += ensure_utf8(input.substr(field_start, field_end - field_start));
+        if (!has_delimiter) break;
+        output.push_back('\0');
+        field_start = delimiter + 1;
+    }
+    return output;
+}
+
 struct CaptureState {
     std::size_t complete_lines = 0;
     bool truncated = false;
@@ -275,7 +291,9 @@ static HookProcessResult run_hook_process_impl(
                 trim_trailing_partial_utf8(result.stderr_text);
             }
         }
-        result.stdout_text = ensure_utf8(result.stdout_text);
+        result.stdout_text = options.preserve_stdout_nuls
+            ? ensure_nul_delimited_utf8(result.stdout_text)
+            : ensure_utf8(result.stdout_text);
         result.stderr_text = ensure_utf8(result.stderr_text);
         result.output = result.stdout_text + result.stderr_text;
         result.error = ensure_utf8(result.error);

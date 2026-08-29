@@ -451,7 +451,12 @@ export function openInExplorerTargetFromElement(target) {
 
 export function sessionPinTargetFromElement(target) {
   const session = sessionTargetFromElement(target);
-  return session ? { sessionId: session.sessionId, workspaceHash: session.workspaceHash, pinned: session.pinned } : null;
+  return session ? {
+    sessionId: session.sessionId,
+    workspaceHash: session.workspaceHash,
+    noWorkspace: session.noWorkspace,
+    pinned: session.pinned,
+  } : null;
 }
 
 export function sessionTargetFromElement(target) {
@@ -463,6 +468,7 @@ export function sessionTargetFromElement(target) {
     type: 'session',
     sessionId,
     workspaceHash: getAttr(el, 'data-desktop-session-workspace', 'desktopSessionWorkspace'),
+    noWorkspace: boolAttr(el, 'data-desktop-session-no-workspace', 'desktopSessionNoWorkspace'),
     title: getAttr(el, 'data-desktop-session-title', 'desktopSessionTitle'),
     sessionPath: getAttr(el, 'data-desktop-session-path', 'desktopSessionPath'),
     pinned: boolAttr(el, 'data-desktop-session-pinned', 'desktopSessionPinned'),

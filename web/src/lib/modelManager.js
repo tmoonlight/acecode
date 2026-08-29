@@ -230,6 +230,23 @@ export function filterModelIds(models, query) {
   });
 }
 
+export function filterProviderModels(models, query) {
+  const list = Array.isArray(models) ? models : [];
+  const terms = String(query || '')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (terms.length === 0) return list;
+  return list.filter((model) => {
+    const haystack = [model?.id, model?.name]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
 export function capabilitySearchText(capabilities) {
   const ids = normalizeModelCapabilities(capabilities);
   if (ids.length === 0) return '';

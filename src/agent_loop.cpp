@@ -2302,6 +2302,19 @@ std::vector<ChatMessage> AgentLoop::side_question_context_snapshot() const {
     return side_question_context_;
 }
 
+void AgentLoop::prime_side_question_context() {
+    if (is_busy()) {
+        LOG_WARN("Skipped side-question context priming while the loop is busy");
+        return;
+    }
+
+    auto context = build_compaction_initial_context();
+    auto history = recovered_provider_messages(messages_, "side-question-prime");
+    rewrite_tool_calls_for_model(history);
+    context.insert(context.end(), history.begin(), history.end());
+    publish_side_question_context(context);
+}
+
 SideQuestionResult AgentLoop::ask_side_question(
     const std::string& raw_question) {
     SideQuestionResult result;

@@ -2,6 +2,7 @@
 
 #ifdef __APPLE__
 
+#include "agent_browser_navigation_state.hpp"
 #include "agent_browser_runtime.hpp"
 
 #include "daemon/platform.hpp"
@@ -445,6 +446,27 @@ bool safe_navigation_url(NSURL* url) {
          [[[url absoluteString] lowercaseString] isEqualToString:@"about:blank"]);
 }
 
+// WKNavigation 对象指针即导航身份:同一次导航的 start/finish/fail 回调拿到的是
+// 同一个对象,而被取代的旧导航拿到的是另一个。nil 折算成 0,由纯逻辑层按「当前
+// 导航」处理。
+std::uint64_t navigation_identity(WKNavigation* navigation) {
+    return static_cast<std::uint64_t>(
+        reinterpret_cast<std::uintptr_t>(navigation));
+}
+
+// 可以交给操作系统打开的外部 scheme。http/https/file/about 由 WebView 自己承载;
+// javascript/data/blob 不代表外部应用,交给系统既无意义也不安全。
+bool external_handoff_candidate_url(NSURL* url) {
+    if (!url) return false;
+    NSString* scheme_value = [[url scheme] lowercaseString];
+    if (!scheme_value || [scheme_value length] == 0) return false;
+    for (NSString* blocked in @[@"javascript", @"data", @"about", @"blob",
+                                @"http", @"https", @"file"]) {
+        if ([scheme_value isEqualToString:blocked]) return false;
+    }
+    return true;
+}
+
 void load_agent_browser_request(WKWebView* webview, NSURLRequest* request) {
     if (!webview || !request.URL) return;
     if ([request.URL isFileURL]) {
@@ -460,14 +482,20 @@ void load_agent_browser_request(WKWebView* webview, NSURLRequest* request) {
 class MacAgentBrowserDelegateSink {
 public:
     virtual ~MacAgentBrowserDelegateSink() = default;
-    virtual void navigation_started(const std::string&, WKWebView*) = 0;
+    virtual void navigation_started(const std::string&, WKWebView*,
+                                    std::uint64_t) = 0;
     virtual void navigation_redirected(const std::string&, WKWebView*) = 0;
     virtual void navigation_committed(const std::string&, WKWebView*) = 0;
-    virtual void navigation_finished(const std::string&, WKWebView*) = 0;
+    virtual void navigation_finished(const std::string&, WKWebView*,
+                                     std::uint64_t) = 0;
     virtual void navigation_failed(const std::string&, WKWebView*, NSError*,
-                                   const std::string&) = 0;
+                                   const std::string&, std::uint64_t) = 0;
     virtual void navigation_policy_decided(
-        const std::string&, WKWebView*, WKNavigationAction*, bool) = 0;
+        const std::string&, WKWebView*, WKNavigationAction*, bool, bool) = 0;
+    // 把系统已注册的外部 URI/SSO scheme 交给操作系统。返回 true 表示已交接,
+    // 随后 WebView 的取消回调按「已处理」对待而不是导航失败。
+    virtual bool handoff_external_url(const std::string&, WKWebView*,
+                                      NSURL*) = 0;
     virtual void authentication_challenge(
         const std::string&, WKWebView*, NSURLAuthenticationChallenge*) = 0;
     virtual void page_identity_changed(const std::string&, WKWebView*) = 0;
@@ -644,8 +672,10 @@ static void* kACECodeAgentBrowserStateObservation =
 }
 
 - (void)webView:(WKWebView*)webView didStartProvisionalNavigation:(WKNavigation*)navigation {
-    (void)navigation;
-    if (owner_) owner_->navigation_started([self pageIDValue], webView);
+    if (owner_) {
+        owner_->navigation_started([self pageIDValue], webView,
+                                   acecode::desktop::navigation_identity(navigation));
+    }
 }
 
 - (void)webView:(WKWebView*)webView
@@ -660,27 +690,29 @@ static void* kACECodeAgentBrowserStateObservation =
 }
 
 - (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation {
-    (void)navigation;
-    if (owner_) owner_->navigation_finished([self pageIDValue], webView);
+    if (owner_) {
+        owner_->navigation_finished([self pageIDValue], webView,
+                                    acecode::desktop::navigation_identity(navigation));
+    }
 }
 
 - (void)webView:(WKWebView*)webView
     didFailProvisionalNavigation:(WKNavigation*)navigation
                       withError:(NSError*)error {
-    (void)navigation;
     if (owner_) {
         owner_->navigation_failed(
-            [self pageIDValue], webView, error, "provisional");
+            [self pageIDValue], webView, error, "provisional",
+            acecode::desktop::navigation_identity(navigation));
     }
 }
 
 - (void)webView:(WKWebView*)webView
     didFailNavigation:(WKNavigation*)navigation
              withError:(NSError*)error {
-    (void)navigation;
     if (owner_) {
         owner_->navigation_failed(
-            [self pageIDValue], webView, error, "committed");
+            [self pageIDValue], webView, error, "committed",
+            acecode::desktop::navigation_identity(navigation));
     }
 }
 
@@ -688,11 +720,35 @@ static void* kACECodeAgentBrowserStateObservation =
     didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge*)challenge
                    completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition,
                                                 NSURLCredential* credential))completionHandler {
+    // Agent Browser 是开发用浏览器:服务器信任挑战一律放行(自签名、过期、主机名
+    // 不匹配、内部 CA 都能打开)。凭据类挑战(Basic/Digest/NTLM/Negotiate/Kerberos/
+    // 代理/客户端证书)继续交给系统默认处理 —— ACECode 不编造、也不保存任何凭据。
+    NSURLProtectionSpace* protection_space = [challenge protectionSpace];
+    const bool server_trust = protection_space &&
+        [[protection_space authenticationMethod]
+            isEqualToString:NSURLAuthenticationMethodServerTrust] &&
+        [protection_space serverTrust] != NULL;
     if (owner_) {
         owner_->authentication_challenge(
             [self pageIDValue], webView, challenge);
     }
+    if (server_trust) {
+        NSURLCredential* credential = [NSURLCredential
+            credentialForTrust:[protection_space serverTrust]];
+        completionHandler(NSURLSessionAuthChallengeUseCredential, credential);
+        return;
+    }
     completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+}
+
+- (void)webView:(WKWebView*)webView
+    authenticationChallenge:(NSURLAuthenticationChallenge*)challenge
+       shouldAllowDeprecatedTLS:(void (^)(BOOL))decisionHandler {
+    (void)webView;
+    (void)challenge;
+    // 操作系统仍能协商的旧 TLS 一律继续,老旧内网服务不应成为挡板。系统已经移除
+    // 的协议/密码套件不在此列 —— 那种连接根本走不到这个回调。
+    decisionHandler(YES);
 }
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView*)webView {
@@ -723,9 +779,15 @@ static void* kACECodeAgentBrowserStateObservation =
                    decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     NSURL* url = navigationAction.request.URL;
     const bool allowed = acecode::desktop::safe_navigation_url(url);
+    bool handed_off = false;
+    if (!allowed && owner_ &&
+        acecode::desktop::external_handoff_candidate_url(url)) {
+        handed_off = owner_->handoff_external_url(
+            [self pageIDValue], webView, url);
+    }
     if (owner_) {
         owner_->navigation_policy_decided(
-            [self pageIDValue], webView, navigationAction, allowed);
+            [self pageIDValue], webView, navigationAction, allowed, handed_off);
     }
     decisionHandler(allowed
         ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
@@ -914,6 +976,11 @@ struct AgentBrowserHost::Impl final
         std::vector<std::string> console_logs;
         std::vector<WKBackForwardListItem*> history_items;
         std::uint64_t element_selection_generation = 0;
+        AgentBrowserNavigationTracker navigation;
+        // 取消 / 外部交接后要恢复的导航前快照。
+        std::string content_state_before_navigation =
+            kAgentBrowserContentStateEmpty;
+        std::string favicon_before_navigation;
         bool last_authentication_was_proxy = false;
         bool closing = false;
         bool observing_state = false;
@@ -1185,6 +1252,12 @@ struct AgentBrowserHost::Impl final
         configuration.applicationNameForUserAgent =
             safari_compatible_application_name();
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = YES;
+        // 开发浏览器不使用 WebKit 的欺诈/恶意网站拦截页 —— 它会在开发与内网站点
+        // 上变成又一块挡板,而 Agent Browser 的定位是尽力打开。
+        if ([configuration.preferences
+                respondsToSelector:@selector(setFraudulentWebsiteWarningEnabled:)]) {
+            configuration.preferences.fraudulentWebsiteWarningEnabled = NO;
+        }
         [configuration.preferences setValue:@YES
                                      forKey:@"allowFileAccessFromFileURLs"];
         WKUserContentController* content =
@@ -1342,6 +1415,8 @@ struct AgentBrowserHost::Impl final
             }
             page = found->second;
             page->closing = true;
+            // 页面关闭后仍会有在途回调到达 delegate,标记之后一律忽略。
+            page->navigation.close();
             auto ordered = std::find(page_order.begin(), page_order.end(), id);
             const std::size_t index = ordered == page_order.end()
                 ? 0 : static_cast<std::size_t>(ordered - page_order.begin());
@@ -1442,9 +1517,20 @@ struct AgentBrowserHost::Impl final
 
     // Delegate callbacks run on the WebKit/UI thread.
     void navigation_started(const std::string& page_id,
-                            WKWebView* webview) override {
+                            WKWebView* webview,
+                            std::uint64_t navigation_id) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            if (page->state.content_state !=
+                kAgentBrowserContentStateLoading) {
+                page->content_state_before_navigation =
+                    page->state.content_state;
+                page->favicon_before_navigation = page->state.favicon;
+            }
+        }
+        page->navigation.begin_navigation(navigation_id);
         page->console_logs.clear();
         page->last_authentication_was_proxy = false;
         const std::string url = utf8_string(webview.URL.absoluteString);
@@ -1488,10 +1574,41 @@ struct AgentBrowserHost::Impl final
         }.dump()));
     }
 
+    // 把系统已注册的外部 URI/SSO scheme 交给操作系统。没有注册 handler 时如实
+    // 记录一次外部启动失败,绝不谎称受保护的 HTTP(S) 页面本身出了证书问题。
+    bool handoff_external_url(const std::string& page_id,
+                              WKWebView* webview,
+                              NSURL* url) override {
+        auto page = find_page(page_id);
+        if (!page || page->webview != webview || !url) return false;
+        NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
+        NSURL* handler = [workspace URLForApplicationToOpenURL:url];
+        if (!handler) {
+            LOG_WARN(("[agent-browser][macos] " + json{
+                {"event", "external_uri_no_handler"},
+                {"page_id", page_id},
+                {"scheme", native_description([url scheme])},
+            }.dump()));
+            return false;
+        }
+        const bool launched = [workspace openURL:url] == YES;
+        if (launched) page->navigation.note_external_handoff(0);
+        json event{
+            {"event", launched ? "external_uri_launched"
+                               : "external_uri_launch_failed"},
+            {"page_id", page_id},
+            {"scheme", native_description([url scheme])},
+        };
+        if (launched) LOG_INFO("[agent-browser][macos] " + event.dump());
+        else LOG_WARN("[agent-browser][macos] " + event.dump());
+        return launched;
+    }
+
     void navigation_policy_decided(const std::string& page_id,
                                    WKWebView* webview,
                                    WKNavigationAction* action,
-                                   bool allowed) override {
+                                   bool allowed,
+                                   bool handed_off) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview || !action) return;
         WKFrameInfo* source_frame = [action sourceFrame];
@@ -1509,10 +1626,11 @@ struct AgentBrowserHost::Impl final
             {"target_main_frame", target_frame &&
                 [target_frame isMainFrame] == YES},
             {"decision", allowed ? "allow" : "cancel"},
+            {"external_handoff", handed_off},
         };
         const std::string log_line =
             "[agent-browser][macos] " + event.dump();
-        if (allowed) LOG_INFO(log_line);
+        if (allowed || handed_off) LOG_INFO(log_line);
         else LOG_WARN(log_line);
     }
 
@@ -1526,6 +1644,10 @@ struct AgentBrowserHost::Impl final
         NSURLProtectionSpace* protection_space = [challenge protectionSpace];
         const bool is_proxy = protection_space &&
             [protection_space isProxy] == YES;
+        const bool accepts_server_trust = protection_space &&
+            [[protection_space authenticationMethod]
+                isEqualToString:NSURLAuthenticationMethodServerTrust] &&
+            [protection_space serverTrust] != NULL;
         page->last_authentication_was_proxy = is_proxy;
 
         json event{
@@ -1558,14 +1680,25 @@ struct AgentBrowserHost::Impl final
                 static_cast<long long>([challenge previousFailureCount])},
             {"proposed_credential_present",
                 [challenge proposedCredential] != nil},
-            {"disposition", "perform_default_handling"},
+            // 服务器信任挑战被开发宽松策略直接接受;凭据类挑战仍走系统默认。
+            // 日志只记协议元数据 —— 不记用户名、密码、Cookie、Authorization 头
+            // 或客户端证书私钥。
+            {"disposition", accepts_server_trust
+                ? "use_server_trust_credential"
+                : "perform_default_handling"},
+            {"development_permissive_trust", accepts_server_trust},
         };
         NSURLResponse* response = [challenge failureResponse];
         if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
             event["failure_response_status"] = static_cast<long long>(
                 [(NSHTTPURLResponse*)response statusCode]);
         }
-        LOG_WARN("[agent-browser][macos] " + event.dump());
+        // 信任放行在开发浏览器里是常态,记 INFO;需要凭据的挑战才值得 WARN。
+        if (accepts_server_trust) {
+            LOG_INFO("[agent-browser][macos] " + event.dump());
+        } else {
+            LOG_WARN("[agent-browser][macos] " + event.dump());
+        }
     }
 
     void refresh_page_identity(const std::shared_ptr<Page>& page) {
@@ -1640,9 +1773,15 @@ struct AgentBrowserHost::Impl final
     }
 
     void navigation_finished(const std::string& page_id,
-                             WKWebView* webview) override {
+                             WKWebView* webview,
+                             std::uint64_t navigation_id) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
+        if (page->navigation.on_navigation_completed(
+                navigation_id, BrowserNavigationFailure::kNone) !=
+            BrowserNavigationDecision::kPublishSuccess) {
+            return;
+        }
         refresh_page_identity(page);
         update_page(page, [](AgentBrowserState& value) {
             value.loading = false;
@@ -1667,7 +1806,8 @@ struct AgentBrowserHost::Impl final
     void navigation_failed(const std::string& page_id,
                            WKWebView* webview,
                            NSError* native_error,
-                           const std::string& phase) override {
+                           const std::string& phase,
+                           std::uint64_t navigation_id) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
         const std::string message = utf8_string(
@@ -1675,6 +1815,60 @@ struct AgentBrowserHost::Impl final
         const std::string diagnostic = native_error_diagnostic(native_error);
         const std::string failure_kind = navigation_failure_kind(
             native_error, page->last_authentication_was_proxy);
+        NSError* url_error = url_loading_error(native_error);
+        const long long url_error_code = url_error
+            ? static_cast<long long>([url_error code]) : 0LL;
+        const bool handoff_pending = page->navigation.external_handoff_pending();
+        const BrowserNavigationDecision decision =
+            page->navigation.on_navigation_completed(
+                navigation_id,
+                classify_darwin_navigation_failure(
+                    url_error_code, handoff_pending));
+
+        if (decision == BrowserNavigationDecision::kIgnore ||
+            decision == BrowserNavigationDecision::kHoldPending) {
+            // 陈旧回调、已关闭的页面或仍在等待继续:当前可见状态保持不动。
+            LOG_INFO(("[agent-browser][macos] " + json{
+                {"event", "navigation_failure_ignored"},
+                {"phase", phase},
+                {"page_id", page_id},
+                {"failure_kind", failure_kind},
+                {"reason", decision == BrowserNavigationDecision::kIgnore
+                    ? "stale_or_closed" : "pending_continuation"},
+                {"native_error", native_error_details(native_error)},
+            }.dump()));
+            return;
+        }
+
+        if (decision == BrowserNavigationDecision::kRestorePrevious) {
+            // 被新导航取代、重定向替换或已交给操作系统的外部 scheme。这些是引擎
+            // 内部的中间取消,不是这次浏览的最终结果 —— 发布错误页只会造成录屏里
+            // 那种「闪一下白屏再显示无法打开此页面」。
+            const std::string restored_state =
+                page->content_state_before_navigation;
+            const std::string restored_favicon =
+                page->favicon_before_navigation;
+            refresh_page_identity(page);
+            update_page(page, [&](AgentBrowserState& value) {
+                value.loading = false;
+                value.content_state = restored_state;
+                value.favicon = restored_favicon;
+                value.failure_kind.clear();
+                value.error.clear();
+                value.diagnostic.clear();
+            });
+            LOG_INFO(("[agent-browser][macos] " + json{
+                {"event", "navigation_cancelled"},
+                {"phase", phase},
+                {"page_id", page_id},
+                {"external_handoff", handoff_pending},
+                {"restored_content_state", restored_state},
+                {"native_error", native_error_details(native_error)},
+            }.dump()));
+            apply_bounds(page);
+            return;
+        }
+
         refresh_page_identity(page);
         update_page(page, [&](AgentBrowserState& value) {
             value.loading = false;

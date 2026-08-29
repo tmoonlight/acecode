@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { lookupErrorMessage } from '../../lib/errors.js';
-import { clsx } from '../../lib/format.js';
 import {
   applyCatalogProviderToDraft,
   emptyModelProfileDraft,
@@ -14,7 +13,7 @@ import {
 import { copyTextToSystemClipboard } from '../../lib/systemClipboard.js';
 import { openExternalUrl } from '../../lib/externalUrl.js';
 import { Modal } from '../Modal.jsx';
-import { RefreshIcon, VsIcon } from '../Icon.jsx';
+import { VsIcon } from '../Icon.jsx';
 import { toast } from '../Toast.jsx';
 import { ModelProfileDialog } from './ModelProfileDialog.jsx';
 import { SavedModelList } from './SavedModelList.jsx';
@@ -43,7 +42,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
   const [catalog, setCatalog] = useState(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
-  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [savedQuery, setSavedQuery] = useState('');
   const [mutationBusy, setMutationBusy] = useState('');
   const [blockedDeletes, setBlockedDeletes] = useState(() => new Set());
@@ -332,21 +330,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
     }
   }, [grokBusy]);
 
-  const refreshCatalog = useCallback(async () => {
-    if (catalogRefreshing) return;
-    setCatalogRefreshing(true);
-    try {
-      await api.refreshModelCatalog();
-      const refreshed = await loadCatalog({ quiet: true });
-      if (!refreshed) throw new Error('刷新后的本地目录无法读取');
-      toast({ kind: 'ok', text: '模型目录已更新' });
-    } catch (error) {
-      toast({ kind: 'err', text: lookupErrorMessage(error?.code, error?.message) });
-    } finally {
-      setCatalogRefreshing(false);
-    }
-  }, [catalogRefreshing, loadCatalog]);
-
   const openAddDialog = useCallback(() => {
     const provider = initialProvider(providers);
     if (!provider) {
@@ -515,7 +498,7 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
   return (
     <div
       className="space-y-6 pb-8"
-      aria-busy={modelsLoading || catalogLoading || catalogRefreshing || !!mutationBusy}
+      aria-busy={modelsLoading || catalogLoading || !!mutationBusy}
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -527,16 +510,6 @@ export function ModelSettingsSection({ onModelProfileUpdated }) {
             <div className="mt-1 text-[10px] text-fg-mute">{`目录状态：${catalogMeta}`}</div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={refreshCatalog}
-          disabled={catalogRefreshing}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-3 text-[11px] font-medium text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-          title="显式更新本地 models.dev 目录；打开页面不会联网刷新"
-        >
-          <RefreshIcon size={12} className={clsx(catalogRefreshing && 'animate-spin')} />
-          更新模型目录
-        </button>
       </header>
 
       {modelsError && (

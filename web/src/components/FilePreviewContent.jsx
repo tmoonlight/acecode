@@ -8,6 +8,7 @@ import { isDesktopShell } from '../lib/desktopShellMode.js';
 import { langForFile } from '../lib/lang.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { parseWorkbookArrayBuffer } from '../lib/officePreview.js';
+import { officePreviewLogicalSize } from '../lib/officePreviewZoom.js';
 import {
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
@@ -34,6 +35,11 @@ import {
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import MarkdownWysiwygEditor from './MarkdownWysiwygEditor.jsx';
+import {
+  OfficePreviewControls,
+  useOfficePreviewZoom,
+} from './OfficePreviewControls.jsx';
+import { PresentationPreview } from './PresentationPreview.jsx';
 import { SelectionAnnotationOverlay } from './SelectionAnnotationOverlay.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -529,6 +535,13 @@ export function FilePreviewContent({
       </div>
     );
   }
+  if (state.kind === 'presentation') {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
+        <PresentationPreview blob={state.blob} path={path} />
+      </div>
+    );
+  }
 
   const isMarkdown = state.kind === 'markdown';
   const lang = state.lang;
@@ -672,7 +685,13 @@ export function FilePreviewContent({
 
 function WordPreview({ blob, path }) {
   const hostRef = useRef(null);
+  const shellRef = useRef(null);
   const [error, setError] = useState('');
+  const {
+    zoom,
+    zoomIn,
+    zoomOut,
+  } = useOfficePreviewZoom(path, shellRef);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -709,12 +728,52 @@ function WordPreview({ blob, path }) {
     );
   }
 
-  return <div ref={hostRef} className="ace-side-docx-preview" />;
+  return (
+    <div ref={shellRef} className="ace-office-preview-shell">
+      <div className="ace-side-docx-preview">
+        <div
+          ref={hostRef}
+          className="ace-side-docx-renderer"
+          style={{
+            width: `${100 / zoom}%`,
+            zoom,
+          }}
+        />
+      </div>
+      <OfficePreviewControls
+        zoom={zoom}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+      />
+    </div>
+  );
 }
 
 function SpreadsheetPreview({ blob, path }) {
   const hostRef = useRef(null);
+  const shellRef = useRef(null);
+  const spreadsheetRef = useRef(null);
+  const zoomRef = useRef(1);
   const [error, setError] = useState('');
+  const {
+    zoom,
+    zoomIn,
+    zoomOut,
+  } = useOfficePreviewZoom(path, shellRef);
+  zoomRef.current = zoom;
+
+  const syncSpreadsheetGeometry = useCallback(() => {
+    const host = hostRef.current;
+    const spreadsheet = spreadsheetRef.current;
+    if (!host || !spreadsheet) return;
+    const root = host.querySelector(':scope > .x-spreadsheet');
+    if (root) root.style.zoom = String(zoomRef.current);
+    spreadsheet.sheet?.reload?.();
+  }, []);
+
+  useLayoutEffect(() => {
+    syncSpreadsheetGeometry();
+  }, [syncSpreadsheetGeometry, zoom]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -741,8 +800,8 @@ function SpreadsheetPreview({ blob, path }) {
           showContextmenu: false,
           showBottomBar: data.length > 1,
           view: {
-            height: () => Math.max(240, host.clientHeight || 0),
-            width: () => Math.max(320, host.clientWidth || 0),
+            height: () => officePreviewLogicalSize(host.clientHeight, zoomRef.current, 120),
+            width: () => officePreviewLogicalSize(host.clientWidth, zoomRef.current, 120),
           },
           row: {
             len: 100,
@@ -755,9 +814,11 @@ function SpreadsheetPreview({ blob, path }) {
             minWidth: 60,
           },
         });
+        spreadsheetRef.current = spreadsheet;
         spreadsheet.loadData(data);
+        syncSpreadsheetGeometry();
         if (typeof ResizeObserver !== 'undefined') {
-          resizeObserver = new ResizeObserver(() => spreadsheet?.reRender?.());
+          resizeObserver = new ResizeObserver(syncSpreadsheetGeometry);
           resizeObserver.observe(host);
         }
       } catch (err) {
@@ -771,9 +832,10 @@ function SpreadsheetPreview({ blob, path }) {
       cancelled = true;
       resizeObserver?.disconnect();
       host.replaceChildren();
+      if (spreadsheetRef.current === spreadsheet) spreadsheetRef.current = null;
       spreadsheet = null;
     };
-  }, [blob]);
+  }, [blob, syncSpreadsheetGeometry]);
 
   if (error) {
     return (
@@ -784,5 +846,14 @@ function SpreadsheetPreview({ blob, path }) {
     );
   }
 
-  return <div ref={hostRef} className="ace-side-spreadsheet-preview" />;
+  return (
+    <div ref={shellRef} className="ace-office-preview-shell">
+      <div ref={hostRef} className="ace-side-spreadsheet-preview" />
+      <OfficePreviewControls
+        zoom={zoom}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+      />
+    </div>
+  );
 }

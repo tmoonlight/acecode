@@ -164,6 +164,25 @@ function ChangeFileRow({
   );
 }
 
+function ChangeDirectoryName({ node }) {
+  const segments = Array.isArray(node.segments) && node.segments.length > 0
+    ? node.segments
+    : [node.name];
+  if (segments.length === 1) {
+    return <span className="ace-change-tree-name">{segments[0]}</span>;
+  }
+
+  const suffix = segments[segments.length - 1];
+  const prefix = segments.slice(0, -1).join('/');
+  return (
+    <span className="ace-change-tree-name ace-change-tree-compact-name">
+      <span className="ace-change-tree-path-prefix">{prefix}</span>
+      <span className="ace-change-tree-path-separator" aria-hidden="true">/</span>
+      <span className="ace-change-tree-path-suffix">{suffix}</span>
+    </span>
+  );
+}
+
 function ChangeDirectoryRow({ node, depth, collapsed, onToggle }) {
   return (
     <button
@@ -176,6 +195,7 @@ function ChangeDirectoryRow({ node, depth, collapsed, onToggle }) {
       className="ace-change-tree-directory-row"
       onClick={() => onToggle(node.path)}
       title={node.path}
+      aria-label={node.path}
     >
       <span
         className="ace-change-tree-entry"
@@ -183,7 +203,7 @@ function ChangeDirectoryRow({ node, depth, collapsed, onToggle }) {
       >
         <VsIcon name={collapsed ? 'expandRight' : 'glyphDown'} size={10} />
         <VsIcon name={collapsed ? 'folder' : 'folderOpen'} size={15} />
-        <span className="ace-change-tree-name">{node.name}</span>
+        <ChangeDirectoryName node={node} />
       </span>
     </button>
   );

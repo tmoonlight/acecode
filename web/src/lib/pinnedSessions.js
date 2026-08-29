@@ -1,3 +1,14 @@
+export const NO_WORKSPACE_PIN_SCOPE = '__no_workspace__';
+
+export function sessionPinScope(session = {}, fallbackWorkspaceHash = '') {
+  if (session?.no_workspace || session?.noWorkspace) return NO_WORKSPACE_PIN_SCOPE;
+  const explicit = String(session?.pin_scope || session?.pinScope || '');
+  if (explicit) return explicit;
+  return String(
+    session?.workspace_hash || session?.workspaceHash || fallbackWorkspaceHash || '',
+  );
+}
+
 export function normalizePinnedIds(ids = []) {
   const out = [];
   const seen = new Set();
@@ -31,7 +42,9 @@ export function normalizePinnedOrderItems(items = []) {
   const out = [];
   const seen = new Set();
   for (const raw of Array.isArray(items) ? items : []) {
-    const workspaceHash = String(raw?.workspace_hash || raw?.workspaceHash || '');
+    const workspaceHash = String(
+      raw?.workspace_hash || raw?.workspaceHash || raw?.pin_scope || raw?.pinScope || '',
+    );
     const sessionId = String(raw?.session_id || raw?.sessionId || raw?.id || '');
     const key = pinnedOrderKey(workspaceHash, sessionId);
     if (!key || seen.has(key)) continue;
@@ -43,15 +56,15 @@ export function normalizePinnedOrderItems(items = []) {
 
 export function pinnedOrderItemsForSessions(sessions = []) {
   return normalizePinnedOrderItems((Array.isArray(sessions) ? sessions : []).map((session) => ({
-    workspace_hash: session?.workspace_hash || session?.workspaceHash || '',
+    workspace_hash: sessionPinScope(session),
     session_id: session?.id || session?.session_id || session?.sessionId || '',
   })));
 }
 
 export function reorderPinnedOrderItems(items = [], source = {}, target = {}, placement = 'before') {
   const current = normalizePinnedOrderItems(items);
-  const sourceKey = pinnedOrderKey(source?.workspace_hash || source?.workspaceHash, source?.session_id || source?.sessionId || source?.id);
-  const targetKey = pinnedOrderKey(target?.workspace_hash || target?.workspaceHash, target?.session_id || target?.sessionId || target?.id);
+  const sourceKey = pinnedOrderKey(sessionPinScope(source), source?.session_id || source?.sessionId || source?.id);
+  const targetKey = pinnedOrderKey(sessionPinScope(target), target?.session_id || target?.sessionId || target?.id);
   if (!sourceKey || !targetKey || sourceKey === targetKey) return current;
   if (!current.some((item) => pinnedOrderKey(item.workspace_hash, item.session_id) === sourceKey)) return current;
   if (!current.some((item) => pinnedOrderKey(item.workspace_hash, item.session_id) === targetKey)) return current;
@@ -77,7 +90,7 @@ export function pinPinnedOrderItem(items = [], item = {}) {
 }
 
 export function unpinPinnedOrderItem(items = [], item = {}) {
-  const key = pinnedOrderKey(item?.workspace_hash || item?.workspaceHash, item?.session_id || item?.sessionId || item?.id);
+  const key = pinnedOrderKey(sessionPinScope(item), item?.session_id || item?.sessionId || item?.id);
   if (!key) return normalizePinnedOrderItems(items);
   return normalizePinnedOrderItems(items).filter((entry) => pinnedOrderKey(entry.workspace_hash, entry.session_id) !== key);
 }
@@ -118,8 +131,8 @@ export function pinnedSessionsForList(sessions = [], pinnedByWorkspace, pinnedOr
   const byWorkspaceAndId = new Map();
   for (const session of Array.isArray(sessions) ? sessions : []) {
     const id = session?.id || session?.session_id || '';
-    const workspaceHash = session?.workspace_hash || session?.workspaceHash || '';
-    if (!id) continue;
+    const workspaceHash = sessionPinScope(session);
+    if (!id || !workspaceHash) continue;
     byWorkspaceAndId.set(`${workspaceHash}\u0000${id}`, session);
   }
 
@@ -131,7 +144,7 @@ export function pinnedSessionsForList(sessions = [], pinnedByWorkspace, pinnedOr
       if (!key || byPinnedKey.has(key)) continue;
       const session = byWorkspaceAndId.get(key);
       if (!session) continue;
-      byPinnedKey.set(key, { ...session, pinned: true });
+      byPinnedKey.set(key, { ...session, pinned: true, pin_scope: workspaceHash });
       baseOrder.push(key);
     }
   }
@@ -156,9 +169,16 @@ export function pinnedSessionsForList(sessions = [], pinnedByWorkspace, pinnedOr
 }
 
 export function filterPinnedSessions(sessions = [], pinnedByWorkspace) {
-  const pinned = pinnedIdSet(pinnedByWorkspace);
+  const pinned = new Set();
+  for (const [workspaceHash, ids] of workspaceEntries(pinnedByWorkspace)) {
+    for (const id of normalizePinnedIds(ids)) {
+      const key = pinnedOrderKey(workspaceHash, id);
+      if (key) pinned.add(key);
+    }
+  }
   return (Array.isArray(sessions) ? sessions : []).filter((session) => {
     const id = session?.id || session?.session_id || '';
-    return !id || !pinned.has(id);
+    const key = pinnedOrderKey(sessionPinScope(session), id);
+    return !key || !pinned.has(key);
   });
 }

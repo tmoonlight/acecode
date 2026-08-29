@@ -20,9 +20,15 @@
 - [x] 3.2 重构 `SearchPalette`：立即显示部分结果与索引进度，短批轮询正文命中，完整后支持加载更多，不再等待全局 loading。
 - [x] 3.3 统一关闭按钮、Escape、遮罩、查询替换和卸载的取消路径；取消保持安静，真实错误显示重试且不覆盖最近成功结果。
 - [x] 3.4 更新搜索纯逻辑、API、组件架构和交互测试，证明每个关闭入口都会本地 abort 并通知服务端取消。
+- [x] 3.5 将文字进度状态行和空结果强提示替换为覆盖搜索输入区底边、零布局占高的 1px 主色进度条。
+- [x] 3.6 将轮询数据刷新与选中项/滚动定位解耦，仅在查询变化或显式键盘导航时主动滚动。
+- [x] 3.7 添加 Web 回归测试，锁定进度条样式、无文字状态行以及刷新不触发 `scrollIntoView` 的交互边界。
 
 ## 4. 验证与性能回归
 
 - [x] 4.1 运行相关 C++ 单元/Smoke tests、Web 全量测试和 Web 构建，修复全部回归。
 - [x] 4.2 运行 OpenSpec strict validation、代码质量检查与 `git diff --check`，确认未覆盖用户无关改动。
 - [x] 4.3 使用本机大规模 `~/.acecode/projects` 实测首次打开、增量进度、响应体积、重复打开和关闭取消，记录结果并确认不再触发 30 秒超时。
+- [x] 4.4 运行搜索体验聚焦测试、Web 全量测试、Web 构建、OpenSpec strict validation 与 `git diff --check`。
+
+  验证结果：搜索体验聚焦测试、Web 构建、i18n 审计、OpenSpec strict validation 和 `git diff --check` 通过；真实浏览器批次刷新期间 `scrollTop` 保持 `640 -> 640`，进度条高度 1px、布局偏移 0。Web 全量测试仅命中本轮开始前已存在的 Provider Logo 目录不一致（catalog 207、manifest/资产映射 193），未修改该无关工作。

@@ -23,6 +23,15 @@
   <string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
   <key>CFBundleVersion</key>
   <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <!-- Agent Browser 是开发用内嵌浏览器,必须能打开明文 HTTP 与旧 TLS 的开发/
+         内网服务。这里只解除 WKWebView Web 内容的 ATS 限制,不使用全局
+         NSAllowsArbitraryLoads,因此 ACECode 自身的 Provider / MCP / daemon /
+         升级器等 URLSession 请求继续沿用系统默认 ATS 校验。 -->
+    <key>NSAllowsArbitraryLoadsInWebContent</key>
+    <true/>
+  </dict>
   <key>LSMinimumSystemVersion</key>
   <string>11.0</string>
   <key>NSHighResolutionCapable</key>

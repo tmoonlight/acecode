@@ -65,4 +65,24 @@ run('ActivityLine 保持流内固定单行且 selector 包含恢复和后台状�
   assert.match(selector, /主会话仍可继续输入/);
 });
 
+run('底部 live 主状态用独立文字副本每两秒扫光且详情保持静态', () => {
+  const line = source('components/ActivityLine.jsx');
+  const styles = source('styles/globals.css');
+
+  assert.match(line, /const activityLabel = label \|\| '正在处理';/);
+  assert.match(line, /const liveCopyClassName = live \? 'ace-activity-line-live-copy' : '';/);
+  assert.equal((line.match(/liveCopyClassName/g) || []).length, 2);
+  assert.match(line, /\{activityLabel\}[\s\S]*?\{live && \([\s\S]*?className="ace-activity-line-shimmer-sweep" aria-hidden="true"[\s\S]*?className="ace-activity-line-shimmer-highlight">\{activityLabel\}/);
+  assert.match(line, /\{detail && \([\s\S]*?className="min-w-0 truncate text-fg-mute"/);
+  assert.match(styles, /@keyframes ace-activity-line-shimmer-sweep\s*\{[\s\S]*?0%,\s*50%\s*\{\s*transform:\s*translateX\(-50%\);[\s\S]*?100%\s*\{\s*transform:\s*translateX\(125%\);/);
+  assert.match(styles, /@keyframes ace-activity-line-shimmer-highlight\s*\{[\s\S]*?0%,\s*50%\s*\{\s*transform:\s*translateX\(50%\);[\s\S]*?100%\s*\{\s*transform:\s*translateX\(-125%\);/);
+  assert.match(styles, /\.ace-activity-line-live-copy\s*\{[\s\S]*?position:\s*relative;[\s\S]*?-webkit-text-fill-color:\s*currentColor;/);
+  assert.match(styles, /\.ace-activity-line-shimmer-sweep\s*\{[\s\S]*?mask-image:\s*linear-gradient\(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%\);[\s\S]*?animation:\s*ace-activity-line-shimmer-sweep 2s steps\(48, end\) infinite;/);
+  assert.match(styles, /\.ace-activity-line-shimmer-highlight\s*\{[\s\S]*?color:\s*rgba\(255, 255, 255, 0\.92\);[\s\S]*?animation:\s*ace-activity-line-shimmer-highlight 2s steps\(48, end\) infinite;/);
+  const reducedMotionStart = styles.indexOf('@media (prefers-reduced-motion: reduce)', styles.indexOf('@keyframes ace-activity-line-shimmer-sweep'));
+  const reducedMotionEnd = styles.indexOf('/* Tool 中的真实代码与 diff', reducedMotionStart);
+  assert.ok(reducedMotionStart >= 0 && reducedMotionEnd > reducedMotionStart);
+  assert.doesNotMatch(styles.slice(reducedMotionStart, reducedMotionEnd), /ace-activity-line-live-copy|ace-activity-line-shimmer-(?:sweep|highlight)/);
+});
+
 console.log('conversationLivenessArchitecture tests passed');

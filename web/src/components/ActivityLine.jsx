@@ -23,6 +23,8 @@ export function ActivityLine({
   className = '',
 }) {
   const interactive = expandable && typeof onToggle === 'function';
+  const activityLabel = label || '正在处理';
+  const liveCopyClassName = live ? 'ace-activity-line-live-copy' : '';
   const handleKeyDown = (event) => {
     if (!interactive || (event.key !== 'Enter' && event.key !== ' ')) return;
     event.preventDefault();
@@ -41,8 +43,14 @@ export function ActivityLine({
       <span className={clsx(
         'whitespace-nowrap font-medium text-fg-mute group-hover/activity:text-fg',
         preserveLabel ? 'shrink-0' : 'min-w-0 max-w-[62%] truncate',
+        liveCopyClassName,
       )}>
-        {label || '正在处理'}
+        {activityLabel}
+        {live && (
+          <span className="ace-activity-line-shimmer-sweep" aria-hidden="true">
+            <span className="ace-activity-line-shimmer-highlight">{activityLabel}</span>
+          </span>
+        )}
       </span>
       {detail && (
         <span className="min-w-0 truncate text-fg-mute" title={String(detail)}>

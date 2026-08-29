@@ -155,6 +155,30 @@ export function FileTypeIcon({
   if (!icon) {
     return <VsIcon name={fallback} size={size} mono={false} className={className} {...props} />;
   }
+  if (icon.id === '_pptx') {
+    return (
+      <span
+        className={['ace-file-type-icon', className].filter(Boolean).join(' ')}
+        aria-hidden="true"
+        data-file-type-icon={icon.id}
+        style={{
+          width: size,
+          height: size,
+          color: icon.color,
+          ...style,
+        }}
+        {...props}
+      >
+        <svg className="ace-pptx-file-icon" viewBox="0 0 20 20" focusable="false">
+          <path fill="currentColor" d="M6 2.4h9.2c1 0 1.8.8 1.8 1.8v11.6c0 1-.8 1.8-1.8 1.8H6z" />
+          <rect x="8.1" y="5" width="6.7" height="7.1" rx=".7" fill="rgba(255,255,255,.9)" />
+          <path fill="rgba(227,121,51,.82)" d="M9.3 10.8V9.5h1.5V6.4h1.3v3.1h1.5v1.3z" />
+          <path fill="#c84c2f" d="M2.2 5.1 10 3.8v12.4l-7.8-1.3z" />
+          <path fill="#fff" d="M4.2 7h2.1c1.6 0 2.6.8 2.6 2.1 0 1.4-1 2.2-2.7 2.2h-.6v2H4.2zm1.4 1.2v1.9h.6c.8 0 1.2-.3 1.2-1s-.4-.9-1.2-.9z" />
+        </svg>
+      </span>
+    );
+  }
   return (
     <span
       className={['ace-file-type-icon', className].filter(Boolean).join(' ')}

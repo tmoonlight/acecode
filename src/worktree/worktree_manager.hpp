@@ -25,7 +25,8 @@ struct GitResult {
 GitResult run_git(const std::vector<std::string>& args,
                   const std::string& cwd,
                   int timeout_ms = 30000,
-                  bool no_prompt = false);
+                  bool no_prompt = false,
+                  bool preserve_stdout_nuls = false);
 
 // 向上查找包含 .git(目录或 worktree 指针文件)的目录。"" = 不在 git 仓库。
 std::string find_git_root(const std::string& start_dir);

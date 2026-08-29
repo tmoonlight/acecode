@@ -31,6 +31,7 @@ import { relativeTime, clsx, formatCount } from '../lib/format.js';
 import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
 import {
   filterPinnedSessions,
+  NO_WORKSPACE_PIN_SCOPE,
   normalizePinnedIds,
   normalizePinnedOrderItems,
   pinSessionId,
@@ -38,6 +39,7 @@ import {
   pinnedSessionsForList,
   reorderPinnedOrderItems,
   reorderPinnedSessionId,
+  sessionPinScope,
   unpinPinnedOrderItem,
   unpinSessionId,
 } from '../lib/pinnedSessions.js';
@@ -144,7 +146,7 @@ const SIDEBAR_CUSTOM_STORAGE_KEY = 'acecode.sidebarCustomSectionExpanded.v2';
 const SESSION_DRAG_START_PX = 5;
 const SESSION_DRAG_EDGE_SCROLL_PX = 34;
 const SESSION_DRAG_EDGE_SCROLL_STEP = 16;
-const NO_WORKSPACE_SESSION_LIST_KEY = '__no_workspace__';
+const NO_WORKSPACE_SESSION_LIST_KEY = NO_WORKSPACE_PIN_SCOPE;
 const REMOTE_CONTROL_SURGE_FALLBACK_MS = 950;
 const SessionHoverLifecycleContext = createContext({
   activeOwner: '',
@@ -350,7 +352,7 @@ function startSidebarSessionPointerDrag({
   if (event.button !== 0 || dragRef.current || conflictingDragRef?.current) return;
   if (event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
 
-  const workspaceHash = session?.workspace_hash || session?.workspaceHash || '';
+  const workspaceHash = sessionPinScope(session);
   const sourceId = session?.id || session?.session_id || session?.sessionId || '';
   const sourceKey = sidebarSessionDragKey(workspaceHash, sourceId);
   if (!workspaceHash || !sourceId || !sourceKey) return;
@@ -864,9 +866,11 @@ function SessionRow({
   const attention = s.attention_state || s.read_state || 'read';
   const meta = attentionMeta(attention);
   const workspaceHash = s.workspace_hash || s.workspaceHash || '';
+  const noWorkspace = isNoWorkspaceSession(s);
+  const pinScope = sessionPinScope(s);
   const sessionPath = s.session_path || s.sessionPath || '';
   const rowKey = (pinned || workspaceReorderable)
-    ? sidebarSessionDragKey(workspaceHash, s.id)
+    ? sidebarSessionDragKey(pinScope, s.id)
     : '';
   const title = sessionDisplayTitle(s, s.name || '');
   const titleHydration = useMemo(
@@ -1086,6 +1090,7 @@ function SessionRow({
       ref={rowRef}
       data-desktop-session-id={s.id || undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
+      data-desktop-session-no-workspace={noWorkspace ? 'true' : undefined}
       data-desktop-session-path={sessionPath || undefined}
       data-desktop-session-pinned={pinned ? 'true' : 'false'}
       data-desktop-session-title={title || undefined}
@@ -1093,7 +1098,7 @@ function SessionRow({
       data-remote-control-bound={remoteControlBound ? 'true' : undefined}
       data-sidebar-pinned-key={pinned ? rowKey || undefined : undefined}
       data-sidebar-pinned-id={pinned ? s.id || undefined : undefined}
-      data-sidebar-pinned-workspace={pinned ? workspaceHash || undefined : undefined}
+      data-sidebar-pinned-workspace={pinned ? pinScope || undefined : undefined}
       data-sidebar-workspace-session-key={workspaceReorderable ? rowKey || undefined : undefined}
       data-sidebar-workspace-session-id={workspaceReorderable ? s.id || undefined : undefined}
       data-sidebar-workspace-session-workspace={workspaceReorderable ? workspaceHash || undefined : undefined}
@@ -1726,6 +1731,7 @@ function NoWorkspaceSessionGroup({
   activeId,
   activeTarget,
   onSelect,
+  onTogglePin,
   onArchive,
   onRenameSession,
   pendingPermissionSessionIds,
@@ -1749,10 +1755,10 @@ function NoWorkspaceSessionGroup({
               key={`no-workspace-${s.id}`}
               s={s}
               active={sessionMatchesRevealTarget(s, activeTarget) || (!activeTarget?.sessionId && s.id === activeId)}
-              pinEnabled={false}
               pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
               pendingQuestion={sessionHasPendingQuestion(s, pendingQuestionSessionIds)}
               onSelect={onSelect}
+              onTogglePin={onTogglePin}
               onArchive={onArchive}
               onRename={onRenameSession}
               remoteControlSurgeRequest={remoteControlSurgeRequest}
@@ -2052,6 +2058,13 @@ export function Sidebar({
     });
   }, [setPinnedMap]);
 
+  const savePinnedScopeIds = useCallback((pinScope, ids) => {
+    if (pinScope === NO_WORKSPACE_PIN_SCOPE) {
+      return api.setNoWorkspacePinnedSessions(ids);
+    }
+    return api.setPinnedSessions(pinScope, ids);
+  }, []);
+
   const applyPinnedReorder = useCallback(async ({
     workspaceHash,
     sourceId,
@@ -2080,7 +2093,7 @@ export function Sidebar({
     if (orderChanged) setPinnedOrder(nextOrder);
     try {
       const saves = [];
-      if (pinnedChanged) saves.push(api.setPinnedSessions(workspaceHash, nextPinned));
+      if (pinnedChanged) saves.push(savePinnedScopeIds(workspaceHash, nextPinned));
       if (orderChanged) saves.push(api.setPinnedSessionOrder(nextOrder));
       const results = await Promise.all(saves);
       let resultIndex = 0;
@@ -2097,7 +2110,7 @@ export function Sidebar({
       if (orderChanged) setPinnedOrder(previousOrder);
       toast({ kind: 'err', text: '置顶排序失败:' + (e.message || '') });
     }
-  }, [setPinnedOrder, setPinnedWorkspaceIds]);
+  }, [savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
 
   const updatePinnedDragTarget = useCallback((clientY) => {
     const drag = pinnedDragRef.current;
@@ -2232,34 +2245,39 @@ export function Sidebar({
 
   const togglePinnedSession = useCallback(async (session, nextPinned) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
-    const workspaceHash = session?.workspace_hash || session?.workspaceHash || activeWorkspaceHash || '';
-    if (!id || !workspaceHash) return;
+    const pinScope = sessionPinScope(session, activeWorkspaceHash);
+    if (!id || !pinScope) return;
 
-    const previous = normalizePinnedIds(pinnedByWorkspaceRef.current.get(workspaceHash) || []);
+    const previous = normalizePinnedIds(pinnedByWorkspaceRef.current.get(pinScope) || []);
     const shouldPin = typeof nextPinned === 'boolean' ? nextPinned : !previous.includes(id);
     const next = shouldPin ? pinSessionId(previous, id) : unpinSessionId(previous, id);
     const previousOrder = normalizePinnedOrderItems(pinnedOrderItemsRef.current);
-    const orderItem = { workspace_hash: workspaceHash, session_id: id };
+    const orderItem = { workspace_hash: pinScope, session_id: id };
     const nextOrder = shouldPin
       ? pinPinnedOrderItem(previousOrder, orderItem)
       : unpinPinnedOrderItem(previousOrder, orderItem);
-    setPinnedWorkspaceIds(workspaceHash, next);
+    setPinnedWorkspaceIds(pinScope, next);
     setPinnedOrder(nextOrder);
 
+    let pinStateSaved = false;
     try {
-      const [saved, savedOrder] = await Promise.all([
-        api.setPinnedSessions(workspaceHash, next),
-        api.setPinnedSessionOrder(nextOrder),
-      ]);
-      setPinnedWorkspaceIds(workspaceHash, normalizePinnedIds(saved?.session_ids || next));
+      // 全局 order PUT 会按当前各 scope pin store 剪枝。先保存 scope,
+      // 再保存 order,避免新置顶项在并发竞态里被服务端当成无效条目丢掉。
+      const saved = await savePinnedScopeIds(pinScope, next);
+      pinStateSaved = true;
+      const savedOrder = await api.setPinnedSessionOrder(nextOrder);
+      setPinnedWorkspaceIds(pinScope, normalizePinnedIds(saved?.session_ids || next));
       setPinnedOrder(normalizePinnedOrderItems(savedOrder?.items || nextOrder));
       toast({ kind: 'ok', text: shouldPin ? '已置顶' : '已取消置顶' });
     } catch (e) {
-      setPinnedWorkspaceIds(workspaceHash, previous);
+      if (pinStateSaved) {
+        savePinnedScopeIds(pinScope, previous).catch(() => {});
+      }
+      setPinnedWorkspaceIds(pinScope, previous);
       setPinnedOrder(previousOrder);
       toast({ kind: 'err', text: (shouldPin ? '置顶失败:' : '取消置顶失败:') + (e.message || '') });
     }
-  }, [activeWorkspaceHash, setPinnedOrder, setPinnedWorkspaceIds]);
+  }, [activeWorkspaceHash, savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
 
   const setSessionWorkspaceLoading = useCallback((hashes, loading) => {
     const normalized = Array.from(new Set(Array.from(hashes || []).filter(Boolean)));
@@ -2398,6 +2416,7 @@ export function Sidebar({
       togglePinnedSession({
         id: detail.sessionId,
         workspace_hash: detail.workspaceHash,
+        no_workspace: !!detail.noWorkspace,
       }, detail.pinned);
     };
     window.addEventListener(SESSION_PIN_TOGGLE_EVENT, handler);
@@ -2477,23 +2496,33 @@ export function Sidebar({
       setSessionWorkspaceLoading(earlyVisibleWorkspaceHashes, true);
 
       const pinnedTargets = new Set(pinnedRefreshTargets(withActive, earlyVisibleWorkspaceHashes));
-      const pinnedPairs = await Promise.all(withActive.map(async (w) => {
-        if (!w.hash) return [w.hash, []];
-        // 不在本轮目标里的沿用缓存值,绝不能清空 —— 否则展开折叠已久的
-        // workspace 时置顶标记会先消失再回来。
-        if (!pinnedTargets.has(w.hash)) {
-          return [w.hash, normalizePinnedIds(pinnedByWorkspaceRef.current.get(w.hash) || [])];
-        }
-        try {
-          const state = await api.getPinnedSessions(w.hash);
-          return [w.hash, normalizePinnedIds(state?.session_ids || [])];
-        } catch {
-          return [w.hash, normalizePinnedIds(pinnedByWorkspaceRef.current.get(w.hash) || [])];
-        }
-      }));
+      const [pinnedPairs, noWorkspacePinnedIds] = await Promise.all([
+        Promise.all(withActive.map(async (w) => {
+          if (!w.hash) return [w.hash, []];
+          // 不在本轮目标里的沿用缓存值,绝不能清空 —— 否则展开折叠已久的
+          // workspace 时置顶标记会先消失再回来。
+          if (!pinnedTargets.has(w.hash)) {
+            return [w.hash, normalizePinnedIds(pinnedByWorkspaceRef.current.get(w.hash) || [])];
+          }
+          try {
+            const state = await api.getPinnedSessions(w.hash);
+            return [w.hash, normalizePinnedIds(state?.session_ids || [])];
+          } catch {
+            return [w.hash, normalizePinnedIds(pinnedByWorkspaceRef.current.get(w.hash) || [])];
+          }
+        })),
+        api.getNoWorkspacePinnedSessions()
+          .then((state) => normalizePinnedIds(state?.session_ids || []))
+          .catch(() => normalizePinnedIds(
+            pinnedByWorkspaceRef.current.get(NO_WORKSPACE_PIN_SCOPE) || [],
+          )),
+      ]);
       const nextPinnedMap = new Map();
       for (const [hash, ids] of pinnedPairs) {
         if (hash && ids.length) nextPinnedMap.set(hash, ids);
+      }
+      if (noWorkspacePinnedIds.length) {
+        nextPinnedMap.set(NO_WORKSPACE_PIN_SCOPE, noWorkspacePinnedIds);
       }
       setPinnedMap(nextPinnedMap);
       try {
@@ -2597,6 +2626,7 @@ export function Sidebar({
     const id = session?.id || session?.sessionId || session?.session_id || '';
     const noWorkspace = isNoWorkspaceSession(session);
     const workspaceHash = noWorkspace ? '' : (session?.workspace_hash || session?.workspaceHash || activeWorkspaceHash || '');
+    const pinScope = noWorkspace ? NO_WORKSPACE_PIN_SCOPE : workspaceHash;
     if (!id) return;
     const loadKey = sidebarSessionLoadKey({ sessionId: id, workspaceHash, noWorkspace });
     sessionLoadPoolRef.current?.invalidate(loadKey);
@@ -2611,19 +2641,17 @@ export function Sidebar({
         await api.archiveSession(id);
       }
 
-      const previousPinned = normalizePinnedIds(pinnedByWorkspaceRef.current.get(workspaceHash) || []);
-      if (workspaceHash && previousPinned.includes(id)) {
+      const previousPinned = normalizePinnedIds(pinnedByWorkspaceRef.current.get(pinScope) || []);
+      if (pinScope && previousPinned.includes(id)) {
         const nextPinned = unpinSessionId(previousPinned, id);
         const previousOrder = normalizePinnedOrderItems(pinnedOrderItemsRef.current);
-        const nextOrder = unpinPinnedOrderItem(previousOrder, { workspace_hash: workspaceHash, session_id: id });
-        setPinnedWorkspaceIds(workspaceHash, nextPinned);
+        const nextOrder = unpinPinnedOrderItem(previousOrder, { workspace_hash: pinScope, session_id: id });
+        setPinnedWorkspaceIds(pinScope, nextPinned);
         setPinnedOrder(nextOrder);
         try {
-          const [saved, savedOrder] = await Promise.all([
-            api.setPinnedSessions(workspaceHash, nextPinned),
-            api.setPinnedSessionOrder(nextOrder),
-          ]);
-          setPinnedWorkspaceIds(workspaceHash, normalizePinnedIds(saved?.session_ids || nextPinned));
+          const saved = await savePinnedScopeIds(pinScope, nextPinned);
+          const savedOrder = await api.setPinnedSessionOrder(nextOrder);
+          setPinnedWorkspaceIds(pinScope, normalizePinnedIds(saved?.session_ids || nextPinned));
           setPinnedOrder(normalizePinnedOrderItems(savedOrder?.items || nextOrder));
         } catch {
           // Archiving already succeeded; stale pinned state will be pruned on next refresh.
@@ -2647,7 +2675,7 @@ export function Sidebar({
     } catch (e) {
       toast({ kind: 'err', text: '归档失败:' + (e.message || '') });
     }
-  }, [activeId, activeWorkspaceHash, cancelSessionSelection, onOpenHome, refresh, setPinnedOrder, setPinnedWorkspaceIds]);
+  }, [activeId, activeWorkspaceHash, cancelSessionSelection, onOpenHome, refresh, savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
 
   const renameSession = useCallback(async (session, title) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
@@ -2786,12 +2814,20 @@ export function Sidebar({
     [renderedSessions],
   );
   const pinnedSessions = useMemo(
-    () => pinnedSessionsForList(workspaceSessions, pinnedByWorkspace, pinnedOrderItems),
-    [pinnedByWorkspace, pinnedOrderItems, workspaceSessions],
+    () => pinnedSessionsForList(renderedSessions, pinnedByWorkspace, pinnedOrderItems),
+    [pinnedByWorkspace, pinnedOrderItems, renderedSessions],
+  );
+  const unpinnedNoWorkspaceSessions = useMemo(
+    () => filterPinnedSessions(noWorkspaceSessions, pinnedByWorkspace),
+    [noWorkspaceSessions, pinnedByWorkspace],
   );
   const sectionCounts = useMemo(
-    () => sidebarSectionCounts({ pinnedSessions, noWorkspaceSessions, workspaces }),
-    [noWorkspaceSessions, pinnedSessions, workspaces],
+    () => sidebarSectionCounts({
+      pinnedSessions,
+      noWorkspaceSessions: unpinnedNoWorkspaceSessions,
+      workspaces,
+    }),
+    [pinnedSessions, unpinnedNoWorkspaceSessions, workspaces],
   );
 
   useEffect(() => {
@@ -2888,13 +2924,13 @@ export function Sidebar({
   useEffect(() => {
     const activeWs = workspaces.find((w) => w.hash === activeWorkspaceHash);
     pushTrayMenu({
-      sessions: workspaceSessions,
+      sessions: renderedSessions,
       pinnedByWorkspace,
       pinnedOrderItems,
       workspaceName: activeWs?.name || '',
       workspaces,
     });
-  }, [workspaceSessions, pinnedByWorkspace, pinnedOrderItems, activeWorkspaceHash, workspaces]);
+  }, [renderedSessions, pinnedByWorkspace, pinnedOrderItems, activeWorkspaceHash, workspaces]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -3441,10 +3477,11 @@ export function Sidebar({
             {sidebarSectionIsVisible(sectionCounts.pinned) && sectionExpansion.pinned && (
               <div className="my-1">
                 {pinnedSessions.map((s) => {
-                  const rowKey = sidebarSessionDragKey(s.workspace_hash || s.workspaceHash || '', s.id);
+                  const pinScope = sessionPinScope(s);
+                  const rowKey = sidebarSessionDragKey(pinScope, s.id);
                   return (
                     <SessionRow
-                      key={`pinned-${s.workspace_hash || ''}-${s.id}`}
+                      key={`pinned-${pinScope}-${s.id}`}
                       s={s}
                       pinned
                       active={sessionMatchesRevealTarget(s, selectedRevealTarget) || (!selectedRevealTarget.sessionId && s.id === activeId)}
@@ -3475,13 +3512,14 @@ export function Sidebar({
             />
             {sidebarSectionIsVisible(sectionCounts.tasks) && sectionExpansion.tasks && (
               <NoWorkspaceSessionGroup
-                sessions={noWorkspaceSessions}
+                sessions={unpinnedNoWorkspaceSessions}
                 sessionsLoading={false}
                 sessionListExpanded={expandedSessionLists.has(NO_WORKSPACE_SESSION_LIST_KEY)}
                 onToggleSessionList={toggleSessionListExpanded}
                 activeId={activeId}
                 activeTarget={selectedRevealTarget}
                 onSelect={(session) => selectSession({ noWorkspace: true }, session)}
+                onTogglePin={togglePinnedSession}
                 onArchive={archiveSession}
                 onRenameSession={renameSession}
                 pendingPermissionSessionIds={pendingPermissionSessionIds}

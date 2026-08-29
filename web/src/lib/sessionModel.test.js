@@ -76,6 +76,27 @@ run('model options preserve the catalog provider used by prefix icons', () => {
   });
   assert.equal(menu.selectedOption.models_dev_provider_id, 'acemodel');
   assert.equal(menu.items[0].models_dev_provider_id, 'acemodel');
+  assert.equal(menu.displayLabel, 'aurora-moonlight (acemodel/moonlight)');
+  assert.equal(menu.items[0].label, 'aurora-moonlight (acemodel/moonlight)');
+});
+
+run('catalog identity replaces only the runtime provider in model labels', () => {
+  assert.equal(optionLabel({
+    name: 'Aurora-starrylight',
+    provider: 'openai',
+    model: 'starrylight',
+    models_dev_provider_id: 'acemodel',
+  }), 'Aurora-starrylight (acemodel/starrylight)');
+  assert.equal(optionLabel({
+    name: 'custom-gpt',
+    provider: 'openai',
+    model: 'gpt-5',
+  }), 'custom-gpt (openai/gpt-5)');
+  assert.equal(modelDisplayLabel({
+    provider: 'openai',
+    model: 'starrylight',
+    models_dev_provider_id: 'acemodel',
+  }), 'acemodel/starrylight');
 });
 
 run('pending select value rolls back to previous model when pending clears', () => {

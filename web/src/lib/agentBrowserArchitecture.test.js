@@ -235,10 +235,12 @@ run('macOS Agent Browser exposes NSError diagnostics and keeps system authentica
     authHandler,
     /completionHandler\(NSURLSessionAuthChallengePerformDefaultHandling, nil\)/,
   );
-  assert.doesNotMatch(
+  assert.match(authHandler, /NSURLAuthenticationMethodServerTrust/);
+  assert.match(
     authHandler,
-    /NSURLSessionAuthChallengeUseCredential|credentialForTrust|serverTrustCredential/,
+    /completionHandler\(NSURLSessionAuthChallengeUseCredential, credential\)/,
   );
+  assert.match(authHandler, /credentialForTrust:\[protection_space serverTrust\]/);
   for (const field of [
     'authentication_method',
     'host',
@@ -270,6 +272,190 @@ run('macOS Agent Browser exposes NSError diagnostics and keeps system authentica
   assert.match(styles, /\.ace-agent-browser-status-diagnostic/);
   assert.match(styles, /overflow:\s*auto/);
   assert.match(styles, /user-select:\s*text/);
+});
+
+run('macOS Agent Browser is permanently development-permissive', () => {
+  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+  const plist = source('cmake/macos/ACECodeDesktopInfo.plist.in');
+  const authStart = macHost.indexOf('didReceiveAuthenticationChallenge:');
+  const authEnd = macHost.indexOf('webViewWebContentProcessDidTerminate:', authStart);
+  const authHandler = macHost.slice(authStart, authEnd);
+
+  // ATS 例外只解除 WKWebView Web 内容的限制。全局 NSAllowsArbitraryLoads 会把
+  // Provider / MCP / daemon / 升级器的 URLSession 一起放宽,越出 Agent Browser 边界。
+  assert.match(plist, /<key>NSAppTransportSecurity<\/key>/);
+  assert.match(plist, /<key>NSAllowsArbitraryLoadsInWebContent<\/key>\s*<true\/>/);
+  assert.doesNotMatch(plist, /<key>NSAllowsArbitraryLoads<\/key>/);
+
+  // 服务器信任挑战无条件接受;凭据类挑战继续交给系统,ACECode 不编造凭据。
+  assert.match(authHandler, /NSURLSessionAuthChallengeUseCredential/);
+  assert.match(
+    authHandler,
+    /completionHandler\(NSURLSessionAuthChallengePerformDefaultHandling, nil\)/,
+  );
+  // 系统仍能协商的旧 TLS 一律继续。
+  assert.match(macHost, /shouldAllowDeprecatedTLS:\(void \(\^\)\(BOOL\)\)decisionHandler/);
+  assert.match(macHost, /decisionHandler\(YES\)/);
+  // WebKit 欺诈网站警告页在开发浏览器里也是挡板。
+  assert.match(macHost, /setFraudulentWebsiteWarningEnabled:/);
+  assert.match(macHost, /fraudulentWebsiteWarningEnabled = NO/);
+  // 外部 SSO scheme 静默交给操作系统,javascript:/data: 不参与交接。
+  assert.match(macHost, /external_handoff_candidate_url/);
+  assert.match(macHost, /URLForApplicationToOpenURL:url/);
+  assert.match(macHost, /@"javascript", @"data", @"about", @"blob"/);
+});
+
+run('Agent Browser derives navigation state from the final unhandled result', () => {
+  const header = source('src/desktop/agent_browser_navigation_state.hpp');
+  const state = source('src/desktop/agent_browser_navigation_state.cpp');
+  const host = source('src/desktop/agent_browser_host.cpp');
+  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+
+  // 中间回调的判定收敛在无平台依赖的纯逻辑层,两端共用同一套规则。
+  assert.match(header, /class AgentBrowserNavigationTracker/);
+  for (const decision of [
+    'kIgnore',
+    'kHoldPending',
+    'kRetryOnce',
+    'kRestorePrevious',
+    'kPublishFailure',
+    'kPublishSuccess',
+  ]) {
+    assert.match(header, new RegExp(decision));
+  }
+  // 重试标记必须跨过重试导航自己的 begin_navigation,否则证书始终失败的站点会
+  // 无限重试。
+  assert.match(state, /carry_retry_marker_/);
+  assert.match(state, /certificate_retry_used_ = carry_retry_marker_/);
+
+  // 两端都把决策交给 tracker,并在页面关闭后忽略在途回调。
+  assert.match(host, /current->navigation\.on_navigation_completed\(/);
+  assert.match(host, /page->navigation\.close\(\)/);
+  assert.match(macHost, /page->navigation\.on_navigation_completed\(/);
+  assert.match(macHost, /page->navigation\.close\(\)/);
+  // macOS 的 -999 恢复导航前状态而不是发布失败。
+  assert.match(macHost, /classify_darwin_navigation_failure/);
+  assert.match(macHost, /kRestorePrevious/);
+  assert.match(macHost, /content_state_before_navigation/);
+});
+
+run('Windows Agent Browser disables WebView2 barriers before the first navigation', () => {
+  const host = source('src/desktop/agent_browser_host.cpp');
+  const installStart = host.indexOf('void install_events(');
+  const navigationStarting = host.indexOf('add_NavigationStarting', installStart);
+  const preNavigation = host.slice(installStart, navigationStarting);
+
+  // SmartScreen 信誉检查与内建错误文档都是挡板。
+  assert.match(host, /put_IsReputationCheckingRequired\(FALSE\)/);
+  assert.match(host, /put_IsBuiltInErrorPageEnabled\(FALSE\)/);
+  assert.match(host, /ICoreWebView2Settings8/);
+
+  // 证书事件必须在任何导航之前注册,否则第一条 TLS 拦截页已经露出来了。
+  assert.match(preNavigation, /install_permissive_certificate_events\(page\)/);
+  assert.match(host, /add_ServerCertificateErrorDetected/);
+  assert.match(host, /remove_ServerCertificateErrorDetected/);
+  assert.match(
+    host,
+    /COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW/,
+  );
+  assert.doesNotMatch(
+    host,
+    /COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_(CANCEL|DEFAULT)/,
+  );
+
+  // 外部 URI scheme 走系统 shell,并注销 token。
+  assert.match(host, /add_LaunchingExternalUriScheme/);
+  assert.match(host, /remove_LaunchingExternalUriScheme/);
+  assert.match(host, /ICoreWebView2_18/);
+  assert.match(host, /ShellExecuteW/);
+
+  // 缺接口时如实记录能力缺失,不引入用户可见的安全模式或回退开关。
+  assert.match(host, /lacks ICoreWebView2_14/);
+  assert.match(host, /lacks ICoreWebView2_18/);
+  assert.match(host, /lacks ICoreWebView2Settings8/);
+});
+
+run('no Agent Browser security mode, badge or certificate exception UI exists', () => {
+  const settings = source('web/src/components/SettingsPage.jsx');
+  const panel = source('web/src/components/AgentBrowserPanel.jsx');
+  const surface = source('web/src/lib/agentBrowserSurface.js');
+  const styles = source('web/src/styles/globals.css');
+
+  // 用户不应感知这套策略:没有开关、没有徽标、没有确认页、没有逐站点例外。
+  const forbidden = [
+    /证书验证已关闭/,
+    /安全模式/,
+    /严格模式/,
+    /宽松模式/,
+    /开发模式/,
+    /证书例外/,
+    /insecure/i,
+    /allowInsecure/i,
+    /ignoreCertificate/i,
+    /securityMode/i,
+    /permissiveMode/i,
+  ];
+  for (const pattern of forbidden) {
+    assert.doesNotMatch(settings, pattern);
+    assert.doesNotMatch(panel, pattern);
+    assert.doesNotMatch(surface, pattern);
+  }
+  assert.doesNotMatch(styles, /ace-agent-browser-security/);
+  // 失败页也不能建议「开启安全模式」或「添加证书例外」。
+  assert.doesNotMatch(surface, /继续访问|信任此证书|添加例外/);
+});
+
+run('permissive browsing stays inside the Agent Browser native boundary', () => {
+  const host = source('src/desktop/agent_browser_host.cpp');
+  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+
+  // 服务器返回的 401/403 正文与登录重定向是真实网页,不能被折算成传输失败。
+  // 两端都只从引擎的导航结果判定成败,不看 HTTP 状态码。
+  assert.match(host, /args->get_IsSuccess\(&success\)/);
+  assert.doesNotMatch(host, /get_StatusCode/);
+  assert.doesNotMatch(macHost, /navigation_failure_kind\([^)]*status_code/);
+
+  // 宽松策略不得注入任何 ACECode 能力面:网页拿不到 bridge、daemon token 或
+  // Provider 凭据。
+  for (const forbidden of [
+    /aceDesktop_/,
+    /AddHostObjectToScript/,
+    /add_WebMessageReceived/,
+  ]) {
+    assert.doesNotMatch(host, forbidden);
+    assert.doesNotMatch(macHost, forbidden);
+  }
+
+  // 放宽只发生在这两个原生 Browser 宿主里。任何一处泄漏到共享 HTTP/TLS 栈、
+  // Provider、MCP、daemon 或升级器,都会让「只影响 Agent Browser」的合同失效。
+  const allowed = new Set([
+    'src/desktop/agent_browser_host.cpp',
+    'src/desktop/agent_browser_host_mac.mm',
+  ]);
+  const permissiveMarkers = [
+    /credentialForTrust/,
+    /NSURLSessionAuthChallengeUseCredential/,
+    /shouldAllowDeprecatedTLS/,
+    /SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW/,
+    /put_IsReputationCheckingRequired/,
+    /fraudulentWebsiteWarningEnabled/,
+  ];
+  const walk = (dir) => {
+    const out = [];
+    for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+      const relative = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) out.push(...walk(relative));
+      else if (/\.(cpp|hpp|mm|h|c)$/.test(entry.name)) out.push(relative);
+    }
+    return out;
+  };
+  for (const file of walk('src')) {
+    if (allowed.has(file)) continue;
+    const text = source(file);
+    for (const marker of permissiveMarkers) {
+      assert.doesNotMatch(text, marker, `${file} leaks permissive policy`);
+    }
+  }
 });
 
 run('application state explicitly gates the native Agent Browser surface', () => {

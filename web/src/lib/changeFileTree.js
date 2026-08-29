@@ -95,6 +95,34 @@ function sortTreeNodes(nodes) {
   }
 }
 
+function compactDirectoryNode(node) {
+  let endpoint = node;
+  const segments = [node.name];
+  while (endpoint.children.length === 1
+      && endpoint.children[0].type === 'directory') {
+    endpoint = endpoint.children[0];
+    segments.push(endpoint.name);
+  }
+
+  return {
+    ...node,
+    key: `directory:${endpoint.path}`,
+    name: segments.join('/'),
+    path: endpoint.path,
+    segments,
+    children: endpoint.children.map((child) => (
+      child.type === 'directory' ? compactDirectoryNode(child) : child
+    )),
+  };
+}
+
+export function compactChangeFileTree(nodes) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  return list.map((node) => (
+    node.type === 'directory' ? compactDirectoryNode(node) : node
+  ));
+}
+
 /**
  * Project compact Changes rows into a directory tree while retaining each
  * original row and path for diff lookup, selection, and native context actions.
@@ -144,7 +172,7 @@ export function buildChangeFileTree(rows, cwd = '') {
   });
 
   sortTreeNodes(root.children);
-  return root.children;
+  return compactChangeFileTree(root.children);
 }
 
 export function changeTreeAncestorPaths(path, cwd = '') {

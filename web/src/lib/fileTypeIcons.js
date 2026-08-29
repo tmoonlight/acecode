@@ -6,6 +6,14 @@ import {
   SETI_ICON_DEFINITIONS,
 } from './setiFileIconTheme.generated.js';
 
+const CUSTOM_FILE_ICON_DEFINITIONS = Object.freeze({
+  _pptx: ['', '#e37933'],
+});
+
+const CUSTOM_FILE_EXTENSION_ICON_IDS = Object.freeze({
+  pptx: '_pptx',
+});
+
 function basename(pathOrName) {
   return String(pathOrName || '').split(/[\\/]/).pop() || '';
 }
@@ -24,7 +32,9 @@ function stripLeadingDots(value) {
 
 function iconForId(iconId) {
   const id = iconId || SETI_DEFAULT_FILE_ICON_ID;
-  const definition = SETI_ICON_DEFINITIONS[id] || SETI_ICON_DEFINITIONS[SETI_DEFAULT_FILE_ICON_ID];
+  const definition = CUSTOM_FILE_ICON_DEFINITIONS[id]
+    || SETI_ICON_DEFINITIONS[id]
+    || SETI_ICON_DEFINITIONS[SETI_DEFAULT_FILE_ICON_ID];
   return {
     id,
     glyph: definition?.[0] || '',
@@ -97,7 +107,8 @@ function iconIdForPath(pathOrName) {
   if (patternIconId) return patternIconId;
 
   for (const candidate of extensionCandidates(name)) {
-    const iconId = SETI_FILE_EXTENSION_ICON_IDS[candidate];
+    const iconId = CUSTOM_FILE_EXTENSION_ICON_IDS[candidate]
+      || SETI_FILE_EXTENSION_ICON_IDS[candidate];
     if (iconId) return iconId;
   }
 

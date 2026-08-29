@@ -278,6 +278,10 @@ public:
     // which would race the active turn. The snapshot is intentionally detached
     // from transcript/session persistence.
     std::vector<ChatMessage> side_question_context_snapshot() const;
+    // Publish a safe baseline snapshot before the first main provider request.
+    // SessionRegistry calls this only while the loop is idle, after initial
+    // configuration or restored history has been installed.
+    void prime_side_question_context();
     SideQuestionResult ask_side_question(const std::string& question);
     using SideQuestionCallback =
         std::function<void(SideQuestionResult)>;

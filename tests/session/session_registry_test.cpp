@@ -670,9 +670,20 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
     EXPECT_EQ(empty.status, SideQuestionStatus::InvalidQuestion);
     EXPECT_EQ(provider->side_calls(), 0);
 
-    auto not_ready = fx.registry.ask_side_question(id, "before first request");
-    EXPECT_EQ(not_ready.status, SideQuestionStatus::ContextNotReady);
-    EXPECT_EQ(provider->side_calls(), 0);
+    const auto main_messages_initial = entry->loop->messages();
+    EXPECT_TRUE(main_messages_initial.empty());
+    auto direct = fx.registry.ask_side_question(id, "before first request");
+    EXPECT_EQ(direct.status, SideQuestionStatus::Ok);
+    EXPECT_EQ(direct.answer, "isolated answer");
+    EXPECT_EQ(provider->side_calls(), 1);
+    EXPECT_TRUE(provider->side_tools().empty());
+    EXPECT_TRUE(entry->loop->messages().empty());
+
+    auto direct_messages = provider->side_messages();
+    ASSERT_GE(direct_messages.size(), 2u);
+    EXPECT_EQ(direct_messages.front().role, "system");
+    EXPECT_NE(direct_messages.back().content.find("before first request"),
+              std::string::npos);
 
     std::mutex event_mu;
     std::condition_variable event_cv;
@@ -698,7 +709,7 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
     EXPECT_EQ(result.status, SideQuestionStatus::Ok);
     EXPECT_EQ(result.question, "explain the mutex");
     EXPECT_EQ(result.answer, "isolated answer");
-    EXPECT_EQ(provider->side_calls(), 1);
+    EXPECT_EQ(provider->side_calls(), 2);
     EXPECT_TRUE(provider->side_tools().empty());
 
     auto side_messages = provider->side_messages();
@@ -708,6 +719,14 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
               std::string::npos);
     EXPECT_NE(side_messages.back().content.find("explain the mutex"),
               std::string::npos);
+    EXPECT_TRUE(std::any_of(
+        side_messages.begin(), side_messages.end(), [](const auto& message) {
+            return message.content.find("main task") != std::string::npos;
+        }));
+    EXPECT_TRUE(std::any_of(
+        side_messages.begin(), side_messages.end(), [](const auto& message) {
+            return message.content.find("main answer") != std::string::npos;
+        }));
 
     const auto main_messages_after = entry->loop->messages();
     ASSERT_EQ(main_messages_after.size(), main_messages_before.size());
@@ -738,6 +757,27 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
     }
     auto unavailable = fx.registry.ask_side_question(id, "no model");
     EXPECT_EQ(unavailable.status, SideQuestionStatus::ProviderUnavailable);
+
+    fx.registry.destroy(id);
+    provider->set_side_mode(SideQuestionStubProvider::SideMode::Answer);
+    SessionOptions resume_opts;
+    resume_opts.cwd = cwd.string();
+    ASSERT_TRUE(fx.registry.resume(id, resume_opts));
+
+    auto resumed = fx.registry.ask_side_question(id, "after resume");
+    EXPECT_EQ(resumed.status, SideQuestionStatus::Ok);
+    EXPECT_EQ(resumed.answer, "isolated answer");
+    const auto resumed_messages = provider->side_messages();
+    EXPECT_TRUE(std::any_of(
+        resumed_messages.begin(), resumed_messages.end(),
+        [](const auto& message) {
+            return message.content.find("main task") != std::string::npos;
+        }));
+    EXPECT_TRUE(std::any_of(
+        resumed_messages.begin(), resumed_messages.end(),
+        [](const auto& message) {
+            return message.content.find("main answer") != std::string::npos;
+        }));
 
     fx.registry.destroy(id);
     std::error_code ec;

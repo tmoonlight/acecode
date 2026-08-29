@@ -46,6 +46,7 @@ std::optional<std::string> preview_blob_mime(const std::string& path) {
     if (ext == "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     if (ext == "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     if (ext == "xlsm") return "application/vnd.ms-excel.sheet.macroEnabled.12";
+    if (ext == "pptx") return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     return std::nullopt;
 }
 
@@ -1049,6 +1050,29 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
         return parent_id != parent_filter;
     };
 
+    // 会话 meta 的真实落盘目录恒为 get_project_dir(该会话自己的 cwd)
+    // (SessionManager::start_session 就是这么算 project_dir_ 的),不一定等于
+    // 调用方 workspace 的 project_dir —— 一个 daemon 经 routes_workspaces
+    // 服务多个 workspace 时,进程 cwd ≠ 会话 cwd。用 ws.cwd 去读别的
+    // workspace 的会话 meta 只会读到空,created_at/updated_at 随之为空。
+    // 顺带治掉 junction 形态差异(C:\Users\x 与 N:\Users\x 哈希不同)。
+    const auto session_project_dir = [&](const SessionInfo& s) {
+        return s.cwd.empty() ? project_dir : SessionStorage::get_project_dir(s.cwd);
+    };
+
+    // 后台任务查询的磁盘枚举同理:子会话跟随父会话归属,已结束的子会话只
+    // 存在于父会话所在 workspace 的目录里。父会话就是当前打开的那个会话,
+    // 面板可见时它必然是活跃的,从活跃列表里取它的 cwd 即可。
+    std::string disk_dir = project_dir;
+    if (!parent_filter.empty()) {
+        for (const auto& s : active) {
+            if (s.id == parent_filter && !s.no_workspace && !s.cwd.empty()) {
+                disk_dir = SessionStorage::get_project_dir(s.cwd);
+                break;
+            }
+        }
+    }
+
     // include_no_workspace(/api/sessions 的兼容 workspace)要把 no-workspace
     // 缓存目录一起并进来,那条路径本来就得全量枚举,分页在这里没有意义。
     const bool bounded = limit > 0 && !include_no_workspace;
@@ -1092,7 +1116,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
             meta = find_no_workspace_session_meta(s.id);
         } else {
             auto disk_meta = SessionStorage::read_meta(
-                SessionStorage::meta_path(project_dir, s.id));
+                SessionStorage::meta_path(session_project_dir(s), s.id));
             if (!disk_meta.id.empty()) meta = std::move(disk_meta);
         }
         const bool archived = meta ? meta->archived : false;
@@ -1111,7 +1135,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
 
     SessionStorage::MetadataPage disk_page;
     if (include_no_workspace) {
-        auto metas = SessionStorage::list_session_metadata(project_dir);
+        auto metas = SessionStorage::list_session_metadata(disk_dir);
         auto no_workspace_disk = no_workspace_disk_sessions();
         metas.insert(metas.end(), no_workspace_disk.begin(), no_workspace_disk.end());
         disk_page.candidate_files = metas.size();
@@ -1122,7 +1146,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
         }
     } else {
         disk_page = SessionStorage::list_session_metadata_page(
-            project_dir, bounded ? limit : 0, accept_disk);
+            disk_dir, bounded ? limit : 0, accept_disk);
     }
     for (auto& m : disk_page.sessions) {
         const std::string hash = m.no_workspace ? std::string{} : ws.hash;
@@ -1659,6 +1683,10 @@ std::filesystem::path WebServer::Impl::pinned_sessions_path_for_cwd(const std::s
            "pinned_sessions.json";
 }
 
+std::filesystem::path WebServer::Impl::no_workspace_pinned_sessions_path() const {
+    return path_from_utf8(no_workspace_cache_root()) / "pinned_sessions.json";
+}
+
 std::filesystem::path WebServer::Impl::pinned_session_order_path() const {
     return path_from_utf8(projects_dir()) / "pinned_sessions_order.json";
 }
@@ -1700,9 +1728,48 @@ std::vector<std::string> WebServer::Impl::session_ids_for_workspace(
     return out;
 }
 
+std::vector<std::string> WebServer::Impl::session_ids_for_no_workspace() const {
+    std::vector<std::string> out;
+    std::unordered_set<std::string> seen;
+    std::unordered_map<std::string, SessionMeta> disk_by_id;
+    auto add = [&](const std::string& id) {
+        if (id.empty() || seen.count(id)) return;
+        seen.insert(id);
+        out.push_back(id);
+    };
+
+    for (auto& meta : no_workspace_disk_sessions()) {
+        if (!meta.no_workspace || !meta.parent_session_id.empty()) continue;
+        disk_by_id[meta.id] = std::move(meta);
+    }
+
+    if (deps.session_client) {
+        for (const auto& session : deps.session_client->list_sessions()) {
+            if (!session.no_workspace || !session.parent_session_id.empty()) continue;
+            const auto disk = disk_by_id.find(session.id);
+            if (disk != disk_by_id.end() && disk->second.archived) continue;
+            add(session.id);
+        }
+    }
+
+    for (const auto& [id, meta] : disk_by_id) {
+        if (!meta.archived) add(id);
+    }
+    return out;
+}
+
 json WebServer::Impl::pinned_sessions_to_json(const acecode::desktop::WorkspaceMeta& ws,
                                                  const std::vector<std::string>& session_ids) const {
     return json{{"workspace_hash", ws.hash}, {"cwd", ws.cwd}, {"session_ids", session_ids}};
+}
+
+json WebServer::Impl::no_workspace_pinned_sessions_to_json(
+    const std::vector<std::string>& session_ids) const {
+    return json{
+        {"no_workspace", true},
+        {"pin_scope", "__no_workspace__"},
+        {"session_ids", session_ids},
+    };
 }
 
 std::vector<PinnedSessionOrderItem> WebServer::Impl::available_pinned_session_order_items() const {
@@ -1727,6 +1794,23 @@ std::vector<PinnedSessionOrderItem> WebServer::Impl::available_pinned_session_or
             out.push_back(PinnedSessionOrderItem{ws.hash, id});
         }
     };
+
+    const auto no_workspace_path = no_workspace_pinned_sessions_path();
+    auto no_workspace_state = read_pinned_sessions_state(no_workspace_path);
+    const auto no_workspace_pruned = prune_pinned_session_ids(
+        no_workspace_state.session_ids, session_ids_for_no_workspace());
+    if (no_workspace_pruned != no_workspace_state.session_ids) {
+        std::string ignored;
+        write_pinned_sessions_state(
+            no_workspace_path, PinnedSessionsState{no_workspace_pruned}, &ignored);
+    }
+    for (const auto& id : no_workspace_pruned) {
+        if (id.empty()) continue;
+        const auto key = std::string("__no_workspace__") + '\0' + id;
+        if (seen.count(key)) continue;
+        seen.insert(key);
+        out.push_back(PinnedSessionOrderItem{"__no_workspace__", id});
+    }
 
     if (deps.workspace_registry) {
         deps.workspace_registry->scan(projects_dir());

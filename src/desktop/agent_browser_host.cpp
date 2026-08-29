@@ -1,5 +1,6 @@
 #include "agent_browser_host.hpp"
 
+#include "agent_browser_navigation_state.hpp"
 #include "agent_browser_runtime.hpp"
 
 #include "daemon/platform.hpp"
@@ -10,6 +11,7 @@
 
 #include <atomic>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -32,6 +34,7 @@
 #    define NOMINMAX
 #  endif
 #  include <windows.h>
+#  include <shellapi.h>
 #  include <wrl.h>
 #  include <WebView2.h>
 #  include <WebView2EnvironmentOptions.h>
@@ -116,6 +119,29 @@ const char* agent_browser_favicon_expression() {
     return href.length <= 4096 ? href : '';
   }
 })())JS";
+}
+
+// 可以交给操作系统打开的外部 scheme。http/https/file/about 由 WebView 自己承载;
+// javascript/data/blob 不代表外部应用,edge/devtools 是引擎内部页面。
+bool agent_browser_external_handoff_candidate(const std::string& uri) {
+    const auto colon = uri.find(':');
+    if (colon == std::string::npos || colon == 0) return false;
+    std::string scheme = uri.substr(0, colon);
+    std::transform(scheme.begin(), scheme.end(), scheme.begin(),
+                   [](unsigned char ch) {
+                       return static_cast<char>(std::tolower(ch));
+                   });
+    if (std::isalpha(static_cast<unsigned char>(scheme.front())) == 0) {
+        return false;
+    }
+    static const char* const blocked[] = {
+        "http", "https", "file", "about", "javascript", "data", "blob",
+        "edge", "devtools", "ws", "wss",
+    };
+    for (const char* name : blocked) {
+        if (scheme == name) return false;
+    }
+    return true;
 }
 
 const char* agent_browser_web_error_kind(
@@ -661,6 +687,16 @@ struct AgentBrowserHost::Impl
         EventRegistrationToken runtime_console_token{};
         EventRegistrationToken runtime_exception_token{};
         EventRegistrationToken log_entry_token{};
+        EventRegistrationToken server_certificate_error_token{};
+        EventRegistrationToken launching_external_uri_token{};
+        Microsoft::WRL::ComPtr<ICoreWebView2_14> permissive_certificates;
+        Microsoft::WRL::ComPtr<ICoreWebView2_18> external_uri_schemes;
+        AgentBrowserNavigationTracker navigation;
+        // 已经交给系统 shell 打开的外部 URI。NavigationStarting 与
+        // LaunchingExternalUriScheme 谁先到都可能触发交接,用它去重防止启动两次。
+        std::string external_handoff_uri;
+        // 证书放行后需要重新发起的顶层地址。
+        std::string current_navigation_uri;
         std::vector<std::string> console_logs;
         std::uint64_t element_selection_generation = 0;
         std::uint64_t favicon_generation = 0;
@@ -1042,9 +1078,23 @@ struct AgentBrowserHost::Impl
             settings->put_IsStatusBarEnabled(FALSE);
             settings->put_IsScriptEnabled(TRUE);
             settings->put_AreDefaultScriptDialogsEnabled(TRUE);
+            // Agent Browser 是开发浏览器:WebView2 的内建错误文档不能露出,真实
+            // 失败一律由 ACECode 自己的内容状态承载,避免原生错误页在证书继续和
+            // 重定向的中间态里闪一下。
+            settings->put_IsBuiltInErrorPageEnabled(FALSE);
             Microsoft::WRL::ComPtr<ICoreWebView2Settings3> settings3;
             if (SUCCEEDED(settings.As(&settings3)) && settings3) {
                 settings3->put_AreBrowserAcceleratorKeysEnabled(FALSE);
+            }
+            // SmartScreen 信誉拦截页同样是挡板。共享 Agent Browser user-data
+            // folder 的每个页面都要关,否则任何一个新页面的默认值会把它带回来。
+            Microsoft::WRL::ComPtr<ICoreWebView2Settings8> settings8;
+            if (SUCCEEDED(settings.As(&settings8)) && settings8) {
+                settings8->put_IsReputationCheckingRequired(FALSE);
+            } else {
+                LOG_WARN("[agent-browser] WebView2 runtime lacks ICoreWebView2Settings8; "
+                         "SmartScreen reputation checking stays enabled for " +
+                         page->id);
             }
         }
         install_events(page);
@@ -1305,9 +1355,140 @@ struct AgentBrowserHost::Impl
         }
     }
 
+    // 把系统已注册的外部 URI/SSO scheme 交给 Windows shell,不弹 ACECode 也不弹
+    // WebView2 的确认框。NavigationStarting 与 LaunchingExternalUriScheme 都可能
+    // 先到,用 external_handoff_uri 去重。
+    bool handoff_external_uri(const std::shared_ptr<Page>& page,
+                              const std::string& uri) {
+        if (!page || uri.empty()) return false;
+        if (!agent_browser_external_handoff_candidate(uri)) return false;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            if (page->closing) return false;
+            if (page->external_handoff_uri == uri) {
+                page->navigation.note_external_handoff(0);
+                return true;
+            }
+            page->external_handoff_uri = uri;
+            page->navigation.note_external_handoff(0);
+        }
+        const std::wstring wide_uri = acecode::utf8_to_wide(uri);
+        HINSTANCE result = ::ShellExecuteW(
+            nullptr, L"open", wide_uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        const auto code = reinterpret_cast<std::intptr_t>(result);
+        const bool launched = code > 32;
+        if (launched) {
+            LOG_INFO("[agent-browser] launched external URI scheme for " +
+                     page->id);
+        } else {
+            // 没有注册 handler 就是一次真实的外部启动失败,如实记录 —— 不能把它
+            // 说成受保护的 HTTP(S) 页面自己出了证书问题。
+            std::lock_guard<std::mutex> lock(state_mutex);
+            page->external_handoff_uri.clear();
+            LOG_WARN("[agent-browser] external URI launch failed for " +
+                     page->id + " (ShellExecute " + std::to_string(code) + ")");
+        }
+        return launched;
+    }
+
+    // 证书放行之后平台要求重新发起顶层请求。全页最多一次,由纯逻辑层的
+    // AgentBrowserNavigationTracker 保证不会形成重试循环。
+    void retry_navigation_after_certificate(
+        const std::shared_ptr<Page>& page) {
+        if (!page || !page->webview) return;
+        std::string uri;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            if (page->closing) return;
+            uri = page->current_navigation_uri;
+        }
+        if (uri.empty()) {
+            page->webview->Reload();
+            return;
+        }
+        LOG_INFO("[agent-browser] retrying navigation after certificate "
+                 "continuation for " + page->id);
+        page->webview->Navigate(acecode::utf8_to_wide(uri).c_str());
+    }
+
+    void install_permissive_certificate_events(
+        const std::shared_ptr<Page>& page) {
+        const auto weak = weak_from_this();
+        const std::string page_id = page->id;
+        if (FAILED(page->webview.As(&page->permissive_certificates)) ||
+            !page->permissive_certificates) {
+            LOG_WARN("[agent-browser] WebView2 runtime lacks ICoreWebView2_14; "
+                     "server certificate errors keep the default TLS handling "
+                     "for " + page_id);
+        } else {
+            page->permissive_certificates->add_ServerCertificateErrorDetected(
+                Microsoft::WRL::Callback<
+                    ICoreWebView2ServerCertificateErrorDetectedEventHandler>(
+                    [weak, page_id](
+                        ICoreWebView2*,
+                        ICoreWebView2ServerCertificateErrorDetectedEventArgs* args)
+                        -> HRESULT {
+                        if (!args) return S_OK;
+                        // 顶层页面与子资源用同一个放行动作。
+                        args->put_Action(
+                            COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW);
+                        const auto self = weak.lock();
+                        const auto current =
+                            self ? self->find_page(page_id) : nullptr;
+                        if (!self || !current) return S_OK;
+                        BrowserNavigationDecision decision =
+                            BrowserNavigationDecision::kIgnore;
+                        {
+                            std::lock_guard<std::mutex> lock(self->state_mutex);
+                            if (current->closing) return S_OK;
+                            decision =
+                                current->navigation.on_certificate_allowed(0);
+                        }
+                        if (decision == BrowserNavigationDecision::kRetryOnce) {
+                            self->retry_navigation_after_certificate(current);
+                        }
+                        return S_OK;
+                    }).Get(),
+                &page->server_certificate_error_token);
+        }
+
+        if (FAILED(page->webview.As(&page->external_uri_schemes)) ||
+            !page->external_uri_schemes) {
+            LOG_WARN("[agent-browser] WebView2 runtime lacks ICoreWebView2_18; "
+                     "external URI schemes keep the default confirmation for " +
+                     page_id);
+            return;
+        }
+        page->external_uri_schemes->add_LaunchingExternalUriScheme(
+            Microsoft::WRL::Callback<
+                ICoreWebView2LaunchingExternalUriSchemeEventHandler>(
+                [weak, page_id](
+                    ICoreWebView2*,
+                    ICoreWebView2LaunchingExternalUriSchemeEventArgs* args)
+                    -> HRESULT {
+                    if (!args) return S_OK;
+                    // 取消 WebView2 自带的确认对话框,由我们直接交给系统 shell。
+                    args->put_Cancel(TRUE);
+                    LPWSTR raw = nullptr;
+                    args->get_Uri(&raw);
+                    const std::string uri =
+                        raw ? acecode::wide_to_utf8(raw) : "";
+                    ::CoTaskMemFree(raw);
+                    const auto self = weak.lock();
+                    const auto current =
+                        self ? self->find_page(page_id) : nullptr;
+                    if (!self || !current) return S_OK;
+                    self->handoff_external_uri(current, uri);
+                    return S_OK;
+                }).Get(),
+            &page->launching_external_uri_token);
+    }
+
     void install_events(const std::shared_ptr<Page>& page) {
         const auto weak = weak_from_this();
         const std::string page_id = page->id;
+        // 必须在任何导航之前注册,否则第一条 TLS 拦截页就已经露出来了。
+        install_permissive_certificate_events(page);
         page->webview->add_NavigationStarting(
             Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
                 [weak, page_id](ICoreWebView2*,
@@ -1332,17 +1513,27 @@ struct AgentBrowserHost::Impl
                                 current->state.favicon;
                         }
                         current->current_navigation_id = navigation_id;
+                        current->navigation.begin_navigation(navigation_id);
                         ++current->favicon_generation;
                     }
                     std::string error;
                     if (!normalize_agent_browser_url(uri, &error)) {
                         args->put_Cancel(TRUE);
+                        // 系统已注册的外部 URI/SSO scheme 静默交给操作系统,并
+                        // 保留当前页面 —— 这是一次有意的交接,不是导航失败。
+                        if (self->handoff_external_uri(current, uri)) {
+                            return S_OK;
+                        }
                         self->update_page(current, [&](AgentBrowserState& state) {
                             state.loading = false;
                             state.error = error;
                         });
                         self->apply_bounds(current);
                         return S_OK;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lock(self->state_mutex);
+                        current->current_navigation_uri = uri;
                     }
                     self->update_page(current, [&](AgentBrowserState& state) {
                         state.loading = true;
@@ -1374,20 +1565,40 @@ struct AgentBrowserHost::Impl
                     std::string previous_content_state;
                     std::string previous_favicon;
                     bool process_already_failed = false;
+                    BrowserNavigationDecision decision =
+                        BrowserNavigationDecision::kIgnore;
+                    const std::string failure_kind = success
+                        ? std::string{}
+                        : std::string(agent_browser_web_error_kind(status));
                     {
                         std::lock_guard<std::mutex> lock(self->state_mutex);
-                        if (current->current_navigation_id != 0 &&
-                            current->current_navigation_id != navigation_id) {
-                            return S_OK;
-                        }
                         previous_content_state =
                             current->content_state_before_navigation;
                         previous_favicon = current->favicon_before_navigation;
                         process_already_failed =
                             current->state.content_state ==
                                 kAgentBrowserContentStateProcessFailed;
+                        decision = current->navigation.on_navigation_completed(
+                            navigation_id,
+                            classify_windows_navigation_failure(
+                                failure_kind,
+                                current->navigation.external_handoff_pending()));
                     }
                     if (process_already_failed) return S_OK;
+                    if (decision == BrowserNavigationDecision::kIgnore) {
+                        // 陈旧回调或已关闭的页面:当前可见状态保持不动。
+                        return S_OK;
+                    }
+                    if (decision == BrowserNavigationDecision::kHoldPending) {
+                        // WebView2 会先报证书失败的 NavigationCompleted,再发出
+                        // ServerCertificateErrorDetected。这里只挂起等待放行,不
+                        // 发布最终失败,否则中间会闪一帧错误页。
+                        return S_OK;
+                    }
+                    if (decision == BrowserNavigationDecision::kRetryOnce) {
+                        self->retry_navigation_after_certificate(current);
+                        return S_OK;
+                    }
                     LPWSTR raw_source = nullptr;
                     current->webview->get_Source(&raw_source);
                     const std::string source = raw_source
@@ -1395,7 +1606,8 @@ struct AgentBrowserHost::Impl
                     ::CoTaskMemFree(raw_source);
                     self->update_page(current, [&](AgentBrowserState& state) {
                         state.loading = false;
-                        if (success) {
+                        if (decision ==
+                            BrowserNavigationDecision::kPublishSuccess) {
                             const bool empty = source.empty() ||
                                 source == "about:blank";
                             state.url = empty ? "about:blank" : source;
@@ -1407,8 +1619,10 @@ struct AgentBrowserHost::Impl
                                 : kAgentBrowserContentStateLive;
                             state.failure_kind.clear();
                             state.error.clear();
-                        } else if (status ==
-                                   COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) {
+                        } else if (decision ==
+                                   BrowserNavigationDecision::kRestorePrevious) {
+                            // 被新导航取代、被重定向替换,或已交给操作系统的外部
+                            // scheme。恢复导航前的页面,不显示失败。
                             state.content_state = previous_content_state;
                             state.favicon = previous_favicon;
                             state.failure_kind.clear();
@@ -1416,14 +1630,20 @@ struct AgentBrowserHost::Impl
                         } else {
                             state.content_state =
                                 kAgentBrowserContentStateNavigationError;
-                            state.failure_kind =
-                                agent_browser_web_error_kind(status);
+                            state.failure_kind = failure_kind;
                             state.error = "navigation failed (WebView2 status " +
                                 std::to_string(static_cast<int>(status)) + ")";
                         }
                     });
+                    if (decision ==
+                        BrowserNavigationDecision::kRestorePrevious) {
+                        std::lock_guard<std::mutex> lock(self->state_mutex);
+                        current->external_handoff_uri.clear();
+                    }
                     self->refresh_source_history_title(current);
-                    if (success) self->refresh_favicon(current);
+                    if (decision == BrowserNavigationDecision::kPublishSuccess) {
+                        self->refresh_favicon(current);
+                    }
                     self->apply_bounds(current);
                     return S_OK;
                 }).Get(),
@@ -1565,6 +1785,18 @@ struct AgentBrowserHost::Impl
         page->webview->remove_DocumentTitleChanged(page->title_changed_token);
         page->webview->remove_NewWindowRequested(page->new_window_token);
         page->webview->remove_ProcessFailed(page->process_failed_token);
+        // 宽松证书与外部 URI 的 handler 捕获了页面状态,页面拆掉之前必须注销,
+        // 否则迟到的事件会去访问已经失效的 Page。
+        if (page->permissive_certificates) {
+            page->permissive_certificates->remove_ServerCertificateErrorDetected(
+                page->server_certificate_error_token);
+            page->permissive_certificates.Reset();
+        }
+        if (page->external_uri_schemes) {
+            page->external_uri_schemes->remove_LaunchingExternalUriScheme(
+                page->launching_external_uri_token);
+            page->external_uri_schemes.Reset();
+        }
         if (page->runtime_console_receiver) {
             page->runtime_console_receiver->remove_DevToolsProtocolEventReceived(
                 page->runtime_console_token);
@@ -1629,6 +1861,8 @@ struct AgentBrowserHost::Impl
             return false;
         }
         page->closing = true;
+        // 页面关闭后仍会有在途导航回调,标记之后一律忽略。
+        page->navigation.close();
         teardown_page(page);
         std::vector<QueuedCdpCall> queued;
         queued.swap(page->queued_cdp);

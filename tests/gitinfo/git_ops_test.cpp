@@ -176,6 +176,66 @@ TEST_F(GitOpsTest, ChangesListAgainstHead) {
     EXPECT_EQ(list.total_deletions, 1);
 }
 
+// 场景:tracked / untracked 路径都含中文,Git 默认会把非 ASCII 字节写成
+// C 风格八进制转义。期望:-z 边界返回原始相对路径,且该路径可直接用于 diff。
+TEST_F(GitOpsTest, ChangesListPreservesNonAsciiPathsForActions) {
+    const std::string tracked_path = u8"文档/待办.md";
+    const std::string untracked_path = u8"草稿/新增.txt";
+    write_file(repo_ / path_from_utf8(tracked_path), "before\n");
+    ASSERT_TRUE(worktree::run_git({"add", "--", tracked_path}, repo_utf8_).ok());
+    ASSERT_TRUE(worktree::run_git({"commit", "-m", "add unicode path"},
+                                  repo_utf8_).ok());
+
+    write_file(repo_ / path_from_utf8(tracked_path), "after\n");
+    write_file(repo_ / path_from_utf8(untracked_path), "new\n");
+
+    auto list = list_git_changes(repo_utf8_, "HEAD");
+    ASSERT_TRUE(list.ok) << list.error_kind;
+    auto tracked = std::find_if(list.files.begin(), list.files.end(),
+                                [&](const auto& f) { return f.path == tracked_path; });
+    auto untracked = std::find_if(list.files.begin(), list.files.end(),
+                                  [&](const auto& f) { return f.path == untracked_path; });
+    ASSERT_NE(tracked, list.files.end());
+    ASSERT_NE(untracked, list.files.end());
+    EXPECT_EQ(tracked->status, "M");
+    EXPECT_EQ(untracked->status, "A");
+    EXPECT_EQ(tracked->path.find('\\'), std::string::npos);
+    EXPECT_EQ(untracked->path.find('\\'), std::string::npos);
+
+    auto diff = get_file_diff(repo_utf8_, "HEAD", tracked->path);
+    ASSERT_TRUE(diff.ok) << diff.error_kind;
+    EXPECT_NE(diff.patch.find("+after"), std::string::npos);
+
+    auto payload = web::build_git_changes_payload(
+        repo_utf8_, "HEAD", {repo_utf8_}, true, 3000);
+    ASSERT_EQ(payload.status, 200);
+    const auto payload_file = std::find_if(
+        payload.body["files"].begin(), payload.body["files"].end(),
+        [&](const auto& file) { return file.value("path", "") == tracked_path; });
+    EXPECT_NE(payload_file, payload.body["files"].end());
+}
+
+// 场景:中文文件被 rename。期望:name-status / numstat 的额外 old/new NUL
+// 字段都消费正确,列表只保留可供预览和 diff 使用的新路径。
+TEST_F(GitOpsTest, ChangesListUsesExactRenameDestination) {
+    const std::string old_path = u8"资料/旧名.txt";
+    const std::string new_path = u8"资料/新名.txt";
+    write_file(repo_ / path_from_utf8(old_path), "same\n");
+    ASSERT_TRUE(worktree::run_git({"add", "--", old_path}, repo_utf8_).ok());
+    ASSERT_TRUE(worktree::run_git({"commit", "-m", "add rename source"},
+                                  repo_utf8_).ok());
+    ASSERT_TRUE(worktree::run_git({"mv", "--", old_path, new_path}, repo_utf8_).ok());
+
+    auto list = list_git_changes(repo_utf8_, "HEAD");
+    ASSERT_TRUE(list.ok) << list.error_kind;
+    auto renamed = std::find_if(list.files.begin(), list.files.end(),
+                                [&](const auto& f) { return f.path == new_path; });
+    ASSERT_NE(renamed, list.files.end());
+    EXPECT_EQ(renamed->status, "R");
+    EXPECT_EQ(std::count_if(list.files.begin(), list.files.end(),
+                            [&](const auto& f) { return f.path == old_path; }), 0);
+}
+
 // 场景:base 非法(注入字符 / 不存在的 ref)。
 // 期望:invalid_base,原始字符串绝不进 git argv 当 ref 用。
 TEST_F(GitOpsTest, ChangesListRejectsInvalidBase) {
