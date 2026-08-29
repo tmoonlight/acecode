@@ -1239,12 +1239,12 @@ struct AgentBrowserHost::Impl final
             page_order.push_back(page->id);
         }
         emit_state(page->state);
-        LOG_INFO("[agent-browser][macos] " + json{
+        LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "page_created"},
             {"page_id", page->id},
             {"shared_with_agent", shared_with_agent},
             {"ready", page->state.ready},
-        }.dump());
+        }.dump()));
         std::string ignored;
         select_page_on_ui(page->id, &ignored);
         return page->id;
@@ -1360,11 +1360,11 @@ struct AgentBrowserHost::Impl final
         page->state.visible = false;
         page->state.active = false;
         emit_state(page->state);
-        LOG_INFO("[agent-browser][macos] " + json{
+        LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "page_closed"},
             {"page_id", page->id},
             {"url", page->state.url},
-        }.dump());
+        }.dump()));
         if (closed_page) *closed_page = page->id;
         if (!next_page.empty()) {
             std::string ignored;
@@ -1397,19 +1397,19 @@ struct AgentBrowserHost::Impl final
         }
         auto normalized = normalize_agent_browser_url(input, error);
         if (!normalized) {
-            LOG_WARN("[agent-browser][macos] " + json{
+            LOG_WARN(("[agent-browser][macos] " + json{
                 {"event", "navigation_rejected"},
                 {"page_id", page_id},
                 {"input", clipped(input, kMaxNativeErrorFieldBytes)},
                 {"error", error ? *error : std::string{}},
-            }.dump());
+            }.dump()));
             return false;
         }
-        LOG_INFO("[agent-browser][macos] " + json{
+        LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_requested"},
             {"page_id", page_id},
             {"url", *normalized},
-        }.dump());
+        }.dump()));
         if (*normalized == "about:blank") {
             [page->webview loadHTMLString:@"" baseURL:nil];
         } else {
@@ -1448,11 +1448,11 @@ struct AgentBrowserHost::Impl final
         page->console_logs.clear();
         page->last_authentication_was_proxy = false;
         const std::string url = utf8_string(webview.URL.absoluteString);
-        LOG_INFO("[agent-browser][macos] " + json{
+        LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_started"},
             {"page_id", page_id},
             {"url", url},
-        }.dump());
+        }.dump()));
         update_page(page, [&](AgentBrowserState& value) {
             value.loading = true;
             value.visible = false;
@@ -1470,22 +1470,22 @@ struct AgentBrowserHost::Impl final
                                WKWebView* webview) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
-        LOG_INFO("[agent-browser][macos] " + json{
+        LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_redirected"},
             {"page_id", page_id},
             {"url", native_description(webview.URL.absoluteString)},
-        }.dump());
+        }.dump()));
     }
 
     void navigation_committed(const std::string& page_id,
                               WKWebView* webview) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
-        LOG_INFO("[agent-browser][macos] " + json{
+        LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_committed"},
             {"page_id", page_id},
             {"url", native_description(webview.URL.absoluteString)},
-        }.dump());
+        }.dump()));
     }
 
     void navigation_policy_decided(const std::string& page_id,
@@ -1654,12 +1654,12 @@ struct AgentBrowserHost::Impl final
         apply_bounds(page);
         refresh_favicon(page);
         const AgentBrowserState snapshot = state(page_id);
-        LOG_INFO("[agent-browser][macos] " + json{
+        LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_finished"},
             {"page_id", page_id},
             {"url", snapshot.url},
             {"title", snapshot.title},
-        }.dump());
+        }.dump()));
         // Warm the isolated world after cold WKWebView startup.
         evaluate_value(page, "true", [](bool, json, std::string) {});
     }
@@ -1685,7 +1685,7 @@ struct AgentBrowserHost::Impl final
             value.diagnostic = diagnostic;
         });
         const AgentBrowserState snapshot = state(page_id);
-        LOG_ERROR("[agent-browser][macos] " + json{
+        LOG_ERROR(("[agent-browser][macos] " + json{
             {"event", "navigation_failed"},
             {"phase", phase},
             {"page_id", page_id},
@@ -1694,7 +1694,7 @@ struct AgentBrowserHost::Impl final
             {"proxy_authentication_challenge",
                 page->last_authentication_was_proxy},
             {"native_error", native_error_details(native_error)},
-        }.dump());
+        }.dump()));
         apply_bounds(page);
     }
 
@@ -1709,11 +1709,11 @@ struct AgentBrowserHost::Impl final
     void process_terminated(const std::string& page_id) override {
         auto page = find_page(page_id);
         if (!page) return;
-        LOG_ERROR("[agent-browser][macos] " + json{
+        LOG_ERROR(("[agent-browser][macos] " + json{
             {"event", "web_content_process_terminated"},
             {"page_id", page_id},
             {"url", page->state.url},
-        }.dump());
+        }.dump()));
         update_page(page, [](AgentBrowserState& value) {
             value.loading = false;
             value.visible = false;
