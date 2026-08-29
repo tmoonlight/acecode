@@ -12,4 +12,4 @@
 
 - [x] 3.1 Run focused unit tests, strict OpenSpec validation, and a Windows Desktop build
 - [x] 3.2 Verify a real Desktop startup window remains inside the live work area and above the taskbar at scaled DPI
-- [ ] 3.3 Commit and push the scoped repair, then publish and verify a Windows QuickValidation package
+- [x] 3.3 Commit and push the scoped repair, then publish and verify a Windows QuickValidation package
