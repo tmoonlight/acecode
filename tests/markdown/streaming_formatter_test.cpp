@@ -89,6 +89,23 @@ TEST(StreamingFormatter, ContextChangeInvalidatesStable) {
     ASSERT_NE(e.get(), nullptr);
 }
 
+TEST(StreamingFormatter, WidthChangeKeepsAccumulatedContent) {
+    // R11(P1): 宽度 fallback 分支不得丢弃已累积流式文本。set_context 只清
+    // 稳定渲染缓存,保留 full_content_;下次 append 用默认宽度(80)与存储
+    // 宽度(40)不一致 → 触发 fallback → 用 full_content_ 重放重建。
+    StreamingFormatter f;
+    f.set_context(80, 1);
+    f.append_delta("hello\nworld\n", {});
+    f.set_context(40, 1);
+    auto e = f.append_delta("more\n", {});
+    ftxui::Screen s(80, 20);
+    ftxui::Render(s, e);
+    const std::string out = strip_ansi(s.ToString());
+    EXPECT_NE(out.find("hello"), std::string::npos);
+    EXPECT_NE(out.find("world"), std::string::npos);
+    EXPECT_NE(out.find("more"), std::string::npos);
+}
+
 TEST(StreamingFormatter, StableElementsBuiltOncePerNewToken) {
     StreamingFormatter f; f.set_context(80, 1);
     // 多块流式:稳定区只增量构建,不整段重建。若稳定区缓存被误清空
