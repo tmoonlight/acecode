@@ -3,7 +3,7 @@ import { clsx } from '../../lib/format.js';
 import { formatModelTokenLimit } from '../../lib/modelSettings.js';
 import { splitModelIds } from '../../lib/modelManager.js';
 import { Modal } from '../Modal.jsx';
-import { VsIcon } from '../Icon.jsx';
+import { RefreshIcon, VsIcon } from '../Icon.jsx';
 
 export function ModelProbeDialog({
   models,
@@ -11,6 +11,8 @@ export function ModelProbeDialog({
   error,
   initialModelIds,
   allowMultiple,
+  fromCache,
+  onRefresh,
   onConfirm,
   onClose,
 }) {
@@ -75,19 +77,32 @@ export function ModelProbeDialog({
               选择探测到的模型
             </h2>
             <p className="mt-1 text-[11px] leading-5 text-fg-mute">
-              {allowMultiple
-                ? '可选择多个模型，确认后一次性回填到新增模型表单。'
-                : '请选择一个模型，确认后替换当前模型 ID。'}
+              {fromCache && status === 'ready'
+                ? '已读取本地探测结果；仅点击“重新探测”才会访问 Provider。'
+                : allowMultiple
+                  ? '可选择多个模型，确认后一次性回填到新增模型表单。'
+                  : '请选择一个模型，确认后替换当前模型 ID。'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-fg-mute transition hover:bg-surface-hi hover:text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-            aria-label="取消模型探测选择"
-          >
-            <VsIcon name="close" size={14} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={status === 'loading'}
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-[10px] font-medium text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RefreshIcon size={11} className={status === 'loading' ? 'animate-spin' : ''} />
+              重新探测
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-fg-mute transition hover:bg-surface-hi hover:text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+              aria-label="取消模型探测选择"
+            >
+              <VsIcon name="close" size={14} />
+            </button>
+          </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -107,6 +122,12 @@ export function ModelProbeDialog({
               className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-[12px] text-fg outline-none transition placeholder:text-fg-mute focus:border-accent focus:ring-1 focus:ring-accent-soft disabled:opacity-50"
             />
           </label>
+
+          {status !== 'error' && error && (
+            <div role="alert" className="mt-3 rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[11px] leading-5 text-danger">
+              {error}
+            </div>
+          )}
 
           <div
             className="mt-3 max-h-[360px] overflow-y-auto rounded-md border border-border bg-surface"

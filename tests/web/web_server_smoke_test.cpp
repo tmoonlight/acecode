@@ -8247,6 +8247,67 @@ TEST(WebServerHttp, PostModelsProbeAppliesCustomRequestHeaders) {
     EXPECT_EQ(seen_probe_header, "acecode");
 }
 
+// A successful upstream probe is persisted under an opaque connection digest.
+// Cache reads and misses are local-only and therefore cannot increment the
+// upstream request counter.
+TEST(WebServerHttp, ModelsProbeCachePersistsWithoutLeakingConnectionSecrets) {
+    std::atomic<int> upstream_requests{0};
+    LocalUpdateServer upstream([&](httplib::Server& s) {
+        s.Get("/models", [&](const httplib::Request&, httplib::Response& res) {
+            ++upstream_requests;
+            res.set_content(
+                R"({"data":[{"id":"cached-model","context_window":196000}]})",
+                "application/json");
+        });
+    });
+
+    WebServerFixture fx;
+    json req = {
+        {"catalog_provider_id", "custom-openai"},
+        {"provider", "openai"},
+        {"base_url", upstream.base_url() + "/"},
+        {"api_key", "sk-cache-secret"},
+        {"request_headers", {{"X-Cache-Secret", "header-cache-secret"}}},
+    };
+
+    auto probed = cpr::Post(cpr::Url{fx.url("/api/models/probe")},
+                            cpr::Header{{"Content-Type", "application/json"}},
+                            cpr::Body{req.dump()});
+    ASSERT_EQ(probed.status_code, 200) << probed.text;
+    const auto probe_body = json::parse(probed.text);
+    EXPECT_EQ(probe_body["models"], json::array({"cached-model"}));
+    EXPECT_EQ(probe_body["model_context_windows"]["cached-model"], 196000);
+    EXPECT_TRUE(probe_body["cache_persisted"].get<bool>());
+    EXPECT_EQ(upstream_requests.load(), 1);
+
+    // Trailing slash normalization keeps the same connection identity.
+    req["base_url"] = upstream.base_url();
+    auto cached = cpr::Post(cpr::Url{fx.url("/api/models/probe/cache")},
+                            cpr::Header{{"Content-Type", "application/json"}},
+                            cpr::Body{req.dump()});
+    ASSERT_EQ(cached.status_code, 200) << cached.text;
+    const auto cached_body = json::parse(cached.text);
+    EXPECT_TRUE(cached_body["cached"].get<bool>());
+    EXPECT_EQ(cached_body["models"], json::array({"cached-model"}));
+    EXPECT_EQ(cached_body["model_context_windows"]["cached-model"], 196000);
+    EXPECT_EQ(upstream_requests.load(), 1);
+
+    req["api_key"] = "sk-different-secret";
+    auto missed = cpr::Post(cpr::Url{fx.url("/api/models/probe/cache")},
+                            cpr::Header{{"Content-Type", "application/json"}},
+                            cpr::Body{req.dump()});
+    ASSERT_EQ(missed.status_code, 200) << missed.text;
+    EXPECT_FALSE(json::parse(missed.text)["cached"].get<bool>());
+    EXPECT_EQ(upstream_requests.load(), 1);
+
+    const std::string persisted = read_text(fx.state_file_path);
+    EXPECT_NE(persisted.find("cached-model"), std::string::npos);
+    EXPECT_EQ(persisted.find(upstream.base_url()), std::string::npos);
+    EXPECT_EQ(persisted.find("sk-cache-secret"), std::string::npos);
+    EXPECT_EQ(persisted.find("X-Cache-Secret"), std::string::npos);
+    EXPECT_EQ(persisted.find("header-cache-secret"), std::string::npos);
+}
+
 // 场景:probe header 模板引用不存在的环境变量时,在发网前返回 400。
 TEST(WebServerHttp, PostModelsProbeRejectsMissingRequestHeaderEnv) {
     ScopedEnvOverride missing("ACE_MISSING_PROBE_HEADER", std::nullopt);

@@ -5,6 +5,7 @@ import {
   inferLegacyToolSuccess,
   parseLegacyToolCall,
 } from './toolSummaryFallback.js';
+import { isImageAttachment, normalizeAttachmentList } from './messageAttachments.js';
 
 function isUserMessage(item) {
   return item?.kind === 'msg' && item.role === 'user';
@@ -1223,9 +1224,93 @@ function groupSubagentTools(items) {
   return out;
 }
 
+// ── 图像工具分组(不被活动折叠吞掉) ──────────────────────
+//
+// 一个回合里连续调 7 个工具、第 4 个产出图片时,旧行为把 7 个全塞进同一条
+// activity_summary,图片要展开两级才看得到。现在把「结果带图片附件」的工具
+// 项在分桶之前就抽成独立的 media_group 顶层项:1-3 先 flush 成折叠行,图像行
+// 常驻(默认展开、用户可收起),5-7 重开一段。
+//
+// 判定是数据驱动的(只看 tool.attachments 里有没有可渲染的 image),所以
+// show_image / 浏览器截图 / MCP 返回图 / 读图的 file_read 全都自动命中,新增
+// 产图工具不用改这里。media_group 不属于任何分桶谓词(isActivityBufferItem /
+// isProcessedActivityItem 对它均为 false),因此四条折叠路径——实时段、完成回合、
+// 历史「已处理 Xs」、嵌套详情——都会自然把它当成段落断点推到顶层。
+
+const MEDIA_GROUP_KIND = 'media_group';
+
+function attachmentPreviewUrl(attachment) {
+  return String(
+    attachment?.blob_url || attachment?.preview_url || attachment?.url || '',
+  ).trim();
+}
+
+// 只有真能画出来的图才值得从折叠里提出来 —— 没有 URL 的附件提出来只会
+// 是一条空行,那种情况继续留在折叠摘要里。
+function renderableImageAttachments(item) {
+  if (!isToolItem(item)) return [];
+  if (isTaskCompleteTool(item) || isAskUserQuestionTool(item)) return [];
+  return normalizeAttachmentList(item.tool?.attachments)
+    .filter((attachment) => isImageAttachment(attachment) && attachmentPreviewUrl(attachment));
+}
+
+function isMediaToolItem(item) {
+  return renderableImageAttachments(item).length > 0;
+}
+
+// 历史行优先用持久化 messageId 做 key:用户手动收起后发生 transcript_replace
+// 时,reducer 会重发 item id,只用 item id 会把已收起的行又弹开。
+function mediaGroupId(items) {
+  const messageId = String(items[0]?.messageId || '').trim();
+  if (messageId) return `media:message:${messageId}`;
+  const ids = coveredIds(items);
+  return `media:item:${ids.length ? ids[0] : 'start'}`;
+}
+
+function makeMediaGroupItem(items) {
+  const attachments = items.flatMap(renderableImageAttachments);
+  const { startTs, endTs } = collapsedTimestamps(items);
+  return {
+    kind: MEDIA_GROUP_KIND,
+    id: mediaGroupId(items),
+    title: `已查看 ${attachments.length} 张图像`,
+    attachments,
+    imageCount: attachments.length,
+    collapsedItems: items.slice(),
+    coveredItemIds: coveredIds(items),
+    ts: startTs || endTs || Date.now(),
+  };
+}
+
+// 只合并严格相邻的图像工具(并行截图、连续读图就是这个形态);中间隔了
+// 任何其它项就分成两行,避免把时间上隔得很远的两张图拼成一行。
+function groupMediaTools(items) {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  const out = [];
+  let run = [];
+  const flushRun = () => {
+    if (run.length === 0) return;
+    out.push(makeMediaGroupItem(run));
+    run = [];
+  };
+
+  for (const item of items) {
+    if (isMediaToolItem(item)) {
+      run.push(item);
+      continue;
+    }
+    flushRun();
+    out.push(item);
+  }
+  flushRun();
+  return out;
+}
+
 function projectTurn(items, options = {}) {
   if (!Array.isArray(items) || items.length === 0) return [];
-  const normalizedItems = groupSubagentTools(normalizeToolInvocationItems(items));
+  const normalizedItems = groupMediaTools(
+    groupSubagentTools(normalizeToolInvocationItems(items)),
+  );
   const finalCollapsed = projectFinalCollapsedTurn(normalizedItems, options);
   if (finalCollapsed) return finalCollapsed;
   return projectCompletionTurn(normalizedItems, options);
@@ -1283,5 +1368,7 @@ export const __test__ = {
   taskCompleteSummaryText,
   isSubagentToolItem,
   groupSubagentTools,
+  groupMediaTools,
+  isMediaToolItem,
   collapseCompletedCompactNoticeGroups,
 };

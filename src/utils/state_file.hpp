@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace acecode {
 
@@ -66,6 +67,27 @@ void write_web_search_region_cache(const WebSearchRegionCache& cache);
 
 // 删除 web_search 缓存(/websearch refresh 用)。其它 key 保留。
 void clear_web_search_region_cache();
+
+// Successful Provider model probes are cached by an opaque SHA-256 connection
+// fingerprint. The state file stores only the fingerprint and probe output;
+// provider URLs, API keys, and request headers never reach this helper.
+struct ModelProbeCacheEntry {
+    std::vector<std::string> models;
+    std::map<std::string, int> context_windows;
+    std::int64_t probed_at_ms = 0;
+};
+
+// Missing/malformed entries return nullopt. The fingerprint must be exactly a
+// 64-character hexadecimal SHA-256 digest.
+std::optional<ModelProbeCacheEntry> read_model_probe_cache(
+    const std::string& connection_fingerprint);
+
+// Atomically upserts one cache entry while preserving unrelated state and
+// other connection fingerprints. Returns false for an invalid fingerprint or
+// durable write failure.
+bool write_model_probe_cache(
+    const std::string& connection_fingerprint,
+    const ModelProbeCacheEntry& entry);
 
 // desktop multi-workspace: 上次活跃 workspace 的 cwd_hash。
 // 读: 文件不存在 / 字段缺失 / 类型不符 → 空字符串。永不抛异常。

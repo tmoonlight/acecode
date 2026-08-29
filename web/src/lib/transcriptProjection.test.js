@@ -1179,3 +1179,135 @@ run('同一 raw history 多次投影得到相同可见结构', () => {
     second.map((item) => [item.kind, item.mode || item.role || item.tool?.tool, item.title || item.content || '']),
   );
 });
+
+// ── 图像工具不被活动折叠吞掉 ─────────────────────────────────────
+// 结果带可渲染图片附件的工具项在分桶前被抽成 media_group 顶层项,前后的普通
+// 工具各自折叠成一段。
+function imageTool(id, {
+  name = 'show_image',
+  count = 1,
+  withUrl = true,
+  isDone = true,
+  ts = id * 1000,
+  messageId = '',
+} = {}) {
+  const attachments = Array.from({ length: count }, (_, i) => ({
+    id: `att-${id}-${i}`,
+    type: 'image',
+    kind: 'image',
+    name: `shot-${id}-${i}.png`,
+    mime_type: 'image/png',
+    blob_url: withUrl ? `/api/attachments/att-${id}-${i}` : '',
+  }));
+  return {
+    kind: 'tool',
+    id,
+    ts,
+    messageId,
+    tool: {
+      isDone,
+      success: true,
+      tool: name,
+      summary: { verb: 'Viewed', object: `shot-${id}.png`, metrics: [] },
+      output: '',
+      hunks: [],
+      attachments,
+    },
+  };
+}
+
+run('第 4 个工具产图时前后各自折叠,图像行留在顶层', () => {
+  // 触发场景:一个回合连续 7 个工具,第 4 个是读图/产图工具。
+  // 期望行为:1-3 折成一条 activity_summary,第 4 个变成 media_group 顶层行,
+  // 5-7 再折成另一条 —— 而不是 1 到 7 全挤进同一条折叠行。
+  const projected = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2), tool(3), tool(4),
+    imageTool(5),
+    tool(6), tool(7), tool(8),
+    assistant(9, '看完了'),
+  ]);
+
+  assert.deepEqual(
+    projected.map((item) => item.kind),
+    ['msg', 'activity_summary', 'media_group', 'activity_summary', 'msg'],
+  );
+  assert.deepEqual(projected[1].coveredItemIds, [2, 3, 4]);
+  assert.deepEqual(projected[2].coveredItemIds, [5]);
+  assert.deepEqual(projected[3].coveredItemIds, [6, 7, 8]);
+});
+
+run('相邻图像工具合并成一行,非相邻的分成两行', () => {
+  // 触发场景:并行两次截图(相邻)+ 中间隔了普通工具的第三次截图。
+  // 期望行为:前两次合并成「已查看 2 张图像」,第三次单独一行;标题里的张数
+  // 数的是图片数而不是工具数。
+  const projected = projectCollapsedTranscriptItems([
+    user(1),
+    imageTool(2), imageTool(3),
+    tool(4),
+    imageTool(5, { count: 2 }),
+    assistant(6, '完成'),
+  ]);
+
+  assert.deepEqual(
+    projected.map((item) => item.kind),
+    ['msg', 'media_group', 'activity_summary', 'media_group', 'msg'],
+  );
+  assert.equal(projected[1].title, '已查看 2 张图像');
+  assert.equal(projected[1].attachments.length, 2);
+  assert.equal(projected[3].title, '已查看 2 张图像');
+  assert.deepEqual(projected[3].coveredItemIds, [5]);
+});
+
+run('图片附件没有可渲染 URL 时仍留在折叠摘要里', () => {
+  // 触发场景:附件元数据到了但 blob_url 还是空(落盘失败 / 老数据)。
+  // 期望行为:不提出来 —— 提出来只会是一条点不开的空图像行。
+  const projected = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2),
+    imageTool(3, { withUrl: false }),
+    assistant(4, '完成'),
+  ]);
+
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary', 'msg']);
+  assert.deepEqual(projected[1].coveredItemIds, [2, 3]);
+});
+
+run('回合结束后图像行不被「已处理」历史折叠吞掉', () => {
+  // 回归测试:走 task_complete 的回合会把最终 assistant 之前的一切压成一条
+  // 「已处理 Xs」。图像行必须从中提出来常驻,否则回滚看历史时图又没了。
+  const projected = projectCollapsedTranscriptItems([
+    user(1),
+    tool(2),
+    imageTool(3),
+    tool(4),
+    assistant(5, '最终结论'),
+    taskComplete(6, '完成'),
+  ]);
+
+  const kinds = projected.map((item) => item.kind);
+  assert.ok(kinds.includes('media_group'), `media_group 应常驻,实际:${kinds.join(',')}`);
+  assert.deepEqual(kinds, ['msg', 'activity_summary', 'media_group', 'activity_summary', 'msg', 'completion_summary']);
+  assert.equal(projected[1].mode, 'processed');
+});
+
+run('图像行 id 优先用持久化 messageId', () => {
+  // 触发场景:用户手动收起图像行后,transcript_replace 重建了 item id。
+  // 期望行为:key 跟着 messageId 走,收起状态不会因为重建而被弹开。
+  const grouped = __test__.groupMediaTools([imageTool(2, { messageId: 'm-42' })]);
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].id, 'media:message:m-42');
+
+  const anonymous = __test__.groupMediaTools([imageTool(3)]);
+  assert.equal(anonymous[0].id, 'media:item:3');
+});
+
+run('task_complete 与 AskUserQuestion 即使带图也不改走图像行', () => {
+  // 期望行为:这两类工具项各有自己的顶层渲染(completion_summary / 提问组件),
+  // 被 media_group 抢走会让它们的专属 UI 消失。
+  const completion = taskComplete(2, '完成');
+  completion.tool.attachments = [{
+    type: 'image', name: 'x.png', mime_type: 'image/png', blob_url: '/api/attachments/x',
+  }];
+  assert.equal(__test__.isMediaToolItem(completion), false);
+});

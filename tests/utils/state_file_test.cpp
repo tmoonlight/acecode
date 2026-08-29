@@ -301,6 +301,58 @@ TEST_F(StateFileTest, LastHomeWorkspaceWrongTypeReadsEmpty) {
     EXPECT_EQ(acecode::read_last_home_workspace_hash(), "");
 }
 
+TEST_F(StateFileTest, ModelProbeCacheRoundTripsAndPreservesOtherState) {
+    const std::string fingerprint(64, 'a');
+    acecode::write_state_flag("some_flag", true);
+
+    acecode::ModelProbeCacheEntry entry;
+    entry.models = {"starrylight", "moonlight", "starrylight"};
+    entry.context_windows = {
+        {"starrylight", 200000},
+        {"moonlight", 128000},
+        {"not-in-models", 999},
+    };
+    entry.probed_at_ms = 123456789;
+
+    ASSERT_TRUE(acecode::write_model_probe_cache(fingerprint, entry));
+    auto cached = acecode::read_model_probe_cache(fingerprint);
+    ASSERT_TRUE(cached.has_value());
+    EXPECT_EQ(cached->models,
+              (std::vector<std::string>{"starrylight", "moonlight"}));
+    EXPECT_EQ(cached->context_windows,
+              (std::map<std::string, int>{{"moonlight", 128000},
+                                          {"starrylight", 200000}}));
+    EXPECT_EQ(cached->probed_at_ms, 123456789);
+    EXPECT_TRUE(acecode::read_state_flag("some_flag"));
+
+    entry.models = {"aurora"};
+    entry.context_windows = {{"aurora", 200000}};
+    entry.probed_at_ms = 123456790;
+    ASSERT_TRUE(acecode::write_model_probe_cache(fingerprint, entry));
+    cached = acecode::read_model_probe_cache(fingerprint);
+    ASSERT_TRUE(cached.has_value());
+    EXPECT_EQ(cached->models, (std::vector<std::string>{"aurora"}));
+    EXPECT_EQ(cached->context_windows.at("aurora"), 200000);
+    EXPECT_EQ(cached->probed_at_ms, 123456790);
+}
+
+TEST_F(StateFileTest, ModelProbeCacheRejectsInvalidFingerprintAndMalformedEntry) {
+    acecode::ModelProbeCacheEntry entry;
+    entry.models = {"model-a"};
+    EXPECT_FALSE(acecode::write_model_probe_cache("not-a-sha256", entry));
+    EXPECT_FALSE(acecode::read_model_probe_cache("not-a-sha256").has_value());
+    EXPECT_FALSE(fs::exists(path_));
+
+    const std::string fingerprint(64, 'b');
+    nlohmann::json malformed = {
+        {"model_probe_cache",
+         {{fingerprint,
+           {{"version", 1}, {"models", "not-an-array"}}}}},
+    };
+    write_raw(path_, malformed.dump());
+    EXPECT_FALSE(acecode::read_model_probe_cache(fingerprint).has_value());
+}
+
 TEST_F(StateFileTest, SlashCommandUsageIncrementsAndPreservesOtherState) {
     write_raw(path_, R"({"some_flag":true,"last_active_workspace_hash":"abc"})");
 

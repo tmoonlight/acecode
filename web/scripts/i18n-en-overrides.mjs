@@ -275,6 +275,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '放大': 'Zoom in',
   '放大预览': 'Zoom in preview',
   '放大预览 Mermaid 图表': 'Open enlarged Mermaid diagram preview',
+  '上一张幻灯片': 'Previous slide',
+  '下一张幻灯片': 'Next slide',
   '该成员的职责、工作方式与交付格式': 'This member\'s responsibilities, working method, and delivery format',
   '告诉用户这个专家适合解决什么问题': 'Tell users which problems this expert is suited to solve',
   '个': 'items',
@@ -678,6 +680,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '不可用警告': 'Availability warning',
   '此模型要求始终启用推理': 'This model requires reasoning to stay enabled',
   '从当前 Provider 探测真实模型列表': 'Detect the actual model list from this provider',
+  '忽略本地缓存并重新访问当前 Provider': 'Ignore the local cache and query this provider again',
+  '打开本地保存的探测结果': 'Open the locally cached detection result',
   '单选': 'Single select',
   '调整搜索词，或清空搜索查看全部预设。':
     'Change the search term, or clear it to see all profiles.',
@@ -722,6 +726,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '模型目录尚未就绪': 'The model catalog is not ready yet',
   '模型目录已更新': 'Model catalog updated',
   '模型已保存': 'Model saved',
+  '模型已探测，但本地缓存写入失败；下次仍需重新探测。':
+    'Models were detected, but the local cache could not be saved. You will need to detect them again next time.',
   '默认模型已设为 {{p0}}': 'Default model set to {{p0}}',
   '目录查询失败': 'Catalog query failed',
   '目录中没有匹配模型，仍可手动输入模型 ID。':
@@ -763,6 +769,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '搜索目录模型': 'Search catalog models',
   '搜索已保存模型': 'Search saved models',
   '探测模型': 'Detect models',
+  '查看探测结果': 'View detection result',
+  '重新探测': 'Detect again',
   '推理 Token 预算': 'Reasoning token budget',
   '推理强度': 'Reasoning effort',
   '推理设置': 'Reasoning settings',
@@ -783,6 +791,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '显示 API Key': 'Show API key',
   '隐藏 API Key': 'Hide API key',
   '已保存模型': 'Saved models',
+  '已读取本地探测结果；仅点击“重新探测”才会访问 Provider。':
+    'The local detection result is loaded. The provider is contacted only when you click Detect again.',
   '已存在名为“{{p0}}”的预设': 'A profile named “{{p0}}” already exists',
   '已选择模型': 'Selected models',
   '由目录提供或手动覆盖': 'Provided by the catalog or overridden manually',

@@ -78,8 +78,9 @@ export function presentationFrameDocument(rendererSource, channel) {
     #ace-presentation-viewport { position: relative; width: 100%; height: 100%; overflow: auto; }
     #ace-presentation-stage { position: relative; width: 100%; height: 100%; }
     #ace-presentation-root { position: absolute; top: 0; left: 0; width: 100%; min-height: 100%; transform-origin: top left; }
-    #ace-presentation-root > section { margin: 0 !important; }
-    #ace-presentation-root > section[hidden] { display: none !important; }
+    #ace-presentation-root > .pptx-wrapper { width: 100%; transform: none !important; transform-origin: top left !important; }
+    #ace-presentation-root section { margin: 0 !important; }
+    #ace-presentation-root section[hidden] { display: none !important; }
   </style>
 </head>
 <body>
@@ -194,8 +195,11 @@ export function presentationFrameDocument(rendererSource, channel) {
         rendering = true;
         try {
           root.replaceChildren();
-          if (typeof window.pptx2html !== 'function') throw new Error('pptx2html renderer unavailable');
-          await Promise.resolve(window.pptx2html(data.buffer, root));
+          const renderPresentation = typeof pptx2html === 'function'
+            ? pptx2html
+            : window.pptx2html;
+          if (typeof renderPresentation !== 'function') throw new Error('pptx2html renderer unavailable');
+          await Promise.resolve(renderPresentation(data.buffer, root));
           slides = Array.from(root.querySelectorAll('section'));
           if (!slides.length) throw new Error('Presentation contains no slides');
           slideIndex = 0;

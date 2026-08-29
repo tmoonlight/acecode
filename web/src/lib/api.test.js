@@ -665,7 +665,7 @@ await run('opencode import API uses workspace-scoped endpoints', async () => {
   }
 });
 
-await run('probeModels posts draft to model probe endpoint', async () => {
+await run('model probe API keeps upstream probe and local cache reads separate', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, opts = {}) => {
@@ -679,23 +679,24 @@ await run('probeModels posts draft to model probe endpoint', async () => {
   };
   try {
     const client = createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' });
-    const result = await client.probeModels({
+    const draft = {
+      catalog_provider_id: 'custom-openai',
       provider: 'openai',
       base_url: 'http://localhost:1234/v1',
       api_key: 'sk',
       request_headers: { 'X-Probe': 'acecode' },
-    });
+    };
+    const result = await client.probeModels(draft);
+    await client.getModelProbeCache(draft);
     assert.deepEqual(result, { models: ['gpt-4o'] });
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
     assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/models/probe');
     assert.equal(calls[0].opts.method, 'POST');
     assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'tok');
-    assert.deepEqual(JSON.parse(calls[0].opts.body), {
-      provider: 'openai',
-      base_url: 'http://localhost:1234/v1',
-      api_key: 'sk',
-      request_headers: { 'X-Probe': 'acecode' },
-    });
+    assert.deepEqual(JSON.parse(calls[0].opts.body), draft);
+    assert.equal(calls[1].url, 'http://127.0.0.1:4567/api/models/probe/cache');
+    assert.equal(calls[1].opts.method, 'POST');
+    assert.deepEqual(JSON.parse(calls[1].opts.body), draft);
   } finally {
     globalThis.fetch = previousFetch;
   }

@@ -4,8 +4,10 @@
 #include "../../config/request_headers.hpp"
 #include "../../provider/builtin_model_catalog.hpp"
 #include "../../provider/model_context_metadata.hpp"
+#include "../../utils/sha256.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <set>
 #include <string>
 
@@ -54,6 +56,36 @@ nlohmann::json entry_to_json(const ModelProfile& entry) {
 }
 
 } // namespace
+
+std::string model_probe_connection_fingerprint(const ModelProbeRequest& request) {
+    std::string base_url = request.base_url;
+    while (!base_url.empty() &&
+           std::isspace(static_cast<unsigned char>(base_url.front()))) {
+        base_url.erase(base_url.begin());
+    }
+    while (!base_url.empty() &&
+           std::isspace(static_cast<unsigned char>(base_url.back()))) {
+        base_url.pop_back();
+    }
+    while (!base_url.empty() && base_url.back() == '/') base_url.pop_back();
+
+    nlohmann::json headers = nlohmann::json::object();
+    for (const auto& [name, value] : request.request_headers) {
+        headers[name] = value;
+    }
+    const nlohmann::json identity = {
+        {"version", 1},
+        {"catalog_provider_id",
+         request.catalog_provider_id.empty()
+             ? request.provider
+             : request.catalog_provider_id},
+        {"provider", request.provider},
+        {"base_url", base_url},
+        {"api_key", request.api_key},
+        {"request_headers", std::move(headers)},
+    };
+    return sha256_hex(identity.dump());
+}
 
 nlohmann::json list_models(const AppConfig& cfg) {
     nlohmann::json arr = nlohmann::json::array();
@@ -259,6 +291,7 @@ std::optional<ModelProbeRequest> parse_model_probe_request(const nlohmann::json&
     };
 
     ModelProbeRequest request;
+    request.catalog_provider_id = string_value("catalog_provider_id");
     request.provider = string_value("provider");
     request.base_url = string_value("base_url");
     request.api_key = string_value("api_key");
@@ -274,6 +307,11 @@ std::optional<ModelProbeRequest> parse_model_probe_request(const nlohmann::json&
     }
 
     if (request.provider.empty()) request.provider = "openai";
+    if (request.catalog_provider_id.size() > 256) {
+        err_code = "BAD_REQUEST";
+        err = "catalog_provider_id is too long";
+        return std::nullopt;
+    }
     if (request.provider != "openai" && request.provider != "copilot" &&
         request.provider != "grok") {
         err_code = "UNKNOWN_PROVIDER";

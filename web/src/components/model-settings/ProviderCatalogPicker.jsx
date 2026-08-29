@@ -45,6 +45,33 @@ function modelMetadataSummary(model) {
   return parts.join(' · ');
 }
 
+function modelRowsFromProbe(response) {
+  const normalized = normalizeModelProbeResult(response);
+  return normalized.models.map((id) => ({
+    id,
+    name: id,
+    context_window: normalized.contextWindows[id] || null,
+    max_output_tokens: null,
+    capabilities: [],
+    reasoning: null,
+  }));
+}
+
+function modelProbeRequest(provider, draft) {
+  const headers = parseRequestHeadersJson(draft.request_headers_json, draft.provider);
+  if (!headers.ok) return { ok: false, code: headers.code };
+  return {
+    ok: true,
+    value: {
+      catalog_provider_id: provider?.id || '',
+      provider: draft.provider,
+      base_url: draft.provider === 'openai' ? draft.base_url : '',
+      api_key: draft.provider === 'openai' ? draft.api_key : '',
+      request_headers: headers.headers,
+    },
+  };
+}
+
 export function ProviderCatalogPicker({
   apiClient,
   providers,
@@ -65,15 +92,25 @@ export function ProviderCatalogPicker({
   const [catalogError, setCatalogError] = useState('');
   const [probeStatus, setProbeStatus] = useState('idle');
   const [probeError, setProbeError] = useState('');
+  const [probeResultOrigin, setProbeResultOrigin] = useState('none');
   const [probeDialogOpen, setProbeDialogOpen] = useState(false);
   const [manualModel, setManualModel] = useState('');
   const modelResultSourceRef = useRef('catalog');
   const catalogRequestRevisionRef = useRef(0);
   const probeRequestRevisionRef = useRef(0);
+  const probeCacheRequestRevisionRef = useRef(0);
   const providerIdRef = useRef(provider?.id || '');
   providerIdRef.current = provider?.id || '';
   const selectedModels = splitModelIds(draft.model);
   const directModelIdInput = provider?.model_input === 'manual';
+  const managedProvider = provider?.runtime_provider === 'copilot'
+    || provider?.runtime_provider === 'grok';
+  const supportsProbe = provider?.runtime_provider === 'openai' || managedProvider;
+  const canReadProbeCache = supportsProbe
+    && (managedProvider || !!draft.base_url);
+  const canProbe = managedProvider
+    ? !!managedAuthenticated
+    : provider?.runtime_provider === 'openai' && !!draft.base_url;
 
   const groupedProviders = useMemo(
     () => groupCatalogProviders(providers, providerQuery),
@@ -84,6 +121,7 @@ export function ProviderCatalogPicker({
     modelResultSourceRef.current = 'catalog';
     catalogRequestRevisionRef.current += 1;
     probeRequestRevisionRef.current += 1;
+    probeCacheRequestRevisionRef.current += 1;
     setModelResultSource('catalog');
     setModelQuery('');
     setCatalogModels([]);
@@ -139,6 +177,67 @@ export function ProviderCatalogPicker({
     };
   }, [apiClient, draft.model, modelQuery, modelResultSource, provider]);
 
+  useEffect(() => {
+    const requestRevision = ++probeCacheRequestRevisionRef.current;
+    const requestProviderId = provider?.id || '';
+
+    // A connection change invalidates the in-memory result immediately. The
+    // cache read below is local-only; a miss deliberately falls back to the
+    // static catalog or manual Model ID without probing upstream.
+    modelResultSourceRef.current = 'catalog';
+    catalogRequestRevisionRef.current += 1;
+    probeRequestRevisionRef.current += 1;
+    setModelResultSource('catalog');
+    setCatalogModels([]);
+    setCatalogStatus('idle');
+    setCatalogError('');
+    setProbeStatus('idle');
+    setProbeError('');
+    setProbeResultOrigin('none');
+    setProbeDialogOpen(false);
+
+    if (!canReadProbeCache) return undefined;
+    const parsedRequest = modelProbeRequest(provider, draft);
+    if (!parsedRequest.ok) return undefined;
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await apiClient.getModelProbeCache(parsedRequest.value);
+        if (cancelled
+            || providerIdRef.current !== requestProviderId
+            || requestRevision !== probeCacheRequestRevisionRef.current
+            || response?.cached !== true) return;
+        const models = modelRowsFromProbe(response);
+        modelResultSourceRef.current = 'probe';
+        catalogRequestRevisionRef.current += 1;
+        setCatalogModels(models);
+        setModelResultSource('probe');
+        setCatalogStatus('ready');
+        setCatalogError('');
+        setProbeStatus('ready');
+        setProbeError('');
+        setProbeResultOrigin('cache');
+      } catch {
+        // Cache lookup is a background convenience. Older daemons and local
+        // state read failures must not block the existing catalog/manual flow.
+      }
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    apiClient,
+    canReadProbeCache,
+    draft.api_key,
+    draft.base_url,
+    draft.provider,
+    draft.request_headers_json,
+    provider?.id,
+    provider?.runtime_provider,
+  ]);
+
   const updateSelectedModels = (modelId, metadata = null) => {
     onDraftChange(toggleCatalogModelInDraft(
       draft,
@@ -155,38 +254,27 @@ export function ProviderCatalogPicker({
     setManualModel('');
   };
 
-  const managedProvider = provider?.runtime_provider === 'copilot'
-    || provider?.runtime_provider === 'grok';
-  const canProbe = managedProvider
-    ? !!managedAuthenticated
-    : provider?.runtime_provider === 'openai' && !!draft.base_url;
-
   const probeModels = async () => {
     if (!canProbe || probeStatus === 'loading') return;
     const requestRevision = ++probeRequestRevisionRef.current;
+    probeCacheRequestRevisionRef.current += 1;
     const requestProviderId = provider?.id || '';
+    const hadUsableProbeResult = modelResultSourceRef.current === 'probe'
+      && probeStatus === 'ready';
     setProbeStatus('loading');
     setProbeError('');
     try {
-      const headers = parseRequestHeadersJson(draft.request_headers_json, draft.provider);
-      if (!headers.ok) throw Object.assign(new Error('自定义请求头格式不正确'), { code: headers.code });
-      const response = await apiClient.probeModels({
-        provider: draft.provider,
-        base_url: draft.provider === 'openai' ? draft.base_url : '',
-        api_key: draft.provider === 'openai' ? draft.api_key : '',
-        request_headers: headers.headers,
-      });
-      const normalized = normalizeModelProbeResult(response);
+      const parsedRequest = modelProbeRequest(provider, draft);
+      if (!parsedRequest.ok) {
+        throw Object.assign(
+          new Error('自定义请求头格式不正确'),
+          { code: parsedRequest.code },
+        );
+      }
+      const response = await apiClient.probeModels(parsedRequest.value);
       if (providerIdRef.current !== requestProviderId
           || requestRevision !== probeRequestRevisionRef.current) return;
-      const models = normalized.models.map((id) => ({
-        id,
-        name: id,
-        context_window: normalized.contextWindows[id] || null,
-        max_output_tokens: null,
-        capabilities: [],
-        reasoning: null,
-      }));
+      const models = modelRowsFromProbe(response);
       modelResultSourceRef.current = 'probe';
       catalogRequestRevisionRef.current += 1;
       setCatalogModels(models);
@@ -194,6 +282,10 @@ export function ProviderCatalogPicker({
       setCatalogStatus('ready');
       setCatalogError('');
       setProbeStatus('ready');
+      setProbeError(response?.cache_persisted === false
+        ? '模型已探测，但本地缓存写入失败；下次仍需重新探测。'
+        : '');
+      setProbeResultOrigin('network');
     } catch (error) {
       if (providerIdRef.current !== requestProviderId
           || requestRevision !== probeRequestRevisionRef.current) return;
@@ -201,14 +293,16 @@ export function ProviderCatalogPicker({
         lookupErrorMessage(error?.code, error?.message || 'Provider 探测失败'),
         draft,
       ));
-      setProbeStatus('error');
+      setProbeStatus(hadUsableProbeResult ? 'ready' : 'error');
     }
   };
 
   const openProbeDialog = () => {
     if (!canProbe || probeStatus === 'loading') return;
     setProbeDialogOpen(true);
-    void probeModels();
+    if (modelResultSourceRef.current !== 'probe' || probeStatus !== 'ready') {
+      void probeModels();
+    }
   };
 
   const confirmProbedModels = (modelIds) => {
@@ -331,12 +425,14 @@ export function ProviderCatalogPicker({
                     onClick={probeModels}
                     disabled={!canProbe || probeStatus === 'loading'}
                     className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
-                    title={managedProvider && !managedAuthenticated
-                      ? `请先连接 ${provider.name}`
-                      : '从当前 Provider 探测真实模型列表'}
-                  >
-                    <RefreshIcon size={11} className={clsx(probeStatus === 'loading' && 'animate-spin')} />
-                    探测模型
+                     title={managedProvider && !managedAuthenticated
+                       ? `请先连接 ${provider.name}`
+                       : modelResultSource === 'probe'
+                         ? '忽略本地缓存并重新访问当前 Provider'
+                         : '从当前 Provider 探测真实模型列表'}
+                   >
+                     <RefreshIcon size={11} className={clsx(probeStatus === 'loading' && 'animate-spin')} />
+                     {modelResultSource === 'probe' ? '重新探测' : '探测模型'}
                   </button>
                 )}
               </div>
@@ -364,15 +460,19 @@ export function ProviderCatalogPicker({
                         onClick={openProbeDialog}
                         disabled={!canProbe || probeStatus === 'loading'}
                         className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface px-2.5 text-[10px] font-medium text-fg-2 transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
-                        title={!draft.base_url
-                          ? '请先填写 Base URL'
-                          : '从当前 Provider 探测真实模型列表'}
+                       title={!draft.base_url
+                         ? '请先填写 Base URL'
+                         : modelResultSource === 'probe' && probeStatus === 'ready'
+                           ? '打开本地保存的探测结果'
+                           : '从当前 Provider 探测真实模型列表'}
                       >
                         <RefreshIcon
                           size={11}
                           className={clsx(probeStatus === 'loading' && 'animate-spin')}
                         />
-                        探测模型
+                       {modelResultSource === 'probe' && probeStatus === 'ready'
+                         ? '查看探测结果'
+                         : '探测模型'}
                       </button>
                     )}
                   </div>
@@ -528,6 +628,8 @@ export function ProviderCatalogPicker({
           error={probeError}
           initialModelIds={draft.model}
           allowMultiple={allowMultiple}
+          fromCache={probeResultOrigin === 'cache'}
+          onRefresh={() => { void probeModels(); }}
           onConfirm={confirmProbedModels}
           onClose={() => setProbeDialogOpen(false)}
         />

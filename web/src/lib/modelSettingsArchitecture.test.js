@@ -226,7 +226,10 @@ run('manual OpenAI-compatible provider keeps direct input and adds an explicit p
     picker,
     /htmlFor="custom-openai-model-id"[\s\S]*?onClick=\{openProbeDialog\}[\s\S]*?探测模型[\s\S]*?id="custom-openai-model-id"/,
   );
-  assert.match(picker, /setProbeDialogOpen\(true\);[\s\S]*?void probeModels\(\);/);
+  assert.match(
+    picker,
+    /setProbeDialogOpen\(true\);[\s\S]*?modelResultSourceRef\.current !== 'probe'[\s\S]*?probeStatus !== 'ready'[\s\S]*?void probeModels\(\);/,
+  );
   assert.match(picker, /<ModelProbeDialog[\s\S]*?allowMultiple=\{allowMultiple\}/);
   assert.match(picker, /replaceDraftModelsFromProbe\([\s\S]*?\{ allowMultiple \}/);
   assert.match(
@@ -234,6 +237,23 @@ run('manual OpenAI-compatible provider keeps direct input and adds an explicit p
     /onDraftChange\(nextDraft\);[\s\S]*?setProbeDialogOpen\(false\);/,
   );
   assert.match(picker, /使用逗号分隔[\s\S]*?探测后多选/);
+});
+
+run('provider probe results restore from daemon cache and refresh only explicitly', () => {
+  assert.match(picker, /catalog_provider_id: provider\?\.id \|\| ''/);
+  assert.match(picker, /apiClient\.getModelProbeCache\(parsedRequest\.value\)/);
+  assert.match(picker, /response\?\.cached !== true/);
+  assert.match(
+    picker,
+    /setCatalogModels\(models\);[\s\S]*?setModelResultSource\('probe'\);[\s\S]*?setProbeResultOrigin\('cache'\);/,
+  );
+  assert.match(picker, /modelResultSource === 'probe' \? '重新探测' : '探测模型'/);
+  assert.match(picker, /'查看探测结果'/);
+  assert.match(picker, /fromCache=\{probeResultOrigin === 'cache'\}/);
+  assert.match(picker, /onRefresh=\{\(\) => \{ void probeModels\(\); \}\}/);
+  assert.match(probeDialog, /仅点击“重新探测”才会访问 Provider/);
+  assert.match(probeDialog, /onClick=\{onRefresh\}/);
+  assert.match(probeDialog, />\s*重新探测\s*</);
 });
 
 run('custom model probe selector is multi-select and closes only through x or valid confirm', () => {

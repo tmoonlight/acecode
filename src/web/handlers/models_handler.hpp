@@ -57,6 +57,7 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
                                                   std::string& err);
 
 struct ModelProbeRequest {
+    std::string catalog_provider_id;
     std::string provider;
     std::string base_url;
     std::string api_key;
@@ -66,6 +67,11 @@ struct ModelProbeRequest {
 std::optional<ModelProbeRequest> parse_model_probe_request(const nlohmann::json& body,
                                                            std::string& err_code,
                                                            std::string& err);
+
+// Stable, versioned connection identity used only as an opaque state.json key.
+// Secret-bearing request fields are hashed into the digest and are never
+// returned or persisted by this helper.
+std::string model_probe_connection_fingerprint(const ModelProbeRequest& request);
 
 struct ParsedOpenAiModels {
     std::vector<std::string> ids;

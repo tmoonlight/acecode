@@ -1913,6 +1913,48 @@ void WebServer::Impl::register_ui_preferences() {
             return with_cors(req, std::move(r));
         });
 
+        // POST /api/models/probe/cache is local-only. It accepts the same
+        // connection draft as a real probe but never contacts the Provider.
+        CROW_ROUTE(app, "/api/models/probe/cache").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+
+            auto json_err = [&](int status, const char* code, const std::string& msg) {
+                crow::response r(status);
+                r.body = json{{"error", code}, {"message", msg}}.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            };
+
+            json body;
+            try { body = json::parse(req.body); }
+            catch (const std::exception& e) {
+                return json_err(400, "BAD_JSON", std::string("invalid JSON body: ") + e.what());
+            }
+            std::string err_code;
+            std::string err;
+            auto parsed = parse_model_probe_request(body, err_code, err);
+            if (!parsed) {
+                return json_err(400,
+                                err_code.empty() ? "BAD_REQUEST" : err_code.c_str(),
+                                err);
+            }
+
+            const auto cached = read_model_probe_cache(
+                model_probe_connection_fingerprint(*parsed));
+            json out{{"cached", cached.has_value()}};
+            if (cached) {
+                out["models"] = cached->models;
+                if (!cached->context_windows.empty()) {
+                    out["model_context_windows"] = cached->context_windows;
+                }
+                out["probed_at_ms"] = cached->probed_at_ms;
+            }
+            crow::response r(out.dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
         // POST /api/models/probe: best-effort OpenAI-compatible /models probe.
         CROW_ROUTE(app, "/api/models/probe").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req) {
@@ -1938,6 +1980,28 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, err_code.empty() ? "BAD_REQUEST" : err_code.c_str(), err);
             }
 
+            auto probe_success = [&](ParsedOpenAiModels parsed_models) {
+                ModelProbeCacheEntry entry;
+                entry.models = parsed_models.ids;
+                entry.context_windows = parsed_models.context_windows;
+                entry.probed_at_ms = now_unix_ms();
+                const bool cache_persisted = write_model_probe_cache(
+                    model_probe_connection_fingerprint(*parsed),
+                    entry);
+
+                json out;
+                out["models"] = std::move(parsed_models.ids);
+                if (!parsed_models.context_windows.empty()) {
+                    out["model_context_windows"] =
+                        std::move(parsed_models.context_windows);
+                }
+                out["probed_at_ms"] = entry.probed_at_ms;
+                out["cache_persisted"] = cache_persisted;
+                crow::response r(out.dump());
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            };
+
             if (parsed->provider == "copilot") {
                 const std::string github_token = load_github_token();
                 if (github_token.empty()) {
@@ -1956,9 +2020,7 @@ void WebServer::Impl::register_ui_preferences() {
                                         : result.message);
                 }
 
-                crow::response r(json{{"models", result.models}}.dump());
-                r.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(r));
+                return probe_success({std::move(result.models), {}});
             }
 
             if (parsed->provider == "grok") {
@@ -1972,9 +2034,7 @@ void WebServer::Impl::register_ui_preferences() {
                                             ? "Grok model discovery failed"
                                             : result.message));
                 }
-                crow::response r(json{{"models", result.models}}.dump());
-                r.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(r));
+                return probe_success({std::move(result.models), {}});
             }
 
             const std::string url = trim_trailing_slash(parsed->base_url) + "/models";
@@ -2013,14 +2073,7 @@ void WebServer::Impl::register_ui_preferences() {
                 if (is_acemodel_base_url(parsed->base_url)) {
                     apply_acemodel_context_fallbacks(parsed_models);
                 }
-                json out;
-                out["models"] = parsed_models.ids;
-                if (!parsed_models.context_windows.empty()) {
-                    out["model_context_windows"] = parsed_models.context_windows;
-                }
-                crow::response r(out.dump());
-                r.add_header("Content-Type", "application/json");
-                return with_cors(req, std::move(r));
+                return probe_success(std::move(parsed_models));
             } catch (const std::exception& e) {
                 return json_err(502, "PROBE_BAD_JSON", e.what());
             }

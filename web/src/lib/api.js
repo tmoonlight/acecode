@@ -487,6 +487,7 @@ export function createApi(base = null) {
     enableHook:       (id)           => request('POST',   `/api/hooks/${encodeURIComponent(id)}/enable`, undefined, base),
     listModels:       ()             => request('GET',    '/api/models', undefined, base),
     probeModels:      (draft)        => request('POST',   '/api/models/probe', draft, base),
+    getModelProbeCache: (draft)      => request('POST',   '/api/models/probe/cache', draft, base),
     getModelCatalog:  ()             => request('GET',    '/api/models/catalog', undefined, base),
     queryModelCatalog: (providerId, query = '', limit = 50) => {
       const normalizedLimit = Number.isFinite(Number(limit))

@@ -24,6 +24,10 @@ void WebServer::Impl::register_models() {
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/models/probe/cache").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/models/catalog").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
             return cors_preflight(req);

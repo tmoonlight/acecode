@@ -21,6 +21,26 @@ ACECode 的 Web/Desktop 模型管理表单必须（SHALL）在适用时提供真
 - **THEN** 页面立即打开独立模型选择弹窗并使用当前 Base URL、API Key 和自定义请求头发起探测
 - **THEN** 新增模式使用复选框并允许同时选择多个探测结果
 
+#### Scenario: Successful probe is cached locally
+- **WHEN** Provider 探测成功并返回一个或多个有效模型
+- **THEN** Daemon 把模型 ID、有效上下文窗口和探测时间持久化到本地运行时状态
+- **THEN** 持久化状态不得包含 Base URL、API Key、自定义请求头名称或值的明文
+
+#### Scenario: Re-enter provider with a cached probe
+- **WHEN** 用户之后再次进入具有相同 Provider catalog ID、运行时 Provider、Base URL、API Key 和请求头的连接
+- **THEN** 页面从 Daemon 本地缓存恢复上次探测结果并直接显示
+- **THEN** 恢复缓存不得访问 Provider，也不得要求用户再次点击探测
+
+#### Scenario: Provider connection changes
+- **WHEN** Provider catalog ID、运行时 Provider、Base URL、API Key 或自定义请求头任一连接参数变化
+- **THEN** 页面不得复用原连接的探测缓存
+- **THEN** 新连接没有缓存时保留手工输入或静态目录结果，且不得自动访问 Provider
+
+#### Scenario: User explicitly refreshes a cached probe
+- **WHEN** 页面已恢复探测缓存且用户点击“重新探测”
+- **THEN** 页面使用当前连接参数访问 Provider，并在成功后覆盖该连接的本地缓存
+- **THEN** 重新探测失败时原缓存结果仍可选择，页面另行显示脱敏错误
+
 #### Scenario: Probe selector resists implicit dismissal
 - **WHEN** 模型选择弹窗打开后用户点击遮罩或按 Escape
 - **THEN** 选择弹窗保持打开，当前勾选状态和主表单草稿均不得改变

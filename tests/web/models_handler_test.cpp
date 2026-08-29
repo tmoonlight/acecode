@@ -185,6 +185,8 @@ using acecode::SavedModelDraft;
 using acecode::SavedModelEditError;
 using acecode::web::apply_acemodel_context_fallbacks;
 using acecode::web::http_status_for_edit_error;
+using acecode::web::model_probe_connection_fingerprint;
+using acecode::web::ModelProbeRequest;
 using acecode::web::parse_model_probe_request;
 using acecode::web::parse_openai_model_ids;
 using acecode::web::parse_openai_models;
@@ -596,6 +598,7 @@ TEST(ModelsHandler, ParseProbeRequestValidatesProviderAndBaseUrl) {
     err.clear();
     auto ok = parse_model_probe_request(
         nlohmann::json{
+            {"catalog_provider_id", "custom-openai"},
             {"provider", "openai"},
             {"base_url", "http://localhost/v1"},
             {"api_key", "sk"},
@@ -604,6 +607,7 @@ TEST(ModelsHandler, ParseProbeRequestValidatesProviderAndBaseUrl) {
         code,
         err);
     ASSERT_TRUE(ok.has_value());
+    EXPECT_EQ(ok->catalog_provider_id, "custom-openai");
     EXPECT_EQ(ok->base_url, "http://localhost/v1");
     EXPECT_EQ(ok->api_key, "sk");
     EXPECT_EQ(ok->request_headers.at("X-Probe"), "acecode");
@@ -627,6 +631,31 @@ TEST(ModelsHandler, ParseProbeRequestValidatesProviderAndBaseUrl) {
     ASSERT_TRUE(grok.has_value());
     EXPECT_EQ(grok->provider, "grok");
     EXPECT_TRUE(grok->base_url.empty());
+}
+
+TEST(ModelsHandler, ProbeConnectionFingerprintIsStableAndSecretOpaque) {
+    ModelProbeRequest request;
+    request.catalog_provider_id = "custom-openai";
+    request.provider = "openai";
+    request.base_url = "  http://localhost/v1/  ";
+    request.api_key = "sk-secret-value";
+    request.request_headers = {
+        {"X-Probe", "header-secret"},
+        {"X-Team", "acecode"},
+    };
+
+    const std::string fingerprint = model_probe_connection_fingerprint(request);
+    ASSERT_EQ(fingerprint.size(), 64u);
+    EXPECT_EQ(fingerprint.find("secret"), std::string::npos);
+
+    request.base_url = "http://localhost/v1";
+    EXPECT_EQ(model_probe_connection_fingerprint(request), fingerprint);
+
+    request.api_key = "sk-other-value";
+    EXPECT_NE(model_probe_connection_fingerprint(request), fingerprint);
+    request.api_key = "sk-secret-value";
+    request.catalog_provider_id = "acemodel";
+    EXPECT_NE(model_probe_connection_fingerprint(request), fingerprint);
 }
 
 TEST(ModelsHandler, ParseProbeRequestRejectsRequestHeadersForCopilot) {

@@ -39,6 +39,7 @@ import {
 } from '../lib/composerAttachmentReservations.js';
 import { Message, MessageActions } from './Message.jsx';
 import { ActivityLine } from './ActivityLine.jsx';
+import { AttachmentStrip } from './AttachmentStrip.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
 import InteractiveHomeLogo from './InteractiveHomeLogo.jsx';
@@ -539,6 +540,34 @@ function ActivitySummaryBlock({ item, expanded, onToggle, activity = null }) {
   );
 }
 
+// 图像行:标题行形制与 ActivitySummaryBlock 一致(同一个 ActivityLine 外壳),但默认
+// 展开 —— 图片的价值就在于一眼看到。收起态由调用方的 collapsedMediaKeys 控制
+// (集合里有 = 已收起),刚好与 expandedActivityKeys 的语义相反。
+function MediaGroupBlock({ item, collapsed, onToggle }) {
+  const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+  if (attachments.length === 0) return null;
+  const label = item?.title || `已查看 ${attachments.length} 张图像`;
+  const toggleHint = collapsed ? '展开图像' : '收起图像';
+  return (
+    <div className="flex flex-col">
+      <ActivityLine
+        icon={<VsIcon name="eye" size={13} className="opacity-80" />}
+        label={label}
+        expandable
+        expanded={!collapsed}
+        onToggle={onToggle}
+        title={toggleHint}
+        ariaLabel={toggleHint}
+      />
+      {!collapsed && (
+        <div className="mt-1 max-w-[88%]">
+          <AttachmentStrip attachments={attachments} align="left" compact />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function completionSummaryText(item) {
   return completionSummaryMarkdown(item, '已完成');
 }
@@ -942,6 +971,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const changeDockRef = useRef(null);
   const [changeDockBottomPadding, setChangeDockBottomPadding] = useState(0);
   const [expandedActivityKeys, setExpandedActivityKeys] = useState(() => new Set());
+  // 图像行默认展开,所以这里记的是「被用户收起的」行,与上面那个集合语义相反。
+  const [collapsedMediaKeys, setCollapsedMediaKeys] = useState(() => new Set());
   const scrollRef = useRef(null);
   const transcriptContentRef = useRef(null);
   const tailFollowStateRef = useRef(CHAT_TAIL_FOLLOW_STATE.FOLLOWING);
@@ -4291,6 +4322,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
 
   useEffect(() => {
     setExpandedActivityKeys(new Set());
+    setCollapsedMediaKeys(new Set());
   }, [sid]);
 
   const toggleActivitySummary = useCallback((key, titleElement) => {
@@ -4298,6 +4330,26 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     if (!anchored) pauseTailFollowForReview();
     flushSync(() => {
       setExpandedActivityKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    });
+    preserveActivityExpansionAnchor();
+    scheduleActivityExpansionAnchorMeasure();
+  }, [
+    beginActivityExpansionAnchor,
+    pauseTailFollowForReview,
+    preserveActivityExpansionAnchor,
+    scheduleActivityExpansionAnchorMeasure,
+  ]);
+
+  const toggleMediaGroup = useCallback((key, titleElement) => {
+    const anchored = beginActivityExpansionAnchor(titleElement);
+    if (!anchored) pauseTailFollowForReview();
+    flushSync(() => {
+      setCollapsedMediaKeys((prev) => {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key);
         else next.add(key);
@@ -5097,6 +5149,23 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         );
       }
 
+      if (child.kind === 'media_group') {
+        return (
+          <div
+            key={key}
+            className="flex flex-col"
+            data-chat-kind={child.kind || ''}
+            data-chat-role="media_group"
+          >
+            <MediaGroupBlock
+              item={child}
+              collapsed={collapsedMediaKeys.has(child.id)}
+              onToggle={(event) => toggleMediaGroup(child.id, event?.currentTarget)}
+            />
+          </div>
+        );
+      }
+
       if (child.kind === 'subagent_group') {
         return (
           <div
@@ -5406,6 +5475,25 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                     forkPending={forkingMessageId !== ''}
                     forkLoading={forkingMessageId !== '' && forkingMessageId === String(it.messageId || '')}
                     showFooter={assistantRunDirectives.get(it.id)?.showFooter === true}
+                  />
+                </div>
+              );
+            }
+
+            if (it.kind === 'media_group') {
+              return (
+                <div
+                  key={it.id}
+                  className={chatRowClassName(it)}
+                  data-chat-row="true"
+                  data-chat-item-id={String(it.id)}
+                  data-chat-kind={it.kind || ''}
+                  data-chat-role="media_group"
+                >
+                  <MediaGroupBlock
+                    item={it}
+                    collapsed={collapsedMediaKeys.has(it.id)}
+                    onToggle={(event) => toggleMediaGroup(it.id, event?.currentTarget)}
                   />
                 </div>
               );

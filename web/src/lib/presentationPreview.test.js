@@ -49,6 +49,8 @@ run('presentation frame embeds the renderer and a channel-bound bridge', () => {
   assert.match(html, /channel-1/);
   assert.match(html, /event\.source !== parent/);
   assert.match(html, /data\.buffer instanceof ArrayBuffer/);
+  assert.match(html, /typeof pptx2html === 'function'/);
+  assert.match(html, /Promise\.resolve\(renderPresentation\(data\.buffer, root\)\)/);
   assert.match(html, /Array\.from\(root\.querySelectorAll\('section'\)\)/);
   assert.match(html, /slide\.hidden = index !== slideIndex/);
   assert.match(html, /data\.status === 'navigate'/);
@@ -56,6 +58,8 @@ run('presentation frame embeds the renderer and a channel-bound bridge', () => {
   assert.match(html, /new ResizeObserver\(applyState\)/);
   assert.match(html, /const fitScale = Math\.min/);
   assert.match(html, /#ace-presentation-viewport \{ position: relative; width: 100%; height: 100%; overflow: auto;/);
+  assert.match(html, /#ace-presentation-root > \.pptx-wrapper \{ width: 100%; transform: none !important;/);
+  assert.match(html, /#ace-presentation-root section\[hidden\] \{ display: none !important;/);
 });
 
 run('presentation messages require the exact frame, source, channel, and status', () => {

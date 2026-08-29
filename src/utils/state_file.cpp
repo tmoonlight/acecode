@@ -8,10 +8,12 @@
 #include <nlohmann/json.hpp>
 
 #include <cerrno>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <system_error>
 
@@ -149,6 +151,93 @@ private:
 };
 
 constexpr const char* kTuiSlashCommandUsageKey = "tui_slash_command_usage";
+constexpr const char* kModelProbeCacheKey = "model_probe_cache";
+constexpr std::size_t kMaxModelProbeCacheEntries = 128;
+constexpr std::size_t kMaxCachedProbeModels = 2000;
+constexpr std::size_t kMaxCachedModelIdBytes = 512;
+
+bool valid_sha256_fingerprint(const std::string& fingerprint) {
+    if (fingerprint.size() != 64) return false;
+    for (unsigned char c : fingerprint) {
+        if (!std::isxdigit(c)) return false;
+    }
+    return true;
+}
+
+std::optional<ModelProbeCacheEntry> parse_model_probe_cache_entry(
+    const nlohmann::json& value) {
+    try {
+        if (!value.is_object()) return std::nullopt;
+        auto version = value.find("version");
+        if (version == value.end() || !version->is_number_integer() ||
+            version->get<std::int64_t>() != 1) {
+            return std::nullopt;
+        }
+        auto models = value.find("models");
+        if (models == value.end() || !models->is_array() ||
+            models->size() > kMaxCachedProbeModels) {
+            return std::nullopt;
+        }
+
+        ModelProbeCacheEntry entry;
+        std::set<std::string> seen;
+        for (const auto& model : *models) {
+            if (!model.is_string()) return std::nullopt;
+            const std::string id = model.get<std::string>();
+            if (id.empty() || id.size() > kMaxCachedModelIdBytes) {
+                return std::nullopt;
+            }
+            if (seen.insert(id).second) entry.models.push_back(id);
+        }
+
+        auto contexts = value.find("model_context_windows");
+        if (contexts != value.end()) {
+            if (!contexts->is_object()) return std::nullopt;
+            for (auto it = contexts->begin(); it != contexts->end(); ++it) {
+                if (!seen.count(it.key()) || !it.value().is_number_integer()) {
+                    continue;
+                }
+                const auto context = it.value().get<std::int64_t>();
+                if (context > 0 && context <= (std::numeric_limits<int>::max)()) {
+                    entry.context_windows[it.key()] = static_cast<int>(context);
+                }
+            }
+        }
+
+        auto probed_at = value.find("probed_at_ms");
+        if (probed_at != value.end() && probed_at->is_number_integer()) {
+            entry.probed_at_ms = probed_at->get<std::int64_t>();
+        }
+        return entry;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+nlohmann::json model_probe_cache_entry_to_json(
+    const ModelProbeCacheEntry& source) {
+    nlohmann::json value = {
+        {"version", 1},
+        {"models", nlohmann::json::array()},
+        {"model_context_windows", nlohmann::json::object()},
+        {"probed_at_ms", source.probed_at_ms},
+    };
+    std::set<std::string> seen;
+    for (const auto& id : source.models) {
+        if (id.empty() || id.size() > kMaxCachedModelIdBytes ||
+            !seen.insert(id).second ||
+            value["models"].size() >= kMaxCachedProbeModels) {
+            continue;
+        }
+        value["models"].push_back(id);
+    }
+    for (const auto& [id, context] : source.context_windows) {
+        if (context > 0 && seen.count(id)) {
+            value["model_context_windows"][id] = context;
+        }
+    }
+    return value;
+}
 
 bool valid_slash_command_name(const std::string& name) {
     if (name.empty()) return false;
@@ -388,6 +477,70 @@ void write_web_search_region_cache(const WebSearchRegionCache& cache) {
 void clear_web_search_region_cache() {
     std::lock_guard<std::mutex> lock(state_file_mutex());
     (void)erase_state_key("web_search");
+}
+
+std::optional<ModelProbeCacheEntry> read_model_probe_cache(
+    const std::string& connection_fingerprint) {
+    if (!valid_sha256_fingerprint(connection_fingerprint)) return std::nullopt;
+    std::lock_guard<std::mutex> lock(state_file_mutex());
+    const auto state = load_state_or_empty();
+    auto cache = state.find(kModelProbeCacheKey);
+    if (cache == state.end() || !cache->is_object()) return std::nullopt;
+    auto entry = cache->find(connection_fingerprint);
+    if (entry == cache->end()) return std::nullopt;
+    return parse_model_probe_cache_entry(*entry);
+}
+
+bool write_model_probe_cache(
+    const std::string& connection_fingerprint,
+    const ModelProbeCacheEntry& entry) {
+    if (!valid_sha256_fingerprint(connection_fingerprint)) return false;
+
+    std::lock_guard<std::mutex> lock(state_file_mutex());
+    const std::string path = state_file_path();
+    StateFileWriteLock file_lock(path);
+    if (!file_lock.acquired()) {
+        LOG_WARN("[state_file] " + file_lock.error());
+        return false;
+    }
+    bool corrupted = false;
+    auto state = load_state_or_empty(&corrupted);
+    if (corrupted) {
+        LOG_WARN("[state_file] state.json corrupted, rewriting");
+    }
+    if (!state.contains(kModelProbeCacheKey) ||
+        !state[kModelProbeCacheKey].is_object()) {
+        state[kModelProbeCacheKey] = nlohmann::json::object();
+    }
+    auto& cache = state[kModelProbeCacheKey];
+    cache[connection_fingerprint] = model_probe_cache_entry_to_json(entry);
+
+    while (cache.size() > kMaxModelProbeCacheEntries) {
+        auto oldest = cache.begin();
+        std::int64_t oldest_time = (std::numeric_limits<std::int64_t>::max)();
+        for (auto it = cache.begin(); it != cache.end(); ++it) {
+            std::int64_t timestamp = 0;
+            if (it.value().is_object()) {
+                auto field = it.value().find("probed_at_ms");
+                if (field != it.value().end() && field->is_number_integer()) {
+                    timestamp = field->get<std::int64_t>();
+                }
+            }
+            if (timestamp < oldest_time) {
+                oldest = it;
+                oldest_time = timestamp;
+            }
+        }
+        cache.erase(oldest);
+    }
+
+    std::error_code ec;
+    fs::create_directories(path_from_utf8(path).parent_path(), ec);
+    if (!atomic_write_file(path, state.dump(2))) {
+        LOG_WARN("[state_file] failed to write " + path);
+        return false;
+    }
+    return true;
 }
 
 std::string read_last_active_workspace_hash() {
