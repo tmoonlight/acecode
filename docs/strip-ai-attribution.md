@@ -2,6 +2,11 @@
 
 本仓库的著作权归作者所有,提交历史不带第三方 AI 署名。本文档记录现状、清除办法与防复发措施。
 
+> **状态:重写已于 2026-08-30 执行完毕。** 远端 35 个分支、75 个标签的 875 个提交全部换成新 SHA,
+> 4 类署名残留归零,875/875 tree hash 一致(文件内容零改动),9 条人类 co-author 原样保留。
+> 重写前的完整镜像备份在 `N:\Users\shao\acecode-backup-20260830.git`。
+> 下方第一、二节保留为方法记录;第五节是本次执行后**尚未清理**的遗留。
+
 ## 一、署名分布(2026-08-29 全量统计,816 个提交)
 
 历史里的署名有 **4 种形态**,分布在 33 个分支、72 个 tag 上:
@@ -93,7 +98,7 @@ git clone --mirror https://github.com/tmoonlight/acecode acecode-backup-$(date +
 
 ## 四、防复发
 
-已落地三道:
+已落地四道:
 
 1. **`.claude/settings.json` 的 `includeCoAuthoredBy: false`** —— 关掉 Claude Code 的
    `Co-Authored-By` trailer 与生成页脚。作用范围是本仓库。
@@ -105,7 +110,38 @@ git clone --mirror https://github.com/tmoonlight/acecode acecode-backup-$(date +
    git config core.hooksPath .githooks
    ```
 
-3. **清掉文档里的署名样例** —— `docs/superpowers/plans/2026-05-09-model-selection.md` 里
+3. **`.githooks/pre-push`** —— 拦截**搬运**回来的旧署名。`commit-msg` 只在写新提交信息时触发,
+   `rebase` / `merge` / `cherry-pick` 搬运旧提交都不经过它,作者身份更是它改不了的。
+   仓库里现存几十个未推送的旧分支(见第五节),任何一次 rebase 合并都会把署名带回远端 ——
+   这道闸是唯一覆盖该路径的地方。判定规则与清除脚本一致(按邮箱域),
+   确需绕过用 `git push --no-verify`。
+
+4. **清掉文档里的署名样例** —— `docs/superpowers/plans/2026-05-09-model-selection.md` 里
    12 处 `git commit -m "..."` 示例带着 `Co-Authored-By` 行,照抄就会重新引入,已移除。
 
 hook 与脚本共用同一套判定规则(按邮箱域,而非关键词),两者行为一致。
+
+## 五、遗留:本地未推送的旧分支
+
+重写只覆盖**远端**的 refs。本机 `N:\Users\shao\acecode` 里还有 43 个从未推送过的本地分支
+(`codex/*`、`task/*`、`shz_vide/*`、`worktree-*`、`pr-14`),挂着 38 个 worktree 的在建工作,
+它们仍指向重写前的旧历史,提交上带着原样的 AI 署名。
+
+当前处置是**不动它们**:批量重写会让 38 个 worktree 的 HEAD 全部指向不存在的 SHA,
+代价高于收益。风险由第四节的 `pre-push` 闸兜住 —— 这些提交推不上远端,除非显式 `--no-verify`。
+
+真要合并其中某个分支时,两条路:
+
+```bash
+# A. 重写署名后再合(适合提交数少的分支)
+git rebase -i --exec 'git commit --amend --no-edit --reset-author' origin/master
+
+# B. 只取内容,不要历史
+git checkout master && git merge --squash <分支> && git commit
+```
+
+已推送过的 5 个分支(`codex/add-self-session-control`、`codex/package-size-regression-fix`、
+`codex/speed-up-release-packaging`、`task/redesign-model-settings-with-presets`、
+`webui-worktree-badge-and-ui-polish`)在远端已是干净的新 SHA,本地副本仍是旧的,
+`git fetch && git reset --hard origin/<分支名>` 即可对齐 —— 但其中几个正挂在 worktree 上,
+对齐前先确认没有未提交的改动。
