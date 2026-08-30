@@ -76,10 +76,11 @@ TEST(ConfigMemoryDefaults, StructDefaults) {
     EXPECT_EQ(pi.max_depth, 8);
     EXPECT_EQ(pi.max_bytes, 256u * 1024);
     EXPECT_EQ(pi.max_total_bytes, 1024u * 1024);
-    // 默认 filenames 顺序明确 AGENT > CLAUDE
-    ASSERT_EQ(pi.filenames.size(), 2u);
+    // 默认 filenames 顺序明确 AGENT > AGENTS > CLAUDE
+    ASSERT_EQ(pi.filenames.size(), 3u);
     EXPECT_EQ(pi.filenames[0], "AGENT.md");
-    EXPECT_EQ(pi.filenames[1], "CLAUDE.md");
+    EXPECT_EQ(pi.filenames[1], "AGENTS.md");
+    EXPECT_EQ(pi.filenames[2], "CLAUDE.md");
     EXPECT_TRUE(pi.read_claude_md);
 }
 
@@ -98,8 +99,8 @@ TEST(ConfigProjectInstructionsParse, ToggleSwitches) {
     ProjectInstructionsConfig pi;
     apply_project_instructions_section(j, pi);
     EXPECT_FALSE(pi.read_claude_md);
-    // filenames 数组没有显式传入,应保持默认两项
-    EXPECT_EQ(pi.filenames.size(), 2u);
+    // filenames 数组没有显式传入,应保持默认三项
+    EXPECT_EQ(pi.filenames.size(), 3u);
 }
 
 // 场景:自定义 filenames 顺序生效(例如团队想让 CLAUDE.md 优先)
@@ -112,12 +113,12 @@ TEST(ConfigProjectInstructionsParse, CustomFilenamesOrder) {
     EXPECT_EQ(pi.filenames[1], "AGENT.md");
 }
 
-// 场景:显式给了空数组时回退到默认两项(避免 misconfig 把项目指令完全关闭)
+// 场景:显式给了空数组时回退到默认三项(避免 misconfig 把项目指令完全关闭)
 TEST(ConfigProjectInstructionsParse, EmptyFilenamesFallsBackToDefault) {
     auto j = nlohmann::json::parse(R"({"filenames":[]})");
     ProjectInstructionsConfig pi;
     apply_project_instructions_section(j, pi);
-    ASSERT_EQ(pi.filenames.size(), 2u);
+    ASSERT_EQ(pi.filenames.size(), 3u);
     EXPECT_EQ(pi.filenames[0], "AGENT.md");
 }
 
