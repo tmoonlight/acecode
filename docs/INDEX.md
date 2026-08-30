@@ -23,6 +23,7 @@
 - [plan/tasks/](plan/tasks/)：可独立验证的交付任务。
 - [plan/reviews/](plan/reviews/)：独立审查结论。
 - [plan/backlog.md](plan/backlog.md)：非阻塞后续事项。
+- [string-utilities-refactor.md](string-utilities-refactor.md)：字符串工具统一重构方案（**未启动**，含现状盘点与护栏设计）。
 
 ## 复盘
 
