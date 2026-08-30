@@ -127,3 +127,21 @@ on_delta(token)
 - **里程碑 2(L2)**:StreamingFormatter 接入 + 行级冻结 + 生命周期。约 2-3 天。
 - **里程碑 3(L3)**:增量 lexer(LexerState + pending 缓冲 + 属性测试)。约 1-2 周。
 - 每里程碑独立可测、可回退;全部完成后跑基准脚本对比验收。
+
+## 验收记录(2026-08-30)
+
+**基准(Task 10,C++ harness,before/after)**:three loads × 200/400/800/1600 行,每步 4 字节喂入;full 列=逐帧 format_markdown(模拟旧行为),incremental 列=append_delta(L2/L3)。
+- prose(散文):full 2.79s→incremental 4.3ms @1600 行(~650x);incremental 总耗时线性(每帧 O(1))✅
+- mixed(混合多块):full 1.37s→incremental 4.1ms @1600 行(~335x);incremental 近线性(每帧 O(1))✅
+- code(单长代码块):incremental ≈ full(二次方)——开围栏整块留尾部,按设计"未闭合不提前画"(R13 文档化局限),非缺陷。
+- R14 追加优化:稳定 vbox 缓存(仅新稳定 token 时重建),消除每帧 O(#稳定)拷贝。
+
+**单测**:新增用例全部通过——MessageRenderCache 3、StreamingFormatter 5、LexerState 7、RenderTokenBlocks 2、ThemePalette +1(VersionBumpsOnSwap)等,共 20+ 新增;既有套件零新增回归。
+
+**全量回归**:3599 个测试,3586 通过,8 失败——全部为既有环境失败(TcpProbe / BuiltinToolRegistry×2 / GrepGitBackend / SettingsCenterRender / StateFileTest / WebServerHttp×2,与 master 基线一致),**零新增失败**。
+
+**评审与裁决**:11 个任务全部经 SDD 任务评审 + 修复轮;R1-R14 裁决记录于 `.superpowers/sdd/2026-08-27-streaming-incremental-layout/progress.md`(含:content 哈希只进渲染缓存键 R5、链接缓存改无链接消息 R6、行冻结栈式匹配 R7、行尾检查收窄 R8、主题版本 atomic R9、围栏闭合对齐 R10、宽度变化重放 R11、基准改名 R12、代码块局限 R13、vbox 缓存 R14)。
+
+**手动验证**:手动 TUI 长流式体验未执行(环境限制),由单测 + 基准 + 回归覆盖。
+
+**状态:里程碑 1/2/3 完成,#1 流式输出增量排版 已实施。**

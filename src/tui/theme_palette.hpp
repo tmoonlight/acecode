@@ -10,6 +10,7 @@
 #include <ftxui/screen/color.hpp>
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 
 namespace acecode::tui {
@@ -98,6 +99,9 @@ void init_theme_palette(const std::string& name);
 
 // 运行期热切换(立刻替换全局指针,FTXUI 下帧取新值)。
 void swap_theme_palette(const std::string& name);
+
+// 主题版本计数器 — 每次 swap_theme_palette() 递增,供渲染缓存键使用。
+std::uint32_t theme_palette_version();
 
 // 当前活跃调色板名称。
 const std::string& current_theme_name();

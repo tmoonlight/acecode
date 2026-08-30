@@ -3,6 +3,7 @@
 #include "permissions.hpp"
 #include "provider/llm_provider.hpp"
 #include "path_reference/path_reference.hpp"
+#include "markdown/markdown_formatter.hpp"
 #include "skills/skill_usage_store.hpp"
 #include "tui/paste_handler.hpp"
 #include "tui/model_picker.hpp"
@@ -466,6 +467,18 @@ struct TuiState {
     std::chrono::steady_clock::time_point thinking_start_time{};
     size_t streaming_output_chars = 0;
     long long turn_completion_tokens_confirmed = 0;
+    // 流式增量渲染(streaming-incremental-layout Task 6)。on_delta(agent
+    // worker 线程,mu 锁内)把增量 token 喂给 StreamingFormatter,增量工作
+    // 摊薄到 delta 到达时;render(主线程,全程持 mu)只对"正在流式的最后
+    // 一条 assistant 消息"拷贝 last_element() 复用,其余走 L1 渲染缓存。
+    // 跨 turn 由 on_message / on_busy_changed / on_stream_retry_reset 复位
+    // 并置空,避免上一 turn 的增量状态串入下一 turn。
+    std::unique_ptr<acecode::markdown::StreamingFormatter> streaming_formatter;
+    // render 帧实际生效的 md_opts.terminal_width(默认 80 与 FormatOptions
+    // 默认一致)。on_delta 用同一宽度喂 set_context 与 append_delta,规避
+    // Task 5 "默认 opts 宽度陷阱":宽度不一致会让 append_delta 每帧都清空
+    // 稳定前缀,增量缓存失效。由 render(持 mu)每帧写入。
+    int streaming_render_width = 80;
 
     // 本回合被用户主动中断(busy 期间 Esc;Ctrl+C 复用 Esc 分支)。
     // on_busy_changed(false) 消费后复位 —— 置位的回合不追加 "Done for Ns" 行。
