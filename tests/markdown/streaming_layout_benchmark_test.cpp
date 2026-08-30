@@ -21,9 +21,13 @@ static std::string mixed(int lines) {
         s += "para " + std::to_string(i) + "\n\n```cpp\nint x" + std::to_string(i) + ";\n```\n\n";
     return s;
 }
-TEST(StreamingBenchmark, PrintsFullVsIncrementalTimeCurve) {
+// Timing-only harness: intentionally excluded from the default unit suite.
+// Run explicitly with:
+//   acecode_unit_tests --gtest_also_run_disabled_tests \
+//     --gtest_filter=StreamingBenchmark.DISABLED_PrintsFullVsCompatibilityTimeCurve
+TEST(StreamingBenchmark, DISABLED_PrintsFullVsCompatibilityTimeCurve) {
     FormatOptions opts; opts.terminal_width = 100; opts.syntax_highlight = true;
-    printf("type,lines,full_us,incremental_us\n");
+    printf("type,lines,full_us,compatibility_us\n");
     for (int lines : {200, 400, 800, 1600}) {
         for (const auto& [name, gen] : {std::make_pair("prose", &prose),
                                         std::make_pair("code", &code),
@@ -37,11 +41,11 @@ TEST(StreamingBenchmark, PrintsFullVsIncrementalTimeCurve) {
                 format_markdown(acc, opts);   // 模拟旧逐帧全量重排
             }
             auto t1 = Clock::now();
-            // 增量:LexerState + StreamingFormatter(L2/L3 落地后路径)
-            StreamingFormatter incr; incr.set_context(100, 1);
+            // Compatibility formatter: correctness-first accumulated rebuild.
+            StreamingFormatter compatibility;
             auto t2 = Clock::now();
             for (std::size_t pos = 0; pos < content.size(); pos += 4)
-                incr.append_delta(content.substr(pos, 4), opts);
+                compatibility.append_delta(content.substr(pos, 4), opts);
             auto t3 = Clock::now();
             printf("%s,%d,%lld,%lld\n", name, lines,
                 (long long)std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count(),
