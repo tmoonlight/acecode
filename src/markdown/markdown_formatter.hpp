@@ -72,6 +72,10 @@ public:
 private:
     LexerState lexer_;
     std::vector<ftxui::Element> stable_elements_;
+    // Cached vbox of stable_elements_, rebuilt only when new stable tokens are
+    // added (R14: avoids O(#stable) per-frame vector copy). Empty until the
+    // first stable token is frozen.
+    ftxui::Element stable_vbox_;
     // Append-only buffer of all text streamed since the last reset(); cleared
     // only by reset(). Used to replay accumulated content when the width
     // changes mid-stream (see append_delta).

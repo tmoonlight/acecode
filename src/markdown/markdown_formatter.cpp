@@ -760,6 +760,9 @@ Element StreamingFormatter::append_delta(const std::string& delta,
             stable_elements_.push_back(
                 render_token_blocks({stable[k]}, opts));
         }
+        // R14: rebuild the cached stable vbox only when stable_elements_ grew,
+        // so a per-frame append_delta does not copy the whole stable vector.
+        stable_vbox_ = vbox(stable_elements_);
     };
 
     // A width change invalidates the per-token Element cache. set_context owns
@@ -773,6 +776,7 @@ Element StreamingFormatter::append_delta(const std::string& delta,
     if (width_ != opts.terminal_width) {
         lexer_.reset();
         stable_elements_.clear();
+        stable_vbox_ = ftxui::emptyElement();
         width_ = opts.terminal_width;
         // Replay the content accumulated before this delta so the stable
         // region and stable_elements_ return to their pre-change state under
@@ -789,11 +793,10 @@ Element StreamingFormatter::append_delta(const std::string& delta,
     auto tail = lexer_.tail_tokens();
     Element tail_elem = tail.empty() ? emptyElement()
                                      : render_token_blocks(tail, opts);
-    // Copy (not move) stable_elements_ into the vbox: the per-token cache must
-    // survive across append_delta calls so future deltas only append newly
-    // frozen tokens. Elements are shared_ptrs, so the copy is shallow.
-    Element stable_elem = stable_elements_.empty()
-        ? emptyElement() : vbox(stable_elements_);
+    // stable_vbox_ is the cached vbox of stable_elements_, rebuilt only when
+    // new stable tokens are added (R14); using it here avoids an O(#stable)
+    // vector copy on every frame.
+    Element stable_elem = stable_vbox_;
     last_element_ = (tail.empty())
         ? stable_elem : vbox({stable_elem, tail_elem});
     return last_element_;
@@ -807,6 +810,7 @@ void StreamingFormatter::set_context(int width, std::uint32_t theme_version) {
     if (width != width_ || theme_version != theme_) {
         lexer_.reset();
         stable_elements_.clear();
+        stable_vbox_ = ftxui::emptyElement();
         last_element_ = text("");
     }
     width_ = width;
@@ -816,6 +820,7 @@ void StreamingFormatter::set_context(int width, std::uint32_t theme_version) {
 void StreamingFormatter::reset() {
     lexer_.reset();
     stable_elements_.clear();
+    stable_vbox_ = ftxui::emptyElement();
     full_content_.clear();
     last_element_ = text("");
 }

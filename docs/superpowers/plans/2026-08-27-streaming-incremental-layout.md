@@ -658,7 +658,7 @@ TEST(StreamingBenchmark, PrintsFullVsIncrementalTimeCurve) {
 
 - [ ] **Step 2: 跑基准**
 Run: `cmake --build build/macos-x64-debug --target acecode_unit_tests && ./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='StreamingBenchmark.*' 2>/dev/null | grep -E '^(prose|code|mixed)'`
-Expected: 打印 12 行 CSV(type,lines,full_us,incremental_us)。**验收判据**:增量列(incremental_us)随 lines 增长**不线性上涨**(增量路径 O(增量)/帧);若仍线性上涨,说明稳定边界未生效,回查 Task 8 边界判定。
+Expected: 打印 12 行 CSV(type,lines,full_us,incremental_us)。**验收判据(R14 修正措辞)**:正确实现的总耗时随 lines **近似线性增长**(每帧 O(1),帧数增加→总耗时线性),且**增长率远低于 full 列的二次方**;若 incremental 增长率接近 full(同样二次方),说明稳定边界未生效,回查 Task 8 边界判定。**单长代码块(开围栏)按设计为二次方(R13 文档化局限)**,验收仅以 prose/mixed 达标为准。
 
 - [ ] **Step 3: 提交**
 ```bash
