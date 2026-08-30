@@ -8,6 +8,7 @@ import {
   normalizeModelState,
   optionLabel,
   resolveHomeModelName,
+  sessionModelReloadFeedback,
   selectedModelName,
   withCreateSessionModel,
   withCreateSessionPreferences,
@@ -249,4 +250,33 @@ run('create session preferences omit empty permission mode', () => {
   assert.deepEqual(withCreateSessionPreferences({ auto_start: false }, { permissionMode: '  ' }), {
     auto_start: false,
   });
+});
+
+// 触发场景:活动会话刷新返回三种成功 outcome;期望文案明确区分是否重建、
+// 已是最新和无法解析。旧实现只说“模型列表已刷新”,会把普通 GET 当成重载。
+run('session model reload outcomes have distinct feedback', () => {
+  assert.deepEqual(sessionModelReloadFeedback('reloaded'), {
+    kind: 'ok',
+    text: '模型配置已重新加载',
+  });
+  assert.deepEqual(sessionModelReloadFeedback('already_current'), {
+    kind: 'ok',
+    text: '当前模型配置已是最新',
+  });
+  assert.deepEqual(sessionModelReloadFeedback('unresolvable'), {
+    kind: 'ok',
+    text: '模型配置不可用，已保留当前连接',
+  });
+});
+
+// 触发场景:Provider 已发布但元数据持久化返回安全 warning;期望仍是成功/信息
+// 提示并附加 warning,不能误报“刷新失败”而诱导重复操作。
+run('session model reload warning stays non-error feedback', () => {
+  assert.deepEqual(
+    sessionModelReloadFeedback('reloaded', 'session metadata could not be persisted'),
+    {
+      kind: 'info',
+      text: '模型配置已重新加载；session metadata could not be persisted',
+    },
+  );
 });

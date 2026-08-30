@@ -509,6 +509,7 @@ export function createApi(base = null) {
       const qs = workspaceHash ? `?workspace=${encodeURIComponent(workspaceHash)}` : '';
       return request('GET', `/api/sessions/${encodeURIComponent(sid)}/model${qs}`, undefined, base);
     },
+    reloadSessionModel: (sid)       => request('POST',   `/api/sessions/${encodeURIComponent(sid)}/model/reload`, undefined, base),
     switchModel:      (sid, name)    => request('POST',   `/api/sessions/${encodeURIComponent(sid)}/model`, {name}, base),
     getSessionPermissionMode: (sid)  => request('GET',    `/api/sessions/${encodeURIComponent(sid)}/permissions`, undefined, base),
     setSessionPermissionMode: (sid, mode) => request('PUT', `/api/sessions/${encodeURIComponent(sid)}/permissions`, {mode}, base),

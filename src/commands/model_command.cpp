@@ -4,6 +4,7 @@
 #include "../config/model_provider_registry.hpp"
 #include "../config/saved_models.hpp"
 #include "../config/saved_models_editor.hpp"
+#include "../config/settings_mutations.hpp"
 #include "../provider/apply_model_to_session.hpp"
 #include "../provider/cwd_model_override.hpp"
 #include "../provider/model_context_resolver.hpp"
@@ -72,14 +73,9 @@ void report_unknown_name(CommandContext& ctx, const std::string& name) {
 // 当前 effective entry —— 用 provider/model 与 saved_models 匹配。
 // 仅用于 picker 高亮当前选中行。
 std::string current_effective_name(CommandContext& ctx) {
-    auto provider_snap = ctx.provider_slot ? ctx.provider_slot->provider : nullptr;
-    if (!provider_snap) return "";
-    std::string pname = provider_snap->name();
-    std::string pmodel = provider_snap->model();
-    for (const auto& e : ctx.config.saved_models) {
-        if (e.provider == pname && e.model == pmodel) return e.name;
-    }
-    return "";
+    return ctx.model_binding
+        ? ctx.model_binding->state_snapshot().name
+        : std::string{};
 }
 
 // 简单 trim helper —— args 里可能有多余空格。
@@ -149,7 +145,7 @@ void render_model_picker(CommandContext& ctx) {
     // 捕获 picker on_pick 需要的所有原始引用 / 指针。
     auto* state_ptr = &ctx.state;
     auto* config_ptr = &ctx.config;
-    auto* provider_slot = ctx.provider_slot;
+    auto* model_binding = ctx.model_binding;
     auto* sm = ctx.session_manager;
     auto* al = &ctx.agent_loop;
     auto& token_tracker = ctx.token_tracker;
@@ -157,7 +153,7 @@ void render_model_picker(CommandContext& ctx) {
     // 约定:调用方 MUST 持 state_ptr->mu(和 /resume callback 一致 ——
     // main.cpp 的 Enter 分支已经持 unique_lock<state.mu>;callback 内部
     // 不再加锁,直接读写 state)。
-    auto callback = [state_ptr, config_ptr, provider_slot, sm, al, &token_tracker](
+    auto callback = [state_ptr, config_ptr, model_binding, sm, al, &token_tracker](
                         const std::string& name) {
         // 找 entry。
         std::optional<ModelProfile> entry;
@@ -174,12 +170,12 @@ void render_model_picker(CommandContext& ctx) {
             return;
         }
 
-        // 切换。语义和 cmd_model 主路径里的 if (ctx.provider_slot) {...}
+        // 切换。语义和 cmd_model 主路径里的 binding 分支完全一致。
         // else {...} 完全一致 —— 这里没法构造完整 CommandContext,所以
         // 内联出来直接用捕获的指针走 apply_model_to_session。
-        if (provider_slot) {
+        if (model_binding) {
             ApplyModelDeps deps;
-            deps.provider_slot = provider_slot;
+            deps.model_binding = model_binding;
             deps.sm = sm;
             deps.loop = al;
             deps.cfg = config_ptr;
@@ -342,23 +338,34 @@ void announce_editor_result(CommandContext& ctx, SavedModelEditError rc,
     ctx.state.chat_follow_tail = true;
 }
 
+void announce_mutation_result(CommandContext& ctx,
+                              const SettingsMutationResult& result,
+                              const std::string& ok_msg) {
+    std::lock_guard<std::mutex> lk(ctx.state.mu);
+    if (result.ok) {
+        ctx.state.conversation.push_back({"system", ok_msg, false});
+    } else {
+        const std::string detail = !result.error_code.empty()
+            ? result.error_code
+            : (result.error.empty() ? "UNKNOWN" : result.error);
+        ctx.state.conversation.push_back({
+            "system", "/model failed: " + detail, false});
+    }
+    ctx.state.chat_follow_tail = true;
+}
+
+SettingsMutationOptions model_mutation_options(CommandContext& ctx) {
+    SettingsMutationOptions options;
+    options.live_config = &ctx.config;
+    options.restart_required_without_live_apply = false;
+    return options;
+}
+
 void cmd_model_add(CommandContext& ctx, const ParsedModelSub& p) {
     auto d = draft_from_kvs(p.kvs);
-    auto rc = add_saved_model(ctx.config, d);
-    if (rc == SavedModelEditError::OK) {
-        try {
-            save_config(ctx.config);
-        } catch (const std::exception& e) {
-            // 回滚内存:add 把 entry push_back 到末尾,所以 pop 即可。
-            if (!ctx.config.saved_models.empty()) ctx.config.saved_models.pop_back();
-            std::lock_guard<std::mutex> lk(ctx.state.mu);
-            ctx.state.conversation.push_back({"system",
-                std::string("/model add: write failed: ") + e.what(), false});
-            ctx.state.chat_follow_tail = true;
-            return;
-        }
-    }
-    announce_editor_result(ctx, rc, "Added: " + d.name);
+    const auto result = add_saved_model_setting(
+        d, model_mutation_options(ctx));
+    announce_mutation_result(ctx, result, "Added: " + d.name);
 }
 
 void cmd_model_edit(CommandContext& ctx, const ParsedModelSub& p) {
@@ -383,21 +390,9 @@ void cmd_model_edit(CommandContext& ctx, const ParsedModelSub& p) {
             break;
         }
     }
-    auto snapshot = ctx.config.saved_models;
-    auto rc = update_saved_model(ctx.config, p.name, d);
-    if (rc == SavedModelEditError::OK) {
-        try {
-            save_config(ctx.config);
-        } catch (const std::exception& e) {
-            ctx.config.saved_models = std::move(snapshot);
-            std::lock_guard<std::mutex> lk(ctx.state.mu);
-            ctx.state.conversation.push_back({"system",
-                std::string("/model edit: write failed: ") + e.what(), false});
-            ctx.state.chat_follow_tail = true;
-            return;
-        }
-    }
-    announce_editor_result(ctx, rc, "Updated: " + d.name);
+    const auto result = update_saved_model_setting(
+        p.name, d, model_mutation_options(ctx));
+    announce_mutation_result(ctx, result, "Updated: " + d.name);
 }
 
 void cmd_model_rm(CommandContext& ctx, const ParsedModelSub& p) {
@@ -405,21 +400,11 @@ void cmd_model_rm(CommandContext& ctx, const ParsedModelSub& p) {
         announce_editor_result(ctx, SavedModelEditError::INVALID_NAME, "");
         return;
     }
-    auto snapshot = ctx.config.saved_models;
-    auto rc = remove_saved_model(ctx.config, p.name);
-    if (rc == SavedModelEditError::OK) {
-        try {
-            save_config(ctx.config);
-        } catch (const std::exception& e) {
-            ctx.config.saved_models = std::move(snapshot);
-            std::lock_guard<std::mutex> lk(ctx.state.mu);
-            ctx.state.conversation.push_back({"system",
-                std::string("/model rm: write failed: ") + e.what(), false});
-            ctx.state.chat_follow_tail = true;
-            return;
-        }
-    }
-    announce_editor_result(ctx, rc, "Removed: " + p.name);
+    const auto result = remove_saved_model_setting(
+        p.name,
+        {},
+        model_mutation_options(ctx));
+    announce_mutation_result(ctx, result, "Removed: " + p.name);
 }
 
 void cmd_model_set_default(CommandContext& ctx, const ParsedModelSub& p) {
@@ -485,11 +470,11 @@ void cmd_model(CommandContext& ctx, const std::string& args) {
         return;
     }
 
-    // 切换前保护:provider_slot 缺失则忽略(测试桩没接 slot 时只更新配置)。
+    // 切换前保护:model binding 缺失则忽略(测试桩没接时只更新配置)。
     // 启动期 main.cpp 总会传入。
-    if (ctx.provider_slot) {
+    if (ctx.model_binding) {
         ApplyModelDeps deps;
-        deps.provider_slot = ctx.provider_slot;
+        deps.model_binding = ctx.model_binding;
         deps.sm = ctx.session_manager;
         deps.loop = &ctx.agent_loop;
         deps.cfg = &ctx.config;

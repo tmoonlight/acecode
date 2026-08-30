@@ -179,9 +179,9 @@ std::string apply_defaults_for_next_session(CommandContext& ctx) {
         ctx.config, cwd_override, std::optional<SessionMeta>{});
 
     std::optional<SessionModelState> applied_model;
-    if (!entry.provider.empty() && !entry.model.empty() && ctx.provider_slot) {
+    if (!entry.provider.empty() && !entry.model.empty() && ctx.model_binding) {
         ApplyModelDeps deps;
-        deps.provider_slot = ctx.provider_slot;
+        deps.model_binding = ctx.model_binding;
         deps.sm = ctx.session_manager;
         deps.loop = &ctx.agent_loop;
         deps.cfg = &ctx.config;
@@ -196,9 +196,9 @@ std::string apply_defaults_for_next_session(CommandContext& ctx) {
             notices.push_back(std::string("Default model apply failed: ") + e.what());
         }
     } else {
-        if (ctx.provider_slot) {
-            std::lock_guard<std::mutex> lk(ctx.provider_slot->mu);
-            ctx.provider_slot->provider.reset();
+        if (ctx.model_binding) {
+            ctx.model_binding->install_runtime_snapshot(
+                nullptr, SessionModelState{}, current_saved_models_revision());
         }
         if (ctx.session_manager) {
             ctx.session_manager->set_active_provider(std::string{}, std::string{}, std::string{});
@@ -754,8 +754,9 @@ static void cmd_archive(CommandContext& ctx, const std::string& /*args*/) {
 }
 
 static void show_config_summary(CommandContext& ctx) {
-    // 从 slot 拿 shared_ptr 副本,保活引用不被并发 swap 拽走。
-    auto provider_snap = ctx.provider_slot ? ctx.provider_slot->provider : nullptr;
+    auto provider_snap = ctx.model_binding
+        ? ctx.model_binding->provider_snapshot()
+        : nullptr;
     std::lock_guard<std::mutex> lk(ctx.state.mu);
     std::ostringstream oss;
     oss << "Current configuration:\n"
@@ -1312,13 +1313,13 @@ static void do_resume_session(CommandContext& ctx, const std::string& session_id
     if (target) {
         resumed_model_state = deleted_model_state_from_meta(ctx.config, *target);
     }
-    if (!resumed_model_state.has_value() && target && ctx.provider_slot &&
+    if (!resumed_model_state.has_value() && target && ctx.model_binding &&
         !target->provider.empty() && !target->model.empty()) {
         auto cwd_override = load_cwd_model_override(ctx.cwd);
         ModelProfile resumed_entry = resolve_effective_model(
             ctx.config, cwd_override, std::optional<SessionMeta>{*target});
         ApplyModelDeps deps;
-        deps.provider_slot = ctx.provider_slot;
+        deps.model_binding = ctx.model_binding;
         deps.sm = ctx.session_manager;
         deps.loop = &ctx.agent_loop;
         deps.cfg = &ctx.config;
@@ -1499,13 +1500,13 @@ static void cmd_resume(CommandContext& ctx, const std::string& args) {
     auto captured_sessions = sessions;
     auto* sm = ctx.session_manager;
     auto* al = &ctx.agent_loop;
-    auto* provider_slot = ctx.provider_slot;
+    auto* model_binding = ctx.model_binding;
     auto* config = &ctx.config;
     auto* token_tracker = &ctx.token_tracker;
     auto* tools = ctx.tools;
     std::string cwd = ctx.cwd;
     ctx.state.resume_callback = [&state = ctx.state, sm, al,
-                                 provider_slot, config, token_tracker, tools, cwd,
+                                 model_binding, config, token_tracker, tools, cwd,
                                  captured_sessions](const std::string& sid) {
         // resume 前应用 provider+model(任务 6.3)。和 do_resume_session 同源。
         const SessionMeta* target = nullptr;
@@ -1517,13 +1518,13 @@ static void cmd_resume(CommandContext& ctx, const std::string& args) {
         if (target && config) {
             resumed_model_state = deleted_model_state_from_meta(*config, *target);
         }
-        if (!resumed_model_state.has_value() && target && provider_slot && config &&
+        if (!resumed_model_state.has_value() && target && model_binding && config &&
             !target->provider.empty() && !target->model.empty()) {
             auto cwd_override = load_cwd_model_override(cwd);
             ModelProfile resumed_entry = resolve_effective_model(
                 *config, cwd_override, std::optional<SessionMeta>{*target});
             ApplyModelDeps deps;
-            deps.provider_slot = provider_slot;
+            deps.model_binding = model_binding;
             deps.sm = sm;
             deps.loop = al;
             deps.cfg = config;

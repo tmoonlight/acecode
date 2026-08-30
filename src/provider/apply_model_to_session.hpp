@@ -6,7 +6,7 @@
 #include "../config/config.hpp"
 #include "../config/saved_models.hpp"
 #include "../session/session_client.hpp"  // for SessionModelState
-#include "../session/session_registry.hpp"  // for SessionEntry::ProviderSlot
+#include "session_model_binding.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -22,15 +22,19 @@ struct ApplyModelResult {
 };
 
 struct ApplyModelDeps {
-    SessionEntry::ProviderSlot* provider_slot = nullptr;  // 必填
+    SessionModelBinding*        model_binding = nullptr;  // 必填
     SessionManager*             sm = nullptr;             // 选填:TUI 早期可能没有
     AgentLoop*                  loop = nullptr;           // 选填:用于 set_context_window
-    AppConfig*                  cfg = nullptr;            // 必填
+    const AppConfig*            cfg = nullptr;            // 必填
+    // Daemon adapters inject a resolver that snapshots under the process
+    // AppConfig lock. TUI callers can omit it and use cfg directly.
+    SessionModelResolver        resolver;
+    SessionModelTransitionCallback on_transition;
 };
 
 // 失败时抛 std::runtime_error,内容形如:
 //   - "config unavailable"        (cfg == nullptr)
-//   - "provider slot unavailable" (provider_slot == nullptr)
+//   - "model binding unavailable" (model_binding == nullptr)
 //   - "provider create failed: <原因>"  (create_provider_from_entry 返回 null)
 ApplyModelResult apply_model_to_session(const ModelProfile& profile,
                                          const ApplyModelDeps& deps);

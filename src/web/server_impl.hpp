@@ -241,7 +241,8 @@ struct WebServer::Impl {
     // 时必须允许模型列表、健康状态等 config 只读请求并发通过。settings
     // 变更、refresh_default_session_preferences、saved_models 落盘等写方
     // 必须保持独占。
-    mutable std::shared_mutex app_config_mu;
+    mutable std::shared_mutex owned_app_config_mu;
+    std::shared_mutex& app_config_mu;
 
     std::atomic<bool> shutdown_requested{false};
     mutable std::mutex listener_state_mu;
@@ -304,7 +305,10 @@ struct WebServer::Impl {
 
     explicit Impl(WebServerDeps d)
         : deps(std::move(d)),
-          runtime_port(deps.web_cfg ? deps.web_cfg->port : 0) {
+          runtime_port(deps.web_cfg ? deps.web_cfg->port : 0),
+          app_config_mu(deps.app_config_mutex
+              ? *deps.app_config_mutex
+              : owned_app_config_mu) {
         subagent_tracker_state->impl = this;
         start_attention_flusher();
         global_session_search = std::make_unique<GlobalSessionSearchService>(

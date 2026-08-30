@@ -3074,27 +3074,44 @@ static ModelProfile initialize_tui_provider_runtime(
     AppConfig& config,
     const std::string& working_dir,
     const std::optional<std::string>& cwd_override,
-    SessionEntry::ProviderSlot& provider_slot,
+    SessionModelBinding& model_binding,
     HookManager& hook_manager) {
     ModelProfile effective_entry =
         resolve_effective_model(config, cwd_override, std::nullopt);
-    {
-        std::lock_guard<std::mutex> lk(provider_slot.mu);
-        provider_slot.provider = create_provider_from_entry(effective_entry, &config);
+    auto snapshot = std::make_shared<AppConfig>(config);
+    SessionModelResolvedTarget target;
+    target.revision = current_saved_models_revision();
+    target.profile = effective_entry;
+    target.config = snapshot;
+    target.state = session_model_state_from_profile(*snapshot, effective_entry);
+    auto resolver = [snapshot, revision = target.revision](
+                        const std::string& name) {
+        SessionModelResolvedTarget resolved;
+        resolved.revision = revision;
+        resolved.config = snapshot;
+        const auto found = std::find_if(
+            snapshot->saved_models.begin(), snapshot->saved_models.end(),
+            [&name](const ModelProfile& profile) {
+                return profile.name == name;
+            });
+        if (found != snapshot->saved_models.end()) {
+            resolved.profile = *found;
+            resolved.state = session_model_state_from_profile(*snapshot, *found);
+        }
+        return resolved;
+    };
+    const auto installed = model_binding.install_explicit(
+        std::move(target), resolver);
+    if (!installed.ok) {
+        LOG_WARN("[main] no configured model provider; starting without an active model");
     }
-    std::shared_ptr<LlmProvider> provider;
-    {
-        std::lock_guard<std::mutex> lk(provider_slot.mu);
-        provider = provider_slot.provider;
-    }
+    auto provider = model_binding.provider_snapshot();
     if (provider) {
         // Startup must use the same profile-aware priority as session create,
         // switch, and resume. Calling the provider/model-only resolver here
         // bypassed an explicit saved-model context_window in TUI launches.
         config.context_window = resolve_model_profile_context_window(
             config, effective_entry, config.context_window);
-    } else {
-        LOG_WARN("[main] no configured model provider; starting without an active model");
     }
     auto payload =
         build_startup_models_loaded_payload(working_dir, effective_entry, provider);
@@ -4732,12 +4749,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     }
 
     auto cwd_override = load_cwd_model_override(working_dir);
-    SessionEntry::ProviderSlot provider_slot;
+    SessionModelBinding model_binding;
     ModelProfile initial_model_profile = initialize_tui_provider_runtime(
-        config, working_dir, cwd_override, provider_slot, hook_manager);
-    auto provider_accessor = [&provider_slot]() -> std::shared_ptr<LlmProvider> {
-        std::lock_guard<std::mutex> lk(provider_slot.mu);
-        return provider_slot.provider;
+        config, working_dir, cwd_override, model_binding, hook_manager);
+    auto provider_accessor = [&model_binding]() {
+        return model_binding.provider_snapshot();
     };
 
     ToolExecutor tools;
@@ -5258,11 +5274,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // 不晚于这些局部变量析构。
     {
         if (acecode::should_start_model_pool_monitor(config.saved_models)) {
-            auto on_pool_update = [&provider_slot, &config, &agent_loop]() {
+            auto on_pool_update = [&model_binding, &config, &agent_loop]() {
                 std::string model_id;
-                {
-                    std::lock_guard<std::mutex> lk(provider_slot.mu);
-                    if (provider_slot.provider) model_id = provider_slot.provider->model();
+                if (auto provider = model_binding.provider_snapshot()) {
+                    model_id = provider->model();
                 }
                 int pct = -1;
                 int eff = 0;
@@ -5429,8 +5444,66 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
     };
     agent_loop.set_callbacks(callbacks);
+    auto resolve_tui_model = [&config](const std::string& name) {
+        auto snapshot = std::make_shared<AppConfig>(config);
+        SessionModelResolvedTarget target;
+        target.revision = current_saved_models_revision();
+        target.config = snapshot;
+        const auto found = std::find_if(
+            snapshot->saved_models.begin(), snapshot->saved_models.end(),
+            [&name](const ModelProfile& profile) {
+                return profile.name == name;
+            });
+        if (found != snapshot->saved_models.end()) {
+            target.profile = *found;
+            target.state = session_model_state_from_profile(*snapshot, *found);
+        }
+        return target;
+    };
+    auto apply_tui_model_transition =
+        [&config, &agent_loop, &session_manager](
+            const SessionModelState& model_state,
+            const SessionModelTransition& transition) {
+            if (model_state.context_window > 0) {
+                config.context_window = model_state.context_window;
+                agent_loop.set_context_window(model_state.context_window);
+            }
+            if (!transition.provider_published &&
+                !transition.selection_changed) {
+                return true;
+            }
+            try {
+                return session_manager.set_active_provider(
+                    model_state.provider,
+                    model_state.model,
+                    model_state.name);
+            } catch (...) {
+                return false;
+            }
+        };
     std::function<void(const UserInput&)> submit_tui_input =
         [&](const UserInput& input) {
+            const auto reload = model_binding.ensure_current(
+                false,
+                [] { return current_saved_models_revision(); },
+                resolve_tui_model,
+                apply_tui_model_transition);
+            std::string reload_notice;
+            if (!reload.ok) {
+                LOG_WARN("[tui] model profile reload failed; using current provider");
+                reload_notice =
+                    "Warning: model profile reload failed; continuing with the current provider.";
+            } else if (!reload.warning.empty()) {
+                reload_notice = "Warning: " + reload.warning;
+            }
+            if (!reload_notice.empty()) {
+                screen.Post([&state, reload_notice] {
+                    std::lock_guard<std::mutex> lock(state.mu);
+                    state.conversation.push_back(
+                        {"system", reload_notice, false});
+                    state.chat_follow_tail = true;
+                });
+            }
             maybe_start_tui_auto_title(input);
             agent_loop.submit(input);
         };
@@ -5562,7 +5635,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 ModelProfile resumed_entry = resolve_effective_model(
                     config, cwd_override, std::optional<SessionMeta>{resumed_meta});
                 ApplyModelDeps deps;
-                deps.provider_slot = &provider_slot;
+                deps.model_binding = &model_binding;
                 deps.sm = &session_manager;
                 deps.loop = &agent_loop;
                 deps.cfg = &config;
@@ -5707,7 +5780,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                             CommandContext ctx{
                                 state,
                                 agent_loop,
-                                &provider_slot,
+                                &model_binding,
                                 config,
                                 token_tracker,
                                 permissions,
@@ -5744,7 +5817,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     if (resume_picker_on_startup) {
         CommandContext cmd_ctx{
-            state, agent_loop, &provider_slot,
+            state, agent_loop, &model_binding,
             config, token_tracker,
             permissions,
             [&screen]() { screen.Exit(); },
@@ -6154,7 +6227,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &provider_slot, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &ask_row_boxes, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_scrollbar_box, &ask_overlay_box, &ask_row_boxes, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
         if (event != Event::Custom &&
             !event.is_mouse() &&
             !event.is_cursor_position() &&
@@ -7480,7 +7553,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             // Slash command interception（用 expanded_prompt 派发：spec 4.3）。
             if (attachments.empty() && !expanded_prompt.empty() && expanded_prompt[0] == '/') {
                 CommandContext cmd_ctx{
-                    state, agent_loop, &provider_slot,
+                    state, agent_loop, &model_binding,
                     config, token_tracker,
                     permissions,
                     [&screen]() { screen.Exit(); },
@@ -8958,7 +9031,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         },
         &root_surface_index);
     run_tui_loop(screen, root_surface);
-    // 先停 model-pool 轮询线程:它的回调按引用捕获 provider_slot/config/agent_loop,
+    // 先停 model-pool 轮询线程:它的回调按引用捕获 model_binding/config/agent_loop,
     // 必须在这些局部变量析构前 join。g_active_screen 此时已被 run_tui_loop 清空,
     // 回调不会再 Post 到屏幕。stop() 幂等,未 start 也安全。
     acecode::model_pool_status_service().stop();

@@ -6,7 +6,7 @@
 #include "../config/config.hpp"
 #include "../utils/token_tracker.hpp"
 #include "../session/session_manager.hpp"
-#include "../session/session_registry.hpp"
+#include "../provider/session_model_binding.hpp"
 
 #include <memory>
 #include <mutex>
@@ -28,10 +28,9 @@ namespace tui { class SubagentHost; }
 struct CommandContext {
     TuiState& state;
     AgentLoop& agent_loop;
-    // ProviderSlot 持有当前 LlmProvider + mutex。读 provider 字段时,从 slot 拿
-    // shared_ptr 副本(`auto p = ctx.provider_slot->provider;`),保活引用不被
-    // 并发 swap 拽走;写(切模型)用 apply_model_to_session。
-    SessionEntry::ProviderSlot* provider_slot = nullptr;
+    // Shared daemon/TUI model lifecycle owner. Every provider read takes a
+    // shared_ptr snapshot; every install/reload goes through the binding.
+    SessionModelBinding* model_binding = nullptr;
     AppConfig& config;
     TokenTracker& token_tracker;
     PermissionManager& permissions;

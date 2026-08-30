@@ -11,12 +11,11 @@
 #include "../commands/init_command.hpp"
 #include "../commands/lsp_command.hpp"
 #include "../provider/apply_model_to_session.hpp"
-#include "../provider/copilot_provider.hpp"
 #include "../provider/cwd_model_override.hpp"
 #include "../provider/model_context_resolver.hpp"
 #include "../provider/model_pool_status.hpp"
 #include "../provider/model_resolver.hpp"
-#include "../provider/provider_factory.hpp"
+#include "../config/saved_models_revision.hpp"
 #include "../skills/skill_init.hpp"
 #include "../gitinfo/git_context_core.hpp"
 #include "../tool/mcp_manager.hpp"
@@ -201,16 +200,7 @@ std::optional<ModelProfile> explicit_profile(const AppConfig& cfg,
 
 SessionModelState state_from_profile(const AppConfig& cfg,
                                      const ModelProfile& profile) {
-    SessionModelState state;
-    state.name = profile.name;
-    state.provider = profile.provider;
-    state.model = profile.model;
-    // model id 与监控快照的 modelPoolName 精确命中时,用 0.8 * maxWindowTokens
-    // 作为有效上下文窗口(驱动占用% 与自动压缩)。手动 override 优先。
-    int eff = model_pool_status_service().effective_context_window_for(state.model);
-    state.context_window = resolve_runtime_model_profile_context_window_nonblocking(
-        cfg, profile, cfg.context_window, eff);
-    return state;
+    return session_model_state_from_profile(cfg, profile);
 }
 
 SessionModelState deleted_state_from_name(const std::string& name) {
@@ -231,83 +221,141 @@ void mark_deleted_if_model_name_missing(const AppConfig& cfg, SessionModelState&
 
 struct ResolvedSessionModel {
     SessionModelState state;
-    std::shared_ptr<LlmProvider> provider;
+    std::optional<ModelProfile> profile;
+    std::shared_ptr<const AppConfig> config;
+    std::shared_ptr<LlmProvider> runtime_provider;
+    SavedModelsRevision revision = 0;
 };
 
-ResolvedSessionModel resolve_from_profile(const AppConfig& cfg,
-                                          const ModelProfile& profile) {
+struct ModelConfigSnapshot {
+    std::shared_ptr<const AppConfig> config;
+    SavedModelsRevision revision = 0;
+};
+
+ModelConfigSnapshot snapshot_model_config(const SessionRegistryDeps& deps) {
+    if (!deps.config) return {};
+    if (deps.config_mutex) {
+        std::shared_lock<std::shared_mutex> lock(*deps.config_mutex);
+        return {
+            std::make_shared<AppConfig>(*deps.config),
+            current_saved_models_revision(),
+        };
+    }
+    return {
+        std::make_shared<AppConfig>(*deps.config),
+        current_saved_models_revision(),
+    };
+}
+
+SessionModelResolvedTarget resolve_target_for_name(
+    const SessionRegistryDeps& deps,
+    const std::string& name) {
+    auto snapshot = snapshot_model_config(deps);
+    SessionModelResolvedTarget target;
+    target.revision = snapshot.revision;
+    target.config = snapshot.config;
+    if (!snapshot.config) return target;
+    const auto found = std::find_if(
+        snapshot.config->saved_models.begin(),
+        snapshot.config->saved_models.end(),
+        [&name](const ModelProfile& candidate) {
+            return candidate.name == name;
+        });
+    if (found != snapshot.config->saved_models.end()) {
+        target.profile = *found;
+        target.state = session_model_state_from_profile(*snapshot.config, *found);
+    }
+    return target;
+}
+
+ResolvedSessionModel resolve_from_profile(
+    std::shared_ptr<const AppConfig> config,
+    SavedModelsRevision revision,
+    const ModelProfile& profile) {
     ResolvedSessionModel resolved;
-    resolved.state = state_from_profile(cfg, profile);
-    resolved.provider = create_provider_from_entry(profile, &cfg);
+    resolved.state = state_from_profile(*config, profile);
+    resolved.profile = profile;
+    resolved.config = std::move(config);
+    resolved.revision = revision;
     LOG_INFO("[registry] resolve_from_profile name='" + profile.name +
              "' provider='" + profile.provider + "' model='" + profile.model + "'");
-    // Copilot provider 持有 github_token_ + copilot_token_ 两层鉴权状态,
-    // create_provider_from_entry 只是构造空实例 — 必须显式 silent_auth 加载磁盘
-    // 上的 github_token,否则首次 chat() 直接报 "Copilot session token unavailable"。
-    // 比对 provider name 兼容 ModelProfile 中 provider 字段为空 / 大小写差异的场景:
-    // 优先用实际 provider 实例的 name() (来自 LlmProvider::name() override),
-    // 这一定是 "copilot" 当且仅当工厂确实构造了 CopilotProvider。
-    if (resolved.provider) {
-        const std::string actual_name = resolved.provider->name();
-        if (actual_name == "copilot") {
-            if (auto copilot = std::dynamic_pointer_cast<CopilotProvider>(resolved.provider)) {
-                LOG_INFO("[registry] running silent_auth for new Copilot provider instance");
-                if (!copilot->try_silent_auth()) {
-                    LOG_WARN("[registry] Copilot silent_auth failed for new session provider "
-                             "(model='" + profile.model + "'); user will see "
-                             "'session token unavailable' until re-authentication");
-                } else {
-                    LOG_INFO("[registry] Copilot silent_auth OK for new session provider");
-                }
-            }
-        }
-    }
     return resolved;
 }
 
 ResolvedSessionModel resolve_session_model(const SessionRegistryDeps& deps,
                                            const SessionOptions& opts,
                                            const SessionMeta* resumed_meta) {
-    if (deps.config) {
+    auto snapshot = snapshot_model_config(deps);
+    if (snapshot.config) {
+        const AppConfig& config = *snapshot.config;
         ModelProfile profile;
         std::optional<std::string> cwd_override;
         if (!opts.cwd.empty()) {
             cwd_override = load_cwd_model_override(opts.cwd);
         }
         if (!opts.model_name.empty()) {
-            auto explicit_match = explicit_profile(*deps.config, opts.model_name);
+            auto explicit_match = explicit_profile(config, opts.model_name);
             if (explicit_match.has_value()) {
                 profile = *explicit_match;
             } else {
                 LOG_WARN("[registry] requested model preset '" + opts.model_name +
                          "' not found; falling back to default saved model");
-                profile = resolve_effective_model(*deps.config, std::nullopt, std::nullopt);
+                profile = resolve_effective_model(config, std::nullopt, std::nullopt);
             }
         } else if (resumed_meta) {
             if (!resumed_meta->model_preset.empty() &&
-                find_profile_by_name(*deps.config, resumed_meta->model_preset) == nullptr) {
+                find_profile_by_name(config, resumed_meta->model_preset) == nullptr) {
                 LOG_WARN("[registry] session model preset '" + resumed_meta->model_preset +
                          "' was deleted from saved_models");
                 ResolvedSessionModel deleted;
                 deleted.state = deleted_state_from_name(resumed_meta->model_preset);
+                deleted.config = snapshot.config;
+                deleted.revision = snapshot.revision;
                 return deleted;
             }
             profile = resolve_effective_model(
-                *deps.config, cwd_override, std::optional<SessionMeta>{*resumed_meta});
+                config, cwd_override, std::optional<SessionMeta>{*resumed_meta});
         } else {
-            profile = resolve_effective_model(*deps.config, cwd_override, std::nullopt);
+            profile = resolve_effective_model(config, cwd_override, std::nullopt);
         }
-        return resolve_from_profile(*deps.config, profile);
+        return resolve_from_profile(
+            std::move(snapshot.config), snapshot.revision, profile);
     }
 
     auto [provider, model] = current_provider_model(deps, opts.model_name);
     ResolvedSessionModel resolved;
-    resolved.provider = deps.provider_accessor ? deps.provider_accessor() : nullptr;
+    resolved.runtime_provider =
+        deps.provider_accessor ? deps.provider_accessor() : nullptr;
     resolved.state.name = opts.model_name;
     resolved.state.provider = provider;
     resolved.state.model = model;
     resolved.state.context_window = 0;
+    resolved.revision = current_saved_models_revision();
     return resolved;
+}
+
+SessionModelTransitionCallback transition_for_entry(
+    const std::shared_ptr<SessionEntry>& entry) {
+    return [weak = std::weak_ptr<SessionEntry>(entry)](
+               const SessionModelState& state,
+               const SessionModelTransition& transition) {
+        auto active = weak.lock();
+        if (!active) return true;
+        if (active->loop && state.context_window > 0) {
+            active->loop->set_context_window(state.context_window);
+        }
+        if (!active->sm || (!transition.provider_published &&
+                            !transition.selection_changed)) {
+            return true;
+        }
+        try {
+            return active->sm->set_active_provider(
+                state.provider, state.model, state.name);
+        } catch (...) {
+            LOG_WARN("[session_model_binding] session metadata persistence failed");
+            return false;
+        }
+    };
 }
 
 SessionOptions with_resolved_workspace(const SessionRegistryDeps& deps,
@@ -805,11 +853,39 @@ SessionRegistry::make_entry_locked(const std::string& id,
         : (opts.workspace_hash.empty()
         ? compute_cwd_hash(entry->cwd)
         : opts.workspace_hash);
-    entry->provider = resolved_model.state.provider;
-    entry->model = resolved_model.state.model;
-    entry->model_state = resolved_model.state;
-    entry->provider_slot = std::make_shared<SessionEntry::ProviderSlot>();
-    entry->provider_slot->provider = std::move(resolved_model.provider);
+    entry->model_binding = std::make_shared<SessionModelBinding>();
+    if (resolved_model.profile.has_value() && resolved_model.config) {
+        SessionModelResolvedTarget target;
+        target.revision = resolved_model.revision;
+        target.profile = resolved_model.profile;
+        target.config = resolved_model.config;
+        target.state = resolved_model.state;
+        // Saved profiles must revalidate against the live config immediately
+        // before publication, including during initial create/resume. Ad-hoc
+        // `(session:<id>)` profiles stay on the explicit target inside the
+        // binding and never enter this saved-model resolver.
+        auto initial_resolver = [this](const std::string& name) {
+            return resolve_target_for_name(deps_, name);
+        };
+        const auto installed = entry->model_binding->install_explicit(
+            std::move(target), initial_resolver);
+        if (!installed.ok) {
+            LOG_WARN("[registry] initial session provider construction failed");
+            entry->model_binding->install_runtime_snapshot(
+                nullptr, resolved_model.state, resolved_model.revision);
+        } else if (!installed.warning.empty()) {
+            LOG_WARN("[registry] " + installed.warning);
+        }
+    } else {
+        entry->model_binding->install_runtime_snapshot(
+            std::move(resolved_model.runtime_provider),
+            resolved_model.state,
+            resolved_model.revision);
+    }
+    const auto initial_model_state = entry->model_binding->state_snapshot();
+    const AppConfig* entry_config = resolved_model.config
+        ? resolved_model.config.get()
+        : deps_.config;
     if (!entry->expert_id.empty()) {
         if (deps_.expert_registry) {
             entry->expert = deps_.expert_registry->find(entry->cwd, entry->expert_id);
@@ -847,11 +923,11 @@ SessionRegistry::make_entry_locked(const std::string& id,
     ensure_expert_mcp_servers_available(
         expert_scopes, deps_.mcp_manager, deps_.tools);
     entry->tool_capability_policy =
-        tool_policy_from_expert_scopes(expert_scopes, deps_.config);
+        tool_policy_from_expert_scopes(expert_scopes, entry_config);
 
-    if (deps_.config) {
+    if (entry_config) {
         entry->skill_registry = std::make_shared<SkillRegistry>();
-        initialize_skill_registry(*entry->skill_registry, *deps_.config,
+        initialize_skill_registry(*entry->skill_registry, *entry_config,
                                   entry->cwd, entry->expert_skill_roots,
                                   entry->expert_skill_allowlist);
     }
@@ -859,10 +935,10 @@ SessionRegistry::make_entry_locked(const std::string& id,
     // SessionManager
     entry->sm = std::make_unique<SessionManager>();
     entry->sm->start_session(entry->cwd,
-                             entry->model_state.provider,
-                             entry->model_state.model,
+                             initial_model_state.provider,
+                             initial_model_state.model,
                              id,
-                             entry->model_state.name,
+                             initial_model_state.name,
                              "daemon",
                              entry->no_workspace);
     if (!entry->parent_session_id.empty()) {
@@ -937,11 +1013,10 @@ SessionRegistry::make_entry_locked(const std::string& id,
     empty_cb.on_turn_finished = [this, id](const std::string& status) {
         handle_auto_title_turn_finished(id, status);
     };
-    auto slot = entry->provider_slot;
-    AgentLoop::ProviderAccessor provider_accessor = [slot]() -> std::shared_ptr<LlmProvider> {
-        if (!slot) return {};
-        std::lock_guard<std::mutex> lk(slot->mu);
-        return slot->provider;
+    auto binding = entry->model_binding;
+    AgentLoop::ProviderAccessor provider_accessor = [binding]() {
+        return binding ? binding->provider_snapshot()
+                       : std::shared_ptr<LlmProvider>{};
     };
     entry->loop = std::make_unique<AgentLoop>(
         provider_accessor,
@@ -952,11 +1027,11 @@ SessionRegistry::make_entry_locked(const std::string& id,
     entry->loop->set_no_model_config_prompt(
         u8"请先配置大模型服务。请打开 设置 > 模型 添加模型。");
 
-    if (deps_.config) {
-        entry->loop->set_context_window(entry->model_state.context_window > 0
-            ? entry->model_state.context_window
-            : deps_.config->context_window);
-        entry->loop->set_agent_loop_config(deps_.config->agent_loop);
+    if (entry_config) {
+        entry->loop->set_context_window(initial_model_state.context_window > 0
+            ? initial_model_state.context_window
+            : entry_config->context_window);
+        entry->loop->set_agent_loop_config(entry_config->agent_loop);
     }
     if (opts.loop_execution) {
         LoopExecutionPolicy policy;
@@ -994,8 +1069,8 @@ SessionRegistry::make_entry_locked(const std::string& id,
     // prompter 配默认等待窗口。已知限制:
     // 会话创建后策略变更不重建 prompter,timeout 秒数以创建时为准。
     std::chrono::milliseconds ask_timeout{0};
-    if (deps_.config) {
-        const auto& al = deps_.config->agent_loop;
+    if (entry_config) {
+        const auto& al = entry_config->agent_loop;
         const bool has_cli = !al.question_policy_cli.empty();
         const auto resolved = resolve_question_policy(
             has_cli ? al.question_policy_cli : al.question_policy,
@@ -1247,11 +1322,8 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
     const std::filesystem::path cwd = path_from_utf8(entry->cwd);
     const std::filesystem::path target = cwd / "AGENT.md";
 
-    bool provider_usable = false;
-    if (entry->provider_slot) {
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        provider_usable = static_cast<bool>(entry->provider_slot->provider);
-    }
+    const bool provider_usable = entry->model_binding &&
+        static_cast<bool>(entry->model_binding->provider_snapshot());
     if (!provider_usable) {
         std::error_code ec;
         if (std::filesystem::exists(target, ec)) {
@@ -1288,12 +1360,19 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
 
 std::optional<SessionModelState>
 SessionRegistry::current_model_state(const std::string& id) const {
-    std::lock_guard<std::mutex> lk(mu_);
-    auto it = entries_.find(id);
-    if (it == entries_.end() || !it->second) return std::nullopt;
-    auto state = it->second->model_state;
-    if (deps_.config) {
-        mark_deleted_if_model_name_missing(*deps_.config, state);
+    std::shared_ptr<SessionEntry> entry;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end() || !it->second) return std::nullopt;
+        entry = it->second;
+    }
+    auto state = entry->model_binding
+        ? entry->model_binding->state_snapshot()
+        : SessionModelState{};
+    const auto config_snapshot = snapshot_model_config(deps_);
+    if (config_snapshot.config) {
+        mark_deleted_if_model_name_missing(*config_snapshot.config, state);
     }
     return state;
 }
@@ -1303,7 +1382,10 @@ bool SessionRegistry::model_profile_used_by_busy_session(const std::string& mode
     std::lock_guard<std::mutex> lk(mu_);
     for (const auto& [id, entry] : entries_) {
         (void)id;
-        if (!entry || entry->model_state.name != model_name || !entry->loop) continue;
+        const auto state = entry && entry->model_binding
+            ? entry->model_binding->state_snapshot()
+            : SessionModelState{};
+        if (!entry || state.name != model_name || !entry->loop) continue;
         if (entry->loop->is_busy()) return true;
     }
     return false;
@@ -1316,17 +1398,30 @@ std::size_t SessionRegistry::sync_model_context_window(
         return 0;
     }
 
-    const int context_window = state_from_profile(*deps_.config, profile).context_window;
+    const auto config_snapshot = snapshot_model_config(deps_);
+    if (!config_snapshot.config) return 0;
+    const int context_window =
+        state_from_profile(*config_snapshot.config, profile).context_window;
     if (context_window <= 0) return 0;
 
+    std::vector<std::shared_ptr<SessionEntry>> entries;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        entries.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry) entries.push_back(entry);
+        }
+    }
     std::size_t updated = 0;
-    std::lock_guard<std::mutex> lk(mu_);
-    for (auto& [id, entry] : entries_) {
-        (void)id;
-        if (!entry || entry->model_state.name != model_name) continue;
-        entry->model_state.context_window = context_window;
-        if (entry->loop) entry->loop->set_context_window(context_window);
-        ++updated;
+    for (const auto& entry : entries) {
+        if (!entry->model_binding) continue;
+        if (entry->model_binding->synchronize_context_window(
+                model_name,
+                context_window,
+                transition_for_entry(entry))) {
+            ++updated;
+        }
     }
     if (updated > 0) {
         LOG_INFO("[session_registry] synchronized context_window=" +
@@ -1390,13 +1485,15 @@ void SessionRegistry::start_auto_title_attempt(const std::string& id,
     std::optional<ModelProfile> profile;
     const AppConfig* cfg = deps_.config;
     if (!title_generator) {
-        std::lock_guard<std::mutex> lk(mu_);
-        auto it = entries_.find(id);
-        if (it != entries_.end() && it->second && it->second->sm) {
+        auto entry = acquire(id);
+        if (entry && entry->sm) {
+            const auto model_state = entry->model_binding
+                ? entry->model_binding->state_snapshot()
+                : SessionModelState{};
             profile = resolve_auto_title_profile(
                 *deps_.config,
-                it->second->model_state.name,
-                it->second->cwd);
+                model_state.name,
+                entry->cwd);
         }
     }
 
@@ -1752,16 +1849,7 @@ bool SessionRegistry::switch_model(const std::string& id,
         return false;
     }
 
-    // Phase 1: under mu_, find the entry and capture per-session deps.
-    // We deliberately release mu_ before calling apply_model_to_session
-    // because the helper may do blocking I/O (Copilot silent_auth HTTPS
-    // exchange, set_active_provider meta write). Holding mu_ across that
-    // would block list_active / lookup / other switch_model calls in
-    // every active session.
     std::shared_ptr<SessionEntry> entry;
-    std::shared_ptr<SessionEntry::ProviderSlot> slot;
-    SessionManager* sm = nullptr;
-    AgentLoop* loop = nullptr;
     {
         std::lock_guard<std::mutex> lk(mu_);
         auto it = entries_.find(id);
@@ -1770,65 +1858,86 @@ bool SessionRegistry::switch_model(const std::string& id,
             return false;
         }
         entry = it->second;
-        if (!entry->provider_slot) {
-            entry->provider_slot = std::make_shared<SessionEntry::ProviderSlot>();
+        if (!entry->model_binding) {
+            entry->model_binding = std::make_shared<SessionModelBinding>();
         }
-        slot = entry->provider_slot;
-        sm = entry->sm.get();
-        loop = entry->loop.get();
     }
 
-    // Phase 2: lock-free helper call. provider_slot has its own internal
-    // mutex; sm and loop are stable for the lifetime of the SessionEntry,
-    // and apply_model_to_session does not access the registry.
-    ApplyModelDeps deps;
-    deps.provider_slot = slot.get();
-    deps.sm = sm;
-    deps.loop = loop;
-    deps.cfg = const_cast<AppConfig*>(deps_.config);
+    auto config_snapshot = snapshot_model_config(deps_);
+    if (!config_snapshot.config) {
+        if (error) *error = "config unavailable";
+        return false;
+    }
+    SessionModelResolver resolver = [this](const std::string& name) {
+        return resolve_target_for_name(deps_, name);
+    };
+
+    ApplyModelDeps apply_deps;
+    apply_deps.model_binding = entry->model_binding.get();
+    apply_deps.sm = entry->sm.get();
+    apply_deps.loop = entry->loop.get();
+    apply_deps.cfg = config_snapshot.config.get();
+    apply_deps.resolver = std::move(resolver);
+    apply_deps.on_transition = transition_for_entry(entry);
 
     ApplyModelResult result;
     try {
-        result = apply_model_to_session(profile, deps);
+        result = apply_model_to_session(profile, apply_deps);
     } catch (const std::exception& e) {
         if (error) *error = e.what();
         return false;
     }
 
-    // Phase 3: re-take mu_ to publish state into the entry. If the entry
-    // got destroyed in between, the helper already mutated the slot but
-    // the state writeback is moot — return success with the resolved
-    // state for the caller to consume.
-    {
-        std::lock_guard<std::mutex> lk(mu_);
-        auto it = entries_.find(id);
-        if (it != entries_.end() && it->second) {
-            auto& entry = *it->second;
-            entry.model_state = result.state;
-            entry.provider = result.state.provider;
-            entry.model = result.state.model;
-        }
+    if (out) *out = result.state;
+    if (!result.warning.empty()) {
+        LOG_WARN("[session_registry] " + result.warning);
+    }
+    return true;
+}
+
+std::optional<SessionModelReloadResult>
+SessionRegistry::reload_model_profile(const std::string& id, bool force) {
+    auto entry = acquire(id);
+    if (!entry) return std::nullopt;
+    if (!entry->model_binding || !deps_.config) {
+        SessionModelReloadResult result;
+        result.ok = false;
+        result.state = entry->model_binding
+            ? entry->model_binding->state_snapshot()
+            : SessionModelState{};
+        result.error = "model reload is unavailable";
+        return result;
     }
 
-    if (out) *out = result.state;
-    // 注意:result.warning(silent_auth / meta-persist 非致命退化)在
-    // 成功路径上不再写到 *error — error 只在失败时填,保持与重构前的
-    // 接口契约一致。warning 字段当前只走 LOG_WARN;若以后 HTTP handler
-    // 想把 warning 透给 UI,改 switch_model 签名加 string* warning。
-    return true;
+    SessionModelResolver resolver = [this](const std::string& name) {
+        return resolve_target_for_name(deps_, name);
+    };
+
+    auto result = entry->model_binding->ensure_current(
+        force,
+        [] { return current_saved_models_revision(); },
+        resolver,
+        transition_for_entry(entry));
+    if (!result.ok) {
+        LOG_WARN("[session_registry] model profile reload failed");
+    }
+    return result;
 }
 
 std::optional<SessionModelState>
 SessionRegistry::model_state_from_meta(const SessionMeta& meta) const {
     if (meta.id.empty() || !deps_.config) return std::nullopt;
+    const auto config_snapshot = snapshot_model_config(deps_);
+    if (!config_snapshot.config) return std::nullopt;
+    const auto& config = *config_snapshot.config;
     if (!meta.model_preset.empty() &&
-        find_profile_by_name(*deps_.config, meta.model_preset) == nullptr) {
+        find_profile_by_name(config, meta.model_preset) == nullptr) {
         return deleted_state_from_name(meta.model_preset);
     }
     auto profile = resolve_effective_model(
-        *deps_.config, std::nullopt, std::optional<SessionMeta>{meta});
-    auto state = state_from_profile(*deps_.config, profile);
-    mark_deleted_if_model_name_missing(*deps_.config, state);
+        config, std::nullopt, std::optional<SessionMeta>{meta});
+    auto state = state_from_profile(config, profile);
+    mark_deleted_if_model_name_missing(config, state);
     return state;
 }
 
@@ -1912,6 +2021,7 @@ void SessionRegistry::destroy(const std::string& id) {
 
 std::vector<SessionInfo> SessionRegistry::list_active() const {
     std::vector<SessionInfo> out;
+    const auto config_snapshot = snapshot_model_config(deps_);
     std::lock_guard<std::mutex> lk(mu_);
     out.reserve(entries_.size());
     for (const auto& [id, entry] : entries_) {
@@ -1951,9 +2061,11 @@ std::vector<SessionInfo> SessionRegistry::list_active() const {
         if (entry->perm) {
             info.permission_mode = PermissionManager::mode_name(entry->perm->mode());
         }
-        auto model_state = entry->model_state;
-        if (deps_.config) {
-            mark_deleted_if_model_name_missing(*deps_.config, model_state);
+        auto model_state = entry->model_binding
+            ? entry->model_binding->state_snapshot()
+            : SessionModelState{};
+        if (config_snapshot.config) {
+            mark_deleted_if_model_name_missing(*config_snapshot.config, model_state);
         }
         info.provider = model_state.provider;
         info.model = model_state.model;

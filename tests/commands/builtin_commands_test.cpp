@@ -4,6 +4,7 @@
 #include "commands/command_registry.hpp"
 #include "commands/desktop_command.hpp"
 #include "config/config.hpp"
+#include "config/saved_models_revision.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "permissions.hpp"
@@ -194,8 +195,7 @@ public:
     explicit ResumeCommandHarness(const std::string& hint)
         : cwd_(temp_cwd(hint))
         , loop_([this] {
-                    std::lock_guard<std::mutex> lk(provider_slot_.mu);
-                    return provider_slot_.provider;
+                    return model_binding_.provider_snapshot();
                 },
                 tools_,
                 acecode::AgentCallbacks{},
@@ -207,11 +207,12 @@ public:
             model_profile("mini", "gpt-mini", 64000),
         };
         config_.default_model_name = "default";
-        {
-            std::lock_guard<std::mutex> lk(provider_slot_.mu);
-            provider_slot_.provider = acecode::create_provider_from_entry(
-                config_.saved_models.front(), &config_);
-        }
+        model_binding_.install_runtime_snapshot(
+            acecode::create_provider_from_entry(
+                config_.saved_models.front(), &config_),
+            acecode::session_model_state_from_profile(
+                config_, config_.saved_models.front()),
+            acecode::current_saved_models_revision());
 
         create_target_session();
         sm_.start_session(cwd_.string(), "openai", "gpt-default");
@@ -230,7 +231,7 @@ public:
         acecode::CommandContext ctx{
             state_,
             loop_,
-            &provider_slot_,
+            &model_binding_,
             config_,
             tracker_,
             perms_,
@@ -263,7 +264,7 @@ public:
     acecode::TuiState state_;
     acecode::CommandRegistry registry_;
     acecode::SessionManager sm_;
-    acecode::SessionEntry::ProviderSlot provider_slot_;
+    acecode::SessionModelBinding model_binding_;
     acecode::ToolExecutor tools_;
     acecode::PermissionManager perms_;
     acecode::AppConfig config_;
@@ -312,8 +313,7 @@ public:
     explicit McpCommandHarness(const std::string& hint)
         : cwd_(temp_cwd(hint))
         , loop_([this] {
-                    std::lock_guard<std::mutex> lk(provider_slot_.mu);
-                    return provider_slot_.provider;
+                    return model_binding_.provider_snapshot();
                 },
                 tools_,
                 acecode::AgentCallbacks{},
@@ -332,7 +332,7 @@ public:
         acecode::CommandContext ctx{
             state_,
             loop_,
-            &provider_slot_,
+            &model_binding_,
             config_,
             tracker_,
             perms_,
@@ -356,7 +356,7 @@ public:
 
     acecode::TuiState state_;
     acecode::CommandRegistry registry_;
-    acecode::SessionEntry::ProviderSlot provider_slot_;
+    acecode::SessionModelBinding model_binding_;
     acecode::ToolExecutor tools_;
     acecode::McpManager mcp_;
     acecode::PermissionManager perms_;
@@ -1051,10 +1051,7 @@ TEST(BuiltinCommands, ModelSetDefaultWithoutNameOpensDefaultPickerOnly) {
     }
 
     EXPECT_EQ(h.config_.default_model_name, "mini");
-    auto provider = [&] {
-        std::lock_guard<std::mutex> lk(h.provider_slot_.mu);
-        return h.provider_slot_.provider;
-    }();
+    auto provider = h.model_binding_.provider_snapshot();
     ASSERT_NE(provider, nullptr);
     EXPECT_EQ(provider->model(), "gpt-default")
         << "default picker must not switch the current session model";
@@ -1063,6 +1060,31 @@ TEST(BuiltinCommands, ModelSetDefaultWithoutNameOpensDefaultPickerOnly) {
     ASSERT_TRUE(ifs.is_open());
     auto saved = nlohmann::json::parse(ifs);
     EXPECT_EQ(saved["default_model_name"], "mini");
+}
+
+// 触发场景:旧 TUI `/model add/edit/rm` 修改 running process 的 saved_models;
+// 期望三条命令都走共享 publisher 且各自只推进一次 revision。旧直写路径没有
+// 失效信号,历史会话会继续使用过期 Provider。
+TEST(BuiltinCommands, LegacyModelMutationsAdvanceRevisionExactlyOnce) {
+    ScopedHomeOverride home(fs::temp_directory_path() /
+        ("acecode_builtin_commands_home_" + std::to_string(std::random_device{}())));
+    ResumeCommandHarness h("model_mutation_revision");
+    acecode::save_config(h.config_, home.config_path().string());
+
+    auto before = acecode::current_saved_models_revision();
+    ASSERT_TRUE(h.dispatch(
+        "/model add name=third provider=openai model=gpt-third "
+        "base_url=http://127.0.0.1:9/v1 api_key=test-key"));
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+
+    before = acecode::current_saved_models_revision();
+    ASSERT_TRUE(h.dispatch("/model edit third model=gpt-third-v2"));
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+
+    before = acecode::current_saved_models_revision();
+    ASSERT_TRUE(h.dispatch("/model rm third"));
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+    EXPECT_EQ(h.config_.saved_models.size(), 2u);
 }
 
 TEST(BuiltinCommands, ClearAppliesExternalDefaultsToNextLazySessionWithoutEmptyFile) {
@@ -1086,10 +1108,7 @@ TEST(BuiltinCommands, ClearAppliesExternalDefaultsToNextLazySessionWithoutEmptyF
     EXPECT_EQ(h.sm_.list_sessions().size(), before)
         << "applying defaults after /clear must not create an empty session";
 
-    auto provider = [&] {
-        std::lock_guard<std::mutex> lk(h.provider_slot_.mu);
-        return h.provider_slot_.provider;
-    }();
+    auto provider = h.model_binding_.provider_snapshot();
     ASSERT_NE(provider, nullptr);
     EXPECT_EQ(provider->model(), "gpt-mini");
 

@@ -87,8 +87,8 @@ public:
 
     // After main.cpp swaps the provider, call this so subsequent meta updates
     // record the new provider/model name. Pure setter; thread-safe.
-    void set_active_provider(const std::string& provider, const std::string& model);
-    void set_active_provider(const std::string& provider,
+    bool set_active_provider(const std::string& provider, const std::string& model);
+    bool set_active_provider(const std::string& provider,
                              const std::string& model,
                              const std::string& model_preset);
     std::string current_model_preset() const;

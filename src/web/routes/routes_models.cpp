@@ -72,6 +72,10 @@ void WebServer::Impl::register_models() {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/sessions/<string>/model/reload").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
 
         // GET /api/models: 返回 saved_models
         CROW_ROUTE(app, "/api/models").methods(crow::HTTPMethod::GET)
@@ -427,6 +431,42 @@ void WebServer::Impl::register_models() {
             return with_cors(req, std::move(r));
         });
 
+        // POST /api/sessions/:id/model/reload: force an on-demand profile
+        // recheck for this session only. GET above remains side-effect free.
+        CROW_ROUTE(app, "/api/sessions/<string>/model/reload").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& sid) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.session_registry) return crow::response(503);
+
+            auto result = deps.session_registry->reload_model_profile(sid, true);
+            if (!result.has_value()) {
+                crow::response r(404);
+                r.body = R"({"error":"session not found"})";
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            if (!result->ok) {
+                crow::response r(500);
+                r.body = json{
+                    {"error", "MODEL_RELOAD_FAILED"},
+                    {"message", result->error.empty()
+                        ? "model profile reload failed"
+                        : result->error},
+                }.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+
+            json body{
+                {"outcome", to_string(result->outcome)},
+                {"model_state", model_state_to_json(result->state)},
+            };
+            if (!result->warning.empty()) body["warning"] = result->warning;
+            crow::response r(body.dump());
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        });
+
         // POST /api/sessions/:id/model body {name}: 切当前 effective model
         CROW_ROUTE(app, "/api/sessions/<string>/model").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req, const std::string& sid) {
@@ -561,47 +601,51 @@ void WebServer::Impl::register_models() {
             auto draft = parse_model_draft(body, err);
             if (!draft) return json_err(400, "BAD_REQUEST", err);
 
-            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
-            SettingsMutationOptions options;
-            options.config_path = deps.config_path;
-            options.live_config = deps.app_config;
-            const auto result = update_saved_model_setting(
-                url_name,
-                *draft,
-                options);
-            if (!result.ok) {
-                const bool validation =
-                    result.error_kind == SettingsMutationErrorKind::Validation;
-                const bool conflict = result.error_code == "NAME_TAKEN";
-                const bool not_found = result.error_code == "NOT_FOUND";
-                return json_err(
-                    conflict ? 409 : (not_found ? 404 : (validation ? 400 : 500)),
-                    validation
-                        ? (result.error_code.empty()
-                            ? "MODEL_VALIDATION"
-                            : result.error_code.c_str())
-                        : "PERSIST_FAILED",
-                    result.error);
-            }
+            ModelProfile updated;
+            {
+                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
+                SettingsMutationOptions options;
+                options.config_path = deps.config_path;
+                options.live_config = deps.app_config;
+                const auto result = update_saved_model_setting(
+                    url_name,
+                    *draft,
+                    options);
+                if (!result.ok) {
+                    const bool validation =
+                        result.error_kind == SettingsMutationErrorKind::Validation;
+                    const bool conflict = result.error_code == "NAME_TAKEN";
+                    const bool not_found = result.error_code == "NOT_FOUND";
+                    return json_err(
+                        conflict ? 409 : (not_found ? 404 : (validation ? 400 : 500)),
+                        validation
+                            ? (result.error_code.empty()
+                                ? "MODEL_VALIDATION"
+                                : result.error_code.c_str())
+                            : "PERSIST_FAILED",
+                        result.error);
+                }
 
-            // 找到刚改完的条目(name 可能与 url_name 不同)
-            const ModelProfile* updated = nullptr;
-            for (const auto& e : deps.app_config->saved_models) {
-                if (e.name == draft->name) { updated = &e; break; }
+                // 找到刚改完的条目(name 可能与 url_name 不同)，并在解锁前
+                // 复制；后续 registry 同步会自行获取同一 config 锁。
+                const auto found = std::find_if(
+                    deps.app_config->saved_models.begin(),
+                    deps.app_config->saved_models.end(),
+                    [&](const ModelProfile& profile) {
+                        return profile.name == draft->name;
+                    });
+                if (found == deps.app_config->saved_models.end()) {
+                    return json_err(500, "INVARIANT_BROKEN",
+                                    "post-update entry not found in saved_models");
+                }
+                updated = *found;
             }
-            if (!updated) {
-                // 理论不可达:update_saved_model 返回 OK 意味着条目已存在
-                // 且 name == draft->name。真走到这里说明并发突变或内部状态
-                // 异常 — 别静默吐空 body,显式 500 让前端能看到。
-                return json_err(500, "INVARIANT_BROKEN",
-                                "post-update entry not found in saved_models");
-            }
-            if (deps.session_registry && updated->name == url_name) {
-                deps.session_registry->sync_model_context_window(url_name, *updated);
+            if (deps.session_registry && updated.name == url_name) {
+                deps.session_registry->sync_model_context_window(url_name, updated);
             }
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            r.body = profile_to_json(*updated).dump();
+            r.body = profile_to_json(updated).dump();
             return with_cors(req, std::move(r));
         });
 

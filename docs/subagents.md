@@ -8,7 +8,7 @@
 参照 Claude Code 的 Task 工具语义,落在 ACECode 自己的多会话基建上:
 
 - **子代理 = SessionRegistry 里的一个普通会话**:独立 SessionManager / AgentLoop /
-  PermissionManager / ProviderSlot,上下文与父会话完全隔离。没有为子代理发明新的执行容器。
+  PermissionManager / SessionModelBinding,上下文与父会话完全隔离。没有为子代理发明新的执行容器。
 - **父上下文只吃回最终答复**:`wait=true` 时父会话阻塞至子会话本轮结束,把最后一条非空
   assistant 消息带回;子会话的中间过程(工具调用、流式输出)一个 token 都不进父上下文。
 - **持久化归属**:子会话 meta 记录 `parent_session_id`(空省略,老 meta 向后兼容)。

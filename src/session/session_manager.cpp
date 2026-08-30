@@ -716,12 +716,12 @@ std::string SessionManager::last_error() const {
     return last_error_;
 }
 
-void SessionManager::set_active_provider(const std::string& provider,
+bool SessionManager::set_active_provider(const std::string& provider,
                                          const std::string& model) {
-    set_active_provider(provider, model, std::string{});
+    return set_active_provider(provider, model, std::string{});
 }
 
-void SessionManager::set_active_provider(const std::string& provider,
+bool SessionManager::set_active_provider(const std::string& provider,
                                          const std::string& model,
                                          const std::string& model_preset) {
     std::lock_guard<std::mutex> lk(mu_);
@@ -729,8 +729,9 @@ void SessionManager::set_active_provider(const std::string& provider,
     model_name_ = model;
     model_preset_ = model_preset;
     if (created_) {
-        update_meta();
+        return update_meta();
     }
+    return true;
 }
 
 std::string SessionManager::current_model_preset() const {

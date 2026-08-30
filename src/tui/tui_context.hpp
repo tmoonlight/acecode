@@ -24,6 +24,7 @@
 #include "memory/memory_registry.hpp"
 #include "commands/command_registry.hpp"
 #include "provider/llm_provider.hpp"
+#include "provider/session_model_binding.hpp"
 
 namespace acecode {
 
@@ -44,7 +45,7 @@ struct TuiContext {
     SkillRegistry& skill_registry;
     MemoryRegistry& memory_registry;
     CommandRegistry& cmd_registry;
-    SessionEntry::ProviderSlot& provider_slot;
+    SessionModelBinding& model_binding;
     std::function<std::shared_ptr<LlmProvider>()> provider_accessor;
 
     // ---- Synchronization ----

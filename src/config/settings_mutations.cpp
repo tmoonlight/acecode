@@ -1,4 +1,5 @@
 #include "settings_mutations.hpp"
+#include "saved_models_revision.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -9,7 +10,8 @@ namespace {
 
 SettingsMutationResult finish_mutation(
     ConfigMutationResult mutation,
-    const SettingsMutationOptions& options) {
+    const SettingsMutationOptions& options,
+    bool publish_saved_models_revision = false) {
     SettingsMutationResult result;
     result.config = mutation.config;
     result.changed = mutation.changed;
@@ -24,7 +26,7 @@ SettingsMutationResult finish_mutation(
 
     result.ok = true;
     result.persisted = mutation.changed;
-    if (options.live_config) {
+    if (options.live_config && !publish_saved_models_revision) {
         *options.live_config = mutation.config;
     }
     if (!mutation.changed) {
@@ -42,9 +44,14 @@ SettingsMutationResult finish_mutation(
             result.error = runtime_error.empty()
                 ? "setting was saved but could not be applied live"
                 : std::move(runtime_error);
+            return result;
         }
-        return result;
     }
+
+    if (options.live_config && publish_saved_models_revision) {
+        publish_live_config(*options.live_config, mutation.config, true);
+    }
+    if (options.apply_live) return result;
 
     if (options.live_config) {
         result.runtime_status = SettingsRuntimeStatus::AppliedLive;
@@ -59,13 +66,15 @@ SettingsMutationResult finish_mutation(
 template <typename Mutator>
 SettingsMutationResult run_mutation(
     Mutator&& mutator,
-    const SettingsMutationOptions& options) {
+    const SettingsMutationOptions& options,
+    bool publish_saved_models_revision = false) {
     return finish_mutation(
         mutate_config(
             std::forward<Mutator>(mutator),
             options.config_path,
             options.live_config),
-        options);
+        options,
+        publish_saved_models_revision);
 }
 
 std::string saved_model_error(SavedModelEditError error) {
@@ -239,14 +248,16 @@ SettingsMutationResult add_saved_model_setting(
     SavedModelEditError edit_error = SavedModelEditError::OK;
     auto result = run_mutation(
         [draft, &edit_error](AppConfig& cfg, std::string& error) {
+            const auto before = cfg.saved_models;
             edit_error = add_saved_model(cfg, draft);
             if (edit_error != SavedModelEditError::OK) {
                 error = saved_model_error(edit_error);
                 return false;
             }
-            return true;
+            return !saved_model_lists_equal(before, cfg.saved_models);
         },
-        options);
+        options,
+        true);
     if (edit_error != SavedModelEditError::OK) {
         result.error_code = to_string(edit_error);
     }
@@ -260,15 +271,17 @@ SettingsMutationResult update_saved_model_setting(
     SavedModelEditError edit_error = SavedModelEditError::OK;
     auto result = run_mutation(
         [old_name, draft, &edit_error](AppConfig& cfg, std::string& error) {
+            const auto before = cfg.saved_models;
             edit_error =
                 update_saved_model(cfg, old_name, draft);
             if (edit_error != SavedModelEditError::OK) {
                 error = saved_model_error(edit_error);
                 return false;
             }
-            return true;
+            return !saved_model_lists_equal(before, cfg.saved_models);
         },
-        options);
+        options,
+        true);
     if (edit_error != SavedModelEditError::OK) {
         result.error_code = to_string(edit_error);
     }
@@ -289,14 +302,16 @@ SettingsMutationResult remove_saved_model_setting(
     SavedModelEditError edit_error = SavedModelEditError::OK;
     auto result = run_mutation(
         [name, &edit_error](AppConfig& cfg, std::string& error) {
+            const auto before = cfg.saved_models;
             edit_error = remove_saved_model(cfg, name);
             if (edit_error != SavedModelEditError::OK) {
                 error = saved_model_error(edit_error);
                 return false;
             }
-            return true;
+            return !saved_model_lists_equal(before, cfg.saved_models);
         },
-        options);
+        options,
+        true);
     if (edit_error != SavedModelEditError::OK) {
         result.error_code = to_string(edit_error);
     }

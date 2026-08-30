@@ -292,6 +292,7 @@ when known.
 | PUT | `/api/sessions/:id/permissions` | set session permission mode |
 | GET | `/api/sessions/:id/model` | read session model state |
 | POST | `/api/sessions/:id/model` | switch session model |
+| POST | `/api/sessions/:id/model/reload` | force reload the selected saved-model profile for one active session |
 | POST | `/api/sessions/:id/fork` | fork a transcript prefix |
 | POST | `/api/sessions/:id/file-checkpoints/:message_id/restore` | restore files to checkpoint |
 | GET | `/api/files` | list directory |
@@ -2300,6 +2301,51 @@ Returns current session model state:
   "deleted": false
 }
 ```
+
+This GET is side-effect free. It reports the current public model state (and
+may mark a saved-model name as deleted), but it never reconstructs or replaces
+the session Provider.
+
+### `POST /api/sessions/:id/model/reload`
+
+Forces the requested active session to re-resolve its selected saved-model
+profile and compare the effective Provider construction inputs. A successful
+request returns HTTP 200 with the existing public model-state shape nested in
+an outcome envelope:
+
+```json
+{
+  "outcome": "reloaded",
+  "model_state": {
+    "name": "gateway",
+    "provider": "openai",
+    "model": "gpt-5",
+    "context_window": 128000,
+    "deleted": false
+  },
+  "warning": "session metadata could not be persisted"
+}
+```
+
+`outcome` is one of:
+
+- `reloaded`: effective construction inputs changed and a new Provider was
+  published for future turns;
+- `already_current`: the selected profile resolves to the Provider already in
+  use; model state such as `context_window` may still be refreshed;
+- `unresolvable`: the selected name was deleted, renamed away, or is a
+  session-local ad-hoc profile. The existing Provider and model state remain in
+  use; deletion is not a live connection revocation.
+
+`warning` is omitted when empty. A warning is sanitized and non-fatal: for
+example, Provider publication can succeed even when best-effort session
+metadata persistence fails. Pre-publication construction or revalidation
+failure returns `500 MODEL_RELOAD_FAILED` and preserves the old Provider,
+state, and applied revision. Unknown sessions return 404; a server without a
+session registry returns 503.
+
+The operation is scoped to the named active session. It does not change the
+workspace, cwd model override, configured default model, or any other session.
 
 ### `POST /api/sessions/:id/model`
 

@@ -277,6 +277,26 @@ run('both composer variants deep-link model settings through the app callback', 
   assert.match(app, /onOpenModelSettings=\{\(\) => openSettingsSection\('models'\)\}/);
 });
 
+run('active refresh forces model reload while home refresh keeps defaults-only behavior', () => {
+  const chatView = source('components/ChatView.jsx');
+
+  // 触发场景:活动会话点击既有刷新控件;期望刷新列表并 POST 当前会话重载。
+  // 旧缺陷只调用 side-effect-free GET,所以模型配置实际上没有生效。
+  assert.match(
+    chatView,
+    /targetSid\s*\? \[api\.listModels\(\), api\.reloadSessionModel\(targetSid\)\]\s*: \[api\.listModels\(\), api\.getDefaultModel\(\), api\.getDefaultPermissionMode\(\)\]/s,
+  );
+  assert.match(chatView, /setModelState\(normalizeModelState\(stateResult\.value\?\.model_state\)\)/);
+  assert.match(chatView, /模型配置刷新失败:/);
+
+  // 触发场景:首页没有 session id;期望仍只刷新模型列表、默认模型和权限,
+  // 不能创建会话或调用 session reload。
+  const refreshBody = chatView.match(/const refreshSessionModels = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[api,/s)?.[1] || '';
+  assert.match(refreshBody, /api\.getDefaultModel\(\)/);
+  assert.match(refreshBody, /api\.getDefaultPermissionMode\(\)/);
+  assert.doesNotMatch(refreshBody, /createSession|switchModel/);
+});
+
 run('compressed composer controls fall back to one representative SVG icon', () => {
   const component = source('components/ComposerSessionControls.jsx');
   const styles = source('styles/globals.css');
