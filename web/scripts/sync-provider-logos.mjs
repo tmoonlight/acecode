@@ -33,6 +33,8 @@ function sanitizeSvg(raw, providerId) {
     .replace(/^\uFEFF/u, '')
     .replace(/<\?xml[\s\S]*?\?>/giu, '')
     .replace(/<!DOCTYPE[\s\S]*?>/giu, '')
+    .replace(/\r\n?/gu, '\n')
+    .replace(/[ \t]+$/gmu, '')
     .trim();
   if (!/<svg\b/iu.test(svg)) {
     throw new Error(`${providerId}: response is not SVG`);
