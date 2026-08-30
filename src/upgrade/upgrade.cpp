@@ -475,7 +475,7 @@ int run_upgrade_command(const AppConfig& config,
     out << "\n" << styled(out, ConsoleStyle::Cyan, "[4/4] Verifying and installing")
         << "\n";
     std::string sha_error;
-    const std::string actual_sha = acecode::sha256_file_hex(package_path.string(), &sha_error);
+    const std::string actual_sha = acecode::sha256_file_hex(package_path, &sha_error);
     if (actual_sha.empty()) {
         err << "acecode upgrade: " << sha_error << "\n";
         return 1;

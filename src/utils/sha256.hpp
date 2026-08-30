@@ -1,7 +1,10 @@
 #pragma once
 
+#include "utf8_path.hpp"
+
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
@@ -149,10 +152,13 @@ inline std::string sha256_hex(const std::string& input) {
     return sha.final_hex();
 }
 
-inline std::string sha256_file_hex(const std::string& path, std::string* error = nullptr) {
+// 参数取 std::filesystem::path 而不是窄字符串:Windows 上窄路径按本地代码页
+// 解释,路径含无法用当前代码页表示的字符时会打不开文件。
+inline std::string sha256_file_hex(const std::filesystem::path& path,
+                                   std::string* error = nullptr) {
     std::ifstream ifs(path, std::ios::binary);
     if (!ifs) {
-        if (error) *error = "failed to open file for SHA-256: " + path;
+        if (error) *error = "failed to open file for SHA-256: " + path_to_utf8(path);
         return "";
     }
     Sha256 sha;
@@ -166,7 +172,7 @@ inline std::string sha256_file_hex(const std::string& path, std::string* error =
         }
     }
     if (ifs.bad()) {
-        if (error) *error = "failed to read file for SHA-256: " + path;
+        if (error) *error = "failed to read file for SHA-256: " + path_to_utf8(path);
         return "";
     }
     return sha.final_hex();

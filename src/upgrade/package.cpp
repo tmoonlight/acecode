@@ -1,5 +1,7 @@
 #include "package.hpp"
 
+#include "utils/utf8_path.hpp"
+
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -92,7 +94,7 @@ bool apply_archive_permissions(const fs::path& path,
     if (ec) {
         if (error) {
             *error = "failed to restore zip entry permissions for " +
-                     path.string() + ": " + ec.message();
+                     path_to_utf8(path) + ": " + ec.message();
         }
         return false;
     }
@@ -151,7 +153,7 @@ bool extract_zip_to_staging(const fs::path& zip_path,
     }
 
     int zip_error = 0;
-    zip_t* archive = zip_open(zip_path.string().c_str(), ZIP_RDONLY, &zip_error);
+    zip_t* archive = zip_open(path_to_utf8(zip_path).c_str(), ZIP_RDONLY, &zip_error);
     if (!archive) {
         if (error) *error = "failed to open zip package";
         return false;
@@ -177,7 +179,7 @@ bool extract_zip_to_staging(const fs::path& zip_path,
             return false;
         }
 
-        fs::path dest = staging_dir / fs::path(trim_trailing_slashes(name));
+        fs::path dest = staging_dir / path_from_utf8(trim_trailing_slashes(name));
         if (!is_within_root(staging_dir, dest)) {
             if (error) *error = "zip entry escapes staging directory: " + name;
             zip_close(archive);
@@ -219,7 +221,7 @@ bool extract_zip_to_staging(const fs::path& zip_path,
         }
         std::ofstream ofs(dest, std::ios::binary);
         if (!ofs) {
-            if (error) *error = "failed to create staged file: " + dest.string();
+            if (error) *error = "failed to create staged file: " + path_to_utf8(dest);
             zip_fclose(zf);
             zip_close(archive);
             return false;
@@ -228,7 +230,7 @@ bool extract_zip_to_staging(const fs::path& zip_path,
         while ((n = zip_fread(zf, buf.data(), buf.size())) > 0) {
             ofs.write(buf.data(), static_cast<std::streamsize>(n));
             if (!ofs) {
-                if (error) *error = "failed to write staged file: " + dest.string();
+                if (error) *error = "failed to write staged file: " + path_to_utf8(dest);
                 zip_fclose(zf);
                 zip_close(archive);
                 return false;
@@ -294,7 +296,7 @@ std::optional<StagedPackage> validate_staged_package(const fs::path& staging_dir
 
     if (error) {
         *error = "staged package does not contain expected executable: " +
-                 exe_name.string();
+                 path_to_utf8(exe_name);
     }
     return std::nullopt;
 }
