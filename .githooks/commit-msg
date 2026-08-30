@@ -1,0 +1,43 @@
+#!/bin/sh
+#
+# 剔除 AI 工具自动追加的署名 trailer。
+#
+# 存在的理由:本仓库同时被多个 AI 工具改过(claude/*、codex/*、copilot/* 分支),
+# 每个工具各有各的开关,漏配一个就又混进署名。hook 是唯一对所有工具都生效的一道闸。
+# 著作权归仓库作者,提交历史不带第三方署名。
+#
+# 启用(每个克隆各做一次):
+#   git config core.hooksPath .githooks
+#
+# 只删署名元数据,不动提交信息正文 —— 描述 Copilot provider、Anthropic provider、
+# 复刻 Claude Code 功能的正常文字不受影响。
+#
+set -e
+
+MSG_FILE="$1"
+[ -f "$MSG_FILE" ] || exit 0
+
+TMP="$MSG_FILE.noattr"
+
+# 1) Co-Authored-By 指向 anthropic / copilot bot 的(型号名任意)
+# 2) Claude-Session 会话回链、裸的 claude.ai/code/session_ 链接
+# 3) "Generated with [Claude Code]" 之类的生成页脚
+# 人类协作者的 Co-authored-by 不匹配这些模式,原样保留。
+sed -E \
+  -e '/^[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:.*noreply@anthropic\.com>?[[:space:]]*$/d' \
+  -e '/^[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:.*[Cc]opilot.*@users\.noreply\.github\.com>?[[:space:]]*$/d' \
+  -e '/^[[:space:]]*[Cc]laude-[Ss]ession:[[:space:]]*https?:\/\/claude\.ai\//d' \
+  -e '/^[[:space:]]*https?:\/\/claude\.ai\/code\/session_[^[:space:]]*[[:space:]]*$/d' \
+  -e '/^[[:space:]]*(.*)?[Gg]enerated with \[?[Cc]laude [Cc]ode\]?/d' \
+  "$MSG_FILE" > "$TMP"
+
+# 删完可能在结尾留下悬空空行,收掉
+awk 'BEGIN{blank=0} {
+  if ($0 ~ /^[[:space:]]*$/) { blank++ }
+  else { while (blank-- > 0) print ""; blank=0; print }
+}' "$TMP" > "$TMP.trimmed"
+
+mv "$TMP.trimmed" "$MSG_FILE"
+rm -f "$TMP"
+
+exit 0
