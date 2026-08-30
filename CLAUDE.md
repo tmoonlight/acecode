@@ -52,6 +52,17 @@ Sub-agent sessions are **hidden from normal session lists** and surfaced only in
 
 MCP 工具调用同样响应 abort:`McpManager::invoke` 把阻塞的 JSON-RPC 调用放进 detached 工作线程,本线程 100ms 轮询 `ctx.abort_flag`,置位立即返回 `[Aborted]`(迟到响应整体丢弃,工作线程最多活到 cpp-mcp 内部 60s 超时)。不加这层时,慢 MCP 工具(实测 windows-mcp Snapshot 30+ 秒)会让停止请求在整个调用期间失效 —— 表现为「点停止提示已终止,busy 却持续到工具自己返回」。回归测试:`tests/tool/mcp_manager_test.cpp::AbortDuringSlowToolCallReturnsQuickly`(test server `--call-delay-ms`)。
 
+**视觉能力必须在四个面同源,别只接序列化层。** `model_has_vision`(来自 saved model 的 `vision` 能力标签)一度只有一个消费点 —— `openai_provider` 的序列化层,决定图片是发原图还是降级成文字句柄。工具注册、skill 索引、system prompt 三处都不知道这一位,于是**主模型自己能看图时,它没有任何信号知道自己能看**:工具表里摆着 `vision_analyze`、skill 索引里摆着 vision-image-reader,两者的触发条件都写成「当前模型不能可靠看图时」—— 这是个要模型自我评估的软条件,它评估不了,保守起见就调了。实测会话 20260830-024351-9599:主模型 `Aurora-aurora` 带 vision 标签、图片也确实发到了它手上,它却先 `skill_view` 再 `vision_analyze`,而子调用从候选里挑中的还是它自己,绕一圈用同一个模型看了同一张图,白烧约 5k token;用户说「你自己就能识图」之后它直接看图,一次成功。
+
+现在这一位从 `LlmProvider::supports_vision()`(基类默认 true fail-open,`OpenAICompatProvider` 返回 `model_has_vision_`)统一发散到四处:
+
+- **序列化层**(原有):`openai_content_for_message` 决定图片发原图还是降级成句柄文本。
+- **system prompt**:`# Environment` 多一行 `- Active model can read images directly: Yes|No`,后跟一句硬指令(Yes 时禁止调 `vision_analyze` / 加载该 skill,No 时指向 `vision_analyze`)。它只随模型切换变化,留在可缓存的静态前缀里不打穿 prompt cache。
+- **工具描述 + 执行门**:`vision_analyze` 的描述指向上面那一行的字面值而不是「不能可靠看图时」。执行时按 `(provider, model id)` 把当前模型从候选里剔除 —— **按 name 比会漏判**,同一个真实模型经常在 `saved_models` 里有多条别名(实测 `aurora` 与 `Aurora-aurora` 同指 openai/aurora)。当前模型自己能看图时隐式路径直接拒 `ACTIVE_MODEL_HAS_VISION`(在构造 provider 之前),显式点名自己同样拒,显式点名**另一个**视觉模型放行(要第二意见是合理的)。
+- **skill**:`vision-image-reader` 的 frontmatter description 把硬条件放在**最前面** —— skill 索引按预算从尾部截断,写在后面的关键条件会被切掉。
+
+`ToolContext` 的 `active_provider_name` / `active_model_id` / `active_model_can_read_images` 由 `AgentLoop::build_tool_context` 填;为空 = 未接线,一律 fail-open 维持旧行为(漏接线不该让唯一的视觉模型凭空消失)。**不要**改成「没 vision 就不注册 `vision_analyze`」:工具注册在启动时一次性完成(`main.cpp` / `worker.cpp` / `headless_runner.cpp` 各一次),而 `apply_model_to_session` 根本不碰 ToolExecutor,按启动模型 gate 会让用户中途 `/model` 切到无视觉模型后工具补不回来。磁盘上的图片对有视觉的主模型不是死路 —— `show_image` 会把文件挂成 `content_parts`,下一轮它就看得见。回归测试:`tests/tool/vision_subagent_tool_test.cpp` 的 7 个自调用防护用例 + `tests/prompt/system_prompt_test.cpp` 的三条 Environment 用例。改 `assets/seed/` 下的 skill 内容要同步 bump `assets/seed/seed.version` 与 `assets/seed/MANIFEST.json`(bundle_version + 该 skill 的 `skill_md_sha256`),`tests/skills/default_skill_seeder_test.cpp` 里硬编码的 bundle 版本也要跟着改。
+
 ### Thread Goals(/goal,复刻 Codex ext/goal)
 
 每 session 至多一个 goal,存项目级 `state.sqlite3`(`src/session/thread_goal_store.cpp`)。状态机:`active / paused / blocked / usage_limited / budget_limited / complete`,仅 `active` 参与自动 continuation(`AgentLoop::maybe_continue_goal`,空闲时注入 hidden `goal_context` user 消息开新回合;Plan mode 下不触发)。模型工具 `get_goal` / `create_goal` / `update_goal(complete|blocked)`;`/goal` 命令双端注册(TUI `goal_command.cpp`,daemon builtin 在 `session_registry.cpp`)。

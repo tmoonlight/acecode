@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-08-24.1",
+  "bundle_version": "2026-08-30.1",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
@@ -54,7 +54,7 @@
       "name": "vision-image-reader",
       "source_id": "acecode:vision-image-reader@2026-05-28",
       "relative_path": "acecode/vision-image-reader",
-      "skill_md_sha256": "0d25d73c86139280b2036dc761025ba90ca4c825bb49dd05f6d8e21fc8384a6f"
+      "skill_md_sha256": "890d2ef5d3b28a9673820b1fa936c892cc902d5a0fd13678cba35a4347e23281"
     }
   ],
   "experts": [

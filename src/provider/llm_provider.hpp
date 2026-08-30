@@ -220,6 +220,15 @@ public:
     // protocol; advertising support alone never fabricates native items.
     virtual bool supports_native_compaction() const { return false; }
 
+    // 当前 active 模型能否直接读取图片附件。system prompt 的 # Environment 段
+    // 与 vision_analyze 的自调用防护都读这一位:模型无法自我判定"我看得见图
+    // 吗",不把这个事实显式喂给它,它就会在自己已经能看图时仍绕道去调
+    // vision_analyze(实测会话 20260830-024351-9599:主模型 Aurora-aurora 带
+    // vision 标签,却先 skill_view 再 vision_analyze,子调用挑中的还是它自己)。
+    // 默认 true 是 fail-open,与 OpenAICompatProvider::model_has_vision_ 的默认
+    // 口径一致 —— 未接线的 provider 维持旧行为(照发图片、不额外限制)。
+    virtual bool supports_vision() const { return true; }
+
     virtual bool authenticate() { return true; }
 
 private:

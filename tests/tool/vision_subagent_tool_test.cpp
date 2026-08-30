@@ -460,3 +460,218 @@ TEST(VisionSubagentTool, ImagePathRejectedWhenNoVisionModel) {
     fs::remove_all(project_dir);
     fs::remove_all(cwd);
 }
+
+// ---------------------------------------------------------------------------
+// 自调用防护(回归会话 20260830-024351-9599)
+//
+// bug 表现:主模型 Aurora-aurora 自己就带 `vision` 能力标签、图片也确实发到了它
+// 手上,它却先 skill_view 了 vision-image-reader、再调 vision_analyze;子调用从
+// 候选里挑中的还是它自己,于是绕一圈用同一个模型看了同一张图,白烧约 5k token。
+// 用户制止后它直接看图,一次成功。
+//
+// 根因是模型无法自我判定"我看得见图吗",而工具/skill 只给了"当模型不能可靠看图
+// 时使用"这种软条件。下面这组用例守住修复后的硬约束。
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// 构造一个"当前模型自己能看图"的 ToolContext。model_profile() 把 model id 定为
+// `<name>-id`,这里保持一致,否则 (provider, model) 比对不上就测不到剔除逻辑。
+acecode::ToolContext ctx_with_active_model(const std::string& saved_model_name,
+                                           bool can_read_images) {
+    acecode::ToolContext ctx;
+    ctx.active_provider_name = "openai";
+    ctx.active_model_id = saved_model_name + "-id";
+    ctx.active_model_can_read_images = can_read_images;
+    return ctx;
+}
+
+acecode::AttachmentRecord dummy_image_record(const std::string& id) {
+    acecode::AttachmentRecord record;
+    record.id = id;
+    record.session_id = "sid";
+    record.name = "screen.png";
+    record.kind = "image";
+    record.mime_type = "image/png";
+    record.path = "C:/tmp/screen.png";
+    record.blob_url = "/api/sessions/sid/attachments/" + id + "/blob";
+    record.size_bytes = 3;
+    return record;
+}
+
+} // namespace
+
+// 触发场景:当前模型自己带 vision 标签,模型没指定 model_name 就调 vision_analyze
+//   —— 这正是那次会话里发生的事。
+// 期望行为:直接拒绝并给出 ACTIVE_MODEL_HAS_VISION,连 provider 都不构造。
+TEST(VisionSubagentTool, ActiveModelWithVisionIsRejectedInsteadOfCallingItself) {
+    acecode::AppConfig cfg;
+    cfg.saved_models.push_back(model_profile("vision-self", {"tool_use", "vision"}));
+
+    bool provider_was_constructed = false;
+    acecode::VisionSubagentToolOptions opts;
+    opts.provider_factory = [&](const acecode::ModelProfile&) {
+        provider_was_constructed = true;
+        return std::make_shared<CapturingProvider>();
+    };
+    auto tool = acecode::create_vision_analyze_tool(cfg, opts);
+
+    nlohmann::json args = {
+        {"prompt", "read it"},
+        {"attachment", acecode::attachment_to_json(dummy_image_record("att_self"))},
+    };
+    auto result = tool.execute(args.dump(), ctx_with_active_model("vision-self", true));
+
+    EXPECT_FALSE(result.success);
+    auto json = nlohmann::json::parse(result.output);
+    EXPECT_EQ(json["error"], "ACTIVE_MODEL_HAS_VISION");
+    EXPECT_FALSE(provider_was_constructed)
+        << "拒绝必须发生在构造 provider 之前,否则仍会付出一次真实往返";
+}
+
+// 触发场景:当前模型能看图,但系统里还有别的视觉模型,模型仍未指定 model_name。
+// 期望行为:照样拒绝。有别的视觉模型可用不构成绕道的理由 —— 自己看是最省的那条路。
+TEST(VisionSubagentTool, ActiveModelWithVisionIsRejectedEvenWhenOtherVisionModelsExist) {
+    acecode::AppConfig cfg;
+    cfg.saved_models.push_back(model_profile("vision-self", {"vision"}));
+    cfg.saved_models.push_back(model_profile("vision-other", {"vision"}));
+
+    auto tool = acecode::create_vision_analyze_tool(cfg);
+    nlohmann::json args = {
+        {"prompt", "read it"},
+        {"attachment", acecode::attachment_to_json(dummy_image_record("att_other"))},
+    };
+    auto result = tool.execute(args.dump(), ctx_with_active_model("vision-self", true));
+
+    EXPECT_FALSE(result.success);
+    auto json = nlohmann::json::parse(result.output);
+    EXPECT_EQ(json["error"], "ACTIVE_MODEL_HAS_VISION");
+}
+
+// 触发场景:当前模型能看图,但显式点名了另一个视觉模型。
+// 期望行为:放行 —— 显式换模型看是合理意图(想要第二意见),不属于"绕道调用自己"。
+TEST(VisionSubagentTool, ExplicitDifferentVisionModelStillWorksWhenActiveModelSees) {
+    acecode::AppConfig cfg;
+    cfg.saved_models.push_back(model_profile("vision-self", {"vision"}));
+    cfg.saved_models.push_back(model_profile("vision-other", {"vision"}));
+
+    auto provider = std::make_shared<CapturingProvider>();
+    acecode::ModelProfile selected;
+    acecode::VisionSubagentToolOptions opts;
+    opts.provider_factory = [&](const acecode::ModelProfile& profile) {
+        selected = profile;
+        return provider;
+    };
+    auto tool = acecode::create_vision_analyze_tool(cfg, opts);
+
+    nlohmann::json args = {
+        {"prompt", "read it"},
+        {"model_name", "vision-other"},
+        {"attachment", acecode::attachment_to_json(dummy_image_record("att_explicit_other"))},
+    };
+    auto result = tool.execute(args.dump(), ctx_with_active_model("vision-self", true));
+
+    EXPECT_TRUE(result.success) << result.output;
+    EXPECT_EQ(selected.name, "vision-other");
+}
+
+// 触发场景:当前模型能看图,模型显式点名了当前模型自己。
+// 期望行为:与隐式路径同样拒绝。两条路径行为必须一致,否则"显式指定"就成了绕过
+//   自调用防护的后门。
+TEST(VisionSubagentTool, ExplicitlyNamingTheActiveModelIsRejected) {
+    acecode::AppConfig cfg;
+    cfg.saved_models.push_back(model_profile("vision-self", {"vision"}));
+    cfg.saved_models.push_back(model_profile("vision-other", {"vision"}));
+
+    auto tool = acecode::create_vision_analyze_tool(cfg);
+    nlohmann::json args = {
+        {"prompt", "read it"},
+        {"model_name", "vision-self"},
+        {"attachment", acecode::attachment_to_json(dummy_image_record("att_self_named"))},
+    };
+    auto result = tool.execute(args.dump(), ctx_with_active_model("vision-self", true));
+
+    EXPECT_FALSE(result.success);
+    auto json = nlohmann::json::parse(result.output);
+    EXPECT_EQ(json["error"], "ACTIVE_MODEL_HAS_VISION");
+}
+
+// 触发场景:同一个真实模型在 saved_models 里有两条不同 name 的记录(实测用户
+//   config 里 `aurora` 与 `Aurora-aurora` 都指向 openai/aurora),模型未指定
+//   model_name。
+// 期望行为:两条都被剔除。剔除按 (provider, model id) 而不是按 saved model 的
+//   name —— 只比 name 的话,别名那条会活下来,"绕道调用自己"照样成立。
+TEST(VisionSubagentTool, AliasEntriesOfTheActiveModelAreAlsoExcluded) {
+    acecode::AppConfig cfg;
+    acecode::ModelProfile alias = model_profile("vision-self", {"vision"});
+    alias.name = "vision-self-alias"; // 同 provider + 同 model id,仅 name 不同
+    cfg.saved_models.push_back(model_profile("vision-self", {"vision"}));
+    cfg.saved_models.push_back(alias);
+
+    auto tool = acecode::create_vision_analyze_tool(cfg);
+    nlohmann::json args = {
+        {"prompt", "read it"},
+        {"attachment", acecode::attachment_to_json(dummy_image_record("att_alias"))},
+    };
+    auto result = tool.execute(args.dump(), ctx_with_active_model("vision-self", true));
+
+    EXPECT_FALSE(result.success);
+    auto json = nlohmann::json::parse(result.output);
+    EXPECT_EQ(json["error"], "ACTIVE_MODEL_HAS_VISION")
+        << "别名条目没被剔除,自调用防护被绕过";
+}
+
+// 触发场景:当前模型看不见图(工具存在的本来目的),系统里有一个视觉模型。
+// 期望行为:正常委托。自调用防护对这条主用途必须是 no-op。
+TEST(VisionSubagentTool, BlindActiveModelStillDelegatesNormally) {
+    acecode::AppConfig cfg;
+    cfg.saved_models.push_back(model_profile("text-only", {"tool_use"}));
+    cfg.saved_models.push_back(model_profile("vision-helper", {"vision"}));
+
+    auto provider = std::make_shared<CapturingProvider>();
+    acecode::ModelProfile selected;
+    acecode::VisionSubagentToolOptions opts;
+    opts.provider_factory = [&](const acecode::ModelProfile& profile) {
+        selected = profile;
+        return provider;
+    };
+    auto tool = acecode::create_vision_analyze_tool(cfg, opts);
+
+    nlohmann::json args = {
+        {"prompt", "read it"},
+        {"attachment", acecode::attachment_to_json(dummy_image_record("att_blind"))},
+    };
+    auto result = tool.execute(
+        args.dump(), ctx_with_active_model("text-only", /*can_read_images=*/false));
+
+    EXPECT_TRUE(result.success) << result.output;
+    EXPECT_EQ(selected.name, "vision-helper");
+}
+
+// 触发场景:ToolContext 没接线(独立 ToolExecutor 调用、老单测),active_provider_name
+//   为空。
+// 期望行为:fail-open —— 不剔除任何候选,维持旧行为。漏接线不该让唯一的视觉模型
+//   凭空消失,那会把工具在真正需要它的场景下也打死。
+TEST(VisionSubagentTool, UnwiredToolContextKeepsLegacyBehavior) {
+    acecode::AppConfig cfg;
+    cfg.saved_models.push_back(model_profile("vision-only", {"vision"}));
+
+    auto provider = std::make_shared<CapturingProvider>();
+    acecode::ModelProfile selected;
+    acecode::VisionSubagentToolOptions opts;
+    opts.provider_factory = [&](const acecode::ModelProfile& profile) {
+        selected = profile;
+        return provider;
+    };
+    auto tool = acecode::create_vision_analyze_tool(cfg, opts);
+
+    nlohmann::json args = {
+        {"prompt", "read it"},
+        {"attachment", acecode::attachment_to_json(dummy_image_record("att_unwired"))},
+    };
+    acecode::ToolContext ctx; // 刻意不设 active_provider_name / active_model_id
+    auto result = tool.execute(args.dump(), ctx);
+
+    EXPECT_TRUE(result.success) << result.output;
+    EXPECT_EQ(selected.name, "vision-only");
+}

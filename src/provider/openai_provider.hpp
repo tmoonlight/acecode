@@ -49,6 +49,7 @@ public:
     }
     bool model_has_vision() const { return model_has_vision_; }
     bool any_vision_model_available() const { return any_vision_model_available_; }
+    bool supports_vision() const override { return model_has_vision_; }
 
     // 运行时切换同-provider 的 entry 时,base_url / api_key 可能也变了。
     // 调用方假定在持 provider_mu 锁内调用 —— 不再加内部锁。

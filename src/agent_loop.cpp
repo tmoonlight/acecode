@@ -1129,6 +1129,13 @@ bool AgentLoop::active_estimate_exceeds_auto_threshold(
         estimate_message_tokens(request));
 }
 
+bool AgentLoop::active_model_can_read_images() const {
+    if (!provider_accessor_) return true;
+    const std::shared_ptr<LlmProvider> provider = provider_accessor_();
+    if (!provider) return true;
+    return provider->supports_vision();
+}
+
 std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
     std::vector<ChatMessage> context;
 
@@ -1144,7 +1151,8 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
         tools_, cwd_, skill_registry_, memory_registry_,
         memory_cfg_, project_instructions_cfg_,
         &tool_capability_policy_,
-        &worktree_state);
+        &worktree_state,
+        active_model_can_read_images());
     if (loop_execution_policy_.active &&
         !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
@@ -2120,7 +2128,8 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
         tools_, cwd_, skill_registry_, memory_registry_,
         memory_cfg_, project_instructions_cfg_,
         &tool_capability_policy_,
-        &worktree_state);
+        &worktree_state,
+        active_model_can_read_images());
     if (loop_execution_policy_.active && !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
         system_prompt += loop_execution_policy_.system_context;
@@ -2824,6 +2833,14 @@ ToolContext AgentLoop::build_tool_context(
     tool_ctx.scratch_dir = build_session_scratch_dir(cwd_, session_manager_);
     tool_ctx.preserve_full_output = true;
     tool_ctx.capability_policy = tool_capability_policy_;
+    // 模型身份在回合内固定(切换只发生在回合边界),所以在这里取一次快照即可。
+    if (provider_accessor_) {
+        if (const std::shared_ptr<LlmProvider> provider = provider_accessor_()) {
+            tool_ctx.active_provider_name = provider->name();
+            tool_ctx.active_model_id = provider->model();
+            tool_ctx.active_model_can_read_images = provider->supports_vision();
+        }
+    }
     tool_ctx.account_goal_usage = [this]() {
         account_goal_usage(0, true);
     };

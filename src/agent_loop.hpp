@@ -448,6 +448,12 @@ private:
     bool active_estimate_exceeds_auto_threshold(
         const UserInput* pending_input = nullptr) const;
     std::vector<ChatMessage> build_compaction_initial_context() const;
+
+    // 当前 provider 是否能直接读图。喂给 build_system_prompt 的 # Environment
+    // 段,也用于 vision_analyze 的自调用防护。provider 缺席时 fail-open 返回
+    // true(与 LlmProvider::supports_vision 默认同口径)。模型切换发生在回合
+    // 边界,所以同一回合内多次调用的结果一致,不会打穿 prompt cache 前缀。
+    bool active_model_can_read_images() const;
     void initialize_compact_window_state();
     void apply_compact_result(const CompactResult& result,
                               const std::string& trigger,

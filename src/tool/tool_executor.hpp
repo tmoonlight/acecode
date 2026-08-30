@@ -213,6 +213,16 @@ struct ToolContext {
     // the execution boundary so replayed/model-produced calls cannot bypass
     // provider schema filtering.
     std::optional<ToolCapabilityPolicy> capability_policy;
+
+    // 当前 active 模型的身份与视觉能力(AgentLoop 注入)。vision_analyze 用它把
+    // "当前模型"从候选视觉模型里剔除:主模型自己带 vision 标签时,子调用很容易
+    // 又挑中同一个模型,变成绕一圈用同一个模型看同一张图(实测会话
+    // 20260830-024351-9599 白烧了约 5k token)。空串 = 未接线,此时不做剔除以
+    // 维持旧行为。
+    std::string active_provider_name;
+    std::string active_model_id;
+    // 与 LlmProvider::supports_vision 同口径,默认 fail-open。
+    bool active_model_can_read_images = true;
 };
 
 // UI-only metadata contract: a successful structured file change under the

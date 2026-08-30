@@ -80,13 +80,17 @@ struct SystemPromptWorktreeState {
 // instructions, mutable memory index content, and full tool JSON schemas belong
 // outside this string so provider prompt caches can reuse the static prefix
 // across turns.
+// active_model_can_read_images: 当前模型能否直接看图片附件(来自
+// LlmProvider::supports_vision)。它只在切换模型时变化,所以留在可缓存的静态
+// 前缀里不会打穿 prompt cache。默认 true 是 fail-open,与 provider 基类同口径。
 std::string build_system_prompt(const ToolExecutor& tools, const std::string& cwd,
                                 const SkillRegistry* skills = nullptr,
                                 const MemoryRegistry* memory = nullptr,
                                 const MemoryConfig* memory_cfg = nullptr,
                                 const ProjectInstructionsConfig* project_instructions_cfg = nullptr,
                                 const ToolCapabilityPolicy* effective_tool_policy = nullptr,
-                                const SystemPromptWorktreeState* worktree = nullptr);
+                                const SystemPromptWorktreeState* worktree = nullptr,
+                                bool active_model_can_read_images = true);
 
 // Build provider-visible, session-scoped context blocks. These are assembled
 // for the current API request only and must not be persisted into the visible

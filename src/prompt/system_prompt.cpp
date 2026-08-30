@@ -102,7 +102,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
                                 const MemoryConfig* memory_cfg,
                                 const ProjectInstructionsConfig* project_instructions_cfg,
                                 const ToolCapabilityPolicy* effective_tool_policy,
-                                const SystemPromptWorktreeState* worktree) {
+                                const SystemPromptWorktreeState* worktree,
+                                bool active_model_can_read_images) {
     (void)cwd;
     (void)skills;
     (void)memory;
@@ -298,7 +299,21 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "- Shell: " << get_default_shell() << "\n"
         << "- Working directory: " << cwd << "\n"
         << "- Is directory a git repo: "
-        << (gitinfo::is_inside_git_repo(cwd) ? "Yes" : "No") << "\n";
+        << (gitinfo::is_inside_git_repo(cwd) ? "Yes" : "No") << "\n"
+        << "- Active model can read images directly: "
+        << (active_model_can_read_images ? "Yes" : "No") << "\n";
+    // 这一位是模型无法自我判定的事实。不说出来,模型看到工具表里有
+    // `vision_analyze`、skill 索引里有 vision-image-reader,就会在自己已经能看
+    // 图时仍绕道去调它们(实测会话 20260830-024351-9599)。软条件"当模型不能
+    // 可靠看图时"要求模型自我评估,这里换成它可直接读取的硬事实。
+    if (active_model_can_read_images) {
+        oss << "- You can inspect attached images yourself. Read them directly and "
+            << "do NOT call `vision_analyze` or load the vision-image-reader skill; "
+            << "both exist only for models that cannot see images.\n";
+    } else {
+        oss << "- You cannot see image attachments. Image parts arrive as text "
+            << "handles instead; use `vision_analyze` to inspect them.\n";
+    }
     if (worktree && worktree->active) {
         oss << "- Session worktree: active";
         if (!worktree->worktree_branch.empty()) {

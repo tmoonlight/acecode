@@ -536,3 +536,69 @@ TEST_F(SystemPromptTest, SwarmModeContextIsRequestLocalAndPolicyGated) {
         acecode::build_system_prompt(tools, temp_home.string());
     EXPECT_EQ(static_prompt.find("# Swarm Mode"), std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// # Environment 的视觉能力行(回归会话 20260830-024351-9599)
+//
+// bug 表现:主模型自己带 vision 能力、图片也确实发到了它手上,它却先 skill_view
+// 了 vision-image-reader、再调 vision_analyze 绕道看图。根因之一是 system prompt
+// 从头到尾没有一行告诉模型"你自己能不能看图" —— 而工具与 skill 的触发条件写的是
+// "当模型不能可靠看图时",这个"可靠"要模型自我评估,它评估不了,于是保守调用。
+// 这里把它变成模型可直接读取的硬事实。
+// ---------------------------------------------------------------------------
+
+// 场景:当前模型能看图(默认 fail-open 值)。
+// 期望行为:Environment 里写明 Yes,并显式禁止绕道调 vision_analyze / 加载
+//   vision-image-reader skill。
+TEST_F(SystemPromptTest, EnvironmentDeclaresActiveModelCanReadImages) {
+    acecode::ToolExecutor tools;
+    const std::string out = acecode::build_system_prompt(
+        tools, temp_home.string(),
+        /*skills=*/nullptr, /*memory=*/nullptr, /*memory_cfg=*/nullptr,
+        /*project_instructions_cfg=*/nullptr, /*effective_tool_policy=*/nullptr,
+        /*worktree=*/nullptr, /*active_model_can_read_images=*/true);
+
+    EXPECT_NE(out.find("- Active model can read images directly: Yes"),
+              std::string::npos);
+    EXPECT_NE(out.find("do NOT call `vision_analyze`"), std::string::npos);
+    EXPECT_EQ(out.find("- Active model can read images directly: No"),
+              std::string::npos);
+}
+
+// 场景:当前模型看不见图。
+// 期望行为:Environment 写明 No,并指向 vision_analyze —— 这条是该工具存在的
+//   本来用途,不能被上面的禁止文案连坐。
+TEST_F(SystemPromptTest, EnvironmentDeclaresActiveModelCannotReadImages) {
+    acecode::ToolExecutor tools;
+    const std::string out = acecode::build_system_prompt(
+        tools, temp_home.string(),
+        /*skills=*/nullptr, /*memory=*/nullptr, /*memory_cfg=*/nullptr,
+        /*project_instructions_cfg=*/nullptr, /*effective_tool_policy=*/nullptr,
+        /*worktree=*/nullptr, /*active_model_can_read_images=*/false);
+
+    EXPECT_NE(out.find("- Active model can read images directly: No"),
+              std::string::npos);
+    EXPECT_NE(out.find("use `vision_analyze` to inspect them"), std::string::npos);
+    EXPECT_EQ(out.find("do NOT call `vision_analyze`"), std::string::npos);
+}
+
+// 场景:同一模型能力下重复构建 system prompt。
+// 期望行为:逐字节相同。这一位只随模型切换变化,留在可缓存的静态前缀里才不会
+//   每回合打穿 prompt cache —— 与 StaticSystemPromptIsByteStableAcrossCalls
+//   守的是同一条不变量。
+TEST_F(SystemPromptTest, VisionEnvironmentLineIsByteStableForSameCapability) {
+    acecode::ToolExecutor tools;
+    const auto build = [&](bool can_read_images) {
+        return acecode::build_system_prompt(
+            tools, temp_home.string(),
+            /*skills=*/nullptr, /*memory=*/nullptr, /*memory_cfg=*/nullptr,
+            /*project_instructions_cfg=*/nullptr,
+            /*effective_tool_policy=*/nullptr,
+            /*worktree=*/nullptr, can_read_images);
+    };
+
+    EXPECT_EQ(build(true), build(true));
+    EXPECT_EQ(build(false), build(false));
+    // 能力不同必须产出不同前缀,否则这一位等于没注入。
+    EXPECT_NE(build(true), build(false));
+}
