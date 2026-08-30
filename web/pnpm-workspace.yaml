@@ -5,3 +5,10 @@ allowBuilds:
   core-js: true
   esbuild: true
   x-data-spreadsheet: true
+
+patchedDependencies:
+  # Remove the lookbehind in the email autolink regex: legacy WebKit
+  # (Safari < 16.4, e.g. macOS 12 WKWebView) cannot compile it, which made
+  # the whole frontend bundle fail to parse (blank screen). See the patch
+  # file for details.
+  mdast-util-gfm-autolink-literal@2.0.1: patches/mdast-util-gfm-autolink-literal@2.0.1.patch
