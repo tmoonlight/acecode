@@ -146,3 +146,10 @@ TEST(ThemePalette, DarkAndLightAccentsDiffer) {
     EXPECT_NE(l.ui.text_secondary, l.ui.text_dim);
     EXPECT_NE(d.diff.bg_added_line, l.diff.bg_added_line);
 }
+
+// 场景:每次 swap_theme_palette() 都递增主题版本计数器,供渲染缓存键使用
+TEST(ThemePalette, VersionBumpsOnSwap) {
+    const auto v0 = acecode::tui::theme_palette_version();
+    acecode::tui::swap_theme_palette("dark");
+    EXPECT_GT(acecode::tui::theme_palette_version(), v0);
+}

@@ -11,6 +11,7 @@
 
 #include <array>
 #include <string_view>
+#include <vector>
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
@@ -709,6 +710,16 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
 // Main entry point
 // ---------------------------------------------------------------------------
 
+// Render a list of block-level tokens into an FTXUI Element tree. Behavior is
+// identical to the block-formatting half of format_markdown, so callers can
+// reuse a token stream without re-running normalize/strip_xml/lex.
+Element render_token_blocks(const std::vector<Token>& tokens,
+                            const FormatOptions& opts) {
+    FormatContext ctx;
+    ctx.opts = opts;
+    return format_blocks(tokens, ctx);
+}
+
 Element format_markdown(const std::string& raw_text, const FormatOptions& opts) {
     // Step 1: Strip XML tags
     std::string content = opts.strip_xml ? strip_xml_tags(raw_text) : raw_text;
@@ -723,139 +734,95 @@ Element format_markdown(const std::string& raw_text, const FormatOptions& opts) 
         normalized += content[i];
     }
 
-    // Step 3: Lex
-    auto tokens = lex(normalized);
-
-    // Debug: log token types
-    // {
-    //     std::string token_summary = "MD lex: " + std::to_string(tokens.size()) + " blocks [";
-    //     for (size_t i = 0; i < tokens.size() && i < 10; i++) {
-    //         if (i > 0) token_summary += ", ";
-    //         switch (tokens[i].type) {
-    //             case TokenType::Heading:   token_summary += "H" + std::to_string(tokens[i].depth); break;
-    //             case TokenType::Paragraph: token_summary += "P"; break;
-    //             case TokenType::Code:      token_summary += "Code"; break;
-    //             case TokenType::List:      token_summary += "List"; break;
-    //             case TokenType::Table:     token_summary += "Table"; break;
-    //             case TokenType::Blockquote:token_summary += "BQ"; break;
-    //             case TokenType::Space:     token_summary += "Sp"; break;
-    //             case TokenType::Hr:        token_summary += "Hr"; break;
-    //             default:                   token_summary += "?"; break;
-    //         }
-    //     }
-    //     if (tokens.size() > 10) token_summary += "...";
-    //     token_summary += "]";
-
-    //     // Also log inline token info for first Paragraph
-    //     for (const auto& t : tokens) {
-    //         if (t.type == TokenType::Paragraph && !t.children.empty()) {
-    //             token_summary += " para_inline=" + std::to_string(t.children.size()) + "[";
-    //             for (size_t j = 0; j < t.children.size() && j < 8; j++) {
-    //                 if (j > 0) token_summary += ",";
-    //                 switch (t.children[j].type) {
-    //                     case TokenType::Text:    token_summary += "T"; break;
-    //                     case TokenType::Strong:  token_summary += "**"; break;
-    //                     case TokenType::Em:      token_summary += "*"; break;
-    //                     case TokenType::CodeSpan:token_summary += "`"; break;
-    //                     case TokenType::Link:    token_summary += "Lnk"; break;
-    //                     default:                 token_summary += "?"; break;
-    //                 }
-    //             }
-    //             token_summary += "]";
-    //             break;
-    //         }
-    //     }
-    //     LOG_DEBUG(token_summary);
-    // }
-
-    // Step 4: Format tokens
-    FormatContext ctx;
-    ctx.opts = opts;
-
-    Elements blocks;
-    for (const auto& token : tokens) {
-        blocks.push_back(format_block_token(token, ctx));
-    }
-
-    if (blocks.empty()) return text("");
-
-    auto result = vbox(std::move(blocks));
-
-    return result;
+    // Step 3: Lex + render block tokens
+    return render_token_blocks(lex(normalized), opts);
 }
 
 // ---------------------------------------------------------------------------
 // Streaming formatter
 // ---------------------------------------------------------------------------
 
+// Freeze-safety and code-fence detection are shared with the incremental
+// LexerState (declared in markdown_lexer.hpp), so the stable-boundary rules
+// cannot drift between the resumable lexer and the streaming formatter.
+
 Element StreamingFormatter::append_delta(const std::string& delta,
                                          const FormatOptions& opts) {
+    // Build Elements for the stable tokens not yet in stable_elements_. After
+    // a reset()/replay this covers all stable tokens; for a normal append it
+    // covers only the newly frozen ones (new_stable_count()).
+    auto build_new_stable = [&]() {
+        const std::size_t new_count = lexer_.new_stable_count();
+        if (new_count == 0) return;
+        const auto& stable = lexer_.stable_tokens();
+        const std::size_t begin = stable.size() - new_count;
+        for (std::size_t k = begin; k < stable.size(); ++k) {
+            stable_elements_.push_back(
+                render_token_blocks({stable[k]}, opts));
+        }
+        // R14: rebuild the cached stable vbox only when stable_elements_ grew,
+        // so a per-frame append_delta does not copy the whole stable vector.
+        stable_vbox_ = vbox(stable_elements_);
+    };
+
+    // A width change invalidates the per-token Element cache. set_context owns
+    // the normal invalidation path (it is called with the same width used here
+    // before the first append); this check is a defensive fallback so a width
+    // mismatch can never mix stale and fresh wrapping. The accumulated
+    // full_content_ is replayed through the lexer, so a mid-stream width
+    // change (a resize or Ctrl+O changes streaming_render_width without
+    // calling set_context) rebuilds every previously streamed block at the
+    // new width instead of dropping it from the view.
+    if (width_ != opts.terminal_width) {
+        lexer_.reset();
+        stable_elements_.clear();
+        stable_vbox_ = ftxui::emptyElement();
+        width_ = opts.terminal_width;
+        // Replay the content accumulated before this delta so the stable
+        // region and stable_elements_ return to their pre-change state under
+        // the new width; the new delta is appended below.
+        if (!full_content_.empty()) {
+            lexer_.append(full_content_);
+            build_new_stable();
+        }
+    }
+
+    lexer_.append(delta);
     full_content_ += delta;
+    build_new_stable();
+    auto tail = lexer_.tail_tokens();
+    Element tail_elem = tail.empty() ? emptyElement()
+                                     : render_token_blocks(tail, opts);
+    // stable_vbox_ is the cached vbox of stable_elements_, rebuilt only when
+    // new stable tokens are added (R14); using it here avoids an O(#stable)
+    // vector copy on every frame.
+    Element stable_elem = stable_vbox_;
+    last_element_ = (tail.empty())
+        ? stable_elem : vbox({stable_elem, tail_elem});
+    return last_element_;
+}
 
-    // Find the stable prefix boundary: the last complete top-level block.
-    // We look for the position after the last double-newline (block boundary).
-    size_t stable_end = 0;
-    size_t search_pos = 0;
+const Element& StreamingFormatter::last_element() const {
+    return last_element_;
+}
 
-    // Find block boundaries (double newlines not inside code fences)
-    bool in_code_fence = false;
-    size_t last_block_end = 0;
-
-    for (size_t i = 0; i < full_content_.size(); i++) {
-        // Track code fences
-        if (i == 0 || (i > 0 && full_content_[i - 1] == '\n')) {
-            // Check for code fence at start of line
-            size_t j = i;
-            while (j < full_content_.size() && (full_content_[j] == ' ' || full_content_[j] == '\t')) j++;
-            int bt_count = 0;
-            char fence_ch = 0;
-            if (j < full_content_.size() && (full_content_[j] == '`' || full_content_[j] == '~')) {
-                fence_ch = full_content_[j];
-                while (j < full_content_.size() && full_content_[j] == fence_ch) { bt_count++; j++; }
-                if (bt_count >= 3) {
-                    in_code_fence = !in_code_fence;
-                }
-            }
-        }
-
-        // Track double-newlines as block boundaries (not inside code fences)
-        if (!in_code_fence && full_content_[i] == '\n' &&
-            i + 1 < full_content_.size() && full_content_[i + 1] == '\n') {
-            last_block_end = i + 2;
-        }
+void StreamingFormatter::set_context(int width, std::uint32_t theme_version) {
+    if (width != width_ || theme_version != theme_) {
+        lexer_.reset();
+        stable_elements_.clear();
+        stable_vbox_ = ftxui::emptyElement();
+        last_element_ = text("");
     }
-
-    // If we're inside a code fence, don't advance stable prefix past last boundary
-    if (!in_code_fence && last_block_end > 0) {
-        stable_end = last_block_end;
-    }
-
-    if (stable_end > stable_prefix_.size()) {
-        // Stable prefix grew — update cache
-        stable_prefix_ = full_content_.substr(0, stable_end);
-        cached_stable_ = format_markdown(stable_prefix_, opts);
-    }
-
-    // Render everything
-    if (stable_prefix_.empty()) {
-        // No stable prefix — render everything as unstable
-        return format_markdown(full_content_, opts);
-    }
-
-    // Render unstable suffix
-    std::string unstable = full_content_.substr(stable_prefix_.size());
-    if (unstable.empty()) {
-        return cached_stable_;
-    }
-
-    Element unstable_elem = format_markdown(unstable, opts);
-    return vbox({cached_stable_, unstable_elem});
+    width_ = width;
+    theme_ = theme_version;
 }
 
 void StreamingFormatter::reset() {
+    lexer_.reset();
+    stable_elements_.clear();
+    stable_vbox_ = ftxui::emptyElement();
     full_content_.clear();
-    stable_prefix_.clear();
-    cached_stable_ = text("");
+    last_element_ = text("");
 }
 
 } // namespace acecode::markdown
