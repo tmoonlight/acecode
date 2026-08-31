@@ -115,7 +115,6 @@ bool term_program_whitelisted(const std::string& value) {
         "WezTerm",
         "ghostty",
         "vscode",          // VS Code 内嵌终端(xterm.js)
-        "Apple_Terminal",  // macOS Terminal.app
         "WarpTerminal",
         "contour",
         "mintty",
