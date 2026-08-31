@@ -179,6 +179,7 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/config/model_provider_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/config/request_headers.cpp
     ${CMAKE_SOURCE_DIR}/src/config/saved_models.cpp
+    ${CMAKE_SOURCE_DIR}/src/provider/builtin_model_catalog.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/platform_posix.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/platform_windows.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/runtime_files.cpp
@@ -198,6 +199,7 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/clipboard.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/cwd_hash.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/encoding.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/model_capabilities.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/paths.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/state_file.cpp
 )
