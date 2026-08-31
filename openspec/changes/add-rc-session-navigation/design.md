@@ -44,6 +44,29 @@ All aliases use the same grammar after trimming surrounding whitespace:
 - Positive number: select from the most recently displayed snapshot. If no snapshot exists yet, build the default newest-ten snapshot first. Zero, malformed, or out-of-range numbers return a clear error without changing the binding.
 - Unknown arguments return compact usage text and never enter the agent conversation.
 
+Every accepted command first reuses the Hub acknowledgement already queued at the
+RC acceptance linearization point (`思考中...`). Catalog scans, search-index refresh,
+session resume, and channel activation therefore cannot delay the first user-visible
+response. Every non-stale command then emits a terminal result (list, usage/error, or
+selection success); stale work created by an already replaced binding remains silent so
+it cannot write into the replacement conversation.
+
+Numeric selection emits exactly one final success message after the replacement binding
+has committed:
+
+```text
+切换到「<title-or-session-id>」会话成功
+当前上下文：<prompt_tokens> / <context_window> tokens
+```
+
+`prompt_tokens` uses the selected active session's latest provider-reported prompt usage,
+which is the same numerator used by the Web context budget. `context_window` uses that
+session's effective model context window. If usage is unavailable while the limit is
+known, the second line is `当前上下文：暂无用量 / <context_window> tokens`; if the limit
+itself is unavailable, it is `当前上下文：暂不可用`. Session selection must suppress the
+generic new-connection announcement so a switch does not produce two competing success
+messages.
+
 Every displayed row contains its one-based number, title with a session-id fallback, workspace label (`无工作区` for no-workspace), and updated time. Long output may be emitted in bounded chunks, but numbering remains continuous.
 
 Search matches title, summary, session id, workspace name/path, and indexed visible user-message content. Ranking is deterministic; ties use newest `updated_at` first.
