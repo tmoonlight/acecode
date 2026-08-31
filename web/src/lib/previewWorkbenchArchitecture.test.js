@@ -98,6 +98,28 @@ run('details close button hides the panel without closing tabs or Browser pages'
   assert.match(chat, /const showBrowserPage[\s\S]*setPreviewPanelHidden\(false\)/);
 });
 
+run('middle-click on a preview tab closes it via auxclick and suppresses autoscroll on mousedown', () => {
+  const preview = source('../components/PreviewDetailsPanel.jsx');
+
+  // The tab button routes middle-click close through onAuxClick -> onCloseTab,
+  // reusing the same close path as the close button and the context menu
+  // (which inherits the unsaved-draft confirmation in ChatView).
+  assert.match(
+    preview,
+    /onAuxClick=\{\(event\) => \{[\s\S]*?event\.button === 1[\s\S]*?event\.preventDefault\(\)[\s\S]*?onCloseTab\?\.\(tab\.key\)/,
+  );
+
+  // mousedown for the middle button only suppresses the browser autoscroll
+  // cursor; it must NOT close the tab (closing happens on auxclick).
+  const mousedownBody = between(
+    preview,
+    'const handleTabMouseDown = useCallback',
+    'if (event.button !== 0) return;',
+  );
+  assert.match(mousedownBody, /event\.button === 1[\s\S]*event\.preventDefault\(\)[\s\S]*return;/);
+  assert.doesNotMatch(mousedownBody, /onCloseTab/);
+});
+
 run('dirty file tabs show a solid dot and every destructive tab action is guarded', () => {
   const preview = source('../components/PreviewDetailsPanel.jsx');
   const chat = source('../components/ChatView.jsx');
