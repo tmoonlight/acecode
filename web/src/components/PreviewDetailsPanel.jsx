@@ -692,6 +692,14 @@ export function PreviewDetailsPanel({
   ]);
 
   const handleTabMouseDown = useCallback((event, tabKey) => {
+    if (event.button === 1) {
+      // Middle mouse button: suppress the browser's autoscroll cursor.
+      // The actual close is triggered on auxclick (see tab button below);
+      // preventDefault on mousedown only blocks the default autoscroll
+      // action and does not prevent the subsequent auxclick from firing.
+      event.preventDefault();
+      return;
+    }
     if (event.button !== 0) return;
     if (tabDragRef.current) return;
     if (event.target?.closest?.('.ace-preview-details-tab-close')) return;
@@ -864,6 +872,12 @@ export function PreviewDetailsPanel({
                   title={tab.path || label}
                   onPointerDown={(event) => handleTabPointerDown(event, tab.key)}
                   onMouseDown={(event) => handleTabMouseDown(event, tab.key)}
+                  onAuxClick={(event) => {
+                    if (event.button === 1) {
+                      event.preventDefault();
+                      onCloseTab?.(tab.key);
+                    }
+                  }}
                   onClick={(event) => {
                     if (suppressTabClickRef.current) {
                       event.preventDefault();
