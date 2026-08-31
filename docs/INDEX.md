@@ -25,6 +25,10 @@
 - [plan/backlog.md](plan/backlog.md)：非阻塞后续事项。
 - [string-utilities-refactor.md](string-utilities-refactor.md)：字符串工具统一重构方案（**未启动**，含现状盘点与护栏设计）。
 
+## 调研
+
+- [竞品调研报告_完整版_2026-08.md](竞品调研报告_完整版_2026-08.md)：11 产品竞品全景对比（Pi / Claude Code / Codex / Qoder / Trae / Cowork 等），关键论断已逐条对照源码核实，含 Phase 0–3 改进规划。
+
 ## 复盘
 
 - [postmortem-file-link-preview.md](postmortem-file-link-preview.md)：AI 生成的文件链接点不开 —— 渲染、编码、路径、数据传递四层缺陷的定位过程与回归防线。
