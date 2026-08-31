@@ -500,5 +500,6 @@ endif()
 if(EXISTS ${CMAKE_SOURCE_DIR}/assets/seed/skills)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/seed/
         DESTINATION share/acecode/seed
+        COMPONENT default_seed_bundle
     )
 endif()

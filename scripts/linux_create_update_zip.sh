@@ -108,6 +108,12 @@ validate_models_dev_registry() {
     done
 }
 
+validate_seed_bundle() {
+    python3 "$repo_root/scripts/verify_seed_bundle.py" \
+        --source "$repo_root/assets/seed" \
+        --packaged "$1"
+}
+
 validate_version() {
     local executable_path="$1"
     local version_output
@@ -119,6 +125,7 @@ validate_version() {
 }
 
 validate_models_dev_registry "$package_dir/share/acecode/models_dev"
+validate_seed_bundle "$package_dir/share/acecode/seed"
 validate_version "$package_dir/acecode"
 
 mkdir -p "$(dirname "$output_path")"
@@ -155,6 +162,7 @@ for executable_name in acecode acecode-desktop; do
     fi
 done
 validate_models_dev_registry "$extracted_package/share/acecode/models_dev"
+validate_seed_bundle "$extracted_package/share/acecode/seed"
 validate_version "$extracted_package/acecode"
 legacy_artifact="$(find "$extracted_package" -maxdepth 1 -iname 'ace-browser-*' -print -quit)"
 if [[ -n "$legacy_artifact" ]]; then

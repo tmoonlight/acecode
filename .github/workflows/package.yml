@@ -313,7 +313,7 @@ jobs:
           printf '%s\n' "$version_output"
           grep -Eq '^acecode v[^[:space:]]+$' <<<"$version_output"
 
-      - name: Verify models.dev resources in macOS app
+      - name: Verify bundled resources in macOS app
         if: runner.os == 'macOS' && matrix.build_desktop
         shell: bash
         run: |
@@ -330,6 +330,9 @@ jobs:
               exit 1
             fi
           done
+          python3 scripts/verify_seed_bundle.py \
+            --source assets/seed \
+            --packaged build/ACECode.app/Contents/Resources/share/acecode/seed
 
       - name: Extract debug symbols (Linux)
         if: runner.os == 'Linux'
@@ -557,7 +560,14 @@ jobs:
             --config MinSizeRel \
             --prefix "$PWD/$package_dir" \
             --component models_dev_registry
+          cmake --install build \
+            --config MinSizeRel \
+            --prefix "$PWD/$package_dir" \
+            --component default_seed_bundle
           validate_models_dev_registry "$package_dir/share/acecode/models_dev"
+          python3 scripts/verify_seed_bundle.py \
+            --source assets/seed \
+            --packaged "$package_dir/share/acecode/seed"
 
           if [ "${{ matrix.build_desktop }}" = "true" ]; then
             if [ "$RUNNER_OS" = "macOS" ]; then
@@ -586,9 +596,15 @@ jobs:
           tar -xzf "acecode-${{ matrix.id }}.tar.gz" -C "$verify_root"
           extracted_package="$verify_root/acecode-${{ matrix.id }}"
           validate_models_dev_registry "$extracted_package/share/acecode/models_dev"
+          python3 scripts/verify_seed_bundle.py \
+            --source assets/seed \
+            --packaged "$extracted_package/share/acecode/seed"
           if [ "$RUNNER_OS" = "macOS" ]; then
             validate_models_dev_registry \
               "$extracted_package/ACECode.app/Contents/Resources/share/acecode/models_dev"
+            python3 scripts/verify_seed_bundle.py \
+              --source assets/seed \
+              --packaged "$extracted_package/ACECode.app/Contents/Resources/share/acecode/seed"
           fi
           rm -rf -- "$verify_root"
 
@@ -676,7 +692,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to install the bundled models.dev registry"
           }
+          & cmake --install build --config MinSizeRel --prefix $packageRoot --component default_seed_bundle
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install the default seed bundle"
+          }
           Assert-ModelsDevRegistry (Join-Path $packageDir "share/acecode/models_dev")
+          & python scripts/verify_seed_bundle.py `
+            --source assets/seed `
+            --packaged (Join-Path $packageDir "share/acecode/seed")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to verify the packaged default seed bundle"
+          }
 
           if ("${{ matrix.build_desktop }}" -eq "true") {
             $desktopCandidates = @(
@@ -707,6 +733,12 @@ jobs:
           New-Item -ItemType Directory -Path $verifyRoot | Out-Null
           Expand-Archive -LiteralPath "acecode-${{ matrix.id }}.zip" -DestinationPath $verifyRoot
           Assert-ModelsDevRegistry (Join-Path $verifyRoot "share/acecode/models_dev")
+          & python scripts/verify_seed_bundle.py `
+            --source assets/seed `
+            --packaged (Join-Path $verifyRoot "share/acecode/seed")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to verify the archived default seed bundle"
+          }
 
       - name: Verify Windows ARM64 package
         if: matrix.id == 'windows-arm64'
@@ -1055,7 +1087,14 @@ jobs:
             --config MinSizeRel \
             --prefix "$PWD/$package_dir" \
             --component models_dev_registry
+          cmake --install build \
+            --config MinSizeRel \
+            --prefix "$PWD/$package_dir" \
+            --component default_seed_bundle
           validate_models_dev_registry "$package_dir/share/acecode/models_dev"
+          python3 scripts/verify_seed_bundle.py \
+            --source assets/seed \
+            --packaged "$package_dir/share/acecode/seed"
 
           if [ "${{ matrix.build_desktop }}" = "true" ]; then
             if [ ! -f "build/acecode-desktop" ]; then
@@ -1077,6 +1116,9 @@ jobs:
           tar -xzf "acecode-${{ matrix.id }}.tar.gz" -C "$verify_root"
           validate_models_dev_registry \
             "$verify_root/acecode-${{ matrix.id }}/share/acecode/models_dev"
+          python3 scripts/verify_seed_bundle.py \
+            --source assets/seed \
+            --packaged "$verify_root/acecode-${{ matrix.id }}/share/acecode/seed"
           rm -rf -- "$verify_root"
 
       - name: Upload artifact
