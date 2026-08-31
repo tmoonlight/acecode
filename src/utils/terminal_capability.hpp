@@ -63,7 +63,9 @@ inline bool should_use_conhost_compat_layout(const TerminalCapabilities& caps) {
 //   - TERM 以 "tmux" / "screen" 开头(复用器)      → false
 //   - WT_SESSION / KITTY_WINDOW_ID 存在            → true
 //   - TERM_PROGRAM ∈ {iTerm.app, WezTerm, ghostty, vscode,
-//                     Apple_Terminal, WarpTerminal, contour, mintty} → true
+//                     WarpTerminal, contour, mintty} → true
+//     (Apple_Terminal / macOS Terminal.app 不在此列:旧版本不支持 DEC 2026,
+//      保守关闭;需用时用 tui.sync_output_mode="always" 强制开启)
 //   - TERM == xterm-kitty 或以 foot/ghostty 开头    → true
 //   - 其它(未知终端,如 Alacritty / 裸 xterm-256color) → false
 //

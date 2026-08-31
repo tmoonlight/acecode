@@ -255,10 +255,10 @@ TEST(SynchronizedOutputSupport, KittyTermOn) {
 }
 
 // 场景:TERM_PROGRAM 白名单(iTerm.app / WezTerm / ghostty / vscode /
-// Apple_Terminal / WarpTerminal / contour / mintty)→ 开启
+// WarpTerminal / contour / mintty)→ 开启(Apple_Terminal 已移除,见下)
 TEST(SynchronizedOutputSupport, TermProgramWhitelistOn) {
     for (const char* name : {"iTerm.app", "WezTerm", "ghostty", "vscode",
-                             "Apple_Terminal", "WarpTerminal", "contour",
+                             "WarpTerminal", "contour",
                              "mintty"}) {
         TerminalCapabilities caps;
         EXPECT_TRUE(detect_synchronized_output_support_with(
@@ -266,6 +266,16 @@ TEST(SynchronizedOutputSupport, TermProgramWhitelistOn) {
                                        std::string(name), std::nullopt)))
             << "TERM_PROGRAM=" << name;
     }
+}
+
+// 场景:Apple Terminal.app 不支持 DEC mode 2026(尤其 macOS 12 及更早版本),
+// 从白名单移除,auto 模式默认关闭;需要时用 tui.sync_output_mode="always" 强制开启。
+TEST(SynchronizedOutputSupport, AppleTerminalOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_synchronized_output_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("Apple_Terminal"), std::nullopt)))
+        << "Apple_Terminal must NOT be whitelisted for DEC 2026";
 }
 
 // 场景:TERM 前缀白名单(foot / ghostty)→ 开启
