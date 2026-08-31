@@ -10,7 +10,7 @@
     "i18n:audit": "node scripts/i18n-audit.mjs",
     "i18n:catalog": "node scripts/generate-source-catalog.mjs",
     "sync:provider-logos": "node scripts/sync-provider-logos.mjs",
-    "build": "vite build",
+    "build": "vite build && node scripts/check-regex-compat.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
