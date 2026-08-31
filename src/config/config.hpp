@@ -284,6 +284,33 @@ struct WebSearchConfig {
     int timeout_ms = 8000;      // Per-backend HTTP timeout.
 };
 
+// 图像生成工具配置(openspec add-image-generation-tool)。
+//
+// 端点是 OpenAI 兼容的 Images API。三档 quality 对应三个**不同的模型名** ——
+// 实测上游对 size / n 参数不生效,分辨率只能靠模型名选,所以档位映射
+// 必须可配置,换后端时不用改代码。
+//
+// source 区分两种凭据来源:同一个网关很可能既提供聊天模型也提供图像
+// 模型,让用户把同一个 key 拄两遍是坏体验;但图像端点又不能直接放进
+// saved_models(那是聊天模型注册表,会出现在会话模型选择器里被误选)。
+struct ImageGenerationConfig {
+    bool enabled = true;
+    // "saved_model" = 借用 saved_models 里一条同源连接的 base_url + api_key;
+    // "inline" = 用本段自己的 base_url + api_key。
+    std::string source = "inline";
+    std::string saved_model_name;
+    std::string base_url;
+    std::string api_key;
+    // quality 档位 → 模型名。
+    std::string model_standard = "acemodel-image";
+    std::string model_high     = "acemodel-image-2k";
+    std::string model_ultra    = "acemodel-image-4k";
+    // 模型未传 quality 时的默认档:"standard" | "high" | "ultra"。
+    std::string default_quality = "standard";
+    // 实测单张 20~60 秒、4k 更久,默认 HTTP 超时会误杀。clamp [30000, 600000]。
+    int timeout_ms = 180000;
+};
+
 // 单个 LSP server 的 config 条目(openspec add-lsp-service)。
 // 名字命中内置 server(clangd / typescript-language-server / pyright /
 // gopls / rust-analyzer)时按字段覆盖内置定义;新名字 = 纯自定义 server,
@@ -450,6 +477,7 @@ struct AppConfig {
     WebSearchConfig web_search;                  // 联网搜索工具配置(参见 add-web-search-tool)
     LspConfig lsp;                               // LSP 集成(参见 add-lsp-service)
     WorktreeConfig worktree;                     // worktree 隔离(enter_worktree / --worktree)
+    ImageGenerationConfig image_generation;      // 图像生成工具(参见 add-image-generation-tool)
     GitContextConfig git_context;                // git 感知(参见 add-git-context)
     RemoteControlConfig remote_control;          // TUI /remote-control channel 托管
     UpgradeConfig upgrade;                       // explicit self-upgrade command config

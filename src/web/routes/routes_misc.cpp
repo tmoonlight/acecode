@@ -1,5 +1,6 @@
 // routes_misc.cpp — Route registrations extracted from server.cpp
 #include "../server_impl.hpp"
+#include "../../config/config_recovery.hpp"
 #include "../../config/settings_mutations.hpp"
 #include "../../feedback/feedback_upload.hpp"
 #include "../../provider/builtin_model_catalog.hpp"
@@ -44,6 +45,25 @@ json ui_locale_to_json(const UiConfig& config) {
 
 bool update_job_is_active(const UpdateJobStatus& status) {
     return status.state == "pending" || status.state == "running";
+}
+
+std::string recovery_config_path(const WebServerDeps& deps) {
+    if (!deps.config_path.empty()) return deps.config_path;
+    return path_to_utf8(
+        path_from_utf8(get_acecode_dir()) / "config.json");
+}
+
+json config_recovery_notice_json(const WebServerDeps& deps) {
+    const auto notice = read_config_recovery_notice(
+        recovery_config_path(deps));
+    json result{{"pending", notice.pending}};
+    if (notice.pending) {
+        result["recovered_at_ms"] = notice.recovered_at_ms;
+        result["config_path"] = notice.config_path;
+        result["invalid_backup_path"] = notice.invalid_backup_path;
+        result["invalid_backup_dir"] = notice.invalid_backup_dir;
+    }
+    return result;
 }
 
 bool update_job_can_cancel(const UpdateJobStatus& status) {
@@ -1096,6 +1116,14 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/config/recovery-notice").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/config/recovery-notice/acknowledge").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/config/ui-preferences").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
             return cors_preflight(req);
@@ -1174,6 +1202,40 @@ void WebServer::Impl::register_ui_preferences() {
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = desktop_guided_tour_state_json().dump();
+            return with_cors(req, std::move(r));
+        });
+
+        // Recovery notice reads do not consume the pending state. The client
+        // acknowledges only after the warning dialog is visible and closed.
+        CROW_ROUTE(app, "/api/config/recovery-notice").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = config_recovery_notice_json(deps).dump();
+            return with_cors(req, std::move(r));
+        });
+
+        CROW_ROUTE(app, "/api/config/recovery-notice/acknowledge").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const std::string config_path = recovery_config_path(deps);
+            std::string error;
+            if (!acknowledge_config_recovery_notice(config_path, &error)) {
+                LOG_ERROR("[config_recovery] recovery notice acknowledgement "
+                          "failed: path=" +
+                          nlohmann::json(config_path).dump());
+                crow::response r(500);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{
+                    {"error", "PERSIST_FAILED"},
+                    {"message", "failed to acknowledge config recovery notice"},
+                }.dump();
+                return with_cors(req, std::move(r));
+            }
+            crow::response r(200);
+            r.add_header("Content-Type", "application/json");
+            r.body = json{{"pending", false}}.dump();
             return with_cors(req, std::move(r));
         });
 
@@ -1945,6 +2007,11 @@ void WebServer::Impl::register_ui_preferences() {
             json out{{"cached", cached.has_value()}};
             if (cached) {
                 out["models"] = cached->models;
+                const auto capabilities =
+                    model_probe_capabilities(*parsed, cached->models);
+                if (!capabilities.empty()) {
+                    out["model_capabilities"] = capabilities;
+                }
                 if (!cached->context_windows.empty()) {
                     out["model_context_windows"] = cached->context_windows;
                 }
@@ -1981,6 +2048,8 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             auto probe_success = [&](ParsedOpenAiModels parsed_models) {
+                const auto capabilities =
+                    model_probe_capabilities(*parsed, parsed_models.ids);
                 ModelProbeCacheEntry entry;
                 entry.models = parsed_models.ids;
                 entry.context_windows = parsed_models.context_windows;
@@ -1991,6 +2060,9 @@ void WebServer::Impl::register_ui_preferences() {
 
                 json out;
                 out["models"] = std::move(parsed_models.ids);
+                if (!capabilities.empty()) {
+                    out["model_capabilities"] = capabilities;
+                }
                 if (!parsed_models.context_windows.empty()) {
                     out["model_context_windows"] =
                         std::move(parsed_models.context_windows);

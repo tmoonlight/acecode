@@ -836,6 +836,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '上下文 {{p0}}': 'Context {{p0}}',
   '最大输出 {{p0}}': 'Maximum output {{p0}}',
   '能力 {{p0}}': 'Capabilities {{p0}}',
+  '{{p0}}能力': '{{p0}} capability',
+  '能力：{{p0}}': 'Capability: {{p0}}',
   '受管 Provider 在这里完成登录，密钥和端点不会进入模型弹窗。':
     'Sign in to managed providers here. Their credentials and endpoints never enter the model dialog.',
   '复制 {{p0}} 验证码 {{p1}}': 'Copy {{p0}} verification code {{p1}}',

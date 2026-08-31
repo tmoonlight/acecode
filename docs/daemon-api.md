@@ -2163,14 +2163,17 @@ deduplicates model ids.
 ACEModel 官方端点的内置 `starrylight`、`moonlight` 和 `aurora`
 优先使用上游 `/models` 返回的有效最大上下文字段。Daemon 会将该值
 原样写入 `model_context_windows`，不按本地默认值截断；字段缺失、无效
-或无法解析时，才从内置目录回填 `250000` Token。
+或无法解析时，才从内置目录回填 `250000` Token。探测和本地探测缓存响应
+还会返回 `model_capabilities`，确保三个内置模型继续使用目录声明的
+`["vision", "tool_use"]`，不会因重新探测丢失默认能力。
 
 Success:
 
 ```json
 {
   "models": ["gpt-4.1"],
-  "model_context_windows": {"gpt-4.1": 1047576}
+  "model_context_windows": {"gpt-4.1": 1047576},
+  "model_capabilities": {"gpt-4.1": ["vision", "tool_use"]}
 }
 ```
 
@@ -2216,7 +2219,7 @@ Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
 `credential_source_name`。一等自营 Provider `acemodel`（展示名 ACEModel）
 使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
 `https://ge.bigjuan.xyz/aceapi/v1`，`group` 为 `custom`（Web 再按 id 提到「自营模型」），查询时返回内置
-`starrylight`、`moonlight` 与 `aurora`，三者本地回退 `context_window` 均为 `250000`；模型探测得到的有效服务器值优先。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
+`starrylight`、`moonlight` 与 `aurora`，三者本地回退 `context_window` 均为 `250000`，且默认返回 `capabilities:["vision","tool_use"]`；模型探测得到的有效服务器值优先。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
 ACECode 的 GitHub/xAI 设备登录与固定受管端点负责认证。普通 `xai` Provider
 仍保留为 OpenAI-compatible API Key 接入；只有目录 id `grok` 使用 Coding Plan。
 

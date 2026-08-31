@@ -38,6 +38,7 @@ ModelEntry builtin_model(const std::string& id, const std::string& name) {
     model.name = name;
     model.context = kAceModelFallbackContextWindow;
     model.tool_call = true;
+    model.attachment = true;
     return model;
 }
 

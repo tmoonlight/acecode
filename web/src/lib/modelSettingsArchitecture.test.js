@@ -34,6 +34,8 @@ const picker = source('components/model-settings/ProviderCatalogPicker.jsx');
 const probeDialog = source('components/model-settings/ModelProbeDialog.jsx');
 const connection = source('components/model-settings/ModelConnectionCard.jsx');
 const providerIcon = source('components/model-settings/ProviderIcon.jsx');
+const capabilityIcons = source('components/model-settings/ModelCapabilityIcons.jsx');
+const globals = source('styles/globals.css');
 const providerGroups = source('lib/providerCatalogGroups.js');
 const saved = source('components/model-settings/SavedModelList.jsx');
 const helpers = source('lib/modelSettings.js');
@@ -44,6 +46,7 @@ const focusedComponents = [
   probeDialog,
   connection,
   providerIcon,
+  capabilityIcons,
   saved,
 ].join('\n');
 
@@ -165,6 +168,44 @@ run('catalog provider picker keeps queries bounded and supports docs manual fall
   assert.match(picker, /flex h-9 w-full items-center gap-2/);
   assert.match(picker, /focus:ring-1 focus:ring-inset focus:ring-accent/);
   assert.doesNotMatch(picker, /item\.runtime_provider === 'copilot'[\s\S]*?item\.id/);
+});
+
+run('saved model capabilities stay beside the model name as accessible SVG icons', () => {
+  const modelNameIndex = saved.indexOf('{model.name}');
+  const capabilityIconsIndex = saved.indexOf('<ModelCapabilityIcons capabilities={model.capabilities} />');
+  const defaultMarkerIndex = saved.indexOf('{isDefault && (');
+  assert.ok(modelNameIndex >= 0);
+  assert.ok(capabilityIconsIndex > modelNameIndex);
+  assert.ok(defaultMarkerIndex > capabilityIconsIndex);
+  assert.match(saved, /import \{ ModelCapabilityIcons \} from '\.\/ModelCapabilityIcons\.jsx';/);
+  assert.doesNotMatch(saved, /model\.capabilities\.slice|2xl:flex|\{capability\}/);
+
+  assert.match(capabilityIcons, /normalizeModelCapabilities\(capabilities\)/);
+  assert.match(capabilityIcons, /modelCapabilityPresentation\(capability\)/);
+  assert.match(capabilityIcons, /role="img"/);
+  assert.match(capabilityIcons, /aria-label=\{accessibleLabel\}/);
+  assert.match(capabilityIcons, /title=\{accessibleLabel\}/);
+  assert.match(capabilityIcons, /<VsIcon name=\{presentation\.icon\} size=\{13\} \/>/);
+  assert.match(capabilityIcons, /model-capability-icon[\s\S]*?rounded-sm border bg-transparent[\s\S]*?\$\{presentation\.colorClass\}/);
+  assert.match(capabilityIcons, /presentation\.known[\s\S]*?`\$\{presentation\.label\}能力`[\s\S]*?`能力：\$\{presentation\.label\}`/);
+  assert.doesNotMatch(capabilityIcons, /(?:hidden|2xl:)/);
+  assert.doesNotMatch(capabilityIcons, /(?:bg-capability|text-capability-icon)/);
+  assert.doesNotMatch(capabilityIcons, /#[0-9a-f]{3,8}/i);
+
+  const capabilityTones = ['vision', 'web', 'reasoning', 'tool', 'rerank', 'embedding', 'unknown'];
+  capabilityTones.forEach((tone) => {
+    assert.match(globals, new RegExp(`--color-capability-${tone}:\\s+var\\(--ace-capability-${tone}\\);`));
+  });
+  assert.doesNotMatch(globals, /--(?:color|ace)-capability-icon:/);
+  const darkTheme = globals.match(/\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+  capabilityTones.forEach((tone) => {
+    assert.match(darkTheme, new RegExp(`--ace-capability-${tone}:\\s*#[0-9a-f]{6};`, 'i'));
+  });
+  assert.match(globals, /\.model-capability-icon \.ace-icon\.ace-icon-fallback\s*\{[\s\S]*?overflow:\s*hidden;/);
+  assert.match(
+    globals,
+    /\.model-capability-icon \.ace-icon\.ace-icon-fallback\[data-monochrome="true"\] \.ace-icon-fallback-img\s*\{[\s\S]*?filter:\s*drop-shadow\(13px 0 0 currentColor\);[\s\S]*?opacity:\s*1;[\s\S]*?transform:\s*translateX\(-13px\);/,
+  );
 });
 
 run('latest successful provider probe owns the list and search until provider changes', () => {

@@ -1,0 +1,197 @@
+#include "tui_ask_channel.hpp"
+
+#include "../tool/ask_user_question_tool.hpp"
+#include "../tui_state.hpp"
+#include "../utils/logger.hpp"
+
+#include <ftxui/component/screen_interactive.hpp>
+
+#include <chrono>
+#include <mutex>
+#include <vector>
+
+namespace acecode::tui {
+
+namespace {
+
+// questions_to_payload 的逆向:overlay 渲染吃的是 AskQuestion 结构而不是 JSON。
+// 字段名与 daemon 的 wire 契约一致,这里只做形状转换,不做校验 —— 参数校验
+// 已经在工具层 validate_ask_user_question_args 里做过了。
+std::vector<AskQuestion> questions_from_payload(const nlohmann::json& payload) {
+    std::vector<AskQuestion> out;
+    if (!payload.is_array()) return out;
+    for (const auto& item : payload) {
+        if (!item.is_object()) continue;
+        AskQuestion q;
+        q.question = item.value("text", item.value("id", std::string{}));
+        q.header = item.value("header", std::string{});
+        q.multi_select = item.value("multiSelect", false);
+        if (item.contains("options") && item["options"].is_array()) {
+            for (const auto& option : item["options"]) {
+                if (!option.is_object()) continue;
+                AskOption o;
+                o.label = option.value("label", std::string{});
+                o.description = option.value("description", std::string{});
+                q.options.push_back(std::move(o));
+            }
+        }
+        out.push_back(std::move(q));
+    }
+    return out;
+}
+
+nlohmann::json make_response(bool cancelled,
+                             bool timed_out,
+                             const std::vector<std::string>& question_order,
+                             const std::map<std::string, std::string>& answers) {
+    nlohmann::json out;
+    out["cancelled"] = cancelled;
+    out["timed_out"] = timed_out;
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& question : question_order) {
+        auto it = answers.find(question);
+        if (it == answers.end()) continue;
+        arr.push_back(nlohmann::json{
+            {"question_id", question},
+            {"selected", nlohmann::json::array({it->second})},
+            {"custom_text", ""},
+        });
+    }
+    out["answers"] = std::move(arr);
+    return out;
+}
+
+} // namespace
+
+nlohmann::json ask_via_tui_overlay(TuiState& state,
+                                   ftxui::ScreenInteractive& screen,
+                                   const nlohmann::json& questions_payload,
+                                   const std::atomic<bool>* abort_flag,
+                                   int timeout_seconds,
+                                   const std::string& origin_label) {
+    const std::vector<AskQuestion> questions =
+        questions_from_payload(questions_payload);
+    std::vector<std::string> question_order;
+    question_order.reserve(questions.size());
+    for (const auto& q : questions) question_order.push_back(q.question);
+
+    if (questions.empty()) {
+        return make_response(/*cancelled=*/true, false, question_order, {});
+    }
+    if (abort_flag && abort_flag->load()) {
+        return make_response(/*cancelled=*/true, false, question_order, {});
+    }
+
+    {
+        std::unique_lock<std::mutex> lk(state.mu);
+        // 子代理并发后 overlay 可能被占用(主会话确认 / 另一个子会话的提问)。
+        // 占用前排队等空闲;100ms 轮询保证 abort 可打断。
+        while (!(abort_flag && abort_flag->load()) &&
+               (state.ask_pending || state.confirm_pending)) {
+            state.overlay_cv.wait_for(lk, std::chrono::milliseconds(100));
+        }
+        if (abort_flag && abort_flag->load()) {
+            return make_response(/*cancelled=*/true, false, question_order, {});
+        }
+        state.ask_origin_label = origin_label;
+        state.ask_pending = true;
+        state.ask_payload_json = questions_payload.dump();
+        state.ask_questions = questions;
+        state.ask_question_order = question_order;
+        // timeout 策略:overlay 顶部渲染静态提示「N 秒无操作将自动选择推荐项」;
+        // 0 = 无提示。
+        state.ask_timeout_hint_seconds = timeout_seconds > 0 ? timeout_seconds : 0;
+        state.ask_result_answers.clear();
+        state.ask_result_ok = false;
+        state.ask_current_question = 0;
+        state.ask_submit_page = false;
+        state.ask_submit_focus = 0;
+        state.ask_option_focus = 0;
+        state.ask_question_option_focus.assign(questions.size(), 0);
+        state.ask_answered_questions.assign(questions.size(), false);
+        state.ask_selected_options.assign(questions.size(), -1);
+        state.ask_multi_selected_by_question.clear();
+        state.ask_multi_selected_by_question.reserve(questions.size());
+        for (const auto& q : questions) {
+            state.ask_multi_selected_by_question.emplace_back(q.options.size(), false);
+        }
+        state.ask_custom_answer_selected.assign(questions.size(), false);
+        state.ask_custom_answers.assign(questions.size(), std::string{});
+        state.ask_multi_selected.assign(questions[0].options.size(), false);
+        state.ask_other_input_active = false;
+        state.ask_scroll_offset = 0;
+        state.ask_scroll_total_rows = 0;
+        state.ask_scroll_visible_rows = 0;
+        state.ask_scrollbar_dragging = false;
+        state.ask_scroll_to_focus_requested = true;
+    }
+    screen.PostEvent(ftxui::Event::Custom);
+
+    std::map<std::string, std::string> answers;
+    bool ok = false;
+    bool aborted = false;
+    bool timed_out = false;
+    const bool has_deadline = timeout_seconds > 0;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
+    {
+        std::unique_lock<std::mutex> lk(state.mu);
+        if (has_deadline) {
+            // 500ms 粒度轮询 deadline(与 prompter 的 abort 轮询同风格)。
+            while (state.ask_pending && !(abort_flag && abort_flag->load())) {
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    timed_out = true;
+                    break;
+                }
+                state.ask_cv.wait_for(lk, std::chrono::milliseconds(500));
+            }
+        } else {
+            state.ask_cv.wait(lk, [&state, abort_flag] {
+                return !state.ask_pending || (abort_flag && abort_flag->load());
+            });
+        }
+        aborted = abort_flag && abort_flag->load();
+        ok = state.ask_result_ok;
+        answers = state.ask_result_answers;
+        // overlay 已关闭 —— 清理残留的临时 navigation 状态,防止下次打开时脏数据。
+        state.ask_pending = false;
+        state.ask_questions.clear();
+        state.ask_question_order.clear();
+        state.ask_multi_selected.clear();
+        state.ask_multi_selected_by_question.clear();
+        state.ask_question_option_focus.clear();
+        state.ask_answered_questions.clear();
+        state.ask_selected_options.clear();
+        state.ask_custom_answer_selected.clear();
+        state.ask_custom_answers.clear();
+        state.ask_other_input_active = false;
+        state.ask_current_question = 0;
+        state.ask_submit_page = false;
+        state.ask_submit_focus = 0;
+        state.ask_option_focus = 0;
+        state.ask_scroll_offset = 0;
+        state.ask_scroll_total_rows = 0;
+        state.ask_scroll_visible_rows = 0;
+        state.ask_scrollbar_dragging = false;
+        state.ask_scroll_to_focus_requested = false;
+        state.ask_origin_label.clear();
+        state.ask_timeout_hint_seconds = 0;
+        // overlay 释放:唤醒排队占用者(主会话确认 / 其它子会话提问)。
+        state.overlay_cv.notify_all();
+    }
+    screen.PostEvent(ftxui::Event::Custom);
+
+    // 到点前一瞬用户已提交时 ok=true —— 按正常回答处理,用户真实意志优先。
+    if (timed_out && !aborted && !ok) {
+        return make_response(/*cancelled=*/false, /*timed_out=*/true,
+                             question_order, {});
+    }
+    if (aborted || !ok) {
+        LOG_INFO("[AskUserQuestion] declined (aborted=" +
+                 std::string(aborted ? "true" : "false") + ")");
+        return make_response(/*cancelled=*/true, false, question_order, {});
+    }
+    return make_response(false, false, question_order, answers);
+}
+
+} // namespace acecode::tui

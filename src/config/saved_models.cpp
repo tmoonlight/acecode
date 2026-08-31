@@ -4,6 +4,7 @@
 
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
+#include "../provider/builtin_model_catalog.hpp"
 #include "../utils/sha256.hpp"
 
 #include <algorithm>
@@ -291,11 +292,18 @@ std::optional<ModelProfile> parse_one_entry(const nlohmann::json& node, std::siz
         e.readonly = node["readonly"].get<bool>();
     }
 
-    // The previous first-party catalog and Windows seeder persisted 200K as
-    // if it were a manual override. Normalize that generated value to the new
-    // 250K fallback while keeping manual 200K overrides untouched.
-    if (is_acemodel_catalog_profile(e) && e.context_window == 200000) {
-        e.context_window = 250000;
+    if (is_acemodel_catalog_profile(e)) {
+        // Catalog-sourced ACEModel profiles follow the current built-in
+        // metadata. Manual capability choices remain untouched because they
+        // carry capabilities_source=manual and do not enter this branch.
+        if (const ModelEntry* model = find_acemodel_catalog_model(e.model)) {
+            e.capabilities = model_capability_tags(*model);
+        }
+
+        // The previous first-party catalog and Windows seeder persisted 200K
+        // as if it were a manual override. Normalize that generated value to
+        // the new 250K fallback while keeping manual 200K overrides untouched.
+        if (e.context_window == 200000) e.context_window = 250000;
     }
 
     return e;

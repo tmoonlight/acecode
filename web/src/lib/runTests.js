@@ -87,6 +87,7 @@ import './changeReviewStability.test.js';
 import './changeReviewDetailsArchitecture.test.js';
 import './modalPresentationArchitecture.test.js';
 import './desktopCloseDialogArchitecture.test.js';
+import './configRecoveryNotice.test.js';
 import './changeDockDismissal.test.js';
 import './taskCompleteSummary.test.js';
 import '../i18n/locale.test.js';

@@ -63,6 +63,8 @@ const ModelEntry* find_model(const ProviderEntry& provider, const std::string& m
 std::string format_context(const std::optional<int>& tokens);
 std::string format_cost(const std::optional<double>& input,
                         const std::optional<double>& output);
+// Canonical saved-profile capability ids derived from catalog metadata.
+std::vector<std::string> model_capability_tags(const ModelEntry& model);
 std::string format_capabilities(const ModelEntry& model);
 
 // Version of the catalog cache. Increments whenever the cache is rebuilt — used

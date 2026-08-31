@@ -175,6 +175,7 @@ list(FILTER ACECODE_TUI_SOURCES INCLUDE REGEX "/src/(tui|markdown)/")
 
 set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/config/config.cpp
+    ${CMAKE_SOURCE_DIR}/src/config/config_recovery.cpp
     ${CMAKE_SOURCE_DIR}/src/config/model_provider_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/config/request_headers.cpp
     ${CMAKE_SOURCE_DIR}/src/config/saved_models.cpp
@@ -267,6 +268,7 @@ set(ACECODE_TESTABLE_TUI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/tui/input_history_navigation.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/sidebar_model.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/subagent_host.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/tui_ask_channel.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/terminal_key_event.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/theme_palette.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/settings/management_center.cpp

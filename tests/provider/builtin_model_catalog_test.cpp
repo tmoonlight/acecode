@@ -23,6 +23,9 @@ TEST(BuiltinModelCatalog, AceModelCanonicalMetadata) {
         ASSERT_TRUE(model.context.has_value());
         EXPECT_EQ(*model.context, 250000);
         EXPECT_TRUE(model.tool_call);
+        EXPECT_TRUE(model.attachment);
+        EXPECT_EQ(model_capability_tags(model),
+                  (std::vector<std::string>{"vision", "tool_use"}));
     }
 }
 

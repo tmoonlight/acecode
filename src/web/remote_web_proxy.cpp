@@ -51,11 +51,19 @@ constexpr auto kParentPoll = std::chrono::milliseconds(500);
 constexpr auto kStopTimeout = std::chrono::seconds(2);
 
 std::string one_line_error(std::string value) {
+    // asio::error_code::message() follows the active Windows code page. On a
+    // non-English system that can produce bytes which are not valid UTF-8,
+    // while nlohmann::json::dump() validates strings strictly. Normalize at
+    // the error boundary so a recoverable bind failure can always be
+    // published to the owning daemon instead of escaping as type_error.316.
+    value = acecode::ensure_utf8(value);
     for (char& ch : value) {
         if (ch == '\r' || ch == '\n' || ch == '\t') ch = ' ';
     }
     constexpr std::size_t kMaxErrorBytes = 512;
-    if (value.size() > kMaxErrorBytes) value.resize(kMaxErrorBytes);
+    if (value.size() > kMaxErrorBytes) {
+        value = acecode::truncate_utf8_prefix(value, kMaxErrorBytes, "");
+    }
     return value;
 }
 

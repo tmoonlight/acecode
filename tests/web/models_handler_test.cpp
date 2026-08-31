@@ -186,6 +186,7 @@ using acecode::SavedModelEditError;
 using acecode::web::apply_acemodel_context_fallbacks;
 using acecode::web::http_status_for_edit_error;
 using acecode::web::model_probe_connection_fingerprint;
+using acecode::web::model_probe_capabilities;
 using acecode::web::ModelProbeRequest;
 using acecode::web::parse_model_probe_request;
 using acecode::web::parse_openai_model_ids;
@@ -573,6 +574,28 @@ TEST(ModelsHandler, ApplyAceModelContextFallbacksPreservesServerValues) {
     EXPECT_EQ(parsed.context_windows["starrylight"], 128000);
     EXPECT_EQ(parsed.context_windows["aurora"], 1000000);
     EXPECT_EQ(parsed.context_windows.count("other-model"), 0u);
+}
+
+TEST(ModelsHandler, AceModelProbeCapabilitiesComeFromBuiltinCatalog) {
+    ModelProbeRequest request;
+    request.catalog_provider_id = "ACEModel";
+    request.provider = "openai";
+    request.base_url = "https://proxy.example/v1";
+
+    const auto capabilities = model_probe_capabilities(
+        request, {"aurora", "moonlight", "starrylight", "other-model"});
+    ASSERT_EQ(capabilities.size(), 3u);
+    for (const char* id : {"aurora", "moonlight", "starrylight"}) {
+        EXPECT_EQ(capabilities.at(id),
+                  (std::vector<std::string>{"vision", "tool_use"}));
+    }
+    EXPECT_EQ(capabilities.count("other-model"), 0u);
+
+    request.catalog_provider_id = "custom-openai";
+    EXPECT_TRUE(model_probe_capabilities(request, {"aurora"}).empty());
+    request.base_url = "https://ge.bigjuan.xyz/aceapi/v1/";
+    EXPECT_EQ(model_probe_capabilities(request, {"aurora"}).at("aurora"),
+              (std::vector<std::string>{"vision", "tool_use"}));
 }
 
 TEST(ModelsHandler, ParseProbeRequestValidatesProviderAndBaseUrl) {

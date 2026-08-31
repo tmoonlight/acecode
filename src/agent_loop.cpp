@@ -3317,6 +3317,34 @@ bool AgentLoop::execute_tool_calls(
                     return out;
                 };
         }
+        else if (ask_channel_) {
+            // TUI 路径:同一个口子,只是传输换成 overlay 阻塞等待。
+            // 超时与来源标注在这里算 —— 与 daemon 给 prompter 算
+            // timeout_override 是同一处职责,两端不会各自漂移。
+            AskQuestionChannel channel = ask_channel_;
+            std::atomic<bool>* abort_flag_ptr = &abort_requested_;
+            const ResolvedQuestionPolicy policy = resolved_question_policy();
+            int timeout_seconds = 0;
+            if (goal_unattended_active()) {
+                timeout_seconds = kGoalQuestionTimeoutSeconds;
+            } else if (policy.policy == QuestionPolicy::Timeout) {
+                timeout_seconds = policy.timeout_seconds;
+            }
+            std::string origin_label;
+            if (session_manager_ &&
+                !session_manager_->current_parent_session_id().empty()) {
+                const std::string child_title = session_manager_->current_title();
+                origin_label = "[subagent] " +
+                    (child_title.empty() ? session_manager_->current_session_id()
+                                         : child_title);
+            }
+            tool_ctx.ask_user_questions =
+                [channel, abort_flag_ptr, timeout_seconds, origin_label](
+                    const nlohmann::json& questions_payload) -> nlohmann::json {
+                    return channel(questions_payload, abort_flag_ptr,
+                                   timeout_seconds, origin_label);
+                };
+        }
 
         std::function<void(const std::vector<std::string>&,
                            const std::string&,

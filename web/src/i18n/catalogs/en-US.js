@@ -58,6 +58,12 @@ export const enUS = {
     externalBrowserOpenFailed: 'Failed to open the external browser: {{error}}',
     startupConnecting: 'Connecting to the background service…',
   },
+  configRecovery: {
+    title: 'Configuration rolled back automatically',
+    message: 'The configuration file contained an error, so ACECode restored the last valid version. The invalid file was backed up separately.',
+    backupLocation: 'Invalid configuration backup',
+    acknowledge: 'Got it',
+  },
   format: {
     now: 'just now',
   },

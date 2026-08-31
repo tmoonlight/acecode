@@ -97,6 +97,7 @@
 #include "utils/logger.hpp"
 #include "permissions.hpp"
 #include "agent_loop.hpp"
+#include "tui/tui_ask_channel.hpp"
 #include "session/thread_service.hpp"
 #include "cli/interactive_options.hpp"
 #include "commands/configure.hpp"
@@ -4870,9 +4871,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     screen.SelectionChange([]{});
     std::thread update_check_thread = start_tui_update_check(config, state, screen);
 
-    // AskUserQuestion 依赖 TuiState + ScreenInteractive 才能发起阻塞 overlay,
-    // 所以和其它无依赖的内置工具分开、等 `state` / `screen` 就绪之后再注册。
-    tools.register_tool(create_ask_user_question_tool(state, screen));
+    // AskUserQuestion 两端同一个工厂:工具逻辑只有一份,传输由
+    // ToolContext::ask_user_questions 注入(见 agent_loop 里的 set_ask_question_channel
+    // 接线)。无需等 state/screen 就绪,但保留在这里以免和下面的 MCP
+    // 启动顺序拉开。
+    tools.register_tool(create_ask_user_question_tool_async());
     start_mcp_servers_async(mcp_manager, tools, state, screen);
 
     std::atomic<bool> mcp_first_turn_wait_done{false};
@@ -5250,6 +5253,17 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     configure_permissions(permissions, dangerous_mode, config.default_permission_mode);
 
     AgentLoop agent_loop(provider_accessor, tools, callbacks, working_dir, permissions);
+    // TUI 侧的 AskUserQuestion 传输。接上之后任何工具都能向用户提问
+    // (不只是 AskUserQuestion 工具本身),且行为与 daemon 路径同源。
+    agent_loop.set_ask_question_channel(
+        [&state, &screen](const nlohmann::json& questions_payload,
+                          const std::atomic<bool>* abort_flag,
+                          int timeout_seconds,
+                          const std::string& origin_label) {
+            return acecode::tui::ask_via_tui_overlay(
+                state, screen, questions_payload, abort_flag,
+                timeout_seconds, origin_label);
+        });
     agent_loop.set_context_window(config.context_window);
     agent_loop.set_no_model_config_prompt(
         u8"请先配置大模型服务。TUI 可运行 acecode configure 或使用 /model add 添加模型。");

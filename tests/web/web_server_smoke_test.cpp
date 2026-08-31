@@ -21,6 +21,7 @@
 #include "provider/auth/github_auth.hpp"
 #include "provider/auth/xai_auth.hpp"
 #include "config/config.hpp"
+#include "config/config_recovery.hpp"
 #include "config/saved_models.hpp"
 #include "config/saved_models_revision.hpp"
 #include "permissions.hpp"
@@ -6964,6 +6965,78 @@ TEST(WebServerHttp, DismissDesktopOnboardingReportsPersistenceFailure) {
 
     acecode::set_state_file_path_for_test(fx.state_file_path.string());
     EXPECT_FALSE(acecode::read_state_flag("desktop_guided_tour_v1_dismissed"));
+}
+
+TEST(WebServerHttp, ConfigRecoveryNoticeIsReadThenAcknowledgedIdempotently) {
+    WebServerFixture fx;
+    const std::string config_path = (fx.tmp_dir / "config.json").string();
+    const std::string invalid_bytes =
+        "{\n  \"api_key\": \"secret-content\",\n";
+    std::string error;
+    auto invalid_path = acecode::archive_invalid_config(
+        config_path, invalid_bytes, &error);
+    ASSERT_TRUE(invalid_path.has_value()) << error;
+    ASSERT_TRUE(acecode::write_config_recovery_notice(
+        config_path, *invalid_path, &error)) << error;
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        auto get = cpr::Get(cpr::Url{fx.url("/api/config/recovery-notice")});
+        ASSERT_EQ(get.status_code, 200) << get.text;
+        const auto body = json::parse(get.text);
+        EXPECT_TRUE(body["pending"].get<bool>());
+        EXPECT_EQ(body["config_path"], config_path);
+        EXPECT_EQ(body["invalid_backup_path"], *invalid_path);
+        EXPECT_EQ(body["invalid_backup_dir"],
+                  std::filesystem::path(*invalid_path).parent_path().string());
+        EXPECT_EQ(get.text.find("secret-content"), std::string::npos);
+        EXPECT_FALSE(body.contains("error_summary"));
+    }
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        auto ack = cpr::Post(cpr::Url{
+            fx.url("/api/config/recovery-notice/acknowledge")});
+        ASSERT_EQ(ack.status_code, 200) << ack.text;
+        EXPECT_FALSE(json::parse(ack.text)["pending"].get<bool>());
+    }
+
+    auto after = cpr::Get(cpr::Url{fx.url("/api/config/recovery-notice")});
+    ASSERT_EQ(after.status_code, 200) << after.text;
+    const auto after_body = json::parse(after.text);
+    EXPECT_FALSE(after_body["pending"].get<bool>());
+    EXPECT_EQ(after_body.size(), 1u);
+}
+
+TEST(WebServerHttp, ConfigRecoveryNoticeCrossOriginRequiresToken) {
+    WebServerFixture fx;
+    const std::string origin = "http://localhost:5173";
+    const auto get_url = fx.url("/api/config/recovery-notice");
+    const auto ack_url = fx.url("/api/config/recovery-notice/acknowledge");
+
+    auto denied_get = cpr::Get(
+        cpr::Url{get_url}, cpr::Header{{"Origin", origin}});
+    EXPECT_EQ(denied_get.status_code, 401);
+    auto denied_ack = cpr::Post(
+        cpr::Url{ack_url}, cpr::Header{{"Origin", origin}});
+    EXPECT_EQ(denied_ack.status_code, 401);
+
+    auto allowed = cpr::Get(
+        cpr::Url{get_url},
+        cpr::Header{{"Origin", origin}, {"X-ACECode-Token", "smoke-token"}});
+    EXPECT_EQ(allowed.status_code, 200);
+}
+
+TEST(WebServerHttp, ConfigRecoveryNoticeAcknowledgeReportsPersistenceFailure) {
+    WebServerFixture fx;
+    const std::string config_path = (fx.tmp_dir / "config.json").string();
+    const auto paths = acecode::config_recovery_paths(config_path);
+    std::filesystem::create_directories(paths.notice_path);
+
+    auto response = cpr::Post(cpr::Url{
+        fx.url("/api/config/recovery-notice/acknowledge")});
+    ASSERT_EQ(response.status_code, 500) << response.text;
+    const auto body = json::parse(response.text);
+    EXPECT_EQ(body["error"], "PERSIST_FAILED");
+    EXPECT_EQ(response.text.find(config_path), std::string::npos);
 }
 
 // 场景:GET /api/config/ui-preferences 返回稳定外观默认值及兼容头像字段。

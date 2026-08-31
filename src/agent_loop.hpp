@@ -397,6 +397,21 @@ public:
         ask_prompter_ = p;
     }
 
+    // 注入 TUI 侧的 AskUserQuestion 传输通道。与上面的 prompter 二选一 ——
+    // daemon 用 prompter(WS 往返),TUI 用这个(overlay 阻塞等待)。两者
+    // 最终都被包成同一个 `ToolContext::ask_user_questions`,因此两端注册的
+    // 是同一个 AskUserQuestion 工具工厂,且任何工具都能向用户提问。
+    // 参数:questions_payload / abort_flag / timeout_seconds(0 = 无限期)
+    //         / origin_label(子代理提问的来源标注)。
+    using AskQuestionChannel = std::function<nlohmann::json(
+        const nlohmann::json& questions_payload,
+        const std::atomic<bool>* abort_flag,
+        int timeout_seconds,
+        const std::string& origin_label)>;
+    void set_ask_question_channel(AskQuestionChannel channel) {
+        ask_channel_ = std::move(channel);
+    }
+
 private:
     void worker_main();
     void join_side_question_threads();
@@ -721,6 +736,7 @@ private:
     // SessionEntry 持有。null 时 ToolContext::ask_user_questions 不注入,
     // 此时 AskUserQuestion 工具(daemon 工厂版)会返回 rejected。
     AskUserQuestionPrompter* ask_prompter_ = nullptr;
+    AskQuestionChannel ask_channel_;
 };
 
 } // namespace acecode

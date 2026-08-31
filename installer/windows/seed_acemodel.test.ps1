@@ -35,6 +35,15 @@ try {
       "model": "moonlight",
       "base_url": "https://old.example/v1",
       "api_key": "old-key"
+    },
+    {
+      "name": "starrylight",
+      "provider": "openai",
+      "model": "starrylight",
+      "base_url": "https://old.example/v1",
+      "api_key": "old-key",
+      "capabilities": ["tool_use"],
+      "capabilities_source": "manual"
     }
   ]
 }
@@ -65,12 +74,23 @@ try {
             throw "context_window was not set to 250000 for $($profile.name)"
         }
     }
+    foreach ($profile in @($moon, $aurora)) {
+        if ((@($profile.capabilities) -join ",") -ne "vision,tool_use" -or $profile.capabilities_source -ne "catalog") {
+            throw "default vision/tool capabilities were not set for $($profile.name)"
+        }
+    }
+    if ((@($star.capabilities) -join ",") -ne "tool_use" -or $star.capabilities_source -ne "manual") {
+        throw "manual ACEModel capabilities were overwritten"
+    }
     if ($config.default_model_name -ne "moonlight") {
         throw "default model was not seeded"
     }
     $raw = [System.IO.File]::ReadAllText($configPath)
     if ($raw -notmatch '"capabilities"\s*:\s*\[\s*"tool_use"\s*\]') {
         throw "single-item capabilities array was flattened"
+    }
+    if ($raw -notmatch '"capabilities"\s*:\s*\[\s*"vision"\s*,\s*"tool_use"\s*\]') {
+        throw "ACEModel default capabilities array was not preserved"
     }
     if ($raw -notmatch '"args"\s*:\s*\[\s*"-y"') {
         throw "existing MCP args array was flattened"

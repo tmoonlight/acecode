@@ -7,6 +7,7 @@
 #include "provider/auth/github_auth.hpp"
 #include "network/proxy_resolver.hpp"
 #include "provider/anthropic_provider.hpp"
+#include "provider/builtin_model_catalog.hpp"
 #include "utils/logger.hpp"
 #include "utils/models_dev_catalog.hpp"
 #include "utils/terminal_input.hpp"
@@ -57,6 +58,14 @@ static ModelProfile configured_profile_from_current_fields(const AppConfig& cfg)
         profile.stream_timeout_ms = cfg.openai.stream_timeout_ms;
         profile.request_headers = cfg.openai.request_headers;
         profile.models_dev_provider_id = cfg.openai.models_dev_provider_id;
+        if (profile.models_dev_provider_id.has_value() &&
+            is_acemodel_provider_id(*profile.models_dev_provider_id)) {
+            if (const ModelEntry* model =
+                    find_acemodel_catalog_model(profile.model)) {
+                profile.capabilities = model_capability_tags(*model);
+                profile.capabilities_source = "catalog";
+            }
+        }
     } else if (cfg.provider == "codex") {
         profile.provider = "codex";
         profile.model = cfg.codex.model;

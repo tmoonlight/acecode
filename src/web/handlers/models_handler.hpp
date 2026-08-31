@@ -73,6 +73,13 @@ std::optional<ModelProbeRequest> parse_model_probe_request(const nlohmann::json&
 // returned or persisted by this helper.
 std::string model_probe_connection_fingerprint(const ModelProbeRequest& request);
 
+// Capability metadata attached to probe/cache responses. ACEModel derives it
+// from the canonical built-in catalog so probing never downgrades a model
+// selected from the static catalog.
+std::map<std::string, std::vector<std::string>>
+model_probe_capabilities(const ModelProbeRequest& request,
+                         const std::vector<std::string>& model_ids);
+
 struct ParsedOpenAiModels {
     std::vector<std::string> ids;
     std::map<std::string, int> context_windows;

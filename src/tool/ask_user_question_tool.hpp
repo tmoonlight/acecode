@@ -80,17 +80,12 @@ ToolResult make_timeout_adopted_ask_result(
     const std::vector<std::string>& question_order,
     int timeout_seconds);
 
-// 工厂函数:新建 AskUserQuestion 工具。TuiState 引用用于发起阻塞 overlay,
-// screen 引用用于 PostEvent 唤醒渲染线程。工具内部通过 ToolContext::abort_flag
-// 感知 agent 中止。
-ToolImpl create_ask_user_question_tool(TuiState& state,
-                                        ftxui::ScreenInteractive& screen);
-
-// daemon 路径用的工厂。execute() 不碰 TuiState/ScreenInteractive,完全靠
-// `ToolContext::ask_user_questions` 异步通道(典型实现: 走 WS question_request
-// → 浏览器 modal → question_answer 回流)。ctx.ask_user_questions 为空时
-// 直接返回 make_rejected_ask_result()(daemon 没装 prompter = AskUserQuestion
-// 在该会话不可用)。
+// AskUserQuestion 的唯一工厂 —— TUI 与 daemon 共用。execute() 不碰
+// TuiState/ScreenInteractive,完全靠 `ToolContext::ask_user_questions` 通道:
+//   daemon → WS question_request → 浏览器 modal → question_answer 回流
+//   TUI    → src/tui/tui_ask_channel.cpp 的阻塞 overlay
+// 两端只有传输不同,工具逻辑只有这一份。ctx.ask_user_questions 为空时
+// 直接报错(该会话没接提问通道 = AskUserQuestion 不可用)。
 ToolImpl create_ask_user_question_tool_async();
 
 } // namespace acecode

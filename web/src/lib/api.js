@@ -538,6 +538,9 @@ export function createApi(base = null) {
     setUiLocale: (locale)            => request('PUT',    '/api/config/ui-locale', { locale }, base),
     getDesktopOnboarding: ()         => request('GET',    '/api/ui/onboarding/desktop', undefined, base),
     dismissDesktopOnboarding: ()     => request('POST',   '/api/ui/onboarding/desktop/dismiss', undefined, base),
+    getConfigRecoveryNotice: ()      => request('GET',    '/api/config/recovery-notice', undefined, base),
+    acknowledgeConfigRecoveryNotice: () => request(
+      'POST', '/api/config/recovery-notice/acknowledge', undefined, base),
     getCustomInstructions: ()        => request('GET',    '/api/config/custom-instructions', undefined, base),
     setCustomInstructions: (cfg)     => request('PUT',    '/api/config/custom-instructions', cfg, base),
     getConnectors: ()                => request('GET',    '/api/config/connectors', undefined, base),
