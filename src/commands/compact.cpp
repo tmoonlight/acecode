@@ -2,6 +2,7 @@
 #include "compact_prompt.hpp"
 #include "../session/compact_checkpoint.hpp"
 #include "../session/session_history_recovery.hpp"
+#include "../pa/pa_quirks.hpp"
 #include "../utils/logger.hpp"
 
 #include <algorithm>
@@ -372,6 +373,11 @@ bool is_context_overflow_error(const std::string& error_message) {
 }
 
 bool is_context_overflow_error(const ProviderErrorInfo& info) {
+    // 客制化服务端的报文不走公开协议:文案可能是中文、type 可能是非标准值、
+    // 状态码本身也不可信,下面这套 HTTP + 标准 code 的判定一条都不命中。
+    // 认不出的后果不是多报一个错,而是 handle_provider_error 里那条三级恢复链
+    // (修剪历史重试 → 精简请求档重试)整个不启动。判定收在 src/pa/。
+    if (pa::is_context_overflow(info)) return true;
     if (info.kind != ProviderErrorKind::Http) return false;
     if (info.status_code != 400 && info.status_code != 413 &&
         info.status_code != 422) {

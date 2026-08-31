@@ -35,6 +35,7 @@
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_payload.hpp"
 #include "headless/headless_mode.hpp"
+#include "pa/pa_context_budget.hpp"
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <set>
@@ -1124,9 +1125,69 @@ bool AgentLoop::active_estimate_exceeds_auto_threshold(
     }
     request.insert(request.end(), history.begin(), history.end());
     return should_auto_compact(
-        context_window_.load(std::memory_order_relaxed),
+        compaction_context_window(),
         last_api_total_tokens_.load(std::memory_order_relaxed),
         estimate_message_tokens(request));
+}
+
+void AgentLoop::active_model_identity(std::string& provider,
+                                      std::string& model) const {
+    provider.clear();
+    model.clear();
+    if (!provider_accessor_) return;
+    const std::shared_ptr<LlmProvider> snapshot = provider_accessor_();
+    if (!snapshot) return;
+    provider = snapshot->name();
+    model = snapshot->model();
+}
+
+int AgentLoop::compaction_context_window() const {
+    const int declared = context_window_.load(std::memory_order_relaxed);
+    std::string provider;
+    std::string model;
+    active_model_identity(provider, model);
+    return pa::context_budget().effective_window(provider, model, declared);
+}
+
+void AgentLoop::note_pa_context_rejection(int request_tokens) {
+    // 与 learner 内部同一道门:不可信的规模在这里就退,省掉 provider 快照与
+    // 两次查表。口径必须一致,否则「记了但没生效」会看起来像 bug。
+    if (!pa::observation_is_credible(request_tokens)) return;
+    std::string provider;
+    std::string model;
+    active_model_identity(provider, model);
+    const int declared = context_window_.load(std::memory_order_relaxed);
+    auto& budget = pa::context_budget();
+    const int before = budget.effective_window(provider, model, declared);
+    budget.note_rejected(provider, model, request_tokens);
+    const int after = budget.effective_window(provider, model, declared);
+    if (after >= before) return;
+
+    LOG_WARN("[pa] context rejection observed; request_estimated_tokens=" +
+             std::to_string(request_tokens) +
+             " declared_window=" + std::to_string(declared) +
+             " compaction_window_before=" + std::to_string(before) +
+             " compaction_window_after=" + std::to_string(after) +
+             " provider=" + provider + " model=" + model);
+
+    // 让用户看得见适配层做了什么。收敛是单调的,所以这条提示最多出现几次,
+    // 不会刷屏;不提示的话用户只会觉得「压缩怎么突然变频繁了」。
+    emit_transcript_system_message(
+        "[PA 适配] 服务端在约 " + std::to_string(request_tokens) +
+        " tokens 处拒收了请求(声明窗口 " + std::to_string(declared) +
+        ")。本模型的自动压缩阈值已下调到 " + std::to_string(after) +
+        " tokens 以内,后续回合会提前压缩而不是先撞一次墙。");
+}
+
+void AgentLoop::note_pa_context_accepted(
+    const std::vector<ChatMessage>& messages_with_system) {
+    std::string provider;
+    std::string model;
+    active_model_identity(provider, model);
+    auto& budget = pa::context_budget();
+    if (!budget.has_observation(provider, model)) return;
+    budget.note_accepted(provider, model,
+                         estimate_message_tokens(messages_with_system));
 }
 
 bool AgentLoop::active_model_can_read_images() const {
@@ -1300,7 +1361,7 @@ void AgentLoop::apply_compact_result(
 }
 
 bool AgentLoop::maybe_run_auto_compact() {
-    const int context_window = context_window_.load(std::memory_order_relaxed);
+    const int context_window = compaction_context_window();
     auto initial_context = build_compaction_initial_context();
     const auto active_history =
         recovered_provider_messages(messages_, "auto-compact");
@@ -2704,6 +2765,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
     ContextRecoveryStage& recovery_stage,
     bool& emergency_request_profile) {
     if (!result.provider_error_seen) {
+        note_pa_context_accepted(messages_with_system);
         return HandleErrorResult::Proceed;
     }
 
@@ -2732,6 +2794,8 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
              (context_overflow ? "true" : "false"));
 
     if (context_overflow && !model_output_seen) {
+        // 先记账再恢复:这一轮已经撞墙了救不回来,但下一轮可以不撞。
+        note_pa_context_rejection(request_tokens);
         if (recovery_stage == ContextRecoveryStage::Normal) {
             const int history_tokens = estimate_message_tokens(
                 recovered_provider_messages(
