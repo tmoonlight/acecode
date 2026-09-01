@@ -1173,10 +1173,10 @@ void AgentLoop::note_pa_context_rejection(int request_tokens) {
     // 让用户看得见适配层做了什么。收敛是单调的,所以这条提示最多出现几次,
     // 不会刷屏;不提示的话用户只会觉得「压缩怎么突然变频繁了」。
     emit_transcript_system_message(
-        "[PA 适配] 服务端在约 " + std::to_string(request_tokens) +
-        " tokens 处拒收了请求(声明窗口 " + std::to_string(declared) +
-        ")。本模型的自动压缩阈值已下调到 " + std::to_string(after) +
-        " tokens 以内,后续回合会提前压缩而不是先撞一次墙。");
+        "[智能压缩] 服务端在约 " + std::to_string(request_tokens) +
+        " tokens (最大 " + std::to_string(declared) +
+        " tokens) 处拒收了请求，压缩阈值下调至 " + std::to_string(after) +
+        " tokens");
 }
 
 void AgentLoop::note_pa_context_accepted(
