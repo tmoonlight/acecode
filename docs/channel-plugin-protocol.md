@@ -176,6 +176,15 @@ The hint never contains remote-control tokens, plugin configuration, or any
 other channel secret. Frontends may be closed; selection and routing do not
 depend on a listener being connected.
 
+Every accepted session-navigation command keeps the Hub's immediate
+`思考中...` acknowledgement ahead of catalog, search, resume, and activation
+work. A successful numeric switch then emits one terminal Chinese confirmation
+for the new binding. It names the selected session and reports context using the
+same semantics as the Web context budget: latest provider `prompt_tokens` over
+the active session's effective `context_window`. Missing usage is reported as
+`暂无用量`; a missing effective limit is reported as `暂不可用`. Numeric switching
+does not also emit the generic initial-connection confirmation.
+
 ## Status Response Rules
 
 `state` must be one of:

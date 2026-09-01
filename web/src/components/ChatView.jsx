@@ -155,6 +155,7 @@ import {
   normalizeModelState,
   resolveHomeModelName,
   selectedModelName,
+  sessionModelReloadFeedback,
   withCreateSessionPreferences,
 } from '../lib/sessionModel.js';
 import { normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
@@ -2047,11 +2048,10 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   const refreshSessionModels = useCallback(async () => {
     if (modelRefreshing) return;
     const targetSid = sid;
-    const workspaceHash = ref?.workspaceHash || '';
     setModelRefreshing(true);
     try {
       const requests = targetSid
-        ? [api.listModels(), api.getSessionModel(targetSid, workspaceHash)]
+        ? [api.listModels(), api.reloadSessionModel(targetSid)]
         : [api.listModels(), api.getDefaultModel(), api.getDefaultPermissionMode()];
       const [modelsResult, stateResult, permissionResult] = await Promise.allSettled(requests);
       if (targetSid && sidRef.current !== targetSid) return;
@@ -2063,7 +2063,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         setModelListLoaded(true);
       }
       if (targetSid && stateResult.status === 'fulfilled') {
-        setModelState(normalizeModelState(stateResult.value));
+        setModelState(normalizeModelState(stateResult.value?.model_state));
       } else if (!targetSid) {
         const defaultName = stateResult.status === 'fulfilled'
           ? (stateResult.value?.name || stateResult.value?.default_model_name || '')
@@ -2073,7 +2073,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
           setPermissionMode(normalizePermissionMode(permissionResult.value?.mode));
         }
       }
-      if (modelsResult.status === 'fulfilled') {
+      if (targetSid && stateResult.status === 'fulfilled') {
+        toast(sessionModelReloadFeedback(
+          stateResult.value?.outcome,
+          stateResult.value?.warning,
+        ));
+      } else if (targetSid) {
+        toast({ kind: 'err', text: '模型配置刷新失败:' + (stateResult.reason?.message || '') });
+      } else if (modelsResult.status === 'fulfilled') {
         toast({ kind: 'ok', text: '模型列表已刷新' });
       } else {
         toast({ kind: 'err', text: '模型列表刷新失败:' + (modelsResult.reason?.message || '') });
@@ -2081,7 +2088,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     } finally {
       setModelRefreshing(false);
     }
-  }, [api, modelOptions, modelRefreshing, ref?.workspaceHash, sid]);
+  }, [api, modelOptions, modelRefreshing, sid]);
 
   useEffect(() => {
     if (!sid) {

@@ -9,9 +9,10 @@ Usage:
 
 Creates a self-update ZIP with Apple's ditto tool. The archive contains the
 complete app plus a root `acecode` copied from its notarized bundled daemon and
-a root `share/acecode/models_dev` registry so standalone CLI installs retain
-their existing flat upgrade path and offline model catalog. The command extracts
-into a clean temporary directory and verifies executable permissions/resources.
+a root `share/acecode` resource tree so standalone CLI installs retain their
+existing flat upgrade path, offline model catalog, and default seed bundle. The
+command extracts into a clean temporary directory and verifies executable
+permissions/resources.
 --require-trusted also requires strict signatures, a stapled app ticket, and
 Gatekeeper acceptance; tagged release jobs use this mode after app notarization.
 USAGE
@@ -20,6 +21,8 @@ USAGE
 app_path=""
 output_path=""
 require_trusted=false
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+repo_root="$(cd -- "$script_dir/.." && pwd -P)"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -69,6 +72,7 @@ if [[ ! -d "$app_path" || "$(basename "$app_path")" != "ACECode.app" ]]; then
     exit 1
 fi
 models_dev_dir="$app_path/Contents/Resources/share/acecode/models_dev"
+seed_dir="$app_path/Contents/Resources/share/acecode/seed"
 models_dev_files=(api.json MANIFEST.json LICENSE)
 for models_dev_file in "${models_dev_files[@]}"; do
     if [[ ! -f "$models_dev_dir/$models_dev_file" ]]; then
@@ -76,6 +80,9 @@ for models_dev_file in "${models_dev_files[@]}"; do
         exit 1
     fi
 done
+python3 "$repo_root/scripts/verify_seed_bundle.py" \
+    --source "$repo_root/assets/seed" \
+    --packaged "$seed_dir"
 if [[ "$output_path" != *.zip ]]; then
     echo "Update archive output must end in .zip: $output_path" >&2
     exit 2
@@ -106,6 +113,8 @@ trap cleanup EXIT
 mkdir -p "$temporary_root/share/acecode"
 /usr/bin/ditto "$models_dev_dir" \
     "$temporary_root/share/acecode/models_dev"
+/usr/bin/ditto "$seed_dir" \
+    "$temporary_root/share/acecode/seed"
 (
     cd "$temporary_root"
     /usr/bin/zip -qr "$temporary_zip" acecode share
@@ -119,6 +128,8 @@ app_daemon="$verified_app/Contents/MacOS/acecode-daemon"
 verified_cli="$verify_root/acecode"
 verified_app_models="$verified_app/Contents/Resources/share/acecode/models_dev"
 verified_cli_models="$verify_root/share/acecode/models_dev"
+verified_app_seed="$verified_app/Contents/Resources/share/acecode/seed"
+verified_cli_seed="$verify_root/share/acecode/seed"
 if [[ ! -d "$verified_app" || ! -x "$app_main" || ! -x "$app_daemon" ||
       ! -x "$verified_cli" ]]; then
     echo "Extracted update archive is missing executable ACECode app or CLI binaries." >&2
@@ -133,6 +144,12 @@ for models_dev_file in "${models_dev_files[@]}"; do
         exit 1
     fi
 done
+python3 "$repo_root/scripts/verify_seed_bundle.py" \
+    --source "$repo_root/assets/seed" \
+    --packaged "$verified_app_seed"
+python3 "$repo_root/scripts/verify_seed_bundle.py" \
+    --source "$repo_root/assets/seed" \
+    --packaged "$verified_cli_seed"
 
 if [[ "$require_trusted" == true ]]; then
     /usr/bin/codesign --verify --deep --strict --verbose=2 "$verified_app"

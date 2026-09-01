@@ -36,7 +36,7 @@
 New pure helper `detect_synchronized_output_support_with(caps, env_lookup)` in `terminal_capability`:
 
 - **Blacklist (off, highest priority):** `ConEmuPID` set (ConEmu/Cmder), `caps.is_legacy_conhost` or `caps.is_classic_conhost`, `TERM` starting with `tmux` or `screen` (multiplexer version unknowable from env; force-able via config).
-- **Whitelist (on):** `WT_SESSION` set (Windows Terminal), `KITTY_WINDOW_ID` set or `TERM == "xterm-kitty"` (kitty), `TERM_PROGRAM` in `iTerm.app` / `WezTerm` / `ghostty` / `vscode` / `Apple_Terminal` / `WarpTerminal` / `contour` / `mintty`, `TERM` starting with `foot` or `ghostty`.
+- **Whitelist (on):** `WT_SESSION` set (Windows Terminal), `KITTY_WINDOW_ID` set or `TERM == "xterm-kitty"` (kitty), `TERM_PROGRAM` in `iTerm.app` / `WezTerm` / `ghostty` / `vscode` / `WarpTerminal` / `contour` / `mintty` (Apple_Terminal / macOS Terminal.app excluded: older versions don't implement DEC 2026; opt in via `tui.sync_output_mode="always"`), `TERM` starting with `foot` or `ghostty`.
 - **Unknown (off):** anything else, including POSIX terminals with no recognizable markers (e.g. Alacritty, plain `xterm-256color`).
 
 On non-Windows builds the Windows-only signals simply never fire and the POSIX rules apply. Terminals that ignore unknown DEC modes harmlessly would tolerate unconditional sending, but the conservative default protects the legacy-Windows moat and surprises no one; `sync_output_mode: "always"` overrides for adventurous users.

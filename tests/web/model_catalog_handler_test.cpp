@@ -242,6 +242,8 @@ TEST(ModelCatalogHandler, AceModelUsesBuiltinCatalogEvenWithoutRegistryEntry) {
     EXPECT_EQ((*all)["models"][2]["name"], "Starrylight");
     for (const auto& model : (*all)["models"]) {
         EXPECT_EQ(model["context_window"], 250000);
+        EXPECT_EQ(model["capabilities"],
+                  nlohmann::json::array({"vision", "tool_use"}));
     }
 
     auto filtered = acecode::web::query_model_catalog_to_json(

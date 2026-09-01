@@ -484,6 +484,21 @@ TEST_F(DefaultSkillSeederTest, DiscoversInstalledBinShareLayout) {
     EXPECT_TRUE(fs::equivalent(*found, installed_seed));
 }
 
+TEST_F(DefaultSkillSeederTest, DiscoversMacosAppBundleResourcesLayout) {
+    const fs::path contents = root / "ACECode.app" / "Contents";
+    const fs::path executable_dir = contents / "MacOS";
+    const fs::path bundled_seed =
+        contents / "Resources" / "share" / "acecode" / "seed" / "skills";
+    fs::create_directories(executable_dir);
+    write_seed_bundle(bundled_seed);
+
+    const auto found =
+        acecode::find_default_skill_seed_dir(executable_dir.string());
+
+    ASSERT_TRUE(found.has_value());
+    EXPECT_TRUE(fs::equivalent(*found, bundled_seed));
+}
+
 TEST_F(DefaultSkillSeederTest, EqualVersionIsANoOp) {
     auto first =
         acecode::reconcile_default_global_skills(home, seed_root);

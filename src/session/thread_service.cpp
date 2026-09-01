@@ -95,9 +95,12 @@ SessionMeta synthesize_meta(const SessionEntry& entry) {
     meta.cwd = entry.cwd;
     meta.created_at = now;
     meta.updated_at = now;
-    meta.provider = entry.provider;
-    meta.model = entry.model;
-    meta.model_preset = entry.model_state.name;
+    const auto model_state = entry.model_binding
+        ? entry.model_binding->state_snapshot()
+        : SessionModelState{};
+    meta.provider = model_state.provider;
+    meta.model = model_state.model;
+    meta.model_preset = model_state.name;
     meta.parent_session_id = entry.parent_session_id;
     meta.no_workspace = entry.no_workspace;
     if (entry.sm) {

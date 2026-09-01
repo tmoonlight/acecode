@@ -4,13 +4,15 @@
 //      字段容忍)
 //   2. format_ask_answers 的拼接契约(单题、多题 + multi-select、引号不转义)
 //   3. make_rejected_ask_result 的固定拒绝文本
-// 另覆盖 TUI overlay 的 timeout 到期清理与 goal 30 秒提示/提前回答路径。
+// 另覆盖 TUI 传输层(src/tui/tui_ask_channel.cpp)的 overlay 超时清理、
+// 提前回答优先、子代理来源标注与中止路径。
 
 #include <gtest/gtest.h>
 
 #include <ftxui/component/screen_interactive.hpp>
 
 #include "tool/ask_user_question_tool.hpp"
+#include "tui/tui_ask_channel.hpp"
 #include "tui_state.hpp"
 
 #include <algorithm>
@@ -343,47 +345,71 @@ TEST(AskUserQuestionUnattendedTest, AsyncToolStillPromptsWithoutActiveGoal) {
     EXPECT_FALSE(r.success);
 }
 
-TEST(AskUserQuestionTuiPolicyTest, TimeoutAutoAdoptsAndCleansOverlay) {
+// ── TUI 传输层 ──────────────────────────────────────
+//
+// 工具逻辑与 TUI 传输已拆开:两端共用 create_ask_user_question_tool_async(),
+// TUI 只提供 ask_via_tui_overlay 这个 `json(json)` 通道(由 AgentLoop 注入到
+// ToolContext::ask_user_questions)。超时时长与来源标注现在由 AgentLoop 算好
+// 传进来 —— 与 daemon 给 prompter 算 timeout_override 是同一处职责。
+// 因此这里直接驱动通道,而不再经工具。
+
+namespace {
+
+nlohmann::json single_question_payload() {
+    return nlohmann::json::array({
+        nlohmann::json{
+            {"id", "Pick one?"},
+            {"text", "Pick one?"},
+            {"header", "choice"},
+            {"multiSelect", false},
+            {"options", nlohmann::json::array({
+                nlohmann::json{{"label", "A"}, {"value", "A"}, {"description", "recommended"}},
+                nlohmann::json{{"label", "B"}, {"value", "B"}, {"description", "alternative"}},
+            })},
+        },
+    });
+}
+
+} // namespace
+
+TEST(TuiAskChannelTest, TimeoutReportsTimedOutAndCleansOverlay) {
+    // 触发场景:question_policy=timeout 且无人回答。
+    // 期望行为:到期返回 timed_out=true 并把 overlay 状态清干净
+    // (残留的 ask_pending / ask_questions 会让下一次提问渲染脏数据)。
+    // 注意:采纳推荐项本身不在这一层 —— 那是工具层
+    // make_timeout_adopted_ask_result 的职责,与 daemon 路径共用一份。
     acecode::TuiState state;
     auto screen = ftxui::ScreenInteractive::FitComponent();
-    auto tool = acecode::create_ask_user_question_tool(state, screen);
-    acecode::ToolContext ctx;
-    ctx.question_policy = [] {
-        acecode::ResolvedQuestionPolicy policy;
-        policy.policy = acecode::QuestionPolicy::Timeout;
-        policy.timeout_seconds = 1;
-        policy.origin = "test";
-        return policy;
-    };
+    std::atomic<bool> abort{false};
 
     const auto started = std::chrono::steady_clock::now();
-    auto result = tool.execute(kInteractiveQuestionArgs, ctx);
+    const nlohmann::json response = acecode::tui::ask_via_tui_overlay(
+        state, screen, single_question_payload(), &abort,
+        /*timeout_seconds=*/1, /*origin_label=*/"");
     const auto elapsed = std::chrono::steady_clock::now() - started;
 
-    EXPECT_TRUE(result.success) << result.output;
+    EXPECT_TRUE(response.value("timed_out", false));
+    EXPECT_FALSE(response.value("cancelled", true));
     EXPECT_GE(elapsed, std::chrono::milliseconds(900));
-    EXPECT_NE(result.output.find("1 seconds"), std::string::npos);
-    EXPECT_NE(result.output.find("\"Pick one?\"=\"A\""), std::string::npos);
-    ASSERT_TRUE(result.metadata.contains("ask_user_question_auto"));
-    EXPECT_EQ(result.metadata["ask_user_question_auto"].value("mode", ""),
-              "timeout");
+
     std::lock_guard<std::mutex> lk(state.mu);
     EXPECT_FALSE(state.ask_pending);
     EXPECT_TRUE(state.ask_questions.empty());
     EXPECT_EQ(state.ask_timeout_hint_seconds, 0);
 }
 
-TEST(AskUserQuestionTuiPolicyTest, ActiveGoalShowsThirtySecondWindowAndAcceptsEarlyAnswer) {
+TEST(TuiAskChannelTest, TimeoutHintIsShownAndEarlyAnswerWins) {
+    // 触发场景:active goal 的 30 秒窗口(由 AgentLoop 算好传进来)。
+    // 期望行为:overlay 顶部显示 30 秒提示;用户在到期前回答时采用真实
+    // 答案而不是超时采纳 —— 用户真实意志优先。
     acecode::TuiState state;
     auto screen = ftxui::ScreenInteractive::FitComponent();
-    auto tool = acecode::create_ask_user_question_tool(state, screen);
     std::atomic<bool> abort{false};
-    acecode::ToolContext ctx;
-    ctx.abort_flag = &abort;
-    ctx.goal_unattended_active = [] { return true; };
 
     auto future = std::async(std::launch::async, [&] {
-        return tool.execute(kInteractiveQuestionArgs, ctx);
+        return acecode::tui::ask_via_tui_overlay(
+            state, screen, single_question_payload(), &abort,
+            /*timeout_seconds=*/30, /*origin_label=*/"");
     });
     if (!wait_for_ask_overlay(state, std::chrono::seconds(2))) {
         abort.store(true);
@@ -401,10 +427,55 @@ TEST(AskUserQuestionTuiPolicyTest, ActiveGoalShowsThirtySecondWindowAndAcceptsEa
     }
     state.ask_cv.notify_all();
 
-    auto result = future.get();
-    EXPECT_TRUE(result.success) << result.output;
-    EXPECT_NE(result.output.find("\"Pick one?\"=\"B\""), std::string::npos);
-    EXPECT_FALSE(result.metadata.contains("ask_user_question_auto"));
+    const nlohmann::json response = future.get();
+    EXPECT_FALSE(response.value("timed_out", true));
+    EXPECT_FALSE(response.value("cancelled", true));
+    ASSERT_TRUE(response.contains("answers"));
+    ASSERT_EQ(response["answers"].size(), 1u);
+    EXPECT_EQ(response["answers"][0]["question_id"], "Pick one?");
+    EXPECT_EQ(response["answers"][0]["selected"][0], "B");
+
     std::lock_guard<std::mutex> lk(state.mu);
     EXPECT_EQ(state.ask_timeout_hint_seconds, 0);
+}
+
+TEST(TuiAskChannelTest, OriginLabelMarksSubagentQuestions) {
+    // 子代理提问时 overlay 要标出来源,否则用户不知道是谁在问。
+    // 这一位现在由 AgentLoop 从 session_manager 算好传进来。
+    acecode::TuiState state;
+    auto screen = ftxui::ScreenInteractive::FitComponent();
+    std::atomic<bool> abort{false};
+
+    auto future = std::async(std::launch::async, [&] {
+        return acecode::tui::ask_via_tui_overlay(
+            state, screen, single_question_payload(), &abort,
+            /*timeout_seconds=*/0, /*origin_label=*/"[subagent] child task");
+    });
+    ASSERT_TRUE(wait_for_ask_overlay(state, std::chrono::seconds(2)));
+
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        EXPECT_EQ(state.ask_origin_label, "[subagent] child task");
+        state.ask_result_ok = false;
+        state.ask_pending = false;
+    }
+    state.ask_cv.notify_all();
+    (void)future.get();
+
+    std::lock_guard<std::mutex> lk(state.mu);
+    EXPECT_TRUE(state.ask_origin_label.empty());
+}
+
+TEST(TuiAskChannelTest, AbortBeforeOpeningReturnsCancelled) {
+    // 已经在中止中时不去动 TUI。
+    acecode::TuiState state;
+    auto screen = ftxui::ScreenInteractive::FitComponent();
+    std::atomic<bool> abort{true};
+
+    const nlohmann::json response = acecode::tui::ask_via_tui_overlay(
+        state, screen, single_question_payload(), &abort, 0, "");
+
+    EXPECT_TRUE(response.value("cancelled", false));
+    std::lock_guard<std::mutex> lk(state.mu);
+    EXPECT_FALSE(state.ask_pending);
 }

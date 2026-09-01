@@ -136,6 +136,14 @@ if(APPLE)
         "${CMAKE_SOURCE_DIR}/assets/models_dev/MANIFEST.json"
         "${CMAKE_SOURCE_DIR}/assets/models_dev/LICENSE"
     )
+    file(GLOB_RECURSE ACECODE_MACOS_SEED_RESOURCES
+        CONFIGURE_DEPENDS
+        LIST_DIRECTORIES false
+        "${CMAKE_SOURCE_DIR}/assets/seed/*"
+    )
+    if(NOT ACECODE_MACOS_SEED_RESOURCES)
+        message(FATAL_ERROR "Missing required macOS default seed resources")
+    endif()
     foreach(ACECODE_MODELS_DEV_RESOURCE IN LISTS ACECODE_MACOS_MODELS_DEV_RESOURCES)
         if(NOT EXISTS "${ACECODE_MODELS_DEV_RESOURCE}")
             message(FATAL_ERROR
@@ -145,6 +153,7 @@ if(APPLE)
     target_sources(acecode-desktop PRIVATE
         "${ACECODE_MACOS_ICON}"
         ${ACECODE_MACOS_MODELS_DEV_RESOURCES}
+        ${ACECODE_MACOS_SEED_RESOURCES}
     )
     set_source_files_properties("${ACECODE_MACOS_ICON}" PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources"
@@ -152,6 +161,23 @@ if(APPLE)
     set_source_files_properties(${ACECODE_MACOS_MODELS_DEV_RESOURCES} PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources/share/acecode/models_dev"
     )
+    foreach(ACECODE_SEED_RESOURCE IN LISTS ACECODE_MACOS_SEED_RESOURCES)
+        file(RELATIVE_PATH ACECODE_SEED_RELATIVE_PATH
+            "${CMAKE_SOURCE_DIR}/assets/seed"
+            "${ACECODE_SEED_RESOURCE}"
+        )
+        get_filename_component(ACECODE_SEED_RELATIVE_DIR
+            "${ACECODE_SEED_RELATIVE_PATH}" DIRECTORY)
+        if(ACECODE_SEED_RELATIVE_DIR STREQUAL "")
+            set(ACECODE_SEED_BUNDLE_LOCATION
+                "Resources/share/acecode/seed")
+        else()
+            set(ACECODE_SEED_BUNDLE_LOCATION
+                "Resources/share/acecode/seed/${ACECODE_SEED_RELATIVE_DIR}")
+        endif()
+        set_source_files_properties("${ACECODE_SEED_RESOURCE}" PROPERTIES
+            MACOSX_PACKAGE_LOCATION "${ACECODE_SEED_BUNDLE_LOCATION}")
+    endforeach()
     set_target_properties(acecode-desktop PROPERTIES
         # Keep the app bundle user-facing while avoiding a case-insensitive
         # collision with the bundled daemon binary copied below.

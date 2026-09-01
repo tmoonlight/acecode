@@ -4,6 +4,7 @@
 
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
+#include "../provider/builtin_model_catalog.hpp"
 #include "../utils/sha256.hpp"
 
 #include <algorithm>
@@ -291,11 +292,18 @@ std::optional<ModelProfile> parse_one_entry(const nlohmann::json& node, std::siz
         e.readonly = node["readonly"].get<bool>();
     }
 
-    // The previous first-party catalog and Windows seeder persisted 200K as
-    // if it were a manual override. Normalize that generated value to the new
-    // 250K fallback while keeping manual 200K overrides untouched.
-    if (is_acemodel_catalog_profile(e) && e.context_window == 200000) {
-        e.context_window = 250000;
+    if (is_acemodel_catalog_profile(e)) {
+        // Catalog-sourced ACEModel profiles follow the current built-in
+        // metadata. Manual capability choices remain untouched because they
+        // carry capabilities_source=manual and do not enter this branch.
+        if (const ModelEntry* model = find_acemodel_catalog_model(e.model)) {
+            e.capabilities = model_capability_tags(*model);
+        }
+
+        // The previous first-party catalog and Windows seeder persisted 200K
+        // as if it were a manual override. Normalize that generated value to
+        // the new 250K fallback while keeping manual 200K overrides untouched.
+        if (e.context_window == 200000) e.context_window = 250000;
     }
 
     return e;
@@ -701,6 +709,51 @@ bool is_acemodel_catalog_context_fallback(const ModelProfile& profile) {
         return false;
     }
     return *profile.context_window == 200000 || *profile.context_window == 250000;
+}
+
+bool model_reasoning_options_equal(const ModelReasoningOptions& left,
+                                   const ModelReasoningOptions& right) {
+    return left.supported == right.supported &&
+           left.mandatory == right.mandatory &&
+           left.default_enabled == right.default_enabled &&
+           left.enabled == right.enabled &&
+           left.supported_efforts == right.supported_efforts &&
+           left.default_effort == right.default_effort &&
+           left.effort == right.effort &&
+           left.supports_max_tokens == right.supports_max_tokens &&
+           left.max_tokens == right.max_tokens;
+}
+
+bool model_profiles_equal(const ModelProfile& left,
+                          const ModelProfile& right) {
+    const bool reasoning_equal =
+        left.reasoning.has_value() == right.reasoning.has_value() &&
+        (!left.reasoning.has_value() ||
+         model_reasoning_options_equal(*left.reasoning, *right.reasoning));
+    return left.name == right.name &&
+           left.provider == right.provider &&
+           left.base_url == right.base_url &&
+           left.api_key == right.api_key &&
+           left.model == right.model &&
+           left.models_dev_provider_id == right.models_dev_provider_id &&
+           left.context_window == right.context_window &&
+           left.stream_timeout_ms == right.stream_timeout_ms &&
+           left.capabilities == right.capabilities &&
+           left.endpoint_mode == right.endpoint_mode &&
+           left.max_output_tokens == right.max_output_tokens &&
+           left.capabilities_source == right.capabilities_source &&
+           reasoning_equal &&
+           left.request_headers == right.request_headers &&
+           left.readonly == right.readonly;
+}
+
+bool saved_model_lists_equal(const std::vector<ModelProfile>& left,
+                             const std::vector<ModelProfile>& right) {
+    if (left.size() != right.size()) return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        if (!model_profiles_equal(left[index], right[index])) return false;
+    }
+    return true;
 }
 
 } // namespace acecode

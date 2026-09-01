@@ -1,7 +1,9 @@
 # 流式输出增量排版(Incremental Streaming Layout)设计
 
-> 版本:2026-08-27 · 状态:已获设计评审通过
+> 版本:2026-08-27 · 状态:历史设计;L1 保留,L2/L3 生产接入已于 2026-08-30 回退
 > 来源:`docs/tui-comparison/report.md` 差距 #1(流式输出增量排版,MICE 优先级 P0)
+
+> **复核结论:** “行内分隔符闭合”不能证明 Markdown 块已稳定;后续行仍可把前一行重分类为同一段落、表格、列表 continuation 或 lazy blockquote。原验收只证明测试与计时通过,没有证明增量结果等价于完整 `format_markdown`。当前生产 TUI 因此恢复完整消息格式化;未来只有在差分测试覆盖块语法、行内语法、XML、宽度和主题后,才能重新接入增量路径。
 
 ## 一、背景与目标
 
@@ -128,20 +130,23 @@ on_delta(token)
 - **里程碑 3(L3)**:增量 lexer(LexerState + pending 缓冲 + 属性测试)。约 1-2 周。
 - 每里程碑独立可测、可回退;全部完成后跑基准脚本对比验收。
 
-## 验收记录(2026-08-30)
+## 复核与回退记录(2026-08-30)
 
-**基准(Task 10,C++ harness,before/after)**:three loads × 200/400/800/1600 行,每步 4 字节喂入;full 列=逐帧 format_markdown(模拟旧行为),incremental 列=append_delta(L2/L3)。
-- prose(散文):full 2.79s→incremental 4.3ms @1600 行(~650x);incremental 总耗时线性(每帧 O(1))✅
-- mixed(混合多块):full 1.37s→incremental 4.1ms @1600 行(~335x);incremental 近线性(每帧 O(1))✅
-- code(单长代码块):incremental ≈ full(二次方)——开围栏整块留尾部,按设计"未闭合不提前画"(R13 文档化局限),非缺陷。
-- R14 追加优化:稳定 vbox 缓存(仅新稳定 token 时重建),消除每帧 O(#稳定)拷贝。
+原“里程碑 1/2/3 完成”的结论已撤销。新增的逐字符差分用例在原实现上稳定复现:
 
-**单测**:新增用例全部通过——MessageRenderCache 3、StreamingFormatter 5、LexerState 7、RenderTokenBlocks 2、ThemePalette +1(VersionBumpsOnSwap)等,共 20+ 新增;既有套件零新增回归。
+- `hello\nworld` 被拆成 2 个 token,完整 lexer 为 1 个段落。
+- 表格 header/separator/body 被拆成 3 个 token,完整 lexer 为 1 个 Table。
+- 列表 continuation 与 lazy blockquote continuation 均被拆成 2 个 token,完整 lexer 各为 1 个块。
+- `<thinking>secret</thinking>` 跨 delta 到达后,流式结果仍显示 `secret`,完整格式化则正确隐藏。
+- 新对话的 `MessageRenderCache` 容量为 0,`store(0, ...)` 被静默丢弃。
 
-**全量回归**:3599 个测试,3586 通过,8 失败——全部为既有环境失败(TcpProbe / BuiltinToolRegistry×2 / GrepGitBackend / SettingsCenterRender / StateFileTest / WebServerHttp×2,与 master 基线一致),**零新增失败**。
+修复策略:
 
-**评审与裁决**:11 个任务全部经 SDD 任务评审 + 修复轮;R1-R14 裁决记录于 `.superpowers/sdd/2026-08-27-streaming-incremental-layout/progress.md`(含:content 哈希只进渲染缓存键 R5、链接缓存改无链接消息 R6、行冻结栈式匹配 R7、行尾检查收窄 R8、主题版本 atomic R9、围栏闭合对齐 R10、宽度变化重放 R11、基准改名 R12、代码块局限 R13、vbox 缓存 R14)。
+- **L1 保留:** 缓存随 conversation grow-only 扩容,并保留整体 transcript reset 的破坏性清空语义。
+- **L2/L3 回退:** `on_delta` 不再构建独立 Element 树;正在流式的 assistant 消息回到完整 `format_markdown` 路径。兼容类保留时也只允许完整内容重算,不得冻结行级 token。
+- **基准隔离:** timing-only GoogleTest 默认 disabled,只允许显式运行,不能再作为功能正确性的替代证据。
+- **重新启用门槛:** 对段落、表格、列表、引用、围栏、行内分隔符、分片 XML、宽度和主题建立 full-vs-chunked 差分测试,全部通过后再单独提案。
 
-**手动验证**:手动 TUI 长流式体验未执行(环境限制),由单测 + 基准 + 回归覆盖。
+当前修复的规范、任务与验证记录位于 `openspec/changes/stabilize-streaming-incremental-layout/`。
 
-**状态:里程碑 1/2/3 完成,#1 流式输出增量排版 已实施。**
+修复后验证:最终聚焦缓存/Markdown/主题/TUI 滚动测试 71/71 通过;完整默认套件运行 3677 个测试,3673 通过、4 个环境或平台 smoke 跳过、0 失败;timing-only benchmark 保持 1 个 disabled,未进入默认套件。

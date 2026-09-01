@@ -26,6 +26,14 @@ namespace fs = std::filesystem;
 
 namespace {
 
+void install_test_provider(
+    acecode::SessionEntry& entry,
+    std::shared_ptr<acecode::LlmProvider> provider) {
+    const auto state = entry.model_binding->state_snapshot();
+    entry.model_binding->install_runtime_snapshot(
+        std::move(provider), state, entry.model_binding->applied_revision());
+}
+
 struct TempDir {
     fs::path path;
     TempDir() {
@@ -1425,12 +1433,9 @@ TEST(ExpertRegistry,
     auto entry = sessions.acquire(id);
     ASSERT_NE(entry, nullptr);
     ASSERT_NE(entry->loop, nullptr);
-    ASSERT_NE(entry->provider_slot, nullptr);
+    ASSERT_NE(entry->model_binding, nullptr);
     entry->sm->set_input_draft("reviewer draft");
-    {
-        std::lock_guard<std::mutex> lock(entry->provider_slot->mu);
-        entry->provider_slot->provider = provider;
-    }
+    install_test_provider(*entry, provider);
 
     entry->loop->submit("review first");
     const auto first_deadline =
@@ -1554,10 +1559,7 @@ TEST(ExpertRegistry, QueueReceiptSeesSubmittedTurnBeforeBusyFlag) {
     auto entry = sessions.acquire(id);
     ASSERT_NE(entry, nullptr);
     ASSERT_NE(entry->loop, nullptr);
-    {
-        std::lock_guard<std::mutex> lock(entry->provider_slot->mu);
-        entry->provider_slot->provider = provider;
-    }
+    install_test_provider(*entry, provider);
 
     entry->loop->submit("queued turn");
     const auto switched = sessions.switch_expert(id, "writer");

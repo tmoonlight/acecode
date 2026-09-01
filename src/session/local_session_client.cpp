@@ -58,6 +58,18 @@ bool LocalSessionClient::send_input(const std::string& session_id, const UserInp
         LOG_WARN("[client] send_input on unknown session " + session_id);
         return false;
     }
+    // Ordinary submissions lazily refresh only before enqueue. Steering and
+    // interruption deliberately remain unhooked because they target the
+    // provider already captured by the active turn.
+    if (auto reload = registry_.reload_model_profile(session_id, false)) {
+        if (!reload->ok) {
+            LOG_WARN("[client] model profile reload failed; using current provider");
+            entry->loop->emit_system_message(
+                "Warning: model profile reload failed; continuing with the current provider.");
+        } else if (!reload->warning.empty()) {
+            entry->loop->emit_system_message("Warning: " + reload->warning);
+        }
+    }
     registry_.maybe_start_auto_title(session_id, input);
     entry->loop->submit(input);
     return true;

@@ -53,14 +53,18 @@ public:
                             const std::string& base_name,
                             bool mirror_stderr) {
         std::lock_guard<std::mutex> lk(mu_);
-        if (ofs_.is_open()) ofs_.close();
-        rotation_enabled_ = true;
-        mirror_stderr_ = mirror_stderr;
-        rotation_dir_ = dir;
-        rotation_base_ = base_name;
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-        open_rotated_locked_(current_date_string_());
+        init_with_rotation_locked_(dir, base_name, mirror_stderr);
+    }
+
+    // 启动配置修复可能早于 TUI / daemon 的主 logger 初始化。仅在当前没有
+    // 可用 sink 时静默启用滚动文件;已有 sink 时绝不重定向调用方的日志。
+    bool init_with_rotation_if_disabled(const std::string& dir,
+                                        const std::string& base_name,
+                                        bool mirror_stderr) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (enabled_) return false;
+        init_with_rotation_locked_(dir, base_name, mirror_stderr);
+        return enabled_;
     }
 
     void set_level(LogLevel level) { level_ = level; }
@@ -135,6 +139,19 @@ private:
     Logger() = default;
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
+
+    void init_with_rotation_locked_(const std::string& dir,
+                                    const std::string& base_name,
+                                    bool mirror_stderr) {
+        if (ofs_.is_open()) ofs_.close();
+        rotation_enabled_ = true;
+        mirror_stderr_ = mirror_stderr;
+        rotation_dir_ = dir;
+        rotation_base_ = base_name;
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        open_rotated_locked_(current_date_string_());
+    }
 
     static const char* level_str(LogLevel l) {
         switch (l) {

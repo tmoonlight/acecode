@@ -1,5 +1,6 @@
 #include "config.hpp"
 
+#include "config_recovery.hpp"
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
 #include "../utils/constants.hpp"
@@ -19,6 +20,7 @@
 #include <initializer_list>
 #include <limits>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -28,6 +30,18 @@ namespace acecode {
 namespace {
 
 std::atomic<bool> g_acecode_home_created_by_process{false};
+
+class ConfigLoadFailure final : public std::runtime_error {
+public:
+    ConfigLoadFailure(std::string category, std::string summary)
+        : std::runtime_error(std::move(summary)),
+          category_(std::move(category)) {}
+
+    const std::string& category() const noexcept { return category_; }
+
+private:
+    std::string category_;
+};
 
 std::string trim_ascii_copy(const std::string& s) {
     size_t first = 0;
@@ -101,6 +115,10 @@ std::optional<int> parse_positive_int(const std::string& value) {
 }
 
 [[noreturn]] void fatal_config_value(const std::string& message) {
+    throw ConfigLoadFailure("semantic_validation", message);
+}
+
+[[noreturn]] void fatal_runtime_config_value(const std::string& message) {
     std::cerr << "[config] fatal: " << message << std::endl;
     LOG_ERROR("[config] " + message);
     std::exit(1);
@@ -720,11 +738,14 @@ AppConfig load_config() {
     return load_config_from_path(config_path, true);
 }
 
-AppConfig load_config_from_path(
+static AppConfig load_config_from_path_once(
     const std::string& explicit_path,
-    bool apply_environment_overrides) {
+    bool apply_environment_overrides,
+    std::optional<std::string>* proven_persisted_bytes = nullptr) {
     AppConfig cfg;
     bool saved_models_key_present = false;
+    std::optional<std::string> active_bytes;
+    if (proven_persisted_bytes) proven_persisted_bytes->reset();
 
     fs::path native_config_path = path_from_utf8(explicit_path);
     fs::path native_acecode_dir = native_config_path.parent_path();
@@ -744,10 +765,18 @@ AppConfig load_config_from_path(
     }
 
     // Read config file
-    std::ifstream ifs(native_config_path);
+    std::ifstream ifs(native_config_path, std::ios::binary);
     if (ifs.is_open()) {
         try {
-            nlohmann::json j = nlohmann::json::parse(ifs);
+            std::ostringstream raw_stream;
+            raw_stream << ifs.rdbuf();
+            if (ifs.bad()) {
+                throw ConfigLoadFailure(
+                    "filesystem_read",
+                    "failed to read config file: " + config_path);
+            }
+            active_bytes = raw_stream.str();
+            nlohmann::json j = nlohmann::json::parse(*active_bytes);
 
             if (j.contains("provider") && j["provider"].is_string()) {
                 cfg.provider = j["provider"].get<std::string>();
@@ -782,9 +811,7 @@ AppConfig load_config_from_path(
                         "openai",
                         err);
                     if (!parsed.has_value()) {
-                        std::cerr << "[config] fatal: " << err << std::endl;
-                        LOG_ERROR(std::string("[config] openai.request_headers parse failure: ") + err);
-                        std::exit(1);
+                        fatal_config_value(err);
                     }
                     cfg.openai.request_headers = std::move(*parsed);
                 }
@@ -1006,10 +1033,9 @@ AppConfig load_config_from_path(
                 if (nj.contains("proxy_mode") && nj["proxy_mode"].is_string()) {
                     std::string m = nj["proxy_mode"].get<std::string>();
                     if (m != "auto" && m != "off" && m != "manual") {
-                        std::cerr << "[config] fatal: network.proxy_mode='" << m
-                                  << "' invalid; expected one of: auto, off, manual" << std::endl;
-                        LOG_ERROR("[config] network.proxy_mode invalid: " + m);
-                        std::exit(1);
+                        fatal_config_value(
+                            "network.proxy_mode is invalid; expected one of: "
+                            "auto, off, manual");
                     }
                     cfg.network.proxy_mode = std::move(m);
                 }
@@ -1036,10 +1062,9 @@ AppConfig load_config_from_path(
                 }
 
                 if (cfg.network.proxy_mode == "manual" && cfg.network.proxy_url.empty()) {
-                    std::cerr << "[config] fatal: network.proxy_mode='manual' requires "
-                              << "non-empty network.proxy_url" << std::endl;
-                    LOG_ERROR("[config] manual proxy_mode missing proxy_url");
-                    std::exit(1);
+                    fatal_config_value(
+                        "network.proxy_mode='manual' requires non-empty "
+                        "network.proxy_url");
                 }
             }
             // 联网搜索段。缺省 → RSS + DuckDuckGo 并行搜索。
@@ -1053,11 +1078,10 @@ AppConfig load_config_from_path(
                     if (b != "parallel" && b != "rss" && b != "auto" &&
                         b != "duckduckgo" && b != "bing_cn" &&
                         b != "bochaai" && b != "tavily") {
-                        std::cerr << "[config] fatal: web_search.backend='" << b
-                                  << "' invalid; expected one of: parallel, rss, auto, "
-                                  << "duckduckgo, bing_cn, bochaai, tavily" << std::endl;
-                        LOG_ERROR("[config] web_search.backend invalid: " + b);
-                        std::exit(1);
+                        fatal_config_value(
+                            "web_search.backend is invalid; expected one of: "
+                            "parallel, rss, auto, duckduckgo, bing_cn, "
+                            "bochaai, tavily");
                     }
                     cfg.web_search.backend = std::move(b);
                 }
@@ -1066,35 +1090,82 @@ AppConfig load_config_from_path(
                 if (wsj.contains("rss_base_url") && wsj["rss_base_url"].is_string()) {
                     const std::string url = wsj["rss_base_url"].get<std::string>();
                     if (!utils::is_valid_http_base_url(url)) {
-                        std::cerr << "[config] fatal: web_search.rss_base_url must be an "
-                                     "HTTPS base URL (HTTP is allowed only for loopback)"
-                                  << std::endl;
-                        LOG_ERROR("[config] invalid web_search.rss_base_url");
-                        std::exit(1);
+                        fatal_config_value(
+                            "web_search.rss_base_url must be an HTTPS base URL "
+                            "(HTTP is allowed only for loopback)");
                     }
                     cfg.web_search.rss_base_url = url;
                 }
                 if (wsj.contains("max_results") && wsj["max_results"].is_number_integer()) {
                     int v = wsj["max_results"].get<int>();
                     if (v < 1 || v > 10) {
-                        std::cerr << "[config] fatal: web_search.max_results=" << v
-                                  << " out of range (1..10)" << std::endl;
-                        LOG_ERROR("[config] web_search.max_results out of range: " +
-                                  std::to_string(v));
-                        std::exit(1);
+                        fatal_config_value(
+                            "web_search.max_results out of range (1..10)");
                     }
                     cfg.web_search.max_results = v;
                 }
                 if (wsj.contains("timeout_ms") && wsj["timeout_ms"].is_number_integer()) {
                     int v = wsj["timeout_ms"].get<int>();
                     if (v < 1000 || v > 30000) {
-                        std::cerr << "[config] fatal: web_search.timeout_ms=" << v
-                                  << " out of range (1000..30000)" << std::endl;
-                        LOG_ERROR("[config] web_search.timeout_ms out of range: " +
-                                  std::to_string(v));
-                        std::exit(1);
+                        fatal_config_value(
+                            "web_search.timeout_ms out of range (1000..30000)");
                     }
                     cfg.web_search.timeout_ms = v;
+                }
+            }
+
+            // 图像生成段(openspec add-image-generation-tool)。缺省 → 未配置,
+            // 工具不注册。三档模型名允许部分覆盖,未给的沿用默认。
+            if (j.contains("image_generation") && j["image_generation"].is_object()) {
+                const auto& igj = j["image_generation"];
+                if (igj.contains("enabled") && igj["enabled"].is_boolean())
+                    cfg.image_generation.enabled = igj["enabled"].get<bool>();
+                if (igj.contains("source") && igj["source"].is_string()) {
+                    std::string src = igj["source"].get<std::string>();
+                    if (src != "saved_model" && src != "inline") {
+                        fatal_config_value(
+                            "image_generation.source is invalid; expected "
+                            "\"saved_model\" or \"inline\"");
+                    }
+                    cfg.image_generation.source = std::move(src);
+                }
+                if (igj.contains("saved_model_name") && igj["saved_model_name"].is_string())
+                    cfg.image_generation.saved_model_name =
+                        igj["saved_model_name"].get<std::string>();
+                if (igj.contains("base_url") && igj["base_url"].is_string()) {
+                    const std::string url = igj["base_url"].get<std::string>();
+                    if (!url.empty() && !utils::is_valid_http_base_url(url)) {
+                        fatal_config_value(
+                            "image_generation.base_url must be an HTTPS base URL "
+                            "(HTTP is allowed only for loopback)");
+                    }
+                    cfg.image_generation.base_url = url;
+                }
+                if (igj.contains("api_key") && igj["api_key"].is_string())
+                    cfg.image_generation.api_key = igj["api_key"].get<std::string>();
+                if (igj.contains("models") && igj["models"].is_object()) {
+                    const auto& mj = igj["models"];
+                    if (mj.contains("standard") && mj["standard"].is_string())
+                        cfg.image_generation.model_standard = mj["standard"].get<std::string>();
+                    if (mj.contains("high") && mj["high"].is_string())
+                        cfg.image_generation.model_high = mj["high"].get<std::string>();
+                    if (mj.contains("ultra") && mj["ultra"].is_string())
+                        cfg.image_generation.model_ultra = mj["ultra"].get<std::string>();
+                }
+                if (igj.contains("default_quality") && igj["default_quality"].is_string()) {
+                    std::string q = igj["default_quality"].get<std::string>();
+                    if (q != "standard" && q != "high" && q != "ultra") {
+                        fatal_config_value(
+                            "image_generation.default_quality is invalid; expected "
+                            "one of: standard, high, ultra");
+                    }
+                    cfg.image_generation.default_quality = std::move(q);
+                }
+                if (igj.contains("timeout_ms") && igj["timeout_ms"].is_number_integer()) {
+                    // 越界不致命:这里只是一个超时时长,clamp 比把启动搞挂好。
+                    // 下限 30s 是因为实测单张就要 20~60s,更小的值等于自杀。
+                    cfg.image_generation.timeout_ms = std::clamp(
+                        igj["timeout_ms"].get<int>(), 30000, 600000);
                 }
             }
 
@@ -1108,27 +1179,21 @@ AppConfig load_config_from_path(
                 if (lspj.contains("servers") && lspj["servers"].is_object()) {
                     for (const auto& [name, sj] : lspj["servers"].items()) {
                         if (!sj.is_object()) {
-                            std::cerr << "[config] fatal: lsp.servers." << name
-                                      << " must be an object" << std::endl;
-                            LOG_ERROR("[config] lsp.servers entry not object: " + name);
-                            std::exit(1);
+                            fatal_config_value(
+                                "lsp.servers entry must be an object");
                         }
                         LspServerOverride entry;
                         if (sj.contains("disabled") && sj["disabled"].is_boolean())
                             entry.disabled = sj["disabled"].get<bool>();
                         if (sj.contains("command")) {
                             if (!sj["command"].is_array()) {
-                                std::cerr << "[config] fatal: lsp.servers." << name
-                                          << ".command must be a string array" << std::endl;
-                                LOG_ERROR("[config] lsp command not array: " + name);
-                                std::exit(1);
+                                fatal_config_value(
+                                    "lsp.servers command must be a string array");
                             }
                             for (const auto& item : sj["command"]) {
                                 if (!item.is_string()) {
-                                    std::cerr << "[config] fatal: lsp.servers." << name
-                                              << ".command items must be strings" << std::endl;
-                                    LOG_ERROR("[config] lsp command item not string: " + name);
-                                    std::exit(1);
+                                    fatal_config_value(
+                                        "lsp.servers command items must be strings");
                                 }
                                 entry.command.push_back(item.get<std::string>());
                             }
@@ -1194,11 +1259,8 @@ AppConfig load_config_from_path(
                 if (rcj.contains("port") && rcj["port"].is_number_integer()) {
                     int v = rcj["port"].get<int>();
                     if (v < 1 || v > 65535) {
-                        std::cerr << "[config] fatal: remote_control.port=" << v
-                                  << " out of range (1..65535)" << std::endl;
-                        LOG_ERROR("[config] remote_control.port out of range: " +
-                                  std::to_string(v));
-                        std::exit(1);
+                        fatal_config_value(
+                            "remote_control.port out of range (1..65535)");
                     }
                     cfg.remote_control.port = v;
                 }
@@ -1453,9 +1515,7 @@ AppConfig load_config_from_path(
                 std::string err;
                 auto parsed = parse_saved_models(j["saved_models"], err);
                 if (!parsed.has_value()) {
-                    std::cerr << "[config] fatal: " << err << std::endl;
-                    LOG_ERROR(std::string("[config] saved_models parse failure: ") + err);
-                    std::exit(1);
+                    fatal_config_value("saved_models parse failure: " + err);
                 }
                 cfg.saved_models = std::move(*parsed);
 
@@ -1476,11 +1536,14 @@ AppConfig load_config_from_path(
                     // Windows may reject replacing a file that this process still
                     // has open, so close the startup read handle before atomic rename.
                     ifs.close();
-                    if (!atomic_write_file(config_path, j.dump(2) + "\n", true)) {
-                        fatal_config_value(
+                    const std::string repaired_bytes = j.dump(2) + "\n";
+                    if (!atomic_write_file(config_path, repaired_bytes, true)) {
+                        throw ConfigLoadFailure(
+                            "repair_persistence",
                             "failed to persist repaired duplicate saved model names to " +
                             config_path);
                     }
+                    active_bytes = repaired_bytes;
                     for (const auto& repair : *repairs) {
                         LOG_WARN(
                             "[config] repaired duplicate saved model name at index " +
@@ -1492,6 +1555,39 @@ AppConfig load_config_from_path(
             }
             if (j.contains("default_model_name") && j["default_model_name"].is_string()) {
                 cfg.default_model_name = j["default_model_name"].get<std::string>();
+            }
+            if (!cfg.default_model_name.empty() &&
+                !cfg.saved_models.empty() &&
+                find_profile_by_name(cfg.saved_models, cfg.default_model_name) == nullptr) {
+                const std::string stale_default_name = cfg.default_model_name;
+                cfg.default_model_name = cfg.saved_models.front().name;
+                j["default_model_name"] = cfg.default_model_name;
+
+                // Keep this recoverable startup repair out of every UI surface.
+                // Close the startup read handle before the atomic replace on Windows.
+                ifs.close();
+                Logger::instance().init_with_rotation_if_disabled(
+                    get_logs_dir(), "config", /*mirror_stderr=*/false);
+                const std::string repair_summary =
+                    nlohmann::json(stale_default_name).dump() + " -> " +
+                    nlohmann::json(cfg.default_model_name).dump();
+                const std::string repaired_bytes = j.dump(2) + "\n";
+                if (atomic_write_file(config_path, repaired_bytes, true)) {
+                    active_bytes = repaired_bytes;
+                    LOG_WARN(
+                        "[config] repaired missing default model reference " +
+                        repair_summary + "; persisted to " +
+                        nlohmann::json(config_path).dump());
+                } else {
+                    // The in-memory fallback is safe for this run, but the
+                    // still-stale disk bytes must never replace last-good.
+                    active_bytes.reset();
+                    LOG_ERROR(
+                        "[config] repaired missing default model reference in memory " +
+                        repair_summary + "; failed to persist to " +
+                        nlohmann::json(config_path).dump() +
+                        "; continuing startup and retrying on the next load");
+                }
             }
 
             if (j.contains("mcp_servers") && j["mcp_servers"].is_object()) {
@@ -1579,13 +1675,70 @@ AppConfig load_config_from_path(
                 }
             }
         } catch (const nlohmann::json::parse_error& e) {
-            std::cerr << "[config] Warning: Failed to parse config.json: " << e.what() << std::endl;
+            throw ConfigLoadFailure(
+                "json_parse",
+                "config JSON parse failure at byte " +
+                std::to_string(e.byte));
+        } catch (const nlohmann::json::exception& e) {
+            throw ConfigLoadFailure(
+                "json_value",
+                "config JSON value failure (error id " +
+                std::to_string(e.id) + ")");
         }
     }
 
-    if (apply_environment_overrides) {
-        // Environment variable overrides are runtime-only. Explicit-path loads
-        // default to false so a later save cannot leak an env-provided secret.
+    // Prove the persisted JSON independently of runtime-only environment
+    // overrides. Keep cfg unsynthesized until after overrides so legacy model
+    // profiles continue to inherit environment-provided values.
+    AppConfig persisted_cfg = cfg;
+    synthesize_legacy_saved_model_if_needed(
+        persisted_cfg, saved_models_key_present);
+    if (!persisted_cfg.saved_models.empty()) {
+        std::string err;
+        if (!validate_saved_models(
+                persisted_cfg.saved_models,
+                persisted_cfg.default_model_name,
+                err)) {
+            fatal_config_value("saved_models validation failure: " + err);
+        }
+        sanitize_disabled_model_providers(persisted_cfg);
+    } else if (!persisted_cfg.default_model_name.empty()) {
+        LOG_WARN("[config] default_model_name ignored because saved_models is empty: " +
+                 persisted_cfg.default_model_name);
+        persisted_cfg.default_model_name.clear();
+    }
+    if (persisted_cfg.saved_models.empty() &&
+        !persisted_cfg.provider.empty() &&
+        !is_runtime_model_provider_enabled(persisted_cfg.provider)) {
+        LOG_WARN("[config] provider '" + persisted_cfg.provider +
+                 "' ignored because no enabled model profiles are configured");
+        persisted_cfg.provider.clear();
+    }
+
+    const auto validation_errors = validate_config(persisted_cfg);
+    if (!validation_errors.empty()) {
+        fatal_config_value(
+            "configuration validation failure: " +
+            validation_errors.front() +
+            (validation_errors.size() > 1
+                ? " (and " +
+                    std::to_string(validation_errors.size() - 1) +
+                    " more)"
+                : ""));
+    }
+
+    if (proven_persisted_bytes && active_bytes.has_value()) {
+        *proven_persisted_bytes = active_bytes;
+    }
+
+    if (!apply_environment_overrides) {
+        return persisted_cfg;
+    }
+
+    {
+        // Environment variable overrides are runtime-only and are applied only
+        // after the persisted JSON has proven valid. A bad environment value
+        // must never cause rollback of a healthy config file.
         std::string env;
         if (getenv_utf8("ACECODE_PROVIDER", env)) {
             cfg.provider = env;
@@ -1624,9 +1777,11 @@ AppConfig load_config_from_path(
     if (!cfg.saved_models.empty()) {
         std::string err;
         if (!validate_saved_models(cfg.saved_models, cfg.default_model_name, err)) {
-            std::cerr << "[config] fatal: " << err << std::endl;
-            LOG_ERROR(std::string("[config] saved_models validation failure: ") + err);
-            std::exit(1);
+            // The persisted equivalent was already validated above, so any new
+            // failure at this point belongs to runtime environment overrides
+            // and must not trigger a JSON rollback.
+            fatal_runtime_config_value(
+                "runtime saved_models validation failure: " + err);
         }
         sanitize_disabled_model_providers(cfg);
     } else if (!cfg.default_model_name.empty()) {
@@ -1643,6 +1798,233 @@ AppConfig load_config_from_path(
     }
 
     return cfg;
+}
+
+namespace {
+
+std::optional<std::string> read_config_bytes_for_recovery(
+    const std::string& path,
+    std::string* error = nullptr) {
+    if (error) error->clear();
+    std::ifstream input(path_from_utf8(path), std::ios::binary);
+    if (!input.is_open()) {
+        if (error) *error = "failed to open config file: " + path;
+        return std::nullopt;
+    }
+    std::ostringstream bytes;
+    bytes << input.rdbuf();
+    if (input.bad()) {
+        if (error) *error = "failed to read config file: " + path;
+        return std::nullopt;
+    }
+    return bytes.str();
+}
+
+void init_config_recovery_logging() {
+    Logger::instance().init_with_rotation_if_disabled(
+        get_logs_dir(), "config", /*mirror_stderr=*/false);
+}
+
+void snapshot_valid_config(const std::string& config_path,
+                           const std::string& proven_bytes) {
+    // Avoid rewriting a credentials-bearing snapshot on every read-only load.
+    auto existing = read_last_good_config(config_path);
+    if (existing.has_value() && *existing == proven_bytes) return;
+
+    std::string snapshot_error;
+    if (!write_last_good_config(
+            config_path, proven_bytes, &snapshot_error)) {
+        init_config_recovery_logging();
+        LOG_ERROR("[config_recovery] " + snapshot_error);
+    }
+}
+
+[[noreturn]] void terminate_config_load(
+    const std::string& config_path,
+    const ConfigLoadFailure& failure,
+    const std::string& recovery_summary = {}) {
+    init_config_recovery_logging();
+    std::string message = "category=" + failure.category();
+    if (!recovery_summary.empty()) {
+        message += "; rollback=" + recovery_summary;
+    }
+    LOG_ERROR("[config_recovery] unrecoverable config load: path=" +
+              nlohmann::json(config_path).dump() + "; " + message);
+    std::cerr << "[config] fatal: " << failure.what();
+    if (!recovery_summary.empty()) {
+        std::cerr << "; automatic rollback failed: " << recovery_summary;
+    }
+    std::cerr << std::endl;
+    std::exit(1);
+}
+
+class StagedConfigCleanup {
+public:
+    explicit StagedConfigCleanup(std::string path) : path_(std::move(path)) {}
+    ~StagedConfigCleanup() {
+        std::error_code ec;
+        fs::remove(path_from_utf8(path_), ec);
+        fs::remove(path_from_utf8(path_ + ".tmp"), ec);
+    }
+
+private:
+    std::string path_;
+};
+
+} // namespace
+
+AppConfig load_config_from_path(
+    const std::string& explicit_path,
+    bool apply_environment_overrides) {
+    const std::string config_path =
+        path_to_utf8(path_from_utf8(explicit_path));
+
+    try {
+        std::optional<std::string> proven_bytes;
+        AppConfig cfg = load_config_from_path_once(
+            config_path, apply_environment_overrides, &proven_bytes);
+        if (proven_bytes.has_value()) {
+            snapshot_valid_config(config_path, *proven_bytes);
+        }
+        return cfg;
+    } catch (const ConfigLoadFailure& initial_failure) {
+        if (initial_failure.category() == "filesystem_read" ||
+            initial_failure.category() == "repair_persistence") {
+            terminate_config_load(config_path, initial_failure);
+        }
+
+        init_config_recovery_logging();
+        LOG_ERROR("[config_recovery] active config rejected: path=" +
+                  nlohmann::json(config_path).dump() +
+                  "; category=" + initial_failure.category());
+
+        std::string read_error;
+        auto invalid_bytes = read_config_bytes_for_recovery(
+            config_path, &read_error);
+        if (!invalid_bytes.has_value()) {
+            terminate_config_load(
+                config_path, initial_failure, "active file capture failed");
+        }
+
+        std::string recovery_error;
+        auto last_good_bytes = read_last_good_config(
+            config_path, &recovery_error);
+        if (!last_good_bytes.has_value()) {
+            terminate_config_load(
+                config_path, initial_failure,
+                "no readable last-good snapshot");
+        }
+
+        auto staged_path = stage_config_recovery_candidate(
+            config_path, *last_good_bytes, &recovery_error);
+        if (!staged_path.has_value()) {
+            terminate_config_load(
+                config_path, initial_failure,
+                "last-good staging failed");
+        }
+        StagedConfigCleanup staged_cleanup(*staged_path);
+
+        std::optional<std::string> restored_bytes;
+        try {
+            (void)load_config_from_path_once(
+                *staged_path,
+                /*apply_environment_overrides=*/false,
+                &restored_bytes);
+        } catch (const ConfigLoadFailure& candidate_failure) {
+            terminate_config_load(
+                config_path, initial_failure,
+                "last-good snapshot rejected (" +
+                candidate_failure.category() + ")");
+        }
+
+        if (!restored_bytes.has_value()) {
+            terminate_config_load(
+                config_path, initial_failure,
+                "validated snapshot produced no persistent bytes");
+        }
+
+        auto invalid_backup_path = archive_invalid_config(
+            config_path, *invalid_bytes, &recovery_error);
+        if (!invalid_backup_path.has_value()) {
+            terminate_config_load(
+                config_path, initial_failure,
+                "invalid-file archival failed");
+        }
+
+        // Another process may have completed the same recovery while this one
+        // validated the snapshot. Accept its proven-valid active file instead
+        // of replacing it again; the captured invalid bytes remain archived.
+        auto latest_bytes = read_config_bytes_for_recovery(config_path);
+        if (latest_bytes.has_value() && *latest_bytes != *invalid_bytes) {
+            try {
+                std::optional<std::string> concurrent_bytes;
+                AppConfig concurrent = load_config_from_path_once(
+                    config_path,
+                    apply_environment_overrides,
+                    &concurrent_bytes);
+                if (concurrent_bytes.has_value()) {
+                    snapshot_valid_config(config_path, *concurrent_bytes);
+                    LOG_WARN(
+                        "[config_recovery] concurrent process restored config: path=" +
+                        nlohmann::json(config_path).dump() +
+                        "; invalid_backup=" +
+                        nlohmann::json(*invalid_backup_path).dump());
+                    return concurrent;
+                }
+            } catch (const ConfigLoadFailure&) {
+                // The replacement is also invalid; continue with the already
+                // validated last-good candidate below.
+            }
+        }
+
+        if (!atomic_write_file(config_path, *restored_bytes, true)) {
+            terminate_config_load(
+                config_path, initial_failure,
+                "atomic last-good restore failed");
+        }
+
+        AppConfig recovered;
+        std::optional<std::string> recovered_bytes;
+        try {
+            recovered = load_config_from_path_once(
+                config_path,
+                apply_environment_overrides,
+                &recovered_bytes);
+        } catch (const ConfigLoadFailure& retry_failure) {
+            // Preserve the original active failure for manual correction if an
+            // unexpected path-dependent check rejects the staged candidate.
+            (void)atomic_write_file(config_path, *invalid_bytes, true);
+            terminate_config_load(
+                config_path, initial_failure,
+                "restored config retry failed (" +
+                retry_failure.category() + ")");
+        }
+        if (!recovered_bytes.has_value()) {
+            (void)atomic_write_file(config_path, *invalid_bytes, true);
+            terminate_config_load(
+                config_path, initial_failure,
+                "restored config produced no persistent bytes");
+        }
+
+        std::string notice_error;
+        if (!write_config_recovery_notice(
+                config_path, *invalid_backup_path, &notice_error)) {
+            LOG_ERROR("[config_recovery] rollback completed but recovery "
+                      "notice persistence failed: path=" +
+                      nlohmann::json(config_path).dump());
+        }
+        snapshot_valid_config(config_path, *recovered_bytes);
+        LOG_WARN("[config_recovery] restored last-good config: path=" +
+                 nlohmann::json(config_path).dump() +
+                 "; last_good=" +
+                 nlohmann::json(
+                     config_recovery_paths(config_path).last_good_path).dump() +
+                 "; invalid_backup=" +
+                 nlohmann::json(*invalid_backup_path).dump() +
+                 "; notice_persisted=" +
+                 std::string(notice_error.empty() ? "true" : "false"));
+        return recovered;
+    }
 }
 
 bool was_acecode_home_created_by_process() {
@@ -1921,6 +2303,40 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             wsj["timeout_ms"] = cfg.web_search.timeout_ms;
         if (!wsj.empty()) j["web_search"] = wsj;
 
+        ImageGenerationConfig ig_d;
+        nlohmann::json igj = nlohmann::json::object();
+        if (!cfg.image_generation.base_url.empty() &&
+            !utils::is_valid_http_base_url(cfg.image_generation.base_url)) {
+            throw std::runtime_error(
+                "image_generation.base_url must be HTTPS (or loopback HTTP) without "
+                "credentials, query, or fragment");
+        }
+        if (cfg.image_generation.enabled != ig_d.enabled)
+            igj["enabled"] = cfg.image_generation.enabled;
+        if (cfg.image_generation.source != ig_d.source)
+            igj["source"] = cfg.image_generation.source;
+        if (cfg.image_generation.saved_model_name != ig_d.saved_model_name)
+            igj["saved_model_name"] = cfg.image_generation.saved_model_name;
+        if (cfg.image_generation.base_url != ig_d.base_url)
+            igj["base_url"] = cfg.image_generation.base_url;
+        if (cfg.image_generation.api_key != ig_d.api_key)
+            igj["api_key"] = cfg.image_generation.api_key;
+        {
+            nlohmann::json mj = nlohmann::json::object();
+            if (cfg.image_generation.model_standard != ig_d.model_standard)
+                mj["standard"] = cfg.image_generation.model_standard;
+            if (cfg.image_generation.model_high != ig_d.model_high)
+                mj["high"] = cfg.image_generation.model_high;
+            if (cfg.image_generation.model_ultra != ig_d.model_ultra)
+                mj["ultra"] = cfg.image_generation.model_ultra;
+            if (!mj.empty()) igj["models"] = mj;
+        }
+        if (cfg.image_generation.default_quality != ig_d.default_quality)
+            igj["default_quality"] = cfg.image_generation.default_quality;
+        if (cfg.image_generation.timeout_ms != ig_d.timeout_ms)
+            igj["timeout_ms"] = cfg.image_generation.timeout_ms;
+        if (!igj.empty()) j["image_generation"] = igj;
+
         nlohmann::json lspj = nlohmann::json::object();
         if (!cfg.lsp.enabled) lspj["enabled"] = false;
         if (!cfg.lsp.servers.empty()) {
@@ -2084,6 +2500,26 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
     return j;
 }
 
+std::string serialize_valid_config(const AppConfig& cfg) {
+    const auto validation_errors = validate_config(cfg);
+    if (!validation_errors.empty()) {
+        throw std::runtime_error(
+            "refusing to save invalid config: " +
+            validation_errors.front());
+    }
+    if (!cfg.saved_models.empty()) {
+        std::string saved_models_error;
+        if (!validate_saved_models(
+                cfg.saved_models,
+                cfg.default_model_name,
+                saved_models_error)) {
+            throw std::runtime_error(
+                "refusing to save invalid config: " + saved_models_error);
+        }
+    }
+    return build_config_json(cfg).dump(2) + "\n";
+}
+
 } // namespace
 
 void save_config(const AppConfig& cfg) {
@@ -2095,9 +2531,16 @@ void save_config(const AppConfig& cfg) {
         fs::create_directories(native_acecode_dir);
     }
 
-    auto j = build_config_json(cfg);
-    if (!atomic_write_file(config_path, j.dump(2) + "\n", true)) {
+    const std::string bytes = serialize_valid_config(cfg);
+    if (!atomic_write_file(config_path, bytes, true)) {
         throw std::runtime_error("failed to write config file: " + config_path);
+    }
+    std::string snapshot_error;
+    if (!write_last_good_config(config_path, bytes, &snapshot_error)) {
+        init_config_recovery_logging();
+        LOG_ERROR("[config_recovery] saved config but failed to advance "
+                  "last-good snapshot: path=" +
+                  nlohmann::json(config_path).dump());
     }
 }
 
@@ -2107,10 +2550,18 @@ void save_config(const AppConfig& cfg, const std::string& explicit_path) {
         fs::create_directories(p.parent_path());
     }
 
-    auto j = build_config_json(cfg);
-    if (!atomic_write_file(path_to_utf8(p), j.dump(2) + "\n", true)) {
+    const std::string config_path = path_to_utf8(p);
+    const std::string bytes = serialize_valid_config(cfg);
+    if (!atomic_write_file(config_path, bytes, true)) {
         throw std::runtime_error("failed to write config file: " +
-                                 path_to_utf8(p));
+                                 config_path);
+    }
+    std::string snapshot_error;
+    if (!write_last_good_config(config_path, bytes, &snapshot_error)) {
+        init_config_recovery_logging();
+        LOG_ERROR("[config_recovery] saved config but failed to advance "
+                  "last-good snapshot: path=" +
+                  nlohmann::json(config_path).dump());
     }
 }
 

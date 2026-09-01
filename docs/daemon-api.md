@@ -292,6 +292,7 @@ when known.
 | PUT | `/api/sessions/:id/permissions` | set session permission mode |
 | GET | `/api/sessions/:id/model` | read session model state |
 | POST | `/api/sessions/:id/model` | switch session model |
+| POST | `/api/sessions/:id/model/reload` | force reload the selected saved-model profile for one active session |
 | POST | `/api/sessions/:id/fork` | fork a transcript prefix |
 | POST | `/api/sessions/:id/file-checkpoints/:message_id/restore` | restore files to checkpoint |
 | GET | `/api/files` | list directory |
@@ -2162,14 +2163,17 @@ deduplicates model ids.
 ACEModel 官方端点的内置 `starrylight`、`moonlight` 和 `aurora`
 优先使用上游 `/models` 返回的有效最大上下文字段。Daemon 会将该值
 原样写入 `model_context_windows`，不按本地默认值截断；字段缺失、无效
-或无法解析时，才从内置目录回填 `250000` Token。
+或无法解析时，才从内置目录回填 `250000` Token。探测和本地探测缓存响应
+还会返回 `model_capabilities`，确保三个内置模型继续使用目录声明的
+`["vision", "tool_use"]`，不会因重新探测丢失默认能力。
 
 Success:
 
 ```json
 {
   "models": ["gpt-4.1"],
-  "model_context_windows": {"gpt-4.1": 1047576}
+  "model_context_windows": {"gpt-4.1": 1047576},
+  "model_capabilities": {"gpt-4.1": ["vision", "tool_use"]}
 }
 ```
 
@@ -2215,7 +2219,7 @@ Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
 `credential_source_name`。一等自营 Provider `acemodel`（展示名 ACEModel）
 使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
 `https://ge.bigjuan.xyz/aceapi/v1`，`group` 为 `custom`（Web 再按 id 提到「自营模型」），查询时返回内置
-`starrylight`、`moonlight` 与 `aurora`，三者本地回退 `context_window` 均为 `250000`；模型探测得到的有效服务器值优先。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
+`starrylight`、`moonlight` 与 `aurora`，三者本地回退 `context_window` 均为 `250000`，且默认返回 `capabilities:["vision","tool_use"]`；模型探测得到的有效服务器值优先。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
 ACECode 的 GitHub/xAI 设备登录与固定受管端点负责认证。普通 `xai` Provider
 仍保留为 OpenAI-compatible API Key 接入；只有目录 id `grok` 使用 Coding Plan。
 
@@ -2300,6 +2304,51 @@ Returns current session model state:
   "deleted": false
 }
 ```
+
+This GET is side-effect free. It reports the current public model state (and
+may mark a saved-model name as deleted), but it never reconstructs or replaces
+the session Provider.
+
+### `POST /api/sessions/:id/model/reload`
+
+Forces the requested active session to re-resolve its selected saved-model
+profile and compare the effective Provider construction inputs. A successful
+request returns HTTP 200 with the existing public model-state shape nested in
+an outcome envelope:
+
+```json
+{
+  "outcome": "reloaded",
+  "model_state": {
+    "name": "gateway",
+    "provider": "openai",
+    "model": "gpt-5",
+    "context_window": 128000,
+    "deleted": false
+  },
+  "warning": "session metadata could not be persisted"
+}
+```
+
+`outcome` is one of:
+
+- `reloaded`: effective construction inputs changed and a new Provider was
+  published for future turns;
+- `already_current`: the selected profile resolves to the Provider already in
+  use; model state such as `context_window` may still be refreshed;
+- `unresolvable`: the selected name was deleted, renamed away, or is a
+  session-local ad-hoc profile. The existing Provider and model state remain in
+  use; deletion is not a live connection revocation.
+
+`warning` is omitted when empty. A warning is sanitized and non-fatal: for
+example, Provider publication can succeed even when best-effort session
+metadata persistence fails. Pre-publication construction or revalidation
+failure returns `500 MODEL_RELOAD_FAILED` and preserves the old Provider,
+state, and applied revision. Unknown sessions return 404; a server without a
+session registry returns 503.
+
+The operation is scoped to the named active session. It does not change the
+workspace, cwd model override, configured default model, or any other session.
 
 ### `POST /api/sessions/:id/model`
 

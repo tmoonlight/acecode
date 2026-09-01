@@ -1,4 +1,5 @@
 #include "daemon/platform.hpp"
+#include "utils/encoding.hpp"
 #include "web/remote_web_proxy.hpp"
 
 #include <gtest/gtest.h>
@@ -189,6 +190,46 @@ TEST(RemoteWebProxyCommand, RejectsIncompleteArguments) {
             {"--listen-port=0"}, out, error),
         64);
     EXPECT_NE(error.str().find("requires"), std::string::npos);
+}
+
+TEST(RemoteWebProxyCommand, PublishesUtf8ErrorWhenListenPortIsBusy) {
+    ProxyTempDir runtime;
+    asio::io_context io;
+    tcp::acceptor occupied(io, tcp::endpoint(tcp::v4(), 0));
+    const int occupied_port = occupied.local_endpoint().port();
+    const int target_port = occupied_port < 65535
+        ? occupied_port + 1
+        : occupied_port - 1;
+    const fs::path state_path =
+        fs::path(runtime.path()) / "busy-port-state.json";
+    std::ostringstream out;
+    std::ostringstream error;
+    int exit_code = -1;
+
+    ASSERT_NO_THROW({
+        exit_code = acecode::web::run_remote_web_proxy_command(
+            {
+                "--listen-port=" + std::to_string(occupied_port),
+                "--target-port=" + std::to_string(target_port),
+                "--parent-pid=" + std::to_string(
+                    acecode::daemon::current_pid()),
+                "--ready-file=" + state_path.string(),
+            },
+            out,
+            error);
+    });
+    EXPECT_EQ(exit_code, 3);
+
+    std::ifstream input(state_path, std::ios::binary);
+    ASSERT_TRUE(input.is_open());
+    const auto state = nlohmann::json::parse(input, nullptr, false);
+    ASSERT_TRUE(state.is_object());
+    EXPECT_FALSE(state.value("ready", true));
+    EXPECT_EQ(state.value("port", -1), 0);
+    const std::string state_error =
+        state.value("error", std::string{});
+    EXPECT_FALSE(state_error.empty());
+    EXPECT_TRUE(acecode::is_valid_utf8(state_error));
 }
 
 TEST(ManagedRemoteWebProxy, StartsRealChildAndStopsWithoutOrphaningIt) {

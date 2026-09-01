@@ -24,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,9 @@ struct WebServerDeps {
     const WebConfig*           web_cfg = nullptr;
     const DaemonConfig*        daemon_cfg = nullptr;
     AppConfig*                 app_config = nullptr;   // mutable: /api/mcp PUT 改这个
+    // Optional process-wide AppConfig lock shared with SessionRegistry lazy
+    // model reload. Tests/embedders may omit it and use the owned fallback.
+    std::shared_mutex*         app_config_mutex = nullptr;
     // 显式 config 落盘路径。空 = 走 save_config(cfg) 默认 ~/.acecode/config.json。
     // daemon worker 启动时填入实际路径;测试 fixture 必须填入临时文件,
     // 否则 PUT /api/mcp 会污染真实用户配置(历史 bug,见 web_server_smoke_test)。

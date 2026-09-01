@@ -397,6 +397,21 @@ public:
         ask_prompter_ = p;
     }
 
+    // 注入 TUI 侧的 AskUserQuestion 传输通道。与上面的 prompter 二选一 ——
+    // daemon 用 prompter(WS 往返),TUI 用这个(overlay 阻塞等待)。两者
+    // 最终都被包成同一个 `ToolContext::ask_user_questions`,因此两端注册的
+    // 是同一个 AskUserQuestion 工具工厂,且任何工具都能向用户提问。
+    // 参数:questions_payload / abort_flag / timeout_seconds(0 = 无限期)
+    //         / origin_label(子代理提问的来源标注)。
+    using AskQuestionChannel = std::function<nlohmann::json(
+        const nlohmann::json& questions_payload,
+        const std::atomic<bool>* abort_flag,
+        int timeout_seconds,
+        const std::string& origin_label)>;
+    void set_ask_question_channel(AskQuestionChannel channel) {
+        ask_channel_ = std::move(channel);
+    }
+
 private:
     void worker_main();
     void join_side_question_threads();
@@ -447,6 +462,22 @@ private:
     bool maybe_run_auto_compact();
     bool active_estimate_exceeds_auto_threshold(
         const UserInput* pending_input = nullptr) const;
+
+    // 压缩决策该用的窗口。正常等于 context_window_,但当服务端声明的窗口不可
+    // 信(实测拒绝过更小的请求)时,收敛到 src/pa 观测到的那条线之下,免得每
+    // 一轮都要先撞一次墙才触发恢复。UI 显示的占用百分比不走这里 —— 那里要如实
+    // 反映用户配置的窗口,不该被适配层改写。
+    int compaction_context_window() const;
+    // 当前 provider/model 身份,供上面的观测表按模型分桶。provider 缺席时返回
+    // 空串 —— 观测表会把空 model 判为身份不明,既不记录也不查表(见
+    // pa::identity_is_known),所以漏接线只会退回原行为,不会串桶。
+    void active_model_identity(std::string& provider, std::string& model) const;
+    // 服务端整体拒收了这次请求(未产出任何模型输出),把规模记进观测表。
+    void note_pa_context_rejection(int request_tokens);
+    // 服务端接受了这次请求。只在该模型已经撞过墙时才算 —— 全量 token 估算不
+    // 便宜,不该为从未出问题的模型在每个回合上白花一次。
+    void note_pa_context_accepted(
+        const std::vector<ChatMessage>& messages_with_system);
     std::vector<ChatMessage> build_compaction_initial_context() const;
 
     // 当前 provider 是否能直接读图。喂给 build_system_prompt 的 # Environment
@@ -705,6 +736,7 @@ private:
     // SessionEntry 持有。null 时 ToolContext::ask_user_questions 不注入,
     // 此时 AskUserQuestion 工具(daemon 工厂版)会返回 rejected。
     AskUserQuestionPrompter* ask_prompter_ = nullptr;
+    AskQuestionChannel ask_channel_;
 };
 
 } // namespace acecode

@@ -73,6 +73,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -538,11 +539,13 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     template_perm.set_mode(permission_mode_from_config(cfg_mut.default_permission_mode));
     if (opts.dangerous) template_perm.set_dangerous(true);
 
+    std::shared_mutex app_config_mu;
     acecode::SessionRegistryDeps reg_deps;
     reg_deps.provider_accessor    = provider_accessor;
     reg_deps.tools                = &tools;
     reg_deps.cwd                  = cwd;
     reg_deps.config               = &cfg_mut;
+    reg_deps.config_mutex         = &app_config_mu;
     reg_deps.skill_registry       = &skill_registry;
     reg_deps.expert_registry      = &expert_registry;
     reg_deps.memory_registry      = nullptr;
@@ -599,6 +602,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     web_deps.web_cfg            = &cfg_mut.web;   // 含 port_override 后的 effective port
     web_deps.daemon_cfg         = &cfg_mut.daemon;
     web_deps.app_config         = &cfg_mut;
+    web_deps.app_config_mutex   = &app_config_mu;
     web_deps.config_path        = config_path;
     web_deps.cwd                = cwd;
     web_deps.projects_dir       = projects_dir;

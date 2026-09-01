@@ -155,12 +155,15 @@ void init_theme_palette(const std::string& name) {
 }
 
 void swap_theme_palette(const std::string& name) {
-    g_theme_version.fetch_add(1, std::memory_order_relaxed);
     init_theme_palette(name);
+    // Publish the palette before publishing the cache-invalidating version.
+    // An acquire load that observes the new version must also observe the
+    // matching palette, never cache old colors under the new version.
+    g_theme_version.fetch_add(1, std::memory_order_release);
 }
 
 std::uint32_t theme_palette_version() {
-    return g_theme_version.load(std::memory_order_relaxed);
+    return g_theme_version.load(std::memory_order_acquire);
 }
 
 const std::string& current_theme_name() {

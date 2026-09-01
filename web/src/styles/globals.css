@@ -34,6 +34,13 @@
   --color-warn-bg:      var(--ace-warn-bg);
   --color-danger:       var(--ace-danger);
   --color-danger-bg:    var(--ace-danger-bg);
+  --color-capability-vision:    var(--ace-capability-vision);
+  --color-capability-web:       var(--ace-capability-web);
+  --color-capability-reasoning: var(--ace-capability-reasoning);
+  --color-capability-tool:      var(--ace-capability-tool);
+  --color-capability-rerank:    var(--ace-capability-rerank);
+  --color-capability-embedding: var(--ace-capability-embedding);
+  --color-capability-unknown:   var(--ace-capability-unknown);
   --color-code-bg:      var(--ace-code-bg);
   --color-code-fg:      var(--ace-code-fg);
   --color-code-line:    var(--ace-code-line);
@@ -71,6 +78,13 @@
   --ace-danger:       #dc2626;
   --ace-danger-rgb:   220, 38, 38;
   --ace-danger-bg:    #fef2f2;
+  --ace-capability-vision:    #7c3aed;
+  --ace-capability-web:       #0369a1;
+  --ace-capability-reasoning: #b45309;
+  --ace-capability-tool:      #2563eb;
+  --ace-capability-rerank:    #be185d;
+  --ace-capability-embedding: #047857;
+  --ace-capability-unknown:   #52525b;
   --ace-code-bg:      #1e1e2e;
   --ace-code-bg-rgb:  30, 30, 46;
   --ace-code-fg:      #cdd6f4;
@@ -127,6 +141,13 @@
   --ace-danger:       #ef4444;
   --ace-danger-rgb:   239, 68, 68;
   --ace-danger-bg:    #450a0a;
+  --ace-capability-vision:    #a78bfa;
+  --ace-capability-web:       #38bdf8;
+  --ace-capability-reasoning: #fbbf24;
+  --ace-capability-tool:      #60a5fa;
+  --ace-capability-rerank:    #f472b6;
+  --ace-capability-embedding: #34d399;
+  --ace-capability-unknown:   #a1a1aa;
   --ace-code-bg:      #111111;
   --ace-code-bg-rgb:  17, 17, 17;
   --ace-code-fg:      #cdd6f4;
@@ -1775,6 +1796,14 @@ body {
 [data-theme="dark"] .ace-icon.ace-icon-fallback[data-monochrome="true"] .ace-icon-fallback-img {
   filter: invert(1) brightness(1.15);
   opacity: 0.9;
+}
+.model-capability-icon .ace-icon.ace-icon-fallback {
+  overflow: hidden;
+}
+.model-capability-icon .ace-icon.ace-icon-fallback[data-monochrome="true"] .ace-icon-fallback-img {
+  filter: drop-shadow(13px 0 0 currentColor);
+  opacity: 1;
+  transform: translateX(-13px);
 }
 .ace-icon-on-accent {
   color: #fff !important;

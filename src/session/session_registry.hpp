@@ -19,6 +19,7 @@
 #include "../config/config.hpp"
 #include "../permissions.hpp"
 #include "../provider/llm_provider.hpp"
+#include "../provider/session_model_binding.hpp"
 #include "../config/saved_models.hpp"
 #include "../experts/expert_registry.hpp"
 #include "../skills/skill_registry.hpp"
@@ -34,6 +35,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -82,14 +84,7 @@ struct SessionEntry {
     bool loop_execution = false;
     std::string loop_id;
     std::string loop_run_id;
-    std::string provider;
-    std::string model;
-    SessionModelState model_state;
-    struct ProviderSlot {
-        mutable std::mutex mu;
-        std::shared_ptr<LlmProvider> provider;
-    };
-    std::shared_ptr<ProviderSlot> provider_slot;
+    std::shared_ptr<SessionModelBinding> model_binding;
     std::shared_ptr<SkillRegistry>       skill_registry;
     // Inputs required to re-apply a changed global Skill policy without
     // losing expert package roots or the expert's independent allowlist.
@@ -113,6 +108,10 @@ struct SessionRegistryDeps {
     ToolExecutor*                    tools = nullptr;
     std::string                      cwd;
     const AppConfig*                 config = nullptr;
+    // Production daemon shares this mutex with WebServer's AppConfig reads and
+    // writes. TUI/test adapters may leave it null when config is immutable or
+    // externally serialized.
+    std::shared_mutex*               config_mutex = nullptr;
     const SkillRegistry*             skill_registry = nullptr;
     const ExpertRegistry*            expert_registry = nullptr;
     const MemoryRegistry*            memory_registry = nullptr;
@@ -224,6 +223,9 @@ public:
                       const ModelProfile& profile,
                       SessionModelState* out = nullptr,
                       std::string* error = nullptr);
+    std::optional<SessionModelReloadResult> reload_model_profile(
+        const std::string& id,
+        bool force);
 
     // Current active session permission mode. These are intentionally
     // session-scoped so Web UI changes do not affect unrelated sessions.

@@ -41,4 +41,34 @@ TEST(MessageRenderCache, StoresAndReplaysLinkRegions) {
     EXPECT_EQ(lr[0].y, 3);
 }
 
+TEST(MessageRenderCache, StoreGrowsForAppendedMessagesWithoutDroppingEarlierEntries) {
+    MessageRenderCache c;
+    const MessageRenderCacheKey first_key{1, 80, 1u, true};
+    const MessageRenderCacheKey second_key{2, 80, 1u, true};
+
+    // A new conversation starts with zero cache slots. Storing its first
+    // message must not be silently discarded.
+    c.store(0, first_key, text("first"), {});
+    EXPECT_TRUE(c.valid(0, first_key));
+
+    // Appending another message grows storage while preserving the completed
+    // message already cached at index zero.
+    c.store(1, second_key, text("second"), {});
+    EXPECT_TRUE(c.valid(0, first_key));
+    EXPECT_TRUE(c.valid(1, second_key));
+}
+
+TEST(MessageRenderCache, EnsureSizePreservesButTranscriptResizeResets) {
+    MessageRenderCache c;
+    const MessageRenderCacheKey key{7, 80, 1u, true};
+    c.resize(1);
+    c.store(0, key, text("cached"), {});
+
+    c.ensure_size(2);
+    EXPECT_TRUE(c.valid(0, key));
+
+    c.resize(2);
+    EXPECT_FALSE(c.valid(0, key));
+}
+
 } // namespace acecode::tui

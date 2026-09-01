@@ -911,8 +911,10 @@ void WebServer::Impl::register_sessions() {
 
             std::string id;
             try {
-                std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
-                refresh_default_session_preferences_for_new_session_locked();
+                {
+                    std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
+                    refresh_default_session_preferences_for_new_session_locked();
+                }
                 id = deps.session_client->create_session(opts);
             } catch (const std::invalid_argument& ex) {
                 crow::response r(400);
@@ -990,14 +992,9 @@ void WebServer::Impl::register_sessions() {
                     return with_cors(req, std::move(r));
                 }
             }
-            bool resumed = false;
-            {
-                // 共享锁:与 routes_workspaces.cpp 的 workspace-scoped resume
-                // 同一决策 —— resume 对 config 只读且耗时数百毫秒,独占持有
-                // 会形成全 HTTP 面的锁车队。
-                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
-                resumed = deps.session_client->resume_session(id, opts);
-            }
+            // SessionRegistry 在内部短持共享锁复制 config+revision，随后释放
+            // 再解析 jsonl/构造 Provider；路由不可在外层重复获取同一 shared_mutex。
+            const bool resumed = deps.session_client->resume_session(id, opts);
             if (!resumed) {
                 if (SessionStorage::has_incompatible_pid_session_files(project_dir, id)) {
                     crow::response r(409);

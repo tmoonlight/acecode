@@ -87,6 +87,26 @@ std::string model_probe_connection_fingerprint(const ModelProbeRequest& request)
     return sha256_hex(identity.dump());
 }
 
+std::map<std::string, std::vector<std::string>>
+model_probe_capabilities(const ModelProbeRequest& request,
+                         const std::vector<std::string>& model_ids) {
+    if (!is_acemodel_provider_id(request.catalog_provider_id) &&
+        !is_acemodel_base_url(request.base_url)) {
+        return {};
+    }
+
+    std::map<std::string, std::vector<std::string>> result;
+    for (const auto& id : model_ids) {
+        const ModelEntry* model = find_acemodel_catalog_model(id);
+        if (!model) continue;
+        auto capabilities = model_capability_tags(*model);
+        if (!capabilities.empty()) {
+            result.emplace(id, std::move(capabilities));
+        }
+    }
+    return result;
+}
+
 nlohmann::json list_models(const AppConfig& cfg) {
     nlohmann::json arr = nlohmann::json::array();
     for (const auto& entry : cfg.saved_models) {

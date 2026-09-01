@@ -1,0 +1,17 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -132,7 +132,13 @@
+     tree,
+     [
+       [/(https?:\/\/|www(?=\.))([-.\w]+)([^ \t\r\n]*)/gi, findUrl],
+-      [/(?<=^|\s|\p{P}|\p{S})([-.\w+]+)@([-\w]+(?:\.[-\w]+)+)/gu, findEmail]
++      // NOTE(acecode): lookbehind removed for legacy WebKit compatibility.
++      // Safari < 16.4 engines (e.g. the WKWebView on macOS 12) cannot compile
++      // lookbehind, and one failing regex literal makes the whole module fail
++      // to parse. `findEmail` re-validates the preceding character at runtime
++      // via `previous(match, true)`, so dropping the assertion is
++      // behavior-neutral.
++      [/([-.\w+]+)@([-\w]+(?:\.[-\w]+)+)/gu, findEmail]
+     ],
+     {ignore: ['link', 'linkReference']}
+   )

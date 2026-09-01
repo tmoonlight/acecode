@@ -21,7 +21,9 @@
 #include "provider/auth/github_auth.hpp"
 #include "provider/auth/xai_auth.hpp"
 #include "config/config.hpp"
+#include "config/config_recovery.hpp"
 #include "config/saved_models.hpp"
+#include "config/saved_models_revision.hpp"
 #include "permissions.hpp"
 #include "desktop/daemon_supervisor.hpp"
 #include "desktop/workspace_registry.hpp"
@@ -68,6 +70,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <random>
+#include <shared_mutex>
 #include <thread>
 #include <zip.h>
 
@@ -75,6 +78,14 @@ using namespace std::chrono_literals;
 using nlohmann::json;
 
 namespace {
+
+void install_test_provider(
+    acecode::SessionEntry& entry,
+    std::shared_ptr<acecode::LlmProvider> provider) {
+    const auto state = entry.model_binding->state_snapshot();
+    entry.model_binding->install_runtime_snapshot(
+        std::move(provider), state, entry.model_binding->applied_revision());
+}
 
 // 让 OS 选择当前可用端口，再交给 Crow 绑定。端口探测与 Crow 绑定之间仍有
 // 极短竞态，但比固定递增端口可靠，且不会撞上机器已有的 HTTP.sys 监听。
@@ -398,11 +409,13 @@ struct WebServerFixture {
         acecode::web::NativeSaveFilePickResult(const std::string&)>;
     struct NativeSavePickerTag {};
     struct SideQuestionProviderTag {};
+    struct NoSessionRegistryTag {};
 
     acecode::ToolExecutor tools;
     acecode::PermissionManager template_perm;
     acecode::SkillRegistry skill_registry;
     acecode::AppConfig cfg;
+    std::shared_mutex app_config_mu;
     acecode::WebConfig web_cfg;
     acecode::DaemonConfig daemon_cfg;
     std::unique_ptr<acecode::desktop::WorkspaceRegistry> workspace_registry;
@@ -442,7 +455,8 @@ struct WebServerFixture {
         SessionClientFactory session_client_factory = {},
         bool desktop_managed = false,
         NativeSaveFilePicker native_save_file_picker = {},
-        std::shared_ptr<acecode::LlmProvider> registry_provider = {}) {
+        std::shared_ptr<acecode::LlmProvider> registry_provider = {},
+        bool expose_session_registry = true) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -493,6 +507,7 @@ struct WebServerFixture {
         deps.cwd = cwd;
         deps.no_workspace_cache_root = no_workspace_cache_root.string();
         deps.config = registry_provider ? nullptr : &cfg;
+        deps.config_mutex = registry_provider ? nullptr : &app_config_mu;
         deps.expert_registry = expert_registry.get();
         deps.template_permissions = &template_perm;
         deps.hook_manager = hook_manager.get();
@@ -510,6 +525,7 @@ struct WebServerFixture {
         wdeps.web_cfg = &cfg.web;
         wdeps.daemon_cfg = &cfg.daemon;
         wdeps.app_config = &cfg;
+        wdeps.app_config_mutex = &app_config_mu;
         wdeps.config_path = (tmp_dir / "config.json").string();
         wdeps.cwd = cwd;
         wdeps.no_workspace_cache_root = no_workspace_cache_root.string();
@@ -522,7 +538,9 @@ struct WebServerFixture {
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
         wdeps.session_client = client.get();
-        wdeps.session_registry = registry.get();
+        wdeps.session_registry = expose_session_registry
+            ? registry.get()
+            : nullptr;
         wdeps.expert_registry = expert_registry.get();
         wdeps.hook_manager = hook_manager.get();
         wdeps.tools = &tools;
@@ -591,6 +609,22 @@ struct WebServerFixture {
               false,
               {},
               std::move(registry_provider)) {}
+
+    explicit WebServerFixture(NoSessionRegistryTag)
+        : WebServerFixture(
+              true,
+              false,
+              {},
+              true,
+              {},
+              {},
+              false,
+              {},
+              {},
+              false,
+              {},
+              std::shared_ptr<acecode::LlmProvider>{},
+              false) {}
 
     explicit WebServerFixture(
         std::function<std::vector<std::string>()> remote_web_hosts,
@@ -2650,10 +2684,7 @@ TEST(WebServerHttp, BusyExpertSwitchAppliesDraftAtTheSameQueueBoundary) {
     entry->sm->set_input_draft("reviewer draft");
 
     auto provider = std::make_shared<BlockingProvider>();
-    {
-        std::lock_guard<std::mutex> lock(entry->provider_slot->mu);
-        entry->provider_slot->provider = provider;
-    }
+    install_test_provider(*entry, provider);
     auto chat = cpr::Post(
         cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
         cpr::Header{{"Content-Type", "application/json"}},
@@ -3204,8 +3235,10 @@ TEST(WebServerHttp, CreateSessionRefreshesExternalDefaultPreferences) {
 
     auto* entry = fx.registry->lookup(sid);
     ASSERT_NE(entry, nullptr);
-    EXPECT_EQ(entry->model_state.name, "slow");
-    EXPECT_EQ(entry->model_state.model, "gpt-slow");
+    ASSERT_TRUE(entry->model_binding);
+    const auto model_state = entry->model_binding->state_snapshot();
+    EXPECT_EQ(model_state.name, "slow");
+    EXPECT_EQ(model_state.model, "gpt-slow");
     auto mode = fx.registry->permission_mode(sid);
     ASSERT_TRUE(mode.has_value());
     EXPECT_EQ(*mode, acecode::PermissionMode::Yolo);
@@ -5539,12 +5572,9 @@ TEST(WebServerHttp, TurnSteerValidatesIdentityAndCommitsAcceptedInput) {
 
     auto entry = fx.registry->acquire(sid);
     ASSERT_TRUE(entry);
-    ASSERT_TRUE(entry->provider_slot);
+    ASSERT_TRUE(entry->model_binding);
     auto provider = std::make_shared<TurnSteeringProvider>();
-    {
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider = provider;
-    }
+    install_test_provider(*entry, provider);
     entry->loop->submit("start");
     ASSERT_TRUE(provider->wait_for_first_started(2s));
     const std::string turn_id = entry->loop->active_turn_id();
@@ -5639,12 +5669,9 @@ TEST(WebServerHttp, TurnInterruptAbortsAndStartsPriorityReplacementTurn) {
 
     auto entry = fx.registry->acquire(sid);
     ASSERT_TRUE(entry);
-    ASSERT_TRUE(entry->provider_slot);
+    ASSERT_TRUE(entry->model_binding);
     auto provider = std::make_shared<TurnSteeringProvider>();
-    {
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider = provider;
-    }
+    install_test_provider(*entry, provider);
     entry->loop->submit("start");
     ASSERT_TRUE(provider->wait_for_first_started(2s));
     const std::string turn_id = entry->loop->active_turn_id();
@@ -6940,6 +6967,78 @@ TEST(WebServerHttp, DismissDesktopOnboardingReportsPersistenceFailure) {
     EXPECT_FALSE(acecode::read_state_flag("desktop_guided_tour_v1_dismissed"));
 }
 
+TEST(WebServerHttp, ConfigRecoveryNoticeIsReadThenAcknowledgedIdempotently) {
+    WebServerFixture fx;
+    const std::string config_path = (fx.tmp_dir / "config.json").string();
+    const std::string invalid_bytes =
+        "{\n  \"api_key\": \"secret-content\",\n";
+    std::string error;
+    auto invalid_path = acecode::archive_invalid_config(
+        config_path, invalid_bytes, &error);
+    ASSERT_TRUE(invalid_path.has_value()) << error;
+    ASSERT_TRUE(acecode::write_config_recovery_notice(
+        config_path, *invalid_path, &error)) << error;
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        auto get = cpr::Get(cpr::Url{fx.url("/api/config/recovery-notice")});
+        ASSERT_EQ(get.status_code, 200) << get.text;
+        const auto body = json::parse(get.text);
+        EXPECT_TRUE(body["pending"].get<bool>());
+        EXPECT_EQ(body["config_path"], config_path);
+        EXPECT_EQ(body["invalid_backup_path"], *invalid_path);
+        EXPECT_EQ(body["invalid_backup_dir"],
+                  std::filesystem::path(*invalid_path).parent_path().string());
+        EXPECT_EQ(get.text.find("secret-content"), std::string::npos);
+        EXPECT_FALSE(body.contains("error_summary"));
+    }
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        auto ack = cpr::Post(cpr::Url{
+            fx.url("/api/config/recovery-notice/acknowledge")});
+        ASSERT_EQ(ack.status_code, 200) << ack.text;
+        EXPECT_FALSE(json::parse(ack.text)["pending"].get<bool>());
+    }
+
+    auto after = cpr::Get(cpr::Url{fx.url("/api/config/recovery-notice")});
+    ASSERT_EQ(after.status_code, 200) << after.text;
+    const auto after_body = json::parse(after.text);
+    EXPECT_FALSE(after_body["pending"].get<bool>());
+    EXPECT_EQ(after_body.size(), 1u);
+}
+
+TEST(WebServerHttp, ConfigRecoveryNoticeCrossOriginRequiresToken) {
+    WebServerFixture fx;
+    const std::string origin = "http://localhost:5173";
+    const auto get_url = fx.url("/api/config/recovery-notice");
+    const auto ack_url = fx.url("/api/config/recovery-notice/acknowledge");
+
+    auto denied_get = cpr::Get(
+        cpr::Url{get_url}, cpr::Header{{"Origin", origin}});
+    EXPECT_EQ(denied_get.status_code, 401);
+    auto denied_ack = cpr::Post(
+        cpr::Url{ack_url}, cpr::Header{{"Origin", origin}});
+    EXPECT_EQ(denied_ack.status_code, 401);
+
+    auto allowed = cpr::Get(
+        cpr::Url{get_url},
+        cpr::Header{{"Origin", origin}, {"X-ACECode-Token", "smoke-token"}});
+    EXPECT_EQ(allowed.status_code, 200);
+}
+
+TEST(WebServerHttp, ConfigRecoveryNoticeAcknowledgeReportsPersistenceFailure) {
+    WebServerFixture fx;
+    const std::string config_path = (fx.tmp_dir / "config.json").string();
+    const auto paths = acecode::config_recovery_paths(config_path);
+    std::filesystem::create_directories(paths.notice_path);
+
+    auto response = cpr::Post(cpr::Url{
+        fx.url("/api/config/recovery-notice/acknowledge")});
+    ASSERT_EQ(response.status_code, 500) << response.text;
+    const auto body = json::parse(response.text);
+    EXPECT_EQ(body["error"], "PERSIST_FAILED");
+    EXPECT_EQ(response.text.find(config_path), std::string::npos);
+}
+
 // 场景:GET /api/config/ui-preferences 返回稳定外观默认值及兼容头像字段。
 TEST(WebServerHttp, GetUiPreferencesReturnsAppearanceDefaults) {
     WebServerFixture fx;
@@ -8197,6 +8296,214 @@ TEST(WebServerHttp, PutModelsSynchronizesActiveSessionContextWindow) {
     EXPECT_EQ(entry->loop->context_window(), 96000);
 }
 
+// 触发场景:活动会话的同名 OpenAI profile 被编辑后先 GET 再 POST reload;
+// 期望 GET 无副作用,POST 只替换目标 session,且不改默认值/cwd override/其它
+// session。旧 UI 用 GET 冒充刷新,历史会话仍发送到旧 Provider。
+TEST(WebServerHttp, SessionModelReloadRebuildsOnlyRequestedSession) {
+    WebServerFixture fx;
+    auto& profile = fx.cfg.saved_models.front();
+    profile.provider = "openai";
+    profile.base_url = "https://gateway.example/v1";
+    profile.api_key = "old-key";
+    profile.model = "model-a";
+    const std::string profile_name = profile.name;
+    fx.cfg.default_model_name = profile_name;
+    acecode::save_cwd_model_override(fx.cwd, profile_name);
+
+    acecode::SessionOptions options;
+    options.model_name = profile_name;
+    const std::string target_id = fx.registry->create(options);
+    const std::string other_id = fx.registry->create(options);
+    auto target = fx.registry->acquire(target_id);
+    auto other = fx.registry->acquire(other_id);
+    ASSERT_TRUE(target && target->model_binding);
+    ASSERT_TRUE(other && other->model_binding);
+    const auto target_provider_before = target->model_binding->provider_snapshot();
+    const auto other_provider_before = other->model_binding->provider_snapshot();
+    const auto target_revision_before = target->model_binding->applied_revision();
+
+    json update = {
+        {"name", profile_name},
+        {"provider", "openai"},
+        {"base_url", "https://gateway.example/v2"},
+        {"api_key", "new-key"},
+        {"model", "model-b"},
+    };
+    auto put = cpr::Put(
+        cpr::Url{fx.url("/api/models/" + profile_name)},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{update.dump()});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+
+    auto side_effect_free = cpr::Get(cpr::Url{
+        fx.url("/api/sessions/" + target_id + "/model")});
+    ASSERT_EQ(side_effect_free.status_code, 200) << side_effect_free.text;
+    EXPECT_EQ(target->model_binding->provider_snapshot(), target_provider_before);
+    EXPECT_EQ(target->model_binding->applied_revision(), target_revision_before);
+
+    auto preflight = cpr::Options(cpr::Url{
+        fx.url("/api/sessions/" + target_id + "/model/reload")});
+    EXPECT_LT(preflight.status_code, 400) << preflight.text;
+
+    auto reload = cpr::Post(cpr::Url{
+        fx.url("/api/sessions/" + target_id + "/model/reload")});
+    ASSERT_EQ(reload.status_code, 200) << reload.text;
+    const auto body = json::parse(reload.text);
+    EXPECT_EQ(body["outcome"], "reloaded");
+    EXPECT_EQ(body["model_state"]["name"], profile_name);
+    EXPECT_EQ(body["model_state"]["provider"], "openai");
+    EXPECT_EQ(body["model_state"]["model"], "model-b");
+    EXPECT_FALSE(body.contains("warning"));
+    EXPECT_NE(target->model_binding->provider_snapshot(), target_provider_before);
+    EXPECT_EQ(target->model_binding->provider_snapshot()->model(), "model-b");
+
+    auto repeated = cpr::Post(cpr::Url{
+        fx.url("/api/sessions/" + target_id + "/model/reload")});
+    ASSERT_EQ(repeated.status_code, 200) << repeated.text;
+    EXPECT_EQ(json::parse(repeated.text)["outcome"], "already_current");
+
+    EXPECT_EQ(other->model_binding->provider_snapshot(), other_provider_before);
+    EXPECT_EQ(other->model_binding->state_snapshot().model, "model-a");
+    EXPECT_EQ(fx.cfg.default_model_name, profile_name);
+    EXPECT_EQ(acecode::load_cwd_model_override(fx.cwd), profile_name);
+    EXPECT_EQ(target->cwd, fx.cwd);
+    EXPECT_EQ(other->cwd, fx.cwd);
+}
+
+// 触发场景:选中 profile 已被删除且 session idle;期望 forced reload 返回
+// unresolvable 并保留已实例化 Provider/state。删除不是运行中连接的撤销操作。
+TEST(WebServerHttp, SessionModelReloadReturnsUnresolvableWithoutRevokingProvider) {
+    WebServerFixture fx;
+    acecode::SessionOptions options;
+    options.model_name = "fixture-copilot";
+    const std::string id = fx.registry->create(options);
+    auto entry = fx.registry->acquire(id);
+    ASSERT_TRUE(entry && entry->model_binding);
+    const auto provider = entry->model_binding->provider_snapshot();
+    const auto state = entry->model_binding->state_snapshot();
+
+    auto removed = cpr::Delete(cpr::Url{
+        fx.url("/api/models/fixture-copilot")});
+    ASSERT_EQ(removed.status_code, 200) << removed.text;
+    auto reload = cpr::Post(cpr::Url{
+        fx.url("/api/sessions/" + id + "/model/reload")});
+    ASSERT_EQ(reload.status_code, 200) << reload.text;
+    const auto body = json::parse(reload.text);
+    EXPECT_EQ(body["outcome"], "unresolvable");
+    EXPECT_EQ(body["model_state"]["name"], state.name);
+    EXPECT_EQ(body["model_state"]["model"], state.model);
+    EXPECT_EQ(entry->model_binding->provider_snapshot(), provider);
+
+    auto forced_again = cpr::Post(cpr::Url{
+        fx.url("/api/sessions/" + id + "/model/reload")});
+    ASSERT_EQ(forced_again.status_code, 200) << forced_again.text;
+    EXPECT_EQ(json::parse(forced_again.text)["outcome"], "unresolvable");
+    EXPECT_EQ(entry->model_binding->provider_snapshot(), provider);
+}
+
+// 触发场景:forced reload 的最新构造计划无效;期望明确非 2xx,响应和日志
+// 不含凭据,旧 Provider/state/revision 原样保留以便后续修正后重试。
+TEST(WebServerHttp, SessionModelReloadFailurePreservesOldSnapshot) {
+    WebServerFixture fx;
+    acecode::SessionOptions options;
+    options.model_name = "fixture-copilot";
+    const std::string id = fx.registry->create(options);
+    auto entry = fx.registry->acquire(id);
+    ASSERT_TRUE(entry && entry->model_binding);
+    const auto provider = entry->model_binding->provider_snapshot();
+    const auto state = entry->model_binding->state_snapshot();
+    const auto revision = entry->model_binding->applied_revision();
+
+    auto invalid = fx.cfg.saved_models.front();
+    invalid.provider = "codex";
+    invalid.api_key = "secret-must-not-escape";
+    ASSERT_TRUE(acecode::publish_live_saved_models(fx.cfg, {invalid}));
+
+    auto reload = cpr::Post(cpr::Url{
+        fx.url("/api/sessions/" + id + "/model/reload")});
+    ASSERT_EQ(reload.status_code, 500) << reload.text;
+    const auto body = json::parse(reload.text);
+    EXPECT_EQ(body["error"], "MODEL_RELOAD_FAILED");
+    EXPECT_EQ(reload.text.find("secret-must-not-escape"), std::string::npos);
+    EXPECT_EQ(entry->model_binding->provider_snapshot(), provider);
+    EXPECT_EQ(entry->model_binding->state_snapshot().name, state.name);
+    EXPECT_EQ(entry->model_binding->state_snapshot().model, state.model);
+    EXPECT_EQ(entry->model_binding->applied_revision(), revision);
+}
+
+// 触发场景:Provider 已成功发布,但 session meta 目标被替换成目录导致写入
+// 失败;期望 200 + sanitized warning,不能回滚 Provider 或泄露底层路径。
+TEST(WebServerHttp, SessionModelReloadReturnsOptionalMetadataWarning) {
+    WebServerFixture fx;
+    auto& profile = fx.cfg.saved_models.front();
+    profile.provider = "openai";
+    profile.base_url = "https://gateway.example/v1";
+    profile.api_key = "old-key";
+    profile.model = "model-a";
+    acecode::SessionOptions options;
+    options.model_name = profile.name;
+    const std::string id = fx.registry->create(options);
+    auto entry = fx.registry->acquire(id);
+    ASSERT_TRUE(entry && entry->model_binding && entry->sm);
+
+    acecode::ChatMessage message;
+    message.role = "user";
+    message.content = "create metadata";
+    entry->sm->on_message(message);
+    const auto meta_path = acecode::SessionStorage::meta_path(
+        acecode::SessionStorage::get_project_dir(fx.cwd), id);
+    std::error_code ec;
+    std::filesystem::remove(meta_path, ec);
+    ec.clear();
+    ASSERT_TRUE(std::filesystem::create_directory(meta_path, ec))
+        << ec.message();
+
+    auto changed = profile;
+    changed.model = "model-b";
+    changed.api_key = "new-key";
+    ASSERT_TRUE(acecode::publish_live_saved_models(fx.cfg, {changed}));
+    auto reload = cpr::Post(cpr::Url{
+        fx.url("/api/sessions/" + id + "/model/reload")});
+    ASSERT_EQ(reload.status_code, 200) << reload.text;
+    const auto body = json::parse(reload.text);
+    EXPECT_EQ(body["outcome"], "reloaded");
+    EXPECT_EQ(body["warning"], "session metadata could not be persisted");
+    EXPECT_EQ(body["model_state"]["model"], "model-b");
+    EXPECT_EQ(entry->model_binding->provider_snapshot()->model(), "model-b");
+    EXPECT_EQ(reload.text.find(meta_path), std::string::npos);
+}
+
+// 触发场景:reload 指向不存在 session 或 WebServer 未挂 SessionRegistry;
+// 期望分别返回 404/503,而不是创建会话或误用默认模型。
+TEST(WebServerHttp, SessionModelReloadReturns404And503ForUnavailableTargets) {
+    WebServerFixture fx;
+    auto missing = cpr::Post(cpr::Url{
+        fx.url("/api/sessions/missing/model/reload")});
+    EXPECT_EQ(missing.status_code, 404) << missing.text;
+
+    WebServerFixture unavailable(WebServerFixture::NoSessionRegistryTag{});
+    auto absent_registry = cpr::Post(cpr::Url{
+        unavailable.url("/api/sessions/missing/model/reload")});
+    EXPECT_EQ(absent_registry.status_code, 503) << absent_registry.text;
+}
+
+// 触发场景:connector hook 把外部登录器写入的 saved_models 从磁盘加载到
+// running daemon;期望结构变化发布一次 revision,重复加载相同列表不再前进。
+TEST(WebServerHttp, ConnectorSavedModelRefreshPublishesOnlyStructuralChanges) {
+    WebServerFixture fx;
+    acecode::AppConfig disk = fx.cfg;
+    disk.saved_models.front().model = "connector-model";
+    acecode::save_config(disk, (fx.tmp_dir / "config.json").string());
+    const auto before = acecode::current_saved_models_revision();
+
+    fx.server->refresh_saved_models_from_disk();
+    EXPECT_EQ(fx.cfg.saved_models.front().model, "connector-model");
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+
+    fx.server->refresh_saved_models_from_disk();
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+}
+
 // 场景:POST /api/models/probe 只接受 OpenAI-compatible 探测参数。这里走
 // 400 分支,不发真实网络请求,用于固定 route wiring + 错误码。
 TEST(WebServerHttp, PostModelsProbeRejectsUnsupportedProvider) {
@@ -8544,11 +8851,8 @@ TEST(WebServerHttp, DeleteBusyActiveSessionModelReturnsConflict) {
     auto entry = fx.registry->acquire(id);
     ASSERT_TRUE(entry);
     auto blocker = std::make_shared<BlockingProvider>();
-    {
-        ASSERT_TRUE(entry->provider_slot);
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider = blocker;
-    }
+    ASSERT_TRUE(entry->model_binding);
+    install_test_provider(*entry, blocker);
 
     entry->loop->submit("hold provider");
     ASSERT_TRUE(blocker->wait_for_started(2s));

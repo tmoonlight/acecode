@@ -15,6 +15,7 @@
 #include "permissions.hpp"
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
+#include "config/saved_models_revision.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "prompt/system_prompt.hpp"
@@ -41,6 +42,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <shared_mutex>
 #include <thread>
 
 using namespace std::chrono_literals;
@@ -68,6 +70,14 @@ using acecode::ToolExecutor;
 using acecode::compute_cwd_hash;
 
 namespace {
+
+void install_test_provider(
+    acecode::SessionEntry& entry,
+    std::shared_ptr<acecode::LlmProvider> provider) {
+    const auto state = entry.model_binding->state_snapshot();
+    entry.model_binding->install_runtime_snapshot(
+        std::move(provider), state, entry.model_binding->applied_revision());
+}
 
 #ifdef _WIN32
 constexpr const char* kHomeEnvName = "USERPROFILE";
@@ -301,6 +311,11 @@ public:
         std::lock_guard<std::mutex> lk(mu_);
         if (requests_.empty()) return {};
         return requests_.front();
+    }
+
+    std::size_t request_count() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return requests_.size();
     }
 
     std::string name() const override { return "capture-request-stub"; }
@@ -578,6 +593,25 @@ AppConfig make_model_cfg() {
     return cfg;
 }
 
+AppConfig make_openai_model_cfg() {
+    AppConfig cfg;
+    cfg.provider = "openai";
+    cfg.openai.base_url = "http://127.0.0.1:9/v1";
+    cfg.openai.api_key = "test-key";
+    cfg.openai.model = "model-a";
+    cfg.context_window = 128000;
+    cfg.default_model_name = "active";
+
+    ModelProfile profile;
+    profile.name = "active";
+    profile.provider = "openai";
+    profile.base_url = cfg.openai.base_url;
+    profile.api_key = cfg.openai.api_key;
+    profile.model = cfg.openai.model;
+    cfg.saved_models.push_back(std::move(profile));
+    return cfg;
+}
+
 void remove_saved_model(AppConfig& cfg, const std::string& name) {
     cfg.saved_models.erase(
         std::remove_if(cfg.saved_models.begin(), cfg.saved_models.end(),
@@ -751,10 +785,7 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
     EXPECT_EQ(provider_error.status, SideQuestionStatus::Failed);
     EXPECT_NE(provider_error.error.find("upstream unavailable"), std::string::npos);
 
-    {
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider.reset();
-    }
+    install_test_provider(*entry, nullptr);
     auto unavailable = fx.registry.ask_side_question(id, "no model");
     EXPECT_EQ(unavailable.status, SideQuestionStatus::ProviderUnavailable);
 
@@ -921,11 +952,8 @@ TEST(LocalSessionClient, InitBuiltinWithProviderQueuesPromptWithDisplayText) {
 
     auto* entry = fx.registry.lookup(id);
     ASSERT_NE(entry, nullptr);
-    ASSERT_NE(entry->provider_slot, nullptr);
-    {
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider = std::make_shared<InitStubProvider>();
-    }
+    ASSERT_NE(entry->model_binding, nullptr);
+    install_test_provider(*entry, std::make_shared<InitStubProvider>());
 
     std::mutex mu;
     std::condition_variable cv;
@@ -977,13 +1005,10 @@ TEST(LocalSessionClient, DaemonSessionAutoCompactsWithEmptyCallbacks) {
     auto* entry = fx.registry.lookup(id);
     ASSERT_NE(entry, nullptr);
     ASSERT_NE(entry->loop, nullptr);
-    ASSERT_NE(entry->provider_slot, nullptr);
+    ASSERT_NE(entry->model_binding, nullptr);
 
     auto provider = std::make_shared<AutoCompactStubProvider>();
-    {
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider = provider;
-    }
+    install_test_provider(*entry, provider);
     entry->loop->set_context_window(1);
     add_registry_compactable_history(*entry->loop);
 
@@ -1552,6 +1577,220 @@ TEST(SessionRegistry, CreateUsesExplicitSessionModelState) {
     std::filesystem::remove_all(cwd);
 }
 
+// 触发场景:daemon 分别走新建、saved-profile 恢复、ad-hoc 恢复和显式切换;
+// 期望每条初始化路径都记录当前 revision/fingerprint,第一次等 revision 检查
+// 直接返回 already_current 且 Provider 指针不变。旧实现仅部分路径建 slot。
+TEST(SessionRegistry, AllModelInitializationPathsStartAtCurrentRevision) {
+    auto cwd = temp_cwd("model_binding_initialization_paths");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    const std::string saved_id = "20260830-010203-a111";
+    const std::string adhoc_id = "20260830-010203-a222";
+
+    {
+        acecode::SessionManager writer;
+        writer.start_session(
+            cwd.string(), "openai", "model-a", saved_id, "active", "daemon");
+        writer.on_message(registry_msg("user", "saved profile"));
+        writer.finalize();
+    }
+    {
+        acecode::SessionManager writer;
+        writer.start_session(
+            cwd.string(), "openai", "legacy-ad-hoc", adhoc_id, "", "daemon");
+        writer.on_message(registry_msg("user", "ad hoc profile"));
+        writer.finalize();
+    }
+
+    auto cfg = make_openai_model_cfg();
+    ModelProfile alternate = cfg.saved_models.front();
+    alternate.name = "alternate";
+    alternate.model = "model-b";
+    cfg.saved_models.push_back(alternate);
+    ToolExecutor tools;
+    PermissionManager permissions;
+    std::shared_mutex config_mu;
+    SessionRegistryDeps deps;
+    deps.tools = &tools;
+    deps.cwd = cwd.string();
+    deps.config = &cfg;
+    deps.config_mutex = &config_mu;
+    deps.template_permissions = &permissions;
+    SessionRegistry registry(std::move(deps));
+
+    SessionOptions create_opts;
+    create_opts.model_name = "active";
+    const auto created_id = registry.create(create_opts);
+    ASSERT_TRUE(registry.resume(saved_id));
+    ASSERT_TRUE(registry.resume(adhoc_id));
+
+    auto assert_fast_path = [&](const std::string& id) {
+        auto entry = registry.acquire(id);
+        ASSERT_TRUE(entry);
+        ASSERT_TRUE(entry->model_binding);
+        const auto provider = entry->model_binding->provider_snapshot();
+        ASSERT_TRUE(provider);
+        EXPECT_EQ(
+            entry->model_binding->applied_revision(),
+            acecode::current_saved_models_revision());
+        auto reload = registry.reload_model_profile(id, false);
+        ASSERT_TRUE(reload.has_value());
+        ASSERT_TRUE(reload->ok) << reload->error;
+        EXPECT_EQ(reload->outcome,
+                  acecode::SessionModelReloadOutcome::AlreadyCurrent);
+        EXPECT_EQ(entry->model_binding->provider_snapshot(), provider);
+    };
+
+    assert_fast_path(created_id);
+    assert_fast_path(saved_id);
+    assert_fast_path(adhoc_id);
+
+    SessionModelState switched;
+    std::string error;
+    ASSERT_TRUE(registry.switch_model(
+        created_id, alternate, &switched, &error)) << error;
+    EXPECT_EQ(switched.name, "alternate");
+    assert_fast_path(created_id);
+
+    registry.destroy(created_id);
+    registry.destroy(saved_id);
+    registry.destroy(adhoc_id);
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+// 触发场景:一个 turn 已捕获旧 Provider 时配置改变,新的普通 send 在 loop busy
+// 状态下先做 lazy reload 再排队;期望运行中 turn 继续持有旧 shared_ptr,未来
+// work 使用新 Provider,相同 revision 的后续 send 不重复构造。旧 slot 会串线。
+TEST(LocalSessionClient, LazyReloadWhileBusyPreservesCapturedProvider) {
+    auto cwd = temp_cwd("lazy_reload_while_busy");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    auto cfg = make_openai_model_cfg();
+    ToolExecutor tools;
+    PermissionManager permissions;
+    std::shared_mutex config_mu;
+    SessionRegistryDeps deps;
+    deps.tools = &tools;
+    deps.cwd = cwd.string();
+    deps.config = &cfg;
+    deps.config_mutex = &config_mu;
+    deps.template_permissions = &permissions;
+    SessionRegistry registry(std::move(deps));
+    LocalSessionClient client(registry);
+    SessionOptions opts;
+    opts.model_name = "active";
+    const auto id = client.create_session(opts);
+    auto entry = registry.acquire(id);
+    ASSERT_TRUE(entry);
+    ASSERT_TRUE(entry->model_binding);
+
+    auto blocker = std::make_shared<BlockingProvider>();
+    entry->model_binding->install_runtime_snapshot(
+        blocker,
+        entry->model_binding->state_snapshot(),
+        acecode::current_saved_models_revision());
+    entry->loop->submit("running turn");
+    ASSERT_TRUE(blocker->wait_for_started(2s));
+
+    auto changed_models = cfg.saved_models;
+    changed_models.front().model = "model-b";
+    {
+        std::lock_guard<std::shared_mutex> lock(config_mu);
+        ASSERT_TRUE(acecode::publish_live_saved_models(
+            cfg, std::move(changed_models)));
+    }
+    ASSERT_TRUE(client.send_input(id, "queued future turn"));
+    const auto reloaded_provider = entry->model_binding->provider_snapshot();
+    ASSERT_TRUE(reloaded_provider);
+    EXPECT_NE(reloaded_provider, blocker);
+    EXPECT_EQ(reloaded_provider->model(), "model-b");
+    EXPECT_TRUE(entry->loop->is_busy());
+
+    ASSERT_TRUE(client.send_input(id, "same revision"));
+    EXPECT_EQ(entry->model_binding->provider_snapshot(), reloaded_provider);
+    blocker->release();
+
+    registry.destroy(id);
+    entry.reset();
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+// 触发场景:下一 revision 的 Provider 构造失败;期望 steer/interrupt 不触发
+// reload,普通 send 显示安全 warning 后仍用旧 Provider,revision 保持陈旧使下一
+// 次 send 重试。旧实现要么阻断输入,要么吞掉失败且永久不再重试。
+TEST(LocalSessionClient, LazyReloadFailureWarnsFallsOpenAndRetries) {
+    auto cwd = temp_cwd("lazy_reload_failure");
+    auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    auto cfg = make_openai_model_cfg();
+    ToolExecutor tools;
+    PermissionManager permissions;
+    std::shared_mutex config_mu;
+    SessionRegistryDeps deps;
+    deps.tools = &tools;
+    deps.cwd = cwd.string();
+    deps.config = &cfg;
+    deps.config_mutex = &config_mu;
+    deps.template_permissions = &permissions;
+    SessionRegistry registry(std::move(deps));
+    LocalSessionClient client(registry);
+    SessionOptions opts;
+    opts.model_name = "active";
+    const auto id = client.create_session(opts);
+    auto entry = registry.acquire(id);
+    ASSERT_TRUE(entry);
+    ASSERT_TRUE(entry->model_binding);
+    auto old_provider = std::make_shared<CaptureRequestProvider>();
+    entry->model_binding->install_runtime_snapshot(
+        old_provider,
+        entry->model_binding->state_snapshot(),
+        acecode::current_saved_models_revision());
+    const auto applied_before = entry->model_binding->applied_revision();
+    const auto state_before = entry->model_binding->state_snapshot();
+
+    auto invalid_models = cfg.saved_models;
+    invalid_models.front().provider = "codex";
+    {
+        std::lock_guard<std::shared_mutex> lock(config_mu);
+        ASSERT_TRUE(acecode::publish_live_saved_models(
+            cfg, std::move(invalid_models)));
+    }
+
+    acecode::UserInput steer;
+    steer.text = "do not reload for control input";
+    (void)client.steer_input(id, "missing-turn", steer);
+    (void)client.interrupt_turn(id, "missing-turn", steer);
+    EXPECT_EQ(entry->model_binding->applied_revision(), applied_before);
+
+    std::atomic<int> warning_count{0};
+    const auto sub = client.subscribe(id, [&](const SessionEvent& event) {
+        if (event.kind == SessionEventKind::Message &&
+            event.payload.value("content", "").find(
+                "model profile reload failed") != std::string::npos) {
+            warning_count.fetch_add(1);
+        }
+    });
+    ASSERT_NE(sub, 0u);
+
+    ASSERT_TRUE(client.send_input(id, "first retry"));
+    ASSERT_TRUE(old_provider->wait_for_request(2s));
+    ASSERT_TRUE(client.send_input(id, "second retry"));
+    EXPECT_GE(warning_count.load(), 2);
+    EXPECT_EQ(entry->model_binding->provider_snapshot(), old_provider);
+    EXPECT_EQ(entry->model_binding->state_snapshot().name, state_before.name);
+    EXPECT_EQ(entry->model_binding->state_snapshot().model, state_before.model);
+    EXPECT_EQ(entry->model_binding->applied_revision(), applied_before);
+    EXPECT_LT(applied_before, acecode::current_saved_models_revision());
+    client.unsubscribe(id, sub);
+
+    registry.destroy(id);
+    entry.reset();
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
 // 场景:设置页在不改名的前提下修改 saved model 上下文窗口时,所有引用该
 // name 的 active session 同步 model_state + AgentLoop 预算;其它模型和
 // provider slot 不受影响。
@@ -1594,12 +1833,8 @@ TEST(SessionRegistry, SyncModelContextWindowUpdatesMatchingActiveSessionsOnly) {
     EXPECT_EQ(slow_b->loop->context_window(), 64000);
     EXPECT_EQ(fast->loop->context_window(), 32000);
 
-    std::shared_ptr<acecode::LlmProvider> provider_before;
-    {
-        ASSERT_TRUE(slow_a->provider_slot);
-        std::lock_guard<std::mutex> lk(slow_a->provider_slot->mu);
-        provider_before = slow_a->provider_slot->provider;
-    }
+    ASSERT_TRUE(slow_a->model_binding);
+    auto provider_before = slow_a->model_binding->provider_snapshot();
 
     cfg.saved_models[0].context_window = 96000;
     EXPECT_EQ(registry.sync_model_context_window("slow", cfg.saved_models[0]), 2u);
@@ -1617,10 +1852,7 @@ TEST(SessionRegistry, SyncModelContextWindowUpdatesMatchingActiveSessionsOnly) {
     EXPECT_EQ(slow_b->loop->context_window(), 96000);
     EXPECT_EQ(fast->loop->context_window(), 32000);
 
-    {
-        std::lock_guard<std::mutex> lk(slow_a->provider_slot->mu);
-        EXPECT_EQ(slow_a->provider_slot->provider, provider_before);
-    }
+    EXPECT_EQ(slow_a->model_binding->provider_snapshot(), provider_before);
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);
@@ -1696,11 +1928,8 @@ TEST(SessionRegistry, ModelProfileBusyUseReflectsActiveLoopBusyState) {
     auto entry = registry.acquire(id);
     ASSERT_TRUE(entry);
     auto blocker = std::make_shared<BlockingProvider>();
-    {
-        ASSERT_TRUE(entry->provider_slot);
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider = blocker;
-    }
+    ASSERT_TRUE(entry->model_binding);
+    install_test_provider(*entry, blocker);
 
     entry->loop->submit("hold provider");
     ASSERT_TRUE(blocker->wait_for_started(2s));
@@ -1754,11 +1983,8 @@ TEST(SessionRegistry, BusySessionTransitionsDrivePowerGuard) {
     auto entry = registry.acquire(id);
     ASSERT_TRUE(entry);
     auto blocker = std::make_shared<BlockingProvider>();
-    {
-        ASSERT_TRUE(entry->provider_slot);
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        entry->provider_slot->provider = blocker;
-    }
+    ASSERT_TRUE(entry->model_binding);
+    install_test_provider(*entry, blocker);
 
     entry->loop->submit("hold provider");
     ASSERT_TRUE(blocker->wait_for_started(2s));
@@ -1887,6 +2113,13 @@ TEST(SessionRegistry, SwitchModelIsSessionScopedAndPersistsMetadata) {
     a->sm->on_message(msg);
 
     auto fast = cfg.saved_models[1];
+    fast.provider = "openai";
+    fast.base_url = "https://gateway.example/v1";
+    fast.api_key = "private-api-key-metadata-sentinel";
+    fast.request_headers = {
+        {"Authorization", "Bearer private-header-metadata-sentinel"},
+    };
+    cfg.saved_models[1] = fast;
     SessionModelState switched;
     std::string error;
     ASSERT_TRUE(registry.switch_model(a_id, fast, &switched, &error)) << error;
@@ -1905,8 +2138,24 @@ TEST(SessionRegistry, SwitchModelIsSessionScopedAndPersistsMetadata) {
     ASSERT_EQ(sessions.size(), 1u);
     EXPECT_EQ(sessions[0].id, a_id);
     EXPECT_EQ(sessions[0].model_preset, "fast");
-    EXPECT_EQ(sessions[0].provider, "copilot");
+    EXPECT_EQ(sessions[0].provider, "openai");
     EXPECT_EQ(sessions[0].model, "fast-model");
+
+    // Provider 构造私有状态不得进入持久化 metadata；公开字段仍按原契约保存。
+    const auto meta_path = SessionStorage::meta_path(project_dir, a_id);
+    std::ifstream meta_stream(meta_path, std::ios::binary);
+    ASSERT_TRUE(meta_stream.is_open());
+    const std::string raw_meta{
+        std::istreambuf_iterator<char>(meta_stream),
+        std::istreambuf_iterator<char>()};
+    EXPECT_EQ(raw_meta.find("private-api-key-metadata-sentinel"),
+              std::string::npos);
+    EXPECT_EQ(raw_meta.find("private-header-metadata-sentinel"),
+              std::string::npos);
+    EXPECT_EQ(raw_meta.find("request_headers"), std::string::npos);
+    EXPECT_EQ(raw_meta.find("fingerprint"), std::string::npos);
+    EXPECT_EQ(raw_meta.find("applied_revision"), std::string::npos);
+    meta_stream.close();
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);
@@ -2364,11 +2613,8 @@ TEST(SessionRegistry, ResumeDiskSessionMarksDeletedSavedModelPreset) {
 
     auto* entry = registry.lookup(id);
     ASSERT_NE(entry, nullptr);
-    ASSERT_TRUE(entry->provider_slot);
-    {
-        std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-        EXPECT_EQ(entry->provider_slot->provider, nullptr);
-    }
+    ASSERT_TRUE(entry->model_binding);
+    EXPECT_EQ(entry->model_binding->provider_snapshot(), nullptr);
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);
@@ -2560,11 +2806,8 @@ TEST(SessionRegistry, AutoTitleRetriesOnceAfterCompletedTurn) {
         auto id = client.create_session(opts);
         auto entry = registry.acquire(id);
         ASSERT_NE(entry, nullptr);
-        ASSERT_NE(entry->provider_slot, nullptr);
-        {
-            std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-            entry->provider_slot->provider = provider;
-        }
+        ASSERT_NE(entry->model_binding, nullptr);
+        install_test_provider(*entry, provider);
 
         ASSERT_TRUE(client.send_input(id, "fix the recovered connection"));
         ASSERT_TRUE(state->wait_for_calls(2, 5s));

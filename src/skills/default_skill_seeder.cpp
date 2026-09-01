@@ -1284,6 +1284,13 @@ std::optional<fs::path> find_default_skill_seed_dir(
             "acecode" / "seed" / "skills";
         if (auto found = valid_seed_dir(install_candidate)) return found;
 
+        // macOS app bundles keep runtime resources under Contents/Resources
+        // while both the desktop shell and bundled daemon run from Contents/MacOS.
+        const fs::path macos_bundle_candidate =
+            path_from_utf8(argv0_dir) / ".." / "Resources" / "share" /
+            "acecode" / "seed" / "skills";
+        if (auto found = valid_seed_dir(macos_bundle_candidate)) return found;
+
         fs::path probe = path_from_utf8(argv0_dir);
         for (int i = 0; i < 5; ++i) {
             const fs::path dev_candidate =

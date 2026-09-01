@@ -1,4 +1,5 @@
 #include "config/settings_mutations.hpp"
+#include "config/saved_models_revision.hpp"
 
 #include <gtest/gtest.h>
 
@@ -286,4 +287,111 @@ TEST(SettingsMutations, AdvancedModelAndCredentialReusePersistAtomically) {
     EXPECT_EQ(rejected.error.find("secret"), std::string::npos);
     EXPECT_EQ(acecode::load_config_from_path(temp.config_path()).saved_models.size(),
               2u);
+}
+
+// 触发场景:同一 running process 依次 add、有效 update、remove saved model;
+// 期望持久化并发布 live list 后每次 revision 恰好 +1。旧实现没有完整失效信号。
+TEST(SettingsMutations, ChangedSavedModelMutationsAdvanceRevisionExactlyOnce) {
+    SettingsMutationTempDir temp;
+    acecode::AppConfig initial;
+    acecode::save_config(initial, temp.config_path());
+    acecode::AppConfig live = initial;
+    const auto options = options_for(temp, &live);
+
+    auto before = acecode::current_saved_models_revision();
+    const auto added = acecode::add_saved_model_setting(
+        model_draft("primary"), options);
+    ASSERT_TRUE(added.ok) << added.error;
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+
+    before = acecode::current_saved_models_revision();
+    auto changed = model_draft("primary");
+    changed.model = "changed-model";
+    const auto updated = acecode::update_saved_model_setting(
+        "primary", changed, options);
+    ASSERT_TRUE(updated.ok) << updated.error;
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+
+    before = acecode::current_saved_models_revision();
+    const auto removed = acecode::remove_saved_model_setting(
+        "primary", {}, options);
+    ASSERT_TRUE(removed.ok) << removed.error;
+    EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+}
+
+// 触发场景:结构相同的 update、validation failure、persistence failure 和
+// live apply failure;期望 revision 均不动。旧的“请求次数”计数会误触发重建。
+TEST(SettingsMutations, NoOpAndEveryFailureClassLeaveRevisionUnchanged) {
+    SettingsMutationTempDir temp;
+    acecode::AppConfig initial;
+    initial.saved_models.push_back({
+        "primary", "openai", "https://example.invalid/v1", "secret",
+        "test-model",
+    });
+    acecode::save_config(initial, temp.config_path());
+    acecode::AppConfig live = initial;
+
+    auto before = acecode::current_saved_models_revision();
+    const auto unchanged = acecode::update_saved_model_setting(
+        "primary", model_draft("primary"), options_for(temp, &live));
+    ASSERT_TRUE(unchanged.ok) << unchanged.error;
+    EXPECT_FALSE(unchanged.changed);
+    EXPECT_EQ(acecode::current_saved_models_revision(), before);
+
+    const auto invalid = acecode::add_saved_model_setting(
+        model_draft("primary"), options_for(temp, &live));
+    EXPECT_FALSE(invalid.ok);
+    EXPECT_EQ(acecode::current_saved_models_revision(), before);
+
+    acecode::SettingsMutationOptions bad_path;
+    bad_path.config_path = std::filesystem::path(temp.config_path())
+        .parent_path().string();
+    bad_path.live_config = &live;
+    const auto persistence = acecode::add_saved_model_setting(
+        model_draft("other"), bad_path);
+    EXPECT_FALSE(persistence.ok);
+    EXPECT_EQ(persistence.error_kind,
+              acecode::SettingsMutationErrorKind::Persistence);
+    EXPECT_EQ(acecode::current_saved_models_revision(), before);
+
+    auto runtime_options = options_for(temp, &live);
+    runtime_options.apply_live = [](
+        const acecode::AppConfig&, std::string& error) {
+        error = "synthetic runtime apply failure";
+        return false;
+    };
+    const auto runtime = acecode::add_saved_model_setting(
+        model_draft("runtime-failure"), runtime_options);
+    EXPECT_TRUE(runtime.ok);
+    EXPECT_EQ(runtime.runtime_status,
+              acecode::SettingsRuntimeStatus::RuntimeApplyFailed);
+    EXPECT_EQ(acecode::current_saved_models_revision(), before);
+    EXPECT_EQ(live.saved_models.size(), 1u);
+
+    // 同一请求重试时磁盘已包含该条目,仍属于 no-op;不能绕过 publisher
+    // 把失败过的列表偷偷复制到 live config,也不能补发一个 revision。
+    const auto retry = acecode::update_saved_model_setting(
+        "runtime-failure",
+        model_draft("runtime-failure"),
+        options_for(temp, &live));
+    ASSERT_TRUE(retry.ok) << retry.error;
+    EXPECT_FALSE(retry.changed);
+    EXPECT_EQ(acecode::current_saved_models_revision(), before);
+    EXPECT_EQ(live.saved_models.size(), 1u);
+}
+
+// 触发场景:独立 `acecode configure` 只有磁盘配置、没有 running live config;
+// 期望成功写盘但不制造本进程 revision。运行中进程须先显式加载该编辑。
+TEST(SettingsMutations, DiskOnlyConfigureMutationDoesNotAdvanceProcessRevision) {
+    SettingsMutationTempDir temp;
+    acecode::AppConfig initial;
+    acecode::save_config(initial, temp.config_path());
+    const auto before = acecode::current_saved_models_revision();
+
+    const auto result = acecode::add_saved_model_setting(
+        model_draft("external"), options_for(temp));
+
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_TRUE(result.persisted);
+    EXPECT_EQ(acecode::current_saved_models_revision(), before);
 }

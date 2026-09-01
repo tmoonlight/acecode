@@ -3,10 +3,73 @@
 #include "llm_provider.hpp"
 #include "../config/saved_models.hpp"
 #include <memory>
+#include <optional>
+#include <string>
 
 namespace acecode {
 
 struct AppConfig;
+class PreparedProviderConstruction;
+
+// Opaque equality token for the exact effective inputs consumed by provider
+// construction. The retained value is a process-salted digest; there is no
+// public string, stream, JSON, or metadata representation.
+class ProviderConstructionFingerprint {
+public:
+    ProviderConstructionFingerprint(const ProviderConstructionFingerprint&) = default;
+    ProviderConstructionFingerprint& operator=(
+        const ProviderConstructionFingerprint&) = default;
+
+    bool operator==(const ProviderConstructionFingerprint& other) const noexcept;
+    bool operator!=(const ProviderConstructionFingerprint& other) const noexcept {
+        return !(*this == other);
+    }
+
+private:
+    explicit ProviderConstructionFingerprint(std::string digest);
+    std::string digest_;
+
+    friend class PreparedProviderConstruction;
+    friend std::optional<PreparedProviderConstruction>
+    prepare_provider_construction(const ModelProfile&, const AppConfig*);
+};
+
+struct ProviderConstructionResult {
+    std::shared_ptr<LlmProvider> provider;
+    ProviderConstructionFingerprint fingerprint;
+};
+
+// Move-only opaque handle around the private effective build plan. Callers can
+// compare the fingerprint before paying provider-construction/authentication
+// cost, but cannot inspect or serialize credentials retained by the plan.
+class PreparedProviderConstruction {
+public:
+    PreparedProviderConstruction(PreparedProviderConstruction&&) noexcept;
+    PreparedProviderConstruction& operator=(PreparedProviderConstruction&&) noexcept;
+    ~PreparedProviderConstruction();
+
+    PreparedProviderConstruction(const PreparedProviderConstruction&) = delete;
+    PreparedProviderConstruction& operator=(const PreparedProviderConstruction&) = delete;
+
+    const ProviderConstructionFingerprint& fingerprint() const noexcept;
+    ProviderConstructionResult construct() const;
+
+private:
+    struct Impl;
+    explicit PreparedProviderConstruction(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
+
+    friend std::optional<PreparedProviderConstruction>
+    prepare_provider_construction(const ModelProfile&, const AppConfig*);
+};
+
+std::optional<PreparedProviderConstruction> prepare_provider_construction(
+    const ModelProfile& entry,
+    const AppConfig* config = nullptr);
+
+std::optional<ProviderConstructionResult> create_provider_construction(
+    const ModelProfile& entry,
+    const AppConfig* config = nullptr);
 
 // 基于一个 ModelProfile 构造 provider。对应 openspec/changes/model-profiles
 // 任务 4.3 / design.md D4。调用方不需要再持有整份 AppConfig。

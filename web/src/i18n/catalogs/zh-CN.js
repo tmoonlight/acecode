@@ -58,6 +58,12 @@ export const zhCN = {
     externalBrowserOpenFailed: '外部浏览器打开失败：{{error}}',
     startupConnecting: '正在连接后台服务…',
   },
+  configRecovery: {
+    title: '配置已自动回滚',
+    message: '检测到配置文件有错误，已恢复为上一次有效配置。错误配置已单独备份。',
+    backupLocation: '错误配置备份位置',
+    acknowledge: '知道了',
+  },
   format: {
     now: '刚刚',
   },

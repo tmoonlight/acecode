@@ -608,17 +608,13 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         // 跑起来再报一条模型错误消息。
         {
             auto entry = registry.acquire(session_id);
-            if (!entry || !entry->provider_slot) {
+            if (!entry || !entry->model_binding) {
                 write_stream_error("SessionInitializationError",
                                    "session initialization failed");
                 std::cerr << "acecode -p: session initialization failed\n";
                 return 1;
             }
-            std::shared_ptr<acecode::LlmProvider> p;
-            {
-                std::lock_guard<std::mutex> lk(entry->provider_slot->mu);
-                p = entry->provider_slot->provider;
-            }
+            auto p = entry->model_binding->provider_snapshot();
             if (!p) {
                 write_stream_error("ModelConfigurationError",
                                    "no usable model configured");

@@ -1,91 +1,88 @@
 // src/provider/apply_model_to_session.cpp
 #include "apply_model_to_session.hpp"
 
-#include "copilot_provider.hpp"
-#include "model_context_resolver.hpp"
-#include "model_pool_status.hpp"
-#include "model_resolver.hpp"
-#include "provider_factory.hpp"
+#include "../config/saved_models_revision.hpp"
 #include "../agent_loop.hpp"
 #include "../session/session_manager.hpp"
-#include "../utils/logger.hpp"
 
-#include <mutex>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
 namespace acecode {
 
-namespace {
-
-SessionModelState state_from_profile(const AppConfig& cfg,
-                                      const ModelProfile& profile) {
-    SessionModelState state;
-    state.name = profile.name;
-    state.provider = profile.provider;
-    state.model = profile.model;
-    // model id 与监控快照的 modelPoolName 精确命中时,用 0.8 * maxWindowTokens
-    // 作为有效上下文窗口。手动 override 优先;未命中时保留默认解析值。
-    int eff = model_pool_status_service().effective_context_window_for(state.model);
-    state.context_window = resolve_runtime_model_profile_context_window_nonblocking(
-        cfg, profile, cfg.context_window, eff);
-    return state;
-}
-
-} // namespace
-
 ApplyModelResult apply_model_to_session(const ModelProfile& profile,
                                          const ApplyModelDeps& deps) {
     if (!deps.cfg) throw std::runtime_error("config unavailable");
-    if (!deps.provider_slot) throw std::runtime_error("provider slot unavailable");
-
-    ApplyModelResult result;
-    result.state = state_from_profile(*deps.cfg, profile);
-
-    auto new_provider = create_provider_from_entry(profile, deps.cfg);
-    if (!new_provider) {
-        throw std::runtime_error("provider create failed: factory returned null for '"
-                                 + profile.name + "'");
+    if (!deps.model_binding) {
+        throw std::runtime_error("model binding unavailable");
     }
 
-    if (new_provider->name() == "copilot") {
-        if (auto cp = std::dynamic_pointer_cast<CopilotProvider>(new_provider)) {
-            if (!cp->try_silent_auth()) {
-                result.warning = "Copilot silent_auth failed; user may need /login "
-                                 "before next request";
-                LOG_WARN("[apply_model_to_session] " + result.warning);
-            }
-        }
-    }
-
-    {
-        std::lock_guard<std::mutex> lk(deps.provider_slot->mu);
-        deps.provider_slot->provider = std::move(new_provider);
-    }
-
-    if (deps.loop && result.state.context_window > 0) {
-        deps.loop->set_context_window(result.state.context_window);
-    }
-
-    if (deps.sm) {
+    SessionModelResolvedTarget target;
+    SessionModelResolver resolver = deps.resolver;
+    if (resolver) {
         try {
-            deps.sm->set_active_provider(result.state.provider,
-                                          result.state.model,
-                                          result.state.name);
-        } catch (const std::exception& e) {
-            // meta 写盘失败是非致命的:slot 已替换,用户下一发用新模型;
-            // 唯一后果是 daemon 崩了恢复时显示旧模型,用户重切一次即可。
-            std::string msg = std::string("meta persist failed: ") + e.what();
-            if (result.warning.empty()) result.warning = msg;
-            else result.warning += "; " + msg;
-            LOG_WARN("[apply_model_to_session] " + msg);
+            target = resolver(profile.name);
+        } catch (...) {
+            throw std::runtime_error("model profile resolution failed");
         }
+        if (!target.profile.has_value() || !target.config) {
+            throw std::runtime_error("model profile unavailable");
+        }
+    } else {
+        auto config_snapshot = std::make_shared<AppConfig>(*deps.cfg);
+        target.revision = current_saved_models_revision();
+        target.profile = profile;
+        target.config = config_snapshot;
+        target.state = session_model_state_from_profile(*config_snapshot, profile);
+
+        // The compatibility/TUI adapter is externally serialized and the
+        // caller's explicit profile is authoritative. Daemon callers inject
+        // a locked resolver above so they still revalidate against the live
+        // saved_models list before publication.
+        resolver = [config = deps.cfg, explicit_profile = profile](
+                       const std::string& name) {
+            auto snapshot = std::make_shared<AppConfig>(*config);
+            SessionModelResolvedTarget resolved;
+            resolved.revision = current_saved_models_revision();
+            resolved.config = snapshot;
+            if (name == explicit_profile.name) {
+                resolved.profile = explicit_profile;
+                resolved.state = session_model_state_from_profile(
+                    *snapshot, explicit_profile);
+            }
+            return resolved;
+        };
     }
 
-    LOG_INFO("[apply_model_to_session] applied entry='" + profile.name +
-             "' (" + result.state.provider + "/" + result.state.model +
-             "), context_window=" + std::to_string(result.state.context_window));
-    return result;
+    SessionModelTransitionCallback transition = deps.on_transition;
+    if (!transition) {
+        transition = [loop = deps.loop, sm = deps.sm](
+                         const SessionModelState& state,
+                         const SessionModelTransition& change) {
+            if (loop && state.context_window > 0) {
+                loop->set_context_window(state.context_window);
+            }
+            if (!sm || (!change.provider_published &&
+                        !change.selection_changed)) {
+                return true;
+            }
+            try {
+                return sm->set_active_provider(
+                    state.provider, state.model, state.name);
+            } catch (...) {
+                return false;
+            }
+        };
+    }
+
+    const auto installed = deps.model_binding->install_explicit(
+        std::move(target), resolver, transition);
+    if (!installed.ok) {
+        throw std::runtime_error(
+            installed.error.empty() ? "provider create failed" : installed.error);
+    }
+    return {installed.state, installed.warning};
 }
 
 } // namespace acecode

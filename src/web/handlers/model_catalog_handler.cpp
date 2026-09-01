@@ -194,14 +194,6 @@ std::vector<nlohmann::json> provider_descriptors(
     return result;
 }
 
-std::vector<std::string> model_capabilities(const ModelEntry& model) {
-    std::vector<std::string> result;
-    if (model.attachment) result.push_back("vision");
-    if (model.tool_call) result.push_back("tool_use");
-    if (model.reasoning) result.push_back("reasoning");
-    return result;
-}
-
 nlohmann::json model_to_json(const ModelEntry& model) {
     nlohmann::json result{
         {"id", model.id},
@@ -212,7 +204,7 @@ nlohmann::json model_to_json(const ModelEntry& model) {
         {"max_output_tokens", model.max_output.has_value() && *model.max_output > 0
             ? nlohmann::json(*model.max_output)
             : nlohmann::json(nullptr)},
-        {"capabilities", model_capabilities(model)},
+        {"capabilities", model_capability_tags(model)},
         {"reasoning", {
             {"supported", model.reasoning},
             {"mandatory", model.reasoning && !model.reasoning_can_disable},

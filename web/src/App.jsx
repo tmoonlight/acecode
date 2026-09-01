@@ -84,6 +84,7 @@ import { canOpenConversationFind } from './lib/globalFind.js';
 import { ConsoleDock } from './components/ConsoleDock.jsx';
 import { DesktopGuidedTour } from './components/DesktopGuidedTour.jsx';
 import { DesktopCloseDialog } from './components/DesktopCloseDialog.jsx';
+import { ConfigRecoveryDialog } from './components/ConfigRecoveryDialog.jsx';
 import { UpdateDialog } from './components/UpdateDialog.jsx';
 import InteractiveHomeLogo from './components/InteractiveHomeLogo.jsx';
 import { LoopPage } from './components/LoopPage.jsx';
@@ -132,6 +133,10 @@ import {
 import { installDesktopExternalLinkRouter } from './lib/externalUrl.js';
 import { shouldAutoFocusDesktopComposer } from './lib/composerCaretRestore.js';
 import { requestDesktopAppExit, showDesktopAboutDialog } from './lib/desktopAppActions.js';
+import {
+  normalizeConfigRecoveryNotice,
+  recoveryNoticeBlocksStartup,
+} from './lib/configRecoveryNotice.js';
 import {
   DESKTOP_CLOSE_BEHAVIORS,
   getDesktopCloseBehavior,
@@ -227,6 +232,10 @@ export function App() {
   const [rememberDesktopCloseChoice, setRememberDesktopCloseChoice] = useState(false);
   const [desktopCloseBusy, setDesktopCloseBusy] = useState(false);
   const [desktopTrayAvailable, setDesktopTrayAvailable] = useState(true);
+  const [configRecoveryNotice, setConfigRecoveryNotice] = useState(null);
+  const [configRecoveryNoticeChecked, setConfigRecoveryNoticeChecked] = useState(false);
+  const [configRecoveryDialogOpen, setConfigRecoveryDialogOpen] = useState(false);
+  const [configRecoveryAckBusy, setConfigRecoveryAckBusy] = useState(false);
   const [modelProfileRevision, setModelProfileRevision] = useState(0);
   const [permReqs,     setPermReqs]     = useState([]);
   const [questionReqs, setQuestionReqs] = useState([]);
@@ -366,8 +375,12 @@ export function App() {
   const guidedTourAutoAttemptedRef = useRef(false);
   const homeLogoActiveSessionId = sessionJumpId(activeRef || {});
   const guidedTourHasActiveSession = !!(activeRef?.sessionId || activeRef?.id);
+  const configRecoveryBlocking = (
+    authState === 'ok' && !configRecoveryNoticeChecked
+  ) || recoveryNoticeBlocksStartup(configRecoveryNotice, configRecoveryDialogOpen);
   const guidedTourBlocked = showSettings || searchOpen || updateDialogOpen
     || desktopCloseDialogOpen
+    || configRecoveryBlocking
     || questionReqs.length > 0;
 
   useEffect(() => initInactiveSelection(), []);
@@ -735,6 +748,48 @@ export function App() {
       // Older/offline daemons keep the injected or cached appearance usable.
     });
   }, [authState]);
+
+  useEffect(() => {
+    if (authState !== 'ok') {
+      setConfigRecoveryNoticeChecked(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setConfigRecoveryNoticeChecked(false);
+    api.getConfigRecoveryNotice()
+      .then((value) => {
+        if (cancelled) return;
+        const notice = normalizeConfigRecoveryNotice(value);
+        if (notice) {
+          setConfigRecoveryNotice(notice);
+          setConfigRecoveryDialogOpen(true);
+        }
+        setConfigRecoveryNoticeChecked(true);
+      })
+      .catch(() => {
+        // Notice transport failure must not add a second startup warning.
+        // A durable pending notice is retried on the next app entry.
+        if (!cancelled) setConfigRecoveryNoticeChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authState]);
+
+  const acknowledgeConfigRecovery = useCallback(async () => {
+    if (configRecoveryAckBusy) return;
+    setConfigRecoveryAckBusy(true);
+    try {
+      await api.acknowledgeConfigRecoveryNotice();
+    } catch {
+      // Close this page's already-seen warning without a toast. The durable
+      // notice remains pending and will be offered again on the next entry.
+    } finally {
+      setConfigRecoveryAckBusy(false);
+      setConfigRecoveryDialogOpen(false);
+      setConfigRecoveryNotice(null);
+    }
+  }, [configRecoveryAckBusy]);
 
   const pollUpdateJob = useCallback((jobId) => {
     if (!jobId) return;
@@ -1868,6 +1923,7 @@ export function App() {
     && !searchOpen
     && !updateDialogOpen
     && !desktopCloseDialogOpen
+    && !configRecoveryBlocking
     && !guidedTourPreparing
     && !guidedTourRun
     && !sessionNavigationPending
@@ -1882,7 +1938,7 @@ export function App() {
     desktopMode: desktopModeRef.current,
     chatVisible: view === 'single' && !activeRef?.loop && !activeRef?.expertComponents,
     blockingSurfaceOpen: showSettings || searchOpen || updateDialogOpen
-      || desktopCloseDialogOpen
+      || desktopCloseDialogOpen || configRecoveryBlocking
       || !!visibleQuestionReq || guidedTourPreparing || guidedTourRun,
   });
   const conversationFindEnabled = canOpenConversationFind({
@@ -1891,7 +1947,7 @@ export function App() {
     loop: !!activeRef?.loop,
     showSettings,
     searchOpen,
-    updateDialogOpen: updateDialogOpen || desktopCloseDialogOpen,
+    updateDialogOpen: updateDialogOpen || desktopCloseDialogOpen || configRecoveryBlocking,
     permissionOpen: false,
     questionOpen: !!visibleQuestionReq,
     guidedTourPreparing,
@@ -2090,8 +2146,14 @@ export function App() {
         scopeKey={activeId}
       />
       <DesktopContextMenu />
+      <ConfigRecoveryDialog
+        open={configRecoveryDialogOpen}
+        notice={configRecoveryNotice}
+        busy={configRecoveryAckBusy}
+        onAcknowledge={acknowledgeConfigRecovery}
+      />
       <UpdateDialog
-        open={updateDialogOpen}
+        open={updateDialogOpen && !configRecoveryBlocking}
         updateStatus={updateStatus}
         job={updateJob}
         starting={updateStarting}

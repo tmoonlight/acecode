@@ -53,3 +53,44 @@ TEST(BuiltinToolRegistry, NativeBrowserToolsCanBeUnregisteredAsOneGroup) {
     EXPECT_FALSE(tools.has_tool("browser_click"));
     EXPECT_TRUE(tools.has_tool("bash"));
 }
+
+// 图像生成工具的注册门控。未配置时不注册 —— 注册一个必然 401
+// 的工具只会让模型反复调用反复失败。
+TEST(BuiltinToolRegistry, ImageGenerateIsNotRegisteredWithoutCredentials) {
+    AppConfig config;
+    config.web_search.enabled = false;
+    ToolExecutor tools;
+
+    register_session_builtin_tools(tools, config);
+
+    EXPECT_FALSE(tools.has_tool("image_generate"));
+}
+
+TEST(BuiltinToolRegistry, ImageGenerateIsRegisteredWhenEndpointResolves) {
+    AppConfig config;
+    config.web_search.enabled = false;
+    config.image_generation.enabled = true;
+    config.image_generation.source = "inline";
+    config.image_generation.base_url = "https://example.invalid/v1";
+    config.image_generation.api_key = "sk-test";
+    ToolExecutor tools;
+
+    register_session_builtin_tools(tools, config);
+
+    EXPECT_TRUE(tools.has_tool("image_generate"));
+}
+
+TEST(BuiltinToolRegistry, ImageGenerateRespectsDisabledFlag) {
+    // 凭据齐备但用户关了开关时也不注册。
+    AppConfig config;
+    config.web_search.enabled = false;
+    config.image_generation.enabled = false;
+    config.image_generation.source = "inline";
+    config.image_generation.base_url = "https://example.invalid/v1";
+    config.image_generation.api_key = "sk-test";
+    ToolExecutor tools;
+
+    register_session_builtin_tools(tools, config);
+
+    EXPECT_FALSE(tools.has_tool("image_generate"));
+}

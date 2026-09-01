@@ -13,8 +13,11 @@ import {
   formatRequestHeadersJson,
   formatContextWindowK,
   isIntegerContextWindowKInput,
+  MODEL_CAPABILITY_OPTIONS,
+  modelCapabilityPresentation,
   modelNameSlug,
   normalizeModelCapabilities,
+  normalizeModelProbeResult,
   parseContextWindowK,
   parseRequestHeadersJson,
   splitModelIds,
@@ -213,6 +216,64 @@ run('normalizeModelCapabilities 去重并保留顺序', () => {
     normalizeModelCapabilities(['tool_use', '', 'vision', 'tool_use', 42]),
     ['tool_use', 'vision'],
   );
+});
+
+run('模型能力展示映射覆盖全部已知能力图标', () => {
+  const expected = {
+    vision: ['视觉', 'eye', 'border-capability-vision text-capability-vision'],
+    web_search: ['联网', 'globe', 'border-capability-web text-capability-web'],
+    reasoning: ['推理', 'brain', 'border-capability-reasoning text-capability-reasoning'],
+    tool_use: ['工具', 'tool', 'border-capability-tool text-capability-tool'],
+    rerank: ['重排', 'list', 'border-capability-rerank text-capability-rerank'],
+    embedding: ['嵌入', 'embedding', 'border-capability-embedding text-capability-embedding'],
+  };
+  assert.deepEqual(
+    MODEL_CAPABILITY_OPTIONS.map(({ id, label, icon, colorClass }) => [id, label, icon, colorClass]),
+    Object.entries(expected).map(([id, [label, icon, colorClass]]) => [id, label, icon, colorClass]),
+  );
+  assert.equal(
+    new Set(MODEL_CAPABILITY_OPTIONS.map((option) => option.colorClass)).size,
+    MODEL_CAPABILITY_OPTIONS.length,
+  );
+  Object.entries(expected).forEach(([id, [label, icon, colorClass]]) => {
+    assert.deepEqual(modelCapabilityPresentation(id), {
+      ...MODEL_CAPABILITY_OPTIONS.find((option) => option.id === id),
+      known: true,
+    });
+    assert.equal(modelCapabilityPresentation(id).label, label);
+    assert.equal(modelCapabilityPresentation(id).icon, icon);
+    assert.equal(modelCapabilityPresentation(id).colorClass, colorClass);
+    assert.doesNotMatch(colorClass, /\bbg-/);
+  });
+});
+
+run('模型探测结果保留 Daemon 返回的目录能力元数据', () => {
+  assert.deepEqual(normalizeModelProbeResult({
+    models: ['aurora', { id: 'moonlight', context_window: 250000 }],
+    model_context_windows: { aurora: 250000 },
+    model_capabilities: {
+      aurora: ['vision', 'tool_use'],
+      moonlight: ['vision', 'tool_use'],
+    },
+  }), {
+    models: ['aurora', 'moonlight'],
+    contextWindows: { aurora: 250000, moonlight: 250000 },
+    capabilitiesByModel: {
+      aurora: ['vision', 'tool_use'],
+      moonlight: ['vision', 'tool_use'],
+    },
+  });
+});
+
+run('未知模型能力使用通用工具图标并保留原始名称', () => {
+  assert.deepEqual(modelCapabilityPresentation('future_capability'), {
+    id: 'future_capability',
+    label: 'future_capability',
+    icon: 'tool',
+    colorClass: 'border-capability-unknown text-capability-unknown',
+    aliases: [],
+    known: false,
+  });
 });
 
 run('splitModelIds 去空去重并保留顺序', () => {

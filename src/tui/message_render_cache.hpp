@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -38,6 +39,17 @@ struct CachedLinkRegion {
 // 任何缓存失效/异常都回退到全量渲染路径,缓存不承担正确性。
 class MessageRenderCache {
 public:
+    // Grow storage for appended transcript messages without invalidating
+    // already cached entries. This is intentionally distinct from resize(),
+    // whose destructive semantics are used for whole-transcript resets.
+    void ensure_size(std::size_t n) {
+        if (n <= valid_.size()) return;
+        valid_.resize(n, false);
+        keys_.resize(n);
+        elements_.resize(n);
+        links_.resize(n);
+    }
+
     void resize(std::size_t n) {
         valid_.assign(n, false);
         keys_.assign(n, MessageRenderCacheKey{});
@@ -66,7 +78,12 @@ public:
 
     void store(std::size_t i, const MessageRenderCacheKey& key,
                ftxui::Element element, std::vector<CachedLinkRegion> links) {
-        if (i >= valid_.size()) return;
+        // Do not silently discard a cacheable message when conversation
+        // growth raced or bypassed the normal ensure_size() synchronization.
+        if (i >= valid_.size()) {
+            if (i == std::numeric_limits<std::size_t>::max()) return;
+            ensure_size(i + 1);
+        }
         valid_[i] = true;
         keys_[i] = key;
         elements_[i] = std::move(element);

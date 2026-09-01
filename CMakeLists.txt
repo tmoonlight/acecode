@@ -7,7 +7,7 @@ if(CMAKE_HOST_WIN32 AND DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MA
     set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet" FORCE)
 endif()
 
-project(acecode VERSION 0.9.6 LANGUAGES C CXX)
+project(acecode VERSION 0.9.9 LANGUAGES C CXX)
 
 option(ACECODE_TUI_INPUT_TRACE "Enable verbose TUI input event trace logging." OFF)
 
@@ -175,9 +175,11 @@ list(FILTER ACECODE_TUI_SOURCES INCLUDE REGEX "/src/(tui|markdown)/")
 
 set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/config/config.cpp
+    ${CMAKE_SOURCE_DIR}/src/config/config_recovery.cpp
     ${CMAKE_SOURCE_DIR}/src/config/model_provider_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/config/request_headers.cpp
     ${CMAKE_SOURCE_DIR}/src/config/saved_models.cpp
+    ${CMAKE_SOURCE_DIR}/src/provider/builtin_model_catalog.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/platform_posix.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/platform_windows.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/runtime_files.cpp
@@ -197,6 +199,7 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/clipboard.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/cwd_hash.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/encoding.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/model_capabilities.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/paths.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/state_file.cpp
 )
@@ -267,6 +270,7 @@ set(ACECODE_TESTABLE_TUI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/tui/input_history_navigation.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/sidebar_model.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/subagent_host.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/tui_ask_channel.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/terminal_key_event.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/theme_palette.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/settings/management_center.cpp
@@ -496,5 +500,6 @@ endif()
 if(EXISTS ${CMAKE_SOURCE_DIR}/assets/seed/skills)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/seed/
         DESTINATION share/acecode/seed
+        COMPONENT default_seed_bundle
     )
 endif()

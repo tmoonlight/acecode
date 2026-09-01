@@ -1800,3 +1800,56 @@ await run('interruptTurn posts structured input to the immediate interrupt endpo
     globalThis.fetch = previousFetch;
   }
 });
+
+// 触发场景：刷新包含路径字符的会话；期望：编码路径、鉴权头和响应信封均保持完整。
+await run('reloadSessionModel posts to the encoded session route with auth and returns the envelope', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  const envelope = {
+    outcome: 'reloaded',
+    model_state: { name: 'fast', provider: 'openai', model: 'gpt-5' },
+  };
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => envelope,
+    };
+  };
+  try {
+    const result = await createApi({ origin: 'http://127.0.0.1:4567', token: 'reload-token' })
+      .reloadSessionModel('s/a');
+
+    assert.deepEqual(result, envelope);
+    assert.equal(calls[0].url, 'http://127.0.0.1:4567/api/sessions/s%2Fa/model/reload');
+    assert.equal(calls[0].opts.method, 'POST');
+    assert.equal(calls[0].opts.headers['X-ACECode-Token'], 'reload-token');
+    assert.equal(calls[0].opts.body, undefined);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+// 触发场景：刷新端点返回结构化失败；期望：调用方可区分 HTTP 状态与业务错误码。
+await run('reloadSessionModel preserves structured non-success errors', async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 500,
+    headers: { get: () => 'application/json' },
+    json: async () => ({ error: 'MODEL_RELOAD_FAILED', message: 'model profile reload failed' }),
+  });
+  try {
+    await assert.rejects(
+      createApi({ origin: 'http://127.0.0.1:4567', token: 'tok' })
+        .reloadSessionModel('session-1'),
+      (error) => error instanceof ApiError
+        && error.status === 500
+        && error.code === 'MODEL_RELOAD_FAILED',
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});

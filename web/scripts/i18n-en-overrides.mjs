@@ -725,6 +725,11 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '模型 {{p0}} 正在被会话使用，暂时不能删除':
     'Model {{p0}} is in use by a session and cannot be deleted yet',
   '模型连接': 'Model connections',
+  '模型配置刷新失败:': 'Failed to refresh model configuration:',
+  '模型配置已重新加载': 'Model configuration reloaded',
+  '当前模型配置已是最新': 'The current model configuration is already up to date',
+  '模型配置不可用，已保留当前连接': 'The model configuration is unavailable; the current connection was retained',
+  '模型配置已检查': 'Model configuration checked',
   '模型目录': 'Model catalog',
   '模型目录尚未就绪': 'The model catalog is not ready yet',
   '模型目录已更新': 'Model catalog updated',
@@ -831,6 +836,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '上下文 {{p0}}': 'Context {{p0}}',
   '最大输出 {{p0}}': 'Maximum output {{p0}}',
   '能力 {{p0}}': 'Capabilities {{p0}}',
+  '{{p0}}能力': '{{p0}} capability',
+  '能力：{{p0}}': 'Capability: {{p0}}',
   '受管 Provider 在这里完成登录，密钥和端点不会进入模型弹窗。':
     'Sign in to managed providers here. Their credentials and endpoints never enter the model dialog.',
   '复制 {{p0}} 验证码 {{p1}}': 'Copy {{p0}} verification code {{p1}}',

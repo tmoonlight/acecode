@@ -101,4 +101,14 @@ std::string normalize_model_endpoint_identity(const std::string& value);
 // current 250K). These values are fallbacks, not manual runtime overrides.
 bool is_acemodel_catalog_context_fallback(const ModelProfile& profile);
 
+// Structural equality used by the live saved-model publisher. This compares
+// every persisted/runtime field, including credentials and request headers,
+// without serializing or logging either profile.
+bool model_reasoning_options_equal(const ModelReasoningOptions& left,
+                                   const ModelReasoningOptions& right);
+bool model_profiles_equal(const ModelProfile& left,
+                          const ModelProfile& right);
+bool saved_model_lists_equal(const std::vector<ModelProfile>& left,
+                             const std::vector<ModelProfile>& right);
+
 } // namespace acecode

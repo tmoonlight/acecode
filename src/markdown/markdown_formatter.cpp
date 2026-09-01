@@ -742,87 +742,14 @@ Element format_markdown(const std::string& raw_text, const FormatOptions& opts) 
 // Streaming formatter
 // ---------------------------------------------------------------------------
 
-// Freeze-safety and code-fence detection are shared with the incremental
-// LexerState (declared in markdown_lexer.hpp), so the stable-boundary rules
-// cannot drift between the resumable lexer and the streaming formatter.
-
 Element StreamingFormatter::append_delta(const std::string& delta,
-                                         const FormatOptions& opts) {
-    // Build Elements for the stable tokens not yet in stable_elements_. After
-    // a reset()/replay this covers all stable tokens; for a normal append it
-    // covers only the newly frozen ones (new_stable_count()).
-    auto build_new_stable = [&]() {
-        const std::size_t new_count = lexer_.new_stable_count();
-        if (new_count == 0) return;
-        const auto& stable = lexer_.stable_tokens();
-        const std::size_t begin = stable.size() - new_count;
-        for (std::size_t k = begin; k < stable.size(); ++k) {
-            stable_elements_.push_back(
-                render_token_blocks({stable[k]}, opts));
-        }
-        // R14: rebuild the cached stable vbox only when stable_elements_ grew,
-        // so a per-frame append_delta does not copy the whole stable vector.
-        stable_vbox_ = vbox(stable_elements_);
-    };
-
-    // A width change invalidates the per-token Element cache. set_context owns
-    // the normal invalidation path (it is called with the same width used here
-    // before the first append); this check is a defensive fallback so a width
-    // mismatch can never mix stale and fresh wrapping. The accumulated
-    // full_content_ is replayed through the lexer, so a mid-stream width
-    // change (a resize or Ctrl+O changes streaming_render_width without
-    // calling set_context) rebuilds every previously streamed block at the
-    // new width instead of dropping it from the view.
-    if (width_ != opts.terminal_width) {
-        lexer_.reset();
-        stable_elements_.clear();
-        stable_vbox_ = ftxui::emptyElement();
-        width_ = opts.terminal_width;
-        // Replay the content accumulated before this delta so the stable
-        // region and stable_elements_ return to their pre-change state under
-        // the new width; the new delta is appended below.
-        if (!full_content_.empty()) {
-            lexer_.append(full_content_);
-            build_new_stable();
-        }
-    }
-
-    lexer_.append(delta);
+                                          const FormatOptions& opts) {
     full_content_ += delta;
-    build_new_stable();
-    auto tail = lexer_.tail_tokens();
-    Element tail_elem = tail.empty() ? emptyElement()
-                                     : render_token_blocks(tail, opts);
-    // stable_vbox_ is the cached vbox of stable_elements_, rebuilt only when
-    // new stable tokens are added (R14); using it here avoids an O(#stable)
-    // vector copy on every frame.
-    Element stable_elem = stable_vbox_;
-    last_element_ = (tail.empty())
-        ? stable_elem : vbox({stable_elem, tail_elem});
-    return last_element_;
-}
-
-const Element& StreamingFormatter::last_element() const {
-    return last_element_;
-}
-
-void StreamingFormatter::set_context(int width, std::uint32_t theme_version) {
-    if (width != width_ || theme_version != theme_) {
-        lexer_.reset();
-        stable_elements_.clear();
-        stable_vbox_ = ftxui::emptyElement();
-        last_element_ = text("");
-    }
-    width_ = width;
-    theme_ = theme_version;
+    return format_markdown(full_content_, opts);
 }
 
 void StreamingFormatter::reset() {
-    lexer_.reset();
-    stable_elements_.clear();
-    stable_vbox_ = ftxui::emptyElement();
     full_content_.clear();
-    last_element_ = text("");
 }
 
 } // namespace acecode::markdown

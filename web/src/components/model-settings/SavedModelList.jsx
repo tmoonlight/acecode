@@ -1,6 +1,7 @@
 import { clsx } from '../../lib/format.js';
 import { filterSavedModels } from '../../lib/modelManager.js';
 import { RefreshIcon, VsIcon } from '../Icon.jsx';
+import { ModelCapabilityIcons } from './ModelCapabilityIcons.jsx';
 import { ProviderIcon } from './ProviderIcon.jsx';
 
 function providerLabel(model) {
@@ -26,6 +27,7 @@ function SavedModelRow({
       <div className="min-w-[180px] flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="truncate text-[12px] font-semibold text-fg">{model.name}</span>
+          <ModelCapabilityIcons capabilities={model.capabilities} />
           {isDefault && (
             <span className="rounded border border-accent-soft bg-accent-bg px-1.5 py-0.5 text-[10px] font-medium text-accent">
               默认
@@ -43,18 +45,6 @@ function SavedModelRow({
           <span className="min-w-0 truncate" title={model.model}>{model.model}</span>
         </div>
       </div>
-      {model.capabilities?.length > 0 && (
-        <div className="hidden max-w-[220px] flex-wrap justify-end gap-1 2xl:flex">
-          {model.capabilities.slice(0, 4).map((capability) => (
-            <span
-              key={capability}
-              className="rounded border border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-fg-mute"
-            >
-              {capability}
-            </span>
-          ))}
-        </div>
-      )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {!isDefault && (
           <button

@@ -52,7 +52,7 @@ function modelRowsFromProbe(response) {
     name: id,
     context_window: normalized.contextWindows[id] || null,
     max_output_tokens: null,
-    capabilities: [],
+    capabilities: normalized.capabilitiesByModel[id] || [],
     reasoning: null,
   }));
 }

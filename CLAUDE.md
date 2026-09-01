@@ -184,6 +184,71 @@ Model resolution layers are:
 
 Context windows resolve through model profile data, bundled models.dev metadata, provider defaults, and configured fallbacks. Session-facing create/resume/switch paths use `resolve_model_context_window_nonblocking`: cached or local values are returned immediately; uncached OpenAI-compatible `/models` probes run in the background and fill a process-local cache. The detailed rules live in [docs/model-context-resolution.md](docs/model-context-resolution.md).
 
+Live saved-model edits use a process-wide monotonic revision. The revision is
+published only after a structurally changed `saved_models` list has persisted
+and the running `AppConfig` has been replaced under `app_config_mu`; no-op,
+validation, persistence, and live-apply failures do not advance it. Startup
+loading and a separate `acecode configure` process do not manufacture a
+revision: an external edit must first be loaded into the running daemon (for
+example by connector refresh). Readers copy the config and acquire the matching
+revision while holding the shared config lock so an old list cannot be labeled
+with a new revision.
+
+Every active TUI/daemon session owns a `SessionModelBinding`. It is the only
+session Provider publication seam and owns the `shared_ptr<LlmProvider>` slot,
+public `SessionModelState`, applied revision, private fingerprint, selection
+generation, and per-session install/reload serialization. `AgentLoop` captures
+a shared Provider snapshot at turn start, so replacing the binding affects only
+future turns. Ordinary `LocalSessionClient::send_input` and TUI submit perform
+the O(1) revision guard before enqueue; soft steer and interrupt intentionally
+keep targeting the Provider already captured by the active turn. Explicit
+switches and forced REST reloads use the same install/revalidation path.
+Direct factory calls that remain are deliberately outside main-session
+publication: daemon startup's compatibility fallback, hidden auto-title
+generation, and the one-shot vision subagent each construct an independent
+ephemeral Provider and never write a session binding slot.
+
+The rebuild gate is an opaque, process-salted fingerprint of the exact effective
+Provider construction plan (connection, request, output, reasoning protocol,
+and derived vision-routing inputs). It has no string/JSON/log representation
+and never retains recoverable raw credentials outside the private plan. Profile
+`name` and `context_window` are excluded because they do not construct the
+Provider; global vision availability is included because it changes attachment
+routing even for another selected profile. A deleted, renamed-away, or ad-hoc
+selection resolves as `unresolvable` and retains its current Provider/state:
+saved-model deletion is not revocation. Forced reload always checks again;
+pre-publication failure is fail-open for ordinary sends and leaves the old
+revision stale so a later send retries.
+
+### PA 内网模型服务适配([src/pa/](src/pa/README.md))
+
+一个隔离目录,专收「上游服务端行为与公开协议不一致,导致 ACECode 通用判定
+失效」的兼容代码。通用路径只留一个兜底调用点,判定逻辑全在这里,便于上游修好
+之后整块删掉。**不硬编码服务地址、模型名、业务名词,只按报文特征判定。**
+
+当前两条,都围绕同一个症状(内网模型的最大上下文声明值不准,会提前报 400):
+
+1. **上下文超限错误认不出**(`pa_quirks`)。实测报文
+   `{"object":"error","message":"请求上下文过大","type":"BadRequestError","code":400}`
+   —— 中文文案 + 非标准 type,`compact.cpp::is_context_overflow_error` 的英文
+   needle 集与 OpenAI 标准错误码两套都不命中。后果不是多报一个错,而是
+   `handle_provider_error` 里那条三级恢复链(修剪历史重试 → 精简请求档重试)
+   **整个不启动**,400 直接抛到界面。现在由 `pa::is_context_overflow()` 兜底,
+   **故意不限制状态码** —— 这套服务端的状态码本身就是不可信的那一环。
+2. **声明窗口不准导致每轮都要先撞一次墙**(`pa_context_budget`)。自动压缩阈值是
+   「声明窗口 × 90%」,声明值虚高时永远够不到。`ContextBudgetLearner` 按
+   (provider, model) 记下**观测到的最小被拒规模**,
+   把 `AgentLoop::compaction_context_window()` 收敛到那条线的 85% 以下(15% 余量覆盖
+   `ceil(bytes/4)` 估算在中文上系统性偏低约 25% 的偏差)。撞过墙才生效,进程级
+   不落盘。观测点是 `note_pa_context_rejection` / `note_pa_context_accepted`,
+   两个都收在 `handle_provider_error` 里。
+
+**改这块前必读 README 里那三条坑**:观测「要么可信要么整条丢弃」没有中间态
+(第一版拿可信下限当收敛下界用,一次 2726 token 的拒绝把 128000 的窗口砍到
+8192);身份不明(model 为空)时既不记录也不查表;观测表是进程级单例、单测之间
+共享,后两条都是从一次跨测试污染里挖出来的。总开关 `pa::enabled()` 在
+`pa_adapter.hpp`,必须同时覆盖判定与预算两半。
+
 ## Config Notes
 
 The config schema is intentionally sparse on write: defaults are omitted when possible. Notable sections are `saved_models`, `models_dev`, `skills`, `memory`, `project_instructions`, `agent_loop`, `daemon`, `web`, `network`, `web_search`, `tui`, `desktop`, and `mcp_servers`.
@@ -288,7 +353,7 @@ SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-pane
 | `tool_start` / `tool_update` / `tool_end` payload 字段扩充 | `display_override`(`ToolExecutor::build_tool_call_preview`) / `is_task_complete` / `tail_lines:[5 lines]` / `current_partial` / `total_lines` / `total_bytes` / `elapsed_seconds` / `summary{icon,verb,object,metrics}` / `success` / `output`(失败前 N 行) / `hunks[]`(file_edit/file_write 的 diff,前端走 diff2html 渲染) — 实现:`src/web/tool_event_payload.{hpp,cpp}` 把序列化收口 |
 | `message` payload(WS + REST `GET /api/sessions/:id/messages`) 扩 `id` 字段 | user 消息走持久化 UUID(`ensure_user_message_identity`);assistant/system/tool 走 lazy `sha1(role + " " + content + " " + timestamp)` 小写 hex(实现:`src/web/message_payload.{hpp,cpp}` + `src/utils/sha1.hpp`)。前端用这个 id 做 fork |
 | `POST /api/sessions/:id/fork` body `{at_message_id, title?}` → `{session_id, title, forked_from, fork_message_id}` | 把 source session 截止到 at_message_id(含此条)的前缀复制到新 session;源不动;新 session 不自动启 turn。命名 `分叉<N>:<原标题>`(N=同源 sibling+1,原标题截 50 codepoint)。继承 cwd/provider/model,**不**继承 file_checkpoints。实现:`src/web/handlers/fork_handler.{hpp,cpp}`(纯函数 compute_fork_title + find_message_index_by_id) + `SessionManager::fork_session_to_new_id` |
-| `GET /api/models` / `POST /api/sessions/:id/model` | 模型下拉:`saved_models`;每个 session 自带独立 `ProviderSlot`,切换走 `apply_model_to_session`(`src/provider/apply_model_to_session.{hpp,cpp}`)— TUI 与 daemon 共用同一份 helper |
+| `GET /api/models` / `POST /api/sessions/:id/model` / `POST /api/sessions/:id/model/reload` | 模型下拉:`saved_models`;每个 session 自带独立 `SessionModelBinding`,显式切换与按需重载共用同一 install/revalidation 路径;`apply_model_to_session`(`src/provider/apply_model_to_session.{hpp,cpp}`)仅保留为兼容适配器— TUI 与 daemon 共用同一生命周期实现 |
 | `POST` `/api/models` body `SavedModelDraft` / `PUT /api/models/<name>` / `DELETE /api/models/<name>` / `POST /api/config/default-model` body `{name}` | saved_models 增删改 + 默认设置。失败时 cfg 内存与磁盘保持原子(handler 持快照,save_config 抛异常即回滚)。响应永不携带 api_key 字段 |
 | `GET /api/history?cwd=&max=` / `POST /api/history` | per-cwd 输入历史,与 TUI 共享同一份 `<cwd_hash>/input_history.jsonl`,经 `InputHistoryStore::append` atomic rename |
 | `PUT /api/skills/:name` body `{enabled}` / `GET /api/skills/:name/body` | 启停切换 + 查看 SKILL.md;PUT 写 `cfg.skills.disabled` 数组并 `save_config` + `SkillRegistry::reload` |
@@ -523,7 +588,7 @@ The existing region detector still probes DuckDuckGo once at startup through `Pr
 
 `mcp_servers` entries without `transport` default to `stdio`. `sse` = legacy two-endpoint protocol; `http` = 2025-03-26 Streamable HTTP single-endpoint (default `/mcp`).
 
-`saved_models` is a named registry; `default_model_name` points into it. Each entry needs `name` (must NOT start with `(` — reserved for synthesized `(session:<id>)`), `provider`, `model`. OpenAI entries also need `base_url` + `api_key`. On load, array order is oldest-to-newest: for duplicate names, every occurrence except the last is atomically persisted as `<name>-<6-lowercase-hex-hash>`, while the last keeps the original name. Repair-write failures and all other invalid states (reserved prefixes, missing fields, dangling `default_model_name`, etc.) remain fatal.
+`saved_models` is a named registry; `default_model_name` points into it. Each entry needs `name` (must NOT start with `(` — reserved for synthesized `(session:<id>)`), `provider`, `model`. OpenAI entries also need `base_url` + `api_key`. On load, array order is oldest-to-newest: for duplicate names, every occurrence except the last is atomically persisted as `<name>-<6-lowercase-hex-hash>`, while the last keeps the original name. Duplicate-repair write failures remain fatal. A non-empty dangling `default_model_name` is instead replaced with the first saved-model name before validation and atomically written back; a write failure is logged but startup continues with the in-memory fallback and retries on the next load. If the main logger is not initialized yet, this repair silently opens `~/.acecode/logs/config-<date>.log`; an active logger is never redirected. This repair does not rewrite an empty default and emits no UI message. Successful full loads and saves refresh a restricted `config-backups/last-good/config.json` snapshot. Later JSON parse/type/range/semantic failures archive the exact invalid bytes under `config-backups/invalid`, atomically restore and validate that snapshot, and persist a one-time Web/Desktop warning; recovery logs contain paths and categories only. Without a valid prior snapshot, startup keeps the invalid active file and follows the existing fatal boundary.
 `acecode configure` upserts one named `saved_models` entry from the selected provider/model and sets it as `default_model_name`; normal startup no longer derives a selectable model from top-level provider fields.
 
 ### Model profile resolution
@@ -535,7 +600,7 @@ At startup and on every `--resume` / `/resume`, `src/provider/model_resolver.cpp
 
 If no saved model is configured, normal startup/session creation fails instead of synthesizing a fallback model.
 
-`LlmProvider` 由 `SessionEntry::ProviderSlot`(`shared_ptr<LlmProvider>` + `mutex`)持有。TUI 单 session 在 `main.cpp` 持一个进程级 `ProviderSlot`;daemon 每个 SessionEntry 自带独立 slot。`AgentLoop` 通过 `ProviderAccessor` lambda 在 turn 开始时拿 shared_ptr 快照,在 swap 后旧实例由快照保活到 turn 结束。切换统一走 `src/provider/apply_model_to_session.cpp`(纯逻辑,进 `acecode_testable` 单测)— 该 helper 总是 `create_provider_from_entry` 重建实例,Copilot 路径附 `try_silent_auth` 静默登录(失败仅写 `result.warning`,不抛),非致命的 meta 写盘失败同样降级为 warning。daemon 的 `SessionRegistry::switch_model` 与 TUI 的 `/model` 命令都调它。
+`LlmProvider` 由每个会话的 `SessionModelBinding` 持有;TUI 与 daemon 都从 binding 取得 `shared_ptr` 快照。`AgentLoop` 在 turn 开始时捕获快照,所以 binding 发布新 Provider 后,进行中的 turn 仍由旧实例保活到结束,后续 turn 才看到新实例。显式切换、revision 驱动的 lazy reload 与 REST forced reload 共用 binding 的 install/revalidation 路径;`src/provider/apply_model_to_session.cpp`只是薄兼容适配器。Copilot 静默登录失败和非致命 meta 写盘失败均返回固定、脱敏 warning,不会回滚已发布 Provider。
 
 ### `/model` command
 

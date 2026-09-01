@@ -4,7 +4,7 @@
 //
 // 设计参照 Claude Code 的 Task 工具语义,落在 ACECode 的多 session 基建上:
 //   - 子代理 = SessionRegistry 里的一个普通 session(独立 SessionManager /
-//     AgentLoop / PermissionManager / ProviderSlot),上下文与父会话完全隔离;
+//     AgentLoop / PermissionManager / SessionModelBinding),上下文与父会话完全隔离;
 //     它出现在侧栏里,用户可随时点进去围观或接管。
 //   - spawn_subagent(prompt, wait=true):创建子会话并注入首条消息。
 //     wait=true 阻塞至子会话本轮结束,把最终 assistant 答复带回父上下文

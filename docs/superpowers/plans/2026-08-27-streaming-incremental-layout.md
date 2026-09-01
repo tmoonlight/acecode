@@ -1,5 +1,7 @@
 # 流式输出增量排版 Implementation Plan
 
+> **2026-08-30 复核纠偏:** 本文是 PR #26 的历史实施计划,不再代表当前生产实现。复核发现按“已完成行”冻结会错误拆分段落、表格、列表和 lazy blockquote,且流式路径绕过 `strip_xml`。L1 消息缓存经扩容修复后保留;L2/L3 已从生产 TUI 回退。当前修复与重新启用门槛以 `openspec/changes/stabilize-streaming-incremental-layout/` 为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 TUI 长文档流式输出时单帧 lex+构建耗时不随内容长度线性上涨,不触发自适应背压、无卡顿;缓存为纯优化,任何失效/异常回退到现有全量 `format_markdown` 路径。

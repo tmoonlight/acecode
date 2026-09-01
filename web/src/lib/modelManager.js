@@ -6,34 +6,64 @@ export const MODEL_CAPABILITY_OPTIONS = [
   {
     id: 'vision',
     label: '视觉',
+    icon: 'eye',
+    colorClass: 'border-capability-vision text-capability-vision',
     aliases: ['vision', 'image', 'multimodal', 'mm', '看图', '图像'],
   },
   {
     id: 'web_search',
     label: '联网',
+    icon: 'globe',
+    colorClass: 'border-capability-web text-capability-web',
     aliases: ['websearch', 'web_search', 'web', 'search', '联网', '搜索'],
   },
   {
     id: 'reasoning',
     label: '推理',
+    icon: 'brain',
+    colorClass: 'border-capability-reasoning text-capability-reasoning',
     aliases: ['reasoning', 'think', 'thinking', '推理', '思考'],
   },
   {
     id: 'tool_use',
     label: '工具',
+    icon: 'tool',
+    colorClass: 'border-capability-tool text-capability-tool',
     aliases: ['tool', 'tools', 'tool_use', 'function', 'function_calling', '工具', '函数'],
   },
   {
     id: 'rerank',
     label: '重排',
+    icon: 'list',
+    colorClass: 'border-capability-rerank text-capability-rerank',
     aliases: ['rerank', 'rank', 'ranking', '重排', '排序'],
   },
   {
     id: 'embedding',
     label: '嵌入',
+    icon: 'embedding',
+    colorClass: 'border-capability-embedding text-capability-embedding',
     aliases: ['embedding', 'embed', 'vector', '向量', '嵌入'],
   },
 ];
+
+const MODEL_CAPABILITY_BY_ID = new Map(
+  MODEL_CAPABILITY_OPTIONS.map((option) => [option.id, option]),
+);
+
+export function modelCapabilityPresentation(capability) {
+  const id = typeof capability === 'string' ? capability : '';
+  const definition = MODEL_CAPABILITY_BY_ID.get(id);
+  if (definition) return { ...definition, known: true };
+  return {
+    id,
+    label: id,
+    icon: 'tool',
+    colorClass: 'border-capability-unknown text-capability-unknown',
+    aliases: [],
+    known: false,
+  };
+}
 
 export const DEFAULT_MODEL_CAPABILITIES = ['tool_use'];
 export const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -320,6 +350,7 @@ export function normalizeModelProbeResult(result) {
   const models = [];
   const seen = new Set();
   const contextWindows = {};
+  const capabilitiesByModel = {};
   const addContext = (id, tokens) => {
     const key = String(id || '').trim();
     if (!key) return;
@@ -335,6 +366,12 @@ export function normalizeModelProbeResult(result) {
     }
     addContext(key, tokens);
   };
+  const addCapabilities = (id, capabilities) => {
+    const key = String(id || '').trim();
+    if (!key) return;
+    const normalized = normalizeModelCapabilities(capabilities);
+    if (normalized.length > 0) capabilitiesByModel[key] = normalized;
+  };
 
   const rawModels = Array.isArray(result?.models) ? result.models : [];
   rawModels.forEach((item) => {
@@ -345,6 +382,7 @@ export function normalizeModelProbeResult(result) {
     if (!item || typeof item !== 'object') return;
     const id = item.id || item.model || item.name;
     addModel(id, item.context_window || item.contextWindow);
+    addCapabilities(id, item.capabilities);
   });
 
   const map = result?.model_context_windows;
@@ -352,7 +390,14 @@ export function normalizeModelProbeResult(result) {
     Object.entries(map).forEach(([id, tokens]) => addContext(id, tokens));
   }
 
-  return { models, contextWindows };
+  const capabilityMap = result?.model_capabilities;
+  if (capabilityMap && typeof capabilityMap === 'object' && !Array.isArray(capabilityMap)) {
+    Object.entries(capabilityMap).forEach(([id, capabilities]) => {
+      addCapabilities(id, capabilities);
+    });
+  }
+
+  return { models, contextWindows, capabilitiesByModel };
 }
 
 export function modelNameSlug(value, fallback = 'model') {

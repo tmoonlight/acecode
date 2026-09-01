@@ -106,6 +106,19 @@ export function resolveHomeModelName(modelOptions = [], defaultModelName = '', p
   return options[0]?.name || previous || defaultName || '';
 }
 
+export function sessionModelReloadFeedback(outcome, warning = '') {
+  const text = {
+    reloaded: '模型配置已重新加载',
+    already_current: '当前模型配置已是最新',
+    unresolvable: '模型配置不可用，已保留当前连接',
+  }[String(outcome || '')] || '模型配置已检查';
+  const sanitizedWarning = String(warning || '').trim();
+  return {
+    kind: sanitizedWarning ? 'info' : 'ok',
+    text: sanitizedWarning ? `${text}；${sanitizedWarning}` : text,
+  };
+}
+
 export function withCreateSessionModel(options = {}, modelName = '') {
   return withCreateSessionPreferences(options, { modelName });
 }

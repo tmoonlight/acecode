@@ -6,6 +6,7 @@
 #include "server_impl.hpp"
 #include "remote_control_session_event.hpp"
 #include "session_status_routing.hpp"
+#include "../config/saved_models_revision.hpp"
 #include "../prompt/context_usage_breakdown.hpp"
 #include "../session/session_user_message_search.hpp"
 #include "../utils/encoding.hpp"
@@ -1251,9 +1252,12 @@ std::optional<SessionMeta> WebServer::Impl::find_session_meta_for_workspace(
             meta.cwd = entry->cwd.empty() ? ws.cwd : entry->cwd;
             meta.created_at = now;
             meta.updated_at = now;
-            meta.provider = entry->provider;
-            meta.model = entry->model;
-            meta.model_preset = entry->model_state.name;
+            const auto model_state = entry->model_binding
+                ? entry->model_binding->state_snapshot()
+                : SessionModelState{};
+            meta.provider = model_state.provider;
+            meta.model = model_state.model;
+            meta.model_preset = model_state.name;
             meta.no_workspace = entry->no_workspace;
             meta.parent_session_id = entry->parent_session_id;
             if (entry->sm) {
@@ -1528,6 +1532,9 @@ crow::response WebServer::Impl::set_session_title_response(
                 if (global_session_search) {
                     global_session_search->invalidate_project(ws.hash);
                 }
+                const auto model_state = entry->model_binding
+                    ? entry->model_binding->state_snapshot()
+                    : SessionModelState{};
                 crow::response r(session_info_to_json(
                     SessionInfo{
                         id,
@@ -1536,11 +1543,11 @@ crow::response WebServer::Impl::set_session_title_response(
                         meta->created_at,
                         meta->updated_at,
                         meta->summary,
-                        entry->model_state.name,
-                        entry->provider,
-                        entry->model,
-                        entry->model_state.context_window,
-                        entry->model_state.deleted,
+                        model_state.name,
+                        model_state.provider,
+                        model_state.model,
+                        model_state.context_window,
+                        model_state.deleted,
                         entry->sm->current_title(),
                         entry->sm->current_title_source(),
                         meta->message_count,
@@ -2244,9 +2251,13 @@ void WebServer::Impl::refresh_saved_models_from_disk() {
     std::lock_guard<std::shared_mutex> lock(app_config_mu);
     if (!deps.app_config) return;
     try {
-        AppConfig disk = load_config();
-        deps.app_config->saved_models = std::move(disk.saved_models);
-        LOG_INFO("saved_models refreshed from disk after connector hook");
+        AppConfig disk = deps.config_path.empty()
+            ? load_config()
+            : load_config_from_path(deps.config_path, false);
+        if (publish_live_saved_models(
+                *deps.app_config, std::move(disk.saved_models))) {
+            LOG_INFO("saved_models refreshed from disk after connector hook");
+        }
     } catch (const std::exception& e) {
         LOG_WARN(std::string("saved_models refresh failed: ") + e.what());
     }

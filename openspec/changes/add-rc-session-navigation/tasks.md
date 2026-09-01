@@ -23,3 +23,10 @@
 - [x] 4.2 Add Node tests for event normalization, navigation target construction, and forced surge behavior
 - [x] 4.3 Run focused C++ tests, Web tests/build, feasible full C++ suite, OpenSpec validation, and provider-string boundary checks
 - [x] 4.4 Update durable remote-control documentation, complete checkboxes, and commit the scoped change
+
+## 5. Command Feedback Follow-up
+
+- [ ] 5.1 Assert that list/search/select commands retain the Hub's immediate `思考中...` acknowledgement before slow control work
+- [ ] 5.2 Replace duplicate numeric-switch success output with one Chinese confirmation containing title and context usage
+- [ ] 5.3 Cover known usage, missing usage, and missing context-window fallbacks with focused tests
+- [ ] 5.4 Update durable protocol documentation and rerun focused C++, OpenSpec, and provider-boundary gates

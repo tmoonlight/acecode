@@ -57,6 +57,30 @@ Numeric selection SHALL resolve against the most recently displayed result snaps
 - **THEN** the system returns a clear error
 - **AND** the current binding remains unchanged
 
+### Requirement: 命令首响与切换结果
+
+每条被当前 RC 绑定接受的会话命令 SHALL 在耗时工作开始前复用 Hub 已排队的
+`思考中...` 首响，并在命令仍属于当前绑定时返回明确的最终结果。
+
+#### Scenario: 列表或搜索需要较长时间
+
+- **WHEN** 会话目录扫描或消息索引刷新尚未完成
+- **THEN** 用户先收到 `思考中...`
+- **AND** 扫描结果随后作为同一命令的最终响应返回
+
+#### Scenario: 数字切换成功
+
+- **WHEN** 用户选择的目标会话成功恢复并完成绑定替换
+- **THEN** 用户只收到一条切换成功结果，不额外收到通用的新连接成功消息
+- **AND** 结果包含目标会话标题，标题为空时回退 session id
+- **AND** 结果按 `最近一次 prompt_tokens / 当前有效 context_window` 展示上下文
+
+#### Scenario: 上下文统计不完整
+
+- **WHEN** 目标会话没有最近一次 provider 用量
+- **THEN** 上下文行明确显示“暂无用量”，而不是伪造 0 用量
+- **AND** 当有效上下文窗口也不可用时明确显示“暂不可用”
+
 ### Requirement: Cross-workspace resume and switching
 
 Selection SHALL use persisted target metadata to resume inactive workspace and no-workspace sessions before replacing the current binding.

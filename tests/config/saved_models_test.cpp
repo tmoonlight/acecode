@@ -6,6 +6,7 @@
 
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
+#include "utils/logger.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -298,6 +299,166 @@ TEST(SavedModelsTest, LoadConfigRepairsDuplicateNamesAndPersistsIdempotently) {
     std::filesystem::remove(path, ec);
 }
 
+// 场景:默认模型已被删除时,启动选中数组第一项并只写回默认名;日志不泄露模型配置且不输出到 stderr。
+TEST(SavedModelsTest, LoadConfigRepairsMissingDefaultToFirstAndPersistsIdempotently) {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto path = std::filesystem::temp_directory_path() /
+        ("acecode-missing-default-repair-" + std::to_string(suffix) + ".json");
+    const auto log_path = std::filesystem::temp_directory_path() /
+        ("acecode-missing-default-repair-" + std::to_string(suffix) + ".log");
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(log_path, ec);
+
+    const nlohmann::json source{
+        {"default_model_name", "removed-default"},
+        {"unknown_root_field", {{"preserve", true}}},
+        {"saved_models", nlohmann::json::array({
+            {
+                {"name", "first-model"},
+                {"provider", "openai"},
+                {"base_url", "https://first-secret-endpoint.example/v1"},
+                {"api_key", "first-secret-key"},
+                {"model", "first-runtime-model"},
+                {"request_headers", {{"Authorization", "secret-header-value"}}},
+            },
+            {
+                {"name", "second-model"},
+                {"provider", "copilot"},
+                {"model", "second-runtime-model"},
+                {"context_window", 128000},
+            },
+        })},
+    };
+    {
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(output.is_open());
+        output << source.dump(2) << '\n';
+        ASSERT_TRUE(output.good());
+    }
+
+    Logger::instance().init(log_path.string());
+    Logger::instance().set_level(LogLevel::Dbg);
+#if GTEST_HAS_STREAM_REDIRECTION
+    testing::internal::CaptureStderr();
+#endif
+    const AppConfig first = load_config_from_path(path.string());
+#if GTEST_HAS_STREAM_REDIRECTION
+    const std::string stderr_output = testing::internal::GetCapturedStderr();
+    EXPECT_TRUE(stderr_output.empty()) << stderr_output;
+#endif
+
+    ASSERT_EQ(first.saved_models.size(), 2u);
+    EXPECT_EQ(first.default_model_name, "first-model");
+    EXPECT_EQ(first.saved_models[0].name, "first-model");
+    EXPECT_EQ(first.saved_models[1].name, "second-model");
+
+    std::string first_config_bytes;
+    nlohmann::json persisted;
+    {
+        std::ifstream input(path, std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        first_config_bytes = buffer.str();
+        persisted = nlohmann::json::parse(first_config_bytes);
+    }
+    nlohmann::json expected = source;
+    expected["default_model_name"] = "first-model";
+    EXPECT_EQ(persisted, expected);
+
+    std::string first_log_bytes;
+    {
+        std::ifstream input(log_path, std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        first_log_bytes = buffer.str();
+    }
+    EXPECT_NE(first_log_bytes.find("removed-default"), std::string::npos);
+    EXPECT_NE(first_log_bytes.find("first-model"), std::string::npos);
+    EXPECT_NE(first_log_bytes.find("persisted"), std::string::npos);
+    EXPECT_NE(first_log_bytes.find(nlohmann::json(path.string()).dump()),
+              std::string::npos);
+    EXPECT_EQ(first_log_bytes.find("first-secret-key"), std::string::npos);
+    EXPECT_EQ(first_log_bytes.find("first-secret-endpoint"), std::string::npos);
+    EXPECT_EQ(first_log_bytes.find("secret-header-value"), std::string::npos);
+    EXPECT_EQ(first_log_bytes.find("first-runtime-model"), std::string::npos);
+
+    const AppConfig second = load_config_from_path(path.string());
+    EXPECT_EQ(second.default_model_name, "first-model");
+    {
+        std::ifstream input(path, std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        EXPECT_EQ(buffer.str(), first_config_bytes);
+    }
+    {
+        std::ifstream input(log_path, std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        EXPECT_EQ(buffer.str(), first_log_bytes);
+    }
+
+    Logger::instance().init("");
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(log_path, ec);
+}
+
+// 场景:合法默认名和刻意留空的默认名都不是悬空引用修复对象,配置文件不得被改写。
+TEST(SavedModelsTest, LoadConfigDoesNotRewriteExistingOrEmptyDefaults) {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::vector<std::string> defaults{"second-model", ""};
+
+    for (std::size_t index = 0; index < defaults.size(); ++index) {
+        const auto path = std::filesystem::temp_directory_path() /
+            ("acecode-unchanged-default-" + std::to_string(suffix) + "-" +
+             std::to_string(index) + ".json");
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+
+        const nlohmann::json source{
+            {"default_model_name", defaults[index]},
+            {"saved_models", nlohmann::json::array({
+                {
+                    {"name", "first-model"},
+                    {"provider", "copilot"},
+                    {"model", "first-runtime-model"},
+                },
+                {
+                    {"name", "second-model"},
+                    {"provider", "copilot"},
+                    {"model", "second-runtime-model"},
+                },
+            })},
+        };
+        const std::string original_bytes = source.dump(2) + "\n";
+        {
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(output.is_open());
+            output << original_bytes;
+            ASSERT_TRUE(output.good());
+        }
+
+        const AppConfig loaded = load_config_from_path(path.string());
+        // 既有 provider 容错会在内存中把空默认切到第一条可用模型;
+        // 本项只约束新的悬空引用修复不得把空默认写回磁盘。
+        const std::string expected_runtime_default =
+            defaults[index].empty() ? "first-model" : defaults[index];
+        EXPECT_EQ(loaded.default_model_name, expected_runtime_default);
+        std::ifstream input(path, std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        EXPECT_EQ(buffer.str(), original_bytes);
+
+        input.close();
+        std::filesystem::remove(path, ec);
+    }
+}
+
 // 7.4 — name 以 `(` 开头 → 校验失败,err 含 "reserved prefix"。
 TEST(SavedModelsTest, ReservedPrefixFails) {
     std::vector<ModelProfile> entries;
@@ -462,8 +623,8 @@ TEST(SavedModelsTest, OptionalContextWindowParsesAndValidates) {
     EXPECT_TRUE(validate_saved_models(*parsed, "local-lm", err)) << err;
 }
 
-// 旧版 ACEModel catalog 自动写入的 200K 是回退值而非手动覆盖；加载时
-// 迁移到 250K。用户明确标记为 manual 的 200K 保持不变。
+// 旧版 ACEModel catalog 自动写入的 200K 是回退值且只有工具能力；加载时
+// 迁移到 250K 与当前视觉/工具默认。用户明确标记为 manual 的值保持不变。
 TEST(SavedModelsTest, LegacyAceModelCatalogContextMigratesToFallback) {
     nlohmann::json j = nlohmann::json::array({
         {
@@ -474,6 +635,7 @@ TEST(SavedModelsTest, LegacyAceModelCatalogContextMigratesToFallback) {
             {"model", "Aurora"},
             {"models_dev_provider_id", "ACEModel"},
             {"context_window", 200000},
+            {"capabilities", nlohmann::json::array({"tool_use"})},
             {"capabilities_source", "catalog"},
         },
         {
@@ -484,6 +646,7 @@ TEST(SavedModelsTest, LegacyAceModelCatalogContextMigratesToFallback) {
             {"model", "aurora"},
             {"models_dev_provider_id", "acemodel"},
             {"context_window", 200000},
+            {"capabilities", nlohmann::json::array({"tool_use"})},
             {"capabilities_source", "manual"},
         },
     });
@@ -494,9 +657,13 @@ TEST(SavedModelsTest, LegacyAceModelCatalogContextMigratesToFallback) {
     ASSERT_EQ(parsed->size(), 2u);
     ASSERT_TRUE((*parsed)[0].context_window.has_value());
     EXPECT_EQ(*(*parsed)[0].context_window, 250000);
+    EXPECT_EQ((*parsed)[0].capabilities,
+              (std::vector<std::string>{"vision", "tool_use"}));
     EXPECT_TRUE(is_acemodel_catalog_context_fallback((*parsed)[0]));
     ASSERT_TRUE((*parsed)[1].context_window.has_value());
     EXPECT_EQ(*(*parsed)[1].context_window, 200000);
+    EXPECT_EQ((*parsed)[1].capabilities,
+              (std::vector<std::string>{"tool_use"}));
     EXPECT_FALSE(is_acemodel_catalog_context_fallback((*parsed)[1]));
 }
 

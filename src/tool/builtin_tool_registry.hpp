@@ -8,6 +8,7 @@
 #include "file_write_tool.hpp"
 #include "glob_tool.hpp"
 #include "goal_tool.hpp"
+#include "image_generate/image_generate_tool.hpp"
 #include "grep_tool.hpp"
 #include "lsp_tool.hpp"
 #include "plan_mode_tool.hpp"
@@ -40,6 +41,11 @@ inline void register_session_builtin_tools(ToolExecutor& tools, const AppConfig&
     tools.register_tool(create_enter_worktree_tool(config.worktree));
     tools.register_tool(create_exit_worktree_tool());
     tools.register_tool(create_vision_analyze_tool(config));
+    // 图像生成:端点配不出来就不注册 —— 注册一个必然失败的工具
+    // 只会让模型反复调用反复失败。
+    if (auto image_tool = create_image_generate_tool(config)) {
+        tools.register_tool(*image_tool);
+    }
     if (config.web_search.enabled) {
         tools.register_tool(web_search::create_web_search_tool(
             web_search::runtime().router(), web_search::runtime().cfg()));

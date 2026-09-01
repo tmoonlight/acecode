@@ -128,6 +128,35 @@ TEST_F(LoggerRotationTest, InitWithRotationCreatesDirAndInitialFile) {
     EXPECT_EQ(matched, 1) << "应有且只有一个 daemon-{date}.log 被创建";
 }
 
+// 场景:启动早期尚无主 logger 时建立静默 config sink;若调用方已有 sink,
+// 条件初始化不得把日志重定向到另一个文件。
+TEST_F(LoggerRotationTest, ConditionalRotationInitializesOnlyWhenDisabled) {
+    auto early_logs_dir = tmp_dir_ / "early-logs";
+    acecode::Logger::instance().init("");
+    EXPECT_TRUE(acecode::Logger::instance().init_with_rotation_if_disabled(
+        early_logs_dir.string(), "config", /*mirror_stderr=*/false));
+    LOG_WARN("early-config-repair");
+
+    bool found_early_log = false;
+    for (auto& entry : fs::directory_iterator(early_logs_dir)) {
+        if (read_file(entry.path()).find("early-config-repair") != std::string::npos) {
+            found_early_log = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found_early_log);
+
+    auto active_log = tmp_dir_ / "active.log";
+    acecode::Logger::instance().init(active_log.string());
+    auto ignored_logs_dir = tmp_dir_ / "ignored-logs";
+    EXPECT_FALSE(acecode::Logger::instance().init_with_rotation_if_disabled(
+        ignored_logs_dir.string(), "config", /*mirror_stderr=*/false));
+    LOG_WARN("keep-active-sink");
+
+    EXPECT_NE(read_file(active_log).find("keep-active-sink"), std::string::npos);
+    EXPECT_FALSE(fs::exists(ignored_logs_dir));
+}
+
 // 场景: 跨日滚动 — 用 set_clock_for_test 强制把"今天"推到 2099-01-02,
 // 下一条 LOG 应该落在 daemon-2099-01-02.log,前一条仍留在原文件。
 // 这是 spec Section 12.2 的核心断言。
