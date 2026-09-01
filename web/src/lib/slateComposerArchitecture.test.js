@@ -268,7 +268,7 @@ run('rich context paste mutates Slate state while send gating reads the controll
   assert.match(composer, /INSERT_TEXT[\s\S]*applyPlainTextPaste\(detail\.text, detail\.selection\)/);
   assert.match(composer, /const applyPlainTextPaste = useCallback\([\s\S]*ensureLegalEditorDocument\(editor\)[\s\S]*Transforms\.select[\s\S]*insertPlainText\(editor, normalizedText\)/);
   assert.doesNotMatch(composer, /execCommand/);
-  assert.match(inputBar, /getInputBarActionState\(\{ value, disabled, busy, hasExtras \}\)/);
+  assert.match(inputBar, /getInputBarActionState\(\{ value, disabled, busy, hasExtras, submitting \}\)/);
   assert.match(inputBar, /<RichComposer[\s\S]*onChange=\{handleComposerChange\}/);
   assert.match(chatView, /const handleComposerChange = useCallback\(\(next\) => \{[\s\S]*setComposerValue\(next\)/);
 });

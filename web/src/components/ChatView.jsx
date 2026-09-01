@@ -1887,11 +1887,14 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       .catch(() => null);
   }, [api]);
 
-  const clearCurrentSessionDraft = useCallback(() => {
+  const clearCurrentSessionDraft = useCallback(({ expectedText = null } = {}) => {
     const targetSid = sid;
     const targetWorkspaceHash = draftWorkspaceHash;
     const targetKey = draftSessionKey;
     if (!targetSid || !targetKey) return;
+    // 提交期间编辑区不再只读,所以一次发送的回执可能晚于用户写下的下一条。
+    // expectedText 对不上就整条放弃清理,让草稿保存 effect 接着管新内容。
+    if (expectedText !== null && composerValueRef.current !== expectedText) return;
     if (draftSessionKeyRef.current === targetKey) {
       draftEditVersionRef.current += 1;
       setComposerValue('');
@@ -2952,6 +2955,9 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
       composerContexts,
       composerSwarmMode,
     );
+    // 提交那一刻输入框里的原文。发送回执回来时拿它比对,用户在等待窗口里
+    // 写下的下一条就不会被这次发送的清理吞掉。
+    const submittedComposerText = composerValueRef.current;
     const hasExtras = payloadHasExtras(payload) || hasPendingAttachments;
     const hasSwarmMode = payload.swarm_mode === true;
     if (!payload.text.trim() && !hasExtras) return;
@@ -3217,7 +3223,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         }
         if (payload.text.trim()) recordInputHistory(payload.text);
         if (!ref?.title) setTranscriptTitle(payload.text || composerAttachments[0]?.name || '附件消息');
-        clearCurrentSessionDraft();
+        clearCurrentSessionDraft({ expectedText: submittedComposerText });
         clearComposerExtras();
       })
       .catch((e) => {
@@ -4954,7 +4960,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
                 value={composerValue}
                 onChange={handleComposerChange}
                 onSubmit={submit}
-                disabled={!!questionForView || homeSubmitting}
+                disabled={!!questionForView}
+                submitting={homeSubmitting}
                 placeholder="向 ACECode 描述任务，或输入 / 命令..."
                 {...composerInputProps}
                 fileDropManagedExternally
@@ -5806,7 +5813,8 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             {...composerInputProps}
             fileDropManagedExternally
             onFileDragActiveChange={setChatFileDropActive}
-            disabled={!!questionForView || composerSubmitting}
+            disabled={!!questionForView}
+            submitting={composerSubmitting}
             placeholder={questionForView ? '请先回答上方问题…' : undefined}
             sessionControls={{
               model: currentModelLabel,
