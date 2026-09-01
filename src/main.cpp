@@ -4301,6 +4301,12 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         const int total = static_cast<int>(layout.rows.size());
         const int visible = total > 0 ? std::min(total, max_visible_rows) : 0;
 
+        // reflect(Box&) stores a reference to the supplied Box until the DOM
+        // tree is rendered. Allocate every visible-row Box before attaching
+        // decorators so vector growth cannot invalidate references captured by
+        // earlier rows in this same frame.
+        ask_row_boxes.assign(static_cast<std::size_t>(visible), Box{});
+
         if (state.ask_scroll_to_focus_requested &&
             layout.focused_row_begin >= 0) {
             state.ask_scroll_offset = acecode::tui::ensure_row_range_visible(
@@ -4358,8 +4364,8 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             }
             // 鼠标点击选项行支持:逐行 reflect,事件线程用这些 box 把
             // 点击坐标映射回选项(只覆盖可见文本范围,拖拽选词不受影响)。
-            ask_row_boxes.push_back(Box{});
-            el = el | reflect(ask_row_boxes.back());
+            const std::size_t visible_row = static_cast<std::size_t>(i - begin);
+            el = el | reflect(ask_row_boxes[visible_row]);
             rows.push_back(el);
         }
 
