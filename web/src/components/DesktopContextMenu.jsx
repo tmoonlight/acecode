@@ -29,16 +29,16 @@ const MENU_ROW_HEIGHT = 30;
 const MENU_PADDING = 8;
 
 const ACTION_LABELS = {
-  [DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER]: '在资源管理器中打开',
+  [DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER]: '打开文件夹',
   [DESKTOP_CONTEXT_ACTIONS.LOCATE_FILE]: '在资源管理器中显示',
   [DESKTOP_CONTEXT_ACTIONS.PIN_SESSION]: '置顶',
   [DESKTOP_CONTEXT_ACTIONS.UNPIN_SESSION]: '取消置顶',
   [DESKTOP_CONTEXT_ACTIONS.OPEN_SESSION]: '打开会话',
-  [DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION]: '重命名会话',
-  [DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE]: '复制会话标题',
-  [DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID]: '复制会话 ID',
-  [DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION]: '导出会话',
-  [DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION]: '归档会话',
+  [DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION]: '重命名',
+  [DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE]: '复制标题',
+  [DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID]: '复制ID',
+  [DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION]: '导出',
+  [DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION]: '归档',
   [DESKTOP_CONTEXT_ACTIONS.ACTIVATE_WORKSPACE]: '切换到项目',
   [DESKTOP_CONTEXT_ACTIONS.EXPAND_WORKSPACE]: '展开项目',
   [DESKTOP_CONTEXT_ACTIONS.COLLAPSE_WORKSPACE]: '折叠项目',
@@ -226,7 +226,7 @@ async function openTargetInExplorer(openTarget) {
       toast({ kind: 'err', text: '打开失败:' + (result?.error || '') });
       return;
     }
-    toast({ kind: 'ok', text: '已在资源管理器中打开' });
+    toast({ kind: 'ok', text: '已打开文件夹' });
   } catch (e) {
     const detail = e?.body?.error || e?.message || '';
     toast({ kind: 'err', text: '打开失败:' + detail });

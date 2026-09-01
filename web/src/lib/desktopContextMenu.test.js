@@ -213,15 +213,13 @@ test('未置顶会话目标显示会话动作', () => {
     },
   });
   assert.deepEqual(ids(items), [
-    DESKTOP_CONTEXT_ACTIONS.OPEN_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.PIN_SESSION,
     DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION,
     DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE,
     DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID,
     DESKTOP_CONTEXT_ACTIONS.EXPORT_SESSION,
     DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
-    DESKTOP_CONTEXT_ACTIONS.PIN_SESSION,
     DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.deepEqual(
     items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER).target,
@@ -273,7 +271,6 @@ test('descriptor metadata includes label keys, disabled states, and scoped confi
 test('已置顶会话目标显示取消置顶菜单项', () => {
   assert.deepEqual(ids(buildDesktopContextMenuItems({ sessionPinTarget: { pinned: true } })), [
     DESKTOP_CONTEXT_ACTIONS.UNPIN_SESSION,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
 });
 
@@ -635,12 +632,10 @@ test('普通 Web 会话菜单过滤原生目录选择导出并保留 Web 会话�
       pinned: false,
     },
   })), [
-    DESKTOP_CONTEXT_ACTIONS.OPEN_SESSION,
+    DESKTOP_CONTEXT_ACTIONS.PIN_SESSION,
     DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION,
     DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE,
     DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID,
-    DESKTOP_CONTEXT_ACTIONS.PIN_SESSION,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
 });
 

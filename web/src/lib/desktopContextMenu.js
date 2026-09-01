@@ -262,7 +262,7 @@ export function buildDesktopContextMenuItems({
 
   if (!editable) {
     if (sessionTarget) {
-      addAction(items, DESKTOP_CONTEXT_ACTIONS.OPEN_SESSION, sessionTarget);
+      addAction(items, sessionTarget.pinned ? DESKTOP_CONTEXT_ACTIONS.UNPIN_SESSION : DESKTOP_CONTEXT_ACTIONS.PIN_SESSION, sessionTarget);
       addAction(items, DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION, sessionTarget);
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_TITLE, sessionTarget, { enabled: !!sessionTarget.title });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_SESSION_ID, sessionTarget);
@@ -273,7 +273,6 @@ export function buildDesktopContextMenuItems({
         { path: sessionTarget.sessionPath, kind: 'file' },
         { enabled: !!sessionTarget.sessionPath },
       );
-      addAction(items, sessionTarget.pinned ? DESKTOP_CONTEXT_ACTIONS.UNPIN_SESSION : DESKTOP_CONTEXT_ACTIONS.PIN_SESSION, sessionTarget);
       if (sessionTarget.canArchive) {
         addAction(items, DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION, sessionTarget, {
           group: GROUPS.DANGER,
@@ -429,7 +428,9 @@ export function buildDesktopContextMenuItems({
     }
   }
 
-  addAction(items, DESKTOP_CONTEXT_ACTIONS.SELECT_ALL, null, { group: GROUPS.GENERIC });
+  if (!sessionTarget && !sessionPinTarget) {
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.SELECT_ALL, null, { group: GROUPS.GENERIC });
+  }
   if (hasSelection) addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY, null, { group: GROUPS.GENERIC });
   if (editable) {
     addAction(items, DESKTOP_CONTEXT_ACTIONS.PASTE, null, { group: GROUPS.GENERIC });
