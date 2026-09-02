@@ -197,8 +197,11 @@ EOF
     chmod +x "$fixture/build/ACECode.app/Contents/MacOS/acecode-daemon"
     cp "$fixture/assets/models_dev/"* \
         "$fixture/build/ACECode.app/Contents/Resources/share/acecode/models_dev/"
-    cp -R "$fixture/assets/seed" \
-        "$fixture/build/ACECode.app/Contents/Resources/share/acecode/seed"
+    # The destination already exists (created by mkdir -p above), so plain
+    # `cp -R src dst` nests the tree as dst/seed instead of filling dst, which
+    # makes the packaged seed layout mismatch assets/seed. Copy the contents.
+    cp -R "$fixture/assets/seed/." \
+        "$fixture/build/ACECode.app/Contents/Resources/share/acecode/seed/"
     expect_status 0 "darwin bundle flow" "$python_bin" "$verify_script" \
         --skip-build --platform darwin --target desktop \
         --repo "$fixture" --build-dir "$fixture/build" \
