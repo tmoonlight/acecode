@@ -179,8 +179,8 @@ export function SettingsPage({
     <div
       data-ace-native-overlay="blocking"
       className={clsx(
-        'fixed inset-0 z-[300] bg-bg flex flex-col transition-all duration-250',
-        show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
+        'fixed inset-0 z-[300] bg-bg flex flex-col transition-opacity duration-250',
+        show ? 'opacity-100' : 'opacity-0',
       )}
     >
       <div
