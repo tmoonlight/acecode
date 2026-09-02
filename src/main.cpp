@@ -136,6 +136,7 @@
 #include "tui/picker_scroll.hpp"
 #include "tui/render_mode_factory.hpp"
 #include "utils/terminal_capability.hpp"
+#include "utils/open_url.hpp"
 #include "utils/state_file.hpp"
 #include "tui/slash_dropdown.hpp"
 #include "tui/path_reference_dropdown.hpp"
@@ -3222,10 +3223,62 @@ struct TuiRendererContext {
     PermissionManager& permissions;
     bool dangerous_mode = false;
     bool conhost_compat_layout = false;
+    // link-hover-tooltip (add-tui-hyperlinks 5.3): 悬停移动能力探测结果。
+    // false(conhost 家族/Apple Terminal.app 等)时恒不渲染气泡。
+    bool hover_supported = false;
     std::function<void()> clamp_chat_focus;
     std::function<int()> chat_viewport_rows;
     std::function<void()> sync_chat_line_counts_from_layout;
 };
+
+// link-hover-tooltip (add-tui-hyperlinks 5.3): 构造悬停气泡 Element。
+// 布局技巧:dbox 的每个子元素共享同一区域,气泡元素内部用 size(EQUAL)
+// 占位 + filler() 把浮层推到指针附近 —— 不参与 flex 挤压主布局,也不
+// 捕获输入(DOM 元素而非组件,事件仍由底层组件树处理)。指针右上方优先;
+// 右/下空间不足时翻到指针左/下方;所有坐标 clamp 到终端范围内,保证
+// 气泡需求尺寸恒不撑大 dbox 需求,布局与无气泡时完全一致。
+// 调用方须持有 state.mu(render_tui_frame 入口已持锁)。
+static Element render_link_hover_tooltip(const TuiState& state) {
+    const auto term = Terminal::Size();
+    // 显示真实 URL(href 原文,防骗 —— 显示文本可能被 Markdown 伪装)。
+    // 超长截断加省略号;宽/高预算含 2 格 border 边框,确保
+    // x + bubble_w <= dimx 恒成立,不会撑大 dbox 需求。
+    std::string url = state.hover_link_href;
+    const int max_url_w = std::max(20, term.dimx - 4);
+    if (static_cast<int>(url.size()) > max_url_w) {
+        url = url.substr(0, static_cast<size_t>(max_url_w) - 3) + "...";
+    }
+    const int bubble_w = static_cast<int>(url.size()) + 2;
+    const int bubble_h = 3;  // border top + text row + border bottom
+
+    const int px = state.hover_link_x;
+    const int py = state.hover_link_y;
+    int x = px + 2;  // 指针右上方
+    if (x + bubble_w > term.dimx) {
+        x = std::max(0, px - bubble_w - 2);  // 右侧不够 → 指针左侧
+    }
+    int y = py - bubble_h - 1;  // 指针上方
+    if (y < 0) {
+        y = py + 1;  // 上方不够 → 指针下方
+    }
+    y = std::min(y, std::max(0, term.dimy - bubble_h));
+
+    const bool is_light = acecode::tui::theme().name == "light";
+    const Color bubble_bg =
+        is_light ? Color::RGB(235, 238, 244) : Color::RGB(42, 46, 54);
+    auto bubble =
+        text(url) | color(acecode::tui::theme().ui.text_primary) |
+        bgcolor(bubble_bg) |
+        borderRounded | color(acecode::tui::theme().ui.border);
+    return vbox({
+        emptyElement() | size(HEIGHT, EQUAL, y),
+        hbox({
+            emptyElement() | size(WIDTH, EQUAL, x),
+            bubble,
+        }),
+        filler(),
+    });
+}
 
 // 渲染整屏 TUI；只做画面组装，不处理输入事件。
 static Element render_tui_frame(TuiRendererContext& ctx) {
@@ -3257,6 +3310,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& permissions = ctx.permissions;
     const bool dangerous_mode = ctx.dangerous_mode;
     const bool conhost_compat_layout = ctx.conhost_compat_layout;
+    const bool hover_supported = ctx.hover_supported;
     auto& clamp_chat_focus = ctx.clamp_chat_focus;
     auto& chat_viewport_rows = ctx.chat_viewport_rows;
     auto& sync_chat_line_counts_from_layout = ctx.sync_chat_line_counts_from_layout;
@@ -3455,6 +3509,12 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             md_opts.terminal_width = markdown_render_width;
             md_opts.syntax_highlight = true;
             md_opts.hyperlinks = true;
+            // OSC 8 原生超链接(add-tui-hyperlinks 5.2):按终端探测结果开启。
+            // static 缓存避免 Windows 上每帧重复跑 console probe;TUI 渲染
+            // 单线程,magic static 初始化安全。
+            static const bool osc8_supported =
+                acecode::detect_osc8_support();
+            md_opts.osc8_hyperlinks = osc8_supported;
             md_opts.strip_xml = true;
             md_opts.link_regions = &chat_link_regions;
             return acecode::markdown::format_markdown(content, md_opts);
@@ -4673,15 +4733,14 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         bottom_bar,
     });
 
+    Element root;
     if (conhost_compat_layout) {
-        return vbox({
+        root = vbox({
             compat_horizontal_line() | color(outer_border_color),
             main_root | flex,
             compat_horizontal_line() | color(outer_border_color),
         }) | flex;
-    }
-
-    if (show_regular_sidebar) {
+    } else if (show_regular_sidebar) {
         Element sidebar = acecode::tui::render_regular_sidebar(
             state,
             version_str,
@@ -4691,14 +4750,28 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             sidebar_content_box,
             sidebar_viewport_box,
             sidebar_scrollbar_box);
-        return hbox({
+        root = hbox({
             main_root | flex,
             separator() | color(outer_border_color),
             sidebar,
         }) | borderRounded | color(outer_border_color) | flex;
+    } else {
+        root = main_root | borderRounded | color(outer_border_color) | flex;
     }
 
-    return main_root | borderRounded | color(outer_border_color) | flex;
+    // link-hover-tooltip (add-tui-hyperlinks 5.3): 气泡作为浮层叠加在整屏
+    // 之上 —— dbox 共享区域,不参与布局(不挤压任何元素)、不捕获输入。
+    // 仅当终端能力探测通过(会收到无按键 Mouse::Moved 事件)且气泡已显示
+    // 时注入;conhost 家族/Apple Terminal.app 等恒不渲染。state.mu 由本
+    // 函数入口持有,读 hover_link_* 安全。
+    if (hover_supported && state.hover_link_visible &&
+        !state.hover_link_href.empty()) {
+        root = dbox({
+            std::move(root),
+            render_link_hover_tooltip(state),
+        });
+    }
+    return root;
 }
 
 int main(int argc, char* argv[]) {
@@ -4848,6 +4921,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     auto screen = acecode::tui::make_screen_interactive(render_mode);
     screen.EnableKittyKeyboard();
+    // hover-motion(add-tui-hyperlinks 5.2):悬停气泡依赖无按键 Mouse::Moved
+    // 上报(?1003 any-event),仅现代终端开启——conhost 家族强制关闭(重绘抖动,
+    // 见 detect_hover_motion_support),Apple Terminal.app 同样不支持。
+    // 探测结果缓存一次,既给 FTXUI 开 ?1003,也传给渲染层 gate 气泡。
+    const bool hover_supported = acecode::detect_hover_motion_support();
+    screen.EnableMouseHoverMotion(hover_supported);
     // synchronized-output: 按终端能力探测 + tui.sync_output_mode 决定是否把
     // 每帧包进 CSI ?2026h/?2026l(整帧原子呈现,消除半帧闪烁)。必须在
     // Loop() 之前调用;老 conhost / ConEmu / 未知终端默认关闭(输出与未启用
@@ -6133,6 +6212,21 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 if (acecode::tui::expire_ctrl_c_exit_state(
                         state.ctrl_c_armed, state.last_ctrl_c_time, now)) {
                     requires_immediate_post = true;
+                }
+                // link-hover-tooltip (add-tui-hyperlinks 5.3): 指针在链接上
+                // 无按键停留 >= 300ms 后显示气泡。悬停状态由事件线程在
+                // Mouse::Moved 时更新,这里只做时间门 —— 到期置位并强制
+                // 下一帧渲染,气泡出现不依赖任何后续输入事件。
+                if (!state.hover_link_href.empty() &&
+                    !state.hover_link_visible) {
+                    const auto hover_elapsed_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            now - state.hover_link_since).count();
+                    if (hover_elapsed_ms >=
+                        acecode::tui::kLinkHoverTooltipDelayMs) {
+                        state.hover_link_visible = true;
+                        requires_immediate_post = true;
+                    }
                 }
                 background_animation_visible = mcp_sidebar_has_loading(state);
 
@@ -7832,6 +7926,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
         if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
             std::lock_guard<std::mutex> lk(state.mu);
+            // link-hover-tooltip (add-tui-hyperlinks 5.3): Esc 隐藏悬停气泡,
+            // 与 "移开指针隐藏" 语义一致。
+            if (!state.hover_link_href.empty() || state.hover_link_visible) {
+                state.hover_link_href.clear();
+                state.hover_link_visible = false;
+                screen.PostEvent(Event::Custom);
+            }
             // drag-autoscroll: Esc 中止任何进行中的拖动自动滚动. 选区本身由
             // 下游 FTXUI 通过 `handled=true` 情况下的 HandleSelection 清空
             // (如果之前有选择). 我们只负责把自己的状态机拉回 Idle.
@@ -7941,6 +8042,18 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (event.is_mouse()) {
             auto& mouse = event.mouse();
 
+            // link-hover-tooltip (add-tui-hyperlinks 5.3): 任何按键按下
+            // (点击/中键/滚轮)立即隐藏气泡 —— 点击即离开,气泡不再有意义。
+            // 不 return,让正常点击流程继续。仅无按键 Moved 才更新悬停状态。
+            if (mouse.motion == Mouse::Pressed) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                if (!state.hover_link_href.empty() ||
+                    state.hover_link_visible) {
+                    state.hover_link_href.clear();
+                    state.hover_link_visible = false;
+                }
+            }
+
             // mouse-selection-copy / clipboard-paste: right-click copies the
             // current FTXUI selection to the system clipboard. With no
             // selection, terminal mouse tracking prevents the host context menu
@@ -7985,16 +8098,34 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 mouse.motion == Mouse::Pressed) {
                 if (const auto href =
                         chat_link_regions.href_at(mouse.x, mouse.y)) {
-                    const auto opened = acecode::tui::open_tui_chat_file_link(
-                        *href,
-                        agent_loop.cwd());
+                    // add-tui-hyperlinks 5.1: 网页链接(http/https)在浏览器打开,
+                    // 本地文件链接才走 open_tui_chat_file_link(系统文件管理器)。
+                    // 两者语义不同:前者是远程 URL,后者是本地路径,不能混用。
+                    acecode::tui::TuiChatFileLinkResult opened{};
+                    const bool is_http_link =
+                        acecode::is_openable_http_url(*href);
+                    if (is_http_link) {
+                        const auto browser =
+                            acecode::open_url_in_browser(*href);
+                        opened.handled = true;
+                        opened.ok = browser.ok;
+                        opened.error = browser.error;
+                    } else {
+                        opened = acecode::tui::open_tui_chat_file_link(
+                            *href,
+                            agent_loop.cwd());
+                    }
                     if (opened.handled) {
-                        const std::string status_msg = opened.ok
-                            ? "Opened file location in system file manager"
-                            : "Unable to open file location: " +
-                                  (opened.error.empty()
-                                       ? std::string("unknown error")
-                                       : opened.error);
+                        const std::string status_msg =
+                            opened.ok
+                                ? (is_http_link
+                                       ? "Opened link in browser"
+                                       : "Opened file location in system file manager")
+                                : (is_http_link ? "Unable to open link: "
+                                                : "Unable to open file location: ") +
+                                      (opened.error.empty()
+                                           ? std::string("unknown error")
+                                           : opened.error);
                         {
                             std::lock_guard<std::mutex> lk(state.mu);
                             set_transient_status_line_locked(
@@ -8330,6 +8461,38 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         (new_phase == drag_scroll::Phase::ScrollingUp ||
                          new_phase == drag_scroll::Phase::ScrollingDown)) {
                         screen.PostEvent(Event::Custom);
+                    }
+                }
+                // link-hover-tooltip (add-tui-hyperlinks 5.3): 无按键 Moved
+                // 做链接命中检测。拖动中(选区拖拽/滚动条拖拽)不显示气泡,
+                // 直接清除。命中同一 href 只刷新指针坐标、不重置计时,避免
+                // 指针在链接内微移导致 300ms 永远到不了;命中不同 href 或
+                // 移出链接区域则重置/清除。state.mu 由本 Moved 分支入口持有。
+                if (state.drag_left_pressed ||
+                    state.drag_scrollbar_phase ==
+                        TuiState::DragScrollbarPhase::Dragging ||
+                    state.sidebar_scrollbar_dragging) {
+                    if (!state.hover_link_href.empty() ||
+                        state.hover_link_visible) {
+                        state.hover_link_href.clear();
+                        state.hover_link_visible = false;
+                    }
+                } else {
+                    const auto hit = chat_link_regions.href_at(
+                        mouse.x, mouse.y);
+                    if (hit) {
+                        if (state.hover_link_href != *hit) {
+                            state.hover_link_href = *hit;
+                            state.hover_link_since =
+                                std::chrono::steady_clock::now();
+                            state.hover_link_visible = false;
+                        }
+                        state.hover_link_x = mouse.x;
+                        state.hover_link_y = mouse.y;
+                    } else if (!state.hover_link_href.empty() ||
+                               state.hover_link_visible) {
+                        state.hover_link_href.clear();
+                        state.hover_link_visible = false;
                     }
                 }
             }
@@ -8907,6 +9070,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         permissions,
         dangerous_mode,
         conhost_compat_layout,
+        hover_supported,
         clamp_chat_focus,
         chat_viewport_rows,
         sync_chat_line_counts_from_layout,

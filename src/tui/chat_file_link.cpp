@@ -1,5 +1,6 @@
 #include "chat_file_link.hpp"
 
+#include "utils/open_url.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>
@@ -185,6 +186,11 @@ TuiChatFileLinkResult open_tui_chat_file_link(
     const std::string& href,
     const std::string& cwd_utf8,
     acecode::desktop::OpenInExplorerLauncher launcher) {
+    // 注意: http/https 网页链接不在此函数处理。本函数的契约是"只解析本地
+    // 文件链接"(见测试 ExternalLinkDoesNotCallLocalLauncher:外部链接必须
+    // handled=false 且不触发本地 launcher)。网页链接的浏览器打开由调用方
+    // (点击 handler)在调用本函数之前判定并走 open_url_in_browser 通道
+    // (add-tui-hyperlinks 5.1)。
     auto resolved = resolve_tui_chat_file_link(href, cwd_utf8);
     if (!resolved.handled || !resolved.ok) return resolved;
 

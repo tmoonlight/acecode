@@ -230,4 +230,90 @@ bool detect_synchronized_output_support() {
                                                    default_env_lookup);
 }
 
+bool detect_osc8_support_with(
+    const TerminalCapabilities& caps,
+    const std::function<std::optional<std::string>(const char* name)>& env_lookup) {
+    // 黑名单优先:任何一条命中都关闭。
+    auto conemu = env_lookup("ConEmuPID");
+    if (conemu.has_value() && !conemu->empty()) {
+        return false;
+    }
+    if (caps.is_legacy_conhost || caps.is_classic_conhost) {
+        return false;
+    }
+    auto term = env_lookup("TERM");
+    if (term.has_value() && term_blacklisted(*term)) {
+        return false;
+    }
+
+    // 白名单:命中任意一条即开启。
+    auto wt_session = env_lookup("WT_SESSION");
+    if (wt_session.has_value() && !wt_session->empty()) {
+        return true;  // Windows Terminal
+    }
+    auto kitty_window_id = env_lookup("KITTY_WINDOW_ID");
+    if (kitty_window_id.has_value() && !kitty_window_id->empty()) {
+        return true;  // kitty
+    }
+    auto term_program = env_lookup("TERM_PROGRAM");
+    if (term_program.has_value() && term_program_whitelisted(*term_program)) {
+        return true;
+    }
+    if (term.has_value() && term_whitelisted(*term)) {
+        return true;
+    }
+
+    // 未知终端:默认关闭(保守)。Apple Terminal.app 无 OSC 8,不在白名单。
+    return false;
+}
+
+bool detect_osc8_support() {
+    return detect_osc8_support_with(detect_terminal_capabilities(),
+                                    default_env_lookup);
+}
+
+bool detect_hover_motion_support_with(
+    const TerminalCapabilities& caps,
+    const std::function<std::optional<std::string>(const char* name)>& env_lookup) {
+    // 黑名单优先:任何一条命中都关闭。conhost 家族(legacy/classic)必须关:
+    // ?1003 any-event 上报会引发悬停移动时的重绘抖动,这正是 idle-mouse-redraw
+    // 补丁当初把上报降为 ?1002 button-event 的原因。
+    auto conemu = env_lookup("ConEmuPID");
+    if (conemu.has_value() && !conemu->empty()) {
+        return false;
+    }
+    if (caps.is_legacy_conhost || caps.is_classic_conhost) {
+        return false;
+    }
+    auto term = env_lookup("TERM");
+    if (term.has_value() && term_blacklisted(*term)) {
+        return false;
+    }
+
+    // 白名单:与 OSC 8 名单一致 —— 这些终端对 any-event 上报支持良好。
+    auto wt_session = env_lookup("WT_SESSION");
+    if (wt_session.has_value() && !wt_session->empty()) {
+        return true;  // Windows Terminal
+    }
+    auto kitty_window_id = env_lookup("KITTY_WINDOW_ID");
+    if (kitty_window_id.has_value() && !kitty_window_id->empty()) {
+        return true;  // kitty
+    }
+    auto term_program = env_lookup("TERM_PROGRAM");
+    if (term_program.has_value() && term_program_whitelisted(*term_program)) {
+        return true;
+    }
+    if (term.has_value() && term_whitelisted(*term)) {
+        return true;
+    }
+
+    // 未知终端:默认关闭(保守)。Apple Terminal.app 同样不支持 any-event。
+    return false;
+}
+
+bool detect_hover_motion_support() {
+    return detect_hover_motion_support_with(detect_terminal_capabilities(),
+                                            default_env_lookup);
+}
+
 } // namespace acecode
