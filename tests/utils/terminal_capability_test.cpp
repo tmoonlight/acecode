@@ -345,3 +345,217 @@ TEST(SynchronizedOutputSupport, UnknownOff) {
                                    std::nullopt,
                                    std::string("xterm-256color"))));
 }
+
+// ---------- detect_osc8_support_with ----------
+// OSC 8 超链接探测:决策表与同步刷新一致(blacklist > whitelist > unknown-off),
+// 吸收自 markdown 渲染器的 terminal_supports_hyperlinks() 死代码。
+
+// 场景:Windows Terminal(WT_SESSION 命中)→ 开启
+TEST(Osc8Support, WindowsTerminalOn) {
+    TerminalCapabilities caps;
+    EXPECT_TRUE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::string("guid"),
+                                   std::nullopt, std::nullopt, std::nullopt)));
+}
+
+// 场景:kitty(KITTY_WINDOW_ID 命中)→ 开启
+TEST(Osc8Support, KittyWindowIdOn) {
+    TerminalCapabilities caps;
+    EXPECT_TRUE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt,
+                                   std::string("1"), std::nullopt, std::nullopt)));
+}
+
+// 场景:kitty(TERM=xterm-kitty)→ 开启
+TEST(Osc8Support, KittyTermOn) {
+    TerminalCapabilities caps;
+    EXPECT_TRUE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt, std::string("xterm-kitty"))));
+}
+
+// 场景:TERM_PROGRAM 白名单(iTerm.app / WezTerm / ghostty / vscode /
+// WarpTerminal / contour / mintty)→ 开启
+TEST(Osc8Support, TermProgramWhitelistOn) {
+    for (const char* name : {"iTerm.app", "WezTerm", "ghostty", "vscode",
+                             "WarpTerminal", "contour",
+                             "mintty"}) {
+        TerminalCapabilities caps;
+        EXPECT_TRUE(detect_osc8_support_with(
+            caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                       std::string(name), std::nullopt)))
+            << "TERM_PROGRAM=" << name;
+    }
+}
+
+// 场景:Apple Terminal.app 无 OSC 8,不进白名单(auto 默认关闭;
+// 即使误发 OSC 8 序列也无害,优雅降级为下划线纯文本)
+TEST(Osc8Support, AppleTerminalOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("Apple_Terminal"), std::nullopt)))
+        << "Apple_Terminal must NOT be whitelisted for OSC 8";
+}
+
+// 场景:TERM 前缀白名单(foot / ghostty)→ 开启
+TEST(Osc8Support, TermPrefixWhitelistOn) {
+    for (const char* term : {"foot", "foot-256color", "ghostty",
+                             "xterm-ghostty"}) {
+        TerminalCapabilities caps;
+        EXPECT_TRUE(detect_osc8_support_with(
+            caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                       std::nullopt, std::string(term))))
+            << "TERM=" << term;
+    }
+}
+
+// 场景:裸 xterm-256color → 关闭。死代码 terminal_supports_hyperlinks()
+// 曾用 TERM 含 "xterm" 子串放行,这里收紧:大量不支持的终端伪装成
+// xterm-256color,unknown-off 保守原则优先。
+TEST(Osc8Support, BareXtermOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt,
+                                   std::string("xterm-256color"))));
+}
+
+// 场景:ConEmu/Cmder → 关闭(即使 WT_SESSION 也命中,黑名单优先)
+TEST(Osc8Support, ConEmuOffEvenWithWt) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::string("12345"),
+                                   std::string("guid"), std::nullopt,
+                                   std::nullopt, std::nullopt)));
+}
+
+// 场景:legacy conhost → 关闭(即使 TERM_PROGRAM 白名单命中)
+TEST(Osc8Support, LegacyConhostOff) {
+    TerminalCapabilities caps;
+    caps.is_legacy_conhost = true;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("iTerm.app"), std::nullopt)));
+}
+
+// 场景:classic conhost → 关闭
+TEST(Osc8Support, ClassicConhostOff) {
+    TerminalCapabilities caps;
+    caps.is_classic_conhost = true;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt, std::nullopt)));
+}
+
+// 场景:复用器 tmux / screen → 关闭(即使 TERM_PROGRAM 白名单命中)
+TEST(Osc8Support, TmuxOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("iTerm.app"),
+                                   std::string("tmux-256color"))));
+}
+
+TEST(Osc8Support, ScreenOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt,
+                                   std::string("screen.xterm-256color"))));
+}
+
+// 场景:全空 / 未知终端 → 默认关闭
+TEST(Osc8Support, UnknownOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_osc8_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt, std::nullopt)));
+}
+
+// ---------- detect_hover_motion_support_with ----------
+// 悬停移动(?1003 any-event)安全探测:门控 EnableMouseHoverMotion。
+// 白名单与 OSC 8 一致;老式/经典 conhost 强制关(重绘抖动,见
+// idle-mouse-redraw 补丁动机)。
+
+// 场景:现代终端(WT_SESSION / kitty / TERM_PROGRAM 白名单 / TERM 白名单)→ 开启
+TEST(HoverMotionSupport, ModernTerminalsOn) {
+    struct Case {
+        std::optional<std::string> wt;
+        std::optional<std::string> kitty;
+        std::optional<std::string> tp;
+        std::optional<std::string> term;
+    };
+    const Case kCases[] = {
+        {std::string("guid"), std::nullopt, std::nullopt, std::nullopt},
+        {std::nullopt, std::string("1"), std::nullopt, std::nullopt},
+        {std::nullopt, std::nullopt, std::string("iTerm.app"), std::nullopt},
+        {std::nullopt, std::nullopt, std::string("WezTerm"), std::nullopt},
+        {std::nullopt, std::nullopt, std::string("ghostty"), std::nullopt},
+        {std::nullopt, std::nullopt, std::string("vscode"), std::nullopt},
+        {std::nullopt, std::nullopt, std::nullopt, std::string("xterm-kitty")},
+        {std::nullopt, std::nullopt, std::nullopt, std::string("foot-256color")},
+    };
+    for (const auto& c : kCases) {
+        TerminalCapabilities caps;
+        EXPECT_TRUE(detect_hover_motion_support_with(
+            caps, make_sync_env_lookup(std::nullopt, c.wt, c.kitty, c.tp,
+                                       c.term)));
+    }
+}
+
+// 场景:classic conhost → 关闭(?1003 会引发悬停重绘抖动)
+TEST(HoverMotionSupport, ClassicConhostOff) {
+    TerminalCapabilities caps;
+    caps.is_classic_conhost = true;
+    EXPECT_FALSE(detect_hover_motion_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::string("guid"),
+                                   std::nullopt, std::nullopt, std::nullopt)));
+}
+
+// 场景:legacy conhost → 关闭
+TEST(HoverMotionSupport, LegacyConhostOff) {
+    TerminalCapabilities caps;
+    caps.is_legacy_conhost = true;
+    EXPECT_FALSE(detect_hover_motion_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("iTerm.app"), std::nullopt)));
+}
+
+// 场景:ConEmu/Cmder → 关闭(底层仍是 conhost)
+TEST(HoverMotionSupport, ConEmuOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_hover_motion_support_with(
+        caps, make_sync_env_lookup(std::string("12345"), std::nullopt,
+                                   std::nullopt, std::nullopt, std::nullopt)));
+}
+
+// 场景:复用器 tmux / screen → 关闭(透传不可靠)
+TEST(HoverMotionSupport, TmuxOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_hover_motion_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("iTerm.app"),
+                                   std::string("tmux-256color"))));
+}
+
+// 场景:Apple Terminal.app → 关闭(不支持 any-event 上报)
+TEST(HoverMotionSupport, AppleTerminalOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_hover_motion_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::string("Apple_Terminal"),
+                                   std::nullopt)));
+}
+
+// 场景:全空 / 未知终端 → 默认关闭
+TEST(HoverMotionSupport, UnknownOff) {
+    TerminalCapabilities caps;
+    EXPECT_FALSE(detect_hover_motion_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt, std::nullopt)));
+    EXPECT_FALSE(detect_hover_motion_support_with(
+        caps, make_sync_env_lookup(std::nullopt, std::nullopt, std::nullopt,
+                                   std::nullopt,
+                                   std::string("xterm-256color"))));
+}

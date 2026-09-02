@@ -1,4 +1,5 @@
 #include "markdown_formatter.hpp"
+#include "link_safety.hpp"
 #include "markdown_lexer.hpp"
 #include "mermaid_renderer.hpp"
 #include "syntax_highlight.hpp"
@@ -7,7 +8,6 @@
 #include "utils/logger.hpp"
 #include <sstream>
 #include <algorithm>
-#include <cstdlib>
 
 #include <array>
 #include <string_view>
@@ -76,43 +76,6 @@ std::string strip_xml_tags(const std::string& content) {
 }
 
 // ---------------------------------------------------------------------------
-// OSC 8 hyperlink support + terminal capability detection
-// ---------------------------------------------------------------------------
-
-static bool terminal_supports_hyperlinks() {
-    // Check known terminal emulators that support OSC 8
-    auto check_env = [](const char* var) -> bool {
-        const char* val = std::getenv(var);
-        return val != nullptr && val[0] != '\0';
-    };
-
-    // Windows Terminal
-    if (check_env("WT_SESSION")) return true;
-
-    const char* term_program = std::getenv("TERM_PROGRAM");
-    if (term_program) {
-        std::string tp(term_program);
-        if (tp == "iTerm.app" || tp == "WezTerm" || tp == "vscode") return true;
-    }
-
-    const char* term = std::getenv("TERM");
-    if (term) {
-        std::string t(term);
-        if (t.find("xterm") != std::string::npos) return true;
-    }
-
-    return false;
-}
-
-static std::string make_hyperlink(const std::string& url, const std::string& display) {
-    // OSC 8 format: \033]8;;URL\007DISPLAY\033]8;;\007
-    // This only works at the terminal level, not in FTXUI Elements.
-    // We'll just return the display text since FTXUI handles rendering.
-    (void)url;
-    return display;
-}
-
-// ---------------------------------------------------------------------------
 // List numbering helpers (match claude-code exactly)
 // ---------------------------------------------------------------------------
 
@@ -153,6 +116,28 @@ static std::string get_list_number(int depth, int number) {
 // Styled text building for paragraphs (word-wrapping with styles)
 // ---------------------------------------------------------------------------
 
+// 递归拼接内联 children 的纯文本(用于防骗校验的完整显示文字)。
+static void append_inline_text(const std::vector<Token>& children,
+                               std::string& out) {
+    for (const auto& child : children) {
+        out += child.text;
+        if (!child.children.empty()) {
+            append_inline_text(child.children, out);
+        }
+    }
+}
+
+// 链接的完整显示文字:children 递归拼接;空 children 直接是 href 本身
+// (markdown 惯例 [<url>](<url>) 简写)。
+static std::string link_display_text(const Token& tok) {
+    if (tok.children.empty()) {
+        return tok.href;
+    }
+    std::string display;
+    append_inline_text(tok.children, display);
+    return display;
+}
+
 // Flatten inline tokens into a list of styled runs
 static void flatten_inline(const std::vector<Token>& tokens,
                            const TextStyle& inherited,
@@ -181,9 +166,13 @@ static void flatten_inline(const std::vector<Token>& tokens,
             out.push_back({tok.text, style});
             break;
 
-        case TokenType::Link:
-            style.is_link = true;
-            style.href = tok.href;
+        case TokenType::Link: {
+            // 防骗校验(add-tui-hyperlinks 4.4):显示文字伪装成 URL 且 host
+            // 与目标不符 → 降级为纯文本(不进 link_regions、无链接样式)。
+            if (is_safe_link_label(link_display_text(tok), tok.href)) {
+                style.is_link = true;
+                style.href = tok.href;
+            }
             // If link text == href or empty, just show the URL
             if (tok.children.empty()) {
                 out.push_back({tok.href, style});
@@ -191,6 +180,7 @@ static void flatten_inline(const std::vector<Token>& tokens,
                 flatten_inline(tok.children, style, out);
             }
             break;
+        }
 
         case TokenType::Image:
             // Show alt text or URL
@@ -245,6 +235,15 @@ static Element apply_style(const std::string& txt,
     if (style.is_link && opts.hyperlinks && opts.link_regions) {
         auto& region = opts.link_regions->add(style.href);
         e = e | reflect(region.box);
+    }
+
+    // OSC 8 原生超链接(add-tui-hyperlinks 4.5):终端支持时套用上游
+    // ftxui::hyperlink() 装饰器(Screen::RegisterHyperlink + ToString 发射
+    // \x1B]8;;URL\x1B\\ 序列),让 Cmd/Ctrl+点击、原生悬停、右键打开/复制
+    // 生效。与 link_regions(应用内点击)独立:不支持 OSC 8 的终端走
+    // 应用内点击兜底,输出与现状字节级一致。
+    if (style.is_link && opts.osc8_hyperlinks) {
+        e = e | hyperlink(style.href);
     }
 
     return e;

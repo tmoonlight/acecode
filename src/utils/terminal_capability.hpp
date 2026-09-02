@@ -79,4 +79,41 @@ bool detect_synchronized_output_support_with(
 // 真实探测:读当前进程环境变量。
 bool detect_synchronized_output_support();
 
+// OSC 8 超链接支持判定 —— 环境变量启发式,决策表与同步刷新一致
+// (blacklist > whitelist > unknown-off),吸收自 markdown 渲染器里
+// 从未被调用的 terminal_supports_hyperlinks() 死代码:
+//   - ConEmu/Cmder(ConEmuPID)                       → false
+//   - legacy / classic conhost                      → false
+//   - TERM 以 "tmux" / "screen" 开头(复用器)        → false
+//   - WT_SESSION / KITTY_WINDOW_ID 存在             → true
+//   - TERM_PROGRAM ∈ {iTerm.app, WezTerm, ghostty, vscode,
+//                     WarpTerminal, contour, mintty} → true
+//     (Apple_Terminal / macOS Terminal.app 无 OSC 8,不进白名单)
+//   - TERM == xterm-kitty 或以 foot/ghostty 开头     → true
+//   - 其它(未知终端,如裸 xterm-256color)            → false
+//
+// 未知默认关闭。注意:死代码曾用 TERM 含 "xterm" 子串放行,这里收紧为
+// 只认 xterm-kitty——裸 xterm-256color 被大量不支持的终端伪装,保守关。
+// 即使误判发射 OSC 8 序列也无害(终端忽略),优雅降级为纯文本下划线。
+bool detect_osc8_support_with(
+    const TerminalCapabilities& caps,
+    const std::function<std::optional<std::string>(const char* name)>& env_lookup);
+
+// 真实探测:读当前进程环境变量。
+bool detect_osc8_support();
+
+// 悬停移动上报(DEC mode 1003, any-event)安全判定 —— 门控
+// ftxui::App::EnableMouseHoverMotion()。决策表与 OSC 8 一致,但语义独立:
+//   ?1003 在老式/经典 Windows conhost 上会触发重绘抖动(idle-mouse-redraw
+//   补丁当初特意降为 ?1002 button-event 的动机),因此 conhost 家族强制关;
+//   未知终端默认关闭。支持 OSC 8 的现代终端(iTerm2 / kitty / WezTerm /
+//   ghostty / VS Code / Windows Terminal / Warp / contour / mintty)
+//   对 any-event 上报同样支持,进白名单。
+bool detect_hover_motion_support_with(
+    const TerminalCapabilities& caps,
+    const std::function<std::optional<std::string>(const char* name)>& env_lookup);
+
+// 真实探测:读当前进程环境变量。
+bool detect_hover_motion_support();
+
 } // namespace acecode

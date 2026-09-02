@@ -1,9 +1,9 @@
 ## Context（背景）
 
 - 链接元数据在"本地文件"场景已经端到端打通：`src/markdown/markdown_formatter.cpp` 用 `reflect(region.box)` 把每个链接的屏幕矩形记入 `opts.link_regions`，`src/main.cpp` 的鼠标处理器用 `href_at(mouse.x, mouse.y)` 命中检测后调 `open_tui_chat_file_link()`（`src/tui/chat_file_link.cpp`），后者当前用 `has_url_scheme()` 拒绝一切带 scheme 的 URL。
-- markdown 渲染器里的 `make_hyperlink()` 与 `terminal_supports_hyperlinks()` 只有定义、从未被调用。前者只返回显示文本，因为 FTXUI 没有透传任意转义序列的通道：每帧都经 `Screen::ToString()` 输出，逐格 diff `Cell`、在样式变化处经 `UpdateCellStyle()` 发 SGR——只有字符数据和属性。
+- markdown 渲染器里的 `make_hyperlink()` 与 `terminal_supports_hyperlinks()` 只有定义、从未被调用。前者只返回显示文本，其注释称"FTXUI Elements 层面发不出 OSC 8"——**该注释基于旧版判断，已过时**：当前 fork 基线（`658c942`，2026-08 的 main）随上游自带完整 OSC 8 支持（见决策 1-3），实际缺口只是渲染器未接线 + 终端探测未调用。
 - vendored fork（`external/ftxui`）已有成熟的 ACECode 补丁体系（conhost、drag-autoscroll、mouse-origin、kitty keyboard、`658c942` 的 DEC 2026 同步输出、`ACECODE_PATCHES.md` 记录的 `idle-mouse-redraw` 补丁），改 fork 是既定惯例。值得注意：`idle-mouse-redraw` 当初**特意**把鼠标上报从 `?1003`（any-event）降为 `?1002`（button-event），以消除老 Windows 控制台上悬停移动引发的重绘抖动——SGR 解析器和 `Mouse::Motion::Moved` 事件模型本身已支持 motion，只是终端不发送。
-- 父仓库 gitlink 锁定 `658c942`，该 commit 从未 push 到 fork 远程（shaohaozhi286/FTXUI 仅有 `main` 分支）。在孤儿 commit 上继续叠补丁会让风险越滚越大。
+- 父仓库 gitlink 锁定 `658c942`。**孤儿 commit 隐患已解决**（2026-09-01）：shaohaozhi286/FTXUI PR #1 真 merge（`20c99b5d`）后 `658c942` 已是 `main` 祖先，任何 clone 可取；`.gitmodules` 已回切官方 URL。
 - OSC 8 支持无法在启动时可靠查询；沿用 DEC 2026 的 env 白名单方法（`detect_synchronized_output_support`），Apple Terminal.app（无 OSC 8）是回归敏感度最高的回退终端。
 
 ## Goals / Non-Goals（目标 / 非目标）
@@ -15,7 +15,7 @@
 - 在支持的终端上发射 OSC 8，让 Cmd/Ctrl+点击、原生悬停、右键打开/复制生效——终端用户已有的肌肉记忆。
 - 悬停时在应用内浮层显示真实 URL，作为人眼兜底。
 - 不支持的终端输出与现状字节级一致。
-- 在叠加新补丁前先修掉孤儿 commit 隐患。
+- 孤儿 commit 隐患已在实施前修复（PR #1 合并，见决策 7）。
 
 **Non-Goals：**
 
@@ -27,17 +27,17 @@
 
 ## Decisions（决策）
 
-### 1. Cell 存链接 *id*，不存 URL 字符串
+### 1. OSC 8 透传采用上游现成实现，不写补丁
 
-`Cell` 新增 `uint32_t link_id = 0`（0 = 无链接）。`Screen` 持有每帧 `std::vector<std::string>` URL 表和 `RegisterLink(std::string) -> uint32_t` 分配器。每格塞 `std::string` 会让 `dimx * dimy` 网格的每格多 24-32 字节、且在每次 diff 中被复制；id 只有 4 字节，相邻格比较也变成平凡操作。
+核实（2026-09-02）：fork 基线 `658c942` 已随上游 FTXUI 自带全套 OSC 8 支持——`Cell::hyperlink`（`uint8_t`，0 = 无链接，索引 Screen 元数据）、`Screen::RegisterHyperlink(std::string_view) -> uint8_t` + `Hyperlink(uint8_t)`（带去重与 255 上限保护）、`Screen::ToString()` 经 `UpdateCellStyle()` 在 link-id 变化处发射 `\x1B]8;;URL\x1B\\` 开/关序列（行尾/结尾经 default_cell 复位自动关闭）、`ftxui::hyperlink()` 装饰器（`elements.hpp:130-131` + `hyperlink.cpp`）。方案与原设计的"Cell 存 id + Screen URL 表 + ToString 发射 + 装饰器"完全同构（上游用 `uint8_t` 而非 `uint32_t`，上限 255 有保护），**无需任何框架改动**。本变更的框架侧只剩 hover 补丁（决策 5）。
 
-### 2. 在 `Screen::ToString()` 里按 link-id 变化发射 OSC 8
+### 2. 行尾关闭与相邻去重已由上游保证
 
-输出循环本来就跨格跟踪样式状态（`previous_cell_ref` + `UpdateCellStyle`）。在其基础上再跟踪当前 `link_id`：变化时发 `ESC ]8;;URL ST`（开）和 `ESC ]8;;ST`（关）；相邻同 id 不重发。**每行行尾必关闭**（OSC 8 跨 `\r\n` 的行为各终端不一致，关掉重开普适安全）。空格格继承当前 link id，链接 span 内的空格也保持可点。
+`Screen::ToString()` 在换行处先经 `UpdateCellStyle(..., default_cell)` 复位样式（含 hyperlink），再输出 `\r\n`；结尾同样复位——行尾必关闭 ✓。`UpdateCellStyle()` 只在 `next.hyperlink != prev.hyperlink` 时发射——相邻同 id 不重发 ✓。`hyperlink_test.cpp` 已有字节级断言（开/关/相邻切换）✓。这些验收点 spec 里已有覆盖，无需新增框架测试。
 
-### 3. `ftxui::hyperlink(Element, url)` 装饰器作为公共 API
+### 3. `ftxui::hyperlink()` 装饰器现成可用
 
-风格对齐 `color()` / `underlined()`。渲染时向 screen 注册 URL，并给自己区域的每个格子打上 `link_id`。markdown 渲染器的 `is_link` 分支在现有颜色/下划线样式之后套用；`link_regions`（应用内点击用）收集逻辑不变——两条通道共享元数据但代码路径独立。
+上游 `hyperlink.cpp` 的 `Hyperlink::Render()` 先 `RegisterHyperlink(link_)` 再给区域格子打 `hyperlink` id，API 为 `hyperlink(std::string_view link, Element)` 与装饰器重载 `hyperlink(std::string_view link)`。markdown 渲染器 `is_link` 分支只需在现有颜色/下划线样式之后套用装饰器（检测到 OSC 8 支持时）；`link_regions`（应用内点击用）收集逻辑不变——两条通道共享元数据但代码路径独立。
 
 ### 4. 只比域名的防骗校验
 
@@ -51,9 +51,9 @@
 
 把渲染器里的死代码 `terminal_supports_hyperlinks()` 吸收为 `detect_osc8_support_with()`，沿用既定 blacklist > whitelist > unknown-off 模式，补充 kitty（`KITTY_WINDOW_ID`、`TERM == xterm-kitty`）和 Ghostty 标记。**Apple Terminal.app 有意不进白名单**：无 OSC 8，必须验证无回归。发射本身即使被忽略也无害，白名单误判只是优雅降级。
 
-### 7. 打补丁前先做子模块卫生
+### 7. 子模块卫生已完成
 
-父仓库 gitlink 锁定的 `658c942` 只存在于 `refs/pull/1/head`（PR #1 的 head），不在任何命名分支上；`git submodule update` 默认只 fetch `refs/heads/*`，故全新 clone / CI 取不到它。此外已实测：`LIUXIN557` 身份对 fork 远程（shaohaozhi286/FTXUI）**无 push 权限**。因此发布该 commit 的路径按优先级为：① fork owner 合并 PR #1 或授予 push 权限后，推 `feat/synchronized-output`；② 改用 LIUXIN557 自己的 fork 作可写远程（同步 `.gitmodules` 的 URL）；③ 最后手段：gitlink 回退 `main`（c2e90617）、放弃 DEC 2026 补丁。确定可写远程后：（1）发布 `658c942`；（2）从它开 `feat/osc8-hyperlink`；（3）OSC 8 与悬停两个补丁以独立 commit 落在分支上；（4）push 该分支；（5）更新父仓库 gitlink 并提升 `ports/ftxui` port-version。顺序有讲究：**绝不把 gitlink 前移到未 push 的 commit**。
+父仓库 gitlink 锁定的 `658c942` 曾因只在 `refs/pull/1/head`、不在任何命名分支上而构成孤儿 commit 隐患；且 `LIUXIN557` 对 shaohaozhi286/FTXUI 无 push 权限。**已解决（2026-09-01）**：shaohaozhi286/FTXUI PR #1 真 merge（`20c99b5d`，父 = `c2e90617` + `658c942c`），`658c942` 已是 `main` 祖先，任何机器 clone 可取；`.gitmodules` 已回切 `shaohaozhi286/FTXUI.git` 并删除 `branch` 行（`97e6e351`）；子模块 `origin` 指回官方、`myfork`（LIUXIN557/FTXUI）保留作可写备用。`feat/osc8-hyperlink` 分支已从 `658c942` 创建（任务 1.2）。hover 补丁完成后：push 该分支到可写远程 → 更新父仓库 gitlink 并提升 `ports/ftxui` port-version。顺序有讲究：**绝不把 gitlink 前移到未 push 的 commit**。
 
 ### 8. A 与 B 单次交付
 
@@ -66,4 +66,4 @@
 - **`?1003` 在老控制台上的回归**：用门控缓解（老式/经典 conhost 关闭）加重绘抑制；`idle-mouse-redraw` 原始动机有文档记录，不是被悄悄回退。
 - **行尾关闭**每条换行链接多几个字节，相对现有每格 SGR 流量可忽略。
 - **只比域名的校验**拦不住仿冒域名；悬停气泡是人眼兜底，浏览器是最终防线。
-- **fork 面积扩大**：两个新补丁加大与上游 FTXUI 的分叉。缓解：都是 opt-in、记录在 `ACECODE_PATCHES.md`、且有上游化潜力（上游 FTXUI 无 OSC 8 支持，我们的补丁是合理的贡献候选）。
+- **fork 面积扩大**：仅新增悬停补丁一个，分叉面比原方案（OSC 8 + 悬停两个补丁）小一半；OSC 8 是上游功能零分叉。悬停补丁为 opt-in、记录在 `ACECODE_PATCHES.md`。

@@ -429,6 +429,22 @@ struct TuiState {
     std::vector<int> drag_scrollbar_snapshot;
     int drag_scrollbar_grab_offset_2x = 0;
 
+    // link-hover-tooltip (add-tui-hyperlinks 5.3): 指针无按键悬停在链接上
+    // 约 300ms 后,在指针附近浮层显示该链接的真实 URL(防骗:显示 href 原文
+    // 而非显示文本)。仅在 hover-motion 终端能力探测通过时才会有无按键
+    // Mouse::Moved 事件流入(conhost 家族强制关,Apple Terminal.app 不支持),
+    // 字段本身全部由 `mu` 保护(事件线程写,anim_thread 与渲染线程读)。
+    //   hover_link_href   — 当前指针下的 href;空 = 不在任何链接区域上
+    //   hover_link_since  — 进入当前 href 的时刻(steady_clock),300ms 判定用;
+    //                        指针在同一链接内微移不重置,避免计时永远到不了
+    //   hover_link_visible — 气泡是否已显示(anim_thread 在停留到期时置位)
+    //   hover_link_x/y    — 指针屏幕坐标,渲染层据此把气泡放到指针附近
+    std::string hover_link_href;
+    std::chrono::steady_clock::time_point hover_link_since{};
+    bool hover_link_visible = false;
+    int hover_link_x = -1;
+    int hover_link_y = -1;
+
     // Async compact state
     bool is_compacting = false;                       // protected by mu
     std::chrono::steady_clock::time_point compact_animation_start_time{};

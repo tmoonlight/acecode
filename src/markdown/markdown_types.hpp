@@ -54,6 +54,11 @@ struct FormatOptions {
     int terminal_width = 80;
     bool syntax_highlight = true;
     bool hyperlinks = true;
+    // 终端支持 OSC 8(由 src/utils/terminal_capability 探测,main.cpp 接线):
+    // 渲染 is_link span 时套用 ftxui::hyperlink() 装饰器,让终端原生
+    // Cmd/Ctrl+点击、悬停、右键打开/复制生效。与 hyperlinks(应用内点击
+    // link_regions 收集)互相独立:两条通道共享链接元数据但代码路径分开。
+    bool osc8_hyperlinks = false;
     bool strip_xml = true;
     MarkdownLinkRegionCollector* link_regions = nullptr;
 };

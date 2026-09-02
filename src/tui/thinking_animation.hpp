@@ -16,6 +16,11 @@ inline constexpr int kDefaultAnimationFrameMs = 300;
 inline constexpr int kConhostAnimationFrameMs = 1000;
 inline constexpr int kDragAutoscrollFrameMs = 50;
 
+// link-hover-tooltip (add-tui-hyperlinks 5.3): 指针无按键悬停在链接上超过
+// 该时长后显示真实 URL 浮层。300ms 是 spec 验收值 —— 足够区分"扫过"与
+// "有意停留",又不会让快速浏览链接时气泡不停闪烁。
+inline constexpr int kLinkHoverTooltipDelayMs = 300;
+
 inline constexpr double kThinkingShimmerCellsPerSecond = 20.25;
 inline constexpr double kThinkingShimmerEdgePaddingCells = 2.5;
 
