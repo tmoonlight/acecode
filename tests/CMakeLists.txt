@@ -14,6 +14,13 @@ if(UNIX)
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/macos_pkg_installation_test.sh
     )
     set_tests_properties(macos_pkg_installation_contract PROPERTIES LABELS "unit")
+
+    add_test(
+        NAME verify_package_contract
+        COMMAND /bin/bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_package_test.sh
+    )
+    set_tests_properties(verify_package_contract PROPERTIES LABELS "unit")
 endif()
 
 if(UNIX AND NOT APPLE)
