@@ -314,14 +314,23 @@ std::string format_matches(std::vector<ParsedMatch> matches,
     return bounded_tool_text(output);
 }
 
-bool looks_like_invalid_regex(const std::string& stderr_text) {
+bool looks_like_invalid_regex(const std::string& stderr_text,
+                              const std::string& pattern) {
     std::string lower = stderr_text;
     std::transform(lower.begin(), lower.end(), lower.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    return lower.find("invalid regular expression") != std::string::npos ||
-           lower.find("invalid regexp") != std::string::npos ||
-           lower.find("unmatched") != std::string::npos ||
-           lower.find("regex") != std::string::npos;
+    if (lower.find("invalid regular expression") != std::string::npos ||
+        lower.find("invalid regexp") != std::string::npos ||
+        lower.find("unmatched") != std::string::npos ||
+        lower.find("regex") != std::string::npos) {
+        return true;
+    }
+
+    // Git localizes the explanatory prose but preserves these substitutions in
+    // its `-e option, '<pattern>': <regerror>` diagnostic. Checking both avoids
+    // mistaking unrelated localized fatal errors for an invalid expression.
+    return !pattern.empty() && stderr_text.find("-e") != std::string::npos &&
+           stderr_text.find(pattern) != std::string::npos;
 }
 
 ToolResult execute_grep(const std::string& arguments_json, const ToolContext& ctx) {
@@ -439,7 +448,7 @@ ToolResult execute_grep(const std::string& arguments_json, const ToolContext& ct
         if (detail.empty()) detail = "git exited with code " +
                                      std::to_string(result.exit_code);
         detail = bounded_excerpt(detail);
-        if (looks_like_invalid_regex(result.stderr_text)) {
+        if (looks_like_invalid_regex(result.stderr_text, pattern)) {
             return ToolResult{"[Error] Invalid Git extended regex: " + detail, false};
         }
         return ToolResult{"[Error] git grep failed: " + detail, false};

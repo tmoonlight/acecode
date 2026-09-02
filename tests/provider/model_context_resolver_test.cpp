@@ -218,6 +218,44 @@ TEST(ModelContextResolver, NonblockingFallsBackWithoutEndpointProbe) {
     EXPECT_EQ(got, 77777);
 }
 
+// 场景:本地 metadata 未命中时首次调用立即回退;后台 /models 返回后,
+// 后续调用读取 worker 写入的缓存,且测试 reset 会等待 worker 静止。
+TEST(ModelContextResolver, NonblockingWarmsEndpointContextForLaterCalls) {
+    acecode::reset_model_context_window_cache_for_test();
+    LocalModelMetadataServer metadata_server([](httplib::Server& server) {
+        server.Get("/models", [](const httplib::Request&, httplib::Response& response) {
+            response.set_content(
+                R"({"data":[{"id":"remote-model","context_window":424242}]})",
+                "application/json");
+        });
+    });
+
+    auto dir = tmp_dir("background_endpoint");
+    auto registry_path = dir / "api.json";
+    write_file(registry_path, kOtherRegistry);
+
+    acecode::AppConfig cfg;
+    cfg.provider = "openai";
+    cfg.openai.base_url = metadata_server.base_url();
+    cfg.openai.api_key = "test-key";
+    cfg.openai.model = "remote-model";
+    cfg.models_dev.user_override_path = registry_path.string();
+    acecode::initialize_registry(cfg, "");
+
+    EXPECT_EQ(acecode::resolve_model_context_window_nonblocking(
+                  cfg, "openai", cfg.openai.model, 77777),
+              77777);
+
+    int resolved = 0;
+    for (int attempt = 0; attempt < 100 && resolved != 424242; ++attempt) {
+        std::this_thread::sleep_for(10ms);
+        resolved = acecode::resolve_model_context_window_nonblocking(
+            cfg, "openai", cfg.openai.model, 77777);
+    }
+    EXPECT_EQ(resolved, 424242);
+    acecode::reset_model_context_window_cache_for_test();
+}
+
 // 场景:ACEModel 不存在于 models.dev 且 /models 没有上下文元数据时，
 // 三个内置模型仍使用 250K 本地回退，不落回全局 128K。
 TEST(ModelContextResolver, NonblockingUsesAceModelBuiltinContext) {

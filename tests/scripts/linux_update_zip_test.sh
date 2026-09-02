@@ -9,6 +9,7 @@ trap 'rm -rf -- "$temporary_root"' EXIT
 for target in linux-x64 linux-arm64; do
     package_dir="$temporary_root/acecode-$target"
     mkdir -p "$package_dir/share/acecode/models_dev"
+    cp -R "$repo_root/assets/seed" "$package_dir/share/acecode/seed"
     cp "$repo_root/assets/models_dev/api.json" \
        "$repo_root/assets/models_dev/MANIFEST.json" \
        "$repo_root/assets/models_dev/LICENSE" \

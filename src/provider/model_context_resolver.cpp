@@ -12,9 +12,13 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <condition_variable>
+#include <deque>
 #include <exception>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -130,7 +134,9 @@ int lookup_models_dev_context(const std::string& provider_id, const std::string&
 
 int fetch_models_endpoint_context(const std::string& base_url,
                                   const std::string& api_key,
-                                  const std::string& model) {
+                                  const std::string& model,
+                                  const std::atomic<bool>* cancel_requested = nullptr,
+                                  const network::ProxyOptions* prepared_proxy = nullptr) {
     if (base_url.empty() || model.empty()) {
         return 0;
     }
@@ -141,13 +147,27 @@ int fetch_models_endpoint_context(const std::string& base_url,
         headers["Authorization"] = "Bearer " + api_key;
     }
 
-    auto proxy_opts = network::proxy_options_for(url);
+    network::ProxyOptions resolved_proxy;
+    if (!prepared_proxy) {
+        resolved_proxy = network::proxy_options_for(url);
+    }
+    const auto& proxy_opts = prepared_proxy ? *prepared_proxy : resolved_proxy;
+    auto progress_cb = cpr::ProgressCallback{
+        [cancel_requested](cpr::cpr_off_t,
+                           cpr::cpr_off_t,
+                           cpr::cpr_off_t,
+                           cpr::cpr_off_t,
+                           intptr_t) -> bool {
+            return !cancel_requested || !cancel_requested->load();
+        }
+    };
     cpr::Response response = cpr::Get(
         cpr::Url{url},
         headers,
         network::build_ssl_options(proxy_opts),
         proxy_opts.proxies,
         proxy_opts.auth,
+        progress_cb,
         cpr::Timeout{15000}
     );
 
@@ -338,6 +358,143 @@ void clear_probe_in_flight(const std::string& key) {
     g_context_probe_in_flight.erase(key);
 }
 
+struct ContextProbeTask {
+    AppConfig config;
+    std::string model;
+    std::string key;
+    network::ProxyOptions proxy_options;
+    std::shared_ptr<std::atomic<bool>> cancel_requested =
+        std::make_shared<std::atomic<bool>>(false);
+};
+
+class ContextProbeService {
+public:
+    ContextProbeService()
+        : worker_([this] { run(); }) {}
+
+    ~ContextProbeService() {
+        stop();
+    }
+
+    ContextProbeService(const ContextProbeService&) = delete;
+    ContextProbeService& operator=(const ContextProbeService&) = delete;
+
+    bool enqueue(ContextProbeTask task) {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (stopping_) return false;
+            tasks_.push_back(std::move(task));
+        }
+        work_cv_.notify_one();
+        return true;
+    }
+
+    void cancel_and_wait() {
+        std::deque<ContextProbeTask> discarded;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (active_cancel_) active_cancel_->store(true);
+            discarded.swap(tasks_);
+        }
+        for (const auto& task : discarded) {
+            clear_probe_in_flight(task.key);
+        }
+        work_cv_.notify_all();
+
+        std::unique_lock<std::mutex> lk(mu_);
+        idle_cv_.wait(lk, [this] {
+            return !active_ && tasks_.empty();
+        });
+    }
+
+private:
+    void stop() {
+        std::deque<ContextProbeTask> discarded;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (stopping_) return;
+            stopping_ = true;
+            if (active_cancel_) active_cancel_->store(true);
+            discarded.swap(tasks_);
+        }
+        for (const auto& task : discarded) {
+            clear_probe_in_flight(task.key);
+        }
+        work_cv_.notify_all();
+        if (worker_.joinable()) worker_.join();
+    }
+
+    void run() {
+        while (true) {
+            ContextProbeTask task;
+            {
+                std::unique_lock<std::mutex> lk(mu_);
+                work_cv_.wait(lk, [this] {
+                    return stopping_ || !tasks_.empty();
+                });
+                if (stopping_) return;
+                task = std::move(tasks_.front());
+                tasks_.pop_front();
+                active_ = true;
+                active_cancel_ = task.cancel_requested;
+            }
+
+            try {
+                int context = fetch_models_endpoint_context(
+                    task.config.openai.base_url,
+                    task.config.openai.api_key,
+                    task.model,
+                    task.cancel_requested.get(),
+                    &task.proxy_options);
+                if (context > 0 && !task.cancel_requested->load()) {
+                    remember_context(task.key, context);
+                }
+            } catch (const std::exception& ex) {
+                if (!task.cancel_requested->load()) {
+                    LOG_WARN(std::string("Background model context probe failed: ") +
+                             ex.what());
+                }
+            } catch (...) {
+                if (!task.cancel_requested->load()) {
+                    LOG_WARN("Background model context probe failed with unknown error");
+                }
+            }
+            clear_probe_in_flight(task.key);
+
+            {
+                std::lock_guard<std::mutex> lk(mu_);
+                active_ = false;
+                active_cancel_.reset();
+            }
+            idle_cv_.notify_all();
+        }
+    }
+
+    std::mutex mu_;
+    std::condition_variable work_cv_;
+    std::condition_variable idle_cv_;
+    std::deque<ContextProbeTask> tasks_;
+    std::shared_ptr<std::atomic<bool>> active_cancel_;
+    std::thread worker_;
+    bool active_ = false;
+    bool stopping_ = false;
+};
+
+ContextProbeService& context_probe_service() {
+    // These function-local dependencies must be constructed before the probe
+    // service so reverse static destruction stops and joins the worker first.
+    (void)network::proxy_resolver();
+    (void)Logger::instance();
+    static const bool cpr_runtime_initialized = [] {
+        cpr::Session session;
+        return true;
+    }();
+    (void)cpr_runtime_initialized;
+
+    static ContextProbeService service;
+    return service;
+}
+
 void warm_context_async(AppConfig config,
                         std::string provider_name,
                         std::string model) {
@@ -350,24 +507,22 @@ void warm_context_async(AppConfig config,
     const std::string key = context_cache_key(config, provider_name, model);
     if (!mark_probe_in_flight(key)) return;
 
-    std::thread([config = std::move(config),
-                 provider_name = std::move(provider_name),
-                 model = std::move(model),
-                 key]() mutable {
-        try {
-            int context = fetch_models_endpoint_context(config.openai.base_url,
-                                                       config.openai.api_key,
-                                                       model);
-            if (context > 0) {
-                remember_context(key, context);
-            }
-        } catch (const std::exception& ex) {
-            LOG_WARN(std::string("Background model context probe failed: ") + ex.what());
-        } catch (...) {
-            LOG_WARN("Background model context probe failed with unknown error");
-        }
-        clear_probe_in_flight(key);
-    }).detach();
+    try {
+        const std::string url = trim_trailing_slash(config.openai.base_url) + "/models";
+        ContextProbeTask task;
+        task.config = std::move(config);
+        task.model = std::move(model);
+        task.key = key;
+        task.proxy_options = network::proxy_options_for(url);
+        if (context_probe_service().enqueue(std::move(task))) return;
+    } catch (const std::exception& ex) {
+        LOG_WARN(std::string("Failed to queue background model context probe: ") +
+                 ex.what());
+    } catch (...) {
+        LOG_WARN("Failed to queue background model context probe with unknown error");
+    }
+
+    clear_probe_in_flight(key);
 }
 
 } // namespace
@@ -446,6 +601,7 @@ int resolve_runtime_model_profile_context_window_nonblocking(
 }
 
 void reset_model_context_window_cache_for_test() {
+    context_probe_service().cancel_and_wait();
     std::lock_guard<std::mutex> lk(g_context_cache_mu);
     g_context_cache.clear();
     g_context_probe_in_flight.clear();

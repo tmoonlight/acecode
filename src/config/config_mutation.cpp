@@ -140,9 +140,26 @@ ConfigMutationResult mutate_config(
         ConfigFileLock file_lock(config_path);
 
         std::error_code exists_error;
+        const auto config_fs_path = path_from_utf8(config_path);
         const bool config_exists =
-            std::filesystem::exists(path_from_utf8(config_path), exists_error) &&
-            !exists_error;
+            std::filesystem::exists(config_fs_path, exists_error);
+        if (exists_error) {
+            throw std::runtime_error(
+                "failed to inspect config path: " + exists_error.message());
+        }
+        if (config_exists) {
+            std::error_code type_error;
+            const bool regular_file =
+                std::filesystem::is_regular_file(config_fs_path, type_error);
+            if (type_error) {
+                throw std::runtime_error(
+                    "failed to inspect config path type: " + type_error.message());
+            }
+            if (!regular_file) {
+                throw std::runtime_error(
+                    "config path is not a regular file");
+            }
+        }
         AppConfig latest = !config_exists && seed_if_missing
             ? *seed_if_missing
             : load_config_from_path(config_path, false);

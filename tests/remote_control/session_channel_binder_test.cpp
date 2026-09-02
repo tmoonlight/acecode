@@ -2116,6 +2116,8 @@ TEST(SessionChannelBinderIntegration,
     };
     acecode::rc::SessionChannelBinder binder(std::move(deps));
     ASSERT_TRUE(binder.execute_command(first, "").ok);
+    auto sender = std::make_shared<CaptureSender>();
+    hx.service.hub().set_outbound_sender(sender);
     ASSERT_TRUE(hx.service.hub().handle_inbound(
         "/session", hx.cfg.remote_control.token).ok());
     {
@@ -2125,14 +2127,21 @@ TEST(SessionChannelBinderIntegration,
     ASSERT_TRUE(hx.service.hub().handle_inbound(
         "/resume 1", hx.cfg.remote_control.token).ok());
     ASSERT_TRUE(binder.execute_command(replacement, "").ok);
+    // Replacement applies the plugin's webhook URL again, so restore the
+    // successful test sender before using its next message as the queue fence.
+    hx.service.hub().set_outbound_sender(sender);
     {
         std::lock_guard<std::mutex> lk(catalog_mu);
         release = true;
     }
     catalog_cv.notify_all();
-    const bool stale_activation =
-        hx.runner_log->wait_for_activations(3, std::chrono::seconds(7));
-    EXPECT_FALSE(stale_activation);
+    ASSERT_TRUE(hx.service.hub().handle_inbound(
+        "/sessions invalid", hx.cfg.remote_control.token).ok());
+    ASSERT_TRUE(wait_for_outbound_text(sender, "Usage: /sessions"));
+    {
+        std::lock_guard<std::mutex> lk(hx.runner_log->mu);
+        EXPECT_EQ(hx.runner_log->activations.size(), 2u);
+    }
     EXPECT_EQ(selected.load(), 0);
     EXPECT_EQ(binder.bound_session_id(), replacement);
 
