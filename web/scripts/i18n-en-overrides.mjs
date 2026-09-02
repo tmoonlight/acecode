@@ -918,4 +918,11 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   'Markdown 所见即所得编辑器': 'Markdown WYSIWYG editor',
   '从添加项目、开始新对话到模型设置':
     'From adding a project to starting a new session to model setup',
+  '打开文件夹': 'Open folder',
+  '已打开文件夹': 'Folder opened',
+  '复制ID': 'Copy ID',
+  '复制标题': 'Copy title',
+  '导出': 'Export',
+  '归档': 'Archive',
+  '重命名': 'Rename',
 });
