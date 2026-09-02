@@ -2355,13 +2355,26 @@ TEST(WebServerHttp, GlobalSessionSearchIncludesHiddenAndMarkerlessProjects) {
         EXPECT_NE(workspace.value("hash", std::string{}), markerless_hash);
     }
 
-    auto content = cpr::Get(
-        cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "global-hidden-content-needle"}, {"limit", "10"},
-                        {"request_id", "hidden-content-smoke"}});
-    ASSERT_EQ(content.status_code, 200) << content.text;
-    const auto matches = json::parse(content.text)["matches"];
-    ASSERT_EQ(matches.size(), 1u);
+    cpr::Response content;
+    json content_body;
+    const auto content_deadline = std::chrono::steady_clock::now() + 3s;
+    do {
+        content = cpr::Get(
+            cpr::Url{fx.url("/api/session-search/user-messages")},
+            cpr::Parameters{{"q", "global-hidden-content-needle"}, {"limit", "10"},
+                            {"request_id", "hidden-content-smoke"}});
+        ASSERT_EQ(content.status_code, 200) << content.text;
+        content_body = json::parse(content.text);
+        if (content_body["progress"].value("complete", false)) {
+            break;
+        }
+        std::this_thread::sleep_for(5ms);
+    } while (std::chrono::steady_clock::now() < content_deadline);
+
+    ASSERT_TRUE(content_body["progress"].value("complete", false)) << content.text;
+    ASSERT_TRUE(content_body["matches"].is_array()) << content.text;
+    const auto& matches = content_body["matches"];
+    ASSERT_EQ(matches.size(), 1u) << content.text;
     EXPECT_EQ(matches[0]["id"], hidden_id);
     EXPECT_EQ(matches[0]["workspace_hash"], hidden_hash);
     EXPECT_FALSE(matches[0]["workspace_visible"].get<bool>());
