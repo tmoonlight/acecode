@@ -34,7 +34,10 @@ std::string read_frontmatter_chunk(const fs::path& path) {
 
 std::string truncate(const std::string& s, size_t n) {
     if (s.size() <= n) return s;
-    return s.substr(0, n > 3 ? n - 3 : n) + "...";
+    // 字节预算截断必须回退到 UTF-8 序列边界,否则切在多字节字符中间会
+    // 留下"残缺引导字节 + '.'"的非法序列(如 0xE9 0x94 + "..." 的 0x2E),
+    // 进入 skills 索引后会被 body.dump() 以 type_error.316 打挂整个请求。
+    return truncate_utf8_prefix(s, n, "...");
 }
 
 std::string first_non_empty_body_line(const std::string& body) {
@@ -162,13 +165,13 @@ std::optional<SkillMetadata> load_skill_from_dir(const fs::path& dir,
 
     std::string desc = get_string(fm, "description");
     if (desc.empty()) desc = first_non_empty_body_line(body);
-    meta.description = truncate(desc, 1024);
+    meta.description = ensure_utf8(truncate(desc, 1024));
 
     // 可选触发条件:写明"什么时候该用这个 skill"。主键 whenToUse 与
     // claude-code 的 frontmatter 约定一致,snake_case 作别名。
     std::string when = get_string(fm, "whenToUse");
     if (when.empty()) when = get_string(fm, "when_to_use");
-    meta.when_to_use = truncate(when, 1024);
+    meta.when_to_use = ensure_utf8(truncate(when, 1024));
 
     meta.category = derive_category(dir, scan_root);
     meta.platforms = get_list(fm, "platforms");
