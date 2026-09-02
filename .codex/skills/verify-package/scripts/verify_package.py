@@ -376,23 +376,31 @@ def probe_desktop(report: Report, staged: Path, platform: str,
         shutil.rmtree(home, ignore_errors=True)
         return
     deadline = time.monotonic() + launch_timeout
-    while time.monotonic() < deadline:
-        if process.poll() is None:
-            report.add("desktop launch", "pass",
-                       f"alive after launch (pid {process.pid}); terminating")
-            process.terminate()
-            try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            shutil.rmtree(home, ignore_errors=True)
-            return
+    while time.monotonic() < deadline and process.poll() is None:
         time.sleep(0.25)
-    if process.poll() == 0:
-        report.add("desktop launch", "fail", "exited immediately with code 0")
+    if process.poll() is None:
+        # Process survived the entire launch window: treat startup as
+        # successful, then stop it.
+        report.add("desktop launch", "pass",
+                   f"alive after launch (pid {process.pid}); terminating")
+        process.terminate()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
     else:
-        report.add("desktop launch", "fail",
-                   f"exited with code {process.returncode} during startup")
+        # Process exited at any point inside the window, including exit code 0.
+        # Verdicts must wait out the window instead of passing on the first
+        # poll() is None: right after spawn an immediately-exiting process
+        # (e.g. an `exit 0` stub) can still report poll() is None and would be
+        # wrongly marked "alive" (TOCTOU race). Waiting the full window makes
+        # the immediate-exit detection deterministic.
+        code = process.returncode
+        if code == 0:
+            report.add("desktop launch", "fail", "exited immediately with code 0")
+        else:
+            report.add("desktop launch", "fail",
+                       f"exited with code {code} during startup")
     shutil.rmtree(home, ignore_errors=True)
 
 
