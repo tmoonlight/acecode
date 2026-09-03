@@ -460,6 +460,12 @@ private:
     nlohmann::json abort_notice_metadata() const;
     std::size_t close_active_turn_and_discard();
     bool maybe_run_auto_compact();
+    // 摘要压缩失败后的兜底:改用不调用模型的机械修剪腾出空间。返回 true 表示
+    // 空间已经腾出、回合可以继续。见 maybe_run_auto_compact 里的失败分支。
+    bool run_mechanical_compact_fallback(int request_tokens,
+                                         int context_window,
+                                         const std::string& compact_notice_id,
+                                         const std::string& summarization_error);
     bool active_estimate_exceeds_auto_threshold(
         const UserInput* pending_input = nullptr) const;
 

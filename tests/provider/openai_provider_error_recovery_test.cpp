@@ -246,6 +246,60 @@ TEST(OpenAiProviderErrorRecovery, Http200MalformedSseJsonBecomesMalformedJsonErr
     EXPECT_NE(err->provider_error.raw_body.find("{not-json}"), std::string::npos);
 }
 
+// 触发场景:流已经正常传过内容,网关随后超时,往同一条流里插了一行**非 JSON**
+// 的 `data:504:Gateway Timeout`,并且流没有 [DONE] 就结束。
+// 期望行为:判为可重试的 MalformedSse,自动重试。
+// 回归背景:saw_parse_error 是粘性标志,旧写法只要流里出现过一帧坏数据,就把这
+// 类"流提前结束"判成终止性的 MalformedJson。线上后果不是多报一个错 ——
+// 压缩摘要请求走的是同一条路径,它一失败 agent_loop 就直接中止整个回合,用户
+// 只能重开会话(feedback IQSZ-D0423:网关卡了 2 分 6 秒后返回 504 纯文本,
+// 报错为 "parse error at line 1, column 4: unexpected ':'",即 `504:` 的冒号)。
+TEST(OpenAiProviderErrorRecovery, GatewayTextAfterValidFrameStaysRetryable) {
+    LocalHttpServer server([&](httplib::Server& s) {
+        s.Post("/chat/completions",
+               [](const httplib::Request&, httplib::Response& res) {
+                   res.status = 200;
+                   res.set_content(
+                       "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"
+                       "data:504:Gateway Timeout\n\n",
+                       "text/event-stream");
+               });
+    });
+
+    OpenAiCompatProvider provider(
+        "http://127.0.0.1:" + std::to_string(server.port), "", "test-model");
+
+    const auto events = collect_events_until_retry(provider, 1);
+    const StreamEvent* retry =
+        last_event_of_type(events, StreamEventType::Retry);
+    ASSERT_NE(retry, nullptr);
+    EXPECT_EQ(retry->provider_error.kind, ProviderErrorKind::MalformedSse);
+    EXPECT_TRUE(retry->provider_error.retryable);
+}
+
+// 触发场景:整条流从头到尾没有一帧能解析。
+// 期望行为:仍然是不可重试的 MalformedJson —— 上面的放宽不能把这条边界冲掉。
+// 对面根本没在说这个协议时,再发一次大概率还是同样的垃圾,重试只是浪费配额。
+TEST(OpenAiProviderErrorRecovery, StreamWithNoValidFrameStaysTerminal) {
+    LocalHttpServer server([&](httplib::Server& s) {
+        s.Post("/chat/completions",
+               [](const httplib::Request&, httplib::Response& res) {
+                   res.status = 200;
+                   res.set_content("data: {bad}\n\ndata: 504:Gateway Timeout\n\n", "text/event-stream");
+               });
+    });
+
+    OpenAiCompatProvider provider(
+        "http://127.0.0.1:" + std::to_string(server.port), "", "test-model");
+
+    const auto events = collect_events(provider);
+    const StreamEvent* err = last_error_event(events);
+    ASSERT_NE(err, nullptr);
+    EXPECT_EQ(err->provider_error.kind, ProviderErrorKind::MalformedJson);
+    EXPECT_FALSE(err->provider_error.retryable);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 0);
+}
+
 TEST(OpenAiProviderErrorRecovery, Http200SseErrorPayloadWithEmptyChoicesIsPrintedDirectly) {
     const std::string error_payload =
         R"({"error":"liteiim_AuthenticationError: AuthenticationError: OpenAIException - Error code: 401 - {'error': 'Unauthorized'}","choices":[]})";

@@ -641,6 +641,53 @@ TEST(AgentLoopCompactEvents, ManySmallMessagesDoNotTriggerStructuralCompaction) 
     EXPECT_EQ(provider->stream_calls, 1);
 }
 
+// 触发场景:摘要压缩失败(上游抽风),但历史足够长、机械修剪能腾出空间。
+// 期望行为:退化到机械修剪,丢掉最旧的历史让回合继续,而不是中止整个回合。
+// 回归背景:摘要压缩要发一次模型请求,于是继承了那次请求的全部失败模式。
+// 旧行为是失败即 `return false`,agent_loop 随后直接 break —— 上下文已经满了,
+// 用户只能重开会话(feedback IQSZ-D0423:网关超时导致摘要请求失败,回合中止)。
+// 机械修剪不调用模型,不会以同样的方式失败。
+TEST(AgentLoopCompactEvents, FailedAutoCompactFallsBackToMechanicalPrune) {
+    auto provider = std::make_shared<CompactEventProvider>();
+    provider->fail_compact = true;
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    const auto cwd = make_temp_cwd("compact_fallback_prune");
+    std::filesystem::remove_all(
+        acecode::SessionStorage::get_project_dir(cwd.string()));
+    // 机械修剪要落 checkpoint,没有 SessionManager 会直接判 Failed —— 兜底也就
+    // 无从谈起,所以这里必须挂一个真实会话。
+    acecode::SessionManager session;
+    session.start_session(cwd.string(), "stub", "model");
+    acecode::AgentLoop loop(
+        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
+        tools, {}, cwd.string(), permissions);
+    loop.set_session_manager(&session);
+    loop.set_context_window(4000);
+    // 历史要足够长,机械修剪才有得可丢 —— 这正是与下一个用例的区别:那里只有
+    // 两组历史,修剪不动,于是保持「失败即报错」的旧行为。
+    add_history(loop, 20);
+
+    const auto events = wait_for_done(loop, [&] {
+        loop.submit("continue after a failed summarization");
+    });
+
+    // 摘要失败的 error 通知被兜底成功取代,阶段是 warning 而不是 error。
+    const auto notices = compact_notices(events);
+    ASSERT_FALSE(notices.empty());
+    EXPECT_EQ(notices.back().stage, "warning");
+    for (const auto& notice : notices) {
+        EXPECT_NE(notice.stage, "error")
+            << "兜底成功后不应再报压缩失败";
+    }
+
+    // 空间确实腾出来了:最旧的那组历史已经不在请求里。
+    EXPECT_FALSE(request_contains(loop.messages(), "old assistant 0"));
+    // 但本轮输入必须留下 —— 兜底是为了让这一轮能继续,不是把它一起丢掉。
+    EXPECT_TRUE(
+        request_contains(loop.messages(), "continue after a failed summarization"));
+}
+
 TEST(AgentLoopCompactEvents, FailedAutoCompactIsAtomicAndRetriesOnNextTurn) {
     auto provider = std::make_shared<CompactEventProvider>();
     provider->fail_compact = true;

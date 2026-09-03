@@ -1,5 +1,7 @@
 #include "retry_policy.hpp"
 
+#include "../pa/pa_quirks.hpp"
+
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
@@ -104,6 +106,11 @@ bool provider_http_error_is_retryable(int status_code,
     default:
         break;
     }
+
+    // 客制化网关会把瞬时故障塞进 4xx 返回(报文自己写着「请稍候重试」),
+    // 落到下面那条 4xx 规则上就成了永久失败。判定收在 src/pa/,只认明确表达
+    // 瞬时性的报文;上下文超限不在此列 —— 那个要走压缩,重试没有意义。
+    if (pa::is_transient_upstream(body)) return true;
 
     // Authentication, invalid-request, and other client errors remain
     // terminal even if an upstream message happens to mention overload.
