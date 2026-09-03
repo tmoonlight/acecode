@@ -6,7 +6,7 @@
 #
 # 因此:**每次 external/ftxui 的 gitlink 变更,必须同步 bump vcpkg.json 的
 # port-version**,否则改动不会生效。当前对应子模块 commit:
-#   67a51a7b (v7.0.3-20,含 synchronized output + opt-in mouse hover motion)
+#   f98588b4 (v7.0.3-22,含 synchronized output + opt-in mouse hover motion)
 #   —— hover-motion 补丁(link-hover-tooltip 依赖无按键 Mouse::Moved 上报,
 #   DEC mode 1003),提供 ftxui::App::EnableMouseHoverMotion()。
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
