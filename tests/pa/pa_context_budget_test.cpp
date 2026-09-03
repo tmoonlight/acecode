@@ -7,6 +7,7 @@ namespace {
 
 using acecode::pa::ContextBudgetLearner;
 using acecode::pa::observation_is_credible;
+using acecode::pa::PA_CONTEXT_BUDGET_RELAX_INTERVAL_MINUTES;
 using acecode::pa::suggest_effective_window;
 
 constexpr const char* kProvider = "openai";
@@ -203,4 +204,81 @@ TEST(PaContextBudget, ResetClearsAllObservations) {
     learner.reset();
     EXPECT_TRUE(learner.snapshot().empty());
     EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000), 128000);
+}
+
+namespace {
+// 单测里一律传显式时间戳,避免依赖真实时钟。
+constexpr std::int64_t kT0 = 1'000'000;
+std::int64_t after_minutes(int minutes) {
+    return kT0 + static_cast<std::int64_t>(minutes) * 60 * 1000;
+}
+} // namespace
+
+// 触发场景:撞墙收敛之后,服务端容量恢复,一段时间内不再拒绝。
+// 期望行为:窗口按 15 分钟一档、每档 +20% 逐步回升,最终封顶于声明窗口。
+// 为什么必须能升:内网模型的实际容量随负载浮动,不是测准一次就永远成立的
+// 常量。只降不升的话,一次低谷期的偶发拒绝会把窗口永久钉死,之后所有高峰期
+// 都在白白浪费上下文,而用户除了重启进程没有别的办法。
+TEST(PaContextBudget, WindowRelaxesStepwiseAfterQuietPeriod) {
+    // 70000 被拒 → 59500;每档把被拒线 ×1.2 后再取 85%。
+    EXPECT_EQ(suggest_effective_window(128000, 70000, 0), 59500);
+    EXPECT_EQ(suggest_effective_window(128000, 70000,
+                                       after_minutes(14) - kT0), 59500);
+    // 1 档:70000 × 1.2 = 84000 → 71400
+    EXPECT_EQ(suggest_effective_window(128000, 70000,
+                                       after_minutes(15) - kT0), 71400);
+    // 2 档:100800 → 85680
+    EXPECT_EQ(suggest_effective_window(128000, 70000,
+                                       after_minutes(30) - kT0), 85680);
+    // 3 档:120960 → 102816
+    EXPECT_EQ(suggest_effective_window(128000, 70000,
+                                       after_minutes(45) - kT0), 102816);
+    // 4 档:被拒线涨过声明窗口 = 观测彻底过期,适配层完全退出(连 85% 的
+    // 安全余量也不再扣),而不是永久停在 123379 那种「差一点」的状态。
+    EXPECT_EQ(suggest_effective_window(128000, 70000,
+                                       after_minutes(60) - kT0), 128000);
+    EXPECT_EQ(suggest_effective_window(128000, 70000,
+                                       after_minutes(600) - kT0), 128000);
+}
+
+// 触发场景:回升到一半又被拒。
+// 期望行为:计时归零,重新从收敛线开始 —— 新的拒绝证实限制仍在,之前攒下的
+// 档数必须作废,否则会在真实上限附近反复横跳。
+TEST(PaContextBudget, RejectionResetsTheRelaxationClock) {
+    ContextBudgetLearner learner;
+    learner.note_rejected(kProvider, kModel, 70000, kT0);
+    EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000,
+                                       after_minutes(30)), 85680);
+
+    // 在 30 分钟这一刻又撞了一次墙(规模比上次小)。
+    learner.note_rejected(kProvider, kModel, 60000, after_minutes(30));
+    EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000,
+                                       after_minutes(30)), 51000);
+    // 计时从这次拒绝重新起算:再过 14 分钟仍不回升。
+    EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000,
+                                       after_minutes(44)), 51000);
+    EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000,
+                                       after_minutes(45)), 61200);
+}
+
+// 触发场景:回升过程中反复查询窗口。
+// 期望行为:被拒线本身不被回升改写。回升是「当前该用多大」的时变视图,
+// lowest_rejected 仍是那条实测到的硬证据 —— 写回去会让下一次拒绝的 min()
+// 比较失去基准。
+TEST(PaContextBudget, RelaxationDoesNotRewriteTheObservation) {
+    ContextBudgetLearner learner;
+    learner.note_rejected(kProvider, kModel, 70000, kT0);
+    (void)learner.effective_window(kProvider, kModel, 128000,
+                                   after_minutes(300));
+
+    const auto snapshot = learner.snapshot();
+    ASSERT_EQ(snapshot.size(), 1u);
+    EXPECT_EQ(snapshot[0].lowest_rejected_tokens, 70000);
+}
+
+// 触发场景:声明窗口本身比回升后的值还小。
+// 期望行为:仍然封顶于声明窗口 —— 回升的终点是用户配置的值,不是无限往上。
+TEST(PaContextBudget, RelaxationNeverExceedsDeclaredWindow) {
+    EXPECT_EQ(suggest_effective_window(30000, 70000,
+                                       after_minutes(600) - kT0), 30000);
 }
