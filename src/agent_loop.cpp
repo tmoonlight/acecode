@@ -1360,6 +1360,55 @@ void AgentLoop::apply_compact_result(
         make_compact_notice_metadata(notice_id, "warning", true));
 }
 
+bool AgentLoop::run_mechanical_compact_fallback(
+    int request_tokens,
+    int context_window,
+    const std::string& compact_notice_id,
+    const std::string& summarization_error) {
+    // 目标规模与上下文溢出恢复路径同口径:降到窗口的 70%,给下一轮留出余量。
+    const int history_tokens = estimate_message_tokens(
+        recovered_provider_messages(messages_, "compact-fallback-estimate"));
+    const int fixed_tokens = (std::max)(0, request_tokens - history_tokens);
+    int target_total = (std::max)(1, request_tokens * 2 / 3);
+    if (context_window > 0) {
+        target_total = (std::min)(target_total, context_window * 7 / 10);
+    }
+
+    ThreadRepairOptions options;
+    options.trigger = "repair-compact-fallback";
+    options.target_tokens = (std::max)(1, target_total - fixed_tokens);
+    // 强制至少丢掉一组:摘要已经失败了,原地不动地"成功"只会让调用方以为
+    // 腾出了空间,下一轮继续撞同一堵墙。
+    options.force_prune_one_group = true;
+
+    auto repair = apply_thread_repair(session_manager_, messages_, options);
+    LOG_WARN("[compact-fallback] mechanical prune after summarization failure; "
+             "status=" + std::string(to_string(repair.status)) +
+             " pre_tokens=" + std::to_string(repair.pre_tokens) +
+             " post_tokens=" + std::to_string(repair.post_tokens) +
+             " pruned_groups=" + std::to_string(repair.pruned_groups) +
+             " target_tokens=" + std::to_string(options.target_tokens) +
+             " reason=" + repair.reason);
+    if (!repair.repaired()) {
+        return false;
+    }
+
+    compact_generation_.fetch_add(1, std::memory_order_relaxed);
+    last_api_total_tokens_.store(0, std::memory_order_relaxed);
+
+    events_.emit(SessionEventKind::AgentProgress, nlohmann::json{
+        {"phase", "context_repair"},
+        {"label", "Compaction failed; pruned oldest history instead"},
+        {"detail", repair.reason},
+    });
+    emit_transcript_system_message(
+        "[智能压缩] 摘要压缩失败(" + log_truncate(summarization_error, 160) +
+        "),已改为丢弃最旧的 " + std::to_string(repair.pruned_groups) +
+        " 组历史腾出空间,会话继续。",
+        make_compact_notice_metadata(compact_notice_id, "warning"));
+    return true;
+}
+
 bool AgentLoop::maybe_run_auto_compact() {
     const int context_window = compaction_context_window();
     auto initial_context = build_compaction_initial_context();
@@ -1428,6 +1477,15 @@ bool AgentLoop::maybe_run_auto_compact() {
                  log_truncate(result.error, 500) +
                  " active_estimated_tokens=" + std::to_string(pre_tokens) +
                  " threshold=" + std::to_string(threshold));
+        // 摘要压缩要发一次模型请求,于是它继承了那次请求的全部失败模式 ——
+        // 网关超时、流中断、上游抽风。可上下文已经满了,这时候放弃等于让整个
+        // 回合中止,用户只能重开会话。机械修剪不调用模型,因此不会以同样的方式
+        // 失败;它保不住语义(丢的是最旧的整组消息,不是摘要),但能腾出空间让
+        // 会话继续,这在"卡死"面前是明显更好的结果。
+        if (run_mechanical_compact_fallback(pre_tokens, context_window,
+                                            compact_notice_id, result.error)) {
+            return true;
+        }
         emit_transcript_system_message(
             "[Auto-compact] " + result.error,
             make_compact_notice_metadata(compact_notice_id, "error"));

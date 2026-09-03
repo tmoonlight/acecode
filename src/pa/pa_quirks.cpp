@@ -33,6 +33,30 @@ const std::vector<std::string>& context_overflow_needles() {
     return needles;
 }
 
+// 上游瞬时故障的中文特征串。收录标准比上下文超限更严:必须是报文**自己**
+// 表达了「这是暂时的、可以再试」,否则一条真正的客户端错误会被无限重试。
+//
+// 刻意不收 "LLMRequestError" 这个网关统一前缀 —— 它同时罩着瞬时故障和真正的
+// 参数错误,按它重试等于对所有 4xx 都重试。也刻意不收单独的「重试」二字:
+// 额度用完的报文写的是「请切换模型后重试」,那是要人换模型,不是让程序再发一次。
+const std::vector<std::string>& transient_upstream_needles() {
+    static const std::vector<std::string> needles = {
+        // 实测:{"code":400,"message":"LLMRequestError: 模型服务异常，请稍候重试，
+        //        如持续出现，请联系技术支持"}
+        "请稍候重试",
+        "请稍后重试",
+        "模型服务异常",
+        // 实测:{"code":502,"message":"LLMRequestError: 网络波动或模型处理超时，
+        //        请稍候重试…"}
+        "网络波动",
+        "模型处理超时",
+        "服务繁忙",
+        "系统繁忙",
+        "服务暂时不可用",
+    };
+    return needles;
+}
+
 bool contains_any(const std::string& text,
                   const std::vector<std::string>& needles) {
     for (const auto& needle : needles) {
@@ -49,7 +73,16 @@ FaultKind classify_error_text(const std::string& text) {
     if (contains_any(text, context_overflow_needles())) {
         return FaultKind::ContextOverflow;
     }
+    // 顺序有意:上下文超限优先。它也可能带「请稍候重试」的客套话,但盲目重试
+    // 同一个超大请求只会再撞一次墙,必须先走压缩。
+    if (contains_any(text, transient_upstream_needles())) {
+        return FaultKind::TransientUpstream;
+    }
     return FaultKind::None;
+}
+
+bool is_transient_upstream(const std::string& error_text) {
+    return classify_error_text(error_text) == FaultKind::TransientUpstream;
 }
 
 FaultKind classify(const ProviderErrorInfo& info) {

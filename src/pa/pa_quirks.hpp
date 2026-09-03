@@ -19,6 +19,9 @@ enum class FaultKind {
     None,
     // 请求超出服务端实际能接受的上下文规模,应当压缩历史后重试。
     ContextOverflow,
+    // 上游的瞬时故障(服务抽风、网络波动、处理超时)。报文自己就写着「请稍候
+    // 重试」,但被塞在 4xx 里返回,通用重试策略会当成客户端错误直接放弃。
+    TransientUpstream,
 };
 
 // 纯文本判定。text 可以是 display_message、raw_body、pretty_json 的任意
@@ -27,6 +30,10 @@ FaultKind classify_error_text(const std::string& text);
 
 // 结构化判定。会把 ProviderErrorInfo 里所有可能携带文案的字段合起来看。
 FaultKind classify(const ProviderErrorInfo& info);
+
+// classify() == TransientUpstream 的便捷形式,供 retry_policy 的通用判定兜底。
+// 只吃报文文本,不依赖状态码 —— 调用方通常正是因为状态码不可信才来问。
+bool is_transient_upstream(const std::string& error_text);
 
 // classify() == ContextOverflow 的便捷形式,供 compact.cpp 的通用判定兜底。
 bool is_context_overflow(const ProviderErrorInfo& info);

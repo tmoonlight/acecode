@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "commands/compact.hpp"
+#include "provider/retry_policy.hpp"
 #include "pa/pa_quirks.hpp"
 
 namespace {
@@ -76,9 +77,11 @@ TEST(PaQuirks, ClassificationDoesNotDependOnStatusCode) {
 // 期望行为:一律不判为溢出。收录标准是「专指这次请求太大」,误判的代价是白跑
 // 一次压缩重试并丢掉历史,比漏判贵得多,所以 needle 集宁可窄。
 TEST(PaQuirks, GenericChineseErrorsAreNotMisclassified) {
+    // 注意「请求失败,请稍后重试」不在此列 —— 它自己写着可以再试,现在归
+    // TransientUpstream(见 TransientUpstreamFaultInFourHundredIsRetryable)。
+    // 「模型繁忙」是状态描述而非重试指示,仍按 None 处理,交给状态码去判。
     const char* benign[] = {
         "参数错误",
-        "请求失败,请稍后重试",
         "模型繁忙",
         "鉴权失败",
         "上下文格式不正确",
@@ -90,7 +93,7 @@ TEST(PaQuirks, GenericChineseErrorsAreNotMisclassified) {
         info.status_code = 400;
         info.display_message = text;
         EXPECT_EQ(acecode::pa::classify(info), acecode::pa::FaultKind::None)
-            << "误判为上下文溢出:" << text;
+            << "泛化措辞被误判成了已知故障:" << text;
     }
 }
 
@@ -129,4 +132,58 @@ TEST(PaQuirks, GenericEnglishClassificationIsUnchanged) {
     payload.raw_body =
         R"({"error":{"code":"payload_too_large","message":"upload too large"}})";
     EXPECT_FALSE(acecode::is_context_overflow_error(payload));
+}
+
+// 触发场景:网关把一个明确写着「请稍候重试」的瞬时故障塞进 HTTP 400 返回。
+// 期望行为:判为 TransientUpstream,并让通用重试策略放行。
+// 回归背景:retry_policy 对 4xx 一律 return false(注释写着「客户端错误即使
+// 提到 overload 也是终止性的」)。这条规则对守规矩的上游是对的,但这套网关把
+// 瞬时故障也编成 400,于是一次本该自动恢复的抽风变成了永久失败。
+TEST(PaQuirks, TransientUpstreamFaultInFourHundredIsRetryable) {
+    const std::string body =
+        R"({"code":400,"message":"LLMRequestError: 模型服务异常，请稍候重试，)"
+        R"(如持续出现，请联系技术支持","object":"error","type":"BadRequestError"})";
+    EXPECT_EQ(acecode::pa::classify_error_text(body),
+              acecode::pa::FaultKind::TransientUpstream);
+    EXPECT_TRUE(acecode::pa::is_transient_upstream(body));
+    EXPECT_TRUE(acecode::provider_http_error_is_retryable(400, body));
+
+    const std::string gateway_502 =
+        R"({"code":502,"message":"LLMRequestError: 网络波动或模型处理超时，请稍候重试"})";
+    EXPECT_TRUE(acecode::pa::is_transient_upstream(gateway_502));
+}
+
+// 触发场景:额度用完(HTTP 451),报文里也带「重试」二字。
+// 期望行为:**不**判为瞬时故障,保持终止。
+// 「请切换模型后重试」是要人换模型,不是让程序再发一次 —— 这里重试只会把剩下
+// 的配额也烧掉,而且永远不会成功。
+TEST(PaQuirks, QuotaExhaustedIsNotTreatedAsTransient) {
+    const std::string body =
+        R"({"object":"error","message":"当前Agent使用的模型「x」今日额度已用完，)"
+        R"(请切换模型后重试","type":"BadRequestError","code":451})";
+    EXPECT_EQ(acecode::pa::classify_error_text(body),
+              acecode::pa::FaultKind::None);
+    EXPECT_FALSE(acecode::provider_http_error_is_retryable(451, body));
+}
+
+// 触发场景:上下文超限的报文里也出现了瞬时故障的措辞。
+// 期望行为:ContextOverflow 优先。盲目重试同一个超大请求只会再撞一次墙,
+// 必须先走压缩;分类顺序在 classify_error_text 里是有意为之的。
+TEST(PaQuirks, ContextOverflowWinsOverTransientWording) {
+    const std::string body =
+        R"({"message":"请求上下文过大，请稍候重试","code":400})";
+    EXPECT_EQ(acecode::pa::classify_error_text(body),
+              acecode::pa::FaultKind::ContextOverflow);
+    EXPECT_FALSE(acecode::pa::is_transient_upstream(body));
+}
+
+// 触发场景:关掉 PA 适配总开关后的瞬时故障报文。
+// 期望行为:退回通用行为 —— 4xx 仍然终止,证明这层是可摘除的。
+TEST(PaQuirks, DisablingAdapterAlsoDisablesTransientRetry) {
+    PaEnabledGuard guard(false);
+    const std::string body =
+        R"({"code":400,"message":"模型服务异常，请稍候重试"})";
+    EXPECT_EQ(acecode::pa::classify_error_text(body),
+              acecode::pa::FaultKind::None);
+    EXPECT_FALSE(acecode::provider_http_error_is_retryable(400, body));
 }

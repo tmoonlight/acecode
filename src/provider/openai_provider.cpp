@@ -1270,6 +1270,9 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         bool saw_done = false;
         bool saw_sse_data = false;
         bool saw_parse_error = false;
+        // 流里是否成功解析过至少一帧。用来区分两种"没等到 [DONE]"——连接一直
+        // 是好的、只是中途断了(可重试),还是从头到尾就没说过人话(不可重试)。
+        bool saw_valid_frame = false;
         bool saw_payload_error = false;
         std::string payload_error_body;
         std::string payload_error_message;
@@ -1417,6 +1420,7 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
 
                 try {
                     auto j = nlohmann::json::parse(event_data);
+                    saw_valid_frame = true;
 
                     if (has_stream_error_payload(j)) {
                         saw_payload_error = true;
@@ -1653,7 +1657,12 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
                 r.error.message,
                 true);
         } else if (!saw_done) {
-            const ProviderErrorKind kind = saw_parse_error
+            // 一帧解析失败**不足以**判定整条流是垃圾。实测网关超时会往正常流里
+            // 插一行非 JSON 的 `data:504:Gateway Timeout`,而 saw_parse_error 是
+            // 粘性的 —— 旧写法据此把一次本可重试的"流提前结束"降级成不可重试的
+            // MalformedJson,压缩摘要请求因此直接失败、整个回合中止。
+            // 只有从头到尾没有一帧解析成功,才说明对面根本没在说这个协议。
+            const ProviderErrorKind kind = (saw_parse_error && !saw_valid_frame)
                 ? ProviderErrorKind::MalformedJson
                 : ProviderErrorKind::MalformedSse;
             const std::string transport_message = saw_sse_data
