@@ -3240,23 +3240,28 @@ struct TuiRendererContext {
 // 调用方须持有 state.mu(render_tui_frame 入口已持锁)。
 static Element render_link_hover_tooltip(const TuiState& state) {
     const auto term = Terminal::Size();
-    // 显示真实 URL(href 原文,防骗 —— 显示文本可能被 Markdown 伪装)。
-    // 超长截断加省略号;宽/高预算含 2 格 border 边框,确保
-    // x + bubble_w <= dimx 恒成立,不会撑大 dbox 需求。
-    std::string url = state.hover_link_href;
-    const int max_url_w = std::max(20, term.dimx - 4);
-    if (static_cast<int>(url.size()) > max_url_w) {
-        url = url.substr(0, static_cast<size_t>(max_url_w) - 3) + "...";
+    // 边框至少需要 2 列/3 行;极窄终端直接跳过浮层,避免 dbox 的需求尺寸
+    // 反向撑大主布局。
+    if (term.dimx < 4 || term.dimy < 3) {
+        return emptyElement();
     }
-    const int bubble_w = static_cast<int>(url.size()) + 2;
+    // 显示真实 URL(href 原文,防骗 —— 显示文本可能被 Markdown 伪装)。
+    // 按 cell 而不是 UTF-8 字节截断;宽/高预算含 2 格 border 边框,确保
+    // x + bubble_w <= dimx 恒成立,不会撑大 dbox 需求。
+    const int max_url_cells = term.dimx - 2;
+    const std::string url = truncate_cells_middle_ascii(
+        state.hover_link_href, max_url_cells);
+    const int bubble_w = std::min(
+        term.dimx, std::max(2, ftxui::string_width(url) + 2));
     const int bubble_h = 3;  // border top + text row + border bottom
 
     const int px = state.hover_link_x;
     const int py = state.hover_link_y;
     int x = px + 2;  // 指针右上方
     if (x + bubble_w > term.dimx) {
-        x = std::max(0, px - bubble_w - 2);  // 右侧不够 → 指针左侧
+        x = px - bubble_w - 2;  // 右侧不够 → 指针左侧
     }
+    x = std::clamp(x, 0, term.dimx - bubble_w);
     int y = py - bubble_h - 1;  // 指针上方
     if (y < 0) {
         y = py + 1;  // 上方不够 → 指针下方

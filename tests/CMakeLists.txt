@@ -1,4 +1,23 @@
 find_package(GTest CONFIG REQUIRED)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME verify_package_python_unit
+        COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_package_unit_test.py
+    )
+    add_test(
+        NAME dev_desktop_script_unit
+        COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/dev_desktop_test.py
+    )
+    set_tests_properties(
+        verify_package_python_unit
+        dev_desktop_script_unit
+        PROPERTIES LABELS "unit"
+    )
+endif()
 
 if(UNIX)
     add_test(

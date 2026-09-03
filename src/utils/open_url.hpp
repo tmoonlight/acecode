@@ -6,7 +6,7 @@
 //   - 仅放行 http/https scheme(防 file:/data:/javascript: 等意外打开);
 //   - 禁止控制字符(含 ESC 0x1B,防终端转义注入)与空白开头等异常;
 //   - 默认 launcher 不经 shell(POSIX fork+execlp / Windows ShellExecuteW),
-//     URL 原样作参数传递,无 shell 注入面。
+//     URL 原样作参数传递,无 shell 注入面;POSIX 子进程由专用 waiter 回收。
 //
 // 可注入 launcher 便于单测(见 tests/utils/open_url_test.cpp)。
 

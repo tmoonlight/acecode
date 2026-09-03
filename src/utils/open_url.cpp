@@ -15,12 +15,24 @@
 #  include <windows.h>
 #  include <shellapi.h>
 #else
+#  include <cerrno>
+#  include <signal.h>
+#  include <sys/wait.h>
+#  include <thread>
 #  include <unistd.h>
 #endif
 
 namespace acecode {
 
 namespace {
+
+#ifndef _WIN32
+void wait_for_child_process(pid_t pid) noexcept {
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+}
+#endif
 
 // 默认平台打开器:POSIX 用 open(macOS) / xdg-open(Linux),fork+execlp 不经
 // shell;Windows 用 ShellExecuteW 的 "open" verb(等价于 `start`,但无 cmd
@@ -48,6 +60,28 @@ bool platform_open_url(const std::string& url, std::string& error) {
     if (pid == 0) {
         ::execlp(opener, opener, url.c_str(), static_cast<char*>(nullptr));
         ::_exit(127);
+    }
+
+    // 不修改进程级 SIGCHLD 策略(ACECode 的其它子进程也依赖它);只为本次
+    // opener 启动一个短生命周期 waiter,确保长时间运行的 TUI 不积累 zombie。
+    std::thread reaper;
+    try {
+        reaper = std::thread([pid]() { wait_for_child_process(pid); });
+    } catch (...) {
+        ::kill(pid, SIGTERM);
+        wait_for_child_process(pid);
+        error = "failed to start URL process reaper";
+        return false;
+    }
+    try {
+        reaper.detach();
+    } catch (...) {
+        ::kill(pid, SIGTERM);
+        if (reaper.joinable()) {
+            reaper.join();
+        }
+        error = "failed to detach URL process reaper";
+        return false;
     }
     return true;
 #endif

@@ -27,6 +27,7 @@ README_FILES = ("README.md", "README_CN.md")
 BUILD_CONFIGS = ("MinSizeRel", "Release", "RelWithDebInfo", "Debug")
 DEFAULT_LAUNCH_TIMEOUT = 10
 STAGING_DIRNAME = "verify-package-staging"
+CMAKE_TARGETS = {"tui": "acecode", "desktop": "acecode-desktop"}
 
 
 class Report:
@@ -78,6 +79,47 @@ def find_built(build_dir: Path, relative: str) -> Path | None:
     for candidate in candidates:
         if candidate.exists():
             return candidate
+    return None
+
+
+def is_same_or_parent(candidate: Path, path: Path) -> bool:
+    try:
+        path.relative_to(candidate)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_staging_path(repo: Path, build_dir: Path, staging: Path, *,
+                          cwd: Path | None = None,
+                          home: Path | None = None) -> str | None:
+    """Return an error when recursive staging cleanup could hit user data."""
+    repo = repo.resolve()
+    build_dir = build_dir.resolve()
+    staging = staging.resolve()
+    cwd = (cwd or Path.cwd()).resolve()
+    home = (home or Path.home()).resolve()
+    filesystem_root = Path(staging.anchor).resolve()
+
+    protected = (
+        ("filesystem root", filesystem_root),
+        ("home directory", home),
+        ("current working directory", cwd),
+        ("repository root", repo),
+        ("build directory", build_dir),
+    )
+    for label, path in protected:
+        if is_same_or_parent(staging, path):
+            return (
+                f"unsafe staging directory {staging}: it is the {label} "
+                "or one of its ancestors"
+            )
+
+    if is_same_or_parent(repo, staging) and not is_same_or_parent(build_dir, staging):
+        return (
+            f"unsafe staging directory {staging}: paths inside the repository "
+            f"must be strict descendants of {build_dir}"
+        )
     return None
 
 
@@ -181,32 +223,40 @@ def preflight(report: Report, repo: Path, cmake: str | None, skip_build: bool,
 
 
 def configure_and_build(report: Report, repo: Path, build_dir: Path, cmake: str,
-                        targets: list[str]) -> bool:
+                        targets: list[str], platform: str) -> bool:
     if not (build_dir / "CMakeCache.txt").is_file():
         command = [cmake, "-S", str(repo), "-B", str(build_dir),
                    "-DCMAKE_BUILD_TYPE=MinSizeRel", "-DBUILD_TESTING=OFF",
                    "-DACECODE_BUILD_DESKTOP=ON"]
-        if shutil.which("ninja"):
+        # A plain Windows shell can have Ninja on PATH without an initialized
+        # MSVC environment. Let CMake choose Visual Studio there.
+        if platform != "windows" and shutil.which("ninja"):
             command.insert(4, "-G")
             command.insert(5, "Ninja")
         vcpkg_root = os.environ.get("VCPKG_ROOT")
         if vcpkg_root:
-            command += ["-DCMAKE_TOOLCHAIN_FILE",
-                        str(Path(vcpkg_root) / "scripts" / "buildsystems" / "vcpkg.cmake")]
+            toolchain = Path(vcpkg_root) / "scripts" / "buildsystems" / "vcpkg.cmake"
+            command.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain}")
         if not run_tool(report, "cmake configure", command):
             return False
     else:
         report.add("cmake configure", "skip", "build dir already configured")
     for target in targets:
-        if not run_tool(report, f"cmake build {target}",
+        cmake_target = CMAKE_TARGETS[target]
+        if not run_tool(report, f"cmake build {cmake_target}",
                         [cmake, "--build", str(build_dir), "--config", "MinSizeRel",
-                         "--target", target]):
+                         "--target", cmake_target]):
             return False
     return True
 
 
 def stage(report: Report, repo: Path, build_dir: Path, staging: Path,
           platform: str, targets: list[str], cmake: str) -> bool:
+    staging_error = validate_staging_path(repo, build_dir, staging)
+    if staging_error:
+        report.add("stage directory safety", "fail", staging_error)
+        return False
+    report.add("stage directory safety", "pass", str(staging))
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
@@ -354,6 +404,29 @@ def existing_instance_running(platform: str) -> bool | None:
         return None
 
 
+def terminate_and_reap(process: subprocess.Popen, timeout: int = 15) -> bool:
+    try:
+        process.terminate()
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=timeout)
+        return True
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            # It may have exited between the timed-out wait and kill.
+            pass
+        try:
+            process.wait(timeout=timeout)
+            return True
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+    except OSError:
+        return False
+
+
 def probe_desktop(report: Report, staged: Path, platform: str,
                   launch_timeout: int) -> None:
     running = existing_instance_running(platform)
@@ -380,14 +453,13 @@ def probe_desktop(report: Report, staged: Path, platform: str,
         time.sleep(0.25)
     if process.poll() is None:
         # Process survived the entire launch window: treat startup as
-        # successful, then stop it.
-        report.add("desktop launch", "pass",
-                   f"alive after launch (pid {process.pid}); terminating")
-        process.terminate()
-        try:
-            process.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        # successful only after it has also been stopped and reaped.
+        if terminate_and_reap(process):
+            report.add("desktop launch", "pass",
+                       f"alive after launch (pid {process.pid}); terminated")
+        else:
+            report.add("desktop launch", "fail",
+                       f"could not stop and reap pid {process.pid}")
     else:
         # Process exited at any point inside the window, including exit code 0.
         # Verdicts must wait out the window instead of passing on the first
@@ -446,7 +518,8 @@ def main(argv: list[str]) -> int:
 
     if not args.skip_build:
         assert cmake is not None
-        if not configure_and_build(report, repo, build_dir, cmake, targets):
+        if not configure_and_build(
+                report, repo, build_dir, cmake, targets, platform):
             print(f"verify-package: FAIL ({report.failed} check(s) failed)")
             return 1
 
