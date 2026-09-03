@@ -76,6 +76,9 @@ import {
   groupSkillsBySource,
   normalizeSkillList,
   normalizeWorkspaceList,
+  skillHasWarning,
+  skillIssueMessage,
+  skillLoadFailed,
   skillsEnabledSummary,
   workspaceAutoExpand,
 } from '../lib/skillsSettings.js';
@@ -1598,47 +1601,96 @@ function parseDesktopBridgeResult(value) {
   return JSON.parse(text);
 }
 
+// 一张技能卡片。三种状态:
+//   正常   — 现有外观,开关可用
+//   配置异常 — 技能能用(开关照常),但元数据有问题,补一条琥珀色说明
+//   加载失败 — SKILL.md 解析不出可用元数据,技能根本没装上:红色描边、
+//              开关禁用、直接显示原因与文件路径,让用户知道该去改哪个文件
+//
+// 这条分支存在的原因是设置页曾经对坏 skill 只有两种表现:整页 500,或者那个
+// 技能悄悄消失。两种都不告诉用户是哪个文件出了问题。
 function SkillCard({ skill, busyName, onToggle }) {
+  const failed = skillLoadFailed(skill);
+  const warned = skillHasWarning(skill);
+  const issue = skillIssueMessage(skill);
   return (
     <article
       data-skill-card="true"
+      data-skill-status={skill.status || 'ok'}
       className={clsx(
         'flex min-h-[148px] flex-col rounded-lg border p-3.5 transition',
-        skill.enabled
-          ? 'border-accent/40 bg-accent-bg'
-          : 'border-border bg-surface hover:border-accent/50 hover:bg-surface-hi',
+        failed
+          ? 'border-danger/40 bg-danger/10'
+          : skill.enabled
+            ? 'border-accent/40 bg-accent-bg'
+            : 'border-border bg-surface hover:border-accent/50 hover:bg-surface-hi',
       )}
     >
       <div className="flex items-start gap-3">
         <div
           className={clsx(
             'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition',
-            skill.enabled
-              ? 'border-accent/40 bg-surface text-accent'
-              : 'border-border bg-surface-alt text-fg-mute',
+            failed
+              ? 'border-danger/30 bg-surface text-danger'
+              : skill.enabled
+                ? 'border-accent/40 bg-surface text-accent'
+                : 'border-border bg-surface-alt text-fg-mute',
           )}
         >
-          <VsIcon name="lightbulb" size={18} />
+          <VsIcon name={failed ? 'warning' : 'lightbulb'} size={18} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="break-words text-[13px] font-semibold leading-5 text-fg">{skill.name}</div>
-          <div className="mt-0.5 text-[10px] text-fg-mute">
-            {skill.source === 'project' ? '工作区' : '全局'}
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-fg-mute">
+            <span>{skill.source === 'project' ? '工作区' : '全局'}</span>
+            {failed && (
+              <span className="rounded border border-danger/30 px-1 py-px text-danger">
+                加载失败
+              </span>
+            )}
+            {warned && (
+              <span className="rounded border border-warn/30 px-1 py-px text-warn">
+                配置异常
+              </span>
+            )}
           </div>
         </div>
         <Toggle
           on={skill.enabled}
-          disabled={busyName === skill.name}
+          disabled={busyName === skill.name || failed}
           onChange={(value) => onToggle(skill.name, value)}
           ariaLabel={`切换技能 ${skill.name}`}
         />
       </div>
-      <p
-        className="mt-3 line-clamp-4 text-[11px] leading-[18px] text-fg-mute"
-        title={skill.description || ''}
-      >
-        {skill.description || '—'}
-      </p>
+      {failed ? (
+        <div className="mt-3 min-w-0">
+          <p className="text-[11px] leading-[18px] text-danger" title={issue}>
+            {issue}
+          </p>
+          {skill.path && (
+            <p
+              className="mt-1 break-all text-[10px] leading-4 text-fg-mute line-clamp-2"
+              title={skill.path}
+            >
+              {skill.path}
+            </p>
+          )}
+        </div>
+      ) : (
+        <>
+          <p
+            className="mt-3 line-clamp-4 text-[11px] leading-[18px] text-fg-mute"
+            title={skill.description || ''}
+          >
+            {skill.description || '—'}
+          </p>
+          {warned && issue && (
+            <p className="mt-2 text-[10px] leading-4 text-warn" title={issue}>
+              {issue}
+            </p>
+          )}
+        </>
+      )}
     </article>
   );
 }

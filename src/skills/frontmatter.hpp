@@ -33,6 +33,17 @@ struct FrontmatterValue {
 
 using Frontmatter = FrontmatterMap;
 
+// How the document's frontmatter block is shaped. Reported alongside the parse
+// so callers can tell "this skill has no frontmatter" apart from "this skill
+// opened a frontmatter block and never closed it" — both parse to an empty
+// map, but only the second is a mistake worth surfacing to the user.
+enum class FrontmatterShape {
+    None,         // no frontmatter block at all
+    Delimited,    // canonical `---` ... `---`
+    LegacyHeader, // legacy ACECode shape: bare keys terminated by a single `---`
+    Unterminated, // opens with `---` but never closes it
+};
+
 // Parse YAML frontmatter from a markdown document. Returns (frontmatter, body).
 // If the content does not start with "---\n", returns ({}, content) unchanged.
 // Handles:
@@ -41,7 +52,8 @@ using Frontmatter = FrontmatterMap;
 //   - multi-line dash lists under a key
 //   - one level of indented nested mapping (`metadata:` → indented `hermes:` → ...)
 // Invalid lines are skipped rather than aborting the whole parse.
-std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content);
+std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content,
+                                                      FrontmatterShape* shape = nullptr);
 
 // Helpers for common lookups.
 std::string get_string(const Frontmatter& fm, const std::string& key,

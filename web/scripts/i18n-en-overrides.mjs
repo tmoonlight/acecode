@@ -1,6 +1,23 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  // Skills settings — malformed SKILL.md reporting.
+  '配置异常': 'Metadata issue',
+  '无法解析该技能的 SKILL.md': "Could not parse this skill's SKILL.md",
+  'SKILL.md 为空或无法读取': 'SKILL.md is empty or could not be read',
+  'SKILL.md 缺少 name,目录名也无法作为技能名':
+    'SKILL.md has no name and its directory name cannot be used as one',
+  '技能名不含可用于斜杠命令的字符':
+    'The skill name has no characters usable in a slash command',
+  '解析 SKILL.md 时出错': 'Failed to parse SKILL.md',
+  'frontmatter 以 --- 开头但没有闭合,整份文件被当作正文':
+    'The frontmatter opens with --- but is never closed, so the whole file is treated as body',
+  'SKILL.md 缺少 --- 包裹的 YAML frontmatter':
+    'SKILL.md has no --- YAML frontmatter block',
+  'frontmatter 缺少 description,模型无法判断何时使用该技能':
+    'The frontmatter has no description, so the model cannot tell when to use this skill',
+  '{{p0}} / {{p1}} 已启用 · {{p2}} 个加载失败':
+    '{{p0}} / {{p1}} enabled · {{p2}} failed to load',
   '调用了 {{p0}} 个智能体': 'Used {{p0}} agents',
   '正在处理': 'Working',
   '正在运行 {{p0}} 个工具': 'Running {{p0}} tools',

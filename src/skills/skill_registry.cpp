@@ -70,7 +70,9 @@ void SkillRegistry::refresh_from_disk() const {
     }
 
     std::vector<SkillMetadata> found;
+    std::vector<SkillLoadIssue> issues;
     std::unordered_set<std::string> seen_names;
+    std::unordered_set<std::string> seen_issue_paths;
 
     for (const auto& root : roots) {
         std::error_code ec;
@@ -102,7 +104,25 @@ void SkillRegistry::refresh_from_disk() const {
             if (it->path().filename() != "SKILL.md") continue;
             if (is_excluded_segment(it->path())) continue;
 
-            auto meta = load_skill_from_dir(it->path().parent_path(), root);
+            // inspect_skill_dir() is noexcept: a malformed SKILL.md degrades
+            // to an issue row, it never aborts the scan (and never reaches the
+            // /api/skills handler as an exception → 500).
+            auto outcome = inspect_skill_dir(it->path().parent_path(), root);
+            auto& meta = outcome.meta;
+
+            if (outcome.issue) {
+                // Deduplicate by file so a skill reachable through overlapping
+                // roots is reported once. Platform-incompatible and
+                // policy-filtered skills are not "broken" — skip their issues
+                // along with the skill itself.
+                const bool platform_ok =
+                    !meta || skill_matches_platform(meta->platforms);
+                const std::string key = path_to_utf8(outcome.issue->skill_md_path);
+                if (platform_ok && seen_issue_paths.insert(key).second) {
+                    issues.push_back(std::move(*outcome.issue));
+                }
+            }
+
             if (!meta) continue;
             if (!skill_matches_platform(meta->platforms)) continue;
             if (disabled.count(meta->name)) continue;
@@ -118,10 +138,15 @@ void SkillRegistry::refresh_from_disk() const {
         if (a.category != b.category) return a.category < b.category;
         return a.name < b.name;
     });
+    std::sort(issues.begin(), issues.end(), [](const SkillLoadIssue& a, const SkillLoadIssue& b) {
+        if (a.category != b.category) return a.category < b.category;
+        return a.name < b.name;
+    });
 
     {
         std::lock_guard<std::mutex> lk(mu_);
         skills_ = std::move(found);
+        issues_ = std::move(issues);
     }
 }
 
@@ -138,6 +163,18 @@ std::vector<SkillMetadata> SkillRegistry::list(const std::string& category) cons
         if (s.category == category) filtered.push_back(s);
     }
     return filtered;
+}
+
+SkillRegistry::Snapshot SkillRegistry::snapshot() const {
+    refresh_from_disk();
+    std::lock_guard<std::mutex> lk(mu_);
+    return Snapshot{skills_, issues_};
+}
+
+std::vector<SkillLoadIssue> SkillRegistry::list_issues() const {
+    refresh_from_disk();
+    std::lock_guard<std::mutex> lk(mu_);
+    return issues_;
 }
 
 std::optional<SkillMetadata> SkillRegistry::find(const std::string& name_or_key) const {

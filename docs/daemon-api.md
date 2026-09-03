@@ -2027,7 +2027,13 @@ Returns an array, not a wrapper:
     "description": "...",
     "category": "custom",
     "enabled": true,
-    "source": "project"
+    "source": "project",
+    "path": "/abs/path/to/SKILL.md",
+    "status": "ok",
+    "useCount": 0,
+    "lastUsedAt": "",
+    "pinned": false,
+    "dormant": false
   }
 ]
 ```
@@ -2043,6 +2049,37 @@ daemon's compatibility workspace (its own cwd) is used.
 Disabled config entries whose skill no longer exists on disk (ghost
 entries) are still included with `enabled:false` and `source:""` so the UI
 can release them from `config.skills.disabled`.
+
+#### Malformed skills
+
+`status` reports what discovery made of the `SKILL.md`:
+
+| `status` | meaning | `enabled` |
+|---|---|---|
+| `"ok"` | parsed cleanly | reflects `config.skills.disabled` |
+| `"warning"` | usable, but its metadata is degraded | reflects `config.skills.disabled` |
+| `"error"` | could not be turned into a usable skill | always `false`; the toggle is inert |
+
+`status != "ok"` rows also carry `error` (a human-readable reason) and
+`error_code`, one of `unreadable`, `missing_name`, `unusable_name`,
+`parse_error` (all fatal → `"error"`), `unterminated_frontmatter`,
+`missing_frontmatter`, `missing_description` (all non-fatal → `"warning"`).
+`path` points at the offending `SKILL.md` so the UI can tell the user which
+file to fix.
+
+`error` is English, like the rest of this API's error strings, and also
+serves as the log line. Localized wording is a front-end concern keyed off
+`error_code`; a client that meets an unknown code should fall back to
+`error`.
+
+`"error"` rows exist only for display. They are never registered as skills,
+so they do not appear in `GET /api/commands`, the model-facing skill index,
+`skills_list`, `skill_view`, or `/api/experts/capabilities`.
+
+This endpoint never fails because of a bad skill on disk: discovery is
+per-file fault-isolated and the response is serialized with nlohmann's
+`error_handler_t::replace`, so an undecodable byte degrades one field
+instead of returning `500` for the whole list.
 
 ### `PUT /api/skills/:name?workspace=<hash>`
 

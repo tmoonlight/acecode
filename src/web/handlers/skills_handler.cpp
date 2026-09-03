@@ -2,6 +2,7 @@
 
 #include "../../skills/skill_init.hpp"
 #include "../../skills/skill_registry.hpp"
+#include "../../skills/skill_loader.hpp"
 #include "../../skills/skill_usage_store.hpp"
 #include "../../utils/utf8_path.hpp"
 #include "../../utils/logger.hpp"
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <exception>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
@@ -159,10 +161,15 @@ nlohmann::json build_skills_payload_with_roots(
     SkillRegistry registry;
     registry.set_scan_roots(std::move(roots));
     registry.set_disabled({});
-    registry.scan();
+    const auto scan = registry.snapshot();
 
     const std::unordered_set<std::string> disabled(
         disabled_list.begin(), disabled_list.end());
+
+    auto source_for_root = [&project_root_keys](const fs::path& scan_root) {
+        return project_root_keys.count(path_to_utf8(scan_root.lexically_normal()))
+                   ? "project" : "global";
+    };
 
     // Usage/dormancy lookup for display. Empty when no store is wired up.
     std::unordered_map<std::string, SkillUsageSummary> usage_by_name;
@@ -171,36 +178,84 @@ nlohmann::json build_skills_payload_with_roots(
             idle_days > 0 ? static_cast<std::int64_t>(idle_days) * 24LL * 60 *
                                 60 * 1000
                           : 0;
-        for (const auto& s : skill_usage->get_summary(now_epoch_ms, idle_ms)) {
-            usage_by_name.emplace(s.name, s);
+        try {
+            for (const auto& s : skill_usage->get_summary(now_epoch_ms, idle_ms)) {
+                usage_by_name.emplace(s.name, s);
+            }
+        } catch (const std::exception& e) {
+            // A hand-edited / half-written usage file must not cost the user
+            // their whole skills page — usage counters are decoration.
+            LOG_WARN(std::string("[skills] usage summary unavailable: ") + e.what());
         }
+    }
+
+    auto attach_usage = [&usage_by_name](nlohmann::json& o, const std::string& name) {
+        const auto it = usage_by_name.find(name);
+        if (it != usage_by_name.end()) {
+            o["useCount"]   = it->second.use_count;
+            o["lastUsedAt"] = it->second.last_used_at;
+            o["pinned"]     = it->second.pinned;
+            o["dormant"]    = it->second.dormant;
+        } else {
+            o["useCount"]   = 0;
+            o["lastUsedAt"] = "";
+            o["pinned"]     = false;
+            o["dormant"]    = false;
+        }
+    };
+
+    // Non-fatal issues ride along with their skill row; keyed by SKILL.md path
+    // so two skills sharing a name cannot swap warnings.
+    std::unordered_map<std::string, const SkillLoadIssue*> warning_by_path;
+    for (const auto& issue : scan.issues) {
+        if (issue.fatal()) continue;
+        warning_by_path.emplace(path_to_utf8(issue.skill_md_path), &issue);
     }
 
     nlohmann::json arr = nlohmann::json::array();
     std::unordered_set<std::string> listed;
-    for (const auto& s : registry.list()) {
+    for (const auto& s : scan.skills) {
         nlohmann::json o;
         o["name"]        = s.name;
         o["command_key"] = s.command_key;
         o["description"] = s.description;
         o["category"]    = s.category;
         o["enabled"]     = disabled.count(s.name) == 0;
-        o["source"]      = project_root_keys.count(
-                               path_to_utf8(s.scan_root.lexically_normal()))
-                               ? "project" : "global";
-        const auto usage_it = usage_by_name.find(s.name);
-        if (usage_it != usage_by_name.end()) {
-            o["useCount"]  = usage_it->second.use_count;
-            o["lastUsedAt"] = usage_it->second.last_used_at;
-            o["pinned"]    = usage_it->second.pinned;
-            o["dormant"]   = usage_it->second.dormant;
+        o["source"]      = source_for_root(s.scan_root);
+        o["path"]        = path_to_utf8(s.skill_md_path);
+
+        const auto warn_it = warning_by_path.find(path_to_utf8(s.skill_md_path));
+        if (warn_it != warning_by_path.end()) {
+            o["status"]     = "warning";
+            o["error"]      = warn_it->second->detail;
+            o["error_code"] = skill_load_failure_code(warn_it->second->failure);
         } else {
-            o["useCount"]  = 0;
-            o["lastUsedAt"] = "";
-            o["pinned"]    = false;
-            o["dormant"]   = false;
+            o["status"] = "ok";
         }
+
+        attach_usage(o, s.name);
         listed.insert(s.name);
+        arr.push_back(std::move(o));
+    }
+
+    // 加载失败的 skill:磁盘上有 SKILL.md,但解析不出可用元数据。以前它们
+    // 只在日志里留一行就消失了,用户看到的是"技能没装上",无从下手;更糟的
+    // 是其中一部分会让整份响应抛异常变成 500。现在照常列出,标 status=error
+    // 并带上原因与文件路径。
+    for (const auto& issue : scan.issues) {
+        if (!issue.fatal()) continue;
+        nlohmann::json o;
+        o["name"]        = issue.name;
+        o["command_key"] = "";
+        o["description"] = "";
+        o["category"]    = issue.category;
+        o["enabled"]     = false;
+        o["source"]      = source_for_root(issue.scan_root);
+        o["path"]        = path_to_utf8(issue.skill_md_path);
+        o["status"]      = "error";
+        o["error"]       = issue.detail;
+        o["error_code"]  = skill_load_failure_code(issue.failure);
+        attach_usage(o, issue.name);
         arr.push_back(std::move(o));
     }
 
@@ -215,6 +270,8 @@ nlohmann::json build_skills_payload_with_roots(
         o["category"]    = "";
         o["enabled"]     = false;
         o["source"]      = "";
+        o["path"]        = "";
+        o["status"]      = "ok";
         o["useCount"]    = 0;
         o["lastUsedAt"]  = "";
         o["pinned"]      = false;
@@ -234,13 +291,25 @@ nlohmann::json build_skills_payload(const AppConfig& cfg,
                 std::chrono::system_clock::now().time_since_epoch())
                 .count();
     }
-    return build_skills_payload_with_roots(
-        project_skill_scan_roots(cfg, workspace_cwd_utf8),
-        global_skill_scan_roots(cfg),
-        cfg.skills.disabled,
-        skill_usage,
-        now_epoch_ms,
-        cfg.skills.idle_days);
+    // Last line of defence for the settings page: whatever goes wrong while
+    // enumerating roots or reading SKILL.md files, answer with a list — an
+    // empty one if we must — never with an exception that Crow turns into a
+    // 500 for the whole page.
+    try {
+        return build_skills_payload_with_roots(
+            project_skill_scan_roots(cfg, workspace_cwd_utf8),
+            global_skill_scan_roots(cfg),
+            cfg.skills.disabled,
+            skill_usage,
+            now_epoch_ms,
+            cfg.skills.idle_days);
+    } catch (const std::exception& e) {
+        LOG_WARN(std::string("[skills] failed to build skills payload: ") + e.what());
+        return nlohmann::json::array();
+    } catch (...) {
+        LOG_WARN("[skills] failed to build skills payload: unknown error");
+        return nlohmann::json::array();
+    }
 }
 
 } // namespace acecode::web

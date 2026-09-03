@@ -9,8 +9,23 @@
 
 namespace acecode {
 
+// Result of inspecting one skill directory. Exactly one of the two optionals
+// is engaged: `meta` when the skill is usable, `issue` when it is not.
+//
+// Never throws — a malformed or unreadable SKILL.md must not be able to abort
+// a whole scan (and, through it, the /api/skills response).
+struct SkillLoadOutcome {
+    std::optional<SkillMetadata>  meta;
+    std::optional<SkillLoadIssue> issue;
+};
+
+SkillLoadOutcome inspect_skill_dir(const std::filesystem::path& dir,
+                                   const std::filesystem::path& scan_root) noexcept;
+
 // Load frontmatter-only metadata for a skill directory. Returns nullopt when
-// SKILL.md is missing, unreadable, or fails all parse attempts.
+// SKILL.md is missing, unreadable, or fails all parse attempts. Thin wrapper
+// over inspect_skill_dir() for callers that do not care why a skill was
+// rejected.
 std::optional<SkillMetadata> load_skill_from_dir(const std::filesystem::path& dir,
                                                  const std::filesystem::path& scan_root);
 

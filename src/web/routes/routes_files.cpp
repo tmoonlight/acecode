@@ -1,4 +1,5 @@
 // routes_files.cpp — Route registrations extracted from server.cpp
+#include "../json_dump.hpp"
 #include "../server_impl.hpp"
 #include "../../skills/skill_init.hpp"
 #include "../../config/config.hpp"
@@ -445,7 +446,7 @@ void WebServer::Impl::register_skills() {
                 {"workspace_hash", ws->hash},
                 {"cwd", ws->cwd},
             };
-            crow::response r(body.dump());
+            crow::response r(acecode::web::dump_json_lossy(body));
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });
@@ -475,7 +476,10 @@ void WebServer::Impl::register_skills() {
                 arr = build_skills_payload(*deps.app_config, ws->cwd,
                                            deps.skill_usage_store);
             }
-            crow::response r(arr.dump());
+            // A malformed skill on disk is listed as a status="error" row, not
+            // raised as an exception — and the dump itself cannot throw on a
+            // stray byte, so the settings page never degrades to a bare 500.
+            crow::response r(acecode::web::dump_json_lossy(arr));
             r.add_header("Content-Type", "application/json");
             return r;
         });
@@ -501,7 +505,11 @@ void WebServer::Impl::register_skills() {
                 enabled = j["enabled"].get<bool>();
             } catch (const std::exception& e) {
                 crow::response r(400);
-                r.body = json{{"error", std::string("bad json: ") + e.what()}}.dump();
+                // e.what() quotes the offending request bytes verbatim, so the
+                // error response is exactly as likely to hold invalid UTF-8 as
+                // the body that caused it.
+                r.body = acecode::web::dump_json_lossy(
+                    json{{"error", std::string("bad json: ") + e.what()}});
                 r.add_header("Content-Type", "application/json");
                 return r;
             }
@@ -535,7 +543,7 @@ void WebServer::Impl::register_skills() {
                 deps.session_registry->refresh_skill_policy(*deps.app_config);
             }
             crow::response r(result.http_status);
-            r.body = result.body.dump();
+            r.body = acecode::web::dump_json_lossy(result.body);
             r.add_header("Content-Type", "application/json");
             return r;
         });
@@ -587,7 +595,7 @@ void WebServer::Impl::register_commands() {
                 std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 payload = build_commands_payload(registry, workspace_cwd, deps.app_config);
             }
-            crow::response r(payload.dump());
+            crow::response r(acecode::web::dump_json_lossy(payload));
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
         });

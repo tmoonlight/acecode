@@ -137,6 +137,19 @@ CLI `--worktree [name]` / `-w`(TUI):启动即建 worktree,name 可为 PR 引用(
 
 Proactive skill discovery (`inject-skill-index-into-context`): a compact skill index (name + description + optional `whenToUse` frontmatter, grouped by category) is injected each request into the session-context system-reminder built by `build_session_context_prompt` — the same per-request, never-persisted block that carries project instructions and the memory index. Budget is 1% of the context window in chars (4 chars/token, 8000-char fallback), 250 chars per entry (UTF-8-safe truncation); over budget degrades to names-only, then tail-cut with a `(+N more — call skills_list)` marker. The static `# Skills` prompt section points at this index ("err on the side of loading"); `skills_list` remains the fallback enumerator only. Without this index the model has zero visibility into installed skills and never invokes them proactively.
 
+**坏 skill 只能拖垮它自己,不能拖垮整个面板。** 设置页技能 tab 打开就是 500 的老毛病有两个根因,都在同一条链上:(1) `/api/skills` 走「全量扫描 → 拼 JSON → `dump()`」,而 nlohmann 的 `dump()` 碰到非法 UTF-8 直接抛 `type_error.316`,Crow 把它变成整页 500 —— 用户拿到的信息只有一个数字,连是哪个 skill 出问题都看不出来;(2) 更早的形态更隐蔽:`load_skill_from_dir` 对解析不出元数据的目录返回 `nullopt`,只在日志留一行就静默丢弃,面板上表现成「技能没装上」。
+
+现在的分层:
+
+- **`inspect_skill_dir()`(`skill_loader`)是 `noexcept` 的**,坏 SKILL.md 降级成 `SkillLoadIssue` 而不是异常。`load_skill_from_dir` 退化成它的薄封装。
+- **每个进 JSON 的字符串都过 `sanitize_field`**(`ensure_utf8` + UTF-8 边界截断)。以前只有 `description` / `whenToUse` 被守住(见 906396d),`name` / `category` / `tags` / `platforms` 都是裸的 —— 名字来自 frontmatter 或目录名,两者都能带进无法解码的字节。
+- **issue 分致命与非致命**(`is_fatal_skill_load_failure`)。致命(`unreadable` / `missing_name` / `unusable_name` / `parse_error`)= 技能没装上;非致命(`unterminated_frontmatter` / `missing_frontmatter` / `missing_description`)= 能用但元数据退化。**非致命绝不能改成致命** —— 无 frontmatter 的 SKILL.md 历来可用(名字取目录、描述取正文首行),改成致命就是把老用户的技能删掉。
+- **`SkillRegistry::list()` 里永远没有 issue**,issue 走 `snapshot()` 的第二个字段。模型侧的 skill 索引、斜杠命令、`skill_view` 都读 `list()`,把注册不了的条目塞进去只会制造幻觉。`snapshot()` 存在的另一个原因是每个读 API 都会重扫磁盘,`list()` + `list_issues()` 是两次全量扫描。
+- **`/api/skills` 的响应带 `status`(ok/warning/error)+ `error` + `error_code` + `path`**,前端 `SkillCard` 据此渲染「加载失败」(红框、开关禁用、显示原因与文件路径)或「配置异常」(琥珀色提示)。`build_skills_payload` 外面还包了一层 try/catch:最坏情况返回空数组,不返回异常。**给用户看的措辞在前端**(`skillsSettings.js::skillIssueMessage` 按 `error_code` 查表),后端 `error` 是英文的 —— 与 web 层其它错误字符串一致,同时兼作日志;前端只在遇到不认识的 code(新 daemon + 旧前端)时才回落到后端原文。新增文案要同步 `web/scripts/i18n-en-overrides.mjs` 并重跑 `pnpm i18n:catalog`,否则 `sourceCatalog.test.js` 会红。
+- **序列化统一走 `src/web/json_dump.hpp::dump_json_lossy`**(`error_handler_t::replace`)。生产者侧的净化是主修,但序列化层是唯一看得见全部字段的地方,所以它也必须不可能失败。skills / commands / experts-capabilities 几条路由都换过来了。
+
+同批修的两个 frontmatter 解析缺陷(都会让描述显示成一个孤零零的 `>`):`parse_yaml_block` 的顶层缩进不再写死 0,改成取第一条内容行的缩进 —— 整块被统一缩进(tab 缩进尤其常见)时,旧代码把每一行都当「意外的额外缩进」跳过,整块降级到只认 `key: value` 的兜底解析器;而那个兜底解析器**不认块标量**,`description: >` 就把指示符本身存成了值。现在 `simple_kv_parse` 也走 `parse_block_scalar`。`parse_frontmatter` 另外可选回报 `FrontmatterShape`,用来区分「没有 frontmatter」与「开了 `---` 没闭合」——两者都解析成空 map,但只有后者是错误。回归测试:[tests/skills/skill_load_resilience_test.cpp](tests/skills/skill_load_resilience_test.cpp) + `tests/skills/frontmatter_test.cpp` + `web/src/lib/skillsSettings.test.js`。
+
 [src/memory/](src/memory) stores Markdown memory entries under `~/.acecode/memory/` and rewrites an index on upsert/remove. `memory_write` is constrained to that directory even under broad permission modes.
 
 [src/project_instructions/](src/project_instructions) loads configured project-instruction filenames from the global config directory and then from the project hierarchy, outer-first, subject to per-file and aggregate byte caps. The repository root intentionally keeps only canonical docs; do not add duplicate root instruction files for this repository.

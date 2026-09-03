@@ -142,17 +142,27 @@ std::string parse_block_scalar(const std::vector<std::string>& lines,
 // Fallback parser: just pull out `key: value` lines with no nesting. Used when
 // the structured parser hits something unexpected — we still recover *some*
 // metadata rather than dropping the whole skill.
-Frontmatter simple_kv_parse(const std::string& yaml) {
+//
+// It has to understand block scalars too. Without that, a `description: >`
+// that reaches this path stores the *indicator* as the value, and the settings
+// page shows a skill whose entire description is a lone ">".
+Frontmatter simple_kv_parse(const std::vector<std::string>& lines) {
     Frontmatter out;
-    std::istringstream iss(yaml);
-    std::string line;
-    while (std::getline(iss, line)) {
+    for (size_t idx = 0; idx < lines.size();) {
+        const std::string& line = lines[idx];
         std::string trimmed = strip(line);
-        if (trimmed.empty() || trimmed[0] == '#') continue;
+        if (trimmed.empty() || trimmed[0] == '#') { ++idx; continue; }
         std::string key, value;
-        if (!split_kv(trimmed, key, value)) continue;
-        // Strip inline bracket lists too — good enough for tags/platforms.
-        if (value.size() >= 2 && value.front() == '[' && value.back() == ']') {
+        if (!split_kv(trimmed, key, value)) { ++idx; continue; }
+        const int key_indent = leading_indent(line);
+        ++idx;
+
+        char block_style = 0;
+        if (is_block_scalar_indicator(value, block_style)) {
+            out[key] = FrontmatterValue(
+                parse_block_scalar(lines, idx, key_indent, block_style));
+        } else if (value.size() >= 2 && value.front() == '[' && value.back() == ']') {
+            // Strip inline bracket lists too — good enough for tags/platforms.
             auto items = parse_bracket_list(value.substr(1, value.size() - 2));
             out[key] = FrontmatterValue(items);
         } else if (!value.empty()) {
@@ -267,16 +277,31 @@ Frontmatter parse_yaml_block(const std::string& yaml_block) {
         }
     }
 
+    // 顶层缩进不一定是 0:整块被统一缩进(或用 tab 缩进)的 frontmatter 是
+    // 常见手写产物。以第一条内容行的缩进为基准,否则 parse_mapping_block 会
+    // 把每一行都当成"意外的额外缩进"跳过,整块降级到 fallback 解析器。
+    int base_indent = 0;
+    for (const auto& l : lines) {
+        std::string t = strip(l);
+        if (t.empty() || t[0] == '#') continue;
+        base_indent = leading_indent(l);
+        break;
+    }
+
     Frontmatter fm;
     try {
         size_t idx = 0;
-        fm = parse_mapping_block(lines, idx, 0);
+        fm = parse_mapping_block(lines, idx, base_indent);
     } catch (...) {
-        fm = simple_kv_parse(yaml_block);
+        fm.clear();
     }
 
     if (fm.empty()) {
-        fm = simple_kv_parse(yaml_block);
+        try {
+            fm = simple_kv_parse(lines);
+        } catch (...) {
+            fm.clear();
+        }
     }
 
     return fm;
@@ -288,7 +313,12 @@ bool has_skill_metadata_shape(const Frontmatter& fm) {
 
 } // namespace
 
-std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content) {
+std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content,
+                                                      FrontmatterShape* shape) {
+    auto report = [shape](FrontmatterShape s) {
+        if (shape) *shape = s;
+    };
+    report(FrontmatterShape::None);
     // Must start with "---" optionally followed by whitespace then newline.
     if (content.size() < 4 || content.compare(0, 3, "---") != 0) {
         // Legacy ACECode skills were sometimes written as:
@@ -313,6 +343,7 @@ std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content
                     std::string body = (line_end == std::string::npos)
                         ? std::string{}
                         : content.substr(line_end + 1);
+                    report(FrontmatterShape::LegacyHeader);
                     return {fm, body};
                 }
                 break;
@@ -326,7 +357,10 @@ std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content
     size_t search_pos = 3;
     // Skip past the opening delimiter line.
     size_t first_nl = content.find('\n', 0);
-    if (first_nl == std::string::npos) return {Frontmatter{}, content};
+    if (first_nl == std::string::npos) {
+        report(FrontmatterShape::Unterminated);
+        return {Frontmatter{}, content};
+    }
     search_pos = first_nl + 1;
 
     // Look for a line whose content is exactly "---" (optionally trailing ws).
@@ -347,6 +381,10 @@ std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content
     }
 
     if (end_pos == std::string::npos) {
+        // Opened a frontmatter block and never closed it: the whole document
+        // falls through as body. Distinguishable from "no frontmatter" so the
+        // skill UI can point at the real mistake.
+        report(FrontmatterShape::Unterminated);
         return {Frontmatter{}, content};
     }
 
@@ -359,6 +397,7 @@ std::pair<Frontmatter, std::string> parse_frontmatter(const std::string& content
 
     Frontmatter fm = parse_yaml_block(yaml_block);
 
+    report(FrontmatterShape::Delimited);
     return {fm, body};
 }
 

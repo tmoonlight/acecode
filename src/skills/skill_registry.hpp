@@ -50,6 +50,22 @@ public:
     // by category.
     std::vector<SkillMetadata> list(const std::string& category = "") const;
 
+    // Usable skills plus the problems found for the same scan. Prefer this
+    // over list() + list_issues() — every read API re-scans from disk, and a
+    // full rescan of a large skills tree is not free.
+    //
+    // Issues are kept out of list() so broken skills never leak into the
+    // model-facing skill index, slash commands, or skill_view — they exist
+    // purely so the UI can show「加载失败」instead of silently omitting the row.
+    struct Snapshot {
+        std::vector<SkillMetadata>  skills;
+        std::vector<SkillLoadIssue> issues;
+    };
+    Snapshot snapshot() const;
+
+    // Problems found during the last scan. Re-scans; see snapshot().
+    std::vector<SkillLoadIssue> list_issues() const;
+
     // Look up a skill by name or by command_key. Returns nullopt if missing.
     std::optional<SkillMetadata> find(const std::string& name_or_key) const;
 
@@ -79,6 +95,7 @@ private:
     std::unordered_set<std::string> disabled_;
     std::optional<std::unordered_set<std::string>> allowed_;
     mutable std::vector<SkillMetadata> skills_;
+    mutable std::vector<SkillLoadIssue> issues_;
 };
 
 } // namespace acecode

@@ -1,4 +1,5 @@
 // routes_experts.cpp — local expert component discovery and managed CRUD.
+#include "../json_dump.hpp"
 #include "../server_impl.hpp"
 #include "../../tool/mcp_manager.hpp"
 
@@ -193,6 +194,9 @@ void WebServer::Impl::register_experts() {
                 const std::string id =
                     item.value("name", std::string{});
                 if (id.empty()) continue;
+                // status="error" rows exist only so the skills settings page
+                // can show「加载失败」; they are not selectable capabilities.
+                if (item.value("status", std::string{"ok"}) == "error") continue;
                 const bool enabled = item.value("enabled", false);
                 const bool globally_allowed =
                     contains_name(config_snapshot->skills.allowed, id);
@@ -303,11 +307,14 @@ void WebServer::Impl::register_experts() {
         }
 
         crow::response response(200);
-        response.body = json{
+        // Skill names and MCP server ids come from disk and user config; the
+        // capabilities panel must not 500 because one of them carries a stray
+        // byte.
+        response.body = acecode::web::dump_json_lossy(json{
             {"skills", std::move(skills)},
             {"mcp_servers", std::move(mcp_servers)},
             {"tools", std::move(tools)},
-        }.dump();
+        });
         response.add_header("Content-Type", "application/json");
         return with_cors(req, std::move(response));
     });
