@@ -36,9 +36,9 @@
 
 ## 6. 集成与验收
 
-- [ ] 6.1 更新父仓库 gitlink 指向已 push 的 `feat/osc8-hyperlink` 头；提升 `ports/ftxui/vcpkg.json` 的 port-version。
-- [ ] 6.2 重编 ftxui + `acecode` + `acecode_unit_tests`；跑全量单测 + 新增聚焦测试。
-- [ ] 6.3 `openspec validate add-tui-hyperlinks --strict`。
+- [x] 6.1 更新父仓库 gitlink 指向已 push 的 `feat/osc8-hyperlink` 头；提升 `ports/ftxui/vcpkg.json` 的 port-version。**2026-09-02 完成（gitlink 随 PR #38 落地 master）**：`bbe73202` 将 gitlink 同步至 `f98588b4`（hover 补丁头，master 构建恢复）；`ports/ftxui/vcpkg.json` port-version 4→5 补 PR #38 遗漏（portfile.cmake 规则：gitlink 变更必须同步 bump，否则 vcpkg 增量构建静默用旧 ftxui），本地已按 `7.0.3#5` 重建验证，随本分支提交。
+- [x] 6.2 重编 ftxui + `acecode` + `acecode_unit_tests`；跑全量单测 + 新增聚焦测试。**2026-09-02 晚完成**：vcpkg 重建 ftxui `7.0.3#5` 后全量 390 编译单元链接通过；全量单测 3782 跑 3766 过 / 9 失败 == 基线 9 项（BuiltinToolRegistry×2、SettingsCenterRender×1、StateFileTest×1、PtyBackendSpawnTest×1、ManagedRemoteWebProxy×2、WebServerHttp×2）→ 零回归。
+- [x] 6.3 `openspec validate add-tui-hyperlinks --strict`。**2026-09-02 完成**：`Change 'add-tui-hyperlinks' is valid`（strict 模式通过）。
 - [ ] 6.4 人工矩阵（用户验证）：iTerm2（Cmd+点击可开、原生悬停、右键打开/复制）、Apple Terminal.app（字节级回退：无 OSC 8、应用内点击照常、无悬停回归）、Windows Terminal（Ctrl+点击可开、悬停无闪屏）。
 - [ ] 6.5 在验证备注中记录顺带核实的终端（kitty、WezTerm、老式 conhost）。
 
