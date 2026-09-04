@@ -60,7 +60,7 @@ TEST(DesktopContextItems, ReferencesOrdinaryFilesAndFoldersInTransferOrder) {
     EXPECT_TRUE(result.items[1].bytes.empty());
 }
 
-TEST(DesktopContextItems, ReadsRasterImagesForSnapshotUpload) {
+TEST(DesktopContextItems, ReferencesRasterImagesWithoutReadingBytes) {
     ContextItemsTempDir temp;
     const fs::path image = temp.path / "screen.png";
     {
@@ -74,9 +74,9 @@ TEST(DesktopContextItems, ReadsRasterImagesForSnapshotUpload) {
 
     ASSERT_TRUE(result) << result.error;
     ASSERT_EQ(result.items.size(), 1u);
-    EXPECT_FALSE(result.items[0].reference_only);
+    EXPECT_TRUE(result.items[0].reference_only);
     EXPECT_EQ(result.items[0].mime_type, "image/png");
-    EXPECT_EQ(result.items[0].bytes, "png-bytes");
+    EXPECT_TRUE(result.items[0].bytes.empty());
     EXPECT_EQ(result.items[0].size_bytes, 9u);
 }
 
@@ -102,7 +102,7 @@ TEST(DesktopContextItems, LargeOrdinaryFileBypassesSnapshotLimit) {
     EXPECT_EQ(result.items[0].size_bytes, large_size);
 }
 
-TEST(DesktopContextItems, LargeRasterImageRetainsSnapshotLimit) {
+TEST(DesktopContextItems, LargeRasterImageBypassesSnapshotLimit) {
     ContextItemsTempDir temp;
     const fs::path image = temp.path / "large.png";
     {
@@ -116,8 +116,12 @@ TEST(DesktopContextItems, LargeRasterImageRetainsSnapshotLimit) {
         acecode::path_to_utf8(image),
     });
 
-    EXPECT_FALSE(result);
-    EXPECT_NE(result.error.find("25 MiB"), std::string::npos);
+    ASSERT_TRUE(result) << result.error;
+    ASSERT_EQ(result.items.size(), 1u);
+    EXPECT_TRUE(result.items[0].reference_only);
+    EXPECT_TRUE(result.items[0].bytes.empty());
+    EXPECT_EQ(result.items[0].size_bytes, static_cast<std::uintmax_t>(
+        acecode::kMaxAttachmentBytes) + 1u);
 }
 
 TEST(DesktopContextItems, RejectsRelativeAndMissingPaths) {

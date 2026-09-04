@@ -59,14 +59,13 @@ import {
 import {
   hasNativeContextPicker,
   nativeFolderReferencePath,
-  nativePickedFileToFile,
   parseNativeContextPickerResult,
 } from '../lib/desktopContextPicker.js';
 import {
   desktopHostOs,
   hasNativeFilesystemClipboard,
   hasNativeFilesystemMaterializer,
-  insertAbsoluteFolderReferences,
+  insertAbsolutePathReferences,
   localPathsFromDropPayload,
   localPathsFromUriList,
   materializeNativeFilesystemPaths,
@@ -613,29 +612,20 @@ export const InputBar = forwardRef(function InputBar({
   const addNativeFilesystemItems = useCallback((
     items,
     savedCursor = composerSelection.end,
-    { requestNativeFocus = true } = {},
   ) => {
     const list = Array.from(items || []);
     if (list.length === 0) return false;
 
-    const folders = list.filter((item) => item?.kind === 'folder' && item.path);
-    const files = list
-      .filter((item) => item?.kind === 'file')
-      .map((item) => nativePickedFileToFile(item));
+    const currentValue = valueRef.current;
+    const insertion = insertAbsolutePathReferences(currentValue, savedCursor, list);
+    if (insertion.text === currentValue) return false;
 
-    if (folders.length > 0) {
-      const currentValue = valueRef.current;
-      const insertion = insertAbsoluteFolderReferences(currentValue, savedCursor, folders);
-      if (insertion.text !== currentValue) {
-        valueRef.current = insertion.text;
-        updateValue(insertion.text);
-        setEditedSinceHistory(true);
-        restorePathCaret(insertion.cursor);
-      }
-    }
-    if (files.length > 0) addMediaFiles(files, { requestNativeFocus });
-    return folders.length > 0 || files.length > 0;
-  }, [addMediaFiles, composerSelection.end, restorePathCaret, updateValue]);
+    valueRef.current = insertion.text;
+    updateValue(insertion.text);
+    setEditedSinceHistory(true);
+    restorePathCaret(insertion.cursor);
+    return true;
+  }, [composerSelection.end, restorePathCaret, updateValue]);
 
   const addMaterializedPaths = useCallback(async (paths, savedCursor, options) => {
     const result = await materializeNativeFilesystemPaths(paths);
@@ -697,21 +687,24 @@ export const InputBar = forwardRef(function InputBar({
       }
       if (picked.folder) {
         const referencePath = nativeFolderReferencePath(cwd, picked.folder);
-        const insertion = insertPathReferenceAtCaret(value, savedCursor, referencePath);
+        const insertion = insertPathReferenceAtCaret(value, savedCursor, referencePath, {
+          directory: true,
+        });
         updateValue(insertion.text);
         setEditedSinceHistory(true);
         restorePathCaret(insertion.cursor);
         return;
       }
 
-      const files = picked.files.map((item) => nativePickedFileToFile(item));
-      if (!addMediaFiles(files)) restorePathCaret(savedCursor);
+      if (!addNativeFilesystemItems(picked.files, savedCursor)) {
+        restorePathCaret(savedCursor);
+      }
     } catch (error) {
       toast({ kind: 'err', text: `添加文件或文件夹失败:${error?.message || '选择器不可用'}` });
       restorePathCaret(savedCursor);
     }
   }, [
-    addMediaFiles,
+    addNativeFilesystemItems,
     composerSelection.end,
     cwd,
     nativeContextPickerAvailable,
@@ -838,8 +831,19 @@ export const InputBar = forwardRef(function InputBar({
       setHistPtr(-1);
       setEditedSinceHistory(false);
     },
+    insertPathReference: (path, { directory = false } = {}) => {
+      const insertion = insertPathReferenceAtCaret(value, composerSelection.end, path, {
+        directory,
+      });
+      updateValue(insertion.text);
+      setEditedSinceHistory(true);
+      restorePathCaret(insertion.cursor);
+      return insertion;
+    },
     insertDirectoryReference: (relativePath) => {
-      const insertion = insertPathReferenceAtCaret(value, composerSelection.end, relativePath);
+      const insertion = insertPathReferenceAtCaret(value, composerSelection.end, relativePath, {
+        directory: true,
+      });
       updateValue(insertion.text);
       setEditedSinceHistory(true);
       restorePathCaret(insertion.cursor);

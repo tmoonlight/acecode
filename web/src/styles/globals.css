@@ -1644,7 +1644,7 @@ body {
   box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), 0.15);
 }
 
-/* 后台任务 transcript 窄条:复用主会话 Message/ToolBlock,整体缩一档 */
+/* 后台任务 transcript 窄条:复用主会话完整投影/渲染链路,整体缩一档 */
 .ace-subagent-transcript {
   font-size: 12px;
 }
@@ -5565,6 +5565,7 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
   padding: 16px;
 }
 .ace-side-docx-renderer {
+  width: 100%;
   min-height: 100%;
   transform-origin: top left;
 }

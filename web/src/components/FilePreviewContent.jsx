@@ -8,7 +8,10 @@ import { isDesktopShell } from '../lib/desktopShellMode.js';
 import { langForFile } from '../lib/lang.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { parseWorkbookArrayBuffer } from '../lib/officePreview.js';
-import { officePreviewLogicalSize } from '../lib/officePreviewZoom.js';
+import {
+  officePreviewFitZoom,
+  officePreviewLogicalSize,
+} from '../lib/officePreviewZoom.js';
 import {
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
@@ -683,12 +686,54 @@ export function FilePreviewContent({
   );
 }
 
+function cssPixelLength(style, property) {
+  const value = Number.parseFloat(style?.[property]);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function applyInitialWordPreviewFit(viewport, host, setZoom) {
+  const page = host?.querySelector('section.ace-docx-preview-doc');
+  const wrapper = page?.parentElement;
+  if (!viewport || !page || !wrapper) return false;
+
+  const viewportStyle = window.getComputedStyle(viewport);
+  const wrapperStyle = window.getComputedStyle(wrapper);
+  const pageStyle = window.getComputedStyle(page);
+  const viewportRect = viewport.getBoundingClientRect();
+  const viewportWidth = viewportRect.width
+    - cssPixelLength(viewportStyle, 'borderLeftWidth')
+    - cssPixelLength(viewportStyle, 'borderRightWidth')
+    - cssPixelLength(viewportStyle, 'paddingLeft')
+    - cssPixelLength(viewportStyle, 'paddingRight');
+  const viewportHeight = viewportRect.height
+    - cssPixelLength(viewportStyle, 'borderTopWidth')
+    - cssPixelLength(viewportStyle, 'borderBottomWidth')
+    - cssPixelLength(viewportStyle, 'paddingTop')
+    - cssPixelLength(viewportStyle, 'paddingBottom');
+  const pageWidth = page.offsetWidth
+    + cssPixelLength(pageStyle, 'marginLeft')
+    + cssPixelLength(pageStyle, 'marginRight')
+    + cssPixelLength(wrapperStyle, 'paddingLeft')
+    + cssPixelLength(wrapperStyle, 'paddingRight');
+  const pageHeight = page.offsetHeight
+    + cssPixelLength(pageStyle, 'marginTop')
+    + cssPixelLength(pageStyle, 'marginBottom')
+    + cssPixelLength(wrapperStyle, 'paddingTop')
+    + cssPixelLength(wrapperStyle, 'paddingBottom');
+  if (Math.min(viewportWidth, viewportHeight, pageWidth, pageHeight) <= 0) return false;
+
+  setZoom(officePreviewFitZoom(viewportWidth, viewportHeight, pageWidth, pageHeight));
+  return true;
+}
+
 function WordPreview({ blob, path }) {
   const hostRef = useRef(null);
   const shellRef = useRef(null);
+  const viewportRef = useRef(null);
   const [error, setError] = useState('');
   const {
     zoom,
+    setZoom,
     zoomIn,
     zoomOut,
   } = useOfficePreviewZoom(path, shellRef);
@@ -697,6 +742,9 @@ function WordPreview({ blob, path }) {
     const host = hostRef.current;
     if (!host || !blob) return undefined;
     let cancelled = false;
+    let fitApplied = false;
+    let fitFrame = 0;
+    let fitObserver = null;
     setError('');
     host.replaceChildren();
     renderAsync(blob, host, host, {
@@ -709,15 +757,37 @@ function WordPreview({ blob, path }) {
       renderFooters: true,
       renderFootnotes: true,
       renderEndnotes: true,
+    }).then(() => {
+      if (cancelled) return;
+      const scheduleFit = () => {
+        if (cancelled || fitApplied) return;
+        if (fitFrame) window.cancelAnimationFrame(fitFrame);
+        fitFrame = window.requestAnimationFrame(() => {
+          fitFrame = 0;
+          if (cancelled || fitApplied) return;
+          if (!applyInitialWordPreviewFit(viewportRef.current, host, setZoom)) return;
+          fitApplied = true;
+          fitObserver?.disconnect();
+          fitObserver = null;
+        });
+      };
+      const viewport = viewportRef.current;
+      if (viewport && typeof ResizeObserver !== 'undefined') {
+        fitObserver = new ResizeObserver(scheduleFit);
+        fitObserver.observe(viewport);
+      }
+      scheduleFit();
     }).catch((err) => {
       if (cancelled) return;
       setError(err?.message || 'Word 文件预览失败');
     });
     return () => {
       cancelled = true;
+      if (fitFrame) window.cancelAnimationFrame(fitFrame);
+      fitObserver?.disconnect();
       host.replaceChildren();
     };
-  }, [blob]);
+  }, [blob, setZoom]);
 
   if (error) {
     return (
@@ -730,12 +800,11 @@ function WordPreview({ blob, path }) {
 
   return (
     <div ref={shellRef} className="ace-office-preview-shell">
-      <div className="ace-side-docx-preview">
+      <div ref={viewportRef} className="ace-side-docx-preview">
         <div
           ref={hostRef}
           className="ace-side-docx-renderer"
           style={{
-            width: `${100 / zoom}%`,
             zoom,
           }}
         />

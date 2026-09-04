@@ -55,7 +55,7 @@ Work directly from a project terminal with streaming responses, tool progress, s
 5. Describe the result you want and press `Enter`.
 
 > [!TIP]
-> Type `@` to reference a workspace file or directory. Use the add button to attach images, files, or folders when extra context is useful.
+> Type `@` to reference a workspace file or directory. In Desktop, the add button also passes local files, including images and large files, to the agent as on-demand path references.
 
 ### Terminal TUI
 

@@ -25,7 +25,7 @@ test('new conversation home is the only interactive logo entry point', () => {
   const emptyStateMarker = chatView.indexOf('// 空态:没选会话');
   const emptyStateStart = chatView.indexOf('if (!sid) {', emptyStateMarker);
   const existingSessionStart = chatView.indexOf(
-    'function renderExpandedActivityItems',
+    'const chatColumnStyle',
     emptyStateStart,
   );
   assert.ok(emptyStateStart >= 0 && existingSessionStart > emptyStateStart);

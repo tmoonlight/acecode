@@ -147,6 +147,7 @@ function UserBubble({
   onFork,
   forkPending,
   forkLoading,
+  showFooter,
   annotationPresentations,
 }) {
   return (
@@ -161,16 +162,18 @@ function UserBubble({
           <UserMessageBody content={content} />
         </div>
       ) : null}
-      <div className="min-h-6 flex items-center justify-end gap-1 mr-1">
-        {ts != null && <span className="text-[10px] text-fg-mute">{relativeTime(ts)}</span>}
-        <MessageActions
-          messageId={messageId}
-          getCopyText={() => content}
-          onFork={onFork}
-          forkPending={forkPending}
-          forkLoading={forkLoading}
-        />
-      </div>
+      {showFooter && (
+        <div className="min-h-6 flex items-center justify-end gap-1 mr-1">
+          {ts != null && <span className="text-[10px] text-fg-mute">{relativeTime(ts)}</span>}
+          <MessageActions
+            messageId={messageId}
+            getCopyText={() => content}
+            onFork={onFork}
+            forkPending={forkPending}
+            forkLoading={forkLoading}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -398,6 +401,7 @@ export const Message = memo(function Message({
                         onFork={onFork}
                         forkPending={forkPending}
                         forkLoading={forkLoading}
+                        showFooter={showFooter}
                         annotationPresentations={annotationPresentations} />;
   }
   if (role === 'assistant') {

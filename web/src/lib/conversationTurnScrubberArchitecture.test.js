@@ -182,6 +182,7 @@ run('turn preparation waits until transcript paint and idle time and remains can
 
 run('turn activation commits the selected marker before a direct transcript jump', () => {
   const chatView = source('components/ChatView.jsx');
+  const presentation = source('lib/transcriptItemPresentation.js');
   assert.match(
     chatView,
     /row\.getAttribute\('data-chat-item-id'\) === targetId/,
@@ -204,7 +205,7 @@ run('turn activation commits the selected marker before a direct transcript jump
     jumpSource.indexOf('setActiveConversationTurn(index)')
       < jumpSource.indexOf('el.scrollTop = targetScrollTop'),
   );
-  assert.match(chatView, /data-chat-item-id=\{String\(it\.id\)\}/);
+  assert.match(presentation, /'data-chat-item-id': item\?\.id == null \? undefined : String\(item\.id\)/);
 });
 
 run('explicit marker activation survives clamped remeasurement until scroll changes', () => {

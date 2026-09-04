@@ -104,6 +104,27 @@ test('keeps native ordinary files as path-only references without decoding bytes
   });
 });
 
+test('accepts native raster images as path-only references', () => {
+  const file = nativePickedFileToFile({
+    kind: 'file',
+    path: 'C:/repo/large screenshot.png',
+    name: 'large screenshot.png',
+    mime_type: 'image/png',
+    size_bytes: 80 * 1024 * 1024,
+    reference_only: true,
+  }, {
+    FileCtor: undefined,
+    decodeBase64: undefined,
+  });
+
+  assert.equal(file.type, 'image/png');
+  assert.equal(fileSourcePath(file), 'C:/repo/large screenshot.png');
+  assert.deepEqual(fileSourceReference(file), {
+    sourcePath: 'C:/repo/large screenshot.png',
+    sizeBytes: 80 * 1024 * 1024,
+  });
+});
+
 test('parses mixed native filesystem files and folders in transfer order', () => {
   const parsed = parseNativeFilesystemItemsResult(JSON.stringify({
     ok: true,

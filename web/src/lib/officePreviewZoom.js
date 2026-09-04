@@ -31,6 +31,27 @@ export function officePreviewZoomForWheel(value, wheel = {}) {
   return stepOfficePreviewZoom(value, deltaY < 0 ? 1 : -1);
 }
 
+export function officePreviewFitZoom(
+  viewportWidth,
+  viewportHeight,
+  contentWidth,
+  contentHeight,
+) {
+  const dimensions = [viewportWidth, viewportHeight, contentWidth, contentHeight]
+    .map((value) => Number(value));
+  if (dimensions.some((value) => !Number.isFinite(value) || value <= 0)) {
+    return OFFICE_PREVIEW_ZOOM_DEFAULT;
+  }
+  const [availableWidth, availableHeight, renderedWidth, renderedHeight] = dimensions;
+  const fit = Math.min(
+    availableWidth / renderedWidth,
+    availableHeight / renderedHeight,
+  );
+  if (fit <= OFFICE_PREVIEW_ZOOM_MIN) return OFFICE_PREVIEW_ZOOM_MIN;
+  if (fit >= OFFICE_PREVIEW_ZOOM_MAX) return OFFICE_PREVIEW_ZOOM_MAX;
+  return Math.floor((fit + Number.EPSILON) * 100) / 100;
+}
+
 export function officePreviewLogicalSize(physicalSize, zoom, minimum = 1) {
   const size = Number(physicalSize);
   const floor = Math.max(1, Number(minimum) || 1);

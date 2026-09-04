@@ -29,11 +29,23 @@ run('Office previews share icon-only bounded zoom controls and native Ctrl-wheel
   assert.match(styles, /\.ace-office-preview-shell\s*\{[\s\S]*min-width:\s*0;[\s\S]*width:\s*100%;/);
 });
 
-run('Word preview zooms a compensated inner stage instead of rerendering the document', () => {
+run('Word preview keeps browser zoom centered on the visible viewport', () => {
   const preview = source('../components/FilePreviewContent.jsx');
+  const styles = source('../styles/globals.css');
+  const wordPreview = preview.slice(
+    preview.indexOf('function WordPreview'),
+    preview.indexOf('function SpreadsheetPreview'),
+  );
   assert.match(preview, /function WordPreview[\s\S]*useOfficePreviewZoom\(path, shellRef\)/);
-  assert.match(preview, /className="ace-side-docx-renderer"[\s\S]*width: `\$\{100 \/ zoom\}%`[\s\S]*zoom,/);
-  assert.match(preview, /<OfficePreviewControls[\s\S]*onZoomIn=\{zoomIn\}[\s\S]*onZoomOut=\{zoomOut\}/);
+  assert.match(wordPreview, /className="ace-side-docx-renderer"[\s\S]*style=\{\{[\s\S]*zoom,[\s\S]*\}\}/);
+  assert.doesNotMatch(wordPreview, /100\s*\/\s*zoom/);
+  assert.match(styles, /\.ace-side-docx-renderer\s*\{[\s\S]*width:\s*100%;/);
+  assert.match(wordPreview, /ref=\{viewportRef\}[\s\S]*className="ace-side-docx-preview"/);
+  assert.match(wordPreview, /renderAsync\([\s\S]*?\)\.then\(\(\) => \{/);
+  assert.match(wordPreview, /if \(cancelled \|\| fitApplied\) return;[\s\S]*new ResizeObserver\(scheduleFit\)/);
+  assert.match(wordPreview, /fitApplied = true;[\s\S]*fitObserver\?\.disconnect\(\)/);
+  assert.match(wordPreview, /applyInitialWordPreviewFit\(viewportRef\.current, host, setZoom\)/);
+  assert.match(wordPreview, /<OfficePreviewControls[\s\S]*onZoomIn=\{zoomIn\}[\s\S]*onZoomOut=\{zoomOut\}/);
 });
 
 run('Spreadsheet resize and zoom reload canvas plus native scrollbar geometry', () => {

@@ -37,29 +37,29 @@ run('ChatView defers only the active turn footer from the live busy state', () =
 });
 
 run('completion summary renders its entire footer only when it owns the settled turn', () => {
-  const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   const completionBlock = between(
-    chat,
-    'function CompletionSummaryBlock({',
-    'function TerminationNoticeBlock',
+    renderer,
+    'export function CompletionSummaryBlock({',
+    'export function TerminationNoticeBlock',
   );
 
   assert.match(completionBlock, /showFooter = true/);
   assert.match(completionBlock, /\{showFooter && \(\s*<div className="min-h-6 flex items-center gap-1">/);
   assert.match(completionBlock, /<MessageActions/);
   assert.match(
-    chat,
-    /showFooter=\{assistantRunDirectives\.get\(it\.id\)\?\.showFooter === true\}/,
+    renderer,
+    /showFooter=\{!nested && capabilities\.showMessageFooters && directive\?\.showFooter === true\}/,
   );
 });
 
 run('terminal notice and error rows reuse message actions only as terminal owners', () => {
-  const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   const message = source('components/Message.jsx');
   const terminationBlock = between(
-    chat,
-    'function TerminationNoticeBlock({',
-    'function normalizeSessionRef',
+    renderer,
+    'export function TerminationNoticeBlock({',
+    'function TranscriptItem',
   );
   const errorRow = between(
     message,
@@ -73,26 +73,21 @@ run('terminal notice and error rows reuse message actions only as terminal owner
   assert.match(errorRow, /\{showFooter && \(/);
   assert.match(errorRow, /<MessageActions/);
   assert.match(
-    chat,
-    /const terminalDirective = assistantRunDirectives\.get\(it\.id\)/,
+    renderer,
+    /const directive = nested \? undefined : directives\.get\(item\.id\)/,
   );
   assert.match(
-    chat,
-    /showFooter=\{terminalDirective\?\.showFooter === true\}/,
+    renderer,
+    /showFooter=\{!nested && capabilities\.showMessageFooters && directive\?\.showFooter === true\}/,
   );
 });
 
 run('expanded activity details never create an intermediate turn footer', () => {
-  const chat = source('components/ChatView.jsx');
-  const expandedItems = between(
-    chat,
-    'function renderExpandedActivityItems',
-    'const chatColumnStyle',
-  );
+  const expandedItems = source('components/TranscriptItems.jsx');
 
-  assert.match(expandedItems, /<CompletionSummaryBlock[\s\S]*?showFooter=\{false\}/);
-  assert.match(expandedItems, /const childShowFooter = false;/);
-  assert.match(expandedItems, /showFooter=\{childShowFooter\}/);
+  assert.match(expandedItems, /<TranscriptItems[\s\S]*?nested/);
+  assert.match(expandedItems, /showFooter=\{!nested && capabilities\.showMessageFooters/);
+  assert.match(expandedItems, /const showFooter = !nested[\s\S]*?capabilities\.showMessageFooters/);
 });
 
 console.log('turnFooterStabilityArchitecture tests passed');

@@ -140,11 +140,17 @@ TEST_F(SystemPromptTest, UserAtPathReferenceContractIsExplicit) {
               std::string::npos);
     EXPECT_NE(out.find("Resolve relative paths from the current working directory"),
               std::string::npos);
-    EXPECT_NE(out.find("an explicitly selected folder may use an absolute path"),
+    EXPECT_NE(out.find("an explicitly selected local file or directory may use an absolute path"),
               std::string::npos);
     EXPECT_NE(out.find("content is not automatically attached"),
               std::string::npos);
     EXPECT_NE(out.find("do not assume a referenced directory was recursively loaded"),
+              std::string::npos);
+    EXPECT_NE(out.find("Do not reject a referenced file only because it is large, binary"),
+              std::string::npos);
+    EXPECT_NE(out.find("a safely converted or split working copy"),
+              std::string::npos);
+    EXPECT_NE(out.find("instead of treating the attachment limit as the end of the task"),
               std::string::npos);
 }
 

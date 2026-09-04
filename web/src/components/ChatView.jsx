@@ -9,7 +9,6 @@
 
 import {
   Component,
-  Fragment,
   Suspense,
   lazy,
   useCallback,
@@ -24,8 +23,6 @@ import { flushSync } from 'react-dom';
 import { createApi } from '../lib/api.js';
 import { connection } from '../lib/connection.js';
 import { tr } from '../i18n/index.js';
-import { renderMarkdown } from '../lib/markdown.js';
-import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import {
   fileSourcePath,
   fileSourceReference,
@@ -37,10 +34,7 @@ import {
   releaseComposerAttachmentFile,
   reserveComposerAttachmentFiles,
 } from '../lib/composerAttachmentReservations.js';
-import { Message, MessageActions } from './Message.jsx';
 import { ActivityLine } from './ActivityLine.jsx';
-import { AttachmentStrip } from './AttachmentStrip.jsx';
-import { ToolBlock } from './ToolBlock.jsx';
 import { InputBar } from './InputBar.jsx';
 import InteractiveHomeLogo from './InteractiveHomeLogo.jsx';
 import { SelectionActionPopover } from './SelectionActionPopover.jsx';
@@ -56,14 +50,14 @@ import { StickyUserContext } from './StickyUserContext.jsx';
 import { SessionContentLoading } from './SessionContentLoading.jsx';
 import { SidePanel } from './SidePanel.jsx';
 import { SubagentPanel } from './SubagentPanel.jsx';
-import { SubagentGroupBlock } from './SubagentGroupBlock.jsx';
+import { TranscriptItems } from './TranscriptItems.jsx';
 import { PreviewDetailsPanel } from './PreviewDetailsPanel.jsx';
 import { Modal } from './Modal.jsx';
 import { CreateProjectModal } from './CreateProjectModal.jsx';
 import { ChangeGlassDock } from './ChangeReview.jsx';
 import { TurnFileList } from './TurnFileList.jsx';
 import { toast } from './Toast.jsx';
-import { clsx, relativeTime } from '../lib/format.js';
+import { clsx } from '../lib/format.js';
 import {
   aggregateHunksFromMessages,
   changeGroupsSignature,
@@ -180,7 +174,6 @@ import {
   solveSingleContentLayout,
   subagentPanelWidthRange,
 } from '../lib/singleLayout.js';
-import { completionSummaryMarkdown } from '../lib/taskCompleteSummary.js';
 import {
   activeConversationTurnIndex as resolveActiveConversationTurnIndex,
   activatedConversationTurnIndex as resolveActivatedConversationTurnIndex,
@@ -250,7 +243,6 @@ import {
 import { normalizeReferencePath } from '../lib/pathReference.js';
 import {
   createSelectionAnnotation,
-  createFileContext,
   mergeSelectionAnnotations,
   normalizeComposerContext,
   SELECTION_PREVIEW_SELECTOR,
@@ -359,27 +351,6 @@ function nextSelectionContextId() {
   return `selection-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function messageTextForContext(item) {
-  if (item?.kind === 'completion_summary') return completionSummaryText(item);
-  if (item?.kind !== 'msg') return '';
-  if (item.role === 'user' && typeof item.metadata?.display_text === 'string' && item.metadata.display_text) {
-    return item.metadata.display_text;
-  }
-  return String(item.content || '');
-}
-
-function messageContextAttrs(item) {
-  const isCompletionSummary = item?.kind === 'completion_summary';
-  if (item?.kind !== 'msg' && !isCompletionSummary) return {};
-  const messageId = item.messageId || '';
-  return {
-    'data-desktop-message-id': messageId || undefined,
-    'data-desktop-message-role': isCompletionSummary ? 'assistant' : (item.role || undefined),
-    'data-desktop-message-text': messageTextForContext(item) || undefined,
-    'data-desktop-message-can-fork': messageId ? 'true' : undefined,
-  };
-}
-
 function finiteMessageOrdinal(value) {
   const n = Number(value);
   return Number.isInteger(n) && n >= 0 ? n : null;
@@ -424,15 +395,6 @@ function collectRowMetrics(container) {
   });
 }
 
-function chatRowClassName(item, extra = '') {
-  const role = item?.kind === 'msg' ? (item.role || '') : (item?.kind || '');
-  return clsx(
-    'ace-chat-row flex flex-col',
-    role === 'system' && 'ace-chat-row-assistant-gutter',
-    extra,
-  );
-}
-
 function currentTurnActivityId(items, activeTurnId, sessionId) {
   const list = Array.isArray(items) ? items : [];
   for (let i = list.length - 1; i >= 0; i -= 1) {
@@ -467,193 +429,6 @@ function chatFileDropEventIsInsideScope(event) {
   const scope = event?.currentTarget;
   const target = event?.target;
   return !!scope && !!target && scope.contains(target);
-}
-
-function activitySummaryDetails(item) {
-  return item?.detailItems || item?.collapsedItems || [];
-}
-
-function ActivityDetailsReveal({ children }) {
-  const [settled, setSettled] = useState(false);
-
-  useEffect(() => {
-    const fallback = window.setTimeout(() => setSettled(true), 220);
-    return () => window.clearTimeout(fallback);
-  }, []);
-
-  return (
-    <div
-      className={clsx('ace-activity-details-reveal', settled && 'is-settled')}
-      data-activity-details-reveal="true"
-      onAnimationEnd={(event) => {
-        if (event.target === event.currentTarget) setSettled(true);
-      }}
-    >
-      <div className="ace-activity-details-reveal-inner mt-1 flex min-h-0 flex-col gap-0.5">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function ActivitySummaryBlock({ item, expanded, onToggle, activity = null }) {
-  const details = activitySummaryDetails(item);
-  const hasDetails = details.length > 0;
-  const live = item?.live === true;
-  const activityKind = activity?.kind || CONVERSATION_ACTIVITY_KIND.IDLE;
-  if (
-    live
-    && !hasDetails
-    && (activityKind === CONVERSATION_ACTIVITY_KIND.PERMISSION
-      || activityKind === CONVERSATION_ACTIVITY_KIND.QUESTION)
-  ) {
-    return null;
-  }
-
-  const parallelCount = Number(item?.runningToolCount) || 0;
-  const label = live && parallelCount > 1
-    ? `正在运行 ${parallelCount} 个工具`
-    : (live ? (activity?.label || item?.title || '正在处理请求') : (item?.title || '已处理'));
-  const detail = live
-    ? [
-        activity?.detail || '',
-        activityKind !== CONVERSATION_ACTIVITY_KIND.BACKGROUND
-          && activity?.backgroundCount > 0
-          ? activity.backgroundLabel
-          : '',
-      ].filter(Boolean).join(' · ')
-    : '';
-
-  return (
-    <ActivityLine
-      icon={live ? null : <VsIcon name="edit" size={13} className="opacity-80" />}
-      running={live}
-      label={label}
-      detail={detail}
-      expandable={hasDetails}
-      expanded={expanded}
-      onToggle={hasDetails ? onToggle : undefined}
-      title={hasDetails ? (expanded ? '收起详情' : '展开详情') : label}
-      ariaLabel={hasDetails ? (expanded ? '收起详情' : '展开详情') : undefined}
-      live={live}
-      className={item?.mode === 'processed' ? 'ace-activity-line-processed' : ''}
-    />
-  );
-}
-
-// 图像行:标题行形制与 ActivitySummaryBlock 一致(同一个 ActivityLine 外壳),但默认
-// 展开 —— 图片的价值就在于一眼看到。收起态由调用方的 collapsedMediaKeys 控制
-// (集合里有 = 已收起),刚好与 expandedActivityKeys 的语义相反。
-function MediaGroupBlock({ item, collapsed, onToggle }) {
-  const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
-  if (attachments.length === 0) return null;
-  const label = item?.title || `已查看 ${attachments.length} 张图像`;
-  const toggleHint = collapsed ? '展开图像' : '收起图像';
-  return (
-    <div className="flex flex-col">
-      <ActivityLine
-        icon={<VsIcon name="eye" size={13} className="opacity-80" />}
-        label={label}
-        expandable
-        expanded={!collapsed}
-        onToggle={onToggle}
-        title={toggleHint}
-        ariaLabel={toggleHint}
-      />
-      {!collapsed && (
-        <div className="mt-1 max-w-[88%]">
-          <AttachmentStrip attachments={attachments} align="left" compact />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function completionSummaryText(item) {
-  return completionSummaryMarkdown(item, '已完成');
-}
-
-function CompletionSummaryBlock({
-  item,
-  onFork,
-  forkPending = false,
-  forkLoading = false,
-  showFooter = true,
-}) {
-  const summaryText = completionSummaryText(item);
-  const html = useMemo(() => ({ __html: renderMarkdown(summaryText) }), [summaryText]);
-  const handleMarkdownClick = useCallback(async (event) => {
-    const text = codeTextFromCopyButtonTarget(event.target);
-    if (text == null) return;
-    event.preventDefault();
-    event.stopPropagation();
-    try {
-      await copyTextToClipboard(text);
-      toast({ kind: 'ok', text: '已复制代码' });
-    } catch (e) {
-      toast({ kind: 'err', text: '复制失败:' + (e?.message || '') });
-    }
-  }, []);
-
-  return (
-    <div
-      className="group max-w-[88%] px-1 py-0.5 text-fg break-words"
-      title={item?.title || `总结：${summaryText}`}
-    >
-      <div className="text-[12px] font-semibold text-fg-mute mb-0.5">总结</div>
-      <div
-        className="ace-md ace-completion-summary-md text-[13px] leading-[1.6]"
-        onClick={handleMarkdownClick}
-        dangerouslySetInnerHTML={html}
-      />
-      {showFooter && (
-        <div className="min-h-6 flex items-center gap-1">
-          <MessageActions
-            messageId={item?.messageId}
-            getCopyText={() => summaryText}
-            onFork={onFork}
-            forkPending={forkPending}
-            forkLoading={forkLoading}
-          />
-          {item?.ts != null && (
-            <span className="text-[10px] text-fg-mute font-normal">{relativeTime(item.ts)}</span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TerminationNoticeBlock({
-  item,
-  onFork,
-  forkPending = false,
-  forkLoading = false,
-  forkMessageId = '',
-  showFooter = false,
-}) {
-  const content = item?.content || '任务已终止';
-  return (
-    <div className="group max-w-[88%] px-1 py-0.5">
-      <div className="text-[12px] leading-5 text-danger whitespace-pre-wrap break-words">
-        {content}
-      </div>
-      {showFooter && (
-        <div className="min-h-6 flex items-center gap-1">
-          <MessageActions
-            messageId={forkMessageId}
-            getCopyText={() => content}
-            onFork={onFork}
-            forkPending={forkPending}
-            forkLoading={forkLoading}
-          />
-          {item?.ts != null && (
-            <span className="text-[10px] text-fg-mute font-normal">{relativeTime(item.ts)}</span>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function normalizeSessionRef(sessionRef, sessionId) {
@@ -3703,47 +3478,30 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   }, [pinSelectionContext]);
 
   useEffect(() => {
-    const handler = async (event) => {
+    const handler = (event) => {
       const detail = event.detail || {};
       const { action, target } = detail;
       if (action !== DESKTOP_CONTEXT_ACTIONS.ADD_FILE_CONTEXT) return;
       detail.handled = true;
-      const filePath = target?.relativePath || target?.absolutePath || '';
+      const filePath = normalizeReferencePath(
+        target?.relativePath || target?.absolutePath || '',
+      );
       if (!filePath) {
         toast({ kind: 'err', text: '无法获取文件路径' });
         return;
       }
-      const cwd = sidePanelCwd;
-      try {
-        const text = await api.readFile(cwd, filePath);
-        const context = createFileContext({
-          path: target?.absolutePath || filePath,
-          kind: 'text',
-          text,
-        });
-        if (!pinSelectionContext(context)) {
-          toast({ kind: 'err', text: '文件内容为空' });
-          return;
-        }
-        toast({ kind: 'ok', text: '已引用到聊天' });
-      } catch (err) {
-        const status = err?.status || 0;
-        const body = err?.body || err?.message || '';
-        const errorStr = typeof body === 'object' ? (body.error || '') : String(body);
-        if (status === 415 && errorStr.includes('binary')) {
-          toast({ kind: 'err', text: '无法引用二进制文件' });
-        } else if (status === 415 && errorStr.includes('too large')) {
-          toast({ kind: 'err', text: '文件过大，无法引用' });
-        } else if (status === 404) {
-          toast({ kind: 'err', text: '文件不存在' });
-        } else {
-          toast({ kind: 'err', text: '读取文件失败' });
-        }
+      const insertion = inputRef.current?.insertPathReference?.(filePath, {
+        directory: false,
+      });
+      if (!insertion) {
+        toast({ kind: 'err', text: '输入框当前不可用' });
+        return;
       }
+      toast({ kind: 'ok', text: '已添加到会话' });
     };
     window.addEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
     return () => window.removeEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
-  }, [api, pinSelectionContext, sidePanelCwd]);
+  }, []);
 
   useEffect(() => {
     const handler = (event) => {
@@ -3758,7 +3516,9 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         toast({ kind: 'err', text: '无法获取文件夹路径' });
         return;
       }
-      const insertion = inputRef.current?.insertDirectoryReference?.(referencePath);
+      const insertion = inputRef.current?.insertPathReference?.(referencePath, {
+        directory: true,
+      });
       if (!insertion) {
         toast({ kind: 'err', text: '输入框当前不可用' });
         return;
@@ -5112,150 +4872,6 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     );
   }
 
-  function renderExpandedActivityItems(children, keyPrefix) {
-    const list = Array.isArray(children) ? children : [];
-    const directives = buildAssistantRunDirectives(list);
-
-    return list.map((child, index) => {
-      const key = `${keyPrefix}-${child.id ?? index}`;
-
-      if (child.kind === 'activity_summary') {
-        const nestedExpanded = expandedActivityKeys.has(child.id);
-        const nestedItems = child.detailItems || child.collapsedItems || [];
-        return (
-          <div
-            key={key}
-            className="flex flex-col"
-            data-chat-kind={child.kind || ''}
-            data-chat-role="activity_summary"
-          >
-            <ActivitySummaryBlock
-              item={child}
-              expanded={nestedExpanded}
-              onToggle={(event) => toggleActivitySummary(child.id, event?.currentTarget)}
-            />
-            {nestedExpanded && (
-              <ActivityDetailsReveal>
-                {renderExpandedActivityItems(nestedItems, `${key}-nested`)}
-              </ActivityDetailsReveal>
-            )}
-          </div>
-        );
-      }
-
-      if (child.kind === 'completion_summary') {
-        return (
-          <div
-            key={key}
-            className="flex flex-col"
-            data-chat-kind={child.kind || ''}
-            data-chat-role="completion_summary"
-            {...messageContextAttrs(child)}
-          >
-            <CompletionSummaryBlock
-              item={child}
-              onFork={forkAndSwitch}
-              forkPending={forkingMessageId !== ''}
-              forkLoading={forkingMessageId !== '' && forkingMessageId === String(child.messageId || '')}
-              showFooter={false}
-            />
-          </div>
-        );
-      }
-
-      if (child.kind === 'media_group') {
-        return (
-          <div
-            key={key}
-            className="flex flex-col"
-            data-chat-kind={child.kind || ''}
-            data-chat-role="media_group"
-          >
-            <MediaGroupBlock
-              item={child}
-              collapsed={collapsedMediaKeys.has(child.id)}
-              onToggle={(event) => toggleMediaGroup(child.id, event?.currentTarget)}
-            />
-          </div>
-        );
-      }
-
-      if (child.kind === 'subagent_group') {
-        return (
-          <div
-            key={key}
-            className="flex flex-col"
-            data-chat-kind={child.kind || ''}
-            data-chat-role="subagent_group"
-          >
-            <SubagentGroupBlock
-              agents={child.agents}
-              tasksById={subagentTasksById}
-              onOpen={openSubagentTranscript}
-            />
-          </div>
-        );
-      }
-
-      if (child.kind === 'termination_notice') {
-        return (
-          <div
-            key={key}
-            className="flex flex-col"
-            data-chat-kind={child.kind || ''}
-            data-chat-role="termination_notice"
-          >
-            <TerminationNoticeBlock item={child} showFooter={false} />
-          </div>
-        );
-      }
-
-      const childDirective = child.kind === 'msg' && child.role === 'assistant'
-        ? directives.get(child.id)
-        : undefined;
-      if (childDirective?.hide) return null;
-      const childContinuation = childDirective ? childDirective.showHeader === false : false;
-      // 活动摘要里的消息是当前 turn 的中间轨迹,不单独创建复制/分叉 footer。
-      const childShowFooter = false;
-      return (
-        <div
-          key={key}
-          className="flex flex-col"
-          data-chat-kind={child.kind || ''}
-          data-chat-role={child.kind === 'msg' ? (child.role || '') : (child.kind || '')}
-          {...messageContextAttrs(child)}
-        >
-          {child.kind === 'tool' ? (
-            <ToolBlock
-              entry={child.tool}
-              onReviewToggle={pauseTailFollowForReview}
-              sessionRunning={status === 'running'}
-            />
-          ) : (
-            <Message
-              role={child.role}
-              content={child.content}
-              contentParts={child.contentParts}
-              ts={child.ts}
-              streaming={child.streaming}
-              messageId={child.messageId}
-              metadata={child.metadata}
-              onFork={forkAndSwitch}
-              forkPending={forkingMessageId !== ''}
-              forkLoading={forkingMessageId !== '' && forkingMessageId === String(child.messageId || '')}
-              onOpenFilePreview={openFilePreview}
-              onLocateInFileTree={locateInFileTree}
-              continuation={childContinuation}
-              showFooter={childShowFooter}
-              showAceCodeAvatar={showAceCodeAvatar}
-              annotationPresentations={selectionAnnotationPresentations}
-            />
-          )}
-        </div>
-      );
-    });
-  }
-
   const chatColumnStyle = previewPanelMaximized
     ? undefined
     : (layoutWidth > 0
@@ -5447,190 +5063,43 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
               </button>
             </div>
           )}
-          {windowedItems.map((it) => {
-            if (it.kind === 'termination_notice') {
-              const terminalDirective = assistantRunDirectives.get(it.id);
-              const terminalForkMessageId = terminalDirective?.forkMessageId || '';
-              return (
+          <TranscriptItems
+            items={windowedItems}
+            assistantRunDirectives={assistantRunDirectives}
+            expandedActivityKeys={expandedActivityKeys}
+            collapsedMediaKeys={collapsedMediaKeys}
+            onToggleActivity={toggleActivitySummary}
+            onToggleMedia={toggleMediaGroup}
+            conversationActivity={conversationActivity}
+            subagentTasksById={subagentTasksById}
+            onOpenSubagent={openSubagentTranscript}
+            sessionRunning={status === 'running'}
+            onReviewToggle={pauseTailFollowForReview}
+            onFork={forkAndSwitch}
+            forkingMessageId={forkingMessageId}
+            onOpenFilePreview={openFilePreview}
+            onLocateInFileTree={locateInFileTree}
+            showAceCodeAvatar={showAceCodeAvatar}
+            annotationPresentations={selectionAnnotationPresentations}
+            renderBeforeItem={(it) => (
+              (turnFileListPlacement.before.get(it.id) || []).map((set) => (
                 <div
-                  key={it.id}
-                  className={chatRowClassName(it)}
+                  key={`turn-files-${set.userItemId || 'head'}`}
+                  className="ace-chat-row flex flex-col ace-chat-row-assistant-gutter"
                   data-chat-row="true"
-                  data-chat-item-id={String(it.id)}
-                  data-chat-kind={it.kind || ''}
-                  data-chat-role="termination_notice"
+                  data-chat-kind="turn_files"
                 >
-                  <TerminationNoticeBlock
-                    item={it}
-                    onFork={forkAndSwitch}
-                    forkPending={forkingMessageId !== ''}
-                    forkLoading={forkingMessageId !== '' && forkingMessageId === terminalForkMessageId}
-                    forkMessageId={terminalForkMessageId}
-                    showFooter={terminalDirective?.showFooter === true}
+                  <TurnFileList
+                    groups={set.groups}
+                    summary={set.summary}
+                    cwd={sidePanelCwd}
+                    turnUserMessageId={set.userMessageId}
+                    onOpenFile={openSessionChangePreview}
                   />
                 </div>
-              );
-            }
-
-            if (it.kind === 'completion_summary') {
-              return (
-                <div
-                  key={it.id}
-                  className={chatRowClassName(it)}
-                  data-chat-row="true"
-                  data-chat-item-id={String(it.id)}
-                  data-chat-kind={it.kind || ''}
-                  data-chat-role="completion_summary"
-                  {...messageContextAttrs(it)}
-                >
-                  <CompletionSummaryBlock
-                    item={it}
-                    onFork={forkAndSwitch}
-                    forkPending={forkingMessageId !== ''}
-                    forkLoading={forkingMessageId !== '' && forkingMessageId === String(it.messageId || '')}
-                    showFooter={assistantRunDirectives.get(it.id)?.showFooter === true}
-                  />
-                </div>
-              );
-            }
-
-            if (it.kind === 'media_group') {
-              return (
-                <div
-                  key={it.id}
-                  className={chatRowClassName(it)}
-                  data-chat-row="true"
-                  data-chat-item-id={String(it.id)}
-                  data-chat-kind={it.kind || ''}
-                  data-chat-role="media_group"
-                >
-                  <MediaGroupBlock
-                    item={it}
-                    collapsed={collapsedMediaKeys.has(it.id)}
-                    onToggle={(event) => toggleMediaGroup(it.id, event?.currentTarget)}
-                  />
-                </div>
-              );
-            }
-
-            if (it.kind === 'subagent_group') {
-              return (
-                <div
-                  key={it.id}
-                  className={chatRowClassName(it)}
-                  data-chat-row="true"
-                  data-chat-item-id={String(it.id)}
-                  data-chat-kind={it.kind || ''}
-                  data-chat-role="subagent_group"
-                >
-                  <SubagentGroupBlock
-                    agents={it.agents}
-                    tasksById={subagentTasksById}
-                    onOpen={openSubagentTranscript}
-                  />
-                </div>
-              );
-            }
-
-            if (it.kind === 'activity_summary') {
-              const expanded = expandedActivityKeys.has(it.id);
-              const detailItems = it.detailItems || it.collapsedItems || [];
-              return (
-                <Fragment key={it.id}>
-                  <div
-                    className={chatRowClassName(it)}
-                    data-chat-row="true"
-                    data-chat-item-id={String(it.id)}
-                    data-chat-kind={it.kind || ''}
-                    data-chat-role="activity_summary"
-                  >
-                    <ActivitySummaryBlock
-                      item={it}
-                      expanded={expanded}
-                      onToggle={(event) => toggleActivitySummary(it.id, event?.currentTarget)}
-                      activity={it.live ? conversationActivity : null}
-                    />
-                    {expanded && (
-                      <ActivityDetailsReveal>
-                        {renderExpandedActivityItems(detailItems, `activity-hidden-${it.id}`)}
-                      </ActivityDetailsReveal>
-                    )}
-                  </div>
-                </Fragment>
-              );
-            }
-            const directive = it.kind === 'msg' && (it.role === 'assistant' || it.role === 'error')
-              ? assistantRunDirectives.get(it.id)
-              : undefined;
-            // 空内容 + 非 streaming 的 assistant 行整体隐藏。
-            if (directive?.hide) {
-              return null;
-            }
-            const continuation = it.role === 'assistant' && directive
-              ? directive.showHeader === false
-              : false;
-            const showFooter = directive ? directive.showFooter === true : true;
-            const forkMessageId = directive?.forkMessageId || it.messageId;
-            const turnFileSetsBefore = it.kind === 'msg' && it.role === 'user'
-              ? (turnFileListPlacement.before.get(it.id) || [])
-              : [];
-            return (
-              <Fragment key={it.id}>
-                {turnFileSetsBefore.map((set) => (
-                  <div
-                    key={`turn-files-${set.userItemId || 'head'}`}
-                    className="ace-chat-row flex flex-col ace-chat-row-assistant-gutter"
-                    data-chat-row="true"
-                    data-chat-kind="turn_files"
-                  >
-                    <TurnFileList
-                      groups={set.groups}
-                      summary={set.summary}
-                      cwd={sidePanelCwd}
-                      turnUserMessageId={set.userMessageId}
-                      onOpenFile={openSessionChangePreview}
-                    />
-                  </div>
-                ))}
-                <div
-                  className={chatRowClassName(it)}
-                  data-chat-row="true"
-                  data-chat-item-id={String(it.id)}
-                  data-chat-kind={it.kind || ''}
-                  data-chat-role={it.kind === 'msg' ? (it.role || '') : (it.kind || '')}
-                  data-chat-user-message={it.kind === 'msg' && it.role === 'user' ? 'true' : undefined}
-                  data-chat-message-ordinal={it.kind === 'msg' && it.messageOrdinal != null ? String(it.messageOrdinal) : undefined}
-                  data-chat-assistant-continuation={continuation ? 'true' : undefined}
-                  {...messageContextAttrs(it)}
-                >
-                  {it.kind === 'tool' ? (
-                    <ToolBlock
-                      entry={it.tool}
-                      onReviewToggle={pauseTailFollowForReview}
-                      sessionRunning={status === 'running'}
-                    />
-                  ) : (
-                    <Message
-                      role={it.role} content={it.content} ts={it.ts}
-                      contentParts={it.contentParts}
-                      streaming={it.streaming}
-                      messageId={forkMessageId}
-                      metadata={it.metadata}
-                      onFork={forkAndSwitch}
-                      forkPending={forkingMessageId !== ''}
-                      forkLoading={forkingMessageId !== '' && forkingMessageId === String(forkMessageId || '')}
-                      onOpenFilePreview={openFilePreview}
-                      onLocateInFileTree={locateInFileTree}
-                      continuation={continuation}
-                      showFooter={showFooter}
-                      showAceCodeAvatar={showAceCodeAvatar}
-                      annotationPresentations={selectionAnnotationPresentations}
-                    />
-                  )}
-                </div>
-              </Fragment>
-            );
-          })}
+              ))
+            )}
+          />
           {/* tail = 当前最后一轮的文件列表。回合进行中(busy)不渲染 ——
               流式期间变更集随 tool_end 实时增长,列表会先于/夹着正文出现,
               观感突兀;等整轮吐完(busy 结束)再一次性显示在正文之后。

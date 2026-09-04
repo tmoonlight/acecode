@@ -289,9 +289,14 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "file tools, which still take absolute paths.\n"
         << "- In a user message, an `@path` or `@\"path with spaces\"` token is a file or "
         << "directory reference. Resolve relative paths from the current working directory; "
-        << "an explicitly selected folder may use an absolute path. Its content is not "
+        << "an explicitly selected local file or directory may use an absolute path. Its content is not "
         << "automatically attached. Inspect it only as needed with available read or search "
-        << "tools; do not assume a referenced directory was recursively loaded.\n\n";
+        << "tools; do not assume a referenced directory was recursively loaded.\n"
+        << "- Do not reject a referenced file only because it is large, binary, an archive, or an "
+        << "image. Inspect metadata first, then choose appropriate bounded reads, search, archive "
+        << "listing, a safely converted or split working copy, or vision tools. If one tool cannot "
+        << "handle the file directly, use another safe approach instead of treating the attachment "
+        << "limit as the end of the task.\n\n";
 
     // Keep environment facts here only when they do not change with time.
     oss << "# Environment\n\n"

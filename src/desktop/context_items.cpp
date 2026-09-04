@@ -1,13 +1,10 @@
 #include "context_items.hpp"
 
-#include "../session/attachment_store.hpp"
 #include "../utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 
 namespace acecode::desktop {
 
@@ -37,10 +34,6 @@ std::string mime_type_for_path(const fs::path& path) {
 std::string display_name(const fs::path& path) {
     const fs::path filename = path.filename();
     return path_to_utf8(filename.empty() ? path : filename);
-}
-
-bool requires_snapshot_bytes(const std::string& mime_type) {
-    return mime_type.rfind("image/", 0) == 0 && mime_type != "image/svg+xml";
 }
 
 } // namespace
@@ -92,33 +85,10 @@ ContextItemsResult materialize_context_items(
             return result;
         }
 
-        if (!requires_snapshot_bytes(item.mime_type)) {
-            item.reference_only = true;
-            result.items.push_back(std::move(item));
-            continue;
-        }
-
-        if (item.size_bytes > kMaxAttachmentBytes) {
-            result.error = "file exceeds the 25 MiB attachment limit: " + item.name;
-            return result;
-        }
-
-        std::ifstream input_stream(canonical, std::ios::binary);
-        if (!input_stream) {
-            result.error = "failed to read file: " + item.name;
-            return result;
-        }
-        item.bytes.assign(std::istreambuf_iterator<char>(input_stream),
-                          std::istreambuf_iterator<char>());
-        if (!input_stream.eof() && input_stream.fail()) {
-            result.error = "failed to read file: " + item.name;
-            return result;
-        }
-        if (item.bytes.size() > kMaxAttachmentBytes) {
-            result.error = "file exceeds the 25 MiB attachment limit: " + item.name;
-            return result;
-        }
-        item.size_bytes = static_cast<std::uintmax_t>(item.bytes.size());
+        // Desktop files already have a canonical, server-reachable path. Keep
+        // every local file path-native (including raster images) so adding it
+        // never depends on reading, Base64 encoding, or attachment limits.
+        item.reference_only = true;
         result.items.push_back(std::move(item));
     }
 
