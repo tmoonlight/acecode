@@ -1723,12 +1723,19 @@ Git repository:
   "is_repo": true,
   "branch": "master",
   "default_branch": "master",
-  "branches": ["master", "dev"],
+  "default_base": "origin/master",
+  "branches": ["dev", "master"],
+  "remote_branches": ["origin/dev", "origin/master"],
   "dirty": false
 }
 ```
 
 - `branch` is `"HEAD"` when detached.
+- `default_base` is the verified `origin/<default_branch>` ref, or an empty
+  string when no such locally fetched remote-tracking ref exists.
+- `branches` contains local branch short names. `remote_branches` contains
+  locally available remote-tracking short names and omits symbolic aliases
+  such as `origin/HEAD`; collecting either list performs no network fetch.
 - `dirty` reflects tracked changes only (`status --porcelain -uno`);
   untracked files do not set it.
 - All git subprocesses are read-only, use `--no-optional-locks`, and honor

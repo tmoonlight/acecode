@@ -353,15 +353,36 @@ GitInfo collect_git_info(const std::string& cwd, int timeout_ms) {
     info.default_base =
         resolve_verified_default_base(cwd, info.default_branch, timeout_ms);
 
-    auto refs = run({"for-each-ref", "--format=%(refname:short)", "refs/heads"},
+    // 一次 for-each-ref 同时采集本地与已 fetch 的远端跟踪分支。第三列
+    // %(symref) 用于排除 origin/HEAD 等符号别名;这里只读本地 refs,绝不
+    // 隐式 fetch 或访问网络。
+    auto refs = run({"for-each-ref",
+                     "--format=%(refname)%09%(refname:short)%09%(symref)",
+                     "refs/heads", "refs/remotes"},
                     cwd, timeout_ms);
     if (refs.ok()) {
         std::istringstream lines(refs.out);
         std::string line;
         while (std::getline(lines, line)) {
-            std::string name = trim(line);
-            if (!name.empty() && is_safe_ref_name(name)) {
+            const std::size_t first_tab = line.find('\t');
+            const std::size_t second_tab = first_tab == std::string::npos
+                ? std::string::npos
+                : line.find('\t', first_tab + 1);
+            if (first_tab == std::string::npos || second_tab == std::string::npos) {
+                continue;
+            }
+
+            const std::string full_ref = trim(line.substr(0, first_tab));
+            std::string name = trim(line.substr(first_tab + 1,
+                                                second_tab - first_tab - 1));
+            const std::string symref = trim(line.substr(second_tab + 1));
+            if (name.empty() || !is_safe_ref_name(name)) continue;
+
+            if (full_ref.rfind("refs/heads/", 0) == 0) {
                 info.branches.push_back(std::move(name));
+            } else if (full_ref.rfind("refs/remotes/", 0) == 0 &&
+                       symref.empty()) {
+                info.remote_branches.push_back(std::move(name));
             }
         }
     }
