@@ -87,7 +87,7 @@ run('one adaptive profile Modal owns add and edit flows without backdrop draft l
 run('model dialogs stack above Settings and nested probe stacks above the profile dialog', () => {
   const settingsLayer = layerIndex(
     settingsPage,
-    /fixed inset-0 z-\[(\d+)\] bg-bg/,
+    /data-settings-mask="true"[\s\S]*?fixed inset-0 z-\[(\d+)\]/,
     'Settings',
   );
   const profileLayer = layerIndex(

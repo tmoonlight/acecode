@@ -61,7 +61,7 @@ export function normalizeHookSnapshot(snapshot = {}) {
 }
 
 export function hookStatusLabel(hook = {}) {
-  if (hook.managed) return '受管理';
+  if (hook.managed) return 'managed';
   if (hook.disabled) return '已禁用';
   if (hook.pendingReview) return '待信任';
   if (hook.skipped) return '已跳过';
