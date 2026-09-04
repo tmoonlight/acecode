@@ -234,6 +234,7 @@ import './projectCreation.test.js';
 import './workspacePicker.test.js';
 import './connectors.test.js';
 import './settingsNavigation.test.js';
+import './settingsWindowArchitecture.test.js';
 import './remoteWeb.test.js';
 import './remoteWebArchitecture.test.js';
 

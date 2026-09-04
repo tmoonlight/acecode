@@ -1710,6 +1710,44 @@ body {
   stroke-linejoin: round;
 }
 
+/* Settings keeps the current workspace visible while remaining a blocking surface. */
+.ace-settings-mask {
+  background: rgba(var(--ace-bg-rgb), 0.62);
+}
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ace-settings-mask {
+    -webkit-backdrop-filter: blur(12px) saturate(0.82);
+    backdrop-filter: blur(12px) saturate(0.82);
+  }
+}
+.ace-settings-panel {
+  width: calc(100vw - 240px);
+  height: calc(100vh - 240px);
+  min-width: min(880px, calc(100vw - 26px));
+  min-height: min(500px, calc(100vh - 26px));
+  max-width: 2100px;
+  max-height: 1550px;
+  border: 1px solid rgba(var(--ace-border-rgb), 0.88);
+  border-radius: 14px;
+  background: var(--ace-bg);
+  box-shadow: var(--ace-shadow-lg);
+  isolation: isolate;
+  transition:
+    width 0.2s ease,
+    height 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.ace-settings-panel[data-expanded="true"] {
+  width: calc(100vw - 26px);
+  height: calc(100vh - 26px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-settings-panel {
+    transition-duration: 0.01ms;
+  }
+}
+
 /* Desktop shell 自定义右键菜单:屏蔽 WebView 默认菜单后只暴露受控操作。 */
 .ace-desktop-context-menu {
   position: fixed;
