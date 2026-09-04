@@ -12,6 +12,7 @@
 
 #include "pa_adapter.hpp"
 
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <string>
@@ -35,6 +36,19 @@ bool identity_is_known(const std::string& provider, const std::string& model);
 // 系统性偏低,余量必须覆盖这段偏差,否则收敛后的阈值仍然会越过真实上限。
 constexpr int PA_CONTEXT_BUDGET_SAFETY_PERCENT = 85;
 
+// 回升(AIMD 的「加性增」半边)的节奏:每隔这么久没再被拒,就把上限抬一档。
+//
+// 为什么必须能升回去:服务端的实际容量是随负载浮动的,不是一个测准一次就
+// 永远成立的常量。只降不升的话,一次低谷期的偶发拒绝会把窗口永久钉死 ——
+// 之后所有高峰期都在白白浪费上下文,而用户除了重启进程没有别的办法。
+//
+// 为什么敢试探:抬高之后如果服务端并没有恢复,代价就是撞一次墙。而撞墙现在
+// 是全自动恢复的(识别 → 修剪历史 → 重试,摘要压缩失败还有机械修剪兜底),
+// 用户只感知到一次重试延迟。15 分钟一档、每档 +20% 的节奏下,一个被砍到
+// 一半的窗口约 1 小时回到声明值,期间最多每 15 分钟撞一次。
+constexpr int PA_CONTEXT_BUDGET_RELAX_INTERVAL_MINUTES = 15;
+constexpr int PA_CONTEXT_BUDGET_RELAX_PERCENT = 120;
+
 // 一条被拒观测可信的最小规模。低于这个值的请求不可能撑爆任何**能用**的模型
 // —— 光是 system prompt、skill 索引和工具定义就有好几 k。这种拒绝几乎必然
 // 另有原因(服务端自己算错、错误文案被复用到别的失败上),采信它会把窗口砍到
@@ -48,11 +62,14 @@ constexpr int PA_CONTEXT_BUDGET_MIN_CREDIBLE_REJECTION_TOKENS = 8192;
 // 这条被拒观测是否值得采信。
 bool observation_is_credible(int rejected_tokens);
 
-// 纯函数形式的收敛算法,便于单测。
+// 纯函数形式的收敛 + 回升算法,便于单测。
 //   declared_window        —— saved_models / 目录声明的窗口,<= 0 表示未知
 //   lowest_rejected_tokens —— 观测到的最小被拒请求规模,0 表示没撞过墙
+//   ms_since_rejection     —— 距最后一次被拒过了多久,用来算回升档数
 // 返回应当用于压缩决策的窗口。没有可信观测时原样返回 declared_window。
-int suggest_effective_window(int declared_window, int lowest_rejected_tokens);
+int suggest_effective_window(int declared_window,
+                             int lowest_rejected_tokens,
+                             std::int64_t ms_since_rejection = 0);
 
 // 一个 (provider, model) 的观测快照,用于日志与状态展示。
 struct ContextBudgetSnapshot {
@@ -71,9 +88,11 @@ public:
     // 丢弃 —— 让它进表会永久钉死 lowest_rejected,之后真实的观测再也压不进来。
     // 观测单调收敛(只降不升):目标是少撞墙,波动环境里取观测到的最小被拒
     // 规模作为上限是唯一安全的选择。
+    // now_ms 为 0 表示「用当前时间」;传具体值是为了让单测不依赖真实时钟。
     void note_rejected(const std::string& provider,
                        const std::string& model,
-                       int request_tokens);
+                       int request_tokens,
+                       std::int64_t now_ms = 0);
 
     // 记录一次被服务端接受的请求规模。只作诊断用,不参与上限计算 ——
     // 让「成功」抬高上限会在限制波动时来回震荡,反而更常撞墙。
@@ -84,7 +103,8 @@ public:
     // 该模型应当用于压缩决策的窗口。无观测时原样返回 declared_window。
     int effective_window(const std::string& provider,
                          const std::string& model,
-                         int declared_window) const;
+                         int declared_window,
+                         std::int64_t now_ms = 0) const;
 
     // 是否已经为该模型收缩过窗口(供调用方决定要不要提示用户)。
     bool has_observation(const std::string& provider,
@@ -100,10 +120,18 @@ private:
         int lowest_rejected_tokens = 0;
         int highest_accepted_tokens = 0;
         int rejections = 0;
+        // 回升的计时起点。每次被拒都重置 —— 新的拒绝证实了限制仍然存在,
+        // 已经攒下的回升档数必须清零重来。
+        std::int64_t last_rejection_ms = 0;
+        // 上次记进日志的窗口值。回升是随时间连续发生的,没有一个「事件」可以
+        // 挂日志;只能在计算的那一刻比对,变了才写一行,否则每回合刷屏。
+        int last_logged_window = 0;
     };
 
     mutable std::mutex mu_;
-    std::map<std::string, Entry> entries_;
+    // mutable:effective_window 在语义上是查询,但「窗口变了要说一声」必须发生
+    // 在计算的那一刻 —— 让调用方去比对等于把 pa 的逻辑漏到目录外面。
+    mutable std::map<std::string, Entry> entries_;
 };
 
 // 进程级单例。AgentLoop 在会话之间共享同一份观测 —— 服务端的限制是按模型

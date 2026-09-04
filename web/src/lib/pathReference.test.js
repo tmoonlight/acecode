@@ -56,18 +56,27 @@ test('directory entry and direct reference use distinct completion', () => {
 
 test('folder picker inserts at the saved caret', () => {
   assert.deepEqual(
-    insertPathReferenceAtCaret('请处理  后继续', 4, '设计 文档'),
+    insertPathReferenceAtCaret('请处理  后继续', 4, '设计 文档', { directory: true }),
     { text: '请处理 @"设计 文档/"  后继续', cursor: 14 },
   );
 });
 
 test('explicit cwd-external folders keep absolute paths', () => {
   assert.deepEqual(
-    insertPathReferenceAtCaret('处理', 2, 'D:/共享 目录'),
+    insertPathReferenceAtCaret('处理', 2, 'D:/共享 目录', { directory: true }),
     { text: '处理 @"D:/共享 目录/" ', cursor: 16 },
   );
   assert.equal(formatPathReference('/opt/shared', { directory: true }), '@/opt/shared/ ');
   assert.equal(formatPathReference('/', { directory: true }), '@/ ');
+});
+
+test('file picker keeps a file path quoted without a directory slash', () => {
+  assert.deepEqual(
+    insertPathReferenceAtCaret('检查', 2, 'C:/work/final report.pdf'),
+    { text: '检查 @"C:/work/final report.pdf" ', cursor: 31 },
+  );
+  assert.equal(formatPathReference('\\\\server\\share\\large file.bin'),
+    '@"//server/share/large file.bin" ');
 });
 
 test('candidate normalization is directory first, filtered, and capped', () => {

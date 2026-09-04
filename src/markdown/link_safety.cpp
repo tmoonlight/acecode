@@ -31,6 +31,37 @@ bool looks_like_url(const std::string& s) {
     return s.find_first_of(" \t\r\n") == std::string::npos;
 }
 
+bool is_valid_port(const std::string& port) {
+    if (port.empty()) return false;
+    unsigned int value = 0;
+    for (const unsigned char c : port) {
+        if (std::isdigit(c) == 0) return false;
+        const unsigned int digit = static_cast<unsigned int>(c - '0');
+        if (value > (65535u - digit) / 10u) return false;
+        value = value * 10u + digit;
+    }
+    return true;
+}
+
+bool is_valid_dns_host(const std::string& host) {
+    if (host.empty() || host.front() == '.' || host.back() == '.' ||
+        host.find("..") != std::string::npos) {
+        return false;
+    }
+    return std::all_of(host.begin(), host.end(), [](unsigned char c) {
+        return std::isalnum(c) != 0 || c == '-' || c == '_' || c == '.';
+    });
+}
+
+bool is_valid_bracketed_ipv6_host(const std::string& host) {
+    if (host.empty() || host.find(':') == std::string::npos) {
+        return false;
+    }
+    return std::all_of(host.begin(), host.end(), [](unsigned char c) {
+        return std::isxdigit(c) != 0 || c == ':' || c == '.';
+    });
+}
+
 } // namespace
 
 std::optional<std::string> extract_url_host(const std::string& url) {
@@ -46,39 +77,85 @@ std::optional<std::string> extract_url_host(const std::string& url) {
         }
     }
 
-    // scheme:跳过 "://" 之前的 authority 前缀。无 "://" 时整个字符串按
-    // authority 解析(裸域名 / userinfo / 端口 / 路径形式),不做协议名判定——
-    // "mailto:" 这类单冒号协议无法与 "user:pass@" 可靠区分,而两者解析出
-    // 的 host 都是安全的比较对象(file:/// 等 host 为空的情况仍会失败)。
+    // scheme:跳过 "://" 之前的前缀。无 "://" 时从字符串开头按 authority
+    // 解析(裸域名 / userinfo / 端口 / 路径形式)。先找 authority 的结束位置,
+    // 再处理 userinfo:路径/query 中的 "@trusted.example" 绝不能覆盖真实 host。
     const std::string::size_type scheme = u.find("://");
+    std::string::size_type authority_begin = 0;
     if (scheme != std::string::npos) {
-        u = u.substr(scheme + 3);
+        if (scheme == 0 || !std::isalpha(static_cast<unsigned char>(u[0]))) {
+            return std::nullopt;
+        }
+        for (std::string::size_type i = 1; i < scheme; ++i) {
+            const unsigned char c = static_cast<unsigned char>(u[i]);
+            if (std::isalnum(c) == 0 && c != '+' && c != '-' && c != '.') {
+                return std::nullopt;
+            }
+        }
+        authority_begin = scheme + 3;
     }
 
-    // userinfo:取最后一个 '@' 之后(host 之前的 user:pass@)。
-    const std::string::size_type at = u.rfind('@');
+    const std::string::size_type authority_end =
+        u.find_first_of("/\\?#", authority_begin);
+    std::string authority = u.substr(
+        authority_begin,
+        authority_end == std::string::npos
+            ? std::string::npos
+            : authority_end - authority_begin);
+    if (authority.empty()) {
+        return std::nullopt;
+    }
+
+    // userinfo 只允许出现在 authority 内。取最后一个 '@' 后的 host:port。
+    const std::string::size_type at = authority.rfind('@');
     if (at != std::string::npos) {
-        u = u.substr(at + 1);
+        authority = authority.substr(at + 1);
+    }
+    if (authority.empty()) {
+        return std::nullopt;
     }
 
-    // host 段:到 ':'(端口)、'/'(路径)、'?'(查询)、'#'(片段) 为止。
-    const std::string::size_type end = u.find_first_of(":/?#");
-    if (end != std::string::npos) {
-        u = u.substr(0, end);
+    std::string host;
+    bool bracketed_ipv6 = false;
+    if (authority.front() == '[') {
+        const auto close = authority.find(']');
+        if (close == std::string::npos) {
+            return std::nullopt;
+        }
+        host = authority.substr(1, close - 1);
+        const std::string suffix = authority.substr(close + 1);
+        if (!suffix.empty() &&
+            (suffix.front() != ':' || !is_valid_port(suffix.substr(1)))) {
+            return std::nullopt;
+        }
+        bracketed_ipv6 = true;
+    } else {
+        const auto colon = authority.find(':');
+        if (colon == std::string::npos) {
+            host = authority;
+        } else {
+            // 未加方括号的 IPv6 与 host:port 有歧义,拒绝。
+            if (authority.find(':', colon + 1) != std::string::npos ||
+                !is_valid_port(authority.substr(colon + 1))) {
+                return std::nullopt;
+            }
+            host = authority.substr(0, colon);
+        }
     }
 
-    // 去尾部句点(句子结尾标点)。
-    while (!u.empty() && u.back() == '.') {
-        u.pop_back();
+    // 去尾部句点(裸域名位于句子结尾时的标点)。
+    while (!bracketed_ipv6 && !host.empty() && host.back() == '.') {
+        host.pop_back();
     }
-    if (u.empty()) {
+    if (bracketed_ipv6 ? !is_valid_bracketed_ipv6_host(host)
+                       : !is_valid_dns_host(host)) {
         return std::nullopt;
     }
 
     // 域名不区分大小写 → 统一小写,便于比较。
-    std::transform(u.begin(), u.end(), u.begin(),
+    std::transform(host.begin(), host.end(), host.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return u;
+    return host;
 }
 
 bool is_safe_link_label(const std::string& label, const std::string& href) {
@@ -90,10 +167,10 @@ bool is_safe_link_label(const std::string& label, const std::string& href) {
         return true;
     }
 
-    // href 是远程 URL:host 无法解析(file:///、畸形)→ 无目标可比,放行。
+    // href 是远程 URL:URL 形 label 必须有可验证目标;否则 fail closed。
     const auto href_host = extract_url_host(href);
     if (!href_host.has_value()) {
-        return true;
+        return !looks_like_url(label);
     }
 
     // label 不呈 URL 形状 → 普通文字标签(如"我的博客"),放行。

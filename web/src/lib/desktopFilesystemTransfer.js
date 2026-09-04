@@ -63,14 +63,24 @@ export async function readNativeClipboardFilesystemItems(win = globalThis.window
   return parseNativeFilesystemItemsResult(raw);
 }
 
-export function insertAbsoluteFolderReferences(text, caret, folderItems) {
+export function insertAbsolutePathReferences(text, caret, items) {
   let next = {
     text: String(text || ''),
     cursor: Number.isFinite(caret) ? caret : String(text || '').length,
   };
-  for (const item of Array.from(folderItems || [])) {
-    if (item?.kind !== 'folder' || !item.path) continue;
-    next = insertPathReferenceAtCaret(next.text, next.cursor, item.path);
+  for (const item of Array.from(items || [])) {
+    if (!['file', 'folder'].includes(item?.kind) || !item.path) continue;
+    next = insertPathReferenceAtCaret(next.text, next.cursor, item.path, {
+      directory: item.kind === 'folder',
+    });
   }
   return next;
+}
+
+export function insertAbsoluteFolderReferences(text, caret, folderItems) {
+  return insertAbsolutePathReferences(
+    text,
+    caret,
+    Array.from(folderItems || []).filter((item) => item?.kind === 'folder'),
+  );
 }

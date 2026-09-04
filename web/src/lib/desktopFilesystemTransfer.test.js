@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   insertAbsoluteFolderReferences,
+  insertAbsolutePathReferences,
   localPathsFromUriList,
   materializeNativeFilesystemPaths,
   readNativeClipboardFilesystemItems,
@@ -28,7 +29,13 @@ await run('materializer parses native file and folder payloads', async () => {
     aceDesktop_materializeContextItems: async (paths) => JSON.stringify({
       ok: true,
       items: [
-        { kind: 'file', path: paths[0], name: 'a.txt', data_base64: 'YQ==' },
+        {
+          kind: 'file',
+          path: paths[0],
+          name: 'a.txt',
+          size_bytes: 1,
+          reference_only: true,
+        },
         { kind: 'folder', path: 'C:/repo/docs', name: 'docs' },
       ],
     }),
@@ -54,5 +61,18 @@ await run('folder references preserve absolute paths and transfer order', async 
     { kind: 'folder', path: 'C:/work/two words' },
   ]);
   assert.equal(result.text, 'inspect @C:/work/one/ @"C:/work/two words/" ');
+  assert.equal(result.cursor, result.text.length);
+});
+
+await run('mixed native files and folders become ordered path references', async () => {
+  const result = insertAbsolutePathReferences('inspect ', 8, [
+    { kind: 'file', path: 'C:/work/report.pdf' },
+    { kind: 'folder', path: 'C:/work/design docs' },
+    { kind: 'file', path: 'C:/work/final report.zip' },
+  ]);
+  assert.equal(
+    result.text,
+    'inspect @C:/work/report.pdf @"C:/work/design docs/" @"C:/work/final report.zip" ',
+  );
   assert.equal(result.cursor, result.text.length);
 });

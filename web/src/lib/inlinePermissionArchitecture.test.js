@@ -29,6 +29,7 @@ function run(name, fn) {
 
 run('permission cards are chat rows inside the transcript before activity', () => {
   const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   const transcript = between(
     chat,
     'className="ace-chat-transcript-scroll',
@@ -46,7 +47,7 @@ run('permission cards are chat rows inside the transcript before activity', () =
     transcript,
     /conversationActivity\.kind === CONVERSATION_ACTIVITY_KIND\.BACKGROUND/,
   );
-  assert.match(chat, /activityKind === CONVERSATION_ACTIVITY_KIND\.PERMISSION[\s\S]*?CONVERSATION_ACTIVITY_KIND\.QUESTION/);
+  assert.match(renderer, /activityKind === CONVERSATION_ACTIVITY_KIND\.PERMISSION[\s\S]*?CONVERSATION_ACTIVITY_KIND\.QUESTION/);
   assert.doesNotMatch(chat, /ActivityIndicator|data-conversation-activity-bubble/);
   assert.match(chat, /permissionRequests,\s*questionRequest: questionForView/);
 });

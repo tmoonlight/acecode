@@ -22,7 +22,7 @@ struct SkillUsageSummary {
 };
 
 // Manages the skill-usage state file (~/.acecode/.skill_usage_state.json).
-// Thread-safe: every public method serializes on an internal mutex.
+// Thread-safe; mutations also serialize across processes with a sidecar lock.
 class SkillUsageStore {
 public:
     // state_path: absolute path to the JSON state file.
@@ -60,8 +60,8 @@ private:
     mutable std::mutex mu_;
 };
 
-// Parse an ISO8601 timestamp ("2026-08-01T10:00:00Z", optional .ms fraction)
-// to epoch milliseconds. Returns 0 on parse failure or empty input.
+// Strictly parse an ISO8601 UTC timestamp ("2026-08-01T10:00:00Z", optional
+// 1-3 digit fractional second) to epoch milliseconds. Returns 0 on failure.
 std::int64_t parse_iso8601_to_epoch_ms(const std::string& iso);
 
 }  // namespace acecode

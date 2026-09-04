@@ -242,7 +242,7 @@ const chatViewSource = (await import('node:fs')).readFileSync(
   'utf8',
 ).replace(/\r\n?/g, '\n');
 run('架构: ChatView 行渲染使用 windowedItems,保留揭示入口与滚动补偿', () => {
-  assert.match(chatViewSource, /windowedItems\.map\(\(it\)/);
+  assert.match(chatViewSource, /<TranscriptItems\s+items=\{windowedItems\}/);
   assert.doesNotMatch(chatViewSource, /renderedItems\.map\(\(it\)/);
   assert.match(chatViewSource, /revealEarlierTranscript/);
   assert.match(chatViewSource, /windowRevealScrollRef/);

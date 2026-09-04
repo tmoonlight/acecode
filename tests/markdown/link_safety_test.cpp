@@ -2,7 +2,7 @@
 //
 // 只比域名(host),不比完整路径。规则(design.md 决策 4):
 //   - href 不含 "://"(本地路径/裸域名)→ 放行(本地通道,防骗只针对网页链接)
-//   - href 远程但 host 解析失败 → 放行(无目标可比)
+//   - href 远程但 host 解析失败 → URL 形 label 降级,普通标签放行
 //   - label 无 URL 形状(无点号或含空白)→ 放行(标签文字)
 //   - label 呈 URL 形状 → host 一致放行(忽略大小写),不一致降级,
 //     畸形/非 ASCII 按不匹配(降级)
@@ -31,6 +31,28 @@ TEST(LinkSafety, ExtractHostBareDomainWithPath) {
 TEST(LinkSafety, ExtractHostUserinfoAndPort) {
     EXPECT_EQ(extract_url_host("user:pass@EXAMPLE.com:8080/x"),
               std::optional<std::string>("example.com"));
+    EXPECT_EQ(extract_url_host("https://user:pass@EXAMPLE.com:8080/x"),
+              std::optional<std::string>("example.com"));
+    EXPECT_EQ(extract_url_host("https://example.com:65535/x"),
+              std::optional<std::string>("example.com"));
+}
+
+TEST(LinkSafety, ExtractHostStopsAtAuthorityBoundaryBeforeAtSign) {
+    EXPECT_EQ(extract_url_host("https://evil.example/@trusted.example"),
+              std::optional<std::string>("evil.example"));
+    EXPECT_EQ(extract_url_host("https://evil.example/?next=@trusted.example"),
+              std::optional<std::string>("evil.example"));
+    EXPECT_EQ(extract_url_host("https://evil.example#@trusted.example"),
+              std::optional<std::string>("evil.example"));
+    EXPECT_EQ(extract_url_host("https://evil.example\\@trusted.example"),
+              std::optional<std::string>("evil.example"));
+}
+
+TEST(LinkSafety, ExtractBracketedIpv6Host) {
+    EXPECT_EQ(extract_url_host("https://[2001:DB8::1]:8443/path"),
+              std::optional<std::string>("2001:db8::1"));
+    EXPECT_EQ(extract_url_host("https://[::1]/"),
+              std::optional<std::string>("::1"));
 }
 
 TEST(LinkSafety, ExtractHostTrailingDotStripped) {
@@ -56,6 +78,13 @@ TEST(LinkSafety, ExtractHostOtherSchemeFails) {
 TEST(LinkSafety, ExtractHostMalformedFails) {
     EXPECT_EQ(extract_url_host(""), std::nullopt);
     EXPECT_EQ(extract_url_host("https://"), std::nullopt);
+    EXPECT_EQ(extract_url_host("https:///path"), std::nullopt);
+    EXPECT_EQ(extract_url_host("https://user@/path"), std::nullopt);
+    EXPECT_EQ(extract_url_host("https://[2001:db8::1/path"), std::nullopt);
+    EXPECT_EQ(extract_url_host("https://example.com:not-a-port/path"),
+              std::nullopt);
+    EXPECT_EQ(extract_url_host("https://example.com:65536/path"),
+              std::nullopt);
     EXPECT_EQ(extract_url_host("https://例子.中国"), std::nullopt);
 }
 
@@ -68,6 +97,12 @@ TEST(LinkSafety, SpoofedHostDowngraded) {
     // 子域名陷阱:label host 是 google.com.evil.example.com,不是 google.com
     EXPECT_FALSE(
         is_safe_link_label("google.com", "https://google.com.evil.example.com"));
+    EXPECT_FALSE(is_safe_link_label(
+        "trusted.example", "https://evil.example/@trusted.example"));
+    EXPECT_FALSE(is_safe_link_label(
+        "trusted.example", "https://evil.example/?next=@trusted.example"));
+    EXPECT_FALSE(is_safe_link_label(
+        "trusted.example", "https://evil.example\\@trusted.example"));
 }
 
 // ---------- 标签文字(无 URL 形状)→ 放行 ----------
@@ -103,6 +138,9 @@ TEST(LinkSafety, MalformedUrlDowngraded) {
     // label host 是仿冒子域,与目标不符
     EXPECT_FALSE(is_safe_link_label("https://example..com",
                                     "https://example.com"));
+    // URL-shaped labels fail closed when the remote href has no valid authority.
+    EXPECT_FALSE(is_safe_link_label("example.com", "https:///example.com"));
+    EXPECT_FALSE(is_safe_link_label("example.com", "https://user@/path"));
 }
 
 // ---------- 本地链接通道(href 无 "://")→ 放行 ----------

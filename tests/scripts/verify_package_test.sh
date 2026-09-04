@@ -70,10 +70,21 @@ printf 'seed skill\n' >"$fixture/assets/seed/skills/demo/SKILL.md"
 printf '{"bundle":"test"}\n' >"$fixture/assets/seed/MANIFEST.json"
 printf '1\n' >"$fixture/assets/seed/seed.version"
 printf '<html></html>\n' >"$fixture/web/dist/index.html"
+
 printf 'readme\n' >"$fixture/README.md"
 printf 'readme cn\n' >"$fixture/README_CN.md"
 printf 'cmake cache marker\n' >"$fixture/build/CMakeCache.txt"
 cp "$repo_root/scripts/verify_seed_bundle.py" "$fixture/scripts/verify_seed_bundle.py"
+
+# Negative: a staging path at the repo root must be rejected before the
+# recursive cleanup, and the fixture must remain intact.
+printf 'keep me\n' >"$fixture/staging-safety-sentinel"
+expect_status 1 "unsafe staging repo root" "$python_bin" "$verify_script" \
+    --skip-build --platform linux --target tui \
+    --repo "$fixture" --build-dir "$fixture/build" \
+    --staging-dir "$fixture"
+expect_output "unsafe staging" "unsafe staging detail"
+[[ -f "$fixture/staging-safety-sentinel" ]]
 
 # Negative: --skip-build without a configured build dir fails the preflight.
 rm -rf "$temporary_root/nobuild"
@@ -166,18 +177,18 @@ EOF
     expect_status 0 "tui flow" "$python_bin" "$verify_script" \
         --skip-build --platform linux --target tui \
         --repo "$fixture" --build-dir "$fixture/build" \
-        --staging-dir "$fixture/staging"
+        --staging-dir "$fixture/build/staging"
     expect_output "verify-package: PASS" "tui flow summary"
-    [[ -f "$fixture/staging/acecode" ]]
-    [[ -f "$fixture/staging/share/acecode/models_dev/api.json" ]]
-    [[ -f "$fixture/staging/share/acecode/seed/skills/demo/SKILL.md" ]]
+    [[ -f "$fixture/build/staging/acecode" ]]
+    [[ -f "$fixture/build/staging/share/acecode/models_dev/api.json" ]]
+    [[ -f "$fixture/build/staging/share/acecode/seed/skills/demo/SKILL.md" ]]
 
     # Case: full linux flow including desktop launch and daemon adjacency.
     write_desktop_stub
     expect_status 0 "linux full flow" "$python_bin" "$verify_script" \
         --skip-build --platform linux --target all \
         --repo "$fixture" --build-dir "$fixture/build" \
-        --staging-dir "$fixture/staging" --launch-timeout 2
+        --staging-dir "$fixture/build/staging" --launch-timeout 2
     expect_output "\[PASS\] desktop daemon adjacency" "daemon adjacency"
     expect_output "\[PASS\] desktop launch" "desktop launch"
 
@@ -205,7 +216,7 @@ EOF
     expect_status 0 "darwin bundle flow" "$python_bin" "$verify_script" \
         --skip-build --platform darwin --target desktop \
         --repo "$fixture" --build-dir "$fixture/build" \
-        --staging-dir "$fixture/staging" --launch-timeout 2
+        --staging-dir "$fixture/build/staging" --launch-timeout 2
     expect_output "\[PASS\] app bundle acecode-daemon" "bundle daemon"
     expect_output "\[PASS\] models_dev registry (app bundle)" "bundle models_dev"
 
@@ -214,7 +225,7 @@ EOF
     expect_status 1 "models_dev file count" "$python_bin" "$verify_script" \
         --skip-build --platform linux --target tui \
         --repo "$fixture" --build-dir "$fixture/build" \
-        --staging-dir "$fixture/staging"
+        --staging-dir "$fixture/build/staging"
     expect_output "expected exactly" "models_dev count detail"
     rm "$fixture/assets/models_dev/extra.json"
 
@@ -223,7 +234,7 @@ EOF
     expect_status 1 "registry validation failure" "$python_bin" "$verify_script" \
         --skip-build --platform linux --target tui \
         --repo "$fixture" --build-dir "$fixture/build" \
-        --staging-dir "$fixture/staging"
+        --staging-dir "$fixture/build/staging"
     expect_output "tui models registry resolution" "registry failure item"
 
     # Negative: desktop exiting immediately fails the launch probe.
@@ -236,7 +247,7 @@ EOF
     expect_status 1 "desktop immediate exit" "$python_bin" "$verify_script" \
         --skip-build --platform linux --target desktop \
         --repo "$fixture" --build-dir "$fixture/build" \
-        --staging-dir "$fixture/staging"
+        --staging-dir "$fixture/build/staging"
     expect_output "exited immediately" "desktop exit detail"
 else
     echo "verify_package_test: flow cases skipped on non-POSIX host"

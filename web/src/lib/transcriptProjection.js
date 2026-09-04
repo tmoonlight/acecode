@@ -1308,8 +1308,12 @@ function groupMediaTools(items) {
 
 function projectTurn(items, options = {}) {
   if (!Array.isArray(items) || items.length === 0) return [];
+  const normalized = normalizeToolInvocationItems(items);
+  const visibleItems = typeof options.filterNormalizedItem === 'function'
+    ? normalized.filter(options.filterNormalizedItem)
+    : normalized;
   const normalizedItems = groupMediaTools(
-    groupSubagentTools(normalizeToolInvocationItems(items)),
+    groupSubagentTools(visibleItems),
   );
   const finalCollapsed = projectFinalCollapsedTurn(normalizedItems, options);
   if (finalCollapsed) return finalCollapsed;
@@ -1334,7 +1338,10 @@ export function projectCollapsedTranscriptItems(items, options = {}) {
 
   const flushTurn = (turnOptions = {}) => {
     if (turn.length > 0) {
-      out.push(...projectTurn(turn, turnOptions));
+      out.push(...projectTurn(turn, {
+        ...turnOptions,
+        filterNormalizedItem: options.filterNormalizedItem,
+      }));
       turn = [];
     }
   };

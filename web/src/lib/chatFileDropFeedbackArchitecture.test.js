@@ -138,6 +138,33 @@ run('Desktop ordinary-file references bypass image normalization and Base64 uplo
   );
 });
 
+run('Desktop native filesystem items become path references before attachment staging', () => {
+  const inputBar = source('components/InputBar.jsx');
+  const start = inputBar.indexOf('const addNativeFilesystemItems = useCallback((');
+  const end = inputBar.indexOf('\n\n  const addMaterializedPaths', start);
+  const nativeFlow = inputBar.slice(start, end);
+
+  assert.match(nativeFlow, /insertAbsolutePathReferences\(currentValue, savedCursor, list\)/);
+  assert.doesNotMatch(nativeFlow, /nativePickedFileToFile|addMediaFiles|onMediaFiles/);
+  assert.match(inputBar, /addNativeFilesystemItems\(picked\.files, savedCursor\)/);
+});
+
+run('file-tree Add to conversation inserts a path without reading file contents', () => {
+  const chatView = source('components/ChatView.jsx');
+  const start = chatView.indexOf(
+    'if (action !== DESKTOP_CONTEXT_ACTIONS.ADD_FILE_CONTEXT) return;',
+  );
+  const end = chatView.indexOf(
+    'if (action !== DESKTOP_CONTEXT_ACTIONS.ADD_DIRECTORY_CONTEXT) return;',
+    start,
+  );
+  const fileContextFlow = chatView.slice(start, end);
+
+  assert.match(fileContextFlow, /insertPathReference\?\.\(filePath, \{\s*directory: false/);
+  assert.doesNotMatch(fileContextFlow, /api\.readFile|createFileContext/);
+  assert.doesNotMatch(fileContextFlow, /无法引用二进制文件|文件过大，无法引用/);
+});
+
 run('drop overlay uses a themed blur fallback and Slate tags own their gutter', () => {
   const styles = source('styles/globals.css');
 

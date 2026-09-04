@@ -9,15 +9,30 @@
 // 两个视图:
 //   - 列表:运行中 / 已完成 分组卡片。运行中卡片右上有中止(stop);
 //     已完成组标题行有「清除」(purge 全部已结束任务,永久删除)。
-//   - transcript:点卡片「查看会话」原地切换,复用主会话的 Message/ToolBlock
-//     渲染(紧凑只读)。AskUserQuestion 工具行不显示——子代理的提问/权限
-//     确认冒泡到主会话 UI 回答,这里只看执行过程。
+//   - transcript:点卡片「查看会话」原地切换,复用主会话的完整 transcript
+//     投影与渲染链路,仅通过能力开关保持只读。AskUserQuestion 工具行不显示——
+//     子代理的提问/权限确认冒泡到主会话 UI 回答,这里只看执行过程。
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { clsx } from '../lib/format.js';
 import { DEFAULT_SUBAGENT_PANEL_WIDTH } from '../lib/singleLayout.js';
 import { useSessionTranscript } from '../lib/sessionTranscript.js';
-import { normalizeToolInvocationItems } from '../lib/transcriptProjection.js';
+import {
+  CHAT_TAIL_FOLLOW_STATE,
+  chatScrollMetrics,
+  nextChatTailFollowState,
+  observeChatTailContent,
+  shouldAutoFollowChatTail,
+} from '../lib/chatScrollFollow.js';
+import { READ_ONLY_TRANSCRIPT_CAPABILITIES } from '../lib/transcriptItemPresentation.js';
+import { projectSubagentTranscriptItems } from '../lib/subagentTranscript.js';
 import {
   SUBAGENT_TASK_STATUS,
   formatElapsed,
@@ -28,8 +43,7 @@ import {
   taskStatusLabel,
 } from '../lib/subagentTasks.js';
 import { VsIcon } from './Icon.jsx';
-import { Message } from './Message.jsx';
-import { ToolBlock } from './ToolBlock.jsx';
+import { TranscriptItems } from './TranscriptItems.jsx';
 
 function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
   const running = task.status === SUBAGENT_TASK_STATUS.RUNNING;
@@ -82,15 +96,6 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
   );
 }
 
-// AskUserQuestion 的工具行不进窄条(冒泡到主会话回答);其余 kind 里只保留
-// msg + tool,聚合/提示类行(activity_summary 等)在简化视图中省略。
-function transcriptItemsForPanel(items) {
-  return normalizeToolInvocationItems(items).filter((it) => {
-    if (it.kind === 'tool') return (it.tool?.tool || '') !== 'AskUserQuestion';
-    return it.kind === 'msg';
-  });
-}
-
 function SubagentTranscriptView({ task }) {
   const sessionRef = useMemo(() => ({
     sessionId: task.id,
@@ -98,59 +103,159 @@ function SubagentTranscriptView({ task }) {
     title: taskDisplayTitle(task),
   }), [task.id, task.status, task.title, task.summary]);
   const transcript = useSessionTranscript(sessionRef, { live: 'auto' });
+  const running = transcript.busy || task.status === SUBAGENT_TASK_STATUS.RUNNING;
   const items = useMemo(
-    () => transcriptItemsForPanel(transcript.items),
-    [transcript.items]);
+    () => projectSubagentTranscriptItems(transcript.items, {
+      deferTrailingToolSummary: running,
+      ensureLiveActivity: running,
+      liveTurnId: `subagent:${task.id}`,
+    }),
+    [running, task.id, transcript.items],
+  );
 
-  // 跟尾:接近底部时新内容到达自动滚到底;用户上翻则不打扰。
+  const [expandedActivityKeys, setExpandedActivityKeys] = useState(() => new Set());
+  const [collapsedMediaKeys, setCollapsedMediaKeys] = useState(() => new Set());
   const scrollRef = useRef(null);
-  const followRef = useRef(true);
-  useEffect(() => {
+  const contentRef = useRef(null);
+  const tailFollowStateRef = useRef(CHAT_TAIL_FOLLOW_STATE.FOLLOWING);
+  const scrollActivityRef = useRef({ prev: null, pointerActive: false });
+  const tailFollowRafRef = useRef({ first: 0, second: 0 });
+
+  const setTailFollowFromAction = useCallback((action) => {
+    tailFollowStateRef.current = nextChatTailFollowState(tailFollowStateRef.current, action);
+  }, []);
+
+  const cancelTailFollowScroll = useCallback(() => {
+    const pending = tailFollowRafRef.current || {};
+    if (pending.first) cancelAnimationFrame(pending.first);
+    if (pending.second) cancelAnimationFrame(pending.second);
+    tailFollowRafRef.current = { first: 0, second: 0 };
+  }, []);
+
+  const scheduleTailFollowScroll = useCallback(() => {
+    const scrollToBottom = () => {
+      if (!shouldAutoFollowChatTail(tailFollowStateRef.current)) return false;
+      const el = scrollRef.current;
+      if (!el) return false;
+      el.scrollTop = el.scrollHeight;
+      return true;
+    };
+
+    cancelTailFollowScroll();
+    if (!scrollToBottom()) return;
+    tailFollowRafRef.current.first = requestAnimationFrame(() => {
+      tailFollowRafRef.current.first = 0;
+      if (!scrollToBottom()) return;
+      tailFollowRafRef.current.second = requestAnimationFrame(() => {
+        tailFollowRafRef.current.second = 0;
+        scrollToBottom();
+      });
+    });
+  }, [cancelTailFollowScroll]);
+
+  const pauseTailFollowForReview = useCallback(() => {
+    cancelTailFollowScroll();
+    if (!running) return;
+    setTailFollowFromAction({ type: 'review_pause' });
+  }, [cancelTailFollowScroll, running, setTailFollowFromAction]);
+
+  const handleScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (el && followRef.current) el.scrollTop = el.scrollHeight;
-  }, [items]);
+    if (!el) return;
+    const metrics = chatScrollMetrics(el);
+    setTailFollowFromAction({
+      type: 'scroll',
+      metrics,
+      prevMetrics: scrollActivityRef.current.prev,
+      userGesture: scrollActivityRef.current.pointerActive,
+    });
+    scrollActivityRef.current.prev = metrics;
+  }, [setTailFollowFromAction]);
+
+  const toggleActivitySummary = useCallback((key) => {
+    pauseTailFollowForReview();
+    setExpandedActivityKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, [pauseTailFollowForReview]);
+
+  const toggleMediaGroup = useCallback((key) => {
+    pauseTailFollowForReview();
+    setCollapsedMediaKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, [pauseTailFollowForReview]);
+
+  useLayoutEffect(() => {
+    setTailFollowFromAction({ type: 'session_reset' });
+    scrollActivityRef.current = { prev: null, pointerActive: false };
+    setExpandedActivityKeys(new Set());
+    setCollapsedMediaKeys(new Set());
+  }, [setTailFollowFromAction, task.id]);
+
+  useLayoutEffect(() => {
+    scheduleTailFollowScroll();
+    return cancelTailFollowScroll;
+  }, [cancelTailFollowScroll, items, scheduleTailFollowScroll]);
+
+  useEffect(() => observeChatTailContent(
+    contentRef.current,
+    scheduleTailFollowScroll,
+  ), [scheduleTailFollowScroll, task.id]);
+
+  useEffect(() => {
+    const clearPointerActive = () => {
+      scrollActivityRef.current.pointerActive = false;
+    };
+    window.addEventListener('pointerup', clearPointerActive);
+    window.addEventListener('pointercancel', clearPointerActive);
+    return () => {
+      window.removeEventListener('pointerup', clearPointerActive);
+      window.removeEventListener('pointercancel', clearPointerActive);
+    };
+  }, []);
 
   return (
     <div
       ref={scrollRef}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+      onScroll={handleScroll}
+      onWheel={(event) => {
+        if (event.deltaY < 0) pauseTailFollowForReview();
+      }}
+      onPointerDown={() => {
+        scrollActivityRef.current.pointerActive = true;
       }}
       className="ace-subagent-transcript flex-1 min-h-0 overflow-y-auto px-2.5 py-2 flex flex-col gap-2"
     >
-      {transcript.loadState === 'loading' && (
-        <div className="text-[12px] text-fg-mute px-1 py-2 flex items-center gap-2">
-          <span className="ace-spinner" /> 加载会话记录…
-        </div>
-      )}
-      {transcript.loadState === 'error' && (
-        <div className="text-[12px] text-danger px-1 py-2">加载失败:{transcript.error || ''}</div>
-      )}
-      {items.map((it) => (
-        <div key={it.id} data-chat-row="true">
-          {it.kind === 'tool' ? (
-            <ToolBlock
-              entry={it.tool}
-              sessionRunning={transcript.busy || task.status === SUBAGENT_TASK_STATUS.RUNNING}
-            />
-          ) : (
-            <Message
-              role={it.role}
-              content={it.content}
-              contentParts={it.contentParts}
-              ts={it.ts}
-              streaming={it.streaming}
-              messageId={it.messageId}
-              metadata={it.metadata}
-              showFooter={false}
-            />
-          )}
-        </div>
-      ))}
-      {transcript.loadState === 'loaded' && items.length === 0 && (
-        <div className="text-[12px] text-fg-mute px-1 py-2">暂无会话内容</div>
-      )}
+      <div ref={contentRef} className="flex flex-col gap-2">
+        {transcript.loadState === 'loading' && (
+          <div className="text-[12px] text-fg-mute px-1 py-2 flex items-center gap-2">
+            <span className="ace-spinner" /> 加载会话记录…
+          </div>
+        )}
+        {transcript.loadState === 'error' && (
+          <div className="text-[12px] text-danger px-1 py-2">加载失败:{transcript.error || ''}</div>
+        )}
+        <TranscriptItems
+          items={items}
+          capabilities={READ_ONLY_TRANSCRIPT_CAPABILITIES}
+          expandedActivityKeys={expandedActivityKeys}
+          collapsedMediaKeys={collapsedMediaKeys}
+          onToggleActivity={toggleActivitySummary}
+          onToggleMedia={toggleMediaGroup}
+          sessionRunning={running}
+          onReviewToggle={pauseTailFollowForReview}
+        />
+        {transcript.loadState === 'loaded' && items.length === 0 && (
+          <div className="text-[12px] text-fg-mute px-1 py-2">暂无会话内容</div>
+        )}
+      </div>
     </div>
   );
 }

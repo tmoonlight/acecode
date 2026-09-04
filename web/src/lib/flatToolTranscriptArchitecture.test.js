@@ -30,30 +30,28 @@ function run(name, fn) {
 const treeLayoutClass = /\b(?:ml|pl)-\d|\bborder-l\b/;
 
 run('tool rows share the transcript width while system rows retain the assistant gutter', () => {
-  const chat = source('components/ChatView.jsx');
-  const rowClassName = between(chat, 'function chatRowClassName', 'function ChatFileDropOverlay');
+  const presentation = source('lib/transcriptItemPresentation.js');
+  const rowClassName = between(
+    presentation,
+    'export function transcriptRowClassName',
+    'export function transcriptRowAttrs',
+  );
 
-  assert.match(rowClassName, /role === 'system' && 'ace-chat-row-assistant-gutter'/);
+  assert.match(rowClassName, /transcriptItemRole\(item\) === 'system'[\s\S]*?'ace-chat-row-assistant-gutter'/);
   assert.doesNotMatch(rowClassName, /item\?\.kind === 'tool'/);
 });
 
 run('top-level and recursively expanded activity items use a flat content stack', () => {
-  const chat = source('components/ChatView.jsx');
-  const recursiveItems = between(
-    chat,
-    'function renderExpandedActivityItems',
-    'const chatColumnStyle',
-  );
-  const topLevelActivity = between(
-    chat,
-    "if (it.kind === 'activity_summary')",
-    "const directive = it.kind === 'msg'",
+  const renderer = source('components/TranscriptItems.jsx');
+  const activity = between(
+    renderer,
+    "if (renderKind === 'activity_summary')",
+    "const directive = item?.kind === 'msg'",
   );
 
-  assert.match(recursiveItems, /<ActivityDetailsReveal>/);
-  assert.match(topLevelActivity, /<ActivityDetailsReveal>/);
-  assert.doesNotMatch(recursiveItems, treeLayoutClass);
-  assert.doesNotMatch(topLevelActivity, treeLayoutClass);
+  assert.match(activity, /<ActivityDetailsReveal>/);
+  assert.match(activity, /<TranscriptItems[\s\S]*?nested/);
+  assert.doesNotMatch(activity, treeLayoutClass);
 });
 
 run('expanded subagent rows do not restore a tree rail or nested offset', () => {
@@ -65,7 +63,7 @@ run('expanded subagent rows do not restore a tree rail or nested offset', () => 
 
 run('all passive tool lifecycle rows reuse the same fixed-height ActivityLine shell', () => {
   const activityLine = source('components/ActivityLine.jsx');
-  const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   const tool = source('components/ToolBlock.jsx');
   const subagent = source('components/SubagentGroupBlock.jsx');
 
@@ -73,7 +71,7 @@ run('all passive tool lifecycle rows reuse the same fixed-height ActivityLine sh
   assert.match(activityLine, /flex h-7 w-full/);
   assert.match(activityLine, /flex h-4 w-4 shrink-0/);
   assert.doesNotMatch(activityLine, /<button/);
-  assert.match(chat, /function ActivitySummaryBlock[\s\S]*?<ActivityLine/);
+  assert.match(renderer, /function ActivitySummaryBlock[\s\S]*?<ActivityLine/);
   assert.match(tool, /import \{ ActivityLine \}/);
   assert.ok((tool.match(/<ActivityLine/g) || []).length >= 3);
   assert.match(tool, /const completedSummary = summary \|\| genericSummary;/);
@@ -97,7 +95,7 @@ run('single-line activity UI uses the same responsive font size as assistant bod
 });
 
 run('processed summary divider paints across the row without changing layout height', () => {
-  const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   const styles = source('styles/globals.css');
   const divider = between(
     styles,
@@ -105,7 +103,7 @@ run('processed summary divider paints across the row without changing layout hei
     '/* Tool 中的真实代码与 diff 不继承上面的正文覆盖。 */',
   );
 
-  assert.match(chat, /item\?\.mode === 'processed' \? 'ace-activity-line-processed' : ''/);
+  assert.match(renderer, /item\?\.mode === 'processed' \? 'ace-activity-line-processed' : ''/);
   assert.match(styles, /\.ace-activity-line-processed\s*\{\s*position:\s*relative;/);
   assert.match(divider, /position:\s*absolute;/);
   assert.match(divider, /right:\s*0;/);
@@ -138,9 +136,9 @@ run('activity chevrons sit beside content, reveal on hover, and stay visible for
 });
 
 run('expanded activity details quickly draw downward and release clipping after entry', () => {
-  const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   const styles = source('styles/globals.css');
-  const revealComponent = between(chat, 'function ActivityDetailsReveal', 'function ActivitySummaryBlock');
+  const revealComponent = between(renderer, 'function ActivityDetailsReveal', 'function ActivitySummaryBlock');
   const revealStyles = between(
     styles,
     '@keyframes ace-activity-details-reveal',
@@ -164,26 +162,29 @@ run('expanded activity details quickly draw downward and release clipping after 
   assert.match(revealStyles, /\.ace-activity-details-reveal\.is-settled\s*\{\s*overflow:\s*visible;\s*animation:\s*none;/);
   assert.match(revealStyles, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?animation:\s*none;/);
   assert.match(revealStyles, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.ace-activity-line-chevron svg\s*\{\s*transition:\s*none;/);
-  assert.ok((chat.match(/&& \(\s*<ActivityDetailsReveal>/g) || []).length >= 2);
+  assert.match(renderer, /\{expanded && \(\s*<ActivityDetailsReveal>/);
+  assert.match(renderer, /<TranscriptItems[\s\S]*?nested/);
 });
 
 run('activity summaries pass their actual title element into expansion anchoring', () => {
   const activityLine = source('components/ActivityLine.jsx');
-  const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
 
   assert.match(activityLine, /data-activity-title-anchor="true"/);
   assert.match(activityLine, /onToggle\(event\);/);
-  assert.ok(
-    (chat.match(/onToggle=\{\(event\) => toggleActivitySummary\([^\n]+event\?\.currentTarget\)\}/g) || []).length >= 2,
+  assert.match(
+    renderer,
+    /onToggle=\{\(event\) => onToggleActivity\?\.\(item\.id, event\?\.currentTarget\)\}/,
   );
 });
 
 run('bottom loading is projected into ActivityLine and the old bubble is gone', () => {
   const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
 
   assert.match(chat, /ensureLiveActivity: busy/);
   assert.match(chat, /liveTurnId: currentTurnActivityId\(rawItems, activeTurnId, sid\)/);
-  assert.match(chat, /activity\?\.label \|\| item\?\.title/);
+  assert.match(renderer, /activity\?\.label \|\| item\?\.title/);
   assert.doesNotMatch(chat, /function ActivityIndicator/);
   assert.doesNotMatch(chat, /data-conversation-activity-bubble/);
   assert.doesNotMatch(chat, /ace-pulse/);

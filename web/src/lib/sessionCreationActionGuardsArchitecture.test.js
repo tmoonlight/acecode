@@ -44,6 +44,7 @@ test('workspace new-task actions route to the shared lazy home entry point', () 
 
 test('chat fork is single-flight and the originating message owns persistent loading feedback', () => {
   const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   const message = source('components/Message.jsx');
   const styles = source('styles/globals.css');
   const forkFlow = section(
@@ -69,13 +70,14 @@ test('chat fork is single-flight and the originating message owns persistent loa
     chat,
     /action !== DESKTOP_CONTEXT_ACTIONS\.FORK_MESSAGE[\s\S]*forkAndSwitch\(target\.messageId\)/,
   );
+  assert.match(chat, /<TranscriptItems[\s\S]*?onFork=\{forkAndSwitch\}[\s\S]*?forkingMessageId=\{forkingMessageId\}/);
   assert.ok(
-    (chat.match(/forkPending=\{forkingMessageId !== ''\}/g) || []).length >= 4,
-    'message and completion-summary render paths must disable fork actions while pending',
+    (renderer.match(/forkPending=\{capabilities\.forkMessages && forkingMessageId !== ''\}/g) || []).length >= 3,
+    'shared message, completion-summary, and termination paths must disable fork actions while pending',
   );
   assert.ok(
-    (chat.match(/forkLoading=\{forkingMessageId !== '' && forkingMessageId === String\(/g) || []).length >= 4,
-    'message and completion-summary render paths must identify the loading message',
+    (renderer.match(/forkLoading=\{capabilities\.forkMessages/g) || []).length >= 3,
+    'shared renderer must identify the loading message in every fork-owning path',
   );
 
   assert.match(message, /export function MessageActions\(/);
@@ -92,13 +94,15 @@ test('chat fork is single-flight and the originating message owns persistent loa
 
 test('completion summary reuses message actions with raw text and persisted fork identity', () => {
   const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
+  const presentation = source('lib/transcriptItemPresentation.js');
   const completionBlock = section(
-    chat,
-    'function CompletionSummaryBlock({',
-    '\n\nfunction TerminationNoticeBlock',
+    renderer,
+    'export function CompletionSummaryBlock({',
+    '\n\nexport function TerminationNoticeBlock',
   );
 
-  assert.match(chat, /import \{ Message, MessageActions \} from '\.\/Message\.jsx';/);
+  assert.match(renderer, /import \{ Message, MessageActions \} from '\.\/Message\.jsx';/);
   assert.match(completionBlock, /className="group [^"]*"/);
   assert.match(
     completionBlock,
@@ -106,14 +110,9 @@ test('completion summary reuses message actions with raw text and persisted fork
   );
   assert.match(completionBlock, /forkPending=\{forkPending\}/);
   assert.match(completionBlock, /forkLoading=\{forkLoading\}/);
-  assert.match(chat, /item\?\.kind === 'completion_summary'\) return completionSummaryText\(item\);/);
-  assert.match(chat, /isCompletionSummary \? 'assistant' : \(item\.role \|\| undefined\)/);
-  assert.ok(
-    (chat.match(/<CompletionSummaryBlock[\s\S]*?onFork=\{forkAndSwitch\}/g) || []).length >= 2,
-    'top-level and expanded completion summaries must reuse forkAndSwitch',
-  );
-  assert.ok(
-    (chat.match(/\.\.\.messageContextAttrs\((?:child|it)\)/g) || []).length >= 2,
-    'completion summaries must expose desktop message context attributes',
-  );
+  assert.match(presentation, /item\?\.kind === 'completion_summary'\) return completionSummaryText\(item\);/);
+  assert.match(presentation, /isCompletionSummary \? 'assistant' : \(item\.role \|\| undefined\)/);
+  assert.match(renderer, /<CompletionSummaryBlock[\s\S]*?onFork=\{capabilities\.forkMessages \? onFork : undefined\}/);
+  assert.match(renderer, /transcriptRowAttrs\(item, \{ nested, canFork: capabilities\.forkMessages \}\)/);
+  assert.match(chat, /<TranscriptItems[\s\S]*?onFork=\{forkAndSwitch\}/);
 });

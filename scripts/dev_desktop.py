@@ -16,6 +16,8 @@ ACECode Desktop 一键开发脚本
   python scripts/dev_desktop.py --list       # 列出可用的 desktop 构建产物
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import platform
@@ -43,26 +45,26 @@ def _c(text: str, code: str) -> str:
 
 
 def info(msg: str) -> None:
-    print(_c("[INFO] ", "36m") + msg)
+    print(_c("[INFO] ", "36") + msg)
 
 
 def ok(msg: str) -> None:
-    print(_c("[OK]   ", "32m") + msg)
+    print(_c("[OK]   ", "32") + msg)
 
 
 def warn(msg: str) -> None:
-    print(_c("[WARN] ", "33m") + msg)
+    print(_c("[WARN] ", "33") + msg)
 
 
 def error(msg: str) -> None:
-    print(_c("[ERROR]", "31m") + " " + msg, file=sys.stderr)
+    print(_c("[ERROR]", "31") + " " + msg, file=sys.stderr)
 
 
 def banner(msg: str) -> None:
     width = max(len(msg) + 4, 40)
-    print(_c("=" * width, "35m"))
-    print(_c(f"  {msg}", "35m"))
-    print(_c("=" * width, "35m"))
+    print(_c("=" * width, "35"))
+    print(_c(f"  {msg}", "35"))
+    print(_c("=" * width, "35"))
 
 
 # ─── 项目根目录定位 ────────────────────────────────────────────────────────
@@ -111,28 +113,58 @@ def ensure_node_and_pnpm() -> tuple[str, str]:
 
 # ─── Web 构建 ──────────────────────────────────────────────────────────────
 
+WEB_BUILD_INPUT_FILES = (
+    "index.html",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+)
+
+
+def iter_web_build_inputs(web_dir: Path):
+    """Yield files that can affect Vite's production output."""
+    seen = set()
+    for directory_name in ("src", "public"):
+        directory = web_dir / directory_name
+        if not directory.is_dir():
+            continue
+        for path in directory.rglob("*"):
+            if path.is_file() and path not in seen:
+                seen.add(path)
+                yield path
+    for name in WEB_BUILD_INPUT_FILES:
+        path = web_dir / name
+        if path.is_file() and path not in seen:
+            seen.add(path)
+            yield path
+    for pattern in ("vite.config.*", "postcss.config.*", "tailwind.config.*"):
+        for path in web_dir.glob(pattern):
+            if path.is_file() and path not in seen:
+                seen.add(path)
+                yield path
+
+
+def web_build_is_stale(web_dir: Path, index_html: Path) -> bool:
+    if not index_html.is_file():
+        return True
+    try:
+        dist_mtime = index_html.stat().st_mtime
+        return any(path.stat().st_mtime > dist_mtime
+                   for path in iter_web_build_inputs(web_dir))
+    except OSError:
+        # A file changed while scanning; rebuild rather than trusting a stale dist.
+        return True
+
 def build_web(web_dir: Path, pnpm: str, force: bool = False) -> None:
     """构建 web 前端到 web/dist/。"""
     dist_dir = web_dir / "dist"
     index_html = dist_dir / "index.html"
 
     if not force and index_html.exists():
-        # 检查 src/ 下是否有比 dist/index.html 更新的文件
-        src_dir = web_dir / "src"
-        if src_dir.is_dir():
-            dist_mtime = index_html.stat().st_mtime
-            needs_rebuild = False
-            for f in src_dir.rglob("*"):
-                if f.is_file() and f.stat().st_mtime > dist_mtime:
-                    needs_rebuild = True
-                    break
-            if not needs_rebuild:
-                ok("web/dist/ 已是最新，跳过构建")
-                return
-            info("检测到 web/src/ 有更新，重新构建...")
-        else:
-            ok("web/dist/ 已存在，跳过构建")
+        if not web_build_is_stale(web_dir, index_html):
+            ok("web/dist/ 已是最新，跳过构建")
             return
+        info("检测到 Web 构建输入有更新，重新构建...")
     else:
         if force:
             info("强制重新构建 web...")
@@ -155,31 +187,65 @@ def build_web(web_dir: Path, pnpm: str, force: bool = False) -> None:
 # ─── Desktop 构建产物定位 ───────────────────────────────────────────────────
 
 def find_desktop_builds(build_dir: Path) -> list[Path]:
-    """在 build/ 目录下查找所有可用的 desktop 构建产物。"""
+    """查找 build 根、直接子目录及 preset/config 两层布局的产物。"""
     results: list[Path] = []
     if not build_dir.is_dir():
         return results
 
-    for child in sorted(build_dir.iterdir()):
-        if not child.is_dir():
+    search_dirs = [build_dir]
+    try:
+        first_level = sorted(
+            (path for path in build_dir.iterdir()
+             if path.is_dir() and path.suffix != ".app"),
+            key=lambda path: str(path).lower(),
+        )
+    except OSError:
+        first_level = []
+    search_dirs.extend(first_level)
+    for first in first_level:
+        try:
+            search_dirs.extend(sorted(
+                (path for path in first.iterdir()
+                 if path.is_dir() and path.suffix != ".app"),
+                key=lambda path: str(path).lower(),
+            ))
+        except OSError:
             continue
+
+    seen = set()
+    for child in search_dirs:
         # macOS .app bundle
         app_bundle = child / "ACECode.app"
         if app_bundle.is_dir():
-            results.append(app_bundle)
-            continue
+            resolved = app_bundle.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                results.append(app_bundle)
         # Windows .exe
         exe = child / "acecode-desktop.exe"
-        if exe.exists():
-            results.append(exe)
-            continue
+        if exe.is_file():
+            resolved = exe.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                results.append(exe)
         # Linux / macOS 裸可执行文件（非 .app）
         binary = child / "acecode-desktop"
-        if binary.exists() and os.access(binary, os.X_OK):
-            results.append(binary)
-            continue
+        if binary.is_file() and os.access(binary, os.X_OK):
+            resolved = binary.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                results.append(binary)
 
     return results
+
+
+def display_path(path: Path, project_root: Path) -> str:
+    """Prefer a repo-relative path, but support explicitly external builds."""
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(project_root.resolve()))
+    except ValueError:
+        return str(resolved)
 
 
 def pick_desktop_build(builds: list[Path], preferred: str | None = None) -> Path | None:
@@ -286,7 +352,7 @@ def main() -> None:
         else:
             ok(f"找到 {len(builds)} 个 desktop 构建产物:")
             for i, b in enumerate(builds, 1):
-                print(f"  {i}. {b.relative_to(project_root)}")
+                print(f"  {i}. {display_path(b, project_root)}")
         return
 
     # 3. 检查并构建 web
@@ -304,28 +370,18 @@ def main() -> None:
         specified = Path(args.build_dir)
         if not specified.is_absolute():
             specified = project_root / specified
+        specified = specified.resolve()
         # 支持指定到 .app / .exe / 目录
-        if specified.suffix == ".app" or specified.name.endswith(".exe"):
+        if (specified.suffix == ".app" or specified.name.endswith(".exe") or
+                specified.name == "acecode-desktop"):
             desktop_path = specified
         else:
-            # 目录下查找
-            candidates = find_desktop_builds(specified.parent if specified.name.startswith("build") else specified)
+            candidates = find_desktop_builds(specified)
             if not candidates:
-                # 直接在指定目录下找
-                app = specified / "ACECode.app"
-                exe = specified / "acecode-desktop.exe"
-                binf = specified / "acecode-desktop"
-                if app.is_dir():
-                    desktop_path = app
-                elif exe.exists():
-                    desktop_path = exe
-                elif binf.exists() and os.access(binf, os.X_OK):
-                    desktop_path = binf
-                else:
-                    error(f"在指定目录下未找到 desktop 构建产物: {specified}")
-                    sys.exit(1)
+                error(f"在指定目录下未找到 desktop 构建产物: {specified}")
+                sys.exit(1)
             else:
-                desktop_path = candidates[0]
+                desktop_path = pick_desktop_build(candidates)
     else:
         builds = find_desktop_builds(build_dir)
         if not builds:
@@ -337,13 +393,14 @@ def main() -> None:
             sys.exit(1)
         desktop_path = pick_desktop_build(builds)
         if len(builds) > 1:
-            info(f"找到 {len(builds)} 个构建产物，自动选择: {desktop_path.relative_to(project_root)}")
+            info(f"找到 {len(builds)} 个构建产物，自动选择: "
+                 f"{display_path(desktop_path, project_root)}")
             info("(可用 --build-dir 指定其他构建，或 --list 查看全部)")
 
     if not desktop_path.exists():
         error(f"desktop 构建产物不存在: {desktop_path}")
         sys.exit(1)
-    ok(f"Desktop 构建: {desktop_path.relative_to(project_root)}")
+    ok(f"Desktop 构建: {display_path(desktop_path, project_root)}")
 
     # 5. 启动 desktop
     launch_desktop(desktop_path, dev_web_dir)
@@ -351,14 +408,14 @@ def main() -> None:
 
     # 6. 打印使用提示
     print()
-    print(_c("── 开发提示 ──────────────────────────────────────", "35m"))
+    print(_c("── 开发提示 ──────────────────────────────────────", "35"))
     print("  1. 修改 web/src/ 下的代码后，重新构建:")
     print(f"       cd {web_dir} && pnpm build")
     print("     或重新运行本脚本加 --rebuild")
     print("  2. 在 Desktop 窗口按 F5 刷新页面即可看到改动")
     print("  3. 按 F11 打开 WebView 开发者工具调试")
     print("  4. 无需重新编译 C++!")
-    print(_c("──────────────────────────────────────────────────", "35m"))
+    print(_c("──────────────────────────────────────────────────", "35"))
     print()
 
 

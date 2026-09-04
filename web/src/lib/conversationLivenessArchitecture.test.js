@@ -32,9 +32,11 @@ run('composer 附近不再存在重复的固定活动栏', () => {
 
 run('前台状态投影进统一活动行，后台状态仍在 transcript 尾部呈现', () => {
   const chat = source('components/ChatView.jsx');
+  const renderer = source('components/TranscriptItems.jsx');
   assert.match(chat, /selectConversationActivity\(\{/);
   assert.match(chat, /ensureLiveActivity: busy/);
-  assert.match(chat, /activity=\{it\.live \? conversationActivity : null\}/);
+  assert.match(chat, /<TranscriptItems[\s\S]*?conversationActivity=\{conversationActivity\}/);
+  assert.match(renderer, /activity=\{!nested && item\.live \? conversationActivity : null\}/);
   assert.match(chat, /conversationActivity\.kind === CONVERSATION_ACTIVITY_KIND\.BACKGROUND[\s\S]*?<ActivityLine/);
   assert.doesNotMatch(chat, /data-conversation-activity-bubble|<ActivityIndicator/);
 });

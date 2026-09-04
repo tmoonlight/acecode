@@ -12,7 +12,9 @@ function isSpace(ch) {
 
 export function normalizeReferencePath(value = '') {
   let out = String(value || '').replaceAll('\\', '/');
+  const unc = out.startsWith('//');
   while (out.includes('//')) out = out.replaceAll('//', '/');
+  if (unc && !out.startsWith('//')) out = `/${out}`;
   if (out.startsWith('./')) out = out.slice(2);
   return out;
 }
@@ -79,11 +81,13 @@ export function replacePathReferenceToken(text, token, relativePath, {
   };
 }
 
-export function insertPathReferenceAtCaret(text, caret, relativePath) {
+export function insertPathReferenceAtCaret(text, caret, relativePath, {
+  directory = false,
+} = {}) {
   const input = String(text || '');
   const cursor = Math.max(0, Math.min(input.length, Number.isFinite(caret) ? caret : input.length));
   const beforeNeedsSpace = cursor > 0 && !isSpace(input[cursor - 1]);
-  const reference = formatPathReference(relativePath, { directory: true, trailingSpace: true });
+  const reference = formatPathReference(relativePath, { directory, trailingSpace: true });
   const insertion = `${beforeNeedsSpace ? ' ' : ''}${reference}`;
   return {
     text: input.slice(0, cursor) + insertion + input.slice(cursor),
