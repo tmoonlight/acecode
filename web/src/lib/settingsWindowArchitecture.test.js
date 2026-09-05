@@ -41,19 +41,20 @@ run('Settings uses a blocking mask and an accessible expandable dialog', () => {
   assert.doesNotMatch(settings, /<WindowControls/);
 });
 
-run('Settings panel sizes normal and expanded insets within the requested bounds', () => {
+run('Settings panel keeps normal caps and an exact 13px expanded inset', () => {
   const styles = source('styles/globals.css');
   const panel = between(styles, '.ace-settings-panel {', '/* Desktop shell');
+  const mask = between(styles, '.ace-settings-mask {', '.ace-settings-panel {');
 
-  assert.match(styles, /\.ace-settings-mask \{[\s\S]*background: rgba\(var\(--ace-bg-rgb\), 0\.62\);/);
-  assert.match(styles, /backdrop-filter: blur\(12px\) saturate\(0\.82\);/);
+  assert.match(mask, /background: rgba\(0, 0, 0, 0\.35\);/);
+  assert.doesNotMatch(mask, /backdrop-filter/);
   assert.match(panel, /width: calc\(100vw - 240px\);/);
   assert.match(panel, /height: calc\(100vh - 240px\);/);
   assert.match(panel, /min-width: min\(880px, calc\(100vw - 26px\)\);/);
   assert.match(panel, /min-height: min\(500px, calc\(100vh - 26px\)\);/);
   assert.match(panel, /max-width: 2100px;/);
   assert.match(panel, /max-height: 1550px;/);
-  assert.match(panel, /\.ace-settings-panel\[data-expanded="true"\] \{[\s\S]*width: calc\(100vw - 26px\);[\s\S]*height: calc\(100vh - 26px\);/);
+  assert.match(panel, /\.ace-settings-panel\[data-expanded="true"\] \{[\s\S]*width: calc\(100vw - 26px\);[\s\S]*height: calc\(100vh - 26px\);[\s\S]*max-width: none;[\s\S]*max-height: none;/);
 });
 
 run('upgrade URL and personalization editors save on blur without save buttons', () => {
