@@ -192,7 +192,7 @@ export function SettingsPage({
           show ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-2 scale-[0.985]',
         )}
       >
-        <div className="h-11 px-3 flex items-center gap-3 bg-surface border-b border-border shrink-0">
+        <div className="h-11 px-3 flex items-center gap-3 bg-surface border-b border-border shrink-0 select-none">
           <span id="settings-window-title" className="flex-1 min-w-0 text-[15px] font-semibold truncate">
             设置
           </span>
@@ -219,7 +219,7 @@ export function SettingsPage({
           </div>
         </div>
         <div className="flex-1 flex min-h-0 overflow-hidden">
-        <nav className="w-14 sm:w-[200px] bg-surface-alt border-r border-border py-2 overflow-y-auto shrink-0">
+        <nav className="w-14 sm:w-[200px] bg-surface-alt border-r border-border py-2 overflow-y-auto shrink-0 select-none">
           {SETTINGS_NAV_GROUPS.map((group, groupIndex) => {
             const headingId = `settings-nav-group-${group.key}`;
             return (
