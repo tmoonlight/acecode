@@ -4,7 +4,7 @@
 状态：**已评审通过并提交**（下一步：调用 `writing-plans` 生成实施计划，按第 8 节两批实施）
 仓库：`/Users/liuxin557/DEV/acecode`
 
-> 接续说明：本仓库 brainstorming 走 Architectural 路径，设计批准前不得写实现代码。本文即批准后的设计基线，实施时按第 8 节批次推进，落在同一 OpenSpec change `openspec/changes/ask-user-question-dual-entry/`。
+> 接续说明：本仓库 brainstorming 走 Architectural 路径，设计批准前不得写实现代码。本文即批准后的设计基线，实施时按第 8 节批次推进，落在同一 OpenSpec change `openspec/changes/ask-user-question-dual-entry/`。（设计初稿基于旧 calvinhxx v0.4.3 代码，已于 2026-09-06 对照 tmoonlight/acecode v0.9.x 主线审计修订，第 4/6/9 节含变更标注。）
 
 ---
 
@@ -94,16 +94,22 @@
 
 标记词用中文、与入口文案一致；分隔符用 ASCII（`; `、`: `），规避 TUI 宽度不稳定字形（AGENTS.md 要求）。标记词语言是单点常量，改英文只需一处。
 
-**拼装逻辑必须统一**：现状 `format_ask_answers`（同步路径）与 `parse_async_response`（daemon 路径）各自拼装、行为不同，是缺陷来源。本设计把拼装收敛为一个**纯函数**（`format_answer_text(selected_labels, supplement_text, exclusive_text)`），两条路径共用；该函数从匿名 namespace 抽出，使其可单测。
+**拼装逻辑收敛到 `format_ask_answers`**（v0.9.x 审计结论）：初稿假设"两条路径各拼各的：`format_ask_answers`(TUI) + `parse_async_response`(daemon)"——**与现状不符**。审计发现：
 
-**TUI 为何不走协议**：终端模式下 ask 工具、overlay、答案存储在同一进程，工具弹出问题后 `ask_cv.wait` 阻塞，用户操作直接写入 `TuiState` 的内存字段，全程无序列化边界，因此不存在 JSON 协议。TUI 直接调用同一个拼装纯函数生成最终文本，语义与 daemon 路径一致。
+- `format_ask_answers`（`src/tool/ask_user_question_tool.cpp:180`，声明在 `ask_user_question_tool.hpp:42`）**已是 TUI 同步路径与 daemon 跨进程路径共用的统一拼装入口**：两条路径最终都经它生成工具 `output` 文本。它本身就是初稿想造的那个"纯函数"。
+- daemon 侧解析**没有独立 `parse_async_response` 函数**，而是内联在 `src/web/routes/routes_ws.cpp:377`（`AskUserQuestionAnswer` 解析：读 `selected` + `custom_text`）。
+- 真正的缺陷在 TUI：**`tui_ask_channel.cpp:57` 把 `custom_text` 硬编码空**，双入口文本实际由 `main.cpp:6722 commit_current_answer` 直接拼进 `ask_result_answers` 的 join 串（question→`"A; 其他: xxx"`），绕过了结构化字段——这正是"自定义文本与预设混在一起"痛点的 TUI 侧根因。
+
+本设计做法：扩展 `format_ask_answers` 支持双字段标记，并把 TUI 与 daemon 都收敛为**产出结构化 `supplement_text` / `exclusive_text` 再喂同一函数**（决策⑤ B，见第 6 节）。这样两条路径在字段层面就对称，不可能再分叉。
+
+**TUI 为何不走协议**：终端模式下 ask 工具、overlay、答案存储在同一进程，工具弹出问题后 `ask_cv.wait` 阻塞，用户操作直接写入 `TuiState` 的内存字段，全程无序列化边界，因此不存在 JSON 协议。TUI 通过同一个 `format_ask_answers` 生成最终文本（改造后：TUI 也先把双入口文本填入 `AskUserQuestionAnswer` 再交给该函数），语义与 daemon 路径一致。
 
 **改动点清单**：
 
-1. 两处工具 schema 的 `options` description（TUI 同步版 + async 版）改写：告知模型 UI 会自动追加「我要补充」和「以上都不是」两个入口，无需也不应写进 options
-2. `src/session/ask_user_question_prompter.hpp` 协议注释（33-35 行）：custom_text 拆两字段、互斥规则、“非空即选中”
-3. 新增拼装纯函数 + 两路径调用点替换
-4. `docs/daemon-api.md` 同步更新（仓库规范：协议行为变更必须更新）
+1. 工具 schema 的 `options` description 改写（**仅一处**：`ask_user_question_tool.cpp:371` 的 `question_schema`，v0.9.x 已把 TUI 同步版与 daemon 版合并为同一定义，TUI/daemon 共用）：告知模型 UI 会自动追加「我要补充」和「以上都不是」两个入口，无需也不应写进 options
+2. `src/session/ask_user_question_prompter.hpp` 协议注释（**35-41 行**）：`AskUserQuestionAnswer.custom_text` 拆为 `supplement_text` + `exclusive_text`、互斥规则、“非空即选中”
+3. 扩展 `format_ask_answers`（`ask_user_question_tool.cpp:180`）+ 两路径调用点：`routes_ws.cpp:377` 按双字段解析、`main.cpp:6722` 按双字段拼装（取代硬编码空 `custom_text`）
+4. `docs/daemon-api.md:3154` 同步（协议 `answers[]` 的 `custom_text` → `supplement_text` / `exclusive_text`）
 
 ---
 
@@ -170,15 +176,20 @@
 
 **校验报错**：提交时激活入口文本为空 → 阻止提交，hint 行临时显示错误（如 `! 以上都不是 requires an answer`）。
 
-**状态字段调整**（`src/tui_state.hpp`）：
+**状态字段调整**（`src/tui_state.hpp`，决策⑤ B：结构化对称，删除旧单 "Other" 建模）：
 
 | 字段 | 变化 |
 |---|---|
+| `ask_custom_answer_selected` | **删除**（单一 "Other" 建模，被双入口取代） |
+| `ask_custom_answers` | **删除** |
+| `ask_other_input_active` | **删除**（布尔输入态标记，被枚举取代） |
 | `ask_exclusive_active` | 新增，独占入口勾选态 |
 | `ask_exclusive_text` | 新增，独占入口手填文本 |
 | `ask_supplement_text` | 新增，补充入口手填文本（非空即 active） |
-| 输入态目标 | `ask_other_input_active` 从布尔改为目标枚举（supplement / exclusive） |
+| 输入态目标 | 新增枚举 `ask_input_target ∈ {none, supplement, exclusive}`，取代原 `ask_other_input_active` 布尔 |
 | 焦点行总数 | `option_count + 2`；`ask_multi_selected` 仍为 `option_count`（仅预设） |
+
+> 删除旧 `ask_custom_*` 字段是破坏性改动，牵连 `main.cpp:6722 commit_current_answer` 与 `tui_ask_channel.cpp` 多处（原 `ask_other_input_active` / `ask_custom_answer_selected` / `ask_custom_answers` 的赋值与清理）。改造后这些位置改为写入 `ask_exclusive_*` / `ask_supplement_text`，并在 `main.cpp` 把双字段填回 `AskUserQuestionAnswer` 再交给 `format_ask_answers`，使 TUI 路径不再走 join 串旁路。
 
 ---
 
@@ -212,7 +223,7 @@
 
 **批次 2 · TUI 对齐**
 
-7. `tui_state.hpp` 新增字段、输入态目标改枚举
+7. `tui_state.hpp` **删除旧 `ask_custom_*` 三字段**、新增 `ask_exclusive_active` / `ask_exclusive_text` / `ask_supplement_text` / 枚举 `ask_input_target`（取代 `ask_other_input_active`）；`main.cpp:6722` 与 `tui_ask_channel.cpp` 相应赋值/清理处改为填 `AskUserQuestionAnswer` 双字段再喂 `format_ask_answers`
 8. `ask_question_overlay.cpp` 布局与 dim 渲染
 9. `main.cpp` 事件处理（焦点范围、Space/Enter/Esc 语义、提交校验）
 10. overlay 与输入态测试更新
@@ -232,3 +243,6 @@
 | 7 | GUI 布局 | 方案 C · 主输入区（补充为题目下方常驻框，非空即激活） |
 | 8 | TUI 布局 | 方案 2 · 分区式（与 GUI 方案 C 心智一致） |
 | 9 | 两端行为 | 桌面与终端统一 |
+| 10 | 拼装统一点（v0.9.x 审计） | `format_ask_answers` 已是 TUI/daemon 共用统一入口；daemon 解析内联 `routes_ws.cpp:377`，无独立 `parse_async_response`；工具 schema 仅一处（`ask_user_question_tool.cpp:371`） |
+| 11 | TUI 双入口落地（决策⑤） | **B：结构化对称**——TUI 也产 `supplement_text`/`exclusive_text` 喂 `format_ask_answers`，删除旧 `ask_custom_*` 字段，不再走 `ask_result_answers` join 串旁路 |
+| 12 | 协议注释行号 | `prompter.hpp` 实际 35-41 行（非初稿 33-35） |
