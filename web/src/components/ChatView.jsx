@@ -2456,6 +2456,15 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     if (sid) setCreateProjectOpen(false);
   }, [sid]);
 
+  // ref 携带 homeWorkspaceExplicit 时,工作区归属是导航意图的一部分:
+  // 同步落到 homeWorkspaceHash,不等 /api/workspaces 返回。否则点击
+  // 「新建任务」后,聊天区的工作区显示、提交目标、命令工作区、输入历史
+  // 都要等整个列表请求回来才切到无工作区(实测 3-4 秒)。
+  useEffect(() => {
+    if (sid || !ref?.homeWorkspaceExplicit) return;
+    setHomeWorkspaceHash(ref?.workspaceHash || '');
+  }, [ref?.homeWorkspaceExplicit, ref?.workspaceHash, sid]);
+
   useEffect(() => {
     if (sid) return undefined;
     let cancelled = false;
@@ -2522,8 +2531,13 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
   useEffect(() => {
     const cwd = sid
       ? (ref?.cwd || health?.cwd || '')
-      : (selectedHomeWorkspace?.cwd || ref?.cwd || health?.cwd || '');
-    if (!cwd) return;
+      : (selectedHomeWorkspace?.cwd || ref?.cwd || '');
+    if (!cwd) {
+      // 无工作空间的新任务没有 per-cwd 历史;显式清掉上一次工作区残留,
+      // 避免上下键翻出上一个项目的输入历史。
+      setHistory([]);
+      return;
+    }
     api.getHistory(cwd, 200)
       .then((r) => setHistory(Array.isArray(r) ? r : []))
       .catch(() => {});
