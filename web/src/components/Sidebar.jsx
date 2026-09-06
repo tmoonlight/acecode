@@ -1602,7 +1602,7 @@ function WorkspaceGroup({
         data-desktop-workspace-remove={onRemove ? 'true' : undefined}
         data-desktop-workspace-opencode-import-count={opencodeImportCount > 0 ? String(opencodeImportCount) : undefined}
         className={clsx(
-          'ace-sidebar-tree-row-grid ace-sidebar-primary-text group grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[5px] mx-1.5 px-2 py-[6px] rounded-md text-[14px] cursor-pointer transition',
+          'ace-sidebar-tree-row-grid ace-sidebar-primary-text group grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[5px] mx-1.5 px-2 py-[3px] rounded-md text-[14px] cursor-pointer transition',
           ws.active ? 'bg-accent-bg text-fg' : 'text-fg hover:bg-surface-hi',
         )}
         onClick={() => (ws.active ? onToggle(ws.hash) : onActivate(ws))}
@@ -1650,7 +1650,7 @@ function WorkspaceGroup({
         </span>
       </div>
       {expanded && (
-        <div className="my-1">
+        <div className="mt-px mb-[10px]">
           {sessions.length === 0 ? (
             <div className="ace-sidebar-tree-row-grid ace-sidebar-meta-text grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[5px] mx-1.5 px-2 py-[4px] text-[13px] text-fg-mute italic">
               <span aria-hidden="true" />
@@ -1720,7 +1720,7 @@ function NoWorkspaceSessionGroup({
   const projectedSessions = sidebarSessionProjection(sessions, sessionListExpanded);
 
   return (
-    <div className="my-1">
+    <div className="mt-px mb-[10px]">
       {sessions.length === 0 ? (
         <div className="ace-sidebar-tree-row-grid ace-sidebar-meta-text grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[5px] mx-1.5 px-2 py-[4px] text-[13px] text-fg-mute italic">
           <span aria-hidden="true" />
