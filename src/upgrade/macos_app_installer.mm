@@ -2,6 +2,7 @@
 #import <Security/Security.h>
 
 #include "macos_app_installer.hpp"
+#include "diagnostics.hpp"
 
 #include "desktop/user_install_policy.hpp"
 
@@ -10,6 +11,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <fcntl.h>
@@ -494,8 +496,14 @@ bool install_macos_app_update(const fs::path& installed_bundle,
                               const fs::path& candidate_bundle,
                               const std::string& expected_version,
                               fs::path* backup_bundle,
-                              std::string* error) {
+                              std::string* error,
+                              DiagnosticLog* diagnostics) {
     @autoreleasepool {
+        auto record = [&](const char* event, nlohmann::json details = nlohmann::json::object()) {
+            if (diagnostics) diagnostics->record(event, std::move(details));
+        };
+        record("macos_preflight", {{"installed_bundle", installed_bundle.u8string()},
+            {"candidate_bundle", candidate_bundle.u8string()}, {"expected_version", expected_version}});
         if (backup_bundle) backup_bundle->clear();
         if (!preflight_macos_app_update(installed_bundle, candidate_bundle,
                                         expected_version, error)) {
@@ -504,6 +512,7 @@ bool install_macos_app_update(const fs::path& installed_bundle,
 
         const fs::path applications_dir = installed_bundle.parent_path();
         UpdateLock lock;
+        record("macos_lock", {{"path", (applications_dir / kUpdateLockName).u8string()}});
         if (!lock.acquire(applications_dir / kUpdateLockName, error)) return false;
 
         NSFileManager* file_manager = [NSFileManager defaultManager];
@@ -521,40 +530,55 @@ bool install_macos_app_update(const fs::path& installed_bundle,
         }
 
         NSError* native_error = nil;
+        record("macos_candidate_copy", {{"source", candidate_bundle.u8string()},
+                                       {"destination", temporary_path.u8string()}});
         if (![file_manager copyItemAtURL:candidate_url
                                    toURL:temporary_url
                                    error:&native_error]) {
             std::string ignored;
             remove_if_present(file_manager, temporary_url, &ignored);
+            record("macos_candidate_cleanup", {{"error", ignored}});
             set_error(error, "cannot copy the staged ACECode.app beside the installation: " +
                              ns_error_text(native_error));
             return false;
         }
+        record("macos_candidate_verification");
         if (!authenticate_candidate(installed_bundle, temporary_path,
                                     expected_version, error)) {
             std::string ignored;
             remove_if_present(file_manager, temporary_url, &ignored);
+            record("macos_candidate_cleanup", {{"error", ignored}});
             return false;
         }
 
+        record("macos_backup_clear", {{"backup", previous_path.u8string()}});
         if (!remove_if_present(file_manager, previous_url, error)) {
             std::string ignored;
             remove_if_present(file_manager, temporary_url, &ignored);
+            record("macos_candidate_cleanup", {{"error", ignored}});
             return false;
         }
+        record("macos_backup_move", {{"source", installed_bundle.u8string()},
+                                    {"destination", previous_path.u8string()}});
         if (!move_item(file_manager, installed_url, previous_url, error)) {
             std::string ignored;
             remove_if_present(file_manager, temporary_url, &ignored);
+            record("macos_candidate_cleanup", {{"error", ignored}});
             return false;
         }
 
         std::string move_error;
+        record("macos_replace", {{"source", temporary_path.u8string()},
+                                {"destination", installed_bundle.u8string()}});
         if (!move_item(file_manager, temporary_url, installed_url, &move_error)) {
             std::string rollback_error;
             const bool rolled_back = move_item(
                 file_manager, previous_url, installed_url, &rollback_error);
+            record("macos_rollback", {{"cause", move_error}, {"restored", rolled_back},
+                                     {"error", rollback_error}});
             std::string ignored;
             remove_if_present(file_manager, temporary_url, &ignored);
+            record("macos_candidate_cleanup", {{"error", ignored}});
             set_error(error, move_error + (rolled_back
                 ? "; previous ACECode.app was restored"
                 : "; rollback also failed: " + rollback_error));
@@ -562,6 +586,7 @@ bool install_macos_app_update(const fs::path& installed_bundle,
         }
 
         std::string final_error;
+        record("macos_final_verification");
         if (!validate_safe_install_path(installed_bundle, &final_error) ||
             !authenticate_candidate(previous_path, installed_bundle,
                                     expected_version, &final_error)) {
@@ -586,9 +611,12 @@ bool install_macos_app_update(const fs::path& installed_bundle,
             std::string rollback_error;
             const bool rolled_back = moved_failed &&
                 move_item(file_manager, previous_url, installed_url, &rollback_error);
+            record("macos_rollback", {{"cause", final_error}, {"restored", rolled_back},
+                {"cleanup_error", cleanup_error}, {"error", rollback_error}});
             if (moved_failed) {
                 std::string ignored;
                 remove_if_present(file_manager, failed_url, &ignored);
+                record("macos_failed_bundle_cleanup", {{"error", ignored}});
             }
             set_error(error, "installed ACECode.app failed final validation: " +
                              final_error + (rolled_back
@@ -599,6 +627,7 @@ bool install_macos_app_update(const fs::path& installed_bundle,
         }
 
         if (backup_bundle) *backup_bundle = previous_path;
+        record("macos_install_finished", {{"backup", previous_path.u8string()}});
         return true;
     }
 }

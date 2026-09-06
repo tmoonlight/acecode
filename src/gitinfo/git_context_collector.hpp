@@ -30,6 +30,7 @@ struct GitInfo {
                                  // "main" 兜底是猜的,拼成 origin/main 喂给
                                  // /api/git/changes 会 invalid_base
     std::vector<std::string> branches; // 本地分支短名(for-each-ref 顺序)
+    std::vector<std::string> remote_branches; // 远端跟踪分支短名;排除 origin/HEAD 等符号引用
     bool dirty = false;          // tracked 改动(status --porcelain -uno 非空)
 };
 

@@ -1990,7 +1990,6 @@ export function App() {
         updateProgress={updateJobProgress(updateJob)}
         onStartUpdate={openUpdateDialog}
         onCheckUpdates={checkForUpdates}
-        appVersion={health?.version || ''}
       />
       <div
         ref={singleShellRef}
@@ -2011,7 +2010,7 @@ export function App() {
           onOpenHome={openHomeForWorkspace}
           onNewTask={() => openHomeForWorkspace()}
           onNewLoop={openLoopPage}
-          onSearchTasks={() => setSearchOpen(true)}
+          appVersion={health?.version || ''}
           workspaceActivationRequest={workspaceActivationRequest}
           onOpenSettingsSection={openSettingsSection}
           onOpenExpertComponents={openExpertComponents}
@@ -2033,7 +2032,7 @@ export function App() {
         )}
         <div
           className={[
-            'flex-1 flex flex-col overflow-hidden transition-all duration-200',
+            'flex-1 flex flex-col overflow-hidden transition-all duration-200 bg-surface',
             'opacity-100 scale-100',
           ].join(' ')}
         >

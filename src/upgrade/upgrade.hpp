@@ -11,6 +11,8 @@
 
 namespace acecode::upgrade {
 
+class DiagnosticLog;
+
 bool apply_upgrade_server_override(AppConfig& config,
                                    const std::string& server,
                                    std::string* error = nullptr);
@@ -31,6 +33,7 @@ struct UpgradeProgress {
     std::uintmax_t bytes_downloaded = 0;
     std::optional<std::uintmax_t> bytes_total;
     std::string backup_dir;
+    std::string log_path;
 };
 
 using UpgradeProgressCallback = std::function<void(const UpgradeProgress&)>;
@@ -49,6 +52,7 @@ int run_upgrade_command(const AppConfig& config,
                         std::ostream& err,
                         bool force = false,
                         UpgradeProgressCallback progress = {},
-                        UpgradeCancelCheck cancel_check = {});
+                        UpgradeCancelCheck cancel_check = {},
+                        DiagnosticLog* diagnostics = nullptr);
 
 } // namespace acecode::upgrade

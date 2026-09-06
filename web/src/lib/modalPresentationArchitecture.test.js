@@ -137,5 +137,5 @@ run('update UI exposes safe cancellation and a dual-foreground topbar progress p
   assert.match(topBar, /100 - boundedUpdateProgress/);
   assert.match(topBar, /absolute inset-0 flex items-center justify-center text-accent/);
   assert.match(topBar, /absolute inset-0 flex items-center justify-center text-white/);
-  assert.match(topBar, /relative h-7 min-w-\[44px\] overflow-hidden px-3 rounded-full/);
+  assert.match(topBar, /ace-topbar-update-button relative min-w-\[44px\] overflow-hidden px-3 rounded-full/);
 });

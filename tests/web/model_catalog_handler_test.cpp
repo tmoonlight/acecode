@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "provider/builtin_model_catalog.hpp"
+#include "utils/constants.hpp"
 #include "web/handlers/model_catalog_handler.hpp"
 
 #include <algorithm>
@@ -267,7 +268,12 @@ TEST(ModelCatalogHandler, SharedContractFixtureMatchesCanonicalResponses) {
     const auto summary = acecode::web::model_catalog_summary_to_json(
         providers, source, 7);
     EXPECT_EQ(summary["catalog"], contract["summary"]["catalog"]);
-    for (const auto& expected_provider : contract["summary"]["providers"]) {
+    for (auto expected_provider : contract["summary"]["providers"]) {
+        // The shared wire-shape fixture uses a sample URL; the first-party
+        // deployment address is owned by the shared constant.
+        if (expected_provider["id"] == "acemodel") {
+            expected_provider["base_url"] = acecode::constants::ACEMODEL_API_BASE_URL;
+        }
         const auto* actual = provider_by_id(summary["providers"],
                                             expected_provider["id"]);
         ASSERT_NE(actual, nullptr) << expected_provider["id"];

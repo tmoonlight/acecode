@@ -15,6 +15,8 @@ import {
   shouldFetchList,
   buildChangeRow,
   buildSummaryLabel,
+  MAX_LOCAL_BASE_CANDIDATES,
+  MAX_REMOTE_BASE_CANDIDATES,
   PATCH_LRU_LIMIT,
   STALE_AFTER_MS,
 } from './gitChanges.js';
@@ -37,10 +39,38 @@ run('基线候选:后端已验证的 default_base 优先,HEAD 兜底', () => {
   assert.equal(initial, 'origin/master');
 });
 
+run('基线候选:默认远端在首位,其余远端后接本地并稳定去重', () => {
+  const { candidates, initial } = buildBaseCandidates({
+    is_repo: true,
+    default_base: 'origin/main',
+    remote_branches: ['origin/dev', 'origin/main', 'upstream/topic'],
+    branches: ['main', 'feature/local', 'origin/dev'],
+  });
+  assert.deepEqual(candidates, [
+    'origin/main',
+    'origin/dev',
+    'upstream/topic',
+    'main',
+    'feature/local',
+    'HEAD',
+  ]);
+  assert.equal(initial, 'origin/main');
+});
+
 run('基线候选:非仓库 / 无 default_base → 只有 HEAD', () => {
   assert.deepEqual(buildBaseCandidates(null).candidates, ['HEAD']);
   const noBase = buildBaseCandidates({ is_repo: true, default_base: '' });
   assert.deepEqual(noBase.candidates, ['HEAD']);
+});
+
+run('基线候选:纯本地仓库默认 HEAD,同时提供本地分支', () => {
+  const { candidates, initial } = buildBaseCandidates({
+    is_repo: true,
+    default_base: '',
+    branches: ['dev', 'main'],
+  });
+  assert.deepEqual(candidates, ['dev', 'main', 'HEAD']);
+  assert.equal(initial, 'HEAD');
 });
 
 // 回归:纯本地仓库(无 origin remote / 从未 fetch)。后端 default_branch
@@ -59,10 +89,43 @@ run('基线候选:default_branch 兜底值不得被拼成 origin/<def>', () => {
 // 回归:老后端(无 default_base 字段)混新前端。期望:字段缺失按无
 // remote 处理退回 HEAD,不猜不拼。
 run('基线候选:info 缺 default_base 字段 → 退回 HEAD', () => {
-  const { initial } = buildBaseCandidates({
-    is_repo: true, default_branch: 'main',
+  const { candidates, initial } = buildBaseCandidates({
+    is_repo: true, default_branch: 'main', branches: ['dev', 'main'],
   });
+  assert.deepEqual(candidates, ['dev', 'main', 'HEAD']);
   assert.equal(initial, 'HEAD');
+});
+
+run('基线候选:忽略非数组、非字符串、空白与重复条目', () => {
+  const { candidates, initial } = buildBaseCandidates({
+    is_repo: true,
+    default_base: ' ',
+    remote_branches: [null, '', ' origin/bad ', 42, 'origin/main', 'origin/main'],
+    branches: 'not-an-array',
+  });
+  assert.deepEqual(candidates, ['origin/main', 'HEAD']);
+  assert.equal(initial, 'HEAD');
+});
+
+run('基线候选:远端与本地候选分别受上限约束', () => {
+  const remote = ['origin/main', ...Array.from({ length: 55 }, (_, i) => `origin/r${i}`)];
+  const local = Array.from({ length: 55 }, (_, i) => `local-${i}`);
+  const { candidates } = buildBaseCandidates({
+    is_repo: true,
+    default_base: 'origin/main',
+    remote_branches: remote,
+    branches: local,
+  });
+  assert.equal(MAX_REMOTE_BASE_CANDIDATES, 50);
+  assert.equal(MAX_LOCAL_BASE_CANDIDATES, 50);
+  assert.equal(candidates.length, 102);
+  assert.deepEqual(candidates.slice(0, 3), ['origin/main', 'origin/r0', 'origin/r1']);
+  assert.equal(candidates[50], 'origin/r49');
+  assert.equal(candidates[51], 'local-0');
+  assert.equal(candidates[100], 'local-49');
+  assert.equal(candidates[101], 'HEAD');
+  assert.equal(candidates.includes('origin/r50'), false);
+  assert.equal(candidates.includes('local-50'), false);
 });
 
 run('列表缓存:put 后命中,markStale 后 miss 但 stale 旧数据可读', () => {

@@ -1,0 +1,1381 @@
+[
+  {
+    "article": "认识 ACECode",
+    "file": "index.html",
+    "id": "GS-01",
+    "title": "ACECode 桌面端中的示例任务",
+    "description": "hello-acecode 示例任务：左侧显示对话、执行结果和模型控件，中间预览代码差异，右侧列出本次修改的文件。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-git-diff.jpg",
+        "description": "示例任务完成后的 Git 差异：两个文件、增删行数、HEAD 比较基线和实际测试结果",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:53:16.884Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "db07827cc5e191a1b778323361d0095624923d992557065d1d063fc1a64e6b26"
+      }
+    ]
+  },
+  {
+    "article": "安装",
+    "file": "installation.html",
+    "id": "GS-02",
+    "title": "Windows 安装向导与目标位置",
+    "description": "Windows 安装向导的欢迎页和目标位置页。画面来自本机已有的 v0.9.6 安装包，仅展示向导流程，下载时请以发布页为准。本次查看后已退出向导，未执行安装。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/windows-installer-welcome.jpg",
+        "description": "已有 ACECode v0.9.6 Windows 安装包的欢迎页，仅用于展示向导流程，不代表当前最新版本。",
+        "app": "process:N:\\Users\\shao\\AppData\\Local\\Temp\\is-MIFLF7HORC.tmp\\acecode-0.9.6-windows-x64-setup.tmp",
+        "windowTitle": "安装 - ACECode",
+        "version": "0.9.6",
+        "capturedAt": "2026-09-05T18:25:24.565Z",
+        "width": 638,
+        "height": 491,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "c26dca2a77626e568a0ebc1cba02fc5f2a8ab6d1699038d9356ae13d86c9acc3"
+      },
+      {
+        "file": "assets/screenshots/windows-installer-location.jpg",
+        "description": "Windows 安装向导中的目标位置。画面来自本机已有 v0.9.6 安装包，此处尚未执行安装。",
+        "app": "process:N:\\Users\\shao\\AppData\\Local\\Temp\\is-MIFLF7HORC.tmp\\acecode-0.9.6-windows-x64-setup.tmp",
+        "windowTitle": "安装 - ACECode",
+        "version": "0.9.6",
+        "capturedAt": "2026-09-05T18:25:43.316Z",
+        "width": 638,
+        "height": 491,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "42a5db64cd6df1acc27d2e4d59133942bccb0eb9b341323117954f0a48bdd7fe"
+      }
+    ]
+  },
+  {
+    "article": "安装",
+    "file": "installation.html",
+    "id": "GS-03",
+    "title": "macOS 安装与首次打开",
+    "description": "macOS：展示 PKG 安装完成后，当前用户“应用程序”目录中的 ACECode。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "platform-deferred",
+      "note": "macOS 安装画面按本次要求暂不拍摄。"
+    }
+  },
+  {
+    "article": "快速开始",
+    "file": "quick-start.html",
+    "id": "GS-04",
+    "title": "添加模型表单与已保存模型列表",
+    "description": "上图是新增自定义 OpenAI 兼容模型的空白表单，可填写 Model ID、Base URL、API Key 和预设名称；下图是本机已有的模型列表及默认标识。表单与列表分别展示两个操作位置。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/model-custom-form.jpg",
+        "description": "新增自定义 OpenAI 兼容接口的空白表单，Model ID、Base URL、API Key 与预设名称",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:33:30.151Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "f6f4a78cbb6161bed84ad076360bdb721037b13735ec9809ab64e854edae258e"
+      },
+      {
+        "file": "assets/screenshots/models-saved.jpg",
+        "description": "已保存模型列表、默认标识、设为默认与编辑入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:31:47.326Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "24bc30f011cc3289ecfe27d3e04789528607d41849d1478fadecd5052cc5957a"
+      }
+    ]
+  },
+  {
+    "article": "快速开始",
+    "file": "quick-start.html",
+    "id": "GS-05",
+    "title": "新任务首页与已选择的工作区",
+    "description": "从新任务首页选择项目后，输入区显示 hello-acecode 工作区、main 分支、模型、权限和 worktree 控件。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/desktop-new-task.jpg",
+        "description": "新任务首页，任务和工作区历史已折叠",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:30:26.308Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "27035c14c8fd05c3b99b017916e0766d6150ca37362e2e97cd8bb510d6950679"
+      },
+      {
+        "file": "assets/screenshots/project-new-task.jpg",
+        "description": "在 hello-acecode 工作区创建任务：当前模型、权限、main 分支与 worktree 控件",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:44:07.435Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "5e5803665f235270635250a7c27c4d01305ddffbd6cae36df7b33e5c55fbd4ed"
+      }
+    ]
+  },
+  {
+    "article": "快速开始",
+    "file": "quick-start.html",
+    "id": "GS-06",
+    "title": "引用项目文件并描述验收要求",
+    "description": "发送前的请求草稿：引用 src/welcome.js，说明空姓名与空格处理的预期结果，并要求补充测试。底部显示当前模型与工作区。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/composer-first-request.jpg",
+        "description": "首次代码修改的请求草稿，包含文件引用、验收要求、当前模型与工作区",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:46:57.553Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "4fc6a9899e7e3b93407084075091ec3d370c8b918a15c285e75f783ea0ccd43a"
+      }
+    ]
+  },
+  {
+    "article": "快速开始",
+    "file": "quick-start.html",
+    "id": "GS-07",
+    "title": "检查测试输出与代码差异",
+    "description": "示例任务实际执行 npm test，完成欢迎消息修复和测试补充。展开工具记录可查看输出；右侧 Git 视图显示两个文件的增删行和 HEAD 比较基线。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-test-output.jpg",
+        "description": "展开 npm test 的实际工具输出，包含命令、测试条目和执行耗时",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:57:36.791Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "7bb7c8f86f8db1c3c16c2aa4535175667c4927c551af6da3329f6c3dd4d6ae7a"
+      },
+      {
+        "file": "assets/screenshots/task-git-diff.jpg",
+        "description": "示例任务完成后的 Git 差异：两个文件、增删行数、HEAD 比较基线和实际测试结果",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:53:16.884Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "db07827cc5e191a1b778323361d0095624923d992557065d1d063fc1a64e6b26"
+      }
+    ]
+  },
+  {
+    "article": "更新与卸载",
+    "file": "update-uninstall.html",
+    "id": "GS-08",
+    "title": "关于页面中的应用版本",
+    "description": "设置中的关于页面显示应用版本和 WebView2 运行时版本。截图时运行的是 v0.9.11，可用此入口核对本机版本。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-about.jpg",
+        "description": "关于页实际版本 v0.9.11 与 WebView2 运行时版本",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:31:29.995Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "4705e49563c97e1e0c8d3212443e35828b14f4eb2240d74c11ec264e4243d332"
+      }
+    ]
+  },
+  {
+    "article": "桌面端",
+    "file": "desktop.html",
+    "id": "UI-01",
+    "title": "桌面端导航与任务区域",
+    "description": "新任务、定时任务和搜索位于左侧上方，扩展入口位于左侧下方，设置位于窗口右上角。打开任务后，对话和输入区位于中间，文件与差异可在右侧查看。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/desktop-new-task.jpg",
+        "description": "新任务首页，任务和工作区历史已折叠",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:30:26.308Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "27035c14c8fd05c3b99b017916e0766d6150ca37362e2e97cd8bb510d6950679"
+      },
+      {
+        "file": "assets/screenshots/task-git-diff.jpg",
+        "description": "示例任务完成后的 Git 差异：两个文件、增删行数、HEAD 比较基线和实际测试结果",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:53:16.884Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "db07827cc5e191a1b778323361d0095624923d992557065d1d063fc1a64e6b26"
+      }
+    ]
+  },
+  {
+    "article": "桌面端",
+    "file": "desktop.html",
+    "id": "UI-02",
+    "title": "文件预览、变更列表与底部控制台",
+    "description": "桌面端同时打开文本预览、Git 变更列表和底部控制台。隐藏面板用于收起整个区域，页签上的关闭按钮用于关闭单个内容。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/desktop-file-console.jpg",
+        "description": "桌面端同时显示文本预览、变更列表和底部控制台；截图中未在控制台输入命令",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:53:59.031Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "d1442bc7e6513b892ebca3185a58e95683075ed7247239932595784b9e93d779"
+      }
+    ]
+  },
+  {
+    "article": "TUI",
+    "file": "tui.html",
+    "id": "UI-03",
+    "title": "TUI 对话与工具确认",
+    "description": "使用正常宽度的终端，展示项目路径、模型状态、一次工具调用摘要和权限确认选项；不显示密钥或私有路径。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "window-unavailable",
+      "note": "已通过 Computer Use 尝试开始菜单的 ACECode TUI 和当前构建的 acecode.exe，两次启动均未返回可操作的 TUI 窗口。没有使用渲染终端文本或拼接画面替代截图。"
+    }
+  },
+  {
+    "article": "Web",
+    "file": "web.html",
+    "id": "UI-04",
+    "title": "浏览器中的 ACECode Web 界面",
+    "description": "在普通浏览器中打开 Web 地址后的新任务页：左侧是任务与工作区列表，中间是输入区、模型和权限控件，与桌面端布局一致。地址栏中的主机名和端口来自截图环境，实际地址以启动输出为准；本地 HTTP 连接会被浏览器标为“不安全”，属于正常现象。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/web-browser-new-task.png",
+        "description": "浏览器打开 ACECode Web UI 的新任务页，地址栏显示主机名与端口",
+        "app": "浏览器标签页中的 ACECode Web UI",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-06T06:00:46Z",
+        "width": 2255,
+        "height": 1543,
+        "method": "Manual / user-provided screenshot (C:\\Users\\shao\\AppData\\Roaming\\img\\UI-04-1.png)",
+        "unaltered": true,
+        "sha256": "4c15f6c48df4b052f4a80c11bfee5c19fac07675955cfbf9ad0033f20ac1b3e4"
+      }
+    ],
+    "pending_details": "终端启动输出中的 Web 地址，以及浏览器内正在执行任务的页面尚未拍摄；补拍的 UI-04-2 因桌面端窗口遮住了浏览器内容，未采用。"
+  },
+  {
+    "article": "对话与上下文",
+    "file": "conversation.html",
+    "id": "UI-05",
+    "title": "搜索文件与插入路径引用",
+    "description": "输入 @ 后搜索项目文件，选中后在输入区形成路径引用。这里展示的是本地文件引用；图片粘贴产生的附件预览需按正文中的图片步骤操作。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/composer-file-picker.jpg",
+        "description": "在输入框输入 @ 后搜索并选择项目中的 src/welcome.js",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:46:04.988Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "d9e553509277e00cad001c6f60cf28ca74097c389d05880305384f630ed5e069"
+      },
+      {
+        "file": "assets/screenshots/composer-first-request.jpg",
+        "description": "首次代码修改的请求草稿，包含文件引用、验收要求、当前模型与工作区",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:46:57.553Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "4fc6a9899e7e3b93407084075091ec3d370c8b918a15c285e75f783ea0ccd43a"
+      }
+    ],
+    "pending_details": "剪贴板图片附件预览尚未拍摄。"
+  },
+  {
+    "article": "对话与上下文",
+    "file": "conversation.html",
+    "id": "UI-06",
+    "title": "任务运行中的排队消息",
+    "description": "在示例任务仍执行时补充指令，消息出现在待发送卡片中。卡片提供编辑、插话和取消入口，主输入区保留中断按钮。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-message-queue.jpg",
+        "description": "任务执行时的排队消息卡片、编辑、插话、取消和主输入区的中断入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:51:45.306Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "cbb4c7858d0a347033d12cc9a10d5f2065f0644f948460fe6daf447843a68fc7"
+      }
+    ]
+  },
+  {
+    "article": "对话与上下文",
+    "file": "conversation.html",
+    "id": "UI-07",
+    "title": "侧边聊天与保留的主输入草稿",
+    "description": "侧边聊天回答了“为什么要先 trim() 再判断空姓名”，主输入区仍保留未发送的任务草稿。截图中的回答由本次示例问答实际生成。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-side-chat.jpg",
+        "description": "旁路问题和真实回答显示在主输入区上方，主任务的未发送草稿保持不变",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:03:02.322Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "9379574124a69e72d3d64d1316d23697b72f5d775889260b140055cd29275bd7"
+      }
+    ]
+  },
+  {
+    "article": "工作区与任务",
+    "file": "workspaces.html",
+    "id": "UI-08",
+    "title": "工作区列表与项目右键菜单",
+    "description": "侧边栏的工作区分组列出各项目及其任务。右键项目名打开菜单，提供切换到项目、折叠项目、新建会话、重命名项目、复制项目路径、打开文件夹和从项目列表移除；移除项以红色显示，只从列表移除，不删除磁盘上的项目文件。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/sidebar-project-menu.png",
+        "description": "侧边栏工作区分组中某个项目的右键菜单，含新建会话与从项目列表移除",
+        "app": "ACECode 界面（手动截图，未记录进程信息）",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-06T06:04:17Z",
+        "width": 989,
+        "height": 1482,
+        "method": "Manual / user-provided screenshot (C:\\Users\\shao\\AppData\\Roaming\\img\\UI-08.png)",
+        "unaltered": true,
+        "sha256": "bccd890ecb6b547e95c89e54d4be364517ed09c2dddf59e59939626726da61a3"
+      }
+    ]
+  },
+  {
+    "article": "工作区与任务",
+    "file": "workspaces.html",
+    "id": "UI-09",
+    "title": "从消息分叉与 OpenCode 导入入口",
+    "description": "第一张：右键任务中的某条消息，菜单提供复制消息、从这里分叉和全选。第二张：项目菜单中的从opencode导入会话，只在该项目目录识别到 OpenCode 历史时出现，其他项目的菜单没有这一项。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/message-fork-menu.png",
+        "description": "任务消息的右键菜单，红框标出从这里分叉",
+        "app": "ACECode 界面（手动截图，未记录进程信息）",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-06T06:06:47Z",
+        "width": 1001,
+        "height": 1356,
+        "method": "Manual / user-provided screenshot (C:\\Users\\shao\\AppData\\Roaming\\img\\UI-09-1.png)",
+        "unaltered": false,
+        "annotations": "红框标出「从这里分叉」菜单项",
+        "sha256": "e37ba97cf72e6ff506a7df5a9baa8acfb8be45cb3dbd557671bcd408aad94292"
+      },
+      {
+        "file": "assets/screenshots/project-menu-opencode-import.png",
+        "description": "项目右键菜单，红框标出从opencode导入会话",
+        "app": "ACECode 界面（手动截图，未记录进程信息）",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-06T06:07:33Z",
+        "width": 487,
+        "height": 746,
+        "method": "Manual / user-provided screenshot (C:\\Users\\shao\\AppData\\Roaming\\img\\UI-09-2.png)",
+        "unaltered": false,
+        "annotations": "红框标出「从opencode导入会话」菜单项",
+        "sha256": "55888c671e3cbe04713640aefbef792c833a058ecee44a966ac61c285bdaded6"
+      }
+    ],
+    "pending_details": "OpenCode 会话导入的预览、勾选和导入结果画面尚未拍摄。"
+  },
+  {
+    "article": "文件修改与版本管理",
+    "file": "git.html",
+    "id": "UI-10",
+    "title": "Git 变更与比较基线",
+    "description": "差异面板显示本次修改的两个文件、增删行数和欢迎消息的代码变化。上方 HEAD 是当前比较基线，切换比较基线用于查看差异。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-git-diff.jpg",
+        "description": "示例任务完成后的 Git 差异：两个文件、增删行数、HEAD 比较基线和实际测试结果",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:53:16.884Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "db07827cc5e191a1b778323361d0095624923d992557065d1d063fc1a64e6b26"
+      }
+    ]
+  },
+  {
+    "article": "文件修改与版本管理",
+    "file": "git.html",
+    "id": "UI-11",
+    "title": "首次发送前的 worktree 设置",
+    "description": "勾选 worktree 后，基线分支 main 的选择控件可用。画面处于首次发送前，工作树尚未创建。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/project-worktree.jpg",
+        "description": "首次发送前勾选 worktree 后，main 基线分支选择可用；截图时尚未创建工作树",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:44:26.917Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "b51fdff9ae923a84f84f09526d49c9209cf6233c3df9917d53653d7cb5f40562"
+      }
+    ]
+  },
+  {
+    "article": "上下文压缩与用量查看",
+    "file": "context-usage.html",
+    "id": "UI-12",
+    "title": "使用情况的累计统计",
+    "description": "使用情况页面展示近 30 天汇总、每日趋势以及输入、输出、缓存和推理统计。这里的数值属于所选时间范围的累计统计，当前请求的上下文余量应在任务中查看。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-usage.jpg",
+        "description": "使用情况页的近 30 天汇总、每日趋势以及输入、输出、缓存与推理统计；数值为截图时的累计值",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:39:29.726Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "ab7c7906d39fecb71ba9d90ac88359396660307200bc71c95082218d1f48edbf"
+      }
+    ],
+    "pending_details": "当前任务的上下文状态浮层尚未拍摄。"
+  },
+  {
+    "article": "模型与服务商的关系",
+    "file": "model-basics.html",
+    "id": "MD-01",
+    "title": "Provider、Model ID 与本地预设",
+    "description": "新增模型表单将 Provider、Model ID 和预设名称分开填写；保存后的模型列表使用本地预设名称显示，并提供默认模型标识。截图中的连接表单为空。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/model-custom-form.jpg",
+        "description": "新增自定义 OpenAI 兼容接口的空白表单，Model ID、Base URL、API Key 与预设名称",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:33:30.151Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "f6f4a78cbb6161bed84ad076360bdb721037b13735ec9809ab64e854edae258e"
+      },
+      {
+        "file": "assets/screenshots/models-saved.jpg",
+        "description": "已保存模型列表、默认标识、设为默认与编辑入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:31:47.326Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "24bc30f011cc3289ecfe27d3e04789528607d41849d1478fadecd5052cc5957a"
+      }
+    ]
+  },
+  {
+    "article": "ACEModel",
+    "file": "acemodel.html",
+    "id": "MD-02",
+    "title": "ACEModel 模型目录与已有预设",
+    "description": "选择 ACEModel 后可搜索模型、查看能力摘要并添加所选模型；下图展示本机已有的模型预设。目录中的能力和数值是截图时显示的结果，使用时请核对当前界面。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/acemodel-catalog.jpg",
+        "description": "ACEModel 实际模型列表、搜索、能力摘要与重新探测入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:34:35.513Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "d1c2c90639569000fdc258dadca6926afa11b4e7dd87eb68071117367aa3c4df"
+      },
+      {
+        "file": "assets/screenshots/models-saved.jpg",
+        "description": "已保存模型列表、默认标识、设为默认与编辑入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:31:47.326Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "24bc30f011cc3289ecfe27d3e04789528607d41849d1478fadecd5052cc5957a"
+      }
+    ]
+  },
+  {
+    "article": "接入其他服务商",
+    "file": "providers.html",
+    "id": "MD-03",
+    "title": "自定义 OpenAI 兼容接口表单",
+    "description": "新增自定义 OpenAI 兼容模型时，依次填写 Model ID、Base URL、API Key 和预设名称。截图为未填写凭据的表单，浅灰文字是输入提示。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/model-custom-form.jpg",
+        "description": "新增自定义 OpenAI 兼容接口的空白表单，Model ID、Base URL、API Key 与预设名称",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:33:30.151Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "f6f4a78cbb6161bed84ad076360bdb721037b13735ec9809ab64e854edae258e"
+      }
+    ]
+  },
+  {
+    "article": "接入其他服务商",
+    "file": "providers.html",
+    "id": "MD-04",
+    "title": "GitHub 设备登录",
+    "description": "右侧是模型连接卡片：状态为未连接，点击连接 GitHub 后显示设备验证码并等待授权，旁边是我已完成授权按钮。左侧是系统浏览器打开的 GitHub 授权页，把验证码填入后点击 Continue。截图中的验证码已过期，不能再使用。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/copilot-device-login.png",
+        "description": "模型连接卡片显示设备验证码与等待授权状态，旁边是浏览器中的 GitHub 设备授权页",
+        "app": "ACECode 模型设置弹窗与系统浏览器中的 GitHub 授权页",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-06T06:10:42Z",
+        "width": 2159,
+        "height": 1072,
+        "method": "Manual / user-provided screenshot (C:\\Users\\shao\\AppData\\Roaming\\img\\MD-04.png)",
+        "unaltered": false,
+        "annotations": "红框标出设备验证码，红色箭头指向 GitHub 授权页的输入框",
+        "sha256": "5d98d71e542460ae6913804e98cc55c12c0cb2e9569b70575c4626f8152931d1"
+      }
+    ]
+  },
+  {
+    "article": "添加与管理模型",
+    "file": "manage-models.html",
+    "id": "MD-05",
+    "title": "已保存模型的默认标识与管理入口",
+    "description": "模型列表显示本地预设名称和默认标识，行内可进入编辑或设置默认模型。操作前先核对要修改的预设名称。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/models-saved.jpg",
+        "description": "已保存模型列表、默认标识、设为默认与编辑入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:31:47.326Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "24bc30f011cc3289ecfe27d3e04789528607d41849d1478fadecd5052cc5957a"
+      }
+    ],
+    "pending_details": "名称冲突时的覆盖和另存为弹窗尚未拍摄。"
+  },
+  {
+    "article": "模型能力与参数",
+    "file": "model-capabilities.html",
+    "id": "MD-06",
+    "title": "模型高级设置中的限制与能力",
+    "description": "高级设置展示预设名称、上下文窗口、最大输出和能力开关。画面是新增模型草稿，请求头区域显示表单示例；能力数值需按实际服务商核对。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/model-advanced.jpg",
+        "description": "新增模型的高级设置：预设名称、上下文窗口、最大输出与能力开关；请求头区域为表单示例",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:35:31.766Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "31b42b067447dc8b277cc90fd32a9fc8c777cf35e778737025b05435e0ca6ca8"
+      }
+    ]
+  },
+  {
+    "article": "模型能力与参数",
+    "file": "model-capabilities.html",
+    "id": "MD-07",
+    "title": "模型结果列表与重新探测入口",
+    "description": "模型目录中可搜索并选择条目，下方提供重新探测和添加所选模型。打开列表可查看现有结果；重新探测会主动请求服务商，本次截图未触发该操作。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/acemodel-catalog.jpg",
+        "description": "ACEModel 实际模型列表、搜索、能力摘要与重新探测入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:34:35.513Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "d1c2c90639569000fdc258dadca6926afa11b4e7dd87eb68071117367aa3c4df"
+      }
+    ]
+  },
+  {
+    "article": "权限模式与操作确认",
+    "file": "permissions.html",
+    "id": "CF-01",
+    "title": "任务的权限模式选择",
+    "description": "任务权限菜单提供默认权限、自动接收编辑和完全访问权限。画面仅展开菜单；具体工具的操作确认会在需要时另行出现。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-permissions.jpg",
+        "description": "任务权限菜单实际提供默认权限、自动接收编辑和完全访问权限；本次仅展开查看",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:45:02.807Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "de8d2853c52f752352200e2d23c4309d94031e60567a2afe7a6b56f8e363a477"
+      }
+    ],
+    "pending_details": "带路径与参数的工具操作确认尚未拍摄。"
+  },
+  {
+    "article": "网络与代理",
+    "file": "network.html",
+    "id": "CF-02",
+    "title": "后台进程与远程 Web 监听状态",
+    "description": "常规设置可查看当前后台端口、退出行为和远程 Web 的监听状态。画面显示本机实际端口；含访问 Token 的连接地址位于画面之外。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-network-status.jpg",
+        "description": "常规页的后台端口、退出行为与远程 Web 监听状态；含访问 Token 的连接地址已移出画面",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:11:18.509Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "1fa250c722d274c6c8407154bd3d92780d92a8cf65e006e92b864968085b90d3"
+      }
+    ]
+  },
+  {
+    "article": "外观、语言与通知",
+    "file": "appearance.html",
+    "id": "CF-03",
+    "title": "主题、字号、语言与工作模式",
+    "description": "外观页面提供主题颜色、暗黑模式和字体大小；常规页面提供界面语言、工作模式和任务完成通知。截图展示应用本身的设置。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-appearance.jpg",
+        "description": "外观页的主题颜色、暗黑模式与字体大小",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:31:12.529Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "bf62308a570e5c414c24fb4a78859813ca80c7b7e36d303ccf2b75e4119a87d5"
+      },
+      {
+        "file": "assets/screenshots/settings-general.jpg",
+        "description": "常规设置中的界面语言、工作模式和任务完成通知",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:30:59.695Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "ea3043996e83320f26943f69989ad2d82169a607c1eaad6dc99e11d6ec4458dd"
+      }
+    ]
+  },
+  {
+    "article": "项目规则与初始化",
+    "file": "project-rules.html",
+    "id": "CF-04",
+    "title": "初始化后的项目规则检查",
+    "description": "展示提交 /init 的位置以及生成规则的文件预览，标出构建命令、测试命令和禁止修改范围。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "capture-interrupted",
+      "note": "示例项目已完成代码修复，但尚未执行 /init 并拍摄规则预览。后续窗口操作暂停。"
+    }
+  },
+  {
+    "article": "记忆与个性化",
+    "file": "memory.html",
+    "id": "CF-05",
+    "title": "个性化指令编辑区",
+    "description": "个性化页面中的自定义指令编辑区。当前内容为空，浅灰文字是填写提示，可在此描述希望 ACECode 持续遵循的通用偏好。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-personalization.jpg",
+        "description": "个性化页的自定义指令编辑区，当前为空，浅灰文字为表单提示",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:38:41.406Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "fe32757bc9b70134869d7979da138747b960e94e188e6507a9896f1c11618be7"
+      }
+    ],
+    "pending_details": "填写后的保存反馈尚未拍摄。"
+  },
+  {
+    "article": "内置工具",
+    "file": "tools.html",
+    "id": "CF-06",
+    "title": "文件工具记录与测试命令输出",
+    "description": "示例任务实际调用文件搜索、读取和编辑工具，随后运行 npm test。展开记录可查看文件操作摘要、命令、测试条目和执行耗时。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-file-tools.jpg",
+        "description": "任务展开后的文件搜索、读取、编辑记录及增删行数",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:56:16.556Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "45d213ced83c41e6ee3134baabf75aa0fc492f2c3dac27b8c0d312e75dc9c4b3"
+      },
+      {
+        "file": "assets/screenshots/task-test-output.jpg",
+        "description": "展开 npm test 的实际工具输出，包含命令、测试条目和执行耗时",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:57:36.791Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "7bb7c8f86f8db1c3c16c2aa4535175667c4927c551af6da3329f6c3dd4d6ae7a"
+      }
+    ]
+  },
+  {
+    "article": "技能（Skills）",
+    "file": "skills.html",
+    "id": "CF-07",
+    "title": "技能列表与启用状态",
+    "description": "技能页面展示全局来源的卡片、名称、描述、启用开关和搜索入口。先核对技能描述及来源，再按正文中的方式在任务中使用。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-skills.jpg",
+        "description": "技能页实际卡片、全局来源、名称、描述、启用开关和搜索",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:38:20.347Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "1c088096a0d4ab1469af7b9f498e53186551465feaba8d81d105a3bc22f3b153"
+      }
+    ],
+    "pending_details": "项目技能分组与输入区选用技能的过程尚未拍摄。"
+  },
+  {
+    "article": "MCP 服务器",
+    "file": "mcp.html",
+    "id": "CF-08",
+    "title": "MCP 配置与服务器启用列表",
+    "description": "MCP 页面中的配置编辑区和服务器列表。服务器开关表示配置是否启用，连接是否成功还需核对实际连接状态或工具列表。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-mcp.jpg",
+        "description": "MCP 配置编辑区与服务器启用列表；开关表示配置启用状态，不等同于连接成功",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:36:42.507Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "d37b2054332f3b0b1c0fd755a539024ef198f51184ef5e80d80fd09cfb18baef"
+      }
+    ]
+  },
+  {
+    "article": "LSP 与代码诊断",
+    "file": "lsp.html",
+    "id": "CF-09",
+    "title": "LSP 状态与编辑后的错误",
+    "description": "展示 /lsp status 的服务器状态和一次编辑结果中的 ERROR 诊断，标出文件、行号及错误信息。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "capture-interrupted",
+      "note": "TUI 窗口不可操作，尚未拍摄 /lsp status 与真实 ERROR 诊断。"
+    }
+  },
+  {
+    "article": "Hooks",
+    "file": "hooks.html",
+    "id": "CF-10",
+    "title": "Hooks 的事件、来源与命令",
+    "description": "Hooks 列表展示事件、managed 来源、来源文件、超时与命令。本机画面属于已有 Hook，使用时应逐项核对来源和执行内容。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-hooks.jpg",
+        "description": "Hooks 列表的事件、managed 来源、来源文件、超时与命令；本次未修改信任或启停状态",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:37:56.933Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "903b97eadd8552cffa09a3e99f73bd3867f4dfce979c0bdfce29e4501ee9b83f"
+      }
+    ],
+    "pending_details": "来自项目的待信任审核状态尚未拍摄。"
+  },
+  {
+    "article": "连接器",
+    "file": "connectors.html",
+    "id": "CF-11",
+    "title": "连接器列表与刷新入口",
+    "description": "已配置连接器显示名称、用途、开关和刷新入口。截图中的两个连接器处于关闭状态。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-connectors.jpg",
+        "description": "连接器列表中的名称、用途、已关闭状态、开关和刷新入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:36:58.914Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "8dd728babedddc2764a1828049ea757a849d250c7adb8a5e0920de87dcb245fe"
+      }
+    ]
+  },
+  {
+    "article": "专家与专家团",
+    "file": "experts.html",
+    "id": "AD-01",
+    "title": "专家分类、能力介绍与派遣入口",
+    "description": "专家列表支持分类和搜索，每张卡片提供能力介绍与派遣按钮。页面上方还可以进入专家团或新建专家。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/experts-catalog.jpg",
+        "description": "专家列表中的分类、搜索、能力介绍、派遣按钮以及专家团和新建专家入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:13:31.596Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "74c95f90f8ff92ab0e26cbcc5b07e812dc81c9403c7f14c9427ddf4ac92c08a4"
+      }
+    ],
+    "pending_details": "输入区的已派遣标签尚未拍摄。"
+  },
+  {
+    "article": "专家与专家团",
+    "file": "experts.html",
+    "id": "AD-02",
+    "title": "高级模式与专家团成员设置",
+    "description": "高级模式可填写专家定位与能力介绍，并设置 Skill、MCP 和本地工具范围。专家团草稿中可选择成员并指定主理人；这些表单在截图后均已取消。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/expert-create-form.jpg",
+        "description": "高级模式新建专家表单的名称、定位、Tag、能力介绍、擅长领域和开场白",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:14:16.225Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "268c6ba58ace22da61db7372ac1332cd6e50424cc85aba25cbaa88b3cc4de09a"
+      },
+      {
+        "file": "assets/screenshots/expert-capabilities.jpg",
+        "description": "专家高级功能中的 Skill、MCP 和本地工具能力范围及继承全局设置",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:14:36.999Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "a02af6d67fba5b8181c7d488abcaea90e79bbfc890e68114810c0a34608ec9e0"
+      },
+      {
+        "file": "assets/screenshots/expert-team-members.jpg",
+        "description": "专家团草稿中的两位成员、主理人标记与设为主理人入口；尚未创建专家团",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:17:04.154Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "f28cf06e58202040168db3c7ba99cd5eaf183e4c56b428bb149e85358142a7be"
+      }
+    ]
+  },
+  {
+    "article": "蜂群模式与子代理",
+    "file": "swarm.html",
+    "id": "AD-03",
+    "title": "添加蜂群模式与编写分工草稿",
+    "description": "从添加能力菜单选择蜂群模式后，输入区显示模式标签。草稿中说明负责的文件与只读边界；截图时尚未提交此分工请求。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/composer-capability-menu.jpg",
+        "description": "添加能力菜单中的蜂群模式、专家组件与文件或文件夹入口",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:58:09.115Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "a262f143fa88a404296182692bb8775a799219d496f382fb9af0748c94743124"
+      },
+      {
+        "file": "assets/screenshots/composer-swarm-draft.jpg",
+        "description": "蜂群模式标签与说明分工、文件范围和只读边界的草稿，截图时尚未发送",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:58:55.993Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "785273b2ccfe1993f6144d1caafb2c93bb03db71ed78b6e8c1859b118c410fd7"
+      }
+    ]
+  },
+  {
+    "article": "蜂群模式与子代理",
+    "file": "swarm.html",
+    "id": "AD-04",
+    "title": "后台任务与来自子任务的请求",
+    "description": "展示运行中与已完成分组、查看会话和停止入口，以及带来源名称的权限确认。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "unavailable-state",
+      "note": "已拍摄蜂群模式入口和草稿，没有为截图启动后台子任务，因此未取得运行分组及来自子任务的操作确认。"
+    }
+  },
+  {
+    "article": "定时与循环任务",
+    "file": "schedules.html",
+    "id": "AD-05",
+    "title": "循环任务创建表单",
+    "description": "添加循环时填写名称、工作空间、提示词、模型、执行频率和生效日期。示例为只读检查草稿，截图后已取消，没有创建新的循环。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/schedule-create-form.jpg",
+        "description": "添加循环表单：名称、工作空间、提示词、模型、执行频率和生效日期。此示例尚未保存。",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:23:39.076Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "17d812e591d796d0a3230743a54b24385490e9e05149112f8721640465217363"
+      }
+    ]
+  },
+  {
+    "article": "定时与循环任务",
+    "file": "schedules.html",
+    "id": "AD-06",
+    "title": "循环列表与真实运行记录",
+    "description": "循环列表提供频率、模型和启用入口。展开已有记录可见“所选模型已不可用，循环已停用”以及 daemon 未运行产生的“已错过”原因；这些是本机实际记录。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/schedules-list.jpg",
+        "description": "循环列表的模板、频率、模型、启用入口与最近运行失败状态；现有循环保持停用",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:18:08.296Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "a10698c963732e73170fae8ad32ae8ad93f5bcd8851654b222cf2b2a08c3fd31"
+      },
+      {
+        "file": "assets/screenshots/schedule-run-history.jpg",
+        "description": "循环真实运行记录：所选模型不可用导致停用，以及 daemon 未运行产生的已错过记录",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:18:34.091Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "b20ccd5d68285187e573164aae7fac334b7b60abf484829ec4bc47ea47452bb4"
+      }
+    ]
+  },
+  {
+    "article": "Agent 浏览器",
+    "file": "agent-browser.html",
+    "id": "AD-07",
+    "title": "打开浏览器页签与访问示例页面",
+    "description": "在详情区域的打开工具菜单选择浏览器，可通过地址栏打开网页。下图为 ACECode Agent 浏览器实际加载的 example.com 页面。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/desktop-tools-menu.jpg",
+        "description": "详情页签的打开工具菜单：文件、浏览器与侧边聊天",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:59:55.225Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "182fba05c6d7ea9b2d64da41abdaa3553ffb5f199ce479373967742dceb05d0f"
+      },
+      {
+        "file": "assets/screenshots/agent-browser-page.jpg",
+        "description": "ACECode 原生 Agent 浏览器实际打开 example.com，显示页签、地址栏和页面内容",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T18:05:41.656Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "247b1dfa5301f097a212176a91bb0c3b6ab4b6787041cac501e4961049cf6dc9"
+      }
+    ]
+  },
+  {
+    "article": "Agent 浏览器",
+    "file": "agent-browser.html",
+    "id": "AD-08",
+    "title": "页面共享与可见操作",
+    "description": "展示单个页签的共享开关、共享状态，以及智能体操作时的边框或光标反馈，遮挡任何账号信息。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "unavailable-state",
+      "note": "已实际使用 Agent 浏览器打开公开页面，但当前运行界面中未取得页签共享开关及智能体操作反馈画面。"
+    }
+  },
+  {
+    "article": "消息渠道与远程控制",
+    "file": "channels.html",
+    "id": "AD-09",
+    "title": "渠道绑定与远程消息",
+    "description": "展示 /rc 返回的已连接状态和会话绑定标记，以及一条测试消息的往返；必须遮挡 Token、Webhook 密钥与私人聊天。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "unavailable-state",
+      "note": "未进行消息渠道绑定或向外部聊天发送消息，没有可公开的往返记录。"
+    }
+  },
+  {
+    "article": "实战示例",
+    "file": "examples.html",
+    "id": "AD-10",
+    "title": "新建项目表单与示例代码修复结果",
+    "description": "上图展示新建项目表单中的名称和默认位置。下图来自单独准备并打开的 hello-acecode 示例工作区，实际完成了欢迎消息修复，并通过 3 项测试。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/project-create.jpg",
+        "description": "新建项目对话框中的示例名称、目录名与默认位置，截图时尚未点击创建",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:41:49.227Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "16e6514ab357f0a254fc48be72511e941fcbfb16b7c87969c28e3daef5bec9db"
+      },
+      {
+        "file": "assets/screenshots/task-completed.jpg",
+        "description": "示例代码修复完成、两个文件的修改说明与 3 项测试通过结果",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:55:04.458Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "6c5de6bf5517e4ec9d69c7689760db42989266650e05816a3f20a135d6397fd8"
+      }
+    ]
+  },
+  {
+    "article": "安装、启动与更新问题",
+    "file": "troubleshoot-install.html",
+    "id": "TS-01",
+    "title": "安装或更新错误的有效截图",
+    "description": "截取完整错误文字、目标安装包或版本信息和发生时间；避免只截一个没有上下文的失败图标。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "unavailable-state",
+      "note": "安装向导正常打开并已取消，本次未遇到安装或更新错误，不能将正常向导标注为故障截图。"
+    }
+  },
+  {
+    "article": "模型连接与认证问题",
+    "file": "troubleshoot-models.html",
+    "id": "TS-02",
+    "title": "连接信息的位置与网络重试状态",
+    "description": "模型表单可用于核对 Provider、Model ID 和连接地址。下图是本次操作中实际遇到的网络重试与等待提示；这一画面没有显示 HTTP 状态码，无法据此判断为认证失败。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/model-custom-form.jpg",
+        "description": "新增自定义 OpenAI 兼容接口的空白表单，Model ID、Base URL、API Key 与预设名称",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:33:30.151Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "f6f4a78cbb6161bed84ad076360bdb721037b13735ec9809ab64e854edae258e"
+      },
+      {
+        "file": "assets/screenshots/task-network-retry.jpg",
+        "description": "真实请求的网络重试提示、退避等待与中断入口；等待不代表任务已完成",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:48:45.154Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "01c164cc188a191b7cff4696d29ed59bb806744df5549c3cb95242f9ea0ac05a"
+      }
+    ]
+  },
+  {
+    "article": "上下文超限与请求失败",
+    "file": "troubleshoot-context.html",
+    "id": "TS-03",
+    "title": "请求重试、等待与中断入口",
+    "description": "真实请求遇到网络重试时，任务显示重试次数与退避等待，输入区保留中断入口。截图属于网络重试，排查时还应区分上下文超限等其他错误。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/task-network-retry.jpg",
+        "description": "真实请求的网络重试提示、退避等待与中断入口；等待不代表任务已完成",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:48:45.154Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "01c164cc188a191b7cff4696d29ed59bb806744df5549c3cb95242f9ea0ac05a"
+      }
+    ]
+  },
+  {
+    "article": "桌面、终端与远程连接问题",
+    "file": "troubleshoot-desktop.html",
+    "id": "TS-04",
+    "title": "桌面故障的定位信息",
+    "description": "展示不含密钥的完整错误、应用版本，以及对应时间范围的日志摘录；分别标注桌面壳和后台错误。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "unavailable-state",
+      "note": "本次没有复现桌面崩溃或远程连接故障，已有关于页面及后台状态截图不能充当故障现场。"
+    }
+  },
+  {
+    "article": "日志与问题反馈",
+    "file": "feedback.html",
+    "id": "TS-05",
+    "title": "提交前的问题反馈表单",
+    "description": "问题反馈表单提供问题描述与会话附带范围选择。当前选项为“不附带会话”，截图时尚未提交反馈。",
+    "status": "captured",
+    "captures": [
+      {
+        "file": "assets/screenshots/settings-feedback.jpg",
+        "description": "问题反馈提交前的表单与“不附带会话”选项；本次未提交反馈",
+        "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
+        "windowTitle": "ACECode",
+        "version": "0.9.11",
+        "capturedAt": "2026-09-05T17:39:51.237Z",
+        "width": 1282,
+        "height": 727,
+        "method": "Computer Use / @oai/sky.get_window_state",
+        "unaltered": true,
+        "sha256": "54f92d604ddf68ade1cb0d0b0704cbd3d0a45c3557a1c1aceb515f2ff3d66fff"
+      }
+    ]
+  },
+  {
+    "article": "架构概览",
+    "file": "architecture.html",
+    "id": "DV-01",
+    "title": "ACECode 运行架构图",
+    "description": "后续绘制真实架构图：TUI 与 CLI 连接共享核心，桌面/Web 连接 daemon，daemon 连接 SessionRegistry、AgentLoop、Provider、Tools 与持久化；标出桌面原生桥接。",
+    "status": "placeholder",
+    "pending": {
+      "reason": "diagram",
+      "note": "此处需要架构示意图，不属于 ACECode 窗口截图，本次保留原图示占位。"
+    }
+  }
+]

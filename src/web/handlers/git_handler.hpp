@@ -20,7 +20,8 @@ struct GitApiResponse {
 };
 
 // GET /api/git/info?cwd=<abs>
-// 200: {is_repo, branch, default_branch, branches[], dirty}(非仓库只有 is_repo)
+// 200: {is_repo, branch, default_branch, default_base, branches[],
+//       remote_branches[], dirty}(非仓库只有 is_repo)
 // 400: {"error":"unknown workspace"} — cwd 不在白名单
 GitApiResponse build_git_info_payload(const std::string& cwd,
                                       const std::vector<std::string>& allowed_cwds,

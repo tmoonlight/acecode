@@ -125,6 +125,33 @@ run('Git and session compact changes share one flat/tree renderer and one cwd-sc
   assert.match(compactList, /data-change-compact-file=\{row\.path\}/);
 });
 
+run('Git branch selector changes only the shared list and detail comparison base', () => {
+  const gitList = source('GitChangesPanel.jsx');
+  const sidePanel = source('SidePanel.jsx');
+  const chatView = source('ChatView.jsx');
+  const previewDetails = source('PreviewDetailsPanel.jsx');
+
+  assert.match(gitList, /buildBaseCandidates\(gitInfo\)/);
+  assert.match(gitList, /api\.gitChanges\(targetCwd, targetBase\)/);
+  assert.match(gitList, /onOpenFile\?\.\(path, baseRef\.current, fileCount\)/);
+  assert.match(gitList, /min-w-\[160px\] max-h-72 overflow-y-auto/);
+  assert.match(
+    gitList,
+    /const selectBase = useCallback\(\(next\) => \{[\s\S]*?setBase\(next\);[\s\S]*?onBaseChange\?\.\(next\);/,
+  );
+  assert.doesNotMatch(gitList, /api\.gitCheckout\s*\(/);
+
+  assert.match(sidePanel, /onBaseChange=\{onGitBaseChange\}/);
+  assert.match(
+    chatView,
+    /updateGitChangesTab\(prev, \{ sessionId: sid, base: gitBase \|\| '' \}\)/,
+  );
+  assert.match(
+    previewDetails,
+    /<GitChangeDetails[\s\S]*?base=\{active\.base \|\| ''\}/,
+  );
+});
+
 run('Compact Changes directories preserve canonical paths and use responsive middle ellipsis', () => {
   const gitList = source('GitChangesPanel.jsx');
   const sessionReview = source('ChangeReview.jsx');

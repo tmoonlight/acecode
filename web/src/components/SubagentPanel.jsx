@@ -305,11 +305,11 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
 
   return (
     <div
-      className="shrink-0 min-w-0 h-full flex flex-col bg-surface border-l border-border"
+      className="shrink-0 min-w-0 h-full flex flex-col bg-surface"
       style={{ width }}
       data-subagent-panel="true"
     >
-      <div className="h-10 px-3 flex items-center gap-2 border-b border-border shrink-0">
+      <div className="h-10 px-3 flex items-center gap-2 shrink-0">
         {transcriptTask ? (
           <>
             <button

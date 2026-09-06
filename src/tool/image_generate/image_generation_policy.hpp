@@ -68,6 +68,9 @@ std::string model_for_quality(const ImageGenerationConfig& cfg, Quality quality)
 // 比不注册更糟:模型会反复调用它然后反复失败。
 ResolvedEndpoint resolve_endpoint(const AppConfig& cfg);
 
+// Images endpoints require a base URL, not a chat-only full endpoint.
+bool can_reuse_connection(const ModelProfile& profile);
+
 // 是否处于「提问不会真正呈现给用户」的状态。
 // headless 与 deny 策略都会自动应答,把决定权交回模型 —— 这正是最无人
 // 监督的场景,不能让模型自己决定花多少钱。

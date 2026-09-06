@@ -139,6 +139,9 @@ TEST_F(GitContextCollectorTest, InfoDefaultBaseWhenOriginRefExists) {
     GitInfo info = collect_git_info(repo_utf8_);
     EXPECT_EQ(info.default_branch, "main");
     EXPECT_EQ(info.default_base, "origin/main");
+    EXPECT_NE(std::find(info.remote_branches.begin(), info.remote_branches.end(),
+                        "origin/main"),
+              info.remote_branches.end());
 }
 
 // 场景:tracked 文件被修改(dirty 的定义 = checkout 会被拦的改动);
@@ -166,6 +169,41 @@ TEST_F(GitContextCollectorTest, InfoListsBranches) {
     EXPECT_EQ(info.branches.size(), 3u); // main, dev, feature/x
 }
 
+// 场景:本地分支与已 fetch 的远端跟踪分支并存,且 origin/HEAD 是符号别名。
+// 期望:两类 refs 分开返回;origin/HEAD 不会成为可选比较基线。
+TEST_F(GitContextCollectorTest, InfoClassifiesLocalAndRemoteBranches) {
+    auto head = worktree::run_git({"rev-parse", "HEAD"}, repo_utf8_);
+    ASSERT_TRUE(head.ok());
+    std::string sha = head.out;
+    while (!sha.empty() && (sha.back() == '\n' || sha.back() == '\r')) {
+        sha.pop_back();
+    }
+
+    ASSERT_TRUE(worktree::run_git({"branch", "feature/local"}, repo_utf8_).ok());
+    ASSERT_TRUE(worktree::run_git(
+        {"update-ref", "refs/remotes/origin/main", sha}, repo_utf8_).ok());
+    ASSERT_TRUE(worktree::run_git(
+        {"update-ref", "refs/remotes/origin/feature/remote", sha}, repo_utf8_).ok());
+    ASSERT_TRUE(worktree::run_git(
+        {"symbolic-ref", "refs/remotes/origin/HEAD",
+         "refs/remotes/origin/main"}, repo_utf8_).ok());
+
+    GitInfo info = collect_git_info(repo_utf8_);
+    EXPECT_NE(std::find(info.branches.begin(), info.branches.end(),
+                        "feature/local"),
+              info.branches.end());
+    EXPECT_NE(std::find(info.remote_branches.begin(), info.remote_branches.end(),
+                        "origin/main"),
+              info.remote_branches.end());
+    EXPECT_NE(std::find(info.remote_branches.begin(), info.remote_branches.end(),
+                        "origin/feature/remote"),
+              info.remote_branches.end());
+    EXPECT_EQ(std::find(info.remote_branches.begin(), info.remote_branches.end(),
+                        "origin/HEAD"),
+              info.remote_branches.end());
+    EXPECT_EQ(info.remote_branches.size(), 2u);
+}
+
 // ---- build_git_info_payload(REST handler 纯函数)---------------------------
 
 // 场景:cwd 不在 allowed_cwds 白名单(防 daemon 被当任意路径 git 查询器)。
@@ -188,13 +226,27 @@ TEST_F(GitContextCollectorTest, HandlerDisabledReportsNonRepo) {
 }
 
 // 场景:正常仓库 + 白名单命中。
-// 期望:200,payload 五字段齐全且与仓库状态一致。
+// 期望:200,payload 分别序列化本地与远端分支字段。
 TEST_F(GitContextCollectorTest, HandlerReturnsRepoInfo) {
+    auto head = worktree::run_git({"rev-parse", "HEAD"}, repo_utf8_);
+    ASSERT_TRUE(head.ok());
+    std::string sha = head.out;
+    while (!sha.empty() && (sha.back() == '\n' || sha.back() == '\r')) {
+        sha.pop_back();
+    }
+    ASSERT_TRUE(worktree::run_git(
+        {"update-ref", "refs/remotes/origin/main", sha}, repo_utf8_).ok());
+
     auto resp = web::build_git_info_payload(
         repo_utf8_, {repo_utf8_}, /*enabled=*/true, 3000);
     EXPECT_EQ(resp.status, 200);
     EXPECT_TRUE(resp.body["is_repo"].get<bool>());
     EXPECT_EQ(resp.body["branch"], "main");
+    EXPECT_EQ(resp.body["default_base"], "origin/main");
     EXPECT_FALSE(resp.body["dirty"].get<bool>());
     EXPECT_TRUE(resp.body["branches"].is_array());
+    ASSERT_TRUE(resp.body["remote_branches"].is_array());
+    EXPECT_NE(std::find(resp.body["remote_branches"].begin(),
+                        resp.body["remote_branches"].end(), "origin/main"),
+              resp.body["remote_branches"].end());
 }

@@ -630,7 +630,7 @@ TEST(SavedModelsTest, LegacyAceModelCatalogContextMigratesToFallback) {
         {
             {"name", "legacy-aurora"},
             {"provider", "openai"},
-            {"base_url", "HTTPS://GE.BIGJUAN.XYZ/aceapi/v1/"},
+            {"base_url", std::string(constants::ACEMODEL_API_BASE_URL) + "/"},
             {"api_key", "x"},
             {"model", "Aurora"},
             {"models_dev_provider_id", "ACEModel"},
@@ -641,7 +641,7 @@ TEST(SavedModelsTest, LegacyAceModelCatalogContextMigratesToFallback) {
         {
             {"name", "manual-aurora"},
             {"provider", "openai"},
-            {"base_url", "https://ge.bigjuan.xyz/aceapi/v1"},
+            {"base_url", constants::ACEMODEL_API_BASE_URL},
             {"api_key", "x"},
             {"model", "aurora"},
             {"models_dev_provider_id", "acemodel"},

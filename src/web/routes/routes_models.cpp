@@ -575,6 +575,7 @@ void WebServer::Impl::register_models() {
                 [&](const ModelProfile& profile) {
                     return profile.name == draft->name;
                 });
+            refresh_image_generation_tool_locked();
             r.body = profile_to_json(*added).dump();
             return with_cors(req, std::move(r));
         });
@@ -626,6 +627,7 @@ void WebServer::Impl::register_models() {
                         result.error);
                 }
 
+                refresh_image_generation_tool_locked();
                 // 找到刚改完的条目(name 可能与 url_name 不同)，并在解锁前
                 // 复制；后续 registry 同步会自行获取同一 config 锁。
                 const auto found = std::find_if(
@@ -691,6 +693,8 @@ void WebServer::Impl::register_models() {
                             : "PERSIST_FAILED"),
                     result.error);
             }
+
+            refresh_image_generation_tool_locked();
 
             crow::response r(200);
             r.add_header("Content-Type", "application/json");

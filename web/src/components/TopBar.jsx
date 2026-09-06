@@ -1,4 +1,4 @@
-// TopBar:logo + 快捷工具(项目栏收缩/导航/快捷菜单) + 主题切换 + 设置
+// TopBar:compact window chrome, quick menu, navigation and theme controls.
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useTheme } from '../theme.jsx';
@@ -9,11 +9,10 @@ import {
   topBarQuickActionNeedsSeparator,
   topBarQuickActionsMenuWidth,
 } from '../lib/topBarQuickActions.js';
-import { formatProgramVersion } from '../lib/webCoreInfo.js';
 import { NavigationArrowIcon, PanelToggleIcon, VsIcon } from './Icon.jsx';
+import { isTopBarDragExcludedTarget, topBarWindowDragAction } from '../lib/topBarWindowDrag.js';
 import {
   WindowControls,
-  isFramelessDesktop,
   isInteractiveTarget,
   nativePointerEvent,
   useFramelessWindowState,
@@ -26,6 +25,7 @@ function QuickBtn({
   disabled = false,
   className = '',
   pressed = null,
+  panelToggle = false,
   ...buttonProps
 }) {
   const isToggle = typeof pressed === 'boolean';
@@ -40,8 +40,8 @@ function QuickBtn({
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        'w-7 h-7 rounded-md bg-surface-hi/0 text-fg-2 flex items-center justify-center text-[14px] transition',
-        isToggle && 'ace-topbar-toggle-btn',
+        'ace-topbar-action rounded-md bg-surface-hi/0 text-fg-2 flex items-center justify-center text-[14px] transition',
+        isToggle && (panelToggle ? 'ace-topbar-panel-toggle' : 'ace-topbar-toggle-btn'),
         disabled ? 'opacity-35 cursor-not-allowed' : 'hover:bg-surface-hi hover:text-fg',
         className,
       )}
@@ -80,13 +80,13 @@ export function TopBar({
   updateReady = false,
   updateProgress = 0,
   onStartUpdate,
-  appVersion = '',
 }) {
   const { theme, toggle } = useTheme();
   const toggleTheme = onThemeToggle || toggle;
   const { framelessDesktop, isMaximized } = useFramelessWindowState();
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const quickActionsRef = useRef(null);
+  const topBarRef = useRef(null);
   const updateAvailable = !!updateStatus?.update_available;
   const boundedUpdateProgress = Number.isFinite(Number(updateProgress))
     ? Math.max(0, Math.min(100, Math.round(Number(updateProgress))))
@@ -99,8 +99,6 @@ export function TopBar({
       ? `升级正在进行，${boundedUpdateProgress}%，点击查看进度`
       : `发现新版 v${updateStatus.latest_version || ''}, 点击升级`
     : '';
-  const cleanAppVersion = typeof appVersion === 'string' ? appVersion.trim() : '';
-  const appVersionLabel = cleanAppVersion ? formatProgramVersion(cleanAppVersion) : '';
   const selectQuickAction = (actionId) => {
     setQuickActionsOpen(false);
     invokeTopBarQuickAction(actionId, {
@@ -132,25 +130,37 @@ export function TopBar({
     };
   }, [quickActionsOpen]);
 
-  const onTopBarMouseDown = (event) => {
-    if (!framelessDesktop || event.button !== 0 || isInteractiveTarget(event.target)) return;
-    event.preventDefault();
-    if (event.detail >= 2 && typeof window.aceDesktop_toggleMaximizeWindow === 'function') {
-      window.aceDesktop_toggleMaximizeWindow();
-      return;
-    }
-    window.aceDesktop_startWindowDrag(nativePointerEvent(event));
-  };
+  useEffect(() => {
+    if (!framelessDesktop) return undefined;
+    const onWindowDragMouseDown = (event) => {
+      const action = topBarWindowDragAction(
+        event,
+        topBarRef.current?.getBoundingClientRect(),
+        isInteractiveTarget(event.target) || isTopBarDragExcludedTarget(event.target),
+      );
+      if (!action) return;
+      event.preventDefault();
+      if (action === 'maximize' && typeof window.aceDesktop_toggleMaximizeWindow === 'function') {
+        window.aceDesktop_toggleMaximizeWindow();
+      } else {
+        window.aceDesktop_startWindowDrag(nativePointerEvent(event));
+      }
+    };
+    // Bubble after content handlers, so consumed tab/resize gestures stay local.
+    document.addEventListener('mousedown', onWindowDragMouseDown);
+    return () => document.removeEventListener('mousedown', onWindowDragMouseDown);
+  }, [framelessDesktop]);
 
   return (
     <div
+      ref={topBarRef}
       className={clsx(
-        'h-11 px-3 flex items-center gap-2 bg-surface border-b border-border relative z-10 shrink-0',
+        'ace-topbar px-2 flex items-center gap-1 bg-surface relative z-10 shrink-0',
         framelessDesktop && 'ace-desktop-frameless-topbar',
       )}
-      onMouseDown={onTopBarMouseDown}
+      style={{ '--ace-topbar-sidebar-width': sidebarCollapsed ? '0px' : `${sidebarWidth || 0}px` }}
     >
-      <div ref={quickActionsRef} className="relative mr-1">
+      <div ref={quickActionsRef} className="relative">
         <button
           type="button"
           title="打开快捷菜单"
@@ -159,15 +169,11 @@ export function TopBar({
           aria-expanded={quickActionsOpen}
           aria-controls="topbar-quick-actions-menu"
           onClick={() => setQuickActionsOpen((open) => !open)}
-          className="h-8 flex items-center gap-1.5 select-none rounded-md hover:bg-surface-hi transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20"
+          className="ace-topbar-action flex items-center justify-center text-fg-2 select-none rounded-md hover:bg-surface-hi hover:text-fg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20"
         >
-          <img src="/acecode-logo.png" alt="" width="20" height="20" className="block" draggable="false" />
-          <span className="text-[15px] font-bold tracking-tight">ACECode</span>
-          {appVersionLabel && (
-            <span className="text-[11px] font-medium leading-none text-fg-mute opacity-75 tabular-nums">
-              {appVersionLabel}
-            </span>
-          )}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+            <path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h11" />
+          </svg>
         </button>
         {quickActionsOpen && (
           <div
@@ -175,8 +181,8 @@ export function TopBar({
             role="menu"
             data-ace-native-overlay="overlap"
             aria-label="快捷操作"
-            className="fixed left-0 top-11 rounded-b-lg border-x border-b border-border bg-surface p-1 ace-shadow-lg z-50"
-            style={{ width: topBarQuickActionsMenuWidth(sidebarWidth) }}
+            className="fixed left-0 rounded-b-lg border-x border-b border-border bg-surface p-1 ace-shadow-lg z-50"
+            style={{ top: 'var(--ace-topbar-height)', width: topBarQuickActionsMenuWidth(sidebarWidth) }}
           >
             {TOPBAR_QUICK_ACTIONS.map((action, index) => {
               const checkingUpdates = action.id === 'check-updates' && updateChecking;
@@ -213,8 +219,9 @@ export function TopBar({
         title={sidebarCollapsed ? '展开项目栏' : '收起项目栏'}
         onClick={onToggleSidebar}
         pressed={!sidebarCollapsed}
+        panelToggle
       >
-        <PanelToggleIcon side="left" size={16} />
+        <PanelToggleIcon side="left" size={16} expanded={!sidebarCollapsed} />
       </QuickBtn>
       <QuickBtn title="后退" onClick={onGoBack} disabled={!canGoBack}>
         <NavigationArrowIcon direction="back" size={16} />
@@ -233,7 +240,7 @@ export function TopBar({
           onClick={onStartUpdate}
           disabled={updateStarting}
           className={clsx(
-            'relative h-7 min-w-[44px] overflow-hidden px-3 rounded-full text-[12px] font-semibold leading-none shadow-sm transition',
+            'ace-topbar-update-button relative min-w-[44px] overflow-hidden px-3 rounded-full text-[12px] font-semibold leading-none shadow-sm transition',
             updateRunning ? 'bg-transparent text-accent' : 'bg-accent text-white',
             'hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20',
             updateStarting && 'opacity-60 cursor-not-allowed hover:opacity-60',
@@ -282,20 +289,12 @@ export function TopBar({
             title={rightPanelCollapsed ? '展开整个右侧面板' : '收起整个右侧面板'}
             onClick={onToggleRightPanel}
             pressed={!rightPanelCollapsed}
+            panelToggle
             aria-expanded={!rightPanelCollapsed}
           >
-            <PanelToggleIcon side="right" size={15} />
+            <PanelToggleIcon side="right" size={15} expanded={!rightPanelCollapsed} />
           </QuickBtn>
         )}
-        <button
-          data-tour-target="topbar-settings"
-          type="button"
-          onClick={onSettings}
-          className="px-2.5 py-1 rounded-md text-[12px] text-fg-mute hover:text-fg hover:bg-surface-hi transition flex items-center gap-1.5"
-        >
-          <VsIcon name="settings" size={20} />
-          <span>设置</span>
-        </button>
         {framelessDesktop && <WindowControls isMaximized={isMaximized} />}
       </div>
     </div>

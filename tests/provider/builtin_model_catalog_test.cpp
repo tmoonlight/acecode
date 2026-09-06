@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 
 #include "provider/builtin_model_catalog.hpp"
+#include "utils/constants.hpp"
+
+#include <algorithm>
+#include <cctype>
 
 namespace acecode {
 
@@ -11,7 +15,7 @@ TEST(BuiltinModelCatalog, AceModelCanonicalMetadata) {
     EXPECT_EQ(provider.id, "acemodel");
     EXPECT_EQ(provider.name, "ACEModel");
     ASSERT_TRUE(provider.base_url.has_value());
-    EXPECT_EQ(*provider.base_url, "https://ge.bigjuan.xyz/aceapi/v1");
+    EXPECT_EQ(*provider.base_url, constants::ACEMODEL_API_BASE_URL);
     ASSERT_EQ(provider.env.size(), 1u);
     EXPECT_EQ(provider.env[0], "ACEMODEL_API_KEY");
     EXPECT_TRUE(provider.openai_compatible);
@@ -44,7 +48,10 @@ TEST(BuiltinModelCatalog, AceModelLookupAndEndpointIdentityAreCanonical) {
     EXPECT_EQ(*aurora->context, 250000);
     EXPECT_EQ(find_acemodel_catalog_model("unknown"), nullptr);
 
-    EXPECT_TRUE(is_acemodel_base_url(" HTTPS://GE.BIGJUAN.XYZ/aceapi/v1/ "));
+    std::string uppercase_url = constants::ACEMODEL_API_BASE_URL;
+    std::transform(uppercase_url.begin(), uppercase_url.end(), uppercase_url.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
+    EXPECT_TRUE(is_acemodel_base_url(" " + uppercase_url + "/ "));
     EXPECT_FALSE(is_acemodel_base_url("https://gateway.example/v1"));
 }
 

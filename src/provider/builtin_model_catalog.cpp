@@ -1,4 +1,5 @@
 #include "builtin_model_catalog.hpp"
+#include "../utils/constants.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -47,7 +48,7 @@ ProviderEntry build_acemodel_provider() {
     provider.id = "acemodel";
     provider.name = "ACEModel";
     provider.env = {"ACEMODEL_API_KEY"};
-    provider.base_url = "https://ge.bigjuan.xyz/aceapi/v1";
+    provider.base_url = constants::ACEMODEL_API_BASE_URL;
     provider.openai_compatible = true;
     provider.models = {
         builtin_model("moonlight", "Moonlight"),

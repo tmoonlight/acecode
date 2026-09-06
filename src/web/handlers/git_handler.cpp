@@ -41,6 +41,7 @@ GitApiResponse build_git_info_payload(const std::string& cwd,
         {"default_branch", info.default_branch},
         {"default_base", info.default_base},
         {"branches", info.branches},
+        {"remote_branches", info.remote_branches},
         {"dirty", info.dirty},
     };
     return resp;

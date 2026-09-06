@@ -1,6 +1,7 @@
 #include "apply.hpp"
 
 #include "console.hpp"
+#include "diagnostics.hpp"
 #include "package.hpp"
 #include "../config/config.hpp"
 #include "../utils/utf8_path.hpp"
@@ -36,6 +37,16 @@ namespace acecode::upgrade {
 namespace {
 
 constexpr const char* kUpdateRunnerDirName = ".acecode-update-runner";
+
+void record_file_operation(DiagnosticLog* diagnostics, const char* operation,
+                           const fs::path& source, const fs::path& destination,
+                           const std::error_code& error) {
+    if (!diagnostics) return;
+    diagnostics->record(operation, {{"source", path_to_utf8(source)},
+        {"destination", path_to_utf8(destination)}, {"error_code", error.value()},
+        {"error_category", error.category().name()},
+        {"error", error ? error.message() : std::string{}}});
+}
 
 bool is_same_or_inside(const fs::path& maybe_child, const fs::path& maybe_parent) {
     std::error_code ec;
@@ -119,25 +130,29 @@ bool backup_existing_path(const fs::path& install_dir,
                           const fs::path& backup_dir,
                           const fs::path& rel,
                           std::vector<fs::path>& backed_up,
-                          std::string* error) {
+                          std::string* error,
+                          DiagnosticLog* diagnostics) {
     std::error_code ec;
     const fs::path src = install_dir / rel;
     if (!fs::exists(src, ec)) return true;
 
     const fs::path dest = backup_dir / rel;
     fs::create_directories(dest.parent_path(), ec);
+    record_file_operation(diagnostics, "backup_directory", {}, dest.parent_path(), ec);
     if (ec) {
         if (error) *error = "failed to create backup directory " +
                             dest.parent_path().string() + ": " + ec.message();
         return false;
     }
     fs::remove_all(dest, ec);
+    record_file_operation(diagnostics, "backup_clear", {}, dest, ec);
     if (ec) {
         if (error) *error = "failed to clear backup path " + dest.string() + ": " +
                             ec.message();
         return false;
     }
     fs::rename(src, dest, ec);
+    record_file_operation(diagnostics, "backup_move", src, dest, ec);
     if (ec) {
         if (error) *error = "failed to move " + src.string() + " to " +
                             dest.string() + ": " + ec.message();
@@ -151,16 +166,18 @@ bool prepare_package_directories(const fs::path& install_dir,
                                  const fs::path& backup_dir,
                                  const StagedPathSet& paths,
                                  std::vector<fs::path>& backed_up,
-                                 std::string* error) {
+                                 std::string* error,
+                                 DiagnosticLog* diagnostics) {
     std::error_code ec;
     for (const auto& rel : paths.dirs) {
         const fs::path dest = install_dir / rel;
         if (fs::exists(dest, ec) && !fs::is_directory(dest, ec)) {
-            if (!backup_existing_path(install_dir, backup_dir, rel, backed_up, error)) {
+            if (!backup_existing_path(install_dir, backup_dir, rel, backed_up, error, diagnostics)) {
                 return false;
             }
         }
         fs::create_directories(dest, ec);
+        record_file_operation(diagnostics, "install_directory", {}, dest, ec);
         if (ec) {
             if (error) *error = "failed to create directory " + dest.string() + ": " +
                                 ec.message();
@@ -175,21 +192,24 @@ bool copy_package_files(const fs::path& content_root,
                         const fs::path& backup_dir,
                         const StagedPathSet& paths,
                         std::vector<fs::path>& backed_up,
-                        std::string* error) {
+                        std::string* error,
+                        DiagnosticLog* diagnostics) {
     std::error_code ec;
     for (const auto& rel : paths.files) {
         const fs::path src = content_root / rel;
         const fs::path dest = install_dir / rel;
-        if (!backup_existing_path(install_dir, backup_dir, rel, backed_up, error)) {
+        if (!backup_existing_path(install_dir, backup_dir, rel, backed_up, error, diagnostics)) {
             return false;
         }
         fs::create_directories(dest.parent_path(), ec);
+        record_file_operation(diagnostics, "install_parent_directory", {}, dest.parent_path(), ec);
         if (ec) {
             if (error) *error = "failed to create directory " +
                                 dest.parent_path().string() + ": " + ec.message();
             return false;
         }
         fs::copy_file(src, dest, fs::copy_options::overwrite_existing, ec);
+        record_file_operation(diagnostics, "install_copy", src, dest, ec);
         if (ec) {
             if (error) *error = "failed to copy " + src.string() + " to " +
                                 dest.string() + ": " + ec.message();
@@ -199,23 +219,29 @@ bool copy_package_files(const fs::path& content_root,
     return true;
 }
 
-void remove_package_targets(const fs::path& install_dir, const StagedPathSet& paths) {
+void remove_package_targets(const fs::path& install_dir, const StagedPathSet& paths,
+                            DiagnosticLog* diagnostics) {
     std::error_code ec;
     for (const auto& rel : paths.files) {
         fs::remove_all(install_dir / rel, ec);
+        record_file_operation(diagnostics, "rollback_remove", {}, install_dir / rel, ec);
     }
 }
 
 void restore_backed_up_paths(const fs::path& install_dir,
                              const fs::path& backup_dir,
-                             const std::vector<fs::path>& backed_up) {
+                             const std::vector<fs::path>& backed_up,
+                             DiagnosticLog* diagnostics) {
     std::error_code ec;
     for (const auto& rel : backed_up) {
         const fs::path src = backup_dir / rel;
         const fs::path dest = install_dir / rel;
         fs::remove_all(dest, ec);
+        record_file_operation(diagnostics, "rollback_clear", {}, dest, ec);
         fs::create_directories(dest.parent_path(), ec);
+        record_file_operation(diagnostics, "rollback_directory", {}, dest.parent_path(), ec);
         fs::rename(src, dest, ec);
+        record_file_operation(diagnostics, "rollback_restore", src, dest, ec);
     }
 }
 
@@ -451,7 +477,11 @@ bool apply_staged_update(const fs::path& staging_dir,
                          const fs::path& install_dir,
                          const fs::path& backup_dir,
                          const std::string& target,
-                         std::string* error) {
+                         std::string* error,
+                         DiagnosticLog* diagnostics) {
+    if (diagnostics) diagnostics->record("install_started", {
+        {"staging", path_to_utf8(staging_dir)}, {"install_dir", path_to_utf8(install_dir)},
+        {"backup", path_to_utf8(backup_dir)}, {"target", target}});
     std::string stage_error;
     auto staged = validate_staged_package(staging_dir, target, &stage_error);
     if (!staged) {
@@ -472,12 +502,15 @@ bool apply_staged_update(const fs::path& staging_dir,
 
     std::error_code ec;
     fs::remove_all(backup_dir, ec);
+    record_file_operation(diagnostics, "install_backup_clear", {}, backup_dir, ec);
     fs::create_directories(backup_dir, ec);
+    record_file_operation(diagnostics, "install_backup_directory", {}, backup_dir, ec);
     if (ec) {
         if (error) *error = "failed to create backup directory: " + ec.message();
         return false;
     }
     fs::create_directories(install_dir, ec);
+    record_file_operation(diagnostics, "install_root_directory", {}, install_dir, ec);
     if (ec) {
         if (error) *error = "failed to create install directory: " + ec.message();
         return false;
@@ -485,15 +518,19 @@ bool apply_staged_update(const fs::path& staging_dir,
 
     std::vector<fs::path> backed_up;
     if (!prepare_package_directories(install_dir, backup_dir, staged_paths,
-                                     backed_up, error) ||
+                                     backed_up, error, diagnostics) ||
         !copy_package_files(staged->content_root, install_dir, backup_dir,
-                            staged_paths, backed_up, error) ||
+                            staged_paths, backed_up, error, diagnostics) ||
         !fs::is_regular_file(install_dir / expected_executable_name_for_target(target))) {
-        remove_package_targets(install_dir, staged_paths);
-        restore_backed_up_paths(install_dir, backup_dir, backed_up);
         if (error && error->empty()) {
             *error = "failed to verify updated executable";
         }
+        if (diagnostics) diagnostics->record("rollback_started", {
+            {"error", error ? *error : "installation failed"}, {"backed_up_paths", backed_up.size()}});
+        remove_package_targets(install_dir, staged_paths, diagnostics);
+        restore_backed_up_paths(install_dir, backup_dir, backed_up, diagnostics);
+        if (diagnostics) diagnostics->record("rollback_finished", {
+            {"backup", path_to_utf8(backup_dir)}});
         return false;
     }
 
@@ -504,34 +541,51 @@ int run_apply_update_command(const std::vector<std::string>& args,
                              std::ostream& out,
                              std::ostream& err,
                              const std::string& target) {
-    std::string parse_error;
-    auto opts = parse_apply_runner_args(args, &parse_error);
-    if (!opts) {
-        err << "acecode update apply failed: " << parse_error << "\n";
-        return 64;
-    }
+    DiagnosticLog diagnostics("apply_runner");
+    diagnostics.phase("installing", {{"target", target}});
+    out << diagnostics.with_location("ACECode update installer") << "\n";
+    try {
+        std::string parse_error;
+        auto opts = parse_apply_runner_args(args, &parse_error);
+        if (!opts) {
+            diagnostics.record("apply_finished", {{"exit_code", 64}, {"error", parse_error}});
+            err << diagnostics.with_location("acecode update apply failed: " + parse_error) << "\n";
+            return 64;
+        }
 
-    out << styled(out, ConsoleStyle::Bold, "ACECode Update Installer") << "\n"
-        << styled(out, ConsoleStyle::Cyan,
-                  "[1/3] Waiting for ACECode to exit before applying update...")
-        << "\n";
-    wait_for_parent(opts->parent_pid);
+        out << styled(out, ConsoleStyle::Bold, "ACECode Update Installer") << "\n"
+            << styled(out, ConsoleStyle::Cyan,
+                      "[1/3] Waiting for ACECode to exit before applying update...")
+            << "\n";
+        diagnostics.record("waiting_for_parent", {{"parent_pid", opts->parent_pid}});
+        wait_for_parent(opts->parent_pid);
+        diagnostics.record("parent_wait_finished");
 
-    out << styled(out, ConsoleStyle::Cyan, "[2/3] Applying staged update...") << "\n";
-    std::string apply_error;
-    if (!apply_staged_update(opts->staging_dir, opts->install_dir,
-                             opts->backup_dir, target, &apply_error)) {
-        err << "acecode update apply failed: " << apply_error << "\n"
+        out << styled(out, ConsoleStyle::Cyan, "[2/3] Applying staged update...") << "\n";
+        std::string apply_error;
+        if (!apply_staged_update(opts->staging_dir, opts->install_dir,
+                                 opts->backup_dir, target, &apply_error, &diagnostics)) {
+            diagnostics.record("apply_finished", {{"exit_code", 1}, {"error", apply_error}});
+            err << diagnostics.with_location("acecode update apply failed: " + apply_error) << "\n"
+                << "Backup directory: " << opts->backup_dir.string() << "\n";
+            prompt_press_any_key_if_interactive(out);
+            return 1;
+        }
+
+        out << styled(out, ConsoleStyle::Cyan, "[3/3] Finalizing") << "\n"
+            << styled(out, ConsoleStyle::Green, "ACECode update applied successfully.") << "\n"
             << "Backup directory: " << opts->backup_dir.string() << "\n";
+        diagnostics.record("apply_finished", {{"exit_code", 0}, {"backup", path_to_utf8(opts->backup_dir)}});
         prompt_press_any_key_if_interactive(out);
-        return 1;
+        return 0;
+    } catch (const std::exception& e) {
+        diagnostics.record("apply_finished", {{"exit_code", 1}, {"error", e.what()}});
+        err << diagnostics.with_location(std::string("acecode update apply exception: ") + e.what()) << "\n";
+    } catch (...) {
+        diagnostics.record("apply_finished", {{"exit_code", 1}, {"error", "unknown exception"}});
+        err << diagnostics.with_location("acecode update apply: unknown exception") << "\n";
     }
-
-    out << styled(out, ConsoleStyle::Cyan, "[3/3] Finalizing") << "\n"
-        << styled(out, ConsoleStyle::Green, "ACECode update applied successfully.") << "\n"
-        << "Backup directory: " << opts->backup_dir.string() << "\n";
-    prompt_press_any_key_if_interactive(out);
-    return 0;
+    return 1;
 }
 
 } // namespace acecode::upgrade

@@ -55,6 +55,10 @@
   --ace-surface-alt-rgb: 250, 250, 248;
   --ace-surface-hi:   #f0efeb;
   --ace-surface-hi-rgb: 240, 239, 235;
+  --ace-shell-hi:     #e9e8e2;
+  --ace-shell-bg:     #fbfbf9;
+  --ace-panel-edge-shadow: -8px 0 16px -8px rgba(0,0,0,.10);
+  --ace-shell-hi-rgb: 233, 232, 226;
   --ace-border:       #e2e2de;
   --ace-border-rgb:   226, 226, 222;
   --ace-border-soft:  #ebebeb;
@@ -118,6 +122,10 @@
   --ace-surface-alt-rgb: 34, 34, 34;
   --ace-surface-hi:   #2a2a2a;
   --ace-surface-hi-rgb: 42, 42, 42;
+  --ace-shell-hi:     #232323;
+  --ace-shell-bg:     #0f0f0f;
+  --ace-panel-edge-shadow: -8px 0 16px -8px rgba(0,0,0,.55);
+  --ace-shell-hi-rgb: 35, 35, 35;
   --ace-border:       #333333;
   --ace-border-rgb:   51, 51, 51;
   --ace-border-soft:  #2a2a2a;
@@ -168,6 +176,10 @@
   --ace-surface-alt-rgb: 255, 250, 247;
   --ace-surface-hi:   #ffeadf;
   --ace-surface-hi-rgb: 255, 234, 223;
+  --ace-shell-hi:     #f7e1d4;
+  --ace-shell-bg:     #fffaf6;
+  --ace-panel-edge-shadow: -8px 0 16px -8px rgba(91,44,20,.14);
+  --ace-shell-hi-rgb: 247, 225, 212;
   --ace-border:       #f0d2c3;
   --ace-border-rgb:   240, 210, 195;
   --ace-border-soft:  #f6e0d5;
@@ -209,6 +221,10 @@
   --ace-surface-alt-rgb: 40, 27, 21;
   --ace-surface-hi:   #35241c;
   --ace-surface-hi-rgb: 53, 36, 28;
+  --ace-shell-hi:     #2c1d16;
+  --ace-shell-bg:     #120c09;
+  --ace-panel-edge-shadow: -8px 0 16px -8px rgba(0,0,0,.55);
+  --ace-shell-hi-rgb: 44, 29, 22;
   --ace-border:       #4b3125;
   --ace-border-rgb:   75, 49, 37;
   --ace-border-soft:  #3b271f;
@@ -1627,6 +1643,7 @@ body {
 .hover\:border-accent\/50:hover { border-color: rgba(var(--ace-accent-rgb), 0.50); }
 .hover\:border-accent\/60:hover { border-color: rgba(var(--ace-accent-rgb), 0.60); }
 .border-border\/50 { border-color: rgba(var(--ace-border-rgb), 0.50); }
+.border-fg-mute\/55 { border-color: rgba(var(--ace-fg-mute-rgb), 0.55); }
 .border-border\/70 { border-color: rgba(var(--ace-border-rgb), 0.70); }
 .border-danger\/30 { border-color: rgba(var(--ace-danger-rgb), 0.30); }
 .border-danger\/40 { border-color: rgba(var(--ace-danger-rgb), 0.40); }
@@ -1653,8 +1670,53 @@ body {
 }
 
 /* Desktop frameless window chrome */
+.ace-topbar {
+  /* 30 CSS px matches a 45px title bar at 150% Windows display scaling. */
+  --ace-topbar-height: 30px;
+  --ace-topbar-control-size: calc(var(--ace-topbar-height) - 6px);
+  height: var(--ace-topbar-height);
+}
+.ace-topbar-action {
+  width: var(--ace-topbar-control-size);
+  height: var(--ace-topbar-control-size);
+  flex-shrink: 0;
+}
+.ace-topbar-update-button {
+  height: var(--ace-topbar-control-size);
+}
+.ace-topbar .ace-window-control {
+  width: calc(var(--ace-topbar-control-size) * 1.2);
+  height: var(--ace-topbar-control-size);
+}
+.ace-sidebar-fixed-nav {
+  max-height: 55%;
+}
+/* 固定导航与会话列表之间不画硬线:列表顶部一段渐隐,滚上去的内容淡出而不是被
+   直接切断,与 Claude 侧栏同款。渐隐高度落在首个分节标题的 pt-3 内边距上,
+   所以未滚动时看不出来。 */
+.ace-sidebar-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+}
+/* 底部设置区与会话列表之间唯一保留的细分隔线。 */
+.ace-sidebar-footer {
+  border-top: 1px solid var(--ace-border);
+}
+.ace-sidebar-extensions-arrow {
+  opacity: 0;
+}
+.ace-sidebar-extensions-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) .ace-sidebar-extensions-icon {
+  opacity: 0;
+}
+.ace-sidebar-extensions-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) .ace-sidebar-extensions-arrow {
+  opacity: 1;
+}
 .ace-desktop-frameless-topbar {
   user-select: none;
+}
+.ace-topbar-panel-toggle:focus-visible {
+  outline: 1px solid var(--ace-fg-2);
+  outline-offset: 1px;
 }
 .ace-topbar-toggle-btn[aria-pressed="true"] {
   background: var(--ace-accent-soft);
@@ -1708,6 +1770,55 @@ body {
   stroke-width: 1;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* Settings keeps the current workspace visible while remaining a blocking surface. */
+.ace-settings-mask {
+  background: rgba(0, 0, 0, 0.35);
+}
+.ace-settings-panel {
+  /* Windows display scaling reduces the CSS viewport, so reclaim vertical space. */
+  --ace-settings-inset-y: clamp(24px, calc(25vh - 150px), 120px);
+  width: calc(100vw - 240px);
+  height: calc(100vh - 2 * var(--ace-settings-inset-y));
+  min-width: min(880px, calc(100vw - 26px));
+  min-height: min(500px, calc(100vh - 26px));
+  max-width: 1440px;
+  max-height: 960px;
+  border: 1px solid rgba(var(--ace-border-rgb), 0.88);
+  border-radius: 14px;
+  background: var(--ace-bg);
+  box-shadow: var(--ace-shadow-lg);
+  isolation: isolate;
+  transition:
+    width 0.2s ease,
+    height 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.ace-settings-panel[data-expanded="true"] {
+  width: calc(100vw - 26px);
+  height: calc(100vh - 26px);
+  max-width: none;
+  max-height: none;
+}
+/* Compact the shared Settings spacing while retaining the user's font-size choice. */
+.ace-settings-content h2.text-xl {
+  line-height: 1.4 !important;
+}
+.ace-settings-content .mb-5 {
+  margin-bottom: 16px;
+}
+.ace-settings-content .my-5 {
+  margin-block: 14px;
+}
+.ace-settings-content .py-2\.5 {
+  padding-block: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-settings-panel {
+    transition-duration: 0.01ms;
+  }
 }
 
 /* Desktop shell 自定义右键菜单:屏蔽 WebView 默认菜单后只暴露受控操作。 */
@@ -1823,6 +1934,41 @@ body {
 .ace-sidebar {
   -webkit-user-select: none;
   user-select: none;
+}
+/* Claude 风格外壳:侧栏是一整根从窗口顶部通到底部的浅灰色柱子(右边 1px 竖线
+   经 .ace-topbar::before 延伸穿过顶栏),顶栏与主内容区同为白色;侧栏/顶栏内
+   的 hover 底色改用 --ace-shell-hi,否则 surface-hi 与 --ace-bg 几乎同色。 */
+.ace-sidebar,
+.ace-topbar {
+  --ace-surface-hi: var(--ace-shell-hi);
+  --ace-surface-hi-rgb: var(--ace-shell-hi-rgb);
+}
+/* 收起/展开动画:globals.css 的 `:where(html, body, *)` 全局颜色过渡是无 layer
+   规则,会盖掉 Tailwind 的 transition-* 工具类(无 layer 胜过 @layer),所以侧栏
+   宽度过渡必须写在这里,否则只有顶栏那半边动、侧栏瞬间消失。visibility 收起时
+   延迟到动画结束再隐藏,展开时立刻恢复。 */
+.ace-sidebar {
+  background: var(--ace-shell-bg);
+  transition: width 250ms ease, min-width 250ms ease, visibility 0s,
+    background-color .25s ease, border-color .25s ease, color .2s ease;
+}
+.ace-sidebar[data-collapsed="true"] {
+  visibility: hidden;
+  transition: width 250ms ease, min-width 250ms ease, visibility 0s linear 250ms,
+    background-color .25s ease, border-color .25s ease, color .2s ease;
+}
+.ace-topbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--ace-topbar-sidebar-width, 0px);
+  background: var(--ace-shell-bg);
+  border-right: 1px solid var(--ace-border);
+  transition: width 250ms;
+  pointer-events: none;
+  z-index: -1;
 }
 .ace-sidebar input,
 .ace-sidebar textarea,
@@ -3780,7 +3926,12 @@ a.ace-thread-link:focus-visible {
 
 /* Preview/details panel between chat and SidePanel */
 .ace-preview-details-shell {
+  position: relative;
+  z-index: 1;
+  box-shadow: var(--ace-panel-edge-shadow);
   flex: 0 0 auto;
+  border-top: 1px solid var(--ace-border);
+  border-top-left-radius: 12px;
   display: flex;
   min-width: 0;
   overflow: hidden;
@@ -3790,6 +3941,9 @@ a.ace-thread-link:focus-visible {
 }
 .ace-preview-details-shell[data-maximized="true"] {
   border-left: 0;
+  border-top: 0;
+  border-top-left-radius: 0;
+  box-shadow: none;
 }
 .ace-resizing .ace-preview-details-shell { transition: none !important; }
 
@@ -4367,7 +4521,13 @@ a.ace-thread-link:focus-visible {
    过渡。SidePanel 自己 width:100% 跟随 shell。这种"shell 控制宽度"的分层让
    折叠动画发生在 shell 上,不卸载 SidePanel,保留内部 tab/cache 状态。 */
 .ace-side-panel-shell {
+  position: relative;
+  z-index: 1;
+  box-shadow: var(--ace-panel-edge-shadow);
   flex: 0 0 auto;
+  border-top: 1px solid var(--ace-border);
+  border-left: 1px solid var(--ace-border);
+  border-top-left-radius: 12px;
   display: flex;
   overflow: hidden;
   transition: width 200ms ease, opacity 200ms ease;
@@ -4377,13 +4537,18 @@ a.ace-thread-link:focus-visible {
   pointer-events: none;
 }
 .ace-resizing .ace-side-panel-shell { transition: none !important; }
+/* 右侧卡片的左上圆角只给最靠左的那块:预览面板打开时它在前,右侧列表面板
+   紧贴其后,圆角与顶边线由预览面板承担,列表面板只保留分隔用的左边线。 */
+.ace-preview-details-shell:not([data-maximized="true"]) ~ .ace-side-panel-shell {
+  border-top-left-radius: 0;
+  box-shadow: none;
+}
 
 .ace-side-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
   background: var(--ace-surface-alt);
-  border-left: 1px solid var(--ace-border);
   overflow: hidden;
 }
 .ace-side-tabs {
@@ -4392,7 +4557,6 @@ a.ace-thread-link:focus-visible {
   height: 36px;
   padding: 6px;
   background: var(--ace-surface-hi);
-  border-bottom: 1px solid var(--ace-border);
   flex-shrink: 0;
   box-sizing: border-box;
 }

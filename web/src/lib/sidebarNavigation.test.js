@@ -28,12 +28,13 @@ test('sidebar fixed navigation keeps the confirmed order and callbacks', () => {
   assert.deepEqual(SIDEBAR_NAV_ITEMS, [
     { id: 'new-task', label: '新建任务', icon: 'newSession', callback: 'onNewTask' },
     { id: 'new-loop', label: '定时任务', icon: 'alarm', callback: 'onNewLoop' },
-    { id: 'search-tasks', label: '搜索任务', icon: 'search', callback: 'onSearchTasks' },
+    { id: 'extensions', label: '扩展', icon: 'extension', action: 'extensions' },
   ]);
 });
 
 test('sidebar custom settings keep the restored order and default collapsed state', () => {
   assert.deepEqual(SIDEBAR_CUSTOM_ITEMS, [
+    { id: 'models', label: '模型', icon: 'brain', settingsSection: 'models' },
     { id: 'mcp', label: 'MCP 服务器', icon: 'mcp', settingsSection: 'mcp' },
     { id: 'skills', label: '技能', icon: 'lightbulb', settingsSection: 'skills' },
     { id: 'experts', label: '专家组件', icon: 'brain', action: 'experts' },
@@ -42,10 +43,11 @@ test('sidebar custom settings keep the restored order and default collapsed stat
 });
 
 test('sidebar extension heading sums every available child count', () => {
-  assert.equal(sidebarCustomTotalCount({ mcp: 2, models: 7, skills: 16, experts: 3 }), 21);
-  assert.equal(sidebarCustomTotalCount({ mcp: null, models: 3.9, skills: 4.8, experts: 2.2 }), 6);
-  assert.equal(sidebarCustomTotalCount({ mcp: 0, models: 7, skills: 0, experts: 0 }), 0);
-  assert.equal(sidebarCustomTotalCount({ mcp: -1, models: 7, skills: null, experts: null }), null);
+  assert.equal(sidebarCustomTotalCount({ mcp: 2, models: 7, skills: 16, experts: 3 }), 28);
+  assert.equal(sidebarCustomTotalCount({ mcp: null, models: 3.9, skills: 4.8, experts: 2.2 }), 9);
+  assert.equal(sidebarCustomTotalCount({ mcp: 0, models: 0, skills: 0, experts: 0 }), 0);
+  assert.equal(sidebarCustomTotalCount({ mcp: -1, models: 7, skills: null, experts: null }), 7);
+  assert.equal(sidebarCustomTotalCount({ mcp: -1, models: null, skills: null, experts: null }), null);
 });
 
 test('sidebar sections use confirmed labels and default expanded state', () => {

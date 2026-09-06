@@ -12,6 +12,7 @@ import {
   hasSelectedTextWithin,
   makeInitialAnswers,
   normalizeQuestionRequest,
+  selectAnswerCustom,
   setAnswerCustom,
   toggleAnswerSelection,
 } from '../lib/questionPicker.js';
@@ -45,7 +46,7 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
   }, [normalized.requestId, questions]);
 
   const question = questions[currentIndex];
-  const answer = answers[currentIndex] || { selected: [], custom: '' };
+  const answer = answers[currentIndex] || { selected: [], custom: '', customSelected: false };
   const optionCount = question?.options?.length || 0;
   const customIndex = optionCount;
   const nav = getNavigationState(currentIndex, questions, answers);
@@ -97,9 +98,14 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
     updateAnswer(currentIndex, (item) => toggleAnswerSelection(item, opt.value, !!question.multiSelect));
   }, [currentIndex, question, updateAnswer]);
 
+  const selectCustom = useCallback(() => {
+    setFocusIndex(customIndex);
+    updateAnswer(currentIndex, (item) => selectAnswerCustom(item, !!question?.multiSelect));
+  }, [currentIndex, customIndex, question, updateAnswer]);
+
   const setCustom = useCallback((value) => {
-    updateAnswer(currentIndex, (item) => setAnswerCustom(item, value));
-  }, [currentIndex, updateAnswer]);
+    updateAnswer(currentIndex, (item) => setAnswerCustom(item, value, !!question?.multiSelect));
+  }, [currentIndex, question, updateAnswer]);
 
   const moveFocus = useCallback((delta) => {
     const count = optionCount + 1;
@@ -128,9 +134,10 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
 
     if (/^[1-9]$/.test(event.key)) {
       const index = Number(event.key) - 1;
-      if (index < optionCount) {
+      if (index <= optionCount) {
         event.preventDefault();
-        selectOption(index);
+        if (index < optionCount) selectOption(index);
+        else customRef.current?.focus();
       }
       return;
     }
@@ -276,7 +283,7 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
             <label
               className={clsx(
                 'rounded-lg border px-2.5 py-2 flex items-center gap-2 transition',
-                answer.custom?.trim()
+                answer.customSelected
                   ? 'bg-accent-bg border-accent'
                   : 'bg-surface-alt border-border',
                 focusIndex === customIndex && 'ring-2 ring-accent/20 border-accent',
@@ -291,14 +298,14 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
                   ref={customRef}
                   type="text"
                   value={answer.custom || ''}
-                  onFocus={() => setFocusIndex(customIndex)}
+                  onFocus={selectCustom}
                   onChange={(event) => setCustom(event.target.value)}
                   placeholder="输入自定义答案"
                   className="h-7 w-full rounded-md border border-border bg-surface px-2 text-[12px] text-fg outline-none focus:border-accent"
                 />
               </span>
               <span className="w-5 h-5 shrink-0 flex items-center justify-center">
-                {answer.custom?.trim() ? (
+                {answer.customSelected ? (
                   <VsIcon name="ok" size={14} mono={false} />
                 ) : (
                   <span className="w-3.5 h-3.5 rounded-full border border-border" />

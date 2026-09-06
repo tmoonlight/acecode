@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -69,6 +70,34 @@ private:
 };
 
 } // namespace
+
+TEST(ConfigMutation, ImageGenerationDefaultUrlStaysSparseAndCustomUrlIsPreserved) {
+    ConfigMutationTempDir temp;
+    acecode::AppConfig config;
+    EXPECT_EQ(config.image_generation.base_url, acecode::constants::ACEMODEL_API_BASE_URL);
+    acecode::save_config(config, temp.config_path());
+    {
+        std::ifstream input(temp.config_path());
+        EXPECT_FALSE(nlohmann::json::parse(input).contains("image_generation"));
+    }
+
+    config.image_generation.api_key = "fixture-image-key";
+    acecode::save_config(config, temp.config_path());
+    {
+        std::ifstream input(temp.config_path());
+        const auto saved = nlohmann::json::parse(input);
+        ASSERT_TRUE(saved.contains("image_generation"));
+        EXPECT_FALSE(saved["image_generation"].contains("base_url"));
+    }
+    config = acecode::load_config_from_path(temp.config_path(), false);
+    EXPECT_EQ(config.image_generation.base_url, acecode::constants::ACEMODEL_API_BASE_URL);
+    EXPECT_EQ(config.image_generation.api_key, "fixture-image-key");
+
+    config.image_generation.base_url = "https://custom-image.example/v1";
+    acecode::save_config(config, temp.config_path());
+    config = acecode::load_config_from_path(temp.config_path(), false);
+    EXPECT_EQ(config.image_generation.base_url, "https://custom-image.example/v1");
+}
 
 TEST(ConfigMutation, ConcurrentFocusedUpdatesDoNotLoseWrites) {
     ConfigMutationTempDir temp;

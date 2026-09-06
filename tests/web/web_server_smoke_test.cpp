@@ -7884,11 +7884,208 @@ TEST(WebServerHttp, FailedUpdateJobCanBeRetried) {
     EXPECT_EQ(failed["state"], "failed");
     EXPECT_EQ(failed["phase"], "verifying");
     EXPECT_EQ(failed["restart_required"], false);
-    EXPECT_EQ(failed["error"], "checksum mismatch");
+    EXPECT_NE(failed["error"].get<std::string>().find("checksum mismatch"), std::string::npos);
+    ASSERT_TRUE(failed.contains("log_path"));
+    const auto log_path = acecode::path_from_utf8(failed["log_path"].get<std::string>());
+    EXPECT_EQ(log_path.parent_path(), fx.logs_dir);
+    EXPECT_NE(failed["error"].get<std::string>().find(failed["log_path"].get<std::string>()), std::string::npos);
+    std::ifstream log_input(log_path);
+    const std::string diagnostics((std::istreambuf_iterator<char>(log_input)), std::istreambuf_iterator<char>());
+    EXPECT_NE(diagnostics.find(first_id), std::string::npos);
+    EXPECT_NE(diagnostics.find("checksum mismatch"), std::string::npos);
+    EXPECT_NE(diagnostics.find("job_finished"), std::string::npos);
 
     auto retry = cpr::Post(cpr::Url{fx.url("/api/update/start")});
     ASSERT_EQ(retry.status_code, 202) << retry.text;
-    EXPECT_NE(json::parse(retry.text)["job_id"], first_id);
+    const auto retry_id = json::parse(retry.text)["job_id"].get<std::string>();
+    EXPECT_NE(retry_id, first_id);
+    json retried;
+    for (int i = 0; i < 50; ++i) {
+        const auto poll = cpr::Get(cpr::Url{fx.url("/api/update/jobs/" + retry_id)});
+        retried = json::parse(poll.text);
+        if (retried["state"] == "succeeded") break;
+        std::this_thread::sleep_for(10ms);
+    }
+    EXPECT_EQ(retried["state"], "succeeded");
+    EXPECT_EQ(retried["log_path"], failed["log_path"]);
+    EXPECT_NE(read_text(log_path).find(retry_id), std::string::npos);
+}
+
+TEST(WebServerHttp, ImageGenerationSettingsPersistSecretsAndRefreshToolsLive) {
+    WebServerFixture fx;
+    const auto url = cpr::Url{fx.url("/api/config/image-generation")};
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    const auto initial = cpr::Get(url);
+    ASSERT_EQ(initial.status_code, 200);
+    EXPECT_FALSE(json::parse(initial.text)["configured"].get<bool>());
+    EXPECT_EQ(json::parse(initial.text)["base_url"], acecode::constants::ACEMODEL_API_BASE_URL);
+    auto put = cpr::Put(url, headers, cpr::Body{json{
+        {"base_url", "https://image.example.invalid/v1"}, {"api_key", "private-image-key"}
+    }.dump()});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    EXPECT_TRUE(fx.tools.has_tool("image_generate"));
+    EXPECT_TRUE(json::parse(put.text)["configured"].get<bool>());
+    EXPECT_EQ(json::parse(put.text)["api_key"], "private-image-key");
+    EXPECT_EQ(put.header.at("Cache-Control"), "no-store");
+    EXPECT_EQ(fx.cfg.image_generation.api_key, "private-image-key");
+
+    const auto saved = cpr::Get(url);
+    ASSERT_EQ(saved.status_code, 200);
+    EXPECT_EQ(json::parse(saved.text)["api_key"], "private-image-key");
+    EXPECT_EQ(saved.header.at("Cache-Control"), "no-store");
+
+    const std::string origin = "http://127.0.0.1:" + std::to_string(fx.port + 1);
+    const auto unauthenticated = cpr::Get(url, cpr::Header{{"Origin", origin}});
+    EXPECT_EQ(unauthenticated.status_code, 401);
+    EXPECT_EQ(unauthenticated.text.find("private-image-key"), std::string::npos);
+    const auto authenticated = cpr::Get(url, cpr::Header{
+        {"Origin", origin}, {"X-ACECode-Token", "smoke-token"}});
+    ASSERT_EQ(authenticated.status_code, 200);
+    EXPECT_EQ(json::parse(authenticated.text)["api_key"], "private-image-key");
+
+    // Another writer changes an unrelated setting before this partial save.
+    auto disk = acecode::load_config_from_path((fx.tmp_dir / "config.json").string(), false);
+    disk.ui.locale = "en-US";
+    acecode::save_config(disk, (fx.tmp_dir / "config.json").string());
+    put = cpr::Put(url, headers, cpr::Body{R"({"enabled":false})"});
+    ASSERT_EQ(put.status_code, 200);
+    EXPECT_FALSE(fx.tools.has_tool("image_generate"));
+    EXPECT_TRUE(json::parse(put.text)["configured"].get<bool>());
+    EXPECT_EQ(fx.cfg.image_generation.api_key, "private-image-key");
+    disk = acecode::load_config_from_path((fx.tmp_dir / "config.json").string(), false);
+    EXPECT_EQ(disk.ui.locale, "en-US");
+    EXPECT_EQ(disk.image_generation.api_key, "private-image-key");
+
+    put = cpr::Put(url, headers, cpr::Body{R"({"enabled":true,"api_key":"replacement-key"})"});
+    ASSERT_EQ(put.status_code, 200);
+    EXPECT_TRUE(fx.tools.has_tool("image_generate"));
+    put = cpr::Put(url, headers, cpr::Body{R"({"api_key":""})"});
+    ASSERT_EQ(put.status_code, 200);
+    EXPECT_FALSE(fx.tools.has_tool("image_generate"));
+    EXPECT_FALSE(json::parse(put.text)["has_api_key"].get<bool>());
+}
+
+TEST(WebServerHttp, ImageGenerationSettingsReuseAndRemoveSavedConnection) {
+    std::atomic<int> calls{0};
+    LocalUpdateServer upstream([&](httplib::Server& server) {
+        server.Post("/v1/images/generations", [&](const httplib::Request& req, httplib::Response& response) {
+            const auto expected = calls.fetch_add(1) == 0 ? "Bearer borrowed-key" : "Bearer rotated-key";
+            EXPECT_EQ(req.get_header_value("Authorization"), expected);
+            response.status = 503;
+            response.set_content(R"({"error":"fixture unavailable"})", "application/json");
+        });
+    });
+    WebServerFixture fx;
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    auto added = cpr::Post(cpr::Url{fx.url("/api/models")}, headers, cpr::Body{json{
+        {"name", "image-gateway"}, {"provider", "openai"}, {"model", "chat-model"},
+        {"base_url", upstream.base_url() + "v1"}, {"api_key", "borrowed-key"}
+    }.dump()});
+    ASSERT_EQ(added.status_code, 200) << added.text;
+    auto put = cpr::Put(cpr::Url{fx.url("/api/config/image-generation")}, headers,
+        cpr::Body{R"({"source":"saved_model","saved_model_name":"image-gateway"})"});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    EXPECT_TRUE(fx.tools.has_tool("image_generate"));
+    EXPECT_EQ(put.text.find("borrowed-key"), std::string::npos);
+    EXPECT_TRUE(fx.cfg.image_generation.api_key.empty());
+    ASSERT_EQ(json::parse(put.text)["connections"].size(), 1u);
+    EXPECT_FALSE(fx.tools.execute("image_generate", R"({"prompt":"test","quality":"standard"})").success);
+    EXPECT_EQ(calls.load(), 1);
+    const auto updated = cpr::Put(cpr::Url{fx.url("/api/models/image-gateway")}, headers,
+        cpr::Body{json{{"name", "image-gateway"}, {"provider", "openai"}, {"model", "chat-model"},
+                      {"base_url", upstream.base_url() + "v1"}, {"api_key", "rotated-key"}}.dump()});
+    ASSERT_EQ(updated.status_code, 200) << updated.text;
+    EXPECT_FALSE(fx.tools.execute("image_generate", R"({"prompt":"test","quality":"standard"})").success);
+    EXPECT_EQ(calls.load(), 2);
+    const auto removed = cpr::Delete(cpr::Url{fx.url("/api/models/image-gateway")});
+    ASSERT_EQ(removed.status_code, 200) << removed.text;
+    EXPECT_FALSE(fx.tools.has_tool("image_generate"));
+    const auto after = cpr::Get(cpr::Url{fx.url("/api/config/image-generation")});
+    EXPECT_FALSE(json::parse(after.text)["configured"].get<bool>());
+}
+
+TEST(WebServerHttp, ImageGenerationSettingsRejectInvalidAndFailedWrites) {
+    WebServerFixture fx;
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    const auto url = cpr::Url{fx.url("/api/config/image-generation")};
+    auto invalid = cpr::Put(url, headers, cpr::Body{R"({"enabled":false,"timeout_ms":"bad"})"});
+    EXPECT_EQ(invalid.status_code, 400);
+    EXPECT_TRUE(fx.cfg.image_generation.enabled);
+    invalid = cpr::Put(url, headers, cpr::Body{"{"});
+    EXPECT_EQ(invalid.status_code, 400);
+    std::filesystem::create_directory(fx.tmp_dir / "config.json");
+    const auto failed = cpr::Put(url, headers, cpr::Body{R"({"enabled":false})"});
+    EXPECT_EQ(failed.status_code, 500);
+    EXPECT_TRUE(fx.cfg.image_generation.enabled);
+}
+
+TEST(WebServerHttp, ImageGenerationTestUsesDraftAndStandardWithoutSavingOrLeakingErrors) {
+    std::atomic<int> calls{0};
+    std::atomic<bool> fail{false};
+    const std::string png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=";
+    LocalUpdateServer upstream([&](httplib::Server& server) {
+        server.Post("/v1/images/generations", [&](const httplib::Request& req, httplib::Response& response) {
+            ++calls;
+            EXPECT_EQ(req.get_header_value("Authorization"), "Bearer draft-only-key");
+            EXPECT_EQ(json::parse(req.body)["model"], "test-standard");
+            if (fail.load()) {
+                response.status = 429;
+                response.set_content(R"({"error":{"message":"quota: draft-only-key"}})", "application/json");
+            } else {
+                response.set_content(json{{"data", json::array({{{"b64_json", png}, {"width", 1}, {"height", 1}}})}}.dump(), "application/json");
+            }
+        });
+    });
+    WebServerFixture fx;
+    const auto url = cpr::Url{fx.url("/api/config/image-generation/test")};
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    json draft{{"enabled", false}, {"base_url", upstream.base_url() + "v1"},
+               {"api_key", "draft-only-key"}, {"default_quality", "ultra"},
+               {"models", {{"standard", "test-standard"}}}};
+    auto response = cpr::Post(url, headers, cpr::Body{json{{"config", draft}}.dump()});
+    EXPECT_EQ(response.status_code, 400);
+    EXPECT_EQ(calls.load(), 0);
+    response = cpr::Post(url, headers, cpr::Body{json{{"config", draft}, {"confirm_cost", true}}.dump()});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto preview = json::parse(response.text);
+    EXPECT_EQ(preview["image_data_url"], "data:image/png;base64," + png);
+    EXPECT_EQ(preview["quality"], "standard");
+    EXPECT_EQ(calls.load(), 1);
+    EXPECT_TRUE(fx.cfg.image_generation.api_key.empty());
+    EXPECT_FALSE(std::filesystem::exists(fx.tmp_dir / "config.json"));
+    EXPECT_FALSE(fx.tools.has_tool("image_generate"));
+    fail = true;
+    response = cpr::Post(url, headers, cpr::Body{json{{"config", draft}, {"confirm_cost", true}}.dump()});
+    EXPECT_EQ(response.status_code, 502);
+    EXPECT_EQ(json::parse(response.text)["error"], "IMAGE_QUOTA_ERROR");
+    EXPECT_EQ(response.text.find("draft-only-key"), std::string::npos);
+    const auto get = cpr::Get(cpr::Url{fx.url("/api/config/image-generation")});
+    EXPECT_EQ(get.status_code, 200);
+    EXPECT_EQ(calls.load(), 2);
+}
+
+TEST(WebServerHttp, UpdatePrecheckFailureIncludesReasonAndPersistentLog) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.status = 503;
+        });
+    });
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    const auto response = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(response.status_code, 409);
+    const auto body = json::parse(response.text);
+    EXPECT_NE(body["message"].get<std::string>().find("HTTP 503"), std::string::npos);
+    EXPECT_EQ(body["status"]["http_status"], 503);
+    ASSERT_TRUE(body["log_path"].is_string());
+    const auto path = acecode::path_from_utf8(body["log_path"].get<std::string>());
+    EXPECT_EQ(path.parent_path(), fx.logs_dir);
+    EXPECT_TRUE(std::filesystem::is_regular_file(path));
+    std::ifstream input(path);
+    const std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    EXPECT_NE(text.find("\"http_status\":503"), std::string::npos);
+    EXPECT_NE(text.find("manifest_unavailable"), std::string::npos);
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/update/job")}).status_code, 404);
 }
 
 // 场景:下载阶段可协作式取消,终态可恢复且重复取消幂等。

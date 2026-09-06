@@ -77,7 +77,7 @@ run('managed hook hides disable controls', () => {
     managed: true,
     trust_status: 'managed_trusted',
   });
-  assert.equal(hookStatusLabel(hook), '受管理');
+  assert.equal(hookStatusLabel(hook), 'managed');
   assert.deepEqual(hookActionState(hook), {
     canTrust: false,
     canDisable: false,

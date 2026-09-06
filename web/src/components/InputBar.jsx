@@ -30,6 +30,8 @@ import { filesFromTransfer, hasFileTransfer } from '../lib/composerFileTransfer.
 import { isComposerImageAttachment } from '../lib/richComposerModel.js';
 import {
   captureComposerTextareaSelection,
+  isComposerEditorFocused,
+  preserveComposerFocusOnPointerDown,
   requestDesktopFileDragActivation,
   requestDesktopWindowFocus,
   restoreComposerTextareaCaret,
@@ -719,12 +721,16 @@ export const InputBar = forwardRef(function InputBar({
     addMediaFiles(files);
   };
 
+  const restoreCapabilityMenuFocus = useCallback(() => {
+    if (!isComposerEditorFocused(rootRef.current)) capabilityButtonRef.current?.focus();
+  }, []);
+
   const selectExpert = (expert) => {
     if (!expert?.id || !onSelectExpert) return;
     setCapabilityOpen(false);
     setExpertSubmenuOpen(false);
     setExpertSubmenuPosition(null);
-    capabilityButtonRef.current?.focus();
+    restoreCapabilityMenuFocus();
     onSelectExpert(expert);
   };
 
@@ -732,7 +738,7 @@ export const InputBar = forwardRef(function InputBar({
     setCapabilityOpen(false);
     setExpertSubmenuOpen(false);
     setExpertSubmenuPosition(null);
-    capabilityButtonRef.current?.focus();
+    restoreCapabilityMenuFocus();
     onOpenExpertComponents?.();
   };
 
@@ -1017,10 +1023,19 @@ export const InputBar = forwardRef(function InputBar({
       closeCapabilityMenu();
     };
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && !expertSubmenuOpen) {
-        closeCapabilityMenu();
-        window.requestAnimationFrame(() => capabilityButtonRef.current?.focus());
+      if (event.key !== 'Escape') return;
+      if (expertSubmenuOpen) {
+        // Mouse-opened submenus leave keyboard events with the editor.
+        // Keyboard-opened submenus handle Escape on their focused menu item.
+        if (isComposerEditorFocused(rootRef.current)) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeExpertSubmenu(false);
+        }
+        return;
       }
+      closeCapabilityMenu();
+      window.requestAnimationFrame(restoreCapabilityMenuFocus);
     };
 
     document.addEventListener('click', closeFromPointer, true);
@@ -1031,7 +1046,7 @@ export const InputBar = forwardRef(function InputBar({
       document.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('blur', closeCapabilityMenu);
     };
-  }, [capabilityOpen, expertSubmenuOpen]);
+  }, [capabilityOpen, closeExpertSubmenu, expertSubmenuOpen, restoreCapabilityMenuFocus]);
 
   const handleComposerChange = (next) => {
     // 编辑器的 onChange 回声(程序化设值同步 / 光标移动)文本与当前 value 相同,
@@ -1132,9 +1147,9 @@ export const InputBar = forwardRef(function InputBar({
                   openExpertSubmenu(true);
                 }
               }}
-              onClick={() => {
+              onClick={(event) => {
                 if (expertSubmenuOpen) closeExpertSubmenu(false);
-                else openExpertSubmenu(true);
+                else openExpertSubmenu(event.detail === 0);
               }}
             >
               <VsIcon name="brain" size={14} />
@@ -1302,7 +1317,7 @@ export const InputBar = forwardRef(function InputBar({
   return (
     <div className={clsx(
       'ace-inputbar-layer',
-      isHero ? 'ace-inputbar-hero' : 'border-t border-border px-2.5 py-2 bg-surface shrink-0',
+      isHero ? 'ace-inputbar-hero' : 'px-2.5 py-2 bg-surface shrink-0',
     )}>
       <input
         ref={fileInputRef}
@@ -1325,6 +1340,7 @@ export const InputBar = forwardRef(function InputBar({
         dragActive && 'is-drag-active',
       )}
       ref={rootRef}
+      onPointerDownCapture={(event) => preserveComposerFocusOnPointerDown(event, rootRef.current)}
       onDragEnter={fileDropManagedExternally ? undefined : handleDragEnter}
       onDragOver={fileDropManagedExternally ? undefined : handleDragOver}
       onDragLeave={fileDropManagedExternally ? undefined : handleDragLeave}

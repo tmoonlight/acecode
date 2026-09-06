@@ -6,6 +6,7 @@
 #include "../../provider/builtin_model_catalog.hpp"
 #include "../../tool/mcp_manager.hpp"  // /api/mcp/toggle 运行时 enable/disable
 #include "../../utils/state_file.hpp"
+#include "../../upgrade/diagnostics.hpp"
 
 #include <fstream>
 #include <thread>
@@ -95,6 +96,8 @@ json update_job_to_json(const UpdateJobStatus& status) {
     if (status.bytes_total) out["bytes_total"] = *status.bytes_total;
     if (!status.backup_dir.empty()) out["backup_dir"] = status.backup_dir;
     if (!status.error.empty()) out["error"] = status.error;
+    if (!status.log_path.empty()) out["log_path"] = status.log_path;
+    if (!status.log_error.empty()) out["log_error"] = status.log_error;
     return out;
 }
 
@@ -1349,8 +1352,9 @@ void WebServer::Impl::register_ui_preferences() {
             if (!deps.app_config) return crow::response(503);
 
             std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
+            acecode::upgrade::DiagnosticLog diagnostics("check", path_from_utf8(deps.logs_dir));
             auto result = acecode::upgrade::check_for_update(*deps.app_config,
-                                                             ACECODE_VERSION);
+                                                             ACECODE_VERSION, &diagnostics);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
             r.body = update_check_to_json(result).dump();
@@ -1426,6 +1430,10 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             job.cancel_requested = true;
+            if (update_job_runtime->diagnostics) {
+                update_job_runtime->diagnostics->record("cancel_requested", {
+                    {"job_id", job.job_id}, {"phase", job.phase}});
+            }
             crow::response r(202);
             r.add_header("Content-Type", "application/json");
             r.body = update_job_to_json(job).dump();
@@ -1452,11 +1460,13 @@ void WebServer::Impl::register_ui_preferences() {
             }
 
             acecode::upgrade::UpdateCheckResult result;
+            auto diagnostics = std::make_shared<acecode::upgrade::DiagnosticLog>(
+                "gui_upgrade", path_from_utf8(deps.logs_dir));
             AppConfig config_snapshot;
             {
                 std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
                 result = acecode::upgrade::check_for_update(*deps.app_config,
-                                                            ACECODE_VERSION);
+                                                            ACECODE_VERSION, diagnostics.get());
                 config_snapshot = *deps.app_config;
             }
             if (!result.update_available()) {
@@ -1468,9 +1478,10 @@ void WebServer::Impl::register_ui_preferences() {
                 r.body = json{{"error", no_compatible_package
                                            ? "NO_COMPATIBLE_PACKAGE"
                                            : "NO_UPDATE"},
-                              {"message", no_compatible_package
+                              {"message", !result.error.empty()
                                              ? result.error
                                              : "no compatible update is available"},
+                              {"log_path", result.log_path},
                               {"status", update_check_to_json(result)}}.dump();
                 return with_cors(req, std::move(r));
             }
@@ -1480,6 +1491,8 @@ void WebServer::Impl::register_ui_preferences() {
             initial.current_version = ACECODE_VERSION;
             initial.target_version = result.latest_version;
             initial.bytes_total = result.package_size;
+            initial.log_path = diagnostics->path();
+            initial.log_error = diagnostics->error();
             {
                 std::lock_guard<std::mutex> lock(update_job_runtime->mu);
                 if (update_job_runtime->current &&
@@ -1492,18 +1505,24 @@ void WebServer::Impl::register_ui_preferences() {
                     return with_cors(req, std::move(r));
                 }
                 update_job_runtime->current = initial;
+                update_job_runtime->diagnostics = diagnostics;
             }
+            diagnostics->record("job_created", {{"job_id", initial.job_id},
+                {"target_version", initial.target_version}});
 
             auto runtime = update_job_runtime;
             auto injected_runner = deps.run_update_command;
-            std::thread([runtime, injected_runner, config_snapshot, initial]() mutable {
-                auto publish = [runtime, job_id = initial.job_id](
+            auto run_job = [runtime, injected_runner, config_snapshot, initial, diagnostics]() mutable {
+                auto publish = [runtime, diagnostics, job_id = initial.job_id](
                                    const acecode::upgrade::UpgradeProgress& progress) {
                     std::lock_guard<std::mutex> lock(runtime->mu);
                     if (!runtime->current || runtime->current->job_id != job_id) return;
                     auto& job = *runtime->current;
+                    const auto phase = acecode::upgrade::upgrade_phase_name(progress.phase);
+                    if (job.phase != phase) diagnostics->record("job_phase", {
+                        {"job_id", job_id}, {"phase", phase}});
                     job.state = "running";
-                    job.phase = acecode::upgrade::upgrade_phase_name(progress.phase);
+                    job.phase = phase;
                     if (!progress.current_version.empty()) {
                         job.current_version = progress.current_version;
                     }
@@ -1539,7 +1558,7 @@ void WebServer::Impl::register_ui_preferences() {
                         std::ostringstream errors;
                         code = acecode::upgrade::run_upgrade_command(
                             config_snapshot, "", ACECODE_VERSION,
-                            output, errors, false, publish, cancellation_requested);
+                            output, errors, false, publish, cancellation_requested, diagnostics.get());
                         if (code != 0 && error.empty()) {
                             error = trim_update_error(errors.str());
                         }
@@ -1552,9 +1571,14 @@ void WebServer::Impl::register_ui_preferences() {
                     code = 1;
                 }
 
+                diagnostics->record("job_finished", {{"job_id", initial.job_id},
+                    {"exit_code", code}, {"error", error}});
+
                 std::lock_guard<std::mutex> lock(runtime->mu);
                 if (!runtime->current || runtime->current->job_id != initial.job_id) return;
                 auto& job = *runtime->current;
+                job.log_path = diagnostics->path();
+                job.log_error = diagnostics->error();
                 if (code == acecode::upgrade::kUpgradeCancelledExitCode) {
                     job.state = "cancelled";
                     job.phase = "cancelled";
@@ -1568,9 +1592,24 @@ void WebServer::Impl::register_ui_preferences() {
                 } else {
                     job.state = "failed";
                     job.restart_required = false;
-                    job.error = error.empty() ? "update failed" : error;
+                    job.error = diagnostics->with_location(error.empty() ? "update failed" : error);
                 }
-            }).detach();
+            };
+            try {
+                std::thread(std::move(run_job)).detach();
+            } catch (const std::exception& e) {
+                diagnostics->record("job_start_failed", {{"job_id", initial.job_id}, {"error", e.what()}});
+                std::lock_guard<std::mutex> lock(runtime->mu);
+                auto& job = *runtime->current;
+                job.state = "failed";
+                job.error = diagnostics->with_location(e.what());
+                job.log_error = diagnostics->error();
+                crow::response r(500);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "UPDATE_START_FAILED"}, {"message", job.error},
+                              {"job", update_job_to_json(job)}}.dump();
+                return with_cors(req, std::move(r));
+            }
 
             crow::response r(202);
             r.add_header("Content-Type", "application/json");

@@ -37,6 +37,7 @@ HttpTextResult fetch_text(const std::string& url,
         progress_cb);
 
     out.status_code = r.status_code;
+    out.transport_code = static_cast<int>(r.error.code);
     out.body = std::move(r.text);
     out.cancelled = cancel_observed.load();
     if (!out.cancelled && r.error.code != cpr::ErrorCode::OK) {
@@ -108,6 +109,7 @@ DownloadResult download_to_file(const std::string& url,
         progress_cb_cpr);
 
     out.status_code = r.status_code;
+    out.transport_code = static_cast<int>(r.error.code);
     out.cancelled = cancel_observed.load();
     if (!out.cancelled && r.error.code != cpr::ErrorCode::OK) {
         out.error = r.error.message;

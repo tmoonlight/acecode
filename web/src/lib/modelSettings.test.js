@@ -78,7 +78,7 @@ const aceModelProvider = {
   ...customProvider,
   id: 'acemodel',
   name: 'ACEModel',
-  base_url: 'https://ge.bigjuan.xyz/aceapi/v1',
+  base_url: 'https://acemodel.example/v1',
   api_key_env: 'ACEMODEL_API_KEY',
   models_dev_provider_id: 'acemodel',
 };
@@ -197,7 +197,8 @@ run('Web 严格 normalizer 消费与 C++ 共享的 canonical catalog fixture', (
   assert.deepEqual(summary.providers.find((item) => item.id === 'copilot').endpoint_modes, []);
   const acemodel = summary.providers.find((item) => item.id === 'acemodel');
   assert.equal(acemodel.group, 'custom');
-  assert.equal(acemodel.base_url, 'https://ge.bigjuan.xyz/aceapi/v1');
+  assert.equal(acemodel.base_url,
+    sharedCatalogContract.summary.providers.find((item) => item.id === 'acemodel').base_url);
   const custom = summary.providers.find((item) => item.id === 'custom-openai');
   assert.equal(custom.auth_mode, 'required');
   assert.deepEqual(custom.endpoint_modes, ['base_url', 'full_url']);

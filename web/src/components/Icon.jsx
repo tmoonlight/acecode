@@ -9,6 +9,7 @@ const ICONS = {
   back: 'Backwards',
   brain: 'Brain',
   brightness: 'Brightness',
+  bug: 'Bug',
   check: 'Check',
   clearAll: 'ClearAll',
   close: 'Close',
@@ -50,6 +51,8 @@ const ICONS = {
   openFile: 'OpenFile',
   panelLeft: 'PanelLeft',
   panelRight: 'PanelRight',
+  panelLeftFilled: 'PanelLeftFilled',
+  panelRightFilled: 'PanelRightFilled',
   pin: 'Pin',
   refresh: 'Refresh',
   rightBar: 'RightBar',
@@ -205,10 +208,11 @@ export function ToolSummaryIcon({ icon, ok, className = '' }) {
   return <VsIcon name={mapped} size={14} mono={!statusIcon} className={className} />;
 }
 
-export function PanelToggleIcon({ side = 'left', size = 16, className = '', ...props }) {
+export function PanelToggleIcon({ side = 'left', expanded = false, size = 16, className = '', ...props }) {
+  const name = side === 'right' ? 'panelRight' : 'panelLeft';
   return (
     <VsIcon
-      name={side === 'right' ? 'panelRight' : 'panelLeft'}
+      name={expanded ? `${name}Filled` : name}
       size={size}
       className={className}
       {...props}

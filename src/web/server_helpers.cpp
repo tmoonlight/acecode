@@ -106,6 +106,8 @@ json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result) {
     if (result.package_size) out["package_size"] = *result.package_size;
     if (result.http_status != 0) out["http_status"] = result.http_status;
     if (!result.error.empty()) out["error"] = result.error;
+    if (!result.log_path.empty()) out["log_path"] = result.log_path;
+    if (!result.log_error.empty()) out["log_error"] = result.log_error;
     return out;
 }
 
@@ -2257,6 +2259,7 @@ void WebServer::Impl::refresh_saved_models_from_disk() {
         if (publish_live_saved_models(
                 *deps.app_config, std::move(disk.saved_models))) {
             LOG_INFO("saved_models refreshed from disk after connector hook");
+            refresh_image_generation_tool_locked();
         }
     } catch (const std::exception& e) {
         LOG_WARN(std::string("saved_models refresh failed: ") + e.what());

@@ -9,6 +9,8 @@
 
 namespace acecode::upgrade {
 
+class DiagnosticLog;
+
 enum class UpdateCheckStatus {
     UpdateAvailable,
     UpToDate,
@@ -37,6 +39,8 @@ struct UpdateCheckResult {
     std::vector<UpdateReleaseSummary> releases;
     long http_status = 0;
     std::string error;
+    std::string log_path;
+    std::string log_error;
 
     bool update_available() const {
         return status == UpdateCheckStatus::UpdateAvailable;
@@ -46,6 +50,7 @@ struct UpdateCheckResult {
 const char* update_check_status_name(UpdateCheckStatus status);
 
 UpdateCheckResult check_for_update(const AppConfig& config,
-                                   const std::string& current_version);
+                                   const std::string& current_version,
+                                   DiagnosticLog* diagnostics = nullptr);
 
 } // namespace acecode::upgrade

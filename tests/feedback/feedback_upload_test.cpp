@@ -308,6 +308,25 @@ TEST(FeedbackUpload, CollectRuntimeLogSourcesIsEmptyWhenLogsDirIsMissing) {
     EXPECT_TRUE(acecode::feedback::collect_runtime_log_sources(tmp.root / "nope").empty());
 }
 
+TEST(FeedbackUpload, CollectRuntimeLogSourcesIncludesNewestUpgradeLogInPackage) {
+    TempDir tmp("acecode_feedback_upgrade");
+    const auto older = tmp.root / "logs" / "upgrade-2026-09-05-100.log";
+    const auto latest = tmp.root / "logs" / "upgrade-2026-09-06-200.log";
+    write_text(older, "older attempt");
+    write_text(latest, "upgrade failed: checksum mismatch");
+    fs::last_write_time(older, fs::file_time_type::clock::now() - std::chrono::hours(2));
+    acecode::feedback::FeedbackPackageRequest req;
+    req.source = "desktop";
+    req.logs = acecode::feedback::collect_runtime_log_sources(tmp.root / "logs");
+    req.output_dir = tmp.root / "out";
+    req.max_log_bytes = 17;
+    ASSERT_EQ(req.logs.size(), 1U);
+    EXPECT_EQ(req.logs[0].path, latest);
+    const auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(read_zip_entry(result.package_path, "logs/upgrade.log.tail.txt"), "checksum mismatch");
+}
+
 TEST(FeedbackUpload, PartiallyMissingLogsStillPackageTheAvailableOnes) {
     TempDir tmp("acecode_feedback_partial_logs");
     const fs::path daemon_log = tmp.root / "daemon-2026-06-18.log";

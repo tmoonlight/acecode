@@ -5,7 +5,7 @@ export const DESKTOP_GUIDED_TOUR_TARGETS = Object.freeze({
   workspace: '[data-tour-target="home-workspace"]',
   composer: '[data-tour-target="home-composer"]',
   status: '[data-composer-session-controls="true"]',
-  settings: '[data-tour-target="topbar-settings"]',
+  settings: '[data-tour-target="sidebar-settings"]',
 });
 
 export const DESKTOP_GUIDED_TOUR_TARGET_LIST = Object.freeze(

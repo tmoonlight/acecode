@@ -148,7 +148,7 @@ const moduleScopeFixtures = [
   },
   {
     file: 'lib/sidebarNavigation.js',
-    copy: ['新建任务', '定时任务', '搜索任务', '置顶任务', '任务', '工作区', 'MCP 服务器', '技能', '专家组件'],
+    copy: ['新建任务', '扩展', '定时任务', '置顶任务', '任务', '工作区', '模型', 'MCP 服务器', '技能', '专家组件'],
   },
   {
     file: 'lib/permissionMode.js',

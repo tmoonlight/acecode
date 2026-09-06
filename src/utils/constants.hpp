@@ -14,6 +14,9 @@ constexpr size_t MAX_GREP_RESULTS = 200;
 // Timeouts
 constexpr int DEFAULT_BASH_TIMEOUT_MS = 120000; // 2 minutes
 
+// Shared by the first-party model catalog and image generation defaults.
+inline constexpr const char* ACEMODEL_API_BASE_URL = "https://ge.bigjuan.xyz/aceapi/v1";
+
 // Daemon / web defaults
 // 固定默认端口。用户可通过 config.json 的 web.port 或 daemon --port 覆盖;
 // Service 模式下端口被占直接拒启,不 retry。

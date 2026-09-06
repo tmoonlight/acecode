@@ -1,20 +1,25 @@
 #include "config/config.hpp"
 #include "upgrade/check.hpp"
+#include "upgrade/diagnostics.hpp"
 #include "upgrade/http.hpp"
 #include "upgrade/manifest.hpp"
 #include "upgrade/upgrade.hpp"
 #include "utils/sha256.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <gtest/gtest.h>
 #include <httplib.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <atomic>
 #include <filesystem>
 #include <functional>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,6 +27,51 @@
 using namespace std::chrono_literals;
 
 namespace {
+
+class UpgradeHttp : public testing::Test {
+protected:
+    std::filesystem::path home;
+    std::optional<std::string> previous_home;
+    acecode::RunMode previous_mode{};
+#ifdef _WIN32
+    static constexpr const char* home_name = "USERPROFILE";
+    static void set_home(const std::string& value) { _putenv_s(home_name, value.c_str()); }
+#else
+    static constexpr const char* home_name = "HOME";
+    static void set_home(const std::string& value) { setenv(home_name, value.c_str(), 1); }
+#endif
+    void SetUp() override {
+        home = std::filesystem::temp_directory_path() / ("acecode-upgrade-http-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(home);
+        if (const char* value = std::getenv(home_name)) previous_home = value;
+        set_home(acecode::path_to_utf8(home));
+        previous_mode = acecode::override_run_mode_for_test(acecode::RunMode::User);
+    }
+    void TearDown() override {
+        if (previous_home) set_home(*previous_home);
+        else {
+#ifdef _WIN32
+            _putenv_s(home_name, "");
+#else
+            unsetenv(home_name);
+#endif
+        }
+        acecode::override_run_mode_for_test(previous_mode);
+        std::error_code ec;
+        std::filesystem::remove_all(home, ec);
+    }
+    std::string log_text() const {
+        const auto logs = home / ".acecode" / "logs";
+        std::string text;
+        if (!std::filesystem::is_directory(logs)) return text;
+        for (const auto& file : std::filesystem::directory_iterator(logs)) {
+            std::ifstream in(file.path());
+            text.append(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        return text;
+    }
+};
 
 struct LocalHttpServer {
     httplib::Server svr;
@@ -81,7 +131,7 @@ std::string current_manifest_target() {
 
 } // namespace
 
-TEST(UpgradeHttp, NoUpdateReturnsSuccessWithoutTui) {
+TEST_F(UpgradeHttp, NoUpdateReturnsSuccessWithoutTui) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::string sha = acecode::sha256_hex("pkg");
@@ -99,7 +149,7 @@ TEST(UpgradeHttp, NoUpdateReturnsSuccessWithoutTui) {
     EXPECT_NE(out.str().find("already up to date"), std::string::npos);
 }
 
-TEST(UpgradeHttp, UpgradeIgnoresLegacyTotalTimeout) {
+TEST_F(UpgradeHttp, UpgradeIgnoresLegacyTotalTimeout) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::this_thread::sleep_for(50ms);
@@ -120,7 +170,7 @@ TEST(UpgradeHttp, UpgradeIgnoresLegacyTotalTimeout) {
     EXPECT_NE(out.str().find("already up to date"), std::string::npos);
 }
 
-TEST(UpgradeHttp, Manifest404ReturnsActionableError) {
+TEST_F(UpgradeHttp, Manifest404ReturnsActionableError) {
     LocalHttpServer server([](httplib::Server&) {});
 
     std::ostringstream out;
@@ -130,9 +180,12 @@ TEST(UpgradeHttp, Manifest404ReturnsActionableError) {
 
     EXPECT_NE(code, 0);
     EXPECT_NE(err.str().find("manifest not found"), std::string::npos);
+    EXPECT_NE(err.str().find("Upgrade log:"), std::string::npos);
+    EXPECT_NE(log_text().find("\"http_status\":404"), std::string::npos);
+    EXPECT_NE(log_text().find("\"outcome\":\"failed\""), std::string::npos);
 }
 
-TEST(UpgradeHttp, MissingCompatiblePackageReturnsActionableError) {
+TEST_F(UpgradeHttp, MissingCompatiblePackageReturnsActionableError) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             res.set_content(manifest_for(
@@ -155,7 +208,7 @@ TEST(UpgradeHttp, MissingCompatiblePackageReturnsActionableError) {
     EXPECT_EQ(out.str().find("already up to date"), std::string::npos);
 }
 
-TEST(UpgradeHttp, DownloadFailureReturnsBeforeApply) {
+TEST_F(UpgradeHttp, DownloadFailureReturnsBeforeApply) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::string sha = acecode::sha256_hex("pkg");
@@ -179,6 +232,8 @@ TEST(UpgradeHttp, DownloadFailureReturnsBeforeApply) {
 
     EXPECT_NE(code, 0);
     EXPECT_NE(err.str().find("package request returned HTTP 500"), std::string::npos);
+    EXPECT_NE(log_text().find("\"http_status\":500"), std::string::npos);
+    EXPECT_NE(log_text().find("\"phase\":\"downloading\""), std::string::npos);
     ASSERT_GE(progress.size(), 2U);
     EXPECT_EQ(progress.front().phase, acecode::upgrade::UpgradePhase::Checking);
     EXPECT_EQ(progress.back().phase, acecode::upgrade::UpgradePhase::Downloading);
@@ -187,7 +242,7 @@ TEST(UpgradeHttp, DownloadFailureReturnsBeforeApply) {
                  "downloading");
 }
 
-TEST(UpgradeHttp, DownloadAcceptHeaderAllowsCommonZipMimeTypes) {
+TEST_F(UpgradeHttp, DownloadAcceptHeaderAllowsCommonZipMimeTypes) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/pkg.zip", [](const httplib::Request& req, httplib::Response& res) {
             const std::string accept = req.get_header_value("Accept");
@@ -223,7 +278,7 @@ TEST(UpgradeHttp, DownloadAcceptHeaderAllowsCommonZipMimeTypes) {
     std::filesystem::remove(output, ec);
 }
 
-TEST(UpgradeHttp, DownloadCanBeCancelledCooperatively) {
+TEST_F(UpgradeHttp, DownloadCanBeCancelledCooperatively) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/pkg.zip", [](const httplib::Request&, httplib::Response& res) {
             res.set_content(std::string(256 * 1024, 'x'), "application/zip");
@@ -246,7 +301,7 @@ TEST(UpgradeHttp, DownloadCanBeCancelledCooperatively) {
     std::filesystem::remove(output, ec);
 }
 
-TEST(UpgradeHttp, UpgradeCancellationUsesDedicatedExitCodeBeforeInstall) {
+TEST_F(UpgradeHttp, UpgradeCancellationUsesDedicatedExitCodeBeforeInstall) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             const std::string body = "not-a-real-zip";
@@ -275,9 +330,11 @@ TEST(UpgradeHttp, UpgradeCancellationUsesDedicatedExitCodeBeforeInstall) {
     EXPECT_EQ(code, acecode::upgrade::kUpgradeCancelledExitCode);
     EXPECT_NE(err.str().find("update cancelled"), std::string::npos);
     EXPECT_EQ(out.str().find("Checksum: OK"), std::string::npos);
+    EXPECT_NE(log_text().find("\"outcome\":\"cancelled\""), std::string::npos);
+    EXPECT_NE(log_text().find("cancel_cleanup"), std::string::npos);
 }
 
-TEST(UpgradeHttp, ChecksumMismatchReturnsBeforeExtraction) {
+TEST_F(UpgradeHttp, ChecksumMismatchReturnsBeforeExtraction) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             std::string sha = acecode::sha256_hex("expected");
@@ -303,9 +360,14 @@ TEST(UpgradeHttp, ChecksumMismatchReturnsBeforeExtraction) {
     ASSERT_FALSE(progress.empty());
     EXPECT_EQ(progress.back().phase, acecode::upgrade::UpgradePhase::Verifying);
     EXPECT_EQ(progress.back().bytes_downloaded, std::string("actual").size());
+    EXPECT_FALSE(progress.back().log_path.empty());
+    EXPECT_NE(log_text().find(acecode::sha256_hex("expected")), std::string::npos);
+    EXPECT_NE(log_text().find(acecode::sha256_hex("actual")), std::string::npos);
+    EXPECT_NE(log_text().find("checksum mismatch"), std::string::npos);
+    EXPECT_EQ(log_text().find("\"phase\":\"extracting\""), std::string::npos);
 }
 
-TEST(UpgradeHttp, UpdateCheckReportsAvailableWithoutDownloadingPackage) {
+TEST_F(UpgradeHttp, UpdateCheckReportsAvailableWithoutDownloadingPackage) {
     bool package_requested = false;
     LocalHttpServer server([&](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
@@ -333,7 +395,7 @@ TEST(UpgradeHttp, UpdateCheckReportsAvailableWithoutDownloadingPackage) {
     EXPECT_FALSE(package_requested);
 }
 
-TEST(UpgradeHttp, UpdateCheckReportsMissingCompatiblePackage) {
+TEST_F(UpgradeHttp, UpdateCheckReportsMissingCompatiblePackage) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             res.set_content(manifest_for(
@@ -358,7 +420,7 @@ TEST(UpgradeHttp, UpdateCheckReportsMissingCompatiblePackage) {
               std::string::npos);
 }
 
-TEST(UpgradeHttp, UpdateCheckReportsUpToDate) {
+TEST_F(UpgradeHttp, UpdateCheckReportsUpToDate) {
     LocalHttpServer server([](httplib::Server& s) {
         s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
             res.set_content(R"({
@@ -386,7 +448,7 @@ TEST(UpgradeHttp, UpdateCheckReportsUpToDate) {
     EXPECT_TRUE(result.releases[0].notes.empty());
 }
 
-TEST(UpgradeHttp, UpdateCheckRejectsInvalidConfigBeforeNetwork) {
+TEST_F(UpgradeHttp, UpdateCheckRejectsInvalidConfigBeforeNetwork) {
     acecode::AppConfig cfg;
     cfg.upgrade.base_url = "ftp://updates.example.test/";
 
@@ -396,7 +458,7 @@ TEST(UpgradeHttp, UpdateCheckRejectsInvalidConfigBeforeNetwork) {
     EXPECT_FALSE(result.error.empty());
 }
 
-TEST(UpgradeHttp, UpdateCheckReportsManifestFailure) {
+TEST_F(UpgradeHttp, UpdateCheckReportsManifestFailure) {
     LocalHttpServer server([](httplib::Server&) {});
 
     auto result = acecode::upgrade::check_for_update(
@@ -404,9 +466,45 @@ TEST(UpgradeHttp, UpdateCheckReportsManifestFailure) {
 
     EXPECT_EQ(result.status, acecode::upgrade::UpdateCheckStatus::ManifestUnavailable);
     EXPECT_EQ(result.http_status, 404);
+    EXPECT_FALSE(result.log_path.empty());
+    EXPECT_NE(result.error.find(result.log_path), std::string::npos);
+    EXPECT_NE(log_text().find("check_finished"), std::string::npos);
 }
 
-TEST(UpgradeHttp, ServerOverrideNormalizesAndPersistsThroughConfigSave) {
+TEST_F(UpgradeHttp, CallbackExceptionIsPersistedWithItsPhase) {
+    LocalHttpServer server([](httplib::Server&) {});
+    std::ostringstream out, err;
+    const int code = acecode::upgrade::run_upgrade_command(
+        upgrade_config_for(server), "acecode-test", "0.1.2", out, err, false,
+        [](const acecode::upgrade::UpgradeProgress&) {
+            throw std::runtime_error("test progress callback failed");
+        });
+    EXPECT_EQ(code, 1);
+    EXPECT_NE(err.str().find("test progress callback failed"), std::string::npos);
+    EXPECT_NE(log_text().find("test progress callback failed"), std::string::npos);
+    EXPECT_NE(log_text().find("\"phase\":\"checking\""), std::string::npos);
+}
+
+TEST_F(UpgradeHttp, LogFailureDoesNotChangeSuccessfulCheckOrUpgrade) {
+    LocalHttpServer server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(manifest_for("0.1.2", current_manifest_target(),
+                "pkg.zip", acecode::sha256_hex("pkg")), "application/json");
+        });
+    });
+    std::filesystem::create_directories(home / ".acecode");
+    std::ofstream(home / ".acecode" / "logs") << "blocks log directory";
+    const auto result = acecode::upgrade::check_for_update(upgrade_config_for(server), "0.1.2");
+    EXPECT_EQ(result.status, acecode::upgrade::UpdateCheckStatus::UpToDate);
+    EXPECT_TRUE(result.log_path.empty());
+    EXPECT_FALSE(result.log_error.empty());
+    std::ostringstream out, err;
+    EXPECT_EQ(acecode::upgrade::run_upgrade_command(
+        upgrade_config_for(server), "acecode-test", "0.1.2", out, err), 0);
+    EXPECT_NE(err.str().find("diagnostics unavailable"), std::string::npos);
+}
+
+TEST_F(UpgradeHttp, ServerOverrideNormalizesAndPersistsThroughConfigSave) {
     acecode::AppConfig cfg;
     cfg.upgrade.base_url = "http://old.example.test/updates/";
 
@@ -431,7 +529,7 @@ TEST(UpgradeHttp, ServerOverrideNormalizesAndPersistsThroughConfigSave) {
     std::filesystem::remove(output, ec);
 }
 
-TEST(UpgradeHttp, ServerOverrideRejectsInvalidUrlWithoutChangingConfig) {
+TEST_F(UpgradeHttp, ServerOverrideRejectsInvalidUrlWithoutChangingConfig) {
     acecode::AppConfig cfg;
     cfg.upgrade.base_url = "http://old.example.test/updates/";
 
