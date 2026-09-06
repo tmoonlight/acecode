@@ -1,5 +1,12 @@
 // AskUserQuestion 内联 picker:停靠在输入框上方,不使用全屏 modal。
-// 支持单选 / 多选 / 自定义答案 / 多题分页 / 键盘操作。
+// 支持单选 / 多选 / 多题分页 / 键盘操作。
+// AskUserQuestion 双入口(ask-user-question-dual-entry,方案 C · 主输入区):
+//   - 「以上都不是」= 列表末行(勾选 + 行内输入),暖色强调独占;勾选即清空预设
+//   - 「补充说明」= 题目下方常驻输入区,无勾选框,打字即生效(非空即激活)
+//   - 互斥:勾「以上都不是」→ 补充区置灰停用(文本保留);点回置灰框输入 →
+//     自动恢复并取消「以上都不是」
+//   - 校验:离开当前题时(下一步/提交)独占激活但文本为空 → 就地拦截报错
+// 状态模型与纯逻辑见 lib/questionPicker.js(其单测覆盖全部状态迁移)。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { connection } from '../lib/connection.js';
@@ -10,16 +17,24 @@ import {
   buildQuestionCancelPayload,
   getNavigationState,
   hasSelectedTextWithin,
+  isQuestionAnswered,
   makeInitialAnswers,
   normalizeQuestionRequest,
-  setAnswerCustom,
+  setExclusiveText,
+  setSupplement,
   toggleAnswerSelection,
+  toggleExclusive,
+  validateAnswerCompleteness,
 } from '../lib/questionPicker.js';
 
 const READABLE_TEXT_STYLE = { overflowWrap: 'anywhere', wordBreak: 'break-word' };
 const SELECTABLE_OPTION_STYLE = {
   WebkitUserSelect: 'text',
   userSelect: 'text',
+};
+
+const VALIDATION_MESSAGES = {
+  exclusive_empty: '「以上都不是」需要填写内容后才能继续',
 };
 
 function focusSoon(ref) {
@@ -33,21 +48,24 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [focusIndex, setFocusIndex] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
+  const [validationError, setValidationError] = useState(null);
   const rootRef = useRef(null);
-  const customRef = useRef(null);
+  const exclusiveInputRef = useRef(null);
+  const supplementRef = useRef(null);
 
   useEffect(() => {
     setAnswers(makeInitialAnswers(questions));
     setCurrentIndex(0);
     setFocusIndex(0);
     setCollapsed(false);
+    setValidationError(null);
     focusSoon(rootRef);
   }, [normalized.requestId, questions]);
 
   const question = questions[currentIndex];
-  const answer = answers[currentIndex] || { selected: [], custom: '' };
+  const answer = answers[currentIndex] || makeInitialAnswers([{}])[0];
   const optionCount = question?.options?.length || 0;
-  const customIndex = optionCount;
+  const exclusiveRowIndex = optionCount; // 预设后追加的「以上都不是」行
   const nav = getNavigationState(currentIndex, questions, answers);
 
   const updateAnswer = useCallback((index, updater) => {
@@ -63,26 +81,43 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
     resolve();
   }, [normalized, resolve]);
 
+  // 离开当前题强校验(grill Q1):失败则就地拦截并定位到空输入框。
+  const ensureCurrentComplete = useCallback((index, focusOnError) => {
+    const check = validateAnswerCompleteness(answers[index] || {});
+    if (!check.ok) {
+      setValidationError(check.reason);
+      if (focusOnError && check.reason === 'exclusive_empty') {
+        focusSoon(exclusiveInputRef);
+      }
+      return false;
+    }
+    setValidationError(null);
+    return true;
+  }, [answers]);
+
   const submit = useCallback(() => {
     const state = getNavigationState(currentIndex, questions, answers);
     if (!state.canSubmit) return;
+    if (!ensureCurrentComplete(currentIndex, true)) return;
     connection.sendQuestionAnswer(buildQuestionAnswerPayload(normalized, questions, answers));
     resolve();
-  }, [answers, currentIndex, normalized, questions, resolve]);
+  }, [answers, currentIndex, ensureCurrentComplete, normalized, questions, resolve]);
 
   const goPrev = useCallback(() => {
     setCurrentIndex((value) => Math.max(0, value - 1));
     setFocusIndex(0);
+    setValidationError(null);
     focusSoon(rootRef);
   }, []);
 
   const goNext = useCallback(() => {
     const state = getNavigationState(currentIndex, questions, answers);
     if (!state.canGoNext) return;
+    if (!ensureCurrentComplete(currentIndex, true)) return;
     setCurrentIndex((value) => Math.min(questions.length - 1, value + 1));
     setFocusIndex(0);
     focusSoon(rootRef);
-  }, [answers, currentIndex, questions]);
+  }, [answers, currentIndex, ensureCurrentComplete, questions]);
 
   const primaryAction = useCallback(() => {
     const state = getNavigationState(currentIndex, questions, answers);
@@ -94,14 +129,27 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
     const opt = question?.options?.[optionIndex];
     if (!opt) return;
     setFocusIndex(optionIndex);
+    setValidationError(null);
+    // 切换预设会退出独占态(纯函数内处理)。
     updateAnswer(currentIndex, (item) => toggleAnswerSelection(item, opt.value, !!question.multiSelect));
   }, [currentIndex, question, updateAnswer]);
 
-  const setCustom = useCallback((value) => {
-    updateAnswer(currentIndex, (item) => setAnswerCustom(item, value));
+  const onToggleExclusive = useCallback(() => {
+    setFocusIndex(exclusiveRowIndex);
+    setValidationError(null);
+    updateAnswer(currentIndex, (item) => toggleExclusive(item));
+  }, [currentIndex, exclusiveRowIndex, updateAnswer]);
+
+  const onExclusiveText = useCallback((value) => {
+    updateAnswer(currentIndex, (item) => setExclusiveText(item, value));
+  }, [currentIndex, updateAnswer]);
+
+  const onSupplement = useCallback((value) => {
+    updateAnswer(currentIndex, (item) => setSupplement(item, value));
   }, [currentIndex, updateAnswer]);
 
   const moveFocus = useCallback((delta) => {
+    // 可聚焦行 = 预设 + 「以上都不是」行(补充说明为常驻区,不参与箭头焦点)
     const count = optionCount + 1;
     setFocusIndex((value) => Math.min(count - 1, Math.max(0, value + delta)));
   }, [optionCount]);
@@ -114,7 +162,13 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
 
     if (event.key === 'Escape') {
       event.preventDefault();
-      cancel();
+      if (inTextInput) {
+        target.blur();
+        setValidationError(null);
+        focusSoon(rootRef);
+      } else {
+        cancel();
+      }
       return;
     }
 
@@ -148,7 +202,7 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
     if (event.key === ' ') {
       event.preventDefault();
       if (focusIndex < optionCount) selectOption(focusIndex);
-      else customRef.current?.focus();
+      else if (focusIndex === exclusiveRowIndex) onToggleExclusive();
       return;
     }
     if (event.key === 'Enter') {
@@ -157,13 +211,21 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
         primaryAction();
       } else if (focusIndex < optionCount) {
         selectOption(focusIndex);
+      } else if (focusIndex === exclusiveRowIndex) {
+        focusSoon(exclusiveInputRef);
       } else {
-        customRef.current?.focus();
+        supplementRef.current?.focus();
       }
     }
-  }, [cancel, focusIndex, moveFocus, nav.currentAnswered, optionCount, primaryAction, question, selectOption]);
+  }, [cancel, exclusiveRowIndex, focusIndex, moveFocus, nav.currentAnswered, onToggleExclusive, optionCount, primaryAction, question, selectOption]);
 
   if (!question) return null;
+
+  const exclusiveSelected = !!answer.exclusiveActive;
+  const supplementDisabled = exclusiveSelected; // 独占激活时补充区置灰停用
+  const exclusiveHasText = (answer.exclusiveText || '').trim().length > 0;
+  const supplementHasText = (answer.supplement || '').trim().length > 0;
+  const showExclusiveError = validationError === 'exclusive_empty';
 
   return (
     <section
@@ -241,6 +303,8 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
                       ? 'bg-accent-bg border-accent text-fg'
                       : 'bg-surface-alt border-border hover:bg-surface-hi',
                     focused && 'ring-2 ring-accent/20 border-accent',
+                    // 独占激活时预设选项整体弱化(所见即所得:已清空)
+                    exclusiveSelected && 'opacity-50',
                   )}
                 >
                   <span className="w-5 shrink-0 pt-0.5 text-[12px] font-semibold text-fg-mute tabular-nums">
@@ -273,38 +337,107 @@ export function QuestionPicker({ request, onResolve, originLabel = '' }) {
               );
             })}
 
-            <label
+            {/* 「以上都不是」独占行(方案 C:列表末行,勾选 + 行内输入,暖色) */}
+            <div
+              role="checkbox"
+              aria-checked={exclusiveSelected}
+              tabIndex={0}
+              onClick={onToggleExclusive}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onToggleExclusive();
+                }
+              }}
+              onFocus={() => setFocusIndex(exclusiveRowIndex)}
               className={clsx(
-                'rounded-lg border px-2.5 py-2 flex items-center gap-2 transition',
-                answer.custom?.trim()
-                  ? 'bg-accent-bg border-accent'
-                  : 'bg-surface-alt border-border',
-                focusIndex === customIndex && 'ring-2 ring-accent/20 border-accent',
+                'w-full rounded-lg border px-2.5 py-2 flex items-start gap-2 transition cursor-pointer outline-none',
+                exclusiveSelected
+                  ? 'bg-danger-bg border-danger'
+                  : 'bg-surface-alt border-border hover:bg-surface-hi',
+                focusIndex === exclusiveRowIndex && !exclusiveSelected && 'ring-2 ring-danger/20 border-danger',
+                showExclusiveError && 'border-danger ring-2 ring-danger/25',
               )}
             >
-              <span className="w-5 shrink-0 text-[12px] font-semibold text-fg-mute tabular-nums">
-                {customIndex + 1}
-              </span>
-              <span className="min-w-0 flex-1 flex flex-col gap-1">
-                <span className="text-[12px] font-medium text-fg">其他</span>
-                <input
-                  ref={customRef}
-                  type="text"
-                  value={answer.custom || ''}
-                  onFocus={() => setFocusIndex(customIndex)}
-                  onChange={(event) => setCustom(event.target.value)}
-                  placeholder="输入自定义答案"
-                  className="h-7 w-full rounded-md border border-border bg-surface px-2 text-[12px] text-fg outline-none focus:border-accent"
-                />
-              </span>
-              <span className="w-5 h-5 shrink-0 flex items-center justify-center">
-                {answer.custom?.trim() ? (
+              <span className="w-5 shrink-0 pt-0.5 mt-1 flex items-center justify-center">
+                {exclusiveSelected ? (
                   <VsIcon name="ok" size={14} mono={false} />
                 ) : (
                   <span className="w-3.5 h-3.5 rounded-full border border-border" />
                 )}
               </span>
-            </label>
+              <span className="min-w-0 flex-1 flex flex-col gap-1">
+                <span className={clsx('text-[12px] font-medium', exclusiveSelected ? 'text-danger' : 'text-fg')}>
+                  以上都不是
+                </span>
+                <span className="text-[11px] text-fg-mute">选此项将取消以上全部选择</span>
+                <input
+                  ref={exclusiveInputRef}
+                  type="text"
+                  value={answer.exclusiveText || ''}
+                  onClick={(event) => event.stopPropagation()}
+                  onFocus={(event) => {
+                    event.stopPropagation();
+                    setFocusIndex(exclusiveRowIndex);
+                    setValidationError(null);
+                  }}
+                  onChange={(event) => onExclusiveText(event.target.value)}
+                  placeholder={exclusiveSelected ? '填写你的答案(必填)' : '输入自定义答案'}
+                  disabled={!exclusiveSelected}
+                  className={clsx(
+                    'h-7 w-full rounded-md border bg-surface px-2 text-[12px] text-fg outline-none',
+                    exclusiveSelected
+                      ? showExclusiveError
+                        ? 'border-danger text-danger placeholder-danger/60'
+                        : 'border-danger/50 focus:border-danger'
+                      : 'border-border opacity-60',
+                    'disabled:cursor-not-allowed',
+                  )}
+                />
+              </span>
+              <span className="w-5 h-5 shrink-0 mt-0.5 flex items-center justify-center">
+                {exclusiveSelected ? (
+                  <span className="text-[11px] text-danger font-medium">独占</span>
+                ) : (
+                  <span className="w-3.5 h-3.5 rounded-full border border-border" />
+                )}
+              </span>
+            </div>
+
+            {/* 分隔线 + 「补充说明」常驻输入区(方案 C:打字即生效,无勾选框) */}
+            <div className="border-t border-border my-1" />
+            <div className="flex flex-col gap-1 px-0.5">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[12px] font-medium text-fg">补充说明</span>
+                <span className="text-[11px] text-fg-mute">可选,随答案一起提交</span>
+                {supplementDisabled && supplementHasText && (
+                  <span className="ml-auto text-[10px] text-fg-mute shrink-0">
+                    已停用 · 内容保留,不提交
+                  </span>
+                )}
+              </div>
+              <textarea
+                ref={supplementRef}
+                rows={2}
+                value={answer.supplement || ''}
+                disabled={supplementDisabled}
+                onChange={(event) => onSupplement(event.target.value)}
+                placeholder={supplementDisabled ? '已停用(勾选「以上都不是」时补充不随答案提交)' : '补充预设之外的说明(可选)'}
+                className={clsx(
+                  'w-full resize-none rounded-lg border bg-surface px-2.5 py-1.5 text-[12px] leading-[16px] text-fg outline-none focus:border-accent placeholder:text-fg-mute',
+                  supplementHasText && !supplementDisabled
+                    ? 'border-accent/60'
+                    : 'border-border',
+                  supplementDisabled && 'opacity-50 disabled:cursor-not-allowed',
+                )}
+              />
+            </div>
+
+            {validationError && (
+              <div className="px-1 text-[11px] text-danger" role="alert">
+                {VALIDATION_MESSAGES[validationError] || '请完善当前问题的回答'}
+              </div>
+            )}
           </div>
 
           <div className="shrink-0 px-3 py-2 border-t border-border bg-surface-alt flex items-center gap-2">
