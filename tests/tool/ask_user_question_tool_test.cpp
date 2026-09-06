@@ -472,7 +472,9 @@ TEST(TuiAskChannelTest, TimeoutHintIsShownAndEarlyAnswerWins) {
     {
         std::lock_guard<std::mutex> lk(state.mu);
         EXPECT_EQ(state.ask_timeout_hint_seconds, 30);
-        state.ask_result_answers["Pick one?"] = "B";
+        // 双入口改造后通道从结构化字段组装答案,不再读 ask_result_answers:
+        // 模拟用户在 overlay 里 Enter 提交下标 1 的选项(label "B")并确认。
+        state.ask_selected_options[0] = 1;
         state.ask_result_ok = true;
         state.ask_pending = false;
     }
@@ -529,4 +531,71 @@ TEST(TuiAskChannelTest, AbortBeforeOpeningReturnsCancelled) {
     EXPECT_TRUE(response.value("cancelled", false));
     std::lock_guard<std::mutex> lk(state.mu);
     EXPECT_FALSE(state.ask_pending);
+}
+
+// 双入口(ask-user-question-dual-entry):「我要补充」与预设共存进入产物。
+TEST(TuiAskChannelTest, DualEntrySupplementAppendsToPresets) {
+    acecode::TuiState state;
+    auto screen = ftxui::ScreenInteractive::FitComponent();
+    std::atomic<bool> abort{false};
+
+    auto future = std::async(std::launch::async, [&] {
+        return acecode::tui::ask_via_tui_overlay(
+            state, screen, single_question_payload(), &abort,
+            /*timeout_seconds=*/0, /*origin_label=*/"");
+    });
+    ASSERT_TRUE(wait_for_ask_overlay(state, std::chrono::seconds(2)));
+
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.ask_selected_options[0] = 1; // 单选下标 1 = label "B"
+        state.ask_supplement_text[0] = "note the caveat";
+        state.ask_result_ok = true;
+        state.ask_pending = false;
+    }
+    state.ask_cv.notify_all();
+
+    const nlohmann::json response = future.get();
+    EXPECT_FALSE(response.value("cancelled", true));
+    ASSERT_TRUE(response.contains("answers"));
+    ASSERT_EQ(response["answers"].size(), 1u);
+    EXPECT_EQ(response["answers"][0]["question_id"], "Pick one?");
+    ASSERT_EQ(response["answers"][0]["selected"].size(), 1u);
+    EXPECT_EQ(response["answers"][0]["selected"][0], "B");
+    EXPECT_EQ(response["answers"][0]["supplement_text"], "note the caveat");
+    EXPECT_FALSE(response["answers"][0].contains("exclusive_text"));
+}
+
+// 双入口(ask-user-question-dual-entry):「以上都不是」激活 → 预设作废、
+// 补充旧文本被 active-filter 压制,只发 exclusive_text。
+TEST(TuiAskChannelTest, DualEntryExclusiveVoidsPresetsAndSupplement) {
+    acecode::TuiState state;
+    auto screen = ftxui::ScreenInteractive::FitComponent();
+    std::atomic<bool> abort{false};
+
+    auto future = std::async(std::launch::async, [&] {
+        return acecode::tui::ask_via_tui_overlay(
+            state, screen, single_question_payload(), &abort,
+            /*timeout_seconds=*/0, /*origin_label=*/"");
+    });
+    ASSERT_TRUE(wait_for_ask_overlay(state, std::chrono::seconds(2)));
+
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.ask_exclusive_active[0] = true;
+        state.ask_exclusive_text[0] = "our own answer";
+        state.ask_supplement_text[0] = "stale supplement";
+        state.ask_selected_options[0] = 1; // 防御:也应被独占作废
+        state.ask_result_ok = true;
+        state.ask_pending = false;
+    }
+    state.ask_cv.notify_all();
+
+    const nlohmann::json response = future.get();
+    EXPECT_FALSE(response.value("cancelled", true));
+    ASSERT_TRUE(response.contains("answers"));
+    ASSERT_EQ(response["answers"].size(), 1u);
+    EXPECT_TRUE(response["answers"][0]["selected"].empty()); // 预设被作废
+    EXPECT_EQ(response["answers"][0]["exclusive_text"], "our own answer");
+    EXPECT_FALSE(response["answers"][0].contains("supplement_text"));
 }

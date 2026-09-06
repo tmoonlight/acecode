@@ -19,7 +19,10 @@
 // 契约与 `ToolContext::ask_user_questions` 逐字一致:
 //   in : [{id, text, header, options:[{label, value, description}], multiSelect}]
 //   out: {cancelled: bool, timed_out: bool,
-//         answers: [{question_id, selected: [str], custom_text: str}]}
+//         answers: [{question_id, selected: [str],
+//                    supplement_text?: str, exclusive_text?: str}]}
+//   (ask-user-question-dual-entry:旧 custom_text 字段已移除;exclusive active
+//    时只发 exclusive_text,否则 selected + supplement_text,与 daemon 一致)
 
 #include <ftxui/component/screen_interactive.hpp>
 #include <nlohmann/json.hpp>

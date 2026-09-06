@@ -156,7 +156,10 @@ struct ToolContext {
     // in session/ headers:
     //   in  questions_payload: array of {id, text, options:[{label, value}], multiSelect}
     //   out: { cancelled: bool,
-    //          answers: [ { question_id, selected: [str], custom_text: str } ] }
+    //          answers: [ { question_id, selected: [str],
+    //                       supplement_text?: str, exclusive_text?: str } ] }
+    //         双入口(ask-user-question-dual-entry):exclusive 非空时不发
+    //         supplement_text(active-filter);旧 custom_text 字段已移除。
     // Empty function = AskUserQuestion tool returns the rejected ToolResult.
     std::function<nlohmann::json(const nlohmann::json& questions_payload)> ask_user_questions;
 

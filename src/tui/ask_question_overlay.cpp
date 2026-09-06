@@ -302,8 +302,11 @@ AskOverlayLayout build_ask_overlay_layout(const AskOverlayLayoutInput& input) {
 
     const AskQuestion& q = *input.question;
     const int option_count = static_cast<int>(q.options.size());
-    const int total_rows = option_count + 1;
-    const int focus = std::clamp(input.option_focus, 0, std::max(0, total_rows - 1));
+    // 可聚焦行 = 预设 0..N-1 + 「以上都不是」行 N + 补充说明内容行 N+1;
+    // 补充说明的标签行不可聚焦(ask-user-question-dual-entry)。
+    const int total_rows = option_count + 2;
+    const int focus =
+        std::clamp(input.option_focus, 0, std::max(0, total_rows - 1));
 
     const std::string header_left = " Question " +
         std::to_string(input.current_question_index + 1) + "/" +
@@ -317,17 +320,21 @@ AskOverlayLayout build_ask_overlay_layout(const AskOverlayLayoutInput& input) {
                         content_width, -1, false);
     append_blank(layout);
 
-    for (int i = 0; i < total_rows; ++i) {
-        const bool is_other = (i == option_count);
+    // 预设行 + 「以上都不是」行(独占激活时预设行 dim)。
+    for (int i = 0; i < option_count + 1; ++i) {
+        const bool is_exclusive_row = (i == option_count);
         const bool focused = (i == focus);
+        // 预设行采用 q.multi_select 的选择视觉;独占行恒为勾选 [x]/[ ]。
+        const bool use_checkbox = is_exclusive_row || q.multi_select;
+
         std::string marker;
-        if (q.multi_select) {
-            const bool checked =
-                is_other
-                    ? (input.question_answered &&
-                       input.selected_option == i)
-                    : (i < static_cast<int>(input.multi_selected.size()) &&
-                       input.multi_selected[i]);
+        if (use_checkbox) {
+            bool checked = false;
+            if (is_exclusive_row) {
+                checked = input.exclusive_active;
+            } else if (i < static_cast<int>(input.multi_selected.size())) {
+                checked = input.multi_selected[i];
+            }
             marker = checked ? "[x] " : "[ ] ";
         } else {
             const bool selected = input.question_answered
@@ -343,14 +350,22 @@ AskOverlayLayout build_ask_overlay_layout(const AskOverlayLayoutInput& input) {
             spaces_for_width(display_width_cells(first_prefix));
 
         std::string body;
-        if (is_other) {
-            body = "Other...";
+        bool row_dim = false;
+        if (is_exclusive_row) {
+            // 静态文案英文(grill Q3),与全英文 overlay 一致;产物标记中文。
+            body = "None of the above";
+            if (input.exclusive_active && !input.exclusive_text.empty()) {
+                body += "  ";
+                body += input.exclusive_text;
+            }
         } else {
             body = q.options[i].label;
             if (!q.options[i].description.empty()) {
                 body += "  ";
                 body += q.options[i].description;
             }
+            // 独占激活 → 预设已被清空,弱化显示(内容保留,重新点选可退出独占)。
+            row_dim = input.exclusive_active;
         }
 
         const int row_begin = static_cast<int>(layout.rows.size());
@@ -358,6 +373,46 @@ AskOverlayLayout build_ask_overlay_layout(const AskOverlayLayoutInput& input) {
                             first_prefix, continuation_prefix, content_width,
                             i, focused);
         const int row_end = static_cast<int>(layout.rows.size()) - 1;
+        if (row_dim) {
+            for (int r = row_begin; r <= row_end; ++r) {
+                layout.rows[r].dim = true;
+            }
+        }
+        if (focused) {
+            layout.focused_row_begin = row_begin;
+            layout.focused_row_end = row_end;
+        }
+    }
+
+    // 补充说明区:标签行(不可聚焦,弱化显示)+ 内容行(N+1,可聚焦,Enter 进入输入态)。
+    // 标签行用 Hint kind —— Body 语义是题目正文,补充标签不属于它,且会被
+    // 依赖"Body 行拼接 == 题目文本"的测试误收。
+    append_blank(layout);
+    const int supplement_row_index = option_count + 1;
+    const bool supplement_dim = input.exclusive_active;
+    append_wrapped_rows(layout, AskOverlayRowKind::Hint,
+                        " Supplement note (optional, sent with your answer)",
+                        "", "", content_width, -1, false);
+    {
+        const bool focused = (supplement_row_index == focus);
+        const std::string first_prefix = focused
+            ? " \xE2\x96\xB8   "
+            : "     ";
+        std::string body = input.supplement_text;
+        if (body.empty()) {
+            body = "(enter to add a note)";
+        }
+        const int row_begin = static_cast<int>(layout.rows.size());
+        append_wrapped_rows(layout, AskOverlayRowKind::Option, body,
+                            first_prefix,
+                            spaces_for_width(display_width_cells(first_prefix)),
+                            content_width, supplement_row_index, focused);
+        const int row_end = static_cast<int>(layout.rows.size()) - 1;
+        if (supplement_dim) {
+            for (int r = row_begin; r <= row_end; ++r) {
+                layout.rows[r].dim = true;
+            }
+        }
         if (focused) {
             layout.focused_row_begin = row_begin;
             layout.focused_row_end = row_end;
@@ -366,9 +421,8 @@ AskOverlayLayout build_ask_overlay_layout(const AskOverlayLayoutInput& input) {
 
     append_blank(layout);
 
-    const std::string hint = q.multi_select
-        ? " \xE2\x86\x91\xE2\x86\x93 move   Space toggle   Enter submit   Esc cancel"
-        : " \xE2\x86\x91\xE2\x86\x93 move   Enter select   Esc cancel";
+    const std::string hint =
+        " \xE2\x86\x91\xE2\x86\x93 move   Space toggle   Enter edit/submit   Esc cancel";
     append_wrapped_rows(layout, AskOverlayRowKind::Hint, hint, "", "",
                         content_width, -1, false);
 
@@ -379,10 +433,24 @@ AskOverlayLayout build_ask_overlay_layout(const AskOverlayLayoutInput& input) {
                             "", "", content_width, -1, false);
     }
 
-    if (input.other_input_active) {
+    // 输入态提示按入口区分(grill Q3:静态文案英文)。
+    if (input.input_target == 2) { // Exclusive
+        append_blank(layout);
+        append_wrapped_rows(
+            layout, AskOverlayRowKind::CustomPrompt,
+            " None of the above - your answer (Enter to submit, Esc to back out):",
+            "", "", content_width, -1, false);
+    } else if (input.input_target == 1) { // Supplement
         append_blank(layout);
         append_wrapped_rows(layout, AskOverlayRowKind::CustomPrompt,
-                            " Custom answer (Enter to submit, Esc to back out):",
+                            " Supplement note (Enter to submit, Esc to back out):",
+                            "", "", content_width, -1, false);
+    }
+
+    // 离开当前题校验错误(grill Q1:独占激活但文本为空被拦)。
+    if (!input.validation_error.empty()) {
+        append_wrapped_rows(layout, AskOverlayRowKind::Hint,
+                            "! " + input.validation_error,
                             "", "", content_width, -1, false);
     }
 

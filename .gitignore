@@ -79,6 +79,9 @@ node_modules/
 # WorkBuddy agent local memory
 .workbuddy/
 
+# WorkBuddy plugin/skill 缓存目录(会话工具状态,不进版本库)
+.superpowers/
+
 # Release packaging output
 /dist/
 

@@ -1570,11 +1570,11 @@ static void insert_pasted_text_at_cursor_locked(TuiState& state,
 }
 
 // 有 overlay 或 picker 时，不让剪贴板内容插进输入框。唯一例外:
-// AskUserQuestion 的 "Other..." 自定义文本输入态(ask_pending &&
-// ask_other_input_active)需要接收粘贴文本作为自定义答案。
+// AskUserQuestion 的补充/独占输入态(ask_pending && ask_input_target !=
+// None)需要接收粘贴文本作为入口文本(ask-user-question-dual-entry)。
 static bool can_accept_clipboard_paste_locked(const TuiState& state) {
     if (state.ask_pending) {
-        return state.ask_other_input_active;
+        return state.ask_input_target != AskInputTarget::None;
     }
     return !state.confirm_pending &&
            !state.rewind_picker_active &&
@@ -2852,8 +2852,11 @@ static void shutdown_after_tui_loop(TuiState& state,
             state.ask_answered_questions.clear();
             state.ask_selected_options.clear();
             state.ask_multi_selected_by_question.clear();
-            state.ask_custom_answer_selected.clear();
-            state.ask_custom_answers.clear();
+            state.ask_exclusive_active.clear();
+            state.ask_exclusive_text.clear();
+            state.ask_supplement_text.clear();
+            state.ask_input_target = AskInputTarget::None;
+            state.ask_validation_error.clear();
             state.ask_scroll_offset = 0;
             state.ask_scroll_total_rows = 0;
             state.ask_scroll_visible_rows = 0;
@@ -4357,10 +4360,23 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         }
         layout_input.multi_selected = state.ask_multi_selected;
         layout_input.answered_questions = state.ask_answered_questions;
-        layout_input.other_input_active = state.ask_other_input_active;
         layout_input.submit_focus = state.ask_submit_focus;
         layout_input.content_width = content_width;
         layout_input.timeout_hint_seconds = state.ask_timeout_hint_seconds;
+        // AskUserQuestion 双入口(ask-user-question-dual-entry)。
+        layout_input.input_target =
+            static_cast<int>(state.ask_input_target);
+        layout_input.input_text = state.input_text;
+        layout_input.validation_error = state.ask_validation_error;
+        if (!state.ask_submit_page &&
+            state.ask_current_question >= 0 &&
+            state.ask_current_question <
+                static_cast<int>(state.ask_exclusive_active.size())) {
+            const int qi = state.ask_current_question;
+            layout_input.exclusive_active = state.ask_exclusive_active[qi];
+            layout_input.exclusive_text = state.ask_exclusive_text[qi];
+            layout_input.supplement_text = state.ask_supplement_text[qi];
+        }
 
         auto layout = acecode::tui::build_ask_overlay_layout(layout_input);
         const int total = static_cast<int>(layout.rows.size());
@@ -4414,8 +4430,12 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
                     if (row.focused) {
                         el = el | bold | color(tui::theme().ui.text_primary) |
                             bgcolor(tui::theme().ui.selection_bg);
-                    } else {
+                    } else if (row.dim) {
+                        // 独占激活时被停用的行(预设 / 补充区):弱化显示,
+                        // 内容保留但当前不生效。
                         el = el | color(tui::theme().ui.text_muted);
+                    } else {
+                        el = el | color(tui::theme().ui.text_primary);
                     }
                     break;
                 case acecode::tui::AskOverlayRowKind::Hint:
@@ -4534,9 +4554,9 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     }
 
     if (state.ask_pending) {
-        // ask active 时:把输入框留给 Other 自定义文本态使用;其它状态下
-        // 显示静态提示,吞掉字符输入(CatchEvent 不透传非导航键)。
-        if (state.ask_other_input_active) {
+        // ask active 时:输入态(补充/独占文本)把输入框让给文本编辑;其它
+        // 状态下显示静态提示,吞掉字符输入(CatchEvent 不透传非导航键)。
+        if (state.ask_input_target != AskInputTarget::None) {
             prompt_line = hbox({
                 text(" ? ") | bold | color(tui::theme().ui.accent),
                 input_with_esc->Render() | flex |
@@ -6584,14 +6604,19 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_multi_selected_by_question.resize(
                             state.ask_questions.size());
                     }
-                    if (state.ask_custom_answer_selected.size() <
+                    if (state.ask_exclusive_active.size() <
                         state.ask_questions.size()) {
-                        state.ask_custom_answer_selected.resize(
+                        state.ask_exclusive_active.resize(
                             state.ask_questions.size(), false);
                     }
-                    if (state.ask_custom_answers.size() <
+                    if (state.ask_exclusive_text.size() <
                         state.ask_questions.size()) {
-                        state.ask_custom_answers.resize(
+                        state.ask_exclusive_text.resize(
+                            state.ask_questions.size());
+                    }
+                    if (state.ask_supplement_text.size() <
+                        state.ask_questions.size()) {
+                        state.ask_supplement_text.resize(
                             state.ask_questions.size());
                     }
                     for (int i = 0; i < question_count; ++i) {
@@ -6615,7 +6640,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                             .options.size());
                     state.ask_question_option_focus[state.ask_current_question] =
                         std::clamp(state.ask_option_focus, 0,
-                                   option_count_for_current);
+                                   option_count_for_current + 1);
                     if (state.ask_questions[state.ask_current_question]
                             .multi_select) {
                         if (static_cast<int>(state.ask_multi_selected.size()) <
@@ -6644,7 +6669,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_questions[index].options.size());
                     state.ask_option_focus = std::clamp(
                         state.ask_question_option_focus[index], 0,
-                        option_count_for_page);
+                        option_count_for_page + 1);
                     state.ask_multi_selected =
                         state.ask_multi_selected_by_question[index];
                     if (static_cast<int>(state.ask_multi_selected.size()) <
@@ -6652,7 +6677,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_multi_selected.resize(
                             option_count_for_page, false);
                     }
-                    state.ask_other_input_active = false;
+                    state.ask_input_target = AskInputTarget::None;
+                    state.ask_validation_error.clear();
                     state.input_text.clear();
                     state.pasted_texts.clear();
                     state.input_cursor = 0;
@@ -6668,7 +6694,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.ask_submit_page = true;
                     state.ask_submit_focus =
                         std::clamp(state.ask_submit_focus, 0, 1);
-                    state.ask_other_input_active = false;
+                    state.ask_input_target = AskInputTarget::None;
+                    state.ask_validation_error.clear();
                     state.input_text.clear();
                     state.pasted_texts.clear();
                     state.input_cursor = 0;
@@ -6682,7 +6709,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.ask_pending = false;
                     state.ask_submit_page = false;
                     state.ask_submit_focus = 0;
-                    state.ask_other_input_active = false;
+                    state.ask_input_target = AskInputTarget::None;
+                    state.ask_validation_error.clear();
                     reset_ask_scroll_state();
                     state.ask_cv.notify_one();
                 };
@@ -6700,7 +6728,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 const int option_count = q == nullptr
                     ? 0
                     : static_cast<int>(q->options.size());
-                const int total_rows = option_count + 1; // + "Other..."
+                const int total_rows = option_count + 2; // +独占行 + 补充内容行
 
                 auto scroll_ask_by_lines = [&](int delta) {
                     const int before = state.ask_scroll_offset;
@@ -6720,39 +6748,54 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_scroll_visible_rows);
                 };
 
-                auto commit_current_answer = [&](const std::string& answer,
-                                                 bool custom_answer) {
-                    if (q == nullptr) {
-                        return;
+                // AskUserQuestion 双入口(ask-user-question-dual-entry):
+                // 提交当前题 —— 把暂态选择落盘、标已作答、并做「离开当前题
+                // 校验」(grill Q1):独占激活但文本为空 → 拦截(返回 false,
+                // 停留本题,焦点回独占行)。文本已在输入态提交/退出时写入
+                // ask_exclusive_text / ask_supplement_text。
+                auto is_blank_text = [](const std::string& s) {
+                    for (unsigned char c : s) {
+                        if (!std::isspace(c)) return false;
                     }
+                    return true;
+                };
+                auto commit_current_answer = [&]() -> bool {
+                    if (q == nullptr) return false;
                     ensure_ask_page_state_vectors();
                     const int index = state.ask_current_question;
-                    state.ask_result_answers[q->question] = answer;
-                    state.ask_answered_questions[index] = true;
-                    if (custom_answer) {
-                        state.ask_custom_answer_selected[index] = true;
-                        state.ask_custom_answers[index] = answer;
-                        state.ask_selected_options[index] = option_count;
+                    if (state.ask_exclusive_active[index] &&
+                        is_blank_text(state.ask_exclusive_text[index])) {
+                        state.ask_validation_error =
+                            "None of the above requires an answer "
+                            "(type it or untoggle with Space).";
+                        state.ask_option_focus = option_count;
                         state.ask_question_option_focus[index] = option_count;
-                    } else if (q->multi_select) {
-                        state.ask_custom_answer_selected[index] = false;
-                        state.ask_custom_answers[index].clear();
-                        state.ask_selected_options[index] = -1;
+                        screen.PostEvent(Event::Custom);
+                        return false;
+                    }
+                    state.ask_validation_error.clear();
+                    if (q->multi_select) {
                         if (static_cast<int>(state.ask_multi_selected.size()) <
                             option_count) {
-                            state.ask_multi_selected.resize(
-                                option_count, false);
+                            state.ask_multi_selected.resize(option_count, false);
                         }
                         state.ask_multi_selected_by_question[index] =
                             state.ask_multi_selected;
-                    } else {
-                        state.ask_custom_answer_selected[index] = false;
-                        state.ask_custom_answers[index].clear();
+                        state.ask_selected_options[index] = -1;
+                    } else if (!state.ask_exclusive_active[index]) {
+                        // 单选:焦点行即选中;焦点落独占/补充行且未选预设 → -1
+                        // (允许仅文本/独占作答)。
                         state.ask_selected_options[index] =
-                            state.ask_option_focus;
-                        state.ask_question_option_focus[index] =
-                            state.ask_option_focus;
+                            (state.ask_option_focus < option_count)
+                            ? state.ask_option_focus
+                            : -1;
+                    } else {
+                        state.ask_selected_options[index] = -1; // 独占作废预设
                     }
+                    state.ask_question_option_focus[index] =
+                        state.ask_option_focus;
+                    state.ask_answered_questions[index] = true;
+                    return true;
                 };
 
                 auto advance_to_next_page = [&]() {
@@ -6769,8 +6812,70 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 //   - 提交页:0 = Submit answers,1 = Cancel;
                 //   - 显式单选选项:提交并推进(同 Enter);
                 //   - 显式多选选项:切换勾选并把焦点移到该行(同 Space);
-                //   - "Other..."(option_index == option_count):进入
-                //     自定义文本输入态(同 Enter)。
+                //   - 「以上都不是」行(option_index == option_count):切换
+                //     独占(同 Space,ask-user-question-dual-entry);
+                //   - 补充说明内容行(option_index == option_count + 1):进入
+                //     补充输入态(同 Enter)。
+                auto toggle_exclusive_on_current = [&]() {
+                    ensure_ask_page_state_vectors();
+                    const int index = state.ask_current_question;
+                    if (state.ask_exclusive_active[index]) {
+                        state.ask_exclusive_active[index] = false; // 文本保留
+                    } else {
+                        state.ask_exclusive_active[index] = true;
+                        // 激活即清空预设(所见即所得);补充文本保留(被压制)。
+                        if (q->multi_select) {
+                            std::fill(state.ask_multi_selected.begin(),
+                                      state.ask_multi_selected.end(), false);
+                            if (index >= 0 &&
+                                index < static_cast<int>(
+                                    state.ask_multi_selected_by_question
+                                        .size())) {
+                                state.ask_multi_selected_by_question[index]
+                                    .assign(option_count, false);
+                            }
+                        }
+                        if (index >= 0 &&
+                            index < static_cast<int>(
+                                state.ask_selected_options.size())) {
+                            state.ask_selected_options[index] = -1;
+                        }
+                    }
+                    state.ask_validation_error.clear();
+                };
+                auto begin_ask_input_target = [&](AskInputTarget target) {
+                    ensure_ask_page_state_vectors();
+                    const int index = state.ask_current_question;
+                    // 载入既有文本(反悔时文本保留,可直接续编)。
+                    if (target == AskInputTarget::Exclusive) {
+                        state.input_text =
+                            state.ask_exclusive_text[index];
+                    } else if (target == AskInputTarget::Supplement) {
+                        state.input_text =
+                            state.ask_supplement_text[index];
+                    }
+                    state.ask_input_target = target;
+                    state.ask_validation_error.clear();
+                    state.pasted_texts.clear();
+                    state.input_cursor = 0;
+                    state.input_selection_anchor.reset();
+                    state.input_vertical_goal_column.reset();
+                    state.ask_scroll_to_focus_requested = true;
+                };
+                auto commit_input_text_to_entry = [&]() {
+                    // 输入态文本落盘到对应入口(Enter 提交与 Esc 退出都调用;
+                    // Esc 场景文本保留 —— 数据永不自动清除)。
+                    ensure_ask_page_state_vectors();
+                    const int index = state.ask_current_question;
+                    const std::string text = acecode::tui::expand_placeholders(
+                        state.input_text, state.pasted_texts);
+                    if (state.ask_input_target == AskInputTarget::Exclusive) {
+                        state.ask_exclusive_text[index] = text;
+                    } else if (state.ask_input_target ==
+                               AskInputTarget::Supplement) {
+                        state.ask_supplement_text[index] = text;
+                    }
+                };
                 auto activate_ask_option_by_click = [&](int option_index) {
                     if (state.ask_submit_page) {
                         close_ask_overlay(option_index == 0);
@@ -6781,13 +6886,32 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     }
                     if (option_index == option_count) {
                         state.ask_option_focus = option_index;
-                        state.ask_other_input_active = true;
-                        state.input_text.clear(); state.pasted_texts.clear();
-                        state.input_cursor = 0;
-                        state.input_selection_anchor.reset();
-                        state.input_vertical_goal_column.reset();
-                        state.ask_scroll_to_focus_requested = true;
+                        toggle_exclusive_on_current();
                         return;
+                    }
+                    if (option_index == option_count + 1) {
+                        state.ask_option_focus = option_index;
+                        // 补充内容行:若独占激活中,点回即自动取消独占并恢复
+                        // 补充(方案 C 规则 2 / GUI 同语义)。
+                        if (state.ask_current_question >= 0 &&
+                            state.ask_current_question < static_cast<int>(
+                                state.ask_exclusive_active.size()) &&
+                            state.ask_exclusive_active[state.ask_current_question]) {
+                            state.ask_exclusive_active[state.ask_current_question] =
+                                false;
+                        }
+                        begin_ask_input_target(AskInputTarget::Supplement);
+                        return;
+                    }
+                    // 预设行:独占激活时点预设 → 退出独占(文本保留),该预设
+                    // 被选中。
+                    if (state.ask_current_question >= 0 &&
+                        state.ask_current_question < static_cast<int>(
+                            state.ask_exclusive_active.size()) &&
+                        state.ask_exclusive_active[state.ask_current_question]) {
+                        state.ask_exclusive_active[state.ask_current_question] =
+                            false;
+                        state.ask_validation_error.clear();
                     }
                     if (q->multi_select) {
                         if (static_cast<int>(state.ask_multi_selected.size()) <=
@@ -6824,8 +6948,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.ask_question_option_focus
                             [state.ask_current_question] = option_index;
                     }
-                    commit_current_answer(q->options[option_index].label,
-                                          false);
+                    if (!commit_current_answer()) {
+                        return;
+                    }
                     advance_to_next_page();
                 };
 
@@ -7234,12 +7359,15 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     return true;
                 }
 
-                // Esc —— 整体拒绝。
+                // Esc —— 输入态先退出(文本落盘保留),否则整体拒绝。
                 if (is_terminal_key(
                         event, acecode::tui::TerminalKey::Escape)) {
-                    if (state.ask_other_input_active) {
-                        // 先退出 Other 文本模式,保留用户之前的选择。
-                        state.ask_other_input_active = false;
+                    if (state.ask_input_target != AskInputTarget::None) {
+                        // 先退出输入态,文本写回对应入口(保留置灰,可再编辑;
+                        // 数据永不自动清除)。
+                        commit_input_text_to_entry();
+                        state.ask_input_target = AskInputTarget::None;
+                        state.ask_validation_error.clear();
                         state.input_text.clear(); state.pasted_texts.clear();
                         state.input_cursor = 0;
                         state.input_selection_anchor.reset();
@@ -7293,7 +7421,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     return true;
                 }
 
-                if (state.ask_other_input_active) {
+                if (state.ask_input_target != AskInputTarget::None) {
                     const auto shifted =
                         acecode::tui::shift_arrow_direction(event);
                     if (shifted == acecode::tui::ShiftArrowDirection::Up ||
@@ -7320,24 +7448,24 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         return true;
                     }
                     if (event == Event::Return) {
-                        // 折叠占位符必须展开,否则多行粘贴只会把
-                        // "[Pasted text #N +M lines]" 当作答案交回模型。
-                        std::string answer = acecode::tui::expand_placeholders(
-                            state.input_text, state.pasted_texts);
+                        // 输入态 Enter:文本落盘到对应入口,退出输入态并提交
+                        // 本题(独占空文本会被 commit 的离开校验拦下)。
+                        commit_input_text_to_entry();
+                        state.ask_input_target = AskInputTarget::None;
                         state.input_text.clear(); state.pasted_texts.clear();
                         state.input_cursor = 0;
                         state.input_selection_anchor.reset();
                         state.input_vertical_goal_column.reset();
-                        state.ask_other_input_active = false;
-                        commit_current_answer(answer, true);
-
-                        // 推进到下一题或提交页。
-                        advance_to_next_page();
+                        if (commit_current_answer()) {
+                            // 推进到下一题或提交页。
+                            advance_to_next_page();
+                        }
                         screen.PostEvent(Event::Custom);
                         return true;
                     }
-                    // Other 输入态:委托 try_handle_ask_other_input 内联处理字符 /
-                    // Backspace / Delete / 方向键 / Home / End。helper 返回 true
+                    // 输入态:委托 try_handle_ask_other_input 内联处理字符 /
+                    // Backspace / Delete / 方向键 / Home / End(只操作
+                    // input_text,与入口无关,双入口通用)。helper 返回 true
                     // 表示真的改了 state,我们才 PostEvent 请求重绘 —— Custom /
                     // Mouse 等未识别事件返回 false,**不能** PostEvent,否则
                     // "Custom → swallow → PostEvent(Custom)" 会形成事件自回环
@@ -7367,7 +7495,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     return true;
                 }
 
-                // 方向键 / j k 上下移动焦点。
+                // 方向键 / j k 上下移动焦点(可聚焦行 = 预设 + 独占行 +
+                // 补充内容行,total_rows = option_count + 2)。
                 if (event == Event::ArrowUp ||
                     event == Event::Character('k')) {
                     state.ask_option_focus =
@@ -7401,66 +7530,87 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     return true;
                 }
 
-                // Space —— 仅 multi-select 下对当前焦点项切换勾选;焦点落在
-                // "Other..." 行时 Space 不作响应(Other 需要 Enter 进入文本态)。
+                // Space —— 预设行:multi-select 切换勾选(并退出独占,若激活);
+                // 「以上都不是」行:切换独占激活(激活即清空预设);
+                // 补充说明行:无勾选语义,忽略。
                 if (event == Event::Character(' ')) {
-                    if (q->multi_select && state.ask_option_focus < option_count) {
-                        if (static_cast<int>(state.ask_multi_selected.size()) <=
-                            state.ask_option_focus) {
-                            state.ask_multi_selected.resize(option_count, false);
-                        }
-                        state.ask_multi_selected[state.ask_option_focus] =
-                            !state.ask_multi_selected[state.ask_option_focus];
+                    const int focus = state.ask_option_focus;
+                    if (focus == option_count) {
+                        toggle_exclusive_on_current();
+                        screen.PostEvent(Event::Custom);
+                    } else if (focus < option_count) {
+                        // 独占激活时点预设 → 退出独占(文本保留),该预设被选中。
                         if (state.ask_current_question >= 0 &&
-                            state.ask_current_question <
-                                static_cast<int>(
-                                    state.ask_multi_selected_by_question.size())) {
-                            state.ask_multi_selected_by_question
-                                [state.ask_current_question] =
-                                    state.ask_multi_selected;
+                            state.ask_current_question < static_cast<int>(
+                                state.ask_exclusive_active.size()) &&
+                            state.ask_exclusive_active[state.ask_current_question]) {
+                            state.ask_exclusive_active[state.ask_current_question] =
+                                false;
+                            state.ask_validation_error.clear();
+                        }
+                        if (q->multi_select) {
+                            if (static_cast<int>(state.ask_multi_selected.size()) <=
+                                focus) {
+                                state.ask_multi_selected.resize(option_count, false);
+                            }
+                            state.ask_multi_selected[focus] =
+                                !state.ask_multi_selected[focus];
+                            if (state.ask_current_question >= 0 &&
+                                state.ask_current_question <
+                                    static_cast<int>(
+                                        state.ask_multi_selected_by_question.size())) {
+                                state.ask_multi_selected_by_question
+                                    [state.ask_current_question] =
+                                        state.ask_multi_selected;
+                            }
                         }
                         screen.PostEvent(Event::Custom);
                     }
+                    // focus == option_count + 1(补充行):Space 无勾选语义,忽略。
                     return true;
                 }
 
-                // Enter —— 提交当前题目。
+                // Enter —— 提交当前题目 / 进入入口输入态。
                 if (event == Event::Return) {
-                    // 焦点在 "Other..." 行:进入自定义文本输入态。
+                    // 焦点在「以上都不是」行:未激活则先激活,进入独占输入态。
                     if (state.ask_option_focus == option_count) {
-                        state.ask_other_input_active = true;
-                        state.input_text.clear(); state.pasted_texts.clear();
-                        state.input_cursor = 0;
-                        state.input_selection_anchor.reset();
-                        state.input_vertical_goal_column.reset();
-                        state.ask_scroll_to_focus_requested = true;
+                        if (state.ask_current_question >= 0 &&
+                            state.ask_current_question < static_cast<int>(
+                                state.ask_exclusive_active.size()) &&
+                            !state.ask_exclusive_active[state.ask_current_question]) {
+                            toggle_exclusive_on_current();
+                        }
+                        begin_ask_input_target(AskInputTarget::Exclusive);
+                        screen.PostEvent(Event::Custom);
+                        return true;
+                    }
+                    // 焦点在补充说明内容行:进入补充输入态(独占激活中点回
+                    // 补充 → 自动取消独占,方案 C 规则 2)。
+                    if (state.ask_option_focus == option_count + 1) {
+                        if (state.ask_current_question >= 0 &&
+                            state.ask_current_question < static_cast<int>(
+                                state.ask_exclusive_active.size()) &&
+                            state.ask_exclusive_active[state.ask_current_question]) {
+                            state.ask_exclusive_active[state.ask_current_question] =
+                                false;
+                            state.ask_validation_error.clear();
+                        }
+                        begin_ask_input_target(AskInputTarget::Supplement);
                         screen.PostEvent(Event::Custom);
                         return true;
                     }
 
-                    std::string answer;
-                    if (q->multi_select) {
-                        for (int i = 0; i < option_count; ++i) {
-                            if (i < static_cast<int>(state.ask_multi_selected.size()) &&
-                                state.ask_multi_selected[i]) {
-                                if (!answer.empty()) answer += ", ";
-                                answer += q->options[i].label;
-                            }
-                        }
-                        // 允许空选 —— 上游 schema 没强制,把空字符串交回给模型。
-                    } else {
-                        answer = q->options[state.ask_option_focus].label;
+                    // 预设行:提交当前题(单选 = 焦点即选中;多选 = 当前勾选)。
+                    if (!commit_current_answer()) {
+                        return true; // 独占空文本被拦,停留本题
                     }
-                    commit_current_answer(answer, false);
-
-                    // 推进或进入提交页。
                     advance_to_next_page();
                     screen.PostEvent(Event::Custom);
                     return true;
                 }
 
                 // 其它键一律吞掉 —— 不让字符进入 input_text(避免破坏下一次
-                // "Other" 文本模式的初始状态)。
+                // 入口文本模式的初始状态)。
                 return true;
             }
         }

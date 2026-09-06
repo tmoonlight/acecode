@@ -371,7 +371,9 @@ bool ChannelQuestionBridge::parse_answer(const Question& question,
         }
         answer->question_id = question.id;
         answer->selected = std::move(selected);
-        answer->custom_text.clear();
+        // 双入口(ask-user-question-dual-entry):走选项选择则两个文本入口都清空。
+        answer->exclusive_text.clear();
+        answer->supplement_text.clear();
         return true;
     }
 
@@ -379,7 +381,8 @@ bool ChannelQuestionBridge::parse_answer(const Question& question,
         if (input == option.label) {
             answer->question_id = question.id;
             answer->selected = {option.label};
-            answer->custom_text.clear();
+            answer->exclusive_text.clear();
+            answer->supplement_text.clear();
             return true;
         }
     }
@@ -393,9 +396,13 @@ bool ChannelQuestionBridge::parse_answer(const Question& question,
         set_error(error, "自定义答案最多 2000 个 Unicode 码点。");
         return false;
     }
+    // 文本不匹配任何预设 / 序号 = 用户「不用预设,直接给答案」,语义对应
+    // 「以上都不是」(exclusive_text)。产物经 format_single_answer 输出
+    // 「以上都不是: <text>」。
     answer->question_id = question.id;
     answer->selected.clear();
-    answer->custom_text = input;
+    answer->exclusive_text = input;
+    answer->supplement_text.clear();
     return true;
 }
 

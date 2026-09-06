@@ -337,8 +337,11 @@ void shutdown_after_tui_loop(TuiState& state, AgentLoop& agent_loop,
             state.ask_answered_questions.clear();
             state.ask_selected_options.clear();
             state.ask_multi_selected_by_question.clear();
-            state.ask_custom_answer_selected.clear();
-            state.ask_custom_answers.clear();
+            state.ask_exclusive_active.clear();
+            state.ask_exclusive_text.clear();
+            state.ask_supplement_text.clear();
+            state.ask_input_target = AskInputTarget::None;
+            state.ask_validation_error.clear();
             state.ask_scroll_offset = 0;
             state.ask_scroll_total_rows = 0;
             state.ask_scroll_visible_rows = 0;

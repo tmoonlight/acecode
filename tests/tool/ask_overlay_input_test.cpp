@@ -28,14 +28,14 @@ using ftxui::Event;
 
 namespace {
 
-// 初始化一个典型 "Other 输入态" 的 TuiState:ask_pending=true、
-// ask_other_input_active=true,关心的副作用源字段(input_text /
-// input_cursor / input_mode / slash_dropdown_active / history_index)
-// 被显式归零。用 by-reference 是因为 TuiState 含 std::mutex /
-// std::condition_variable,不能按值返回 / 拷贝。
+// 初始化一个典型 "补充说明输入态" 的 TuiState:ask_pending=true、
+// ask_input_target=Supplement(对应双入口之一),关心的副作用源字段
+// (input_text / input_cursor / input_mode / slash_dropdown_active /
+// history_index)被显式归零。用 by-reference 是因为 TuiState 含
+// std::mutex / std::condition_variable,不能按值返回 / 拷贝。
 void init_other_mode_state(TuiState& s) {
     s.ask_pending = true;
-    s.ask_other_input_active = true;
+    s.ask_input_target = acecode::AskInputTarget::Supplement;
     s.input_text.clear();
     s.input_cursor = 0;
     s.input_selection_anchor.reset();

@@ -3368,7 +3368,15 @@ bool AgentLoop::execute_tool_calls(
                         nlohmann::json item;
                         item["question_id"] = a.question_id;
                         item["selected"]    = a.selected;
-                        item["custom_text"] = a.custom_text;
+                        // 双入口(ask-user-question-dual-entry):active-filter
+                        // 与 TUI answers_from_state / React payload 同一规则
+                        // —— exclusive 非空只发 exclusive_text;否则补充
+                        // 非空才发 supplement_text。
+                        if (!a.exclusive_text.empty()) {
+                            item["exclusive_text"] = a.exclusive_text;
+                        } else if (!a.supplement_text.empty()) {
+                            item["supplement_text"] = a.supplement_text;
+                        }
                         arr.push_back(std::move(item));
                     }
                     out["answers"] = std::move(arr);

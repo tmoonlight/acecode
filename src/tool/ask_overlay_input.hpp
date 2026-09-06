@@ -44,7 +44,7 @@ struct TuiState;
 //   Home / End(含 ESC-sequence 变体 `ESC [1~` `[7~` `[4~` `[8~`)及
 //   Ctrl+E → cursor 跳到 buffer 首 / 尾;Ctrl+A → 全选 buffer
 //
-// 调用方需要保证 state.ask_pending && state.ask_other_input_active;
+// 调用方需要保证 state.ask_pending && state.ask_input_target != AskInputTarget::None;
 // Return / Escape 留给 main.cpp 的 ask 分支上层处理(它们有 submit / 退出
 // Other 态的特殊语义),MUST NOT 传入本函数。
 bool try_handle_ask_other_input(TuiState& state, const ftxui::Event& event);

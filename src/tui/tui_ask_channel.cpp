@@ -42,23 +42,68 @@ std::vector<AskQuestion> questions_from_payload(const nlohmann::json& payload) {
 
 nlohmann::json make_response(bool cancelled,
                              bool timed_out,
-                             const std::vector<std::string>& question_order,
-                             const std::map<std::string, std::string>& answers) {
+                             const nlohmann::json& answers_arr) {
     nlohmann::json out;
     out["cancelled"] = cancelled;
     out["timed_out"] = timed_out;
-    nlohmann::json arr = nlohmann::json::array();
-    for (const auto& question : question_order) {
-        auto it = answers.find(question);
-        if (it == answers.end()) continue;
-        arr.push_back(nlohmann::json{
-            {"question_id", question},
-            {"selected", nlohmann::json::array({it->second})},
-            {"custom_text", ""},
-        });
-    }
-    out["answers"] = std::move(arr);
+    out["answers"] = answers_arr;
     return out;
+}
+
+// 把 TuiState 的每题双入口状态转成协议 answers[] JSON
+// (ask-user-question-dual-entry)。与 daemon 的 React payload 同一规则:
+//   exclusive active → 只发 exclusive_text(selected 已空);
+//   否则 → selected + supplement_text(非空才发)。
+// 被互斥压制的 inactive 文本(独占激活时的补充旧文本)不进 payload。
+nlohmann::json answers_from_state(const TuiState& state,
+                                  const std::vector<AskQuestion>& questions) {
+    nlohmann::json arr = nlohmann::json::array();
+    for (std::size_t qi = 0; qi < questions.size(); ++qi) {
+        const AskQuestion& q = questions[qi];
+        const bool exclusive_active =
+            qi < state.ask_exclusive_active.size() &&
+            state.ask_exclusive_active[qi];
+
+        std::vector<std::string> selected;
+        if (!exclusive_active) {
+            if (q.multi_select) {
+                if (qi < state.ask_multi_selected_by_question.size()) {
+                    const auto& sel = state.ask_multi_selected_by_question[qi];
+                    for (std::size_t i = 0; i < sel.size() &&
+                                            i < q.options.size(); ++i) {
+                        if (sel[i]) selected.push_back(q.options[i].label);
+                    }
+                }
+            } else {
+                if (qi < state.ask_selected_options.size()) {
+                    const int opt = state.ask_selected_options[qi];
+                    if (opt >= 0 && opt < static_cast<int>(q.options.size())) {
+                        selected.push_back(q.options[opt].label);
+                    }
+                }
+            }
+        }
+
+        nlohmann::json ans = {
+            {"question_id", q.question},
+            {"selected", selected},
+        };
+        if (exclusive_active) {
+            std::string text = qi < state.ask_exclusive_text.size()
+                ? state.ask_exclusive_text[qi]
+                : std::string{};
+            // 独占文本为空 = 未完成题(离开校验已拦截,理论到不了这里),
+            // 防御性不发空字段。
+            if (!text.empty()) ans["exclusive_text"] = text;
+        } else {
+            std::string text = qi < state.ask_supplement_text.size()
+                ? state.ask_supplement_text[qi]
+                : std::string{};
+            if (!text.empty()) ans["supplement_text"] = text;
+        }
+        arr.push_back(std::move(ans));
+    }
+    return arr;
 }
 
 } // namespace
@@ -75,11 +120,12 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
     question_order.reserve(questions.size());
     for (const auto& q : questions) question_order.push_back(q.question);
 
+    const nlohmann::json empty_answers = nlohmann::json::array();
     if (questions.empty()) {
-        return make_response(/*cancelled=*/true, false, question_order, {});
+        return make_response(/*cancelled=*/true, false, empty_answers);
     }
     if (abort_flag && abort_flag->load()) {
-        return make_response(/*cancelled=*/true, false, question_order, {});
+        return make_response(/*cancelled=*/true, false, empty_answers);
     }
 
     {
@@ -91,7 +137,7 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
             state.overlay_cv.wait_for(lk, std::chrono::milliseconds(100));
         }
         if (abort_flag && abort_flag->load()) {
-            return make_response(/*cancelled=*/true, false, question_order, {});
+            return make_response(/*cancelled=*/true, false, empty_answers);
         }
         state.ask_origin_label = origin_label;
         state.ask_pending = true;
@@ -101,7 +147,6 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
         // timeout 策略:overlay 顶部渲染静态提示「N 秒无操作将自动选择推荐项」;
         // 0 = 无提示。
         state.ask_timeout_hint_seconds = timeout_seconds > 0 ? timeout_seconds : 0;
-        state.ask_result_answers.clear();
         state.ask_result_ok = false;
         state.ask_current_question = 0;
         state.ask_submit_page = false;
@@ -115,10 +160,12 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
         for (const auto& q : questions) {
             state.ask_multi_selected_by_question.emplace_back(q.options.size(), false);
         }
-        state.ask_custom_answer_selected.assign(questions.size(), false);
-        state.ask_custom_answers.assign(questions.size(), std::string{});
+        state.ask_exclusive_active.assign(questions.size(), false);
+        state.ask_exclusive_text.assign(questions.size(), std::string{});
+        state.ask_supplement_text.assign(questions.size(), std::string{});
+        state.ask_input_target = AskInputTarget::None;
+        state.ask_validation_error.clear();
         state.ask_multi_selected.assign(questions[0].options.size(), false);
-        state.ask_other_input_active = false;
         state.ask_scroll_offset = 0;
         state.ask_scroll_total_rows = 0;
         state.ask_scroll_visible_rows = 0;
@@ -127,10 +174,11 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
     }
     screen.PostEvent(ftxui::Event::Custom);
 
-    std::map<std::string, std::string> answers;
     bool ok = false;
     bool aborted = false;
     bool timed_out = false;
+    // answers 组装结果:锁内填充(读 state 需要持锁),锁外 return 使用。
+    nlohmann::json answered_json = nlohmann::json::array();
     const bool has_deadline = timeout_seconds > 0;
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
@@ -152,7 +200,9 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
         }
         aborted = abort_flag && abort_flag->load();
         ok = state.ask_result_ok;
-        answers = state.ask_result_answers;
+        // 双入口结构化组装(锁内读状态;answers_from_state 之后不再有
+        // 其它线程写这些 ask 字段 —— 工具线程已在本函数中醒来)。
+        answered_json = answers_from_state(state, questions);
         // overlay 已关闭 —— 清理残留的临时 navigation 状态,防止下次打开时脏数据。
         state.ask_pending = false;
         state.ask_questions.clear();
@@ -162,9 +212,11 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
         state.ask_question_option_focus.clear();
         state.ask_answered_questions.clear();
         state.ask_selected_options.clear();
-        state.ask_custom_answer_selected.clear();
-        state.ask_custom_answers.clear();
-        state.ask_other_input_active = false;
+        state.ask_exclusive_active.clear();
+        state.ask_exclusive_text.clear();
+        state.ask_supplement_text.clear();
+        state.ask_input_target = AskInputTarget::None;
+        state.ask_validation_error.clear();
         state.ask_current_question = 0;
         state.ask_submit_page = false;
         state.ask_submit_focus = 0;
@@ -184,14 +236,14 @@ nlohmann::json ask_via_tui_overlay(TuiState& state,
     // 到点前一瞬用户已提交时 ok=true —— 按正常回答处理,用户真实意志优先。
     if (timed_out && !aborted && !ok) {
         return make_response(/*cancelled=*/false, /*timed_out=*/true,
-                             question_order, {});
+                             empty_answers);
     }
     if (aborted || !ok) {
         LOG_INFO("[AskUserQuestion] declined (aborted=" +
                  std::string(aborted ? "true" : "false") + ")");
-        return make_response(/*cancelled=*/true, false, question_order, {});
+        return make_response(/*cancelled=*/true, false, empty_answers);
     }
-    return make_response(false, false, question_order, answers);
+    return make_response(false, false, answered_json);
 }
 
 } // namespace acecode::tui

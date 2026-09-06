@@ -76,7 +76,7 @@ std::string trim_left_spaces(std::string s) {
 
 void init_other_mode_state(TuiState& s) {
     s.ask_pending = true;
-    s.ask_other_input_active = true;
+    s.ask_input_target = acecode::AskInputTarget::Supplement;
     s.input_text.clear();
     s.input_cursor = 0;
     s.input_mode = InputMode::Normal;
@@ -386,4 +386,170 @@ TEST(AskQuestionOverlayTest, HitOptionReturnsMinusOneWhenUnmapped) {
     const std::vector<Box> boxes = {Box{0, 10, 0, 0}};
     EXPECT_EQ(acecode::tui::ask_overlay_hit_option(boxes, 5, indices, 1, 0),
               -1);
+}
+
+// 双入口布局(ask-user-question-dual-entry,任务 2.4):
+// 可聚焦 Option 行 = option_count + 2(预设 N + 「以上都不是」行 N +
+// 补充说明内容行 N+1);focus 越界 clamp 到最后一行;独占行在补充区之后。
+TEST(AskQuestionOverlayTest, DualEntryAddsExclusiveAndSupplementFocusRows) {
+    AskQuestion q = make_question(); // 2 options
+    AskOverlayLayoutInput input = input_for(q, 80);
+    input.option_focus = 999; // 越界 → clamp 到 total_rows - 1 = option_count + 1
+    const auto layout = acecode::tui::build_ask_overlay_layout(input);
+
+    const auto option_rows = rows_of_kind(layout, AskOverlayRowKind::Option);
+    // 注意:description 过长时选项可能 wrap 成多渲染行,因此按 option_index
+    // 去重后断言可聚焦行集合 = N + 2(预设 0..N-1 + 独占 N + 补充 N+1)。
+    std::vector<bool> seen_index(q.options.size() + 2u, false);
+    for (const auto& row : layout.rows) {
+        if (row.kind != AskOverlayRowKind::Option) continue;
+        if (row.option_index >= 0 &&
+            row.option_index < static_cast<int>(seen_index.size())) {
+            seen_index[static_cast<std::size_t>(row.option_index)] = true;
+        }
+    }
+    int distinct_indices = 0;
+    for (const bool s : seen_index) {
+        if (s) ++distinct_indices;
+    }
+    ASSERT_EQ(distinct_indices, static_cast<int>(q.options.size()) + 2);
+    ASSERT_FALSE(option_rows.empty());
+
+    // 独占行:勾选标记 + "None of the above" 静态文案(grill Q3),激活文本行内追加。
+    // 直接扫 Option 行找独占 / 补充内容行。
+    int seen_exclusive = 0;
+    int seen_supplement = 0;
+    for (const auto& row : layout.rows) {
+        if (row.kind != AskOverlayRowKind::Option) continue;
+        if (row.option_index == static_cast<int>(q.options.size())) {
+            ++seen_exclusive;
+            // 独占行文案可能被 wrap;focused 前缀(▸/勾选)存在时仍应含静态文案。
+            EXPECT_NE(trim_left_spaces(row.text).find("None of the above"),
+                      std::string::npos)
+                << row.text;
+        }
+        if (row.option_index == static_cast<int>(q.options.size()) + 1) {
+            ++seen_supplement;
+            // focus clamp 到补充行时会带 ▸ 前缀,这里只断言占位文案存在。
+            EXPECT_NE(trim_left_spaces(row.text).find("(enter to add a note)"),
+                      std::string::npos)
+                << row.text;
+        }
+    }
+    EXPECT_EQ(seen_exclusive, 1);
+    EXPECT_EQ(seen_supplement, 1);
+
+    // 越界 focus clamp 到最后一个可聚焦行(补充内容行,option_index = N+1)。
+    ASSERT_GE(layout.focused_row_begin, 0);
+    EXPECT_EQ(layout.rows[layout.focused_row_begin].option_index,
+              static_cast<int>(q.options.size()) + 1);
+}
+
+// 独占激活(ask-user-question-dual-entry):预设行与补充说明区 dim,
+// 独占行本身不 dim、行内展示激活文本;预设行 dim 时内容仍保留。
+TEST(AskQuestionOverlayTest, ExclusiveActiveDimsPresetsAndSupplementArea) {
+    AskQuestion q = make_question();
+    AskOverlayLayoutInput input = input_for(q, 80);
+    input.exclusive_active = true;
+    input.exclusive_text = "Write our own";
+    const auto layout = acecode::tui::build_ask_overlay_layout(input);
+
+    bool exclusive_row_dim = false;
+    // 预设行按 option_index 覆盖:每个预设的所有渲染行都必须 dim
+    // (description 可能 wrap 成多行,不能按渲染行数断言)。
+    std::vector<int> preset_rows_by_index(q.options.size(), 0);
+    std::vector<int> preset_dim_by_index(q.options.size(), 0);
+    int supplement_rows_dim = 0;
+    int supplement_rows_total = 0;
+    bool exclusive_text_shown = false;
+    for (const auto& row : layout.rows) {
+        if (row.kind != AskOverlayRowKind::Option) continue;
+        const int n = static_cast<int>(q.options.size());
+        if (row.option_index == n) {
+            exclusive_row_dim = row.dim;
+            if (row.text.find("Write our own") != std::string::npos) {
+                exclusive_text_shown = true;
+            }
+        } else if (row.option_index == n + 1) {
+            ++supplement_rows_total;
+            if (row.dim) ++supplement_rows_dim;
+        } else if (row.option_index >= 0 && row.option_index < n) {
+            ++preset_rows_by_index[row.option_index];
+            if (row.dim) ++preset_dim_by_index[row.option_index];
+        }
+    }
+    EXPECT_FALSE(exclusive_row_dim);            // 独占行本身不高亮弱化
+    EXPECT_TRUE(exclusive_text_shown);          // 激活文本行内展示
+    for (std::size_t i = 0; i < q.options.size(); ++i) {
+        EXPECT_GT(preset_rows_by_index[i], 0) << "preset " << i << " 应有渲染行";
+        EXPECT_EQ(preset_dim_by_index[i], preset_rows_by_index[i])
+            << "preset " << i << " 的所有渲染行都应 dim";
+    }
+    EXPECT_GT(supplement_rows_total, 0);
+    EXPECT_EQ(supplement_rows_dim, supplement_rows_total); // 补充内容行 dim(被压制)
+}
+
+// 双入口未激活:预设行不 dim;补充文本渲染在补充内容行。
+TEST(AskQuestionOverlayTest, SupplementTextRenderedWhenNoExclusive) {
+    AskQuestion q = make_question();
+    AskOverlayLayoutInput input = input_for(q, 80);
+    input.supplement_text = "remember Windows CI";
+    const auto layout = acecode::tui::build_ask_overlay_layout(input);
+
+    const int n = static_cast<int>(q.options.size());
+    bool supplement_text_shown = false;
+    int preset_rows_dim = 0;
+    for (const auto& row : layout.rows) {
+        if (row.kind != AskOverlayRowKind::Option) continue;
+        if (row.option_index == n + 1) {
+            EXPECT_FALSE(row.dim);
+            if (row.text.find("remember Windows CI") != std::string::npos) {
+                supplement_text_shown = true;
+            }
+        } else if (row.option_index >= 0 && row.option_index < n && row.dim) {
+            ++preset_rows_dim;
+        }
+    }
+    EXPECT_TRUE(supplement_text_shown);
+    EXPECT_EQ(preset_rows_dim, 0); // 未独占 → 预设行不弱化
+}
+
+// 输入态提示 + 离开校验错误行(grill Q1/Q3):
+//   input_target=Exclusive → CustomPrompt 提示独占作答;Supplement → 补充提示;
+//   validation_error 非空 → Hint 行渲染错误文案。
+TEST(AskQuestionOverlayTest, InputTargetPromptAndValidationErrorRows) {
+    AskQuestion q = make_question();
+
+    AskOverlayLayoutInput exclusive_input = input_for(q, 80);
+    exclusive_input.input_target = 2; // AskInputTarget::Exclusive
+    const auto exclusive_layout =
+        acecode::tui::build_ask_overlay_layout(exclusive_input);
+    const auto exclusive_prompts =
+        rows_of_kind(exclusive_layout, AskOverlayRowKind::CustomPrompt);
+    ASSERT_EQ(exclusive_prompts.size(), 1u);
+    EXPECT_NE(exclusive_prompts[0].find("None of the above - your answer"),
+              std::string::npos);
+
+    AskOverlayLayoutInput supplement_input = input_for(q, 80);
+    supplement_input.input_target = 1; // AskInputTarget::Supplement
+    const auto supplement_layout =
+        acecode::tui::build_ask_overlay_layout(supplement_input);
+    const auto supplement_prompts =
+        rows_of_kind(supplement_layout, AskOverlayRowKind::CustomPrompt);
+    ASSERT_EQ(supplement_prompts.size(), 1u);
+    EXPECT_NE(supplement_prompts[0].find("Supplement note (Enter to submit"),
+              std::string::npos);
+
+    AskOverlayLayoutInput error_input = input_for(q, 80);
+    error_input.validation_error =
+        "None of the above requires an answer (type it or untoggle with Space).";
+    const auto error_layout = acecode::tui::build_ask_overlay_layout(error_input);
+    const auto hint_rows = rows_of_kind(error_layout, AskOverlayRowKind::Hint);
+    bool found_error = false;
+    for (const auto& h : hint_rows) {
+        if (h.find("requires an answer") != std::string::npos) {
+            found_error = true;
+        }
+    }
+    EXPECT_TRUE(found_error);
 }

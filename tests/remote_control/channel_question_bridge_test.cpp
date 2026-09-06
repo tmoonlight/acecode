@@ -181,7 +181,7 @@ TEST(ChannelQuestionBridge, InvalidNumericInputDoesNotChangeDraftOrPosition) {
     EXPECT_TRUE(contains_text(still_second, "已记录 1/2 题"));
 }
 
-TEST(ChannelQuestionBridge, AcceptsLabelsAndCustomTextUpToTwoThousandCodepoints) {
+TEST(ChannelQuestionBridge, AcceptsLabelsAndExclusiveTextUpToTwoThousandCodepoints) {
     const auto now = ChannelQuestionBridge::Clock::time_point{} + 10s;
 
     ChannelQuestionBridge label_bridge;
@@ -191,7 +191,7 @@ TEST(ChannelQuestionBridge, AcceptsLabelsAndCustomTextUpToTwoThousandCodepoints)
     ASSERT_TRUE(label.submission.has_value());
     EXPECT_EQ(label.submission->response.answers[0].selected,
               std::vector<std::string>({"Gamma"}));
-    EXPECT_TRUE(label.submission->response.answers[0].custom_text.empty());
+    EXPECT_TRUE(label.submission->response.answers[0].exclusive_text.empty());
 
     ChannelQuestionBridge custom_bridge;
     custom_bridge.add_request(
@@ -201,7 +201,8 @@ TEST(ChannelQuestionBridge, AcceptsLabelsAndCustomTextUpToTwoThousandCodepoints)
     const auto custom = custom_bridge.handle_input("/aq " + exactly_limit, now);
     ASSERT_TRUE(custom.submission.has_value());
     EXPECT_TRUE(custom.submission->response.answers[0].selected.empty());
-    EXPECT_EQ(custom.submission->response.answers[0].custom_text, exactly_limit);
+    EXPECT_EQ(custom.submission->response.answers[0].exclusive_text,
+              exactly_limit);
 
     ChannelQuestionBridge punctuation_bridge;
     punctuation_bridge.add_request(
@@ -209,7 +210,7 @@ TEST(ChannelQuestionBridge, AcceptsLabelsAndCustomTextUpToTwoThousandCodepoints)
     const auto punctuation =
         punctuation_bridge.handle_input("/aq keep alpha, then beta", now);
     ASSERT_TRUE(punctuation.submission.has_value());
-    EXPECT_EQ(punctuation.submission->response.answers[0].custom_text,
+    EXPECT_EQ(punctuation.submission->response.answers[0].exclusive_text,
               "keep alpha, then beta");
 
     ChannelQuestionBridge too_long_bridge;

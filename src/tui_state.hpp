@@ -59,6 +59,11 @@ inline std::pair<InputMode, std::string> parse_mode_prefix(const std::string& en
     return {InputMode::Normal, entry};
 }
 
+// AskUserQuestion overlay 的输入态目标(ask-user-question-dual-entry):
+// None = 列表导航态;Supplement / Exclusive = 正在补充说明 / 以上都不是
+// 输入框内编辑(取代旧单一 "Other" 的布尔 ask_other_input_active)。
+enum class AskInputTarget { None, Supplement, Exclusive };
+
 struct TuiState {
     struct Message {
         std::string role;
@@ -212,8 +217,7 @@ struct TuiState {
     //   ask_pending          — 工具线程翻起 true,TUI 完成回答 / Esc 后翻回 false
     //   ask_payload_json     — 原始参数 JSON,便于日志 / 调试
     //   ask_questions        — parse 后的题目列表,TUI 直接按此渲染
-    //   ask_question_order   — question 文本的原始顺序,format_ask_answers 使用
-    //   ask_result_answers   — question 文本 → answer 字符串(multi-select 已 join)
+    //   ask_question_order   — question 文本的原始顺序(与 ask_questions 一一对应)
     //   ask_result_ok        — 提交成功时 true;Esc / shutdown 为 false
     //   ask_cv               — 工具线程 wait,事件线程 notify
     // 下面是 overlay 内部的 navigation 状态,仅在 ask_pending=true 期间有效:
@@ -222,12 +226,16 @@ struct TuiState {
     //   ask_submit_focus     — 提交页焦点:0 = Submit answers,1 = Cancel
     //   ask_option_focus     — 当前题目的焦点选项下标([options.size()] 表示 "Other")
     //   ask_question_option_focus — 每题最近焦点,用于左右换页后恢复
-    //   ask_answered_questions — 每题是否已通过 Enter/Other 正式提交过答案
-    //   ask_selected_options — 单选题已提交的选项下标;options.size() 表示 Other
+    //   ask_answered_questions — 每题是否已正式提交过答案(Enter / 双入口确认)
+    //   ask_selected_options — 单选每题已提交的选项下标(-1 = 未答)
     //   ask_multi_selected   — 当前题目多选勾选标记(大小等于该题 options 数)
     //   ask_multi_selected_by_question — 每题多选勾选状态,用于换页保持
-    //   ask_custom_answer_selected / ask_custom_answers — Other 已提交答案
-    //   ask_other_input_active — true 时输入框为 "Other" 自定义文本模式
+    //   ask_exclusive_active / ask_exclusive_text — 「以上都不是」每题勾选与文本
+    //   ask_supplement_text — 「我要补充」每题文本(非空且未独占即激活,
+    //     无勾选标志)
+    //   ask_input_target — 输入态目标(none / supplement / exclusive),
+    //     取代旧布尔 ask_other_input_active 的单一 "Other" 建模
+    //   ask_validation_error — 离开当前题校验失败的错误提示(非空时渲染)
     bool ask_pending = false;
     std::string ask_payload_json;
     std::vector<AskQuestion> ask_questions;
@@ -244,9 +252,13 @@ struct TuiState {
     std::vector<int> ask_selected_options;
     std::vector<bool> ask_multi_selected;
     std::vector<std::vector<bool>> ask_multi_selected_by_question;
-    std::vector<bool> ask_custom_answer_selected;
-    std::vector<std::string> ask_custom_answers;
-    bool ask_other_input_active = false;
+    // 双入口(ask-user-question-dual-entry)每题状态。
+    std::vector<bool> ask_exclusive_active;
+    std::vector<std::string> ask_exclusive_text;
+    std::vector<std::string> ask_supplement_text;
+    AskInputTarget ask_input_target = AskInputTarget::None;
+    // 离开当前题校验失败提示(exclusive 激活但文本为空)。渲染层非空显示。
+    std::string ask_validation_error;
     int ask_scroll_offset = 0;
     int ask_scroll_total_rows = 0;
     int ask_scroll_visible_rows = 0;

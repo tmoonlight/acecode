@@ -24,6 +24,9 @@ struct AskOverlayRow {
     int               option_index = -1;
     bool              focused = false;
     bool              continuation = false;
+    // 独占激活时被停用的行(预设行 / 补充说明区):渲染层弱化显示,
+    // 表示"内容保留但当前不生效"。
+    bool              dim = false;
 };
 
 struct AskOverlayLayoutInput {
@@ -36,12 +39,22 @@ struct AskOverlayLayoutInput {
     bool                     question_answered = false;
     std::vector<bool>        multi_selected;
     std::vector<bool>        answered_questions;
-    bool                     other_input_active = false;
     int                      submit_focus = 0;
     int                      content_width = 80;
     // question_policy=timeout 的静态提示秒数;>0 时在题目页 hint 行后追加
     // 「Xs 无操作将自动选择推荐项」提示(add-ask-question-policy)。
     int                      timeout_hint_seconds = 0;
+
+    // —— AskUserQuestion 双入口(ask-user-question-dual-entry)——
+    // input_target:0=None(列表导航) / 1=Supplement / 2=Exclusive —— 与
+    // TuiState::AskInputTarget 顺序一致,用 int 避免 overlay 头反向依赖
+    // tui_state.hpp。
+    int                      input_target = 0;
+    std::string              input_text;       // 输入态实时文本(渲染在提示行后)
+    bool                     exclusive_active = false;
+    std::string              exclusive_text;   // 独占文本(激活时行内展示)
+    std::string              supplement_text;  // 补充文本(补充内容行展示)
+    std::string              validation_error; // 非空 → 渲染错误提示行
 };
 
 struct AskOverlayLayout {

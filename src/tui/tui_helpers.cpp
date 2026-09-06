@@ -1343,7 +1343,7 @@ InputPointerTarget input_pointer_target(const TuiState& state) {
         return InputPointerTarget::None;
     }
     if (state.ask_pending) {
-        return state.ask_other_input_active
+        return state.ask_input_target != AskInputTarget::None
             ? InputPointerTarget::AskOther
             : InputPointerTarget::None;
     }

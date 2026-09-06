@@ -1553,7 +1553,7 @@ TEST(SessionChannelBinderIntegration,
     ASSERT_EQ(response.answers.size(), 2u);
     EXPECT_EQ(response.answers[0].selected,
               std::vector<std::string>({"Alpha"}));
-    EXPECT_EQ(response.answers[1].custom_text, "deployment note");
+    EXPECT_EQ(response.answers[1].exclusive_text, "deployment note");
     EXPECT_TRUE(wait_for_outbound_text(sender, "答案已提交，继续执行"));
     EXPECT_EQ(aq_user_messages.load(), 0);
 
@@ -1735,7 +1735,7 @@ TEST(SessionChannelBinderIntegration,
     ASSERT_EQ(response.answers.size(), 2u);
     EXPECT_EQ(response.answers[0].selected,
               std::vector<std::string>({"Beta"}));
-    EXPECT_EQ(response.answers[1].custom_text, "restored");
+    EXPECT_EQ(response.answers[1].exclusive_text, "restored");
 
     binder.execute_command(first_sid, "off");
     hx.registry.destroy(first_sid);
