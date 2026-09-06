@@ -379,7 +379,10 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
                         if (s.is_string()) ans.selected.push_back(s.get<std::string>());
                     }
                 }
-                ans.custom_text = a.value("custom_text", std::string{});
+                // 双入口协议(ask-user-question-dual-entry):旧 custom_text
+                // 字段已移除,只读 supplement_text / exclusive_text。
+                ans.supplement_text = a.value("supplement_text", std::string{});
+                ans.exclusive_text = a.value("exclusive_text", std::string{});
                 resp.answers.push_back(std::move(ans));
             }
         }

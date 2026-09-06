@@ -43,6 +43,21 @@ std::string format_ask_answers(
     const std::vector<std::string>& question_order,
     const std::map<std::string, std::string>& answers);
 
+// AskUserQuestion 双入口(ask-user-question-dual-entry)每题答案串的最终拼装
+// 纯函数:selected label 列表 + 「我要补充」文本 + 「以上都不是」文本 →
+// 模型看到的该题答案串。exclusive_text 非空 = 独占生效(selected 与
+// supplement_text 作废,防御性兜底);产物示例:
+//   仅预设            -> "A, B"
+//   预设 + 补充       -> "A, B; 补充: x"
+//   仅补充(独立)      -> "补充: x"
+//   以上都不是        -> "以上都不是: x"
+// 标记词中文为单点常量(改英文只需改本函数);分隔符 ASCII。TUI commit 与
+// daemon 解析两处都调用它,是两条路径的答案串构造唯一入口。
+std::string format_single_answer(
+    const std::vector<std::string>& selected_labels,
+    const std::string& supplement_text,
+    const std::string& exclusive_text);
+
 // Build UI-only metadata for answered AskUserQuestion results. The tool output
 // remains the provider-visible text contract; UI surfaces use this structured
 // payload to render compact confirmation cards.

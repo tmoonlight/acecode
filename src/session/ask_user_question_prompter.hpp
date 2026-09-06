@@ -33,12 +33,18 @@
 namespace acecode {
 
 // 一个问题的答案。selected 装 option label;multiSelect=false 时只会有 1 项,
-// =true 时 0..n 项。custom_text 非空表示走了 "Other..." 自定义路径(可与
-// selected 共存,前端决定;tool 侧拼接时按 ", " 合并)。
+// =true 时 0..n 项。
+// 「我要补充」与「以上都不是」双入口(ask-user-question-dual-entry):
+//   supplement_text 非空 = 追加式补充(与 selected 共存,独立存在亦可);
+//   exclusive_text 非空 = 独占(selected 必为空,UI 激活时已清空预设)。
+//   非空即选中,协议不传 active 标志。两文本同时非空是外部直连违规,解析
+//   层以 exclusive_text 为准(互斥兜底,format_single_answer 内实现)。
+// 旧字段 custom_text 已移除(前后端同版本发布,无过渡期负担)。
 struct AskUserQuestionAnswer {
     std::string              question_id; // 等价于 question 文本(沿用 TUI 行为)
     std::vector<std::string> selected;
-    std::string              custom_text;
+    std::string              supplement_text;
+    std::string              exclusive_text;
 };
 
 // 一次 AskUserQuestion 调用的整批回答(每个 question 一项),或者 cancelled。

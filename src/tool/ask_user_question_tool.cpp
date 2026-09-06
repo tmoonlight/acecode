@@ -57,7 +57,10 @@ constexpr const char* kToolDescription =
     "4. Offer choices to the user about what direction to take.\n"
     "\n"
     "Usage notes:\n"
-    "- Users will always be able to select \"Other\" to provide custom text input\n"
+    "- The UI automatically appends two entries below your options: "
+    "\"我要补充\" (a free-text supplement that can coexist with any selected "
+    "options) and \"以上都不是\" (exclusive: rejects every option). Do NOT add "
+    "your own \"Other\"/\"以上都不是\"-style option — it would be redundant.\n"
     "- Use multiSelect: true to allow multiple answers to be selected for a question\n"
     "- If you recommend a specific option, make that the first option in the list "
     "and add \"(Recommended)\" at the end of the label";
@@ -192,6 +195,43 @@ std::string format_ask_answers(
         out += a;
         out += "\"";
         first = false;
+    }
+    return out;
+}
+
+// —— AskUserQuestion 双入口(ask-user-question-dual-entry)——
+// 每题答案串的最终拼装点(纯函数):已选预设 label 列表 + 「我要补充」文本 +
+// 「以上都不是」文本 → 模型看到的该题答案串。TUI commit 与 daemon 解析
+// (parse_async_response)两处都收敛到这里,保证两条路径产物一致;外层
+// format_ask_answers 只做 `"Q"="A"` 引号包裹,不加工答案内容。
+//
+// 互斥语义(决策 2):exclusive_text 非空 = 「以上都不是」独占生效,selected
+// 与 supplement_text 一并作废(防御性——正常 UI 下独占激活时预设已清空、
+// 补充文本也不会被发出,这里为外部直连调用方兜底)。
+// 标记词固定中文、仅此一处(grill Q3:产物语言与两端 UI 语言解耦,改英文
+// 只需改这两个常量);分隔符用 ASCII(", " / "; " / ": "),规避 TUI
+// 宽度不稳定字形。
+std::string format_single_answer(
+    const std::vector<std::string>& selected_labels,
+    const std::string& supplement_text,
+    const std::string& exclusive_text) {
+    constexpr const char* kSupplementMarker = "补充";
+    constexpr const char* kExclusiveMarker = "以上都不是";
+
+    if (!exclusive_text.empty()) {
+        return std::string(kExclusiveMarker) + ": " + exclusive_text;
+    }
+    std::string out;
+    for (const auto& label : selected_labels) {
+        if (label.empty()) continue;
+        if (!out.empty()) out += ", ";
+        out += label;
+    }
+    if (!supplement_text.empty()) {
+        if (!out.empty()) out += "; ";
+        out += kSupplementMarker;
+        out += ": ";
+        out += supplement_text;
     }
     return out;
 }
@@ -388,8 +428,11 @@ ToolDef build_ask_user_question_def() {
                 {"maxItems", kMaxOptions},
                 {"items", option_schema},
                 {"description",
-                 "2-4 mutually exclusive choices. Do NOT include an 'Other' option — "
-                 "the UI appends one automatically."}
+                 "2-4 mutually exclusive choices. Do NOT include an 'Other' / "
+                 "'None of the above' style option — the UI automatically "
+                 "appends two entries: 我要补充 (free text that coexists with "
+                 "selected options) and 以上都不是 (exclusive, voids all "
+                 "presets)."}
             }},
             {"multiSelect", {
                 {"type", "boolean"},
@@ -441,8 +484,10 @@ nlohmann::json questions_to_payload(const std::vector<AskQuestion>& qs) {
     return arr;
 }
 
-// 把 ctx.ask_user_questions 回来的 JSON 转成 std::map<question, answer_text>,
-// 按 ", " 拼合 multiSelect。供 format_ask_answers 使用。
+// 把 ctx.ask_user_questions 回来的 JSON 转成 std::map<question, answer_text>。
+// 每题的答案串统一经 format_single_answer 拼装(ask-user-question-dual-entry):
+// answers[i] 携带结构化 selected[] + supplement_text + exclusive_text,TUI
+// 与 daemon 两条路径最终都汇合到这里,不再各自用 ", " 手工拼答案。
 std::map<std::string, std::string>
 parse_async_response(const nlohmann::json& resp_json) {
     std::map<std::string, std::string> answers;
@@ -453,24 +498,21 @@ parse_async_response(const nlohmann::json& resp_json) {
         std::string qid = a.value("question_id", std::string{});
         if (qid.empty()) continue;
 
-        // selected 与 custom_text 都可能存在 —— 拼合
-        std::vector<std::string> parts;
+        std::vector<std::string> selected;
         if (a.contains("selected") && a["selected"].is_array()) {
             for (const auto& s : a["selected"]) {
-                if (s.is_string()) parts.push_back(s.get<std::string>());
+                if (s.is_string()) selected.push_back(s.get<std::string>());
             }
         }
-        if (a.contains("custom_text") && a["custom_text"].is_string()) {
-            std::string ct = a["custom_text"].get<std::string>();
-            if (!ct.empty()) parts.push_back(ct);
-        }
+        const std::string supplement =
+            a.value("supplement_text", std::string{});
+        const std::string exclusive =
+            a.value("exclusive_text", std::string{});
 
-        std::string joined;
-        for (std::size_t i = 0; i < parts.size(); ++i) {
-            if (i) joined += ", ";
-            joined += parts[i];
-        }
-        answers[qid] = joined;
+        // 互斥兜底(format_single_answer 内实现):两文本同时非空(仅外部
+        // 直连 API 违规,React 端 active 过滤已保证不会发出)时以 exclusive
+        // 为准。
+        answers[qid] = format_single_answer(selected, supplement, exclusive);
     }
     return answers;
 }

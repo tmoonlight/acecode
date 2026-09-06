@@ -3157,9 +3157,22 @@ close event.
 {
   "question_id": "q1",
   "selected": ["option-id"],
-  "custom_text": "free form"
+  "supplement_text": "free form",
+  "exclusive_text": ""
 }
 ```
+
+AskUserQuestion 双入口（我要补充 / 以上都不是）:
+
+- `selected` —— 已选的预设 option label（multiSelect=true 可多项）。
+- `supplement_text` —— 「我要补充」的手填文本，非空即选中；可与
+  `selected` 共存，也可独立存在（不选任何预设）。被「以上都不是」压制
+  （inactive）时**不进 payload**，即使本地留有旧文本。
+- `exclusive_text` —— 「以上都不是」的手填文本，非空即选中且独占：激活
+  时预设已被 UI 清空，正常请求中 `selected` 与 `supplement_text` 均为空。
+- 两字段同时非空属于外部直连违规（React 端 active 过滤已保证不会发出），
+  daemon 解析以 `exclusive_text` 为准。
+- 旧字段 `custom_text` 已移除（前端与 daemon 同版本发布，无过渡期）。
 
 #### AskUserQuestion answer policy (`agent_loop.question_policy`)
 

@@ -29,6 +29,7 @@ using acecode::AskOption;
 using acecode::build_ask_user_question_result_metadata;
 using acecode::format_ask_answers;
 using acecode::format_ask_user_question_result_display;
+using acecode::format_single_answer;
 using acecode::make_rejected_ask_result;
 using acecode::validate_ask_user_question_args;
 
@@ -299,6 +300,56 @@ TEST(AskUserQuestionRejectedTest, ConstantRejectedResult) {
     EXPECT_FALSE(r.success);
     EXPECT_EQ(r.output, "[Error] User declined to answer questions.");
 }
+
+// —— AskUserQuestion 双入口答案串拼装(format_single_answer)——
+// 场景:仅预设 —— 现状的多选 ", " 拼合行为保持不变。
+TEST(AskUserQuestionDualEntryFormatTest, PresetsOnlyJoinsWithCommaSpace) {
+    EXPECT_EQ(format_single_answer({"A", "B"}, "", ""), "A, B");
+    EXPECT_EQ(format_single_answer({"Docker 容器部署", "K8s Helm Chart"}, "", ""),
+              "Docker 容器部署, K8s Helm Chart");
+    EXPECT_EQ(format_single_answer({}, "", ""), "");
+    // 空 label 被跳过(防御,正常输入不会出现)。
+    EXPECT_EQ(format_single_answer({"A", "", "B"}, "", ""), "A, B");
+}
+
+// 场景:预设 + 补充 —— 补充文本以 "; 补充: " 追加在已选预设之后。
+TEST(AskUserQuestionDualEntryFormatTest, PresetsPlusSupplementAppendsMarker) {
+    EXPECT_EQ(format_single_answer({"A"}, "预算上限 5000", ""),
+              "A; 补充: 预算上限 5000");
+    EXPECT_EQ(format_single_answer({"A", "B"}, "补充说明", ""),
+              "A, B; 补充: 补充说明");
+}
+
+// 场景:仅补充(独立存在,不选任何预设)—— 决策 3 允许,产物只有补充标记。
+TEST(AskUserQuestionDualEntryFormatTest, SupplementAloneIsIndependent) {
+    EXPECT_EQ(format_single_answer({}, "自定义文本", ""), "补充: 自定义文本");
+}
+
+// 场景:以上都不是(独占)—— 预设已清空,产物只有独占标记;即使 selected
+// 或 supplement 残留(外部直连违规的防御输入),独占仍然优先(决策 2 互斥 +
+// 协议兜底:以 exclusive_text 为准)。
+TEST(AskUserQuestionDualEntryFormatTest, ExclusiveVoidsPresetsAndSupplement) {
+    EXPECT_EQ(format_single_answer({}, "", "都不合适，我们用裸机自托管"),
+              "以上都不是: 都不合适，我们用裸机自托管");
+    // 防御:selected 残留也被忽略。
+    EXPECT_EQ(format_single_answer({"A", "B"}, "", "都不合适"),
+              "以上都不是: 都不合适");
+    // 防御:exclusive 与 supplement 同时非空 → exclusive 为准。
+    EXPECT_EQ(format_single_answer({"A"}, "不该出现的补充", "都不合适"),
+              "以上都不是: 都不合适");
+}
+
+// 场景:标记词与分隔符均为单点常量(grill Q3:产物标记固定中文、分隔符
+// ASCII)——精确断言整个产物,防止未来改动静默破坏模型侧格式契约。
+TEST(AskUserQuestionDualEntryFormatTest, ExactMarkersAndSeparators) {
+    EXPECT_EQ(format_single_answer({"A", "B"}, "x", ""),
+              "A, B; 补充: x");
+    EXPECT_EQ(format_single_answer({}, "", "y"),
+              "以上都不是: y");
+    // supplement 单独时无多余前缀。
+    EXPECT_EQ(format_single_answer({}, "x", ""), "补充: x");
+}
+
 
 // active goal 仍使用提问组件，但固定 30 秒超时，到期自动采纳
 // 每题第一个(推荐)选项。callback 在这里模拟 prompter 到期。
