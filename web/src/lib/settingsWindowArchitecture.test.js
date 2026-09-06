@@ -51,11 +51,12 @@ run('Settings panel keeps normal caps and an exact 13px expanded inset', () => {
   assert.match(mask, /background: rgba\(0, 0, 0, 0\.35\);/);
   assert.doesNotMatch(mask, /backdrop-filter/);
   assert.match(panel, /width: calc\(100vw - 240px\);/);
-  assert.match(panel, /height: calc\(100vh - 240px\);/);
+  assert.match(panel, /--ace-settings-inset-y: clamp\(24px, calc\(25vh - 150px\), 120px\);/);
+  assert.match(panel, /height: calc\(100vh - 2 \* var\(--ace-settings-inset-y\)\);/);
   assert.match(panel, /min-width: min\(880px, calc\(100vw - 26px\)\);/);
   assert.match(panel, /min-height: min\(500px, calc\(100vh - 26px\)\);/);
-  assert.match(panel, /max-width: 2100px;/);
-  assert.match(panel, /max-height: 1550px;/);
+  assert.match(panel, /max-width: 1440px;/);
+  assert.match(panel, /max-height: 960px;/);
   assert.match(panel, /\.ace-settings-panel\[data-expanded="true"\] \{[\s\S]*width: calc\(100vw - 26px\);[\s\S]*height: calc\(100vh - 26px\);[\s\S]*max-width: none;[\s\S]*max-height: none;/);
 });
 

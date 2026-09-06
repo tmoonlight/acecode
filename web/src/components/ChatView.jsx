@@ -3534,6 +3534,21 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     return busy || transcriptStatus === 'running' ? 'running' : 'idle';
   }, [sid, busy, transcriptStatus]);
   const sessionWorkspaceHash = ref?.workspaceHash || ref?.workspace_hash || '';
+  // 会话头部原本显示「运行中 / 空闲」,但运行状态在输入区与侧栏都已有更明确的
+  // 呈现,这个胸章改为标出会话归属的工作区。ChatView 只在首页视图拉 workspace
+  // 列表(/api/workspaces 要扫上万个目录,不能每次切会话都打),所以这里按
+  // ref → 已加载列表 → 会话 cwd 目录名 的顺序退让;WorkspaceRegistry 默认名就是
+  // cwd 的目录名,因此没改过名的工作区第三级兜底与侧栏显示一致。
+  const workspaceLabel = useMemo(() => {
+    const fromRef = String(ref?.workspaceName || ref?.workspace_name || '').trim();
+    if (fromRef) return fromRef;
+    if (isRealWorkspaceHash(sessionWorkspaceHash)) {
+      const hit = homeWorkspaces.find((w) => w.hash === sessionWorkspaceHash);
+      const name = String(hit?.name || '').trim();
+      if (name) return name;
+    }
+    return pathBaseName(ref?.cwd || health?.cwd || '') || '当前项目';
+  }, [health?.cwd, homeWorkspaces, ref?.cwd, ref?.workspaceName, ref?.workspace_name, sessionWorkspaceHash]);
   const sessionPath = ref?.sessionPath || ref?.session_path || '';
   const sessionPinned = !!(ref?.pinned || ref?.isPinned || ref?.is_pinned);
   const openSessionContextMenu = useCallback((event) => {
@@ -4688,7 +4703,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
     ];
     return (
       <div
-        className="ace-chat-file-drop-scope flex-1 min-w-0 flex flex-col bg-bg"
+        className="ace-chat-file-drop-scope flex-1 min-w-0 flex flex-col bg-surface"
         data-chat-file-drop-scope="true"
         data-session-content-loading-anchor="true"
         data-file-drop-active={chatFileDropActive ? 'true' : undefined}
@@ -4914,7 +4929,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         onDrop={handleChatFileDrop}
         style={chatColumnStyle}
       >
-      <div className="h-9 px-3 flex items-center justify-between bg-surface border-b border-border shrink-0 gap-2">
+      <div className="h-9 px-3 flex items-center justify-between bg-surface shrink-0 gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="flex min-w-0 items-center gap-1.5">
             {remoteControlBound && (
@@ -4929,13 +4944,11 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
             <span className="text-[13px] font-semibold text-fg truncate">{title}</span>
           </span>
           <span
-            className={clsx(
-              'px-2.5 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap',
-              status === 'running' && 'bg-ok-bg text-ok border-ok-border',
-              status === 'idle'    && 'bg-surface-hi text-fg-mute border-transparent',
-            )}
+            className="px-2.5 py-0.5 rounded-full text-[10px] font-medium border whitespace-nowrap bg-surface-hi text-fg-mute border-transparent max-w-[180px] truncate"
+            title={workspaceLabel}
+            data-session-workspace-label="true"
           >
-            {status === 'running' ? '运行中' : '空闲'}
+            {workspaceLabel}
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -5031,7 +5044,7 @@ export function ChatView({ sessionRef, sessionId, homeLogoEffectEnabled = true, 
         className={clsx('relative flex-1 min-h-0 flex', trajectoryOpen && 'hidden')}
         aria-hidden={trajectoryOpen ? 'true' : undefined}
       >
-        <div className="relative flex-1 min-w-0 h-full">
+        <div className="relative flex-1 min-w-0 h-full pr-1.5">
         <div
           ref={scrollRef}
           data-conversation-find-root="true"

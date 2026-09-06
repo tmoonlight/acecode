@@ -1,10 +1,11 @@
 export const SIDEBAR_NAV_ITEMS = Object.freeze([
   Object.freeze({ id: 'new-task', label: '新建任务', icon: 'newSession', callback: 'onNewTask' }),
   Object.freeze({ id: 'new-loop', label: '定时任务', icon: 'alarm', callback: 'onNewLoop' }),
-  Object.freeze({ id: 'search-tasks', label: '搜索任务', icon: 'search', callback: 'onSearchTasks' }),
+  Object.freeze({ id: 'extensions', label: '扩展', icon: 'extension', action: 'extensions' }),
 ]);
 
 export const SIDEBAR_CUSTOM_ITEMS = Object.freeze([
+  Object.freeze({ id: 'models', label: '模型', icon: 'brain', settingsSection: 'models' }),
   Object.freeze({ id: 'mcp', label: 'MCP 服务器', icon: 'mcp', settingsSection: 'mcp' }),
   Object.freeze({ id: 'skills', label: '技能', icon: 'lightbulb', settingsSection: 'skills' }),
   Object.freeze({ id: 'experts', label: '专家组件', icon: 'brain', action: 'experts' }),

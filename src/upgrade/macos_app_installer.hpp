@@ -5,6 +5,8 @@
 
 namespace acecode::upgrade {
 
+class DiagnosticLog;
+
 // Validate a supported user or system Applications installation and
 // authenticate a candidate bundle. Implemented with
 // Foundation/Security.framework on macOS.
@@ -22,6 +24,7 @@ bool install_macos_app_update(
     const std::filesystem::path& candidate_bundle,
     const std::string& expected_version,
     std::filesystem::path* backup_bundle,
-    std::string* error = nullptr);
+    std::string* error = nullptr,
+    DiagnosticLog* diagnostics = nullptr);
 
 } // namespace acecode::upgrade

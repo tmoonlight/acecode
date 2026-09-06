@@ -1,4 +1,5 @@
 #include "image_generation_policy.hpp"
+#include "../../utils/http_url_validation.hpp"
 
 #include <algorithm>
 
@@ -57,6 +58,12 @@ std::string model_for_quality(const ImageGenerationConfig& cfg, Quality quality)
     return default_model_for(quality);
 }
 
+bool can_reuse_connection(const ModelProfile& profile) {
+    return profile.provider == "openai" &&
+           profile.endpoint_mode.value_or("base_url") != "full_url" &&
+           utils::is_valid_http_base_url(profile.base_url);
+}
+
 ResolvedEndpoint resolve_endpoint(const AppConfig& cfg) {
     ResolvedEndpoint out;
     const auto& ig = cfg.image_generation;
@@ -81,6 +88,10 @@ ResolvedEndpoint resolve_endpoint(const AppConfig& cfg) {
                          ig.saved_model_name + "' not found in saved_models";
             return out;
         }
+        if (!can_reuse_connection(*it)) {
+            out.reason = "image generation requires an OpenAI-compatible base URL connection";
+            return out;
+        }
         out.base_url = it->base_url;
         out.api_key = it->api_key;
     } else {
@@ -88,8 +99,8 @@ ResolvedEndpoint resolve_endpoint(const AppConfig& cfg) {
         out.api_key = ig.api_key;
     }
 
-    if (out.base_url.empty()) {
-        out.reason = "image_generation base_url is empty";
+    if (!utils::is_valid_http_base_url(out.base_url)) {
+        out.reason = "image_generation base_url is missing or invalid";
         return out;
     }
     if (out.api_key.empty()) {

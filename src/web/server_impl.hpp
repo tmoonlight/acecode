@@ -203,6 +203,8 @@ struct UpdateJobStatus {
     std::optional<std::uintmax_t> bytes_total;
     std::string backup_dir;
     std::string error;
+    std::string log_path;
+    std::string log_error;
     bool restart_required = false;
     bool cancel_requested = false;
 };
@@ -210,6 +212,7 @@ struct UpdateJobStatus {
 struct UpdateJobRuntime {
     std::mutex mu;
     std::optional<UpdateJobStatus> current;
+    std::shared_ptr<acecode::upgrade::DiagnosticLog> diagnostics;
 };
 
 // =====================================================================
@@ -258,6 +261,8 @@ struct WebServer::Impl {
     // 改写 config.json;不重读的话,下一次任何 save_config 都会把新写入的
     // api_key 抹掉。  (defined in server_helpers.cpp)
     void refresh_saved_models_from_disk();
+    void refresh_image_generation_tool_locked();
+    std::mutex image_generation_test_mu;
 
     mutable std::mutex attention_mu;
     mutable std::unordered_set<std::string> loaded_attention_workspaces;
@@ -511,6 +516,7 @@ struct WebServer::Impl {
     // 路由注册  (each defined in its own routes/routes_*.cpp)
     // -----------------------------------------------------------------
     void register_routes();
+    void register_image_generation();
 
     void register_health();
     void register_usage();

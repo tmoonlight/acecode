@@ -10,6 +10,7 @@ import {
   isQuestionAnswered,
   makeInitialAnswers,
   normalizeQuestionRequest,
+  selectAnswerCustom,
   toggleAnswerSelection,
   setAnswerCustom,
 } from './questionPicker.js';
@@ -74,6 +75,100 @@ run('自定义答案 payload 写入 custom_text', () => {
     question_id: 'q1',
     selected: [],
     custom_text: '其它需求',
+  });
+});
+
+run('单选改填其他时清除普通选项且仅提交自定义答案', () => {
+  const answers = makeInitialAnswers(request.questions);
+  answers[0] = toggleAnswerSelection(answers[0], 'fix-bug', false);
+  answers[0] = setAnswerCustom(answers[0], '  独立自定义答案  ', false);
+  assert.deepEqual(answers[0].selected, []);
+  assert.deepEqual(buildQuestionAnswerPayload(request, request.questions, answers).answers[0], {
+    question_id: 'q1',
+    selected: [],
+    custom_text: '独立自定义答案',
+  });
+});
+
+run('单选选中空白其他时立即清除普通选项并禁止推进和提交', () => {
+  for (const custom of ['', '   ']) {
+    const answers = makeInitialAnswers(request.questions);
+    answers[0] = { ...toggleAnswerSelection(answers[0], 'fix-bug', false), custom };
+    answers[0] = selectAnswerCustom(answers[0], false);
+    answers[1] = toggleAnswerSelection(answers[1], 'docs', true);
+    assert.equal(answers[0].customSelected, true);
+    assert.deepEqual(answers[0].selected, []);
+    assert.equal(isQuestionAnswered(answers[0]), false);
+    assert.equal(getNavigationState(0, request.questions, answers).canGoNext, false);
+    assert.equal(getNavigationState(1, request.questions, answers).canSubmit, false);
+  }
+});
+
+run('其他与普通单选互斥且切回其他保留草稿', () => {
+  const answers = makeInitialAnswers(request.questions);
+  answers[0] = setAnswerCustom(answers[0], '  自定义草稿  ');
+  answers[0] = toggleAnswerSelection(answers[0], 'add-feature', false);
+  assert.equal(answers[0].customSelected, false);
+  assert.equal(answers[0].custom, '  自定义草稿  ');
+  assert.deepEqual(buildQuestionAnswerPayload(request, request.questions, answers).answers[0], {
+    question_id: 'q1',
+    selected: ['add-feature'],
+  });
+
+  answers[0] = selectAnswerCustom(answers[0], false);
+  assert.equal(answers[0].customSelected, true);
+  assert.deepEqual(answers[0].selected, []);
+  assert.equal(isQuestionAnswered(answers[0]), true);
+  assert.deepEqual(buildQuestionAnswerPayload(request, request.questions, answers).answers[0], {
+    question_id: 'q1',
+    selected: [],
+    custom_text: '自定义草稿',
+  });
+});
+
+run('未选中的自定义草稿不算回答也不进入 payload', () => {
+  const answers = makeInitialAnswers(request.questions);
+  answers[0].custom = '尚未选中的草稿';
+  assert.equal(isQuestionAnswered(answers[0]), false);
+  assert.equal(getNavigationState(0, request.questions, answers).canGoNext, false);
+  assert.deepEqual(buildQuestionAnswerPayload(request, request.questions, answers).answers[0], {
+    question_id: 'q1',
+    selected: [],
+  });
+});
+
+run('清空其他文本后仍选中其他但不能借旧普通选项推进', () => {
+  const answers = makeInitialAnswers(request.questions);
+  answers[0] = toggleAnswerSelection(answers[0], 'fix-bug', false);
+  answers[0] = setAnswerCustom(answers[0], '其他内容');
+  answers[0] = setAnswerCustom(answers[0], '');
+  assert.equal(answers[0].customSelected, true);
+  assert.deepEqual(answers[0].selected, []);
+  assert.equal(isQuestionAnswered(answers[0]), false);
+  assert.equal(getNavigationState(0, request.questions, answers).canGoNext, false);
+});
+
+run('多选可组合普通选项和其他也可仅提交其他', () => {
+  const answers = makeInitialAnswers(request.questions);
+  answers[1] = toggleAnswerSelection(answers[1], 'tests', true);
+  answers[1] = selectAnswerCustom(answers[1], true);
+  assert.deepEqual(answers[1].selected, ['tests']);
+  answers[1] = setAnswerCustom(answers[1], '  性能检查  ', true);
+  answers[1] = toggleAnswerSelection(answers[1], 'docs', true);
+  assert.equal(answers[1].customSelected, true);
+  assert.deepEqual(buildQuestionAnswerPayload(request, request.questions, answers).answers[1], {
+    question_id: 'q2',
+    selected: ['tests', 'docs'],
+    custom_text: '性能检查',
+  });
+
+  answers[1] = toggleAnswerSelection(answers[1], 'tests', true);
+  answers[1] = toggleAnswerSelection(answers[1], 'docs', true);
+  assert.equal(isQuestionAnswered(answers[1]), true);
+  assert.deepEqual(buildQuestionAnswerPayload(request, request.questions, answers).answers[1], {
+    question_id: 'q2',
+    selected: [],
+    custom_text: '性能检查',
   });
 });
 

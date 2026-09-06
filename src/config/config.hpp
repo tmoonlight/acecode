@@ -299,7 +299,7 @@ struct ImageGenerationConfig {
     // "inline" = 用本段自己的 base_url + api_key。
     std::string source = "inline";
     std::string saved_model_name;
-    std::string base_url;
+    std::string base_url = constants::ACEMODEL_API_BASE_URL;
     std::string api_key;
     // quality 档位 → 模型名。
     std::string model_standard = "acemodel-image";

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="{{LEAD}}">
+  <title>{{TITLE}} · ACECode 文档</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/theme.js"></script>
+  <script src="assets/search-index.js" defer></script>
+  <script src="assets/docs.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到正文</a>
+  <header class="site-header">
+    <div class="brand-area"><button class="menu-toggle icon-button js-only" type="button" aria-label="打开文档目录" aria-controls="sidebar" aria-expanded="false"><svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><a class="brand" href="index.html" aria-label="ACECode 文档首页">ACE<span>Code</span></a><span class="brand-divider" aria-hidden="true"></span><span class="brand-label">文档</span></div>
+    <button class="search-trigger js-only" type="button" aria-label="搜索文档" aria-haspopup="dialog"><svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/></svg><span>搜索文档</span><kbd>Ctrl K</kbd></button>
+    <div class="header-actions"><a class="github-link" href="https://github.com/tmoonlight/acecode" target="_blank" rel="noopener noreferrer">GitHub <svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3h7v7m0-7L10 14M10 5H4v15h15v-6"/></svg></a><span class="header-divider" aria-hidden="true"></span><button class="theme-toggle icon-button js-only" type="button" aria-label="切换到浅色主题" title="切换到浅色主题"><svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></button><span class="locale-label">简体中文</span></div>
+  </header>
+  <div class="drawer-backdrop" hidden></div>
+  <aside class="sidebar" id="sidebar" aria-label="文档目录">
+    <div class="sidebar-heading"><span>文档目录</span><button class="drawer-close icon-button js-only" type="button" aria-label="关闭文档目录"><svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <nav aria-label="帮助文档栏目">{{NAVIGATION}}</nav>
+    <div class="sidebar-footer"><a href="https://github.com/tmoonlight/acecode/releases" target="_blank" rel="noopener noreferrer">下载 ACECode <svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3h7v7m0-7L10 14M10 5H4v15h15v-6"/></svg></a><span>从一个任务开始。</span></div>
+  </aside>
+  <div class="document-layout">
+    <main id="main-content" class="article" tabindex="-1">
+      <div class="breadcrumb"><a href="index.html">文档</a><span aria-hidden="true">›</span><span>{{GROUP}}</span></div>
+      <header class="article-header"><h1>{{TITLE}}</h1><p class="lead">{{LEAD}}</p></header>
+      <details class="mobile-contents"><summary>本页内容<svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg></summary><ul>{{TOC}}</ul></details>
+      {{BODY}}
+      <nav class="page-navigation" aria-label="文章翻页">{{PAGER}}</nav>
+      <footer class="article-footer"><span>ACECode 帮助文档</span><a href="https://github.com/tmoonlight/acecode/issues" target="_blank" rel="noopener noreferrer">反馈文档问题</a></footer>
+    </main>
+    <aside class="contents-rail" aria-label="本页内容"><div class="contents-sticky"><p class="contents-title">本页内容</p><nav aria-label="文章小节"><ul>{{TOC}}</ul></nav><div class="rail-note"><span>{{GROUP}}</span><p>循着目录逐步了解 ACECode。</p><a href="quick-start.html">前往快速开始 →</a></div></div></aside>
+  </div>
+  <dialog class="search-dialog" aria-labelledby="search-title">
+    <div class="search-dialog-header"><svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/></svg><label class="sr-only" id="search-title" for="docs-search">搜索文档</label><input id="docs-search" type="search" placeholder="搜索文档、命令或操作…" autocomplete="off" spellcheck="false"><button class="search-close icon-button" type="button" aria-label="关闭搜索"><svg class="icon " width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <p id="search-status" class="search-status" role="status" aria-live="polite">搜索全部帮助文档</p>
+    <div class="search-results" aria-label="搜索结果"></div>
+    <div class="search-dialog-footer"><span><kbd>↑</kbd><kbd>↓</kbd> 选择 <kbd>Enter</kbd> 打开</span><span><kbd>Esc</kbd> 关闭</span></div>
+  </dialog>
+  <div class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
+

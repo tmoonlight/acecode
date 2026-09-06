@@ -10,6 +10,7 @@ namespace acecode::upgrade {
 
 struct HttpTextResult {
     long status_code = 0;
+    int transport_code = 0;
     std::string body;
     std::string error;
     bool cancelled = false;
@@ -17,6 +18,7 @@ struct HttpTextResult {
 
 struct DownloadResult {
     long status_code = 0;
+    int transport_code = 0;
     std::uintmax_t bytes_written = 0;
     std::string error;
     bool cancelled = false;

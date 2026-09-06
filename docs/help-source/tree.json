@@ -1,0 +1,65 @@
+[
+  {"title":"开始使用","pages":[
+    {"slug":"index","title":"认识 ACECode","sections":["ACECode 能做什么","桌面端、终端与 Web 如何取舍"]},
+    {"slug":"installation","title":"安装","sections":["Windows","macOS","Linux"]},
+    {"slug":"quick-start","title":"快速开始","sections":["配置第一个模型","打开项目与创建任务","完成第一次代码修改"]},
+    {"slug":"update-uninstall","title":"更新与卸载"}
+  ]},
+  {"title":"使用 ACECode","pages":[
+    {"slug":"desktop","title":"桌面端","sections":["界面与导航","文件预览、终端与面板"]},
+    {"slug":"tui","title":"TUI"},
+    {"slug":"cli","title":"CLI"},
+    {"slug":"web","title":"Web"},
+    {"slug":"conversation","title":"对话与上下文","sections":["发送消息与引用文件","添加图片与附件","排队、补充指令与中断","侧边栏对话"]},
+    {"slug":"workspaces","title":"工作区与任务","sections":["添加与管理工作区","脱离工作区的任务","恢复、搜索、置顶与归档","分叉、导入与导出会话"]},
+    {"slug":"git","title":"文件修改与版本管理","sections":["查看变更与差异","Git 分支与工作树","回退与恢复"]},
+    {"slug":"context-usage","title":"上下文压缩与用量查看"}
+  ]},
+  {"title":"模型与服务商","pages":[
+    {"slug":"model-basics","title":"模型与服务商的关系"},
+    {"slug":"acemodel","title":"ACEModel"},
+    {"slug":"providers","title":"接入其他服务商","sections":["OpenAI 兼容接口","Anthropic","GitHub Copilot"]},
+    {"slug":"manage-models","title":"添加与管理模型","sections":["添加、编辑与删除","默认模型与会话模型"]},
+    {"slug":"model-capabilities","title":"模型能力与参数","sections":["上下文窗口与输出限制","思考、视觉与工具调用","能力探测"]}
+  ]},
+  {"title":"配置与扩展","pages":[
+    {"slug":"configuration","title":"配置文件与生效范围"},
+    {"slug":"permissions","title":"权限模式与操作确认"},
+    {"slug":"network","title":"网络与代理"},
+    {"slug":"appearance","title":"外观、语言与通知"},
+    {"slug":"project-rules","title":"项目规则与初始化"},
+    {"slug":"memory","title":"记忆与个性化"},
+    {"slug":"tools","title":"内置工具"},
+    {"slug":"skills","title":"技能（Skills）","sections":["安装与使用技能","全局技能与项目技能","编写自己的技能"]},
+    {"slug":"mcp","title":"MCP 服务器","sections":["添加与配置","启停、重连与查看工具"]},
+    {"slug":"lsp","title":"LSP 与代码诊断"},
+    {"slug":"hooks","title":"Hooks"},
+    {"slug":"connectors","title":"连接器"}
+  ]},
+  {"title":"进阶使用","pages":[
+    {"slug":"experts","title":"专家与专家团","sections":["选择与派遣专家","创建专家与组建专家团"]},
+    {"slug":"swarm","title":"蜂群模式与子代理","sections":["任务分工与并行执行","查看进度与处理操作确认"]},
+    {"slug":"schedules","title":"定时与循环任务","sections":["创建与设置执行时间","查看记录、暂停与管理"]},
+    {"slug":"agent-browser","title":"Agent 浏览器"},
+    {"slug":"channels","title":"消息渠道与远程控制"},
+    {"slug":"examples","title":"实战示例","sections":["新项目实战","排查问题与修复缺陷","实现功能与重构代码","审查代码变更"]}
+  ]},
+  {"title":"帮助与排错","pages":[
+    {"slug":"faq","title":"常见问题"},
+    {"slug":"troubleshoot-install","title":"安装、启动与更新问题"},
+    {"slug":"troubleshoot-models","title":"模型连接与认证问题"},
+    {"slug":"troubleshoot-context","title":"上下文超限与请求失败"},
+    {"slug":"troubleshoot-tools","title":"工具、技能与 MCP 问题"},
+    {"slug":"troubleshoot-desktop","title":"桌面、终端与远程连接问题"},
+    {"slug":"feedback","title":"日志与问题反馈"},
+    {"slug":"reference","title":"速查手册","sections":["快捷键","斜杠命令","命令行参数","本地配置和数据"]}
+  ]},
+  {"title":"开发者","pages":[
+    {"slug":"build","title":"从源码构建"},
+    {"slug":"architecture","title":"架构概览"},
+    {"slug":"daemon","title":"Daemon 部署与管理"},
+    {"slug":"api","title":"HTTP API 与 WebSocket"},
+    {"slug":"extension-development","title":"扩展开发","sections":["添加工具与命令","渠道插件协议"]},
+    {"slug":"contributing","title":"参与贡献"}
+  ]}
+]

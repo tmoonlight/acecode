@@ -1501,6 +1501,7 @@ int main(int argc, char** argv) {
         if (restart_requested.load()) {
             return nlohmann::json{{"ok", true}}.dump();
         }
+        LOG_INFO("[desktop] post-upgrade restart preflight started");
         const auto preflight = validate_desktop_restart_target(desktop_restart_target);
         if (!preflight.ok) {
             LOG_ERROR("[desktop] restart preflight failed: " + preflight.error);
@@ -2639,12 +2640,16 @@ int main(int argc, char** argv) {
     notification_shutdown_guard.dismiss();
     shutdown_tray_icon();
 
+    if (restart_requested.load()) LOG_INFO("[desktop] post-upgrade daemon shutdown started");
     auto failures = pool.shutdown_all();
     if (restart_requested.load()) {
+        LOG_INFO("[desktop] post-upgrade daemon shutdown finished; failures=" +
+                 std::to_string(failures.size()));
         // The replacement must not see the dying process's singleton guard and
         // focus it instead of starting. At this point the WebView loop, tray,
         // notifications, and managed daemons have all completed teardown.
         singleton.release();
+        LOG_INFO("[desktop] post-upgrade replacement launch started");
         std::string restart_error;
         if (!launch_desktop_replacement(desktop_restart_target, &restart_error)) {
             LOG_ERROR("[desktop] failed to launch replacement after upgrade: " + restart_error);

@@ -28,6 +28,7 @@ import {
   SESSION_PIN_TOGGLE_EVENT,
 } from '../lib/desktopContextMenu.js';
 import { relativeTime, clsx, formatCount } from '../lib/format.js';
+import { formatProgramVersion } from '../lib/webCoreInfo.js';
 import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
 import {
   filterPinnedSessions,
@@ -465,7 +466,7 @@ function parseDesktopResult(value) {
 function attentionMeta(state) {
   if (state === 'in_progress') return { label: '进行中', dot: '' };
   if (state === 'unread') return { label: '未读', dot: 'bg-ok shadow-[0_0_4px_var(--ace-ok)]' };
-  return { label: '已读', dot: 'bg-fg-mute/45' };
+  return { label: '已读', dot: 'border border-fg-mute/55' };
 }
 
 function SidebarDisclosure({ expanded, className = '' }) {
@@ -559,20 +560,25 @@ function CustomSidebarItem({ item, count, onClick }) {
 }
 
 function CustomSidebarSection({ workspaceHash = '', onOpenSettingsSection, onOpenExpertComponents }) {
+  const listId = useId();
   const [expanded, setExpanded] = usePreference(
     SIDEBAR_CUSTOM_STORAGE_KEY,
     DEFAULT_SIDEBAR_CUSTOM_EXPANDED,
     validateBooleanPreference,
   );
-  const [counts, setCounts] = useState({ skills: null, mcp: null, experts: null });
+  const [counts, setCounts] = useState({ models: null, skills: null, mcp: null, experts: null });
 
   const refreshCounts = useCallback(async () => {
-    const [skills, mcp, experts] = await Promise.allSettled([
+    const [models, skills, mcp, experts] = await Promise.allSettled([
+      api.listModels(),
       api.listSkills(),
       api.getMcp(),
       api.listExperts(workspaceHash || '__local__'),
     ]);
     setCounts((previous) => ({
+      models: models.status === 'fulfilled' && Array.isArray(models.value)
+        ? models.value.length
+        : previous.models,
       skills: skills.status === 'fulfilled' && Array.isArray(skills.value)
         ? skills.value.length
         : previous.skills,
@@ -591,25 +597,26 @@ function CustomSidebarSection({ workspaceHash = '', onOpenSettingsSection, onOpe
 
   const totalCount = sidebarCustomTotalCount(counts);
   return (
-    <div className="ace-sidebar-custom-section border-t border-border shrink-0 py-2">
+    <div className="ace-sidebar-custom-section">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
         data-sidebar-custom-section="true"
-        className="w-full flex items-center gap-[5px] px-3 py-1.5 text-[13px] text-fg-2 hover:text-fg transition"
+        className="ace-sidebar-extensions-trigger ace-sidebar-primary-text w-full flex items-center gap-[7px] px-3 py-[3px] rounded-md text-[14px] text-fg hover:bg-surface-hi transition"
         aria-expanded={expanded}
+        aria-controls={listId}
       >
-        <span className="w-6 h-6 flex items-center justify-center shrink-0 text-fg-mute">
-          <VsIcon name="extension" size={16} />
+        <span className="relative w-6 h-6 flex items-center justify-center shrink-0">
+          <span className="ace-sidebar-extensions-icon flex"><VsIcon name="extension" size={16} /></span>
+          <span className="ace-sidebar-extensions-arrow absolute inset-0 flex items-center justify-center"><SidebarDisclosure expanded /></span>
         </span>
         <span className="flex-1 min-w-0 text-left truncate">扩展</span>
         {totalCount != null && (
           <span className="mr-2 shrink-0 tabular-nums text-fg-mute">{totalCount}</span>
         )}
-        <SidebarDisclosure expanded={expanded} />
       </button>
       {expanded && (
-        <div className="ace-sidebar-custom-list pt-1">
+        <div id={listId} className="ace-sidebar-custom-list ml-6 my-1 border-l border-border pl-1">
           {SIDEBAR_CUSTOM_ITEMS.map((item) => (
             <CustomSidebarItem
               key={item.id}
@@ -666,7 +673,7 @@ function SessionAttentionIndicator({ attention, meta }) {
   return attention === 'in_progress' ? (
     <span className="ace-session-loading shrink-0" title={meta.label} aria-label={meta.label} />
   ) : (
-    <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', meta.dot)} title={meta.label} />
+    <span className={clsx('w-2 h-2 rounded-full shrink-0 box-border', meta.dot)} title={meta.label} />
   );
 }
 
@@ -1184,54 +1191,7 @@ function SessionRow({
         />
       )}
       <span className="relative flex w-6 h-7 items-center justify-center shrink-0">
-        {pinned && pinEnabled ? (
-          <>
-            <button
-              type="button"
-              data-sidebar-row-control="true"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onTogglePin?.(s, false);
-              }}
-              className="ace-session-pin-btn flex h-7 w-3 items-center justify-center text-accent"
-              title="取消置顶"
-              aria-label="取消置顶"
-            >
-              <VsIcon name="pin" size={12} />
-            </button>
-            <span className="flex h-7 w-3 items-center justify-center">
-              <SessionAttentionIndicator attention={attention} meta={meta} />
-            </span>
-          </>
-        ) : (
-          <>
-            <span
-              className={clsx(
-                'absolute inset-0 flex items-center justify-center transition-opacity',
-                pinEnabled && 'group-hover:opacity-0 group-focus-within:opacity-0',
-              )}
-            >
-              <SessionAttentionIndicator attention={attention} meta={meta} />
-            </span>
-            {pinEnabled && (
-              <button
-                type="button"
-                data-sidebar-row-control="true"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onTogglePin?.(s, true);
-                }}
-                className="ace-session-pin-btn absolute inset-0 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-fg-mute hover:text-fg transition-colors"
-                title="置顶"
-                aria-label="置顶"
-              >
-                <VsIcon name="pin" size={12} />
-              </button>
-            )}
-          </>
-        )}
+        <SessionAttentionIndicator attention={attention} meta={meta} />
       </span>
       {editing ? (
         <form
@@ -1261,7 +1221,7 @@ function SessionRow({
           aria-label={remoteControlBound
             ? tr('remoteControl.connectedSessionAria', { title: marqueeTitle || title })
             : (marqueeTitle || title)}
-          className="ace-sidebar-session-title-button flex min-w-0 w-full items-center gap-1.5 py-[5px] bg-transparent text-left cursor-pointer"
+          className="ace-sidebar-session-title-button flex min-w-0 w-full items-center gap-1.5 py-[4.5px] bg-transparent text-left cursor-pointer"
         >
           {remoteControlBound && (
             <VsIcon
@@ -1291,8 +1251,26 @@ function SessionRow({
             等待回复
           </span>
         ) : null}
-        {!editing && (
-          <span className="ace-sidebar-meta-text text-[13px] text-fg-mute shrink-0">{relativeTime(s.updated_at || s.created_at)}</span>
+        {pinEnabled && (
+          <button
+            type="button"
+            data-sidebar-row-control="true"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onTogglePin?.(s, !pinned);
+            }}
+            className={clsx(
+              'ace-session-pin-btn w-5 h-7 rounded flex items-center justify-center shrink-0 transition',
+              pinned
+                ? 'text-accent opacity-100'
+                : 'text-fg-mute hover:text-fg hover:bg-surface-hi opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+            )}
+            title={pinned ? '取消置顶' : '置顶'}
+            aria-label={pinned ? '取消置顶' : '置顶'}
+          >
+            <VsIcon name="pin" size={13} />
+          </button>
         )}
         <button
           type="button"
@@ -1795,7 +1773,7 @@ export function Sidebar({
   onOpenHome,
   onNewTask,
   onNewLoop,
-  onSearchTasks,
+  appVersion = '',
   workspaceActivationRequest = null,
   onOpenSettingsSection,
   onOpenExpertComponents,
@@ -3425,11 +3403,10 @@ export function Sidebar({
       cancelSessionSelection();
       onNewLoop?.();
     },
-    onSearchTasks: () => {
-      cancelSessionSelection();
-      onSearchTasks?.();
-    },
   };
+  const appVersionLabel = typeof appVersion === 'string' && appVersion.trim()
+    ? formatProgramVersion(appVersion.trim())
+    : '';
   const workspaceForSession = (session) => {
     const hash = session.workspace_hash || session.workspaceHash || '';
     return workspaces.find((w) => w.hash === hash) || {
@@ -3445,22 +3422,46 @@ export function Sidebar({
       <SessionHoverLifecycleContext.Provider value={sessionHoverContextValue}>
       <aside
         data-tour-target="sidebar"
+        data-collapsed={collapsed ? 'true' : 'false'}
         className={[
-          'ace-sidebar bg-surface-alt border-r border-border flex flex-col font-sans shrink-0 overflow-hidden',
-          'transition-[width,min-width] duration-250',
+          'ace-sidebar border-r border-border flex flex-col font-sans shrink-0 overflow-hidden',
           collapsed ? 'w-0 min-w-0' : '',
         ].join(' ')}
         style={collapsed ? undefined : { width, minWidth: width }}
       >
       <div className="ace-sidebar-content flex-1 flex flex-col min-h-0">
+        <div data-sidebar-brand="true" className="flex shrink-0 items-center gap-1.5 px-[18px] py-3 select-none">
+          <img src="/acecode-logo.png" alt="" width="20" height="20" className="block shrink-0" draggable="false" />
+          <span className="text-[15px] font-bold tracking-tight">ACECode</span>
+          {appVersionLabel && (
+            <span className="truncate text-[11px] font-medium leading-none text-fg-mute opacity-75 tabular-nums">
+              {appVersionLabel}
+            </span>
+          )}
+        </div>
         <div className="ace-sidebar-main flex-1 flex flex-col min-h-0">
-          <div className="ace-sidebar-fixed-nav shrink-0 px-1.5 pt-2 pb-2 border-b border-border">
+          <div className="ace-sidebar-fixed-nav shrink-0 overflow-y-auto px-1.5 pb-2">
             {SIDEBAR_NAV_ITEMS.map((item) => (
-              <SidebarNavItem
-                key={item.id}
-                item={item}
-                onClick={sidebarNavCallbacks[item.callback]}
-              />
+              item.action === 'extensions' ? (
+                <CustomSidebarSection
+                  key={item.id}
+                  workspaceHash={activeRef?.workspaceHash || activeRef?.workspace_hash || ''}
+                  onOpenSettingsSection={(section) => {
+                    cancelSessionSelection();
+                    onOpenSettingsSection?.(section);
+                  }}
+                  onOpenExpertComponents={() => {
+                    cancelSessionSelection();
+                    onOpenExpertComponents?.();
+                  }}
+                />
+              ) : (
+                <SidebarNavItem
+                  key={item.id}
+                  item={item}
+                  onClick={sidebarNavCallbacks[item.callback]}
+                />
+              )
             ))}
           </div>
           <div
@@ -3614,23 +3615,39 @@ export function Sidebar({
                 width: sessionDragGhost.width,
               }}
             >
-              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-fg-mute/45" />
+              <span className="w-2 h-2 rounded-full shrink-0 box-border border border-fg-mute/55" />
               <span className="flex-1 min-w-0 truncate">{sessionDragGhost.title}</span>
               <span className="text-[10px] text-fg-mute shrink-0">{sessionDragGhost.timeText}</span>
             </div>
           )}
         </div>
-        <CustomSidebarSection
-          workspaceHash={activeRef?.workspaceHash || activeRef?.workspace_hash || ''}
-          onOpenSettingsSection={(section) => {
-            cancelSessionSelection();
-            onOpenSettingsSection?.(section);
-          }}
-          onOpenExpertComponents={() => {
-            cancelSessionSelection();
-            onOpenExpertComponents?.();
-          }}
-        />
+        <div className="ace-sidebar-footer shrink-0 px-1.5 py-2 flex items-center gap-1">
+          <button
+            data-tour-target="sidebar-settings"
+            type="button"
+            onClick={() => {
+              cancelSessionSelection();
+              onOpenSettingsSection?.('general');
+            }}
+            className="flex-1 min-w-0 flex items-center gap-[7px] px-3 py-1.5 rounded-md text-[12px] text-fg-mute hover:text-fg hover:bg-surface-hi transition text-left"
+          >
+            <span className="w-6 h-6 flex items-center justify-center shrink-0"><VsIcon name="settings" size={20} /></span>
+            <span>设置</span>
+          </button>
+          <button
+            data-tour-target="sidebar-feedback"
+            type="button"
+            title="问题反馈"
+            aria-label="问题反馈"
+            onClick={() => {
+              cancelSessionSelection();
+              onOpenSettingsSection?.('feedback');
+            }}
+            className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-mute hover:text-fg hover:bg-surface-hi transition"
+          >
+            <VsIcon name="bug" size={18} />
+          </button>
+        </div>
       </div>
       </aside>
       </SessionHoverLifecycleContext.Provider>

@@ -1,0 +1,525 @@
+[
+  {
+    "article": "认识 ACECode",
+    "file": "index.html",
+    "sources": [
+      "README_CN.md",
+      "docs/user-manual.md",
+      "src/headless/headless_options.cpp",
+      "docs/agent-browser.md"
+    ]
+  },
+  {
+    "article": "安装",
+    "file": "installation.html",
+    "sources": [
+      "npm/cli/README.md",
+      "npm/desktop/README.md",
+      "installer/windows/acecode.iss",
+      "docs/macos-release.md",
+      "docs/linux-self-update.md",
+      "src/daemon/cli.cpp"
+    ]
+  },
+  {
+    "article": "快速开始",
+    "file": "quick-start.html",
+    "sources": [
+      "README_CN.md",
+      "web/src/components/model-settings/ModelSettingsSection.jsx",
+      "web/src/components/ChatView.jsx",
+      "web/src/components/InputBar.jsx",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "更新与卸载",
+    "file": "update-uninstall.html",
+    "sources": [
+      "src/tui/cli_dispatch.cpp",
+      "npm/cli/README.md",
+      "npm/desktop/README.md",
+      "docs/macos-release.md",
+      "docs/linux-self-update.md",
+      "web/src/components/UpdateDialog.jsx"
+    ]
+  },
+  {
+    "article": "桌面端",
+    "file": "desktop.html",
+    "sources": [
+      "README_CN.md",
+      "web/src/lib/sidebarNavigation.js",
+      "web/src/components/PreviewDetailsPanel.jsx",
+      "web/src/components/ConsoleDock.jsx",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "TUI",
+    "file": "tui.html",
+    "sources": [
+      "docs/user-manual.md",
+      "src/commands/command_registry.cpp",
+      "src/cli/interactive_options.cpp"
+    ]
+  },
+  {
+    "article": "CLI",
+    "file": "cli.html",
+    "sources": [
+      "src/headless/headless_options.cpp",
+      "src/headless/headless_options.hpp",
+      "src/headless/headless_runner.cpp"
+    ]
+  },
+  {
+    "article": "Web",
+    "file": "web.html",
+    "sources": [
+      "src/daemon/cli.cpp",
+      "docs/user-manual.md",
+      "docs/daemon-api.md",
+      "web/src/components/SettingsPage.jsx"
+    ]
+  },
+  {
+    "article": "对话与上下文",
+    "file": "conversation.html",
+    "sources": [
+      "docs/user-manual.md",
+      "web/src/components/QueueCardList.jsx",
+      "web/src/lib/inputBarState.js",
+      "web/src/components/SideQuestionComposer.jsx",
+      "web/src/components/ChatView.jsx",
+      "docs/daemon-api.md"
+    ]
+  },
+  {
+    "article": "工作区与任务",
+    "file": "workspaces.html",
+    "sources": [
+      "web/src/components/Sidebar.jsx",
+      "web/src/lib/sidebarNavigation.js",
+      "web/src/components/DesktopContextMenu.jsx",
+      "web/src/components/ChatView.jsx",
+      "docs/daemon-api.md"
+    ]
+  },
+  {
+    "article": "文件修改与版本管理",
+    "file": "git.html",
+    "sources": [
+      "web/src/components/GitChangesPanel.jsx",
+      "web/src/components/GitChangeReview.jsx",
+      "web/src/components/GitSessionPill.jsx",
+      "web/src/lib/gitSessionPill.js",
+      "docs/daemon-api.md",
+      "src/commands/builtin_commands.cpp"
+    ]
+  },
+  {
+    "article": "上下文压缩与用量查看",
+    "file": "context-usage.html",
+    "sources": [
+      "docs/user-manual.md",
+      "web/src/components/SettingsPage.jsx",
+      "src/session/session_manager.cpp",
+      "docs/daemon-api.md"
+    ]
+  },
+  {
+    "article": "模型与服务商的关系",
+    "file": "model-basics.html",
+    "sources": [
+      "web/src/components/model-settings/ModelSettingsSection.jsx",
+      "web/src/components/model-settings/ModelProfileDialog.jsx",
+      "web/src/components/model-settings/SavedModelList.jsx",
+      "web/src/lib/modelManager.js"
+    ]
+  },
+  {
+    "article": "ACEModel",
+    "file": "acemodel.html",
+    "sources": [
+      "src/provider/builtin_model_catalog.cpp",
+      "src/config/saved_models.cpp",
+      "web/src/components/model-settings/ModelProfileDialog.jsx",
+      "web/src/components/model-settings/ProviderCatalogPicker.jsx"
+    ]
+  },
+  {
+    "article": "接入其他服务商",
+    "file": "providers.html",
+    "sources": [
+      "web/src/components/model-settings/ModelProfileDialog.jsx",
+      "web/src/components/model-settings/ModelConnectionCard.jsx",
+      "web/src/components/model-settings/ModelSettingsSection.jsx",
+      "src/provider/openai_provider.cpp",
+      "src/provider/anthropic_provider.cpp"
+    ]
+  },
+  {
+    "article": "添加与管理模型",
+    "file": "manage-models.html",
+    "sources": [
+      "web/src/components/model-settings/SavedModelList.jsx",
+      "web/src/components/model-settings/ModelSettingsSection.jsx",
+      "web/src/components/model-settings/ModelProfileDialog.jsx",
+      "web/src/components/ChatView.jsx",
+      "src/config/saved_models.cpp",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "模型能力与参数",
+    "file": "model-capabilities.html",
+    "sources": [
+      "web/src/components/model-settings/ModelProfileDialog.jsx",
+      "web/src/components/model-settings/ModelProbeDialog.jsx",
+      "web/src/components/model-settings/ProviderCatalogPicker.jsx",
+      "src/provider/model_context_resolver.cpp"
+    ]
+  },
+  {
+    "article": "配置文件与生效范围",
+    "file": "configuration.html",
+    "sources": [
+      "src/config/config.cpp",
+      "src/config/config.hpp",
+      "docs/user-manual.md",
+      "web/src/components/SettingsPage.jsx"
+    ]
+  },
+  {
+    "article": "权限模式与操作确认",
+    "file": "permissions.html",
+    "sources": [
+      "web/src/lib/permissionMode.js",
+      "web/src/components/SettingsPage.jsx",
+      "src/permissions.hpp",
+      "src/headless/headless_options.cpp",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "网络与代理",
+    "file": "network.html",
+    "sources": [
+      "src/config/config.hpp",
+      "src/config/config.cpp",
+      "src/commands/proxy_command.cpp",
+      "web/src/components/SettingsPage.jsx",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "外观、语言与通知",
+    "file": "appearance.html",
+    "sources": [
+      "web/src/components/SettingsPage.jsx",
+      "web/src/lib/desktopNotify.js",
+      "docs/localization.md"
+    ]
+  },
+  {
+    "article": "项目规则与初始化",
+    "file": "project-rules.html",
+    "sources": [
+      "src/project_instructions/instructions_loader.cpp",
+      "src/config/config.hpp",
+      "src/commands/builtin_commands.cpp",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "记忆与个性化",
+    "file": "memory.html",
+    "sources": [
+      "web/src/components/SettingsPage.jsx",
+      "src/memory/memory_paths.cpp",
+      "src/commands/memory_command.cpp",
+      "src/tool/memory_read_tool.cpp",
+      "src/tool/memory_write_tool.cpp"
+    ]
+  },
+  {
+    "article": "内置工具",
+    "file": "tools.html",
+    "sources": [
+      "src/tool/builtin_tool_registry.hpp",
+      "src/headless/headless_options.cpp",
+      "web/src/components/SettingsPage.jsx",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "技能（Skills）",
+    "file": "skills.html",
+    "sources": [
+      "docs/skills.md",
+      "src/skills/skill_init.cpp",
+      "src/config/config.hpp",
+      "web/src/components/SettingsPage.jsx"
+    ]
+  },
+  {
+    "article": "MCP 服务器",
+    "file": "mcp.html",
+    "sources": [
+      "web/src/components/SettingsPage.jsx",
+      "src/commands/builtin_commands.cpp",
+      "src/config/config.hpp",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "LSP 与代码诊断",
+    "file": "lsp.html",
+    "sources": [
+      "src/lsp/lsp_server_registry.cpp",
+      "src/config/config.hpp",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "Hooks",
+    "file": "hooks.html",
+    "sources": [
+      "docs/hooks.md",
+      "web/src/components/SettingsPage.jsx",
+      "src/config/config.hpp"
+    ]
+  },
+  {
+    "article": "连接器",
+    "file": "connectors.html",
+    "sources": [
+      "src/config/config.hpp",
+      "web/src/components/SettingsPage.jsx",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "专家与专家团",
+    "file": "experts.html",
+    "sources": [
+      "web/src/components/ExpertComponentsPage.jsx",
+      "web/src/components/ExpertCatalog.jsx",
+      "web/src/components/ExpertEditor.jsx",
+      "web/src/App.jsx",
+      "web/src/components/ComposerSessionControls.jsx"
+    ]
+  },
+  {
+    "article": "蜂群模式与子代理",
+    "file": "swarm.html",
+    "sources": [
+      "web/src/components/InputBar.jsx",
+      "web/src/components/ComposerSessionControls.jsx",
+      "web/src/components/SubagentPanel.jsx",
+      "src/commands/builtin_commands.cpp",
+      "docs/subagents.md"
+    ]
+  },
+  {
+    "article": "定时与循环任务",
+    "file": "schedules.html",
+    "sources": [
+      "web/src/components/LoopPage.jsx",
+      "web/src/lib/loops.js",
+      "src/loop/loop_types.hpp",
+      "src/loop/loop_scheduler.cpp",
+      "src/loop/loop_store.cpp"
+    ]
+  },
+  {
+    "article": "Agent 浏览器",
+    "file": "agent-browser.html",
+    "sources": [
+      "docs/agent-browser.md",
+      "web/src/components/PreviewDetailsPanel.jsx",
+      "web/src/components/SettingsPage.jsx"
+    ]
+  },
+  {
+    "article": "消息渠道与远程控制",
+    "file": "channels.html",
+    "sources": [
+      "src/config/config.hpp",
+      "src/commands/remote_control_command.cpp",
+      "src/remote_control/session_channel_binder.cpp",
+      "docs/channel-plugin-protocol.md"
+    ]
+  },
+  {
+    "article": "实战示例",
+    "file": "examples.html",
+    "sources": [
+      "web/src/components/CreateProjectModal.jsx",
+      "web/src/components/GitChangesPanel.jsx",
+      "web/src/components/InputBar.jsx",
+      "web/src/lib/gitSessionPill.js",
+      "docs/user-manual.md"
+    ]
+  },
+  {
+    "article": "常见问题",
+    "file": "faq.html",
+    "sources": [
+      "docs/user-manual.md",
+      "docs/daemon-api.md",
+      "web/src/components/SettingsPage.jsx",
+      "web/src/lib/inputBarState.js"
+    ]
+  },
+  {
+    "article": "安装、启动与更新问题",
+    "file": "troubleshoot-install.html",
+    "sources": [
+      "src/daemon/cli.cpp",
+      "docs/daemon-api.md",
+      "docs/user-manual.md",
+      "src/desktop/strings.cpp"
+    ]
+  },
+  {
+    "article": "模型连接与认证问题",
+    "file": "troubleshoot-models.html",
+    "sources": [
+      "web/src/components/model-settings/ModelSettingsSection.jsx",
+      "web/src/components/model-settings/ModelProfileDialog.jsx",
+      "web/src/components/model-settings/ModelProbeDialog.jsx",
+      "docs/daemon-api.md"
+    ]
+  },
+  {
+    "article": "上下文超限与请求失败",
+    "file": "troubleshoot-context.html",
+    "sources": [
+      "docs/user-manual.md",
+      "docs/daemon-api.md",
+      "src/headless/headless_runner.cpp"
+    ]
+  },
+  {
+    "article": "工具、技能与 MCP 问题",
+    "file": "troubleshoot-tools.html",
+    "sources": [
+      "docs/skills.md",
+      "docs/hooks.md",
+      "src/commands/builtin_commands.cpp",
+      "web/src/components/SettingsPage.jsx",
+      "src/tool/builtin_tool_registry.hpp"
+    ]
+  },
+  {
+    "article": "桌面、终端与远程连接问题",
+    "file": "troubleshoot-desktop.html",
+    "sources": [
+      "docs/daemon-api.md",
+      "src/desktop/main.cpp",
+      "web/src/components/ConsoleDock.jsx",
+      "docs/agent-browser.md"
+    ]
+  },
+  {
+    "article": "日志与问题反馈",
+    "file": "feedback.html",
+    "sources": [
+      "web/src/components/SettingsPage.jsx",
+      "src/feedback/feedback_upload.cpp",
+      "src/desktop/main.cpp",
+      "src/headless/headless_runner.cpp",
+      "src/daemon/worker.cpp",
+      "src/main.cpp"
+    ]
+  },
+  {
+    "article": "速查手册",
+    "file": "reference.html",
+    "sources": [
+      "docs/user-manual.md",
+      "src/commands/builtin_commands.cpp",
+      "src/headless/headless_options.cpp",
+      "src/utils/paths.cpp",
+      "docs/daemon-api.md",
+      "src/memory/memory_paths.cpp"
+    ]
+  },
+  {
+    "article": "从源码构建",
+    "file": "build.html",
+    "sources": [
+      "CMakeLists.txt",
+      "vcpkg.json",
+      "cmake/acecode_desktop.cmake",
+      "web/vite.config.js",
+      "web/README.md",
+      ".github/workflows/test.yml",
+      ".github/workflows/package.yml"
+    ]
+  },
+  {
+    "article": "架构概览",
+    "file": "architecture.html",
+    "sources": [
+      "ARCHITECTURE.md",
+      "CMakeLists.txt",
+      "src/main.cpp",
+      "src/agent_loop.cpp",
+      "src/session/session_registry.cpp",
+      "src/tool/tool_executor.hpp",
+      "src/provider/session_model_binding.hpp"
+    ]
+  },
+  {
+    "article": "Daemon 部署与管理",
+    "file": "daemon.html",
+    "sources": [
+      "src/daemon/cli.cpp",
+      "src/daemon/service_win.cpp",
+      "src/daemon/worker.cpp",
+      "docs/daemon-api.md",
+      "src/utils/paths.cpp"
+    ]
+  },
+  {
+    "article": "HTTP API 与 WebSocket",
+    "file": "api.html",
+    "sources": [
+      "docs/daemon-api.md",
+      "src/web/routes/routes_workspaces.cpp",
+      "web/src/lib/api.js",
+      "web/src/lib/connection.js",
+      "src/web/server_helpers.cpp"
+    ]
+  },
+  {
+    "article": "扩展开发",
+    "file": "extension-development.html",
+    "sources": [
+      "src/tool/tool_executor.hpp",
+      "src/tool/task_complete_tool.cpp",
+      "src/tool/builtin_tool_registry.hpp",
+      "src/commands/command_registry.hpp",
+      "src/web/handlers/builtin_command_handler.cpp",
+      "web/src/lib/builtinCommandRouting.js",
+      "src/remote_control/channel_plugin.cpp",
+      "docs/channel-plugin-protocol.md"
+    ]
+  },
+  {
+    "article": "参与贡献",
+    "file": "contributing.html",
+    "sources": [
+      "AGENTS.md",
+      "ARCHITECTURE.md",
+      ".editorconfig",
+      "tests/CMakeLists.txt",
+      "web/package.json",
+      "docs/daemon-api.md",
+      "LICENSE"
+    ]
+  }
+]

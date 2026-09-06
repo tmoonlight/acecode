@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   bindDesktopComposerAutoFocus,
+  isComposerEditorFocused,
+  preserveComposerFocusOnPointerDown,
   requestDesktopFileDragActivation,
   requestDesktopWindowFocus,
   restoreComposerTextareaCaret,
@@ -86,6 +88,78 @@ function terminalFocusTarget({ collapsed = false, connected = true } = {}) {
     },
   });
 }
+
+function composerFocusFixture() {
+  const root = element('composer-card');
+  const editor = root.appendChild(element('editor'));
+  editor.getAttribute = (name) => name === 'data-ace-rich-composer' ? 'true' : null;
+  const documentRef = { activeElement: editor };
+  root.ownerDocument = documentRef;
+  const mouseDown = (target, overrides = {}) => ({
+    target,
+    button: 0,
+    defaultPrevented: false,
+    preventDefault() { this.defaultPrevented = true; },
+    ...overrides,
+  });
+  return { root, editor, documentRef, mouseDown };
+}
+
+run('composer card controls and portal menus prevent the default mouse focus transfer', () => {
+  const { root, editor, documentRef, mouseDown } = composerFocusFixture();
+  const button = root.appendChild(element('button'));
+  const portalOption = element('portal-option');
+  assert.equal(root.contains(portalOption), false);
+  for (const target of [root, button, element('button-svg'), portalOption]) {
+    const event = mouseDown(target);
+    assert.equal(preserveComposerFocusOnPointerDown(event, root), true);
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(documentRef.activeElement, editor);
+  }
+});
+
+run('composer focus preservation leaves editor mouse selection and secondary clicks alone', () => {
+  const { root, editor, mouseDown } = composerFocusFixture();
+  const text = editor.appendChild(element('text'));
+  for (const event of [mouseDown(editor), mouseDown(text), mouseDown(root, { button: 1 }), mouseDown(root, { button: 2 }), mouseDown(root, { isPrimary: false })]) {
+    assert.equal(preserveComposerFocusOnPointerDown(event, root), false);
+    assert.equal(event.defaultPrevented, false);
+  }
+});
+
+run('composer controls keep normal focus behavior when the local editor is not focused', () => {
+  const { root, documentRef, mouseDown } = composerFocusFixture();
+  const otherEditor = element('other-composer');
+  otherEditor.getAttribute = () => 'true';
+  for (const activeElement of [null, element('body'), root.appendChild(element('button')), otherEditor]) {
+    documentRef.activeElement = activeElement;
+    assert.equal(isComposerEditorFocused(root), false);
+    const event = mouseDown(root);
+    assert.equal(preserveComposerFocusOnPointerDown(event, root), false);
+    assert.equal(event.defaultPrevented, false);
+  }
+  assert.equal(isComposerEditorFocused(null), false);
+});
+
+run('composer focus preservation allows other editable controls to receive focus', () => {
+  const { root, mouseDown } = composerFocusFixture();
+  for (const name of ['input', 'textarea', 'select', 'contenteditable', 'textbox']) {
+    const field = root.appendChild(element(name));
+    field.closest = () => field;
+    const event = mouseDown(field);
+    assert.equal(preserveComposerFocusOnPointerDown(event, root), false);
+    assert.equal(event.defaultPrevented, false);
+  }
+});
+
+run('composer focus preservation respects an already handled mouse event', () => {
+  const { root, mouseDown } = composerFocusFixture();
+  const event = mouseDown(root, {
+    defaultPrevented: true,
+    preventDefault() { throw new Error('already handled'); },
+  });
+  assert.equal(preserveComposerFocusOnPointerDown(event, root), false);
+});
 
 run('composer caret restore is allowed when focus fell back to body', () => {
   const body = element('body');

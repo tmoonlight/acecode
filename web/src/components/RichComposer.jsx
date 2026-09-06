@@ -820,6 +820,23 @@ function RichComposerShell({
   ), [placeholderClassName]);
 
   const handleKeyDown = useCallback((event) => {
+    if (
+      compositionStateRef.current.active
+      || compositionStateRef.current.settling
+      || isComposingKeyEvent?.(event)
+      || event.isComposing
+      || event.nativeEvent?.isComposing
+      || event.keyCode === 229
+      || event.which === 229
+      || event.nativeEvent?.keyCode === 229
+      || event.nativeEvent?.which === 229
+      || ReactEditor.isComposing(editor)
+    ) {
+      // Uncommitted IME text is not reflected in Slate's selection yet.
+      // Skip parent/Slate shortcuts without preventing native IME editing.
+      return true;
+    }
+
     onKeyDown?.(event);
     if (event.defaultPrevented) return;
     if (disabled) {
@@ -828,16 +845,6 @@ function RichComposerShell({
     }
 
     if (event.key === 'Enter') {
-      if (
-        isComposingKeyEvent?.(event)
-        || event.isComposing
-        || event.nativeEvent?.isComposing
-        || event.keyCode === 229
-        || ReactEditor.isComposing(editor)
-      ) {
-        return;
-      }
-
       if (event.ctrlKey && isDesktopShell()) {
         event.preventDefault();
         editor.insertBreak();

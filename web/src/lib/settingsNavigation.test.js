@@ -100,9 +100,9 @@ test('SettingsPage keeps narrow viewports usable with an icon rail and compact c
     new URL('../components/SettingsPage.jsx', import.meta.url),
     'utf8',
   );
-  assert.match(source, /<nav className="w-14 sm:w-\[200px\]/);
+  assert.match(source, /<nav className="w-12 sm:w-\[176px\]/);
   assert.match(source, /aria-label=\{item\.label\}/);
   assert.match(source, /justify-center sm:justify-start/);
   assert.match(source, /hidden sm:inline truncate/);
-  assert.match(source, /px-3 py-4 sm:px-6 md:px-12 md:py-6/);
+  assert.match(source, /px-4 py-3 sm:px-6 sm:py-5/);
 });

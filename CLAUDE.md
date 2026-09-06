@@ -30,6 +30,13 @@ Use the command set in [AGENTS.md](AGENTS.md) as the source of truth. Important 
 
 ## Agent Loop And Tools
 
+`image_generate` uses `config.image_generation` and supports generation and
+editing through the Images API. Settings > Tools > Image generation owns its
+configuration; it is not a chat-model entry. Saving settings refreshes the shared
+tool registry, including changes to a reused model connection. In-flight image
+requests retain their original snapshot. The settings test action explicitly
+generates one standard-quality image and must never run on load or save.
+
 [src/agent_loop.cpp](src/agent_loop.cpp) is the multi-turn state machine. A text-only assistant reply ends the loop. `task_complete` is an optional explicit terminator that renders a concise completion row. `AskUserQuestion` is not a terminator; its answer returns as a tool result. `config.agent_loop.max_iterations` is an optional hard cap; `0` or omitted means unlimited.
 
 `agent_loop.question_policy`(`ask` 默认 / `deny` / `timeout`,CLI `--question-policy` 覆盖只写运行时字段不落盘)控制 AskUserQuestion 应答:deny 不弹 UI 直接返回「自行决策并继续」自动应答;timeout 等 `question_timeout_seconds`(默认 60,[5,3600])秒后自动采纳每题第一选项(output/metadata 标注自动采纳)。YOLO 只跳过工具权限确认,不改变提问策略;active goal 将每次 AskUserQuestion 覆盖为 30 秒 timeout,正常弹 UI,超时采纳推荐项。daemon 通过 `AskUserQuestionPrompter::prompt` 的 per-call timeout override 实现 goal 动态覆盖。见 openspec/changes/add-ask-question-policy。
@@ -251,7 +258,22 @@ revision stale so a later send retries.
 
 ## Config Notes
 
-The config schema is intentionally sparse on write: defaults are omitted when possible. Notable sections are `saved_models`, `models_dev`, `skills`, `memory`, `project_instructions`, `agent_loop`, `daemon`, `web`, `network`, `web_search`, `tui`, `desktop`, and `mcp_servers`.
+The config schema is intentionally sparse on write: defaults are omitted when possible. Notable sections are `saved_models`, `models_dev`, `skills`, `memory`, `project_instructions`, `agent_loop`, `daemon`, `web`, `network`, `web_search`, `image_generation`, `tui`, `desktop`, and `mcp_servers`.
+
+Image generation settings use `/api/config/image-generation` (GET/PUT) and
+`/api/config/image-generation/test` (POST). Authenticated settings responses return
+the stored inline key for the password field and its show/hide button, matching
+model settings. Responses must not be logged or cached. Omission retains
+the stored inline key and an explicit empty string clears it. Reuse accepts only
+OpenAI-compatible base-URL model connections. The test route accepts an unsaved
+draft with `confirm_cost:true`, returns a settings-only image preview, and does
+not save or enable the tool. See `docs/daemon-api.md` for the full contract.
+The default API URL is `constants::ACEMODEL_API_BASE_URL` in
+`src/utils/constants.hpp`, also used by the ACEModel model catalog; change that
+single constant to update both defaults. Custom configured URLs stay explicit.
+The image settings UI saves on blur, selection changes and navigation, without
+Save/Cancel buttons. Its connection-scoped queue preserves newer edits while
+writes finish and refills the password from the authenticated settings response.
 
 `mcp_servers` without `transport` default to stdio. `sse` is the legacy two-endpoint protocol. `http` is Streamable HTTP, defaulting to `/mcp` when no endpoint is provided.
 

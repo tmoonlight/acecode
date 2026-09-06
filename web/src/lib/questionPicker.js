@@ -39,12 +39,12 @@ export function normalizeQuestionRequest(request = {}) {
 }
 
 export function makeInitialAnswers(questions = []) {
-  return questions.map(() => ({ selected: [], custom: '' }));
+  return questions.map(() => ({ selected: [], custom: '', customSelected: false }));
 }
 
 export function isQuestionAnswered(answer = {}) {
   return (Array.isArray(answer.selected) && answer.selected.length > 0) ||
-    toText(answer.custom).trim().length > 0;
+    (!!answer.customSelected && toText(answer.custom).trim().length > 0);
 }
 
 export function allQuestionsAnswered(questions = [], answers = []) {
@@ -71,7 +71,7 @@ export function toggleAnswerSelection(answer = {}, value, multiSelect) {
   const selected = Array.isArray(answer.selected) ? answer.selected : [];
   const textValue = toText(value);
   if (!textValue) return { ...answer, selected };
-  if (!multiSelect) return { ...answer, selected: [textValue] };
+  if (!multiSelect) return { ...answer, selected: [textValue], customSelected: false };
   const hasValue = selected.includes(textValue);
   return {
     ...answer,
@@ -81,8 +81,16 @@ export function toggleAnswerSelection(answer = {}, value, multiSelect) {
   };
 }
 
-export function setAnswerCustom(answer = {}, custom) {
-  return { ...answer, custom: toText(custom) };
+export function selectAnswerCustom(answer = {}, multiSelect = false) {
+  return {
+    ...answer,
+    selected: multiSelect && Array.isArray(answer.selected) ? answer.selected : [],
+    customSelected: true,
+  };
+}
+
+export function setAnswerCustom(answer = {}, custom, multiSelect = false) {
+  return { ...selectAnswerCustom(answer, multiSelect), custom: toText(custom) };
 }
 
 export function hasSelectedTextWithin(target, selection) {
@@ -107,7 +115,7 @@ export function buildQuestionAnswerPayload(request = {}, questions = [], answers
         question_id: toText(q.id || q.question || q.text),
         selected,
       };
-      const custom = toText(answer.custom).trim();
+      const custom = answer.customSelected ? toText(answer.custom).trim() : '';
       if (custom) out.custom_text = custom;
       return out;
     }),

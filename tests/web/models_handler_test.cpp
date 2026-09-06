@@ -593,7 +593,7 @@ TEST(ModelsHandler, AceModelProbeCapabilitiesComeFromBuiltinCatalog) {
 
     request.catalog_provider_id = "custom-openai";
     EXPECT_TRUE(model_probe_capabilities(request, {"aurora"}).empty());
-    request.base_url = "https://ge.bigjuan.xyz/aceapi/v1/";
+    request.base_url = std::string(acecode::constants::ACEMODEL_API_BASE_URL) + "/";
     EXPECT_EQ(model_probe_capabilities(request, {"aurora"}).at("aurora"),
               (std::vector<std::string>{"vision", "tool_use"}));
 }

@@ -27,7 +27,7 @@ run('composer 附近不再存在重复的固定活动栏', () => {
     fs.existsSync(path.join(srcRoot, 'components/ConversationActivityRail.jsx')),
     false,
   );
-  assert.match(input, /'border-t border-border px-2\.5 py-2 bg-surface shrink-0'/);
+  assert.match(input, /'px-2\.5 py-2 bg-surface shrink-0'/);
 });
 
 run('前台状态投影进统一活动行，后台状态仍在 transcript 尾部呈现', () => {

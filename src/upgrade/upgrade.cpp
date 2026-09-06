@@ -3,6 +3,7 @@
 #include "apply.hpp"
 #include "check.hpp"
 #include "console.hpp"
+#include "diagnostics.hpp"
 #include "http.hpp"
 #include "macos_bundle.hpp"
 #include "manifest.hpp"
@@ -19,6 +20,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -45,10 +47,16 @@ bool validate_upgrade_settings(const UpgradeConfig& cfg, std::string* error) {
 }
 
 int report_upgrade_cancelled(std::ostream& err,
-                             const fs::path& workspace_dir = {}) {
+                             const fs::path& workspace_dir,
+                             DiagnosticLog& diagnostics) {
     if (!workspace_dir.empty()) {
         std::error_code cleanup_error;
         fs::remove_all(workspace_dir, cleanup_error);
+        diagnostics.record("cancel_cleanup", {
+            {"workspace", path_to_utf8(workspace_dir)},
+            {"error_code", cleanup_error.value()},
+            {"error", cleanup_error ? cleanup_error.message() : std::string{}},
+        });
     }
     err << "acecode upgrade: update cancelled\n";
     return kUpgradeCancelledExitCode;
@@ -209,11 +217,15 @@ const char* update_check_status_name(UpdateCheckStatus status) {
     return "unknown";
 }
 
-UpdateCheckResult check_for_update(const AppConfig& config,
-                                   const std::string& current_version) {
+static UpdateCheckResult check_for_update_impl(const AppConfig& config,
+                                               const std::string& current_version,
+                                               DiagnosticLog& diagnostics) {
     UpdateCheckResult result;
     result.current_version = current_version;
     result.target = current_target();
+    diagnostics.phase("checking", {{"current_version", current_version},
+                                   {"target", result.target},
+                                   {"base_url", config.upgrade.base_url}});
 
     std::string cfg_error;
     if (!validate_upgrade_settings(config.upgrade, &cfg_error)) {
@@ -230,10 +242,15 @@ UpdateCheckResult check_for_update(const AppConfig& config,
 
     const std::string base_url = normalize_update_base_url(config.upgrade.base_url);
     result.manifest_url = manifest_url(base_url);
+    diagnostics.record("manifest_request", {{"url", result.manifest_url},
+                                             {"timeout_ms", kNoUpgradeTimeoutMs}});
 
     HttpTextResult manifest_resp = fetch_text(result.manifest_url,
                                               kNoUpgradeTimeoutMs);
     result.http_status = manifest_resp.status_code;
+    diagnostics.record("manifest_response", {{"http_status", manifest_resp.status_code},
+        {"transport_code", manifest_resp.transport_code},
+        {"bytes", manifest_resp.body.size()}, {"error", manifest_resp.error}});
     if (!manifest_resp.error.empty()) {
         result.status = UpdateCheckStatus::ManifestUnavailable;
         result.error = manifest_resp.error;
@@ -296,24 +313,71 @@ UpdateCheckResult check_for_update(const AppConfig& config,
     return result;
 }
 
-int run_upgrade_command(const AppConfig& config,
+UpdateCheckResult check_for_update(const AppConfig& config,
+                                   const std::string& current_version,
+                                   DiagnosticLog* diagnostics) {
+    const auto owned_log = diagnostics ? nullptr : std::make_unique<DiagnosticLog>("check");
+    auto& log = diagnostics ? *diagnostics : *owned_log;
+    UpdateCheckResult result;
+    try {
+        result = check_for_update_impl(config, current_version, log);
+    } catch (const std::exception& e) {
+        result.current_version = current_version;
+        result.error = std::string("update check exception: ") + e.what();
+    } catch (...) {
+        result.current_version = current_version;
+        result.error = "unknown update check exception";
+    }
+    log.record("check_finished", {{"status", update_check_status_name(result.status)},
+        {"current_version", current_version}, {"target_version", result.latest_version},
+        {"package", result.package_file}, {"error", result.error}});
+    result.log_path = log.path();
+    result.log_error = log.error();
+    if (!result.error.empty()) result.error = log.with_location(result.error);
+    return result;
+}
+
+static int run_upgrade_command_impl(const AppConfig& config,
                         const std::string& argv0,
                         const std::string& current_version,
                         std::ostream& out,
                         std::ostream& err,
                         bool force,
                         UpgradeProgressCallback progress_callback,
-                        UpgradeCancelCheck cancel_check) {
+                        UpgradeCancelCheck cancel_check,
+                        DiagnosticLog& diagnostics) {
     UpgradeProgress progress_state;
     progress_state.current_version = current_version;
+    progress_state.log_path = diagnostics.path();
+    auto last_logged_phase = UpgradePhase::Checking;
+    auto last_download_log = std::chrono::steady_clock::now();
     auto publish_progress = [&]() {
+        if (progress_state.phase != last_logged_phase) {
+            diagnostics.phase(upgrade_phase_name(progress_state.phase), {
+                {"current_version", progress_state.current_version},
+                {"target_version", progress_state.target_version},
+                {"bytes_downloaded", progress_state.bytes_downloaded},
+            });
+            last_logged_phase = progress_state.phase;
+            last_download_log = std::chrono::steady_clock::now();
+        } else if (progress_state.phase == UpgradePhase::Downloading &&
+                   std::chrono::steady_clock::now() - last_download_log >= std::chrono::seconds(5)) {
+            diagnostics.record("download_progress", {{"bytes_downloaded", progress_state.bytes_downloaded}});
+            last_download_log = std::chrono::steady_clock::now();
+        }
         if (progress_callback) progress_callback(progress_state);
     };
     auto cancellation_requested = [&]() {
         return cancel_check && cancel_check();
     };
 
-    if (cancellation_requested()) return report_upgrade_cancelled(err);
+    auto cancelled = [&](const fs::path& workspace = fs::path{}) {
+        return report_upgrade_cancelled(err, workspace, diagnostics);
+    };
+    diagnostics.phase("checking", {{"current_version", current_version},
+                                   {"target", current_target()},
+                                   {"base_url", config.upgrade.base_url}, {"force", force}});
+    if (cancellation_requested()) return cancelled();
 
     std::string cfg_error;
     if (!validate_upgrade_settings(config.upgrade, &cfg_error)) {
@@ -328,6 +392,9 @@ int run_upgrade_command(const AppConfig& config,
     }
 
     const fs::path current_exe = current_executable_path(argv0);
+    diagnostics.record("installation_location", {{"executable", path_to_utf8(current_exe)},
+        {"install_dir", path_to_utf8(current_exe.parent_path())},
+        {"proxy_mode", config.network.proxy_mode}});
 #ifdef __APPLE__
     const auto installed_app_bundle =
         macos_app_bundle_from_executable(current_exe);
@@ -353,10 +420,14 @@ int run_upgrade_command(const AppConfig& config,
     progress_state.phase = UpgradePhase::Checking;
     publish_progress();
     out << "\n" << styled(out, ConsoleStyle::Cyan, "[1/4] Checking update manifest...") << "\n";
+    diagnostics.record("manifest_request", {{"url", manifest}, {"timeout_ms", kNoUpgradeTimeoutMs}});
     HttpTextResult manifest_resp = fetch_text(
         manifest, kNoUpgradeTimeoutMs, cancel_check);
+    diagnostics.record("manifest_response", {{"http_status", manifest_resp.status_code},
+        {"transport_code", manifest_resp.transport_code}, {"bytes", manifest_resp.body.size()},
+        {"cancelled", manifest_resp.cancelled}, {"error", manifest_resp.error}});
     if (manifest_resp.cancelled || cancellation_requested()) {
-        return report_upgrade_cancelled(err);
+        return cancelled();
     }
     if (!manifest_resp.error.empty()) {
         err << "acecode upgrade: failed to fetch manifest " << manifest
@@ -403,11 +474,14 @@ int run_upgrade_command(const AppConfig& config,
         err << "acecode upgrade: package selection returned no package\n";
         return 1;
     }
-    if (cancellation_requested()) return report_upgrade_cancelled(err);
+    if (cancellation_requested()) return cancelled();
 
     const auto& selected = *selection.selected;
     progress_state.target_version = selected.version;
     const std::string package_url = resolve_package_url(base_url, selected.package.file);
+    diagnostics.record("package_selected", {{"target_version", selected.version},
+        {"package_url", package_url}, {"expected_sha256", selected.package.sha256},
+        {"expected_bytes", selected.package.size ? nlohmann::json(*selected.package.size) : nlohmann::json(nullptr)}});
     out << "\n"
         << styled(out, ConsoleStyle::Cyan,
                   std::string("[2/4] ") + (force ? "Package selected" : "Update available"))
@@ -426,6 +500,9 @@ int run_upgrade_command(const AppConfig& config,
     fs::path package_path = workspace_dir / selected.package.file;
     fs::path staging_dir = workspace_dir / "staging";
     fs::path backup_dir = workspace_dir / "backup";
+    diagnostics.record("workspace", {{"workspace", path_to_utf8(workspace_dir)},
+        {"package", path_to_utf8(package_path)}, {"staging", path_to_utf8(staging_dir)},
+        {"backup", path_to_utf8(backup_dir)}});
     std::error_code ec;
     fs::create_directories(package_path.parent_path(), ec);
     if (ec) {
@@ -451,8 +528,11 @@ int run_upgrade_command(const AppConfig& config,
         },
         cancel_check);
     progress_bar.finish(dl.bytes_written);
+    diagnostics.record("download_finished", {{"http_status", dl.status_code},
+        {"transport_code", dl.transport_code}, {"bytes_downloaded", dl.bytes_written},
+        {"cancelled", dl.cancelled}, {"error", dl.error}});
     if (dl.cancelled || cancellation_requested()) {
-        return report_upgrade_cancelled(err, workspace_dir);
+        return cancelled(workspace_dir);
     }
     if (!dl.error.empty()) {
         err << "acecode upgrade: failed to download package: " << dl.error << "\n";
@@ -476,6 +556,8 @@ int run_upgrade_command(const AppConfig& config,
         << "\n";
     std::string sha_error;
     const std::string actual_sha = acecode::sha256_file_hex(package_path, &sha_error);
+    diagnostics.record("checksum", {{"expected_sha256", selected.package.sha256},
+        {"actual_sha256", actual_sha}, {"error", sha_error}});
     if (actual_sha.empty()) {
         err << "acecode upgrade: " << sha_error << "\n";
         return 1;
@@ -487,7 +569,7 @@ int run_upgrade_command(const AppConfig& config,
         return 1;
     }
     if (cancellation_requested()) {
-        return report_upgrade_cancelled(err, workspace_dir);
+        return cancelled(workspace_dir);
     }
     out << "  Checksum: " << styled(out, ConsoleStyle::Green, "OK") << "\n";
 
@@ -500,7 +582,7 @@ int run_upgrade_command(const AppConfig& config,
         return 1;
     }
     if (cancellation_requested()) {
-        return report_upgrade_cancelled(err, workspace_dir);
+        return cancelled(workspace_dir);
     }
     std::string stage_error;
 #ifdef __APPLE__
@@ -512,6 +594,9 @@ int run_upgrade_command(const AppConfig& config,
                 << stage_error << "\n";
             return 1;
         }
+        diagnostics.record("macos_signature_preflight", {
+            {"installed_bundle", path_to_utf8(*installed_app_bundle)},
+            {"staged_bundle", path_to_utf8(*staged_app_bundle)}});
         if (!preflight_macos_app_update(*installed_app_bundle,
                                         *staged_app_bundle,
                                         selected.version,
@@ -527,7 +612,7 @@ int run_upgrade_command(const AppConfig& config,
         return 1;
     }
     if (cancellation_requested()) {
-        return report_upgrade_cancelled(err, workspace_dir);
+        return cancelled(workspace_dir);
     }
     out << "  Package : " << styled(out, ConsoleStyle::Green, "OK") << "\n";
 
@@ -535,7 +620,7 @@ int run_upgrade_command(const AppConfig& config,
     progress_state.phase = UpgradePhase::Installing;
     publish_progress();
     if (cancellation_requested()) {
-        return report_upgrade_cancelled(err, workspace_dir);
+        return cancelled(workspace_dir);
     }
     out << "  Install : applying update\n";
     std::string apply_error;
@@ -546,7 +631,7 @@ int run_upgrade_command(const AppConfig& config,
                                       *staged_app_bundle,
                                       selected.version,
                                       &app_backup,
-                                      &apply_error)) {
+                                      &apply_error, &diagnostics)) {
             err << "acecode upgrade: failed to apply macOS application update: "
                 << apply_error << "\n";
             return 1;
@@ -555,20 +640,55 @@ int run_upgrade_command(const AppConfig& config,
     } else
 #endif
     if (!apply_staged_update(staging_dir, install_dir, backup_dir,
-                             target, &apply_error)) {
+                             target, &apply_error, &diagnostics)) {
         err << "acecode upgrade: failed to apply update: " << apply_error << "\n"
             << "Backup directory: " << backup_dir.string() << "\n";
         return 1;
     }
 
     progress_state.phase = UpgradePhase::Complete;
-    progress_state.backup_dir = backup_dir.string();
+    progress_state.backup_dir = path_to_utf8(backup_dir);
+    diagnostics.record("installation_finished", {{"backup", path_to_utf8(backup_dir)},
+                                                {"target_version", selected.version}});
     publish_progress();
     out << "  Install : " << styled(out, ConsoleStyle::Green, "OK") << "\n\n"
         << styled(out, ConsoleStyle::Green, "ACECode update applied successfully.") << "\n"
         << "  Version : v" << selected.version << "\n"
         << "  Backup  : " << backup_dir.string() << "\n";
     return 0;
+}
+
+int run_upgrade_command(const AppConfig& config,
+                        const std::string& argv0,
+                        const std::string& current_version,
+                        std::ostream& out,
+                        std::ostream& err,
+                        bool force,
+                        UpgradeProgressCallback progress_callback,
+                        UpgradeCancelCheck cancel_check,
+                        DiagnosticLog* diagnostics) {
+    const auto owned_log = diagnostics ? nullptr : std::make_unique<DiagnosticLog>("upgrade");
+    auto& log = diagnostics ? *diagnostics : *owned_log;
+    if (!log.path().empty()) out << "Upgrade log: " << log.path() << "\n";
+    std::ostringstream errors;
+    int code = 1;
+    try {
+        code = run_upgrade_command_impl(config, argv0, current_version, out, errors,
+            force, std::move(progress_callback), std::move(cancel_check), log);
+    } catch (const std::exception& e) {
+        errors << "acecode upgrade: exception: " << e.what() << "\n";
+    } catch (...) {
+        errors << "acecode upgrade: unknown exception\n";
+    }
+    log.record("upgrade_finished", {{"exit_code", code},
+        {"outcome", code == 0 ? "succeeded" : code == kUpgradeCancelledExitCode ? "cancelled" : "failed"},
+        {"error", errors.str()}});
+    if (code != 0) {
+        err << log.with_location(errors.str()) << "\n";
+    } else if (!log.error().empty()) {
+        err << "Upgrade diagnostics unavailable or incomplete: " << log.error() << "\n";
+    }
+    return code;
 }
 
 } // namespace acecode::upgrade

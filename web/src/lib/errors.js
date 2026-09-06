@@ -3,6 +3,11 @@
 // 未识别码退到原始 message。
 
 const TABLE = {
+  IMAGE_COST_CONFIRMATION_REQUIRED: '测试会消耗额度，请从生成测试图片按钮发起',
+  IMAGE_TEST_BUSY: '已有测试图片正在生成，请稍候',
+  IMAGE_NOT_CONFIGURED: '请先填写 API 地址和 Key，或选择可用的模型连接',
+  IMAGE_QUOTA_ERROR: '图像服务额度不足或请求过于频繁，请检查额度后重试',
+  IMAGE_TEST_FAILED: '生成测试图片失败，请检查连接和模型名称',
   INVALID_NAME:      '名字不能为空',
   RESERVED_NAME:     '名字以 ( 开头是系统保留',
   NAME_TAKEN:        '已存在同名条目',

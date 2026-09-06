@@ -1,0 +1,232 @@
+{
+  "GS-01": {
+    "images": ["task-git-diff.jpg"],
+    "title": "ACECode 桌面端中的示例任务",
+    "caption": "hello-acecode 示例任务：左侧显示对话、执行结果和模型控件，中间预览代码差异，右侧列出本次修改的文件。"
+  },
+  "GS-02": {
+    "images": ["windows-installer-welcome.jpg", "windows-installer-location.jpg"],
+    "title": "Windows 安装向导与目标位置",
+    "caption": "Windows 安装向导的欢迎页和目标位置页。画面来自本机已有的 v0.9.6 安装包，仅展示向导流程，下载时请以发布页为准。本次查看后已退出向导，未执行安装。"
+  },
+  "GS-04": {
+    "images": ["model-custom-form.jpg", "models-saved.jpg"],
+    "title": "添加模型表单与已保存模型列表",
+    "caption": "上图是新增自定义 OpenAI 兼容模型的空白表单，可填写 Model ID、Base URL、API Key 和预设名称；下图是本机已有的模型列表及默认标识。表单与列表分别展示两个操作位置。"
+  },
+  "GS-05": {
+    "images": ["desktop-new-task.jpg", "project-new-task.jpg"],
+    "title": "新任务首页与已选择的工作区",
+    "caption": "从新任务首页选择项目后，输入区显示 hello-acecode 工作区、main 分支、模型、权限和 worktree 控件。"
+  },
+  "GS-06": {
+    "images": ["composer-first-request.jpg"],
+    "title": "引用项目文件并描述验收要求",
+    "caption": "发送前的请求草稿：引用 src/welcome.js，说明空姓名与空格处理的预期结果，并要求补充测试。底部显示当前模型与工作区。"
+  },
+  "GS-07": {
+    "images": ["task-test-output.jpg", "task-git-diff.jpg"],
+    "title": "检查测试输出与代码差异",
+    "caption": "示例任务实际执行 npm test，完成欢迎消息修复和测试补充。展开工具记录可查看输出；右侧 Git 视图显示两个文件的增删行和 HEAD 比较基线。"
+  },
+  "GS-08": {
+    "images": ["settings-about.jpg"],
+    "title": "关于页面中的应用版本",
+    "caption": "设置中的关于页面显示应用版本和 WebView2 运行时版本。截图时运行的是 v0.9.11，可用此入口核对本机版本。"
+  },
+  "UI-01": {
+    "images": ["desktop-new-task.jpg", "task-git-diff.jpg"],
+    "title": "桌面端导航与任务区域",
+    "caption": "新任务、定时任务和搜索位于左侧上方，扩展入口位于左侧下方，设置位于窗口右上角。打开任务后，对话和输入区位于中间，文件与差异可在右侧查看。"
+  },
+  "UI-02": {
+    "images": ["desktop-file-console.jpg"],
+    "title": "文件预览、变更列表与底部控制台",
+    "caption": "桌面端同时打开文本预览、Git 变更列表和底部控制台。隐藏面板用于收起整个区域，页签上的关闭按钮用于关闭单个内容。"
+  },
+  "UI-05": {
+    "images": ["composer-file-picker.jpg", "composer-first-request.jpg"],
+    "title": "搜索文件与插入路径引用",
+    "caption": "输入 @ 后搜索项目文件，选中后在输入区形成路径引用。这里展示的是本地文件引用；图片粘贴产生的附件预览需按正文中的图片步骤操作。",
+    "pending_details": "剪贴板图片附件预览尚未拍摄。"
+  },
+  "UI-06": {
+    "images": ["task-message-queue.jpg"],
+    "title": "任务运行中的排队消息",
+    "caption": "在示例任务仍执行时补充指令，消息出现在待发送卡片中。卡片提供编辑、插话和取消入口，主输入区保留中断按钮。"
+  },
+  "UI-07": {
+    "images": ["task-side-chat.jpg"],
+    "title": "侧边聊天与保留的主输入草稿",
+    "caption": "侧边聊天回答了“为什么要先 trim() 再判断空姓名”，主输入区仍保留未发送的任务草稿。截图中的回答由本次示例问答实际生成。"
+  },
+  "UI-10": {
+    "images": ["task-git-diff.jpg"],
+    "title": "Git 变更与比较基线",
+    "caption": "差异面板显示本次修改的两个文件、增删行数和欢迎消息的代码变化。上方 HEAD 是当前比较基线，切换比较基线用于查看差异。"
+  },
+  "UI-11": {
+    "images": ["project-worktree.jpg"],
+    "title": "首次发送前的 worktree 设置",
+    "caption": "勾选 worktree 后，基线分支 main 的选择控件可用。画面处于首次发送前，工作树尚未创建。"
+  },
+  "UI-12": {
+    "images": ["settings-usage.jpg"],
+    "title": "使用情况的累计统计",
+    "caption": "使用情况页面展示近 30 天汇总、每日趋势以及输入、输出、缓存和推理统计。这里的数值属于所选时间范围的累计统计，当前请求的上下文余量应在任务中查看。",
+    "pending_details": "当前任务的上下文状态浮层尚未拍摄。"
+  },
+  "MD-01": {
+    "images": ["model-custom-form.jpg", "models-saved.jpg"],
+    "title": "Provider、Model ID 与本地预设",
+    "caption": "新增模型表单将 Provider、Model ID 和预设名称分开填写；保存后的模型列表使用本地预设名称显示，并提供默认模型标识。截图中的连接表单为空。"
+  },
+  "MD-02": {
+    "images": ["acemodel-catalog.jpg", "models-saved.jpg"],
+    "title": "ACEModel 模型目录与已有预设",
+    "caption": "选择 ACEModel 后可搜索模型、查看能力摘要并添加所选模型；下图展示本机已有的模型预设。目录中的能力和数值是截图时显示的结果，使用时请核对当前界面。"
+  },
+  "MD-03": {
+    "images": ["model-custom-form.jpg"],
+    "title": "自定义 OpenAI 兼容接口表单",
+    "caption": "新增自定义 OpenAI 兼容模型时，依次填写 Model ID、Base URL、API Key 和预设名称。截图为未填写凭据的表单，浅灰文字是输入提示。"
+  },
+  "MD-05": {
+    "images": ["models-saved.jpg"],
+    "title": "已保存模型的默认标识与管理入口",
+    "caption": "模型列表显示本地预设名称和默认标识，行内可进入编辑或设置默认模型。操作前先核对要修改的预设名称。",
+    "pending_details": "名称冲突时的覆盖和另存为弹窗尚未拍摄。"
+  },
+  "MD-06": {
+    "images": ["model-advanced.jpg"],
+    "title": "模型高级设置中的限制与能力",
+    "caption": "高级设置展示预设名称、上下文窗口、最大输出和能力开关。画面是新增模型草稿，请求头区域显示表单示例；能力数值需按实际服务商核对。"
+  },
+  "MD-07": {
+    "images": ["acemodel-catalog.jpg"],
+    "title": "模型结果列表与重新探测入口",
+    "caption": "模型目录中可搜索并选择条目，下方提供重新探测和添加所选模型。打开列表可查看现有结果；重新探测会主动请求服务商，本次截图未触发该操作。"
+  },
+  "CF-01": {
+    "images": ["task-permissions.jpg"],
+    "title": "任务的权限模式选择",
+    "caption": "任务权限菜单提供默认权限、自动接收编辑和完全访问权限。画面仅展开菜单；具体工具的操作确认会在需要时另行出现。",
+    "pending_details": "带路径与参数的工具操作确认尚未拍摄。"
+  },
+  "CF-02": {
+    "images": ["settings-network-status.jpg"],
+    "title": "后台进程与远程 Web 监听状态",
+    "caption": "常规设置可查看当前后台端口、退出行为和远程 Web 的监听状态。画面显示本机实际端口；含访问 Token 的连接地址位于画面之外。"
+  },
+  "CF-03": {
+    "images": ["settings-appearance.jpg", "settings-general.jpg"],
+    "title": "主题、字号、语言与工作模式",
+    "caption": "外观页面提供主题颜色、暗黑模式和字体大小；常规页面提供界面语言、工作模式和任务完成通知。截图展示应用本身的设置。"
+  },
+  "CF-05": {
+    "images": ["settings-personalization.jpg"],
+    "title": "个性化指令编辑区",
+    "caption": "个性化页面中的自定义指令编辑区。当前内容为空，浅灰文字是填写提示，可在此描述希望 ACECode 持续遵循的通用偏好。",
+    "pending_details": "填写后的保存反馈尚未拍摄。"
+  },
+  "CF-06": {
+    "images": ["task-file-tools.jpg", "task-test-output.jpg"],
+    "title": "文件工具记录与测试命令输出",
+    "caption": "示例任务实际调用文件搜索、读取和编辑工具，随后运行 npm test。展开记录可查看文件操作摘要、命令、测试条目和执行耗时。"
+  },
+  "CF-07": {
+    "images": ["settings-skills.jpg"],
+    "title": "技能列表与启用状态",
+    "caption": "技能页面展示全局来源的卡片、名称、描述、启用开关和搜索入口。先核对技能描述及来源，再按正文中的方式在任务中使用。",
+    "pending_details": "项目技能分组与输入区选用技能的过程尚未拍摄。"
+  },
+  "CF-08": {
+    "images": ["settings-mcp.jpg"],
+    "title": "MCP 配置与服务器启用列表",
+    "caption": "MCP 页面中的配置编辑区和服务器列表。服务器开关表示配置是否启用，连接是否成功还需核对实际连接状态或工具列表。"
+  },
+  "CF-10": {
+    "images": ["settings-hooks.jpg"],
+    "title": "Hooks 的事件、来源与命令",
+    "caption": "Hooks 列表展示事件、managed 来源、来源文件、超时与命令。本机画面属于已有 Hook，使用时应逐项核对来源和执行内容。",
+    "pending_details": "来自项目的待信任审核状态尚未拍摄。"
+  },
+  "CF-11": {
+    "images": ["settings-connectors.jpg"],
+    "title": "连接器列表与刷新入口",
+    "caption": "已配置连接器显示名称、用途、开关和刷新入口。截图中的两个连接器处于关闭状态。"
+  },
+  "AD-01": {
+    "images": ["experts-catalog.jpg"],
+    "title": "专家分类、能力介绍与派遣入口",
+    "caption": "专家列表支持分类和搜索，每张卡片提供能力介绍与派遣按钮。页面上方还可以进入专家团或新建专家。",
+    "pending_details": "输入区的已派遣标签尚未拍摄。"
+  },
+  "AD-02": {
+    "images": ["expert-create-form.jpg", "expert-capabilities.jpg", "expert-team-members.jpg"],
+    "title": "高级模式与专家团成员设置",
+    "caption": "高级模式可填写专家定位与能力介绍，并设置 Skill、MCP 和本地工具范围。专家团草稿中可选择成员并指定主理人；这些表单在截图后均已取消。"
+  },
+  "AD-03": {
+    "images": ["composer-capability-menu.jpg", "composer-swarm-draft.jpg"],
+    "title": "添加蜂群模式与编写分工草稿",
+    "caption": "从添加能力菜单选择蜂群模式后，输入区显示模式标签。草稿中说明负责的文件与只读边界；截图时尚未提交此分工请求。"
+  },
+  "AD-05": {
+    "images": ["schedule-create-form.jpg"],
+    "title": "循环任务创建表单",
+    "caption": "添加循环时填写名称、工作空间、提示词、模型、执行频率和生效日期。示例为只读检查草稿，截图后已取消，没有创建新的循环。"
+  },
+  "AD-06": {
+    "images": ["schedules-list.jpg", "schedule-run-history.jpg"],
+    "title": "循环列表与真实运行记录",
+    "caption": "循环列表提供频率、模型和启用入口。展开已有记录可见“所选模型已不可用，循环已停用”以及 daemon 未运行产生的“已错过”原因；这些是本机实际记录。"
+  },
+  "AD-07": {
+    "images": ["desktop-tools-menu.jpg", "agent-browser-page.jpg"],
+    "title": "打开浏览器页签与访问示例页面",
+    "caption": "在详情区域的打开工具菜单选择浏览器，可通过地址栏打开网页。下图为 ACECode Agent 浏览器实际加载的 example.com 页面。"
+  },
+  "AD-10": {
+    "images": ["project-create.jpg", "task-completed.jpg"],
+    "title": "新建项目表单与示例代码修复结果",
+    "caption": "上图展示新建项目表单中的名称和默认位置。下图来自单独准备并打开的 hello-acecode 示例工作区，实际完成了欢迎消息修复，并通过 3 项测试。"
+  },
+  "TS-02": {
+    "images": ["model-custom-form.jpg", "task-network-retry.jpg"],
+    "title": "连接信息的位置与网络重试状态",
+    "caption": "模型表单可用于核对 Provider、Model ID 和连接地址。下图是本次操作中实际遇到的网络重试与等待提示；这一画面没有显示 HTTP 状态码，无法据此判断为认证失败。"
+  },
+  "TS-03": {
+    "images": ["task-network-retry.jpg"],
+    "title": "请求重试、等待与中断入口",
+    "caption": "真实请求遇到网络重试时，任务显示重试次数与退避等待，输入区保留中断入口。截图属于网络重试，排查时还应区分上下文超限等其他错误。"
+  },
+  "TS-05": {
+    "images": ["settings-feedback.jpg"],
+    "title": "提交前的问题反馈表单",
+    "caption": "问题反馈表单提供问题描述与会话附带范围选择。当前选项为“不附带会话”，截图时尚未提交反馈。"
+  },
+  "UI-04": {
+    "images": ["web-browser-new-task.png"],
+    "title": "浏览器中的 ACECode Web 界面",
+    "caption": "在普通浏览器中打开 Web 地址后的新任务页：左侧是任务与工作区列表，中间是输入区、模型和权限控件，与桌面端布局一致。地址栏中的主机名和端口来自截图环境，实际地址以启动输出为准；本地 HTTP 连接会被浏览器标为“不安全”，属于正常现象。",
+    "pending_details": "终端启动输出中的 Web 地址，以及浏览器内正在执行任务的页面尚未拍摄；补拍的 UI-04-2 因桌面端窗口遮住了浏览器内容，未采用。"
+  },
+  "UI-08": {
+    "images": ["sidebar-project-menu.png"],
+    "title": "工作区列表与项目右键菜单",
+    "caption": "侧边栏的工作区分组列出各项目及其任务。右键项目名打开菜单，提供切换到项目、折叠项目、新建会话、重命名项目、复制项目路径、打开文件夹和从项目列表移除；移除项以红色显示，只从列表移除，不删除磁盘上的项目文件。"
+  },
+  "UI-09": {
+    "images": ["message-fork-menu.png", "project-menu-opencode-import.png"],
+    "title": "从消息分叉与 OpenCode 导入入口",
+    "caption": "第一张：右键任务中的某条消息，菜单提供复制消息、从这里分叉和全选。第二张：项目菜单中的从opencode导入会话，只在该项目目录识别到 OpenCode 历史时出现，其他项目的菜单没有这一项。",
+    "pending_details": "OpenCode 会话导入的预览、勾选和导入结果画面尚未拍摄。"
+  },
+  "MD-04": {
+    "images": ["copilot-device-login.png"],
+    "title": "GitHub 设备登录",
+    "caption": "右侧是模型连接卡片：状态为未连接，点击连接 GitHub 后显示设备验证码并等待授权，旁边是我已完成授权按钮。左侧是系统浏览器打开的 GitHub 授权页，把验证码填入后点击 Continue。截图中的验证码已过期，不能再使用。"
+  }
+}

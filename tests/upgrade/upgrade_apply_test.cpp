@@ -1,4 +1,5 @@
 #include "upgrade/apply.hpp"
+#include "upgrade/diagnostics.hpp"
 #include "upgrade/package.hpp"
 #include "upgrade/upgrade.hpp"
 #include "utils/paths.hpp"
@@ -184,7 +185,12 @@ TEST(UpgradeApply, AppliesStagedUpdateAndKeepsBackup) {
     write_file(staging / "share" / "asset.txt", "asset");
 
     std::string err;
-    ASSERT_TRUE(apply_staged_update(staging, install, backup, "windows-x64", &err)) << err;
+    DiagnosticLog diagnostics("apply_test", root / "logs");
+    ASSERT_TRUE(apply_staged_update(staging, install, backup, "windows-x64", &err, &diagnostics)) << err;
+    const auto log = read_file(fs::u8path(diagnostics.path()));
+    EXPECT_NE(log.find("backup_move"), std::string::npos);
+    EXPECT_NE(log.find("install_copy"), std::string::npos);
+    EXPECT_EQ(log.find("rollback_started"), std::string::npos);
     EXPECT_EQ(read_file(install / "acecode.exe"), "new exe");
     EXPECT_EQ(read_file(install / "share" / "asset.txt"), "asset");
     EXPECT_EQ(read_file(install / "old.txt"), "old unrelated");
@@ -325,6 +331,38 @@ TEST(UpgradeApply, KeepsRunnerDirectoryInInstallDir) {
 }
 
 #ifdef _WIN32
+TEST(UpgradeApply, LogsReplacementFailureAndRollbackErrors) {
+    const auto root = temp_root("acecode-apply-rollback-log");
+    const auto install = root / "install";
+    const auto staging = root / "staging";
+    const auto backup = root / "backup";
+    write_file(install / "acecode.exe", "old exe");
+    write_file(staging / "acecode.exe", "new exe");
+    write_file(install / "z-blocked.txt", "old locked file");
+    write_file(staging / "z-blocked.txt", "replacement");
+    DiagnosticLog diagnostics("rollback_test", root / "logs");
+    {
+        struct FileHandle {
+            HANDLE value;
+            ~FileHandle() { if (value != INVALID_HANDLE_VALUE) ::CloseHandle(value); }
+        } handle{::CreateFileW((install / "z-blocked.txt").c_str(), GENERIC_READ,
+            FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        ASSERT_NE(handle.value, INVALID_HANDLE_VALUE);
+        std::string error;
+        EXPECT_FALSE(apply_staged_update(staging, install, backup,
+            "windows-x64", &error, &diagnostics));
+        EXPECT_NE(error.find("failed to move"), std::string::npos);
+        const auto text = read_file(fs::u8path(diagnostics.path()));
+        EXPECT_NE(text.find("rollback_started"), std::string::npos);
+        EXPECT_NE(text.find("rollback_restore"), std::string::npos);
+        EXPECT_NE(text.find("rollback_remove"), std::string::npos);
+        EXPECT_NE(text.find("\"error_code\":32"), std::string::npos);
+        EXPECT_EQ(read_file(install / "acecode.exe"), "old exe");
+    }
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
 TEST(UpgradeApply, ReplacesExecutableWhileItIsRunning) {
     fs::path root = temp_root("acecode-apply-running-exe");
     fs::path install = root / "install";

@@ -34,6 +34,7 @@ import {
 } from '../lib/desktopCloseBehavior.js';
 import { Modal, Toggle } from './Modal.jsx';
 import { ModelSettingsSection } from './model-settings/ModelSettingsSection.jsx';
+import { ImageGenerationSettings } from './ImageGenerationSettings.jsx';
 import { clsx, formatCount, relativeTime } from '../lib/format.js';
 import { lookupErrorMessage } from '../lib/errors.js';
 import { buildMcpServerList, countEnabledMcp, applyMcpToggle } from '../lib/mcpServers.js';
@@ -192,7 +193,7 @@ export function SettingsPage({
           show ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-2 scale-[0.985]',
         )}
       >
-        <div className="h-11 px-3 flex items-center gap-3 bg-surface border-b border-border shrink-0 select-none">
+        <div className="h-10 px-3 flex items-center gap-2 bg-surface border-b border-border shrink-0 select-none">
           <span id="settings-window-title" className="flex-1 min-w-0 text-[15px] font-semibold truncate">
             设置
           </span>
@@ -219,7 +220,7 @@ export function SettingsPage({
           </div>
         </div>
         <div className="flex-1 flex min-h-0 overflow-hidden">
-        <nav className="w-14 sm:w-[200px] bg-surface-alt border-r border-border py-2 overflow-y-auto shrink-0 select-none">
+        <nav className="w-12 sm:w-[176px] bg-surface-alt border-r border-border py-2 overflow-y-auto shrink-0 select-none">
           {SETTINGS_NAV_GROUPS.map((group, groupIndex) => {
             const headingId = `settings-nav-group-${group.key}`;
             return (
@@ -231,8 +232,8 @@ export function SettingsPage({
                 <div
                   id={headingId}
                   className={clsx(
-                    'sr-only sm:not-sr-only sm:block sm:px-4 sm:pb-1 text-[11px] font-medium text-fg-mute opacity-75',
-                    groupIndex === 0 ? 'pt-1' : 'pt-4',
+                    'sr-only sm:not-sr-only sm:block sm:px-3 sm:pb-1 text-[11px] font-medium text-fg-mute opacity-75',
+                    groupIndex === 0 ? 'pt-0' : 'pt-2',
                   )}
                 >
                   {group.label}
@@ -248,7 +249,7 @@ export function SettingsPage({
                       aria-label={item.label}
                       onClick={() => setActiveNav(itemIndex)}
                       className={clsx(
-                        'w-full px-0 sm:px-4 py-2 text-[13px] transition border-l-[3px] flex items-center justify-center sm:justify-start gap-2 text-left',
+                        'w-full min-h-8 px-0 sm:px-3 py-1 text-[13px] transition border-l-[3px] flex items-center justify-center sm:justify-start gap-2 text-left',
                         active
                           ? 'text-accent font-semibold bg-accent-bg border-accent'
                           : 'text-fg hover:bg-surface-hi border-transparent',
@@ -263,7 +264,7 @@ export function SettingsPage({
             );
           })}
         </nav>
-        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 md:px-12 md:py-6">
+        <div className="ace-settings-content flex-1 min-w-0 overflow-y-auto px-4 py-3 sm:px-6 sm:py-5">
           {activeNavKey === 'general' && (
             <SectionGeneral
               health={health}
@@ -1623,8 +1624,13 @@ function SkillCard({ skill, busyName, onToggle }) {
           : 'border-border bg-surface hover:border-accent/50 hover:bg-surface-hi',
       )}
     >
-      <div className="flex items-start gap-3">
-        <div
+      <label
+        className={clsx(
+          '-mx-3.5 -mt-3.5 flex items-start gap-3 px-3.5 pt-3.5 pb-3',
+          busyName === skill.name ? 'cursor-default' : 'cursor-pointer',
+        )}
+      >
+        <span
           className={clsx(
             'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition',
             skill.enabled
@@ -1633,22 +1639,22 @@ function SkillCard({ skill, busyName, onToggle }) {
           )}
         >
           <VsIcon name="lightbulb" size={18} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="break-words text-[13px] font-semibold leading-5 text-fg">{skill.name}</div>
-          <div className="mt-0.5 text-[10px] text-fg-mute">
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-[13px] font-semibold leading-5 text-fg">{skill.name}</span>
+          <span className="mt-0.5 block text-[10px] text-fg-mute">
             {skill.source === 'project' ? '工作区' : '全局'}
-          </div>
-        </div>
+          </span>
+        </span>
         <Toggle
           on={skill.enabled}
           disabled={busyName === skill.name}
           onChange={(value) => onToggle(skill.name, value)}
           ariaLabel={`切换技能 ${skill.name}`}
         />
-      </div>
+      </label>
       <p
-        className="mt-3 line-clamp-4 text-[11px] leading-[18px] text-fg-mute"
+        className="line-clamp-4 text-[11px] leading-[18px] text-fg-mute"
         title={skill.description || ''}
       >
         {skill.description || '—'}
@@ -2403,7 +2409,7 @@ function SectionTools() {
 
       <div className="text-[14px] font-semibold mb-1">内置工具</div>
       <p className="text-[12px] text-fg-mute mb-3">
-        Agent 浏览器工具由 Windows Desktop 原生提供，模型需要浏览器时会自动打开并操作同一个可见页面。
+        配置 Agent 可以使用的内置工具。
       </p>
 
       <div className="flex items-center gap-3 px-3.5 py-3 rounded-md bg-surface border border-border mb-2">
@@ -2421,10 +2427,7 @@ function SectionTools() {
         </span>
       </div>
 
-      {/* 占位:更多工具即将加入 */}
-      <div className="px-3.5 py-3 rounded-md border border-dashed border-border text-[12px] text-fg-mute text-center mt-2">
-        更多内置工具即将加入
-      </div>
+      <ImageGenerationSettings />
     </>
   );
 }

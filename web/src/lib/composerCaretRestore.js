@@ -9,6 +9,30 @@ function containsElement(root, target) {
   }
 }
 
+export function isComposerEditorFocused(rootElement) {
+  const activeElement = rootElement?.ownerDocument?.activeElement;
+  return activeElement?.getAttribute?.('data-ace-rich-composer') === 'true'
+    && containsElement(rootElement, activeElement);
+}
+
+export function preserveComposerFocusOnPointerDown(event, rootElement) {
+  if (event.button !== 0 || event.isPrimary === false || event.defaultPrevented || !isComposerEditorFocused(rootElement)) {
+    return false;
+  }
+
+  const editorElement = rootElement.ownerDocument.activeElement;
+  if (containsElement(editorElement, event.target)) return false;
+  const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
+  if (target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) {
+    return false;
+  }
+
+  // Pointer capture also reaches disabled buttons, which suppress mousedown.
+  // Keep Slate's selection and the click action, including React portal menus.
+  event.preventDefault();
+  return true;
+}
+
 function clampOffset(value, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;

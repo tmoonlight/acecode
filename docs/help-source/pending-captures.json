@@ -1,0 +1,12 @@
+{
+  "GS-03": {"reason": "platform-deferred", "note": "macOS 安装画面按本次要求暂不拍摄。"},
+  "UI-03": {"reason": "window-unavailable", "note": "已通过 Computer Use 尝试开始菜单的 ACECode TUI 和当前构建的 acecode.exe，两次启动均未返回可操作的 TUI 窗口。没有使用渲染终端文本或拼接画面替代截图。"},
+  "CF-04": {"reason": "capture-interrupted", "note": "示例项目已完成代码修复，但尚未执行 /init 并拍摄规则预览。后续窗口操作暂停。"},
+  "CF-09": {"reason": "capture-interrupted", "note": "TUI 窗口不可操作，尚未拍摄 /lsp status 与真实 ERROR 诊断。"},
+  "AD-04": {"reason": "unavailable-state", "note": "已拍摄蜂群模式入口和草稿，没有为截图启动后台子任务，因此未取得运行分组及来自子任务的操作确认。"},
+  "AD-08": {"reason": "unavailable-state", "note": "已实际使用 Agent 浏览器打开公开页面，但当前运行界面中未取得页签共享开关及智能体操作反馈画面。"},
+  "AD-09": {"reason": "unavailable-state", "note": "未进行消息渠道绑定或向外部聊天发送消息，没有可公开的往返记录。"},
+  "TS-01": {"reason": "unavailable-state", "note": "安装向导正常打开并已取消，本次未遇到安装或更新错误，不能将正常向导标注为故障截图。"},
+  "TS-04": {"reason": "unavailable-state", "note": "本次没有复现桌面崩溃或远程连接故障，已有关于页面及后台状态截图不能充当故障现场。"},
+  "DV-01": {"reason": "diagram", "note": "此处需要架构示意图，不属于 ACECode 窗口截图，本次保留原图示占位。"}
+}

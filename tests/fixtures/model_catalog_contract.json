@@ -11,7 +11,7 @@
         "id": "acemodel",
         "name": "ACEModel",
         "runtime_provider": "openai",
-        "base_url": "https://ge.bigjuan.xyz/aceapi/v1",
+        "base_url": "https://acemodel.example/v1",
         "doc": "",
         "auth_mode": "required",
         "endpoint_editable": false,

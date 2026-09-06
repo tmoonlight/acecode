@@ -290,6 +290,7 @@ std::vector<FeedbackLogSource> collect_runtime_log_sources(const fs::path& logs_
     const std::pair<const char*, const char*> wanted[] = {
         {"desktop", "logs/desktop.log.tail.txt"},
         {"daemon", "logs/daemon.log.tail.txt"},
+        {"upgrade", "logs/upgrade.log.tail.txt"},
     };
     std::vector<FeedbackLogSource> sources;
     for (const auto& [base, entry_name] : wanted) {

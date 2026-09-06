@@ -1,0 +1,125 @@
+{
+  "index": {
+    "lead": "ACECode 是面向桌面与终端的 AI 编程智能体。围绕一个项目或任务，把理解代码、实施修改和验证结果串起来。",
+    "sections": [
+      {
+        "id": "capabilities",
+        "title": "ACECode 能做什么",
+        "html": "<p>你可以直接描述目标，引用相关文件，让 ACECode 查找入口、阅读实现、修改代码并运行命令。回复区会显示回答、工具过程和需要你处理的操作确认。它使用你配置的模型与服务商，需要先保存一个可用模型。</p>\n<div class=\"table-scroll\"><table><thead><tr><th scope=\"col\">你要完成的事</th><th scope=\"col\">如何开始</th></tr></thead><tbody><tr><td>了解项目</td><td>说明架构、主要入口、依赖和启动方式。</td></tr><tr><td>修复问题</td><td>提供报错和复现步骤，要求先定位原因，再做最小修复。</td></tr><tr><td>实现功能</td><td>描述预期行为、允许修改的范围与验收方法。</td></tr><tr><td>检查结果</td><td>查看文件差异、测试输出和未完成事项，必要时继续补充指令。</td></tr></tbody></table></div>\n<p>任务记录可以恢复、搜索、置顶与归档。长对话支持压缩上下文；更专门的工作可使用技能、MCP、专家和子代理。权限模式决定哪些操作需要确认，模型能力、系统依赖和扩展连接状态决定实际可用范围。</p>\n<figure class=\"screenshot\" data-placeholder=\"GS-01\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"图片占位：ACECode 桌面端主界面\"><span class=\"placeholder-id\">GS-01</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">图片占位</span><strong>ACECode 桌面端主界面</strong><span>此处补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>展示一个真实项目：标出工作区与任务列表、聊天输入区、当前模型与权限、文件和变更面板。截图中的项目名使用示例名称。</figcaption></figure>"
+      },
+      {
+        "id": "surfaces",
+        "title": "桌面端、终端与 Web 如何取舍",
+        "html": "<div class=\"table-scroll\"><table><thead><tr><th scope=\"col\">入口</th><th scope=\"col\">适合的工作方式</th><th scope=\"col\">从哪里开始</th></tr></thead><tbody><tr><td>桌面端</td><td>在同一个窗口管理工作区、任务、文件预览和面板。</td><td><a href=\"desktop.html\">桌面端指南</a></td></tr><tr><td>TUI</td><td>在本地终端或 SSH 会话中以键盘完成交互。</td><td>进入项目目录，运行 <code>acecode</code>。</td></tr><tr><td>CLI</td><td>脚本或流水线中提交一次任务，获取文本或 JSON 结果。</td><td><code>acecode -p --help</code></td></tr><tr><td>Web</td><td>通过浏览器连接运行 ACECode 的计算机。</td><td>启动 <code>acecode daemon</code>，打开输出的地址。</td></tr></tbody></table></div>\n<p>Web 中的工作区路径指向运行后台服务的计算机。桌面端具有原生文件选择和浏览器集成，直接 Web 不具备所有桌面专属功能。使用 SSH 时可以选择 TUI，也可以在远端运行后台服务后配置<a href=\"network.html\">远程 Web 访问</a>。</p><p>第一次使用，按<a href=\"installation.html\">安装</a>、<a href=\"quick-start.html\">快速开始</a>的顺序完成一个小修改，再按需要阅读后续栏目。</p>"
+      }
+    ],
+    "sources": [
+      "README_CN.md",
+      "docs/user-manual.md",
+      "src/headless/headless_options.cpp",
+      "docs/agent-browser.md"
+    ],
+    "intro": ""
+  },
+  "installation": {
+    "lead": "选择适合系统和处理器的安装方式，确认程序能启动后，再配置第一个模型。",
+    "sections": [
+      {
+        "id": "windows",
+        "title": "Windows",
+        "html": "<p>桌面端可使用 Windows x64 安装器，也可以使用上方的 npm 方式。</p><ol><li>打开官方发布页，找到该版本提供的 Windows 安装器，例如 <code>ACECode-&lt;版本&gt;-windows-x64-setup.exe</code>。</li><li>双击安装器，按向导完成安装。默认安装到当前用户的 <code>%LOCALAPPDATA%\\Programs\\ACECode</code>。</li><li>从开始菜单启动 ACECode，然后前往<a href=\"quick-start.html#model\">配置第一个模型</a>。</li></ol>\n        <figure class=\"screenshot compact\" data-placeholder=\"GS-02\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：Windows 安装向导\"><span class=\"placeholder-id\">GS-02</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>Windows 安装向导</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>Windows：展示安装位置与安装向导的主要步骤。</figcaption></figure>\n        <p>Windows 桌面界面需要 Microsoft Edge WebView2 Runtime。若当前系统没有该运行时，请按安装提示补齐。使用便携包时，请保留解压后的完整目录，桌面程序需要同目录中的后台程序和资源文件。</p>\n      "
+      },
+      {
+        "id": "macos",
+        "title": "macOS",
+        "html": "<p>先在苹果菜单的“关于本机”中确认芯片类型，再选择对应的安装包。</p><div class=\"table-scroll\"><table><thead><tr><th>你的 Mac</th><th>选择的架构</th></tr></thead><tbody><tr><td>Apple 芯片（M 系列）</td><td>macos-arm64</td></tr><tr><td>Intel 处理器</td><td>macos-x64</td></tr></tbody></table></div>\n        <ol><li>若当前发布版本提供 <code>.pkg</code>，下载与架构匹配的包并双击打开。</li><li>按照系统安装器提示完成当前用户安装。</li><li>在 <code>~/Applications/ACECode.app</code> 打开 ACECode，继续配置模型。</li></ol>\n        <figure class=\"screenshot compact\" data-placeholder=\"GS-03\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：macOS 安装与首次打开\"><span class=\"placeholder-id\">GS-03</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>macOS 安装与首次打开</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>macOS：展示 PKG 安装完成后，当前用户“应用程序”目录中的 ACECode。</figcaption></figure>\n        <p>若该版本没有 PKG，可使用 npm，或按发行说明使用对应架构的压缩包。ACECode 的 macOS 发布产物不使用 DMG 安装流程。</p>\n      "
+      },
+      {
+        "id": "linux",
+        "title": "Linux",
+        "html": "<p>Linux 可以使用 npm 安装，也可以下载 <code>acecode-linux-x64.tar.gz</code> 或 <code>acecode-linux-arm64.tar.gz</code>。下面以 x64 压缩包为例，在下载目录执行：</p>\n        <div class=\"code-block\"><div class=\"code-heading\"><span>Shell · 从压缩包启动</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>tar -xzf acecode-linux-x64.tar.gz\ncd acecode-linux-x64\n./acecode configure\n./acecode</code></pre></div>\n        <p>ARM64 用户替换文件名和目录名中的 <code>x64</code> 为 <code>arm64</code>。直接解压运行时使用 <code>./acecode</code>；将程序目录加入 PATH 后，才可在其他目录使用 <code>acecode</code>。</p>\n        <h3 id=\"linux-desktop\">使用 Linux 桌面端</h3><p>桌面端需要 WebKitGTK 4.1。采用 apt 的发行版可安装对应运行库，然后在程序目录中启动：</p>\n        <div class=\"code-block\"><div class=\"code-heading\"><span>Shell · 桌面运行库与启动</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>sudo apt install libwebkit2gtk-4.1-0\n./acecode-desktop</code></pre></div>\n        <p>其他发行版请使用对应的软件包管理器安装 WebKitGTK 4.1。较旧的 Linux 系统若出现 glibc 版本不满足的问题，请查看发布页中的 <code>acecode-linux-old-*</code> 兼容包。</p>\n        <h3 id=\"web\">通过浏览器使用</h3><p>安装终端版后，也可以启动后台服务。npm 安装时执行：</p>\n        <div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 启动 Web 服务</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>acecode daemon</code></pre></div>\n        <p>未覆盖端口配置时，在本机浏览器打开 <a href=\"http://127.0.0.1:12399\" target=\"_blank\" rel=\"noopener noreferrer\">http://127.0.0.1:12399</a>。便携版请在程序目录执行 <code>./acecode daemon</code>。配置了端口或认证时，按服务启动信息访问。</p>\n        <aside class=\"note\"><strong>本机 Web 与远程访问</strong><p>这里的地址用于本机访问。远程访问需要额外配置访问方式与认证；首次使用建议先在本机完成模型配置和任务验证。</p></aside>\n      <p>请优先打开启动输出中的 <code>Web UI:</code> 地址；已保存的端口配置可能与默认值不同。完整操作见<a href=\"web.html\">Web</a>。</p>"
+      }
+    ],
+    "sources": [
+      "npm/cli/README.md",
+      "npm/desktop/README.md",
+      "installer/windows/acecode.iss",
+      "docs/macos-release.md",
+      "docs/linux-self-update.md",
+      "src/daemon/cli.cpp"
+    ],
+    "intro": "<h3 id=\"before\">安装前准备</h3><p>先确定你使用的操作系统和处理器架构。Windows、macOS 和 Linux 的安装包不能混用；Apple 芯片与 Intel Mac 也需要选择不同的包。</p>\n        <ul class=\"check-list\"><li><strong>模型访问方式：</strong>准备服务商提供的 API Key，或使用支持的账号登录方式。安装完成后再配置即可。</li><li><strong>开发环境：</strong>若任务需要运行项目，请先准备项目依赖，例如 Git、Node.js、Python 或相应编译工具。</li><li><strong>npm 安装：</strong>需要电脑上已有 Node.js 和 npm。直接下载原生安装包时，不需要为了启动 ACECode 安装 Node.js。</li></ul>\n        <p>所有手动下载入口都指向 <a href=\"https://github.com/tmoonlight/acecode/releases\" target=\"_blank\" rel=\"noopener noreferrer\">ACECode 官方发布页 <svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M14 3h7v7m0-7L10 14M10 5H4v15h15v-6\"/></svg></a>。在 Assets 中选择对应平台的产物，具体可用文件以该版本发布内容为准。</p>\n      <h3 id=\"npm\">通过 npm 安装</h3><p>如果你已经使用 npm，可以直接安装桌面端或终端版。安装时会按系统和处理器选择对应的原生程序。</p>\n        <h3 id=\"npm-desktop\">桌面端</h3><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 安装并启动桌面端</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm install -g @aceagent/desktop\nacecode-desktop</code></pre></div>\n        <h3 id=\"npm-cli\">终端版</h3><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 安装、配置并启动 TUI</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm install -g @aceagent/acecode\nacecode configure\nacecode</code></pre></div>\n        <aside class=\"note\"><strong>保留可选依赖</strong><p>安装时请不要添加 <code>--omit=optional</code> 或 <code>--no-optional</code>，平台所需的原生程序通过可选依赖安装。桌面端与 CLI 提供不同的启动命令，需要两个入口时可分别安装。</p></aside>\n      <p>终端版与桌面端分别提供 <code>acecode</code> 与 <code>acecode-desktop</code> 命令。安装后重新打开终端，用 <code>acecode --version</code> 检查终端版是否可用。</p>"
+  },
+  "quick-start": {
+    "lead": "从配置模型到完成第一次修改，走一遍完整的 ACECode 工作流程。",
+    "sections": [
+      {
+        "id": "model",
+        "title": "配置第一个模型",
+        "html": "<p>模型是 ACECode 完成分析与操作时使用的 AI。先保存一个可用的模型连接，再开始对话。</p>\n        <h3 id=\"desktop-model\">在桌面端配置</h3><ol><li>打开 ACECode，进入 <strong>设置 &gt; 模型</strong>。</li><li>点击<strong>新增模型</strong>，选择服务商。可以使用 ACEModel、已有的服务商，或自定义 OpenAI 兼容接口。</li><li>按表单填写所需信息，例如 Base URL、API Key 与模型 ID。使用账号登录的服务商，按界面提示完成认证。</li><li>保存模型。回到任务界面，在输入框下方的模型选择器中选择它。</li></ol>\n        <figure class=\"screenshot\" data-placeholder=\"GS-04\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：模型设置与添加模型\"><span class=\"placeholder-id\">GS-04</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>模型设置与添加模型</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>模型设置：展示服务商选择、连接信息填写和保存后的模型列表。</figcaption></figure>\n        <aside class=\"note\"><strong>使用服务商给你的连接信息</strong><p>Base URL 是服务地址，模型 ID 是接口识别的名称，API Key 用来认证。请以服务商提供的信息为准；显示名称可以取一个方便自己辨认的名字。</p></aside>\n        <h3 id=\"terminal-model\">在终端中配置</h3><p>运行配置向导，按提示选择服务商并填写连接信息：</p><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 配置模型</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>acecode configure</code></pre></div><p>进入 TUI 后，可以输入 <code>/model</code> 查看并切换已保存的模型。不同服务商需要的字段可能不同。</p>\n      "
+      },
+      {
+        "id": "project",
+        "title": "打开项目与创建任务",
+        "html": "<h3 id=\"desktop-project\">桌面端</h3><p>选择<strong>新建任务</strong>，然后选择已有工作区，或打开本地项目目录。这里的工作区就是本次任务要处理的项目位置。</p><p>需要完成不依赖项目的问答或通用任务时，选择<strong>不使用工作区</strong>。</p>\n        <figure class=\"screenshot compact\" data-placeholder=\"GS-05\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：新建任务与选择工作区\"><span class=\"placeholder-id\">GS-05</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>新建任务与选择工作区</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>新建任务：展示已有工作区、打开本地项目和“不使用工作区”入口。</figcaption></figure>\n        <h3 id=\"terminal-project\">终端</h3><p>进入你的项目目录，再启动 ACECode。把下面的示例路径替换为自己的项目路径：</p><div class=\"code-block\"><div class=\"code-heading\"><span>Shell · 在项目中启动</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>cd /path/to/your/project\nacecode</code></pre></div><p>Windows PowerShell 可以使用 <code>cd C:\\Projects\\my-project</code>。使用便携版时，保持当前目录为项目目录，并通过 ACECode 程序的完整路径启动。</p>\n      "
+      },
+      {
+        "id": "first-change",
+        "title": "完成第一次代码修改",
+        "html": "<h3 id=\"request\">描述任务并发送</h3><p>第一次可以从了解项目开始。输入一个明确的请求，按 <kbd>Enter</kbd> 发送：</p><div class=\"code-block\"><div class=\"code-heading\"><span>示例请求</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>先阅读这个项目，说明主要目录和启动方式。\n告诉我应该从哪个入口文件开始了解。</code></pre></div>\n        <p>准备让 ACECode 修改代码时，说明目标、范围和验证方式：</p><div class=\"code-block\"><div class=\"code-heading\"><span>示例请求</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>找到登录表单的校验逻辑，为空密码增加提示。\n保持现有页面样式，只修改相关代码。\n完成后运行对应测试，并说明修改了哪些文件。</code></pre></div>\n        <h3 id=\"context\">添加相关上下文</h3><ul><li>输入 <code>@</code>，选择工作区内的文件或目录。</li><li>在桌面端通过添加入口引用本地文件，包括图片。具体处理能力取决于所选模型和可用工具。</li><li>已经知道报错、预期结果或限制时，直接附在请求中。</li></ul>\n        <figure class=\"screenshot compact\" data-placeholder=\"GS-06\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：输入请求与引用项目文件\"><span class=\"placeholder-id\">GS-06</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>输入请求与引用项目文件</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>输入区：展示 @ 文件引用、模型选择和权限模式。</figcaption></figure>\n        <h3 id=\"permission\">确认模型与权限</h3><p>发送前检查当前模型和权限模式。默认权限模式下，读取项目内容通常可以自动进行；文件写入和命令执行会按权限规则请求确认。确认时查看工具要做什么、作用于哪些文件。</p>\n      \n<h3 id=\"review\">查看并验证修改</h3><p>ACECode 会逐步展示回复和工具执行过程。你可以查看修改的文件、运行的命令以及测试结果，再判断任务是否达到了预期。</p><ul class=\"check-list\"><li><strong>检查改动范围：</strong>确认修改集中在这次任务涉及的文件。</li><li><strong>阅读差异：</strong>查看新增和删除的代码，确认行为符合要求。</li><li><strong>核对验证结果：</strong>阅读测试输出；需要手动操作的功能，再运行项目检查。</li></ul>\n        <figure class=\"screenshot\" data-placeholder=\"GS-07\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：任务执行过程与文件差异\"><span class=\"placeholder-id\">GS-07</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>任务执行过程与文件差异</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>结果检查：展示工具执行记录、文件变更和差异预览。</figcaption></figure>\n        <p>结果还需要调整时，在同一个任务中继续补充要求。需要停止当前执行时，使用界面中的停止操作，再给出下一步指令。</p>\n      \n<h3 id=\"resume\">继续已有任务</h3><p>任务记录会保存下来。桌面端可以从侧边栏回到已有任务；终端中，在同一个项目目录运行：</p><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 恢复最近的任务</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>acecode --resume</code></pre></div><p>也可以在 TUI 中输入 <code>/resume</code> 打开会话选择器。恢复后，先查看已有上下文，再说明接下来要完成的目标。</p><aside class=\"note\"><strong>继续尝试</strong><p>从一个小修改开始，逐步尝试定位失败测试、解释复杂代码或审查当前差异。任务越具体，越容易判断是否完成。</p></aside>"
+      }
+    ],
+    "sources": [
+      "README_CN.md",
+      "web/src/components/model-settings/ModelSettingsSection.jsx",
+      "web/src/components/ChatView.jsx",
+      "web/src/components/InputBar.jsx",
+      "docs/user-manual.md"
+    ],
+    "intro": "<aside class=\"note\"><strong>准备好 ACECode</strong><p>先完成<a href=\"installation.html\">安装</a>，并准备一个希望处理的本地项目；通用问答也可以选择“不使用工作区”。</p></aside>"
+  },
+  "update-uninstall": {
+    "lead": "沿用原来的安装方式更新程序，确认版本与任务记录，再按需要卸载。",
+    "sections": [
+      {
+        "id": "before-update",
+        "title": "更新前准备",
+        "html": "<p>先确认 ACECode 是通过 npm、图形安装器还是压缩包安装的。更新时沿用原来的安装方式，便于管理程序位置与版本。</p><ol><li>完成或停止正在运行的任务，保存项目中自己的修改。</li><li>退出 ACECode 桌面端、TUI 和相关后台服务。</li><li>如果需要保留独立备份，先复制用户配置和任务数据目录。</li></ol><p>程序文件与用户数据通常分别存放。更新程序时，不需要清空配置或会话；数据位置见<a href=\"#data\">配置与任务数据</a>。</p>"
+      },
+      {
+        "id": "npm-update",
+        "title": "更新 npm 安装",
+        "html": "<p>重新安装对应包的最新版本即可。只更新自己安装过的入口；同时使用桌面端和 CLI 时，可以分别更新。</p><h3 id=\"npm-update-desktop\">桌面端</h3><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 更新桌面端</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm install -g @aceagent/desktop@latest</code></pre></div><h3 id=\"npm-update-cli\">终端版</h3><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 更新 CLI</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm install -g @aceagent/acecode@latest</code></pre></div><p>更新完成后，重新打开 ACECode。安装时仍需保留可选依赖。</p>"
+      },
+      {
+        "id": "package-update",
+        "title": "更新安装包与便携版",
+        "html": "<h3 id=\"windows-update\">Windows 安装器</h3><p>在 <a href=\"https://github.com/tmoonlight/acecode/releases\" target=\"_blank\" rel=\"noopener noreferrer\">官方发布页 <svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M14 3h7v7m0-7L10 14M10 5H4v15h15v-6\"/></svg></a> 下载新的同架构安装器，退出 ACECode 后按安装向导更新到原安装位置。</p><h3 id=\"macos-update\">macOS PKG</h3><p>选择与当前 Mac 芯片匹配的新 PKG，退出 ACECode，再按系统安装器提示安装。应用仍位于当前用户目录下的 <code>~/Applications/ACECode.app</code>。</p><h3 id=\"portable-update\">压缩包与自升级</h3><p>对于支持自升级的独立安装，可以在终端运行：</p><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 自升级</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>acecode update</code></pre></div><p>使用便携版时，在程序目录运行 <code>./acecode update</code>；Windows PowerShell 使用 <code>.\\acecode.exe update</code>。按命令实际输出确认更新结果。</p><p>需要手动更新时，将对应平台的新包完整解压到新的目录，再使用新目录中的程序。请保留包内程序与资源的相对位置。</p><aside class=\"note\"><strong>较旧的 Linux 版本</strong><p>部分旧版本需要先通过新的 <code>.tar.gz</code> 手动升级一次，才能使用后续自升级。遇到自升级不支持或执行权限问题时，可从官方发布页重新下载匹配架构的完整压缩包。</p></aside>"
+      },
+      {
+        "id": "check-update",
+        "title": "检查更新结果",
+        "html": "<p>桌面端可在<strong>设置 &gt; 关于</strong>查看当前版本。安装了 CLI 时，可以执行：</p><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 核对版本</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>acecode --version</code></pre></div>\n        <figure class=\"screenshot compact\" data-placeholder=\"GS-08\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：关于页面中的当前版本\"><span class=\"placeholder-id\">GS-08</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>关于页面中的当前版本</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>更新后：查看当前版本，并确认已有模型与任务仍可正常使用。</figcaption></figure>\n        <p>重新打开一个已有任务，检查模型选择与历史记录。若版本仍是旧的，请确认启动的是刚更新的安装位置，而不是电脑上另一份 ACECode。</p>"
+      },
+      {
+        "id": "uninstall",
+        "title": "卸载 ACECode",
+        "html": "<p>先退出应用和后台服务，再按安装方式卸载。</p><h3 id=\"uninstall-npm\">通过 npm 安装</h3><p>按需卸载桌面入口或 CLI：</p><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 卸载桌面端</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm uninstall -g @aceagent/desktop</code></pre></div><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 卸载 CLI</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm uninstall -g @aceagent/acecode</code></pre></div><h3 id=\"uninstall-windows\">Windows 安装器</h3><p>在 Windows <strong>设置 &gt; 应用</strong>中找到 ACECode 并选择卸载，也可使用安装器创建的卸载入口。</p><h3 id=\"uninstall-macos\">macOS PKG</h3><p>退出 ACECode 后，将 <code>~/Applications/ACECode.app</code> 移到废纸篓。当前用户安装不需要使用管理员卸载命令。</p><h3 id=\"uninstall-portable\">便携版与 Linux 压缩包</h3><p>退出相关进程后，移除当初解压的程序目录。如果曾手动添加 PATH 或创建启动链接，也一并移除对应设置。</p>"
+      },
+      {
+        "id": "data",
+        "title": "配置与任务数据",
+        "html": "<p>个人安装默认将配置与会话等数据保存在用户主目录下的 <code>.acecode</code>。使用自定义数据目录或系统服务账号时，位置可能不同。</p><div class=\"table-scroll\"><table><thead><tr><th>系统</th><th>默认用户数据目录</th></tr></thead><tbody><tr><td>Windows</td><td><code>%USERPROFILE%\\.acecode</code></td></tr><tr><td>macOS / Linux</td><td><code>~/.acecode</code></td></tr></tbody></table></div><p>卸载程序和删除个人数据是两件独立的操作。希望以后继续使用原来的模型配置和任务记录时，请保留数据目录。</p><aside class=\"note warning\"><strong>需要彻底清理时</strong><p>先确认目录中没有需要保留的配置、会话或记忆，再自行删除。删除用户数据会丢失这些本地记录；包含 API Key 的备份也应妥善保管。</p></aside>"
+      }
+    ],
+    "sources": [
+      "src/tui/cli_dispatch.cpp",
+      "npm/cli/README.md",
+      "npm/desktop/README.md",
+      "docs/macos-release.md",
+      "docs/linux-self-update.md",
+      "web/src/components/UpdateDialog.jsx"
+    ],
+    "intro": ""
+  }
+}
