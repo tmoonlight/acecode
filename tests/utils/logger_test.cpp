@@ -128,6 +128,32 @@ TEST_F(LoggerRotationTest, InitWithRotationCreatesDirAndInitialFile) {
     EXPECT_EQ(matched, 1) << "应有且只有一个 daemon-{date}.log 被创建";
 }
 
+// 场景:TUI 使用与其它运行时表面相同的日期滚动命名,但保留不镜像 stderr 的
+// 终端运行语义。
+TEST_F(LoggerRotationTest, TuiRotationUsesTuiDatePrefixWithoutStderrMirror) {
+    auto logs_dir = tmp_dir_ / "logs";
+    acecode::Logger::instance().init_with_rotation(
+        logs_dir.string(), "tui", /*mirror_stderr=*/false);
+
+    std::ostringstream captured;
+    auto* old_buf = std::cerr.rdbuf(captured.rdbuf());
+    LOG_INFO("tui-centralized-line");
+    std::cerr.rdbuf(old_buf);
+
+    int matched = 0;
+    for (const auto& entry : fs::directory_iterator(logs_dir)) {
+        const auto filename = entry.path().filename().string();
+        if (filename.rfind("tui-", 0) == 0 &&
+            filename.size() > 11 /* tui-YYYY-MM-DD.log */) {
+            ++matched;
+            EXPECT_NE(read_file(entry.path()).find("tui-centralized-line"),
+                      std::string::npos);
+        }
+    }
+    EXPECT_EQ(matched, 1);
+    EXPECT_TRUE(captured.str().empty());
+}
+
 // 场景:启动早期尚无主 logger 时建立静默 config sink;若调用方已有 sink,
 // 条件初始化不得把日志重定向到另一个文件。
 TEST_F(LoggerRotationTest, ConditionalRotationInitializesOnlyWhenDisabled) {

@@ -285,14 +285,15 @@ std::optional<fs::path> latest_desktop_log_path(const fs::path& logs_dir) {
     return latest_rotated_log_path(logs_dir, "desktop");
 }
 
-std::vector<FeedbackLogSource> collect_runtime_log_sources(const fs::path& logs_dir) {
-    // entry 名固定,不随日志文件的日期后缀变化 —— 服务端按名取用。
-    const std::pair<const char*, const char*> wanted[] = {
-        {"desktop", "logs/desktop.log.tail.txt"},
-        {"daemon", "logs/daemon.log.tail.txt"},
-    };
+namespace {
+
+std::vector<FeedbackLogSource> collect_surface_runtime_log_sources(
+    const fs::path& logs_dir,
+    const std::pair<const char*, const char*>* wanted,
+    std::size_t wanted_count) {
     std::vector<FeedbackLogSource> sources;
-    for (const auto& [base, entry_name] : wanted) {
+    for (std::size_t i = 0; i < wanted_count; ++i) {
+        const auto& [base, entry_name] = wanted[i];
         if (auto path = latest_rotated_log_path(logs_dir, base)) {
             FeedbackLogSource source;
             source.path = *path;
@@ -301,6 +302,27 @@ std::vector<FeedbackLogSource> collect_runtime_log_sources(const fs::path& logs_
         }
     }
     return sources;
+}
+
+} // namespace
+
+std::vector<FeedbackLogSource> collect_runtime_log_sources(const fs::path& logs_dir) {
+    // entry 名固定,不随日志文件的日期后缀变化 —— 服务端按名取用。
+    const std::pair<const char*, const char*> wanted[] = {
+        {"desktop", "logs/desktop.log.tail.txt"},
+        {"daemon", "logs/daemon.log.tail.txt"},
+    };
+    return collect_surface_runtime_log_sources(
+        logs_dir, wanted, sizeof(wanted) / sizeof(wanted[0]));
+}
+
+std::vector<FeedbackLogSource> collect_tui_runtime_log_sources(const fs::path& logs_dir) {
+    const std::pair<const char*, const char*> wanted[] = {
+        {"tui", "logs/tui.log.tail.txt"},
+        {"daemon", "logs/daemon.log.tail.txt"},
+    };
+    return collect_surface_runtime_log_sources(
+        logs_dir, wanted, sizeof(wanted) / sizeof(wanted[0]));
 }
 
 std::optional<FeedbackLogBundle> collect_recent_upgrade_log_bundle(

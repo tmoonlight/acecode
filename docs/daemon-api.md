@@ -3918,12 +3918,13 @@ Body fields are optional strings:
 }
 ```
 
-The package always carries the newest rotated log of every runtime that writes
-into the logs directory: the desktop shell (`desktop-<date>.log`) and the daemon
-that serves the request (`daemon-<date>.log`). Each is truncated to its last
-512 KiB and stored as `logs/desktop.log.tail.txt` / `logs/daemon.log.tail.txt`.
-A runtime with no log file present is skipped silently, so a browser-only
-deployment uploads the daemon log alone. Upgrade diagnostics
+The package carries the newest rotated Desktop shell log (`desktop-<date>.log`)
+and the daemon log (`daemon-<date>.log`) that serves the request. Each is
+truncated to its last 512 KiB and stored as `logs/desktop.log.tail.txt` /
+`logs/daemon.log.tail.txt`. A runtime with no log file present is skipped
+silently, so a browser-only deployment uploads the daemon log alone. Desktop
+feedback does not attach `tui-<date>.log`; terminal `/feedback` instead carries
+`tui-<date>.log` plus the daemon log and does not attach the Desktop log. Upgrade diagnostics
 (`upgrade-<date>-<pid>.log`, one file per process) are handled as a window
 rather than a single newest file: every upgrade log modified within the last
 three days (72 hours) is merged oldest-first into `logs/upgrade.log.tail.txt`,

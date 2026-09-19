@@ -3050,7 +3050,13 @@ static void set_startup_terminal_title() {
 }
 
 static void initialize_logger_for_working_dir(const std::string& working_dir) {
-    Logger::instance().init(working_dir + "/acecode.log");
+    const std::string logs_dir = get_logs_dir();
+    Logger::instance().init_with_rotation(logs_dir, "tui", /*mirror_stderr=*/false);
+#ifdef _WIN32
+    _putenv_s("ACECODE_FTXUI_INPUT_TRACE_DIR", logs_dir.c_str());
+#else
+    setenv("ACECODE_FTXUI_INPUT_TRACE_DIR", logs_dir.c_str(), 1);
+#endif
     Logger::instance().set_level(LogLevel::Dbg);
     LOG_INFO("=== acecode started, cwd=" + working_dir + " ===");
 }

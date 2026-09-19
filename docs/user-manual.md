@@ -749,7 +749,7 @@ acecode 启动时按 transport 连接每个配置的 MCP 服务器：
 [MCP] Connected 2 server(s), registered 8 external tool(s).
 ```
 
-若某个服务器连接失败，可在当前工作目录的 `acecode.log` 中查看详细错误信息。
+若某个服务器连接失败，可在 `<数据目录>/logs/tui-YYYY-MM-DD.log` 中查看详细错误信息（默认数据目录为 `~/.acecode`）。
 
 ### 管理 MCP 连接
 
@@ -885,9 +885,14 @@ OpenAI 兼容网关或 Anthropic 模型如果推理时间很长、连接容易�
 
 ### Q: 日志文件在哪里？
 
-acecode 运行时会在当前工作目录生成 `acecode.log` 文件，记录详细的调试信息。
-Daemon 模式下不再写 `acecode.log`，而是按日期滚动写到
-`<数据目录>/logs/daemon-{YYYY-MM-DD}.log`（详见第 16 章）。
+普通 TUI 运行时会按本地日期滚动写入
+`<数据目录>/logs/tui-YYYY-MM-DD.log`，记录详细的调试信息。默认数据目录为
+`~/.acecode`；若已配置数据目录重定向，则使用重定向后的目录。已有工作区中的
+`acecode.log` 会被保留，但新的 TUI 不再创建或追加该文件。启用 TUI 输入追踪的
+调试构建会将高频鼠标和选区记录另写到
+`<数据目录>/logs/tui-input-trace-YYYY-MM-DD.log`，同样不会写入工作区。
+
+Daemon 模式按日期滚动写到 `<数据目录>/logs/daemon-YYYY-MM-DD.log`（详见第 16 章）。
 
 ---
 

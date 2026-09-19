@@ -286,6 +286,56 @@ TEST(FeedbackUpload, BuildPackageIncludesDesktopAndDaemonLogs) {
     EXPECT_EQ(metadata["included_files"][2], "feedback.json");
 }
 
+TEST(FeedbackUpload, CollectTuiRuntimeLogSourcesIncludesTuiAndDaemonButNotDesktop) {
+    TempDir tmp("acecode_feedback_tui_sources");
+    const fs::path logs = tmp.root / "logs";
+    const auto older_tui = logs / "tui-2026-06-17.log";
+    const auto newer_tui = logs / "tui-2026-06-18.log";
+    write_text(older_tui, "older tui");
+    write_text(newer_tui, "newer tui");
+    write_text(logs / "desktop-2026-06-18.log", "unrelated desktop");
+    write_text(logs / "daemon-2026-06-18.log", "daemon");
+    const auto now = fs::file_time_type::clock::now();
+    fs::last_write_time(older_tui, now - std::chrono::hours(2));
+    fs::last_write_time(newer_tui, now - std::chrono::hours(1));
+
+    const auto tui_sources = acecode::feedback::collect_tui_runtime_log_sources(logs);
+    ASSERT_EQ(tui_sources.size(), 2u);
+    EXPECT_EQ(tui_sources[0].entry_name, "logs/tui.log.tail.txt");
+    EXPECT_EQ(tui_sources[0].path.filename(), fs::path("tui-2026-06-18.log"));
+    EXPECT_EQ(tui_sources[1].entry_name, "logs/daemon.log.tail.txt");
+
+    const auto desktop_sources = acecode::feedback::collect_runtime_log_sources(logs);
+    ASSERT_EQ(desktop_sources.size(), 2u);
+    EXPECT_EQ(desktop_sources[0].entry_name, "logs/desktop.log.tail.txt");
+    EXPECT_EQ(desktop_sources[1].entry_name, "logs/daemon.log.tail.txt");
+
+    const fs::path legacy_workspace_log = tmp.root / "workspace" / "acecode.log";
+    write_text(legacy_workspace_log, "legacy workspace log");
+    acecode::feedback::FeedbackPackageRequest req;
+    req.source = "tui";
+    req.logs = tui_sources;
+    req.output_dir = tmp.root / "out";
+    req.created_at = "2026-06-18T01:02:03Z";
+    const auto package = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(package.ok) << package.error;
+    EXPECT_TRUE(zip_entry_exists(package.package_path, "logs/tui.log.tail.txt"));
+    EXPECT_TRUE(zip_entry_exists(package.package_path, "logs/daemon.log.tail.txt"));
+    EXPECT_FALSE(zip_entry_exists(package.package_path, "logs/desktop.log.tail.txt"));
+    EXPECT_FALSE(zip_entry_exists(package.package_path, "logs/acecode.log.tail.txt"));
+}
+
+TEST(FeedbackUpload, CollectTuiRuntimeLogSourcesKeepsDaemonWhenTuiIsMissing) {
+    TempDir tmp("acecode_feedback_tui_missing");
+    const fs::path logs = tmp.root / "logs";
+    write_text(logs / "desktop-2026-06-18.log", "unrelated desktop");
+    write_text(logs / "daemon-2026-06-18.log", "daemon");
+
+    const auto sources = acecode::feedback::collect_tui_runtime_log_sources(logs);
+    ASSERT_EQ(sources.size(), 1u);
+    EXPECT_EQ(sources[0].entry_name, "logs/daemon.log.tail.txt");
+}
+
 TEST(FeedbackUpload, CollectRuntimeLogSourcesKeepsDaemonWhenDesktopIsMissing) {
     TempDir tmp("acecode_feedback_daemon_only");
     const fs::path logs = tmp.root / "logs";

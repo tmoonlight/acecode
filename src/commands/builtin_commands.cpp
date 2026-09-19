@@ -502,18 +502,10 @@ static void cmd_feedback(CommandContext& ctx, const std::string& raw_args) {
     package_req.session_id = session_id;
     package_req.session_jsonl_path = session_jsonl;
     package_req.acecode_version = ACECODE_VERSION;
-    // TUI 自己的日志(cwd/acecode.log)+ 同机 daemon / desktop 的滚动日志:
-    // TUI 会话也可能被 daemon 侧的组件影响,缺失的来源会被静默跳过。
-    {
-        acecode::feedback::FeedbackLogSource tui_log;
-        tui_log.path = path_from_utf8(ctx.cwd) / "acecode.log";
-        tui_log.entry_name = "logs/acecode.log.tail.txt";
-        package_req.logs.push_back(std::move(tui_log));
-    }
+    // TUI feedback carries its own surface log plus the shared daemon log, but not
+    // an unrelated Desktop surface log. Missing sources are skipped.
     const fs::path logs_dir = path_from_utf8(get_logs_dir());
-    for (auto& source : acecode::feedback::collect_runtime_log_sources(logs_dir)) {
-        package_req.logs.push_back(std::move(source));
-    }
+    package_req.logs = acecode::feedback::collect_tui_runtime_log_sources(logs_dir);
     // 最近三天的升级记录合并成一个条目:「更新之后就不对了」这类反馈要看的就是它。
     if (auto upgrade_logs = acecode::feedback::collect_recent_upgrade_log_bundle(logs_dir)) {
         package_req.log_bundles.push_back(std::move(*upgrade_logs));

@@ -103,10 +103,15 @@ std::optional<std::filesystem::path> latest_rotated_log_path(
 std::optional<std::filesystem::path> latest_desktop_log_path(
     const std::filesystem::path& logs_dir);
 
-// daemon / desktop 反馈默认附带的运行时日志:desktop 壳日志 + daemon 日志,
-// 各取最近一个滚动文件,缺失的静默跳过。升级日志不在这里 —— 它按窗口取多个,
+// GUI/Desktop 反馈默认附带的运行时日志:Desktop 壳日志 + daemon 日志,
+// 各取最近一个滚动文件,缺失时静默跳过。升级日志不在这里 —— 它按窗口取多个,
 // 走 collect_recent_upgrade_log_bundle。
 std::vector<FeedbackLogSource> collect_runtime_log_sources(
+    const std::filesystem::path& logs_dir);
+
+// TUI 反馈默认附带的运行时日志:TUI + daemon 日志。它刻意不附带 Desktop 壳日志,
+// 因为反馈包只携带发起界面的表面日志。
+std::vector<FeedbackLogSource> collect_tui_runtime_log_sources(
     const std::filesystem::path& logs_dir);
 
 // 找 logs_dir 下最近 window 内写过的全部 "upgrade-<date>-<pid>.log",按修改时间
