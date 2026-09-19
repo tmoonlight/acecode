@@ -1,6 +1,6 @@
 #!/bin/bash
-# ACECode Desktop development launcher (macOS / Linux)
-# Usage: ./scripts/dev_desktop.sh [Desktop launcher options]
+# ACECode TUI development launcher (macOS / Linux)
+# Usage: ./scripts/dev_tui.sh [launcher options]
 
 set -e
 
@@ -15,4 +15,4 @@ else
     exit 1
 fi
 
-exec "$PYTHON" "$SCRIPT_DIR/dev_environment.py" desktop "$@"
+exec "$PYTHON" "$SCRIPT_DIR/dev_environment.py" tui "$@"

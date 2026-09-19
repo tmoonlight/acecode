@@ -26,6 +26,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from dev_build_artifacts import find_named_artifacts
+
 def _supports_color() -> bool:
     if os.environ.get("NO_COLOR"):
         return False
@@ -185,55 +191,12 @@ def build_web(web_dir: Path, pnpm: str, force: bool = False) -> None:
 
 def find_desktop_builds(build_dir: Path) -> list[Path]:
     """查找 build 根、直接子目录及 preset/config 两层布局的产物。"""
-    results: list[Path] = []
-    if not build_dir.is_dir():
-        return results
-
-    search_dirs = [build_dir]
-    try:
-        first_level = sorted(
-            (path for path in build_dir.iterdir()
-             if path.is_dir() and path.suffix != ".app"),
-            key=lambda path: str(path).lower(),
-        )
-    except OSError:
-        first_level = []
-    search_dirs.extend(first_level)
-    for first in first_level:
-        try:
-            search_dirs.extend(sorted(
-                (path for path in first.iterdir()
-                 if path.is_dir() and path.suffix != ".app"),
-                key=lambda path: str(path).lower(),
-            ))
-        except OSError:
-            continue
-
-    seen = set()
-    for child in search_dirs:
-        # macOS .app bundle
-        app_bundle = child / "ACECode.app"
-        if app_bundle.is_dir():
-            resolved = app_bundle.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                results.append(app_bundle)
-        # Windows .exe
-        exe = child / "acecode-desktop.exe"
-        if exe.is_file():
-            resolved = exe.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                results.append(exe)
-        # Linux / macOS 裸可执行文件（非 .app）
-        binary = child / "acecode-desktop"
-        if binary.is_file() and os.access(binary, os.X_OK):
-            resolved = binary.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                results.append(binary)
-
-    return results
+    return find_named_artifacts(
+        build_dir,
+        ["acecode-desktop.exe", "acecode-desktop"],
+        "ACECode.app",
+        require_executable=False,
+    )
 
 
 def display_path(path: Path, project_root: Path) -> str:

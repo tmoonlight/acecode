@@ -11,6 +11,8 @@ import time
 import webbrowser
 from pathlib import Path
 
+from dev_build_artifacts import find_named_artifacts
+
 
 def find_project_root() -> Path:
     current = Path(__file__).resolve().parent
@@ -23,18 +25,7 @@ def find_project_root() -> Path:
 
 def find_executable(build_dir: Path) -> Path | None:
     name = "acecode.exe" if os.name == "nt" else "acecode"
-    candidates = [
-        build_dir / name,
-        build_dir / "Release" / name,
-        build_dir / "Debug" / name,
-        build_dir / "MinSizeRel" / name,
-        build_dir / "RelWithDebInfo" / name,
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-
-    matches = sorted(build_dir.glob(f"**/{name}")) if build_dir.is_dir() else []
+    matches = find_named_artifacts(build_dir, [name])
     return matches[0] if matches else None
 
 
@@ -113,23 +104,23 @@ def main() -> int:
     if args.foreground:
         return subprocess.run(command, cwd=project_root).returncode
 
+    runtime_dir = _runtime_dir(project_root, args.run_dir)
+    previous_port_mtime_ns = _port_mtime_ns(runtime_dir)
     run_options = {"cwd": project_root}
     if os.name == "nt":
         run_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     result = subprocess.run(command, **run_options)
 
-    # Exit 6 means the daemon validated an already-running instance. Other
-    # failures must not be hidden by a stale daemon.port from an earlier run.
-    if result.returncode not in (0, 6):
-        return result.returncode
-
-    runtime_dir = _runtime_dir(project_root, args.run_dir)
-    port = _wait_for_port(runtime_dir)
+    # The Windows daemon wrapper can time out before its worker has finished
+    # loading configuration. Accept a nonzero wrapper exit only when it is
+    # followed by a freshly written port file from this launch.
+    allow_existing_port = result.returncode in (0, 6)
+    port = _wait_for_port(runtime_dir, previous_port_mtime_ns, allow_existing_port)
     if port is None:
-        print("[ERROR] Daemon started without a readable Web UI port.", file=sys.stderr)
+        print("[ERROR] Daemon started without a fresh readable Web UI port.", file=sys.stderr)
         return result.returncode or 1
 
-    _open_web_ui(port, args.no_browser, already_running=result.returncode != 0)
+    _open_web_ui(port, args.no_browser, already_running=result.returncode == 6)
     return 0
 
 
@@ -152,13 +143,21 @@ def _open_web_ui(port: int, no_browser: bool, already_running: bool = False) -> 
             webbrowser.open(url)
 
 
-def _wait_for_port(runtime_dir: Path) -> int | None:
+def _port_mtime_ns(runtime_dir: Path) -> int | None:
+    try:
+        return (runtime_dir / "daemon.port").stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def _wait_for_port(runtime_dir: Path, previous_mtime_ns: int | None = None, allow_existing: bool = True) -> int | None:
     port_file = runtime_dir / "daemon.port"
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         try:
             port = int(port_file.read_text(encoding="utf-8").strip())
-            if 1 <= port <= 65535:
+            mtime_ns = port_file.stat().st_mtime_ns
+            if 1 <= port <= 65535 and (allow_existing or previous_mtime_ns is None or mtime_ns > previous_mtime_ns):
                 return port
         except (OSError, ValueError):
             pass
