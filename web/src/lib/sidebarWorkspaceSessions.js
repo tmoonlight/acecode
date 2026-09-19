@@ -57,6 +57,23 @@ export function sidebarWorkspaceSessionListQuery({ full = false } = {}) {
   return { limit: SIDEBAR_SESSION_COLLAPSE_LIMIT };
 }
 
+// 已缓存的会话或已经完成过一次加载的空工作区都不应在后台刷新时重新显示
+// 「加载中」。只有首次打开且没有任何可展示数据时才显示该状态。
+export function workspaceNeedsInitialSidebarLoad({ hasCachedSessions = false, hasLoaded = false } = {}) {
+  return !hasCachedSessions && !hasLoaded;
+}
+
+export function settleSidebarWorkspacePage(promise) {
+  return Promise.resolve(promise).then(
+    (page) => ({ ok: true, page }),
+    (error) => ({ ok: false, error }),
+  );
+}
+
+export function sidebarWorkspacePageIsCurrent(currentSequence, requestSequence) {
+  return Number(currentSequence) === Number(requestSequence);
+}
+
 export function retainUnrefreshedSidebarSessions(
   previousSessions = [],
   incomingSessions = [],

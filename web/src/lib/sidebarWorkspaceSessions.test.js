@@ -6,18 +6,23 @@ import {
 import {
   normalizeWorkspaceSessionListResponse,
   retainUnrefreshedSidebarSessions,
+  settleSidebarWorkspacePage,
+  sidebarWorkspacePageIsCurrent,
   sidebarWorkspaceSessionListQuery,
   workspaceHasCachedSidebarSessions,
+  workspaceNeedsInitialSidebarLoad,
 } from './sidebarWorkspaceSessions.js';
 
+const pendingTests = [];
+
 function test(name, fn) {
-  try {
-    fn();
+  const run = Promise.resolve().then(fn).then(() => {
     console.log(`[pass] ${name}`);
-  } catch (error) {
+  }, (error) => {
     console.error(`[fail] ${name}`);
     throw error;
-  }
+  });
+  pendingTests.push(run);
 }
 
 // 触发场景:后端对无 limit 的请求仍回裸数组(老客户端兼容路径),对带 limit
@@ -92,6 +97,29 @@ test('sidebar workspace compact query asks for five rows', () => {
   assert.deepEqual(sidebarWorkspaceSessionListQuery({ full: true }), {});
 });
 
+test('workspaceNeedsInitialSidebarLoad only reports true before any workspace data exists', () => {
+  assert.equal(workspaceNeedsInitialSidebarLoad(), true);
+  assert.equal(workspaceNeedsInitialSidebarLoad({ hasCachedSessions: true }), false);
+  assert.equal(workspaceNeedsInitialSidebarLoad({ hasLoaded: true }), false);
+});
+
+test('settleSidebarWorkspacePage observes success and failure immediately', async () => {
+  assert.deepEqual(await settleSidebarWorkspacePage(Promise.resolve({ sessions: [] })), {
+    ok: true,
+    page: { sessions: [] },
+  });
+  const failure = new Error('failed');
+  assert.deepEqual(await settleSidebarWorkspacePage(Promise.reject(failure)), {
+    ok: false,
+    error: failure,
+  });
+});
+
+test('sidebarWorkspacePageIsCurrent rejects stale refresh generations', () => {
+  assert.equal(sidebarWorkspacePageIsCurrent(3, 3), true);
+  assert.equal(sidebarWorkspacePageIsCurrent(4, 3), false);
+});
+
 test('retainUnrefreshedSidebarSessions keeps collapsed workspaces and pinned extras', () => {
   const previous = [
     { id: 'keep-collapsed', workspace_hash: 'w2' },
@@ -149,3 +177,5 @@ test('sidebarSessionProjection uses reported total when the compact page is shor
   assert.equal(result.hiddenCount, 7);
   assert.deepEqual(result.visibleSessions.map((session) => session.id), ['0', '1', '2', '3', '4']);
 });
+
+await Promise.all(pendingTests);
