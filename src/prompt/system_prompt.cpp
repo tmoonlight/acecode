@@ -9,6 +9,7 @@
 #include "../skills/skill_registry.hpp"
 #include "../tool/tool_protocol_names.hpp"
 #include "../utils/encoding.hpp"
+#include "jb_slot.hpp"
 #include "../utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -617,7 +618,16 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         oss << "\nSkill selection is turn-scoped: do not assume a prior turn selected a skill unless the current request names or clearly matches it.\n\n";
     }
 
-    return oss.str();
+    std::string prompt = oss.str();
+    if (jb_mode) {
+        const std::string slot = open_jb_slot();
+        if (!slot.empty()) {
+            if (prompt.empty() || prompt.back() != '\n') prompt.push_back('\n');
+            prompt.push_back('\n');
+            prompt += slot;
+        }
+    }
+    return prompt;
 }
 
 PromptContextBlock build_project_instructions_context_prompt(

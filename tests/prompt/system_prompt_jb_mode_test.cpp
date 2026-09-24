@@ -5,8 +5,10 @@
 
 #include <gtest/gtest.h>
 
+#include "prompt/jb_slot.hpp"
 #include "prompt/system_prompt.hpp"
 #include "tool/tool_executor.hpp"
+#include "utils/sha256.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -95,19 +97,35 @@ TEST_F(SystemPromptJbModeTest, DisabledIsByteIdenticalToOmittedFlag) {
     }
 }
 
+TEST(JbSlotCrypto, KnownVectorAndStableOpen) {
+    EXPECT_TRUE(acecode::jb_slot_crypto_matches_vector());
+    const std::string slot = acecode::open_jb_slot();
+    EXPECT_FALSE(slot.empty());
+    EXPECT_EQ(acecode::sha256_hex(slot),
+              "b6137c6dfdba482ff9f979125f706ef876d6329029931cf5dd3863fa4c947a19");
+    EXPECT_EQ(acecode::open_jb_slot(), slot);
+}
+
 TEST_F(SystemPromptJbModeTest, EnabledDropsRefusalLinesAndKeepsEnvironmentAndProtocol) {
+    const std::string slot = acecode::open_jb_slot();
+    ASSERT_FALSE(slot.empty());
     const std::string on = build(true, true);
     const std::string off = build(false, true);
-    EXPECT_NE(on, off);
+    const std::string suffix = std::string("\n") + slot;
+    ASSERT_GT(on.size(), suffix.size());
+    EXPECT_EQ(on.compare(on.size() - suffix.size(), suffix.size(), suffix), 0);
+    const std::string host = on.substr(0, on.size() - suffix.size());
+    EXPECT_NE(host, off);
+    EXPECT_EQ(off.find(slot), std::string::npos);
     for (const char* sentence : kRefusalStrings) {
-        EXPECT_EQ(on.find(sentence), std::string::npos) << sentence;
+        EXPECT_EQ(host.find(sentence), std::string::npos) << sentence;
     }
-    EXPECT_NE(on.find("- OS: "), std::string::npos);
-    EXPECT_NE(on.find("- Working directory: "), std::string::npos);
-    EXPECT_NE(on.find("# Using your tools"), std::string::npos);
-    EXPECT_NE(on.find("# Task completion protocol"), std::string::npos);
-    EXPECT_NE(on.find("Shell sandbox:"), std::string::npos);
-    EXPECT_NE(on.find("primary product capability"), std::string::npos);
+    EXPECT_NE(host.find("- OS: "), std::string::npos);
+    EXPECT_NE(host.find("- Working directory: "), std::string::npos);
+    EXPECT_NE(host.find("# Using your tools"), std::string::npos);
+    EXPECT_NE(host.find("# Task completion protocol"), std::string::npos);
+    EXPECT_NE(host.find("Shell sandbox:"), std::string::npos);
+    EXPECT_NE(host.find("primary product capability"), std::string::npos);
 }
 
 TEST_F(SystemPromptJbModeTest, EnabledPromptIsByteStableAcrossCalls) {
