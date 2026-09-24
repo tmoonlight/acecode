@@ -1698,6 +1698,22 @@ std::size_t SessionRegistry::refresh_tool_preamble_config(const ToolPreambleConf
     return targets.size();
 }
 
+std::size_t SessionRegistry::refresh_jb_mode(bool enabled) {
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+    for (const auto& entry : targets) {
+        entry->loop->set_jb_mode(enabled);
+    }
+    return targets.size();
+}
+
 std::string SessionRegistry::summarize_tool_preamble(
     const std::string& id,
     const tool_preamble::SidecarSummaryInput& input) {

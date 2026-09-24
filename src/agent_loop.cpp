@@ -1927,7 +1927,8 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
         &worktree_state,
         active_model_can_read_images(),
         &prompt_environment, &sandbox_state, &model_state,
-        tool_preamble_prompt_mode(), &workspace_folders_state);
+        tool_preamble_prompt_mode(), &workspace_folders_state,
+        jb_mode());
     if (loop_execution_policy_.active &&
         !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
@@ -3028,7 +3029,8 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
         &worktree_state,
         active_model_can_read_images(),
         &prompt_environment, &sandbox_state, &model_state,
-        tool_preamble_prompt_mode(), &workspace_folders_state);
+        tool_preamble_prompt_mode(), &workspace_folders_state,
+        jb_mode());
     if (loop_execution_policy_.active && !loop_execution_policy_.system_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
         system_prompt += loop_execution_policy_.system_context;

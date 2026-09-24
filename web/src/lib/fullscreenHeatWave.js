@@ -31,6 +31,13 @@ export function sampleFullscreenHeatWave(elapsed, reducedMotion = false) {
   };
 }
 
+let activeStart = () => {};
+
+// Same play() the Ctrl+O keydown path starts. Safe to call before install.
+export function startFullscreenHeatWave() {
+  activeStart();
+}
+
 export function installFullscreenHeatWave(target = window) {
   const doc = target.document;
   let current = null;
@@ -191,7 +198,7 @@ export function installFullscreenHeatWave(target = window) {
     if (!isFullscreenHeatWaveShortcut(event)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) play();
+    if (!event.repeat) startFullscreenHeatWave();
   }
   function suspend() {
     if (!current) return;
@@ -203,6 +210,8 @@ export function installFullscreenHeatWave(target = window) {
   const onVisibility = () => { suspend(); if (!doc.hidden) requestFrame(); };
   const onPageHide = () => { pageHidden = true; suspend(); };
   const onPageShow = () => { pageHidden = false; requestFrame(); };
+  const previousStart = activeStart;
+  activeStart = play;
   target.addEventListener('keydown', onKeyDown, true);
   doc.addEventListener('visibilitychange', onVisibility);
   target.addEventListener('pagehide', onPageHide);
@@ -213,5 +222,6 @@ export function installFullscreenHeatWave(target = window) {
     target.removeEventListener('pagehide', onPageHide);
     target.removeEventListener('pageshow', onPageShow);
     stop();
+    if (activeStart === play) activeStart = previousStart;
   };
 }

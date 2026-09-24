@@ -435,7 +435,9 @@ export function SettingsPage({
           {activeNavKey === 'usage' && <SectionUsage />}
           {activeNavKey === 'feedback' && <FeedbackForm />}
           {activeNavKey === 'about' && <SectionAbout health={health} />}
-          {developerModeUnlocked && activeNavKey === 'developer' && <DeveloperSettings />}
+          {developerModeUnlocked && activeNavKey === 'developer' && (
+            <DeveloperSettings onThemeChange={setTheme} />
+          )}
         </div>
         </div>
       </div>

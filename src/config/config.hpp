@@ -245,6 +245,10 @@ struct AgentLoopConfig {
 
     ToolPreambleConfig tool_preamble;
 
+    // 开发者模式 JB 开关。只影响系统提示词里的拒绝/停顿说明,不改权限、沙箱或工具上限。
+    // 默认关闭;关闭时 build_system_prompt 与未传该标志逐字节一致。
+    bool jb_mode = false;
+
     // AskUserQuestion 应答策略(openspec/changes/add-ask-question-policy)。
     //   "ask"     = 默认。正常弹 UI 无限期等用户回答。
     //   "deny"    = 不弹 UI,立即返回自动应答让模型自行决策并继续。

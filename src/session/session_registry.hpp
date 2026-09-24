@@ -305,6 +305,7 @@ public:
     // 之后直接下发到每个活跃会话 —— AgentLoop 每次用时取快照,不必等回合边界。
     // 返回下发的会话数。
     std::size_t refresh_tool_preamble_config(const ToolPreambleConfig& cfg);
+    std::size_t refresh_jb_mode(bool enabled);
     // sidecar 模式的旁路摘要器:按会话当前模型 / 配置里的 sidecar_model 建一次性
     // provider 出标题;任何一步失败都返回空串(批次退回模板汇总)。跑在
     // AgentLoop 起的 detached 线程上。

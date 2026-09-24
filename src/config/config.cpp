@@ -1794,6 +1794,9 @@ static AppConfig load_config_from_path_once(
                         tp.sidecar_wait_ms = v;
                     }
                 }
+                if (alj.contains("jb_mode") && alj["jb_mode"].is_boolean()) {
+                    cfg.agent_loop.jb_mode = alj["jb_mode"].get<bool>();
+                }
                 // Legacy keys (auto_continue, max_consecutive_empty_iterations)
                 // from the just-rolled-back agentic-loop-terminator change are
                 // silently ignored — see align-loop-with-hermes.
@@ -2441,6 +2444,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             if (tp.sidecar_wait_ms != tp_d.sidecar_wait_ms) tpj["sidecar_wait_ms"] = tp.sidecar_wait_ms;
             if (!tpj.empty()) alj["tool_preamble"] = tpj;
         }
+        if (cfg.agent_loop.jb_mode != al_d.jb_mode)
+            alj["jb_mode"] = cfg.agent_loop.jb_mode;
         if (!alj.empty()) j["agent_loop"] = alj;
 
         AskConfig ask_d;

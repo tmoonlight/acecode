@@ -405,6 +405,15 @@ public:
     void set_agent_loop_config(AgentLoopConfig cfg) {
         loop_cfg_ = cfg;
         set_tool_preamble_config(cfg.tool_preamble);
+        set_jb_mode(cfg.jb_mode);
+    }
+
+    // 开发者模式 JB 开关。设置页可在会话进行中改,读路径只看这个原子值。
+    void set_jb_mode(bool enabled) {
+        jb_mode_.store(enabled, std::memory_order_relaxed);
+    }
+    bool jb_mode() const {
+        return jb_mode_.load(std::memory_order_relaxed);
     }
 
     // 工具前言(add-tool-preamble)。配置可在设置页动态改,所以单独一把锁、
@@ -888,6 +897,7 @@ private:
     // (设置页可在回合中途改);其余两项只在 worker 线程上读写。
     mutable std::mutex tool_preamble_mu_;
     ToolPreambleConfig tool_preamble_cfg_;
+    std::atomic<bool> jb_mode_{false};
     ToolPreambleSidecarSummarizer tool_preamble_summarizer_;
     // 本模型步解析出的标题:run_agent_with_input 在 Phase 5 之前填,
     // execute_tool_calls 开头消费(挂 metadata + 发事件)后清空。

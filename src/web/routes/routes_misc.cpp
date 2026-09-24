@@ -1021,6 +1021,10 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/config/jb-mode").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return cors_preflight(req);
+        });
         CROW_ROUTE(app, "/api/config/remote-web").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
             return cors_preflight(req);
@@ -1166,6 +1170,54 @@ void WebServer::Impl::register_ui_preferences() {
             deps.app_config->desktop.allow_multiple_instances =
                 result.config.desktop.allow_multiple_instances;
             return respond(200, {{"enabled", result.config.desktop.allow_multiple_instances}});
+        });
+
+        // 开发者模式 JB 开关。GET/PUT 都读盘,避免另一个桌面进程改过配置后这里还拿着旧值。
+        CROW_ROUTE(app, "/api/config/jb-mode")
+            .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PUT)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.app_config) return crow::response(503);
+            auto respond = [&](int status, const json& body) {
+                crow::response r(status);
+                r.add_header("Content-Type", "application/json");
+                r.add_header("Cache-Control", "no-store");
+                r.body = body.dump();
+                return with_cors(req, std::move(r));
+            };
+            std::optional<bool> enabled;
+            if (req.method == crow::HTTPMethod::PUT) {
+                const auto body = json::parse(req.body, nullptr, false);
+                if (body.is_discarded()) {
+                    return respond(400, {{"error", "BAD_JSON"},
+                                         {"message", "invalid JSON body"}});
+                }
+                if (!body.is_object() || !body.contains("enabled") ||
+                    !body["enabled"].is_boolean()) {
+                    return respond(400, {{"error", "BAD_REQUEST"},
+                                         {"message", "expected {enabled: boolean}"}});
+                }
+                enabled = body["enabled"].get<bool>();
+            }
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
+            const auto result = mutate_config(
+                [enabled](AppConfig& cfg, std::string&) {
+                    if (!enabled.has_value() || cfg.agent_loop.jb_mode == *enabled) {
+                        return false;
+                    }
+                    cfg.agent_loop.jb_mode = *enabled;
+                    return true;
+                },
+                deps.config_path, deps.app_config);
+            if (!result.ok) {
+                return respond(500, {{"error", "CONFIG_FAILED"},
+                                     {"message", "could not read or save jb mode"}});
+            }
+            deps.app_config->agent_loop.jb_mode = result.config.agent_loop.jb_mode;
+            if (deps.session_registry) {
+                deps.session_registry->refresh_jb_mode(deps.app_config->agent_loop.jb_mode);
+            }
+            return respond(200, {{"enabled", deps.app_config->agent_loop.jb_mode}});
         });
 
         // GET /api/config/ui-locale: persisted Desktop/WebUI locale preference.
