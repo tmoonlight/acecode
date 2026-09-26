@@ -63,7 +63,7 @@
     - cmake_target_snapshot 与 G0 逐元组相同;
     - 故意改坏一个显式清单路径、一个 set_property 路径,configure 都必须 FATAL;
     - TUI 源集合非空。
-- [ ] 1.5 【P0-05】【子】【并】测试路径健壮化。
+- [ ] 1.5 【P0-05】【子】【并】测试路径健壮化。〔认领: Codex-testpaths 2026-09-27〕
   - 新增 `tests/test_support/repo_root.hpp::find_repo_root()`,向上查找同时含 CMakeLists.txt 与 .git 的目录;用它替换 7 个文件中 17 处固定层数的 `parent_path()` 链:
     - `hooks/hook_registry_test.cpp:46`;
     - `skills/default_skill_seeder_test.cpp` 9 处;
