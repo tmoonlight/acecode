@@ -169,6 +169,10 @@ python scripts/refactor/migrate_branch.py --check --repo ../migration-patch --ou
 - `--apply-map` moves indexed files and normalizes includes/build references
   using the longest path mapping. Includes are resolved against the old file
   inventory, so a bare include follows a file moved to a different module.
+  Root CMake variables and module-relative paths inside each CMakeLists.txt are
+  resolved in their actual source directory; included CMake files do not invent
+  a CMAKE_CURRENT_SOURCE_DIR context. Explicit relative document links are
+  likewise resolved from the document's directory, never from a substring.
   Mixed EOLs, missing final newlines, binary data and all unrelated bytes stay
   unchanged. The plan refuses collisions, untracked destinations, symlinks,
   ambiguous includes, deletes and semantic extraction rows before writing.
@@ -205,3 +209,15 @@ the source. Keep the source repository available while reviewing them. To retain
 a migrated branch independently, run `git repack -a` inside that isolated clone
 and remove its alternates file after verifying the repack, or transfer the branch
 with a normal Git bundle. The tool does not clean up any user directory.
+
+The fixed P0-02 nine-ref inventory has a reproducible runner:
+
+```sh
+python scripts/refactor/tests/rehearse_legacy_refs.py --base FIXED_SHA --output-dir REPORT_DIRECTORY --jobs 3
+```
+
+It executes current-layout rebase/patch and explicitly synthetic projection
+patches in separate temporary repositories and verifies original refs, index and
+working diff stay unchanged. `--scenario projection-patch` selects only that
+scenario. Git conflicts are recorded outcomes, not a reason to discard a report
+or silently merge a feature branch. All reports retain full diagnostics.

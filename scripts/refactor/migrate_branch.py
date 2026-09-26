@@ -12,16 +12,30 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 from layout import GROUPS, IncludeIndex, LayoutMap, load_policy, read_tsv
 from migration_docs import check_seed, documents_plan, seed_plan
 from migration_git import Entry, blobs, command, conflicts, entries, git, git_result, hash_blob, isolated_clone, revision, tree_commit, write_tree
-from migration_paths import build_file, managed, rewrite_paths, safe_relative, semantic_issues, source_file, transform
+from migration_paths import authored_doc, build_file, managed, rewrite_build_paths, rewrite_paths, safe_relative, semantic_issues, source_file, transform
 from repo_files import emit_json, repo_root, tracked_files, tracked_path, write_bytes_if_changed
 from validate_map import inspect as validate_map
 
 HERE = Path(__file__).resolve().parent
+
+
+def failure_reason(report: dict) -> str | None:
+    if report.get("reason") or report.get("error"):
+        return report.get("reason") or report.get("error")
+    operation = report.get("git_apply") or report.get("git_rebase")
+    if operation and operation["returncode"]:
+        diagnostics = (operation.get("stdout", "") + "\n" + operation.get("stderr", "")).splitlines()
+        specific = [line for line in diagnostics if line.startswith(("error:", "CONFLICT")) or "with conflicts" in line]
+        return "\n".join(specific or diagnostics).strip()
+    if report.get("issues"):
+        return "; ".join(f'{i["kind"]}: {i["file"]}: {i["reason"]}' for i in report["issues"])
+    return None
 
 
 def map_input(path: Path, files: list[str]) -> tuple[LayoutMap, str]:
@@ -154,8 +168,9 @@ def migrate(root: Path, mode: str, source_ref: str, onto_ref: str, destination: 
         report["head_sha"] = revision(dest, "HEAD")
         report["status"] = git(dest, "status", "--porcelain=v1", "--untracked-files=no").decode("utf-8", "replace")
         report["next"] = "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved."
-    except (ValueError, RuntimeError, OSError) as error:
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         report.update(success=False, error=str(error), conflicts=conflicts(dest))
+    report["reason"] = failure_reason(report)
     emit_json(report, str(artifacts / "report.json"))
     report["report_file"] = str(artifacts / "report.json")
     return report
@@ -253,13 +268,18 @@ def check(root: Path, map_path: Path) -> dict:
     else:
         results["ownership"] = {"findings": [{"reason": "reviewed ownership baseline missing"}]}
     pending, markers = [], []
+    index = IncludeIndex(files, aliases=mapping)
     for path in files:
         if source_file(path) or build_file(path):
             data = tracked_path(root, path, files).read_bytes()
-            if build_file(path) and rewrite_paths(data, mapping) != data:
+            if build_file(path) and rewrite_build_paths(data, path, index, mapping) != data:
                 pending.append({"file": path, "reason": "build/frontend source-map paths still need migration"})
             if re.search(rb"^(?:<{7}|={7}|>{7})(?: |\r?$)", data, re.MULTILINE):
                 markers.append({"file": path, "reason": "merge conflict marker"})
+        elif authored_doc(path):
+            data = tracked_path(root, path, files).read_bytes()
+            if rewrite_paths(data, mapping, path) != data:
+                pending.append({"file": path, "reason": "authored documentation paths still need migration"})
     results["migration_paths"] = {"findings": pending + markers + [{"file": p, "reason": "unmerged index"} for p in unmerged]}
     counts = {name: len(value.get("findings", [])) for name, value in results.items()}
     counts["include_normalization"] = results["include_normalization"]["changed_lines"] + len(results["include_normalization"]["errors"])
@@ -306,7 +326,7 @@ def main() -> int:
             report = docs(root, map_path, dry_run=args.dry_run, version=args.seed_version)
         else:
             report = check(root, map_path)
-    except (ValueError, RuntimeError, OSError) as error:
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         report = {"schema": 1, "success": False, "error": str(error)}
     emit_json(report, args.output)
     return int(not report["success"])

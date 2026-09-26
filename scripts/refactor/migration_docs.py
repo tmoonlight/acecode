@@ -136,7 +136,7 @@ def documents_plan(root: Path, files: list[str], mapping, map_sha: str) -> tuple
     for path in files:
         if authored_doc(path):
             original = read(root, path, files)
-            updated = rewrite_paths(original, mapping)
+            updated = rewrite_paths(original, mapping, path)
         elif re.fullmatch(r"openspec/changes/(?!archive/)[^/]+/design\.md", path):
             original = read(root, path, files)
             previous = re.compile(rb'\A<!-- refactor-layout-map sha256:[a-f0-9]+ -->\r?\n[^\r\n]*\r?\n\r?\n')

@@ -226,6 +226,34 @@ class MigrationTest(unittest.TestCase):
         expected = b'src/base/utils/file.cpp\r\nweb/src/old/file.cpp src/old_sibling/a src/base/utils/special.hpp.old\n"src/base/utils" src/domain/session/special.hpp:5 ${CMAKE_SOURCE_DIR}/src/base/utils/file.cpp ./src/base/utils/file.cpp ${WEB_ROOT}/src/old/file.cpp'
         self.assertEqual(expected, rewrite_paths(before, mapping))
 
+    def test_cmake_source_paths_are_resolved_in_their_actual_source_directory(self):
+        self.write("tests/old/a_test.cpp", b"// test\n")
+        self.write("src/old/file.cpp", b"// source\n")
+        self.write("tests/CMakeLists.txt", b'add_executable(t old/a_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/old/a_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/../src/old/file.cpp)\r\n')
+        self.write("CMakeLists.txt", b'add_library(x ${CMAKE_CURRENT_SOURCE_DIR}/src/old/file.cpp)\n')
+        self.commit("contextual paths")
+        report = apply_map(self.root, self.map)
+        self.assertTrue(report["success"], report)
+        self.assertEqual(b'add_executable(t utils/a_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/utils/a_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/../src/base/utils/file.cpp)\r\n', (self.root / "tests/CMakeLists.txt").read_bytes())
+        self.assertEqual(b'add_library(x ${CMAKE_CURRENT_SOURCE_DIR}/src/base/utils/file.cpp)\n', (self.root / "CMakeLists.txt").read_bytes())
+        self.assertEqual([], apply_map(self.root, self.map)["content_updates"])
+
+    def test_relative_doc_links_resolve_from_the_document_and_are_checked(self):
+        from check_doc_paths import inspect
+        self.write("src/base/utils/file.cpp", b"// final\n")
+        self.write("docs/guide.md", b'[ok](../src/old/file.cpp)\r\n[local](./src/local.md)\nweb/src/old/file.cpp')
+        self.write("docs/src/local.md", b"local doc\n")
+        self.write("docs/deep/guide.md", b'[ok](../../src/old/file.cpp)\n')
+        self.commit("relative docs")
+        report = docs(self.root, self.map)
+        self.assertTrue(report["success"])
+        self.assertEqual(b'[ok](../src/base/utils/file.cpp)\r\n[local](./src/local.md)\nweb/src/old/file.cpp', (self.root / "docs/guide.md").read_bytes())
+        self.assertEqual(b'[ok](../../src/base/utils/file.cpp)\n', (self.root / "docs/deep/guide.md").read_bytes())
+        from repo_files import tracked_files
+        self.assertEqual([], inspect(self.root, tracked_files(self.root))["findings"])
+        self.write("docs/deep/guide.md", b'[bad](../../src/base/utils/missing.cpp)\n')
+        self.assertEqual("src/base/utils/missing.cpp", inspect(self.root, tracked_files(self.root))["findings"][0]["path"])
+
     def docs_fixture(self, failing=False):
         self.write("src/base/utils/file.cpp", b"// migrated\n")
         self.write("README.md", b"`src/old/file.cpp`\r\n`web/src/old/file.cpp`\nend")

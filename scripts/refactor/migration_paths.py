@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
+import posixpath
 import re
 
 from layout import IncludeIndex, LayoutMap, include_matches
@@ -11,6 +12,8 @@ from repo_files import NESTED_WORKTREES, SOURCE_SUFFIXES
 
 
 PATH_TOKEN = re.compile(rb'(?<![A-Za-z0-9_./\\-])(?P<prefix>\$\{(?:CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR|ACECODE_SOURCE_DIR)\}/|\./)?(?P<path>(?:src|tests)/[A-Za-z0-9_./{}*?,+\x80-\xff-]+)')
+RELATIVE_TOKEN = re.compile(rb'(?<![A-Za-z0-9_./\\-])(?:\.\./)+(?:src|tests)/[A-Za-z0-9_./{}*?,+\x80-\xff-]+')
+CMAKE_TOKEN = re.compile(rb'(?<![A-Za-z0-9_./\\$-])(?P<prefix>\$\{CMAKE_CURRENT_SOURCE_DIR\}/)?(?P<path>[A-Za-z0-9_./+\x80-\xff-]+\.(?:cpp|hpp|h|mm|c|cc|hh|in))(?=$|[^A-Za-z0-9_./\\-])')
 ROOT_DOCS = {"CLAUDE.md", "ARCHITECTURE.md", "AGENTS.md", "AGENT.md", "README.md", "README_CN.md", "tests/README.md"}
 GENERATED_HELP = {"docs/help-source/sources.json", "docs/help-source/images.json", "docs/help-source/image-plan.md", "docs/help/assets/search-index.js"}
 
@@ -45,11 +48,13 @@ def authored_doc(path: str) -> bool:
     return path in ROOT_DOCS or path.startswith("docs/") and not generated_help(path) and Path(path).suffix in {".md", ".py", ".json", ".html", ".js", ".txt", ".rst"}
 
 
-def rewrite_paths(data: bytes, mapping: LayoutMap) -> bytes:
+def rewrite_paths(data: bytes, mapping: LayoutMap, context: str | None = None) -> bytes:
     """One pass, longest full path/prefix first. Never match inside web/src/."""
     def replace(match):
         token = match["path"].rstrip(b".,")
         path = token.decode("utf-8", "surrogateescape")
+        if match["prefix"] == b"./" and context and str(PurePosixPath(context).parent) != ".":
+            return match.group()  # ./src under docs is not the repository src.
         target = mapping.translate(path)
         if target == path and not path.endswith("/"):
             directory = mapping.translate(path + "/")
@@ -59,7 +64,38 @@ def rewrite_paths(data: bytes, mapping: LayoutMap) -> bytes:
         if target is None or target == path:
             return match.group()
         return (match["prefix"] or b"") + target.encode("utf-8", "surrogateescape") + match["path"][len(token):]
-    return PATH_TOKEN.sub(replace, data)
+    result = PATH_TOKEN.sub(replace, data)
+    if context:
+        directory = str(PurePosixPath(context).parent)
+        def relative(match):
+            token = match.group().rstrip(b".,")
+            path = posixpath.normpath(directory + "/" + token.decode("utf-8", "surrogateescape"))
+            target = mapping.translate(path)
+            if target is None or target == path:
+                return match.group()
+            return posixpath.relpath(target, directory).encode("utf-8", "surrogateescape") + match.group()[len(token):]
+        result = RELATIVE_TOKEN.sub(relative, result)
+    return result
+
+
+def rewrite_build_paths(data: bytes, path: str, index: IncludeIndex, mapping: LayoutMap) -> bytes:
+    updated = rewrite_paths(data, mapping, path)
+    # CMAKE_CURRENT_SOURCE_DIR belongs to the caller for included .cmake files;
+    # only a CMakeLists.txt establishes a source-directory context we can prove.
+    if PurePosixPath(path).name != "CMakeLists.txt":
+        return updated
+    directory = str(PurePosixPath(path).parent)
+    def replace(match):
+        token = match["path"].decode("utf-8", "surrogateescape")
+        source = posixpath.normpath(directory + "/" + token)
+        if source not in index.files:
+            return match.group()
+        target = mapping.translate(source)
+        if target is None or target == source:
+            return match.group()
+        relative = posixpath.relpath(target, directory)
+        return (match["prefix"] or b"") + relative.encode("utf-8", "surrogateescape")
+    return CMAKE_TOKEN.sub(replace, updated)
 
 
 def rewrite_includes(data: bytes, path: str, target_path: str, index: IncludeIndex, mapping: LayoutMap) -> tuple[bytes, list[dict]]:
@@ -105,7 +141,7 @@ def transform(data: bytes, path: str, index: IncludeIndex, mapping: LayoutMap) -
     if source_file(path):
         data, issues = rewrite_includes(data, path, target, index, mapping)
     if build_file(path):
-        data = rewrite_paths(data, mapping)
+        data = rewrite_build_paths(data, path, index, mapping)
     return data, issues
 
 
