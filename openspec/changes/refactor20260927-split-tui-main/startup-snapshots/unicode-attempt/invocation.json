@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "tool_ref": "2c61a49f342c901b73ca818acdcc454762ac7c16",
+  "runner_sha256": "c038e6b2eea93508de91e6564e0e00d656476ba383b1d3a3113836d62a56f624",
+  "command": [
+    "C:\\Users\\shaoh\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+    "-B",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\openspec\\changes\\refactor20260927-split-tui-main\\startup-snapshots\\capture_windows.py",
+    "--executable",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-probe\\acecode.exe",
+    "--scratch",
+    "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p012-Ωmega-dd862cc14a12",
+    "--output",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-unicode-dd862cc14a12",
+    "--source-metadata",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-probe-input\\probe-source.json"
+  ],
+  "scratch": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p012-Ωmega-dd862cc14a12",
+  "output": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-unicode-dd862cc14a12",
+  "exit_code": 1,
+  "windows_acp": 936,
+  "purpose": "Four unchanged pending-startup fixtures under an ACP-representable Unicode uppercase path; no UI event loop or shutdown acceptance."
+}

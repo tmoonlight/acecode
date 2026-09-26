@@ -61,7 +61,9 @@ python -B -m unittest discover -s openspec/changes/refactor20260927-split-tui-ma
 
 两轮分别使用全新的配置与数据目录；源、二进制和快照 hash 见 [capture-manifest.json](capture-manifest.json) 与 [repeat-manifest.json](repeat-manifest.json)。没有删掉实际消息、改写消息文本或归一化动态字段。
 
-交叉审查修正了 runner 的 cwd hash：原来在 Python 字符串上 `.lower()` 会把 `É` 改成 `é`，与原 C++ 对 UTF-8 字节进行 ASCII 小写转换的行为不同。新实现先编码再折叠字节，纯 fixture 明确断言两种路径的 hash 分别为 `a7132c056e8f0a63` 与 `b9b81a91d65e7dc3`。已存两轮使用 ASCII 临时路径，四份 JSON 和两份 manifest 保持原字节；全部 9 项纯函数检查通过，并直接验证这些归档观测仍满足严格四场景校验。实际 Unicode scratch 复验尚待串行测试窗口，不以纯函数检查代替；原 TUI 的 ANSI cwd 行为仍按设计保留。
+交叉审查修正了 runner 的 cwd hash：原来在 Python 字符串上 `.lower()` 会把 `É` 改成 `é`，与原 C++ 对 UTF-8 字节进行 ASCII 小写转换的行为不同。新实现先编码再折叠字节，纯 fixture 明确断言两种路径的 hash 分别为 `a7132c056e8f0a63` 与 `b9b81a91d65e7dc3`。已存两轮使用 ASCII 临时路径，四份 JSON 和两份 manifest 保持原字节；全部 9 项纯函数检查通过，并直接验证这些归档观测仍满足严格四场景校验。
+
+串行窗口中额外尝试了实际 `Ω` scratch（本机 ACP936 可表示且存在非 ASCII 大小写差异）。同一个探针在首个 ordinary 场景以 `0xC0000409` 退出，尚未到观测点，没有写出快照；runner 返回 1，后三场景没有运行。启动日志只到第一行，cwd 中的 Ω 为 ACP936 原字节 `A6 B8`；没有堆栈能证明具体 fast-fail 位置，不能将推断写成根因。该失败及原始日志字节另存 [unicode-attempt/result.json](unicode-attempt/result.json) 和同目录，不覆盖既有成功结果，也不声称 Unicode 四场景通过。原 TUI 的 ANSI cwd 行为仍按设计保留，本任务没有修改生产路径逻辑。
 
 首次准备时 Copilot fixture 错误地设置了自定义 base_url，原程序按 managed-provider 规则拒绝配置并退出 1，没有生成该场景快照。修正 fixture 为不指定自定义 endpoint 后，重新从四份全新数据目录完整采集；失败尝试的本机产物仍保留在 `build-p0-12-captures`，未作为成功结果使用。
 

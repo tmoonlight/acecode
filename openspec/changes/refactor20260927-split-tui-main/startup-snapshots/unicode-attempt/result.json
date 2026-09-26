@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "status": "failed_before_checkpoint",
+  "tool_ref": "2c61a49f342c901b73ca818acdcc454762ac7c16",
+  "source": {
+    "source_revision": "3ddb7d433f280181292e5cd2eede612b17cc8b42",
+    "source_path": "src/main.cpp",
+    "source_sha256": "603eb5ecdd0ca5a8f6fa3fb8769585dbaa549d78b44590a646f629f4e1875fff",
+    "generated_probe_sha256": "39a90417754ac0e7eeec2a703a0df86bae8779ff7a8d2d9f0a8a85af9a25bce9",
+    "original_checkpoint_line": 6845,
+    "production_file_unchanged": true
+  },
+  "executable_sha256": "e44ed2b4745f3f74418478ceb04558fdb803bfdde65191499c85554b99263cb9",
+  "runner_exit_code": 1,
+  "windows_acp": 936,
+  "scratch_contains_unicode_uppercase": "Ω",
+  "scenarios": {
+    "ordinary": {
+      "probe_exit_code": 3221226505,
+      "probe_exit_hex": "0xC0000409",
+      "snapshot_written": false,
+      "checkpoint_reached": false
+    },
+    "resume": {
+      "status": "not_run_after_first_scenario_failure",
+      "snapshot_written": false
+    },
+    "copilot-unauthenticated": {
+      "status": "not_run_after_first_scenario_failure",
+      "snapshot_written": false
+    },
+    "mcp-configured": {
+      "status": "not_run_after_first_scenario_failure",
+      "snapshot_written": false
+    }
+  },
+  "snapshot_comparison": "not possible: no runtime snapshot was written",
+  "old_archive_unchanged": true,
+  "observed_log_facts": [
+    "Only the initial startup log line was written.",
+    "The cwd contains ACP936 bytes A6 B8 for uppercase Greek Omega. Those bytes are invalid UTF-8.",
+    "No stack trace or diagnostic proves the precise fast-fail location."
+  ],
+  "scope": "This records a real failure of the original probe under a Unicode scratch path. It does not establish that the hash change repairs original TUI ANSI path behavior; it does not claim UI or shutdown coverage. Production C++ and the existing four snapshots/two manifests are unchanged.",
+  "pure_tests": {
+    "command": "python -B -m unittest discover -s openspec/changes/refactor20260927-split-tui-main/startup-snapshots -p test_capture_windows.py -v",
+    "passed": 9,
+    "exit_code": 0
+  },
+  "evidence_sha256": {
+    "invocation.json": "b40b7db977e1ddc0eb70c6abbbeb18c78bf383b99a563542ce78d3565dcd47a5",
+    "runner-output.bin": "8e2c19f583197bb4a557b1e5bed3c21cf82140a92444dd5e2a8639caccd03987",
+    "startup-log.bin": "1ac6ad51af1a7d55550f8b295b972c5be8ecb785906265d774ae71c14090e033"
+  }
+}
