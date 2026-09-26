@@ -14,7 +14,7 @@
 - `copilot-unauthenticated`：无 token 的 Copilot 配置；本机代理让 device-flow 请求保持未完成，采集初始认证提示。不会登录账户。
 - `mcp-configured`：配置一个本机 stdio MCP 服务，接收 initialize 但保持响应待定，采集后台启动提示。
 
-代理只监听 `127.0.0.1` 的系统分配端口，不转发流量。关闭远端模型目录刷新；其他启动期 HTTP 请求也留在本机代理。MCP helper 在 probe 退出关闭管道后读到 EOF 并结束。四份 JSON 均由运行时探针写出，Python runner 只读取、核对场景名并计算 hash，不生成预期消息。
+代理只监听 `127.0.0.1` 的系统分配端口，不转发流量。关闭远端模型目录刷新；其他启动期 HTTP 请求也留在本机代理。MCP helper 在 probe 退出关闭管道后读到 EOF 并结束。四份 JSON 均由运行时探针写出，Python runner 读取后逐字段校验固定 fixture 并计算 hash，不生成观测消息。
 
 这些快照锁定“尚未收到异步服务结果”这一相同输入条件。B-12 比较时须使用相同配置、resume fixture、消息字段和观测点；必须逐字段比较消息顺序及内容。网络完成后的结果、中文候选窗、首帧显示、各类终端和所有退出路径仍按手工清单验证。
 
@@ -65,6 +65,8 @@ python -B -m unittest discover -s openspec/changes/refactor20260927-split-tui-ma
 
 串行窗口中额外尝试了实际 `Ω` scratch（本机 ACP936 可表示且存在非 ASCII 大小写差异）。同一个探针在首个 ordinary 场景以 `0xC0000409` 退出，尚未到观测点，没有写出快照；runner 返回 1，后三场景没有运行。启动日志只到第一行，cwd 中的 Ω 为 ACP936 原字节 `A6 B8`；没有堆栈能证明具体 fast-fail 位置，不能将推断写成根因。该失败及原始日志字节另存 [unicode-attempt/result.json](unicode-attempt/result.json) 和同目录，不覆盖既有成功结果，也不声称 Unicode 四场景通过。原 TUI 的 ANSI cwd 行为仍按设计保留，本任务没有修改生产路径逻辑。
 
+随后用修正后的 runner 和同一原始探针，在全新的短 ASCII scratch `p012-ascii-76cf3083` 完整复采四场景。四个进程均退出 0，消息数仍为 0/3/1/1，通过完整字段校验；四份 JSON 与原归档逐字节相同，源、探针和二进制 hash 不变。整个 control 用时 13.125 秒，调用记录、原始输出、manifest 和逐字节比较见 [ascii-control/comparison.json](ascii-control/comparison.json) 及同目录。该结果验证修正后的 runner 对既有 ASCII 场景仍有效，未改变上述 Unicode 失败边界。
+
 首次准备时 Copilot fixture 错误地设置了自定义 base_url，原程序按 managed-provider 规则拒绝配置并退出 1，没有生成该场景快照。修正 fixture 为不指定自定义 endpoint 后，重新从四份全新数据目录完整采集；失败尝试的本机产物仍保留在 `build-p0-12-captures`，未作为成功结果使用。
 
-启动表经过两人语义复核和连续区间检查：82 段无遗漏、无重叠，覆盖原 5259–6845 全部 1587 行。脚本通过 Python 语法检查，实际执行了 8 次成功的原始 TUI 启动。生产文件未修改。Linux CI、完整单测通用 gate 与实操终端清单仍未由此记录代替，任务保持未勾选。
+启动表经过两人语义复核和连续区间检查：82 段无遗漏、无重叠，覆盖原 5259–6845 全部 1587 行。脚本通过 Python 语法检查，累计实际执行了 12 次成功的原始 TUI 启动。生产文件未修改。Linux CI、完整单测通用 gate 与实操终端清单仍未由此记录代替，任务保持未勾选。
