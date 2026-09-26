@@ -2,6 +2,7 @@
 
 #include "hooks/hook_registry.hpp"
 #include "skills/default_skill_seeder.hpp"
+#include "test_support/repo_root.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <chrono>
@@ -43,9 +44,8 @@ std::string read_text(const fs::path& path) {
 }
 
 fs::path packaged_hook_seed_path() {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    // 测试目录搬迁后仍读取仓库的种子；找不到根目录必须报错。
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const auto& seed = acecode::default_hook_seeds().front();
     return repository_root / "assets" / "seed" / "hooks" /
         seed.relative_path / "hooks.json";
