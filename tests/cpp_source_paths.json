@@ -1,0 +1,21 @@
+{
+  "agent_loop.cpp": "src/agent_loop.cpp",
+  "desktop/agent_browser_host.cpp": "src/desktop/agent_browser_host.cpp",
+  "desktop/agent_browser_host.hpp": "src/desktop/agent_browser_host.hpp",
+  "desktop/agent_browser_host_mac.mm": "src/desktop/agent_browser_host_mac.mm",
+  "desktop/agent_browser_navigation_state.cpp": "src/desktop/agent_browser_navigation_state.cpp",
+  "desktop/agent_browser_navigation_state.hpp": "src/desktop/agent_browser_navigation_state.hpp",
+  "desktop/agent_browser_page_directory.hpp": "src/desktop/agent_browser_page_directory.hpp",
+  "desktop/agent_browser_runtime.cpp": "src/desktop/agent_browser_runtime.cpp",
+  "desktop/agent_browser_runtime.hpp": "src/desktop/agent_browser_runtime.hpp",
+  "desktop/context_picker.cpp": "src/desktop/context_picker.cpp",
+  "desktop/main.cpp": "src/desktop/main.cpp",
+  "desktop/splash_screen.cpp": "src/desktop/splash_screen.cpp",
+  "desktop/startup_progress.hpp": "src/desktop/startup_progress.hpp",
+  "desktop/web_host.cpp": "src/desktop/web_host.cpp",
+  "tool/agent_browser/browser_tools.cpp": "src/tool/agent_browser/browser_tools.cpp",
+  "tool/agent_browser/browser_tools.hpp": "src/tool/agent_browser/browser_tools.hpp",
+  "tool/agent_browser/cdp_client.cpp": "src/tool/agent_browser/cdp_client.cpp",
+  "tool/agent_browser/pointer_overlay.cpp": "src/tool/agent_browser/pointer_overlay.cpp",
+  "tool/tool_executor.hpp": "src/tool/tool_executor.hpp"
+}

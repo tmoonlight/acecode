@@ -1,3 +1,4 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,7 +59,7 @@ run('startup status uses a scoped Windows UI font and subpixel rasterization', (
 });
 
 run('native splash composites grayscale text coverage and never formats visible time', () => {
-  const splash = source('../../../src/desktop/splash_screen.cpp');
+  const splash = readCppSource('desktop/splash_screen.cpp');
   assert.match(splash, /ANTIALIASED_QUALITY/);
   assert.match(splash, /composite_grayscale_text\(/);
   assert.match(splash, /premultiplied_bgra\(/);
@@ -66,8 +67,8 @@ run('native splash composites grayscale text coverage and never formats visible 
 });
 
 run('native bridge injects snapshots and keeps pageReady as the visibility gate', () => {
-  const nativeMain = source('../../../src/desktop/main.cpp');
-  const progressHeader = source('../../../src/desktop/startup_progress.hpp');
+  const nativeMain = readCppSource('desktop/main.cpp');
+  const progressHeader = readCppSource('desktop/startup_progress.hpp');
   assert.match(nativeMain, /window\.__ACECODE_DESKTOP_STARTUP__/);
   assert.match(nativeMain, /aceDesktop_reportStartupMilestone/);
   assert.match(nativeMain, /kDesktopStartupProgressEvent/);

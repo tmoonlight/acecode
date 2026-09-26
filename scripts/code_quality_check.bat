@@ -18,10 +18,10 @@ if %ERRORLEVEL% EQU 0 (
 echo.
 
 echo [2/6] 检查硬编码的错误消息...
-findstr /S /C:"[Error]" src\tool\*.cpp | find /C "[Error]" > nul
+git grep -n -F "[Error]" -- ":(glob)src/**/tool/**/*.cpp" | find /C "[Error]" > nul
 if %ERRORLEVEL% EQU 0 (
     echo ⚠ 发现硬编码的错误消息:
-    findstr /S /N /C:"[Error]" src\tool\*.cpp | findstr /V "ToolErrors::"
+    git grep -n -F "[Error]" -- ":(glob)src/**/tool/**/*.cpp" | findstr /V "ToolErrors::"
 ) else (
     echo ✓ 所有错误消息都使用了ToolErrors类
 )

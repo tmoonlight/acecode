@@ -22,7 +22,7 @@
   - 在 AGENTS.md 增加「所有权与生命周期」一节,约定摘自 adopt-ownership-conventions design.md,每条附一个仓库中的真实反例;
   - CLAUDE.md 顶部加一行,指向本系列 4 个 change,并写明「src 分层重构进行中,新文件放置规则见 restructure-src-layers/design.md」。
   - 验证:4 个 change 都通过 `openspec validate --strict`;AGENTS.md / CLAUDE.md 的 diff 只含上述段落。
-- [ ] 1.2 【P0-02】【子】【并】分支盘点。
+- [x] 1.2 【P0-02】【子】【并】分支盘点。〔认领: Codex-root 2026-09-27〕
   - 用 `scripts/refactor/branch_inventory.sh` 输出每个 worktree / 分支的领先提交数、`git cherry` 结果、src 与 tests 改动数、是否有脏文件,存档到本 change 目录的 `branch-inventory.md`;
   - 28 个补丁等价的旧 worktree 列出清单,**交给用户确认后由用户自行删除**,本任务不删除任何东西;
   - `codex/add-self-session-control` 与 `review-ai-image-sharing-tool` 两个单提交例外,记录处理建议:先合入,或走 patch 迁移。
@@ -79,7 +79,7 @@
     - 用例清单不变;
     - 把测试源复制到加深一层的目录后,仍能找到仓库根;
     - `bridge_test` 在缺 node_modules 时 SKIP,路径错误时 FAIL。
-- [ ] 1.6 【P0-06】【子】【并】前端架构测试路径表与脚本(D4)。〔认领: Codex-root 2026-09-27〕
+- [x] 1.6 【P0-06】【子】【并】前端架构测试路径表与脚本(D4)。〔认领: Codex-root 2026-09-27〕
   - 9 个 `*Architecture*.test.js` 读取的 C++ 路径收敛到 `tests/cpp_source_paths.json`;`desktopCloseDialogArchitecture.test.js:82` 的分段拼接要人工核对;
   - `scripts/code_quality_check.{sh,bat}` 去掉写死的 `src/tool/*.cpp`。
   - 不改任何 React 代码。
@@ -90,7 +90,7 @@
   - 采集 G0:四个平台的 target 快照、gtest 清单与 SKIP 清单、四类 lint 基线,存档到本 change 目录的 `baseline/`。
   - 前置:1.3。
   - 验证:手动 dispatch 一次 refactor-matrix,Windows 与 macOS 跑完 ctest。原本就失败的用例只记入基线,不作为阻断条件。
-- [ ] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:
+- [ ] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:〔认领: Codex-root 2026-09-27〕
   - `src/tui/{cli_dispatch,tui_init,tui_context,agent_callbacks_builder,terminal_utils,clipboard_helpers,ime_windows}.{hpp,cpp}`、`src/tui/input_event_handler.hpp`、`src/tui/message_render_cache.cpp`(1 行的空 .cpp,头文件在用,保留);
   - `src/main.cpp:1395-1617` 的 IME 死代码(`update_ime_composition_window` 从未被调用),以及 `:35-37` 的 `<imm.h>` 与 `#pragma comment(lib,"Imm32.lib")`;`CMakeLists.txt:538-542` 的 imm32 链接与 `:539` 的注释;
   - `src/web/handlers/pinned_sessions_handler.cpp`(1 行空壳,.hpp 保留);
