@@ -1,0 +1,21 @@
+{
+  "checkpoint": "startup-wiring-complete-before-CatchEvent",
+  "limit": 16,
+  "messages": [
+    {
+      "ask_result": false,
+      "compact_notice_complete": false,
+      "compact_notice_id": "",
+      "content": "Authenticating with GitHub Copilot...",
+      "display_override": "",
+      "expanded": false,
+      "hunks": null,
+      "is_tool": false,
+      "role": "system",
+      "summary": null
+    }
+  ],
+  "scenario": "copilot-unauthenticated",
+  "schema_version": 1,
+  "total_messages": 1
+}

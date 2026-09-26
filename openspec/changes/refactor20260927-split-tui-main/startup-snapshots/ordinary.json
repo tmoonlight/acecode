@@ -1,0 +1,8 @@
+{
+  "checkpoint": "startup-wiring-complete-before-CatchEvent",
+  "limit": 16,
+  "messages": [],
+  "scenario": "ordinary",
+  "schema_version": 1,
+  "total_messages": 0
+}
