@@ -17,7 +17,7 @@
   - 删除 `build_tool_context` 的 3 个无用参数(`emit_progress`、`doom_guard`、`doom_guard_mu`)、`execute_tool_calls` 的 `turn_timing_status` 参数、`ToolCallEntry::is_read_only`。
   - **必须在 restructure 的 P2-08 移动 agent_loop 之前合入。**
   - 验证:diff 只含删除;全仓 grep(含 `.mm`)确认没有其它引用;`acecode_unit_tests --gtest_filter=*AgentLoop*:HookAgentLoop*:SessionRegistry*` 通过。
-- [ ] 1.2 【P0-11】【子】agent_loop 表征测试:只锁定现状,不修 bug。在 `tests/agent_loop/` 下新增以下 11 组用例,每组都写中文注释,说明触发场景、期望行为和回归时的表现:
+- [ ] 1.2 【P0-11】【子】agent_loop 表征测试:只锁定现状,不修 bug。在 `tests/agent_loop/` 下新增以下 11 组用例,每组都写中文注释,说明触发场景、期望行为和回归时的表现:〔认领: Codex-raii 2026-09-27〕
   1. 权限门黄金序列:{模式 × 工具类别 × 规则 × goal × headless × hook × 用户决策},断言返回文案、审计条目序列、PermissionRequest/Resolved 序列、会话授权副作用;
   2. apply_patch 多路径权限门:逐路径受 exec 规则保护;Plan 模式要求全部是计划文件;确认只弹一次;
   3. PreToolUse 拒绝时不发 ToolStart/ToolEnd 实时事件,只写两条轨迹;
