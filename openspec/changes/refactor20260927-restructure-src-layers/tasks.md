@@ -27,7 +27,7 @@
   - 28 个补丁等价的旧 worktree 列出清单,**交给用户确认后由用户自行删除**,本任务不删除任何东西;
   - `codex/add-self-session-control` 与 `review-ai-image-sharing-tool` 两个单提交例外,记录处理建议:先合入,或走 patch 迁移。
   - 验证:盘点表已存档,9 个带独有 src 改动的 ref 逐一列出。
-- [ ] 1.3 【P0-03】【子】【并】迁移与 lint 工具集,全部以报告模式运行。在 `scripts/layers/` 与 `scripts/refactor/` 下新增:〔认领: Codex-tools 2026-09-27〕
+- [x] 1.3 【P0-03】【子】【并】迁移与 lint 工具集,全部以报告模式运行。在 `scripts/layers/` 与 `scripts/refactor/` 下新增:〔认领: Codex-tools 2026-09-27〕
   - `repo_files.py`:文件清单只取 `git ls-files`;按字节逐行读写,保留 CRLF/LF;前缀替换带尾部斜杠并锚定边界;
   - `check_layers.py`:实现 R1–R14;
   - `normalize_includes.py`:幂等,支持 `--check`,平台 `#if` 块里的 include 也按文本处理;
@@ -46,7 +46,7 @@
     - **用正式 `layers.tsv` 重跑分层检查,把实测违规数写回 design.md「D2」段**;
     - 在一个混排行尾的样本文件上确认行尾不变;
     - 脚本在含嵌套 worktree 的仓库根运行时,不触碰 `.claude/worktrees`、`.worktrees`、`.acecode/worktrees`。
-- [ ] 1.4 【P0-04】【主】【并】CMake 源文件护栏。
+- [ ] 1.4 【P0-04】【主】【并】CMake 源文件护栏。〔认领: Codex-root 2026-09-27〕
   - `CMakeLists.txt:176/183` 的正则拆成 `ACECODE_TUI_DIRS` 与 `ACECODE_TUI_TESTABLE_SUBSETS`(预先写入 commands/、resume/、path_reference/、markdown/,以及 drag_scroll、text_input_ops、skill_commands),TUI 源集合为空时 `FATAL_ERROR`;
   - 新增 `cmake/acecode_source_guards.cmake`(`acecode_require_sources`、`acecode_set_source_define`、`acecode_assert_known_roots`),覆盖:
     - 全部显式清单(:185-314);
@@ -63,7 +63,7 @@
     - cmake_target_snapshot 与 G0 逐元组相同;
     - 故意改坏一个显式清单路径、一个 set_property 路径,configure 都必须 FATAL;
     - TUI 源集合非空。
-- [ ] 1.5 【P0-05】【子】【并】测试路径健壮化。〔认领: Codex-testpaths 2026-09-27〕
+- [x] 1.5 【P0-05】【子】【并】测试路径健壮化。〔认领: Codex-testpaths 2026-09-27〕
   - 新增 `tests/test_support/repo_root.hpp::find_repo_root()`,向上查找同时含 CMakeLists.txt 与 .git 的目录;用它替换 7 个文件中 17 处固定层数的 `parent_path()` 链:
     - `hooks/hook_registry_test.cpp:46`;
     - `skills/default_skill_seeder_test.cpp` 9 处;
@@ -84,7 +84,7 @@
   - `scripts/code_quality_check.{sh,bat}` 去掉写死的 `src/tool/*.cpp`。
   - 不改任何 React 代码。
   - 验证:`pnpm test` 通过;把表中任一路径改坏,对应测试必须明确失败。
-- [ ] 1.7 【P0-07】【子】【并】CI 与基线 G0。
+- [ ] 1.7 【P0-07】【子】【并】CI 与基线 G0。〔认领: Codex-testpaths 2026-09-27〕
   - `.github/workflows/test.yml` 新增 layer-lint job(Linux,报告模式,排在 C++ 构建之前);
   - 新增只能手动触发的 `refactor-matrix` job(windows-2022 / macos-15,构建并运行 `acecode_unit_tests`);
   - 采集 G0:四个平台的 target 快照、gtest 清单与 SKIP 清单、四类 lint 基线,存档到本 change 目录的 `baseline/`。
@@ -221,7 +221,7 @@
     - 用例清单与 G0 相同;
     - `CMakeLists.txt:173/507/548` 已同步;
     - 按平台用 `cmake --build --target` 构建全部 EXCLUDE_FROM_ALL 冒烟目标。
-- [ ] 3.8 【P2-09】【子】【并】分支迁移工具 `scripts/refactor/migrate_branch.py`,提供 rebase / patch / `--apply-map` / `--docs` / `--check` 五种模式。
+- [ ] 3.8 【P2-09】【子】【并】分支迁移工具 `scripts/refactor/migrate_branch.py`,提供 rebase / patch / `--apply-map` / `--docs` / `--check` 五种模式。〔认领: Codex-tools 2026-09-27〕
   - 前置:1.3(需要映射表);可与 Phase 1、Phase 2 全程并行。
   - 验证:对 9 个遗留 ref 逐一演练,patch 模式下 `git apply -3` 成功,或在记录里说明为什么不能。
 

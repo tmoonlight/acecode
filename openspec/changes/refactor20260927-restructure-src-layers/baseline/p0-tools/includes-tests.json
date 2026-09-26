@@ -1,0 +1,108 @@
+{
+  "changed_files": 15,
+  "changed_lines": 16,
+  "changes": [
+    {
+      "file": "tests/agent_loop/agent_loop_auto_mode_test.cpp",
+      "line": 5,
+      "new": "sandbox/test_support.hpp",
+      "old": "../sandbox/test_support.hpp"
+    },
+    {
+      "file": "tests/agent_loop/agent_loop_computer_use_scheduling_test.cpp",
+      "line": 7,
+      "new": "sandbox/test_support.hpp",
+      "old": "../sandbox/test_support.hpp"
+    },
+    {
+      "file": "tests/commands/builtin_commands_test.cpp",
+      "line": 20,
+      "new": "agent_loop/stub_provider.hpp",
+      "old": "../agent_loop/stub_provider.hpp"
+    },
+    {
+      "file": "tests/config/config_sandbox_test.cpp",
+      "line": 5,
+      "new": "sandbox/test_support.hpp",
+      "old": "../sandbox/test_support.hpp"
+    },
+    {
+      "file": "tests/experts/expert_registry_test.cpp",
+      "line": 4,
+      "new": "agent_loop/stub_provider.hpp",
+      "old": "../agent_loop/stub_provider.hpp"
+    },
+    {
+      "file": "tests/hooks/hook_agent_loop_test.cpp",
+      "line": 10,
+      "new": "agent_loop/stub_provider.hpp",
+      "old": "../agent_loop/stub_provider.hpp"
+    },
+    {
+      "file": "tests/remote_control/session_channel_binder_test.cpp",
+      "line": 286,
+      "new": "agent_loop/stub_provider.hpp",
+      "old": "../agent_loop/stub_provider.hpp"
+    },
+    {
+      "file": "tests/sandbox/sandbox_backend_win_test.cpp",
+      "line": 9,
+      "new": "agent_loop/stub_provider.hpp",
+      "old": "../agent_loop/stub_provider.hpp"
+    },
+    {
+      "file": "tests/security/audit_log_test.cpp",
+      "line": 3,
+      "new": "sandbox/test_support.hpp",
+      "old": "../sandbox/test_support.hpp"
+    },
+    {
+      "file": "tests/session/session_resume_restore_test.cpp",
+      "line": 14,
+      "new": "agent_loop/stub_provider.hpp",
+      "old": "../agent_loop/stub_provider.hpp"
+    },
+    {
+      "file": "tests/tool/bash_tool_powershell_encoding_test.cpp",
+      "line": 20,
+      "new": "sandbox/test_support.hpp",
+      "old": "../sandbox/test_support.hpp"
+    },
+    {
+      "file": "tests/tool/bash_tool_shell_test.cpp",
+      "line": 5,
+      "new": "sandbox/test_support.hpp",
+      "old": "../sandbox/test_support.hpp"
+    },
+    {
+      "file": "tests/tool/theme_create_tool_test.cpp",
+      "line": 7,
+      "new": "themes/theme_test_resources.hpp",
+      "old": "../themes/theme_test_resources.hpp"
+    },
+    {
+      "file": "tests/web/security_handler_test.cpp",
+      "line": 4,
+      "new": "sandbox/test_support.hpp",
+      "old": "../sandbox/test_support.hpp"
+    },
+    {
+      "file": "tests/web/web_server_smoke_test.cpp",
+      "line": 60,
+      "new": "themes/theme_test_resources.hpp",
+      "old": "../themes/theme_test_resources.hpp"
+    },
+    {
+      "file": "tests/web/web_server_smoke_test.cpp",
+      "line": 66,
+      "new": "agent_loop/stub_provider.hpp",
+      "old": "../agent_loop/stub_provider.hpp"
+    }
+  ],
+  "check": true,
+  "errors": [],
+  "relative_include_files": 15,
+  "relative_include_lines": 16,
+  "schema": 1,
+  "scope": "tests"
+}
