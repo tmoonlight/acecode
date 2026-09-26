@@ -30,6 +30,7 @@
   10. 压缩请求的消息体是原始历史,不经过 model_facing;
   11. 跨 loop 交接的 AB-BA 并发(LR-M4)。
   - 750ms / 500ms 的节流用可注入的时钟,避免用例不稳定。
+  - **必须在 restructure 的 P2-08 之前合入**:P2-08 会把 `tests/agent_loop/` 改名为 `tests/agent/`。
   - 验证:新用例在当前 master 上全部通过;Windows 本地与 Linux CI 各跑一次。
 
 ## 2. 结构拆分(restructure 的 P3 之后开始;函数体不改)

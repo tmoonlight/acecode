@@ -3,7 +3,10 @@
 > 执行前必读 design.md 的 §6「提交与协作约定」。关键规则:
 > - 开工前在任务行末尾追加 `〔认领: <代理名> <日期>〕`,单独提交到 master;前置任务没勾选的不开工。
 > - 提交信息前缀写 `refactor20260927(layers/<任务编号>): …`。
-> - 热点文件(CMakeLists.txt、tests/CMakeLists.txt)同一时刻只允许一个任务修改。
+> - 热点文件规则见 design.md §6 第 5 条:
+>   - agent_loop.* 与 main.cpp 同一时刻只允许一个任务修改;
+>   - CMakeLists.txt、tests/CMakeLists.txt 可以并行开发,但合入 master 要串行,后合入的一方先 rebase,再重跑 cmake_target_snapshot 比对。
+> - 各任务的执行波次与可并行关系见 design.md §8.3。
 >
 > 其它 change 的任务:
 > - P0-09、P0-12 在 split-tui-main;
@@ -130,7 +133,7 @@
 > - cmake_target_snapshot 按映射换算回旧路径后,每个文件所属的 target 不变;
 > - 跑一次 `migrate_branch.py --check`,并通知 9 个遗留分支。
 >
-> **执行顺序**:3.1、3.2、3.3 可并行;3.4 依赖 3.1;3.5 依赖 3.1、3.4;3.6 依赖 3.5;3.7 放最后;3.8 全程并行。P2-01(RAII 原语)在 adopt-ownership-conventions,可与本组并行,但必须在 Phase 3 之前合入。
+> **执行顺序**:3.1、3.2、3.3 可并行;3.4 依赖 3.1;3.5 依赖 3.1、3.4;3.6 依赖 3.5;3.7 放最后,且要求 P0-09、P0-10、P0-11 已先合入;3.8 在 1.3 之后全程并行。P2-01(RAII 原语)在 adopt-ownership-conventions,可与本组并行,但必须在 Phase 3 之前合入。
 
 - [ ] 3.1 【P2-02】【主】共同协议根 `llm/`,对应 layout-map.md §3 前 7 行。
   - `provider/llm_provider.hpp` 整头移到 `src/llm/`,删掉第 3 行的 retry_policy include;
@@ -209,13 +212,17 @@
   - `main.cpp` R100 → `src/cli/main.cpp`,`version.hpp.in` → `cmake/`;
   - `tool/agent_browser/pointer_overlay.cpp` 改名为 `browser_pointer_overlay.cpp`;
   - 测试镜像:`tests/agent_loop` → `tests/agent`,30 处 `agent_loop.hpp` 与 7 处 `tui_state.hpp` 改掉;commands、markdown、path_reference、session_replay*、drag_scroll、text_input_ops 的测试随源文件归位;`smoke_test.cpp` 按被测对象归位。
-  - 前置:3.6;split-agent-loop 的 P0-10 已合入。
+  - 前置:3.6;以下三项已合入,因为它们修改或新增的文件会被本任务移动:
+    - split-tui-main 的 P0-09(改 `src/main.cpp`);
+    - split-agent-loop 的 P0-10(改 `src/agent_loop.*`);
+    - split-agent-loop 的 P0-11(在 `tests/agent_loop/` 下新增测试)。
   - 验证:
     - lint 在转发头之外 0 违规;
     - 用例清单与 G0 相同;
     - `CMakeLists.txt:173/507/548` 已同步;
     - 按平台用 `cmake --build --target` 构建全部 EXCLUDE_FROM_ALL 冒烟目标。
 - [ ] 3.8 【P2-09】【子】【并】分支迁移工具 `scripts/refactor/migrate_branch.py`,提供 rebase / patch / `--apply-map` / `--docs` / `--check` 五种模式。
+  - 前置:1.3(需要映射表);可与 Phase 1、Phase 2 全程并行。
   - 验证:对 9 个遗留 ref 逐一演练,patch 模式下 `git apply -3` 成功,或在记录里说明为什么不能。
 
 ## 4. Phase 3:冻结窗口(半天,外加约 1 天验证)

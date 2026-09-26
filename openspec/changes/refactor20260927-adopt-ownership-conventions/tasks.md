@@ -61,7 +61,7 @@
   - `SessionEntry` 显式析构:先停 loop,再让成员析构;头注释改为与实现一致。
   - `on_turn_finished` 改为捕获 `LifetimeRef<SessionRegistry>`。
   - `title_threads_` / `lifecycle_threads_` 换成 `ReapingThreadSet`。
-  - 前置:2.1。
+  - 前置:1.1;restructure 4.2(P3-02)。不需要 2.1,可以和它并行。
   - 验证:
     - 新增 `session_registry_shutdown_test`,5 条用例:
       - 析构时有挂起的 AskUserQuestion:提问以取消收尾,不崩溃;
@@ -96,7 +96,7 @@
   - 子会话 listener 改为 LifetimeRef + ScopedSubscription;`deps_` 不再重复保存 registry_deps;
   - `TuiShutdownSequence` 在 `agent_loop.shutdown` 之后、MCP 与 LSP 关闭之前,加一步 `subagent_host.shutdown()`,单独提交;
   - TUI 的 model_pool 回调改为捕获 LifetimeRef。
-  - 前置:2.2;split-tui-main 的 4.3(B-13)。
+  - 前置:2.1(用到 ScopedSubscription)、2.2;split-tui-main 的 4.3(B-13)。
   - 验证:
     - 新增 `subagent_host_shutdown_test`:子回合运行中析构 SubagentHost 时,`remove_task` / `publish_tasks` 不再被调用。修复前的表现是回调锁住已析构的 mu_;
     - 实机:子代理运行中、有挂起提问时,`/exit` 与 Ctrl+C 都能正常退出(split-tui-main 手工清单第 10 小节)。
@@ -124,7 +124,7 @@
   - `web_search::Runtime` 与 `cdp_client` 的 `Impl*` 改为 unique_ptr;
   - `SessionManager` 改为持有 `optional<WriterLease>`;
   - pty 后端的句柄在二期再换。
-  - 前置:2.1。
+  - 前置:1.1;restructure 4.2(P3-02)。不需要 2.1。
   - 验证:
     - `lsp_service_test`(含 spawn 失败路径)、sandbox 相关测试、`audit_log_test`、会话写者租约相关测试通过;
     - Windows 上对比测试前后的进程句柄数,确认没有泄漏;
@@ -138,7 +138,7 @@
   - `image_generation_client` 改为 `run_abandonable`;
   - TUI 的 Copilot 认证线程改为持有 `shared_ptr<CopilotProvider>`;
   - 三个入口在静态析构之前调用 `wait_for_abandoned_work(2s)`。
-  - 前置:2.1;若涉及 TUI 部分,需要 split-tui-main 的 4.2(B-12)。
+  - 前置:1.1;restructure 4.2(P3-02),不需要 2.1;若涉及 TUI 部分,需要 split-tui-main 的 4.2(B-12)。
   - 验证:
     - `mcp_manager_test::AbortDuringSlowToolCallReturnsQuickly` 与 image_generate 的取消用例通过;
     - 新增用例:「McpManager 的连接线程运行时 shutdown,ToolExecutor 先析构也不崩溃」;

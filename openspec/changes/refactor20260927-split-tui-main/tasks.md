@@ -28,6 +28,7 @@
   - **保留 200-203 的两条前置声明**,等 B-04 再删;删除 1621 行重复的 include 与 308 行的 `contains_box`;
   - 更新 CLAUDE.md「两份同名实现」一段,以及 `tui_helpers.cpp:497` 的注释。
   - 前置:restructure 1.8(P0-08)。
+  - **必须在 restructure 的 P2-08 之前合入**:P2-08 会把 `src/main.cpp` 移到 `src/cli/main.cpp`。
   - 验证:
     - 新增单测:写入 `tui::g_model_load_percent` 后,负载 chip 能渲染;中文注释写明回归现象是「负载 chip 永不显示」;
     - 手工逐个比对底栏的 chip,包括 token、缓存命中、模型负载;

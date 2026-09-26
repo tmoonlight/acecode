@@ -131,12 +131,13 @@
 ### 4. 执行顺序
 
 1. **P2-01**(原语)必须在 restructure 的 P3 之前合入。
-2. **O-01、O-06、O-09** 在 P3 之后随时可做。
-3. **O-02 → O-03 → O-04** 串行:先让 registry 能安全关停,再打破自持环,最后调整 daemon 顺序。
-4. **O-05** 依赖 split-tui-main 的 B-13(TuiShutdownSequence 成形)。
-5. **O-07、O-08** 相互独立。
-6. **O-10** 依赖 split-agent-loop 的 A-14(构造注入就位)。
-7. **O-11** 依赖 A-14 与 O-03。
+2. **P3 之后可以立即并行开工**:O-01、O-02、O-07(非 TUI 部分)、O-09。它们只依赖 P2-01。
+3. **O-06、O-08** 依赖 O-01,因为要用到 ScopedSubscription 与退订等待。
+4. **O-02 → O-03 → O-04** 串行:先让 registry 能安全关停,再打破自持环,最后调整 daemon 顺序。
+5. **O-05** 依赖 O-01、O-02,以及 split-tui-main 的 B-13(TuiShutdownSequence 成形)。
+6. **O-07 的 TUI 部分**依赖 split-tui-main 的 B-12。
+7. **O-10** 依赖 split-agent-loop 的 A-14(构造注入就位)。
+8. **O-11** 依赖 A-14 与 O-03。
 
 本变更中的任务同一时刻不得与 split-agent-loop 或 split-tui-main 修改同一个文件,以 tasks.md 的认领为准。
 
