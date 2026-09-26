@@ -17,7 +17,7 @@
 
 ## 1. Phase 0:决策、护栏、清理(不冻结)
 
-- [ ] 1.1 【P0-01】【主】立项定稿。〔认领: Codex-root 2026-09-27〕
+- [x] 1.1 【P0-01】【主】立项定稿。〔认领: Codex-root 2026-09-27〕
   - 核对 design.md §9 决策登记,D1/D2/D15/D21/D22 已定;
   - 在 AGENTS.md 增加「所有权与生命周期」一节,约定摘自 adopt-ownership-conventions design.md,每条附一个仓库中的真实反例;
   - CLAUDE.md 顶部加一行,指向本系列 4 个 change,并写明「src 分层重构进行中,新文件放置规则见 restructure-src-layers/design.md」。
