@@ -46,7 +46,7 @@
     - **用正式 `layers.tsv` 重跑分层检查,把实测违规数写回 design.md「D2」段**;
     - 在一个混排行尾的样本文件上确认行尾不变;
     - 脚本在含嵌套 worktree 的仓库根运行时,不触碰 `.claude/worktrees`、`.worktrees`、`.acecode/worktrees`。
-- [ ] 1.4 【P0-04】【主】【并】CMake 源文件护栏。
+- [ ] 1.4 【P0-04】【主】【并】CMake 源文件护栏。〔认领: Codex-root 2026-09-27〕
   - `CMakeLists.txt:176/183` 的正则拆成 `ACECODE_TUI_DIRS` 与 `ACECODE_TUI_TESTABLE_SUBSETS`(预先写入 commands/、resume/、path_reference/、markdown/,以及 drag_scroll、text_input_ops、skill_commands),TUI 源集合为空时 `FATAL_ERROR`;
   - 新增 `cmake/acecode_source_guards.cmake`(`acecode_require_sources`、`acecode_set_source_define`、`acecode_assert_known_roots`),覆盖:
     - 全部显式清单(:185-314);
