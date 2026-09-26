@@ -1,0 +1,63 @@
+{
+  "duplicate_basenames": {
+    "main.cpp": [
+      "src/apps/cli/main.cpp",
+      "src/apps/desktop/main.cpp"
+    ],
+    "runtime.cpp": [
+      "src/adapters/computer_use/runtime.cpp",
+      "src/adapters/tool/web_search/runtime.cpp",
+      "src/host/channels/runtime.cpp"
+    ],
+    "runtime.hpp": [
+      "src/adapters/computer_use/runtime.hpp",
+      "src/adapters/tool/web_search/runtime.hpp",
+      "src/host/channels/runtime.hpp"
+    ]
+  },
+  "findings": [],
+  "mapped_files": 1081,
+  "planned_or_obsolete_rows": [
+    {
+      "kind": "move",
+      "path": "src/platform/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/ipc/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/workspace/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/pty/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/llm/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/permissions/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/agent/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/session_host/",
+      "phase": "P3"
+    }
+  ],
+  "schema": 1
+}

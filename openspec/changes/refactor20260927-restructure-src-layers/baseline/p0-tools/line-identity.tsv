@@ -1,0 +1,3 @@
+old_path	old_start	old_end	new_path	new_start	new_end	mode	reason
+src/agent_loop.cpp	1	6952	src/agent_loop.cpp	1	6952	copy	P0 identity verification; not a completed split
+src/main.cpp	1	8827	src/main.cpp	1	8827	copy	P0 identity verification; not a completed split

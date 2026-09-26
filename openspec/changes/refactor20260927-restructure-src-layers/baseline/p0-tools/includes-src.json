@@ -1,0 +1,6924 @@
+{
+  "changed_files": 370,
+  "changed_lines": 1152,
+  "changes": [
+    {
+      "file": "src/channels/bridge.cpp",
+      "line": 2,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/channels/bridge.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/channels/bridge.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/channels/bridge.cpp",
+      "line": 5,
+      "new": "lsp/lsp_which.hpp",
+      "old": "../lsp/lsp_which.hpp"
+    },
+    {
+      "file": "src/channels/bridge.hpp",
+      "line": 4,
+      "new": "lsp/lsp_process.hpp",
+      "old": "../lsp/lsp_process.hpp"
+    },
+    {
+      "file": "src/channels/command.cpp",
+      "line": 3,
+      "new": "tui/channels_setup.hpp",
+      "old": "../tui/channels_setup.hpp"
+    },
+    {
+      "file": "src/channels/command.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 2,
+      "new": "remote_control/channel_question_bridge.hpp",
+      "old": "../remote_control/channel_question_bridge.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 3,
+      "new": "remote_control/remote_control_hub.hpp",
+      "old": "../remote_control/remote_control_hub.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 4,
+      "new": "remote_control/remote_control_service.hpp",
+      "old": "../remote_control/remote_control_service.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 5,
+      "new": "remote_control/rc_session_navigation.hpp",
+      "old": "../remote_control/rc_session_navigation.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 6,
+      "new": "remote_control/session_channel_binder.hpp",
+      "old": "../remote_control/session_channel_binder.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 7,
+      "new": "session/attachment_store.hpp",
+      "old": "../session/attachment_store.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 8,
+      "new": "session/output_attachments.hpp",
+      "old": "../session/output_attachments.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 9,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/channels/gateway.cpp",
+      "line": 10,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/channels/gateway.hpp",
+      "line": 4,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/channels/owner_lock.cpp",
+      "line": 2,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/channels/runtime.cpp",
+      "line": 2,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/channels/runtime.cpp",
+      "line": 3,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/channels/runtime.cpp",
+      "line": 4,
+      "new": "remote_control/remote_control_service.hpp",
+      "old": "../remote_control/remote_control_service.hpp"
+    },
+    {
+      "file": "src/channels/runtime.cpp",
+      "line": 5,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/channels/runtime.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/channels/runtime.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/channels/setup.cpp",
+      "line": 3,
+      "new": "hooks/hook_runner.hpp",
+      "old": "../hooks/hook_runner.hpp"
+    },
+    {
+      "file": "src/channels/setup.cpp",
+      "line": 4,
+      "new": "lsp/lsp_which.hpp",
+      "old": "../lsp/lsp_which.hpp"
+    },
+    {
+      "file": "src/channels/setup.cpp",
+      "line": 5,
+      "new": "remote_control/rc_session_navigation.hpp",
+      "old": "../remote_control/rc_session_navigation.hpp"
+    },
+    {
+      "file": "src/channels/setup.cpp",
+      "line": 6,
+      "new": "remote_control/remote_control_service.hpp",
+      "old": "../remote_control/remote_control_service.hpp"
+    },
+    {
+      "file": "src/channels/setup.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/channels/state.cpp",
+      "line": 3,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 15,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 16,
+      "new": "config/mcp_config.hpp",
+      "old": "../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 17,
+      "new": "tui/mode_picker.hpp",
+      "old": "../tui/mode_picker.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 18,
+      "new": "tui/theme_palette.hpp",
+      "old": "../tui/theme_palette.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 19,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 20,
+      "new": "provider/apply_model_to_session.hpp",
+      "old": "../provider/apply_model_to_session.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 21,
+      "new": "provider/cwd_model_override.hpp",
+      "old": "../provider/cwd_model_override.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 22,
+      "new": "provider/model_resolver.hpp",
+      "old": "../provider/model_resolver.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 23,
+      "new": "feedback/feedback_upload.hpp",
+      "old": "../feedback/feedback_upload.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 24,
+      "new": "tool/mcp_manager.hpp",
+      "old": "../tool/mcp_manager.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 25,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 26,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 27,
+      "new": "skills/skill_commands.hpp",
+      "old": "../skills/skill_commands.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 28,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 29,
+      "new": "session/session_resume_restore.hpp",
+      "old": "../session/session_resume_restore.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 30,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 31,
+      "new": "tui/subagent_host.hpp",
+      "old": "../tui/subagent_host.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 32,
+      "new": "session/session_rewind.hpp",
+      "old": "../session/session_rewind.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 33,
+      "new": "session/thread_goal_store.hpp",
+      "old": "../session/thread_goal_store.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 34,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 35,
+      "new": "utils/terminal_title.hpp",
+      "old": "../utils/terminal_title.hpp"
+    },
+    {
+      "file": "src/commands/builtin_commands.cpp",
+      "line": 36,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.cpp",
+      "line": 3,
+      "new": "skills/skill_activation.hpp",
+      "old": "../skills/skill_activation.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.cpp",
+      "line": 4,
+      "new": "skills/skill_commands.hpp",
+      "old": "../skills/skill_commands.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.cpp",
+      "line": 5,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.hpp",
+      "line": 3,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.hpp",
+      "line": 4,
+      "new": "agent_loop.hpp",
+      "old": "../agent_loop.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.hpp",
+      "line": 5,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.hpp",
+      "line": 6,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.hpp",
+      "line": 7,
+      "new": "utils/token_tracker.hpp",
+      "old": "../utils/token_tracker.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.hpp",
+      "line": 8,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/commands/command_registry.hpp",
+      "line": 9,
+      "new": "provider/session_model_binding.hpp",
+      "old": "../provider/session_model_binding.hpp"
+    },
+    {
+      "file": "src/commands/compact.cpp",
+      "line": 3,
+      "new": "session/compact_checkpoint.hpp",
+      "old": "../session/compact_checkpoint.hpp"
+    },
+    {
+      "file": "src/commands/compact.cpp",
+      "line": 4,
+      "new": "session/session_history_recovery.hpp",
+      "old": "../session/session_history_recovery.hpp"
+    },
+    {
+      "file": "src/commands/compact.cpp",
+      "line": 5,
+      "new": "pa/pa_quirks.hpp",
+      "old": "../pa/pa_quirks.hpp"
+    },
+    {
+      "file": "src/commands/compact.cpp",
+      "line": 6,
+      "new": "provider/text_tool_call_recovery.hpp",
+      "old": "../provider/text_tool_call_recovery.hpp"
+    },
+    {
+      "file": "src/commands/compact.cpp",
+      "line": 7,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/commands/compact.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/commands/compact.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/commands/configure_catalog.cpp",
+      "line": 4,
+      "new": "provider/builtin_model_catalog.hpp",
+      "old": "../provider/builtin_model_catalog.hpp"
+    },
+    {
+      "file": "src/commands/configure_catalog.cpp",
+      "line": 5,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/commands/configure_catalog.cpp",
+      "line": 6,
+      "new": "utils/terminal_input.hpp",
+      "old": "../utils/terminal_input.hpp"
+    },
+    {
+      "file": "src/commands/configure_catalog.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/commands/configure_catalog.hpp",
+      "line": 4,
+      "new": "utils/models_dev_catalog.hpp",
+      "old": "../utils/models_dev_catalog.hpp"
+    },
+    {
+      "file": "src/commands/desktop_command.cpp",
+      "line": 4,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/commands/desktop_command.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/commands/desktop_command.hpp",
+      "line": 3,
+      "new": "desktop/open_request.hpp",
+      "old": "../desktop/open_request.hpp"
+    },
+    {
+      "file": "src/commands/goal_command.cpp",
+      "line": 3,
+      "new": "session/thread_goal_store.hpp",
+      "old": "../session/thread_goal_store.hpp"
+    },
+    {
+      "file": "src/commands/goal_command.cpp",
+      "line": 4,
+      "new": "utils/token_tracker.hpp",
+      "old": "../utils/token_tracker.hpp"
+    },
+    {
+      "file": "src/commands/init_command.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/commands/init_command.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/commands/lsp_command.hpp",
+      "line": 13,
+      "new": "lsp/lsp_service.hpp",
+      "old": "../lsp/lsp_service.hpp"
+    },
+    {
+      "file": "src/commands/memory_command.cpp",
+      "line": 3,
+      "new": "memory/memory_paths.hpp",
+      "old": "../memory/memory_paths.hpp"
+    },
+    {
+      "file": "src/commands/memory_command.cpp",
+      "line": 4,
+      "new": "memory/memory_registry.hpp",
+      "old": "../memory/memory_registry.hpp"
+    },
+    {
+      "file": "src/commands/memory_command.cpp",
+      "line": 5,
+      "new": "memory/memory_types.hpp",
+      "old": "../memory/memory_types.hpp"
+    },
+    {
+      "file": "src/commands/memory_command.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/commands/memory_command.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 4,
+      "new": "config/model_provider_registry.hpp",
+      "old": "../config/model_provider_registry.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 5,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 6,
+      "new": "config/saved_models_editor.hpp",
+      "old": "../config/saved_models_editor.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 7,
+      "new": "config/settings_mutations.hpp",
+      "old": "../config/settings_mutations.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 8,
+      "new": "provider/apply_model_to_session.hpp",
+      "old": "../provider/apply_model_to_session.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 9,
+      "new": "provider/cwd_model_override.hpp",
+      "old": "../provider/cwd_model_override.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 10,
+      "new": "provider/model_context_resolver.hpp",
+      "old": "../provider/model_context_resolver.hpp"
+    },
+    {
+      "file": "src/commands/model_command.cpp",
+      "line": 11,
+      "new": "tui/model_picker.hpp",
+      "old": "../tui/model_picker.hpp"
+    },
+    {
+      "file": "src/commands/models_command.cpp",
+      "line": 3,
+      "new": "provider/models_dev_registry.hpp",
+      "old": "../provider/models_dev_registry.hpp"
+    },
+    {
+      "file": "src/commands/models_command.cpp",
+      "line": 4,
+      "new": "utils/models_dev_catalog.hpp",
+      "old": "../utils/models_dev_catalog.hpp"
+    },
+    {
+      "file": "src/commands/opencode_command.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/commands/opencode_command.cpp",
+      "line": 4,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/commands/opencode_command.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/commands/opencode_command.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/commands/opencode_command_registry.cpp",
+      "line": 5,
+      "new": "agent_loop.hpp",
+      "old": "../agent_loop.hpp"
+    },
+    {
+      "file": "src/commands/opencode_command_registry.cpp",
+      "line": 6,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/commands/opencode_command_registry.cpp",
+      "line": 7,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/commands/resume_state_sync.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/commands/resume_state_sync.hpp",
+      "line": 4,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/commands/resume_state_sync.hpp",
+      "line": 5,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/commands/resume_state_sync.hpp",
+      "line": 6,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/commands/resume_state_sync.hpp",
+      "line": 7,
+      "new": "utils/token_tracker.hpp",
+      "old": "../utils/token_tracker.hpp"
+    },
+    {
+      "file": "src/computer_use/native_windows.cpp",
+      "line": 11,
+      "new": "utils/base64.hpp",
+      "old": "../utils/base64.hpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "line": 9,
+      "new": "themes/theme_id.hpp",
+      "old": "../themes/theme_id.hpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "line": 10,
+      "new": "utils/constants.hpp",
+      "old": "../utils/constants.hpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "line": 11,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "line": 12,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "line": 13,
+      "new": "utils/http_url_validation.hpp",
+      "old": "../utils/http_url_validation.hpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "line": 14,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "line": 15,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/config/config.hpp",
+      "line": 5,
+      "new": "computer_use/pointer_appearance.hpp",
+      "old": "../computer_use/pointer_appearance.hpp"
+    },
+    {
+      "file": "src/config/config.hpp",
+      "line": 6,
+      "new": "utils/constants.hpp",
+      "old": "../utils/constants.hpp"
+    },
+    {
+      "file": "src/config/config_mutation.cpp",
+      "line": 5,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/config/config_mutation.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/config/config_mutation.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/config/config_recovery.cpp",
+      "line": 3,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/config/config_recovery.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/config/config_recovery.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/config/mcp_config.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/config/mcp_config.cpp",
+      "line": 5,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/config/mcp_config.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/config/mcp_config.cpp",
+      "line": 7,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/config/mcp_config.cpp",
+      "line": 8,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/config/mcp_config.cpp",
+      "line": 9,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/config/request_headers.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/config/saved_models.cpp",
+      "line": 7,
+      "new": "provider/builtin_model_catalog.hpp",
+      "old": "../provider/builtin_model_catalog.hpp"
+    },
+    {
+      "file": "src/config/saved_models.cpp",
+      "line": 8,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/connectors/connector_first_start_auth.cpp",
+      "line": 3,
+      "new": "utils/state_file.hpp",
+      "old": "../utils/state_file.hpp"
+    },
+    {
+      "file": "src/connectors/connector_first_start_auth.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 1,
+      "new": "environment/bootstrap.hpp",
+      "old": "../environment/bootstrap.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 8,
+      "new": "cli/interactive_options.hpp",
+      "old": "../cli/interactive_options.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 9,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 10,
+      "new": "hooks/hook_manager.hpp",
+      "old": "../hooks/hook_manager.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 11,
+      "new": "skills/default_skill_seeder.hpp",
+      "old": "../skills/default_skill_seeder.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 12,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 13,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 14,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 15,
+      "new": "web/http_address.hpp",
+      "old": "../web/http_address.hpp"
+    },
+    {
+      "file": "src/daemon/cli.cpp",
+      "line": 16,
+      "new": "web/remote_web.hpp",
+      "old": "../web/remote_web.hpp"
+    },
+    {
+      "file": "src/daemon/guid.hpp",
+      "line": 3,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/daemon/heartbeat.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/mcp_runtime.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/mcp_runtime.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/daemon/mcp_runtime.hpp",
+      "line": 4,
+      "new": "tool/mcp_manager.hpp",
+      "old": "../tool/mcp_manager.hpp"
+    },
+    {
+      "file": "src/daemon/mcp_runtime.hpp",
+      "line": 5,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/daemon/platform_posix.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/platform_windows.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/runtime_files.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/daemon/runtime_files.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/daemon/runtime_files.cpp",
+      "line": 5,
+      "new": "utils/constants.hpp",
+      "old": "../utils/constants.hpp"
+    },
+    {
+      "file": "src/daemon/runtime_files.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/runtime_files.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/daemon/service_win.cpp",
+      "line": 6,
+      "new": "environment/bootstrap.hpp",
+      "old": "../environment/bootstrap.hpp"
+    },
+    {
+      "file": "src/daemon/service_win.cpp",
+      "line": 7,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/daemon/service_win.cpp",
+      "line": 8,
+      "new": "hooks/hook_manager.hpp",
+      "old": "../hooks/hook_manager.hpp"
+    },
+    {
+      "file": "src/daemon/service_win.cpp",
+      "line": 9,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/service_win.cpp",
+      "line": 10,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/daemon/service_win.cpp",
+      "line": 11,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/daemon/startup_diagnostics.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/daemon/startup_diagnostics.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/daemon/supervisor.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 2,
+      "new": "channels/runtime.hpp",
+      "old": "../channels/runtime.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 3,
+      "new": "session/session_serializer.hpp",
+      "old": "../session/session_serializer.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 5,
+      "new": "desktop/folder_picker.hpp",
+      "old": "../desktop/folder_picker.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 6,
+      "new": "desktop/context_picker.hpp",
+      "old": "../desktop/context_picker.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 7,
+      "new": "environment/terminal_runtime.hpp",
+      "old": "../environment/terminal_runtime.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 8,
+      "new": "desktop/daemon_protocol.hpp",
+      "old": "../desktop/daemon_protocol.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 9,
+      "new": "desktop/open_in_explorer.hpp",
+      "old": "../desktop/open_in_explorer.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 11,
+      "new": "tool/spawn_subagent_tool.hpp",
+      "old": "../tool/spawn_subagent_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 12,
+      "new": "tool/thread_tools.hpp",
+      "old": "../tool/thread_tools.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 13,
+      "new": "tool/workspace_tools.hpp",
+      "old": "../tool/workspace_tools.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 14,
+      "new": "desktop/workspace_registry.hpp",
+      "old": "../desktop/workspace_registry.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 15,
+      "new": "experts/expert_registry.hpp",
+      "old": "../experts/expert_registry.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 16,
+      "new": "connectors/connector_first_start_auth.hpp",
+      "old": "../connectors/connector_first_start_auth.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 22,
+      "new": "provider/cwd_model_override.hpp",
+      "old": "../provider/cwd_model_override.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 23,
+      "new": "provider/copilot_provider.hpp",
+      "old": "../provider/copilot_provider.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 24,
+      "new": "provider/model_pool_status.hpp",
+      "old": "../provider/model_pool_status.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 25,
+      "new": "provider/model_resolver.hpp",
+      "old": "../provider/model_resolver.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 26,
+      "new": "provider/models_dev_registry.hpp",
+      "old": "../provider/models_dev_registry.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 27,
+      "new": "provider/provider_factory.hpp",
+      "old": "../provider/provider_factory.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 28,
+      "new": "hooks/hook_config.hpp",
+      "old": "../hooks/hook_config.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 29,
+      "new": "hooks/hook_manager.hpp",
+      "old": "../hooks/hook_manager.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 30,
+      "new": "hooks/hook_payload.hpp",
+      "old": "../hooks/hook_payload.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 31,
+      "new": "hooks/hook_runner.hpp",
+      "old": "../hooks/hook_runner.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 32,
+      "new": "loop/loop_scheduler.hpp",
+      "old": "../loop/loop_scheduler.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 33,
+      "new": "loop/loop_store.hpp",
+      "old": "../loop/loop_store.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 34,
+      "new": "session/local_session_client.hpp",
+      "old": "../session/local_session_client.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 35,
+      "new": "session/global_session_catalog.hpp",
+      "old": "../session/global_session_catalog.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 36,
+      "new": "session/session_registry.hpp",
+      "old": "../session/session_registry.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 37,
+      "new": "session/thread_service.hpp",
+      "old": "../session/thread_service.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 38,
+      "new": "session/task_suggestion_service.hpp",
+      "old": "../session/task_suggestion_service.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 39,
+      "new": "tool/task_suggestion_tools.hpp",
+      "old": "../tool/task_suggestion_tools.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 40,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 41,
+      "new": "skills/skill_init.hpp",
+      "old": "../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 42,
+      "new": "skills/skill_usage_store.hpp",
+      "old": "../skills/skill_usage_store.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 43,
+      "new": "tool/ask_user_question_tool.hpp",
+      "old": "../tool/ask_user_question_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 44,
+      "new": "tool/bash_tool.hpp",
+      "old": "../tool/bash_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 45,
+      "new": "tool/builtin_tool_registry.hpp",
+      "old": "../tool/builtin_tool_registry.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 46,
+      "new": "tool/tool_rewrites.hpp",
+      "old": "../tool/tool_rewrites.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 47,
+      "new": "security/audit_log.hpp",
+      "old": "../security/audit_log.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 48,
+      "new": "tool/file_read_tool.hpp",
+      "old": "../tool/file_read_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 49,
+      "new": "tool/file_write_tool.hpp",
+      "old": "../tool/file_write_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 50,
+      "new": "tool/file_edit_tool.hpp",
+      "old": "../tool/file_edit_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 51,
+      "new": "tool/grep_tool.hpp",
+      "old": "../tool/grep_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 52,
+      "new": "tool/glob_tool.hpp",
+      "old": "../tool/glob_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 53,
+      "new": "tool/goal_tool.hpp",
+      "old": "../tool/goal_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 54,
+      "new": "tool/skill_view_tool.hpp",
+      "old": "../tool/skill_view_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 55,
+      "new": "tool/skills_tool.hpp",
+      "old": "../tool/skills_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 56,
+      "new": "tool/task_complete_tool.hpp",
+      "old": "../tool/task_complete_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 57,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 58,
+      "new": "lsp/lsp_service.hpp",
+      "old": "../lsp/lsp_service.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 59,
+      "new": "tool/web_search/runtime.hpp",
+      "old": "../tool/web_search/runtime.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 60,
+      "new": "tool/web_search/backend_router.hpp",
+      "old": "../tool/web_search/backend_router.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 61,
+      "new": "tool/web_search/region_detector.hpp",
+      "old": "../tool/web_search/region_detector.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 62,
+      "new": "tool/web_search/web_search_tool.hpp",
+      "old": "../tool/web_search/web_search_tool.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 63,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 64,
+      "new": "remote_control/session_channel_binder.hpp",
+      "old": "../remote_control/session_channel_binder.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 65,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 66,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 67,
+      "new": "utils/power_inhibitor.hpp",
+      "old": "../utils/power_inhibitor.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 68,
+      "new": "utils/token.hpp",
+      "old": "../utils/token.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 69,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 70,
+      "new": "web/auth.hpp",
+      "old": "../web/auth.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 71,
+      "new": "web/pty/pty_session_registry.hpp",
+      "old": "../web/pty/pty_session_registry.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 72,
+      "new": "web/remote_web.hpp",
+      "old": "../web/remote_web.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 73,
+      "new": "web/remote_web_proxy.hpp",
+      "old": "../web/remote_web_proxy.hpp"
+    },
+    {
+      "file": "src/daemon/worker.cpp",
+      "line": 74,
+      "new": "web/server.hpp",
+      "old": "../web/server.hpp"
+    },
+    {
+      "file": "src/daemon/worker.hpp",
+      "line": 16,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/desktop/application_icon.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/context_items.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/context_items.cpp",
+      "line": 4,
+      "new": "utils/base64.hpp",
+      "old": "../utils/base64.hpp"
+    },
+    {
+      "file": "src/desktop/context_items.cpp",
+      "line": 5,
+      "new": "utils/clipboard.hpp",
+      "old": "../utils/clipboard.hpp"
+    },
+    {
+      "file": "src/desktop/context_items.cpp",
+      "line": 6,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/desktop/context_picker.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/custom_toast_win.cpp",
+      "line": 5,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/custom_toast_win.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/daemon_pool.cpp",
+      "line": 3,
+      "new": "daemon/guid.hpp",
+      "old": "../daemon/guid.hpp"
+    },
+    {
+      "file": "src/desktop/daemon_pool.cpp",
+      "line": 4,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/desktop/daemon_pool.cpp",
+      "line": 5,
+      "new": "daemon/runtime_files.hpp",
+      "old": "../daemon/runtime_files.hpp"
+    },
+    {
+      "file": "src/desktop/daemon_pool.cpp",
+      "line": 7,
+      "new": "utils/constants.hpp",
+      "old": "../utils/constants.hpp"
+    },
+    {
+      "file": "src/desktop/daemon_pool.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/daemon_supervisor.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/daemon_supervisor.cpp",
+      "line": 4,
+      "new": "utils/token.hpp",
+      "old": "../utils/token.hpp"
+    },
+    {
+      "file": "src/desktop/deepin_window_effects.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/desktop_about.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/desktop_restart.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/edge_app_launcher.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/desktop/edge_app_launcher.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/edge_app_launcher.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/edge_app_launcher.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/external_url.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/folder_picker_win.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/folder_picker_win.cpp",
+      "line": 7,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/folder_picker_win.cpp",
+      "line": 346,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 49,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 50,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 51,
+      "new": "daemon/runtime_files.hpp",
+      "old": "../daemon/runtime_files.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 52,
+      "new": "utils/clipboard.hpp",
+      "old": "../utils/clipboard.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 53,
+      "new": "utils/base64.hpp",
+      "old": "../utils/base64.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 54,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 55,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 56,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 57,
+      "new": "utils/state_file.hpp",
+      "old": "../utils/state_file.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 58,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/main.cpp",
+      "line": 59,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/desktop/notifications_mac.mm",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/notifications_win.cpp",
+      "line": 7,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/open_in_explorer.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/open_request.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/desktop/open_request.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/desktop/open_request.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/open_request.cpp",
+      "line": 6,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/desktop/pick_active.cpp",
+      "line": 3,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/desktop/single_instance_posix.cpp",
+      "line": 12,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/desktop/single_instance_posix.cpp",
+      "line": 13,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/single_instance_posix.cpp",
+      "line": 14,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/single_instance_win.cpp",
+      "line": 8,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/single_instance_win.cpp",
+      "line": 9,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/tray_icon_win.cpp",
+      "line": 11,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/tray_icon_win.cpp",
+      "line": 12,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/tray_icon_win.cpp",
+      "line": 13,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/url_builder.cpp",
+      "line": 3,
+      "new": "utils/url_encoding.hpp",
+      "old": "../utils/url_encoding.hpp"
+    },
+    {
+      "file": "src/desktop/web_host.cpp",
+      "line": 18,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/desktop/web_host.cpp",
+      "line": 19,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/web_host.hpp",
+      "line": 18,
+      "new": "utils/clipboard.hpp",
+      "old": "../utils/clipboard.hpp"
+    },
+    {
+      "file": "src/desktop/webview2_runtime_probe.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/webview2_runtime_probe.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/desktop/workspace_registry.cpp",
+      "line": 3,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/desktop/workspace_registry.cpp",
+      "line": 4,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/desktop/workspace_registry.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/desktop/workspace_registry.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/environment/bootstrap.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/environment/bootstrap.cpp",
+      "line": 5,
+      "new": "utils/state_file.hpp",
+      "old": "../utils/state_file.hpp"
+    },
+    {
+      "file": "src/environment/bootstrap.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/environment/bootstrap.hpp",
+      "line": 14,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.cpp",
+      "line": 6,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.cpp",
+      "line": 7,
+      "new": "utils/state_file.hpp",
+      "old": "../utils/state_file.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.cpp",
+      "line": 8,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.hpp",
+      "line": 27,
+      "new": "daemon/runtime_files.hpp",
+      "old": "../daemon/runtime_files.hpp"
+    },
+    {
+      "file": "src/environment/data_dir_migration.hpp",
+      "line": 28,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/environment/prompt_environment.hpp",
+      "line": 8,
+      "new": "prompt/system_prompt.hpp",
+      "old": "../prompt/system_prompt.hpp"
+    },
+    {
+      "file": "src/environment/shell_command_line.cpp",
+      "line": 3,
+      "new": "utils/base64.hpp",
+      "old": "../utils/base64.hpp"
+    },
+    {
+      "file": "src/environment/shell_command_line.cpp",
+      "line": 4,
+      "new": "web/pty/pty_backend.hpp",
+      "old": "../web/pty/pty_backend.hpp"
+    },
+    {
+      "file": "src/environment/terminal_resolver.cpp",
+      "line": 3,
+      "new": "hooks/hook_config.hpp",
+      "old": "../hooks/hook_config.hpp"
+    },
+    {
+      "file": "src/environment/terminal_resolver.cpp",
+      "line": 4,
+      "new": "hooks/hook_runner.hpp",
+      "old": "../hooks/hook_runner.hpp"
+    },
+    {
+      "file": "src/environment/terminal_resolver.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/environment/terminal_resolver.hpp",
+      "line": 16,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/environment/terminal_resolver.hpp",
+      "line": 17,
+      "new": "web/pty/pty_backend.hpp",
+      "old": "../web/pty/pty_backend.hpp"
+    },
+    {
+      "file": "src/environment/terminal_runtime.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/environment/toolchains.cpp",
+      "line": 3,
+      "new": "lsp/lsp_which.hpp",
+      "old": "../lsp/lsp_which.hpp"
+    },
+    {
+      "file": "src/environment/toolchains.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/environment/toolchains.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/environment/toolchains.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/environment/toolchains.hpp",
+      "line": 13,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/experts/expert_registry.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/experts/expert_registry.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/experts/expert_registry.cpp",
+      "line": 5,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/experts/expert_registry.cpp",
+      "line": 6,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/experts/expert_registry.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/experts/expert_registry.cpp",
+      "line": 8,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/feedback/feedback_upload.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/feedback/feedback_upload.cpp",
+      "line": 4,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/feedback/feedback_upload.cpp",
+      "line": 5,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/feedback/feedback_upload.cpp",
+      "line": 6,
+      "new": "upgrade/manifest.hpp",
+      "old": "../upgrade/manifest.hpp"
+    },
+    {
+      "file": "src/feedback/feedback_upload.cpp",
+      "line": 7,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/feedback/feedback_upload.cpp",
+      "line": 8,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/gitinfo/git_context_collector.cpp",
+      "line": 3,
+      "new": "worktree/worktree_manager.hpp",
+      "old": "../worktree/worktree_manager.hpp"
+    },
+    {
+      "file": "src/headless/headless_final_text.hpp",
+      "line": 18,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/headless/headless_jsonl.hpp",
+      "line": 7,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 1,
+      "new": "config/mcp_config.hpp",
+      "old": "../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 2,
+      "new": "environment/bootstrap.hpp",
+      "old": "../environment/bootstrap.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 11,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 12,
+      "new": "daemon/mcp_runtime.hpp",
+      "old": "../daemon/mcp_runtime.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 13,
+      "new": "desktop/workspace_registry.hpp",
+      "old": "../desktop/workspace_registry.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 14,
+      "new": "hooks/hook_config.hpp",
+      "old": "../hooks/hook_config.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 15,
+      "new": "hooks/hook_manager.hpp",
+      "old": "../hooks/hook_manager.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 16,
+      "new": "lsp/lsp_service.hpp",
+      "old": "../lsp/lsp_service.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 17,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 18,
+      "new": "permissions.hpp",
+      "old": "../permissions.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 19,
+      "new": "session/local_session_client.hpp",
+      "old": "../session/local_session_client.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 20,
+      "new": "session/session_registry.hpp",
+      "old": "../session/session_registry.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 21,
+      "new": "session/thread_service.hpp",
+      "old": "../session/thread_service.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 22,
+      "new": "skills/skill_init.hpp",
+      "old": "../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 23,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 24,
+      "new": "tool/ask_user_question_tool.hpp",
+      "old": "../tool/ask_user_question_tool.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 25,
+      "new": "tool/builtin_tool_registry.hpp",
+      "old": "../tool/builtin_tool_registry.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 26,
+      "new": "tool/tool_rewrites.hpp",
+      "old": "../tool/tool_rewrites.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 27,
+      "new": "security/audit_log.hpp",
+      "old": "../security/audit_log.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 28,
+      "new": "tool/spawn_subagent_tool.hpp",
+      "old": "../tool/spawn_subagent_tool.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 29,
+      "new": "tool/skill_view_tool.hpp",
+      "old": "../tool/skill_view_tool.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 30,
+      "new": "tool/skills_tool.hpp",
+      "old": "../tool/skills_tool.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 31,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 32,
+      "new": "tool/thread_tools.hpp",
+      "old": "../tool/thread_tools.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 33,
+      "new": "tool/workspace_tools.hpp",
+      "old": "../tool/workspace_tools.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 34,
+      "new": "tool/web_search/backend_router.hpp",
+      "old": "../tool/web_search/backend_router.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 35,
+      "new": "tool/web_search/region_detector.hpp",
+      "old": "../tool/web_search/region_detector.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 36,
+      "new": "tool/web_search/runtime.hpp",
+      "old": "../tool/web_search/runtime.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 37,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 38,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 39,
+      "new": "utils/power_inhibitor.hpp",
+      "old": "../utils/power_inhibitor.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 40,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/headless/headless_runner.cpp",
+      "line": 41,
+      "new": "web/handlers/skill_command_expander.hpp",
+      "old": "../web/handlers/skill_command_expander.hpp"
+    },
+    {
+      "file": "src/hooks/hook_config.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/hooks/hook_config.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/hooks/hook_config.cpp",
+      "line": 5,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/hooks/hook_config.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/hooks/hook_manager.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/hooks/hook_manager.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/hooks/hook_payload.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/hooks/hook_payload.cpp",
+      "line": 5,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/hooks/hook_payload.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/hooks/hook_payload.cpp",
+      "line": 7,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/hooks/hook_payload.hpp",
+      "line": 3,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/hooks/hook_payload.hpp",
+      "line": 4,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/hooks/hook_payload.hpp",
+      "line": 5,
+      "new": "provider/models_dev_registry.hpp",
+      "old": "../provider/models_dev_registry.hpp"
+    },
+    {
+      "file": "src/hooks/hook_registry.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/hooks/hook_registry.cpp",
+      "line": 4,
+      "new": "skills/default_skill_seeder.hpp",
+      "old": "../skills/default_skill_seeder.hpp"
+    },
+    {
+      "file": "src/hooks/hook_registry.cpp",
+      "line": 5,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/hooks/hook_registry.cpp",
+      "line": 6,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/hooks/hook_registry.cpp",
+      "line": 7,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/hooks/hook_registry.cpp",
+      "line": 8,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/hooks/hook_registry.cpp",
+      "line": 9,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/hooks/hook_runner.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/hooks/hook_runner.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/hooks/hook_runtime.cpp",
+      "line": 3,
+      "new": "tool/tool_protocol_names.hpp",
+      "old": "../tool/tool_protocol_names.hpp"
+    },
+    {
+      "file": "src/hooks/hook_runtime.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/image/image_processor.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/image/image_processor.cpp",
+      "line": 17,
+      "new": "image/stb/stb_image.h",
+      "old": "stb/stb_image.h"
+    },
+    {
+      "file": "src/image/image_processor.cpp",
+      "line": 21,
+      "new": "image/stb/stb_image_write.h",
+      "old": "stb/stb_image_write.h"
+    },
+    {
+      "file": "src/image/image_processor.cpp",
+      "line": 24,
+      "new": "image/stb/stb_image_resize2.h",
+      "old": "stb/stb_image_resize2.h"
+    },
+    {
+      "file": "src/loop/loop_scheduler.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/loop/loop_scheduler.cpp",
+      "line": 4,
+      "new": "session/session_registry.hpp",
+      "old": "../session/session_registry.hpp"
+    },
+    {
+      "file": "src/loop/loop_scheduler.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/loop/loop_scheduler.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/loop/loop_scheduler.cpp",
+      "line": 7,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/loop/loop_scheduler.cpp",
+      "line": 8,
+      "new": "worktree/worktree_core.hpp",
+      "old": "../worktree/worktree_core.hpp"
+    },
+    {
+      "file": "src/loop/loop_scheduler.cpp",
+      "line": 9,
+      "new": "worktree/worktree_manager.hpp",
+      "old": "../worktree/worktree_manager.hpp"
+    },
+    {
+      "file": "src/loop/loop_scheduler.hpp",
+      "line": 5,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/loop/loop_store.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/loop/loop_store.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/loop/loop_store.cpp",
+      "line": 5,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_client.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_client.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_frame.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_process.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_process.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_server_registry.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_server_registry.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_server_registry.hpp",
+      "line": 12,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_service.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_service.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_service.hpp",
+      "line": 17,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/lsp/lsp_which.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/memory/memory_frontmatter.cpp",
+      "line": 3,
+      "new": "skills/frontmatter.hpp",
+      "old": "../skills/frontmatter.hpp"
+    },
+    {
+      "file": "src/memory/memory_frontmatter.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/memory/memory_frontmatter.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/memory/memory_frontmatter.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/memory/memory_paths.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/memory/memory_paths.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/memory/memory_registry.cpp",
+      "line": 7,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/memory/memory_registry.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/memory/memory_registry.cpp",
+      "line": 9,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/network/proxy_resolver.cpp",
+      "line": 9,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/network/proxy_resolver.cpp",
+      "line": 10,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/network/proxy_resolver.hpp",
+      "line": 14,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/network/proxy_resolver_posix.cpp",
+      "line": 12,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/network/proxy_resolver_win.cpp",
+      "line": 12,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/network/proxy_resolver_win.cpp",
+      "line": 13,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/pa/pa_context_budget.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/pa/pa_quirks.hpp",
+      "line": 9,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/project_instructions/instructions_loader.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/project_instructions/instructions_loader.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/project_instructions/instructions_loader.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/project_instructions/instructions_loader.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/prompt/context_usage_breakdown.cpp",
+      "line": 4,
+      "new": "commands/compact.hpp",
+      "old": "../commands/compact.hpp"
+    },
+    {
+      "file": "src/prompt/context_usage_breakdown.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 3,
+      "new": "experts/expert_registry.hpp",
+      "old": "../experts/expert_registry.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 4,
+      "new": "commands/compact.hpp",
+      "old": "../commands/compact.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 5,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 6,
+      "new": "gitinfo/git_context_collector.hpp",
+      "old": "../gitinfo/git_context_collector.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 7,
+      "new": "memory/memory_registry.hpp",
+      "old": "../memory/memory_registry.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 8,
+      "new": "project_instructions/instructions_loader.hpp",
+      "old": "../project_instructions/instructions_loader.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 9,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 10,
+      "new": "tool/tool_protocol_names.hpp",
+      "old": "../tool/tool_protocol_names.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 11,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.cpp",
+      "line": 12,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.hpp",
+      "line": 3,
+      "new": "tool/model_family.hpp",
+      "old": "../tool/model_family.hpp"
+    },
+    {
+      "file": "src/prompt/system_prompt.hpp",
+      "line": 4,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/provider/anthropic_provider.hpp",
+      "line": 5,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/apply_model_to_session.cpp",
+      "line": 4,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/provider/apply_model_to_session.cpp",
+      "line": 5,
+      "new": "agent_loop.hpp",
+      "old": "../agent_loop.hpp"
+    },
+    {
+      "file": "src/provider/apply_model_to_session.cpp",
+      "line": 6,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/provider/apply_model_to_session.hpp",
+      "line": 6,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/apply_model_to_session.hpp",
+      "line": 7,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/provider/apply_model_to_session.hpp",
+      "line": 8,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/provider/auth/github_auth.cpp",
+      "line": 2,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/provider/auth/github_auth.cpp",
+      "line": 3,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/provider/auth/github_auth.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/provider/auth/xai_auth.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/provider/auth/xai_auth.cpp",
+      "line": 4,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/provider/auth/xai_auth.cpp",
+      "line": 5,
+      "new": "utils/atomic_file.hpp",
+      "old": "../../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/provider/auth/xai_auth.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/provider/builtin_model_catalog.cpp",
+      "line": 2,
+      "new": "utils/constants.hpp",
+      "old": "../utils/constants.hpp"
+    },
+    {
+      "file": "src/provider/builtin_model_catalog.hpp",
+      "line": 3,
+      "new": "utils/models_dev_catalog.hpp",
+      "old": "../utils/models_dev_catalog.hpp"
+    },
+    {
+      "file": "src/provider/codex/codex_app_server_client.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/codex_provider.cpp",
+      "line": 3,
+      "new": "provider/codex/codex_app_server_client.hpp",
+      "old": "codex/codex_app_server_client.hpp"
+    },
+    {
+      "file": "src/provider/codex_provider.cpp",
+      "line": 4,
+      "new": "session/attachment_prompt_context.hpp",
+      "old": "../session/attachment_prompt_context.hpp"
+    },
+    {
+      "file": "src/provider/codex_provider.cpp",
+      "line": 5,
+      "new": "session/attachment_store.hpp",
+      "old": "../session/attachment_store.hpp"
+    },
+    {
+      "file": "src/provider/codex_provider.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/codex_provider.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/provider/copilot_provider.hpp",
+      "line": 4,
+      "new": "provider/auth/github_auth.hpp",
+      "old": "auth/github_auth.hpp"
+    },
+    {
+      "file": "src/provider/cwd_model_override.cpp",
+      "line": 4,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/provider/cwd_model_override.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/cwd_model_override.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/provider/grok_provider.hpp",
+      "line": 3,
+      "new": "provider/auth/xai_auth.hpp",
+      "old": "auth/xai_auth.hpp"
+    },
+    {
+      "file": "src/provider/grok_responses.cpp",
+      "line": 3,
+      "new": "provider/auth/xai_auth.hpp",
+      "old": "auth/xai_auth.hpp"
+    },
+    {
+      "file": "src/provider/model_context_resolver.cpp",
+      "line": 3,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/provider/model_context_resolver.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/model_context_resolver.cpp",
+      "line": 6,
+      "new": "provider/codex/codex_model_catalog.hpp",
+      "old": "codex/codex_model_catalog.hpp"
+    },
+    {
+      "file": "src/provider/model_context_resolver.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/model_pool_status.cpp",
+      "line": 3,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/provider/model_pool_status.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/model_pool_status.hpp",
+      "line": 3,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/provider/model_resolver.cpp",
+      "line": 4,
+      "new": "config/model_provider_registry.hpp",
+      "old": "../config/model_provider_registry.hpp"
+    },
+    {
+      "file": "src/provider/model_resolver.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/model_resolver.hpp",
+      "line": 5,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/model_resolver.hpp",
+      "line": 6,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/provider/model_resolver.hpp",
+      "line": 7,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/provider/models_dev_paths.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/provider/models_dev_registry.cpp",
+      "line": 4,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/provider/models_dev_registry.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/models_dev_registry.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/provider/models_dev_registry.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/openai_provider.hpp",
+      "line": 5,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/provider_factory.cpp",
+      "line": 8,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/provider_factory.cpp",
+      "line": 9,
+      "new": "config/model_provider_registry.hpp",
+      "old": "../config/model_provider_registry.hpp"
+    },
+    {
+      "file": "src/provider/provider_factory.cpp",
+      "line": 10,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/provider_factory.cpp",
+      "line": 11,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/provider/provider_factory.hpp",
+      "line": 4,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/provider/provider_request_options.hpp",
+      "line": 3,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/provider/retry_policy.cpp",
+      "line": 3,
+      "new": "pa/pa_quirks.hpp",
+      "old": "../pa/pa_quirks.hpp"
+    },
+    {
+      "file": "src/provider/session_model_binding.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/provider/session_model_binding.hpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/session_model_binding.hpp",
+      "line": 5,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/provider/session_model_binding.hpp",
+      "line": 6,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/provider/vision_capability.cpp",
+      "line": 4,
+      "new": "config/model_provider_registry.hpp",
+      "old": "../config/model_provider_registry.hpp"
+    },
+    {
+      "file": "src/provider/vision_capability.hpp",
+      "line": 8,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/provider/vision_capability.hpp",
+      "line": 9,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/remote_control/channel_question_bridge.hpp",
+      "line": 3,
+      "new": "session/ask_user_question_prompter.hpp",
+      "old": "../session/ask_user_question_prompter.hpp"
+    },
+    {
+      "file": "src/remote_control/channel_question_bridge.hpp",
+      "line": 4,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/remote_control/session_channel_binder.hpp",
+      "line": 33,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/remote_control/session_channel_binder.hpp",
+      "line": 34,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/session/ask_user_question_prompter.cpp",
+      "line": 3,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/attachment_store.cpp",
+      "line": 3,
+      "new": "image/image_processor.hpp",
+      "old": "../image/image_processor.hpp"
+    },
+    {
+      "file": "src/session/attachment_store.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/session/attachment_store.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/attachment_store.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/compact_checkpoint.cpp",
+      "line": 4,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/compact_checkpoint.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/compact_notice.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/event_dispatcher.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/file_checkpoint_store.cpp",
+      "line": 3,
+      "new": "tool/diff_utils.hpp",
+      "old": "../tool/diff_utils.hpp"
+    },
+    {
+      "file": "src/session/file_checkpoint_store.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/file_checkpoint_store.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/file_checkpoint_store.cpp",
+      "line": 6,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/file_checkpoint_store.hpp",
+      "line": 4,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/fork_attachment_context.hpp",
+      "line": 5,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/global_session_catalog.cpp",
+      "line": 3,
+      "new": "desktop/workspace_registry.hpp",
+      "old": "../desktop/workspace_registry.hpp"
+    },
+    {
+      "file": "src/session/global_session_catalog.cpp",
+      "line": 4,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/session/global_session_catalog.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/global_session_search.cpp",
+      "line": 4,
+      "new": "desktop/workspace_registry.hpp",
+      "old": "../desktop/workspace_registry.hpp"
+    },
+    {
+      "file": "src/session/global_session_search.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/local_session_client.cpp",
+      "line": 2,
+      "new": "environment/data_dir_migration.hpp",
+      "old": "../environment/data_dir_migration.hpp"
+    },
+    {
+      "file": "src/session/local_session_client.cpp",
+      "line": 7,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/opencode_import.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/session/opencode_import.cpp",
+      "line": 5,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/session/opencode_import.cpp",
+      "line": 6,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/session/opencode_import.cpp",
+      "line": 7,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/session/opencode_import.cpp",
+      "line": 8,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/opencode_import.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/output_attachments.cpp",
+      "line": 3,
+      "new": "image/image_processor.hpp",
+      "old": "../image/image_processor.hpp"
+    },
+    {
+      "file": "src/session/output_attachments.cpp",
+      "line": 4,
+      "new": "utils/base64.hpp",
+      "old": "../utils/base64.hpp"
+    },
+    {
+      "file": "src/session/output_attachments.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/output_attachments.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/permission_prompter.cpp",
+      "line": 3,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/permission_prompter.hpp",
+      "line": 18,
+      "new": "permissions.hpp",
+      "old": "../permissions.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.cpp",
+      "line": 4,
+      "new": "desktop/locale.hpp",
+      "old": "../desktop/locale.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.cpp",
+      "line": 5,
+      "new": "provider/copilot_provider.hpp",
+      "old": "../provider/copilot_provider.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.cpp",
+      "line": 6,
+      "new": "provider/cwd_model_override.hpp",
+      "old": "../provider/cwd_model_override.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.cpp",
+      "line": 7,
+      "new": "provider/model_resolver.hpp",
+      "old": "../provider/model_resolver.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.cpp",
+      "line": 8,
+      "new": "provider/provider_factory.hpp",
+      "old": "../provider/provider_factory.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.cpp",
+      "line": 9,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/session/session_auto_title.hpp",
+      "line": 4,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_client.hpp",
+      "line": 17,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/session/session_client.hpp",
+      "line": 28,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_history_recovery.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_manager.cpp",
+      "line": 12,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/session/session_manager.cpp",
+      "line": 13,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/session_manager.cpp",
+      "line": 14,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/session_manager.cpp",
+      "line": 15,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/session_manager.hpp",
+      "line": 9,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 12,
+      "new": "commands/init_command.hpp",
+      "old": "../commands/init_command.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 13,
+      "new": "commands/lsp_command.hpp",
+      "old": "../commands/lsp_command.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 14,
+      "new": "provider/apply_model_to_session.hpp",
+      "old": "../provider/apply_model_to_session.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 15,
+      "new": "provider/cwd_model_override.hpp",
+      "old": "../provider/cwd_model_override.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 16,
+      "new": "provider/model_context_resolver.hpp",
+      "old": "../provider/model_context_resolver.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 17,
+      "new": "provider/model_pool_status.hpp",
+      "old": "../provider/model_pool_status.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 18,
+      "new": "provider/model_resolver.hpp",
+      "old": "../provider/model_resolver.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 19,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 20,
+      "new": "skills/skill_init.hpp",
+      "old": "../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 21,
+      "new": "gitinfo/git_context_core.hpp",
+      "old": "../gitinfo/git_context_core.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 22,
+      "new": "tool/mcp_manager.hpp",
+      "old": "../tool/mcp_manager.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 23,
+      "new": "tool/mcp_scope.hpp",
+      "old": "../tool/mcp_scope.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 24,
+      "new": "config/mcp_config.hpp",
+      "old": "../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 25,
+      "new": "tool/question_policy.hpp",
+      "old": "../tool/question_policy.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 26,
+      "new": "worktree/worktree_core.hpp",
+      "old": "../worktree/worktree_core.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 27,
+      "new": "worktree/worktree_manager.hpp",
+      "old": "../worktree/worktree_manager.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 28,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 29,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 30,
+      "new": "utils/power_inhibitor.hpp",
+      "old": "../utils/power_inhibitor.hpp"
+    },
+    {
+      "file": "src/session/session_registry.cpp",
+      "line": 31,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 18,
+      "new": "agent_loop.hpp",
+      "old": "../agent_loop.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 19,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 20,
+      "new": "permissions.hpp",
+      "old": "../permissions.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 21,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 22,
+      "new": "provider/session_model_binding.hpp",
+      "old": "../provider/session_model_binding.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 23,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 24,
+      "new": "experts/expert_registry.hpp",
+      "old": "../experts/expert_registry.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 25,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/session/session_registry.hpp",
+      "line": 26,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/session/session_replay.cpp",
+      "line": 13,
+      "new": "tool/ask_user_question_tool.hpp",
+      "old": "../tool/ask_user_question_tool.hpp"
+    },
+    {
+      "file": "src/session/session_replay.cpp",
+      "line": 14,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/session/session_replay.cpp",
+      "line": 15,
+      "new": "tool_preamble/tool_preamble.hpp",
+      "old": "../tool_preamble/tool_preamble.hpp"
+    },
+    {
+      "file": "src/session/session_replay.cpp",
+      "line": 16,
+      "new": "tui/compact_notice_row.hpp",
+      "old": "../tui/compact_notice_row.hpp"
+    },
+    {
+      "file": "src/session/session_replay.hpp",
+      "line": 14,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/session/session_replay.hpp",
+      "line": 15,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_resume_restore.cpp",
+      "line": 8,
+      "new": "agent_loop.hpp",
+      "old": "../agent_loop.hpp"
+    },
+    {
+      "file": "src/session/session_resume_restore.cpp",
+      "line": 9,
+      "new": "tool/apply_patch_format.hpp",
+      "old": "../tool/apply_patch_format.hpp"
+    },
+    {
+      "file": "src/session/session_resume_restore.cpp",
+      "line": 10,
+      "new": "tool/mtime_tracker.hpp",
+      "old": "../tool/mtime_tracker.hpp"
+    },
+    {
+      "file": "src/session/session_resume_restore.cpp",
+      "line": 11,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/session/session_resume_restore.cpp",
+      "line": 12,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/session/session_resume_restore.cpp",
+      "line": 13,
+      "new": "utils/text_file_buffer.hpp",
+      "old": "../utils/text_file_buffer.hpp"
+    },
+    {
+      "file": "src/session/session_resume_restore.hpp",
+      "line": 11,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_rewind.cpp",
+      "line": 5,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/session_rewind.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_serializer.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_storage.cpp",
+      "line": 6,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/session/session_storage.cpp",
+      "line": 7,
+      "new": "prompt/context_usage_breakdown.hpp",
+      "old": "../prompt/context_usage_breakdown.hpp"
+    },
+    {
+      "file": "src/session/session_storage.cpp",
+      "line": 8,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/session/session_storage.cpp",
+      "line": 9,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/session/session_storage.cpp",
+      "line": 10,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/session_storage.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_title_generator.cpp",
+      "line": 3,
+      "new": "desktop/locale.hpp",
+      "old": "../desktop/locale.hpp"
+    },
+    {
+      "file": "src/session/session_title_generator.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/session/session_title_generator.cpp",
+      "line": 5,
+      "new": "utils/terminal_title.hpp",
+      "old": "../utils/terminal_title.hpp"
+    },
+    {
+      "file": "src/session/session_title_generator.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_trajectory.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/session_usage_ledger.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/session_usage_ledger.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_user_message_search.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/session_user_message_search.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/session_user_message_search.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/session_writer_lease.cpp",
+      "line": 3,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/session/session_writer_lease.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/session_writer_lease.hpp",
+      "line": 3,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_service.cpp",
+      "line": 9,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_service.cpp",
+      "line": 10,
+      "new": "environment/data_dir_migration.hpp",
+      "old": "../environment/data_dir_migration.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_service.cpp",
+      "line": 11,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_service.cpp",
+      "line": 12,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_service.cpp",
+      "line": 13,
+      "new": "worktree/worktree_manager.hpp",
+      "old": "../worktree/worktree_manager.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_service.cpp",
+      "line": 14,
+      "new": "web/message_payload.hpp",
+      "old": "../web/message_payload.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_service.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_store.cpp",
+      "line": 5,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/task_suggestion_store.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/thread_repair.cpp",
+      "line": 4,
+      "new": "commands/compact.hpp",
+      "old": "../commands/compact.hpp"
+    },
+    {
+      "file": "src/session/thread_repair.cpp",
+      "line": 5,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/session/thread_service.cpp",
+      "line": 11,
+      "new": "commands/compact.hpp",
+      "old": "../commands/compact.hpp"
+    },
+    {
+      "file": "src/session/thread_service.cpp",
+      "line": 12,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/session/thread_service.cpp",
+      "line": 13,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/session/thread_service.cpp",
+      "line": 14,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/thread_service.cpp",
+      "line": 15,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/tool_metadata_codec.hpp",
+      "line": 22,
+      "new": "tool/diff_utils.hpp",
+      "old": "../tool/diff_utils.hpp"
+    },
+    {
+      "file": "src/session/tool_metadata_codec.hpp",
+      "line": 23,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/session/tool_result_storage.cpp",
+      "line": 3,
+      "new": "tool/tool_icons.hpp",
+      "old": "../tool/tool_icons.hpp"
+    },
+    {
+      "file": "src/session/tool_result_storage.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/session/tool_result_storage.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/session/tool_result_storage.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/session/tool_result_storage.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/tool_result_storage.hpp",
+      "line": 4,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/session/turn_net_diff.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/session/turn_net_diff.hpp",
+      "line": 4,
+      "new": "tool/diff_utils.hpp",
+      "old": "../tool/diff_utils.hpp"
+    },
+    {
+      "file": "src/session/turn_timing.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/skills/default_skill_seeder.cpp",
+      "line": 3,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/skills/default_skill_seeder.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/skills/default_skill_seeder.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/skills/default_skill_seeder.cpp",
+      "line": 6,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/skills/default_skill_seeder.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/skills/skill_activation.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/skills/skill_activation.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/skills/skill_commands.cpp",
+      "line": 5,
+      "new": "agent_loop.hpp",
+      "old": "../agent_loop.hpp"
+    },
+    {
+      "file": "src/skills/skill_commands.cpp",
+      "line": 6,
+      "new": "commands/command_registry.hpp",
+      "old": "../commands/command_registry.hpp"
+    },
+    {
+      "file": "src/skills/skill_commands.cpp",
+      "line": 7,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/skills/skill_commands.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/skills/skill_init.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/skills/skill_init.cpp",
+      "line": 5,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/skills/skill_init.cpp",
+      "line": 6,
+      "new": "utils/paths.hpp",
+      "old": "../utils/paths.hpp"
+    },
+    {
+      "file": "src/skills/skill_init.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/skills/skill_loader.cpp",
+      "line": 4,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/skills/skill_loader.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/skills/skill_loader.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/skills/skill_registry.cpp",
+      "line": 5,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/skills/skill_registry.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/skills/skill_registry.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/themes/theme_drafts.cpp",
+      "line": 3,
+      "new": "image/image_processor.hpp",
+      "old": "../image/image_processor.hpp"
+    },
+    {
+      "file": "src/themes/theme_drafts.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/themes/theme_drafts.cpp",
+      "line": 5,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/themes/theme_drafts.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/themes/theme_drafts.cpp",
+      "line": 7,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/themes/theme_package.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.cpp",
+      "line": 2,
+      "new": "utils/base64.hpp",
+      "old": "../utils/base64.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.cpp",
+      "line": 5,
+      "new": "upgrade/version.hpp",
+      "old": "../upgrade/version.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.cpp",
+      "line": 6,
+      "new": "image/image_processor.hpp",
+      "old": "../image/image_processor.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.cpp",
+      "line": 7,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.cpp",
+      "line": 8,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.cpp",
+      "line": 9,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.cpp",
+      "line": 10,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/themes/theme_store.hpp",
+      "line": 3,
+      "new": "upgrade/http.hpp",
+      "old": "../upgrade/http.hpp"
+    },
+    {
+      "file": "src/tool/apply_patch_format.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/apply_patch_tool.cpp",
+      "line": 2,
+      "new": "config/mcp_config.hpp",
+      "old": "../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/tool/ask_user_question_tool.cpp",
+      "line": 5,
+      "new": "headless/headless_mode.hpp",
+      "old": "../headless/headless_mode.hpp"
+    },
+    {
+      "file": "src/tool/ask_user_question_tool.cpp",
+      "line": 6,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/ask_user_question_tool.cpp",
+      "line": 7,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/builtin_tool_registry.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/builtin_tool_registry.hpp",
+      "line": 4,
+      "new": "tool/agent_browser/browser_tools.hpp",
+      "old": "agent_browser/browser_tools.hpp"
+    },
+    {
+      "file": "src/tool/builtin_tool_registry.hpp",
+      "line": 13,
+      "new": "tool/image_generate/image_generate_tool.hpp",
+      "old": "image_generate/image_generate_tool.hpp"
+    },
+    {
+      "file": "src/tool/builtin_tool_registry.hpp",
+      "line": 23,
+      "new": "tool/web_search/runtime.hpp",
+      "old": "web_search/runtime.hpp"
+    },
+    {
+      "file": "src/tool/builtin_tool_registry.hpp",
+      "line": 24,
+      "new": "tool/web_search/web_search_tool.hpp",
+      "old": "web_search/web_search_tool.hpp"
+    },
+    {
+      "file": "src/tool/computer_use_tool.cpp",
+      "line": 2,
+      "new": "computer_use/runtime.hpp",
+      "old": "../computer_use/runtime.hpp"
+    },
+    {
+      "file": "src/tool/computer_use_tool.hpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/goal_tool.cpp",
+      "line": 3,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/goal_tool.cpp",
+      "line": 4,
+      "new": "session/thread_goal_store.hpp",
+      "old": "../session/thread_goal_store.hpp"
+    },
+    {
+      "file": "src/tool/grep_tool.cpp",
+      "line": 3,
+      "new": "hooks/hook_runner.hpp",
+      "old": "../hooks/hook_runner.hpp"
+    },
+    {
+      "file": "src/tool/grep_tool.cpp",
+      "line": 4,
+      "new": "worktree/worktree_manager.hpp",
+      "old": "../worktree/worktree_manager.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 5,
+      "new": "tool/tool_icons.hpp",
+      "old": "../tool_icons.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 6,
+      "new": "headless/headless_mode.hpp",
+      "old": "../../headless/headless_mode.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 7,
+      "new": "session/output_attachments.hpp",
+      "old": "../../session/output_attachments.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 8,
+      "new": "session/session_manager.hpp",
+      "old": "../../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 9,
+      "new": "session/session_storage.hpp",
+      "old": "../../session/session_storage.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 10,
+      "new": "utils/encoding.hpp",
+      "old": "../../utils/encoding.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 11,
+      "new": "utils/logger.hpp",
+      "old": "../../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 12,
+      "new": "utils/tool_errors.hpp",
+      "old": "../../utils/tool_errors.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "line": 13,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.hpp",
+      "line": 9,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool_executor.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generate_tool.hpp",
+      "line": 10,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generation_client.cpp",
+      "line": 3,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generation_client.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generation_policy.cpp",
+      "line": 2,
+      "new": "utils/http_url_validation.hpp",
+      "old": "../../utils/http_url_validation.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generation_policy.hpp",
+      "line": 19,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/tool/image_generate/image_generation_policy.hpp",
+      "line": 20,
+      "new": "tool/question_policy.hpp",
+      "old": "../question_policy.hpp"
+    },
+    {
+      "file": "src/tool/lsp_tool.cpp",
+      "line": 3,
+      "new": "lsp/lsp_service.hpp",
+      "old": "../lsp/lsp_service.hpp"
+    },
+    {
+      "file": "src/tool/lsp_tool.cpp",
+      "line": 4,
+      "new": "lsp/lsp_uri.hpp",
+      "old": "../lsp/lsp_uri.hpp"
+    },
+    {
+      "file": "src/tool/lsp_tool.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/mcp_manager.cpp",
+      "line": 2,
+      "new": "config/mcp_config.hpp",
+      "old": "../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/tool/mcp_manager.cpp",
+      "line": 3,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/tool/mcp_manager.cpp",
+      "line": 25,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/mcp_manager.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/mcp_manager.hpp",
+      "line": 5,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/tool/mcp_scope.cpp",
+      "line": 2,
+      "new": "config/mcp_config.hpp",
+      "old": "../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/tool/memory_read_tool.cpp",
+      "line": 3,
+      "new": "memory/memory_registry.hpp",
+      "old": "../memory/memory_registry.hpp"
+    },
+    {
+      "file": "src/tool/memory_read_tool.cpp",
+      "line": 4,
+      "new": "memory/memory_types.hpp",
+      "old": "../memory/memory_types.hpp"
+    },
+    {
+      "file": "src/tool/memory_read_tool.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/memory_read_tool.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/memory_write_tool.cpp",
+      "line": 3,
+      "new": "memory/memory_paths.hpp",
+      "old": "../memory/memory_paths.hpp"
+    },
+    {
+      "file": "src/tool/memory_write_tool.cpp",
+      "line": 4,
+      "new": "memory/memory_registry.hpp",
+      "old": "../memory/memory_registry.hpp"
+    },
+    {
+      "file": "src/tool/memory_write_tool.cpp",
+      "line": 5,
+      "new": "memory/memory_types.hpp",
+      "old": "../memory/memory_types.hpp"
+    },
+    {
+      "file": "src/tool/memory_write_tool.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/memory_write_tool.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/model_family.cpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/tool/plan_mode_tool.cpp",
+      "line": 3,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/show_image_tool.cpp",
+      "line": 4,
+      "new": "utils/tool_args_parser.hpp",
+      "old": "../utils/tool_args_parser.hpp"
+    },
+    {
+      "file": "src/tool/show_image_tool.cpp",
+      "line": 5,
+      "new": "utils/tool_errors.hpp",
+      "old": "../utils/tool_errors.hpp"
+    },
+    {
+      "file": "src/tool/show_image_tool.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/skill_view_tool.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/skill_view_tool.cpp",
+      "line": 4,
+      "new": "skills/skill_init.hpp",
+      "old": "../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/tool/skill_view_tool.cpp",
+      "line": 5,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/tool/skill_view_tool.cpp",
+      "line": 7,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/skills_tool.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/skills_tool.cpp",
+      "line": 4,
+      "new": "skills/skill_init.hpp",
+      "old": "../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/tool/skills_tool.cpp",
+      "line": 5,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/tool/skills_tool.cpp",
+      "line": 6,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 4,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 5,
+      "new": "session/session_registry.hpp",
+      "old": "../session/session_registry.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 6,
+      "new": "skills/skill_init.hpp",
+      "old": "../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 7,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 8,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 9,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 10,
+      "new": "web/handlers/skill_command_expander.hpp",
+      "old": "../web/handlers/skill_command_expander.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 11,
+      "new": "worktree/worktree_core.hpp",
+      "old": "../worktree/worktree_core.hpp"
+    },
+    {
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "line": 12,
+      "new": "worktree/worktree_manager.hpp",
+      "old": "../worktree/worktree_manager.hpp"
+    },
+    {
+      "file": "src/tool/task_suggestion_tools.cpp",
+      "line": 3,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/task_suggestion_tools.cpp",
+      "line": 4,
+      "new": "session/task_suggestion_service.hpp",
+      "old": "../session/task_suggestion_service.hpp"
+    },
+    {
+      "file": "src/tool/task_suggestion_tools.cpp",
+      "line": 5,
+      "new": "utils/tool_args_parser.hpp",
+      "old": "../utils/tool_args_parser.hpp"
+    },
+    {
+      "file": "src/tool/theme_create_tool.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/theme_create_tool.cpp",
+      "line": 4,
+      "new": "headless/headless_mode.hpp",
+      "old": "../headless/headless_mode.hpp"
+    },
+    {
+      "file": "src/tool/theme_create_tool.cpp",
+      "line": 5,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/theme_create_tool.cpp",
+      "line": 6,
+      "new": "themes/theme_drafts.hpp",
+      "old": "../themes/theme_drafts.hpp"
+    },
+    {
+      "file": "src/tool/theme_create_tool.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/thread_tools.cpp",
+      "line": 3,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/thread_tools.cpp",
+      "line": 4,
+      "new": "session/thread_service.hpp",
+      "old": "../session/thread_service.hpp"
+    },
+    {
+      "file": "src/tool/thread_tools.cpp",
+      "line": 5,
+      "new": "utils/tool_args_parser.hpp",
+      "old": "../utils/tool_args_parser.hpp"
+    },
+    {
+      "file": "src/tool/todo_write_tool.cpp",
+      "line": 3,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/todo_write_tool.cpp",
+      "line": 4,
+      "new": "session/todo_state.hpp",
+      "old": "../session/todo_state.hpp"
+    },
+    {
+      "file": "src/tool/tool_executor.cpp",
+      "line": 4,
+      "new": "session/output_attachments.hpp",
+      "old": "../session/output_attachments.hpp"
+    },
+    {
+      "file": "src/tool/tool_executor.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/tool/tool_protocol_names.cpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/tool/tool_rewrites.cpp",
+      "line": 3,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/tool/tool_rewrites.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/tool_rewrites.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 3,
+      "new": "config/model_provider_registry.hpp",
+      "old": "../config/model_provider_registry.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 4,
+      "new": "provider/copilot_provider.hpp",
+      "old": "../provider/copilot_provider.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 5,
+      "new": "provider/provider_factory.hpp",
+      "old": "../provider/provider_factory.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 6,
+      "new": "provider/vision_capability.hpp",
+      "old": "../provider/vision_capability.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 7,
+      "new": "session/attachment_store.hpp",
+      "old": "../session/attachment_store.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 8,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 9,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 10,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 11,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "line": 12,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tool/vision_subagent_tool.hpp",
+      "line": 4,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/tool/workspace_tools.cpp",
+      "line": 3,
+      "new": "desktop/workspace_registry.hpp",
+      "old": "../desktop/workspace_registry.hpp"
+    },
+    {
+      "file": "src/tool/workspace_tools.cpp",
+      "line": 4,
+      "new": "utils/tool_args_parser.hpp",
+      "old": "../utils/tool_args_parser.hpp"
+    },
+    {
+      "file": "src/tool/workspace_tools.cpp",
+      "line": 5,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/worktree_tool.cpp",
+      "line": 3,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tool/worktree_tool.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tool/worktree_tool.cpp",
+      "line": 5,
+      "new": "worktree/worktree_core.hpp",
+      "old": "../worktree/worktree_core.hpp"
+    },
+    {
+      "file": "src/tool/worktree_tool.cpp",
+      "line": 6,
+      "new": "worktree/worktree_manager.hpp",
+      "old": "../worktree/worktree_manager.hpp"
+    },
+    {
+      "file": "src/tool/worktree_tool.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tui/ask_question_editor.cpp",
+      "line": 4,
+      "new": "utils/text_input_ops.hpp",
+      "old": "../utils/text_input_ops.hpp"
+    },
+    {
+      "file": "src/tui/channels_setup.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tui/channels_setup.cpp",
+      "line": 5,
+      "new": "desktop/locale.hpp",
+      "old": "../desktop/locale.hpp"
+    },
+    {
+      "file": "src/tui/channels_setup.cpp",
+      "line": 6,
+      "new": "utils/open_url.hpp",
+      "old": "../utils/open_url.hpp"
+    },
+    {
+      "file": "src/tui/channels_setup.hpp",
+      "line": 3,
+      "new": "channels/setup.hpp",
+      "old": "../channels/setup.hpp"
+    },
+    {
+      "file": "src/tui/input_history_navigation.hpp",
+      "line": 3,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/tui/mode_picker.hpp",
+      "line": 3,
+      "new": "permissions.hpp",
+      "old": "../permissions.hpp"
+    },
+    {
+      "file": "src/tui/model_picker.cpp",
+      "line": 7,
+      "new": "config/model_provider_registry.hpp",
+      "old": "../config/model_provider_registry.hpp"
+    },
+    {
+      "file": "src/tui/model_picker.hpp",
+      "line": 12,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/tui/model_picker.hpp",
+      "line": 13,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/tui/path_reference_dropdown.cpp",
+      "line": 3,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/tui/path_reference_input.cpp",
+      "line": 3,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 1,
+      "new": "config/mcp_config.hpp",
+      "old": "../../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 10,
+      "new": "commands/command_registry.hpp",
+      "old": "../../commands/command_registry.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 11,
+      "new": "config/config_mutation.hpp",
+      "old": "../../config/config_mutation.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 12,
+      "new": "hooks/hook_manager.hpp",
+      "old": "../../hooks/hook_manager.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 13,
+      "new": "hooks/hook_registry.hpp",
+      "old": "../../hooks/hook_registry.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 14,
+      "new": "skills/skill_commands.hpp",
+      "old": "../../skills/skill_commands.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 15,
+      "new": "skills/skill_init.hpp",
+      "old": "../../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 16,
+      "new": "skills/skill_registry.hpp",
+      "old": "../../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 17,
+      "new": "tool/mcp_manager.hpp",
+      "old": "../../tool/mcp_manager.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 18,
+      "new": "tool/tool_executor.hpp",
+      "old": "../../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 19,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 20,
+      "new": "tui/theme_palette.hpp",
+      "old": "../theme_palette.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.cpp",
+      "line": 21,
+      "new": "tui/terminal_key_event.hpp",
+      "old": "../terminal_key_event.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.hpp",
+      "line": 5,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/tui/settings/management_center.hpp",
+      "line": 6,
+      "new": "skills/skill_usage_store.hpp",
+      "old": "../../skills/skill_usage_store.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 9,
+      "new": "permissions.hpp",
+      "old": "../../permissions.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 10,
+      "new": "config/request_headers.hpp",
+      "old": "../../config/request_headers.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 11,
+      "new": "config/settings_mutations.hpp",
+      "old": "../../config/settings_mutations.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 12,
+      "new": "desktop/workspace_registry.hpp",
+      "old": "../../desktop/workspace_registry.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 13,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 14,
+      "new": "provider/auth/github_auth.hpp",
+      "old": "../../provider/auth/github_auth.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 15,
+      "new": "session/session_storage.hpp",
+      "old": "../../session/session_storage.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 16,
+      "new": "session/session_usage_ledger.hpp",
+      "old": "../../session/session_usage_ledger.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 17,
+      "new": "utils/clipboard.hpp",
+      "old": "../../utils/clipboard.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 18,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 19,
+      "new": "tui/theme_palette.hpp",
+      "old": "../theme_palette.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.cpp",
+      "line": 20,
+      "new": "tui/terminal_key_event.hpp",
+      "old": "../terminal_key_event.hpp"
+    },
+    {
+      "file": "src/tui/settings/settings_center.hpp",
+      "line": 5,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/tui/sidebar_model.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/tui/sidebar_model.hpp",
+      "line": 3,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/tui/slash_dropdown.cpp",
+      "line": 2,
+      "new": "commands/command_registry.hpp",
+      "old": "../commands/command_registry.hpp"
+    },
+    {
+      "file": "src/tui/slash_dropdown.cpp",
+      "line": 3,
+      "new": "commands/slash_command_ranking.hpp",
+      "old": "../commands/slash_command_ranking.hpp"
+    },
+    {
+      "file": "src/tui/slash_dropdown.hpp",
+      "line": 3,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/tui/subagent_host.cpp",
+      "line": 3,
+      "new": "agent_loop.hpp",
+      "old": "../agent_loop.hpp"
+    },
+    {
+      "file": "src/tui/subagent_host.cpp",
+      "line": 4,
+      "new": "session/session_manager.hpp",
+      "old": "../session/session_manager.hpp"
+    },
+    {
+      "file": "src/tui/subagent_host.cpp",
+      "line": 5,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/tui/subagent_host.cpp",
+      "line": 6,
+      "new": "session/session_user_message_search.hpp",
+      "old": "../session/session_user_message_search.hpp"
+    },
+    {
+      "file": "src/tui/subagent_host.cpp",
+      "line": 7,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/tui/subagent_host.hpp",
+      "line": 23,
+      "new": "session/local_session_client.hpp",
+      "old": "../session/local_session_client.hpp"
+    },
+    {
+      "file": "src/tui/subagent_host.hpp",
+      "line": 24,
+      "new": "session/session_registry.hpp",
+      "old": "../session/session_registry.hpp"
+    },
+    {
+      "file": "src/tui/tool_progress.hpp",
+      "line": 3,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/tui/tui_ask_channel.cpp",
+      "line": 3,
+      "new": "tool/ask_user_question_types.hpp",
+      "old": "../tool/ask_user_question_types.hpp"
+    },
+    {
+      "file": "src/tui/tui_ask_channel.cpp",
+      "line": 4,
+      "new": "tool/ask_user_question_tool.hpp",
+      "old": "../tool/ask_user_question_tool.hpp"
+    },
+    {
+      "file": "src/tui/tui_ask_channel.cpp",
+      "line": 5,
+      "new": "tui_state.hpp",
+      "old": "../tui_state.hpp"
+    },
+    {
+      "file": "src/tui/tui_ask_channel.cpp",
+      "line": 7,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/upgrade/apply.cpp",
+      "line": 7,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/upgrade/apply.cpp",
+      "line": 8,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/upgrade/check.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/upgrade/diagnostics.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/upgrade/diagnostics.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/upgrade/diagnostics.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/upgrade/http.cpp",
+      "line": 3,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/upgrade/manifest.cpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/upgrade/upgrade.cpp",
+      "line": 15,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/upgrade/upgrade.cpp",
+      "line": 16,
+      "new": "utils/sha256.hpp",
+      "old": "../utils/sha256.hpp"
+    },
+    {
+      "file": "src/upgrade/upgrade.cpp",
+      "line": 17,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/upgrade/upgrade.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/utils/models_dev_catalog.cpp",
+      "line": 3,
+      "new": "provider/models_dev_registry.hpp",
+      "old": "../provider/models_dev_registry.hpp"
+    },
+    {
+      "file": "src/utils/state_file.hpp",
+      "line": 3,
+      "new": "config/saved_models.hpp",
+      "old": "../config/saved_models.hpp"
+    },
+    {
+      "file": "src/utils/text_file_buffer.cpp",
+      "line": 2,
+      "new": "config/mcp_config.hpp",
+      "old": "../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/utils/text_file_buffer.cpp",
+      "line": 6,
+      "new": "tool/tool_protocol_names.hpp",
+      "old": "../tool/tool_protocol_names.hpp"
+    },
+    {
+      "file": "src/utils/token_tracker.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/utils/tool_errors.hpp",
+      "line": 3,
+      "new": "tool/tool_protocol_names.hpp",
+      "old": "../tool/tool_protocol_names.hpp"
+    },
+    {
+      "file": "src/web/handlers/commands_handler.cpp",
+      "line": 3,
+      "new": "commands/opencode_command.hpp",
+      "old": "../../commands/opencode_command.hpp"
+    },
+    {
+      "file": "src/web/handlers/commands_handler.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/commands_handler.cpp",
+      "line": 5,
+      "new": "skills/skill_init.hpp",
+      "old": "../../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/web/handlers/commands_handler.cpp",
+      "line": 6,
+      "new": "skills/skill_activation.hpp",
+      "old": "../../skills/skill_activation.hpp"
+    },
+    {
+      "file": "src/web/handlers/commands_handler.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/handlers/commands_handler.cpp",
+      "line": 8,
+      "new": "skills/skill_registry.hpp",
+      "old": "../../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/web/handlers/commands_handler.cpp",
+      "line": 9,
+      "new": "utils/encoding.hpp",
+      "old": "../../utils/encoding.hpp"
+    },
+    {
+      "file": "src/web/handlers/computer_use_handler.cpp",
+      "line": 2,
+      "new": "computer_use/runtime.hpp",
+      "old": "../../computer_use/runtime.hpp"
+    },
+    {
+      "file": "src/web/handlers/computer_use_handler.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/fork_handler.cpp",
+      "line": 3,
+      "new": "web/message_payload.hpp",
+      "old": "../message_payload.hpp"
+    },
+    {
+      "file": "src/web/handlers/fork_handler.hpp",
+      "line": 13,
+      "new": "session/session_storage.hpp",
+      "old": "../../session/session_storage.hpp"
+    },
+    {
+      "file": "src/web/handlers/fork_handler.hpp",
+      "line": 14,
+      "new": "provider/llm_provider.hpp",
+      "old": "../../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/web/handlers/git_handler.cpp",
+      "line": 3,
+      "new": "gitinfo/git_context_collector.hpp",
+      "old": "../../gitinfo/git_context_collector.hpp"
+    },
+    {
+      "file": "src/web/handlers/git_handler.cpp",
+      "line": 4,
+      "new": "gitinfo/git_context_core.hpp",
+      "old": "../../gitinfo/git_context_core.hpp"
+    },
+    {
+      "file": "src/web/handlers/grok_auth_handler.hpp",
+      "line": 3,
+      "new": "provider/auth/xai_auth.hpp",
+      "old": "../../provider/auth/xai_auth.hpp"
+    },
+    {
+      "file": "src/web/handlers/history_handler.cpp",
+      "line": 3,
+      "new": "history/input_history_store.hpp",
+      "old": "../../history/input_history_store.hpp"
+    },
+    {
+      "file": "src/web/handlers/history_handler.cpp",
+      "line": 4,
+      "new": "session/session_storage.hpp",
+      "old": "../../session/session_storage.hpp"
+    },
+    {
+      "file": "src/web/handlers/history_handler.hpp",
+      "line": 9,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/image_generation_handler.cpp",
+      "line": 2,
+      "new": "tool/image_generate/image_generation_policy.hpp",
+      "old": "../../tool/image_generate/image_generation_policy.hpp"
+    },
+    {
+      "file": "src/web/handlers/image_generation_handler.cpp",
+      "line": 3,
+      "new": "utils/http_url_validation.hpp",
+      "old": "../../utils/http_url_validation.hpp"
+    },
+    {
+      "file": "src/web/handlers/image_generation_handler.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/model_catalog_handler.cpp",
+      "line": 3,
+      "new": "config/saved_models.hpp",
+      "old": "../../config/saved_models.hpp"
+    },
+    {
+      "file": "src/web/handlers/model_catalog_handler.cpp",
+      "line": 4,
+      "new": "provider/builtin_model_catalog.hpp",
+      "old": "../../provider/builtin_model_catalog.hpp"
+    },
+    {
+      "file": "src/web/handlers/model_catalog_handler.hpp",
+      "line": 3,
+      "new": "provider/models_dev_registry.hpp",
+      "old": "../../provider/models_dev_registry.hpp"
+    },
+    {
+      "file": "src/web/handlers/model_catalog_handler.hpp",
+      "line": 4,
+      "new": "utils/models_dev_catalog.hpp",
+      "old": "../../utils/models_dev_catalog.hpp"
+    },
+    {
+      "file": "src/web/handlers/model_connection_test_handler.cpp",
+      "line": 4,
+      "new": "provider/provider_factory.hpp",
+      "old": "../../provider/provider_factory.hpp"
+    },
+    {
+      "file": "src/web/handlers/model_connection_test_handler.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.cpp",
+      "line": 3,
+      "new": "config/model_provider_registry.hpp",
+      "old": "../../config/model_provider_registry.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.cpp",
+      "line": 4,
+      "new": "config/request_headers.hpp",
+      "old": "../../config/request_headers.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.cpp",
+      "line": 5,
+      "new": "provider/builtin_model_catalog.hpp",
+      "old": "../../provider/builtin_model_catalog.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.cpp",
+      "line": 6,
+      "new": "provider/model_context_metadata.hpp",
+      "old": "../../provider/model_context_metadata.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.cpp",
+      "line": 7,
+      "new": "utils/sha256.hpp",
+      "old": "../../utils/sha256.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.cpp",
+      "line": 8,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.hpp",
+      "line": 12,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.hpp",
+      "line": 13,
+      "new": "config/saved_models.hpp",
+      "old": "../../config/saved_models.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.hpp",
+      "line": 14,
+      "new": "config/saved_models_editor.hpp",
+      "old": "../../config/saved_models_editor.hpp"
+    },
+    {
+      "file": "src/web/handlers/models_handler.hpp",
+      "line": 15,
+      "new": "session/session_client.hpp",
+      "old": "../../session/session_client.hpp"
+    },
+    {
+      "file": "src/web/handlers/opencode_command_expander.cpp",
+      "line": 3,
+      "new": "commands/opencode_command.hpp",
+      "old": "../../commands/opencode_command.hpp"
+    },
+    {
+      "file": "src/web/handlers/opencode_command_expander.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/permission_mode_handler.hpp",
+      "line": 7,
+      "new": "permissions.hpp",
+      "old": "../../permissions.hpp"
+    },
+    {
+      "file": "src/web/handlers/pinned_sessions_handler.hpp",
+      "line": 6,
+      "new": "session/session_pin_store.hpp",
+      "old": "../../session/session_pin_store.hpp"
+    },
+    {
+      "file": "src/web/handlers/security_handler.cpp",
+      "line": 3,
+      "new": "sandbox/sandbox_policy.hpp",
+      "old": "../../sandbox/sandbox_policy.hpp"
+    },
+    {
+      "file": "src/web/handlers/security_handler.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/handlers/security_handler.hpp",
+      "line": 7,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/security_handler.hpp",
+      "line": 8,
+      "new": "sandbox/exec_rules.hpp",
+      "old": "../../sandbox/exec_rules.hpp"
+    },
+    {
+      "file": "src/web/handlers/security_handler.hpp",
+      "line": 9,
+      "new": "sandbox/sandbox_backend.hpp",
+      "old": "../../sandbox/sandbox_backend.hpp"
+    },
+    {
+      "file": "src/web/handlers/security_handler.hpp",
+      "line": 10,
+      "new": "security/audit_log.hpp",
+      "old": "../../security/audit_log.hpp"
+    },
+    {
+      "file": "src/web/handlers/side_chat_handler.hpp",
+      "line": 3,
+      "new": "session/side_chat.hpp",
+      "old": "../../session/side_chat.hpp"
+    },
+    {
+      "file": "src/web/handlers/skill_command_expander.cpp",
+      "line": 3,
+      "new": "skills/skill_activation.hpp",
+      "old": "../../skills/skill_activation.hpp"
+    },
+    {
+      "file": "src/web/handlers/skill_command_expander.cpp",
+      "line": 4,
+      "new": "skills/skill_registry.hpp",
+      "old": "../../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/web/handlers/skills_handler.cpp",
+      "line": 3,
+      "new": "skills/skill_init.hpp",
+      "old": "../../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/web/handlers/skills_handler.cpp",
+      "line": 4,
+      "new": "skills/skill_activation.hpp",
+      "old": "../../skills/skill_activation.hpp"
+    },
+    {
+      "file": "src/web/handlers/skills_handler.cpp",
+      "line": 5,
+      "new": "skills/skill_registry.hpp",
+      "old": "../../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/web/handlers/skills_handler.cpp",
+      "line": 6,
+      "new": "skills/skill_usage_store.hpp",
+      "old": "../../skills/skill_usage_store.hpp"
+    },
+    {
+      "file": "src/web/handlers/skills_handler.cpp",
+      "line": 7,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/handlers/skills_handler.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../../utils/logger.hpp"
+    },
+    {
+      "file": "src/web/handlers/skills_handler.hpp",
+      "line": 13,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/summary_generation_handler.hpp",
+      "line": 3,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/tool_preamble_handler.hpp",
+      "line": 7,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/handlers/tool_rewrites_handler.hpp",
+      "line": 3,
+      "new": "tool/tool_executor.hpp",
+      "old": "../../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/web/handlers/tool_rewrites_handler.hpp",
+      "line": 4,
+      "new": "tool/tool_rewrites.hpp",
+      "old": "../../tool/tool_rewrites.hpp"
+    },
+    {
+      "file": "src/web/message_payload.cpp",
+      "line": 3,
+      "new": "session/session_serializer.hpp",
+      "old": "../session/session_serializer.hpp"
+    },
+    {
+      "file": "src/web/message_payload.cpp",
+      "line": 4,
+      "new": "utils/sha1.hpp",
+      "old": "../utils/sha1.hpp"
+    },
+    {
+      "file": "src/web/message_payload.hpp",
+      "line": 13,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/web/project_creation.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_backend_posix.cpp",
+      "line": 8,
+      "new": "utils/logger.hpp",
+      "old": "../../utils/logger.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_backend_win.cpp",
+      "line": 22,
+      "new": "utils/encoding.hpp",
+      "old": "../../utils/encoding.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_backend_win.cpp",
+      "line": 23,
+      "new": "utils/logger.hpp",
+      "old": "../../utils/logger.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_backend_win.cpp",
+      "line": 24,
+      "new": "utils/paths.hpp",
+      "old": "../../utils/paths.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_backend_win.cpp",
+      "line": 25,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_session_registry.cpp",
+      "line": 3,
+      "new": "utils/encoding.hpp",
+      "old": "../../utils/encoding.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_session_registry.cpp",
+      "line": 4,
+      "new": "utils/logger.hpp",
+      "old": "../../utils/logger.hpp"
+    },
+    {
+      "file": "src/web/pty/pty_shell.cpp",
+      "line": 10,
+      "new": "utils/encoding.hpp",
+      "old": "../../utils/encoding.hpp"
+    },
+    {
+      "file": "src/web/remote_web.cpp",
+      "line": 3,
+      "new": "utils/url_encoding.hpp",
+      "old": "../utils/url_encoding.hpp"
+    },
+    {
+      "file": "src/web/remote_web_proxy.cpp",
+      "line": 3,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/web/remote_web_proxy.cpp",
+      "line": 4,
+      "new": "utils/atomic_file.hpp",
+      "old": "../utils/atomic_file.hpp"
+    },
+    {
+      "file": "src/web/remote_web_proxy.cpp",
+      "line": 5,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/web/remote_web_proxy.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/remote_web_proxy.cpp",
+      "line": 7,
+      "new": "utils/uuid.hpp",
+      "old": "../utils/uuid.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "line": 2,
+      "new": "web/handlers/computer_use_handler.hpp",
+      "old": "../handlers/computer_use_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "line": 3,
+      "new": "computer_use/runtime.hpp",
+      "old": "../../computer_use/runtime.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "line": 4,
+      "new": "computer_use/availability.hpp",
+      "old": "../../computer_use/availability.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "line": 5,
+      "new": "config/config_mutation.hpp",
+      "old": "../../config/config_mutation.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "line": 6,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "line": 7,
+      "new": "tool/computer_use_tool.hpp",
+      "old": "../../tool/computer_use_tool.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 13,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 15,
+      "new": "environment/bootstrap.hpp",
+      "old": "../../environment/bootstrap.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 16,
+      "new": "environment/data_dir_migration.hpp",
+      "old": "../../environment/data_dir_migration.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 17,
+      "new": "environment/shell_command_line.hpp",
+      "old": "../../environment/shell_command_line.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 18,
+      "new": "environment/terminal_runtime.hpp",
+      "old": "../../environment/terminal_runtime.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 19,
+      "new": "environment/toolchains.hpp",
+      "old": "../../environment/toolchains.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 20,
+      "new": "utils/paths.hpp",
+      "old": "../../utils/paths.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_environment.cpp",
+      "line": 21,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_experts.cpp",
+      "line": 1,
+      "new": "config/mcp_config.hpp",
+      "old": "../../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_experts.cpp",
+      "line": 3,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_experts.cpp",
+      "line": 4,
+      "new": "tool/mcp_manager.hpp",
+      "old": "../../tool/mcp_manager.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_files.cpp",
+      "line": 2,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_files.cpp",
+      "line": 3,
+      "new": "skills/skill_init.hpp",
+      "old": "../../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_files.cpp",
+      "line": 4,
+      "new": "config/config.hpp",
+      "old": "../../config/config.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_files.cpp",
+      "line": 5,
+      "new": "tool/mtime_tracker.hpp",
+      "old": "../../tool/mtime_tracker.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_files.cpp",
+      "line": 6,
+      "new": "utils/text_file_buffer.hpp",
+      "old": "../../utils/text_file_buffer.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_fs.cpp",
+      "line": 5,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_fs.cpp",
+      "line": 6,
+      "new": "web/handlers/fs_browser_handler.hpp",
+      "old": "../handlers/fs_browser_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_fs.cpp",
+      "line": 7,
+      "new": "web/project_creation.hpp",
+      "old": "../project_creation.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_fs.cpp",
+      "line": 8,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_git.cpp",
+      "line": 3,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_git.cpp",
+      "line": 4,
+      "new": "web/handlers/git_handler.hpp",
+      "old": "../handlers/git_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "line": 2,
+      "new": "web/handlers/image_generation_handler.hpp",
+      "old": "../handlers/image_generation_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "line": 3,
+      "new": "config/config_mutation.hpp",
+      "old": "../../config/config_mutation.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "line": 4,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "line": 5,
+      "new": "tool/image_generate/image_generate_tool.hpp",
+      "old": "../../tool/image_generate/image_generate_tool.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "line": 6,
+      "new": "tool/image_generate/image_generation_client.hpp",
+      "old": "../../tool/image_generate/image_generation_client.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "line": 7,
+      "new": "tool/image_generate/image_generation_policy.hpp",
+      "old": "../../tool/image_generate/image_generation_policy.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_loops.cpp",
+      "line": 2,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_loops.cpp",
+      "line": 4,
+      "new": "loop/loop_schedule.hpp",
+      "old": "../../loop/loop_schedule.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_lsp.cpp",
+      "line": 3,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_lsp.cpp",
+      "line": 4,
+      "new": "lsp/lsp_service.hpp",
+      "old": "../../lsp/lsp_service.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_mcp.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_mcp.cpp",
+      "line": 2,
+      "new": "config/mcp_config.hpp",
+      "old": "../../config/mcp_config.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_mcp.cpp",
+      "line": 3,
+      "new": "tool/mcp_manager.hpp",
+      "old": "../../tool/mcp_manager.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_mcp.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 2,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 3,
+      "new": "config/config_recovery.hpp",
+      "old": "../../config/config_recovery.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 4,
+      "new": "config/settings_mutations.hpp",
+      "old": "../../config/settings_mutations.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 5,
+      "new": "feedback/feedback_upload.hpp",
+      "old": "../../feedback/feedback_upload.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 6,
+      "new": "provider/builtin_model_catalog.hpp",
+      "old": "../../provider/builtin_model_catalog.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 7,
+      "new": "tool/mcp_manager.hpp",
+      "old": "../../tool/mcp_manager.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 8,
+      "new": "utils/state_file.hpp",
+      "old": "../../utils/state_file.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_misc.cpp",
+      "line": 9,
+      "new": "upgrade/diagnostics.hpp",
+      "old": "../../upgrade/diagnostics.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_models.cpp",
+      "line": 2,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_models.cpp",
+      "line": 3,
+      "new": "web/handlers/model_catalog_handler.hpp",
+      "old": "../handlers/model_catalog_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_models.cpp",
+      "line": 4,
+      "new": "web/handlers/model_connection_test_handler.hpp",
+      "old": "../handlers/model_connection_test_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_models.cpp",
+      "line": 5,
+      "new": "config/settings_mutations.hpp",
+      "old": "../../config/settings_mutations.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_models.cpp",
+      "line": 6,
+      "new": "provider/models_dev_registry.hpp",
+      "old": "../../provider/models_dev_registry.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_models.cpp",
+      "line": 7,
+      "new": "utils/models_dev_catalog.hpp",
+      "old": "../../utils/models_dev_catalog.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_pty.cpp",
+      "line": 2,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_pty.cpp",
+      "line": 4,
+      "new": "environment/shell_command_line.hpp",
+      "old": "../../environment/shell_command_line.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_pty.cpp",
+      "line": 5,
+      "new": "environment/terminal_resolver.hpp",
+      "old": "../../environment/terminal_resolver.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_pty.cpp",
+      "line": 6,
+      "new": "environment/terminal_runtime.hpp",
+      "old": "../../environment/terminal_runtime.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_security.cpp",
+      "line": 13,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_security.cpp",
+      "line": 14,
+      "new": "web/handlers/security_handler.hpp",
+      "old": "../handlers/security_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_security.cpp",
+      "line": 15,
+      "new": "sandbox/exec_rules.hpp",
+      "old": "../../sandbox/exec_rules.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_security.cpp",
+      "line": 16,
+      "new": "sandbox/sandbox_backend.hpp",
+      "old": "../../sandbox/sandbox_backend.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_security.cpp",
+      "line": 17,
+      "new": "security/audit_log.hpp",
+      "old": "../../security/audit_log.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_security.cpp",
+      "line": 18,
+      "new": "session/session_registry.hpp",
+      "old": "../../session/session_registry.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_security.cpp",
+      "line": 19,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 2,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 3,
+      "new": "web/session_reference_context.hpp",
+      "old": "../session_reference_context.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 4,
+      "new": "web/trajectory_legacy_projection.hpp",
+      "old": "../trajectory_legacy_projection.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 5,
+      "new": "session/compact_checkpoint.hpp",
+      "old": "../../session/compact_checkpoint.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 6,
+      "new": "session/composer_content.hpp",
+      "old": "../../session/composer_content.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 7,
+      "new": "session/fork_attachment_context.hpp",
+      "old": "../../session/fork_attachment_context.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 8,
+      "new": "session/pasted_text_attachment.hpp",
+      "old": "../../session/pasted_text_attachment.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 9,
+      "new": "session/global_session_catalog.hpp",
+      "old": "../../session/global_session_catalog.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 10,
+      "new": "session/session_rewind.hpp",
+      "old": "../../session/session_rewind.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 11,
+      "new": "session/session_trajectory.hpp",
+      "old": "../../session/session_trajectory.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_sessions.cpp",
+      "line": 12,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_summary_generation.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_summary_generation.cpp",
+      "line": 2,
+      "new": "web/handlers/summary_generation_handler.hpp",
+      "old": "../handlers/summary_generation_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_summary_generation.cpp",
+      "line": 3,
+      "new": "config/config_mutation.hpp",
+      "old": "../../config/config_mutation.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_summary_generation.cpp",
+      "line": 4,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_task_suggestions.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_themes.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_tool_preamble.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_tool_preamble.cpp",
+      "line": 2,
+      "new": "web/handlers/tool_preamble_handler.hpp",
+      "old": "../handlers/tool_preamble_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_tool_preamble.cpp",
+      "line": 3,
+      "new": "config/config_mutation.hpp",
+      "old": "../../config/config_mutation.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_tool_preamble.cpp",
+      "line": 4,
+      "new": "session/session_registry.hpp",
+      "old": "../../session/session_registry.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_tool_rewrites.cpp",
+      "line": 1,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_tool_rewrites.cpp",
+      "line": 2,
+      "new": "web/handlers/tool_rewrites_handler.hpp",
+      "old": "../handlers/tool_rewrites_handler.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_tool_rewrites.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_workspaces.cpp",
+      "line": 7,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_workspaces.cpp",
+      "line": 8,
+      "new": "web/project_creation.hpp",
+      "old": "../project_creation.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_ws.cpp",
+      "line": 2,
+      "new": "web/server_impl.hpp",
+      "old": "../server_impl.hpp"
+    },
+    {
+      "file": "src/web/routes/routes_ws.cpp",
+      "line": 3,
+      "new": "web/handlers/side_chat_handler.hpp",
+      "old": "../handlers/side_chat_handler.hpp"
+    },
+    {
+      "file": "src/web/saved_model_reasoning_sync.hpp",
+      "line": 3,
+      "new": "web/handlers/models_handler.hpp",
+      "old": "handlers/models_handler.hpp"
+    },
+    {
+      "file": "src/web/server.hpp",
+      "line": 18,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/web/server.hpp",
+      "line": 19,
+      "new": "upgrade/upgrade.hpp",
+      "old": "../upgrade/upgrade.hpp"
+    },
+    {
+      "file": "src/web/server_helpers.cpp",
+      "line": 7,
+      "new": "computer_use/runtime.hpp",
+      "old": "../computer_use/runtime.hpp"
+    },
+    {
+      "file": "src/web/server_helpers.cpp",
+      "line": 10,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/web/server_helpers.cpp",
+      "line": 11,
+      "new": "prompt/context_usage_breakdown.hpp",
+      "old": "../prompt/context_usage_breakdown.hpp"
+    },
+    {
+      "file": "src/web/server_helpers.cpp",
+      "line": 12,
+      "new": "session/session_user_message_search.hpp",
+      "old": "../session/session_user_message_search.hpp"
+    },
+    {
+      "file": "src/web/server_helpers.cpp",
+      "line": 13,
+      "new": "session/composer_content.hpp",
+      "old": "../session/composer_content.hpp"
+    },
+    {
+      "file": "src/web/server_helpers.cpp",
+      "line": 14,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 12,
+      "new": "config/config.hpp",
+      "old": "../config/config.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 13,
+      "new": "config/saved_models_editor.hpp",
+      "old": "../config/saved_models_editor.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 15,
+      "new": "config/request_headers.hpp",
+      "old": "../config/request_headers.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 16,
+      "new": "desktop/workspace_registry.hpp",
+      "old": "../desktop/workspace_registry.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 17,
+      "new": "hooks/hook_manager.hpp",
+      "old": "../hooks/hook_manager.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 18,
+      "new": "environment/data_dir_migration.hpp",
+      "old": "../environment/data_dir_migration.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 19,
+      "new": "loop/loop_store.hpp",
+      "old": "../loop/loop_store.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 20,
+      "new": "provider/auth/github_auth.hpp",
+      "old": "../provider/auth/github_auth.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 21,
+      "new": "provider/auth/xai_auth.hpp",
+      "old": "../provider/auth/xai_auth.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 22,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 23,
+      "new": "provider/model_pool_status.hpp",
+      "old": "../provider/model_pool_status.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 24,
+      "new": "session/ask_user_question_prompter.hpp",
+      "old": "../session/ask_user_question_prompter.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 25,
+      "new": "session/attachment_store.hpp",
+      "old": "../session/attachment_store.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 26,
+      "new": "session/global_session_search.hpp",
+      "old": "../session/global_session_search.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 27,
+      "new": "session/local_session_client.hpp",
+      "old": "../session/local_session_client.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 28,
+      "new": "session/opencode_import.hpp",
+      "old": "../session/opencode_import.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 29,
+      "new": "session/session_attention.hpp",
+      "old": "../session/session_attention.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 30,
+      "new": "session/session_client.hpp",
+      "old": "../session/session_client.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 31,
+      "new": "session/session_registry.hpp",
+      "old": "../session/session_registry.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 32,
+      "new": "session/task_suggestion_service.hpp",
+      "old": "../session/task_suggestion_service.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 33,
+      "new": "session/session_rewind.hpp",
+      "old": "../session/session_rewind.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 34,
+      "new": "session/session_serializer.hpp",
+      "old": "../session/session_serializer.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 35,
+      "new": "session/session_markdown_export.hpp",
+      "old": "../session/session_markdown_export.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 36,
+      "new": "session/session_storage.hpp",
+      "old": "../session/session_storage.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 37,
+      "new": "session/todo_state.hpp",
+      "old": "../session/todo_state.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 38,
+      "new": "session/session_usage_ledger.hpp",
+      "old": "../session/session_usage_ledger.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 39,
+      "new": "session/session_writer_lease.hpp",
+      "old": "../session/session_writer_lease.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 40,
+      "new": "daemon/platform.hpp",
+      "old": "../daemon/platform.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 41,
+      "new": "skills/skill_registry.hpp",
+      "old": "../skills/skill_registry.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 42,
+      "new": "experts/expert_registry.hpp",
+      "old": "../experts/expert_registry.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 43,
+      "new": "skills/skill_metadata.hpp",
+      "old": "../skills/skill_metadata.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 44,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 45,
+      "new": "upgrade/apply.hpp",
+      "old": "../upgrade/apply.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 46,
+      "new": "upgrade/check.hpp",
+      "old": "../upgrade/check.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 47,
+      "new": "themes/theme_store.hpp",
+      "old": "../themes/theme_store.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 48,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 49,
+      "new": "utils/base64.hpp",
+      "old": "../utils/base64.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 50,
+      "new": "utils/cwd_hash.hpp",
+      "old": "../utils/cwd_hash.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 51,
+      "new": "utils/terminal_title.hpp",
+      "old": "../utils/terminal_title.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 52,
+      "new": "web/handlers/files_handler.hpp",
+      "old": "handlers/files_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 53,
+      "new": "web/handlers/fork_handler.hpp",
+      "old": "handlers/fork_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 54,
+      "new": "web/handlers/history_handler.hpp",
+      "old": "handlers/history_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 55,
+      "new": "web/handlers/grok_auth_handler.hpp",
+      "old": "handlers/grok_auth_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 56,
+      "new": "web/handlers/models_handler.hpp",
+      "old": "handlers/models_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 57,
+      "new": "web/handlers/permission_mode_handler.hpp",
+      "old": "handlers/permission_mode_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 58,
+      "new": "web/handlers/pinned_sessions_handler.hpp",
+      "old": "handlers/pinned_sessions_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 59,
+      "new": "web/handlers/builtin_command_handler.hpp",
+      "old": "handlers/builtin_command_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 60,
+      "new": "web/handlers/commands_handler.hpp",
+      "old": "handlers/commands_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 61,
+      "new": "web/handlers/opencode_command_expander.hpp",
+      "old": "handlers/opencode_command_expander.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 62,
+      "new": "web/handlers/skill_command_expander.hpp",
+      "old": "handlers/skill_command_expander.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 63,
+      "new": "web/handlers/session_list_handler.hpp",
+      "old": "handlers/session_list_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 64,
+      "new": "web/handlers/side_chat_handler.hpp",
+      "old": "handlers/side_chat_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 65,
+      "new": "web/handlers/skills_handler.hpp",
+      "old": "handlers/skills_handler.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 66,
+      "new": "skills/skill_init.hpp",
+      "old": "../skills/skill_init.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 68,
+      "new": "web/pty/pty_session_registry.hpp",
+      "old": "pty/pty_session_registry.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 76,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/server_impl.hpp",
+      "line": 100,
+      "new": "network/proxy_resolver.hpp",
+      "old": "../network/proxy_resolver.hpp"
+    },
+    {
+      "file": "src/web/server_model_reasoning.cpp",
+      "line": 3,
+      "new": "config/config_mutation.hpp",
+      "old": "../config/config_mutation.hpp"
+    },
+    {
+      "file": "src/web/server_model_reasoning.cpp",
+      "line": 4,
+      "new": "config/saved_models_revision.hpp",
+      "old": "../config/saved_models_revision.hpp"
+    },
+    {
+      "file": "src/web/session_reference_context.cpp",
+      "line": 4,
+      "new": "session/compact_checkpoint.hpp",
+      "old": "../session/compact_checkpoint.hpp"
+    },
+    {
+      "file": "src/web/session_reference_context.cpp",
+      "line": 5,
+      "new": "session/session_rewind.hpp",
+      "old": "../session/session_rewind.hpp"
+    },
+    {
+      "file": "src/web/session_reference_context.cpp",
+      "line": 6,
+      "new": "utils/encoding.hpp",
+      "old": "../utils/encoding.hpp"
+    },
+    {
+      "file": "src/web/session_reference_context.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/web/static_assets.cpp",
+      "line": 3,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/web/static_assets.cpp",
+      "line": 4,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/web/tool_event_payload.cpp",
+      "line": 2,
+      "new": "session/output_attachments.hpp",
+      "old": "../session/output_attachments.hpp"
+    },
+    {
+      "file": "src/web/tool_event_payload.cpp",
+      "line": 3,
+      "new": "session/tool_metadata_codec.hpp",
+      "old": "../session/tool_metadata_codec.hpp"
+    },
+    {
+      "file": "src/web/tool_event_payload.hpp",
+      "line": 12,
+      "new": "tool/tool_executor.hpp",
+      "old": "../tool/tool_executor.hpp"
+    },
+    {
+      "file": "src/web/trajectory_legacy_projection.cpp",
+      "line": 4,
+      "new": "session/compact_checkpoint.hpp",
+      "old": "../session/compact_checkpoint.hpp"
+    },
+    {
+      "file": "src/web/trajectory_legacy_projection.cpp",
+      "line": 5,
+      "new": "session/session_rewind.hpp",
+      "old": "../session/session_rewind.hpp"
+    },
+    {
+      "file": "src/web/trajectory_legacy_projection.cpp",
+      "line": 6,
+      "new": "session/tool_result_storage.hpp",
+      "old": "../session/tool_result_storage.hpp"
+    },
+    {
+      "file": "src/web/trajectory_legacy_projection.cpp",
+      "line": 7,
+      "new": "session/turn_net_diff.hpp",
+      "old": "../session/turn_net_diff.hpp"
+    },
+    {
+      "file": "src/web/trajectory_legacy_projection.cpp",
+      "line": 8,
+      "new": "session/turn_timing.hpp",
+      "old": "../session/turn_timing.hpp"
+    },
+    {
+      "file": "src/web/trajectory_legacy_projection.hpp",
+      "line": 3,
+      "new": "provider/llm_provider.hpp",
+      "old": "../provider/llm_provider.hpp"
+    },
+    {
+      "file": "src/web/trajectory_legacy_projection.hpp",
+      "line": 4,
+      "new": "session/session_trajectory.hpp",
+      "old": "../session/session_trajectory.hpp"
+    },
+    {
+      "file": "src/worktree/worktree_core.cpp",
+      "line": 3,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    },
+    {
+      "file": "src/worktree/worktree_manager.cpp",
+      "line": 3,
+      "new": "hooks/hook_config.hpp",
+      "old": "../hooks/hook_config.hpp"
+    },
+    {
+      "file": "src/worktree/worktree_manager.cpp",
+      "line": 4,
+      "new": "hooks/hook_runner.hpp",
+      "old": "../hooks/hook_runner.hpp"
+    },
+    {
+      "file": "src/worktree/worktree_manager.cpp",
+      "line": 5,
+      "new": "utils/logger.hpp",
+      "old": "../utils/logger.hpp"
+    },
+    {
+      "file": "src/worktree/worktree_manager.cpp",
+      "line": 6,
+      "new": "utils/utf8_path.hpp",
+      "old": "../utils/utf8_path.hpp"
+    }
+  ],
+  "check": true,
+  "errors": [],
+  "relative_include_files": 366,
+  "relative_include_lines": 1124,
+  "schema": 1,
+  "scope": "src"
+}
