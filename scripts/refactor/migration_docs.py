@@ -146,7 +146,9 @@ def documents_plan(root: Path, files: list[str], mapping, map_sha: str) -> tuple
         if updated != original:
             updates[path] = updated
     generated = None
-    if any(re.fullmatch(r"docs/help-source/group\d+\.py", p) for p in updates):
+    # Groups also load authored JSON and templates; any changed help input
+    # requires the builder to refresh citations, pages and the search index.
+    if any(p.startswith("docs/help-source/") and authored_doc(p) for p in updates):
         extra, generated = build_help(root, files, updates)
         updates.update(extra)
     return updates, {"scope": "authored-documents", "help_generation": generated, "seed": "excluded; use a separate --docs --seed-version VERSION invocation/commit", "openspec": "only a map note on active design.md files; archived changes and specs are unchanged"}

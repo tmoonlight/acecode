@@ -281,6 +281,26 @@ class MigrationTest(unittest.TestCase):
         self.assertEqual(b"src/old/file.cpp", (self.root / "docs/untracked.md").read_bytes())
         self.assertEqual([], docs(self.root, self.map)["files"])
 
+    def test_json_only_help_input_rebuilds_generated_outputs(self):
+        self.write("src/base/utils/file.cpp", b"// migrated\n")
+        self.write("docs/help-source/getting-started.json", b'{"source": "src/old/file.cpp"}\r\n')
+        group = b'from pathlib import Path\nimport json\nPAGES = json.loads((Path(__file__).parent / "getting-started.json").read_text(encoding="utf-8"))\n'
+        self.write("docs/help-source/group1.py", group)
+        builder = b'from pathlib import Path\nfrom group1 import PAGES\nsource = PAGES["source"]\nassert Path(source).is_file(), source\n'
+        builder += b'Path("docs/help-source/sources.json").write_text(source)\nPath("docs/help/page.html").write_text("built:" + source)\nPath("docs/help/assets/search-index.js").write_text("index:" + source)\n'
+        self.write("docs/help-source/build_help.py", builder)
+        for path in ("docs/help-source/sources.json", "docs/help/page.html", "docs/help/assets/search-index.js"):
+            self.write(path, b"stale generated src/old/file.cpp")
+        self.commit("JSON-only authored help input")
+        result = docs(self.root, self.map)
+        self.assertTrue(result["success"])
+        self.assertEqual(b'{"source": "src/base/utils/file.cpp"}\r\n', (self.root / "docs/help-source/getting-started.json").read_bytes())
+        self.assertEqual(group, (self.root / "docs/help-source/group1.py").read_bytes())
+        self.assertEqual("src/base/utils/file.cpp", (self.root / "docs/help-source/sources.json").read_text())
+        self.assertEqual("built:src/base/utils/file.cpp", (self.root / "docs/help/page.html").read_text())
+        self.assertEqual("index:src/base/utils/file.cpp", (self.root / "docs/help/assets/search-index.js").read_text())
+        self.assertEqual([], docs(self.root, self.map)["files"])
+
     def test_failed_help_build_rolls_back_entire_document_plan_and_dry_run_does_not_write(self):
         self.docs_fixture(failing=True)
         original = (self.root / "README.md").read_bytes()
