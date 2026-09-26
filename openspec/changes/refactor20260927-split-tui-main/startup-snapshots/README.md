@@ -70,3 +70,5 @@ python -B -m unittest discover -s openspec/changes/refactor20260927-split-tui-ma
 首次准备时 Copilot fixture 错误地设置了自定义 base_url，原程序按 managed-provider 规则拒绝配置并退出 1，没有生成该场景快照。修正 fixture 为不指定自定义 endpoint 后，重新从四份全新数据目录完整采集；失败尝试的本机产物仍保留在 `build-p0-12-captures`，未作为成功结果使用。
 
 启动表经过两人语义复核和连续区间检查：82 段无遗漏、无重叠，覆盖原 5259–6845 全部 1587 行。脚本通过 Python 语法检查，累计实际执行了 12 次成功的原始 TUI 启动。生产文件未修改。Linux CI、完整单测通用 gate 与实操终端清单仍未由此记录代替，任务保持未勾选。
+
+随后合入主线 `8acc3863`（合并提交 `f5d4e33c`），与 control 已验证版本相比，src、tests 和 CMake 输入无任何差异。合入后重新运行本目录 9 项 Python 检查，全部通过；这次同步没有额外启动 TUI，也没有把已有观测标成新的运行结果。
