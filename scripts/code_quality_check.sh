@@ -18,7 +18,7 @@ fi
 echo ""
 
 echo "[2/6] 检查硬编码的错误消息..."
-if grep -r '\[Error\]' src/tool/*.cpp 2>/dev/null | grep -v "ToolErrors::"; then
+if git grep -n -F '[Error]' -- ':(glob)src/**/tool/**/*.cpp' | grep -v "ToolErrors::"; then
     echo "⚠ 发现硬编码的错误消息 (见上方)"
 else
     echo "✓ 所有错误消息都使用了ToolErrors类"

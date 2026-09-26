@@ -1,17 +1,13 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const repoRoot = path.resolve(srcRoot, '..', '..');
 
 function sourceFromSrc(relativePath) {
   return fs.readFileSync(path.join(srcRoot, relativePath), 'utf8');
-}
-
-function sourceFromRepo(relativePath) {
-  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
 function run(name, fn) {
@@ -25,7 +21,7 @@ function run(name, fn) {
 }
 
 run('Desktop injects stable appearance before WebUI modules execute', () => {
-  const desktop = sourceFromRepo('src/desktop/main.cpp');
+  const desktop = readCppSource('desktop/main.cpp');
   const injection = desktop.indexOf('window.__ACECODE_APPEARANCE__=');
   const navigation = desktop.indexOf('host.navigate(url);');
   assert.ok(injection >= 0);
