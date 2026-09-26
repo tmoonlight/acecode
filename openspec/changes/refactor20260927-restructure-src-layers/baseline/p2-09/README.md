@@ -48,3 +48,13 @@ Git 在发现不存在于 index 的旧文件时可能整体拒绝 patch，虽然
 - [current-check.json](current-check.json)：最终模式在真实旧布局上正确退出 1，共 **4823** 项：R1–R14 3515、include 规范化 1168、文档失效路径 80、待迁移 build/authored-doc 路径文件 60。映射、R15 棘轮、seed 一致性均为 0。正式分层工具在旧布局上还会报告旧根/模块归属，不能与 P0 transition 模式 1326 项直接混为一个基线。
 
 实际 P2/P3 尚未完成，故未宣称真实遗留分支 `--check` 为零，也未执行四平台构建/target 快照验收。完整正向静态 gate 和反向失败路径已由 fixture 验证；真实 P3-03 合入前仍需冲突/提取审查、零静态 finding 和实际构建测试。
+
+## 最终同步与审查修复
+
+已通过 `aee34ff741c5b66e2a7e259ba32cb93386a46a0b` 合入 master `92eb910b`。相对上述固定演练基线，该 master 仅增加 P0-11 认领记录；生产 `src`、C++ `tests` 与映射表 Git 对象完全一致。九 ref 的 27 份报告仍保留 `7621b4f6` 固定基线，不冒称在不同代码上重跑。
+
+审查发现 JSON-only help 输入变化不会触发 builder。先添加与真实 `group1.py` 相同加载方式的 `getting-started.json` fixture，确认输入更新后 `sources.json` 仍旧导致测试失败；修复提交 `54f4c26a` 将触发范围扩展到所有 authored `docs/help-source/` 输入，生成物仍只能由 builder 生成。定向测试转绿，全部 **51 项工具测试通过**（74.489 秒），并验证 JSON 的 CRLF、未改动的 group 源字节、三个生成物和二次运行幂等。修复后的真实投影 docs dry-run 仍为 195 个计划文件、49 篇文章、205 条搜索记录和 4 个 builder 生成物。详细证据见 [closeout/validation.json](closeout/validation.json)。
+
+补做本工具 worktree 的 Windows x64 Release / Desktop ON / BUILD_TESTING ON 全新 configure，使用与 P0-04 原图相同的 MSVC 14.38、SDK 22621、Ninja 与 vcpkg 安装目录；仅初始化本 worktree 的 cpp-mcp 子模块。配置成功（43.978 秒），只读原 `build-p0-04-before` 快照与新 `build-p2-09-desktop-final` 比较，均为 **59 targets / 3535 tuples，差异 0**，规范化 targets/tuples 的全量内容也完全相同。见 [配置参数及环境](closeout/configure.json) 与 [完整比较命令、hash、计数](closeout/desktop-comparison.json)。
+
+本次没有运行应用或测试目标的 C++ build。该 worktree 没有 web/dist，CMake 使用现有 fallback 页面；这是工具变更不影响目标图的验证，不是 UI、包装或真实搬迁后构建验收。首次命令因显式 compiler 路径的反斜杠触发 CMake 转义错误；修正为正斜杠后换新目录配置，原失败目录和日志保留。
