@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
+import posixpath
 import re
 
 from layout import LayoutMap, read_tsv
@@ -32,6 +34,14 @@ def write_query(build: Path) -> None:
     query.write_bytes(b"")
 
 
+def normalize_source_path(value: str, source_root: str, build_root: str) -> str:
+    """File API source paths inside the source tree are source-root-relative."""
+    value = value.replace("\\", "/")
+    if not value.startswith("/") and not re.match(r"^[A-Za-z]:/", value):
+        value = posixpath.normpath(source_root + "/" + value)
+    return normalize_root_paths(value, source_root, build_root)
+
+
 def snapshot(build: Path, configuration: str | None = None, mapping: LayoutMap | None = None, reverse: bool = False) -> dict:
     reply = build / ".cmake/api/v1/reply"
     # Only the explicit CMake generated reply directory is enumerated. Repository
@@ -55,6 +65,9 @@ def snapshot(build: Path, configuration: str | None = None, mapping: LayoutMap |
                 value = translated
         return value
 
+    def normalize_source(value: str) -> str:
+        return normalize(normalize_source_path(value, source_root, build_root))
+
     targets, tuples = [], []
     configurations = [cfg for cfg in model["configurations"] if configuration is None or cfg["name"].lower() == configuration.lower()]
     if not configurations:
@@ -67,15 +80,20 @@ def snapshot(build: Path, configuration: str | None = None, mapping: LayoutMap |
             groups = target.get("compileGroups", [])
             for source in target.get("sources", []):
                 group = groups[source["compileGroupIndex"]] if "compileGroupIndex" in source else {}
-                tuples.append({"configuration": cfg["name"], "target": target["name"], "source": normalize(source["path"]), "language": group.get("language", ""), "defines": sorted(normalize(d["define"]) for d in group.get("defines", [])), "compile_options": [normalize(f["fragment"]) for f in group.get("compileCommandFragments", [])], "generated": bool(source.get("isGenerated", False))})
+                source_path = normalize_source(source["path"])
+                if target["name"] == "ZERO_CHECK" and source.get("isGenerated"):
+                    # Visual Studio's regeneration stamp contains a hash of the
+                    # absolute build directory. Retain the rule, not that hash.
+                    source_path = re.sub(r"^(@build/CMakeFiles/)[0-9a-f]{32}(/generate\.stamp\.rule)$", r"\1@build-dir-hash\2", source_path)
+                tuples.append({"configuration": cfg["name"], "target": target["name"], "source": source_path, "language": group.get("language", ""), "defines": sorted(normalize(d["define"]) for d in group.get("defines", [])), "compile_options": [normalize(f["fragment"]) for f in group.get("compileCommandFragments", [])], "generated": bool(source.get("isGenerated", False))})
     return {"schema": 1, "targets": sorted(targets, key=lambda t: (t["configuration"], t["name"])), "tuples": sorted(tuples, key=lambda t: (t["configuration"], t["target"], t["source"]))}
 
 
 def compare(before: dict, after: dict) -> dict:
     def differences(key: str) -> dict:
-        old = {json.dumps(row, sort_keys=True) for row in before[key]}
-        new = {json.dumps(row, sort_keys=True) for row in after[key]}
-        return {"removed": [json.loads(row) for row in sorted(old - new)], "added": [json.loads(row) for row in sorted(new - old)]}
+        old = Counter(json.dumps(row, sort_keys=True) for row in before[key])
+        new = Counter(json.dumps(row, sort_keys=True) for row in after[key])
+        return {"removed": [json.loads(row) for row in sorted((old - new).elements())], "added": [json.loads(row) for row in sorted((new - old).elements())]}
     return {key: differences(key) for key in ("targets", "tuples")}
 
 
