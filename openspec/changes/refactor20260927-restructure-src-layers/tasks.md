@@ -90,7 +90,7 @@
   - 采集 G0:四个平台的 target 快照、gtest 清单与 SKIP 清单、四类 lint 基线,存档到本 change 目录的 `baseline/`。
   - 前置:1.3。
   - 验证:手动 dispatch 一次 refactor-matrix,Windows 与 macOS 跑完 ctest。原本就失败的用例只记入基线,不作为阻断条件。
-- [ ] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:
+- [ ] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:〔认领: Codex-root 2026-09-27〕
   - `src/tui/{cli_dispatch,tui_init,tui_context,agent_callbacks_builder,terminal_utils,clipboard_helpers,ime_windows}.{hpp,cpp}`、`src/tui/input_event_handler.hpp`、`src/tui/message_render_cache.cpp`(1 行的空 .cpp,头文件在用,保留);
   - `src/main.cpp:1395-1617` 的 IME 死代码(`update_ime_composition_window` 从未被调用),以及 `:35-37` 的 `<imm.h>` 与 `#pragma comment(lib,"Imm32.lib")`;`CMakeLists.txt:538-542` 的 imm32 链接与 `:539` 的注释;
   - `src/web/handlers/pinned_sessions_handler.cpp`(1 行空壳,.hpp 保留);
