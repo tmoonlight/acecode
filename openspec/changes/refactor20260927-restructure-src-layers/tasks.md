@@ -84,7 +84,7 @@
   - `scripts/code_quality_check.{sh,bat}` 去掉写死的 `src/tool/*.cpp`。
   - 不改任何 React 代码。
   - 验证:`pnpm test` 通过;把表中任一路径改坏,对应测试必须明确失败。
-- [ ] 1.7 【P0-07】【子】【并】CI 与基线 G0。
+- [ ] 1.7 【P0-07】【子】【并】CI 与基线 G0。〔认领: Codex-testpaths 2026-09-27〕
   - `.github/workflows/test.yml` 新增 layer-lint job(Linux,报告模式,排在 C++ 构建之前);
   - 新增只能手动触发的 `refactor-matrix` job(windows-2022 / macos-15,构建并运行 `acecode_unit_tests`);
   - 采集 G0:四个平台的 target 快照、gtest 清单与 SKIP 清单、四类 lint 基线,存档到本 change 目录的 `baseline/`。
