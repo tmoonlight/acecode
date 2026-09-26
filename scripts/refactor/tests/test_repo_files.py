@@ -70,6 +70,21 @@ class RepositoryToolsTest(unittest.TestCase):
         self.assertEqual(["tests/new_test.cpp"], by_ref["refs/heads/unique"]["test_paths"])
         self.assertTrue(report["worktrees"][0]["dirty"])
 
+    def test_inventory_includes_remote_only_refs_without_fetching(self):
+        # Windows 克隆里旧工作常常只有远端跟踪 ref，不能仅盘点本地分支。
+        self.write("src/base.hpp", b"base\n")
+        self.commit("base")
+        git(self.root, "switch", "-c", "old-feature")
+        self.write("src/unique.hpp", b"unique\n")
+        self.commit("remote work")
+        git(self.root, "update-ref", "refs/remotes/origin/old-feature", "HEAD")
+        git(self.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/old-feature")
+        git(self.root, "switch", "master")
+        git(self.root, "branch", "-D", "old-feature")
+        by_ref = {b["ref"]: b for b in inventory(self.root, "master")["branches"]}
+        self.assertEqual(["src/unique.hpp"], by_ref["refs/remotes/origin/old-feature"]["src_paths"])
+        self.assertNotIn("refs/remotes/origin/HEAD", by_ref)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -54,7 +54,7 @@ def inspect_ref(root: Path, base: str, ref: str, timeout: int) -> dict:
 def inspect_worktree(entry: dict, timeout: int) -> dict:
     item = dict(entry)
     try:
-        status = git(Path(str(entry["worktree"])), "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=dirty", timeout=timeout)
+        status = git(Path(str(entry["worktree"])), "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=none", timeout=timeout)
         # Keep NUL-separated paths intact: renames have two fields, and filenames
         # may contain whitespace/newlines. Dirty is never inferred from an error.
         item["dirty"] = bool(status)
@@ -67,9 +67,14 @@ def inspect_worktree(entry: dict, timeout: int) -> dict:
     return item
 
 
-def inventory(root: Path, base: str, timeout: int = 60, jobs: int = 4) -> dict:
+def inventory(root: Path, base: str, timeout: int = 60, jobs: int = 4, include_remotes: bool = True) -> dict:
     base_sha = git(root, "rev-parse", "--verify", base + "^{commit}").decode().strip()
-    refs = set(git(root, "for-each-ref", "--format=%(refname)", "refs/heads/").decode().splitlines())
+    namespaces = ("refs/heads/", "refs/remotes/") if include_remotes else ("refs/heads/",)
+    refs = set()
+    for row in git(root, "for-each-ref", "--format=%(refname)\t%(symref)", *namespaces).decode().splitlines():
+        ref, _, symbolic_target = row.partition("\t")
+        if not symbolic_target and not ref.endswith("/HEAD"):
+            refs.add(ref)
     trees = worktrees(root)
     refs.update(str(tree.get("branch", tree["HEAD"])) for tree in trees if "HEAD" in tree)
     with ThreadPoolExecutor(max_workers=jobs) as executor:
@@ -108,8 +113,9 @@ def main() -> int:
     parser.add_argument("--output")
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--local-only", action="store_true", help="omit remote-tracking refs (included by default; never fetch)")
     args = parser.parse_args()
-    report = inventory(repo_root(args.repo), args.base, args.timeout, args.jobs)
+    report = inventory(repo_root(args.repo), args.base, args.timeout, args.jobs, not args.local_only)
     if args.format == "json":
         emit_json(report, args.output)
     else:
