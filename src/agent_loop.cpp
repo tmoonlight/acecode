@@ -428,11 +428,6 @@ void append_todo_context_for_api(std::vector<ChatMessage>& messages,
     messages.push_back(std::move(msg));
 }
 
-bool is_hidden_goal_context_message(const ChatMessage& msg) {
-    return msg.metadata.is_object() &&
-           msg.metadata.value("hidden_goal_context", false);
-}
-
 bool is_transcript_bookkeeping(const ChatMessage& message) {
     return message.is_meta || is_file_checkpoint_message(message) ||
            is_compact_checkpoint_message(message) ||
@@ -2854,19 +2849,6 @@ void AgentLoop::inject_shell_turn(const std::string& cmd,
     messages_.push_back(std::move(msg));
 }
 
-void AgentLoop::run_agent(const std::string& user_message) {
-    run_agent_with_display(user_message, std::string{}, false);
-}
-
-void AgentLoop::run_agent_with_display(const std::string& user_message,
-                                        const std::string& display_text,
-                                        bool hidden_goal_context) {
-    UserInput input;
-    input.text = user_message;
-    input.display_text = display_text;
-    run_agent_with_input(input, hidden_goal_context);
-}
-
 AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
                                                       bool hidden_goal_context) {
     UserTurnInfo info;
@@ -4206,10 +4188,7 @@ AgentLoop::HandleErrorResult AgentLoop::run_pa_overflow_rescue(
     }
 }
 
-ToolContext AgentLoop::build_tool_context(
-    const ProgressEmitter& emit_progress,
-    AgentLoopDoomGuard& doom_guard,
-    std::mutex& doom_guard_mu) {
+ToolContext AgentLoop::build_tool_context() {
     ToolContext tool_ctx;
     tool_ctx.cwd = cwd_;
     tool_ctx.write_root = write_root();
@@ -4325,8 +4304,7 @@ bool AgentLoop::execute_tool_calls(
     const std::shared_ptr<LlmProvider>& provider_snapshot,
     const ProgressEmitter& emit_progress,
     AgentLoopDoomGuard& doom_guard,
-    std::mutex& doom_guard_mu,
-    std::string& turn_timing_status) {
+    std::mutex& doom_guard_mu) {
     // Record the assistant message with tool_calls in the history
     auto tc_msg = ToolExecutor::format_assistant_tool_calls(accumulated);
     // 文本工具调用恢复成功:消息本体与原生调用字节级同形(不会发给模型的
@@ -4403,14 +4381,12 @@ bool AgentLoop::execute_tool_calls(
     struct ToolCallEntry {
         size_t original_index;
         const ToolCall* tc;
-        bool is_read_only;
     };
 
     std::vector<ToolCallEntry> read_entries, write_entries;
     for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
         const auto& tc = accumulated.tool_calls[i];
-        bool ro = tools_.is_read_only(tc.function_name);
-        ToolCallEntry entry{i, &tc, ro};
+        ToolCallEntry entry{i, &tc};
         if (tools_.can_execute_in_parallel(tc.function_name)) {
             read_entries.push_back(entry);
         } else {
@@ -4687,7 +4663,7 @@ bool AgentLoop::execute_tool_calls(
         };
         auto prog = std::make_shared<ProgressState>();
 
-        ToolContext tool_ctx = build_tool_context(emit_progress, doom_guard, doom_guard_mu);
+        ToolContext tool_ctx = build_tool_context();
         // Wire up per-call callbacks that aren't in the base context
         if (ask_prompter_) {
             AskUserQuestionPrompter* p = ask_prompter_;
@@ -6550,8 +6526,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // Phase 5: Execute tool calls
         terminator_fired = execute_tool_calls(
             provider_result.accumulated, provider_snapshot,
-            emit_agent_progress, doom_guard, doom_guard_mu,
-            turn_timing_status);
+            emit_agent_progress, doom_guard, doom_guard_mu);
         // 混合形态:同一回复里既有原生调用,又有与之不一致的文本调用(回显在
         // provider 那边已剔除,记为 None 不会走到这里)。只执行了原生调用,
         // 批次跑完后追加隐藏说明,免得模型以为文本里那几个也执行了。不消耗
