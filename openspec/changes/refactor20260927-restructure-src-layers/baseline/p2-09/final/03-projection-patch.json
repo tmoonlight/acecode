@@ -1,0 +1,494 @@
+{
+  "base_sha": "354851e87a0bc32638aa0563e2ba4fb65be73ed8",
+  "build_validation": "not run",
+  "changed_paths": [
+    "src/desktop/chromium_app_launcher.cpp",
+    "src/desktop/chromium_app_launcher.hpp",
+    "src/desktop/main.cpp",
+    "src/desktop/web_host.cpp",
+    "src/web/server.cpp",
+    "tests/desktop/chromium_app_launcher_test.cpp",
+    "tests/web/web_server_smoke_test.cpp",
+    "web/src/components/DesktopContextMenu.jsx",
+    "web/src/components/Sidebar.jsx",
+    "web/src/lib/api.js"
+  ],
+  "cherry": [
+    "+ 2f971d12c7cac24e91c941e068f050c246bf8b49",
+    "+ 732c4b9c4f1936bf538d58f9b832cf7ea42b5bc9",
+    "+ 22bb7a0300f5e4da3f9201053c2cfe02f0657f0c",
+    "+ b826950186ae3f1fe5650a94ec897b4c0104ba5d",
+    "+ 3252e02c0bb10b8b516e69cf7154d0285df1d321",
+    "+ 73a8d258d206dd67b30a3a70c4efe9de41166851"
+  ],
+  "conflicts": [
+    "src/apps/desktop/main.cpp",
+    "src/apps/desktop/web_host.cpp",
+    "src/apps/web/server.cpp",
+    "tests/web/web_server_smoke_test.cpp",
+    "web/src/components/DesktopContextMenu.jsx",
+    "web/src/components/Sidebar.jsx",
+    "web/src/lib/api.js"
+  ],
+  "destination": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\03-projection-patch",
+  "excluded_nested_or_submodule_paths": [],
+  "git_apply": {
+    "returncode": 1,
+    "stderr": "Falling back to direct application...\nFalling back to direct application...\nApplied patch to 'src/apps/desktop/main.cpp' with conflicts.\nApplied patch to 'src/apps/desktop/web_host.cpp' with conflicts.\nApplied patch to 'src/apps/web/server.cpp' with conflicts.\nFalling back to direct application...\nApplied patch to 'tests/web/web_server_smoke_test.cpp' with conflicts.\nApplied patch to 'web/src/components/DesktopContextMenu.jsx' with conflicts.\nApplied patch to 'web/src/components/Sidebar.jsx' with conflicts.\nApplied patch to 'web/src/lib/api.js' with conflicts.\nU src/apps/desktop/main.cpp\nU src/apps/desktop/web_host.cpp\nU src/apps/web/server.cpp\nU tests/web/web_server_smoke_test.cpp\nU web/src/components/DesktopContextMenu.jsx\nU web/src/components/Sidebar.jsx\nU web/src/lib/api.js\n",
+    "stdout": ""
+  },
+  "head_sha": "7ccaf2adbba9ab923e963e625195c4e5df94a3e8",
+  "integration_ready": false,
+  "inventory_ref": "refs/remotes/origin/claude/debug-acecode-crash-XNWgr",
+  "issues": [],
+  "layout": "final",
+  "map_sha256": "379dab9f88d102df860934c4d635d990285a88906196e3b5ce53fef804e11c78",
+  "mode": "patch",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "onto_ref": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "onto_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "original_refs_untouched": true,
+  "patch": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\03-projection-patch\\.git\\refactor-migration\\migration.patch",
+  "patch_base_sha": "202c7c54d0a233fd6be4f376fefc696809ddfa01",
+  "patch_bytes": 55129,
+  "patch_head_sha": "be36690d81ab83ce3ecd565cbf57bce3b0482068",
+  "patch_objects_bundle": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\03-projection-patch\\.git\\refactor-migration\\patch-objects.bundle",
+  "patch_sha256": "a1e206d06672ec09df517bb965e5dfd53c279192fe5088e30fdf4664edf5bd6f",
+  "projection": true,
+  "projection_limit": "Synthetic directory/include projection only. No P2 extractions, deletions, cycle fixes, CMake target equivalence or build acceptance. Never use as the actual freeze baseline.",
+  "projection_target_issues": [
+    {
+      "file": "src/daemon/supervisor.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/daemon/supervisor.cpp",
+      "include": "supervisor.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/daemon/supervisor.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/provider/auth/acecode.code-workspace",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/agent_callbacks_builder.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/agent_callbacks_builder.cpp",
+      "include": "tui/agent_callbacks_builder.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/agent_callbacks_builder.cpp",
+      "include": "tui/clipboard_helpers.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/agent_callbacks_builder.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/agent_callbacks_builder.hpp",
+      "include": "tui/tui_context.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/cli_dispatch.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/cli_dispatch.cpp",
+      "include": "tui/cli_dispatch.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/cli_dispatch.cpp",
+      "include": "tui/terminal_utils.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/cli_dispatch.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/clipboard_helpers.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/clipboard_helpers.cpp",
+      "include": "tui/clipboard_helpers.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/clipboard_helpers.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/ime_windows.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/ime_windows.cpp",
+      "include": "tui/ime_windows.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/ime_windows.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/input_event_handler.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/input_event_handler.hpp",
+      "include": "tui/tui_context.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/message_render_cache.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/terminal_utils.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/terminal_utils.cpp",
+      "include": "tui/terminal_utils.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/terminal_utils.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_context.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_context.cpp",
+      "include": "tui/tui_context.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/tui_context.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_init.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_init.cpp",
+      "include": "tui/tui_init.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/tui_init.cpp",
+      "include": "tui/terminal_utils.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/tui_init.cpp",
+      "include": "tui/tui_context.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/tui/tui_init.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_init.hpp",
+      "include": "tui/tui_context.hpp",
+      "kind": "deleted_include",
+      "reason": "include targets a deleted source"
+    },
+    {
+      "file": "src/upgrade/executable_version.cpp",
+      "include": "version.hpp",
+      "kind": "include",
+      "line": 2,
+      "reason": "include must resolve uniquely before mechanical migration",
+      "targets": [
+        "@generated/version.hpp",
+        "src/upgrade/version.hpp"
+      ]
+    },
+    {
+      "file": "src/upgrade/manifest.hpp",
+      "include": "version.hpp",
+      "kind": "include",
+      "line": 3,
+      "reason": "include must resolve uniquely before mechanical migration",
+      "targets": [
+        "@generated/version.hpp",
+        "src/upgrade/version.hpp"
+      ]
+    },
+    {
+      "file": "src/upgrade/version.cpp",
+      "include": "version.hpp",
+      "kind": "include",
+      "line": 1,
+      "reason": "include must resolve uniquely before mechanical migration",
+      "targets": [
+        "@generated/version.hpp",
+        "src/upgrade/version.hpp"
+      ]
+    },
+    {
+      "file": "src/web/handlers/pinned_sessions_handler.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/cli/interactive_options.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract question policy parsing",
+      "target": "src/adapters/tool/question_policy.cpp"
+    },
+    {
+      "file": "src/commands/compact.hpp",
+      "kind": "semantic_extract",
+      "reason": "Extract token estimates",
+      "target": "src/domain/llm/token_estimate.hpp"
+    },
+    {
+      "file": "src/commands/compact.hpp",
+      "kind": "semantic_extract",
+      "reason": "Extract message predicates",
+      "target": "src/domain/llm/message_predicates.hpp"
+    },
+    {
+      "file": "src/commands/compact.hpp",
+      "kind": "semantic_extract",
+      "reason": "Extract context thresholds",
+      "target": "src/domain/llm/context_thresholds.hpp"
+    },
+    {
+      "file": "src/commands/init_command.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract prompt builders",
+      "target": "src/engine/prompt/init_prompt.cpp"
+    },
+    {
+      "file": "src/commands/lsp_command.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract status format and dispatch",
+      "target": "src/adapters/lsp/lsp_status_text.cpp"
+    },
+    {
+      "file": "src/config/config.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract get_acecode_dir/get_run_dir/get_logs_dir",
+      "target": "src/base/utils/paths.cpp"
+    },
+    {
+      "file": "src/daemon/supervisor.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/daemon/supervisor.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/hooks/hook_payload.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract provider-specific payload",
+      "target": "src/engine/agent/hook_bridge/hook_events.cpp"
+    },
+    {
+      "file": "src/permissions.hpp",
+      "kind": "semantic_extract",
+      "reason": "Enum and mode normalization only",
+      "target": "src/base/config/vocab/permission_mode.hpp"
+    },
+    {
+      "file": "src/prompt/context_usage_breakdown.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract JSON codec",
+      "target": "src/domain/llm/context_usage.cpp"
+    },
+    {
+      "file": "src/provider/auth/acecode.code-workspace",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/session/session_resume_restore.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract tool state restore",
+      "target": "src/adapters/tool/file_state_restore.cpp"
+    },
+    {
+      "file": "src/session/session_title_generator.cpp",
+      "kind": "semantic_extract",
+      "reason": "Keep pure title helpers",
+      "target": "src/domain/session/session_title_text.cpp"
+    },
+    {
+      "file": "src/skills/default_skill_seeder.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract hook seeds",
+      "target": "src/domain/hooks/hook_seeds.cpp"
+    },
+    {
+      "file": "src/tool/tool_executor.hpp",
+      "kind": "semantic_extract",
+      "reason": "Extract ToolResult and ToolSummary",
+      "target": "src/domain/llm/tool_result.hpp"
+    },
+    {
+      "file": "src/tool_preamble/tool_preamble.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract text preamble scanner",
+      "target": "src/domain/llm/text_preamble_tags.cpp"
+    },
+    {
+      "file": "src/tui/agent_callbacks_builder.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/agent_callbacks_builder.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/cli_dispatch.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/cli_dispatch.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/clipboard_helpers.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/clipboard_helpers.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/ime_windows.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/ime_windows.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/input_event_handler.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/message_render_cache.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/terminal_utils.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/terminal_utils.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_context.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_context.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_init.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/tui/tui_init.hpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    },
+    {
+      "file": "src/utils/models_dev_catalog.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract registry-dependent cache",
+      "target": "src/adapters/provider/models_dev_catalog_cache.cpp"
+    },
+    {
+      "file": "src/utils/text_file_buffer.cpp",
+      "kind": "semantic_extract",
+      "reason": "Extract policy-dependent writes; pure codec remains",
+      "target": "src/adapters/tool/safe_text_write.cpp"
+    },
+    {
+      "file": "src/web/handlers/pinned_sessions_handler.cpp",
+      "kind": "deleted_source",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    }
+  ],
+  "reason": "Applied patch to 'src/apps/desktop/main.cpp' with conflicts.\nApplied patch to 'src/apps/desktop/web_host.cpp' with conflicts.\nApplied patch to 'src/apps/web/server.cpp' with conflicts.\nApplied patch to 'tests/web/web_server_smoke_test.cpp' with conflicts.\nApplied patch to 'web/src/components/DesktopContextMenu.jsx' with conflicts.\nApplied patch to 'web/src/components/Sidebar.jsx' with conflicts.\nApplied patch to 'web/src/lib/api.js' with conflicts.",
+  "report_file": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\03-projection-patch\\.git\\refactor-migration\\report.json",
+  "schema": 1,
+  "source_ref": "405a71ec63c4d929f51f212e40f748046c909d00",
+  "source_sha": "405a71ec63c4d929f51f212e40f748046c909d00",
+  "status": "A  src/apps/desktop/chromium_app_launcher.cpp\nA  src/apps/desktop/chromium_app_launcher.hpp\nUU src/apps/desktop/main.cpp\nUU src/apps/desktop/web_host.cpp\nUU src/apps/web/server.cpp\nA  tests/desktop/chromium_app_launcher_test.cpp\nUU tests/web/web_server_smoke_test.cpp\nUU web/src/components/DesktopContextMenu.jsx\nUU web/src/components/Sidebar.jsx\nUU web/src/lib/api.js\n",
+  "success": false,
+  "target_sha": "7ccaf2adbba9ab923e963e625195c4e5df94a3e8"
+}
