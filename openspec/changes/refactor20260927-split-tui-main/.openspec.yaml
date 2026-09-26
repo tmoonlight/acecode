@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-09-27
+# 纯结构重构(不改变任何 spec 级行为),按 openspec 约定跳过 specs。
+skip_specs: true
