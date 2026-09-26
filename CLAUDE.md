@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+src 分层重构进行中,新文件放置规则见 [restructure-src-layers/design.md](openspec/changes/refactor20260927-restructure-src-layers/design.md);本系列另含 [split-agent-loop](openspec/changes/refactor20260927-split-agent-loop/proposal.md)、[split-tui-main](openspec/changes/refactor20260927-split-tui-main/proposal.md) 与 [adopt-ownership-conventions](openspec/changes/refactor20260927-adopt-ownership-conventions/proposal.md),按总设计 §8.3 的依赖顺序执行。
+
 Implementation m emory for coding agents working in this repository. For user-facing setup and run modes, use [README.md](README.md). For stable structure, use[ARCHITECTURE.md](ARCHITECTURE.md). For contributor rules, use [AGENTS.md](AGENTS.md).
 
 ## Project-Level Agent Overrides

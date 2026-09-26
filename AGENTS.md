@@ -43,6 +43,27 @@ Prefer existing helpers such as `ToolArgsParser`, `ToolErrors`, path/session uti
 
 This is a terminal UI project. Avoid emoji or ambiguous-width glyphs in C++ source, rendered UI, logs, and console output. Prefer ASCII or width-stable symbols already used in the codebase.
 
+## 所有权与生命周期
+
+以下 C1–C14 约定来自 [refactor20260927 所有权设计](openspec/changes/refactor20260927-adopt-ownership-conventions/design.md)。新代码遵守这些约定;存量问题按该系列任务逐项整改,不借此扩大一期范围。下面的反例指向重构前的实现,搬迁时同步更新路径。
+
+1. **C1 独占所有权**:拥有对象用 `std::unique_ptr`,包括 pimpl。裸 `new` 只允许用于私有构造工厂中的 `std::unique_ptr<T>(new T)`,禁止裸 `delete`。只有确实共享寿命才用 `shared_ptr`,声明处说明共享方与原因。反例:[web_search/runtime.hpp](src/tool/web_search/runtime.hpp) 的 `Impl* impl_` 在 [runtime.cpp](src/tool/web_search/runtime.cpp) 中手工 new/delete。
+2. **C2 构造注入**:必填依赖用构造注入的引用成员;可选指针注明 nullable、borrowed。构造完成后不再更换依赖。反例:[SessionRegistryDeps](src/session/session_registry.hpp) 的 `tools` 可空,但 [make_entry_locked](src/session/session_registry.cpp) 会解引用它。存量依赖结构改为引用注入属于二期。
+3. **C3 借用不跨调用**:形参与 `ToolContext` 中的 `T*`/`T&` 不得保存为成员或被异步回调、线程捕获;跨调用使用持有寿命的快照。反例:[spawn_subagent_tool.cpp](src/tool/spawn_subagent_tool.cpp) 把 `child->skill_registry.get()` 存入 `child_skills`,在持有 child 的局部 `shared_ptr` 离开作用域后继续使用。
+4. **C4 共享只读快照**:共享只读数据使用 `shared_ptr<const T>`,只由一个发布点更新;不把共享可变对象的子对象地址交给其它线程。反例:[session_registry.cpp](src/session/session_registry.cpp) 的 `set_project_instructions_config(deps_.project_instructions_cfg)` 保存借用配置,而 [settings_mutations.cpp](src/config/settings_mutations.cpp) 可以整份替换配置。
+5. **C5 异步捕获**:listener、control、AgentCallbacks、工具闭包和线程入口只能捕获值、自有状态的 `shared_ptr`、`weak_ptr` 或 `LifetimeRef`,禁止裸指针、`[this]`、`[&]`。唯一例外是回调由宿主持有的 `JoiningThread` 执行,且在所依赖成员析构前 join。反例:[session_registry.cpp](src/session/session_registry.cpp) 的 `on_turn_finished = [this, id]` 与 [worker.cpp](src/daemon/worker.cpp) 的 on_spawn 对 server 的引用捕获。
+6. **C6 不形成自持环**:对象自己的队列或成员回调不得强持有该对象;捕获 `weak_ptr`,执行时 lock 并核对身份。反例:[session_registry.cpp](src/session/session_registry.cpp) 的 `enqueue_control([entry, loop, ...])` 形成 entry → loop → 队列 → lambda → entry。
+7. **C7 订阅即资源**:使用 move-only 的 `ScopedSubscription`,声明在被捕获对象之后;析构时退订并等待在途投递。持有 listener 需要的锁时不得析构订阅。反例:[headless_runner.cpp](src/headless/headless_runner.cpp) 在 `subscribe` 后的 send_input 失败分支早退,绕过末尾 `unsubscribe`。
+8. **C8 线程有宿主**:禁止新增裸 `std::thread` 成员、局部变量与直接 detach。长期线程用 `JoiningThread`,短任务用 `ReapingThreadSet`;可放弃等待的阻塞工作只经 `run_abandonable` / `spawn_owned_detached`。原语实现自身的 detach 例外须封装并记录。反例:[routes_workspaces.cpp](src/web/routes/routes_workspaces.cpp) 的导入线程 detach,以及 [session_registry.hpp](src/session/session_registry.hpp) 只增不减的 `vector<std::thread>`。
+9. **C9 进程级服务**:由组合根的 RAII Scope 管理 init/shutdown;全局访问只返回 `shared_ptr` 租约,不采用 `is_initialized()` 后再 `service()` 的两步访问。反例:[lsp_tool.cpp](src/tool/lsp_tool.cpp) 的两步式 LSP 获取。存量服务租约化在二期,一期新代码先遵守。
+10. **C10 关停顺序**:停入口 → 停回合生产者 → `SessionRegistry::shutdown_all()` → MCP → LSP/web_search → 其余,由成员声明顺序或显式关停序列固化。反例:[worker.cpp](src/daemon/worker.cpp) 在 registry 析构前关闭 MCP/LSP;D6 按所有权 change 单独提交。
+11. **C11 析构契约**:持有 worker 的成员必须声明在其依赖成员之后;做不到时写显式析构函数先停 worker。反例:[SessionEntry](src/session/session_registry.hpp) 的 ask_prompter 比 loop 先析构;[SubagentHost](src/tui/subagent_host.hpp) 的 registry 比其回调访问的 mu_、running_ 后析构。
+12. **C12 不延迟绑定依赖**:依赖 registry 的工具应在 registry 构造后注册,闭包捕获 `weak_ptr<Service>`。反例:[headless_runner.cpp](src/headless/headless_runner.cpp) 先注册工具、再回填 `subagent_deps->registry` 与 `thread_deps->service`。一期 O-06 只修退出后的悬垂,注册顺序重构留二期。
+13. **C13 句柄 RAII**:OS 与第三方句柄使用 move-only 封装,不通过 `void*` 出参交付所有权,不在多个出口手工 Close。反例:[sandbox_backend.hpp](src/sandbox/sandbox_backend.hpp) 的 `void*` 句柄接口与 [computer_use/runtime.cpp](src/computer_use/runtime.cpp) 可复制的 Handle。
+14. **C14 锁序**:LifetimeToken、AbortSignal、GoalRuntime 的内部状态锁是叶子锁,持锁时不进入 registry、AgentLoop 或业务回调;持有 `model_control_mu` 时不得获取队列门。现有风险入口是 [session_registry.cpp](src/session/session_registry.cpp) 的 `switch_model` 在 model 锁内调用 `apply_model_to_session`;迁移时不能在这条调用链内新增队列加锁。该文件的 `set_reasoning_effort` 已明确 queue → model → binding → metadata 的正确顺序,不得反转。
+
+所有权棘轮 R15 的度量与一期目标以所有权设计为准。新增原语必须有覆盖取消、关停、回调在途与析构顺序的测试;既有豁免与二期待办不得通过新增同类问题扩大。
+
 ## Testing Guidelines
 
 Tests use GoogleTest through the `acecode_unit_tests` target. Add tests for pure logic, serializers, parsers, validators, handler helpers, and headless state machines. Keep TUI-heavy code in [src/tui/](src/tui), [src/markdown/](src/markdown), and [main.cpp](main.cpp) manually validated unless logic can be isolated.
