@@ -21,7 +21,7 @@
 
 ## 1. 基础原语(冻结前完成)
 
-- [ ] 1.1 【P2-01】【子】新增 RAII 与并发原语,纯新增文件,放在 `src/utils/`,冻结后随目录进入 `base/utils/`。
+- [ ] 1.1 【P2-01】【子】新增 RAII 与并发原语,纯新增文件,放在 `src/utils/`,冻结后随目录进入 `base/utils/`。〔认领: Codex-raii 2026-09-27〕
   - 新增文件:
     - `joining_thread.hpp`:JoiningThread + StopToken、JoiningThreadGroup(从 `worker.cpp:109-120` 原样提升,worker 改为 include 新头)、ReapingThreadSet;在线程自身上析构时 detach 并记日志;
     - `lifetime_token.hpp`:LifetimeToken / LifetimeRef;
