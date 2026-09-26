@@ -15,7 +15,7 @@ from check_file_size import inspect as check_sizes
 from check_ownership import apply_allowances, scan as scan_ownership
 from check_doc_paths import inspect as check_docs
 from check_line_coverage import inspect as check_lines
-from cmake_target_snapshot import snapshot, write_query, compare, normalize_root_paths
+from cmake_target_snapshot import snapshot, write_query, compare, normalize_root_paths, normalize_source_path
 from gtest_inventory import parse_list, parse_xml
 from layout import IncludeIndex, LayerPolicy, LayoutMap, include_matches, load_policy, mask_cpp
 from normalize_includes import normalize, run as normalize_repo
@@ -282,6 +282,38 @@ queue.enqueue(escapes);
 
 
 class CMakeFileApiTest(unittest.TestCase):
+    def test_comparison_keeps_tuple_multiplicity(self):
+        # 规范化不能让重复元组变成集合后丢失计数；少一项仍必须报错。
+        row = {"target": "core", "source": "@build/generated.cpp"}
+        before = {"targets": [], "tuples": [row, row]}
+        after = {"targets": [], "tuples": [row]}
+        self.assertEqual([row], compare(before, after)["tuples"]["removed"])
+
+    def test_relative_sources_distinguish_build_and_similar_source_paths(self):
+        # build 在 source 内时 File API 返回相对路径；不得误归一同名前缀源码。
+        self.assertEqual("@build/generated/a.cpp", normalize_source_path("build-a/generated/a.cpp", "C:/repo", "C:/repo/build-a"))
+        self.assertEqual("build-a-extra/a.cpp", normalize_source_path("build-a-extra/a.cpp", "C:/repo", "C:/repo/build-a"))
+        self.assertEqual("src/a.cpp", normalize_source_path("src/a.cpp", "/repo", "/repo/build"))
+        self.assertEqual("@build/generated/a.cpp", normalize_source_path("/build/generated/a.cpp", "/repo", "/build"))
+
+    def test_fresh_nested_build_directories_have_identical_source_snapshots(self):
+        # 两个真正的全新构建目录必须等价，包括生成源与消费 OBJECT 库的目标。
+        with tempfile.TemporaryDirectory(prefix="acecode-file-api-builds-") as temporary:
+            source = Path(temporary)
+            (source / "CMakeLists.txt").write_text('cmake_minimum_required(VERSION 3.20)\nproject(NestedBuilds LANGUAGES CXX)\nconfigure_file(core.cpp generated.cpp COPYONLY)\nadd_library(core OBJECT "${CMAKE_BINARY_DIR}/generated.cpp")\nadd_executable(smoke EXCLUDE_FROM_ALL smoke.cpp)\ntarget_link_libraries(smoke PRIVATE core)\n', encoding="utf-8")
+            (source / "core.cpp").write_text("int core() { return 1; }\n", encoding="utf-8")
+            (source / "smoke.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+            reports = []
+            for name in ("build-before", "build-after"):
+                build = source / name
+                write_query(build)
+                result = subprocess.run(["cmake", "-S", str(source), "-B", str(build)], capture_output=True, text=True, timeout=120)
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                reports.append(snapshot(build))
+            changes = compare(*reports)
+            self.assertTrue(any(row["source"] == "@build/generated.cpp" for row in reports[0]["tuples"]))
+            self.assertFalse(any(value for delta in changes.values() for value in delta.values()), changes)
+
     def test_root_normalization_observes_both_path_boundaries(self):
         # repo 与 repo2 相邻前缀不得混淆，define 的引号和其它字节仍要保留。
         value = 'ROOT="C:/repo/assets" OTHER="C:/repo2/assets" OUT="C:/repo/build/generated" PREFIX="xC:/repo/assets"'

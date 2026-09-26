@@ -33,7 +33,7 @@
     - 新增单测:写入 `tui::g_model_load_percent` 后,负载 chip 能渲染;中文注释写明回归现象是「负载 chip 永不显示」;
     - 手工逐个比对底栏的 chip,包括 token、缓存命中、模型负载;
     - 跑手工清单第 2、3 小节。
-- [ ] 1.2 【P0-12】【主】【并】TUI 手工回归清单与启动时序记录。
+- [ ] 1.2 【P0-12】【主】【并】TUI 手工回归清单与启动时序记录。〔认领: Codex-root 2026-09-27〕
   - 按 [manual-test-checklist.md](manual-test-checklist.md) 核对清单是否完整;
   - 记录现状下「原启动步骤 → 行号 → 新宿主」的完整表,存为本 change 目录的 `startup-order.md`(MR-3);
   - 录下四种启动场景(普通、`--resume`、Copilot 未登录、配置了 MCP)的 `state.conversation` 前 N 条快照,供 B-12 比对。
