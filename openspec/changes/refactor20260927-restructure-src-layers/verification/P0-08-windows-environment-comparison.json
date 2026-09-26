@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "evidence_kind": "Paired environment diagnostics; original 3ddb and P0-08 use equal-length isolated HOME/TEMP. These filtered runs are not a substitute for full-suite execution.",
+  "source_record_sha256": "f91cfe01795fbecc48c182b9dcc18891bfeb94d6641c88dc38e447f6f4e17ddd",
+  "raw_checksums_verified": true,
+  "runs": [
+    {
+      "purpose": "Seven targeted short-home environment diagnostics; not full G0",
+      "label": "original-3ddb",
+      "environment_tool_ref": "dc03ddf01c1f28d036db08bdaf19f60a62f27fae",
+      "binary_sha256": "d8f01dcb18af19c69221f2b07438275f2925aa300c31775fe2fa0069dc45b82e",
+      "home_length": 45,
+      "temp_root_length": 50,
+      "command": [
+        "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\original-windows\\tests\\acecode_unit_tests.exe",
+        "--gtest_filter=DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook:DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition:DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook:DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted:DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory:DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome:SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab",
+        "--gtest_output=xml:C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\short-home\\original-3ddb\\gtest.xml"
+      ],
+      "exit_code": 1,
+      "seconds": 10.172,
+      "local_directory": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\short-home\\original-3ddb",
+      "raw_manifest_sha256": "39e90a6e37f25b7be72be1d3daddb30bea9985827b40b8d251405b971d93e1bc",
+      "raw_file_checksums": {
+        "gtest.log": "47600050af97e9591c7fc4ae46c3ea33682f10ea87d8abeeedfdd12a917a8cf5",
+        "gtest.xml": "c452b959670278a1bf4f4806ffe6add7778124045100cb5aab88604cf5aec968",
+        "manifest.json": "39e90a6e37f25b7be72be1d3daddb30bea9985827b40b8d251405b971d93e1bc"
+      },
+      "executed": [
+        "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+        "DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory",
+        "DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition",
+        "DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome",
+        "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+      ],
+      "skipped_names": [],
+      "failed_names": [
+        "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+        "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+      ]
+    },
+    {
+      "purpose": "Seven targeted short-home environment diagnostics; not full G0",
+      "label": "p0-08",
+      "environment_tool_ref": "dc03ddf01c1f28d036db08bdaf19f60a62f27fae",
+      "binary_sha256": "3db06dc8d44ecc207e631d39cc652b5ef1bf651f0075e5193d4dad48e55c6b59",
+      "home_length": 45,
+      "temp_root_length": 50,
+      "command": [
+        "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-integration\\acecode\\build-p0-08\\tests\\acecode_unit_tests.exe",
+        "--gtest_filter=DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook:DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition:DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook:DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted:DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory:DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome:SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab",
+        "--gtest_output=xml:C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\short-home\\p0-08\\gtest.xml"
+      ],
+      "exit_code": 1,
+      "seconds": 9.031,
+      "local_directory": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\short-home\\p0-08",
+      "raw_manifest_sha256": "dc873ff4b0331fdbbe7b8e1bd1097434e4e20a1e1699af58c4f5ae26a6113c11",
+      "raw_file_checksums": {
+        "gtest.log": "76d2e28e4d5b42be952fcca4df2a5c6177006ddd3e2a43ead2e3880e626fcfe3",
+        "gtest.xml": "16f95213b4769fef6f4d2fb9e43f30bf1fa974e35453ba88d8578a7a5d2ca423",
+        "manifest.json": "dc873ff4b0331fdbbe7b8e1bd1097434e4e20a1e1699af58c4f5ae26a6113c11"
+      },
+      "executed": [
+        "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+        "DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory",
+        "DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition",
+        "DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome",
+        "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+      ],
+      "skipped_names": [],
+      "failed_names": [
+        "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+        "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+      ]
+    },
+    {
+      "purpose": "Seven targeted system-drive-root environment diagnostics; not full G0",
+      "label": "original-3ddb",
+      "environment_tool_ref": "dc03ddf01c1f28d036db08bdaf19f60a62f27fae",
+      "binary_sha256": "d8f01dcb18af19c69221f2b07438275f2925aa300c31775fe2fa0069dc45b82e",
+      "home_length": 14,
+      "temp_root_length": 19,
+      "command": [
+        "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\original-windows\\tests\\acecode_unit_tests.exe",
+        "--gtest_filter=DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook:DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition:DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook:DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted:DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory:DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome:SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab",
+        "--gtest_output=xml:C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\drive-root\\original-3ddb\\gtest.xml"
+      ],
+      "exit_code": 0,
+      "seconds": 7.719,
+      "cleanup_verified": true,
+      "local_directory": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\drive-root\\original-3ddb",
+      "raw_manifest_sha256": "3e36f2618e711ac964f98028414c26ab58bce9ab10aeaa987ad5e08cfb638384",
+      "raw_file_checksums": {
+        "gtest.log": "ef1257b44b51f5c8fd61fbf80e64111e9e581f77f49eb2ac6c334a0e1260cc89",
+        "gtest.xml": "498faba9aeb65180e4a4c5602e1d7981c945710f612b33bc29478c700248ea82",
+        "manifest.json": "3e36f2618e711ac964f98028414c26ab58bce9ab10aeaa987ad5e08cfb638384"
+      },
+      "executed": [
+        "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+        "DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory",
+        "DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition",
+        "DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome",
+        "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+      ],
+      "skipped_names": [],
+      "failed_names": []
+    },
+    {
+      "purpose": "Seven targeted system-drive-root environment diagnostics; not full G0",
+      "label": "p0-08",
+      "environment_tool_ref": "dc03ddf01c1f28d036db08bdaf19f60a62f27fae",
+      "binary_sha256": "3db06dc8d44ecc207e631d39cc652b5ef1bf651f0075e5193d4dad48e55c6b59",
+      "home_length": 14,
+      "temp_root_length": 19,
+      "command": [
+        "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-integration\\acecode\\build-p0-08\\tests\\acecode_unit_tests.exe",
+        "--gtest_filter=DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook:DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition:DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook:DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted:DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory:DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome:SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab",
+        "--gtest_output=xml:C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\drive-root\\p0-08\\gtest.xml"
+      ],
+      "exit_code": 0,
+      "seconds": 8.625,
+      "cleanup_verified": true,
+      "local_directory": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-testpaths\\acecode\\build-p0-07\\diagnostics\\drive-root\\p0-08",
+      "raw_manifest_sha256": "7740c5e52271beb9b441212a3743ee11aa4b09d9b7e89a546f8cd5682084aa18",
+      "raw_file_checksums": {
+        "gtest.log": "0cbfc9ef500e023f61e5fd62791250862b163cd86eb1650d635b608c671353b6",
+        "gtest.xml": "1bad3d664ea2182e662606d47507e00ce74397dd375cf5d30251dd3d3d525754",
+        "manifest.json": "7740c5e52271beb9b441212a3743ee11aa4b09d9b7e89a546f8cd5682084aa18"
+      },
+      "executed": [
+        "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+        "DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted",
+        "DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory",
+        "DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition",
+        "DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome",
+        "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+      ],
+      "skipped_names": [],
+      "failed_names": []
+    }
+  ]
+}

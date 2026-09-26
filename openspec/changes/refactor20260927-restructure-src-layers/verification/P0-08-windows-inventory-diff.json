@@ -11,5 +11,5 @@
   "added": [],
   "removed": [],
   "identical": true,
-  "actual_run_results": "Pending serial test slot; this command only lists registered GoogleTest cases."
+  "actual_run_results": "Full execution is recorded separately in P0-08-windows-full-test.json: 5032 executed, 5017 passed, 13 skipped, 2 failed, 1 disabled. This file proves registration equality only."
 }

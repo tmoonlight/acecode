@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "evidence_kind": "Full P0-08 execution in corrected isolated environment; task acceptance remains pending.",
+  "source_revision": "121ef616cb29dd559fd5ef2991d7e853714ed9fe",
+  "source_cpp_tests_cmake_equivalent_to": "76fee0556202b199e2c15cecbdb72601b88ba554",
+  "executable_sha256": "3db06dc8d44ecc207e631d39cc652b5ef1bf651f0075e5193d4dad48e55c6b59",
+  "execution": {
+    "command": [
+      "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-integration\\acecode\\build-p0-08\\tests\\acecode_unit_tests.exe",
+      "--gtest_output=xml:C:\\Users\\shaoh\\.codex\\worktrees\\refactor-integration\\acecode\\build-p0-08\\full-short-home\\gtest.xml"
+    ],
+    "cwd": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-integration\\acecode\\build-p0-08\\tests",
+    "started_at": "2026-09-26T20:00:10.369470+00:00",
+    "finished_at": "2026-09-26T20:08:49.788279+00:00",
+    "seconds": 519.406,
+    "exit_code": 1,
+    "home_length": 14,
+    "temp_length": 19,
+    "owned_home_cleanup": "Verified exact allocated root, parent, non-reparse attribute and identity before deletion."
+  },
+  "integrity": {
+    "raw_checksums_verified": true,
+    "raw_files": {
+      "gtest.log": "0b4f48149dbf33751b64d7e54c1094ef69a5ff264a8663ae478510f3fab505ec",
+      "gtest.xml": "ad2fe0cdbbf010732ef58364e4cbbbc355b84fcc3a339b3ce15edad1c1413154"
+    },
+    "manifest_sha256": "3ae9ffb38ccc90501f69fbbfda18288405b41c01261ff9d8fefb07710f9a0ff0",
+    "list_sha256": "95fac7efc4a48de0dfd293acb0f0e166d3c0fbe7c631fae4fdcb616d5313d874",
+    "xml_analysis_audit_sha256": "4686100a0b7295ebb7683fb1fef21c12635455a60936a43878410ea98a481488",
+    "invalid_diagnostic_utf8_byte_count": 128,
+    "all_listed_cases_accounted_for": true,
+    "all_enabled_cases_executed": true
+  },
+  "counts": {
+    "listed": 5033,
+    "executed": 5032,
+    "passed": 5017,
+    "skipped": 13,
+    "failed": 2,
+    "disabled": 1
+  },
+  "failed_tests": [
+    "AgentLoopTurnSteering.InterruptStartsStructuredTurnBeforeOrdinaryQueue",
+    "ComputerUsePointerOverlay.ShowsWithoutActivationOrInterceptingHitTests"
+  ],
+  "skipped_tests": [
+    "ChannelSetup.RealDependencyInstallationIsOptionalAndUsesTemporaryState",
+    "FilesHandler.ListDirectorySkipsSymlinkDirectories",
+    "ImageGenerationNetworkSmoke.AbortReturnsPromptlyDuringGeneration",
+    "ImageGenerationNetworkSmoke.GeneratesOneImageFromRealEndpoint",
+    "MacosBundleInstallPath.RejectsUnsafeLocations",
+    "NativeNotifications.OptInDeliversSelfDrawnToast",
+    "PathReference.SkipsDirectoryLinksThatCouldEscapeCwd",
+    "RssSearchBackendLive.HostedEndpointReturnsSearchableResults",
+    "SandboxBackendWin.RejectsRedirectedTemporaryDirectoryBeforeGrantingAcl",
+    "SessionReplayRealJsonl.UserSessionDbcoding5_2026_04_26",
+    "SystemPromptTest.PosixPromptStaysCleanOfWindowsGuidance",
+    "ThemeExportTest.RejectsBuiltinsUnknownJobsAndLinkedThemeResources",
+    "Utf8PathTest.ExtendedLengthPathIsIdentityOnPosix"
+  ],
+  "disabled_tests": [
+    "StreamingBenchmark.DISABLED_PrintsFullVsCompatibilityTimeCurve"
+  ],
+  "earlier_long_home_run": {
+    "raw_log_sha256": "f4e7337b3e0a042c7ff6102d1cdae96ee616a28ffa1823cb4895deced2794789",
+    "raw_xml_sha256": "250bc897554a2d645b0564b4332578a0f0d80953fbdab747e2d6791eaa494200",
+    "listed": 5033,
+    "executed": 5032,
+    "failed_tests": [
+      "AgentLoopTurnSteering.InterruptStartsStructuredTurnBeforeOrdinaryQueue",
+      "ComputerUsePointerOverlay.ShowsWithoutActivationOrInterceptingHitTests",
+      "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+      "DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook",
+      "DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted",
+      "DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory",
+      "DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition",
+      "DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome",
+      "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+    ],
+    "additional_failures_absent_after_environment_correction": [
+      "DefaultSkillSeedRegistryTest.EqualPackagedVersionRepairsKnownPreviousOfficialHook",
+      "DefaultSkillSeedRegistryTest.LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook",
+      "DefaultSkillSeedRegistryTest.PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted",
+      "DefaultSkillSeedRegistryTest.PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory",
+      "DefaultSkillSeedRegistryTest.PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition",
+      "DefaultSkillSeedRegistryTest.PackagedResourcesInitializeACleanUserHome",
+      "SettingsCenterRender.NarrowTopRailFollowsDeepLinkedTab"
+    ]
+  },
+  "channel_dependencies": {
+    "setup": {
+      "command": [
+        "C:\\Program Files\\nodejs\\npm.cmd",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-integration\\acecode\\assets\\channels\\whatsapp",
+      "exit_code": 0,
+      "seconds": 23.328,
+      "reason": "Match original G0 optional bridge dependency availability so SKIP inventories can be compared."
+    },
+    "log_sha256": "42cf3e83af56063f3cf5a53b38284877474d8bc7c18a830ec49e8540ab039e1d",
+    "purpose": "Restore equal optional bridge dependency availability before comparing SKIP names."
+  },
+  "limited_legacy_comparison": {
+    "reference_source": "3ddb7d433f280181292e5cd2eede612b17cc8b42",
+    "reference_summary_sha256": "31ef670d0c62541ee1125113ab073dd70487c7ea5295abdf7464ea68b29030d2",
+    "listed_names_identical": true,
+    "skip_names_identical": true,
+    "added_skips": [],
+    "removed_skips": [],
+    "limitation": "Previous raw G0 capture was not complete and used different TEMP isolation. Fresh G0 full capture is in progress; this limited comparison is not task acceptance."
+  },
+  "gates": {
+    "full_test_execution_complete": true,
+    "tests_passed": false,
+    "task_accepted": false,
+    "fresh_g0_comparison": "pending",
+    "linux_macos_deepin_fresh_builds": "pending",
+    "windows_microsoft_pinyin_manual_comparison": "pending",
+    "explicit_g0_removed_tuple_rule": "pending",
+    "remote_ci": "pending"
+  },
+  "raw_evidence_policy": "Raw logs and XML remain local because diagnostic output may contain user configuration data; this record contains identities, counts and checksums only."
+}
