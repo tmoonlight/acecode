@@ -92,7 +92,7 @@ export function DeveloperSettings({ onThemeChange }) {
       <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>
           <div className="text-[13px] font-normal text-fg">打开JB模式</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">打开后拼上内置加密提示词，并切换到暗黑模式。</div>
+          <div className="text-[11px] text-fg-mute mt-0.5">打开后用内置加密提示词替换系统提示，并切换到暗黑模式。</div>
         </div>
         <Toggle on={jbEnabled} onChange={saveJb} disabled={!jbLoaded || jbBusy} ariaLabel="打开JB模式" />
       </div>

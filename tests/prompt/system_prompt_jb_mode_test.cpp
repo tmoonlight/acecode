@@ -106,26 +106,19 @@ TEST(JbSlotCrypto, KnownVectorAndStableOpen) {
     EXPECT_EQ(acecode::open_jb_slot(), slot);
 }
 
-TEST_F(SystemPromptJbModeTest, EnabledDropsRefusalLinesAndKeepsEnvironmentAndProtocol) {
+TEST_F(SystemPromptJbModeTest, EnabledReplacesHostPromptWithOpenedSlot) {
     const std::string slot = acecode::open_jb_slot();
     ASSERT_FALSE(slot.empty());
     const std::string on = build(true, true);
     const std::string off = build(false, true);
-    const std::string suffix = std::string("\n") + slot;
-    ASSERT_GT(on.size(), suffix.size());
-    EXPECT_EQ(on.compare(on.size() - suffix.size(), suffix.size(), suffix), 0);
-    const std::string host = on.substr(0, on.size() - suffix.size());
-    EXPECT_NE(host, off);
+    EXPECT_EQ(on.size(), slot.size());
+    EXPECT_EQ(acecode::sha256_hex(on), acecode::sha256_hex(slot));
+    EXPECT_EQ(on.find("You are an interactive agent called acecode"), std::string::npos);
+    EXPECT_EQ(on.find("primary product capability"), std::string::npos);
+    EXPECT_EQ(on.find("# Task completion protocol"), std::string::npos);
+    EXPECT_EQ(on.find("# Environment"), std::string::npos);
+    EXPECT_NE(off.find("You are an interactive agent called acecode"), std::string::npos);
     EXPECT_EQ(off.find(slot), std::string::npos);
-    for (const char* sentence : kRefusalStrings) {
-        EXPECT_EQ(host.find(sentence), std::string::npos) << sentence;
-    }
-    EXPECT_NE(host.find("- OS: "), std::string::npos);
-    EXPECT_NE(host.find("- Working directory: "), std::string::npos);
-    EXPECT_NE(host.find("# Using your tools"), std::string::npos);
-    EXPECT_NE(host.find("# Task completion protocol"), std::string::npos);
-    EXPECT_NE(host.find("Shell sandbox:"), std::string::npos);
-    EXPECT_NE(host.find("primary product capability"), std::string::npos);
 }
 
 TEST_F(SystemPromptJbModeTest, EnabledPromptIsByteStableAcrossCalls) {

@@ -618,16 +618,11 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         oss << "\nSkill selection is turn-scoped: do not assume a prior turn selected a skill unless the current request names or clearly matches it.\n\n";
     }
 
-    std::string prompt = oss.str();
     if (jb_mode) {
         const std::string slot = open_jb_slot();
-        if (!slot.empty()) {
-            if (prompt.empty() || prompt.back() != '\n') prompt.push_back('\n');
-            prompt.push_back('\n');
-            prompt += slot;
-        }
+        if (!slot.empty()) return slot;
     }
-    return prompt;
+    return oss.str();
 }
 
 PromptContextBlock build_project_instructions_context_prompt(

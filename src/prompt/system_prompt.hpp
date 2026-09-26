@@ -123,8 +123,8 @@ struct SystemPromptWorkspaceFolders {
 // config.agent_loop.tool_preamble enabled && mode == "prompt")。为 true 时把
 // 「不要叙述工具调用」的口径换成 Codex 式 preamble:含工具调用的消息先写一句
 // 8~12 词的前言。它只随配置变化,留在静态前缀里;false 时输出逐字节不变。
-// jb_mode: 开发者模式开关。为 true 时去掉四句拒绝/停顿说明,并在末尾拼上
-// 内置加密提示词解开后的增量正文。false(默认)时输出与未传该参数逐字节一致。
+// jb_mode: 开发者模式开关。为 true 且内置密文能解开时,系统提示词只保留解开后的
+// 正文,不再带 ACECode 自己的身份和规则。false(默认)时输出与未传该参数逐字节一致。
 std::string build_system_prompt(const ToolExecutor& tools, const std::string& cwd,
                                 const SkillRegistry* skills = nullptr,
                                 const MemoryRegistry* memory = nullptr,
