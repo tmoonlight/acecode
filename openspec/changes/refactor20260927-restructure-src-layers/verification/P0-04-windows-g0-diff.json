@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "source_revision": "129f51064d7f38426cf6f98cada56ce90d407416",
+  "baseline_source_revision": "3ddb7d433f280181292e5cd2eede612b17cc8b42",
+  "original_guard_implementation_revision": "0a56e436",
+  "guard_and_cpp_inputs_unchanged_since_original_validation": true,
+  "baseline_snapshot_sha256": "1ca8c91cf9526a044cbcd0eb9689caae159deca6c17c53e8768d31745d8031e6",
+  "current_snapshot_sha256": "8ccd44a30a05add073458f303fda1262b035aac88a7b15aa708b61e6b8faa168",
+  "targets": 59,
+  "tuples": 3535,
+  "comparison": {
+    "targets": {
+      "added": [],
+      "removed": []
+    },
+    "tuples": {
+      "added": [],
+      "removed": []
+    }
+  },
+  "fresh_configure": {
+    "source_revision": "129f51064d7f38426cf6f98cada56ce90d407416",
+    "command": [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build-p0-04-latest",
+      "-G",
+      "Ninja",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DBUILD_TESTING=ON",
+      "-DACECODE_BUILD_DESKTOP=ON",
+      "-DVCPKG_MANIFEST_INSTALL=OFF",
+      "-DCMAKE_TOOLCHAIN_FILE=C:/Users/shaoh/AppData/Local/acecode-dev/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "-DVCPKG_INSTALLED_DIR=C:/Users/shaoh/acecode/build/windows-x64-desktop-release/vcpkg_installed",
+      "-DVCPKG_TARGET_TRIPLET=x64-windows-static",
+      "-DVCPKG_OVERLAY_PORTS=C:/Users/shaoh/.codex/worktrees/refactor-tools/acecode/ports",
+      "-DCMAKE_MAKE_PROGRAM=C:/Program Files/Microsoft Visual Studio/2022/Enterprise/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+    ],
+    "exit_code": 0,
+    "seconds": 32.578
+  },
+  "tool_tests": {
+    "passed": 56,
+    "seconds": 50.446
+  },
+  "scope": "Windows only; other platforms and remote CI pending. Original G0 configure evidence is preserved independently of test-environment diagnostics."
+}

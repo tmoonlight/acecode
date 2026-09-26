@@ -78,3 +78,22 @@ OK
 `git diff --check` 通过。系列不变量 §7.3 第 9 条的 Windows 构建边界
 由完整 File API 比较守护；macOS 的 OBJCXX、Deepin 定义及另外平台
 快照仍需真实 CI 复核，不能由 Windows 结果推断为通过。
+
+## 同步主线后的原始 G0 对照
+
+合入主线 `8acc3863` 后，在空闲工作树
+`C:/Users/shaoh/.codex/worktrees/refactor-tools/acecode` 检出本任务分支，
+验证提交为 `129f5106`。原已验证版本 `0a56e436` 到该提交的 CMake、
+src 与 tests 输入没有变化；迁移工具随主线同步。
+
+再次使用全新 `build-p0-04-latest` 进行 Desktop ON / Release 配置，
+32.578 秒完成，返回 0。此次直接对照 P0-07 在固定原始源码
+`3ddb7d433f280181292e5cd2eede612b17cc8b42` 上实际采集的 File API：
+59 个 target、3535 个元组仍逐项相同。不是用另一份当前工作树配置
+冒充原始 G0。完整比较摘要、输入 hash 与配置命令见
+[P0-04-windows-g0-diff.json](P0-04-windows-g0-diff.json)。
+
+原始 G0 测试阶段的临时目录隔离缺陷不影响这份配置期目标快照；测试
+证据正在另行补采，本记录不据此宣称全平台 G0 已完成。合入主线后的
+Python 工具集 56 项全部通过（50.446 秒）。未运行或声称完成新的
+C++ 全量构建，任务仍等待其余平台和远端 CI 验收。
