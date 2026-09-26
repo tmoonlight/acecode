@@ -70,23 +70,22 @@ FetchContent_MakeAvailable(webview)
 # helper 由根 CMakeLists.txt 里的 focused support target 提供,避免链接
 # acecode_testable 把 agent/TUI/web assets 全部拖入桌面壳。
 if(APPLE)
-    set(ACECODE_AGENT_BROWSER_HOST_SOURCE
-        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host_mac.mm)
-else()
-    set(ACECODE_AGENT_BROWSER_HOST_SOURCE
-        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp)
+    set(ACECODE_AGENT_BROWSER_HOST_SOURCE ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE})
 endif()
 
 set(ACECODE_DESKTOP_SOURCES
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
-    ${CMAKE_SOURCE_DIR}/src/desktop/main.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/splash_screen.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp
+    ${ACECODE_DESKTOP_MAIN_SOURCE}
+    ${ACECODE_DESKTOP_SPLASH_SOURCE}
+    ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
 )
 if(UNIX AND NOT APPLE)
     list(APPEND ACECODE_DESKTOP_SOURCES
-        ${CMAKE_SOURCE_DIR}/src/desktop/linux_desktop.cpp)
+        ${ACECODE_DESKTOP_LINUX_SOURCE})
 endif()
+
+# 当前选中的 shell 清单也校验，防止后续新增显式路径漏进共享登记表。
+acecode_require_sources("desktop shell sources" ${ACECODE_DESKTOP_SOURCES})
 
 # Windows 上,acecode-desktop 用 WIN32 子系统(无 console 黑窗)。
 # 同时挂上顶层 CMakeLists.txt 生成的 acecode.rc(已在 ACECODE_WINDOWS_RESOURCES 里),

@@ -12,7 +12,7 @@ else()
 endif()
 
 add_library(acecode_deepin_window_effects STATIC
-    ${CMAKE_SOURCE_DIR}/src/desktop/deepin_window_effects.cpp)
+    ${ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE})
 target_compile_definitions(acecode_deepin_window_effects PRIVATE
     ACECODE_DEEPIN=1 QT_NO_KEYWORDS)
 target_include_directories(acecode_deepin_window_effects PRIVATE

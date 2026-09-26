@@ -9,19 +9,22 @@ endif()
 
 project(acecode VERSION 0.9.27 LANGUAGES C CXX)
 
+include(${CMAKE_SOURCE_DIR}/cmake/acecode_source_guards.cmake)
+
 option(ACECODE_TUI_INPUT_TRACE "Enable verbose TUI input event trace logging." OFF)
 option(ACECODE_DEEPIN "Build the dedicated UOS/Deepin Linux variant." OFF)
 if(ACECODE_DEEPIN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "ACECODE_DEEPIN is supported only on Linux targets")
 endif()
-# The daemon needs the package identity, but must not acquire Qt/DTK linkage.
-set_property(SOURCE src/upgrade/manifest.cpp APPEND PROPERTY COMPILE_DEFINITIONS
-    "$<$<BOOL:${ACECODE_DEEPIN}>:ACECODE_DEEPIN=1>")
-
 # CTest integration: defines BUILD_TESTING (default ON). Release packaging can
 # disable it with -DBUILD_TESTING=OFF to skip the test binary and the gtest
 # lookup that `tests/` performs.
 include(CTest)
+include(${CMAKE_SOURCE_DIR}/cmake/acecode_source_paths.cmake)
+
+# The daemon needs the package identity, but must not acquire Qt/DTK linkage.
+acecode_set_source_define("${ACECODE_UPGRADE_MANIFEST_SOURCE}"
+    "$<$<BOOL:${ACECODE_DEEPIN}>:ACECODE_DEEPIN=1>")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -167,20 +170,49 @@ file(GLOB_RECURSE ACECODE_HEADER_FILES CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/src/*.hpp
     ${CMAKE_SOURCE_DIR}/src/*.h
 )
+file(GLOB_RECURSE ACECODE_OBJCXX_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/src/*.mm)
+acecode_assert_known_roots(ALLOW_LEGACY SOURCES
+    ${ACECODE_ALL_SOURCES} ${ACECODE_HEADER_FILES} ${ACECODE_OBJCXX_SOURCES})
+
+# 目录集合与 testable 子集分开登记。P2 将模块移进 tui/ 时沿用这些边界，
+# P3 只修改目录根；不要让正则失配把整套 TUI 静默送进 acecode_testable。
+set(ACECODE_TUI_DIRS
+    ${CMAKE_SOURCE_DIR}/src/tui
+    ${CMAKE_SOURCE_DIR}/src/markdown)
+set(ACECODE_TUI_TESTABLE_SUBSETS
+    commands/ resume/ path_reference/ markdown/
+    drag_scroll.cpp text_input_ops.cpp skill_commands.cpp)
+set(ACECODE_TUI_SOURCES)
+foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
+    if(NOT IS_DIRECTORY "${_tui_dir}")
+        message(FATAL_ERROR "TUI source directory does not exist: ${_tui_dir}")
+    endif()
+    foreach(_source IN LISTS ACECODE_ALL_SOURCES)
+        string(FIND "${_source}" "${_tui_dir}/" _position)
+        if(_position EQUAL 0)
+            list(APPEND ACECODE_TUI_SOURCES "${_source}")
+        endif()
+    endforeach()
+endforeach()
+list(REMOVE_DUPLICATES ACECODE_TUI_SOURCES)
+if(NOT ACECODE_TUI_SOURCES)
+    message(FATAL_ERROR "TUI source set is empty; check ACECODE_TUI_DIRS")
+endif()
 
 set(ACECODE_TESTABLE_SOURCES ${ACECODE_ALL_SOURCES})
-list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/main.cpp
-    ${CMAKE_SOURCE_DIR}/src/computer_use/helper_main.cpp
+set(ACECODE_TESTABLE_EXCLUDED_SOURCES
+    ${ACECODE_MAIN_SOURCE}
+    ${ACECODE_COMPUTER_USE_MAIN_SOURCE}
     ${CMAKE_SOURCE_DIR}/src/computer_use/native_windows.cpp)
-list(FILTER ACECODE_TESTABLE_SOURCES EXCLUDE REGEX "/src/(tui|markdown)/")
+acecode_require_sources("testable exclusions" ${ACECODE_TESTABLE_EXCLUDED_SOURCES})
+list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES
+    ${ACECODE_TESTABLE_EXCLUDED_SOURCES} ${ACECODE_TUI_SOURCES})
 
 # winpty_agent_location.cpp 属于 winpty_static(需要 winpty 内部 include 路径),
 # 不能同时进 acecode_testable,否则 findAgentProgram 符号重复。
 list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/web/pty/winpty_agent_location.cpp)
-set(ACECODE_TUI_SOURCES ${ACECODE_ALL_SOURCES})
-list(FILTER ACECODE_TUI_SOURCES INCLUDE REGEX "/src/(tui|markdown)/")
+    ${ACECODE_WINPTY_AGENT_LOCATION_SOURCE})
 
 set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/config/config.cpp
@@ -244,18 +276,23 @@ set(ACECODE_DESKTOP_SUPPORT_SOURCES
 # 里剔除。desktop/native helper 源文件改由 focused support target 拥有,
 # 这样 acecode-desktop 不需要链接 acecode_testable。
 set(ACECODE_DESKTOP_BINARY_ONLY_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/desktop/deepin_window_effects.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/linux_desktop.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host_mac.mm
-    ${CMAKE_SOURCE_DIR}/src/desktop/main.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/splash_screen.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp
+    ${ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE}
+    ${ACECODE_DESKTOP_LINUX_SOURCE}
+    ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
+    ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE}
+    ${ACECODE_DESKTOP_MAIN_SOURCE}
+    ${ACECODE_DESKTOP_SPLASH_SOURCE}
+    ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
 )
 set(ACECODE_NOTIFICATION_BACKEND_SOURCES
     ${CMAKE_SOURCE_DIR}/src/desktop/notifications_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/notifications_stub.cpp
 )
+foreach(_source_list IN ITEMS
+        ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES ACECODE_DESKTOP_SUPPORT_SOURCES
+        ACECODE_DESKTOP_BINARY_ONLY_SOURCES ACECODE_NOTIFICATION_BACKEND_SOURCES)
+    acecode_require_sources("${_source_list}" ${${_source_list}})
+endforeach()
 foreach(_f IN LISTS ACECODE_DESKTOP_BINARY_ONLY_SOURCES)
     list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES ${_f})
 endforeach()
@@ -312,8 +349,28 @@ set(ACECODE_TESTABLE_TUI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/tui/tool_row_format.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/tui_helpers.cpp
 )
+acecode_require_sources("testable TUI explicit sources" ${ACECODE_TESTABLE_TUI_SOURCES})
+foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
+    foreach(_subset IN LISTS ACECODE_TUI_TESTABLE_SUBSETS)
+        set(_subset_path "${_tui_dir}/${_subset}")
+        foreach(_source IN LISTS ACECODE_TUI_SOURCES)
+            if(_subset MATCHES "/$")
+                string(FIND "${_source}" "${_subset_path}" _position)
+                if(_position EQUAL 0)
+                    list(APPEND ACECODE_TESTABLE_TUI_SOURCES "${_source}")
+                endif()
+            elseif(_source STREQUAL _subset_path)
+                list(APPEND ACECODE_TESTABLE_TUI_SOURCES "${_source}")
+            endif()
+        endforeach()
+    endforeach()
+endforeach()
+list(REMOVE_DUPLICATES ACECODE_TESTABLE_TUI_SOURCES)
 list(APPEND ACECODE_TESTABLE_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
 list(REMOVE_ITEM ACECODE_TUI_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
+if(NOT ACECODE_TUI_SOURCES)
+    message(FATAL_ERROR "TUI-only source set is empty after testable subsets")
+endif()
 
 add_library(acecode_native_bridge_support STATIC
     ${ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES}
@@ -328,8 +385,7 @@ target_link_libraries(acecode_native_bridge_support PUBLIC
 if(APPLE)
     enable_language(OBJCXX)
     target_sources(acecode_native_bridge_support PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/desktop/folder_picker_mac.mm
-        ${CMAKE_SOURCE_DIR}/src/desktop/notifications_mac.mm
+        ${ACECODE_NATIVE_BRIDGE_MAC_SOURCES}
     )
     target_link_libraries(acecode_native_bridge_support PUBLIC
         "-framework AppKit"
@@ -367,12 +423,11 @@ target_link_libraries(acecode_desktop_support PUBLIC
 if(APPLE)
     enable_language(OBJCXX)
     set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/src/desktop/tray_icon_win.cpp
-        ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp
+        ${ACECODE_DESKTOP_OBJCXX_SOURCES}
         PROPERTIES LANGUAGE OBJCXX
     )
     set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/src/desktop/web_host.cpp
+        ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
         PROPERTIES COMPILE_OPTIONS "-Wno-auto-var-id"
     )
     target_link_libraries(acecode_desktop_support PUBLIC "-framework AppKit")
@@ -399,7 +454,7 @@ add_library(acecode_testable OBJECT
 if(APPLE)
     enable_language(OBJCXX)
     target_sources(acecode_testable PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/upgrade/macos_app_installer.mm
+        ${ACECODE_UPGRADE_MAC_SOURCE}
     )
     target_link_libraries(acecode_testable PUBLIC
         "-framework Foundation"
@@ -413,7 +468,7 @@ target_include_directories(acecode_testable PUBLIC
     ${CMAKE_SOURCE_DIR}/external/cpp-mcp/common
 )
 
-set_property(SOURCE src/channels/bridge.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+acecode_set_source_define("${ACECODE_CHANNEL_BRIDGE_SOURCE}"
     ACECODE_CHANNEL_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/channels/whatsapp")
 target_link_libraries(acecode_testable PUBLIC
     cpr::cpr
@@ -466,9 +521,7 @@ if(WIN32)
     # UI Automation lives outside the daemon: a hung application must remain
     # cancellable without terminating a conversation or the desktop shell.
     add_library(acecode_computer_use_native STATIC
-        src/computer_use/native_windows.cpp
-        src/computer_use/pointer_capture.cpp
-        src/computer_use/pointer_overlay.cpp)
+        ${ACECODE_COMPUTER_USE_WINDOWS_SOURCES})
     target_include_directories(acecode_computer_use_native PUBLIC ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(acecode_computer_use_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
     target_link_libraries(acecode_computer_use_native PUBLIC
@@ -477,25 +530,21 @@ if(WIN32)
     if(MSVC)
         target_link_libraries(acecode_computer_use_native PUBLIC windowsapp)
     endif()
-    add_executable(acecode-computer-use src/computer_use/helper_main.cpp)
+    add_executable(acecode-computer-use ${ACECODE_COMPUTER_USE_MAIN_SOURCE})
     target_link_libraries(acecode-computer-use PRIVATE acecode_computer_use_native)
     install(TARGETS acecode-computer-use RUNTIME DESTINATION . COMPONENT computer_use_runtime)
 elseif(APPLE)
     enable_language(OBJCXX)
     add_library(acecode_computer_use_native STATIC
-        src/computer_use/native_macos.mm
-        src/computer_use/macos_windows.mm
-        src/computer_use/macos_accessibility.mm
-        src/computer_use/macos_capture.mm
-        src/computer_use/macos_input.mm
-        src/computer_use/macos_pointer.mm)
+        ${ACECODE_COMPUTER_USE_MAC_SOURCES})
     set_target_properties(acecode_computer_use_native PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
     target_include_directories(acecode_computer_use_native PUBLIC ${CMAKE_SOURCE_DIR}/src)
     target_compile_options(acecode_computer_use_native PRIVATE -fobjc-arc -mmacosx-version-min=14.0)
     target_link_libraries(acecode_computer_use_native PUBLIC nlohmann_json::nlohmann_json
         "-framework AppKit" "-framework ApplicationServices" "-framework ScreenCaptureKit"
         "-framework ImageIO" "-framework Carbon")
-    add_executable(acecode-computer-use src/computer_use/helper_main.cpp src/computer_use/helper_main_macos.mm)
+    add_executable(acecode-computer-use
+        ${ACECODE_COMPUTER_USE_MAIN_SOURCE} ${ACECODE_COMPUTER_USE_MAC_MAIN_SOURCE})
     set_target_properties(acecode-computer-use PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
     target_compile_options(acecode-computer-use PRIVATE -mmacosx-version-min=14.0 "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
     target_link_options(acecode-computer-use PRIVATE -mmacosx-version-min=14.0)
@@ -504,7 +553,7 @@ elseif(APPLE)
 endif()
 
 add_executable(acecode
-    ${CMAKE_SOURCE_DIR}/src/main.cpp
+    ${ACECODE_MAIN_SOURCE}
     ${ACECODE_TUI_SOURCES}
     ${ACECODE_WINDOWS_RESOURCES}
 )
@@ -545,7 +594,7 @@ target_compile_definitions(acecode PRIVATE
 )
 
 source_group(TREE ${CMAKE_SOURCE_DIR} FILES
-    ${CMAKE_SOURCE_DIR}/src/main.cpp
+    ${ACECODE_MAIN_SOURCE}
     ${ACECODE_ALL_SOURCES}
     ${ACECODE_HEADER_FILES}
     ${CMAKE_SOURCE_DIR}/src/version.hpp.in

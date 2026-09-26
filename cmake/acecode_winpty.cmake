@@ -61,7 +61,7 @@ set(WINPTY_SHARED_SOURCES
 # ── libwinpty 静态库(客户端 API:winpty_open/spawn/conin_name/...) ──────
 add_library(winpty_static STATIC
     ${WINPTY_SRC}/libwinpty/winpty.cc
-    ${CMAKE_SOURCE_DIR}/src/web/pty/winpty_agent_location.cpp
+    ${ACECODE_WINPTY_AGENT_LOCATION_SOURCE}
     ${WINPTY_SHARED_SOURCES}
 )
 target_include_directories(winpty_static PUBLIC
