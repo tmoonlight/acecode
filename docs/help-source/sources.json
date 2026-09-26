@@ -36,7 +36,7 @@
     "article": "更新与卸载",
     "file": "update-uninstall.html",
     "sources": [
-      "src/tui/cli_dispatch.cpp",
+      "src/main.cpp",
       "npm/cli/README.md",
       "npm/desktop/README.md",
       "docs/macos-release.md",

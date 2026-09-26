@@ -535,11 +535,6 @@ install(FILES
     "${CMAKE_SOURCE_DIR}/assets/channels/whatsapp/package.json"
     "${CMAKE_SOURCE_DIR}/assets/channels/whatsapp/package-lock.json"
     DESTINATION channels/whatsapp COMPONENT whatsapp_channel)
-if(WIN32)
-    # main.cpp and tui/ime_windows.cpp use the Windows IME API. MSVC also
-    # accepts #pragma comment(lib), while MinGW requires the explicit target.
-    target_link_libraries(acecode PRIVATE imm32)
-endif()
 target_compile_definitions(acecode PRIVATE
     $<$<BOOL:${ACECODE_TUI_INPUT_TRACE}>:ACECODE_TUI_INPUT_TRACE=1>
 )
