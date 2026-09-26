@@ -11,7 +11,7 @@
 
 ## 1. 前置(可在 restructure 的 Phase 0 期间做,不依赖搬迁)
 
-- [ ] 1.1 【P0-10】【子】删除 agent_loop 的死代码与无用参数。
+- [ ] 1.1 【P0-10】【子】删除 agent_loop 的死代码与无用参数。〔认领: Codex-root 2026-09-27〕
   - 删除 hpp:`786-797`(`emit_progress_tick` 声明,没有定义)、`653-655`(过时注释)、`545/554-556`(`run_agent` / `run_agent_with_display` 声明);
   - 删除 cpp:`2857-2868`(这两个函数的实现)、`431-434`(匿名 `is_hidden_goal_context_message`,实际调用的是 web:: 版本);
   - 删除 `build_tool_context` 的 3 个无用参数(`emit_progress`、`doom_guard`、`doom_guard_mu`)、`execute_tool_calls` 的 `turn_timing_status` 参数、`ToolCallEntry::is_read_only`。

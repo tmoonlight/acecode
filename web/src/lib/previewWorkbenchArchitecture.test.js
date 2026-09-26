@@ -1,3 +1,4 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
@@ -58,8 +59,8 @@ run('preview plus button follows the last tab until measured overflow pins it', 
 run('preview file action uses the native single-file picker when present and the web picker otherwise', () => {
   const picker = source('./desktopPreviewFilePicker.js');
   const chat = source('../components/ChatView.jsx');
-  const desktop = source('../../../src/desktop/main.cpp');
-  const nativePicker = source('../../../src/desktop/context_picker.cpp');
+  const desktop = readCppSource('desktop/main.cpp');
+  const nativePicker = readCppSource('desktop/context_picker.cpp');
   const singleFilePicker = between(
     nativePicker,
     'SingleFilePickOutcome pick_single_file(',

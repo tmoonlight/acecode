@@ -1,6 +1,5 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import {
   installNativeFileDropRouter,
   nativeFileDropTarget,
@@ -137,8 +136,8 @@ run('uses the topmost element and rejects overlays or invalid coordinates', () =
 });
 
 run('native bridge rejects invalid required coordinates instead of legacy fallback', () => {
-  const main = readFileSync(fileURLToPath(new URL('../../../src/desktop/main.cpp', import.meta.url)), 'utf8');
-  const host = readFileSync(fileURLToPath(new URL('../../../src/desktop/web_host.cpp', import.meta.url)), 'utf8');
+  const main = readCppSource('desktop/main.cpp');
+  const host = readCppSource('desktop/web_host.cpp');
   assert.match(host, /FileDropContext\{location, true\}/);
   assert.match(main, /if\(" \+ coordinate_required \+ "\)\{return;\}/);
   assert.ok(main.indexOf('if(" + coordinate_required + "){return;}') < main.indexOf('var legacy=p.paths;'));
