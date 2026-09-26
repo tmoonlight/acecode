@@ -1,0 +1,45 @@
+{
+  "base_sha": "5c05129c275d748b0640651dedeca5df391bc427",
+  "build_validation": "not run",
+  "changed_paths": [
+    "main.cpp",
+    "src/commands/builtin_commands.cpp",
+    "src/tui/picker_scroll.hpp",
+    "src/tui/slash_dropdown.cpp",
+    "src/tui_state.hpp"
+  ],
+  "cherry": [
+    "+ 3f6a2fe274cff6becfc3e132ede23736c9bc369d"
+  ],
+  "conflicts": [
+    "main.cpp",
+    "src/commands/builtin_commands.cpp",
+    "src/tui/slash_dropdown.cpp"
+  ],
+  "destination": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\06-current-rebase",
+  "git_rebase": {
+    "returncode": 1,
+    "stderr": "Rebasing (1/3)\rRebasing (2/3)\rRebasing (3/3)\rerror: could not apply 3f6a2fe2... feat(tui): /model 改成 FTXUI 选择器 + 内联键位\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nCould not apply 3f6a2fe2... feat(tui): /model 改成 FTXUI 选择器 + 内联键位\n",
+    "stdout": "CONFLICT (modify/delete): main.cpp deleted in HEAD and modified in 3f6a2fe2 (feat(tui): /model 改成 FTXUI 选择器 + 内联键位).  Version 3f6a2fe2 (feat(tui): /model 改成 FTXUI 选择器 + 内联键位) of main.cpp left in tree.\nAuto-merging src/commands/builtin_commands.cpp\nCONFLICT (content): Merge conflict in src/commands/builtin_commands.cpp\nAuto-merging src/tui/slash_dropdown.cpp\nCONFLICT (content): Merge conflict in src/tui/slash_dropdown.cpp\nAuto-merging src/tui_state.hpp\n"
+  },
+  "head_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "integration_ready": false,
+  "inventory_ref": "refs/remotes/origin/claude/multi-model-config-design-wWhDX",
+  "issues": [],
+  "layout": "current",
+  "map_sha256": "379dab9f88d102df860934c4d635d990285a88906196e3b5ce53fef804e11c78",
+  "mode": "rebase",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "onto_ref": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "onto_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "original_refs_untouched": true,
+  "projection": false,
+  "reason": "CONFLICT (modify/delete): main.cpp deleted in HEAD and modified in 3f6a2fe2 (feat(tui): /model 改成 FTXUI 选择器 + 内联键位).  Version 3f6a2fe2 (feat(tui): /model 改成 FTXUI 选择器 + 内联键位) of main.cpp left in tree.\nCONFLICT (content): Merge conflict in src/commands/builtin_commands.cpp\nCONFLICT (content): Merge conflict in src/tui/slash_dropdown.cpp\nerror: could not apply 3f6a2fe2... feat(tui): /model 改成 FTXUI 选择器 + 内联键位",
+  "report_file": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\06-current-rebase\\.git\\refactor-migration\\report.json",
+  "schema": 1,
+  "source_ref": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+  "source_sha": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+  "status": "DU main.cpp\nUU src/commands/builtin_commands.cpp\nM  src/tui/picker_scroll.hpp\nUU src/tui/slash_dropdown.cpp\nM  src/tui_state.hpp\n",
+  "success": false,
+  "target_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a"
+}

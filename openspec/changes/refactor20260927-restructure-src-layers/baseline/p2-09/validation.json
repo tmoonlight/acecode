@@ -1,0 +1,44 @@
+{
+  "doc_generation": {
+    "dry_run": true,
+    "exit_code": 0,
+    "fixture_base": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+    "projection_only": true,
+    "report": "projection-doc-plan.json",
+    "source_of_fixture": "initial directory projection of the same fixed base; source path inventory is unchanged by the later CMake-relative-path correction"
+  },
+  "fixed_base": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "legacy_rehearsal": {
+    "blocked_before_git": 2,
+    "git_commands_returning_one": 25,
+    "manifest": "final/manifest.json",
+    "operations": 27,
+    "ref_count": 9,
+    "scenarios_per_ref": 3,
+    "source_index_unchanged": true,
+    "source_refs_unchanged": true,
+    "source_working_diff_unchanged": true
+  },
+  "schema": 1,
+  "scope": "No production source moves or seed bump; no original branch rewrite; no pushes, PRs, task checkboxes or actual post-freeze/build acceptance.",
+  "seed_plan": {
+    "dry_run": true,
+    "exit_code": 0,
+    "report": "current-seed-plan.json"
+  },
+  "source_tree": "08248d5b5d14693726994eb2ccec177a6082ebe0",
+  "static_final_check_on_current_old_layout": {
+    "exit_code": 1,
+    "expected_unfinished_layout": true,
+    "report": "current-check.json",
+    "total": 4823
+  },
+  "tests": {
+    "command": "python -m unittest discover -s scripts/refactor/tests -p test_*.py -v",
+    "duration_seconds": 65.687,
+    "exit_code": 0,
+    "passed": 50
+  },
+  "tests_tree": "bd25d5c71301b89d52f3b02a2bc8e90d19e5a32c",
+  "tool_validation_commit": "2cd7bc6494c1b40ecfde8cc2e876cdb2342ea0a8"
+}

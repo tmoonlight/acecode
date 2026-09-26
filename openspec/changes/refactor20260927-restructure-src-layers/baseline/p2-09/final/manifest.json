@@ -1,0 +1,448 @@
+{
+  "finished_utc": "2026-09-26T19:02:45.315245+00:00",
+  "fixed_base": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "inventory_base": "e15df9eadfaf05a170fd8b83fb26939452e2d3e9",
+  "isolated_root": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny",
+  "limit": "Current modes use the real pre-P2/P3 base. Projection is explicitly synthetic and not a build/freeze acceptance. A Git failure or semantic extraction requires manual porting; none of these feature branches is approved or merged.",
+  "original_refs_unchanged": true,
+  "runs": [
+    {
+      "conflicts": [],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'CMakeLists.txt' with conflicts.\nerror: main.cpp: does not exist in index\nerror: src/tool/ask_overlay_input.hpp: does not exist in index\nApplied patch to 'web/src/components/ChatView.jsx' with conflicts.\nApplied patch to 'web/src/lib/transcriptProjection.js' with conflicts.",
+      "ref": "refs/remotes/origin/chatview_optimize",
+      "report": "01-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "3e5bbb440ba7be3420b0844d6c62a9eeea0a5bca",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "CMakeLists.txt",
+        "main.cpp",
+        "src/tool/ask_overlay_input.hpp",
+        "web/src/components/ChatView.jsx",
+        "web/src/lib/transcriptProjection.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (content): Merge conflict in CMakeLists.txt\nCONFLICT (modify/delete): main.cpp deleted in HEAD and modified in 3e5bbb44 (Add tests for ChatViewport and related components; enhance Markdown rendering).  Version 3e5bbb44 (Add tests for ChatViewport and related components; enhance Markdown rendering) of main.cpp left in tree.\nCONFLICT (modify/delete): src/tool/ask_overlay_input.hpp deleted in HEAD and modified in 3e5bbb44 (Add tests for ChatViewport and related components; enhance Markdown rendering).  Version 3e5bbb44 (Add tests for ChatViewport and related components; enhance Markdown rendering) of src/tool/ask_overlay_input.hpp left in tree.\nCONFLICT (content): Merge conflict in web/src/components/ChatView.jsx\nCONFLICT (content): Merge conflict in web/src/lib/transcriptProjection.js\nerror: could not apply 3e5bbb44... Add tests for ChatViewport and related components; enhance Markdown rendering",
+      "ref": "refs/remotes/origin/chatview_optimize",
+      "report": "01-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "3e5bbb440ba7be3420b0844d6c62a9eeea0a5bca",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'CMakeLists.txt' with conflicts.\nerror: main.cpp: does not exist in index\nerror: src/adapters/tool/ask_overlay_input.hpp: does not exist in index\nApplied patch to 'web/src/components/ChatView.jsx' with conflicts.\nApplied patch to 'web/src/lib/transcriptProjection.js' with conflicts.",
+      "ref": "refs/remotes/origin/chatview_optimize",
+      "report": "01-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "3e5bbb440ba7be3420b0844d6c62a9eeea0a5bca",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "error: main.cpp: does not exist in index\nApplied patch to 'src/tool/builtin_tool_registry.hpp' with conflicts.\nApplied patch to 'src/tool/show_image_tool.cpp' with conflicts.\nApplied patch to 'src/tui_state.hpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/ai-image-sharing-tool-8ewihy",
+      "report": "02-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "main.cpp",
+        "src/tool/builtin_tool_registry.hpp",
+        "src/tool/show_image_tool.cpp",
+        "src/tui_state.hpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (modify/delete): main.cpp deleted in HEAD and modified in 3dd26983 (Add show_image tool for AI image sharing (desktop → TUI)).  Version 3dd26983 (Add show_image tool for AI image sharing (desktop → TUI)) of main.cpp left in tree.\nCONFLICT (content): Merge conflict in src/tool/builtin_tool_registry.hpp\nCONFLICT (add/add): Merge conflict in src/tool/show_image_tool.cpp\nCONFLICT (content): Merge conflict in src/tui_state.hpp\nerror: could not apply 3dd26983... Add show_image tool for AI image sharing (desktop → TUI)",
+      "ref": "refs/remotes/origin/claude/ai-image-sharing-tool-8ewihy",
+      "report": "02-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "error: main.cpp: does not exist in index\nApplied patch to 'src/adapters/tool/builtin_tool_registry.hpp' with conflicts.\nApplied patch to 'src/adapters/tool/show_image_tool.cpp' with conflicts.\nApplied patch to 'src/apps/tui/tui_state.hpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/ai-image-sharing-tool-8ewihy",
+      "report": "02-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/desktop/main.cpp",
+        "src/desktop/web_host.cpp",
+        "src/web/server.cpp",
+        "tests/web/web_server_smoke_test.cpp",
+        "web/src/components/DesktopContextMenu.jsx",
+        "web/src/components/Sidebar.jsx",
+        "web/src/lib/api.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'src/desktop/main.cpp' with conflicts.\nApplied patch to 'src/desktop/web_host.cpp' with conflicts.\nApplied patch to 'src/web/server.cpp' with conflicts.\nApplied patch to 'tests/web/web_server_smoke_test.cpp' with conflicts.\nApplied patch to 'web/src/components/DesktopContextMenu.jsx' with conflicts.\nApplied patch to 'web/src/components/Sidebar.jsx' with conflicts.\nApplied patch to 'web/src/lib/api.js' with conflicts.",
+      "ref": "refs/remotes/origin/claude/debug-acecode-crash-XNWgr",
+      "report": "03-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "405a71ec63c4d929f51f212e40f748046c909d00",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/desktop/main.cpp",
+        "src/desktop/web_host.cpp",
+        "src/desktop/webview2_runtime_probe.cpp",
+        "src/desktop/webview2_runtime_probe.hpp",
+        "src/web/server.cpp",
+        "tests/desktop/webview2_runtime_probe_test.cpp",
+        "web/src/components/DesktopContextMenu.jsx",
+        "web/src/components/Sidebar.jsx",
+        "web/src/lib/api.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (content): Merge conflict in src/desktop/main.cpp\nCONFLICT (content): Merge conflict in src/desktop/web_host.cpp\nCONFLICT (add/add): Merge conflict in src/desktop/webview2_runtime_probe.cpp\nCONFLICT (add/add): Merge conflict in src/desktop/webview2_runtime_probe.hpp\nCONFLICT (content): Merge conflict in src/web/server.cpp\nCONFLICT (add/add): Merge conflict in tests/desktop/webview2_runtime_probe_test.cpp\nCONFLICT (content): Merge conflict in web/src/components/DesktopContextMenu.jsx\nCONFLICT (content): Merge conflict in web/src/components/Sidebar.jsx\nCONFLICT (content): Merge conflict in web/src/lib/api.js",
+      "ref": "refs/remotes/origin/claude/debug-acecode-crash-XNWgr",
+      "report": "03-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "405a71ec63c4d929f51f212e40f748046c909d00",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/apps/desktop/main.cpp",
+        "src/apps/desktop/web_host.cpp",
+        "src/apps/web/server.cpp",
+        "tests/web/web_server_smoke_test.cpp",
+        "web/src/components/DesktopContextMenu.jsx",
+        "web/src/components/Sidebar.jsx",
+        "web/src/lib/api.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'src/apps/desktop/main.cpp' with conflicts.\nApplied patch to 'src/apps/desktop/web_host.cpp' with conflicts.\nApplied patch to 'src/apps/web/server.cpp' with conflicts.\nApplied patch to 'tests/web/web_server_smoke_test.cpp' with conflicts.\nApplied patch to 'web/src/components/DesktopContextMenu.jsx' with conflicts.\nApplied patch to 'web/src/components/Sidebar.jsx' with conflicts.\nApplied patch to 'web/src/lib/api.js' with conflicts.",
+      "ref": "refs/remotes/origin/claude/debug-acecode-crash-XNWgr",
+      "report": "03-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "405a71ec63c4d929f51f212e40f748046c909d00",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "web/scripts/i18n-en-overrides.mjs",
+        "web/src/components/SettingsPage.jsx",
+        "web/src/i18n/sourceCatalog.generated.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'web/scripts/i18n-en-overrides.mjs' with conflicts.\nApplied patch to 'web/src/components/SettingsPage.jsx' with conflicts.\nApplied patch to 'web/src/i18n/sourceCatalog.generated.js' with conflicts.",
+      "ref": "refs/remotes/origin/claude/desktop-skill-error-handling-r3j2h8",
+      "report": "04-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "241304a8f0fbbea1899360c77c4e74d1e811b001",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "web/scripts/i18n-en-overrides.mjs",
+        "web/src/components/SettingsPage.jsx",
+        "web/src/i18n/sourceCatalog.generated.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (content): Merge conflict in web/scripts/i18n-en-overrides.mjs\nCONFLICT (content): Merge conflict in web/src/components/SettingsPage.jsx\nCONFLICT (content): Merge conflict in web/src/i18n/sourceCatalog.generated.js\nerror: could not apply 241304a8... fix(skills): a malformed SKILL.md must not 500 the whole skills page",
+      "ref": "refs/remotes/origin/claude/desktop-skill-error-handling-r3j2h8",
+      "report": "04-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "241304a8f0fbbea1899360c77c4e74d1e811b001",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "web/scripts/i18n-en-overrides.mjs",
+        "web/src/components/SettingsPage.jsx",
+        "web/src/i18n/sourceCatalog.generated.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'web/scripts/i18n-en-overrides.mjs' with conflicts.\nApplied patch to 'web/src/components/SettingsPage.jsx' with conflicts.\nApplied patch to 'web/src/i18n/sourceCatalog.generated.js' with conflicts.",
+      "ref": "refs/remotes/origin/claude/desktop-skill-error-handling-r3j2h8",
+      "report": "04-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "241304a8f0fbbea1899360c77c4e74d1e811b001",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'src/agent_loop.cpp' with conflicts.\nApplied patch to 'src/agent_loop.hpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/fix-desktop-context-compression-tkOxK",
+      "report": "05-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "b893da6d8da696df2dbb92bc4f0cdeb967791411",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (content): Merge conflict in src/agent_loop.cpp\nCONFLICT (content): Merge conflict in src/agent_loop.hpp\nerror: could not apply b893da6d... fix: auto-compact context for daemon/desktop sessions",
+      "ref": "refs/remotes/origin/claude/fix-desktop-context-compression-tkOxK",
+      "report": "05-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "b893da6d8da696df2dbb92bc4f0cdeb967791411",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/engine/agent/agent_loop.cpp",
+        "src/engine/agent/agent_loop.hpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/fix-desktop-context-compression-tkOxK",
+      "report": "05-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "b893da6d8da696df2dbb92bc4f0cdeb967791411",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "error: main.cpp: does not exist in index\nApplied patch to 'src/commands/builtin_commands.cpp' with conflicts.\nApplied patch to 'src/tui/slash_dropdown.cpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/multi-model-config-design-wWhDX",
+      "report": "06-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "main.cpp",
+        "src/commands/builtin_commands.cpp",
+        "src/tui/slash_dropdown.cpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (modify/delete): main.cpp deleted in HEAD and modified in 3f6a2fe2 (feat(tui): /model 改成 FTXUI 选择器 + 内联键位).  Version 3f6a2fe2 (feat(tui): /model 改成 FTXUI 选择器 + 内联键位) of main.cpp left in tree.\nCONFLICT (content): Merge conflict in src/commands/builtin_commands.cpp\nCONFLICT (content): Merge conflict in src/tui/slash_dropdown.cpp\nerror: could not apply 3f6a2fe2... feat(tui): /model 改成 FTXUI 选择器 + 内联键位",
+      "ref": "refs/remotes/origin/claude/multi-model-config-design-wWhDX",
+      "report": "06-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "error: main.cpp: does not exist in index\nApplied patch to 'src/apps/tui/commands/builtin_commands.cpp' with conflicts.\nApplied patch to 'src/apps/tui/slash_dropdown.cpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/multi-model-config-design-wWhDX",
+      "report": "06-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp",
+        "src/session/session_pin_store.cpp",
+        "src/session/session_pin_store.hpp",
+        "src/tool/tool_executor.cpp",
+        "src/web/handlers/pinned_sessions_handler.cpp",
+        "src/web/handlers/pinned_sessions_handler.hpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'src/agent_loop.cpp' with conflicts.\nApplied patch to 'src/agent_loop.hpp' with conflicts.\nApplied patch to 'src/session/session_pin_store.cpp' with conflicts.\nApplied patch to 'src/session/session_pin_store.hpp' with conflicts.\nApplied patch to 'src/tool/tool_executor.cpp' with conflicts.\nApplied patch to 'src/web/handlers/pinned_sessions_handler.cpp' with conflicts.\nApplied patch to 'src/web/handlers/pinned_sessions_handler.hpp' with conflicts.",
+      "ref": "refs/remotes/origin/codex/add-self-session-control",
+      "report": "07-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp",
+        "src/session/session_pin_store.cpp",
+        "src/session/session_pin_store.hpp",
+        "src/tool/tool_executor.cpp",
+        "src/web/handlers/pinned_sessions_handler.cpp",
+        "src/web/handlers/pinned_sessions_handler.hpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (content): Merge conflict in src/agent_loop.cpp\nCONFLICT (content): Merge conflict in src/agent_loop.hpp\nCONFLICT (add/add): Merge conflict in src/session/session_pin_store.cpp\nCONFLICT (add/add): Merge conflict in src/session/session_pin_store.hpp\nCONFLICT (content): Merge conflict in src/tool/tool_executor.cpp\nCONFLICT (content): Merge conflict in src/web/handlers/pinned_sessions_handler.cpp\nCONFLICT (content): Merge conflict in src/web/handlers/pinned_sessions_handler.hpp\nerror: could not apply 1ce71fe0... WIP: preserve self session control implementation",
+      "ref": "refs/remotes/origin/codex/add-self-session-control",
+      "report": "07-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": null,
+      "issues": [
+        {
+          "file": "src/tool/tool_executor.hpp",
+          "kind": "semantic_extract",
+          "reason": "Extract ToolResult and ToolSummary",
+          "target": "src/domain/llm/tool_result.hpp"
+        },
+        {
+          "file": "src/web/handlers/pinned_sessions_handler.cpp",
+          "kind": "deleted_source",
+          "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+        }
+      ],
+      "reason": "changed legacy files were deleted upstream; a mechanical patch would lose or resurrect work",
+      "ref": "refs/remotes/origin/codex/add-self-session-control",
+      "report": "07-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'docs/daemon-api.md' with conflicts.\nApplied patch to 'src/agent_loop.cpp' with conflicts.\nApplied patch to 'src/main.cpp' with conflicts.\nerror: src/tool/ask_overlay_input.hpp: does not exist in index\nApplied patch to 'src/tool/ask_user_question_tool.cpp' with conflicts.\nerror: src/tui/ask_question_overlay.cpp: does not exist in index\nerror: src/tui/ask_question_overlay.hpp: does not exist in index\nApplied patch to 'src/tui/tui_ask_channel.cpp' with conflicts.\nApplied patch to 'src/tui/tui_helpers.cpp' with conflicts.\nApplied patch to 'src/tui/tui_init.cpp' with conflicts.\nApplied patch to 'src/tui_state.hpp' with conflicts.\nerror: tests/tool/ask_overlay_input_test.cpp: does not exist in index\nApplied patch to 'tests/tool/ask_user_question_tool_test.cpp' with conflicts.\nerror: tests/tui/ask_question_overlay_test.cpp: does not exist in index\nApplied patch to 'tests/tui/tui_input_wrapping_test.cpp' with conflicts.\nApplied patch to 'web/src/components/QuestionPicker.jsx' with conflicts.\nApplied patch to 'web/src/lib/questionPicker.js' with conflicts.\nApplied patch to 'web/src/lib/questionPicker.test.js' with conflicts.",
+      "ref": "refs/remotes/origin/docs/askuserquestion-dual-entry-design",
+      "report": "08-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "de8f8c986ff6ff338a04d7aedafc0028ad84bd56",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "docs/daemon-api.md",
+        "src/tool/ask_user_question_tool.cpp"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (content): Merge conflict in docs/daemon-api.md\nCONFLICT (content): Merge conflict in src/tool/ask_user_question_tool.cpp\nerror: could not apply 85550d69... feat: 双入口协议层与 format_single_answer 纯函数",
+      "ref": "refs/remotes/origin/docs/askuserquestion-dual-entry-design",
+      "report": "08-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "de8f8c986ff6ff338a04d7aedafc0028ad84bd56",
+      "success": false
+    },
+    {
+      "conflicts": [],
+      "git_returncode": null,
+      "issues": [
+        {
+          "file": "src/tool/tool_executor.hpp",
+          "kind": "semantic_extract",
+          "reason": "Extract ToolResult and ToolSummary",
+          "target": "src/domain/llm/tool_result.hpp"
+        },
+        {
+          "file": "src/tui/tui_init.cpp",
+          "kind": "deleted_source",
+          "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+        }
+      ],
+      "reason": "changed legacy files were deleted upstream; a mechanical patch would lose or resurrect work",
+      "ref": "refs/remotes/origin/docs/askuserquestion-dual-entry-design",
+      "report": "08-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "de8f8c986ff6ff338a04d7aedafc0028ad84bd56",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp",
+        "src/prompt/system_prompt.cpp",
+        "src/prompt/system_prompt.hpp",
+        "src/session/session_registry.cpp",
+        "src/session/session_registry.hpp",
+        "web/src/lib/settingsSearch.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "Applied patch to 'src/agent_loop.cpp' with conflicts.\nApplied patch to 'src/agent_loop.hpp' with conflicts.\nApplied patch to 'src/prompt/system_prompt.cpp' with conflicts.\nApplied patch to 'src/prompt/system_prompt.hpp' with conflicts.\nApplied patch to 'src/session/session_registry.cpp' with conflicts.\nApplied patch to 'src/session/session_registry.hpp' with conflicts.\nApplied patch to 'web/src/lib/settingsSearch.js' with conflicts.",
+      "ref": "refs/remotes/origin/jb",
+      "report": "09-current-patch.json",
+      "scenario": "current-patch",
+      "source_sha": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp",
+        "src/prompt/system_prompt.cpp",
+        "src/prompt/system_prompt.hpp",
+        "src/session/session_registry.cpp",
+        "src/session/session_registry.hpp",
+        "web/src/lib/settingsSearch.js"
+      ],
+      "git_returncode": 1,
+      "issues": [],
+      "reason": "CONFLICT (content): Merge conflict in src/agent_loop.cpp\nCONFLICT (content): Merge conflict in src/agent_loop.hpp\nCONFLICT (content): Merge conflict in src/prompt/system_prompt.cpp\nCONFLICT (content): Merge conflict in src/prompt/system_prompt.hpp\nCONFLICT (content): Merge conflict in src/session/session_registry.cpp\nCONFLICT (content): Merge conflict in src/session/session_registry.hpp\nCONFLICT (content): Merge conflict in web/src/lib/settingsSearch.js\nerror: could not apply 6f49c00e... feat: 开发者模式增加默认关闭的 JB 开关",
+      "ref": "refs/remotes/origin/jb",
+      "report": "09-current-rebase.json",
+      "scenario": "current-rebase",
+      "source_sha": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+      "success": false
+    },
+    {
+      "conflicts": [
+        "src/engine/agent/agent_loop.cpp",
+        "src/engine/agent/agent_loop.hpp",
+        "src/engine/prompt/system_prompt.cpp",
+        "src/engine/prompt/system_prompt.hpp",
+        "src/host/session_host/session_registry.cpp",
+        "src/host/session_host/session_registry.hpp",
+        "web/src/lib/settingsSearch.js"
+      ],
+      "git_returncode": 1,
+      "issues": [
+        {
+          "file": "src/config/config.cpp",
+          "kind": "semantic_extract",
+          "reason": "Extract get_acecode_dir/get_run_dir/get_logs_dir",
+          "target": "src/base/utils/paths.cpp"
+        }
+      ],
+      "reason": "Applied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.\nApplied patch to 'src/engine/prompt/system_prompt.cpp' with conflicts.\nApplied patch to 'src/engine/prompt/system_prompt.hpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.cpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.hpp' with conflicts.\nApplied patch to 'web/src/lib/settingsSearch.js' with conflicts.",
+      "ref": "refs/remotes/origin/jb",
+      "report": "09-projection-patch.json",
+      "scenario": "projection-patch",
+      "source_sha": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+      "success": false
+    }
+  ],
+  "schema": 1,
+  "source_index_unchanged": true,
+  "source_working_diff_unchanged": true,
+  "started_utc": "2026-09-26T18:57:14.457969+00:00",
+  "tool_head": "2cd7bc6494c1b40ecfde8cc2e876cdb2342ea0a8"
+}

@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 from fnmatch import fnmatchcase
 from pathlib import Path
+import posixpath
 import re
 
 from repo_files import emit_json, repo_root, tracked_files
 
-PATH = re.compile(r"(?<![A-Za-z0-9_./\\-])(?:src|tests)/[A-Za-z0-9_./{}*?,+\-]+")
+PATH = re.compile(r"(?<![A-Za-z0-9_./\\-])(?:\./|(?:\.\./)+)?(?:src|tests)/[A-Za-z0-9_./{}*?,+\-]+")
 
 
 def expand_braces(value: str) -> list[str]:
@@ -40,6 +41,8 @@ def inspect(root: Path, files: list[str]) -> dict:
                 continue
             for target in expand_braces(raw):
                 target = target.rstrip("/")
+                if target.startswith(("./", "../")):
+                    target = posixpath.normpath(Path(path).parent.as_posix() + "/" + target)
                 checked += 1
                 if not any(fnmatchcase(candidate, target) for candidate in known):
                     findings.append({"file": path, "line": line, "path": target, "message": "documentation path is not tracked"})
