@@ -41,8 +41,8 @@ particular base; `validate_map` lists these explicitly.
 Layer checks use the canonical mapping during P0-P2. `--layout final` rejects
 legacy source roots. The default `auto` switches to final as soon as grouped
 source files exist; use `--layout transition` explicitly during a rehearsal.
-The mapping is not a permission to move or delete files: these tools are checks,
-except for the explicitly named include normalization and baseline capture modes.
+The mapping does not authorize deleting files. Mutation is limited to explicitly
+selected normalization, baseline capture and migration modes described below.
 
 ## Commands
 
@@ -134,3 +134,74 @@ The tests create temporary Git repositories, preserve mixed line endings,
 exercise nested-worktree isolation and deliberate rule violations, and configure
 a real CMake C++ project with an excluded executable and source-specific defines.
 A working CMake C++ compiler is required for that integration test.
+
+## Legacy branch migration (P2-09)
+
+`migrate_branch.py` has five modes. `rebase` and `patch` always create a **new
+isolated repository**, outside all existing worktrees. They do not fetch, push,
+change source refs, modify a user's checkout/index, or initialize submodules.
+The destination must not already exist. It remains available on failure, with
+conflicts and the full JSON report under `.git/refactor-migration/`.
+
+```sh
+python scripts/refactor/migrate_branch.py rebase origin/legacy --onto POST_FREEZE_SHA --destination ../migration-rebase --output rebase.json
+python scripts/refactor/migrate_branch.py patch origin/legacy --onto POST_FREEZE_SHA --destination ../migration-patch --output patch.json
+python scripts/refactor/migrate_branch.py --apply-map --repo ../migration-patch --dry-run
+python scripts/refactor/migrate_branch.py --apply-map --repo ../migration-patch
+python scripts/refactor/migrate_branch.py --docs --repo ../migration-patch
+python scripts/refactor/migrate_branch.py --docs --repo ../migration-patch --seed-version YYYY-MM-DD.N
+python scripts/refactor/migrate_branch.py --check --repo ../migration-patch --output check.json
+```
+
+- `rebase` uses `--rebase-merges --no-update-refs` in the isolated repository,
+  preserving the legacy commit sequence and letting Git follow directory moves.
+  The source and target SHA and merge base are pinned before cloning. `--base`
+  selects another verified ancestor when the branch requires it.
+- `patch` migrates the aggregate merge-base-to-branch delta, including files
+  outside C++. It projects both old and new blobs **before** producing a binary,
+  full-index patch, then actually runs `git apply --3way --index`. It never edits
+  hunk text or leaves stale blob hashes. A companion `patch-objects.bundle`
+  supplies the transformed base objects required to apply the exported patch in
+  another repository (`git fetch BUNDLE migration-patch-base migration-patch-head`
+  before `git apply --3way --index PATCH`). Git's raw diagnostics and unmerged
+  paths are retained. Patch-equivalent commits and merge history are visible in
+  the `cherry` record; this aggregate route does not claim to preserve commits.
+- `--apply-map` moves indexed files and normalizes includes/build references
+  using the longest path mapping. Includes are resolved against the old file
+  inventory, so a bare include follows a file moved to a different module.
+  Mixed EOLs, missing final newlines, binary data and all unrelated bytes stay
+  unchanged. The plan refuses collisions, untracked destinations, symlinks,
+  ambiguous includes, deletes and semantic extraction rows before writing.
+  There is no automatic delete or semantic split. A changed legacy file which
+  was deleted upstream blocks patch generation; extraction issues remain
+  explicit even if Git happens to apply cleanly. `--dry-run` writes nothing.
+- `--docs` updates authored root/docs paths, then runs the help builder in a
+  temporary snapshot containing only indexed inputs. Only tracked generated
+  outputs are copied back; `sources.json` and `search-index.js` are never regex
+  edited. A failed builder prevents **all** document writes. Active OpenSpec
+  designs receive a map fingerprint note; their historical text, archive and
+  specs are preserved. `--docs --seed-version VERSION` is a **separate seed-only
+  transaction/commit**: mapped SKILLs, seed.version, MANIFEST bundle_version,
+  canonical-LF hashes and exact prior bundle-version test literals change
+  together. Older upgrade fixtures are retained. The current packaged test reads
+  the bundle version dynamically, so there are no current literals to replace.
+- `--check` is read-only and **blocking**, unlike the report-mode lint tools.
+  It requires zero final-layout R1-R14 findings, no R15 ratchet increases,
+  normalized includes, valid maps/document paths/seed hashes, no pending build
+  path rewrites, no conflict markers and no unmerged index entries. It does not
+  silently update a baseline. Four-platform build/target/test acceptance and
+  semantic review are still separate requirements.
+
+Before P2/P3 finishes, use `--layout current` to rehearse the real unchanged
+layout. Final migration refuses an unfinished target by default. `--projection`
+explicitly creates a **synthetic directory/include fixture**, retains unfinished
+deletions and records missing semantic extractions. It is not a buildable final
+baseline and never means P2/P3 has completed. This option also permits inspecting
+an `--apply-map` projection with reported issues; it still exits nonzero when
+issues exist. There is no projection bypass for `--check`.
+
+The isolated clones use a read-only shared object store and disable pushes to
+the source. Keep the source repository available while reviewing them. To retain
+a migrated branch independently, run `git repack -a` inside that isolated clone
+and remove its alternates file after verifying the repack, or transfer the branch
+with a normal Git bundle. The tool does not clean up any user directory.
