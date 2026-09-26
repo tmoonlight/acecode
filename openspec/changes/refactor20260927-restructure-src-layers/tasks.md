@@ -221,7 +221,7 @@
     - 用例清单与 G0 相同;
     - `CMakeLists.txt:173/507/548` 已同步;
     - 按平台用 `cmake --build --target` 构建全部 EXCLUDE_FROM_ALL 冒烟目标。
-- [ ] 3.8 【P2-09】【子】【并】分支迁移工具 `scripts/refactor/migrate_branch.py`,提供 rebase / patch / `--apply-map` / `--docs` / `--check` 五种模式。〔认领: Codex-tools 2026-09-27〕
+- [x] 3.8 【P2-09】【子】【并】分支迁移工具 `scripts/refactor/migrate_branch.py`,提供 rebase / patch / `--apply-map` / `--docs` / `--check` 五种模式。〔认领: Codex-tools 2026-09-27〕
   - 前置:1.3(需要映射表);可与 Phase 1、Phase 2 全程并行。
   - 验证:对 9 个遗留 ref 逐一演练,patch 模式下 `git apply -3` 成功,或在记录里说明为什么不能。
 
