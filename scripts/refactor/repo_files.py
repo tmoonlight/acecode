@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 from typing import Iterable
 
 SOURCE_SUFFIXES = {".cpp", ".hpp", ".h", ".mm", ".c", ".cc", ".hh"}
@@ -88,4 +89,4 @@ def emit_json(value: object, output: str | None = None) -> None:
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         Path(output).write_bytes(data.encode("utf-8"))
     else:
-        print(data, end="")
+        sys.stdout.buffer.write(data.encode("utf-8"))

@@ -1,0 +1,441 @@
+{
+  "files": {
+    "src/adapters/computer_use/helper_main_macos.mm": {
+      "detach": 1,
+      "std_thread": 1
+    },
+    "src/adapters/computer_use/macos_accessibility.mm": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/computer_use/macos_capture.mm": {
+      "raw_new": 1
+    },
+    "src/adapters/computer_use/native_windows.cpp": {
+      "unsafe_capture": 7
+    },
+    "src/adapters/computer_use/pointer_overlay.cpp": {
+      "detach": 1,
+      "std_thread": 2
+    },
+    "src/adapters/computer_use/runtime.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 2
+    },
+    "src/adapters/lsp/lsp_client.cpp": {
+      "raw_new": 1,
+      "std_thread": 1,
+      "unsafe_capture": 1
+    },
+    "src/adapters/lsp/lsp_client.hpp": {
+      "std_thread": 1
+    },
+    "src/adapters/provider/anthropic_provider.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/provider/codex/codex_app_server_client.cpp": {
+      "std_thread": 1
+    },
+    "src/adapters/provider/codex/codex_app_server_client.hpp": {
+      "raw_handle": 1,
+      "std_thread": 1
+    },
+    "src/adapters/provider/codex_provider.cpp": {
+      "unsafe_capture": 2
+    },
+    "src/adapters/provider/grok_provider.cpp": {
+      "unsafe_capture": 2
+    },
+    "src/adapters/provider/grok_responses.cpp": {
+      "delayed_injection": 1
+    },
+    "src/adapters/provider/model_context_resolver.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 1
+    },
+    "src/adapters/provider/model_pool_status.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 1
+    },
+    "src/adapters/provider/model_pool_status.hpp": {
+      "std_thread": 1
+    },
+    "src/adapters/provider/openai_provider.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/themes/theme_store.cpp": {
+      "std_thread": 3,
+      "unsafe_capture": 7
+    },
+    "src/adapters/themes/theme_store.hpp": {
+      "std_thread": 1
+    },
+    "src/adapters/tool/agent_browser/cdp_client.cpp": {
+      "raw_delete": 1,
+      "raw_new": 1
+    },
+    "src/adapters/tool/apply_patch_tool.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/tool/bash_tool.cpp": {
+      "raw_handle": 1,
+      "std_thread": 2
+    },
+    "src/adapters/tool/file_edit_tool.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/tool/file_write_tool.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/tool/glob_tool.cpp": {
+      "unsafe_capture": 2
+    },
+    "src/adapters/tool/image_generate/image_generation_client.cpp": {
+      "detach": 1,
+      "std_thread": 1
+    },
+    "src/adapters/tool/mcp_manager.cpp": {
+      "detach": 2,
+      "std_thread": 2
+    },
+    "src/adapters/tool/theme_create_tool.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/tool/tool_rewrites.cpp": {
+      "delayed_injection": 1
+    },
+    "src/adapters/tool/web_search/rss_search_backend.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/tool/web_search/runtime.cpp": {
+      "raw_delete": 1,
+      "raw_new": 1
+    },
+    "src/adapters/upgrade/apply.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/adapters/upgrade/macos_app_installer.mm": {
+      "delayed_injection": 1
+    },
+    "src/adapters/upgrade/upgrade.cpp": {
+      "unsafe_capture": 2
+    },
+    "src/apps/cli/configure/configure.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/apps/cli/configure/configure_picker.cpp": {
+      "unsafe_capture": 3
+    },
+    "src/apps/cli/main.cpp": {
+      "detach": 2,
+      "std_thread": 10,
+      "unsafe_capture": 7
+    },
+    "src/apps/daemon/heartbeat.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 1
+    },
+    "src/apps/daemon/heartbeat.hpp": {
+      "std_thread": 1
+    },
+    "src/apps/daemon/supervisor.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 1
+    },
+    "src/apps/daemon/supervisor.hpp": {
+      "std_thread": 1
+    },
+    "src/apps/daemon/worker.cpp": {
+      "detach": 2,
+      "std_thread": 6,
+      "unsafe_capture": 3
+    },
+    "src/apps/desktop/agent_browser_host.cpp": {
+      "std_thread": 2,
+      "unsafe_capture": 10
+    },
+    "src/apps/desktop/agent_browser_host_mac.mm": {
+      "std_thread": 2,
+      "unsafe_capture": 9
+    },
+    "src/apps/desktop/application_icon.cpp": {
+      "delayed_injection": 1
+    },
+    "src/apps/desktop/application_icon.hpp": {
+      "delayed_injection": 1
+    },
+    "src/apps/desktop/daemon_supervisor.cpp": {
+      "raw_delete": 2,
+      "raw_new": 2
+    },
+    "src/apps/desktop/edge_app_launcher.hpp": {
+      "raw_handle": 1
+    },
+    "src/apps/desktop/main.cpp": {
+      "raw_handle": 1,
+      "std_thread": 2,
+      "unsafe_capture": 58
+    },
+    "src/apps/desktop/single_instance.hpp": {
+      "raw_handle": 1
+    },
+    "src/apps/desktop/single_instance_posix.cpp": {
+      "raw_handle": 1
+    },
+    "src/apps/desktop/splash_screen.cpp": {
+      "raw_delete": 1,
+      "raw_new": 2
+    },
+    "src/apps/desktop/startup_progress.cpp": {
+      "delayed_injection": 1
+    },
+    "src/apps/desktop/web_host.cpp": {
+      "delayed_injection": 1,
+      "raw_delete": 1,
+      "raw_new": 1
+    },
+    "src/apps/headless/headless_runner.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/apps/tui/channels_setup.cpp": {
+      "std_thread": 2,
+      "unsafe_capture": 20
+    },
+    "src/apps/tui/markdown/mermaid_renderer.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/apps/tui/settings/management_center.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 39
+    },
+    "src/apps/tui/settings/settings_center.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 59
+    },
+    "src/apps/tui/subagent_host.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/apps/tui/tui_init.cpp": {
+      "detach": 2,
+      "std_thread": 4
+    },
+    "src/apps/tui/tui_init.hpp": {
+      "std_thread": 1
+    },
+    "src/apps/tui/tui_state.hpp": {
+      "std_thread": 1
+    },
+    "src/apps/tui/unclipped_reflect.hpp": {
+      "unsafe_capture": 1
+    },
+    "src/base/environment/data_dir_migration.cpp": {
+      "raw_handle": 2,
+      "std_thread": 2,
+      "unsafe_capture": 2
+    },
+    "src/base/environment/data_dir_migration.hpp": {
+      "std_thread": 1
+    },
+    "src/base/environment/toolchains.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/base/image/image_processor.cpp": {
+      "delayed_injection": 1
+    },
+    "src/base/network/http.cpp": {
+      "unsafe_capture": 4
+    },
+    "src/base/platform/native_ui/context_picker.cpp": {
+      "delayed_injection": 1,
+      "raw_delete": 1,
+      "raw_new": 1
+    },
+    "src/base/platform/native_ui/custom_toast_win.cpp": {
+      "detach": 2,
+      "std_thread": 3
+    },
+    "src/base/platform/native_ui/folder_picker_win.cpp": {
+      "std_thread": 2,
+      "unsafe_capture": 1
+    },
+    "src/base/platform/native_ui/notifications.cpp": {
+      "delayed_injection": 1
+    },
+    "src/base/platform/open_url.cpp": {
+      "detach": 1,
+      "std_thread": 2
+    },
+    "src/base/platform/process/piped_process.hpp": {
+      "raw_handle": 1
+    },
+    "src/base/platform/process/process_runner.cpp": {
+      "detach": 1,
+      "std_thread": 1,
+      "unsafe_capture": 1
+    },
+    "src/base/pty/pty_backend_posix.cpp": {
+      "std_thread": 2,
+      "unsafe_capture": 1
+    },
+    "src/base/pty/pty_backend_win.cpp": {
+      "std_thread": 4,
+      "unsafe_capture": 2
+    },
+    "src/base/pty/pty_session_registry.cpp": {
+      "unsafe_capture": 2
+    },
+    "src/domain/experts/expert_registry.cpp": {
+      "delayed_injection": 1
+    },
+    "src/domain/hooks/hook_manager.cpp": {
+      "detach": 1,
+      "std_thread": 1,
+      "unsafe_capture": 2
+    },
+    "src/domain/hooks/hook_manager.hpp": {
+      "std_thread": 1
+    },
+    "src/domain/hooks/hook_registry.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/domain/llm/tool_protocol_names.cpp": {
+      "delayed_injection": 1
+    },
+    "src/domain/sandbox/sandbox_backend.hpp": {
+      "raw_handle": 6
+    },
+    "src/domain/sandbox/sandbox_backend_win.cpp": {
+      "raw_handle": 7
+    },
+    "src/domain/security/audit_log.cpp": {
+      "delayed_injection": 1,
+      "raw_handle": 5
+    },
+    "src/domain/security/audit_log.hpp": {
+      "raw_handle": 1
+    },
+    "src/domain/session/attachment_store.cpp": {
+      "delayed_injection": 1
+    },
+    "src/domain/session/global_session_catalog.cpp": {
+      "std_thread": 3,
+      "unsafe_capture": 3
+    },
+    "src/domain/session/global_session_search.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/domain/session/opencode_import.cpp": {
+      "raw_handle": 10
+    },
+    "src/domain/session/session_trajectory.cpp": {
+      "unsafe_capture": 2
+    },
+    "src/domain/session/session_user_message_search.cpp": {
+      "delayed_injection": 1,
+      "raw_handle": 1
+    },
+    "src/domain/session/session_user_message_search.hpp": {
+      "raw_handle": 1
+    },
+    "src/domain/session/task_suggestion_store.cpp": {
+      "delayed_injection": 1,
+      "raw_handle": 2,
+      "unsafe_capture": 1
+    },
+    "src/domain/session/thread_goal_store.cpp": {
+      "delayed_injection": 1,
+      "raw_handle": 7
+    },
+    "src/domain/session/thread_goal_store.hpp": {
+      "raw_handle": 1
+    },
+    "src/engine/agent/agent_loop.cpp": {
+      "delayed_injection": 1,
+      "std_thread": 2,
+      "unsafe_capture": 31
+    },
+    "src/engine/agent/agent_loop.hpp": {
+      "delayed_injection": 11,
+      "std_thread": 2
+    },
+    "src/engine/agent/side_question/side_chat.cpp": {
+      "unsafe_capture": 1
+    },
+    "src/host/channels/bridge.cpp": {
+      "std_thread": 3
+    },
+    "src/host/channels/runtime.cpp": {
+      "std_thread": 3,
+      "unsafe_capture": 3
+    },
+    "src/host/channels/state.cpp": {
+      "unsafe_capture": 3
+    },
+    "src/host/loop/loop_schedule.cpp": {
+      "delayed_injection": 1
+    },
+    "src/host/loop/loop_scheduler.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 1
+    },
+    "src/host/loop/loop_scheduler.hpp": {
+      "std_thread": 1
+    },
+    "src/host/loop/loop_store.cpp": {
+      "delayed_injection": 1,
+      "raw_handle": 8
+    },
+    "src/host/loop/loop_store.hpp": {
+      "raw_handle": 1
+    },
+    "src/host/loop/loop_types.cpp": {
+      "delayed_injection": 1
+    },
+    "src/host/remote_control/channel_plugin.cpp": {
+      "delayed_injection": 1
+    },
+    "src/host/remote_control/channel_question_bridge.cpp": {
+      "delayed_injection": 1
+    },
+    "src/host/remote_control/remote_control_hub.cpp": {
+      "std_thread": 2,
+      "unsafe_capture": 1
+    },
+    "src/host/remote_control/remote_control_hub.hpp": {
+      "std_thread": 1
+    },
+    "src/host/remote_control/remote_control_service.cpp": {
+      "std_thread": 2
+    },
+    "src/host/remote_control/session_channel_binder.cpp": {
+      "std_thread": 2,
+      "unsafe_capture": 8
+    },
+    "src/host/remote_control/session_channel_binder.hpp": {
+      "std_thread": 2
+    },
+    "src/host/session_host/session_registry.cpp": {
+      "std_thread": 1,
+      "unsafe_capture": 6
+    },
+    "src/host/session_host/session_registry.hpp": {
+      "std_thread": 2
+    },
+    "src/host/session_host/task_suggestion_service.cpp": {
+      "std_thread": 2,
+      "unsafe_capture": 7
+    },
+    "src/host/session_host/thread_service.cpp": {
+      "unsafe_capture": 2
+    }
+  },
+  "schema": 1,
+  "totals": {
+    "delayed_injection": 34,
+    "detach": 16,
+    "raw_delete": 7,
+    "raw_handle": 59,
+    "raw_new": 10,
+    "std_thread": 104,
+    "unsafe_capture": 338
+  }
+}

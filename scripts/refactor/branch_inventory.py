@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 from repo_files import emit_json, git, repo_root
 
@@ -123,7 +124,7 @@ def main() -> int:
         if args.output:
             Path(args.output).write_bytes(data.encode("utf-8"))
         else:
-            print(data, end="")
+            sys.stdout.buffer.write(data.encode("utf-8"))
     return int(any(b["error"] for b in report["branches"]) or any(t["status_error"] for t in report["worktrees"]))
 
 

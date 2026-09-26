@@ -1,0 +1,132 @@
+# Formal layout policy. UTF-8 TSV; kinds: module, forbid, restrict, thirdparty, symbol, allow, exempt, exception, metadata.
+# exception rows require rule, path (from), target (to), owner, expires (YYYY-MM-DD), note. No initial waivers.
+# Paths use canonical destinations. src_layout_map.tsv supplies temporary P0-P2 locations; strict/final rejects those aliases.
+kind	path	module	group	rank	rule	target	owner	expires	note
+module	src/base/utils/	utils	base	0					D1 D2 D15
+module	src/base/image/	image	base	1					D1 D2 D15
+module	src/base/platform/	platform	base	2					D1 D2 D15
+module	src/base/config/	config	base	3					D1 D2 D15
+module	src/base/network/	network	base	4					D1 D2 D15
+module	src/base/ipc/	ipc	base	5					D1 D2 D15
+module	src/base/workspace/	workspace	base	6					D1 D2 D15
+module	src/base/pty/	pty	base	7					D1 D2 D15
+module	src/base/environment/	environment	base	8					D1 D2 D15
+module	src/domain/llm/	llm	domain	10					D1 D2 D15
+module	src/domain/permissions/	permissions	domain	11					D1 D2 D15
+module	src/domain/security/	security	domain	12					D1 D2 D15
+module	src/domain/sandbox/	sandbox	domain	13					D1 D2 D15
+module	src/domain/experts/	experts	domain	14					D1 D2 D15
+module	src/domain/project_instructions/	project_instructions	domain	15					D1 D2 D15
+module	src/domain/memory/	memory	domain	16					D1 D2 D15
+module	src/domain/history/	history	domain	17					D1 D2 D15
+module	src/domain/connectors/	connectors	domain	18					D1 D2 D15
+module	src/domain/hooks/	hooks	domain	19					D1 D2 D15
+module	src/domain/skills/	skills	domain	20					D1 D2 D15
+module	src/domain/worktree/	worktree	domain	21					D1 D2 D15
+module	src/domain/gitinfo/	gitinfo	domain	22					D1 D2 D15
+module	src/domain/session/	session	domain	23					D1 D2 D15
+module	src/adapters/upgrade/	upgrade	adapters	24					D1 D2 D15
+module	src/adapters/themes/	themes	adapters	25					D1 D2 D15
+module	src/adapters/feedback/	feedback	adapters	26					D1 D2 D15
+module	src/adapters/computer_use/	computer_use	adapters	27					D1 D2 D15
+module	src/adapters/lsp/	lsp	adapters	28					D1 D2 D15
+module	src/adapters/pa/	pa	adapters	29					D1 D2 D15
+module	src/adapters/provider/	provider	adapters	30					D1 D2 D15
+module	src/adapters/tool/	tool	adapters	31					D1 D2 D15
+module	src/engine/tool_preamble/	tool_preamble	engine	40					D1 D2 D15
+module	src/engine/prompt/	prompt	engine	41					D1 D2 D15
+module	src/engine/agent/	agent	engine	42					D1 D2 D15
+module	src/host/session_host/	session_host	host	50					D1 D2 D15
+module	src/host/loop/	loop	host	51					D1 D2 D15
+module	src/host/remote_control/	remote_control	host	52					D1 D2 D15
+module	src/host/channels/	channels	host	53					D1 D2 D15
+module	src/host/app_runtime/	app_runtime	host	54					Reserved for phase 2; do not create in phase 1
+module	src/apps/tui/	tui	apps	60					D1 D2 D15
+module	src/apps/web/	web	apps	61					D1 D2 D15
+module	src/apps/headless/	headless	apps	62					D1 D2 D15
+module	src/apps/desktop/	desktop	apps	63					D1 D2 D15
+module	src/apps/daemon/	daemon	apps	64					D1 D2 D15
+module	src/apps/cli/	cli	apps	65					D1 D2 D15
+forbid	src/domain/*				R3	provider			Domain never depends on provider
+forbid	src/domain/*				R3	@cpr			Domain never depends on CPR
+forbid	src/adapters/provider/*				R3	feedback			-
+forbid	src/adapters/provider/*				R3	upgrade			-
+forbid	src/adapters/tool/*				R3	feedback			-
+forbid	src/adapters/tool/*				R3	upgrade			-
+restrict	src/apps/desktop/*				R6	base			-
+restrict	src/base/config/vocab/*				R6	standard			-
+restrict	src/apps/tui/model/*				R6	no-ftxui			-
+restrict	src/adapters/computer_use/helper_main*				R6	computer-helper			-
+restrict	src/adapters/computer_use/native_*				R6	computer-helper			-
+restrict	src/adapters/computer_use/macos_*.mm				R6	computer-helper			-
+restrict	src/adapters/computer_use/pointer_*				R6	computer-helper			-
+thirdparty					R7	^(ftxui/|ftxui\.)			tui;cli
+thirdparty					R7	^(crow/|crow\.)			web;daemon;channels;remote_control
+thirdparty					R7	^(webview/|webview\.)			desktop
+thirdparty					R7	^(mcp/|mcp_|cpp-mcp/)			tool
+thirdparty					R7	^(winpty\.h|winpty/)			pty
+thirdparty					R7	^(AgentLocation\.h|LibWinptyException\.h)$			pty
+thirdparty					R7	^(stb/|stb_|external/stb/)			image
+symbol	src/*				R11:provider_messages	\bmodel_facing_provider_messages\b			-
+symbol	src/engine/agent/*				R11:approval	\b(?:evaluate_tool_approval|resolve_tool_approval|approve_tool_call|permission_gate)\b|\bexec_permission\s*=			-
+symbol	src/*				R11:audit	\b(?:audit_gate|record_audit)\b			-
+symbol	src/*				R11:tool_names	\bset_model_tool_name_mappings\s*\(			-
+symbol	src/engine/agent/*				R11:messages_write	\bmessages_\s*(?:\.(?:push_back|emplace_back|emplace|pop_back|clear|insert|erase|swap|resize|assign)\s*\(|(?:\[[^\]\n]+\]|\.(?:back|front|at)\([^)\n]*\))?(?:\.\w+|\[[^\]\n]+\])*\s*(?:=(?!=)|\+=|-=))|\b(?:swap|sort|reverse)\s*\(\s*messages_			-
+symbol	src/*				R11:pa	\bpa::|\b(?:note_pa_context_rejection|note_pa_context_accepted|pa_rescue_state_)\b			-
+symbol	src/engine/agent/*				R11:provider_chat	(?:->|\.)\s*chat(?:_stream)?\s*\(			-
+allow	src/engine/agent/agent_loop.cpp				R11:provider_messages				Existing owner; remove after split tasks
+allow	src/engine/agent/request/model_facing_messages.*				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/request/api_request_builder.*				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/side_question/side_question_service.*				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/agent_loop.cpp				R11:approval				Existing owner; remove after split tasks
+allow	src/engine/agent/approval/tool_approval_gate.*				R11:approval				Single outlet / PA contact table
+allow	src/engine/agent/agent_loop.*				R11:audit				Existing owner; remove after split tasks
+allow	src/engine/agent/approval/*				R11:audit				Single outlet / PA contact table
+allow	src/adapters/tool/tool_rewrites.cpp				R11:tool_names				Single outlet / PA contact table
+allow	src/domain/llm/tool_protocol_names.*				R11:tool_names				Single outlet / PA contact table
+allow	src/engine/agent/agent_loop.*				R11:messages_write				Existing owner; remove after split tasks
+allow	src/engine/agent/transcript/conversation_history.*				R11:messages_write				Single outlet / PA contact table
+allow	src/adapters/pa/*				R11:pa				Single outlet / PA contact table
+allow	src/adapters/provider/retry_policy.cpp				R11:pa				Single outlet / PA contact table
+allow	src/engine/agent/agent_loop.*				R11:pa				Existing owner; remove after split tasks
+allow	src/engine/agent/recovery/context_overflow_recovery.*				R11:pa				Single outlet / PA contact table
+allow	src/engine/agent/recovery/pa_rescue_host.*				R11:pa				Single outlet / PA contact table
+allow	src/engine/agent/model_step/active_model_view.*				R11:pa				Single outlet / PA contact table
+allow	src/engine/agent/compaction/compact.cpp				R11:pa				Single outlet / PA contact table
+allow	src/engine/agent/agent_loop.cpp				R11:provider_chat				Existing owner; remove after split tasks
+allow	src/engine/agent/model_step/provider_stream_collector.*				R11:provider_chat				Single outlet / PA contact table
+allow	src/engine/agent/side_question/side_question_service.*				R11:provider_chat				Single outlet / PA contact table
+allow	src/engine/agent/side_question/side_chat.*				R11:provider_chat				Single outlet / PA contact table
+allow	src/engine/agent/compaction/compact.cpp				R11:provider_chat				Single outlet / PA contact table
+allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_chat				Single outlet / PA contact table
+allow	src/engine/agent/progress/*				R3:tool_preamble				-
+allow	src/adapters/tool/theme_create_tool.*				R3:themes				-
+exempt	src/apps/web/*				R12,R15				D21 user constraint; includes old src/web through mapping
+exempt	external/stb/*				R12,R15				Third-party vendored code
+exempt	src/image/stb/*				R12,R15				Third-party pre-move location
+metadata					R4				Reserved: the approved design defines no R4
+symbol	src/*				R5:composition	\b(?:lsp|web_search)::(?:init|shutdown)\s*\(|\bmake_(?:unique|shared)\s*<\s*(?:SessionRegistry|SubagentHost)\s*>			-
+allow	src/apps/tui/app/*				R5:composition				-
+allow	src/apps/daemon/worker.*				R5:composition				-
+allow	src/apps/headless/headless_runner.*				R5:composition				-
+allow	src/apps/cli/*				R5:composition				-
+allow	src/host/app_runtime/*				R5:composition				-
+allow	src/adapters/computer_use/accessibility_context.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/application_identity.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/coordinate_transform.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/element_target.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/keyboard_input.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/macos_geometry.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/macos_keyboard.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/macos_native.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/native_backend.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/native_windows.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/pointer_capture.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/pointer_overlay.hpp				R6:computer-contract				-
+allow	src/adapters/computer_use/surface_policy.hpp				R6:computer-contract				-
+ownership_allow	src/base/utils/joining_thread.hpp			1	R15:detach	join_or_detach_self	ownership/P2-01		C8 self-join fallback only; P2-01
+ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThread	ownership/P2-01		C8 owned thread member; P2-01
+ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThreadGroup	ownership/P2-01		C8 legacy worker group owner; P2-01
+ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:std_thread	abandonable_detail::start_owned_work	ownership/P2-01		C8 owned abandonable worker; P2-01
+ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:detach	abandonable_detail::start_owned_work	ownership/P2-01		C8 detached worker owns captured lifetime; P2-01

@@ -85,6 +85,24 @@ class RepositoryToolsTest(unittest.TestCase):
         self.assertEqual(["src/unique.hpp"], by_ref["refs/remotes/origin/old-feature"]["src_paths"])
         self.assertNotIn("refs/remotes/origin/HEAD", by_ref)
 
+    def test_submodule_dirt_is_visible_and_gitlinks_are_not_source_files(self):
+        # 子模块自身的未提交修改必须显示 dirty，不能把 gitlink 当普通文件重写。
+        self.write(".gitignore", b"dependency-source/\n")
+        self.commit("base")
+        dependency = self.root / "dependency-source"
+        dependency.mkdir()
+        git(dependency, "init", "-b", "master")
+        git(dependency, "config", "user.email", "tests@example.invalid")
+        git(dependency, "config", "user.name", "Dependency tests")
+        (dependency / "a.hpp").write_bytes(b"original\n")
+        git(dependency, "add", ".")
+        git(dependency, "commit", "-m", "dependency")
+        git(self.root, "-c", "protocol.file.allow=always", "submodule", "add", str(dependency), "external/dependency")
+        self.commit("submodule")
+        self.assertNotIn("external/dependency", tracked_files(self.root))
+        (self.root / "external/dependency/a.hpp").write_bytes(b"changed\n")
+        self.assertTrue(inventory(self.root, "master")["worktrees"][0]["dirty"])
+
 
 if __name__ == "__main__":
     unittest.main()
