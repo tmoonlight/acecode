@@ -17,6 +17,7 @@ import time
 
 SESSION_ID = "20260927-000000-0012"
 SCENARIOS = ("ordinary", "resume", "copilot-unauthenticated", "mcp-configured")
+RESUME_MESSAGES = (("user", "启动快照：恢复这一轮。"), ("assistant", "已保存的回答。"))
 
 
 def write_json(path, value):
@@ -28,11 +29,49 @@ def write_json(path, value):
 def cwd_hash(path):
     # Same FNV-1a and ASCII normalization as src/utils/cwd_hash.cpp. The
     # scratch directory is real (no symlinks/subst) and is checked by resume.
-    normalized = str(path.resolve()).replace("\\", "/").lower().rstrip("/")
+    # Fold UTF-8 bytes, not Unicode characters: C++ std::tolower in the
+    # original process's C locale leaves non-ASCII UTF-8 bytes unchanged.
+    normalized = str(path.resolve()).replace("\\", "/").rstrip("/").encode("utf-8").lower()
     result = 14695981039346656037
-    for byte in normalized.encode("utf-8"):
+    for byte in normalized:
         result = ((result ^ byte) * 1099511628211) & ((1 << 64) - 1)
     return f"{result:016x}"
+
+
+def validate_snapshot(snapshot, scenario):
+    """Reject an invalid fixture run without changing its runtime observation."""
+    expected_messages = {
+        "ordinary": (),
+        "resume": (*RESUME_MESSAGES,
+                   ("system", f"Resumed session {SESSION_ID} (2 messages)")),
+        "copilot-unauthenticated": (("system", "Authenticating with GitHub Copilot..."),),
+        "mcp-configured": (("system", "[MCP] Starting 1 server(s) in the background. "
+                            "External tools will appear as each server is ready."),),
+    }
+    if scenario not in expected_messages:
+        raise ValueError("Unknown startup fixture scenario: " + scenario)
+    expected = expected_messages[scenario]
+    metadata = {"schema_version": 1, "scenario": scenario,
+                "checkpoint": "startup-wiring-complete-before-CatchEvent",
+                "limit": 16, "total_messages": len(expected)}
+    if type(snapshot) is not dict or set(snapshot) != set(metadata) | {"messages"}:
+        raise ValueError(f"{scenario}: missing or unknown snapshot fields")
+    for key, value in metadata.items():
+        if type(snapshot[key]) is not type(value) or snapshot[key] != value:
+            raise ValueError(f"{scenario}: unexpected snapshot {key}")
+    messages = snapshot["messages"]
+    if type(messages) is not list or len(messages) != len(expected):
+        raise ValueError(f"{scenario}: missing or extra conversation messages")
+    for index, ((role, content), message) in enumerate(zip(expected, messages)):
+        fields = {"role": role, "content": content, "is_tool": False,
+                  "summary": None, "expanded": False, "display_override": "",
+                  "hunks": None, "compact_notice_id": "",
+                  "compact_notice_complete": False, "ask_result": False}
+        if type(message) is not dict or set(message) != set(fields):
+            raise ValueError(f"{scenario}: message[{index}] has missing or unknown fields")
+        for key, value in fields.items():
+            if type(message[key]) is not type(value) or message[key] != value:
+                raise ValueError(f"{scenario}: message[{index}].{key} differs from the fixture")
 
 
 def launch_console(executable, arguments, cwd, environment, timeout_seconds=40):
@@ -137,10 +176,7 @@ def fixture(case, root, proxy_port):
     write_json(data / "config.json", config)
     if case == "resume":
         project = data / "projects" / cwd_hash(working)
-        messages = [
-            {"role": "user", "content": "启动快照：恢复这一轮。"},
-            {"role": "assistant", "content": "已保存的回答。"},
-        ]
+        messages = [{"role": role, "content": content} for role, content in RESUME_MESSAGES]
         project.mkdir(parents=True)
         (project / (SESSION_ID + ".jsonl")).write_text(
             "".join(json.dumps(message, ensure_ascii=False) + "\n" for message in messages),
@@ -217,8 +253,7 @@ def main():
                     raise RuntimeError(f"{case}: probe exited {exit_code}; inspect {profile}")
                 path = output / (case + ".json")
                 snapshot = json.loads(path.read_text("utf-8"))
-                if snapshot["scenario"] != case:
-                    raise RuntimeError("Wrong scenario recorded by runtime probe")
+                validate_snapshot(snapshot, case)
                 captures.append({"scenario": case, "exit_code": exit_code,
                                  "elapsed_seconds": round(time.monotonic() - started, 3),
                                  "snapshot_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -228,6 +263,7 @@ def main():
                 "source": json.loads(args.source_metadata.read_text("utf-8")),
                 "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
                 "platform": sys.platform, "captures": captures,
+                "snapshot_validation": "four pending-startup fixtures, complete metadata and message fields",
                 "observed_only_until_checkpoint": True,
                 "input_network_state": "local proxy and MCP initialize kept pending",
             })

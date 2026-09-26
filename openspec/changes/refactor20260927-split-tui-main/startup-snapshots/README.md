@@ -40,6 +40,14 @@ python openspec/changes/refactor20260927-split-tui-main/startup-snapshots/captur
 
 `capture-manifest.json` 记录源 revision/blob SHA-256、探针 SHA-256、可执行文件 SHA-256、每个进程的退出码、耗时及快照 hash。采集失败、未知结构化 summary/hunks、非零进程退出码或缺输出都使本次采集失败，不回填快照。既有输出不会被静默覆盖。
 
+runner 还逐字段校验四种人工 fixture 的完整结果：普通场景必须为空，resume 必须依次包含两条人工消息和原程序的成功提示，Copilot/MCP 必须各自只含一条初始待定提示。错误恢复、缺失或额外消息、截断计数、未知字段、字段类型变化都拒绝验收；原始观测 JSON 保留，不删除消息、不改写值来满足校验。该校验只适用于此处固定的待定输入条件，不是通用启动文案白名单。
+
+纯函数检查不启动 TUI/GUI：
+
+```powershell
+python -B -m unittest discover -s openspec/changes/refactor20260927-split-tui-main/startup-snapshots -p test_capture_windows.py -v
+```
+
 ## 当前结果
 
 2026-09-27，MSVC 19.38 / Ninja / Release：探针构建 495/495 成功。工作树生产 C++ 与 `3ddb7d43` 一致，`src/` 范围唯一新增文件是分层元数据 `layers.tsv`。
@@ -52,6 +60,8 @@ python openspec/changes/refactor20260927-split-tui-main/startup-snapshots/captur
 | [mcp-configured](mcp-configured.json) | 1 | 0 | 逐字节相同 |
 
 两轮分别使用全新的配置与数据目录；源、二进制和快照 hash 见 [capture-manifest.json](capture-manifest.json) 与 [repeat-manifest.json](repeat-manifest.json)。没有删掉实际消息、改写消息文本或归一化动态字段。
+
+交叉审查修正了 runner 的 cwd hash：原来在 Python 字符串上 `.lower()` 会把 `É` 改成 `é`，与原 C++ 对 UTF-8 字节进行 ASCII 小写转换的行为不同。新实现先编码再折叠字节，纯 fixture 明确断言两种路径的 hash 分别为 `a7132c056e8f0a63` 与 `b9b81a91d65e7dc3`。已存两轮使用 ASCII 临时路径，四份 JSON 和两份 manifest 保持原字节；全部 9 项纯函数检查通过，并直接验证这些归档观测仍满足严格四场景校验。实际 Unicode scratch 复验尚待串行测试窗口，不以纯函数检查代替；原 TUI 的 ANSI cwd 行为仍按设计保留。
 
 首次准备时 Copilot fixture 错误地设置了自定义 base_url，原程序按 managed-provider 规则拒绝配置并退出 1，没有生成该场景快照。修正 fixture 为不指定自定义 endpoint 后，重新从四份全新数据目录完整采集；失败尝试的本机产物仍保留在 `build-p0-12-captures`，未作为成功结果使用。
 
