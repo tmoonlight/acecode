@@ -1,17 +1,13 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const repoRoot = path.resolve(srcRoot, '..', '..');
 
 function source(relativePath) {
   return fs.readFileSync(path.join(srcRoot, relativePath), 'utf8').replace(/\r\n?/g, '\n');
-}
-
-function repoSource(relativePath) {
-  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n?/g, '\n');
 }
 
 function run(name, fn) {
@@ -68,7 +64,7 @@ run('chat-wide drop feedback remains active across children and always clears', 
 
 run('desktop file drag activates on entry and acceptance without async foreground retries', () => {
   const inputBar = source('components/InputBar.jsx');
-  const desktopMain = repoSource('src/desktop/main.cpp');
+  const desktopMain = readCppSource('desktop/main.cpp').replace(/\r\n?/g, '\n');
 
   assert.match(
     inputBar,
@@ -90,7 +86,7 @@ run('desktop file drag activates on entry and acceptance without async foregroun
   )?.[0] || '';
   assert.doesNotMatch(bridge, /bring_window_foreground|activate_notification_window|HWND_TOPMOST/);
   assert.match(desktopMain, /host\.bind\("aceDesktop_focusFileDropWindow"[\s\S]{0,200}host\.focus_after_file_drop\(\)/);
-  const webHost = repoSource('src/desktop/web_host.cpp');
+  const webHost = readCppSource('desktop/web_host.cpp').replace(/\r\n?/g, '\n');
   const dropFocus = webHost.slice(webHost.indexOf('bool WebHost::focus_after_file_drop()'), webHost.indexOf('bool WebHost::open_dev_tools()'));
   assert.match(dropFocus, /AttachThreadInput\(current_thread, foreground_thread, TRUE\)/);
   assert.match(dropFocus, /AttachThreadInput\(current_thread, foreground_thread, FALSE\)/);

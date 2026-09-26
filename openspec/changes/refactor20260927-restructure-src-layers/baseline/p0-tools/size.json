@@ -1,0 +1,5854 @@
+{
+  "exemptions": [
+    {
+      "canonical": "external/stb/stb_image.h",
+      "file": "src/image/stb/stb_image.h",
+      "lines": 7988,
+      "reason": "Third-party vendored code"
+    },
+    {
+      "canonical": "external/stb/stb_image_resize2.h",
+      "file": "src/image/stb/stb_image_resize2.h",
+      "lines": 10679,
+      "reason": "Third-party vendored code"
+    },
+    {
+      "canonical": "external/stb/stb_image_write.h",
+      "file": "src/image/stb/stb_image_write.h",
+      "lines": 1724,
+      "reason": "Third-party vendored code"
+    },
+    {
+      "canonical": "src/apps/web/auth.cpp",
+      "file": "src/web/auth.cpp",
+      "lines": 55,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/auth.hpp",
+      "file": "src/web/auth.hpp",
+      "lines": 54,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/builtin_command_handler.cpp",
+      "file": "src/web/handlers/builtin_command_handler.cpp",
+      "lines": 122,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/builtin_command_handler.hpp",
+      "file": "src/web/handlers/builtin_command_handler.hpp",
+      "lines": 26,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/commands_handler.cpp",
+      "file": "src/web/handlers/commands_handler.cpp",
+      "lines": 148,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/commands_handler.hpp",
+      "file": "src/web/handlers/commands_handler.hpp",
+      "lines": 45,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/computer_use_handler.cpp",
+      "file": "src/web/handlers/computer_use_handler.cpp",
+      "lines": 66,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/computer_use_handler.hpp",
+      "file": "src/web/handlers/computer_use_handler.hpp",
+      "lines": 16,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/fork_handler.cpp",
+      "file": "src/web/handlers/fork_handler.cpp",
+      "lines": 110,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/fork_handler.hpp",
+      "file": "src/web/handlers/fork_handler.hpp",
+      "lines": 36,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/fs_browser_handler.cpp",
+      "file": "src/web/handlers/fs_browser_handler.cpp",
+      "lines": 370,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/fs_browser_handler.hpp",
+      "file": "src/web/handlers/fs_browser_handler.hpp",
+      "lines": 95,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/git_handler.cpp",
+      "file": "src/web/handlers/git_handler.cpp",
+      "lines": 230,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/git_handler.hpp",
+      "file": "src/web/handlers/git_handler.hpp",
+      "lines": 70,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/grok_auth_handler.cpp",
+      "file": "src/web/handlers/grok_auth_handler.cpp",
+      "lines": 63,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/grok_auth_handler.hpp",
+      "file": "src/web/handlers/grok_auth_handler.hpp",
+      "lines": 26,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/history_handler.cpp",
+      "file": "src/web/handlers/history_handler.cpp",
+      "lines": 38,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/history_handler.hpp",
+      "file": "src/web/handlers/history_handler.hpp",
+      "lines": 28,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/image_generation_handler.cpp",
+      "file": "src/web/handlers/image_generation_handler.cpp",
+      "lines": 113,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/image_generation_handler.hpp",
+      "file": "src/web/handlers/image_generation_handler.hpp",
+      "lines": 19,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/model_catalog_handler.cpp",
+      "file": "src/web/handlers/model_catalog_handler.cpp",
+      "lines": 334,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/model_catalog_handler.hpp",
+      "file": "src/web/handlers/model_catalog_handler.hpp",
+      "lines": 34,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/model_connection_test_handler.cpp",
+      "file": "src/web/handlers/model_connection_test_handler.cpp",
+      "lines": 85,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/model_connection_test_handler.hpp",
+      "file": "src/web/handlers/model_connection_test_handler.hpp",
+      "lines": 19,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/models_handler.cpp",
+      "file": "src/web/handlers/models_handler.cpp",
+      "lines": 511,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/models_handler.hpp",
+      "file": "src/web/handlers/models_handler.hpp",
+      "lines": 114,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/opencode_command_expander.cpp",
+      "file": "src/web/handlers/opencode_command_expander.cpp",
+      "lines": 32,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/opencode_command_expander.hpp",
+      "file": "src/web/handlers/opencode_command_expander.hpp",
+      "lines": 22,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/permission_mode_handler.cpp",
+      "file": "src/web/handlers/permission_mode_handler.cpp",
+      "lines": 17,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/permission_mode_handler.hpp",
+      "file": "src/web/handlers/permission_mode_handler.hpp",
+      "lines": 23,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/pinned_sessions_handler.cpp",
+      "file": "src/web/handlers/pinned_sessions_handler.cpp",
+      "lines": 1,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/pinned_sessions_handler.hpp",
+      "file": "src/web/handlers/pinned_sessions_handler.hpp",
+      "lines": 24,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/security_handler.cpp",
+      "file": "src/web/handlers/security_handler.cpp",
+      "lines": 543,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/security_handler.hpp",
+      "file": "src/web/handlers/security_handler.hpp",
+      "lines": 82,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/session_list_handler.hpp",
+      "file": "src/web/handlers/session_list_handler.hpp",
+      "lines": 50,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/side_chat_handler.cpp",
+      "file": "src/web/handlers/side_chat_handler.cpp",
+      "lines": 99,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/side_chat_handler.hpp",
+      "file": "src/web/handlers/side_chat_handler.hpp",
+      "lines": 40,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/skills_handler.cpp",
+      "file": "src/web/handlers/skills_handler.cpp",
+      "lines": 249,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/skills_handler.hpp",
+      "file": "src/web/handlers/skills_handler.hpp",
+      "lines": 83,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/summary_generation_handler.cpp",
+      "file": "src/web/handlers/summary_generation_handler.cpp",
+      "lines": 55,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/summary_generation_handler.hpp",
+      "file": "src/web/handlers/summary_generation_handler.hpp",
+      "lines": 15,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/tool_preamble_handler.cpp",
+      "file": "src/web/handlers/tool_preamble_handler.cpp",
+      "lines": 30,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/tool_preamble_handler.hpp",
+      "file": "src/web/handlers/tool_preamble_handler.hpp",
+      "lines": 27,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/tool_rewrites_handler.cpp",
+      "file": "src/web/handlers/tool_rewrites_handler.cpp",
+      "lines": 87,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/handlers/tool_rewrites_handler.hpp",
+      "file": "src/web/handlers/tool_rewrites_handler.hpp",
+      "lines": 30,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/http_address.hpp",
+      "file": "src/web/http_address.hpp",
+      "lines": 22,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/origin.cpp",
+      "file": "src/web/origin.cpp",
+      "lines": 62,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/origin.hpp",
+      "file": "src/web/origin.hpp",
+      "lines": 24,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/project_creation.cpp",
+      "file": "src/web/project_creation.cpp",
+      "lines": 271,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/project_creation.hpp",
+      "file": "src/web/project_creation.hpp",
+      "lines": 57,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/remote_control_session_event.cpp",
+      "file": "src/web/remote_control_session_event.cpp",
+      "lines": 33,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/remote_control_session_event.hpp",
+      "file": "src/web/remote_control_session_event.hpp",
+      "lines": 20,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/remote_web.cpp",
+      "file": "src/web/remote_web.cpp",
+      "lines": 406,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/remote_web.hpp",
+      "file": "src/web/remote_web.hpp",
+      "lines": 41,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/remote_web_proxy.cpp",
+      "file": "src/web/remote_web_proxy.cpp",
+      "lines": 822,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/remote_web_proxy.hpp",
+      "file": "src/web/remote_web_proxy.hpp",
+      "lines": 104,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_computer_use.cpp",
+      "file": "src/web/routes/routes_computer_use.cpp",
+      "lines": 93,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_environment.cpp",
+      "file": "src/web/routes/routes_environment.cpp",
+      "lines": 514,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_experts.cpp",
+      "file": "src/web/routes/routes_experts.cpp",
+      "lines": 500,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_files.cpp",
+      "file": "src/web/routes/routes_files.cpp",
+      "lines": 599,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_fs.cpp",
+      "file": "src/web/routes/routes_fs.cpp",
+      "lines": 174,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_git.cpp",
+      "file": "src/web/routes/routes_git.cpp",
+      "lines": 182,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_image_generation.cpp",
+      "file": "src/web/routes/routes_image_generation.cpp",
+      "lines": 114,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_loops.cpp",
+      "file": "src/web/routes/routes_loops.cpp",
+      "lines": 223,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_lsp.cpp",
+      "file": "src/web/routes/routes_lsp.cpp",
+      "lines": 50,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_mcp.cpp",
+      "file": "src/web/routes/routes_mcp.cpp",
+      "lines": 196,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_misc.cpp",
+      "file": "src/web/routes/routes_misc.cpp",
+      "lines": 2226,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_models.cpp",
+      "file": "src/web/routes/routes_models.cpp",
+      "lines": 880,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_pty.cpp",
+      "file": "src/web/routes/routes_pty.cpp",
+      "lines": 386,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_security.cpp",
+      "file": "src/web/routes/routes_security.cpp",
+      "lines": 229,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_sessions.cpp",
+      "file": "src/web/routes/routes_sessions.cpp",
+      "lines": 2722,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_summary_generation.cpp",
+      "file": "src/web/routes/routes_summary_generation.cpp",
+      "lines": 49,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_task_suggestions.cpp",
+      "file": "src/web/routes/routes_task_suggestions.cpp",
+      "lines": 67,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_themes.cpp",
+      "file": "src/web/routes/routes_themes.cpp",
+      "lines": 219,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_tool_preamble.cpp",
+      "file": "src/web/routes/routes_tool_preamble.cpp",
+      "lines": 68,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_tool_rewrites.cpp",
+      "file": "src/web/routes/routes_tool_rewrites.cpp",
+      "lines": 74,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_workspaces.cpp",
+      "file": "src/web/routes/routes_workspaces.cpp",
+      "lines": 1336,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/routes/routes_ws.cpp",
+      "file": "src/web/routes/routes_ws.cpp",
+      "lines": 571,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/saved_model_reasoning_sync.cpp",
+      "file": "src/web/saved_model_reasoning_sync.cpp",
+      "lines": 151,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/saved_model_reasoning_sync.hpp",
+      "file": "src/web/saved_model_reasoning_sync.hpp",
+      "lines": 61,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/server.cpp",
+      "file": "src/web/server.cpp",
+      "lines": 251,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/server.hpp",
+      "file": "src/web/server.hpp",
+      "lines": 186,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/server_helpers.cpp",
+      "file": "src/web/server_helpers.cpp",
+      "lines": 2543,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/server_impl.hpp",
+      "file": "src/web/server_impl.hpp",
+      "lines": 650,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/server_model_reasoning.cpp",
+      "file": "src/web/server_model_reasoning.cpp",
+      "lines": 63,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/session_reference_context.cpp",
+      "file": "src/web/session_reference_context.cpp",
+      "lines": 239,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/session_reference_context.hpp",
+      "file": "src/web/session_reference_context.hpp",
+      "lines": 53,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/session_status_routing.hpp",
+      "file": "src/web/session_status_routing.hpp",
+      "lines": 23,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/static_assets.cpp",
+      "file": "src/web/static_assets.cpp",
+      "lines": 109,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/static_assets.hpp",
+      "file": "src/web/static_assets.hpp",
+      "lines": 64,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/trajectory_legacy_projection.cpp",
+      "file": "src/web/trajectory_legacy_projection.cpp",
+      "lines": 206,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    },
+    {
+      "canonical": "src/apps/web/trajectory_legacy_projection.hpp",
+      "file": "src/web/trajectory_legacy_projection.hpp",
+      "lines": 31,
+      "reason": "D21 user constraint; includes old src/web through mapping"
+    }
+  ],
+  "files": [
+    {
+      "allowed": 6952,
+      "canonical": "src/engine/agent/agent_loop.cpp",
+      "file": "src/agent_loop.cpp",
+      "lines": 6952
+    },
+    {
+      "allowed": 1010,
+      "canonical": "src/engine/agent/agent_loop.hpp",
+      "file": "src/agent_loop.hpp",
+      "lines": 1010
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/guards/doom_guard.cpp",
+      "file": "src/agent_loop_doom_guard.cpp",
+      "lines": 462
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/guards/doom_guard.hpp",
+      "file": "src/agent_loop_doom_guard.hpp",
+      "lines": 79
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/permissions/shell_write_guard.hpp",
+      "file": "src/agent_loop_shell_guard.hpp",
+      "lines": 364
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/bridge.cpp",
+      "file": "src/channels/bridge.cpp",
+      "lines": 199
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/bridge.hpp",
+      "file": "src/channels/bridge.hpp",
+      "lines": 35
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/channels_cli.cpp",
+      "file": "src/channels/command.cpp",
+      "lines": 100
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/channels_cli.hpp",
+      "file": "src/channels/command.hpp",
+      "lines": 10
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/gateway.cpp",
+      "file": "src/channels/gateway.cpp",
+      "lines": 447
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/gateway.hpp",
+      "file": "src/channels/gateway.hpp",
+      "lines": 35
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/owner_lock.cpp",
+      "file": "src/channels/owner_lock.cpp",
+      "lines": 48
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/owner_lock.hpp",
+      "file": "src/channels/owner_lock.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/runtime.cpp",
+      "file": "src/channels/runtime.cpp",
+      "lines": 241
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/runtime.hpp",
+      "file": "src/channels/runtime.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/setup.cpp",
+      "file": "src/channels/setup.cpp",
+      "lines": 238
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/setup.hpp",
+      "file": "src/channels/setup.hpp",
+      "lines": 41
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/state.cpp",
+      "file": "src/channels/state.cpp",
+      "lines": 246
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/channels/state.hpp",
+      "file": "src/channels/state.hpp",
+      "lines": 63
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/interactive_options.cpp",
+      "file": "src/cli/interactive_options.cpp",
+      "lines": 95
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/interactive_options.hpp",
+      "file": "src/cli/interactive_options.hpp",
+      "lines": 47
+    },
+    {
+      "allowed": 2060,
+      "canonical": "src/apps/tui/commands/builtin_commands.cpp",
+      "file": "src/commands/builtin_commands.cpp",
+      "lines": 2060
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/builtin_commands.hpp",
+      "file": "src/commands/builtin_commands.hpp",
+      "lines": 16
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/command_registry.cpp",
+      "file": "src/commands/command_registry.cpp",
+      "lines": 117
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/command_registry.hpp",
+      "file": "src/commands/command_registry.hpp",
+      "lines": 106
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/compaction/compact.cpp",
+      "file": "src/commands/compact.cpp",
+      "lines": 707
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/compaction/compact.hpp",
+      "file": "src/commands/compact.hpp",
+      "lines": 101
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/compaction/compact_prompt.cpp",
+      "file": "src/commands/compact_prompt.cpp",
+      "lines": 49
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/compaction/compact_prompt.hpp",
+      "file": "src/commands/compact_prompt.hpp",
+      "lines": 20
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/configure/configure.cpp",
+      "file": "src/commands/configure.cpp",
+      "lines": 643
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/configure/configure.hpp",
+      "file": "src/commands/configure.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/configure/configure_catalog.cpp",
+      "file": "src/commands/configure_catalog.cpp",
+      "lines": 421
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/configure/configure_catalog.hpp",
+      "file": "src/commands/configure_catalog.hpp",
+      "lines": 113
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/configure/configure_picker.cpp",
+      "file": "src/commands/configure_picker.cpp",
+      "lines": 583
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/cli/configure/configure_picker.hpp",
+      "file": "src/commands/configure_picker.hpp",
+      "lines": 58
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/desktop_command.cpp",
+      "file": "src/commands/desktop_command.cpp",
+      "lines": 189
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/desktop_command.hpp",
+      "file": "src/commands/desktop_command.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/goal_command.cpp",
+      "file": "src/commands/goal_command.cpp",
+      "lines": 317
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/goal_command.hpp",
+      "file": "src/commands/goal_command.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/history_command.cpp",
+      "file": "src/commands/history_command.cpp",
+      "lines": 94
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/history_command.hpp",
+      "file": "src/commands/history_command.hpp",
+      "lines": 15
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/init_command.cpp",
+      "file": "src/commands/init_command.cpp",
+      "lines": 246
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/init_command.hpp",
+      "file": "src/commands/init_command.hpp",
+      "lines": 31
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/lsp_command.cpp",
+      "file": "src/commands/lsp_command.cpp",
+      "lines": 93
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/lsp_command.hpp",
+      "file": "src/commands/lsp_command.hpp",
+      "lines": 27
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/memory_command.cpp",
+      "file": "src/commands/memory_command.cpp",
+      "lines": 200
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/memory_command.hpp",
+      "file": "src/commands/memory_command.hpp",
+      "lines": 15
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/model_command.cpp",
+      "file": "src/commands/model_command.cpp",
+      "lines": 577
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/model_command.hpp",
+      "file": "src/commands/model_command.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/models_command.cpp",
+      "file": "src/commands/models_command.cpp",
+      "lines": 205
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/models_command.hpp",
+      "file": "src/commands/models_command.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/opencode_command.cpp",
+      "file": "src/commands/opencode_command.cpp",
+      "lines": 556
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/opencode_command.hpp",
+      "file": "src/commands/opencode_command.hpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/opencode_command_registry.cpp",
+      "file": "src/commands/opencode_command_registry.cpp",
+      "lines": 120
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/opencode_command_registry.hpp",
+      "file": "src/commands/opencode_command_registry.hpp",
+      "lines": 30
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/proxy_command.cpp",
+      "file": "src/commands/proxy_command.cpp",
+      "lines": 131
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/proxy_command.hpp",
+      "file": "src/commands/proxy_command.hpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/remote_control_command.cpp",
+      "file": "src/commands/remote_control_command.cpp",
+      "lines": 348
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/remote_control_command.hpp",
+      "file": "src/commands/remote_control_command.hpp",
+      "lines": 34
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/resume_state_sync.hpp",
+      "file": "src/commands/resume_state_sync.hpp",
+      "lines": 59
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/slash_command_ranking.cpp",
+      "file": "src/commands/slash_command_ranking.cpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/slash_command_ranking.hpp",
+      "file": "src/commands/slash_command_ranking.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/websearch_command.cpp",
+      "file": "src/commands/websearch_command.cpp",
+      "lines": 174
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/websearch_command.hpp",
+      "file": "src/commands/websearch_command.hpp",
+      "lines": 36
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/accessibility_context.hpp",
+      "file": "src/computer_use/accessibility_context.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/application_identity.hpp",
+      "file": "src/computer_use/application_identity.hpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/availability.cpp",
+      "file": "src/computer_use/availability.cpp",
+      "lines": 86
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/availability.hpp",
+      "file": "src/computer_use/availability.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/coordinate_transform.hpp",
+      "file": "src/computer_use/coordinate_transform.hpp",
+      "lines": 54
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/element_target.hpp",
+      "file": "src/computer_use/element_target.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/helper_main.cpp",
+      "file": "src/computer_use/helper_main.cpp",
+      "lines": 83
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/helper_main_macos.mm",
+      "file": "src/computer_use/helper_main_macos.mm",
+      "lines": 70
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/helper_process_posix.cpp",
+      "file": "src/computer_use/helper_process_posix.cpp",
+      "lines": 116
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/helper_process_posix.hpp",
+      "file": "src/computer_use/helper_process_posix.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/keyboard_input.hpp",
+      "file": "src/computer_use/keyboard_input.hpp",
+      "lines": 152
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_accessibility.mm",
+      "file": "src/computer_use/macos_accessibility.mm",
+      "lines": 178
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_capture.mm",
+      "file": "src/computer_use/macos_capture.mm",
+      "lines": 72
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_geometry.hpp",
+      "file": "src/computer_use/macos_geometry.hpp",
+      "lines": 30
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_input.mm",
+      "file": "src/computer_use/macos_input.mm",
+      "lines": 291
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_keyboard.hpp",
+      "file": "src/computer_use/macos_keyboard.hpp",
+      "lines": 14
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_native.hpp",
+      "file": "src/computer_use/macos_native.hpp",
+      "lines": 113
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_pointer.mm",
+      "file": "src/computer_use/macos_pointer.mm",
+      "lines": 112
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/macos_windows.mm",
+      "file": "src/computer_use/macos_windows.mm",
+      "lines": 282
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/native_backend.hpp",
+      "file": "src/computer_use/native_backend.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/native_macos.mm",
+      "file": "src/computer_use/native_macos.mm",
+      "lines": 149
+    },
+    {
+      "allowed": 1545,
+      "canonical": "src/adapters/computer_use/native_windows.cpp",
+      "file": "src/computer_use/native_windows.cpp",
+      "lines": 1545
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/native_windows.hpp",
+      "file": "src/computer_use/native_windows.hpp",
+      "lines": 4
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/vocab/pointer_appearance.hpp",
+      "file": "src/computer_use/pointer_appearance.hpp",
+      "lines": 27
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/pointer_capture.cpp",
+      "file": "src/computer_use/pointer_capture.cpp",
+      "lines": 239
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/pointer_capture.hpp",
+      "file": "src/computer_use/pointer_capture.hpp",
+      "lines": 24
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/pointer_overlay.cpp",
+      "file": "src/computer_use/pointer_overlay.cpp",
+      "lines": 500
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/pointer_overlay.hpp",
+      "file": "src/computer_use/pointer_overlay.hpp",
+      "lines": 52
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/runtime.cpp",
+      "file": "src/computer_use/runtime.cpp",
+      "lines": 427
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/runtime.hpp",
+      "file": "src/computer_use/runtime.hpp",
+      "lines": 23
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/computer_use/surface_policy.hpp",
+      "file": "src/computer_use/surface_policy.hpp",
+      "lines": 71
+    },
+    {
+      "allowed": 2875,
+      "canonical": "src/base/config/config.cpp",
+      "file": "src/config/config.cpp",
+      "lines": 2875
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/config.hpp",
+      "file": "src/config/config.hpp",
+      "lines": 686
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/config_mutation.cpp",
+      "file": "src/config/config_mutation.cpp",
+      "lines": 257
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/config_mutation.hpp",
+      "file": "src/config/config_mutation.hpp",
+      "lines": 41
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/config_recovery.cpp",
+      "file": "src/config/config_recovery.cpp",
+      "lines": 277
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/config_recovery.hpp",
+      "file": "src/config/config_recovery.hpp",
+      "lines": 62
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/desktop_close_behavior.hpp",
+      "file": "src/config/desktop_close_behavior.hpp",
+      "lines": 67
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/mcp_config.cpp",
+      "file": "src/config/mcp_config.cpp",
+      "lines": 417
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/mcp_config.hpp",
+      "file": "src/config/mcp_config.hpp",
+      "lines": 60
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/model_provider_registry.cpp",
+      "file": "src/config/model_provider_registry.cpp",
+      "lines": 24
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/model_provider_registry.hpp",
+      "file": "src/config/model_provider_registry.hpp",
+      "lines": 14
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/request_headers.cpp",
+      "file": "src/config/request_headers.cpp",
+      "lines": 174
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/request_headers.hpp",
+      "file": "src/config/request_headers.hpp",
+      "lines": 24
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/saved_models.cpp",
+      "file": "src/config/saved_models.cpp",
+      "lines": 772
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/saved_models.hpp",
+      "file": "src/config/saved_models.hpp",
+      "lines": 114
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/saved_models_editor.cpp",
+      "file": "src/config/saved_models_editor.cpp",
+      "lines": 405
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/saved_models_editor.hpp",
+      "file": "src/config/saved_models_editor.hpp",
+      "lines": 89
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/saved_models_revision.cpp",
+      "file": "src/config/saved_models_revision.cpp",
+      "lines": 45
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/saved_models_revision.hpp",
+      "file": "src/config/saved_models_revision.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/settings_mutations.cpp",
+      "file": "src/config/settings_mutations.cpp",
+      "lines": 396
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/settings_mutations.hpp",
+      "file": "src/config/settings_mutations.hpp",
+      "lines": 93
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/connectors/connector_first_start_auth.cpp",
+      "file": "src/connectors/connector_first_start_auth.cpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/connectors/connector_first_start_auth.hpp",
+      "file": "src/connectors/connector_first_start_auth.hpp",
+      "lines": 23
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/cli.cpp",
+      "file": "src/daemon/cli.cpp",
+      "lines": 476
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/cli.hpp",
+      "file": "src/daemon/cli.hpp",
+      "lines": 51
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/guid.hpp",
+      "file": "src/daemon/guid.hpp",
+      "lines": 17
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/heartbeat.cpp",
+      "file": "src/daemon/heartbeat.cpp",
+      "lines": 52
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/heartbeat.hpp",
+      "file": "src/daemon/heartbeat.hpp",
+      "lines": 48
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mcp_runtime.cpp",
+      "file": "src/daemon/mcp_runtime.cpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mcp_runtime.hpp",
+      "file": "src/daemon/mcp_runtime.hpp",
+      "lines": 27
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/os_process.hpp",
+      "file": "src/daemon/platform.hpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/os_process_posix.cpp",
+      "file": "src/daemon/platform_posix.cpp",
+      "lines": 132
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/os_process_windows.cpp",
+      "file": "src/daemon/platform_windows.cpp",
+      "lines": 162
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/runtime_files.cpp",
+      "file": "src/daemon/runtime_files.cpp",
+      "lines": 625
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/runtime_files.hpp",
+      "file": "src/daemon/runtime_files.hpp",
+      "lines": 156
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/service_win.cpp",
+      "file": "src/daemon/service_win.cpp",
+      "lines": 515
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/service_win.hpp",
+      "file": "src/daemon/service_win.hpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/startup_diagnostics.cpp",
+      "file": "src/daemon/startup_diagnostics.cpp",
+      "lines": 57
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/startup_diagnostics.hpp",
+      "file": "src/daemon/startup_diagnostics.hpp",
+      "lines": 12
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/supervisor.cpp",
+      "file": "src/daemon/supervisor.cpp",
+      "lines": 100
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/supervisor.hpp",
+      "file": "src/daemon/supervisor.hpp",
+      "lines": 66
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/worker.cpp",
+      "file": "src/daemon/worker.cpp",
+      "lines": 964
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/daemon/worker.hpp",
+      "file": "src/daemon/worker.hpp",
+      "lines": 56
+    },
+    {
+      "allowed": 2832,
+      "canonical": "src/apps/desktop/agent_browser_host.cpp",
+      "file": "src/desktop/agent_browser_host.cpp",
+      "lines": 2832
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/agent_browser_host.hpp",
+      "file": "src/desktop/agent_browser_host.hpp",
+      "lines": 137
+    },
+    {
+      "allowed": 3157,
+      "canonical": "src/apps/desktop/agent_browser_host_mac.mm",
+      "file": "src/desktop/agent_browser_host_mac.mm",
+      "lines": 3157
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/agent_browser_navigation_state.cpp",
+      "file": "src/desktop/agent_browser_navigation_state.cpp",
+      "lines": 125
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/agent_browser_navigation_state.hpp",
+      "file": "src/desktop/agent_browser_navigation_state.hpp",
+      "lines": 76
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/agent_browser_page_directory.cpp",
+      "file": "src/desktop/agent_browser_page_directory.cpp",
+      "lines": 216
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/agent_browser_page_directory.hpp",
+      "file": "src/desktop/agent_browser_page_directory.hpp",
+      "lines": 104
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/agent_browser_runtime.cpp",
+      "file": "src/desktop/agent_browser_runtime.cpp",
+      "lines": 264
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/agent_browser_runtime.hpp",
+      "file": "src/desktop/agent_browser_runtime.hpp",
+      "lines": 65
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/application_icon.cpp",
+      "file": "src/desktop/application_icon.cpp",
+      "lines": 62
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/application_icon.hpp",
+      "file": "src/desktop/application_icon.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/context_items.cpp",
+      "file": "src/desktop/context_items.cpp",
+      "lines": 162
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/context_items.hpp",
+      "file": "src/desktop/context_items.hpp",
+      "lines": 51
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/context_picker.cpp",
+      "file": "src/desktop/context_picker.cpp",
+      "lines": 358
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/context_picker.hpp",
+      "file": "src/desktop/context_picker.hpp",
+      "lines": 36
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/custom_toast.cpp",
+      "file": "src/desktop/custom_toast.cpp",
+      "lines": 175
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/custom_toast.hpp",
+      "file": "src/desktop/custom_toast.hpp",
+      "lines": 167
+    },
+    {
+      "allowed": 1230,
+      "canonical": "src/base/platform/native_ui/custom_toast_win.cpp",
+      "file": "src/desktop/custom_toast_win.cpp",
+      "lines": 1230
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/daemon_pool.cpp",
+      "file": "src/desktop/daemon_pool.cpp",
+      "lines": 620
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/daemon_pool.hpp",
+      "file": "src/desktop/daemon_pool.hpp",
+      "lines": 159
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/daemon_protocol.hpp",
+      "file": "src/desktop/daemon_protocol.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/daemon_supervisor.cpp",
+      "file": "src/desktop/daemon_supervisor.cpp",
+      "lines": 759
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/daemon_supervisor.hpp",
+      "file": "src/desktop/daemon_supervisor.hpp",
+      "lines": 105
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/deepin_window_effects.cpp",
+      "file": "src/desktop/deepin_window_effects.cpp",
+      "lines": 104
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/deepin_window_effects.hpp",
+      "file": "src/desktop/deepin_window_effects.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/desktop_about.cpp",
+      "file": "src/desktop/desktop_about.cpp",
+      "lines": 144
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/desktop_about.hpp",
+      "file": "src/desktop/desktop_about.hpp",
+      "lines": 27
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/desktop_restart.cpp",
+      "file": "src/desktop/desktop_restart.cpp",
+      "lines": 176
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/desktop_restart.hpp",
+      "file": "src/desktop/desktop_restart.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/dpi_win.cpp",
+      "file": "src/desktop/dpi_win.cpp",
+      "lines": 82
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/dpi_win.hpp",
+      "file": "src/desktop/dpi_win.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/edge_app_launcher.cpp",
+      "file": "src/desktop/edge_app_launcher.cpp",
+      "lines": 272
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/edge_app_launcher.hpp",
+      "file": "src/desktop/edge_app_launcher.hpp",
+      "lines": 60
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/external_url.cpp",
+      "file": "src/desktop/external_url.cpp",
+      "lines": 87
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/external_url.hpp",
+      "file": "src/desktop/external_url.hpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/folder_picker.hpp",
+      "file": "src/desktop/folder_picker.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/folder_picker_mac.mm",
+      "file": "src/desktop/folder_picker_mac.mm",
+      "lines": 151
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/folder_picker_win.cpp",
+      "file": "src/desktop/folder_picker_win.cpp",
+      "lines": 559
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/instance_startup.hpp",
+      "file": "src/desktop/instance_startup.hpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/linux_desktop.cpp",
+      "file": "src/desktop/linux_desktop.cpp",
+      "lines": 63
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/linux_desktop.hpp",
+      "file": "src/desktop/linux_desktop.hpp",
+      "lines": 13
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/linux_webview_scale_policy.cpp",
+      "file": "src/desktop/linux_webview_scale_policy.cpp",
+      "lines": 38
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/linux_webview_scale_policy.hpp",
+      "file": "src/desktop/linux_webview_scale_policy.hpp",
+      "lines": 20
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/locale.cpp",
+      "file": "src/desktop/locale.cpp",
+      "lines": 97
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/locale.hpp",
+      "file": "src/desktop/locale.hpp",
+      "lines": 25
+    },
+    {
+      "allowed": 2860,
+      "canonical": "src/apps/desktop/main.cpp",
+      "file": "src/desktop/main.cpp",
+      "lines": 2860
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/notifications.cpp",
+      "file": "src/desktop/notifications.cpp",
+      "lines": 301
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/notifications.hpp",
+      "file": "src/desktop/notifications.hpp",
+      "lines": 110
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/notifications_backend.hpp",
+      "file": "src/desktop/notifications_backend.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/notifications_mac.mm",
+      "file": "src/desktop/notifications_mac.mm",
+      "lines": 433
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/notifications_stub.cpp",
+      "file": "src/desktop/notifications_stub.cpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/notifications_win.cpp",
+      "file": "src/desktop/notifications_win.cpp",
+      "lines": 131
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/open_in_explorer.cpp",
+      "file": "src/desktop/open_in_explorer.cpp",
+      "lines": 195
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/open_in_explorer.hpp",
+      "file": "src/desktop/open_in_explorer.hpp",
+      "lines": 52
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/open_request.cpp",
+      "file": "src/desktop/open_request.cpp",
+      "lines": 238
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/ipc/open_request.hpp",
+      "file": "src/desktop/open_request.hpp",
+      "lines": 45
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/pick_active.cpp",
+      "file": "src/desktop/pick_active.cpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/pick_active.hpp",
+      "file": "src/desktop/pick_active.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/single_instance.hpp",
+      "file": "src/desktop/single_instance.hpp",
+      "lines": 72
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/single_instance_posix.cpp",
+      "file": "src/desktop/single_instance_posix.cpp",
+      "lines": 111
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/single_instance_win.cpp",
+      "file": "src/desktop/single_instance_win.cpp",
+      "lines": 123
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/splash_screen.cpp",
+      "file": "src/desktop/splash_screen.cpp",
+      "lines": 569
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/splash_screen.hpp",
+      "file": "src/desktop/splash_screen.hpp",
+      "lines": 25
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/startup_progress.cpp",
+      "file": "src/desktop/startup_progress.cpp",
+      "lines": 241
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/startup_progress.hpp",
+      "file": "src/desktop/startup_progress.hpp",
+      "lines": 66
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/strings.cpp",
+      "file": "src/desktop/strings.cpp",
+      "lines": 190
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/native_ui/strings.hpp",
+      "file": "src/desktop/strings.hpp",
+      "lines": 74
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/taskbar_badge.cpp",
+      "file": "src/desktop/taskbar_badge.cpp",
+      "lines": 40
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/taskbar_badge.hpp",
+      "file": "src/desktop/taskbar_badge.hpp",
+      "lines": 25
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/taskbar_badge_win.cpp",
+      "file": "src/desktop/taskbar_badge_win.cpp",
+      "lines": 191
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/taskbar_badge_win.hpp",
+      "file": "src/desktop/taskbar_badge_win.hpp",
+      "lines": 44
+    },
+    {
+      "allowed": 2261,
+      "canonical": "src/apps/desktop/tray_icon_win.cpp",
+      "file": "src/desktop/tray_icon_win.cpp",
+      "lines": 2261
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/tray_icon_win.hpp",
+      "file": "src/desktop/tray_icon_win.hpp",
+      "lines": 93
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/tray_menu_bridge.hpp",
+      "file": "src/desktop/tray_menu_bridge.hpp",
+      "lines": 78
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/tray_menu_layout.hpp",
+      "file": "src/desktop/tray_menu_layout.hpp",
+      "lines": 224
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/tray_menu_popup_model.hpp",
+      "file": "src/desktop/tray_menu_popup_model.hpp",
+      "lines": 315
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/url_builder.cpp",
+      "file": "src/desktop/url_builder.cpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/url_builder.hpp",
+      "file": "src/desktop/url_builder.hpp",
+      "lines": 24
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/user_install_policy.cpp",
+      "file": "src/desktop/user_install_policy.cpp",
+      "lines": 73
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/user_install_policy.hpp",
+      "file": "src/desktop/user_install_policy.hpp",
+      "lines": 49
+    },
+    {
+      "allowed": 2889,
+      "canonical": "src/apps/desktop/web_host.cpp",
+      "file": "src/desktop/web_host.cpp",
+      "lines": 2889
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/web_host.hpp",
+      "file": "src/desktop/web_host.hpp",
+      "lines": 208
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/web_host_close_policy.hpp",
+      "file": "src/desktop/web_host_close_policy.hpp",
+      "lines": 56
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/webview2_runtime_probe.cpp",
+      "file": "src/desktop/webview2_runtime_probe.cpp",
+      "lines": 182
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/webview2_runtime_probe.hpp",
+      "file": "src/desktop/webview2_runtime_probe.hpp",
+      "lines": 55
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/window_background.cpp",
+      "file": "src/desktop/window_background.cpp",
+      "lines": 54
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/window_background.hpp",
+      "file": "src/desktop/window_background.hpp",
+      "lines": 39
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/window_chrome.cpp",
+      "file": "src/desktop/window_chrome.cpp",
+      "lines": 112
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/window_chrome.hpp",
+      "file": "src/desktop/window_chrome.hpp",
+      "lines": 103
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/desktop/window_size.hpp",
+      "file": "src/desktop/window_size.hpp",
+      "lines": 103
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/workspace/workspace_registry.cpp",
+      "file": "src/desktop/workspace_registry.cpp",
+      "lines": 592
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/workspace/workspace_registry.hpp",
+      "file": "src/desktop/workspace_registry.hpp",
+      "lines": 198
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/bootstrap.cpp",
+      "file": "src/environment/bootstrap.cpp",
+      "lines": 102
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/bootstrap.hpp",
+      "file": "src/environment/bootstrap.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/data_dir_migration.cpp",
+      "file": "src/environment/data_dir_migration.cpp",
+      "lines": 862
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/data_dir_migration.hpp",
+      "file": "src/environment/data_dir_migration.hpp",
+      "lines": 206
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/prompt/prompt_environment.cpp",
+      "file": "src/environment/prompt_environment.cpp",
+      "lines": 18
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/prompt/prompt_environment.hpp",
+      "file": "src/environment/prompt_environment.hpp",
+      "lines": 14
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/shell_command_line.cpp",
+      "file": "src/environment/shell_command_line.cpp",
+      "lines": 285
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/shell_command_line.hpp",
+      "file": "src/environment/shell_command_line.hpp",
+      "lines": 88
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/terminal_resolver.cpp",
+      "file": "src/environment/terminal_resolver.cpp",
+      "lines": 203
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/terminal_resolver.hpp",
+      "file": "src/environment/terminal_resolver.hpp",
+      "lines": 69
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/terminal_runtime.cpp",
+      "file": "src/environment/terminal_runtime.cpp",
+      "lines": 69
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/terminal_runtime.hpp",
+      "file": "src/environment/terminal_runtime.hpp",
+      "lines": 47
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/toolchains.cpp",
+      "file": "src/environment/toolchains.cpp",
+      "lines": 328
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/environment/toolchains.hpp",
+      "file": "src/environment/toolchains.hpp",
+      "lines": 85
+    },
+    {
+      "allowed": 1882,
+      "canonical": "src/domain/experts/expert_registry.cpp",
+      "file": "src/experts/expert_registry.cpp",
+      "lines": 1882
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/experts/expert_registry.hpp",
+      "file": "src/experts/expert_registry.hpp",
+      "lines": 183
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/feedback/feedback_upload.cpp",
+      "file": "src/feedback/feedback_upload.cpp",
+      "lines": 643
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/feedback/feedback_upload.hpp",
+      "file": "src/feedback/feedback_upload.hpp",
+      "lines": 128
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/gitinfo/git_context_collector.cpp",
+      "file": "src/gitinfo/git_context_collector.cpp",
+      "lines": 399
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/gitinfo/git_context_collector.hpp",
+      "file": "src/gitinfo/git_context_collector.hpp",
+      "lines": 119
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/gitinfo/git_context_core.cpp",
+      "file": "src/gitinfo/git_context_core.cpp",
+      "lines": 77
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/gitinfo/git_context_core.hpp",
+      "file": "src/gitinfo/git_context_core.hpp",
+      "lines": 45
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_capability_catalog.cpp",
+      "file": "src/headless/headless_capability_catalog.cpp",
+      "lines": 56
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_capability_catalog.hpp",
+      "file": "src/headless/headless_capability_catalog.hpp",
+      "lines": 20
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_final_text.cpp",
+      "file": "src/headless/headless_final_text.cpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_final_text.hpp",
+      "file": "src/headless/headless_final_text.hpp",
+      "lines": 29
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_jsonl.cpp",
+      "file": "src/headless/headless_jsonl.cpp",
+      "lines": 355
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_jsonl.hpp",
+      "file": "src/headless/headless_jsonl.hpp",
+      "lines": 94
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/permissions/interaction_mode.cpp",
+      "file": "src/headless/headless_mode.cpp",
+      "lines": 15
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/permissions/interaction_mode.hpp",
+      "file": "src/headless/headless_mode.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_name_selection.hpp",
+      "file": "src/headless/headless_name_selection.hpp",
+      "lines": 59
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_options.cpp",
+      "file": "src/headless/headless_options.cpp",
+      "lines": 356
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_options.hpp",
+      "file": "src/headless/headless_options.hpp",
+      "lines": 87
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_runner.cpp",
+      "file": "src/headless/headless_runner.cpp",
+      "lines": 789
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/headless/headless_runner.hpp",
+      "file": "src/headless/headless_runner.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/history/input_history_store.cpp",
+      "file": "src/history/input_history_store.cpp",
+      "lines": 196
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/history/input_history_store.hpp",
+      "file": "src/history/input_history_store.hpp",
+      "lines": 35
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_config.cpp",
+      "file": "src/hooks/hook_config.cpp",
+      "lines": 255
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_config.hpp",
+      "file": "src/hooks/hook_config.hpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_manager.cpp",
+      "file": "src/hooks/hook_manager.cpp",
+      "lines": 389
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_manager.hpp",
+      "file": "src/hooks/hook_manager.hpp",
+      "lines": 105
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_payload.cpp",
+      "file": "src/hooks/hook_payload.cpp",
+      "lines": 172
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_payload.hpp",
+      "file": "src/hooks/hook_payload.hpp",
+      "lines": 30
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_registry.cpp",
+      "file": "src/hooks/hook_registry.cpp",
+      "lines": 965
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_registry.hpp",
+      "file": "src/hooks/hook_registry.hpp",
+      "lines": 193
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/process_runner.cpp",
+      "file": "src/hooks/hook_runner.cpp",
+      "lines": 827
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/process_runner.hpp",
+      "file": "src/hooks/hook_runner.hpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_runtime.cpp",
+      "file": "src/hooks/hook_runtime.cpp",
+      "lines": 455
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/hooks/hook_runtime.hpp",
+      "file": "src/hooks/hook_runtime.hpp",
+      "lines": 109
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/image/image_processor.cpp",
+      "file": "src/image/image_processor.cpp",
+      "lines": 334
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/image/image_processor.hpp",
+      "file": "src/image/image_processor.hpp",
+      "lines": 56
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_schedule.cpp",
+      "file": "src/loop/loop_schedule.cpp",
+      "lines": 290
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_schedule.hpp",
+      "file": "src/loop/loop_schedule.hpp",
+      "lines": 57
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_scheduler.cpp",
+      "file": "src/loop/loop_scheduler.cpp",
+      "lines": 377
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_scheduler.hpp",
+      "file": "src/loop/loop_scheduler.hpp",
+      "lines": 95
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_store.cpp",
+      "file": "src/loop/loop_store.cpp",
+      "lines": 722
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_store.hpp",
+      "file": "src/loop/loop_store.hpp",
+      "lines": 108
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_types.cpp",
+      "file": "src/loop/loop_types.cpp",
+      "lines": 434
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/loop/loop_types.hpp",
+      "file": "src/loop/loop_types.hpp",
+      "lines": 108
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_client.cpp",
+      "file": "src/lsp/lsp_client.cpp",
+      "lines": 710
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_client.hpp",
+      "file": "src/lsp/lsp_client.hpp",
+      "lines": 140
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_diagnostics.cpp",
+      "file": "src/lsp/lsp_diagnostics.cpp",
+      "lines": 88
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_diagnostics.hpp",
+      "file": "src/lsp/lsp_diagnostics.hpp",
+      "lines": 38
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_frame.cpp",
+      "file": "src/lsp/lsp_frame.cpp",
+      "lines": 125
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_frame.hpp",
+      "file": "src/lsp/lsp_frame.hpp",
+      "lines": 39
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/piped_process.cpp",
+      "file": "src/lsp/lsp_process.cpp",
+      "lines": 456
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/piped_process.hpp",
+      "file": "src/lsp/lsp_process.hpp",
+      "lines": 67
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_server_registry.cpp",
+      "file": "src/lsp/lsp_server_registry.cpp",
+      "lines": 287
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_server_registry.hpp",
+      "file": "src/lsp/lsp_server_registry.hpp",
+      "lines": 74
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_service.cpp",
+      "file": "src/lsp/lsp_service.cpp",
+      "lines": 417
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_service.hpp",
+      "file": "src/lsp/lsp_service.hpp",
+      "lines": 149
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_uri.cpp",
+      "file": "src/lsp/lsp_uri.cpp",
+      "lines": 131
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/lsp/lsp_uri.hpp",
+      "file": "src/lsp/lsp_uri.hpp",
+      "lines": 24
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/which.cpp",
+      "file": "src/lsp/lsp_which.cpp",
+      "lines": 156
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/process/which.hpp",
+      "file": "src/lsp/lsp_which.hpp",
+      "lines": 30
+    },
+    {
+      "allowed": 8827,
+      "canonical": "src/apps/cli/main.cpp",
+      "file": "src/main.cpp",
+      "lines": 8827
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/link_safety.cpp",
+      "file": "src/markdown/link_safety.cpp",
+      "lines": 189
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/link_safety.hpp",
+      "file": "src/markdown/link_safety.hpp",
+      "lines": 34
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/markdown_formatter.cpp",
+      "file": "src/markdown/markdown_formatter.cpp",
+      "lines": 754
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/markdown_formatter.hpp",
+      "file": "src/markdown/markdown_formatter.hpp",
+      "lines": 63
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/markdown_lexer.cpp",
+      "file": "src/markdown/markdown_lexer.cpp",
+      "lines": 935
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/markdown_lexer.hpp",
+      "file": "src/markdown/markdown_lexer.hpp",
+      "lines": 17
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/markdown_types.hpp",
+      "file": "src/markdown/markdown_types.hpp",
+      "lines": 83
+    },
+    {
+      "allowed": 2484,
+      "canonical": "src/apps/tui/markdown/mermaid_renderer.cpp",
+      "file": "src/markdown/mermaid_renderer.cpp",
+      "lines": 2484
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/mermaid_renderer.hpp",
+      "file": "src/markdown/mermaid_renderer.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/syntax_highlight.cpp",
+      "file": "src/markdown/syntax_highlight.cpp",
+      "lines": 496
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/markdown/syntax_highlight.hpp",
+      "file": "src/markdown/syntax_highlight.hpp",
+      "lines": 20
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_frontmatter.cpp",
+      "file": "src/memory/memory_frontmatter.cpp",
+      "lines": 101
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_frontmatter.hpp",
+      "file": "src/memory/memory_frontmatter.hpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_index.cpp",
+      "file": "src/memory/memory_index.cpp",
+      "lines": 144
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_index.hpp",
+      "file": "src/memory/memory_index.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_paths.cpp",
+      "file": "src/memory/memory_paths.cpp",
+      "lines": 80
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_paths.hpp",
+      "file": "src/memory/memory_paths.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_registry.cpp",
+      "file": "src/memory/memory_registry.cpp",
+      "lines": 267
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_registry.hpp",
+      "file": "src/memory/memory_registry.hpp",
+      "lines": 76
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_types.cpp",
+      "file": "src/memory/memory_types.cpp",
+      "lines": 23
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/memory/memory_types.hpp",
+      "file": "src/memory/memory_types.hpp",
+      "lines": 35
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/proxy_resolver.cpp",
+      "file": "src/network/proxy_resolver.cpp",
+      "lines": 454
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/proxy_resolver.hpp",
+      "file": "src/network/proxy_resolver.hpp",
+      "lines": 162
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/proxy_resolver_posix.cpp",
+      "file": "src/network/proxy_resolver_posix.cpp",
+      "lines": 74
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/proxy_resolver_win.cpp",
+      "file": "src/network/proxy_resolver_win.cpp",
+      "lines": 171
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/tcp_probe.cpp",
+      "file": "src/network/tcp_probe.cpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/tcp_probe.hpp",
+      "file": "src/network/tcp_probe.hpp",
+      "lines": 42
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/tcp_probe_posix.cpp",
+      "file": "src/network/tcp_probe_posix.cpp",
+      "lines": 124
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/tcp_probe_win.cpp",
+      "file": "src/network/tcp_probe_win.cpp",
+      "lines": 125
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_adapter.cpp",
+      "file": "src/pa/pa_adapter.cpp",
+      "lines": 18
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_adapter.hpp",
+      "file": "src/pa/pa_adapter.hpp",
+      "lines": 17
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_context_budget.cpp",
+      "file": "src/pa/pa_context_budget.cpp",
+      "lines": 200
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_context_budget.hpp",
+      "file": "src/pa/pa_context_budget.hpp",
+      "lines": 141
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_overflow_rescue.cpp",
+      "file": "src/pa/pa_overflow_rescue.cpp",
+      "lines": 135
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_overflow_rescue.hpp",
+      "file": "src/pa/pa_overflow_rescue.hpp",
+      "lines": 102
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_quirks.cpp",
+      "file": "src/pa/pa_quirks.cpp",
+      "lines": 112
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/pa/pa_quirks.hpp",
+      "file": "src/pa/pa_quirks.hpp",
+      "lines": 41
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/path_reference/path_reference.cpp",
+      "file": "src/path_reference/path_reference.cpp",
+      "lines": 180
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/path_reference/path_reference.hpp",
+      "file": "src/path_reference/path_reference.hpp",
+      "lines": 67
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/permissions/permissions.hpp",
+      "file": "src/permissions.hpp",
+      "lines": 439
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/project_instructions/instructions_loader.cpp",
+      "file": "src/project_instructions/instructions_loader.cpp",
+      "lines": 236
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/project_instructions/instructions_loader.hpp",
+      "file": "src/project_instructions/instructions_loader.hpp",
+      "lines": 34
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/prompt/context_usage_breakdown.cpp",
+      "file": "src/prompt/context_usage_breakdown.cpp",
+      "lines": 183
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/prompt/context_usage_breakdown.hpp",
+      "file": "src/prompt/context_usage_breakdown.hpp",
+      "lines": 39
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/prompt/system_datetime.cpp",
+      "file": "src/prompt/system_datetime.cpp",
+      "lines": 117
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/prompt/system_datetime.hpp",
+      "file": "src/prompt/system_datetime.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1383,
+      "canonical": "src/engine/prompt/system_prompt.cpp",
+      "file": "src/prompt/system_prompt.cpp",
+      "lines": 1383
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/prompt/system_prompt.hpp",
+      "file": "src/prompt/system_prompt.hpp",
+      "lines": 221
+    },
+    {
+      "allowed": 1326,
+      "canonical": "src/adapters/provider/anthropic_provider.cpp",
+      "file": "src/provider/anthropic_provider.cpp",
+      "lines": 1326
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/anthropic_provider.hpp",
+      "file": "src/provider/anthropic_provider.hpp",
+      "lines": 111
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/apply_model_to_session.cpp",
+      "file": "src/provider/apply_model_to_session.cpp",
+      "lines": 88
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/apply_model_to_session.hpp",
+      "file": "src/provider/apply_model_to_session.hpp",
+      "lines": 42
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/auth/github_auth.cpp",
+      "file": "src/provider/auth/github_auth.cpp",
+      "lines": 349
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/auth/github_auth.hpp",
+      "file": "src/provider/auth/github_auth.hpp",
+      "lines": 69
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/auth/xai_auth.cpp",
+      "file": "src/provider/auth/xai_auth.cpp",
+      "lines": 604
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/auth/xai_auth.hpp",
+      "file": "src/provider/auth/xai_auth.hpp",
+      "lines": 123
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/builtin_model_catalog.cpp",
+      "file": "src/provider/builtin_model_catalog.cpp",
+      "lines": 87
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/builtin_model_catalog.hpp",
+      "file": "src/provider/builtin_model_catalog.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/codex/codex_app_server_client.cpp",
+      "file": "src/provider/codex/codex_app_server_client.cpp",
+      "lines": 666
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/codex/codex_app_server_client.hpp",
+      "file": "src/provider/codex/codex_app_server_client.hpp",
+      "lines": 116
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/codex/codex_model_catalog.hpp",
+      "file": "src/provider/codex/codex_model_catalog.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/codex_provider.cpp",
+      "file": "src/provider/codex_provider.cpp",
+      "lines": 295
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/codex_provider.hpp",
+      "file": "src/provider/codex_provider.hpp",
+      "lines": 48
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/copilot_provider.cpp",
+      "file": "src/provider/copilot_provider.cpp",
+      "lines": 288
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/copilot_provider.hpp",
+      "file": "src/provider/copilot_provider.hpp",
+      "lines": 53
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/cwd_model_override.cpp",
+      "file": "src/provider/cwd_model_override.cpp",
+      "lines": 156
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/cwd_model_override.hpp",
+      "file": "src/provider/cwd_model_override.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/dsml_tool_call_recovery.cpp",
+      "file": "src/provider/dsml_tool_call_recovery.cpp",
+      "lines": 409
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/dsml_tool_call_recovery.hpp",
+      "file": "src/provider/dsml_tool_call_recovery.hpp",
+      "lines": 54
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/grok_provider.cpp",
+      "file": "src/provider/grok_provider.cpp",
+      "lines": 468
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/grok_provider.hpp",
+      "file": "src/provider/grok_provider.hpp",
+      "lines": 40
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/grok_responses.cpp",
+      "file": "src/provider/grok_responses.cpp",
+      "lines": 632
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/grok_responses.hpp",
+      "file": "src/provider/grok_responses.hpp",
+      "lines": 65
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/llm/llm_provider.hpp",
+      "file": "src/provider/llm_provider.hpp",
+      "lines": 277
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/markdown_fence_tracker.cpp",
+      "file": "src/provider/markdown_fence_tracker.cpp",
+      "lines": 130
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/markdown_fence_tracker.hpp",
+      "file": "src/provider/markdown_fence_tracker.hpp",
+      "lines": 53
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_context_metadata.cpp",
+      "file": "src/provider/model_context_metadata.cpp",
+      "lines": 127
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_context_metadata.hpp",
+      "file": "src/provider/model_context_metadata.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_context_resolver.cpp",
+      "file": "src/provider/model_context_resolver.cpp",
+      "lines": 610
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_context_resolver.hpp",
+      "file": "src/provider/model_context_resolver.hpp",
+      "lines": 53
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_pool_status.cpp",
+      "file": "src/provider/model_pool_status.cpp",
+      "lines": 172
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_pool_status.hpp",
+      "file": "src/provider/model_pool_status.hpp",
+      "lines": 144
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_resolver.cpp",
+      "file": "src/provider/model_resolver.cpp",
+      "lines": 131
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/model_resolver.hpp",
+      "file": "src/provider/model_resolver.hpp",
+      "lines": 24
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/models_dev_paths.cpp",
+      "file": "src/provider/models_dev_paths.cpp",
+      "lines": 95
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/models_dev_paths.hpp",
+      "file": "src/provider/models_dev_paths.hpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/models_dev_registry.cpp",
+      "file": "src/provider/models_dev_registry.cpp",
+      "lines": 229
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/models_dev_registry.hpp",
+      "file": "src/provider/models_dev_registry.hpp",
+      "lines": 78
+    },
+    {
+      "allowed": 2025,
+      "canonical": "src/adapters/provider/openai_provider.cpp",
+      "file": "src/provider/openai_provider.cpp",
+      "lines": 2025
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/openai_provider.hpp",
+      "file": "src/provider/openai_provider.hpp",
+      "lines": 147
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/provider_factory.cpp",
+      "file": "src/provider/provider_factory.cpp",
+      "lines": 347
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/provider_factory.hpp",
+      "file": "src/provider/provider_factory.hpp",
+      "lines": 85
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/provider_request_options.hpp",
+      "file": "src/provider/provider_request_options.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/retry_policy.cpp",
+      "file": "src/provider/retry_policy.cpp",
+      "lines": 248
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/retry_policy.hpp",
+      "file": "src/provider/retry_policy.hpp",
+      "lines": 57
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/session_model_binding.cpp",
+      "file": "src/provider/session_model_binding.cpp",
+      "lines": 502
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/session_model_binding.hpp",
+      "file": "src/provider/session_model_binding.hpp",
+      "lines": 143
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/stream_diagnostic_capture.hpp",
+      "file": "src/provider/stream_diagnostic_capture.hpp",
+      "lines": 80
+    },
+    {
+      "allowed": 1387,
+      "canonical": "src/adapters/provider/text_tool_call_recovery.cpp",
+      "file": "src/provider/text_tool_call_recovery.cpp",
+      "lines": 1387
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/text_tool_call_recovery.hpp",
+      "file": "src/provider/text_tool_call_recovery.hpp",
+      "lines": 142
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/vision_capability.cpp",
+      "file": "src/provider/vision_capability.cpp",
+      "lines": 42
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/provider/vision_capability.hpp",
+      "file": "src/provider/vision_capability.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/channel_plugin.cpp",
+      "file": "src/remote_control/channel_plugin.cpp",
+      "lines": 440
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/channel_plugin.hpp",
+      "file": "src/remote_control/channel_plugin.hpp",
+      "lines": 107
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/channel_question_bridge.cpp",
+      "file": "src/remote_control/channel_question_bridge.cpp",
+      "lines": 800
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/channel_question_bridge.hpp",
+      "file": "src/remote_control/channel_question_bridge.hpp",
+      "lines": 144
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/outbound_summary.cpp",
+      "file": "src/remote_control/outbound_summary.cpp",
+      "lines": 65
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/outbound_summary.hpp",
+      "file": "src/remote_control/outbound_summary.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/rc_session_navigation.cpp",
+      "file": "src/remote_control/rc_session_navigation.cpp",
+      "lines": 245
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/rc_session_navigation.hpp",
+      "file": "src/remote_control/rc_session_navigation.hpp",
+      "lines": 77
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/remote_control_hub.cpp",
+      "file": "src/remote_control/remote_control_hub.cpp",
+      "lines": 476
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/remote_control_hub.hpp",
+      "file": "src/remote_control/remote_control_hub.hpp",
+      "lines": 238
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/remote_control_service.cpp",
+      "file": "src/remote_control/remote_control_service.cpp",
+      "lines": 247
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/remote_control_service.hpp",
+      "file": "src/remote_control/remote_control_service.hpp",
+      "lines": 71
+    },
+    {
+      "allowed": 1236,
+      "canonical": "src/host/remote_control/session_channel_binder.cpp",
+      "file": "src/remote_control/session_channel_binder.cpp",
+      "lines": 1236
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/remote_control/session_channel_binder.hpp",
+      "file": "src/remote_control/session_channel_binder.hpp",
+      "lines": 354
+    },
+    {
+      "allowed": 1013,
+      "canonical": "src/domain/sandbox/command_classifier.cpp",
+      "file": "src/sandbox/command_classifier.cpp",
+      "lines": 1013
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/command_classifier.hpp",
+      "file": "src/sandbox/command_classifier.hpp",
+      "lines": 74
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/exec_decision.cpp",
+      "file": "src/sandbox/exec_decision.cpp",
+      "lines": 129
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/exec_decision.hpp",
+      "file": "src/sandbox/exec_decision.hpp",
+      "lines": 60
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/exec_permission.cpp",
+      "file": "src/sandbox/exec_permission.cpp",
+      "lines": 250
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/exec_permission.hpp",
+      "file": "src/sandbox/exec_permission.hpp",
+      "lines": 56
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/exec_rules.cpp",
+      "file": "src/sandbox/exec_rules.cpp",
+      "lines": 646
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/exec_rules.hpp",
+      "file": "src/sandbox/exec_rules.hpp",
+      "lines": 143
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_backend.hpp",
+      "file": "src/sandbox/sandbox_backend.hpp",
+      "lines": 88
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_backend_args.cpp",
+      "file": "src/sandbox/sandbox_backend_args.cpp",
+      "lines": 665
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_backend_mxc_win.cpp",
+      "file": "src/sandbox/sandbox_backend_mxc_win.cpp",
+      "lines": 34
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_backend_posix.cpp",
+      "file": "src/sandbox/sandbox_backend_posix.cpp",
+      "lines": 119
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_backend_win.cpp",
+      "file": "src/sandbox/sandbox_backend_win.cpp",
+      "lines": 477
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_denial.cpp",
+      "file": "src/sandbox/sandbox_denial.cpp",
+      "lines": 242
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_denial.hpp",
+      "file": "src/sandbox/sandbox_denial.hpp",
+      "lines": 48
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_policy.cpp",
+      "file": "src/sandbox/sandbox_policy.cpp",
+      "lines": 616
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_policy.hpp",
+      "file": "src/sandbox/sandbox_policy.hpp",
+      "lines": 146
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_runtime.cpp",
+      "file": "src/sandbox/sandbox_runtime.cpp",
+      "lines": 309
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_runtime.hpp",
+      "file": "src/sandbox/sandbox_runtime.hpp",
+      "lines": 92
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/sandbox/sandbox_types.hpp",
+      "file": "src/sandbox/sandbox_types.hpp",
+      "lines": 58
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/security/audit_log.cpp",
+      "file": "src/security/audit_log.cpp",
+      "lines": 518
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/security/audit_log.hpp",
+      "file": "src/security/audit_log.hpp",
+      "lines": 154
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/ask_user_question_prompter.cpp",
+      "file": "src/session/ask_user_question_prompter.cpp",
+      "lines": 171
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/ask_user_question_prompter.hpp",
+      "file": "src/session/ask_user_question_prompter.hpp",
+      "lines": 114
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/attachment_prompt_context.cpp",
+      "file": "src/session/attachment_prompt_context.cpp",
+      "lines": 147
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/attachment_prompt_context.hpp",
+      "file": "src/session/attachment_prompt_context.hpp",
+      "lines": 16
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/attachment_store.cpp",
+      "file": "src/session/attachment_store.cpp",
+      "lines": 452
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/attachment_store.hpp",
+      "file": "src/session/attachment_store.hpp",
+      "lines": 66
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/compact_checkpoint.cpp",
+      "file": "src/session/compact_checkpoint.cpp",
+      "lines": 169
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/compact_checkpoint.hpp",
+      "file": "src/session/compact_checkpoint.hpp",
+      "lines": 47
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/compact_notice.cpp",
+      "file": "src/session/compact_notice.cpp",
+      "lines": 47
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/compact_notice.hpp",
+      "file": "src/session/compact_notice.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/composer_content.hpp",
+      "file": "src/session/composer_content.hpp",
+      "lines": 267
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/event_dispatcher.cpp",
+      "file": "src/session/event_dispatcher.cpp",
+      "lines": 270
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/event_dispatcher.hpp",
+      "file": "src/session/event_dispatcher.hpp",
+      "lines": 127
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/file_checkpoint_store.cpp",
+      "file": "src/session/file_checkpoint_store.cpp",
+      "lines": 625
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/file_checkpoint_store.hpp",
+      "file": "src/session/file_checkpoint_store.hpp",
+      "lines": 94
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/fork_attachment_context.hpp",
+      "file": "src/session/fork_attachment_context.hpp",
+      "lines": 107
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/global_session_catalog.cpp",
+      "file": "src/session/global_session_catalog.cpp",
+      "lines": 993
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/global_session_catalog.hpp",
+      "file": "src/session/global_session_catalog.hpp",
+      "lines": 152
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/global_session_search.cpp",
+      "file": "src/session/global_session_search.cpp",
+      "lines": 450
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/global_session_search.hpp",
+      "file": "src/session/global_session_search.hpp",
+      "lines": 71
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/local_session_client.cpp",
+      "file": "src/session/local_session_client.cpp",
+      "lines": 195
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/local_session_client.hpp",
+      "file": "src/session/local_session_client.hpp",
+      "lines": 64
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/opencode_import.cpp",
+      "file": "src/session/opencode_import.cpp",
+      "lines": 888
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/opencode_import.hpp",
+      "file": "src/session/opencode_import.hpp",
+      "lines": 93
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/output_attachments.cpp",
+      "file": "src/session/output_attachments.cpp",
+      "lines": 384
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/output_attachments.hpp",
+      "file": "src/session/output_attachments.hpp",
+      "lines": 34
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/pasted_text_attachment.cpp",
+      "file": "src/session/pasted_text_attachment.cpp",
+      "lines": 172
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/pasted_text_attachment.hpp",
+      "file": "src/session/pasted_text_attachment.hpp",
+      "lines": 72
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/permission_prompter.cpp",
+      "file": "src/session/permission_prompter.cpp",
+      "lines": 172
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/permission_prompter.hpp",
+      "file": "src/session/permission_prompter.hpp",
+      "lines": 144
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_attention.cpp",
+      "file": "src/session/session_attention.cpp",
+      "lines": 103
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_attention.hpp",
+      "file": "src/session/session_attention.hpp",
+      "lines": 53
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/session_auto_title.cpp",
+      "file": "src/session/session_auto_title.cpp",
+      "lines": 129
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/session_auto_title.hpp",
+      "file": "src/session/session_auto_title.hpp",
+      "lines": 27
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_client.hpp",
+      "file": "src/session/session_client.hpp",
+      "lines": 519
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_history_recovery.cpp",
+      "file": "src/session/session_history_recovery.cpp",
+      "lines": 154
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_history_recovery.hpp",
+      "file": "src/session/session_history_recovery.hpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1866,
+      "canonical": "src/domain/session/session_manager.cpp",
+      "file": "src/session/session_manager.cpp",
+      "lines": 1866
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_manager.hpp",
+      "file": "src/session/session_manager.hpp",
+      "lines": 343
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_markdown_export.cpp",
+      "file": "src/session/session_markdown_export.cpp",
+      "lines": 182
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_markdown_export.hpp",
+      "file": "src/session/session_markdown_export.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_pin_store.cpp",
+      "file": "src/session/session_pin_store.cpp",
+      "lines": 249
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_pin_store.hpp",
+      "file": "src/session/session_pin_store.hpp",
+      "lines": 59
+    },
+    {
+      "allowed": 2466,
+      "canonical": "src/host/session_host/session_registry.cpp",
+      "file": "src/session/session_registry.cpp",
+      "lines": 2466
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/session_registry.hpp",
+      "file": "src/session/session_registry.hpp",
+      "lines": 408
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/resume/session_replay.cpp",
+      "file": "src/session/session_replay.cpp",
+      "lines": 202
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/resume/session_replay.hpp",
+      "file": "src/session/session_replay.hpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/resume/session_resume_restore.cpp",
+      "file": "src/session/session_resume_restore.cpp",
+      "lines": 322
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/resume/session_resume_restore.hpp",
+      "file": "src/session/session_resume_restore.hpp",
+      "lines": 32
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_rewind.cpp",
+      "file": "src/session/session_rewind.cpp",
+      "lines": 167
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_rewind.hpp",
+      "file": "src/session/session_rewind.hpp",
+      "lines": 63
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_serializer.cpp",
+      "file": "src/session/session_serializer.cpp",
+      "lines": 117
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_serializer.hpp",
+      "file": "src/session/session_serializer.hpp",
+      "lines": 16
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_storage.cpp",
+      "file": "src/session/session_storage.cpp",
+      "lines": 909
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_storage.hpp",
+      "file": "src/session/session_storage.hpp",
+      "lines": 244
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/session_title_generator.cpp",
+      "file": "src/session/session_title_generator.cpp",
+      "lines": 244
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/session_title_generator.hpp",
+      "file": "src/session/session_title_generator.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_trajectory.cpp",
+      "file": "src/session/session_trajectory.cpp",
+      "lines": 244
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_trajectory.hpp",
+      "file": "src/session/session_trajectory.hpp",
+      "lines": 76
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_usage_ledger.cpp",
+      "file": "src/session/session_usage_ledger.cpp",
+      "lines": 404
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_usage_ledger.hpp",
+      "file": "src/session/session_usage_ledger.hpp",
+      "lines": 112
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_user_message_search.cpp",
+      "file": "src/session/session_user_message_search.cpp",
+      "lines": 758
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_user_message_search.hpp",
+      "file": "src/session/session_user_message_search.hpp",
+      "lines": 136
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_writer_lease.cpp",
+      "file": "src/session/session_writer_lease.cpp",
+      "lines": 169
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/session_writer_lease.hpp",
+      "file": "src/session/session_writer_lease.hpp",
+      "lines": 67
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/side_question/side_chat.cpp",
+      "file": "src/session/side_chat.cpp",
+      "lines": 173
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/side_question/side_chat.hpp",
+      "file": "src/session/side_chat.hpp",
+      "lines": 51
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/system_notice.hpp",
+      "file": "src/session/system_notice.hpp",
+      "lines": 23
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/task_suggestion_service.cpp",
+      "file": "src/session/task_suggestion_service.cpp",
+      "lines": 864
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/task_suggestion_service.hpp",
+      "file": "src/session/task_suggestion_service.hpp",
+      "lines": 79
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/task_suggestion_store.cpp",
+      "file": "src/session/task_suggestion_store.cpp",
+      "lines": 532
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/task_suggestion_store.hpp",
+      "file": "src/session/task_suggestion_store.hpp",
+      "lines": 75
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/thread_goal_store.cpp",
+      "file": "src/session/thread_goal_store.cpp",
+      "lines": 574
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/thread_goal_store.hpp",
+      "file": "src/session/thread_goal_store.hpp",
+      "lines": 112
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/thread_repair.cpp",
+      "file": "src/session/thread_repair.cpp",
+      "lines": 272
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/thread_repair.hpp",
+      "file": "src/session/thread_repair.hpp",
+      "lines": 80
+    },
+    {
+      "allowed": 1211,
+      "canonical": "src/host/session_host/thread_service.cpp",
+      "file": "src/session/thread_service.cpp",
+      "lines": 1211
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/thread_service.hpp",
+      "file": "src/session/thread_service.hpp",
+      "lines": 101
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/todo_state.cpp",
+      "file": "src/session/todo_state.cpp",
+      "lines": 205
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/todo_state.hpp",
+      "file": "src/session/todo_state.hpp",
+      "lines": 32
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/tool_metadata_codec.cpp",
+      "file": "src/session/tool_metadata_codec.cpp",
+      "lines": 180
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/tool_metadata_codec.hpp",
+      "file": "src/session/tool_metadata_codec.hpp",
+      "lines": 53
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/tool_result_storage.cpp",
+      "file": "src/session/tool_result_storage.cpp",
+      "lines": 406
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/tool_result_storage.hpp",
+      "file": "src/session/tool_result_storage.hpp",
+      "lines": 100
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/turn_net_diff.cpp",
+      "file": "src/session/turn_net_diff.cpp",
+      "lines": 156
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/turn_net_diff.hpp",
+      "file": "src/session/turn_net_diff.hpp",
+      "lines": 36
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/turn_timing.hpp",
+      "file": "src/session/turn_timing.hpp",
+      "lines": 88
+    },
+    {
+      "allowed": 1577,
+      "canonical": "src/domain/skills/default_skill_seeder.cpp",
+      "file": "src/skills/default_skill_seeder.cpp",
+      "lines": 1577
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/default_skill_seeder.hpp",
+      "file": "src/skills/default_skill_seeder.hpp",
+      "lines": 86
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/frontmatter.cpp",
+      "file": "src/skills/frontmatter.cpp",
+      "lines": 403
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/frontmatter.hpp",
+      "file": "src/skills/frontmatter.hpp",
+      "lines": 58
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_activation.cpp",
+      "file": "src/skills/skill_activation.cpp",
+      "lines": 255
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_activation.hpp",
+      "file": "src/skills/skill_activation.hpp",
+      "lines": 47
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/skill_commands.cpp",
+      "file": "src/skills/skill_commands.cpp",
+      "lines": 130
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/commands/skill_commands.hpp",
+      "file": "src/skills/skill_commands.hpp",
+      "lines": 36
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_init.cpp",
+      "file": "src/skills/skill_init.cpp",
+      "lines": 162
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_init.hpp",
+      "file": "src/skills/skill_init.hpp",
+      "lines": 42
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_loader.cpp",
+      "file": "src/skills/skill_loader.cpp",
+      "lines": 192
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_loader.hpp",
+      "file": "src/skills/skill_loader.hpp",
+      "lines": 31
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_metadata.hpp",
+      "file": "src/skills/skill_metadata.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_registry.cpp",
+      "file": "src/skills/skill_registry.cpp",
+      "lines": 227
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_registry.hpp",
+      "file": "src/skills/skill_registry.hpp",
+      "lines": 84
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_usage_store.cpp",
+      "file": "src/skills/skill_usage_store.cpp",
+      "lines": 455
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_usage_store.hpp",
+      "file": "src/skills/skill_usage_store.hpp",
+      "lines": 67
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/themes/theme_drafts.cpp",
+      "file": "src/themes/theme_drafts.cpp",
+      "lines": 318
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/themes/theme_drafts.hpp",
+      "file": "src/themes/theme_drafts.hpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/vocab/theme_id.hpp",
+      "file": "src/themes/theme_id.hpp",
+      "lines": 23
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/themes/theme_package.cpp",
+      "file": "src/themes/theme_package.cpp",
+      "lines": 56
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/themes/theme_package.hpp",
+      "file": "src/themes/theme_package.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1022,
+      "canonical": "src/adapters/themes/theme_store.cpp",
+      "file": "src/themes/theme_store.cpp",
+      "lines": 1022
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/themes/theme_store.hpp",
+      "file": "src/themes/theme_store.hpp",
+      "lines": 103
+    },
+    {
+      "allowed": 1422,
+      "canonical": "src/adapters/tool/agent_browser/browser_tools.cpp",
+      "file": "src/tool/agent_browser/browser_tools.cpp",
+      "lines": 1422
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/agent_browser/browser_tools.hpp",
+      "file": "src/tool/agent_browser/browser_tools.hpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/agent_browser/cdp_client.cpp",
+      "file": "src/tool/agent_browser/cdp_client.cpp",
+      "lines": 699
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/agent_browser/cdp_client.hpp",
+      "file": "src/tool/agent_browser/cdp_client.hpp",
+      "lines": 94
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/agent_browser/browser_pointer_overlay.cpp",
+      "file": "src/tool/agent_browser/pointer_overlay.cpp",
+      "lines": 167
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/apply_patch_format.cpp",
+      "file": "src/tool/apply_patch_format.cpp",
+      "lines": 550
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/apply_patch_format.hpp",
+      "file": "src/tool/apply_patch_format.hpp",
+      "lines": 97
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/apply_patch_tool.cpp",
+      "file": "src/tool/apply_patch_tool.cpp",
+      "lines": 532
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/apply_patch_tool.hpp",
+      "file": "src/tool/apply_patch_tool.hpp",
+      "lines": 12
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/ask_user_question_tool.cpp",
+      "file": "src/tool/ask_user_question_tool.cpp",
+      "lines": 708
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/ask_user_question_tool.hpp",
+      "file": "src/tool/ask_user_question_tool.hpp",
+      "lines": 113
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/ask_user_question_types.hpp",
+      "file": "src/tool/ask_user_question_types.hpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/bash_output_capture.cpp",
+      "file": "src/tool/bash_output_capture.cpp",
+      "lines": 143
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/bash_output_capture.hpp",
+      "file": "src/tool/bash_output_capture.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/bash_tool.cpp",
+      "file": "src/tool/bash_tool.cpp",
+      "lines": 925
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/bash_tool.hpp",
+      "file": "src/tool/bash_tool.hpp",
+      "lines": 10
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/builtin_tool_registry.hpp",
+      "file": "src/tool/builtin_tool_registry.hpp",
+      "lines": 67
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/computer_use_tool.cpp",
+      "file": "src/tool/computer_use_tool.cpp",
+      "lines": 180
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/computer_use_tool.hpp",
+      "file": "src/tool/computer_use_tool.hpp",
+      "lines": 12
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/diff_utils.cpp",
+      "file": "src/tool/diff_utils.cpp",
+      "lines": 332
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/diff_utils.hpp",
+      "file": "src/tool/diff_utils.hpp",
+      "lines": 67
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/diff_view_truncate.cpp",
+      "file": "src/tool/diff_view_truncate.cpp",
+      "lines": 114
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/diff_view_truncate.hpp",
+      "file": "src/tool/diff_view_truncate.hpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/file_edit_tool.cpp",
+      "file": "src/tool/file_edit_tool.cpp",
+      "lines": 550
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/file_edit_tool.hpp",
+      "file": "src/tool/file_edit_tool.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1083,
+      "canonical": "src/adapters/tool/file_read_tool.cpp",
+      "file": "src/tool/file_read_tool.cpp",
+      "lines": 1083
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/file_read_tool.hpp",
+      "file": "src/tool/file_read_tool.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/file_write_tool.cpp",
+      "file": "src/tool/file_write_tool.cpp",
+      "lines": 163
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/file_write_tool.hpp",
+      "file": "src/tool/file_write_tool.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/glob_tool.cpp",
+      "file": "src/tool/glob_tool.cpp",
+      "lines": 198
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/glob_tool.hpp",
+      "file": "src/tool/glob_tool.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/goal_tool.cpp",
+      "file": "src/tool/goal_tool.cpp",
+      "lines": 249
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/goal_tool.hpp",
+      "file": "src/tool/goal_tool.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/grep_tool.cpp",
+      "file": "src/tool/grep_tool.cpp",
+      "lines": 509
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/grep_tool.hpp",
+      "file": "src/tool/grep_tool.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/ignore_utils.hpp",
+      "file": "src/tool/ignore_utils.hpp",
+      "lines": 24
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/image_generate/image_generate_tool.cpp",
+      "file": "src/tool/image_generate/image_generate_tool.cpp",
+      "lines": 428
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/image_generate/image_generate_tool.hpp",
+      "file": "src/tool/image_generate/image_generate_tool.hpp",
+      "lines": 17
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/image_generate/image_generation_client.cpp",
+      "file": "src/tool/image_generate/image_generation_client.cpp",
+      "lines": 267
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/image_generate/image_generation_client.hpp",
+      "file": "src/tool/image_generate/image_generation_client.hpp",
+      "lines": 54
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/image_generate/image_generation_policy.cpp",
+      "file": "src/tool/image_generate/image_generation_policy.cpp",
+      "lines": 211
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/image_generate/image_generation_policy.hpp",
+      "file": "src/tool/image_generate/image_generation_policy.hpp",
+      "lines": 105
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/lsp_tool.cpp",
+      "file": "src/tool/lsp_tool.cpp",
+      "lines": 243
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/lsp_tool.hpp",
+      "file": "src/tool/lsp_tool.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1024,
+      "canonical": "src/adapters/tool/mcp_manager.cpp",
+      "file": "src/tool/mcp_manager.cpp",
+      "lines": 1024
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mcp_manager.hpp",
+      "file": "src/tool/mcp_manager.hpp",
+      "lines": 219
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mcp_scope.cpp",
+      "file": "src/tool/mcp_scope.cpp",
+      "lines": 38
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mcp_scope.hpp",
+      "file": "src/tool/mcp_scope.hpp",
+      "lines": 16
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mcp_startup_coordination.cpp",
+      "file": "src/tool/mcp_startup_coordination.cpp",
+      "lines": 55
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mcp_startup_coordination.hpp",
+      "file": "src/tool/mcp_startup_coordination.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/memory_read_tool.cpp",
+      "file": "src/tool/memory_read_tool.cpp",
+      "lines": 110
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/memory_read_tool.hpp",
+      "file": "src/tool/memory_read_tool.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/memory_write_tool.cpp",
+      "file": "src/tool/memory_write_tool.cpp",
+      "lines": 124
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/memory_write_tool.hpp",
+      "file": "src/tool/memory_write_tool.hpp",
+      "lines": 15
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/llm/model_family.cpp",
+      "file": "src/tool/model_family.cpp",
+      "lines": 78
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/llm/model_family.hpp",
+      "file": "src/tool/model_family.hpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mtime_tracker.cpp",
+      "file": "src/tool/mtime_tracker.cpp",
+      "lines": 324
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/mtime_tracker.hpp",
+      "file": "src/tool/mtime_tracker.hpp",
+      "lines": 186
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/plan_mode_tool.cpp",
+      "file": "src/tool/plan_mode_tool.cpp",
+      "lines": 142
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/plan_mode_tool.hpp",
+      "file": "src/tool/plan_mode_tool.hpp",
+      "lines": 10
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/question_policy.cpp",
+      "file": "src/tool/question_policy.cpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/question_policy.hpp",
+      "file": "src/tool/question_policy.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/show_image_tool.cpp",
+      "file": "src/tool/show_image_tool.cpp",
+      "lines": 144
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/show_image_tool.hpp",
+      "file": "src/tool/show_image_tool.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/skill_view_tool.cpp",
+      "file": "src/tool/skill_view_tool.cpp",
+      "lines": 188
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/skill_view_tool.hpp",
+      "file": "src/tool/skill_view_tool.hpp",
+      "lines": 16
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/skills_tool.cpp",
+      "file": "src/tool/skills_tool.cpp",
+      "lines": 188
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/skills_tool.hpp",
+      "file": "src/tool/skills_tool.hpp",
+      "lines": 15
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/tools/spawn_subagent_tool.cpp",
+      "file": "src/tool/spawn_subagent_tool.cpp",
+      "lines": 556
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/tools/spawn_subagent_tool.hpp",
+      "file": "src/tool/spawn_subagent_tool.hpp",
+      "lines": 56
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/task_complete_tool.cpp",
+      "file": "src/tool/task_complete_tool.cpp",
+      "lines": 101
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/task_complete_tool.hpp",
+      "file": "src/tool/task_complete_tool.hpp",
+      "lines": 16
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/tools/task_suggestion_tools.cpp",
+      "file": "src/tool/task_suggestion_tools.cpp",
+      "lines": 91
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/tools/task_suggestion_tools.hpp",
+      "file": "src/tool/task_suggestion_tools.hpp",
+      "lines": 15
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/theme_create_tool.cpp",
+      "file": "src/tool/theme_create_tool.cpp",
+      "lines": 110
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/theme_create_tool.hpp",
+      "file": "src/tool/theme_create_tool.hpp",
+      "lines": 11
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/tools/thread_tools.cpp",
+      "file": "src/tool/thread_tools.cpp",
+      "lines": 481
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/host/session_host/tools/thread_tools.hpp",
+      "file": "src/tool/thread_tools.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/todo_write_tool.cpp",
+      "file": "src/tool/todo_write_tool.cpp",
+      "lines": 156
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/todo_write_tool.hpp",
+      "file": "src/tool/todo_write_tool.hpp",
+      "lines": 9
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/tool_executor.cpp",
+      "file": "src/tool/tool_executor.cpp",
+      "lines": 657
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/tool_executor.hpp",
+      "file": "src/tool/tool_executor.hpp",
+      "lines": 367
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/llm/tool_icons.hpp",
+      "file": "src/tool/tool_icons.hpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/llm/tool_protocol_names.cpp",
+      "file": "src/tool/tool_protocol_names.cpp",
+      "lines": 306
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/llm/tool_protocol_names.hpp",
+      "file": "src/tool/tool_protocol_names.hpp",
+      "lines": 98
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/tool_rewrites.cpp",
+      "file": "src/tool/tool_rewrites.cpp",
+      "lines": 199
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/tool_rewrites.hpp",
+      "file": "src/tool/tool_rewrites.hpp",
+      "lines": 77
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/tool_summary_fallback.cpp",
+      "file": "src/tool/tool_summary_fallback.cpp",
+      "lines": 184
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/vision_subagent_tool.cpp",
+      "file": "src/tool/vision_subagent_tool.cpp",
+      "lines": 459
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/vision_subagent_tool.hpp",
+      "file": "src/tool/vision_subagent_tool.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/backend.hpp",
+      "file": "src/tool/web_search/backend.hpp",
+      "lines": 69
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/backend_router.cpp",
+      "file": "src/tool/web_search/backend_router.cpp",
+      "lines": 364
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/backend_router.hpp",
+      "file": "src/tool/web_search/backend_router.hpp",
+      "lines": 91
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/bing_cn_backend.cpp",
+      "file": "src/tool/web_search/bing_cn_backend.cpp",
+      "lines": 289
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/bing_cn_backend.hpp",
+      "file": "src/tool/web_search/bing_cn_backend.hpp",
+      "lines": 47
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/duckduckgo_backend.cpp",
+      "file": "src/tool/web_search/duckduckgo_backend.cpp",
+      "lines": 240
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/duckduckgo_backend.hpp",
+      "file": "src/tool/web_search/duckduckgo_backend.hpp",
+      "lines": 58
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/html_utils.cpp",
+      "file": "src/tool/web_search/html_utils.cpp",
+      "lines": 177
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/html_utils.hpp",
+      "file": "src/tool/web_search/html_utils.hpp",
+      "lines": 32
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/region_detector.cpp",
+      "file": "src/tool/web_search/region_detector.cpp",
+      "lines": 111
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/region_detector.hpp",
+      "file": "src/tool/web_search/region_detector.hpp",
+      "lines": 77
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/rss_search_backend.cpp",
+      "file": "src/tool/web_search/rss_search_backend.cpp",
+      "lines": 204
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/rss_search_backend.hpp",
+      "file": "src/tool/web_search/rss_search_backend.hpp",
+      "lines": 39
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/runtime.cpp",
+      "file": "src/tool/web_search/runtime.cpp",
+      "lines": 61
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/runtime.hpp",
+      "file": "src/tool/web_search/runtime.hpp",
+      "lines": 51
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/web_search_tool.cpp",
+      "file": "src/tool/web_search/web_search_tool.cpp",
+      "lines": 224
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/web_search/web_search_tool.hpp",
+      "file": "src/tool/web_search/web_search_tool.hpp",
+      "lines": 29
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/word_diff.cpp",
+      "file": "src/tool/word_diff.cpp",
+      "lines": 143
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/word_diff.hpp",
+      "file": "src/tool/word_diff.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/workspace_tools.cpp",
+      "file": "src/tool/workspace_tools.cpp",
+      "lines": 109
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/workspace_tools.hpp",
+      "file": "src/tool/workspace_tools.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/worktree_tool.cpp",
+      "file": "src/tool/worktree_tool.cpp",
+      "lines": 382
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/worktree_tool.hpp",
+      "file": "src/tool/worktree_tool.hpp",
+      "lines": 29
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/tool_preamble/tool_preamble.cpp",
+      "file": "src/tool_preamble/tool_preamble.cpp",
+      "lines": 627
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/tool_preamble/tool_preamble.hpp",
+      "file": "src/tool_preamble/tool_preamble.hpp",
+      "lines": 119
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/agent_callbacks_builder.cpp",
+      "file": "src/tui/agent_callbacks_builder.cpp",
+      "lines": 303
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/agent_callbacks_builder.hpp",
+      "file": "src/tui/agent_callbacks_builder.hpp",
+      "lines": 12
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_adapter.cpp",
+      "file": "src/tui/ask_question_adapter.cpp",
+      "lines": 51
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_adapter.hpp",
+      "file": "src/tui/ask_question_adapter.hpp",
+      "lines": 39
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_controller.cpp",
+      "file": "src/tui/ask_question_controller.cpp",
+      "lines": 524
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_controller.hpp",
+      "file": "src/tui/ask_question_controller.hpp",
+      "lines": 213
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_editor.cpp",
+      "file": "src/tui/ask_question_editor.cpp",
+      "lines": 260
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_editor.hpp",
+      "file": "src/tui/ask_question_editor.hpp",
+      "lines": 54
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_layout.cpp",
+      "file": "src/tui/ask_question_layout.cpp",
+      "lines": 697
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_layout.hpp",
+      "file": "src/tui/ask_question_layout.hpp",
+      "lines": 146
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_panel.cpp",
+      "file": "src/tui/ask_question_panel.cpp",
+      "lines": 358
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_panel.hpp",
+      "file": "src/tui/ask_question_panel.hpp",
+      "lines": 84
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_session.cpp",
+      "file": "src/tui/ask_question_session.cpp",
+      "lines": 105
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_session.hpp",
+      "file": "src/tui/ask_question_session.hpp",
+      "lines": 62
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_text.cpp",
+      "file": "src/tui/ask_question_text.cpp",
+      "lines": 108
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_text.hpp",
+      "file": "src/tui/ask_question_text.hpp",
+      "lines": 14
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_view.cpp",
+      "file": "src/tui/ask_question_view.cpp",
+      "lines": 18
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ask_question_view.hpp",
+      "file": "src/tui/ask_question_view.hpp",
+      "lines": 18
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/channels_setup.cpp",
+      "file": "src/tui/channels_setup.cpp",
+      "lines": 305
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/channels_setup.hpp",
+      "file": "src/tui/channels_setup.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/chat_file_link.cpp",
+      "file": "src/tui/chat_file_link.cpp",
+      "lines": 209
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/chat_file_link.hpp",
+      "file": "src/tui/chat_file_link.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/chat_line_measure.hpp",
+      "file": "src/tui/chat_line_measure.hpp",
+      "lines": 90
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/chat_message_spacing.hpp",
+      "file": "src/tui/chat_message_spacing.hpp",
+      "lines": 29
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/chat_render_window.hpp",
+      "file": "src/tui/chat_render_window.hpp",
+      "lines": 107
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/chat_scroll.hpp",
+      "file": "src/tui/chat_scroll.hpp",
+      "lines": 253
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/cli_dispatch.cpp",
+      "file": "src/tui/cli_dispatch.cpp",
+      "lines": 211
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/cli_dispatch.hpp",
+      "file": "src/tui/cli_dispatch.hpp",
+      "lines": 40
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/clipboard_helpers.cpp",
+      "file": "src/tui/clipboard_helpers.cpp",
+      "lines": 149
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/clipboard_helpers.hpp",
+      "file": "src/tui/clipboard_helpers.hpp",
+      "lines": 25
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/compact_animation.cpp",
+      "file": "src/tui/compact_animation.cpp",
+      "lines": 31
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/compact_animation.hpp",
+      "file": "src/tui/compact_animation.hpp",
+      "lines": 22
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/compact_notice_row.cpp",
+      "file": "src/tui/compact_notice_row.cpp",
+      "lines": 50
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/compact_notice_row.hpp",
+      "file": "src/tui/compact_notice_row.hpp",
+      "lines": 27
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/confirm_question.cpp",
+      "file": "src/tui/confirm_question.cpp",
+      "lines": 301
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/confirm_question.hpp",
+      "file": "src/tui/confirm_question.hpp",
+      "lines": 40
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ctrl_c_exit.hpp",
+      "file": "src/tui/ctrl_c_exit.hpp",
+      "lines": 58
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/diff_line_wrap.cpp",
+      "file": "src/tui/diff_line_wrap.cpp",
+      "lines": 44
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/diff_line_wrap.hpp",
+      "file": "src/tui/diff_line_wrap.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/diff_view.cpp",
+      "file": "src/tui/diff_view.cpp",
+      "lines": 291
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/diff_view.hpp",
+      "file": "src/tui/diff_view.hpp",
+      "lines": 26
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ime_windows.cpp",
+      "file": "src/tui/ime_windows.cpp",
+      "lines": 161
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/ime_windows.hpp",
+      "file": "src/tui/ime_windows.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/input_event_handler.hpp",
+      "file": "src/tui/input_event_handler.hpp",
+      "lines": 13
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/input_history_navigation.cpp",
+      "file": "src/tui/input_history_navigation.cpp",
+      "lines": 117
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/input_history_navigation.hpp",
+      "file": "src/tui/input_history_navigation.hpp",
+      "lines": 18
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/message_render_cache.cpp",
+      "file": "src/tui/message_render_cache.cpp",
+      "lines": 1
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/message_render_cache.hpp",
+      "file": "src/tui/message_render_cache.hpp",
+      "lines": 112
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/mode_picker.cpp",
+      "file": "src/tui/mode_picker.cpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/mode_picker.hpp",
+      "file": "src/tui/mode_picker.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/model_picker.cpp",
+      "file": "src/tui/model_picker.cpp",
+      "lines": 30
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/model_picker.hpp",
+      "file": "src/tui/model_picker.hpp",
+      "lines": 33
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/model_retry_status.hpp",
+      "file": "src/tui/model_retry_status.hpp",
+      "lines": 32
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/non_selectable.hpp",
+      "file": "src/tui/non_selectable.hpp",
+      "lines": 44
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/paste_handler.cpp",
+      "file": "src/tui/paste_handler.cpp",
+      "lines": 273
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/paste_handler.hpp",
+      "file": "src/tui/paste_handler.hpp",
+      "lines": 117
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/path_reference_dropdown.cpp",
+      "file": "src/tui/path_reference_dropdown.cpp",
+      "lines": 66
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/path_reference_dropdown.hpp",
+      "file": "src/tui/path_reference_dropdown.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/path_reference_input.cpp",
+      "file": "src/tui/path_reference_input.cpp",
+      "lines": 125
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/path_reference_input.hpp",
+      "file": "src/tui/path_reference_input.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/pending_attachment_selection.cpp",
+      "file": "src/tui/pending_attachment_selection.cpp",
+      "lines": 68
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/pending_attachment_selection.hpp",
+      "file": "src/tui/pending_attachment_selection.hpp",
+      "lines": 20
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/picker_scroll.hpp",
+      "file": "src/tui/picker_scroll.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/redraw_pacer.cpp",
+      "file": "src/tui/redraw_pacer.cpp",
+      "lines": 91
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/redraw_pacer.hpp",
+      "file": "src/tui/redraw_pacer.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/render_mode.cpp",
+      "file": "src/tui/render_mode.cpp",
+      "lines": 15
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/render_mode.hpp",
+      "file": "src/tui/render_mode.hpp",
+      "lines": 53
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/render_mode_factory.hpp",
+      "file": "src/tui/render_mode_factory.hpp",
+      "lines": 20
+    },
+    {
+      "allowed": 2146,
+      "canonical": "src/apps/tui/settings/management_center.cpp",
+      "file": "src/tui/settings/management_center.cpp",
+      "lines": 2146
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/settings/management_center.hpp",
+      "file": "src/tui/settings/management_center.hpp",
+      "lines": 56
+    },
+    {
+      "allowed": 2842,
+      "canonical": "src/apps/tui/settings/settings_center.cpp",
+      "file": "src/tui/settings/settings_center.cpp",
+      "lines": 2842
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/settings/settings_center.hpp",
+      "file": "src/tui/settings/settings_center.hpp",
+      "lines": 49
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/settings/settings_state.cpp",
+      "file": "src/tui/settings/settings_state.cpp",
+      "lines": 294
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/settings/settings_state.hpp",
+      "file": "src/tui/settings/settings_state.hpp",
+      "lines": 146
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/sidebar_model.cpp",
+      "file": "src/tui/sidebar_model.cpp",
+      "lines": 137
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/sidebar_model.hpp",
+      "file": "src/tui/sidebar_model.hpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/slash_dropdown.cpp",
+      "file": "src/tui/slash_dropdown.cpp",
+      "lines": 276
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/slash_dropdown.hpp",
+      "file": "src/tui/slash_dropdown.hpp",
+      "lines": 31
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/subagent_host.cpp",
+      "file": "src/tui/subagent_host.cpp",
+      "lines": 187
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/subagent_host.hpp",
+      "file": "src/tui/subagent_host.hpp",
+      "lines": 103
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/terminal_key_event.cpp",
+      "file": "src/tui/terminal_key_event.cpp",
+      "lines": 539
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/terminal_key_event.hpp",
+      "file": "src/tui/terminal_key_event.hpp",
+      "lines": 110
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/terminal_utils.cpp",
+      "file": "src/tui/terminal_utils.cpp",
+      "lines": 179
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/terminal_utils.hpp",
+      "file": "src/tui/terminal_utils.hpp",
+      "lines": 48
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/text_style.hpp",
+      "file": "src/tui/text_style.hpp",
+      "lines": 16
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/text_truncation.cpp",
+      "file": "src/tui/text_truncation.cpp",
+      "lines": 178
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/text_truncation.hpp",
+      "file": "src/tui/text_truncation.hpp",
+      "lines": 37
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/theme_palette.cpp",
+      "file": "src/tui/theme_palette.cpp",
+      "lines": 173
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/theme_palette.hpp",
+      "file": "src/tui/theme_palette.hpp",
+      "lines": 109
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/thick_vscroll_bar.cpp",
+      "file": "src/tui/thick_vscroll_bar.cpp",
+      "lines": 153
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/thick_vscroll_bar.hpp",
+      "file": "src/tui/thick_vscroll_bar.hpp",
+      "lines": 100
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/thinking_animation.cpp",
+      "file": "src/tui/thinking_animation.cpp",
+      "lines": 111
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/thinking_animation.hpp",
+      "file": "src/tui/thinking_animation.hpp",
+      "lines": 65
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/thinking_heartbeat.cpp",
+      "file": "src/tui/thinking_heartbeat.cpp",
+      "lines": 39
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/thinking_heartbeat.hpp",
+      "file": "src/tui/thinking_heartbeat.hpp",
+      "lines": 31
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/todo_checklist_view.hpp",
+      "file": "src/tui/todo_checklist_view.hpp",
+      "lines": 153
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tool_progress.cpp",
+      "file": "src/tui/tool_progress.cpp",
+      "lines": 108
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tool_progress.hpp",
+      "file": "src/tui/tool_progress.hpp",
+      "lines": 20
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tool_result_fold.cpp",
+      "file": "src/tui/tool_result_fold.cpp",
+      "lines": 66
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tool_result_fold.hpp",
+      "file": "src/tui/tool_result_fold.hpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tool_row_format.cpp",
+      "file": "src/tui/tool_row_format.cpp",
+      "lines": 269
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tool_row_format.hpp",
+      "file": "src/tui/tool_row_format.hpp",
+      "lines": 86
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tool_row_presentation.hpp",
+      "file": "src/tui/tool_row_presentation.hpp",
+      "lines": 25
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_ask_channel.cpp",
+      "file": "src/tui/tui_ask_channel.cpp",
+      "lines": 189
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_ask_channel.hpp",
+      "file": "src/tui/tui_ask_channel.hpp",
+      "lines": 49
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_context.cpp",
+      "file": "src/tui/tui_context.cpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_context.hpp",
+      "file": "src/tui/tui_context.hpp",
+      "lines": 93
+    },
+    {
+      "allowed": 1386,
+      "canonical": "src/apps/tui/tui_helpers.cpp",
+      "file": "src/tui/tui_helpers.cpp",
+      "lines": 1386
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_helpers.hpp",
+      "file": "src/tui/tui_helpers.hpp",
+      "lines": 145
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_init.cpp",
+      "file": "src/tui/tui_init.cpp",
+      "lines": 359
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_init.hpp",
+      "file": "src/tui/tui_init.hpp",
+      "lines": 78
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/unclipped_reflect.hpp",
+      "file": "src/tui/unclipped_reflect.hpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/vertical_scroll.hpp",
+      "file": "src/tui/vertical_scroll.hpp",
+      "lines": 139
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/tui_state.hpp",
+      "file": "src/tui_state.hpp",
+      "lines": 472
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/apply.cpp",
+      "file": "src/upgrade/apply.cpp",
+      "lines": 601
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/apply.hpp",
+      "file": "src/upgrade/apply.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/check.hpp",
+      "file": "src/upgrade/check.hpp",
+      "lines": 56
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/console.hpp",
+      "file": "src/upgrade/console.hpp",
+      "lines": 136
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/diagnostics.cpp",
+      "file": "src/upgrade/diagnostics.cpp",
+      "lines": 160
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/diagnostics.hpp",
+      "file": "src/upgrade/diagnostics.hpp",
+      "lines": 38
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/executable_version.cpp",
+      "file": "src/upgrade/executable_version.cpp",
+      "lines": 251
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/executable_version.hpp",
+      "file": "src/upgrade/executable_version.hpp",
+      "lines": 18
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/http.cpp",
+      "file": "src/upgrade/http.cpp",
+      "lines": 120
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/network/http.hpp",
+      "file": "src/upgrade/http.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/macos_app_installer.hpp",
+      "file": "src/upgrade/macos_app_installer.hpp",
+      "lines": 30
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/macos_app_installer.mm",
+      "file": "src/upgrade/macos_app_installer.mm",
+      "lines": 525
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/macos_bundle.cpp",
+      "file": "src/upgrade/macos_bundle.cpp",
+      "lines": 108
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/macos_bundle.hpp",
+      "file": "src/upgrade/macos_bundle.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/manifest.cpp",
+      "file": "src/upgrade/manifest.cpp",
+      "lines": 267
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/manifest.hpp",
+      "file": "src/upgrade/manifest.hpp",
+      "lines": 66
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/package.cpp",
+      "file": "src/upgrade/package.cpp",
+      "lines": 304
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/package.hpp",
+      "file": "src/upgrade/package.hpp",
+      "lines": 23
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/upgrade.cpp",
+      "file": "src/upgrade/upgrade.cpp",
+      "lines": 716
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/upgrade/upgrade.hpp",
+      "file": "src/upgrade/upgrade.hpp",
+      "lines": 58
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/semver.cpp",
+      "file": "src/upgrade/version.cpp",
+      "lines": 119
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/semver.hpp",
+      "file": "src/upgrade/version.hpp",
+      "lines": 19
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/append_file.cpp",
+      "file": "src/utils/append_file.cpp",
+      "lines": 71
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/append_file.hpp",
+      "file": "src/utils/append_file.hpp",
+      "lines": 27
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/atomic_file.hpp",
+      "file": "src/utils/atomic_file.hpp",
+      "lines": 113
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/base64.hpp",
+      "file": "src/utils/base64.hpp",
+      "lines": 140
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/clipboard.cpp",
+      "file": "src/utils/clipboard.cpp",
+      "lines": 521
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/clipboard.hpp",
+      "file": "src/utils/clipboard.hpp",
+      "lines": 117
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/constants.hpp",
+      "file": "src/utils/constants.hpp",
+      "lines": 42
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/cwd_hash.cpp",
+      "file": "src/utils/cwd_hash.cpp",
+      "lines": 148
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/cwd_hash.hpp",
+      "file": "src/utils/cwd_hash.hpp",
+      "lines": 25
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/drag_scroll.cpp",
+      "file": "src/utils/drag_scroll.cpp",
+      "lines": 38
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/drag_scroll.hpp",
+      "file": "src/utils/drag_scroll.hpp",
+      "lines": 36
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/encoding.cpp",
+      "file": "src/utils/encoding.cpp",
+      "lines": 377
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/encoding.hpp",
+      "file": "src/utils/encoding.hpp",
+      "lines": 160
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/file_operations.hpp",
+      "file": "src/utils/file_operations.hpp",
+      "lines": 127
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/http_url_validation.hpp",
+      "file": "src/utils/http_url_validation.hpp",
+      "lines": 54
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/logger.hpp",
+      "file": "src/utils/logger.hpp",
+      "lines": 231
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/model_capabilities.cpp",
+      "file": "src/utils/model_capabilities.cpp",
+      "lines": 13
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/models_dev_catalog.cpp",
+      "file": "src/utils/models_dev_catalog.cpp",
+      "lines": 349
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/config/models_dev_catalog.hpp",
+      "file": "src/utils/models_dev_catalog.hpp",
+      "lines": 74
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/open_url.cpp",
+      "file": "src/utils/open_url.cpp",
+      "lines": 138
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/open_url.hpp",
+      "file": "src/utils/open_url.hpp",
+      "lines": 34
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/permissions/path_validator.hpp",
+      "file": "src/utils/path_validator.hpp",
+      "lines": 170
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/paths.cpp",
+      "file": "src/utils/paths.cpp",
+      "lines": 371
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/paths.hpp",
+      "file": "src/utils/paths.hpp",
+      "lines": 131
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/power_inhibitor.cpp",
+      "file": "src/utils/power_inhibitor.cpp",
+      "lines": 233
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/power_inhibitor.hpp",
+      "file": "src/utils/power_inhibitor.hpp",
+      "lines": 62
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/sha1.hpp",
+      "file": "src/utils/sha1.hpp",
+      "lines": 92
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/sha256.hpp",
+      "file": "src/utils/sha256.hpp",
+      "lines": 181
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/state_file.cpp",
+      "file": "src/utils/state_file.cpp",
+      "lines": 646
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/state_file.hpp",
+      "file": "src/utils/state_file.hpp",
+      "lines": 126
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/stream_processing.hpp",
+      "file": "src/utils/stream_processing.hpp",
+      "lines": 154
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_capability.cpp",
+      "file": "src/utils/terminal_capability.cpp",
+      "lines": 319
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_capability.hpp",
+      "file": "src/utils/terminal_capability.hpp",
+      "lines": 119
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_input.hpp",
+      "file": "src/utils/terminal_input.hpp",
+      "lines": 160
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_theme_detect.cpp",
+      "file": "src/utils/terminal_theme_detect.cpp",
+      "lines": 160
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_theme_detect.hpp",
+      "file": "src/utils/terminal_theme_detect.hpp",
+      "lines": 44
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_theme_detect_posix.cpp",
+      "file": "src/utils/terminal_theme_detect_posix.cpp",
+      "lines": 120
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_theme_detect_win.cpp",
+      "file": "src/utils/terminal_theme_detect_win.cpp",
+      "lines": 141
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_title.cpp",
+      "file": "src/utils/terminal_title.cpp",
+      "lines": 112
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/platform/terminal/terminal_title.hpp",
+      "file": "src/utils/terminal_title.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/text_file_buffer.cpp",
+      "file": "src/utils/text_file_buffer.cpp",
+      "lines": 988
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/text_file_buffer.hpp",
+      "file": "src/utils/text_file_buffer.hpp",
+      "lines": 101
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/text_input_ops.cpp",
+      "file": "src/utils/text_input_ops.cpp",
+      "lines": 201
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/apps/tui/text_input_ops.hpp",
+      "file": "src/utils/text_input_ops.hpp",
+      "lines": 99
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/token.hpp",
+      "file": "src/utils/token.hpp",
+      "lines": 84
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/token_tracker.cpp",
+      "file": "src/utils/token_tracker.cpp",
+      "lines": 204
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/session/token_tracker.hpp",
+      "file": "src/utils/token_tracker.hpp",
+      "lines": 94
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/tool_args_parser.hpp",
+      "file": "src/utils/tool_args_parser.hpp",
+      "lines": 46
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/adapters/tool/tool_errors.hpp",
+      "file": "src/utils/tool_errors.hpp",
+      "lines": 189
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/url_encoding.hpp",
+      "file": "src/utils/url_encoding.hpp",
+      "lines": 31
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/utf8_path.hpp",
+      "file": "src/utils/utf8_path.hpp",
+      "lines": 71
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/utils/uuid.hpp",
+      "file": "src/utils/uuid.hpp",
+      "lines": 82
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/workspace/files_handler.cpp",
+      "file": "src/web/handlers/files_handler.cpp",
+      "lines": 314
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/workspace/files_handler.hpp",
+      "file": "src/web/handlers/files_handler.hpp",
+      "lines": 104
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_command_expander.cpp",
+      "file": "src/web/handlers/skill_command_expander.cpp",
+      "lines": 58
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/skills/skill_command_expander.hpp",
+      "file": "src/web/handlers/skill_command_expander.hpp",
+      "lines": 43
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/event_payload/message_payload.cpp",
+      "file": "src/web/message_payload.cpp",
+      "lines": 41
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/event_payload/message_payload.hpp",
+      "file": "src/web/message_payload.hpp",
+      "lines": 28
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/pty_backend.hpp",
+      "file": "src/web/pty/pty_backend.hpp",
+      "lines": 162
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/pty_backend_posix.cpp",
+      "file": "src/web/pty/pty_backend_posix.cpp",
+      "lines": 187
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/pty_backend_win.cpp",
+      "file": "src/web/pty/pty_backend_win.cpp",
+      "lines": 563
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/pty_session_registry.cpp",
+      "file": "src/web/pty/pty_session_registry.cpp",
+      "lines": 266
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/pty_session_registry.hpp",
+      "file": "src/web/pty/pty_session_registry.hpp",
+      "lines": 138
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/pty_shell.cpp",
+      "file": "src/web/pty/pty_shell.cpp",
+      "lines": 384
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/winpty_agent_embedded.hpp",
+      "file": "src/web/pty/winpty_agent_embedded.hpp",
+      "lines": 17
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/winpty_agent_location.cpp",
+      "file": "src/web/pty/winpty_agent_location.cpp",
+      "lines": 91
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/base/pty/winpty_agent_location.hpp",
+      "file": "src/web/pty/winpty_agent_location.hpp",
+      "lines": 21
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/event_payload/tool_event_payload.cpp",
+      "file": "src/web/tool_event_payload.cpp",
+      "lines": 104
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/engine/agent/event_payload/tool_event_payload.hpp",
+      "file": "src/web/tool_event_payload.hpp",
+      "lines": 65
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/worktree/worktree_core.cpp",
+      "file": "src/worktree/worktree_core.cpp",
+      "lines": 347
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/worktree/worktree_core.hpp",
+      "file": "src/worktree/worktree_core.hpp",
+      "lines": 123
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/worktree/worktree_manager.cpp",
+      "file": "src/worktree/worktree_manager.cpp",
+      "lines": 524
+    },
+    {
+      "allowed": 1000,
+      "canonical": "src/domain/worktree/worktree_manager.hpp",
+      "file": "src/worktree/worktree_manager.hpp",
+      "lines": 124
+    }
+  ],
+  "findings": [],
+  "limit": 1000,
+  "oversized_files": 31,
+  "schema": 1
+}

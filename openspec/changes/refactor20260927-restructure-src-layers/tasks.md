@@ -22,12 +22,12 @@
   - 在 AGENTS.md 增加「所有权与生命周期」一节,约定摘自 adopt-ownership-conventions design.md,每条附一个仓库中的真实反例;
   - CLAUDE.md 顶部加一行,指向本系列 4 个 change,并写明「src 分层重构进行中,新文件放置规则见 restructure-src-layers/design.md」。
   - 验证:4 个 change 都通过 `openspec validate --strict`;AGENTS.md / CLAUDE.md 的 diff 只含上述段落。
-- [ ] 1.2 【P0-02】【子】【并】分支盘点。〔认领: Codex-root 2026-09-27〕
+- [x] 1.2 【P0-02】【子】【并】分支盘点。〔认领: Codex-root 2026-09-27〕
   - 用 `scripts/refactor/branch_inventory.sh` 输出每个 worktree / 分支的领先提交数、`git cherry` 结果、src 与 tests 改动数、是否有脏文件,存档到本 change 目录的 `branch-inventory.md`;
   - 28 个补丁等价的旧 worktree 列出清单,**交给用户确认后由用户自行删除**,本任务不删除任何东西;
   - `codex/add-self-session-control` 与 `review-ai-image-sharing-tool` 两个单提交例外,记录处理建议:先合入,或走 patch 迁移。
   - 验证:盘点表已存档,9 个带独有 src 改动的 ref 逐一列出。
-- [ ] 1.3 【P0-03】【子】【并】迁移与 lint 工具集,全部以报告模式运行。在 `scripts/layers/` 与 `scripts/refactor/` 下新增:〔认领: Codex-tools 2026-09-27〕
+- [x] 1.3 【P0-03】【子】【并】迁移与 lint 工具集,全部以报告模式运行。在 `scripts/layers/` 与 `scripts/refactor/` 下新增:〔认领: Codex-tools 2026-09-27〕
   - `repo_files.py`:文件清单只取 `git ls-files`;按字节逐行读写,保留 CRLF/LF;前缀替换带尾部斜杠并锚定边界;
   - `check_layers.py`:实现 R1–R14;
   - `normalize_includes.py`:幂等,支持 `--check`,平台 `#if` 块里的 include 也按文本处理;
@@ -46,7 +46,7 @@
     - **用正式 `layers.tsv` 重跑分层检查,把实测违规数写回 design.md「D2」段**;
     - 在一个混排行尾的样本文件上确认行尾不变;
     - 脚本在含嵌套 worktree 的仓库根运行时,不触碰 `.claude/worktrees`、`.worktrees`、`.acecode/worktrees`。
-- [ ] 1.4 【P0-04】【主】【并】CMake 源文件护栏。
+- [ ] 1.4 【P0-04】【主】【并】CMake 源文件护栏。〔认领: Codex-root 2026-09-27〕
   - `CMakeLists.txt:176/183` 的正则拆成 `ACECODE_TUI_DIRS` 与 `ACECODE_TUI_TESTABLE_SUBSETS`(预先写入 commands/、resume/、path_reference/、markdown/,以及 drag_scroll、text_input_ops、skill_commands),TUI 源集合为空时 `FATAL_ERROR`;
   - 新增 `cmake/acecode_source_guards.cmake`(`acecode_require_sources`、`acecode_set_source_define`、`acecode_assert_known_roots`),覆盖:
     - 全部显式清单(:185-314);
@@ -63,7 +63,7 @@
     - cmake_target_snapshot 与 G0 逐元组相同;
     - 故意改坏一个显式清单路径、一个 set_property 路径,configure 都必须 FATAL;
     - TUI 源集合非空。
-- [ ] 1.5 【P0-05】【子】【并】测试路径健壮化。〔认领: Codex-testpaths 2026-09-27〕
+- [x] 1.5 【P0-05】【子】【并】测试路径健壮化。〔认领: Codex-testpaths 2026-09-27〕
   - 新增 `tests/test_support/repo_root.hpp::find_repo_root()`,向上查找同时含 CMakeLists.txt 与 .git 的目录;用它替换 7 个文件中 17 处固定层数的 `parent_path()` 链:
     - `hooks/hook_registry_test.cpp:46`;
     - `skills/default_skill_seeder_test.cpp` 9 处;
@@ -79,18 +79,18 @@
     - 用例清单不变;
     - 把测试源复制到加深一层的目录后,仍能找到仓库根;
     - `bridge_test` 在缺 node_modules 时 SKIP,路径错误时 FAIL。
-- [ ] 1.6 【P0-06】【子】【并】前端架构测试路径表与脚本(D4)。〔认领: Codex-root 2026-09-27〕
+- [x] 1.6 【P0-06】【子】【并】前端架构测试路径表与脚本(D4)。〔认领: Codex-root 2026-09-27〕
   - 9 个 `*Architecture*.test.js` 读取的 C++ 路径收敛到 `tests/cpp_source_paths.json`;`desktopCloseDialogArchitecture.test.js:82` 的分段拼接要人工核对;
   - `scripts/code_quality_check.{sh,bat}` 去掉写死的 `src/tool/*.cpp`。
   - 不改任何 React 代码。
   - 验证:`pnpm test` 通过;把表中任一路径改坏,对应测试必须明确失败。
-- [ ] 1.7 【P0-07】【子】【并】CI 与基线 G0。
+- [ ] 1.7 【P0-07】【子】【并】CI 与基线 G0。〔认领: Codex-testpaths 2026-09-27〕
   - `.github/workflows/test.yml` 新增 layer-lint job(Linux,报告模式,排在 C++ 构建之前);
   - 新增只能手动触发的 `refactor-matrix` job(windows-2022 / macos-15,构建并运行 `acecode_unit_tests`);
   - 采集 G0:四个平台的 target 快照、gtest 清单与 SKIP 清单、四类 lint 基线,存档到本 change 目录的 `baseline/`。
   - 前置:1.3。
   - 验证:手动 dispatch 一次 refactor-matrix,Windows 与 macOS 跑完 ctest。原本就失败的用例只记入基线,不作为阻断条件。
-- [ ] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:
+- [ ] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:〔认领: Codex-root 2026-09-27〕
   - `src/tui/{cli_dispatch,tui_init,tui_context,agent_callbacks_builder,terminal_utils,clipboard_helpers,ime_windows}.{hpp,cpp}`、`src/tui/input_event_handler.hpp`、`src/tui/message_render_cache.cpp`(1 行的空 .cpp,头文件在用,保留);
   - `src/main.cpp:1395-1617` 的 IME 死代码(`update_ime_composition_window` 从未被调用),以及 `:35-37` 的 `<imm.h>` 与 `#pragma comment(lib,"Imm32.lib")`;`CMakeLists.txt:538-542` 的 imm32 链接与 `:539` 的注释;
   - `src/web/handlers/pinned_sessions_handler.cpp`(1 行空壳,.hpp 保留);
@@ -221,7 +221,7 @@
     - 用例清单与 G0 相同;
     - `CMakeLists.txt:173/507/548` 已同步;
     - 按平台用 `cmake --build --target` 构建全部 EXCLUDE_FROM_ALL 冒烟目标。
-- [ ] 3.8 【P2-09】【子】【并】分支迁移工具 `scripts/refactor/migrate_branch.py`,提供 rebase / patch / `--apply-map` / `--docs` / `--check` 五种模式。
+- [ ] 3.8 【P2-09】【子】【并】分支迁移工具 `scripts/refactor/migrate_branch.py`,提供 rebase / patch / `--apply-map` / `--docs` / `--check` 五种模式。〔认领: Codex-tools 2026-09-27〕
   - 前置:1.3(需要映射表);可与 Phase 1、Phase 2 全程并行。
   - 验证:对 9 个遗留 ref 逐一演练,patch 模式下 `git apply -3` 成功,或在记录里说明为什么不能。
 

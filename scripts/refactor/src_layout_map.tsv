@@ -1,0 +1,313 @@
+# Initial map from layout-map.md. Longest matching path wins. Directory keys end in /.
+# move/delete rows describe whole files; extract rows describe splits and are never used for blind rewrites.
+# Nonexistent exact paths are planned variants and are reported, never silently created.
+old_path	new_path	phase	kind	note
+src/utils/	src/base/utils/	P3	move	-
+src/image/	src/base/image/	P3	move	-
+src/platform/	src/base/platform/	P3	move	-
+src/config/	src/base/config/	P3	move	-
+src/network/	src/base/network/	P3	move	-
+src/ipc/	src/base/ipc/	P3	move	-
+src/workspace/	src/base/workspace/	P3	move	-
+src/pty/	src/base/pty/	P3	move	-
+src/environment/	src/base/environment/	P3	move	-
+src/llm/	src/domain/llm/	P3	move	-
+src/permissions/	src/domain/permissions/	P3	move	-
+src/security/	src/domain/security/	P3	move	-
+src/sandbox/	src/domain/sandbox/	P3	move	-
+src/experts/	src/domain/experts/	P3	move	-
+src/project_instructions/	src/domain/project_instructions/	P3	move	-
+src/memory/	src/domain/memory/	P3	move	-
+src/history/	src/domain/history/	P3	move	-
+src/connectors/	src/domain/connectors/	P3	move	-
+src/hooks/	src/domain/hooks/	P3	move	-
+src/skills/	src/domain/skills/	P3	move	-
+src/worktree/	src/domain/worktree/	P3	move	-
+src/gitinfo/	src/domain/gitinfo/	P3	move	-
+src/session/	src/domain/session/	P3	move	-
+src/upgrade/	src/adapters/upgrade/	P3	move	-
+src/themes/	src/adapters/themes/	P3	move	-
+src/feedback/	src/adapters/feedback/	P3	move	-
+src/computer_use/	src/adapters/computer_use/	P3	move	-
+src/lsp/	src/adapters/lsp/	P3	move	-
+src/pa/	src/adapters/pa/	P3	move	-
+src/provider/	src/adapters/provider/	P3	move	-
+src/tool/	src/adapters/tool/	P3	move	-
+src/tool_preamble/	src/engine/tool_preamble/	P3	move	-
+src/prompt/	src/engine/prompt/	P3	move	-
+src/agent/	src/engine/agent/	P3	move	-
+src/session_host/	src/host/session_host/	P3	move	-
+src/loop/	src/host/loop/	P3	move	-
+src/remote_control/	src/host/remote_control/	P3	move	-
+src/channels/	src/host/channels/	P3	move	-
+src/tui/	src/apps/tui/	P3	move	-
+src/web/	src/apps/web/	P3	move	-
+src/headless/	src/apps/headless/	P3	move	-
+src/desktop/	src/apps/desktop/	P3	move	-
+src/daemon/	src/apps/daemon/	P3	move	-
+src/cli/	src/apps/cli/	P3	move	-
+src/commands/	src/apps/tui/commands/	P2-08	move	-
+src/markdown/	src/apps/tui/markdown/	P2-08	move	-
+src/path_reference/	src/apps/tui/path_reference/	P2-08	move	-
+src/agent_loop.hpp	src/engine/agent/agent_loop.hpp	P2-08	move	-
+src/agent_loop.cpp	src/engine/agent/agent_loop.cpp	P2-08	move	-
+src/agent_loop_doom_guard.hpp	src/engine/agent/guards/doom_guard.hpp	P2-08	move	-
+src/agent_loop_doom_guard.cpp	src/engine/agent/guards/doom_guard.cpp	P2-08	move	-
+src/agent_loop_shell_guard.hpp	src/domain/permissions/shell_write_guard.hpp	P2-05	move	-
+src/permissions.hpp	src/domain/permissions/permissions.hpp	P2-05	move	-
+src/permissions.hpp	src/base/config/vocab/permission_mode.hpp	P2-05	extract	Enum and mode normalization only
+src/tui_state.hpp	src/apps/tui/tui_state.hpp	P2-08	move	-
+src/main.cpp	src/apps/cli/main.cpp	P2-08	move	-
+src/version.hpp.in	cmake/version.hpp.in	P2-08	move	-
+src/utils/file_operations.hpp	src/adapters/tool/file_operations.hpp	P2-05	move	-
+src/utils/tool_errors.hpp	src/adapters/tool/tool_errors.hpp	P2-05	move	-
+src/utils/tool_args_parser.hpp	src/adapters/tool/tool_args_parser.hpp	P2-05	move	-
+src/utils/token_tracker.hpp	src/domain/session/token_tracker.hpp	P2-05	move	-
+src/utils/token_tracker.cpp	src/domain/session/token_tracker.cpp	P2-05	move	-
+src/utils/models_dev_catalog.hpp	src/base/config/models_dev_catalog.hpp	P2-05	move	-
+src/utils/models_dev_catalog.cpp	src/base/config/models_dev_catalog.cpp	P2-05	move	-
+src/utils/model_capabilities.cpp	src/base/config/model_capabilities.cpp	P2-05	move	-
+src/utils/path_validator.hpp	src/domain/permissions/path_validator.hpp	P2-05	move	-
+src/utils/clipboard.hpp	src/base/platform/clipboard.hpp	P2-03	move	-
+src/utils/clipboard.cpp	src/base/platform/clipboard.cpp	P2-03	move	-
+src/utils/open_url.hpp	src/base/platform/open_url.hpp	P2-03	move	-
+src/utils/open_url.cpp	src/base/platform/open_url.cpp	P2-03	move	-
+src/utils/power_inhibitor.hpp	src/base/platform/power_inhibitor.hpp	P2-03	move	-
+src/utils/power_inhibitor.cpp	src/base/platform/power_inhibitor.cpp	P2-03	move	-
+src/utils/terminal_capability.hpp	src/base/platform/terminal/terminal_capability.hpp	P2-03	move	-
+src/utils/terminal_capability.cpp	src/base/platform/terminal/terminal_capability.cpp	P2-03	move	-
+src/utils/terminal_theme_detect.hpp	src/base/platform/terminal/terminal_theme_detect.hpp	P2-03	move	-
+src/utils/terminal_theme_detect.cpp	src/base/platform/terminal/terminal_theme_detect.cpp	P2-03	move	-
+src/utils/terminal_title.hpp	src/base/platform/terminal/terminal_title.hpp	P2-03	move	-
+src/utils/terminal_title.cpp	src/base/platform/terminal/terminal_title.cpp	P2-03	move	-
+src/utils/terminal_theme_detect_posix.cpp	src/base/platform/terminal/terminal_theme_detect_posix.cpp	P2-03	move	-
+src/utils/terminal_theme_detect_win.cpp	src/base/platform/terminal/terminal_theme_detect_win.cpp	P2-03	move	-
+src/utils/terminal_input.hpp	src/base/platform/terminal/terminal_input.hpp	P2-03	move	-
+src/utils/drag_scroll.hpp	src/apps/tui/drag_scroll.hpp	P2-08	move	-
+src/utils/drag_scroll.cpp	src/apps/tui/drag_scroll.cpp	P2-08	move	-
+src/utils/text_input_ops.hpp	src/apps/tui/text_input_ops.hpp	P2-08	move	-
+src/utils/text_input_ops.cpp	src/apps/tui/text_input_ops.cpp	P2-08	move	-
+src/tool/diff_utils.hpp	src/base/utils/diff_utils.hpp	P2-02	move	-
+src/tool/diff_utils.cpp	src/base/utils/diff_utils.cpp	P2-02	move	-
+src/tool/word_diff.hpp	src/base/utils/word_diff.hpp	P2-02	move	-
+src/tool/word_diff.cpp	src/base/utils/word_diff.cpp	P2-02	move	-
+src/tool/diff_view_truncate.hpp	src/base/utils/diff_view_truncate.hpp	P2-02	move	-
+src/tool/diff_view_truncate.cpp	src/base/utils/diff_view_truncate.cpp	P2-02	move	-
+src/skills/frontmatter.hpp	src/base/utils/frontmatter.hpp	P2-06	move	-
+src/skills/frontmatter.cpp	src/base/utils/frontmatter.cpp	P2-06	move	-
+src/upgrade/version.hpp	src/base/utils/semver.hpp	P2-05	move	-
+src/upgrade/version.cpp	src/base/utils/semver.cpp	P2-05	move	-
+src/image/stb/	external/stb/	P3	move	-
+src/hooks/hook_runner.hpp	src/base/platform/process/process_runner.hpp	P2-03	move	-
+src/hooks/hook_runner.cpp	src/base/platform/process/process_runner.cpp	P2-03	move	-
+src/lsp/lsp_process.hpp	src/base/platform/process/piped_process.hpp	P2-03	move	-
+src/lsp/lsp_process.cpp	src/base/platform/process/piped_process.cpp	P2-03	move	-
+src/lsp/lsp_which.hpp	src/base/platform/process/which.hpp	P2-03	move	-
+src/lsp/lsp_which.cpp	src/base/platform/process/which.cpp	P2-03	move	-
+src/daemon/platform.hpp	src/base/platform/process/os_process.hpp	P2-03	move	-
+src/daemon/platform_posix.cpp	src/base/platform/process/os_process_posix.cpp	P2-03	move	-
+src/daemon/platform_windows.cpp	src/base/platform/process/os_process_windows.cpp	P2-03	move	-
+src/desktop/locale.hpp	src/base/platform/locale.hpp	P2-03	move	-
+src/desktop/locale.cpp	src/base/platform/locale.cpp	P2-03	move	-
+src/desktop/folder_picker.hpp	src/base/platform/native_ui/folder_picker.hpp	P2-03	move	-
+src/desktop/folder_picker_win.cpp	src/base/platform/native_ui/folder_picker_win.cpp	P2-03	move	-
+src/desktop/notifications_win.cpp	src/base/platform/native_ui/notifications_win.cpp	P2-03	move	-
+src/desktop/notifications_stub.cpp	src/base/platform/native_ui/notifications_stub.cpp	P2-03	move	-
+src/desktop/custom_toast_win.cpp	src/base/platform/native_ui/custom_toast_win.cpp	P2-03	move	-
+src/desktop/folder_picker_mac.mm	src/base/platform/native_ui/folder_picker_mac.mm	P2-03	move	-
+src/desktop/notifications_mac.mm	src/base/platform/native_ui/notifications_mac.mm	P2-03	move	-
+src/desktop/context_picker.hpp	src/base/platform/native_ui/context_picker.hpp	P2-03	move	-
+src/desktop/context_picker.cpp	src/base/platform/native_ui/context_picker.cpp	P2-03	move	-
+src/desktop/open_in_explorer.hpp	src/base/platform/native_ui/open_in_explorer.hpp	P2-03	move	-
+src/desktop/open_in_explorer.cpp	src/base/platform/native_ui/open_in_explorer.cpp	P2-03	move	-
+src/desktop/notifications.hpp	src/base/platform/native_ui/notifications.hpp	P2-03	move	-
+src/desktop/notifications.cpp	src/base/platform/native_ui/notifications.cpp	P2-03	move	-
+src/desktop/custom_toast.hpp	src/base/platform/native_ui/custom_toast.hpp	P2-03	move	-
+src/desktop/custom_toast.cpp	src/base/platform/native_ui/custom_toast.cpp	P2-03	move	-
+src/desktop/strings.hpp	src/base/platform/native_ui/strings.hpp	P2-03	move	-
+src/desktop/strings.cpp	src/base/platform/native_ui/strings.cpp	P2-03	move	-
+src/desktop/notifications_backend.hpp	src/base/platform/native_ui/notifications_backend.hpp	P2-03	move	-
+src/upgrade/console.hpp	src/base/platform/terminal/console.hpp	P2-03	move	-
+src/computer_use/pointer_appearance.hpp	src/base/config/vocab/pointer_appearance.hpp	P2-05	move	-
+src/themes/theme_id.hpp	src/base/config/vocab/theme_id.hpp	P2-05	move	-
+src/provider/builtin_model_catalog.hpp	src/base/config/builtin_model_catalog.hpp	P2-05	move	-
+src/provider/builtin_model_catalog.cpp	src/base/config/builtin_model_catalog.cpp	P2-05	move	-
+src/upgrade/http.hpp	src/base/network/http.hpp	P2-05	move	-
+src/upgrade/http.cpp	src/base/network/http.cpp	P2-05	move	-
+src/daemon/runtime_files.hpp	src/base/ipc/runtime_files.hpp	P2-04	move	-
+src/daemon/runtime_files.cpp	src/base/ipc/runtime_files.cpp	P2-04	move	-
+src/daemon/guid.hpp	src/base/ipc/guid.hpp	P2-04	move	-
+src/desktop/open_request.hpp	src/base/ipc/open_request.hpp	P2-04	move	-
+src/desktop/open_request.cpp	src/base/ipc/open_request.cpp	P2-04	move	-
+src/desktop/agent_browser_runtime.hpp	src/base/ipc/agent_browser_runtime.hpp	P2-04	move	-
+src/desktop/agent_browser_runtime.cpp	src/base/ipc/agent_browser_runtime.cpp	P2-04	move	-
+src/desktop/daemon_protocol.hpp	src/base/ipc/daemon_protocol.hpp	P2-04	move	-
+src/desktop/workspace_registry.hpp	src/base/workspace/workspace_registry.hpp	P2-04	move	-
+src/desktop/workspace_registry.cpp	src/base/workspace/workspace_registry.cpp	P2-04	move	-
+src/web/handlers/files_handler.hpp	src/base/workspace/files_handler.hpp	P2-04	move	-
+src/web/handlers/files_handler.cpp	src/base/workspace/files_handler.cpp	P2-04	move	-
+src/web/pty/	src/base/pty/	P2-03	move	-
+src/environment/prompt_environment.hpp	src/engine/prompt/prompt_environment.hpp	P2-08	move	-
+src/environment/prompt_environment.cpp	src/engine/prompt/prompt_environment.cpp	P2-08	move	-
+src/provider/llm_provider.hpp	src/domain/llm/llm_provider.hpp	P2-02	move	-
+src/tool/tool_protocol_names.hpp	src/domain/llm/tool_protocol_names.hpp	P2-02	move	-
+src/tool/tool_protocol_names.cpp	src/domain/llm/tool_protocol_names.cpp	P2-02	move	-
+src/tool/model_family.hpp	src/domain/llm/model_family.hpp	P2-02	move	-
+src/tool/model_family.cpp	src/domain/llm/model_family.cpp	P2-02	move	-
+src/tool/tool_icons.hpp	src/domain/llm/tool_icons.hpp	P2-02	move	-
+src/headless/headless_mode.hpp	src/domain/permissions/interaction_mode.hpp	P2-05	move	-
+src/headless/headless_mode.cpp	src/domain/permissions/interaction_mode.cpp	P2-05	move	-
+src/commands/opencode_command.hpp	src/domain/skills/opencode_command.hpp	P2-06	move	-
+src/commands/opencode_command.cpp	src/domain/skills/opencode_command.cpp	P2-06	move	-
+src/web/handlers/skill_command_expander.hpp	src/domain/skills/skill_command_expander.hpp	P2-06	move	-
+src/web/handlers/skill_command_expander.cpp	src/domain/skills/skill_command_expander.cpp	P2-06	move	-
+src/session/session_registry.hpp	src/host/session_host/session_registry.hpp	P2-07	move	-
+src/session/session_registry.cpp	src/host/session_host/session_registry.cpp	P2-07	move	-
+src/session/local_session_client.hpp	src/host/session_host/local_session_client.hpp	P2-07	move	-
+src/session/local_session_client.cpp	src/host/session_host/local_session_client.cpp	P2-07	move	-
+src/session/thread_service.hpp	src/host/session_host/thread_service.hpp	P2-07	move	-
+src/session/thread_service.cpp	src/host/session_host/thread_service.cpp	P2-07	move	-
+src/session/task_suggestion_service.hpp	src/host/session_host/task_suggestion_service.hpp	P2-07	move	-
+src/session/task_suggestion_service.cpp	src/host/session_host/task_suggestion_service.cpp	P2-07	move	-
+src/session/session_auto_title.hpp	src/host/session_host/session_auto_title.hpp	P2-07	move	-
+src/session/session_auto_title.cpp	src/host/session_host/session_auto_title.cpp	P2-07	move	-
+src/session/session_title_generator.hpp	src/host/session_host/session_title_generator.hpp	P2-07	move	-
+src/session/session_title_generator.cpp	src/host/session_host/session_title_generator.cpp	P2-07	move	-
+src/session/side_chat.hpp	src/engine/agent/side_question/side_chat.hpp	P2-08	move	-
+src/session/side_chat.cpp	src/engine/agent/side_question/side_chat.cpp	P2-08	move	-
+src/session/session_replay.hpp	src/apps/tui/resume/session_replay.hpp	P2-08	move	-
+src/session/session_replay.cpp	src/apps/tui/resume/session_replay.cpp	P2-08	move	-
+src/session/session_resume_restore.hpp	src/apps/tui/resume/session_resume_restore.hpp	P2-08	move	-
+src/session/session_resume_restore.cpp	src/apps/tui/resume/session_resume_restore.cpp	P2-08	move	-
+src/provider/apply_model_to_session.hpp	src/host/session_host/apply_model_to_session.hpp	P2-07	move	-
+src/provider/apply_model_to_session.cpp	src/host/session_host/apply_model_to_session.cpp	P2-07	move	-
+src/tool/spawn_subagent_tool.hpp	src/host/session_host/tools/spawn_subagent_tool.hpp	P2-07	move	-
+src/tool/spawn_subagent_tool.cpp	src/host/session_host/tools/spawn_subagent_tool.cpp	P2-07	move	-
+src/tool/thread_tools.hpp	src/host/session_host/tools/thread_tools.hpp	P2-07	move	-
+src/tool/thread_tools.cpp	src/host/session_host/tools/thread_tools.cpp	P2-07	move	-
+src/tool/task_suggestion_tools.hpp	src/host/session_host/tools/task_suggestion_tools.hpp	P2-07	move	-
+src/tool/task_suggestion_tools.cpp	src/host/session_host/tools/task_suggestion_tools.cpp	P2-07	move	-
+src/tool/agent_browser/pointer_overlay.cpp	src/adapters/tool/agent_browser/browser_pointer_overlay.cpp	P2-08	move	-
+src/daemon/mcp_runtime.hpp	src/adapters/tool/mcp_runtime.hpp	P2-08	move	-
+src/daemon/mcp_runtime.cpp	src/adapters/tool/mcp_runtime.cpp	P2-08	move	-
+src/web/message_payload.hpp	src/engine/agent/event_payload/message_payload.hpp	P2-08	move	-
+src/web/message_payload.cpp	src/engine/agent/event_payload/message_payload.cpp	P2-08	move	-
+src/web/tool_event_payload.hpp	src/engine/agent/event_payload/tool_event_payload.hpp	P2-08	move	-
+src/web/tool_event_payload.cpp	src/engine/agent/event_payload/tool_event_payload.cpp	P2-08	move	-
+src/commands/compact.hpp	src/engine/agent/compaction/compact.hpp	P2-08	move	-
+src/commands/compact.cpp	src/engine/agent/compaction/compact.cpp	P2-08	move	-
+src/commands/compact_prompt.hpp	src/engine/agent/compaction/compact_prompt.hpp	P2-08	move	-
+src/commands/compact_prompt.cpp	src/engine/agent/compaction/compact_prompt.cpp	P2-08	move	-
+src/channels/command.hpp	src/apps/cli/channels_cli.hpp	P2-08	move	-
+src/channels/command.cpp	src/apps/cli/channels_cli.cpp	P2-08	move	-
+src/skills/skill_commands.hpp	src/apps/tui/commands/skill_commands.hpp	P2-06	move	-
+src/skills/skill_commands.cpp	src/apps/tui/commands/skill_commands.cpp	P2-06	move	-
+src/commands/configure.hpp	src/apps/cli/configure/configure.hpp	P2-08	move	-
+src/commands/configure.cpp	src/apps/cli/configure/configure.cpp	P2-08	move	-
+src/commands/configure_catalog.hpp	src/apps/cli/configure/configure_catalog.hpp	P2-08	move	-
+src/commands/configure_catalog.cpp	src/apps/cli/configure/configure_catalog.cpp	P2-08	move	-
+src/commands/configure_picker.hpp	src/apps/cli/configure/configure_picker.hpp	P2-08	move	-
+src/commands/configure_picker.cpp	src/apps/cli/configure/configure_picker.cpp	P2-08	move	-
+src/tui/cli_dispatch.hpp	-	P0-08	delete	-
+src/tui/cli_dispatch.cpp	-	P0-08	delete	-
+src/tui/tui_init.hpp	-	P0-08	delete	-
+src/tui/tui_init.cpp	-	P0-08	delete	-
+src/tui/tui_context.hpp	-	P0-08	delete	-
+src/tui/tui_context.cpp	-	P0-08	delete	-
+src/tui/agent_callbacks_builder.hpp	-	P0-08	delete	-
+src/tui/agent_callbacks_builder.cpp	-	P0-08	delete	-
+src/tui/terminal_utils.hpp	-	P0-08	delete	-
+src/tui/terminal_utils.cpp	-	P0-08	delete	-
+src/tui/clipboard_helpers.hpp	-	P0-08	delete	-
+src/tui/clipboard_helpers.cpp	-	P0-08	delete	-
+src/tui/ime_windows.hpp	-	P0-08	delete	-
+src/tui/ime_windows.cpp	-	P0-08	delete	-
+src/tui/input_event_handler.hpp	-	P0-08	delete	-
+src/tui/message_render_cache.cpp	-	P0-08	delete	-
+src/web/handlers/pinned_sessions_handler.cpp	-	P0-08	delete	-
+src/provider/auth/acecode.code-workspace	-	P0-08	delete	-
+src/daemon/supervisor.hpp	-	P0-08	delete	-
+src/daemon/supervisor.cpp	-	P0-08	delete	-
+tests/agent_loop/	tests/agent/	P2-08	move	-
+tests/channels/command_test.cpp	tests/cli/command_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/computer_use/pointer_appearance_test.cpp	tests/config/pointer_appearance_test.cpp	P2-05	move	Mirror the corresponding relocated source
+tests/daemon/mcp_runtime_test.cpp	tests/tool/mcp_runtime_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/daemon/runtime_files_test.cpp	tests/ipc/runtime_files_test.cpp	P2-04	move	Mirror the corresponding relocated source
+tests/desktop/agent_browser_runtime_test.cpp	tests/ipc/agent_browser_runtime_test.cpp	P2-04	move	Mirror the corresponding relocated source
+tests/desktop/custom_toast_layout_test.cpp	tests/platform/custom_toast_layout_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/desktop/locale_test.cpp	tests/platform/locale_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/desktop/notifications_native_test.cpp	tests/platform/notifications_native_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/desktop/notifications_test.cpp	tests/platform/notifications_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/desktop/open_in_explorer_test.cpp	tests/platform/open_in_explorer_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/desktop/open_request_test.cpp	tests/ipc/open_request_test.cpp	P2-04	move	Mirror the corresponding relocated source
+tests/desktop/strings_test.cpp	tests/platform/strings_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/desktop/workspace_registry_test.cpp	tests/workspace/workspace_registry_test.cpp	P2-04	move	Mirror the corresponding relocated source
+tests/hooks/hook_runner_test.cpp	tests/platform/hook_runner_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/lsp/lsp_which_test.cpp	tests/platform/lsp_which_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/provider/apply_model_to_session_test.cpp	tests/session_host/apply_model_to_session_test.cpp	P2-07	move	Mirror the corresponding relocated source
+tests/provider/builtin_model_catalog_test.cpp	tests/config/builtin_model_catalog_test.cpp	P2-05	move	Mirror the corresponding relocated source
+tests/session/session_registry_test.cpp	tests/session_host/session_registry_test.cpp	P2-07	move	Mirror the corresponding relocated source
+tests/session/session_replay_real_jsonl_test.cpp	tests/tui/resume/session_replay_real_jsonl_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/session/session_replay_test.cpp	tests/tui/resume/session_replay_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/session/session_replay_tool_preamble_test.cpp	tests/tui/resume/session_replay_tool_preamble_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/session/session_resume_restore_test.cpp	tests/tui/resume/session_resume_restore_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/session/side_chat_test.cpp	tests/agent/side_chat_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/session/task_suggestion_service_test.cpp	tests/session_host/task_suggestion_service_test.cpp	P2-07	move	Mirror the corresponding relocated source
+tests/skills/frontmatter_test.cpp	tests/utils/frontmatter_test.cpp	P2-06	move	Mirror the corresponding relocated source
+tests/skills/skill_commands_reload_test.cpp	tests/tui/commands/skill_commands_reload_test.cpp	P2-06	move	Mirror the corresponding relocated source
+tests/tool/diff_utils_test.cpp	tests/utils/diff_utils_test.cpp	P2-02	move	Mirror the corresponding relocated source
+tests/tool/diff_view_truncate_test.cpp	tests/utils/diff_view_truncate_test.cpp	P2-02	move	Mirror the corresponding relocated source
+tests/tool/model_family_test.cpp	tests/llm/model_family_test.cpp	P2-02	move	Mirror the corresponding relocated source
+tests/tool/spawn_subagent_tool_test.cpp	tests/session_host/spawn_subagent_tool_test.cpp	P2-07	move	Mirror the corresponding relocated source
+tests/tool/thread_tools_test.cpp	tests/session_host/thread_tools_test.cpp	P2-07	move	Mirror the corresponding relocated source
+tests/tool/tool_protocol_names_test.cpp	tests/llm/tool_protocol_names_test.cpp	P2-02	move	Mirror the corresponding relocated source
+tests/tool/word_diff_test.cpp	tests/utils/word_diff_test.cpp	P2-02	move	Mirror the corresponding relocated source
+tests/utils/clipboard_test.cpp	tests/platform/clipboard_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/utils/drag_scroll_test.cpp	tests/tui/drag_scroll_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/utils/models_dev_catalog_test.cpp	tests/config/models_dev_catalog_test.cpp	P2-05	move	Mirror the corresponding relocated source
+tests/utils/open_url_test.cpp	tests/platform/open_url_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/utils/power_inhibitor_test.cpp	tests/platform/power_inhibitor_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/utils/terminal_capability_test.cpp	tests/platform/terminal_capability_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/utils/terminal_theme_detect_test.cpp	tests/platform/terminal_theme_detect_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/utils/terminal_title_test.cpp	tests/platform/terminal_title_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/utils/text_input_ops_test.cpp	tests/tui/text_input_ops_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/utils/token_tracker_test.cpp	tests/session/token_tracker_test.cpp	P2-05	move	Mirror the corresponding relocated source
+tests/web/files_handler_test.cpp	tests/workspace/files_handler_test.cpp	P2-04	move	Mirror the corresponding relocated source
+tests/web/message_payload_test.cpp	tests/agent/event_payload/message_payload_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/web/skill_command_expander_test.cpp	tests/skills/skill_command_expander_test.cpp	P2-06	move	Mirror the corresponding relocated source
+tests/web/tool_event_payload_test.cpp	tests/agent/event_payload/tool_event_payload_test.cpp	P2-08	move	Mirror the corresponding relocated source
+tests/web/pty/	tests/pty/	P2-03	move	Mirror the corresponding relocated source
+tests/agent_loop/shell_write_guard_test.cpp	tests/permissions/shell_write_guard_test.cpp	P2-05	move	Mirror the corresponding relocated source
+tests/upgrade/upgrade_http_test.cpp	tests/network/upgrade_http_test.cpp	P2-05	move	Mirror the corresponding relocated source
+tests/commands/	tests/tui/commands/	P2-08	move	-
+tests/markdown/	tests/tui/markdown/	P2-08	move	-
+tests/path_reference/	tests/tui/path_reference/	P2-08	move	-
+tests/commands/compact_core_test.cpp	tests/agent/compact_core_test.cpp	P2-02	move	-
+tests/commands/configure_catalog_test.cpp	tests/cli/configure_catalog_test.cpp	P2-08	move	-
+tests/commands/configure_picker_test.cpp	tests/cli/configure_picker_test.cpp	P2-08	move	-
+tests/commands/opencode_command_test.cpp	tests/skills/opencode_command_test.cpp	P2-06	move	-
+tests/permissions_test.cpp	tests/permissions/permissions_test.cpp	P2-05	move	-
+tests/skill_registry_test.cpp	tests/skills/skill_registry_test.cpp	P2-06	move	-
+tests/agent_loop/stub_provider.hpp	tests/test_support/agent/stub_provider.hpp	P1-01	move	-
+tests/channels/test_support.hpp	tests/test_support/channels/test_support.hpp	P1-01	move	-
+tests/sandbox/test_support.hpp	tests/test_support/sandbox/test_support.hpp	P1-01	move	-
+tests/themes/theme_test_resources.hpp	tests/test_support/themes/theme_test_resources.hpp	P1-01	move	-
+tests/computer_use/helpers/native_control_checks.hpp	tests/test_support/computer_use/native_control_checks.hpp	P1-01	move	-
+tests/computer_use/helpers/native_smoke_backend.hpp	tests/test_support/computer_use/native_smoke_backend.hpp	P1-01	move	-
+tests/computer_use/helpers/ole_drag_fixture.hpp	tests/test_support/computer_use/ole_drag_fixture.hpp	P1-01	move	-
+src/utils/text_file_buffer.cpp	src/adapters/tool/safe_text_write.cpp	P2-05	extract	Extract policy-dependent writes; pure codec remains
+src/utils/models_dev_catalog.cpp	src/adapters/provider/models_dev_catalog_cache.cpp	P2-05	extract	Extract registry-dependent cache
+src/config/config.cpp	src/base/utils/paths.cpp	P2-04	extract	Extract get_acecode_dir/get_run_dir/get_logs_dir
+src/tool/tool_executor.hpp	src/domain/llm/tool_result.hpp	P2-02	extract	Extract ToolResult and ToolSummary
+src/commands/compact.hpp	src/domain/llm/token_estimate.hpp	P2-02	extract	Extract token estimates
+src/commands/compact.hpp	src/domain/llm/message_predicates.hpp	P2-02	extract	Extract message predicates
+src/commands/compact.hpp	src/domain/llm/context_thresholds.hpp	P2-02	extract	Extract context thresholds
+src/prompt/context_usage_breakdown.cpp	src/domain/llm/context_usage.cpp	P2-02	extract	Extract JSON codec
+src/tool_preamble/tool_preamble.cpp	src/domain/llm/text_preamble_tags.cpp	P2-02	extract	Extract text preamble scanner
+src/hooks/hook_payload.cpp	src/engine/agent/hook_bridge/hook_events.cpp	P2-06	extract	Extract provider-specific payload
+src/skills/default_skill_seeder.cpp	src/domain/hooks/hook_seeds.cpp	P2-06	extract	Extract hook seeds
+src/session/session_title_generator.cpp	src/domain/session/session_title_text.cpp	P2-07	extract	Keep pure title helpers
+src/session/session_resume_restore.cpp	src/adapters/tool/file_state_restore.cpp	P2-08	extract	Extract tool state restore
+src/commands/init_command.cpp	src/engine/prompt/init_prompt.cpp	P2-07	extract	Extract prompt builders
+src/commands/lsp_command.cpp	src/adapters/lsp/lsp_status_text.cpp	P2-07	extract	Extract status format and dispatch
+src/cli/interactive_options.cpp	src/adapters/tool/question_policy.cpp	P2-08	extract	Extract question policy parsing
