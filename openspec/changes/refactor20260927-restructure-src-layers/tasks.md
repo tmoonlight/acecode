@@ -27,7 +27,7 @@
   - 28 个补丁等价的旧 worktree 列出清单,**交给用户确认后由用户自行删除**,本任务不删除任何东西;
   - `codex/add-self-session-control` 与 `review-ai-image-sharing-tool` 两个单提交例外,记录处理建议:先合入,或走 patch 迁移。
   - 验证:盘点表已存档,9 个带独有 src 改动的 ref 逐一列出。
-- [ ] 1.3 【P0-03】【子】【并】迁移与 lint 工具集,全部以报告模式运行。在 `scripts/layers/` 与 `scripts/refactor/` 下新增:
+- [ ] 1.3 【P0-03】【子】【并】迁移与 lint 工具集,全部以报告模式运行。在 `scripts/layers/` 与 `scripts/refactor/` 下新增:〔认领: Codex-tools 2026-09-27〕
   - `repo_files.py`:文件清单只取 `git ls-files`;按字节逐行读写,保留 CRLF/LF;前缀替换带尾部斜杠并锚定边界;
   - `check_layers.py`:实现 R1–R14;
   - `normalize_includes.py`:幂等,支持 `--check`,平台 `#if` 块里的 include 也按文本处理;
