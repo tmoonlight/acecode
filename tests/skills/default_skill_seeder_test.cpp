@@ -1,5 +1,6 @@
 #include "skills/default_skill_seeder.hpp"
 #include "skills/skill_registry.hpp"
+#include "test_support/repo_root.hpp"
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_registry.hpp"
 #include "hooks/hook_runner.hpp"
@@ -29,6 +30,7 @@
 #include <windows.h>
 #endif
 
+// 打包种子用例统一按仓库标记定位，目录搬深后不能读取错误路径或静默跳过。
 namespace fs = std::filesystem;
 
 namespace {
@@ -912,9 +914,7 @@ TEST_F(DefaultSkillSeederTest, PreservesModifiedAcecodeOwnedHook) {
 
 TEST(DefaultSkillSeedRegistryTest,
      LastEnabledOfficialHookUpgradesToDisabledWithoutChangingUserHook) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const fs::path packaged_seed = repository_root / "assets" / "seed";
     const fs::path temp_root = make_temp_root("disable-previous-official-hook");
     const fs::path home = temp_root / "profile" / ".acecode";
@@ -978,9 +978,7 @@ TEST(DefaultSkillSeedRegistryTest,
 
 TEST(DefaultSkillSeedRegistryTest,
      PackagedHookRepairsDriftedStateForKnownPreviousOfficialDefinition) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const fs::path packaged_seed = repository_root / "assets" / "seed";
     const fs::path temp_root = make_temp_root("known-official-hook-upgrade");
     const fs::path home = temp_root / "profile" / ".acecode";
@@ -1043,9 +1041,7 @@ TEST(DefaultSkillSeedRegistryTest,
 
 TEST(DefaultSkillSeedRegistryTest,
      EqualPackagedVersionRepairsKnownPreviousOfficialHook) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const fs::path packaged_seed = repository_root / "assets" / "seed";
     const fs::path temp_root =
         make_temp_root("equal-version-known-official-hook");
@@ -1084,9 +1080,7 @@ TEST(DefaultSkillSeedRegistryTest,
 
 TEST(DefaultSkillSeedRegistryTest,
      PackagedHookKeepsActuallyModifiedDefinitionWhenStateHasDrifted) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const fs::path packaged_seed = repository_root / "assets" / "seed";
     const fs::path temp_root = make_temp_root("modified-hook-drift");
     const fs::path home = temp_root / "profile" / ".acecode";
@@ -1139,9 +1133,7 @@ TEST(DefaultSkillSeedRegistryTest,
 
 TEST(DefaultSkillSeedRegistryTest,
      PackagedHookKeepsKnownOfficialDefinitionWithExtraDirectory) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const fs::path packaged_seed = repository_root / "assets" / "seed";
     const fs::path temp_root = make_temp_root("official-hook-extra-directory");
     const fs::path home = temp_root / "profile" / ".acecode";
@@ -1524,9 +1516,7 @@ TEST_F(DefaultSkillSeederTest, AgentRootDiscoveryAndPrecedenceSurviveSeeding) {
 }
 
 TEST(DefaultSkillSeedRegistryTest, PackagedManifestVersionAndHashesAgree) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const fs::path seed_root = repository_root / "assets" / "seed";
 
     const std::string version =
@@ -1643,9 +1633,7 @@ TEST(DefaultSkillSeedRegistryTest, PackagedManifestVersionAndHashesAgree) {
 
 TEST(DefaultSkillSeedRegistryTest,
      HerdrHooksResolveCliWithoutOptionalBinPathAndKeepPaneIdentity) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const auto config = read_json(
         repository_root / "assets" / "seed" / "hooks" /
         "agent-reporting" / "hooks.json");
@@ -1740,9 +1728,7 @@ TEST(DefaultSkillSeedRegistryTest,
 
 TEST(DefaultSkillSeedRegistryTest,
      HerdrTitleHookKeepsExactTabAndTitleAndSkipsEmptyOrMissingEnvironment) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const auto config = read_json(
         repository_root / "assets" / "seed" / "hooks" /
         "agent-reporting" / "hooks.json");
@@ -1844,9 +1830,7 @@ TEST(DefaultSkillSeedRegistryTest,
 }
 
 TEST(DefaultSkillSeedRegistryTest, PackagedResourcesInitializeACleanUserHome) {
-    const fs::path source_file = fs::absolute(fs::path(__FILE__));
-    const fs::path repository_root =
-        source_file.parent_path().parent_path().parent_path();
+    const fs::path repository_root = acecode::test_support::find_repo_root(__FILE__);
     const fs::path seed_root = repository_root / "assets" / "seed";
     const fs::path temp_root = make_temp_root("packaged-resources");
     const fs::path home = temp_root / "profile" / ".acecode";
