@@ -138,7 +138,7 @@
 >
 > **执行顺序**:3.1、3.2、3.3 可并行;3.4 依赖 3.1;3.5 依赖 3.1、3.4;3.6 依赖 3.5;3.7 放最后,且要求 P0-09、P0-10、P0-11 已先合入;3.8 在 1.3 之后全程并行。P2-01(RAII 原语)在 adopt-ownership-conventions,可与本组并行,但必须在 Phase 3 之前合入。
 
-- [ ] 3.1 【P2-02】【主】共同协议根 `llm/`,对应 layout-map.md §3 前 7 行。
+- [ ] 3.1 【P2-02】【主】共同协议根 `llm/`,对应 layout-map.md §3 前 7 行。〔认领: Claude-phase2 2026-09-27〕
   - `provider/llm_provider.hpp` 整头移到 `src/llm/`,删掉第 3 行的 retry_policy include;
   - `tool_protocol_names`、`model_family`、`tool_icons` 移到 llm/;
   - 拆出 `llm/tool_result.hpp`;
@@ -152,7 +152,7 @@
     - lint 显示 provider↔session、provider↔tool、provider↔pa 三个环消失;
     - `system_prompt.cpp` 对 compact.hpp 的无用 include 已删除;
     - byte-stable 用例与 tool_preamble 测试通过。
-- [ ] 3.2 【P2-03】【子】【并】平台件下沉到 `platform/` 与 `pty/`,对应 layout-map.md §2 中标 P2-03 的行。
+- [ ] 3.2 【P2-03】【子】【并】平台件下沉到 `platform/` 与 `pty/`,对应 layout-map.md §2 中标 P2-03 的行。〔认领: Claude-p2-03 2026-09-27〕
   - `hooks/hook_runner` → `platform/process/process_runner`(ProcessSpec,hooks 保留别名);
   - `lsp_process` → `piped_process`,`lsp_which` → `which`;
   - `daemon/platform*` → `os_process*`;
@@ -162,7 +162,7 @@
     - 构建通过,lint 违规数下降;
     - Windows 上 ConPTY 与 winpty 控制台都能打开(Web 控制台停靠区冒烟);
     - desktop 构建通过,且不链接 acecode_testable。
-- [ ] 3.3 【P2-04】【子】【并】跨进程协议与工作区。
+- [ ] 3.3 【P2-04】【子】【并】跨进程协议与工作区。〔认领: Claude-p2-04 2026-09-27〕
   - runtime_files、guid、open_request、daemon_protocol、agent_browser_runtime → `src/ipc/`;
   - workspace_registry、`web/handlers/files_handler` → `src/workspace/`;
   - `config.cpp:485-501` 的 `get_*_dir` → `utils/paths`。
