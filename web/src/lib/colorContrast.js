@@ -10,4 +10,3 @@ export function colorContrast(first, second) {
   const b = luminance(second);
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
-
