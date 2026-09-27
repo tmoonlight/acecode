@@ -21,7 +21,7 @@
 
 ## 1. 前置(可在 restructure 的 Phase 0 期间做,不依赖搬迁)
 
-- [ ] 1.1 【P0-09】【主】去掉 main.cpp 中与 `tui_helpers.cpp` 孪生的 helper(MR-12)。
+- [ ] 1.1 【P0-09】【主】去掉 main.cpp 中与 `tui_helpers.cpp` 孪生的 helper(MR-12)。〔认领: Claude-phase0 2026-09-27〕
   - **先**把 `main.cpp:5878` 的写入目标改成 `acecode::tui::g_model_load_percent`,**再**删除 716-1150 与 987;
   - 约 30 处调用改为 `tui::` 限定;
   - `is_terminal_*` 包装改为直接调用 `tui::matches_terminal_*`,25 处一次性替换;`kTerminal*` 常量与 `is_alt_v/a` 迁到 `tui/terminal_key_event.hpp`;
