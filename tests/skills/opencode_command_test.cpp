@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "commands/opencode_command.hpp"
+#include "skills/opencode_command.hpp"
 #include "config/config.hpp"
 
 #include <filesystem>

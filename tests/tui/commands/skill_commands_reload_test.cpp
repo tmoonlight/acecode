@@ -17,7 +17,7 @@
 
 #include "commands/command_registry.hpp"
 #include "config/config.hpp"
-#include "skills/skill_commands.hpp"
+#include "tui/commands/skill_commands.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
 

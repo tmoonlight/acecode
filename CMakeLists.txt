@@ -182,7 +182,7 @@ set(ACECODE_TUI_DIRS
     ${CMAKE_SOURCE_DIR}/src/markdown)
 set(ACECODE_TUI_TESTABLE_SUBSETS
     commands/ resume/ path_reference/ markdown/
-    drag_scroll.cpp text_input_ops.cpp skill_commands.cpp slash_command_usage.cpp)
+    drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")

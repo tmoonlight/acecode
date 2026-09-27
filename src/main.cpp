@@ -86,7 +86,7 @@
 #include "session/permission_prompter.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
-#include "skills/skill_commands.hpp"
+#include "tui/commands/skill_commands.hpp"
 #include "skills/default_skill_seeder.hpp"
 #include "commands/opencode_command_registry.hpp"
 #include "hooks/hook_config.hpp"

@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include "skills/frontmatter.hpp"
+#include "utils/frontmatter.hpp"
 
 namespace {
 

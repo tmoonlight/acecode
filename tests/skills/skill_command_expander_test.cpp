@@ -19,7 +19,7 @@
 #include "config/config.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
-#include "web/handlers/skill_command_expander.hpp"
+#include "skills/skill_command_expander.hpp"
 
 #include <filesystem>
 #include <fstream>
