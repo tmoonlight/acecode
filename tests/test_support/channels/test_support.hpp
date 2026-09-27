@@ -3,6 +3,7 @@
 #include "channels/bridge.hpp"
 #include "session/ask_user_question_prompter.hpp"
 #include "utils/utf8_path.hpp"
+#include "test_support/repo_root.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
 #include <cstdlib>
@@ -84,7 +85,12 @@ inline std::filesystem::path temporary(const std::string& suffix) {
     return std::filesystem::path(testing::TempDir()) / ("acecode-channels-" + suffix + "-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 }
+// fake_bridge.mjs 是 tests/channels/ 下的夹具,本头在 P1-01 搬到 tests/test_support/channels/
+// 之后不再与它同目录:按 __FILE__ 同目录定位会指向不存在的脚本,node 立刻退出,10 个
+// Channel* 用例全部报「WhatsApp bridge exited」。改为从仓库根定位(P0-05 的约定),
+// 夹具与 helper 头各自搬家都不受影响。
 inline lsp::LspSpawnOptions fake_bridge(const std::filesystem::path&) {
-    return {{"node", path_to_utf8(std::filesystem::path(__FILE__).parent_path() / "fake_bridge.mjs")}, {}, {}};
+    const auto script = acecode::test_support::find_repo_root(__FILE__) / "tests" / "channels" / "fake_bridge.mjs";
+    return {{"node", path_to_utf8(script)}, {}, {}};
 }
 } // namespace acecode::channels::test
