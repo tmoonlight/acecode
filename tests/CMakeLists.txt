@@ -398,7 +398,11 @@ if(WIN32)
 endif()
 
 include(GoogleTest)
+# DISCOVERY_MODE PRE_TEST:ctest 运行时才执行 --gtest_list_tests。默认 5 秒的发现超时在
+# macOS runner 上不够(60MB 二进制首次启动列举 5000+ 用例就超时,整份 ctest 直接失败);
+# P0-07 的四平台基线采集靠 ctest 逐用例隔离运行,这里放宽到 300 秒。
 gtest_discover_tests(acecode_unit_tests
     PROPERTIES LABELS "unit"
     DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 300
 )

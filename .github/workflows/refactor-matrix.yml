@@ -124,6 +124,28 @@ jobs:
           restore-keys: |
             ${{ matrix.cache_prefix }}
 
+      - name: Relax gtest discovery timeout in older baseline sources
+        shell: bash
+        # gtest_discover_tests 的 PRE_TEST 发现默认 5 秒,macOS runner 上列举 5000+ 用例会超时;
+        # 主线已改为 300 秒,更早的基线提交(原始 G0)在这里就地打同样的补丁。只影响 ctest
+        # 的发现步骤,不改任何 target / 源文件元组(本机 configure 前后快照逐元组相同)。
+        run: |
+          if grep -q "DISCOVERY_TIMEOUT" source/tests/CMakeLists.txt; then
+            echo "DISCOVERY_PATCHED=false" >> "$GITHUB_ENV"
+          else
+            python - <<'EOF'
+          import pathlib, re
+          path = pathlib.Path("source/tests/CMakeLists.txt")
+          text = path.read_text(encoding="utf-8")
+          patched, count = re.subn(r"(DISCOVERY_MODE PRE_TEST)(\r?\n)(\))", r"\1\2    DISCOVERY_TIMEOUT 300\2\3", text, count=1)
+          if count != 1:
+              raise SystemExit("gtest_discover_tests block not found; refusing to guess")
+          path.write_text(patched, encoding="utf-8")
+          print("patched DISCOVERY_TIMEOUT 300 into older baseline sources")
+          EOF
+            echo "DISCOVERY_PATCHED=true" >> "$GITHUB_ENV"
+          fi
+
       - name: Record provenance
         shell: bash
         run: |
@@ -141,6 +163,7 @@ jobs:
             "tools_revision": "${{ github.sha }}",
             "workflow_run_id": "${{ github.run_id }}",
             "run_tests": ${{ inputs.run_tests }},
+            "test_discovery_timeout_patched": ${DISCOVERY_PATCHED},
             "cmake_version": "$(cmake --version | head -n 1)",
             "generator": "Ninja",
             "build_type": "Release",
