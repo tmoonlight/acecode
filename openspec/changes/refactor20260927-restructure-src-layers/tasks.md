@@ -138,7 +138,7 @@
 >
 > **执行顺序**:3.1、3.2、3.3 可并行;3.4 依赖 3.1;3.5 依赖 3.1、3.4;3.6 依赖 3.5;3.7 放最后,且要求 P0-09、P0-10、P0-11 已先合入;3.8 在 1.3 之后全程并行。P2-01(RAII 原语)在 adopt-ownership-conventions,可与本组并行,但必须在 Phase 3 之前合入。
 
-- [ ] 3.1 【P2-02】【主】共同协议根 `llm/`,对应 layout-map.md §3 前 7 行。〔认领: Claude-phase2 2026-09-27〕
+- [x] 3.1 【P2-02】【主】共同协议根 `llm/`,对应 layout-map.md §3 前 7 行。〔认领: Claude-phase2 2026-09-27〕〔验收: Claude-phase2 2026-09-27,见 verification/P2-02-llm-root.md;执行中登记 D24(P2 不留转发头),ProviderRetryWaiter 与 get_compact_summary_prefix 随行下沉〕
   - `provider/llm_provider.hpp` 整头移到 `src/llm/`,删掉第 3 行的 retry_policy include;
   - `tool_protocol_names`、`model_family`、`tool_icons` 移到 llm/;
   - 拆出 `llm/tool_result.hpp`;
