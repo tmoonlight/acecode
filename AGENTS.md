@@ -92,6 +92,8 @@ Recent history uses short imperative commits, sometimes with `feat:` prefixes, f
 
 Pull requests should describe the behavior change, list verification commands, link related issues or OpenSpec changes, and include screenshots or terminal captures for visible TUI, web, or desktop changes.
 
+Mechanical refactor commits (pure include rewrites and pure moves) are listed in [.git-blame-ignore-revs](.git-blame-ignore-revs); run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` skips them.
+
 ## Security & Configuration Tips
 
 Do not commit API keys, Copilot tokens, generated session data, local config contents, runtime daemon tokens, or memory files with private user data. Treat `--dangerous` mode as a local-only sandbox convenience and avoid recommending it without a clear warning.
