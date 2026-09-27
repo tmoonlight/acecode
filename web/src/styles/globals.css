@@ -3194,8 +3194,7 @@ body {
 }
 .ace-mermaid-preview-trigger {
   display: block;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
   padding: 0;
   border: 0;
   outline: 0;
@@ -3211,7 +3210,7 @@ body {
   display: block;
   width: auto;
   height: auto;
-  max-width: none;
+  max-width: 100%;
   margin: 0 auto;
   pointer-events: none;
 }

@@ -411,6 +411,8 @@ export function installMermaidRenderer(
     });
     image.className = 'ace-mermaid-svg';
     image.alt = 'Mermaid diagram';
+    // SVG percentage widths are not intrinsic image sizes; use the parsed diagram width.
+    image.style.width = `${result.width}px`;
     image.width = Math.ceil(result.width);
     image.height = Math.ceil(result.height);
     image.decoding = 'async';
