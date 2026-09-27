@@ -201,12 +201,14 @@ jobs:
       - name: Run full gtest inventory
         if: ${{ inputs.run_tests }}
         shell: bash
+        # 经 ctest 逐用例独立进程运行:单个用例崩溃或挂起只影响它自己(记为 failure),
+        # 其余结果照常入档;macOS 上单进程 gtest 曾整体崩溃 / 挂起而留不下任何清单。
         run: |
           python scripts/refactor/gtest_inventory.py \
             --binary "${{ matrix.test_binary }}" \
-            --run \
+            --run --via-ctest --jobs 1 --test-timeout 900 \
             --ctest-dir source/build \
-            --timeout 5400 \
+            --timeout 7200 \
             --output out/gtest.json
           python - <<'EOF'
           import json

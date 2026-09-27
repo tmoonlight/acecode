@@ -43,12 +43,54 @@ def parse_xml(path: Path) -> dict:
     return {"executed": sorted(executed), "skipped": sorted(skipped, key=lambda r: r["name"]), "failures": sorted(failures, key=lambda r: r["name"])}
 
 
+def parse_junit(path: Path) -> dict:
+    """CTest `--output-junit`:每个 ctest 条目一个 testcase,名字就是 gtest 名;`<skipped>` 来自
+    gtest_discover_tests 的 SKIP_REGULAR_EXPRESSION,`<failure>` 覆盖断言失败、崩溃与超时。"""
+    root = ET.parse(path).getroot()
+    skipped, failures, executed = [], [], []
+    for test in root.iter("testcase"):
+        name = test.attrib["name"]
+        skip = test.find("skipped")
+        failure = test.find("failure")
+        if skip is not None:
+            skipped.append({"name": name, "reason": skip.get("message", skip.text or "")})
+            continue
+        if test.get("status") == "run" or failure is not None:
+            executed.append(name)
+        if failure is not None:
+            failures.append({"name": name, "message": failure.get("message", failure.text or "")})
+    return {"executed": sorted(executed), "skipped": sorted(skipped, key=lambda r: r["name"]), "failures": sorted(failures, key=lambda r: r["name"])}
+
+
+def write_run_log(output: str | None, stdout: bytes | None, stderr: bytes | None) -> str | None:
+    """完整运行输出落在 <output>-run.log:进程崩溃或挂起时 XML 不会写出,这是唯一的现场。"""
+    if not output:
+        return None
+    log_path = Path(output).with_name(Path(output).stem + "-run.log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes((stdout or b"") + b"\n--- stderr ---\n" + (stderr or b""))
+    return log_path.name
+
+
+def run_capturing(command: list[str], timeout: int, output: str | None) -> tuple[subprocess.CompletedProcess, str | None]:
+    try:
+        result = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as expired:
+        log = write_run_log(output, expired.stdout, expired.stderr)
+        raise RuntimeError(f"{command[0]} exceeded {timeout}s; partial output kept in {log}") from expired
+    return result, write_run_log(output, result.stdout, result.stderr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary")
     parser.add_argument("--list-file", help="pre-recorded --gtest_list_tests output")
     parser.add_argument("--xml", help="existing gtest XML result")
     parser.add_argument("--run", action="store_true", help="run all cases and capture actual SKIPs")
+    parser.add_argument("--via-ctest", action="store_true",
+                        help="with --run: execute every registered ctest entry in its own process (crash/hang isolation) and read CTest's JUnit report")
+    parser.add_argument("--jobs", type=int, default=1, help="--via-ctest parallelism")
+    parser.add_argument("--test-timeout", type=int, default=600, help="--via-ctest per-test timeout in seconds")
     parser.add_argument("--ctest-dir")
     parser.add_argument("--gtest-arg", action="append", default=[])
     parser.add_argument("--timeout", type=int, default=600)
@@ -58,6 +100,8 @@ def main() -> int:
         parser.error("--binary or --list-file is required")
     if args.run and not args.binary:
         parser.error("--run requires --binary")
+    if args.via_ctest and not args.ctest_dir:
+        parser.error("--via-ctest requires --ctest-dir")
     if args.list_file:
         listing = Path(args.list_file).read_text(encoding="utf-8")
     else:
@@ -67,19 +111,31 @@ def main() -> int:
         report["actual_results"] = parse_xml(Path(args.xml))
     if args.run:
         with tempfile.TemporaryDirectory(prefix="acecode-gtest-inventory-") as temporary:
-            result_xml = Path(temporary) / "results.xml"
-            result = subprocess.run([str(Path(args.binary).resolve()), "--gtest_output=xml:" + str(result_xml), *args.gtest_arg], capture_output=True, timeout=args.timeout, check=False)
-            report["run_exit_code"] = result.returncode
-            if args.output:
-                # 完整运行输出落在 <output>-run.log:进程崩溃时 XML 不会写出,这是唯一的现场。
-                log_path = Path(args.output).with_name(Path(args.output).stem + "-run.log")
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                log_path.write_bytes(result.stdout + b"\n--- stderr ---\n" + result.stderr)
-                report["run_log"] = log_path.name
-            if not result_xml.exists():
-                tail = (result.stdout + result.stderr)[-6000:].decode("utf-8", "replace")
-                raise RuntimeError(f"gtest run produced no XML result (exit code {result.returncode}); output tail:\n{tail}")
-            report["actual_results"] = parse_xml(result_xml)
+            if args.via_ctest:
+                junit = Path(temporary) / "junit.xml"
+                command = ["ctest", "--test-dir", args.ctest_dir, "-j", str(args.jobs), "--timeout", str(args.test_timeout),
+                           "--output-junit", str(junit), "--output-on-failure"]
+                report["run_mode"] = "ctest"
+                result, log = run_capturing(command, args.timeout, args.output)
+                report["run_exit_code"] = result.returncode
+                if log:
+                    report["run_log"] = log
+                if not junit.exists():
+                    tail = (result.stdout + result.stderr)[-6000:].decode("utf-8", "replace")
+                    raise RuntimeError(f"ctest produced no JUnit report (exit code {result.returncode}); output tail:\n{tail}")
+                report["actual_results"] = parse_junit(junit)
+            else:
+                result_xml = Path(temporary) / "results.xml"
+                command = [str(Path(args.binary).resolve()), "--gtest_output=xml:" + str(result_xml), *args.gtest_arg]
+                report["run_mode"] = "gtest"
+                result, log = run_capturing(command, args.timeout, args.output)
+                report["run_exit_code"] = result.returncode
+                if log:
+                    report["run_log"] = log
+                if not result_xml.exists():
+                    tail = (result.stdout + result.stderr)[-6000:].decode("utf-8", "replace")
+                    raise RuntimeError(f"gtest run produced no XML result (exit code {result.returncode}); output tail:\n{tail}")
+                report["actual_results"] = parse_xml(result_xml)
     if args.ctest_dir:
         output = subprocess.run(["ctest", "--test-dir", args.ctest_dir, "--show-only=json-v1"], capture_output=True, text=True, encoding="utf-8", timeout=args.timeout, check=True)
         report["ctest_names"] = sorted(test["name"] for test in json.loads(output.stdout)["tests"])
