@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-src 分层重构进行中,新文件放置规则见 [restructure-src-layers/design.md](openspec/changes/refactor20260927-restructure-src-layers/design.md);本系列另含 [split-agent-loop](openspec/changes/refactor20260927-split-agent-loop/proposal.md)、[split-tui-main](openspec/changes/refactor20260927-split-tui-main/proposal.md) 与 [adopt-ownership-conventions](openspec/changes/refactor20260927-adopt-ownership-conventions/proposal.md),按总设计 §8.3 的依赖顺序执行。
+src 分层重构进行中,新文件放置规则见 [restructure-src-layers/design.md](openspec/changes/refactor20260927-restructure-src-layers/design.md);本系列另含 [split-agent-loop](openspec/changes/refactor20260927-split-agent-loop/proposal.md)、[split-tui-main](openspec/changes/refactor20260927-split-tui-main/proposal.md) 与 [adopt-ownership-conventions](openspec/changes/refactor20260927-adopt-ownership-conventions/proposal.md),按总设计 §8.3 的依赖顺序执行。P1-01(2026-09-27)起 src / tests 的项目头一律写模块根形式(`"utils/paths.hpp"`),不再允许 `../`;测试 helper 头在 `tests/test_support/<area>/` 下并带完整前缀;遗留分支合并前先跑 `python scripts/refactor/normalize_includes.py --scope src` / `--scope tests`。
 
 Implementation m emory for coding agents working in this repository. For user-facing setup and run modes, use [README.md](README.md). For stable structure, use[ARCHITECTURE.md](ARCHITECTURE.md). For contributor rules, use [AGENTS.md](AGENTS.md).
 

@@ -110,7 +110,7 @@
 
 ## 2. Phase 1:include 规范化(1 个脚本 PR,不冻结)
 
-- [ ] 2.1 【P1-01】【子】include 改为模块根形式。分三个提交:〔认领: Claude-phase1 2026-09-27〕
+- [x] 2.1 【P1-01】【子】include 改为模块根形式。分三个提交:〔认领: Claude-phase1 2026-09-27〕〔验收: Claude-phase1 2026-09-27,见 verification/P1-01-include-normalization.md;实际 369 文件 / 1150 行,另有一次 helper 头搬家引起的夹具定位回归已修复〕
   - (a) 7 个测试 helper 头 `git mv` 到 `tests/test_support/<area>/`,纯改名 R100(映射见 layout-map.md §8),同时在 `tests/CMakeLists.txt` 把 `${CMAKE_SOURCE_DIR}/tests` 加为 include 根;
   - (b) 脚本把 src 下 366 个文件、1124 行 `../` 与子目录相对写法改成 `"<模块>/…"`,同目录裸名保留;
   - (c) tests 中指向 helper 的 16 行 `../` 与 37 行同目录 include,改为 `"test_support/<area>/…"`。
