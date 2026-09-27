@@ -1,4 +1,4 @@
-// 覆盖 src/web/handlers/skill_command_expander.cpp::try_expand_skill_command。
+// 覆盖 src/skills/skill_command_expander.cpp::try_expand_skill_command。
 //
 // 这个函数是 daemon 端 sendInput 路径上的关键 hook — 把 `/<skill-name> args`
 // 形式的 user message rewrite 成 Codex linked Skill mention,与 TUI 行为

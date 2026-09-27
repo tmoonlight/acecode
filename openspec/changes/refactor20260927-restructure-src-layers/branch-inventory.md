@@ -464,3 +464,9 @@ Base: `master` (`e15df9eadfaf05a170fd8b83fb26939452e2d3e9`). Read-only snapshot.
 P2-05 不保留旧路径转发头。合并本阶段主线前,先在各自的迁移分支上运行 `normalize_includes.py --scope src` 与 `--scope tests`,再按既有方案演练 rebase / patch。不要改写或删除原 ref。
 
 本阶段除映射表中的文件搬迁外,还拆出了 `config/vocab/permission_mode.hpp`、`provider/models_dev_catalog_cache`、`provider/model_probe_cache`、`tool/{safe_text_write,text_file_errors}`、`tool/web_search/region_cache`、`desktop/workspace_state` 与 `tui/slash_command_usage`。涉及 `state_file`、编码报错或 models.dev 全局缓存的调用方需显式包含对应模块的新头,不能仅依靠旧的间接 include。原状态字段和模型工具名映射保持。
+
+## P2-06 迁移提示(2026-09-28)
+
+本任务把 frontmatter 移到 utils,把可复用的 opencode / skill 命令展开器归到 skills,把技能斜杠命令注册归到 tui/commands,对应五个测试文件同步归位。旧路径不保留转发头。上表九个遗留 ref 继续按映射运行 `migrate_branch.py --apply-map` 或 include 规范化脚本,原 ref 的功能内容与去留仍按 P3-03 逐项处理。
+
+hook 模型事件构造器与只读种子表属于 extract 行,不能用整文件路径替换代替职责拆分:模型事件调用方引用 `agent/hook_bridge/hook_events.hpp`,种子消费者引用 `hooks/hook_seeds.hpp`。原 `hooks/hook_payload.hpp` 只提供无模型依赖的启动事件,种子安装事务仍由 skills 的统一安装器协调。

@@ -1,4 +1,4 @@
-// 覆盖 src/skills/frontmatter.cpp 的 YAML 块标量解析。
+// 覆盖 src/utils/frontmatter.cpp 的 YAML 块标量解析。
 //
 // 背景 bug:claude-code 生态的 skill(pdf / docx / kimi-webbridge 等)常用
 // `description: >` 或 `description: |` 写多行描述。旧解析器把 ">" / "|"

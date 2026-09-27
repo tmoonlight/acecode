@@ -1,4 +1,4 @@
-// 覆盖 src/skills/skill_commands.cpp::reload_skill_commands 在「会话进行中磁盘上
+// 覆盖 src/tui/commands/skill_commands.cpp::reload_skill_commands 在「会话进行中磁盘上
 // 新增/删除 skill」时的重绑行为。
 //
 // 背景:用户(或 agent 用 skill-creator)在 ACECode 运行期间往扫描根里写了个新

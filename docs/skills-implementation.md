@@ -48,7 +48,7 @@
 
 ## 3. SKILL.md frontmatter
 
-acecode 只识别 YAML frontmatter 的一个子集，解析器位于 `src/skills/frontmatter.{hpp,cpp}`。仅读取文件首 8KB 足以抓到 frontmatter。
+acecode 只识别 YAML frontmatter 的一个子集，解析器位于 `src/utils/frontmatter.{hpp,cpp}`。仅读取文件首 8KB 足以抓到 frontmatter。
 
 | 字段 | 类型 | 用途 |
 |------|------|------|
@@ -108,7 +108,7 @@ struct SkillMetadata {
 
 ## 5. 激活路径 A — 用户输入 `/<skill-name>`
 
-相关代码：`src/skills/skill_commands.{hpp,cpp}`、`src/skills/skill_activation.{hpp,cpp}`、`main.cpp` 对 `CommandRegistry` 的集成。
+相关代码：`src/tui/commands/skill_commands.{hpp,cpp}`、`src/skills/skill_activation.{hpp,cpp}`、`main.cpp` 对 `CommandRegistry` 的集成。
 
 ### 注册流程
 
@@ -232,11 +232,11 @@ struct SkillMetadata {
 | 文件 | 职责 |
 |------|------|
 | `src/skills/skill_metadata.hpp` | `SkillMetadata` 数据结构 |
-| `src/skills/frontmatter.{hpp,cpp}` | 受限 YAML frontmatter 解析 |
+| `src/utils/frontmatter.{hpp,cpp}` | 受限 YAML frontmatter 解析 |
 | `src/skills/skill_loader.{hpp,cpp}` | 单个 `SKILL.md` 目录 → `SkillMetadata`；name 归一化；平台匹配 |
 | `src/skills/skill_registry.{hpp,cpp}` | 多根递归扫描、去重、查询、支持文件定位 |
 | `src/skills/skill_activation.{hpp,cpp}` | 用户 `/<name>` 触发时向 agent 投递的消息模板 |
-| `src/skills/skill_commands.{hpp,cpp}` | 把每个 skill 注册/反注册为 slash 命令；`/skills reload` |
+| `src/tui/commands/skill_commands.{hpp,cpp}` | 把每个 skill 注册/反注册为 slash 命令；`/skills reload` |
 | `src/tool/skills_tool.{hpp,cpp}` | `skills_list` 工具（tier-1） |
 | `src/tool/skill_view_tool.{hpp,cpp}` | `skill_view` 工具（tier-2/3，含路径安全校验） |
 | `src/prompt/system_prompt.cpp` | 系统提示词 Skills 段 |

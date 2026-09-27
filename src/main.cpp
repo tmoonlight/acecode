@@ -91,6 +91,7 @@
 #include "commands/opencode_command_registry.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
+#include "agent/hook_bridge/hook_events.hpp"
 #include "hooks/hook_payload.hpp"
 #include "memory/memory_paths.hpp"
 #include "memory/memory_registry.hpp"

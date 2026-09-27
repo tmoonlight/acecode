@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "hooks/hook_registry.hpp"
-#include "skills/default_skill_seeder.hpp"
+#include "hooks/hook_seeds.hpp"
 #include "test_support/repo_root.hpp"
 #include "utils/utf8_path.hpp"
 
