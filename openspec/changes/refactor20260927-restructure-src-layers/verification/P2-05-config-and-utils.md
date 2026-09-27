@@ -82,4 +82,14 @@ Deepin 的 provenance 中 `source_revision` 为空,原因与 P2-03 / P2-04 相�
 
 集成后 src / tests include、映射、分层阻断项、行数、所有权、OpenSpec strict、前端完整测试均通过。全新本机构建 `build/p2-05-integrated-4a3366e6` 已完成 CLI / Desktop / GoogleTest / 五个冒烟目标共 1058 步,退出码 0。File API 为 59 target / 3623 元组,相对原始交付只多前序 P2-03 的别名头,无目标变更或既有元组删除、编译属性变化;等价报告为仓库外 `p2-05-integrated-target-equivalence.json`。
 
-集成版本完整本机测试正在独立短路径 `N:/a05i/` 执行;[四平台 CI 36336950956](https://github.com/tmoonlight/acecode/actions/runs/36336950956) 正在执行,Deepin 配置与构建已完成。P2-04 验收并合入后再合入本任务。
+集成版本完整本机测试已在独立短路径 `N:/a05i/` 完成:5117 项列出、5116 项执行、9 项跳过、0 失败、退出码 0。之前 CI 的 `AgentLoopTurnSteering.InterruptStartsStructuredTurnBeforeOrdinaryQueue` 在此次完整运行中通过。分层违规由 P2-04 集成版本的 152 项降至 87 项,既有阻断规则均通过。
+
+### 桌面状态的真实重启验证
+
+通过官方 `scripts/dev_environment.py desktop --yes` 两次启动本工作区的集成 Desktop,HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP / WebView2 profile 均位于仓库外 `N:/ac-p205-desktop/`。启动器在文档提交 `0b52a7dd` 下只更新构建版本元数据,C++ / CMake 与已验证的 `4a3366e6` 完全一致。
+
+- 首次在隔离 daemon 注册 `workspace-one`,通过原生桥激活工作区、保存首页选择,在实际 UI 中预览 `p2-05-smoke.txt`。因从 API 注册工作区,刷新页面取得最新列表;正常跳过首次引导后点击,未绕过 UI 遮挡。
+- 正常退出后核对 `state.json` 同时保留 `last_active_workspace_hash` 与 `last_home_workspace_hash`。再次启动,原生桥读取到同一活跃工作区与首页选择,文件预览仍可用。
+- 两次 Desktop / daemon 均正常退出,用户原 Desktop 进程保持运行,全程无屏幕截图。仓库外证据为 `p2-05-integrated-desktop-smoke.json`。
+
+[四平台 CI 36336950956](https://github.com/tmoonlight/acecode/actions/runs/36336950956) 的 Linux 已完成(5028 项执行、16 项跳过、0 失败);macOS 保留原有 10 项失败及已登记的 SSE 时序抖动,Deepin 配置与构建完成,三个平台的目标清单均已对照通过。Windows 仍在构建。P2-04 验收并合入后再合入本任务。
