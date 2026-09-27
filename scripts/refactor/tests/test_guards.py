@@ -107,6 +107,26 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(2, len(changes))
         self.assertFalse(errors)
 
+    def test_p2_moves_resolve_to_transition_directory(self):
+        # P2 把 src/tool/diff_utils.hpp 搬到过渡目录 src/utils/,映射表写的却是最终路径 src/base/utils/。
+        # 期望:旧同目录裸名与旧模块根写法都先经映射、再退回过渡目录找到文件,改成 "utils/diff_utils.hpp"。
+        # 回归表现:改动前只按最终路径查找,文件不存在,include 原样留下,搬迁后编译报找不到头文件。
+        path = "src/tool/tool_executor.hpp"
+        files = [path, "src/utils/diff_utils.hpp", "src/session/x.cpp"]
+        aliases = LayoutMap([
+            {"old_path": "src/tool/diff_utils.hpp", "new_path": "src/base/utils/diff_utils.hpp", "kind": "move", "phase": "P2-02"},
+            {"old_path": "src/utils/", "new_path": "src/base/utils/", "kind": "move", "phase": "P3"},
+        ])
+        before = b'#include "diff_utils.hpp"
+#include "tool/diff_utils.hpp"
+'
+        after, changes, errors = normalize(before, path, IncludeIndex(files, aliases=aliases))
+        self.assertEqual(b'#include "utils/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
+', after)
+        self.assertEqual(2, len(changes))
+        self.assertFalse(errors)
+
     def test_comments_and_raw_string_examples_do_not_create_fake_rules(self):
         # 注释与 raw string 中的 C++ 示例不能伪造所有权或 include 违规。
         data = b'/* new X; */\nconst char* x = R"tag(\n#include "../x.hpp"\nnew X; // not code\n)tag";\n'

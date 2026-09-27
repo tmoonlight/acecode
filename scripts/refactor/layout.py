@@ -92,6 +92,15 @@ def load_policy(root: Path, policy: str = "src/layers.tsv", mapping: str = "scri
     return LayerPolicy(read_tsv(root / policy), LayoutMap(read_tsv(root / mapping)))
 
 
+def transition_path(path: str) -> str:
+    """src/<group>/<rest> -> src/<rest>: where a P2 move lands before the P3 group move."""
+    for group in GROUPS:
+        prefix = f"src/{group}/"
+        if path.startswith(prefix):
+            return "src/" + path[len(prefix):]
+    return path
+
+
 class IncludeIndex:
     def __init__(self, files: list[str], generated: tuple[str, ...] = ("version.hpp",), aliases: LayoutMap | None = None):
         self.files = set(files)
@@ -104,7 +113,12 @@ class IncludeIndex:
         candidates = {posixpath.normpath(f"{root}/{name}") for root in roots}
         found = candidates & self.files
         if not found and self.aliases:
-            found = {self.aliases.translate(candidate) for candidate in candidates} & self.files
+            translated = {self.aliases.translate(candidate) for candidate in candidates} - {None}
+            found = translated & self.files
+            if not found:
+                # P2 transition: the map names the final grouped path, but the
+                # moved file still lives at src/<module>/... until the P3 move.
+                found = {transition_path(target) for target in translated} & self.files
         if name in self.generated:
             found.add("@generated/" + name)
         return sorted(found)
