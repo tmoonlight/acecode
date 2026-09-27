@@ -5,41 +5,14 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
-import re
 
-from layout import IncludeIndex, LayoutMap, load_policy, read_tsv
+from layout import LayoutMap, load_policy, read_tsv
 from repo_files import emit_json, repo_root, tracked_files
 
-# P2 forwarding header: exactly `#pragma once` plus one quoted include (design.md
-# "迁移机制"). It stays at the old path until the P3-02 freeze deletes it.
-FORWARDING_HEADER = re.compile(rb'\A#pragma once\r?\n[ \t]*#[ \t]*include[ \t]*"([^"\r\n]+)"[ \t]*\r?\n?\Z')
 
-
-def forwarding_target(root: Path | None, path: str, mapping: LayoutMap, index: IncludeIndex) -> str | None:
-    """Return the relocated file a P2 forwarding stub points at, or None.
-
-    A stub is recognised by content, not by name: the old header holds only the
-    two forwarding lines and its include resolves to exactly one other tracked
-    file which the map sends to the same final destination. Both files therefore
-    describe one relocated header, so the pair is not a destination collision.
-    """
-    if root is None or not path.startswith("src/") or not path.endswith((".hpp", ".h")):
-        return None
-    match = FORWARDING_HEADER.match((root / path).read_bytes())
-    if not match:
-        return None
-    targets = index.resolve(path, match[1].decode("utf-8", "replace"))
-    if len(targets) != 1 or targets[0] == path or targets[0].startswith("@generated/"):
-        return None
-    if mapping.translate(targets[0]) != mapping.translate(path):
-        return None
-    return targets[0]
-
-
-def inspect(files: list[str], mapping: LayoutMap, policy=None, root: Path | None = None) -> dict:
-    findings, dormant, forwarding = [], [], []
+def inspect(files: list[str], mapping: LayoutMap, policy=None) -> dict:
+    findings, dormant = [], []
     destinations, basenames = defaultdict(list), defaultdict(list)
-    index = IncludeIndex(files, aliases=mapping)
     keys = set()
     for row in mapping.rows:
         old, new, kind = row["old_path"], row["new_path"], row["kind"]
@@ -64,10 +37,6 @@ def inspect(files: list[str], mapping: LayoutMap, policy=None, root: Path | None
         destination = mapping.translate(path)
         if destination is None:
             continue
-        target = forwarding_target(root, path, mapping, index)
-        if target is not None:
-            forwarding.append({"path": path, "target": target, "destination": destination})
-            continue
         destinations[destination.casefold()].append(path)
         if path.startswith("src/"):
             basenames[PurePosixPath(destination).name.casefold()].append(destination)
@@ -76,7 +45,7 @@ def inspect(files: list[str], mapping: LayoutMap, policy=None, root: Path | None
     for destination, sources in destinations.items():
         if len(sources) > 1:
             findings.append({"destination": destination, "sources": sources, "message": "case-insensitive destination collision"})
-    return {"schema": 1, "mapped_files": sum(mapping.translate(p) != p for p in files), "findings": findings, "forwarding_headers": forwarding, "planned_or_obsolete_rows": dormant, "duplicate_basenames": {name: sorted(set(paths)) for name, paths in sorted(basenames.items()) if len(set(paths)) > 1}}
+    return {"schema": 1, "mapped_files": sum(mapping.translate(p) != p for p in files), "findings": findings, "planned_or_obsolete_rows": dormant, "duplicate_basenames": {name: sorted(set(paths)) for name, paths in sorted(basenames.items()) if len(set(paths)) > 1}}
 
 
 def main() -> int:
@@ -87,7 +56,7 @@ def main() -> int:
     parser.add_argument("--output")
     args = parser.parse_args()
     root = repo_root(args.repo)
-    report = inspect(tracked_files(root), LayoutMap(read_tsv(root / args.map)), load_policy(root), root)
+    report = inspect(tracked_files(root), LayoutMap(read_tsv(root / args.map)), load_policy(root))
     emit_json(report, args.output)
     return int(args.strict and bool(report["findings"]))
 

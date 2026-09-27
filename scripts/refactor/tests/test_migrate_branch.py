@@ -353,14 +353,7 @@ class MigrationTest(unittest.TestCase):
         self.write("README.md", b"Final source: src/base/utils/file.cpp\n")
         self.write("src/base/utils/file.cpp", b"// final fixture\n")
         for path in ("src/layers.tsv", "scripts/layers/ownership_baseline.json", "scripts/layers/size_baseline.txt", "scripts/refactor/src_layout_map.tsv"):
-            data = (HERE.parent.parent / path).read_bytes()
-            if path == "src/layers.tsv":
-                # 本用例模拟的是冻结后的最终布局,--check 按 strict 语义要求 exceptions 表为空(P4-01)。
-                # P2 期间仓库真实的 layers.tsv 会登记转发头 exception 行(冻结日到期删除),原样拷进
-                # 夹具会让每一行都变成 R13「strict mode requires an empty exceptions table」,
-                # 用例就随 P2 分支的进度失败,而不是在检查 --check 自身。夹具只取过渡期之外的行。
-                data = b"".join(line for line in data.splitlines(keepends=True) if not line.startswith(b"exception\t"))
-            self.write(path, data)
+            self.write(path, (HERE.parent.parent / path).read_bytes())
         self.commit("complete final fixture")
         before = git(self.root, "status", "--porcelain=v1")
         report = check(self.root, self.map)
