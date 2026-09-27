@@ -2,7 +2,6 @@
 
 #include "hook_config.hpp"
 #include "../config/config.hpp"
-#include "../session/session_storage.hpp"
 #include "../utils/utf8_path.hpp"
 #include "../utils/uuid.hpp"
 

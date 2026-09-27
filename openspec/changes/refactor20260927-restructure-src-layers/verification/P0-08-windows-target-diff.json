@@ -1,0 +1,417 @@
+{
+  "schema": 1,
+  "baseline_revision": "12052b9ee4ffd8f4d5f5afa9421dc5afdc42d038",
+  "implementation_revision": "28dfcd675390f97ef4c5fbb9f142545c603501e8",
+  "platform": "Windows MSVC 19.38, Ninja Release, Desktop ON",
+  "baseline_targets": 59,
+  "current_targets": 59,
+  "baseline_tuples": 3535,
+  "current_tuples": 3506,
+  "comparison": {
+    "targets": {
+      "added": [],
+      "removed": []
+    },
+    "tuples": {
+      "added": [],
+      "removed": [
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/daemon/supervisor.cpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/agent_callbacks_builder.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/cli_dispatch.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/clipboard_helpers.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/ime_windows.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/message_render_cache.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/terminal_utils.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/tui_context.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/tui/tui_init.cpp",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [
+            "/DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MT",
+            "/EHsc",
+            "/utf-8",
+            "/Zi",
+            "/FS",
+            "/bigobj",
+            "/MP"
+          ],
+          "configuration": "Release",
+          "defines": [
+            "ASIO_NO_DEPRECATED",
+            "ASIO_STANDALONE",
+            "COMPILING_WINPTY_DLL",
+            "CURL_STATICLIB"
+          ],
+          "generated": false,
+          "language": "CXX",
+          "source": "src/web/handlers/pinned_sessions_handler.cpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/daemon/supervisor.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/agent_callbacks_builder.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/cli_dispatch.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/clipboard_helpers.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/ime_windows.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/input_event_handler.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/terminal_utils.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/tui_context.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": false,
+          "language": "",
+          "source": "src/tui/tui_init.hpp",
+          "target": "acecode_testable"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/daemon/supervisor.cpp.obj",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/daemon/supervisor.cpp.obj",
+          "target": "acecode_unit_tests"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/daemon/supervisor.cpp.obj",
+          "target": "concurrent_session_writer"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/daemon/supervisor.cpp.obj",
+          "target": "remote_web_proxy_test_child"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/daemon/supervisor.cpp.obj",
+          "target": "state_file_claim_worker"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/web/handlers/pinned_sessions_handler.cpp.obj",
+          "target": "acecode"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/web/handlers/pinned_sessions_handler.cpp.obj",
+          "target": "acecode_unit_tests"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/web/handlers/pinned_sessions_handler.cpp.obj",
+          "target": "concurrent_session_writer"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/web/handlers/pinned_sessions_handler.cpp.obj",
+          "target": "remote_web_proxy_test_child"
+        },
+        {
+          "compile_options": [],
+          "configuration": "Release",
+          "defines": [],
+          "generated": true,
+          "language": "",
+          "source": "@build/CMakeFiles/acecode_testable.dir/src/web/handlers/pinned_sessions_handler.cpp.obj",
+          "target": "state_file_claim_worker"
+        }
+      ]
+    }
+  },
+  "acceptance_status": "Recorded only; explicit G0 deletion rule is awaiting user decision.",
+  "source_revision_after_master_sync": "76fee0556202b199e2c15cecbdb72601b88ba554",
+  "baseline_snapshot_sha256": "cfbfe0d50b833872251a28d55f733ec9da49206180ebb66b7f0933cc9c8e45c6",
+  "current_snapshot_sha256": "2ca05c28bd04de1a7838ca04b1472b30177ede0647cbd7247838bb419e5e7fa3",
+  "post_sync_cpp_cmake_change": "None: git diff 7621b4f6..8acc3863 -- src tests CMakeLists.txt cmake is empty."
+}
