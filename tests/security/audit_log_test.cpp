@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "security/audit_log.hpp"
-#include "../sandbox/test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 
 #include <algorithm>
 #include <filesystem>

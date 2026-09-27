@@ -2,7 +2,7 @@
 #include "config/config.hpp"
 #include "config/config_mutation.hpp"
 #include "config/config_recovery.hpp"
-#include "../sandbox/test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 #include <fstream>
 #include <future>
 #include <iterator>

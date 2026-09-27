@@ -5,7 +5,7 @@
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/turn_timing.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/tool_executor.hpp"
 
 #include <algorithm>

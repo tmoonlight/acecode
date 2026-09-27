@@ -13,7 +13,7 @@
 #include "tool/skill_view_tool.hpp"
 #include "tool/skills_tool.hpp"
 #include "tool/tool_executor.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 
 #include <atomic>
 #include <algorithm>

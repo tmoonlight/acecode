@@ -3,9 +3,9 @@
 #include "computer_use/native_windows.hpp"
 #include "computer_use/element_target.hpp"
 #include "computer_use/pointer_appearance.hpp"
-#include "native_control_checks.hpp"
-#include "native_smoke_backend.hpp"
-#include "ole_drag_fixture.hpp"
+#include "test_support/computer_use/native_control_checks.hpp"
+#include "test_support/computer_use/native_smoke_backend.hpp"
+#include "test_support/computer_use/ole_drag_fixture.hpp"
 #include "utils/base64.hpp"
 #include <windows.h>
 #include <dwmapi.h>

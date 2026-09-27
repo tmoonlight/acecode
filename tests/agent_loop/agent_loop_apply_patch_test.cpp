@@ -11,7 +11,7 @@
 #include "agent_loop.hpp"
 #include "config/config.hpp"
 #include "permissions.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/builtin_tool_registry.hpp"
 #include "tool/tool_executor.hpp"
 #include "tool/tool_protocol_names.hpp"

@@ -1,5 +1,5 @@
 #include "channels/bridge.hpp"
-#include "test_support.hpp"
+#include "test_support/channels/test_support.hpp"
 #include "test_support/repo_root.hpp"
 #include <fstream>
 #include <future>

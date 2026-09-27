@@ -13,7 +13,7 @@
 #include "session/session_storage.hpp"
 #include "session/thread_repair.hpp"
 #include "tool/tool_executor.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 
 #include <chrono>
 #include <condition_variable>

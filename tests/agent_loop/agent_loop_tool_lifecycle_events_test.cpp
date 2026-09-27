@@ -13,7 +13,7 @@
 #include "session/session_storage.hpp"
 #include "session/tool_result_storage.hpp"
 #include "session/turn_net_diff.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/file_edit_tool.hpp"
 #include "tool/file_read_tool.hpp"
 #include "tool/file_write_tool.hpp"

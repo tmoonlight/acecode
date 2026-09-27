@@ -17,7 +17,7 @@
 #include "tool/tool_executor.hpp"
 #include "utils/token_tracker.hpp"
 #include "utils/paths.hpp"
-#include "../agent_loop/stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 
 #include <cstdlib>
 #include <chrono>

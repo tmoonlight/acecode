@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "experts/expert_registry.hpp"
-#include "../agent_loop/stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "permissions.hpp"
 #include "prompt/system_prompt.hpp"
 #include "session/session_registry.hpp"

@@ -5,7 +5,7 @@
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_goal_store.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/bash_tool.hpp"
 #include "tool/goal_tool.hpp"
 #include "tool/tool_executor.hpp"

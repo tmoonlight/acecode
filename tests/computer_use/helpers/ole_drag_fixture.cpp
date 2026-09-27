@@ -1,4 +1,4 @@
-#include "ole_drag_fixture.hpp"
+#include "test_support/computer_use/ole_drag_fixture.hpp"
 
 #ifdef _WIN32
 #include <ole2.h>

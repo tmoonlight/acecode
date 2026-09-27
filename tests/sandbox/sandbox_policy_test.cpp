@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "sandbox/sandbox_policy.hpp"
-#include "test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 #include <algorithm>
 
 using namespace acecode;
