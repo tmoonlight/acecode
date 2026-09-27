@@ -542,18 +542,11 @@ private:
     void recover_worker_task_error(const char* detail, bool chat_task);
     bool has_queued_user_work_locked() const;
     void join_side_question_threads();
-    void run_agent(const std::string& user_message);
     void run_agent_with_input(const UserInput& input,
                               bool hidden_goal_context = false,
                               const ChatMessage* retry_message = nullptr);
     std::optional<ChatMessage> retryable_user_message(
         const std::string& expected_user_message_id) const;
-    // Variant that records `display_text` into the user message's metadata.display_text
-    // so UI can show the original input while the LLM sees an expanded `prompt`.
-    // When `display_text` is empty, behaves identically to run_agent(prompt).
-    void run_agent_with_display(const std::string& prompt,
-                                const std::string& display_text,
-                                bool hidden_goal_context = false);
     void run_shell(std::string command);
     void run_compact();
     void account_goal_usage(std::int64_t token_delta = 0, bool allow_complete = false);
@@ -649,10 +642,6 @@ private:
     HookAggregateOutcome dispatch_codex_hook(const std::string& event_name,
                                              const std::string& matcher_value,
                                              const nlohmann::json& payload);
-
-    // ---- Refactored sub-methods of run_agent_with_input ----
-    // These decompose the monolithic turn function into focused phases.
-    // Return types are defined in the .cpp anonymous namespace.
 
     // Type alias for the progress emission callback used across sub-methods.
     using ProgressEmitter = std::function<void(
@@ -774,27 +763,10 @@ private:
         const ProgressEmitter& emit_progress,
         // Mutable state from the orchestrator:
         AgentLoopDoomGuard& doom_guard,
-        std::mutex& doom_guard_mu,
-        std::string& turn_timing_status);
-
-    // Helper: construct a ToolContext with all callbacks wired up.
-    ToolContext build_tool_context(
-        const ProgressEmitter& emit_progress,
-        AgentLoopDoomGuard& doom_guard,
         std::mutex& doom_guard_mu);
 
-    // Helper: emit agent progress with rate-limiting and coalescing.
-    // Uses the progress state passed by reference.
-    void emit_progress_tick(
-        const ProgressEmitter& emit_progress,
-        const std::string& phase, const std::string& label,
-        const std::string& detail, const std::string& tool,
-        const std::string& tool_call_id, int tool_index, bool force,
-        // Mutable progress state:
-        std::mutex& progress_mu,
-        std::string& active_progress_key,
-        std::int64_t& active_progress_started_at_ms,
-        std::chrono::steady_clock::time_point& last_progress_emit_at);
+    // Helper: construct a ToolContext with all callbacks wired up.
+    ToolContext build_tool_context();
 
     struct WorkerTask {
         enum class Kind { Chat, Shell, Compact, Control };
