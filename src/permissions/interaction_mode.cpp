@@ -1,4 +1,4 @@
-#include "headless_mode.hpp"
+#include "interaction_mode.hpp"
 
 #include <atomic>
 
