@@ -507,5 +507,6 @@ P0-01 → P0-03 → P0-04 → P1-01 → P2-02 → P2-05 → P2-06 → P2-07 → 
 | D20 | openspec 组织 | 一期 4 个 change,统一带 `refactor20260927-` 前缀;二期按需另开 | **已定(用户 2026-09-27 确认)** | P0-01 |
 | D21 | src/web 例外范围 | 见上文 D21 | 已定(按推荐,用户无异议) | P2、O-08 |
 | D22 | 本期范围 | 一期 = P0–P4 + P6A/B + P7-O(含 D6–D9);其余放二期 | 已定(按推荐;D6–D9 由用户确认纳入一期) | 全部 |
+| D23 | P0 授权增删的编译单元与 G0 的对照规则 | 原始 G0 固定在 `3ddb7d43`(P0-07 采集,存 `baseline/g0/original/`)。P0 之后的目标快照与原始 G0 逐元组比较时只允许两类差异:移除的元组其 source 必须是 `src_layout_map.tsv` 的 `delete` 行(P0-08)或其生成对象;新增的元组必须是 P2-01 新增的原语文件(`src/utils/abandonable_call.{hpp,cpp}`、`abort_signal.hpp`、`joining_thread.hpp`、`lifetime_token.hpp`、`scope_exit.hpp`,File API 会把显式登记的头文件也列进 target 源清单)或 `acecode_unit_tests` 下新增的 `tests/` 源文件;target 集合不得增减。判定工具 `scripts/refactor/compare_snapshots.py`。P0 验收完成时的快照另存为 `baseline/g0/post-p0/`,P1 起的逐元组比较以它为对照,原始 G0 只用于追溯 | **已定(2026-09-27,P0 验收时登记)** | P0-07、P0-08、P1、P3 |
 
 「按推荐执行」的决策可以在对应任务开工前推翻;推翻后需同步修改本表和受影响任务的描述。

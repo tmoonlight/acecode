@@ -342,7 +342,7 @@ jobs:
             "runner_image": "ubuntu-22.04 / buildpack-deps:buster",
             "label": "${{ inputs.label }}",
             "source_ref_input": "${{ inputs.source_ref }}",
-            "source_revision": "$(git rev-parse HEAD)",
+            "source_revision": "$(git -c safe.directory='*' rev-parse HEAD)",
             "tools_revision": "${{ github.sha }}",
             "workflow_run_id": "${{ github.run_id }}",
             "run_tests": false,

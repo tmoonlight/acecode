@@ -124,6 +124,23 @@ appear exactly once; every destination must be tracked and in bounds. Default
 ranges require an explicit reason. Deleted/unmapped ranges cannot pass.
 Repeat `--original` to detect complete files accidentally omitted from a map.
 
+## G0 comparison (P0-07 / D23)
+
+```sh
+python scripts/refactor/compare_snapshots.py --before baseline/g0/original/linux-x64/targets.json --after out/targets.json --allowed-addition src/utils/abandonable_call.cpp --gtest-before baseline/g0/original/linux-x64/gtest.json --gtest-after out/gtest.json --output comparison.json
+```
+
+Two target snapshots are compared tuple by tuple with the same normalization
+as `cmake_target_snapshot.py`. Removed tuples are authorized only when their
+source (or the generated object of that source) is a `delete` row of
+`src_layout_map.tsv`; added tuples only when they are an explicitly listed
+`--allowed-addition` production file or a new `tests/` source of
+`acecode_unit_tests`. Target additions/removals and any other tuple change
+make the report `unexpected` and return exit code 1. The optional gtest
+section lists added/removed case names, SKIP and failure changes; it is
+informational only. The four-platform baselines live under
+`openspec/changes/refactor20260927-restructure-src-layers/baseline/g0/`.
+
 ## Verification
 
 ```sh
