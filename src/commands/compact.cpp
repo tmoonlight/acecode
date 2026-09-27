@@ -1,4 +1,5 @@
 #include "compact.hpp"
+#include "provider/retry_policy.hpp"
 #include "compact_prompt.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_history_recovery.hpp"
@@ -30,48 +31,6 @@ bool contains_any(const std::string& haystack,
         if (haystack.find(needle) != std::string::npos) return true;
     }
     return false;
-}
-
-bool is_utf8_continuation(unsigned char value) {
-    return (value & 0xC0u) == 0x80u;
-}
-
-bool has_internal_user_context_metadata(const acecode::ChatMessage& msg) {
-    if (!msg.metadata.is_object()) return false;
-
-    static constexpr const char* kInternalContextKeys[] = {
-        "transcript_only",
-        "hidden_goal_context",
-        "hidden_plan_mode_context",
-        "hidden_todo_context",
-        "hidden_hook_stop_continuation",
-        "compact_initial_context",
-    };
-    for (const char* key : kInternalContextKeys) {
-        if (msg.metadata.value(key, false)) return true;
-    }
-    return false;
-}
-
-std::string truncation_marker(std::size_t removed_tokens) {
-    const char* ellipsis = "\xE2\x80\xA6";
-    return std::string(ellipsis) + std::to_string(removed_tokens) +
-           " tokens truncated" + ellipsis;
-}
-
-std::size_t message_payload_bytes(const acecode::ChatMessage& msg) {
-    std::size_t bytes = msg.content.size() + msg.reasoning_content.size();
-    if (msg.content_parts.is_array() && !msg.content_parts.empty()) {
-        bytes += msg.content_parts.dump().size();
-    }
-    if (!msg.tool_calls.is_null() && !msg.tool_calls.empty()) {
-        bytes += msg.tool_calls.dump().size();
-    }
-    bytes += msg.tool_call_id.size();
-    // Account for the role and request envelope without pretending to have a
-    // provider-specific tokenizer.
-    bytes += msg.role.size() + 16;
-    return bytes;
 }
 
 std::string provider_error_search_text(const acecode::ProviderErrorInfo& info) {
@@ -182,7 +141,7 @@ constexpr int kSingleItemOverflowRetries = 3;
 
 int estimate_history_tokens(const std::vector<acecode::ChatMessage>& history) {
     std::size_t bytes = 0;
-    for (const auto& msg : history) bytes += message_payload_bytes(msg);
+    for (const auto& msg : history) bytes += estimate_message_payload_bytes(msg);
     const std::size_t tokens = (bytes + 3) / 4;
     return tokens > static_cast<std::size_t>(std::numeric_limits<int>::max())
         ? std::numeric_limits<int>::max()
@@ -207,82 +166,6 @@ int shrink_history_for_overflow(std::vector<acecode::ChatMessage>& history,
 } // namespace
 
 namespace acecode {
-
-std::size_t approx_token_count(const std::string& text) {
-    constexpr std::size_t kApproxBytesPerToken = 4;
-    const std::size_t padded =
-        text.size() > std::numeric_limits<std::size_t>::max() -
-                          (kApproxBytesPerToken - 1)
-        ? std::numeric_limits<std::size_t>::max()
-        : text.size() + kApproxBytesPerToken - 1;
-    return padded / kApproxBytesPerToken;
-}
-
-std::string truncate_text_to_token_budget(const std::string& text,
-                                          std::size_t max_tokens) {
-    if (text.empty()) return {};
-
-    constexpr std::size_t kApproxBytesPerToken = 4;
-    const std::size_t max_bytes = max_tokens >
-            std::numeric_limits<std::size_t>::max() / kApproxBytesPerToken
-        ? std::numeric_limits<std::size_t>::max()
-        : max_tokens * kApproxBytesPerToken;
-
-    if (max_tokens > 0 && text.size() <= max_bytes) return text;
-    if (max_bytes == 0) return truncation_marker(approx_token_count(text));
-
-    const std::size_t left_budget = max_bytes / 2;
-    const std::size_t right_budget = max_bytes - left_budget;
-
-    std::size_t prefix_end = std::min(left_budget, text.size());
-    while (prefix_end > 0 && prefix_end < text.size() &&
-           is_utf8_continuation(static_cast<unsigned char>(text[prefix_end]))) {
-        --prefix_end;
-    }
-
-    std::size_t suffix_start = text.size() > right_budget
-        ? text.size() - right_budget
-        : 0;
-    while (suffix_start < text.size() &&
-           is_utf8_continuation(static_cast<unsigned char>(text[suffix_start]))) {
-        ++suffix_start;
-    }
-    if (suffix_start < prefix_end) suffix_start = prefix_end;
-
-    const std::size_t removed_bytes = text.size() > max_bytes
-        ? text.size() - max_bytes
-        : 0;
-    const std::size_t removed_tokens =
-        (removed_bytes + kApproxBytesPerToken - 1) / kApproxBytesPerToken;
-    return text.substr(0, prefix_end) + truncation_marker(removed_tokens) +
-           text.substr(suffix_start);
-}
-
-int estimate_message_tokens(const std::vector<ChatMessage>& messages) {
-    std::size_t total_bytes = 0;
-    for (const auto& msg : messages) {
-        const std::size_t bytes = message_payload_bytes(msg);
-        if (total_bytes > std::numeric_limits<std::size_t>::max() - bytes) {
-            return std::numeric_limits<int>::max();
-        }
-        total_bytes += bytes;
-    }
-    const std::size_t tokens = (total_bytes + 3) / 4;
-    return tokens > static_cast<std::size_t>(std::numeric_limits<int>::max())
-        ? std::numeric_limits<int>::max()
-        : static_cast<int>(tokens);
-}
-
-bool is_compact_summary_message(const ChatMessage& msg) {
-    const std::string prefix = get_compact_summary_prefix() + "\n";
-    return msg.is_compact_summary || msg.content.rfind(prefix, 0) == 0;
-}
-
-bool is_real_user_message(const ChatMessage& msg) {
-    if (msg.role != "user" || msg.is_meta) return false;
-    if (has_internal_user_context_metadata(msg)) return false;
-    return !is_compact_summary_message(msg);
-}
 
 std::vector<ChatMessage> build_compacted_history(
     const std::vector<ChatMessage>& messages,
@@ -362,59 +245,6 @@ std::vector<ChatMessage> build_compacted_history(
 std::vector<ChatMessage> normalize_messages_for_api(
     const std::vector<ChatMessage>& messages) {
     return recover_provider_history(provider_relevant_messages(messages)).messages;
-}
-
-int get_effective_context_window(int context_window) {
-    if (context_window <= 0) return 0;
-    const long long effective =
-        static_cast<long long>(context_window) *
-        EFFECTIVE_CONTEXT_WINDOW_PERCENT / 100;
-    return effective > std::numeric_limits<int>::max()
-        ? std::numeric_limits<int>::max()
-        : static_cast<int>(effective);
-}
-
-int get_auto_compact_threshold(int context_window) {
-    if (context_window <= 0) return 0;
-    const long long automatic =
-        static_cast<long long>(context_window) *
-        AUTO_COMPACT_CONTEXT_WINDOW_PERCENT / 100;
-    return std::min(
-        get_effective_context_window(context_window),
-        automatic > std::numeric_limits<int>::max()
-            ? std::numeric_limits<int>::max()
-            : static_cast<int>(automatic));
-}
-
-bool should_auto_compact(int context_window,
-    int server_total_tokens,
-    int current_request_estimated_tokens) {
-    const int threshold = get_auto_compact_threshold(context_window);
-    if (context_window <= 0) return false;
-    return std::max(server_total_tokens, current_request_estimated_tokens) >=
-           threshold;
-}
-
-TokenWarningState calculate_token_warning_state(int estimated_tokens,
-                                                 int context_window) {
-    TokenWarningState state;
-    const int effective = get_effective_context_window(context_window);
-    if (effective <= 0) {
-        state.percent_left = 0.0;
-        state.is_above_warning = true;
-        state.is_above_error = true;
-        state.is_above_auto_compact = true;
-        return state;
-    }
-
-    const int remaining = effective - estimated_tokens;
-    state.percent_left =
-        static_cast<double>(remaining) / static_cast<double>(effective) * 100.0;
-    state.is_above_warning = remaining < 20000;
-    state.is_above_error = remaining < 5000;
-    state.is_above_auto_compact =
-        estimated_tokens >= get_auto_compact_threshold(context_window);
-    return state;
 }
 
 bool is_context_overflow_error(const std::string& error_message) {

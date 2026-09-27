@@ -1,4 +1,5 @@
 #include "grok_provider.hpp"
+#include "retry_policy.hpp"
 #include "stream_diagnostic_capture.hpp"
 
 #include "grok_responses.hpp"

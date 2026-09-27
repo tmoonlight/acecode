@@ -1,7 +1,7 @@
 #include "system_prompt.hpp"
 
 #include "experts/expert_registry.hpp"
-#include "commands/compact.hpp"
+#include "llm/token_estimate.hpp"
 #include "config/config.hpp"
 #include "gitinfo/git_context_collector.hpp"
 #include "memory/memory_registry.hpp"

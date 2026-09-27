@@ -1,6 +1,11 @@
 #pragma once
 
+// token 估算、消息谓词与上下文阈值已下沉到 llm/(P2-02);这里继续 include 它们,
+// 让 agent_loop / main / 测试等既有使用方的写法不变。
+#include "llm/context_thresholds.hpp"
 #include "llm/llm_provider.hpp"
+#include "llm/message_predicates.hpp"
+#include "llm/token_estimate.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -11,8 +16,6 @@
 namespace acecode {
 
 constexpr std::size_t COMPACT_USER_MESSAGE_MAX_TOKENS = 20000;
-constexpr int EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
-constexpr int AUTO_COMPACT_CONTEXT_WINDOW_PERCENT = 90;
 
 struct CompactResult {
     bool performed = false;
@@ -25,25 +28,6 @@ struct CompactResult {
     std::string error;
 };
 
-struct TokenWarningState {
-    double percent_left = 100.0;
-    bool is_above_warning = false;
-    bool is_above_error = false;
-    bool is_above_auto_compact = false;
-};
-
-// Codex uses an intentionally simple UTF-8 byte estimate: ceil(bytes / 4).
-std::size_t approx_token_count(const std::string& text);
-
-// Codex's token truncation keeps the beginning and end around a marker.
-std::string truncate_text_to_token_budget(const std::string& text,
-                                          std::size_t max_tokens);
-
-int estimate_message_tokens(const std::vector<ChatMessage>& messages);
-
-bool is_real_user_message(const ChatMessage& msg);
-bool is_compact_summary_message(const ChatMessage& msg);
-
 std::vector<ChatMessage> build_compacted_history(
     const std::vector<ChatMessage>& messages,
     const std::string& summary_text,
@@ -51,16 +35,6 @@ std::vector<ChatMessage> build_compacted_history(
 
 std::vector<ChatMessage> normalize_messages_for_api(
     const std::vector<ChatMessage>& messages);
-
-int get_effective_context_window(int context_window);
-int get_auto_compact_threshold(int context_window);
-
-bool should_auto_compact(int context_window,
-                         int server_total_tokens,
-                         int current_request_estimated_tokens);
-
-TokenWarningState calculate_token_warning_state(int estimated_tokens,
-                                                 int context_window);
 
 bool is_context_overflow_error(const ProviderErrorInfo& info);
 bool is_context_overflow_error(const std::string& error_message);

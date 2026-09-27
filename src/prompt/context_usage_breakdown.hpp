@@ -1,5 +1,6 @@
 #pragma once
 
+#include "llm/context_usage.hpp"
 #include "llm/llm_provider.hpp"
 
 #include <cstddef>
@@ -31,9 +32,6 @@ ContextUsageBreakdown reconcile_context_usage_breakdown(
 
 int context_usage_breakdown_total(const ContextUsageBreakdown& breakdown);
 
-nlohmann::json context_usage_breakdown_to_json(
-    const ContextUsageBreakdown& breakdown);
-ContextUsageBreakdown context_usage_breakdown_from_json(
-    const nlohmann::json& value);
+// JSON 编解码在 llm/context_usage.hpp(P2-02 拆出,session 落盘只依赖它)。
 
 } // namespace acecode

@@ -20,7 +20,7 @@
 //     不会让整次 resume 崩溃 —— 只是该字段降级到空,渲染走 fold 路径。
 
 #include "utils/diff_utils.hpp"
-#include "tool/tool_executor.hpp"
+#include "llm/tool_result.hpp"
 
 #include <nlohmann/json.hpp>
 #include <optional>

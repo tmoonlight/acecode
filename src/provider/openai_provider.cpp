@@ -1,4 +1,5 @@
 #include "openai_provider.hpp"
+#include "retry_policy.hpp"
 #include "stream_diagnostic_capture.hpp"
 #include "dsml_tool_call_recovery.hpp"
 #include "text_tool_call_recovery.hpp"
@@ -26,7 +27,6 @@
 #include <cctype>
 #include <utility>
 #include <vector>
-
 namespace acecode {
 
 OpenAiCompatProvider::OpenAiCompatProvider(const std::string& base_url,

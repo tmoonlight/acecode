@@ -1,5 +1,4 @@
 #include "thread_service.hpp"
-
 #include "compact_checkpoint.hpp"
 #include "global_session_catalog.hpp"
 #include "session_manager.hpp"
@@ -8,7 +7,8 @@
 #include "session_storage.hpp"
 #include "session_user_message_search.hpp"
 #include "thread_repair.hpp"
-#include "commands/compact.hpp"
+#include "llm/message_predicates.hpp"
+#include "llm/token_estimate.hpp"
 #include "config/config.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
