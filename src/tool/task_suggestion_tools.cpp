@@ -2,7 +2,7 @@
 
 #include "session/session_manager.hpp"
 #include "session/task_suggestion_service.hpp"
-#include "utils/tool_args_parser.hpp"
+#include "tool/tool_args_parser.hpp"
 
 namespace acecode {
 namespace {

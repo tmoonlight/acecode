@@ -1,7 +1,7 @@
 #include "workspace_tools.hpp"
 
 #include "workspace/workspace_registry.hpp"
-#include "utils/tool_args_parser.hpp"
+#include "tool/tool_args_parser.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <filesystem>

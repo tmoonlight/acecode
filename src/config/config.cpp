@@ -1,12 +1,12 @@
 #include "config.hpp"
 
-#include "permissions.hpp"
+#include "config/vocab/permission_mode.hpp"
 #include "config_recovery.hpp"
 #include "config_mutation.hpp"
 #include "mcp_config.hpp"
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
-#include "themes/theme_id.hpp"
+#include "config/vocab/theme_id.hpp"
 #include "utils/constants.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/logger.hpp"
@@ -98,10 +98,10 @@ bool is_one_of(const std::string& value, std::initializer_list<const char*> allo
 }
 
 std::string normalize_permission_mode_name(std::string value) {
-    // 别名(accept-edits / acceptEdits → auto)集中在 PermissionManager 维护;
+    // 别名(accept-edits / acceptEdits → auto)集中在 config/vocab/permission_mode.hpp 维护;
     // 老配置里的 accept-edits 读进来即归一成 auto,下次保存写 auto。
-    if (auto parsed = PermissionManager::parse_mode_name(value)) {
-        return PermissionManager::mode_name(*parsed);
+    if (auto parsed = parse_permission_mode_name(value)) {
+        return permission_mode_name(*parsed);
     }
     if (!value.empty()) {
         LOG_WARN("[config] default_permission_mode='" + value +

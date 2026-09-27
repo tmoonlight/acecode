@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "commands/configure_catalog.hpp"
-#include "provider/builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 
 #include <cstdlib>
 

@@ -7,9 +7,10 @@
 #include "provider/auth/github_auth.hpp"
 #include "network/proxy_resolver.hpp"
 #include "provider/anthropic_provider.hpp"
-#include "provider/builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 #include "utils/logger.hpp"
-#include "utils/models_dev_catalog.hpp"
+#include "config/models_dev_catalog.hpp"
+#include "provider/models_dev_catalog_cache.hpp"
 #include "platform/terminal/terminal_input.hpp"
 
 #include <iostream>

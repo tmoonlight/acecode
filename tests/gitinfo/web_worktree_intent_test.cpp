@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "config/config.hpp"
 #include "session/session_registry.hpp"
 #include "tool/tool_executor.hpp"

@@ -1,4 +1,4 @@
-// 覆盖 src/utils/state_file 中新增的 web_search region 缓存读写。
+// 覆盖 tool/web_search/region_cache 的地区缓存读写,通用 IO 仍由 utils/state_file 提供。
 // 与 state_file_test 同模式,经 set_state_file_path_for_test 把读写路径切到
 // 测试临时目录,避免污染真实 ~/.acecode/state.json。
 //
@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "utils/state_file.hpp"
+#include "tool/web_search/region_cache.hpp"
 
 #include <nlohmann/json.hpp>
 

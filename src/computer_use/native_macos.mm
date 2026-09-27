@@ -1,6 +1,6 @@
 #include "native_backend.hpp"
 #include "macos_native.hpp"
-#include "pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 
 #include <set>
 

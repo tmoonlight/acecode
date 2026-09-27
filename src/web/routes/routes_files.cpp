@@ -3,7 +3,8 @@
 #include "skills/skill_init.hpp"
 #include "config/config.hpp"
 #include "tool/mtime_tracker.hpp"
-#include "utils/text_file_buffer.hpp"
+#include "tool/text_file_errors.hpp"
+#include "tool/safe_text_write.hpp"
 
 namespace acecode::web {
 
@@ -233,7 +234,7 @@ void WebServer::Impl::register_files() {
 
             const std::string abs_path = path_to_utf8(abs_file);
             auto guard = MtimeTracker::instance().acquire_write_guard(abs_path);
-            auto decoded = read_text_file_buffer(abs_path, false);
+            auto decoded = with_text_file_tool_errors(read_text_file_buffer(abs_path, false));
             if (!decoded.success) {
                 return editable_error_response(req, 415, "unsafe text", decoded.error);
             }
@@ -298,7 +299,7 @@ void WebServer::Impl::register_files() {
             }
             const std::string abs_path = path_to_utf8(abs_file);
             auto guard = MtimeTracker::instance().acquire_write_guard(abs_path);
-            auto current = read_text_file_buffer(abs_path, false);
+            auto current = with_text_file_tool_errors(read_text_file_buffer(abs_path, false));
             if (!current.success) {
                 return editable_error_response(req, 415, "unsafe text", current.error);
             }
@@ -315,7 +316,7 @@ void WebServer::Impl::register_files() {
             }
 
             const std::string normalized_text = normalize_text_to_lf(text);
-            auto encoded = encode_text_for_write(normalized_text, current.buffer.metadata);
+            auto encoded = with_text_file_tool_errors(encode_text_for_write(normalized_text, current.buffer.metadata));
             if (!encoded.success) {
                 return editable_error_response(req, 415, "unsafe text", encoded.error);
             }
@@ -328,7 +329,7 @@ void WebServer::Impl::register_files() {
                 return editable_error_response(req, 500, "write failed", written.error);
             }
 
-            auto updated = read_text_file_buffer(abs_path, false);
+            auto updated = with_text_file_tool_errors(read_text_file_buffer(abs_path, false));
             if (!updated.success) {
                 return editable_error_response(
                     req, 500, "post-write read failed", updated.error);

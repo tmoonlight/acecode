@@ -54,7 +54,7 @@
 #include "utils/cwd_hash.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
-#include "utils/state_file.hpp"
+#include "workspace_state.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
 #include "version.hpp"

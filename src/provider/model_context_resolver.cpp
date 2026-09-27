@@ -2,7 +2,7 @@
 
 #include "network/proxy_resolver.hpp"
 #include "utils/logger.hpp"
-#include "builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 #include "provider/codex/codex_model_catalog.hpp"
 #include "model_context_metadata.hpp"
 #include "models_dev_registry.hpp"

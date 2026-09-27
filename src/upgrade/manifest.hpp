@@ -1,6 +1,6 @@
 #pragma once
 
-#include "version.hpp"
+#include "utils/semver.hpp"
 
 #include <cstdint>
 #include <optional>

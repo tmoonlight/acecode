@@ -1,6 +1,6 @@
 #include "theme_create_tool.hpp"
 
-#include "headless/headless_mode.hpp"
+#include "permissions/interaction_mode.hpp"
 #include "session/session_manager.hpp"
 #include "themes/theme_drafts.hpp"
 #include "utils/paths.hpp"

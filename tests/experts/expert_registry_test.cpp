@@ -2,7 +2,7 @@
 
 #include "experts/expert_registry.hpp"
 #include "test_support/agent/stub_provider.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "prompt/system_prompt.hpp"
 #include "session/session_registry.hpp"
 #include "session/session_storage.hpp"

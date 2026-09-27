@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "provider/builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 #include "test_support/repo_root.hpp"
 #include "utils/constants.hpp"
 #include "web/handlers/model_catalog_handler.hpp"

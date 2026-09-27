@@ -59,7 +59,7 @@ ACECode 已经有不错的 agent 底座：C++17 共享 agent core、TUI/daemon/w
 适配代码方向：
 
 - `src/tool/`：新增 `code_mode` 工具和 broker。
-- `src/permissions.hpp`：增加 brokered call 的权限上下文。
+- `src/permissions/permissions.hpp`：增加 brokered call 的权限上下文。
 - `src/session/`：记录脚本、子调用、审批和最终结果，便于 replay。
 
 候选 OpenSpec：`sandboxed-code-mode-tools`
@@ -126,7 +126,7 @@ AI coding agent 的安全边界不应只停留在“读工具自动、写工具�
 
 适配代码方向：
 
-- `src/permissions.hpp`：风险模型和 grant scope。
+- `src/permissions/permissions.hpp`：风险模型和 grant scope。
 - `src/tool/`：工具定义附带风险 metadata。
 - `web/src/components/PermissionModal.jsx`、TUI confirm：展示参数 diff 和风险解释。
 

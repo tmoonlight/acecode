@@ -1,6 +1,7 @@
 #pragma once
 
 #include "exec_decision.hpp"
+#include "permissions/permissions.hpp"
 #include "sandbox_policy.hpp"
 #include <nlohmann/json.hpp>
 

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop_shell_guard.hpp"
+#include "permissions/shell_write_guard.hpp"
 
 #include <string>
 #include <vector>

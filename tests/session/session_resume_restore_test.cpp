@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_resume_restore.hpp"
 #include "tool/mtime_tracker.hpp"

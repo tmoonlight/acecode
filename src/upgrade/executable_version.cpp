@@ -1,5 +1,5 @@
 #include "executable_version.hpp"
-#include "version.hpp"
+#include "utils/semver.hpp"
 
 #include <algorithm>
 #include <array>

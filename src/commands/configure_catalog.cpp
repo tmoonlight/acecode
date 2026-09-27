@@ -1,7 +1,8 @@
 #include "configure_catalog.hpp"
+#include "provider/models_dev_catalog_cache.hpp"
 
 #include "configure_picker.hpp"
-#include "provider/builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 #include "utils/encoding.hpp"
 #include "platform/terminal/terminal_input.hpp"
 

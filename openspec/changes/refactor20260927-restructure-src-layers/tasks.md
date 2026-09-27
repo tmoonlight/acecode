@@ -162,7 +162,7 @@
     - 构建通过,lint 违规数下降;
     - Windows 上 ConPTY 与 winpty 控制台都能打开(Web 控制台停靠区冒烟);
     - desktop 构建通过,且不链接 acecode_testable。
-- [ ] 3.3 【P2-04】【子】【并】跨进程协议与工作区。〔认领: Claude-p2-04 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕
+- [x] 3.3 【P2-04】【子】【并】跨进程协议与工作区。〔认领: Claude-p2-04 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕〔验收: Codex-root 2026-09-28,PR #80 已合入;四平台、完整本机与 Desktop 复核见 verification/P2-04-ipc-and-workspace.md §10,Windows 时序失败按记录保留〕
   - runtime_files、guid、open_request、daemon_protocol、agent_browser_runtime → `src/ipc/`;
   - workspace_registry、`web/handlers/files_handler` → `src/workspace/`;
   - `config.cpp:485-501` 的 `get_*_dir` → `utils/paths`。

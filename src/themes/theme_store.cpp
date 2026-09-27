@@ -2,7 +2,7 @@
 #include "utils/base64.hpp"
 #include "theme_package.hpp"
 
-#include "upgrade/version.hpp"
+#include "utils/semver.hpp"
 #include "image/image_processor.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/sha256.hpp"

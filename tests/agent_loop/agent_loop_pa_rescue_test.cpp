@@ -7,7 +7,7 @@
 #include "agent_loop.hpp"
 #include "pa/pa_context_budget.hpp"
 #include "pa/pa_overflow_rescue.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"

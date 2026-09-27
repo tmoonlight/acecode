@@ -11,7 +11,7 @@
 //   2) 把字符串拼接和 fallback 逻辑(unknown tool / 坏 JSON / 缺字段)
 //      集中到一处,避免 main.cpp 的 render 路径里堆字符串。
 
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 
 #include <string>
 #include <vector>

@@ -42,7 +42,7 @@ PAGES = {
         '''<p>停止任务会阻止后续工作，但已经完成的写入和命令副作用不会自动回滚。拒绝一个工具后，可以说明原因并要求智能体采用更小范围的方案。</p>''',
         note("危险启动模式", "<code>--yolo</code> / <code>--dangerous</code> 启动参数会绕过权限和路径安全检查，适合明确受控的本地环境，不应作为日常排错的通用办法。危险模式不能开启远程 Web 访问。", True),
         '''<p>只想减少文件编辑的确认时，先考虑自动接收编辑。需要了解如何检查已经发生的修改，参见<a href="git.html#restore">回退与恢复</a>。</p>''')
-], ["web/src/lib/permissionMode.js", "web/src/components/SettingsPage.jsx", "src/permissions.hpp", "src/headless/headless_options.cpp", "docs/user-manual.md"]),
+], ["web/src/lib/permissionMode.js", "web/src/components/SettingsPage.jsx", "src/permissions/permissions.hpp", "src/headless/headless_options.cpp", "docs/user-manual.md"]),
 
 "network": page("分别配置访问模型服务的出站代理，以及让其他设备连接 ACECode 的远程 Web 入口。", [
     section("outbound", "模型请求使用的代理",

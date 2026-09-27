@@ -1,5 +1,5 @@
 #include "session_storage.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session_serializer.hpp"
 #include "session_title_generator.hpp"
 #include "task_suggestion_store.hpp"

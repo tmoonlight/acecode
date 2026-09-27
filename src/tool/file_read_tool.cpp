@@ -4,10 +4,10 @@
 #include "llm/tool_icons.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "utils/encoding.hpp"
-#include "utils/file_operations.hpp"
+#include "tool/file_operations.hpp"
 #include "utils/logger.hpp"
-#include "utils/text_file_buffer.hpp"
-#include "utils/tool_errors.hpp"
+#include "tool/text_file_errors.hpp"
+#include "tool/tool_errors.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>
@@ -683,7 +683,7 @@ TextBufferResult read_file_probe(
     if (static_cast<uintmax_t>(probe.size()) < file_size) {
         trim_trailing_partial_utf8(probe);
     }
-    return decode_text_file_bytes(probe, path, true);
+    return with_text_file_tool_errors(decode_text_file_bytes(probe, path, true));
 }
 
 std::string large_legacy_materialization_error(
@@ -760,7 +760,7 @@ ToolResult execute_file_read(
 
     TextBufferResult probe_result =
         file_size <= FileOperations::MAX_EDIT_FILE_SIZE
-        ? read_text_file_buffer(request.file_path, true)
+        ? with_text_file_tool_errors(read_text_file_buffer(request.file_path, true))
         : read_file_probe(request.file_path, file_size);
     if (!probe_result.success) {
         return ToolResult{probe_result.error, false};
@@ -892,7 +892,7 @@ ToolResult execute_file_read(
                     };
                 }
                 full_result =
-                    read_text_file_buffer(request.file_path, true);
+                    with_text_file_tool_errors(read_text_file_buffer(request.file_path, true));
                 if (!full_result.success) {
                     return ToolResult{full_result.error, false};
                 }
@@ -911,7 +911,7 @@ ToolResult execute_file_read(
                     false
                 };
             }
-            full_result = read_text_file_buffer(request.file_path, true);
+            full_result = with_text_file_tool_errors(read_text_file_buffer(request.file_path, true));
             if (!full_result.success) {
                 return ToolResult{full_result.error, false};
             }

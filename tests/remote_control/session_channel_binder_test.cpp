@@ -277,7 +277,7 @@ TEST(KeepaliveDecider, HealthProbeDueAfterInterval) {
 
 #include "remote_control/remote_control_service.hpp"
 #include "config/config.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session/local_session_client.hpp"
 #include "session/session_registry.hpp"
 #include "tool/ask_user_question_tool.hpp"

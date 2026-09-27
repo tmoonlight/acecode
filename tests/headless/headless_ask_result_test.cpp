@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "headless/headless_mode.hpp"
+#include "permissions/interaction_mode.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/tool_executor.hpp"
 

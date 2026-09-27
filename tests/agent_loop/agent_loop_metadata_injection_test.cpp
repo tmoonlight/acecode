@@ -14,7 +14,7 @@
 #include "tool/task_complete_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/diff_utils.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/tool_metadata_codec.hpp"
 

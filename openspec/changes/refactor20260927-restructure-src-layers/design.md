@@ -171,7 +171,7 @@ cmake/version.hpp.in  生成的头名 generated/version.hpp 不变
 
    具体文件由 split-agent-loop 落地后回填 `layers.tsv`。
 10. **R12 行数棘轮**:新文件不超过 1000 行;存量超限文件写入 `scripts/layers/size_baseline.txt`,行数只能下降。`src/apps/web/**` 标注「用户约束豁免」,`external/stb` 标注「第三方」,都不计入基线。
-11. **R13 例外到期**:例外必须在 `layers.tsv` 的 exceptions 段登记 from、to、owner、到期日,到期未清理 lint 就失败。P2 的转发头一律登记在这里,冻结当天到期。
+11. **R13 例外到期**:例外必须在 `layers.tsv` 的 exceptions 段登记 from、to、owner、到期日,到期未清理 lint 就失败。P2 不保留转发头(D24);本段只登记其它确有需要的例外。
 12. **R14 tests**:tests 视为 rank 100,可以 include 任何层;目录必须镜像模块名;测试 helper 只能放 `tests/test_support/`。
 13. **R15 所有权棘轮**:由 `check_ownership.py` 统计,src/apps/web 豁免。统计五类指标:裸 `new/delete`、`.detach()`、`std::thread` 成员或局部变量、存进长寿对象或跨线程的回调里的 `[&]`/`[this]`、`set_*(T*)` 延迟注入。数量只能下降。目标值见 adopt-ownership-conventions。
 
@@ -212,7 +212,7 @@ cmake/version.hpp.in  生成的头名 generated/version.hpp 不变
 4. **P3 冻结窗口**(半天):约 44 个模块目录 `git mv` 到 6 个分组下(M1,全部 R100,改动 0 行),再机械修正 CMake 与文档(M2)。
 5. **P6 先搬后拆**:两个巨型文件在搬迁时保持 R100,其它分支对它们的改动能跟过去;先拆会破坏重命名检测。拆出来的文件直接落在最终目录。
 
-**转发头只在 P2 使用,冻结当天全部删除。** 不批量保留,原因有三:转发头等于把旧目录重建出来,会被 GLOB 收进去;它救不了被搬走文件内部的 `../`;需要迁移的分支不超过 9 个,自助迁移的成本远低于维护转发头。
+**P2 起不保留转发头(D24,用户 2026-09-28 再次确认)。** 原因有三:转发头等于把旧目录重建出来,会被 GLOB 收进去;它救不了被搬走文件内部的 `../`;需要迁移的分支不超过 9 个,自助迁移的成本远低于维护转发头。
 
 ### CMake 护栏与搬迁
 
@@ -252,7 +252,7 @@ cmake/version.hpp.in  生成的头名 generated/version.hpp 不变
 - **[冻结窗口期间 master 被推进]** → 不 rebase 已生成的提交,丢弃后在新 master 上重跑脚本(脚本是确定性的)。
 - **[重名文件合并到同一目录]** → `validate_map.py` 报告重名:`runtime.hpp/.cpp` 3 份、`main.cpp` 2 份、`pointer_overlay.cpp` 2 份(`tool/agent_browser/pointer_overlay.cpp` 冻结前改名为 `browser_pointer_overlay.cpp`)。
 - **[多根 include 的遮蔽]** → R8 唯一解析 + R9 子目录不与模块或分组同名,两条都由 lint 硬检查。
-- **[P2 期间树先变差再变好]**:约 2 周内会临时多出 llm、permissions、platform、ipc、workspace、pty、session_host、agent 等顶层目录和转发头 → 接受;每个 PR 都要求 lint 违规数单调下降,P2-08 完成时为 0。
+- **[P2 期间树先变差再变好]**:约 2 周内会临时多出 llm、permissions、platform、ipc、workspace、pty、session_host、agent 等顶层目录 → 接受(D24 禁止转发头);每个 PR 都要求 lint 违规数单调下降,P2-08 完成时为 0。
 - **[git log / blame 断链]** → 机械提交写进 `.git-blame-ignore-revs`;文档说明用 `git log --follow` 与 `git blame -C -C -M`。
 - **[历史被改写导致分支失去共同祖先]** → 搬迁前后禁止 `strip-ai-attribution` 或 filter-repo 这类改写历史的操作。
 
@@ -509,5 +509,6 @@ P0-01 → P0-03 → P0-04 → P1-01 → P2-02 → P2-05 → P2-06 → P2-07 → 
 | D22 | 本期范围 | 一期 = P0–P4 + P6A/B + P7-O(含 D6–D9);其余放二期 | 已定(按推荐;D6–D9 由用户确认纳入一期) | 全部 |
 | D24 | P2 转发头 | **P2 不在旧路径留转发头,也不登记 exception**。原因:映射表里「旧路径 → 最终路径」的精确行既描述已搬走的真文件,又会命中留在旧路径的转发头,`validate_map --strict` 与 `migrate_branch --check` 都报 destination collision,P3 M1 也会把两者搬到同一处;而 include 改写本树由 `normalize_includes` 按映射表完成,遗留分支由 `migrate_branch --apply-map` 完成,转发头没有独立价值。§7.2「P2」行的「转发头已登记」改为「旧路径不留文件,`validate_map --strict` 通过」;R13 的 exceptions 段仍保留给其它类型的例外 | **已定(2026-09-27,P2-02 执行时登记)** | P2 全部 PR、P3-02 |
 | D23 | P0 授权增删的编译单元与 G0 的对照规则 | 原始 G0 固定在 `3ddb7d43`(P0-07 采集,存 `baseline/g0/original/`)。P0 之后的目标快照与原始 G0 逐元组比较时只允许两类差异:移除的元组其 source 必须是 `src_layout_map.tsv` 的 `delete` 行(P0-08)或其生成对象;新增的元组必须是 P2-01 新增的原语文件(`src/utils/abandonable_call.{hpp,cpp}`、`abort_signal.hpp`、`joining_thread.hpp`、`lifetime_token.hpp`、`scope_exit.hpp`,File API 会把显式登记的头文件也列进 target 源清单)或 `acecode_unit_tests` 下新增的 `tests/` 源文件;target 集合不得增减。判定工具 `scripts/refactor/compare_snapshots.py`。P0 验收完成时的快照另存为 `baseline/g0/post-p0/`,P1 起的逐元组比较以它为对照,原始 G0 只用于追溯 | **已定(2026-09-27,P0 验收时登记)** | P0-07、P0-08、P1、P3 |
+| D25 | state_file 专用状态的归属 | 五组业务逻辑全部迁回各自模块,底层只保留通用文件读写、锁和原子更新;不按是否存在向上 include 缩减任务,不延期到 P4 / 二期 | **已定(用户 2026-09-28 确认)** | P2-05 |
 
 「按推荐执行」的决策可以在对应任务开工前推翻;推翻后需同步修改本表和受影响任务的描述。

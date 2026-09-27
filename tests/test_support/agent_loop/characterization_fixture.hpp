@@ -2,7 +2,7 @@
 
 #include "agent_loop.hpp"
 #include "test_support/agent/stub_provider.hpp"
-#include "headless/headless_mode.hpp"
+#include "permissions/interaction_mode.hpp"
 #include "hooks/hook_manager.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"

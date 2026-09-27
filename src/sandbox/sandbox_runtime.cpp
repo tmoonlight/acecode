@@ -1,5 +1,7 @@
 #include "sandbox_runtime.hpp"
 
+#include "config/vocab/permission_mode.hpp"
+
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -247,7 +249,7 @@ std::string SandboxRuntime::status_text(PermissionMode mode, const std::string& 
     else if (!cfg.enabled) oss << " (config.sandbox.enabled=false)";
     else if (!p.available && !p.reason.empty()) oss << " (" << p.reason << ")";
     oss << "\n";
-    oss << "Permission mode : " << PermissionManager::mode_name(mode) << "\n";
+    oss << "Permission mode : " << permission_mode_name(mode) << "\n";
     const SandboxMode sm = mode_sandbox(mode, usable);
     oss << "Auto-run policy : " << sandbox_mode_name(sm) << "\n";
     const SandboxPolicy policy = policy_for(sm == SandboxMode::FullAccess ? SandboxMode::ReadOnly : sm, write_root);

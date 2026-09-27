@@ -22,12 +22,6 @@ void write_bytes(const fs::path& path, const std::string& bytes) {
     ofs.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
-std::string read_bytes(const fs::path& path) {
-    std::ifstream ifs(path, std::ios::binary);
-    return std::string(std::istreambuf_iterator<char>(ifs),
-                       std::istreambuf_iterator<char>());
-}
-
 std::string bytes(std::initializer_list<unsigned char> values) {
     std::string out;
     for (unsigned char value : values) {
@@ -97,7 +91,7 @@ TEST(TextFileBuffer, LossyUtf8ReadReplacesSingleBadByte) {
 
     auto strict = acecode::decode_text_file_bytes(raw);
     EXPECT_FALSE(strict.success);
-    EXPECT_NE(strict.error.find("file_read"), std::string::npos);
+    EXPECT_EQ(strict.error_kind, acecode::TextFileError::DamagedUtf8);
 
     auto decoded = acecode::decode_text_file_bytes(raw, "", true);
     ASSERT_TRUE(decoded.success) << decoded.error;
@@ -138,20 +132,6 @@ TEST(TextFileBuffer, StrictReadTextFileBufferStillRefusesCorruptUtf8) {
     auto lossy = acecode::read_text_file_buffer(path.string(), true);
     ASSERT_TRUE(lossy.success) << lossy.error;
     EXPECT_TRUE(lossy.buffer.metadata.lossy);
-
-    fs::remove(path);
-}
-
-TEST(TextFileBuffer, SafeWriteRollsBackOnVerificationMismatch) {
-    auto path = temp_path(".txt");
-    write_bytes(path, "before\n");
-
-    auto metadata = acecode::default_new_file_text_metadata();
-    metadata.encoding = acecode::TextEncoding::Unsupported;
-
-    auto result = acecode::safe_write_text_file(path.string(), "after\n", metadata);
-    EXPECT_FALSE(result.success);
-    EXPECT_EQ(read_bytes(path), "before\n");
 
     fs::remove(path);
 }

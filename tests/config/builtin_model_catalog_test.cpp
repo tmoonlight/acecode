@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "provider/builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 #include "utils/constants.hpp"
 
 #include <algorithm>

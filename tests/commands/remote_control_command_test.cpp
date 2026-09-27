@@ -3,13 +3,13 @@
 #include "agent_loop.hpp"
 #include "config/config.hpp"
 #include "commands/remote_control_command.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "remote_control/channel_plugin.hpp"
 #include "remote_control/remote_control_service.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "tool/tool_executor.hpp"
-#include "utils/token_tracker.hpp"
+#include "session/token_tracker.hpp"
 
 #include <filesystem>
 #include <memory>

@@ -5,7 +5,7 @@
 #include "utils/logger.hpp"
 #include "utils/encoding.hpp"
 #include "utils/stream_processing.hpp"
-#include "utils/tool_errors.hpp"
+#include "tool/tool_errors.hpp"
 #include "utils/utf8_path.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "sandbox/sandbox_backend.hpp"

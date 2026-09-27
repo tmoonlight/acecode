@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/tool_result_storage.hpp"

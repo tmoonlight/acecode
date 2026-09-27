@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "utils/state_file.hpp"
+#include "test_support/utils/state_file_fixture.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -30,31 +31,10 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+using acecode::test_support::StateFileTest;
+using acecode::test_support::write_raw;
 
 namespace {
-
-class StateFileTest : public ::testing::Test {
-protected:
-    void SetUp() override {
-        // 在临时目录里给本测试一份独立 state.json 路径。
-        auto tmp = fs::temp_directory_path() /
-                   ("acecode_state_test_" + std::to_string(std::rand()));
-        fs::create_directories(tmp);
-        path_ = (tmp / "state.json").string();
-        acecode::set_state_file_path_for_test(path_);
-    }
-    void TearDown() override {
-        acecode::set_state_file_path_for_test("");
-        std::error_code ec;
-        fs::remove_all(fs::path(path_).parent_path(), ec);
-    }
-    std::string path_;
-};
-
-void write_raw(const std::string& path, const std::string& contents) {
-    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
-    ofs << contents;
-}
 
 std::string quote_arg(const std::string& value) {
     return "\"" + value + "\"";
@@ -132,23 +112,6 @@ TEST_F(StateFileTest, MultipleKeysCoexist) {
     acecode::write_state_flag("another_flag", true);
     EXPECT_TRUE(acecode::read_state_flag("legacy_terminal_hint_shown"));
     EXPECT_TRUE(acecode::read_state_flag("another_flag"));
-}
-
-// 场景:同进程内多个状态写入并发发生时,read-modify-write 必须串行,不能丢 key。
-TEST_F(StateFileTest, ConcurrentCheckedWritesPreserveEveryKey) {
-    constexpr int kWriterCount = 12;
-    std::vector<std::thread> writers;
-    writers.reserve(kWriterCount);
-    for (int i = 0; i < kWriterCount; ++i) {
-        writers.emplace_back([i]() {
-            EXPECT_TRUE(acecode::try_write_state_flag(
-                "concurrent_flag_" + std::to_string(i), true));
-        });
-    }
-    for (auto& writer : writers) writer.join();
-    for (int i = 0; i < kWriterCount; ++i) {
-        EXPECT_TRUE(acecode::read_state_flag("concurrent_flag_" + std::to_string(i)));
-    }
 }
 
 TEST_F(StateFileTest, ClaimFlagIsGrantedExactlyOnceAcrossConcurrentCallers) {
@@ -257,214 +220,4 @@ TEST_F(StateFileTest, EmptyFileTreatedAsEmptyState) {
     EXPECT_FALSE(acecode::read_state_flag("legacy_terminal_hint_shown"));
     acecode::write_state_flag("legacy_terminal_hint_shown", true);
     EXPECT_TRUE(acecode::read_state_flag("legacy_terminal_hint_shown"));
-}
-
-// 场景:last_active_workspace_hash 序列化往返 — desktop 多 workspace 模型靠这条
-// 跨启动持久化"上次活跃 workspace"。
-TEST_F(StateFileTest, LastActiveWorkspaceHashRoundTrip) {
-    EXPECT_EQ(acecode::read_last_active_workspace_hash(), ""); // 初始空
-    acecode::write_last_active_workspace_hash("abc1234567890def");
-    EXPECT_EQ(acecode::read_last_active_workspace_hash(), "abc1234567890def");
-    // 覆盖写
-    acecode::write_last_active_workspace_hash("ffffffffffffffff");
-    EXPECT_EQ(acecode::read_last_active_workspace_hash(), "ffffffffffffffff");
-    // 共存其他 key 不互相覆盖
-    acecode::write_state_flag("some_flag", true);
-    EXPECT_EQ(acecode::read_last_active_workspace_hash(), "ffffffffffffffff");
-    EXPECT_TRUE(acecode::read_state_flag("some_flag"));
-}
-
-// 场景:last_active_workspace_hash 字段类型不对(数字)→ read 返回空字符串而不是抛
-TEST_F(StateFileTest, LastActiveWrongTypeReadsEmpty) {
-    write_raw(path_, R"({"last_active_workspace_hash": 12345})");
-    EXPECT_EQ(acecode::read_last_active_workspace_hash(), "");
-}
-
-// 场景:首页 workspace 选择器跨 desktop 启动保存上次选择。
-// 空字符串是有效选择,表示"不使用工作区"。
-TEST_F(StateFileTest, LastHomeWorkspaceHashRoundTripAllowsEmpty) {
-    EXPECT_EQ(acecode::read_last_home_workspace_hash(), "");
-    acecode::write_last_home_workspace_hash("abc1234567890def");
-    EXPECT_EQ(acecode::read_last_home_workspace_hash(), "abc1234567890def");
-
-    acecode::write_last_home_workspace_hash("");
-    EXPECT_EQ(acecode::read_last_home_workspace_hash(), "");
-
-    acecode::write_state_flag("some_flag", true);
-    EXPECT_EQ(acecode::read_last_home_workspace_hash(), "");
-    EXPECT_TRUE(acecode::read_state_flag("some_flag"));
-}
-
-// 场景:last_home_workspace_hash 字段类型不对 → read 返回空字符串而不是抛。
-TEST_F(StateFileTest, LastHomeWorkspaceWrongTypeReadsEmpty) {
-    write_raw(path_, R"({"last_home_workspace_hash": 12345})");
-    EXPECT_EQ(acecode::read_last_home_workspace_hash(), "");
-}
-
-TEST_F(StateFileTest, ModelProbeCacheRoundTripsAndPreservesOtherState) {
-    const std::string fingerprint(64, 'a');
-    acecode::write_state_flag("some_flag", true);
-
-    acecode::ModelProbeCacheEntry entry;
-    entry.models = {"starrylight", "moonlight", "starrylight"};
-    entry.context_windows = {
-        {"starrylight", 200000},
-        {"moonlight", 128000},
-        {"not-in-models", 999},
-    };
-    entry.probed_at_ms = 123456789;
-
-    ASSERT_TRUE(acecode::write_model_probe_cache(fingerprint, entry));
-    auto cached = acecode::read_model_probe_cache(fingerprint);
-    ASSERT_TRUE(cached.has_value());
-    EXPECT_EQ(cached->models,
-              (std::vector<std::string>{"starrylight", "moonlight"}));
-    EXPECT_EQ(cached->context_windows,
-              (std::map<std::string, int>{{"moonlight", 128000},
-                                          {"starrylight", 200000}}));
-    EXPECT_EQ(cached->probed_at_ms, 123456789);
-    EXPECT_TRUE(acecode::read_state_flag("some_flag"));
-
-    entry.models = {"aurora"};
-    entry.context_windows = {{"aurora", 200000}};
-    entry.probed_at_ms = 123456790;
-    ASSERT_TRUE(acecode::write_model_probe_cache(fingerprint, entry));
-    cached = acecode::read_model_probe_cache(fingerprint);
-    ASSERT_TRUE(cached.has_value());
-    EXPECT_EQ(cached->models, (std::vector<std::string>{"aurora"}));
-    EXPECT_EQ(cached->context_windows.at("aurora"), 200000);
-    EXPECT_EQ(cached->probed_at_ms, 123456790);
-}
-
-TEST_F(StateFileTest, ModelProbeCacheRejectsInvalidFingerprintAndMalformedEntry) {
-    acecode::ModelProbeCacheEntry entry;
-    entry.models = {"model-a"};
-    EXPECT_FALSE(acecode::write_model_probe_cache("not-a-sha256", entry));
-    EXPECT_FALSE(acecode::read_model_probe_cache("not-a-sha256").has_value());
-    EXPECT_FALSE(fs::exists(path_));
-
-    const std::string fingerprint(64, 'b');
-    nlohmann::json malformed = {
-        {"model_probe_cache",
-         {{fingerprint,
-           {{"version", 1}, {"models", "not-an-array"}}}}},
-    };
-    write_raw(path_, malformed.dump());
-    EXPECT_FALSE(acecode::read_model_probe_cache(fingerprint).has_value());
-}
-
-TEST_F(StateFileTest, SlashCommandUsageIncrementsAndPreservesOtherState) {
-    write_raw(path_, R"({"some_flag":true,"last_active_workspace_hash":"abc"})");
-
-    const auto first = acecode::record_tui_slash_command_use("model");
-    const auto second = acecode::record_tui_slash_command_use("model");
-
-    EXPECT_TRUE(first.persisted);
-    EXPECT_EQ(first.count, 1u);
-    EXPECT_TRUE(second.persisted);
-    EXPECT_EQ(second.count, 2u);
-    const auto counts = acecode::read_tui_slash_command_usage();
-    ASSERT_EQ(counts.size(), 1u);
-    EXPECT_EQ(counts.at("model"), 2u);
-    EXPECT_TRUE(acecode::read_state_flag("some_flag"));
-    EXPECT_EQ(acecode::read_last_active_workspace_hash(), "abc");
-}
-
-TEST_F(StateFileTest, SlashCommandUsageIgnoresInvalidEntries) {
-    write_raw(path_,
-              R"({"tui_slash_command_usage":{"good":4,"zero":0,"negative":-2,"fraction":1.5,"text":"7","bad name":9,"opsx/apply":3}})");
-
-    const auto counts = acecode::read_tui_slash_command_usage();
-
-    ASSERT_EQ(counts.size(), 2u);
-    EXPECT_EQ(counts.at("good"), 4u);
-    EXPECT_EQ(counts.at("opsx/apply"), 3u);
-    EXPECT_EQ(counts.count("zero"), 0u);
-    EXPECT_EQ(counts.count("negative"), 0u);
-    EXPECT_EQ(counts.count("fraction"), 0u);
-    EXPECT_EQ(counts.count("text"), 0u);
-    EXPECT_EQ(counts.count("bad name"), 0u);
-
-    write_raw(path_, R"({"tui_slash_command_usage":[1,2,3]})");
-    EXPECT_TRUE(acecode::read_tui_slash_command_usage().empty());
-}
-
-TEST_F(StateFileTest, SlashCommandUsageSaturatesAtUint64Max) {
-    const auto maximum = (std::numeric_limits<std::uint64_t>::max)();
-    nlohmann::json state = {
-        {"tui_slash_command_usage", {{"help", maximum}}},
-    };
-    write_raw(path_, state.dump());
-
-    const auto result = acecode::record_tui_slash_command_use("help");
-
-    EXPECT_TRUE(result.persisted);
-    EXPECT_EQ(result.count, maximum);
-    EXPECT_EQ(acecode::read_tui_slash_command_usage().at("help"), maximum);
-}
-
-TEST_F(StateFileTest, SlashCommandUsageWriteFailureReturnsInMemoryCount) {
-    const fs::path directory_target =
-        fs::path(path_).parent_path() / "usage-state-directory";
-    fs::create_directories(directory_target);
-    acecode::set_state_file_path_for_test(directory_target.string());
-
-    const auto result = acecode::record_tui_slash_command_use("help");
-
-    EXPECT_FALSE(result.persisted);
-    EXPECT_EQ(result.count, 1u);
-}
-
-TEST_F(StateFileTest, ModelProbeCachePreservesReasoningAndExplicitRemoval) {
-    const std::string fingerprint(64, 'd');
-    acecode::ModelReasoningOptions reasoning;
-    reasoning.supported = true;
-    reasoning.default_enabled = true;
-    reasoning.supported_efforts = {"low", "high"};
-    reasoning.default_effort = "high";
-    acecode::ModelProbeCacheEntry entry;
-    entry.models = {"supported", "unknown"};
-    entry.reasoning["supported"] = reasoning;
-    entry.reasoning["not-in-models"] = reasoning;
-    ASSERT_TRUE(acecode::write_model_probe_cache(fingerprint, entry));
-    auto restored = acecode::read_model_probe_cache(fingerprint);
-    ASSERT_TRUE(restored.has_value());
-    ASSERT_TRUE(restored->reasoning.at("supported").has_value());
-    EXPECT_EQ(restored->reasoning.at("supported")->supported_efforts,
-              reasoning.supported_efforts);
-    EXPECT_EQ(restored->reasoning.at("supported")->default_effort, "high");
-    EXPECT_FALSE(restored->reasoning.at("unknown").has_value());
-    EXPECT_EQ(restored->reasoning.count("not-in-models"), 0u);
-
-    entry.reasoning.clear();
-    ASSERT_TRUE(acecode::write_model_probe_cache(fingerprint, entry));
-    restored = acecode::read_model_probe_cache(fingerprint);
-    ASSERT_TRUE(restored.has_value());
-    ASSERT_EQ(restored->reasoning.size(), 2u);
-    EXPECT_FALSE(restored->reasoning.at("supported").has_value());
-    EXPECT_FALSE(restored->reasoning.at("unknown").has_value());
-}
-
-TEST_F(StateFileTest, LegacyOrInvalidProbeReasoningRestoresAsExplicitNull) {
-    const std::string fingerprint(64, 'e');
-    nlohmann::json cache{
-        {"version", 1}, {"models", {"model"}}, {"probed_at_ms", 123}};
-    auto write_cache = [&] {
-        write_raw(path_, nlohmann::json{
-            {"model_probe_cache", {{fingerprint, cache}}}}.dump());
-    };
-    write_cache();
-    auto restored = acecode::read_model_probe_cache(fingerprint);
-    ASSERT_TRUE(restored.has_value());
-    EXPECT_FALSE(restored->reasoning.at("model").has_value());
-
-    cache["model_reasoning"] = {{"model", {
-        {"supported", true}, {"mandatory", false}, {"default_enabled", true},
-        {"supports_max_tokens", false}, {"supported_efforts", {"unknown"}},
-    }}};
-    write_cache();
-    restored = acecode::read_model_probe_cache(fingerprint);
-    ASSERT_TRUE(restored.has_value());
-    EXPECT_FALSE(restored->reasoning.at("model").has_value());
-    EXPECT_EQ(restored->probed_at_ms, 123);
 }

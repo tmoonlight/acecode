@@ -458,4 +458,9 @@ Base: `master` (`e15df9eadfaf05a170fd8b83fb26939452e2d3e9`). Read-only snapshot.
 - 5028f277e315af16bc9ccd612038834693acdab3
 ```
 
+## P2-05 迁移提示(2026-09-28)
 
+本记录面向前述九个遗留 ref,随阶段性提交推送,没有向外部人员发送消息。
+P2-05 不保留旧路径转发头。合并本阶段主线前,先在各自的迁移分支上运行 `normalize_includes.py --scope src` 与 `--scope tests`,再按既有方案演练 rebase / patch。不要改写或删除原 ref。
+
+本阶段除映射表中的文件搬迁外,还拆出了 `config/vocab/permission_mode.hpp`、`provider/models_dev_catalog_cache`、`provider/model_probe_cache`、`tool/{safe_text_write,text_file_errors}`、`tool/web_search/region_cache`、`desktop/workspace_state` 与 `tui/slash_command_usage`。涉及 `state_file`、编码报错或 models.dev 全局缓存的调用方需显式包含对应模块的新头,不能仅依靠旧的间接 include。原状态字段和模型工具名映射保持。

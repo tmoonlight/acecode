@@ -1,6 +1,6 @@
 #include "command_classifier.hpp"
 
-#include "utils/path_validator.hpp"
+#include "permissions/path_validator.hpp"
 
 #include <algorithm>
 #include <cctype>

@@ -2,7 +2,7 @@
 
 #include "desktop_close_behavior.hpp"
 #include "saved_models.hpp"
-#include "computer_use/pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 #include "utils/constants.hpp"
 #include "utils/paths.hpp"
 

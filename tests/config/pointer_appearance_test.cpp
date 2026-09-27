@@ -1,4 +1,4 @@
-#include "computer_use/pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 #include "computer_use/runtime.hpp"
 
 #include <gtest/gtest.h>

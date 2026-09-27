@@ -1,5 +1,5 @@
 #include "settings_mutations.hpp"
-#include "permissions.hpp"
+#include "config/vocab/permission_mode.hpp"
 #include "model_provider_registry.hpp"
 #include "saved_models_revision.hpp"
 
@@ -137,12 +137,12 @@ SettingsMutationResult set_default_permission_mode(
     const SettingsMutationOptions& options) {
     return run_mutation(
         [mode](AppConfig& cfg, std::string& error) {
-            const auto parsed = PermissionManager::parse_mode_name(mode);
+            const auto parsed = parse_permission_mode_name(mode);
             if (!parsed) {
                 error = "unsupported default permission mode";
                 return false;
             }
-            const std::string canonical = PermissionManager::mode_name(*parsed);
+            const std::string canonical = permission_mode_name(*parsed);
             if (cfg.default_permission_mode == canonical) return false;
             cfg.default_permission_mode = canonical;
             return true;
