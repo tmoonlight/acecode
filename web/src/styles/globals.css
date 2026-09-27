@@ -3221,6 +3221,10 @@ body {
 .ace-md .ace-copyable-code {
   margin: 6px 0;
 }
+.ace-md .ace-mermaid-diagram[data-mermaid-diagram="ready"] {
+  margin-left: auto;
+  margin-right: auto;
+}
 .ace-md .ace-copyable-code pre {
   margin: 0;
 }
