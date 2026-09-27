@@ -33,8 +33,13 @@ def normalize(data: bytes, path: str, index: IncludeIndex) -> tuple[bytes, list[
         same_directory = str(Path(target).parent) == str(Path(path).parent)
         helper = target.startswith("tests/test_support/")
         if same_directory and "/" not in name and not helper:
-            continue
-        canonical = index.canonical_include(target)
+            if name == Path(target).name:
+                continue
+            # Same directory, but the neighbour was renamed (a moved file naming
+            # its own old header): keep the bare style with the new name.
+            canonical = Path(target).name
+        else:
+            canonical = index.canonical_include(target)
         if canonical != name:
             edits.append({"file": path, "line": line, "old": name, "new": canonical, "start": match.start(2), "end": match.end(2)})
     result = data
