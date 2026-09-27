@@ -28,7 +28,7 @@ PAGES = {
     section("update", "更新失败或仍显示旧版",
         '''<p>检查更新源是否可访问、磁盘空间是否足够，以及目标程序是否被正在运行的进程锁定。保留错误输出，确认启动路径后按原安装方式重试更新，避免同时维护多个互相覆盖的副本。</p><p>更新命令成功后，重新打开目标应用并核对版本。桌面启动器与配套 daemon 应来自同一套安装包；不要只替换其中一个程序来测试正式安装。</p><p>配置错误触发自动回滚时，先查看回滚提示与备份位置，修复目标字段。卸载通常不等于清除所有个人数据；按<a href="update-uninstall.html">更新与卸载</a>选择是否保留模型和历史。</p>''',
         figure("TS-01", "安装或更新错误的有效截图", "截取完整错误文字、目标安装包或版本信息和发生时间；避免只截一个没有上下文的失败图标。"))
-], ["src/daemon/cli.cpp", "docs/daemon-api.md", "docs/user-manual.md", "src/desktop/strings.cpp"]),
+], ["src/daemon/cli.cpp", "docs/daemon-api.md", "docs/user-manual.md", "src/platform/native_ui/strings.cpp"]),
 
 "troubleshoot-models": page("按服务商、预设、实际端点和错误类别逐项检查，避免把所有失败都归因于模型本身。", [
     section("fields", "先核对连接的四项信息",

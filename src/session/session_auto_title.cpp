@@ -1,7 +1,7 @@
 #include "session_auto_title.hpp"
 
 #include "session_title_generator.hpp"
-#include "desktop/locale.hpp"
+#include "platform/locale.hpp"
 #include "provider/copilot_provider.hpp"
 #include "provider/cwd_model_override.hpp"
 #include "provider/model_resolver.hpp"

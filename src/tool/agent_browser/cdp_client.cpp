@@ -1,6 +1,6 @@
 #include "cdp_client.hpp"
 
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "desktop/agent_browser_runtime.hpp"
 #include "utils/encoding.hpp"
 

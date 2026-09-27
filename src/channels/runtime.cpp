@@ -1,6 +1,6 @@
 #include "runtime.hpp"
 #include "config/config.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "remote_control/remote_control_service.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/logger.hpp"

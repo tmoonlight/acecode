@@ -56,7 +56,7 @@ Do not pass opaque values to `tr()` or interpolate them into a source string tha
 
 ## Native Desktop strings
 
-Native-only fixed text uses the typed catalog in `src/desktop/strings.hpp` and `strings.cpp`. Add a `DesktopStringId`, add entries at the matching position in both locale arrays, and cover both locales in `tests/desktop`. Session/workspace titles and diagnostic details must remain opaque even when their surrounding native labels are localized.
+Native-only fixed text uses the typed catalog in `src/platform/native_ui/strings.hpp` and `strings.cpp`. Add a `DesktopStringId`, add entries at the matching position in both locale arrays, and cover both locales in `tests/platform`. Session/workspace titles and diagnostic details must remain opaque even when their surrounding native labels are localized.
 
 The process-wide native locale is selected before startup UI and updated by `aceDesktop_applyLocale`. The bridge changes presentation state only; the daemon API remains the sole runtime writer of `config.json`.
 

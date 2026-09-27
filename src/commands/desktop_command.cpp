@@ -1,7 +1,7 @@
 #include "desktop_command.hpp"
 
 #include "command_registry.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <cctype>

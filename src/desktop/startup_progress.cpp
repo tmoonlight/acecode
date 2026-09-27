@@ -1,6 +1,6 @@
 #include "startup_progress.hpp"
 
-#include "locale.hpp"
+#include "platform/locale.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -32,7 +32,7 @@
 #include "session/session_rewind.hpp"
 #include "session/thread_goal_store.hpp"
 #include "utils/logger.hpp"
-#include "utils/terminal_title.hpp"
+#include "platform/terminal/terminal_title.hpp"
 #include "utils/utf8_path.hpp"
 #include "version.hpp"
 #include <algorithm>

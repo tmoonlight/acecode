@@ -2,7 +2,7 @@
 set(ACECODE_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/main.cpp")
 set(ACECODE_UPGRADE_MANIFEST_SOURCE "${CMAKE_SOURCE_DIR}/src/upgrade/manifest.cpp")
 set(ACECODE_CHANNEL_BRIDGE_SOURCE "${CMAKE_SOURCE_DIR}/src/channels/bridge.cpp")
-set(ACECODE_WINPTY_AGENT_LOCATION_SOURCE "${CMAKE_SOURCE_DIR}/src/web/pty/winpty_agent_location.cpp")
+set(ACECODE_WINPTY_AGENT_LOCATION_SOURCE "${CMAKE_SOURCE_DIR}/src/pty/winpty_agent_location.cpp")
 set(ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE "${CMAKE_SOURCE_DIR}/src/desktop/deepin_window_effects.cpp")
 set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/desktop/main.cpp")
 set(ACECODE_DESKTOP_SPLASH_SOURCE "${CMAKE_SOURCE_DIR}/src/desktop/splash_screen.cpp")
@@ -29,8 +29,8 @@ set(ACECODE_COMPUTER_USE_MAC_SOURCES
     ${CMAKE_SOURCE_DIR}/src/computer_use/macos_input.mm
     ${CMAKE_SOURCE_DIR}/src/computer_use/macos_pointer.mm)
 set(ACECODE_NATIVE_BRIDGE_MAC_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/desktop/folder_picker_mac.mm
-    ${CMAKE_SOURCE_DIR}/src/desktop/notifications_mac.mm)
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/folder_picker_mac.mm
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/notifications_mac.mm)
 set(ACECODE_DESKTOP_OBJCXX_SOURCES
     ${CMAKE_SOURCE_DIR}/src/desktop/tray_icon_win.cpp
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE})

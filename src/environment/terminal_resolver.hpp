@@ -14,7 +14,7 @@
 
 #include "shell_command_line.hpp"
 #include "config/config.hpp"
-#include "web/pty/pty_backend.hpp"
+#include "pty/pty_backend.hpp"
 
 #include <functional>
 #include <string>

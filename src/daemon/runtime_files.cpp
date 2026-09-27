@@ -5,7 +5,7 @@
 #include "utils/constants.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
-#include "platform.hpp"
+#include "platform/process/os_process.hpp"
 
 #include <nlohmann/json.hpp>
 

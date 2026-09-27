@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "daemon/runtime_files.hpp"
 
 #include <chrono>

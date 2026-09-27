@@ -3,7 +3,7 @@
 #include "test_support/repo_root.hpp"
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_registry.hpp"
-#include "hooks/hook_runner.hpp"
+#include "platform/process/process_runner.hpp"
 #include "utils/sha256.hpp"
 
 #include <gtest/gtest.h>

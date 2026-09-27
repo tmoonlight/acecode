@@ -36,7 +36,7 @@
 #include "tool/web_search/runtime.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
-#include "utils/power_inhibitor.hpp"
+#include "platform/power_inhibitor.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/handlers/skill_command_expander.hpp"
 

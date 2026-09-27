@@ -89,7 +89,7 @@ inline std::filesystem::path temporary(const std::string& suffix) {
 // 之后不再与它同目录:按 __FILE__ 同目录定位会指向不存在的脚本,node 立刻退出,10 个
 // Channel* 用例全部报「WhatsApp bridge exited」。改为从仓库根定位(P0-05 的约定),
 // 夹具与 helper 头各自搬家都不受影响。
-inline lsp::LspSpawnOptions fake_bridge(const std::filesystem::path&) {
+inline platform::SpawnOptions fake_bridge(const std::filesystem::path&) {
     const auto script = acecode::test_support::find_repo_root(__FILE__) / "tests" / "channels" / "fake_bridge.mjs";
     return {{"node", path_to_utf8(script)}, {}, {}};
 }

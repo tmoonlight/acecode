@@ -7,8 +7,7 @@
 // 对应条目对齐(v1 收录 clangd / typescript-language-server / pyright /
 // gopls / rust-analyzer)。
 
-#include "lsp_process.hpp"
-#include "lsp_which.hpp"
+#include "lsp_platform_aliases.hpp"
 #include "config/config.hpp"
 
 #include <map>
