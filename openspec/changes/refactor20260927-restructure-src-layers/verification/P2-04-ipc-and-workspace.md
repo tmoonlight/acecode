@@ -179,3 +179,14 @@ HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP 均为仓库外 `N:/ac-
 检查摘要为仓库外 `p2-04-desktop-smoke.json`;构建与启动日志为 `p2-04-native-build.log` / `p2-04-desktop-launch.log`。测试文件仅写入隔离工作区,没有修改项目源码。
 
 P2-03 合入后仍须同步最新 master,解决 CMake 相邻改动并复验;本节不提前勾选 P2-04。
+
+## 10. 同步 P2-03 后的集成复验(2026-09-28)
+
+P2-03 已由 PR #79 合入 master(`b7be0dcb`)。本分支的合并提交为 `aa6872f961b6f4e73210bac0e5de1cb8db9594c9`。14 个文件的冲突均为相邻 include / CMake 路径或文档路径,保留 P2-04 的 ipc / workspace 路径及 utils/paths 分离,同时采用 P2-03 的 platform / pty 路径。P2-03 完成标记已在 tasks.md 更新。
+
+- src / tests include 规范化、映射、分层阻断项、行数、所有权检查和 `git diff --cached --check` 全部通过;OpenSpec strict 校验及前端完整 `pnpm test` 通过。
+- 全新目录 `build/p2-04-integrated-aa6872f9` 配置并构建 CLI / Desktop / GoogleTest / 五个冒烟目标,1046 步完成,退出码 0。
+- File API 目标对照:59 target / 3573 元组。相对 P2-02 后的同机 master 快照,目标差异 0、既有元组删除 0,唯一新增为 P2-03 的 `lsp_platform_aliases.hpp`;P2-04 搬迁文件的归属和编译属性全部保持。
+- 完整本机 GoogleTest 在独立短路径 `N:/a04i/` 完成:5115 项列出、5114 项执行、9 项跳过、0 失败、退出码 0;结果见仓库外 `p2-04-integrated-gtest.json`。
+- 用官方开发启动器启动本次集成目录的 Desktop,再次验证原生桥激活工作区与 UI 文件预览。Desktop PID 56752 / daemon PID 47836 均为该目录产物,正常退出后两个进程均结束,用户原 Desktop PID 13680 保持运行;无屏幕截图。证据为仓库外 `p2-04-integrated-desktop-smoke.json`。
+- [集成版本四平台 CI 36336644249](https://github.com/tmoonlight/acecode/actions/runs/36336644249) 已按完整源码 SHA 调度,结果尚待完成,本任务仍不勾选验收。
