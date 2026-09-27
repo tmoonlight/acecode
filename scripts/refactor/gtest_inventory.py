@@ -70,6 +70,15 @@ def main() -> int:
             result_xml = Path(temporary) / "results.xml"
             result = subprocess.run([str(Path(args.binary).resolve()), "--gtest_output=xml:" + str(result_xml), *args.gtest_arg], capture_output=True, timeout=args.timeout, check=False)
             report["run_exit_code"] = result.returncode
+            if args.output:
+                # 完整运行输出落在 <output>-run.log:进程崩溃时 XML 不会写出,这是唯一的现场。
+                log_path = Path(args.output).with_name(Path(args.output).stem + "-run.log")
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log_path.write_bytes(result.stdout + b"\n--- stderr ---\n" + result.stderr)
+                report["run_log"] = log_path.name
+            if not result_xml.exists():
+                tail = (result.stdout + result.stderr)[-6000:].decode("utf-8", "replace")
+                raise RuntimeError(f"gtest run produced no XML result (exit code {result.returncode}); output tail:\n{tail}")
             report["actual_results"] = parse_xml(result_xml)
     if args.ctest_dir:
         output = subprocess.run(["ctest", "--test-dir", args.ctest_dir, "--show-only=json-v1"], capture_output=True, text=True, encoding="utf-8", timeout=args.timeout, check=True)
