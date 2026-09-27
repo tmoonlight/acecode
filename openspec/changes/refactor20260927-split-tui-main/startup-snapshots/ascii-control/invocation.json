@@ -1,0 +1,22 @@
+{
+  "tool_ref": "6d94c94fff11b6c494f138c47d06cb21d7b61ad1",
+  "started_at_utc": "2026-09-26T19:55:38.166054+00:00",
+  "command": [
+    "C:\\Users\\shaoh\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+    "-B",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\openspec\\changes\\refactor20260927-split-tui-main\\startup-snapshots\\capture_windows.py",
+    "--executable",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-probe\\acecode.exe",
+    "--scratch",
+    "C:\\Users\\shaoh\\AppData\\Local\\Temp\\p012-ascii-76cf3083",
+    "--output",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-ascii-control-76cf3083",
+    "--source-metadata",
+    "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-probe-input\\probe-source.json"
+  ],
+  "working_directory": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode",
+  "scratch": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\p012-ascii-76cf3083",
+  "output": "C:\\Users\\shaoh\\.codex\\worktrees\\refactor-cmake-guards\\acecode\\build-p0-12-ascii-control-76cf3083",
+  "windows_ansi_code_page": 936,
+  "capture_script_sha256": "c038e6b2eea93508de91e6564e0e00d656476ba383b1d3a3113836d62a56f624"
+}

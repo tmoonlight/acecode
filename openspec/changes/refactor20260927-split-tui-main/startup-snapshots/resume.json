@@ -1,0 +1,45 @@
+{
+  "checkpoint": "startup-wiring-complete-before-CatchEvent",
+  "limit": 16,
+  "messages": [
+    {
+      "ask_result": false,
+      "compact_notice_complete": false,
+      "compact_notice_id": "",
+      "content": "启动快照：恢复这一轮。",
+      "display_override": "",
+      "expanded": false,
+      "hunks": null,
+      "is_tool": false,
+      "role": "user",
+      "summary": null
+    },
+    {
+      "ask_result": false,
+      "compact_notice_complete": false,
+      "compact_notice_id": "",
+      "content": "已保存的回答。",
+      "display_override": "",
+      "expanded": false,
+      "hunks": null,
+      "is_tool": false,
+      "role": "assistant",
+      "summary": null
+    },
+    {
+      "ask_result": false,
+      "compact_notice_complete": false,
+      "compact_notice_id": "",
+      "content": "Resumed session 20260927-000000-0012 (2 messages)",
+      "display_override": "",
+      "expanded": false,
+      "hunks": null,
+      "is_tool": false,
+      "role": "system",
+      "summary": null
+    }
+  ],
+  "scenario": "resume",
+  "schema_version": 1,
+  "total_messages": 3
+}

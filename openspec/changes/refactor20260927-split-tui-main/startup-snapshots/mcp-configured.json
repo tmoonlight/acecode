@@ -1,0 +1,21 @@
+{
+  "checkpoint": "startup-wiring-complete-before-CatchEvent",
+  "limit": 16,
+  "messages": [
+    {
+      "ask_result": false,
+      "compact_notice_complete": false,
+      "compact_notice_id": "",
+      "content": "[MCP] Starting 1 server(s) in the background. External tools will appear as each server is ready.",
+      "display_override": "",
+      "expanded": false,
+      "hunks": null,
+      "is_tool": false,
+      "role": "system",
+      "summary": null
+    }
+  ],
+  "scenario": "mcp-configured",
+  "schema_version": 1,
+  "total_messages": 1
+}

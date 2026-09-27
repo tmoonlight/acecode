@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "runner_exit_code": 0,
+  "elapsed_seconds": 13.125,
+  "source": {
+    "source_revision": "3ddb7d433f280181292e5cd2eede612b17cc8b42",
+    "source_path": "src/main.cpp",
+    "source_sha256": "603eb5ecdd0ca5a8f6fa3fb8769585dbaa549d78b44590a646f629f4e1875fff",
+    "generated_probe_sha256": "39a90417754ac0e7eeec2a703a0df86bae8779ff7a8d2d9f0a8a85af9a25bce9",
+    "original_checkpoint_line": 6845,
+    "production_file_unchanged": true
+  },
+  "executable_sha256": "e44ed2b4745f3f74418478ceb04558fdb803bfdde65191499c85554b99263cb9",
+  "comparisons": [
+    {
+      "scenario": "ordinary",
+      "snapshot_exists": true,
+      "archived_sha256": "33682ced2334bbb6a861f1dfc4405d6955e06b8f578135a5919670232cbbd5ab",
+      "snapshot_sha256": "33682ced2334bbb6a861f1dfc4405d6955e06b8f578135a5919670232cbbd5ab",
+      "byte_identical_to_archived": true,
+      "total_messages": 0
+    },
+    {
+      "scenario": "resume",
+      "snapshot_exists": true,
+      "archived_sha256": "a75060b968a69f2eacf2f9c9d31ad1c206ac4536d79fb7ff3c85b1ec8d9685a0",
+      "snapshot_sha256": "a75060b968a69f2eacf2f9c9d31ad1c206ac4536d79fb7ff3c85b1ec8d9685a0",
+      "byte_identical_to_archived": true,
+      "total_messages": 3
+    },
+    {
+      "scenario": "copilot-unauthenticated",
+      "snapshot_exists": true,
+      "archived_sha256": "77f25387e52693e5f8c20e41610fa7a33a34659ab50f18566d98dd18ac255143",
+      "snapshot_sha256": "77f25387e52693e5f8c20e41610fa7a33a34659ab50f18566d98dd18ac255143",
+      "byte_identical_to_archived": true,
+      "total_messages": 1
+    },
+    {
+      "scenario": "mcp-configured",
+      "snapshot_exists": true,
+      "archived_sha256": "6d5d3b6ab19f480ccc90349277e37c43085f7bc94ba7e0d3f389c87f68ce0b34",
+      "snapshot_sha256": "6d5d3b6ab19f480ccc90349277e37c43085f7bc94ba7e0d3f389c87f68ce0b34",
+      "byte_identical_to_archived": true,
+      "total_messages": 1
+    }
+  ],
+  "boundary": "ASCII control of the fixed runner with the original probe. Unicode attempt remains failed. Startup checkpoint only; no GUI/event-loop/shutdown validation."
+}

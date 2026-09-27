@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "C:\Users\shaoh\.codex\worktrees\refactor-cmake-guards\acecode\openspec\changes\refactor20260927-split-tui-main\startup-snapshots\capture_windows.py", line 277, in <module>
+    main()
+  File "C:\Users\shaoh\.codex\worktrees\refactor-cmake-guards\acecode\openspec\changes\refactor20260927-split-tui-main\startup-snapshots\capture_windows.py", line 253, in main
+    raise RuntimeError(f"{case}: probe exited {exit_code}; inspect {profile}")
+RuntimeError: ordinary: probe exited 3221226505; inspect C:\Users\shaoh\AppData\Local\Temp\acecode-p012-¦¸mega-dd862cc14a12\ordinary\user
