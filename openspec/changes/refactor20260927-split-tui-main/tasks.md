@@ -21,7 +21,7 @@
 
 ## 1. 前置(可在 restructure 的 Phase 0 期间做,不依赖搬迁)
 
-- [ ] 1.1 【P0-09】【主】去掉 main.cpp 中与 `tui_helpers.cpp` 孪生的 helper(MR-12)。〔认领: Claude-phase0 2026-09-27〕
+- [x] 1.1 【P0-09】【主】去掉 main.cpp 中与 `tui_helpers.cpp` 孪生的 helper(MR-12)。〔认领: Claude-phase0 2026-09-27〕〔验收: Claude-phase0 2026-09-27,见 verification/P0-09-twin-helpers.md;底栏 chip 与手工清单第 2、3 小节留待人工〕
   - **先**把 `main.cpp:5878` 的写入目标改成 `acecode::tui::g_model_load_percent`,**再**删除 716-1150 与 987;
   - 约 30 处调用改为 `tui::` 限定;
   - `is_terminal_*` 包装改为直接调用 `tui::matches_terminal_*`,25 处一次性替换;`kTerminal*` 常量与 `is_alt_v/a` 迁到 `tui/terminal_key_event.hpp`;
@@ -33,7 +33,7 @@
     - 新增单测:写入 `tui::g_model_load_percent` 后,负载 chip 能渲染;中文注释写明回归现象是「负载 chip 永不显示」;
     - 手工逐个比对底栏的 chip,包括 token、缓存命中、模型负载;
     - 跑手工清单第 2、3 小节。
-- [ ] 1.2 【P0-12】【主】【并】TUI 手工回归清单与启动时序记录。〔认领: Codex-root 2026-09-27〕
+- [x] 1.2 【P0-12】【主】【并】TUI 手工回归清单与启动时序记录。〔认领: Codex-root 2026-09-27〕〔验收: Claude-phase0 2026-09-27,见 verification/P0-acceptance.md〕
   - 按 [manual-test-checklist.md](manual-test-checklist.md) 核对清单是否完整;
   - 记录现状下「原启动步骤 → 行号 → 新宿主」的完整表,存为本 change 目录的 `startup-order.md`(MR-3);
   - 录下四种启动场景(普通、`--resume`、Copilot 未登录、配置了 MCP)的 `state.conversation` 前 N 条快照,供 B-12 比对。

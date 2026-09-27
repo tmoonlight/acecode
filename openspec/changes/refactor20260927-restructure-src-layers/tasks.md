@@ -46,7 +46,7 @@
     - **用正式 `layers.tsv` 重跑分层检查,把实测违规数写回 design.md「D2」段**;
     - 在一个混排行尾的样本文件上确认行尾不变;
     - 脚本在含嵌套 worktree 的仓库根运行时,不触碰 `.claude/worktrees`、`.worktrees`、`.acecode/worktrees`。
-- [ ] 1.4 【P0-04】【主】【并】CMake 源文件护栏。〔认领: Codex-root 2026-09-27〕
+- [x] 1.4 【P0-04】【主】【并】CMake 源文件护栏。〔认领: Codex-root 2026-09-27〕〔验收: Claude-phase0 2026-09-27,见 verification/P0-acceptance.md〕
   - `CMakeLists.txt:176/183` 的正则拆成 `ACECODE_TUI_DIRS` 与 `ACECODE_TUI_TESTABLE_SUBSETS`(预先写入 commands/、resume/、path_reference/、markdown/,以及 drag_scroll、text_input_ops、skill_commands),TUI 源集合为空时 `FATAL_ERROR`;
   - 新增 `cmake/acecode_source_guards.cmake`(`acecode_require_sources`、`acecode_set_source_define`、`acecode_assert_known_roots`),覆盖:
     - 全部显式清单(:185-314);
@@ -84,13 +84,13 @@
   - `scripts/code_quality_check.{sh,bat}` 去掉写死的 `src/tool/*.cpp`。
   - 不改任何 React 代码。
   - 验证:`pnpm test` 通过;把表中任一路径改坏,对应测试必须明确失败。
-- [ ] 1.7 【P0-07】【子】【并】CI 与基线 G0。〔认领: Codex-testpaths 2026-09-27〕〔接手: Claude-phase0 2026-09-27,原认领人未推送分支〕
+- [x] 1.7 【P0-07】【子】【并】CI 与基线 G0。〔认领: Codex-testpaths 2026-09-27〕〔接手: Claude-phase0 2026-09-27,原认领人未推送分支〕〔验收: Claude-phase0 2026-09-27,见 verification/P0-acceptance.md〕
   - `.github/workflows/test.yml` 新增 layer-lint job(Linux,报告模式,排在 C++ 构建之前);
   - 新增只能手动触发的 `refactor-matrix` job(windows-2022 / macos-15,构建并运行 `acecode_unit_tests`);
   - 采集 G0:四个平台的 target 快照、gtest 清单与 SKIP 清单、四类 lint 基线,存档到本 change 目录的 `baseline/`。
   - 前置:1.3。
   - 验证:手动 dispatch 一次 refactor-matrix,Windows 与 macOS 跑完 ctest。原本就失败的用例只记入基线,不作为阻断条件。
-- [ ] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:〔认领: Codex-root 2026-09-27〕
+- [x] 1.8 【P0-08】【主】删死代码,约 −1950 行。以下每项删除前都要再 grep 一次,确认没有外部引用:〔认领: Codex-root 2026-09-27〕〔验收: Claude-phase0 2026-09-27,见 verification/P0-acceptance.md;微软拼音候选窗位置留待人工确认〕
   - `src/tui/{cli_dispatch,tui_init,tui_context,agent_callbacks_builder,terminal_utils,clipboard_helpers,ime_windows}.{hpp,cpp}`、`src/tui/input_event_handler.hpp`、`src/tui/message_render_cache.cpp`(1 行的空 .cpp,头文件在用,保留);
   - `src/main.cpp:1395-1617` 的 IME 死代码(`update_ime_composition_window` 从未被调用),以及 `:35-37` 的 `<imm.h>` 与 `#pragma comment(lib,"Imm32.lib")`;`CMakeLists.txt:538-542` 的 imm32 链接与 `:539` 的注释;
   - `src/web/handlers/pinned_sessions_handler.cpp`(1 行空壳,.hpp 保留);

@@ -101,3 +101,22 @@ XML SHA-256:
 尚未完成:computer-use 租约组、750/500 ms 可注入时钟用例、Windows 全量、
 Linux CI。本提交涉及 design §7 的 1–3、6、20–28、31、37;
 34 的节流与 20 的租约释放仍保留待验状态。
+
+## 收尾(2026-09-27,Claude-phase0 接手补齐)
+
+P0-10 合入 master 后热点释放,按上文「待协调的最小生产边界」实施(实现提交 `602f3c7b`):
+
+- `AgentLoop::set_progress_clock_for_tests` / `set_computer_use_release_for_tests`:750ms
+  进度帧与 500ms 工具输出帧的取时函数在回合开始时按值捕获(`turn_progress_clock_`),
+  computer-use 释放收敛到 `release_computer_use_session` 唯一出口(abort / 回合收尾 /
+  `DesktopTurnLease` 析构三处都走它)。默认路径与原实现逐字相同;只应在会话未运行时设置。
+- 新增 `tests/agent_loop/characterization_lease_and_clock_test.cpp`(7 条):
+  - 第 8 组 computer-use 租约 4 条:正常收尾的序列固定为 `release → on_turn_finished → Done → release(RAII)`;
+    UserPromptSubmit 拦截的早退只剩 RAII 一次释放且在 Done 之后;abort 立即释放一次、收尾再一次、RAII 最后一次(共 3 次,前两次都先于 on_turn_finished);
+    工具抛异常被运行器吞掉后序列与普通回合相同。fake 释放函数只记录 owner,不启动桌面 helper。
+  - 750ms 节流 2 条:provider 在两个 reasoning delta 之间推进假时钟,749ms 合并、恰到 750ms 发送(5 个 delta 出 3 帧,Reasoning 事件仍 5 条);时钟冻结只发首帧。
+  - 500ms 工具输出节流 1 条:工具在 `ctx.stream` 之间推进假时钟,5 段输出出 3 帧 tool_update,末帧 `total_lines=5`。
+
+验证:`build-p0merge` 构建 acecode_testable / acecode_unit_tests 通过;`--gtest_filter=ComputerUseLeaseGolden.*:ProgressThrottleGolden.*:ToolStreamThrottleGolden.*:AgentLoopLifecycleGolden.*:AgentLoopPermissionGolden.*:AgentLoopTurnSteering.*` 全部通过(42 例批次);
+`check_file_size.py --strict` 通过(agent_loop.cpp / .hpp 仍低于基线);`check_ownership.py --strict` 通过。
+11 组用例至此全部落地;Windows 全量与四平台 CI 结果见 restructure 的 `verification/P0-acceptance.md`。

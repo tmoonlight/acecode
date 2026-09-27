@@ -81,3 +81,10 @@ TSan 已编译但**未通过有效运行验证**。本机 WSL 内核 `6.18.33.2`
 仅对测试子进程使用 `setarch x86_64 -R` 后可启动，但标准库 `condition_variable::wait_for` 路径报告 mutex double-lock，随后 sanitizer 自身的死锁检测器失败。相同报告已用一个只包含标准库 mutex、condition_variable、thread、promise 的独立 23 行程序复现，不包含 ACECode 头文件。探针及输出保存在 `build-p2-01-tsan/stdlib_cv_probe.{cpp,log}`。没有通过屏蔽报告来把 TSan 标记为通过。
 
 Windows 全量已执行，保留上述 2 项基线失败及 1 个脚本套件失败。Linux 完整项目构建、远端 Linux CI 与其它平台 CI 未在本工作树执行，不能由本记录中的 focused sanitizer 测试替代。
+
+## 合入后的四平台补充(2026-09-27,Claude-phase0)
+
+- 合入 master 后经 refactor-matrix 在 Windows / macOS / Linux 三平台全新目录构建并运行:24 条原语用例在 Linux 与 Windows 全部通过;
+  macOS(macos-15 runner)上 `AbandonableCallTest.WaitIsBoundedAndEmptyRegistryReturnsImmediately` 的「到期即返回」上限 100ms 实测 123ms 误报
+  (`wait_until` 到期后的调度延迟),已放宽到 1s(`5596fc8e`,仍远小于工作线程持有的 2s);其它 23 条在 macOS 通过。
+- 单进程 gtest 在 macOS 上会被无关用例整体带崩(见 restructure 的 `P0-07-ci-and-g0.md`),与本任务的原语无关;ctest 隔离模式下的结果见 `baseline/g0/`。
