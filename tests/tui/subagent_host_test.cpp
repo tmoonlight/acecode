@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "config/config.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session/session_storage.hpp"
 #include "tool/tool_executor.hpp"
 #include "tui/subagent_host.hpp"

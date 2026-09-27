@@ -2,9 +2,9 @@
 
 #include "llm/llm_provider.hpp"
 #include "tool/tool_executor.hpp"
-#include "permissions.hpp"
-#include "utils/path_validator.hpp"
-#include "utils/token_tracker.hpp"
+#include "permissions/permissions.hpp"
+#include "permissions/path_validator.hpp"
+#include "session/token_tracker.hpp"
 #include "session/session_manager.hpp"
 #include "session/event_dispatcher.hpp"
 #include "session/side_chat.hpp"

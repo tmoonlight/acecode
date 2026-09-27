@@ -1,5 +1,5 @@
 #include "headless_options.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 
 #include <algorithm>
 #include <cctype>

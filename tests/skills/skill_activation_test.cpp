@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "skills/skill_activation.hpp"
 #include "skills/skill_registry.hpp"
 #include "tool/tool_executor.hpp"

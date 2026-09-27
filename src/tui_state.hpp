@@ -1,6 +1,6 @@
 #pragma once
 
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "path_reference/path_reference.hpp"
 #include "skills/skill_usage_store.hpp"

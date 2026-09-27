@@ -1,7 +1,7 @@
 #pragma once
 
-#include "upgrade/http.hpp"
-#include "theme_id.hpp"
+#include "network/http.hpp"
+#include "config/vocab/theme_id.hpp"
 
 #include <atomic>
 #include <filesystem>

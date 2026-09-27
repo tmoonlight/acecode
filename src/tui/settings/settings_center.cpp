@@ -6,7 +6,7 @@
 
 #include "settings_center.hpp"
 
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "config/request_headers.hpp"
 #include "config/settings_mutations.hpp"
 #include "desktop/workspace_registry.hpp"

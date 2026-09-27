@@ -2,7 +2,7 @@
 #include "config/mcp_config.hpp"
 
 #include "sha256.hpp"
-#include "tool_errors.hpp"
+#include "tool/tool_errors.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "utf8_path.hpp"
 

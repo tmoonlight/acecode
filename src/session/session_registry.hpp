@@ -17,7 +17,7 @@
 
 #include "agent_loop.hpp"
 #include "config/config.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "provider/session_model_binding.hpp"
 #include "config/saved_models.hpp"

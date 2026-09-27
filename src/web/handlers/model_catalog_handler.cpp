@@ -1,7 +1,7 @@
 #include "model_catalog_handler.hpp"
 
 #include "config/saved_models.hpp"
-#include "provider/builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 
 #include <algorithm>
 #include <cctype>

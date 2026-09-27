@@ -28,7 +28,7 @@
 #include "tui/todo_checklist_view.hpp"
 #include "tui/unclipped_reflect.hpp"
 #include "tui/vertical_scroll.hpp"
-#include "utils/token_tracker.hpp"
+#include "session/token_tracker.hpp"
 #include "utils/text_input_ops.hpp"
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"

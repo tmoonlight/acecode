@@ -3,7 +3,7 @@
 #include "tool_errors.hpp"
 #include "tool/tool_executor.hpp"
 #include "tool/mtime_tracker.hpp"
-#include "utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 #include <string>
 #include <fstream>
 #include <sstream>

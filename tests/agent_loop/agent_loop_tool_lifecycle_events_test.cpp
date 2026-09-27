@@ -6,7 +6,7 @@
 
 #include "agent_loop.hpp"
 #include "desktop/workspace_registry.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/event_dispatcher.hpp"
 #include "session/session_manager.hpp"

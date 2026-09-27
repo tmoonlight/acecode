@@ -1,7 +1,7 @@
 #pragma once
 
 #include "config/config.hpp"
-#include "utils/models_dev_catalog.hpp"
+#include "config/models_dev_catalog.hpp"
 
 #include <cstddef>
 #include <optional>

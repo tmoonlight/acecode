@@ -4,7 +4,7 @@
 #include "tool/builtin_tool_registry.hpp"
 #include "tool/tool_executor.hpp"
 #include "llm/tool_protocol_names.hpp"
-#include "utils/tool_errors.hpp"
+#include "tool/tool_errors.hpp"
 
 #include <atomic>
 #include <map>

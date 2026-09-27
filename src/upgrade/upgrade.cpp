@@ -5,7 +5,7 @@
 #include "console.hpp"
 #include "diagnostics.hpp"
 #include "executable_version.hpp"
-#include "http.hpp"
+#include "network/http.hpp"
 #include "macos_bundle.hpp"
 #include "manifest.hpp"
 #include "package.hpp"

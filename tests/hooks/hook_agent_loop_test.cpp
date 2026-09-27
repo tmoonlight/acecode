@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
-#include "headless/headless_mode.hpp"
+#include "permissions/interaction_mode.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "tool/tool_executor.hpp"
 #include "test_support/agent/stub_provider.hpp"
 

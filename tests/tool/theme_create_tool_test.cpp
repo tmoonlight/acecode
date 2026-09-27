@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "tool/theme_create_tool.hpp"
 #include "session/session_manager.hpp"
-#include "headless/headless_mode.hpp"
+#include "permissions/interaction_mode.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
 #include "test_support/themes/theme_test_resources.hpp"

@@ -1,7 +1,7 @@
 #include "config/config.hpp"
 #include "upgrade/check.hpp"
 #include "upgrade/diagnostics.hpp"
-#include "upgrade/http.hpp"
+#include "network/http.hpp"
 #include "upgrade/manifest.hpp"
 #include "upgrade/upgrade.hpp"
 #include "utils/sha256.hpp"

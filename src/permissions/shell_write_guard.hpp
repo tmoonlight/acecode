@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "utils/path_validator.hpp"
+#include "permissions/path_validator.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <filesystem>

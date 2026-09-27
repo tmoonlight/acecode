@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 
 using acecode::PermissionManager;
 using acecode::PermissionMode;

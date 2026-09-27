@@ -7,7 +7,7 @@
 #include "surface_policy.hpp"
 #include "pointer_overlay.hpp"
 #include "pointer_capture.hpp"
-#include "pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 #include "utils/base64.hpp"
 
 #include <algorithm>

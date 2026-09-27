@@ -1,5 +1,5 @@
 #include "session_manager.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session_serializer.hpp"
 #include "fork_attachment_context.hpp"
 #include "session_rewind.hpp"

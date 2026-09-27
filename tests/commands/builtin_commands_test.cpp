@@ -7,7 +7,7 @@
 #include "config/saved_models_revision.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "provider/provider_factory.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
@@ -15,7 +15,7 @@
 #include "tool/mcp_scope.hpp"
 #include "config/mcp_config.hpp"
 #include "tool/tool_executor.hpp"
-#include "utils/token_tracker.hpp"
+#include "session/token_tracker.hpp"
 #include "utils/paths.hpp"
 #include "test_support/agent/stub_provider.hpp"
 

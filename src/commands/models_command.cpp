@@ -1,7 +1,7 @@
 #include "models_command.hpp"
 
 #include "provider/models_dev_registry.hpp"
-#include "utils/models_dev_catalog.hpp"
+#include "config/models_dev_catalog.hpp"
 
 #include <algorithm>
 #include <cctype>

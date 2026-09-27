@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "provider/dsml_tool_call_recovery.hpp"
 #include "provider/text_tool_call_recovery.hpp"
 #include "test_support/agent/stub_provider.hpp"

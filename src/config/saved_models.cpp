@@ -4,7 +4,7 @@
 
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
-#include "provider/builtin_model_catalog.hpp"
+#include "config/builtin_model_catalog.hpp"
 #include "utils/sha256.hpp"
 
 #include <algorithm>

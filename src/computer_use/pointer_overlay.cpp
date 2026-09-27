@@ -1,5 +1,5 @@
 #include "pointer_overlay.hpp"
-#include "pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 
 #ifdef _WIN32
 #include <algorithm>

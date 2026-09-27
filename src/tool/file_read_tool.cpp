@@ -4,10 +4,10 @@
 #include "llm/tool_icons.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "utils/encoding.hpp"
-#include "utils/file_operations.hpp"
+#include "tool/file_operations.hpp"
 #include "utils/logger.hpp"
 #include "utils/text_file_buffer.hpp"
-#include "utils/tool_errors.hpp"
+#include "tool/tool_errors.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>

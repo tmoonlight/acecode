@@ -5,7 +5,7 @@
 #include "headless_capability_catalog.hpp"
 #include "headless_final_text.hpp"
 #include "headless_jsonl.hpp"
-#include "headless_mode.hpp"
+#include "permissions/interaction_mode.hpp"
 #include "headless_name_selection.hpp"
 
 #include "config/config.hpp"
@@ -15,7 +15,7 @@
 #include "hooks/hook_manager.hpp"
 #include "lsp/lsp_service.hpp"
 #include "network/proxy_resolver.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session/local_session_client.hpp"
 #include "session/session_registry.hpp"
 #include "session/thread_service.hpp"

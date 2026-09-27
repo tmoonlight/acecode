@@ -4,12 +4,12 @@
 #include "commands/command_registry.hpp"
 #include "commands/goal_command.hpp"
 #include "config/config.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_goal_store.hpp"
 #include "tool/tool_executor.hpp"
-#include "utils/token_tracker.hpp"
+#include "session/token_tracker.hpp"
 
 #include <filesystem>
 #include <memory>

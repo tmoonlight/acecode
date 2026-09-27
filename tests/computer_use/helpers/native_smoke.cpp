@@ -2,7 +2,7 @@
 // window and controls; never register this interactive executable with ctest.
 #include "computer_use/native_windows.hpp"
 #include "computer_use/element_target.hpp"
-#include "computer_use/pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 #include "test_support/computer_use/native_control_checks.hpp"
 #include "test_support/computer_use/native_smoke_backend.hpp"
 #include "test_support/computer_use/ole_drag_fixture.hpp"

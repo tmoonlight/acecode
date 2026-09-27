@@ -2,7 +2,7 @@
 #include "agent_loop.hpp"
 #include "commands/command_registry.hpp"
 #include "config/config.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"

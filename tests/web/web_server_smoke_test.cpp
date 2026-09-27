@@ -30,7 +30,7 @@
 #include "config/config_recovery.hpp"
 #include "config/saved_models.hpp"
 #include "config/saved_models_revision.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "desktop/daemon_supervisor.hpp"
 #include "desktop/workspace_registry.hpp"
 #include "experts/expert_registry.hpp"

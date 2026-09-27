@@ -1,5 +1,5 @@
 #include "settings_mutations.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "model_provider_registry.hpp"
 #include "saved_models_revision.hpp"
 

@@ -4,8 +4,8 @@
 #include "llm/tool_icons.hpp"
 #include "lsp/lsp_diagnostics.hpp"
 #include "utils/logger.hpp"
-#include "utils/tool_args_parser.hpp"
-#include "utils/tool_errors.hpp"
+#include "tool/tool_args_parser.hpp"
+#include "tool/tool_errors.hpp"
 #include "utils/text_file_buffer.hpp"
 #include "utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>

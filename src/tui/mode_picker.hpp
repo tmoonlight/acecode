@@ -1,6 +1,6 @@
 #pragma once
 
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 
 #include <string>
 #include <vector>

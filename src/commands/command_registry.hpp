@@ -4,7 +4,7 @@
 #include "agent_loop.hpp"
 #include "llm/llm_provider.hpp"
 #include "config/config.hpp"
-#include "utils/token_tracker.hpp"
+#include "session/token_tracker.hpp"
 #include "session/session_manager.hpp"
 #include "provider/session_model_binding.hpp"
 

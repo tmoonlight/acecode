@@ -26,7 +26,7 @@
 #include "tool/task_complete_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "llm/tool_protocol_names.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "provider/retry_policy.hpp"
 #include "provider/text_tool_call_recovery.hpp"

@@ -1,5 +1,5 @@
 #include "macos_native.hpp"
-#include "pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 
 @interface ACEComputerPointerPanel : NSPanel
 @end

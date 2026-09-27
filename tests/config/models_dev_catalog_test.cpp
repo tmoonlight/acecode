@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/models_dev_catalog.hpp"
+#include "config/models_dev_catalog.hpp"
 
 #include <nlohmann/json.hpp>
 

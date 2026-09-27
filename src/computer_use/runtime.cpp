@@ -2,7 +2,7 @@
 #define _WIN32_WINNT 0x0A00
 #endif
 #include "runtime.hpp"
-#include "pointer_appearance.hpp"
+#include "config/vocab/pointer_appearance.hpp"
 #include "helper_process_posix.hpp"
 
 #include <algorithm>

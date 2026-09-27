@@ -5,9 +5,9 @@
 #include "llm/tool_protocol_names.hpp"
 #include "lsp/lsp_diagnostics.hpp"
 #include "utils/logger.hpp"
-#include "utils/tool_args_parser.hpp"
-#include "utils/tool_errors.hpp"
-#include "utils/file_operations.hpp"
+#include "tool/tool_args_parser.hpp"
+#include "tool/tool_errors.hpp"
+#include "tool/file_operations.hpp"
 #include "utils/text_file_buffer.hpp"
 #include "utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>

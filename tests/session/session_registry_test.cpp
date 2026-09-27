@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
 #include "config/saved_models_revision.hpp"

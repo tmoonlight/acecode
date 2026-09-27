@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "utils/token_tracker.hpp"
+#include "session/token_tracker.hpp"
 
 TEST(TokenTracker, ContextPercentRoundsAndClamps) {
     EXPECT_EQ(acecode::TokenTracker::context_percent_for(0, 128000), 0);

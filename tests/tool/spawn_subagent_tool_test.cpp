@@ -13,7 +13,7 @@
 
 #include "config/config.hpp"
 #include "experts/expert_registry.hpp"
-#include "permissions.hpp"
+#include "permissions/permissions.hpp"
 #include "session/local_session_client.hpp"
 #include "session/session_registry.hpp"
 #include "session/session_storage.hpp"
