@@ -2,7 +2,7 @@
 
 #include "utils/utf8_path.hpp"
 #include "utils/base64.hpp"
-#include "utils/clipboard.hpp"
+#include "platform/clipboard.hpp"
 #include "utils/uuid.hpp"
 
 #include <algorithm>

@@ -10,7 +10,7 @@
 // 设计:openspec/changes/enhance-desktop-tray-menu/design.md 决策 3 + 6。
 
 #include "tray_icon_win.hpp"
-#include "strings.hpp"
+#include "platform/native_ui/strings.hpp"
 
 #include <cstddef>
 #include <string>

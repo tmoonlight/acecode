@@ -14,7 +14,7 @@
 #include "provider/auth/github_auth.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_usage_ledger.hpp"
-#include "utils/clipboard.hpp"
+#include "platform/clipboard.hpp"
 #include "utils/utf8_path.hpp"
 #include "tui/theme_palette.hpp"
 #include "tui/terminal_key_event.hpp"

@@ -83,7 +83,7 @@ C++ 存储已有独立审查，本报告只读取必要的接口状态依据并�
 - ZIP 下载在 `routes_themes.cpp:126` 起复用经过校验的作业资源，添加 `application/zip`、UTF-8 百分号编码 attachment 文件名、`private, no-store` 和 `nosniff`，成功后才响应文件。无任意目标路径参数，也不把鉴权凭据放入下载 URL。
 - 删除在 `routes_themes.cpp:146` 起先持有 `app_config_mu`，确认该时刻当前主题，仅在需要回退时持久化 blue。save_config 抛出时恢复 `before.web_ui`，把失败交回 store 的隔离回滚；返回的 ui_preferences 取自同一锁下的实际配置。删除非当前主题不替换选择。
 - `src/web/routes/routes_misc.cpp:2291` 把 ai/EVA 安装检查放入 config 锁内，再检查 store，和删除采用同样的锁顺序。因此删除后排队到达的旧 ID 写入不能重新持久化已删主题；与 Web 队列的旧快照过滤相互衔接。
-- `src/desktop/folder_picker_win.cpp:247` 起按建议文件名 `.zip` 切换单一 ZIP filter/default extension；mac `folder_picker_mac.mm:89` 起切换到 zip，且保留 `allowsOtherFileTypes = NO`。两者其它导出保留原有 Markdown 分支。新增中英文类型/标题/错误枚举与 strings catalog 顺序对应，未改变共享保存接口的路径来源。
+- `src/platform/native_ui/folder_picker_win.cpp:247` 起按建议文件名 `.zip` 切换单一 ZIP filter/default extension；mac `folder_picker_mac.mm:89` 起切换到 zip，且保留 `allowsOtherFileTypes = NO`。两者其它导出保留原有 Markdown 分支。新增中英文类型/标题/错误枚举与 strings catalog 顺序对应，未改变共享保存接口的路径来源。
 - `cleanup_pending:true` 和新的 `cleanup_message` 描述提交后的隔离缓存清理延迟。Web 以 deleted 为成功依据并显示本地化待清理提示，不会因该附加字段恢复卡片。
 
 独立读取 `build/theme-export-tests-20260912.xml` 和 `.log`：60 项全部通过，0 failure/error/skipped/disabled；其中 4 个新增真实 HTTP 用例覆盖内置保护、注入 destination 拒绝、原生能力缺失、鉴权 ZIP 头、取消选择不打包、原生保存、删除当前主题持久化 blue、旧偏好写入拒绝、配置写入失败后的文件/偏好回滚。另有 DesktopStrings 的完整 catalog 和 ZIP 文案断言通过。本复核未重复运行这 60 项。

@@ -5,7 +5,7 @@
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 
 #include <nlohmann/json.hpp>
 

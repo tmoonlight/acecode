@@ -1,7 +1,7 @@
 #include "apply.hpp"
 #include "executable_version.hpp"
 
-#include "console.hpp"
+#include "platform/terminal/console.hpp"
 #include "diagnostics.hpp"
 #include "package.hpp"
 #include "utils/paths.hpp"

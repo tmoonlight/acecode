@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "lsp/lsp_process.hpp"
+#include "platform/process/piped_process.hpp"
 #include "lsp/lsp_server_registry.hpp"
 
 #include <algorithm>

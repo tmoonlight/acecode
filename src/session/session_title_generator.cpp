@@ -1,8 +1,8 @@
 #include "session_title_generator.hpp"
 
-#include "desktop/locale.hpp"
+#include "platform/locale.hpp"
 #include "utils/encoding.hpp"
-#include "utils/terminal_title.hpp"
+#include "platform/terminal/terminal_title.hpp"
 
 #include <algorithm>
 #include <cctype>

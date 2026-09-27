@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/process/process_runner.hpp"
+
 #include <map>
 #include <optional>
 #include <string>
@@ -24,12 +26,9 @@ enum class HookPlatform {
     Mac = 2,
 };
 
-struct HookCommandSpec {
-    std::string command;
-    std::vector<std::string> args;
-
-    bool valid() const { return !command.empty(); }
-};
+// 命令规格本体已随进程运行器下沉到 platform/process/process_runner.hpp
+// (refactor20260927 P2-03);hooks 内部与既有调用点沿用这个别名。
+using HookCommandSpec = platform::ProcessSpec;
 
 struct HookDefinition {
     std::string id;

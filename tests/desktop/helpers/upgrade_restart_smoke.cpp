@@ -1,6 +1,6 @@
 // Opt-in runtime regression with an old packaged daemon and the new daemon.
 // The caller supplies an isolated USERPROFILE/HOME and temporary run directory.
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "ipc/runtime_files.hpp"
 #include "desktop/daemon_pool.hpp"
 #include "ipc/daemon_protocol.hpp"

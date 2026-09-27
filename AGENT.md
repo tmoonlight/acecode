@@ -159,7 +159,7 @@ On Linux desktop builds, install the WebKitGTK development package before config
 
 Permission modes live in `src/permissions.hpp`: `Default` (prompt writes/exec), `AcceptEdits` (auto-allow file writes, still prompt shell), `Yolo` (auto-allow tools), and `Plan` (explore / write only the active plan file). Memory writes stay path-locked even under broader modes. Non-loopback `--dangerous` is rejected.
 
-Other shared subsystems that are easy to miss: `src/gitinfo/` (prompt + REST git snapshots), `src/hooks/` (Codex-compatible lifecycle hooks), `src/web/pty/` (console dock; `/api/pty` and `/ws/pty` are loopback-only), `src/loop/` (scheduled loop tasks), `src/experts/`, and `src/remote_control/`.
+Other shared subsystems that are easy to miss: `src/gitinfo/` (prompt + REST git snapshots), `src/hooks/` (Codex-compatible lifecycle hooks), `src/pty/` (console dock, formerly the `web/pty/` subdirectory; `/api/pty` and `/ws/pty` are loopback-only), `src/loop/` (scheduled loop tasks), `src/experts/`, and `src/remote_control/`.
 
 ## Test And Build Structure
 

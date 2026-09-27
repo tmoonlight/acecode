@@ -25,7 +25,7 @@
 #include "security/audit_log.hpp"
 #include "environment/data_dir_migration.hpp"
 #include "environment/terminal_runtime.hpp"
-#include "web/pty/pty_session_registry.hpp"
+#include "pty/pty_session_registry.hpp"
 #include "environment/toolchains.hpp"
 #include "config/config_recovery.hpp"
 #include "config/saved_models.hpp"
