@@ -31,7 +31,7 @@ cmake --build build-p2-codex --target acecode acecode-desktop acecode_unit_tests
 |---|---|
 | CLI / Desktop / GoogleTest / 五个 EXCLUDE_FROM_ALL 冒烟目标构建 | 通过;冒烟程序仅构建,此处不声称已做交互验证 |
 | 定向 GoogleTest | 151 项通过,0 失败;覆盖状态、搜索地区、编码 / 文案、权限与 MCP |
-| 完整 GoogleTest 与 G0 用例清单对照 | 列出 5117 / 执行 5116,只增加本次两项回归,原用例和 9 项 SKIP 均未增删;首轮隔离目录过长导致 10 项失败,改用短路径后这 10 项全部通过,完整复跑进行中 |
+| 完整 GoogleTest 与 G0 用例清单对照 | 通过:列出 5117 / 执行 5116 / 跳过 9 / 失败 0,退出码 0;相对同机 P2-02 后的 master 只增加本次两项回归,原用例和 SKIP 用例集合均未增删 |
 | 前端 `pnpm test` / `pnpm build` | 通过 |
 | `python -m unittest discover -s scripts/refactor/tests -p 'test_*.py'` | 74 项通过 |
 | `normalize_includes.py --scope src --check` / `--scope tests --check` | 通过 |
@@ -41,7 +41,7 @@ cmake --build build-p2-codex --target acecode acecode-desktop acecode_unit_tests
 | `git diff --check` | 通过 |
 | 帮助站点生成 | 从 group3 / group4 源文件重新生成 49 篇,生成值与当前 sources.json 一致 |
 
-GoogleTest 的 HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP 都指向仓库外的独立目录,未使用用户的运行时配置。首轮目录在用户 TEMP 下嵌套过深,触发 Windows seed 复制路径过长以及窄屏路径文本截断;首轮记录保留为 `p2-05-gtest-long-path.json`。改用 `N:/ac-p205-0928/` 后,同一二进制的 10 项失败用例全部通过(2.797 秒),无代码修补或断言放宽。完整复跑使用单独的短路径 home/tmp。
+GoogleTest 的 HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP 都指向仓库外的独立目录,未使用用户的运行时配置。首轮目录在用户 TEMP 下嵌套过深,触发 Windows seed 复制路径过长以及窄屏路径文本截断;首轮记录保留为 `p2-05-gtest-long-path.json`。改用 `N:/ac-p205-0928/` 后,同一二进制的 10 项失败用例全部通过(2.797 秒),无代码修补或断言放宽。完整复跑使用单独的短路径 home/tmp,结果 5116 项执行、9 项跳过、0 失败,退出码 0;日志为 `p2-05-gtest-run.log`,清单为 `p2-05-gtest.json`。
 
 ## CMake 目标与编译归属
 
@@ -59,4 +59,4 @@ GoogleTest 的 HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP 都指�
 
 按设计中的文档安排,seed 中权限头路径与其版本 / 哈希将在 P3 M2b 一起更新;不单独修改 seed 的生成契约。P2-05 的九个遗留 ref 迁移提示登记在 branch-inventory.md。
 
-四平台 CI 尚待调度 / 完成,本任务暂不勾选验收。完整构建日志、定向 XML、完整清单、目标对照与各检查 JSON 保存在仓库外 `N:/Users/shao/AppData/Local/Temp/codex-refactor20260928/`。
+源码提交 `8b182f184e57d139e703ceb794ffd3d1f2eaf558` 已触发 [四平台 CI](https://github.com/tmoonlight/acecode/actions/runs/36334375820),启用完整测试及 Deepin 构建。Deepin 构建已通过;Linux 列出 5037 / 执行 5028 / 跳过 16 / 失败 0,只增加本次两项回归。Windows / macOS 仍在执行,本任务暂不勾选验收。完整构建日志、定向 XML、完整清单、目标对照与各检查 JSON 保存在仓库外 `N:/Users/shao/AppData/Local/Temp/codex-refactor20260928/`。
