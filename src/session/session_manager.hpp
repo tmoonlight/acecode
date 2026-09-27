@@ -6,7 +6,7 @@
 #include "session_trajectory.hpp"
 #include "session_writer_lease.hpp"
 #include "thread_goal_store.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <string>
 #include <vector>

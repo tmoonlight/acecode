@@ -2,8 +2,8 @@
 
 #include "session/session_manager.hpp"
 #include "session/todo_state.hpp"
-#include "tool_icons.hpp"
-#include "tool_protocol_names.hpp"
+#include "llm/tool_icons.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include <nlohmann/json.hpp>
 

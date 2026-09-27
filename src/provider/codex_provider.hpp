@@ -1,6 +1,6 @@
 #pragma once
 
-#include "llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <string>
 #include <vector>

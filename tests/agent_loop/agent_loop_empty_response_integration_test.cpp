@@ -15,7 +15,7 @@
 
 #include "agent_loop.hpp"
 #include "permissions.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "provider/openai_provider.hpp"
 #include "tool/tool_executor.hpp"
 

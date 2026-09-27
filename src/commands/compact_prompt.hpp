@@ -1,5 +1,7 @@
 #pragma once
 
+#include "llm/message_predicates.hpp"
+
 #include <string>
 
 namespace acecode {
@@ -12,7 +14,7 @@ const std::string& get_compact_prompt();
 // Appended to the prompt when the previous summarization reply was rejected
 // (tool calls, tool-call markup, or blank). ACECode-specific, not from Codex.
 const std::string& get_compact_invalid_summary_reminder();
-const std::string& get_compact_summary_prefix();
+// get_compact_summary_prefix() 随 is_compact_summary_message 下沉到 llm/message_predicates(P2-02)。
 
 // Prefix the model-produced suffix exactly as Codex stores it.
 std::string get_compact_user_summary_message(const std::string& summary_text);

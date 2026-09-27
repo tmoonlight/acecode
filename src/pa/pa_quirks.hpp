@@ -6,7 +6,7 @@
 // 对应 ACECode 的哪一类已知故障。判定纯按报文特征做,不看服务地址也不看
 // 模型名 —— 同一个真实模型在 saved_models 里常有多个别名,按名字匹配必漏。
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "pa_adapter.hpp"
 
 #include <string>

@@ -1,4 +1,5 @@
 #include "copilot_provider.hpp"
+#include "retry_policy.hpp"
 #include "utils/logger.hpp"
 #include "network/proxy_resolver.hpp"
 #include <cpr/cpr.h>

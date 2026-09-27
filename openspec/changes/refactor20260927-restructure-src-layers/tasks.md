@@ -129,7 +129,7 @@
 
 > **每个 PR 的通用要求**:
 > - lint 违规数单调下降;
-> - 旧路径留 2 行转发头,登记进 `layers.tsv` exceptions,冻结当天到期;
+> - 旧路径不留转发头(D24,2026-09-27:转发头与映射校验的目标碰撞检查冲突;include 改写已由 normalize_includes 与 migrate_branch --apply-map 按映射表完成);
 > - 新模块以 `src/<模块>/` 的形式建立,include 写法与冻结后一致;
 > - 对应测试一起 `git mv` 到 `tests/<新模块>/`;
 > - 凡是移进 `src/tui/` 的文件,同一个 PR 更新 `ACECODE_TUI_TESTABLE_SUBSETS`;
@@ -138,7 +138,7 @@
 >
 > **执行顺序**:3.1、3.2、3.3 可并行;3.4 依赖 3.1;3.5 依赖 3.1、3.4;3.6 依赖 3.5;3.7 放最后,且要求 P0-09、P0-10、P0-11 已先合入;3.8 在 1.3 之后全程并行。P2-01(RAII 原语)在 adopt-ownership-conventions,可与本组并行,但必须在 Phase 3 之前合入。
 
-- [ ] 3.1 【P2-02】【主】共同协议根 `llm/`,对应 layout-map.md §3 前 7 行。〔认领: Claude-phase2 2026-09-27〕
+- [x] 3.1 【P2-02】【主】共同协议根 `llm/`,对应 layout-map.md §3 前 7 行。〔认领: Claude-phase2 2026-09-27〕〔验收: Claude-phase2 2026-09-27,见 verification/P2-02-llm-root.md;执行中登记 D24(P2 不留转发头),ProviderRetryWaiter 与 get_compact_summary_prefix 随行下沉〕
   - `provider/llm_provider.hpp` 整头移到 `src/llm/`,删掉第 3 行的 retry_policy include;
   - `tool_protocol_names`、`model_family`、`tool_icons` 移到 llm/;
   - 拆出 `llm/tool_result.hpp`;

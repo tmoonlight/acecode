@@ -1,6 +1,6 @@
 #pragma once
 
-#include "retry_policy.hpp"
+#include "retry_waiter.hpp"
 
 #include <string>
 #include <vector>

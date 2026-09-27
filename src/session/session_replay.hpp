@@ -12,7 +12,7 @@
 // 单测。Daemon / Web UI 未来要做同样的展开时,可直接复用这个函数的逻辑。
 
 #include "tui_state.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <vector>
 

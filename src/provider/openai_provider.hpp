@@ -1,6 +1,6 @@
 #pragma once
 
-#include "llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "provider_request_options.hpp"
 #include "config/config.hpp"
 

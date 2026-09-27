@@ -13,9 +13,9 @@
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/task_complete_tool.hpp"
 #include "tool/tool_executor.hpp"
-#include "tool/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 #include "permissions.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "session/tool_metadata_codec.hpp"
 
 #include <nlohmann/json.hpp>

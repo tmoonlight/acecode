@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "session/session_serializer.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <nlohmann/json.hpp>
 

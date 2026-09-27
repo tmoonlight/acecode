@@ -1,7 +1,7 @@
 #pragma once
 
-#include "provider/llm_provider.hpp"
-#include "tool/diff_utils.hpp"
+#include "llm/llm_provider.hpp"
+#include "utils/diff_utils.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -1,5 +1,5 @@
 #include "task_complete_tool.hpp"
-#include "tool_icons.hpp"
+#include "llm/tool_icons.hpp"
 
 #include <nlohmann/json.hpp>
 

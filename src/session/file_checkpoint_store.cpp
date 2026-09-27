@@ -1,6 +1,6 @@
 #include "file_checkpoint_store.hpp"
 
-#include "tool/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "permissions.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "path_reference/path_reference.hpp"
 #include "skills/skill_usage_store.hpp"
 #include "tui/paste_handler.hpp"

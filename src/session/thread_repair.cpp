@@ -1,7 +1,8 @@
 #include "thread_repair.hpp"
 
 #include "session_manager.hpp"
-#include "commands/compact.hpp"
+#include "llm/message_predicates.hpp"
+#include "llm/token_estimate.hpp"
 #include "utils/uuid.hpp"
 
 #include <algorithm>

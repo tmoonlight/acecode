@@ -304,6 +304,9 @@ src/commands/compact.hpp	src/domain/llm/message_predicates.hpp	P2-02	extract	Ext
 src/commands/compact.hpp	src/domain/llm/context_thresholds.hpp	P2-02	extract	Extract context thresholds
 src/prompt/context_usage_breakdown.cpp	src/domain/llm/context_usage.cpp	P2-02	extract	Extract JSON codec
 src/tool_preamble/tool_preamble.cpp	src/domain/llm/text_preamble_tags.cpp	P2-02	extract	Extract text preamble scanner
+src/provider/retry_policy.hpp	src/domain/llm/retry_waiter.hpp	P2-02	extract	Extract ProviderRetryWaiter (LlmProvider member type)
+src/provider/retry_policy.cpp	src/domain/llm/retry_waiter.cpp	P2-02	extract	Extract ProviderRetryWaiter implementation
+src/commands/compact_prompt.cpp	src/domain/llm/message_predicates.cpp	P2-02	extract	Extract compact summary prefix used by the predicates
 src/hooks/hook_payload.cpp	src/engine/agent/hook_bridge/hook_events.cpp	P2-06	extract	Extract provider-specific payload
 src/skills/default_skill_seeder.cpp	src/domain/hooks/hook_seeds.cpp	P2-06	extract	Extract hook seeds
 src/session/session_title_generator.cpp	src/domain/session/session_title_text.cpp	P2-07	extract	Keep pure title helpers

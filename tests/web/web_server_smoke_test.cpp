@@ -37,7 +37,7 @@
 #include "hooks/hook_manager.hpp"
 #include "loop/loop_store.hpp"
 #include "prompt/system_prompt.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "tool/tool_rewrites.hpp"
 #include "provider/cwd_model_override.hpp"
 #include "provider/models_dev_registry.hpp"

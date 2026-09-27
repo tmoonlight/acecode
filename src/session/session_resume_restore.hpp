@@ -8,7 +8,7 @@
 // preserve shell-mode `!cmd + tool_result` pairs as injected shell turns, and
 // append replayed TUI rows into TuiState.
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <string>
 #include <vector>
