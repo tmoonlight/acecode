@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p lint-reports
-          python scripts/layers/check_layers.py --output lint-reports/layers.json
+          python scripts/layers/check_layers.py --enforce-parent-includes --output lint-reports/layers.json
           python scripts/refactor/check_doc_paths.py --output lint-reports/doc-paths.json
           python scripts/refactor/normalize_includes.py --check --scope src --output lint-reports/includes-src.json
           python scripts/refactor/normalize_includes.py --check --scope tests --output lint-reports/includes-tests.json
