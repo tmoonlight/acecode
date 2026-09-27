@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import mermaid from 'mermaid';
+import { colorContrast } from './colorContrast.js';
 
 import {
   createMermaidRenderAdapter,
   inspectMermaidSource,
+  installMermaidRenderer,
   isSafeMermaidResourceValue,
   MAX_MERMAID_SOURCE_BYTES,
   mermaidConfig,
@@ -247,6 +249,61 @@ await test('theme configuration fixes strict classic Dagre rendering', () => {
   assert.equal(mermaidTheme(null), 'light');
 });
 
+function themeDocument(mode, ...backgrounds) {
+  const root = { background: backgrounds.pop(), getAttribute: () => mode };
+  let frame = root;
+  for (const background of backgrounds.reverse()) frame = { background, parentElement: frame };
+  return {
+    doc: { documentElement: root, body: frame, defaultView: { getComputedStyle: (node) => ({ backgroundColor: node.background }) } },
+    frame,
+  };
+}
+
+await test('diagram theme follows actual local background instead of declared mode', () => {
+  for (const [mode, colors, expected] of [
+    ['dark', ['rgba(0, 0, 0, 0)', 'rgb(255, 241, 235)', '#111111'], 'light'],
+    ['light', ['rgb(24, 26, 30)', '#ffffff'], 'dark'],
+    ['dark', ['#fff', '#111'], 'light'],
+    ['light', ['rgb(0% 0% 0%)', '#fff'], 'dark'],
+  ]) {
+    const { doc, frame } = themeDocument(mode, ...colors);
+    assert.equal(mermaidTheme(doc, frame), expected);
+    assert.equal(mermaidTheme(doc), expected);
+  }
+});
+
+await test('diagram theme composites translucent ancestors in paint order', () => {
+  for (const [colors, expected] of [
+    [['rgba(0, 0, 0, 0.8)', '#ffffff'], 'dark'],
+    [['rgba(255, 255, 255, 0.8)', '#000000'], 'light'],
+    [['rgba(0, 0, 0, 0.2)', 'rgba(255, 255, 255, 0.8)', '#000000'], 'light'],
+    [['rgb(0 0 0 / 80%)', '#fff'], 'dark'],
+    [['transparent', 'rgb(255, 241, 235)'], 'light'],
+  ]) {
+    const { doc, frame } = themeDocument('dark', ...colors);
+    assert.equal(mermaidTheme(doc, frame), expected);
+  }
+  const { doc, frame } = themeDocument('dark', 'transparent');
+  assert.equal(mermaidTheme(doc, frame), 'dark');
+  doc.defaultView.getComputedStyle = () => { throw new Error('unavailable'); };
+  assert.equal(mermaidTheme(doc, frame), 'dark');
+});
+
+await test('default diagram ink stays readable across light, dark, tinted and midtone backgrounds', () => {
+  for (const background of ['#fff1eb', '#ffffff', '#101820', '#333333', '#767676', '#808080', '#db2020', '#007f80', '#ffff00']) {
+    const { doc, frame } = themeDocument('dark', background);
+    const config = mermaidConfig(mermaidTheme(doc, frame));
+    mermaid.initialize(config);
+    const colors = mermaid.mermaidAPI.getConfig().themeVariables;
+    for (const name of ['actorLineColor', 'signalColor', 'signalTextColor', 'loopTextColor', 'labelBoxBorderColor', 'lineColor', 'defaultLinkColor', 'transitionColor', 'textColor']) {
+      assert.ok(colorContrast(background, colors[name]) >= 4.5, `${background}: ${name}=${colors[name]}`);
+    }
+    for (const [fill, ink] of [['actorBkg', 'actorTextColor'], ['nodeBkg', 'primaryTextColor']]) {
+      assert.ok(colorContrast(colors[fill], colors[ink]) >= 4.5, `${fill}: ${colors[fill]}, ${ink}: ${colors[ink]}`);
+    }
+  }
+});
+
 await test('resource validator allows local fragments and blocks external CSS references', () => {
   assert.equal(isSafeMermaidResourceValue('marker-end:url(#arrowhead)'), true);
   assert.equal(isSafeMermaidResourceValue('@keyframes dash { to { stroke-dashoffset: 0; } }', { css: true }), true);
@@ -350,4 +407,161 @@ await test('serialized render adapter gates before Mermaid and preserves fallbac
 
   runtime.render = async () => { throw new Error('render failed'); };
   assert.equal(await render(samples.state, 'light'), null);
+});
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+function rendererFixture({ deferred = false } = {}) {
+  const element = () => ({
+    attributes: new Map(), style: {}, children: [], listeners: new Map(),
+    setAttribute(name, value) { this.attributes.set(name, value); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    removeAttribute(name) { this.attributes.delete(name); },
+    addEventListener(name, callback) { this.listeners.set(name, callback); },
+    emit(name) { this.listeners.get(name)?.(); },
+    append(child) { this.children.push(child); child.parentElement = this; },
+    replaceChildren(...children) { this.children = []; children.forEach((child) => this.append(child)); },
+    contains(child) {
+      for (let node = child; node; node = node.parentElement) if (node === this) return true;
+      return false;
+    },
+  });
+  const root = element(), panel = element(), frame = element(), target = element();
+  root.setAttribute('data-theme', 'dark');
+  root.background = '#111111';
+  panel.background = '#fff1eb';
+  root.append(panel);
+  panel.append(frame);
+  frame.append(target);
+  frame.setAttribute('data-mermaid-diagram', 'source');
+  frame.querySelector = (selector) => selector.includes('render-target') ? target : { textContent: samples.sequence };
+  let mutations, observed;
+  const transitions = new Map();
+  const doc = {
+    addEventListener: (name, callback) => transitions.set(name, callback),
+    removeEventListener: (name) => transitions.delete(name),
+    documentElement: root, body: panel,
+    createElement: element,
+    querySelectorAll: (selector) => selector.includes('="source"') && frame.getAttribute('data-mermaid-diagram') !== 'source' ? [] : [frame],
+  };
+  const calls = [], events = [];
+  const win = {
+    Blob, DOMParser, XMLSerializer,
+    URL: { createObjectURL: () => 'blob:fixture', revokeObjectURL() {} },
+    getComputedStyle: (node) => ({ backgroundColor: node.background || 'rgba(0, 0, 0, 0)' }),
+    MutationObserver: class {
+      constructor(callback) { mutations = callback; }
+      observe(node, options) { observed = options; }
+      disconnect() { mutations = null; }
+    },
+    CustomEvent: class { constructor(type, { detail }) { this.type = type; this.detail = detail; } },
+    dispatchEvent(event) { events.push(event); return true; },
+  };
+  doc.defaultView = win;
+  const result = { svg: safeSvg, width: 160, height: 80 };
+  const stop = installMermaidRenderer(win, doc, (source, theme) => {
+    let resolve;
+    const pending = new Promise((done) => { resolve = () => done(result); });
+    calls.push({ source, theme, resolve });
+    if (!deferred) resolve();
+    return pending;
+  });
+  return {
+    root, panel, frame, target, calls, events, stop,
+    image: () => target.children[0]?.children[0],
+    transition: (node, type = 'transitionend') => transitions.get(type)?.({ target: node, propertyName: 'background-color' }),
+    mutate(node, attributeName) {
+      if (observed.attributeFilter.includes(attributeName)) mutations?.([{ type: 'attributes', target: node, attributeName }]);
+    },
+  };
+}
+
+await test('renderer refreshes background-only changes without looping on its own image styles', async () => {
+  const page = rendererFixture();
+  try {
+    await tick();
+    page.image().emit('load');
+    assert.equal(page.frame.getAttribute('data-mermaid-theme'), 'light');
+    assert.deepEqual(page.image().style, { width: '160px', height: '80px' });
+
+    for (const [attribute, node] of [
+      ['style', page.panel], ['class', page.panel], ['data-color-theme', page.root],
+      ['data-theme-session-background', page.root], ['data-theme', page.root],
+    ]) {
+      page.panel.background = page.panel.background === '#fff1eb' ? '#111111' : '#fff1eb';
+      page.mutate(node, attribute);
+      await tick();
+      page.image().emit('load');
+      assert.equal(page.frame.getAttribute('data-mermaid-theme'), page.panel.background === '#111111' ? 'dark' : 'light');
+    }
+    const rendered = page.calls.length;
+    page.mutate(page.image(), 'style');
+    page.mutate(page.root, 'class'); // The background did not change.
+    await tick();
+    assert.equal(page.calls.length, rendered);
+    page.target.children[0].emit('click');
+    assert.equal(page.events.at(-1).detail.theme, 'dark');
+  } finally { page.stop(); }
+});
+
+await test('a late render from the previous background cannot replace the current diagram', async () => {
+  const page = rendererFixture({ deferred: true });
+  try {
+    await tick();
+    page.panel.background = '#111111';
+    page.mutate(page.panel, 'style');
+    await tick();
+    assert.deepEqual(page.calls.map((call) => call.theme), ['light', 'dark']);
+    page.calls[1].resolve();
+    await tick();
+    const currentImage = page.image();
+    currentImage.emit('load');
+    page.calls[0].resolve();
+    await tick();
+    assert.equal(page.image(), currentImage);
+    assert.equal(page.frame.getAttribute('data-mermaid-theme'), 'dark');
+  } finally { page.stop(); }
+});
+
+await test('image loading rechecks the actual background even before a mutation notification', async () => {
+  const page = rendererFixture();
+  try {
+    await tick();
+    const oldImage = page.image();
+    page.panel.background = '#111111';
+    oldImage.emit('load');
+    await tick();
+    assert.deepEqual(page.calls.map((call) => call.theme), ['light', 'dark']);
+    page.image().emit('load');
+    oldImage.emit('load');
+    assert.equal(page.frame.getAttribute('data-mermaid-theme'), 'dark');
+    assert.notEqual(page.image(), oldImage);
+  } finally { page.stop(); }
+});
+
+await test('background transitions refresh at their settled color and unsubscribe on cleanup', async () => {
+  const page = rendererFixture();
+  try {
+    await tick();
+    page.image().emit('load');
+    page.mutate(page.panel, 'style'); // Computed style is still the previous color.
+    await tick();
+    assert.equal(page.calls.length, 1);
+    page.panel.background = '#111111';
+    page.transition(page.panel);
+    await tick();
+    page.image().emit('load');
+    assert.equal(page.frame.getAttribute('data-mermaid-theme'), 'dark');
+
+    page.panel.background = '#fff1eb';
+    page.transition(page.panel, 'transitioncancel');
+    await tick();
+    page.image().emit('load');
+    assert.equal(page.frame.getAttribute('data-mermaid-theme'), 'light');
+  } finally { page.stop(); }
+  const rendered = page.calls.length;
+  page.panel.background = '#111111';
+  page.transition(page.panel);
+  await tick();
+  assert.equal(page.calls.length, rendered);
 });

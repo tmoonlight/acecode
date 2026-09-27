@@ -1,20 +1,9 @@
+import { colorContrast } from './colorContrast.js';
 import { normalizeThemeBackgroundColor } from './desktopWindowBackground.js';
 import { normalizeStatusPayload, sessionAttentionState } from './sessionStatus.js';
 
 export function desktopTaskbarBadgeAvailable(win = globalThis.window) {
   return typeof win?.aceDesktop_setTaskbarBadge === 'function';
-}
-
-function luminance(color) {
-  const channels = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16) / 255)
-    .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
-  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
-}
-
-function contrast(first, second) {
-  const a = luminance(first);
-  const b = luminance(second);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
 export function taskbarBadgeColors(style) {
@@ -23,9 +12,9 @@ export function taskbarBadgeColors(style) {
   const outline = read('--ace-bg');
   const text = read('--ace-fg');
   if (!background || !outline || !text) return null;
-  let foreground = contrast(background, text) >= contrast(background, outline) ? text : outline;
-  if (contrast(background, foreground) < 4.5) {
-    foreground = contrast(background, '#ffffff') >= contrast(background, '#000000') ? '#ffffff' : '#000000';
+  let foreground = colorContrast(background, text) >= colorContrast(background, outline) ? text : outline;
+  if (colorContrast(background, foreground) < 4.5) {
+    foreground = colorContrast(background, '#ffffff') >= colorContrast(background, '#000000') ? '#ffffff' : '#000000';
   }
   return { background, foreground, outline };
 }
