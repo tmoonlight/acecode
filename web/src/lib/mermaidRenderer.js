@@ -1,6 +1,9 @@
 import mermaid from 'mermaid';
+import { mermaidTheme, mermaidThemeVariables } from './mermaidTheme.js';
 import { registerMermaidExportTarget } from './mermaidExport.js';
 import { dispatchMermaidPreview } from './mermaidPreview.js';
+
+export { mermaidTheme } from './mermaidTheme.js';
 
 export const MAX_MERMAID_SOURCE_BYTES = 64 * 1024;
 export const MAX_MERMAID_SOURCE_LINES = 1000;
@@ -120,6 +123,7 @@ export function mermaidConfig(theme) {
     suppressErrorRendering: true,
     htmlLabels: false,
     theme: theme === 'dark' ? 'dark' : 'default',
+    themeVariables: mermaidThemeVariables(theme),
     look: 'classic',
     layout: 'dagre',
     arrowMarkerAbsolute: false,
@@ -129,10 +133,6 @@ export function mermaidConfig(theme) {
     maxEdges: MAX_MERMAID_EDGES,
     logLevel: 'fatal',
   };
-}
-
-export function mermaidTheme(doc = globalThis.document) {
-  return doc?.documentElement?.getAttribute?.('data-theme') === 'dark' ? 'dark' : 'light';
 }
 
 function isLocalFragmentUrl(value) {
@@ -355,7 +355,7 @@ export function installMermaidRenderer(
     if (!target || !source.trim()) return;
 
     const token = {};
-    const theme = mermaidTheme(doc);
+    const theme = mermaidTheme(doc, frame);
     jobs.set(frame, { token, source, theme });
     setState(frame, 'loading');
     target.setAttribute('aria-busy', 'true');
@@ -364,7 +364,7 @@ export function installMermaidRenderer(
     if (stopped || active?.token !== token || frame.isConnected === false) {
       return;
     }
-    if (String(sourceNode.textContent || '') !== source || mermaidTheme(doc) !== theme) {
+    if (String(sourceNode.textContent || '') !== source || mermaidTheme(doc, frame) !== theme) {
       restoreSource(frame);
       schedule();
       return;
@@ -421,7 +421,7 @@ export function installMermaidRenderer(
     image.addEventListener('load', () => {
       release();
       if (stopped || jobs.get(frame)?.token !== token || frame.isConnected === false) return;
-      if (String(sourceNode.textContent || '') !== source || mermaidTheme(doc) !== theme) {
+      if (String(sourceNode.textContent || '') !== source || mermaidTheme(doc, frame) !== theme) {
         restoreSource(frame);
         schedule();
         return;
@@ -433,7 +433,7 @@ export function installMermaidRenderer(
     image.addEventListener('error', () => {
       release();
       if (stopped || jobs.get(frame)?.token !== token || frame.isConnected === false) return;
-      if (String(sourceNode.textContent || '') !== source || mermaidTheme(doc) !== theme) {
+      if (String(sourceNode.textContent || '') !== source || mermaidTheme(doc, frame) !== theme) {
         restoreSource(frame);
         schedule();
         return;
@@ -459,20 +459,31 @@ export function installMermaidRenderer(
     if (typeof enqueue === 'function') enqueue(scan);
     else Promise.resolve().then(scan);
   };
-  const resetForTheme = () => {
-    for (const frame of doc.querySelectorAll(DIAGRAM_SELECTOR)) restoreSource(frame);
+  const refreshThemes = (changedAncestors) => {
+    if (stopped || !changedAncestors.length) return;
+    for (const frame of doc.querySelectorAll(DIAGRAM_SELECTOR)) {
+      const theme = jobs.get(frame)?.theme;
+      // Ignore mutations inside the diagram (including our own image styles).
+      if (theme && changedAncestors.some((ancestor) => ancestor.contains(frame))
+          && mermaidTheme(doc, frame) !== theme) restoreSource(frame);
+    }
+    schedule();
   };
+  const onBackgroundTransition = (event) => {
+    // Global theme transitions still expose the previous color when attributes
+    // first change. Recheck the painted color when the transition settles.
+    if (event.propertyName === 'background-color') refreshThemes([event.target]);
+  };
+  doc.addEventListener('transitionend', onBackgroundTransition);
+  doc.addEventListener('transitioncancel', onBackgroundTransition);
 
   const observer = new Observer((records) => {
-    if (records.some((record) => record.type === 'attributes'
-        && record.attributeName === 'data-theme')) {
-      resetForTheme();
-    }
+    refreshThemes(records.filter((record) => record.type === 'attributes').map((record) => record.target));
     schedule();
   });
   observer.observe(doc.documentElement, {
     attributes: true,
-    attributeFilter: ['data-theme'],
+    attributeFilter: ['data-theme', 'data-color-theme', 'data-theme-session-background', 'style', 'class'],
     childList: true,
     subtree: true,
   });
@@ -481,6 +492,8 @@ export function installMermaidRenderer(
   return () => {
     stopped = true;
     observer.disconnect();
+    doc.removeEventListener('transitionend', onBackgroundTransition);
+    doc.removeEventListener('transitioncancel', onBackgroundTransition);
     for (const frame of doc.querySelectorAll(DIAGRAM_SELECTOR)) invalidate(frame);
   };
 }

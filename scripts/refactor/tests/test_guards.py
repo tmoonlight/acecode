@@ -123,6 +123,43 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(2, len(changes))
         self.assertFalse(errors)
 
+    def test_moved_file_bare_include_of_former_neighbour_is_rewritten(self):
+        # P2-03 把 hooks/hook_runner.cpp 搬成 platform/process/process_runner.cpp,它里面的
+        # `#include "hook_config.hpp"` 指的是留在 src/hooks/ 的同伴。期望:按包含者的旧目录回查,
+        # 改成 "hooks/hook_config.hpp"。回归表现:改动前这一行原样留下,搬迁后编译报找不到头文件,
+        # P2-03 记录里 14 行只能手工改。
+        path = "src/platform/process/process_runner.cpp"
+        files = [path, "src/hooks/hook_config.hpp", "src/platform/process/process_runner.hpp"]
+        aliases = LayoutMap([
+            {"old_path": "src/hooks/hook_runner.cpp", "new_path": "src/base/platform/process/process_runner.cpp", "kind": "move", "phase": "P2-03"},
+            {"old_path": "src/platform/", "new_path": "src/base/platform/", "kind": "move", "phase": "P3"},
+            {"old_path": "src/hooks/", "new_path": "src/domain/hooks/", "kind": "move", "phase": "P3"},
+        ])
+        before = b'#include "process_runner.hpp"\n#include "hook_config.hpp"\n'
+        after, changes, errors = normalize(before, path, IncludeIndex(files, aliases=aliases))
+        self.assertEqual(b'#include "process_runner.hpp"\n#include "hooks/hook_config.hpp"\n', after)
+        self.assertEqual(1, len(changes))
+        self.assertFalse(errors)
+
+    def test_moved_file_bare_include_of_its_own_renamed_header(self):
+        # P2-05 把 headless/headless_mode.{hpp,cpp} 搬成 permissions/interaction_mode.{hpp,cpp}。
+        # 期望:interaction_mode.cpp 里的 `#include "headless_mode.hpp"` 先按包含者旧目录找到
+        # src/headless/headless_mode.hpp,再顺着映射找到它搬去的 src/permissions/interaction_mode.hpp,
+        # 改成 "permissions/interaction_mode.hpp"。回归表现:改动前旧目录里已没有这个文件,include 原样留下。
+        path = "src/permissions/interaction_mode.cpp"
+        files = [path, "src/permissions/interaction_mode.hpp"]
+        aliases = LayoutMap([
+            {"old_path": "src/headless/headless_mode.hpp", "new_path": "src/domain/permissions/interaction_mode.hpp", "kind": "move", "phase": "P2-05"},
+            {"old_path": "src/headless/headless_mode.cpp", "new_path": "src/domain/permissions/interaction_mode.cpp", "kind": "move", "phase": "P2-05"},
+            {"old_path": "src/permissions/", "new_path": "src/domain/permissions/", "kind": "move", "phase": "P3"},
+            {"old_path": "src/headless/", "new_path": "src/apps/headless/", "kind": "move", "phase": "P3"},
+        ])
+        after, changes, errors = normalize(b'#include "headless_mode.hpp"\n', path, IncludeIndex(files, aliases=aliases))
+        # 同目录的改名邻居保持裸名风格,改成新名而不是模块根形式。
+        self.assertEqual(b'#include "interaction_mode.hpp"\n', after)
+        self.assertEqual(1, len(changes))
+        self.assertFalse(errors)
+
     def test_comments_and_raw_string_examples_do_not_create_fake_rules(self):
         # 注释与 raw string 中的 C++ 示例不能伪造所有权或 include 违规。
         data = b'/* new X; */\nconst char* x = R"tag(\n#include "../x.hpp"\nnew X; // not code\n)tag";\n'

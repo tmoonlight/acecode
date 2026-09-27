@@ -119,6 +119,20 @@ class IncludeIndex:
                 # P2 transition: the map names the final grouped path, but the
                 # moved file still lives at src/<module>/... until the P3 move.
                 found = {transition_path(target) for target in translated} & self.files
+            if not found and "/" not in name:
+                # A moved file may still name a former neighbour by its bare
+                # name. Resolve it from the includer's original directory: map
+                # the includer forward to its final path, then back to the G0
+                # path, and look next to that.
+                final = self.aliases.translate(includer) or includer
+                original = self.aliases.translate(final, reverse=True) or final
+                if original != includer:
+                    neighbour = posixpath.normpath(f"{PurePosixPath(original).parent}/{name}")
+                    # The neighbour may have moved too (a moved .cpp naming its
+                    # own renamed header): follow it forward, then back to the
+                    # P2 transition directory.
+                    moved = self.aliases.translate(neighbour) or neighbour
+                    found = {neighbour, moved, transition_path(moved)} & self.files
         if name in self.generated:
             found.add("@generated/" + name)
         return sorted(found)

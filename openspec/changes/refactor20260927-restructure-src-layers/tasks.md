@@ -152,7 +152,7 @@
     - lint 显示 provider↔session、provider↔tool、provider↔pa 三个环消失;
     - `system_prompt.cpp` 对 compact.hpp 的无用 include 已删除;
     - byte-stable 用例与 tool_preamble 测试通过。
-- [ ] 3.2 【P2-03】【子】【并】平台件下沉到 `platform/` 与 `pty/`,对应 layout-map.md §2 中标 P2-03 的行。〔认领: Claude-p2-03 2026-09-27〕
+- [ ] 3.2 【P2-03】【子】【并】平台件下沉到 `platform/` 与 `pty/`,对应 layout-map.md §2 中标 P2-03 的行。〔认领: Claude-p2-03 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕
   - `hooks/hook_runner` → `platform/process/process_runner`(ProcessSpec,hooks 保留别名);
   - `lsp_process` → `piped_process`,`lsp_which` → `which`;
   - `daemon/platform*` → `os_process*`;
@@ -162,7 +162,7 @@
     - 构建通过,lint 违规数下降;
     - Windows 上 ConPTY 与 winpty 控制台都能打开(Web 控制台停靠区冒烟);
     - desktop 构建通过,且不链接 acecode_testable。
-- [ ] 3.3 【P2-04】【子】【并】跨进程协议与工作区。〔认领: Claude-p2-04 2026-09-27〕
+- [ ] 3.3 【P2-04】【子】【并】跨进程协议与工作区。〔认领: Claude-p2-04 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕
   - runtime_files、guid、open_request、daemon_protocol、agent_browser_runtime → `src/ipc/`;
   - workspace_registry、`web/handlers/files_handler` → `src/workspace/`;
   - `config.cpp:485-501` 的 `get_*_dir` → `utils/paths`。
@@ -171,10 +171,10 @@
     - desktop 冒烟:启动、打开 workspace;
     - lint 显示指向 desktop、web 的反向边消失;
     - files_handler 相关测试通过。
-- [ ] 3.4 【P2-05】【主】config 与 utils 的反向边,对应 layout-map.md 中标 P2-05 的行。
+- [ ] 3.4 【P2-05】【主】config 与 utils 的反向边,对应 layout-map.md 中标 P2-05 的行。〔认领: Claude-phase2 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕
   - `permissions.hpp` 拆出 `config/vocab/permission_mode.hpp`;theme_id、pointer_appearance 移到 vocab;
   - builtin_model_catalog 与 models_dev_catalog 的纯部分移到 config,依赖 registry 的部分移到 `provider/models_dev_catalog_cache`;
-  - state_file 的专用函数搬回各自使用方;
+  - state_file 的五组专用函数全部搬回各自使用方(用户 2026-09-28 再次确认):模型探测缓存、搜索地区缓存、桌面活跃工作区、桌面首页工作区、TUI 斜杠命令用量;底层只保留通用文件读写、锁与原子更新,不延期;
   - file_operations、tool_errors、tool_args_parser → tool/;text_file_buffer 拆出 `tool/safe_text_write`(`routes_files.cpp:325` 只改调用点);
   - token_tracker → session;
   - path_validator、shell_guard、permissions.hpp → permissions/;headless_mode → `permissions/interaction_mode`;
