@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "permissions.hpp"
 #include "provider/llm_provider.hpp"
 #include "session/event_dispatcher.hpp"

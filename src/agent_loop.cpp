@@ -2,7 +2,7 @@
 #include "agent_loop_doom_guard.hpp"
 #include "agent_loop_shell_guard.hpp"
 #include "computer_use/runtime.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "prompt/context_usage_breakdown.hpp"
 #include "prompt/system_prompt.hpp"

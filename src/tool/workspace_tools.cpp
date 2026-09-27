@@ -1,6 +1,6 @@
 #include "workspace_tools.hpp"
 
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "utils/tool_args_parser.hpp"
 #include "utils/utf8_path.hpp"
 

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "daemon/platform.hpp"
-#include "daemon/runtime_files.hpp"
+#include "ipc/runtime_files.hpp"
 
 #include <chrono>
 #include <filesystem>

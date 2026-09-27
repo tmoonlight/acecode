@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "session/session_storage.hpp"
 #include "utils/cwd_hash.hpp"
 

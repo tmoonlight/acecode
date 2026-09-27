@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "session/session_manager.hpp"
 #include "tool/workspace_tools.hpp"
 #include "utils/utf8_path.hpp"

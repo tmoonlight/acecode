@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "desktop/agent_browser_runtime.hpp"
+#include "ipc/agent_browser_runtime.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <filesystem>

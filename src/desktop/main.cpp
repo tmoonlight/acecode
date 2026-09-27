@@ -15,7 +15,7 @@
 
 #include "daemon_pool.hpp"
 #include "agent_browser_host.hpp"
-#include "agent_browser_runtime.hpp"
+#include "ipc/agent_browser_runtime.hpp"
 #include "context_items.hpp"
 #include "context_picker.hpp"
 #include "desktop_about.hpp"
@@ -26,7 +26,7 @@
 #include "folder_picker.hpp"
 #include "locale.hpp"
 #include "notifications.hpp"
-#include "open_request.hpp"
+#include "ipc/open_request.hpp"
 #include "open_in_explorer.hpp"
 #include "pick_active.hpp"
 #include "single_instance.hpp"
@@ -40,7 +40,7 @@
 #include "url_builder.hpp"
 #include "web_host.hpp"
 #include "web_host_close_policy.hpp"
-#include "workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 
 #ifdef ACECODE_DEEPIN
 #include "deepin_window_effects.hpp"
@@ -48,7 +48,7 @@
 
 #include "config/config.hpp"
 #include "daemon/platform.hpp"
-#include "daemon/runtime_files.hpp"
+#include "ipc/runtime_files.hpp"
 #include "utils/clipboard.hpp"
 #include "utils/base64.hpp"
 #include "utils/cwd_hash.hpp"
