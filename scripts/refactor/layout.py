@@ -127,7 +127,12 @@ class IncludeIndex:
                 final = self.aliases.translate(includer) or includer
                 original = self.aliases.translate(final, reverse=True) or final
                 if original != includer:
-                    found = {posixpath.normpath(f"{PurePosixPath(original).parent}/{name}")} & self.files
+                    neighbour = posixpath.normpath(f"{PurePosixPath(original).parent}/{name}")
+                    # The neighbour may have moved too (a moved .cpp naming its
+                    # own renamed header): follow it forward, then back to the
+                    # P2 transition directory.
+                    moved = self.aliases.translate(neighbour) or neighbour
+                    found = {neighbour, moved, transition_path(moved)} & self.files
         if name in self.generated:
             found.add("@generated/" + name)
         return sorted(found)
