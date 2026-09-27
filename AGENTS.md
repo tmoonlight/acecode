@@ -1,5 +1,11 @@
 # Repository Guidelines
 
+## src 分层搬迁窗口预告
+
+2026-09-28 公告:按 [重构设计 D3 / §8.3](openspec/changes/refactor20260927-restructure-src-layers/design.md),P3-02 候选冻结窗口为 **2026-09-29 06:00–18:00(Asia/Taipei,UTC+08:00)**。最早开始时间保留至少一天的公告期;只有 P2 全部验收、P3-01 演练通过后才进入窗口,未满足时顺延并更新本公告。
+
+当前尚未冻结。正式开始后仅暂停其它任务向 master 合入 src/、tests/ 和 CMake 变更;P3 从当时最新 master 重新生成机械搬迁提交,通过约定闸门、合入并打 post-src-layout 标签后解除冻结。原有工作区和未合入分支继续保留,按映射表迁移;不得提前勾选 P3-02。
+
 ## Project Structure & Module Organization
 
 ACECode is a C++17 terminal AI coding agent with daemon, web UI, and optional desktop surfaces. The root [main.cpp](main.cpp) owns the terminal TUI entry point. Reusable logic lives under [src/](src) by subsystem, including `commands`, `config`, `daemon`, `desktop`, `history`, `markdown`, `memory`, `network`, `project_instructions`, `provider`, `session`, `skills`, `tool`, `tui`, `utils`, and `web`.
