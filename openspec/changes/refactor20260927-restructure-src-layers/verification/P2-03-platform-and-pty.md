@@ -102,3 +102,21 @@ Ninja + MSVC 2022 Release,`BUILD_TESTING=ON`,`ACECODE_BUILD_DESKTOP=ON`,x64-wind
 3. `CMakeLists.txt` 的 `ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES` 与 P2-04 的四行交错,合入第二个分支时会有文本冲突,按行合并即可(两边都只改自己的行)。
 4. mac / Linux 构建未在本机验证(只有路径改动 + 两个 `.mm` 路径经 `acecode_require_sources` 校验),建议合入后 dispatch refactor-matrix。
 5. 简报「搬走文件内部指回旧目录的裸名 include 也会被 normalize 改成模块根形式」实测不成立(2.3),后续 P2 任务要预留手工改这类 include 的步骤,或者给 `IncludeIndex.resolve` 补上「按映射表反查包含者的旧目录」这一步。
+
+## 7. 合入前复验(§6.4,2026-09-27 合入最新 master 之后)
+
+`git merge origin/master` → `2cedc0d1`,无冲突(master 含 P2-02 `94938fa4`、两个 Mermaid PR、P2-05 认领 `aeb5e50a`、工具提交 `fd8668e5`)。全部命令限定在 `N:/Users/shao/acecode-p2-03`。
+
+| 项目 | 结果 |
+|---|---|
+| `normalize_includes.py --check --scope src` / `--scope tests`(`fd8668e5` 之后的工具) | 均 exit 0、changed_lines 0、errors 0 —— 新工具对本分支手工改过的 14 行与其它任何 include 都没有新的改写意见 |
+| `check_layers.py --enforce-parent-includes` | **152**(P2-02 合入后 master 为 153,本任务再降 1:`hook_runner.hpp → hook_config.hpp`);R1 12 / R2 4 / R3 4 / R5 1 / R8 119 / R9 10 / R10 1 / R14 1;`exceptions_used` 0 |
+| `validate_map --strict` / `check_doc_paths` / `check_file_size --strict` / `check_ownership --strict` | exit 0 / 85(不变)/ exit 0 / exit 0 |
+| `unittest discover scripts/refactor/tests` | 全部通过(exit 0;本分支对 `scripts/` 无改动) |
+| `build-p2` 增量重建 `acecode acecode-desktop acecode_unit_tests`(413 个编译单元因 P2-02 的搬迁重编)+ 5 个冒烟目标 | 全部通过,0 条告警;`acecode-desktop.exe` 的 link 行 `acecode_testable` 仍为 0 次 |
+| 全量单测(隔离 HOME / TEMP) | **5115 列出 / 5114 执行 / 9 SKIP / 0 失败**,ctest 5119;与新参照 `master-windows-gtest.json` 逐条相同(tests 0 增 0 减,SKIP 9 条相同,失败两边为空) |
+| 目标快照 vs 新参照 `master-windows-targets.json`(P2-02 合入后 master 原样采集,59 / 3572) | 本树 59 target / 3573 元组。**直接用 `--reverse-map --compare` 会多出 42 减 / 43 增**:参照是原样采集的,P2-02 的 5 个 .cpp / 7 个 .hpp / 5 个测试仍记在过渡目录(`src/llm/…`、`src/utils/diff_utils.cpp`),而 `--reverse-map` 把本树里这些同样的过渡路径反查回了 G0 旧路径(`src/tool/…`、`src/provider/llm_provider.hpp`),两边坐标系不一致,差异全是 P2-02 的文件,与本任务无关。把参照也用 master 版工具的同一个 `translate_for_comparison(reverse=True)` 换算到旧路径坐标系(42 个 source 被改写,存 `N:/Users/shao/acecode-p2-03-verify/master-windows-targets.reverse-mapped.json`)后再比:target 0 增 0 减;元组 **removed 0**(natvis 之外),**added 只有 `acecode_testable` 的 `src/lsp/lsp_platform_aliases.hpp`**;25 减 / 25 增的 `nlohmann_json.natvis` 仍是 vcpkg 路径环境差异(前缀归一后逐条相同)。`compare_snapshots.py --before <换算后参照> --after … --allowed-addition src/lsp/lsp_platform_aliases.hpp`:`authorized_added` 1 条,`unexpected_removed` / `unexpected_added` 各 25 条全是 natvis,targets 无增减 |
+
+主代理决定的记录:命名空间与 `run_hook_*` 函数名保持现状,后续任务统一;`src/lsp/lsp_platform_aliases.hpp` 作为 P2-03 新增文件登记于此,不进 D23 名单;`ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES` 与 P2-04 的交错由后合入的 P2-04 处理;mac / Linux 由主代理在合入后 dispatch refactor-matrix;搬走文件里裸名 include 的回查已由 `fd8668e5` 修好(本分支的 14 行是在它之前手工改的,新工具复核 0 diff)。
+
+给后续 P2 任务的提示:参照快照若是原样采集(含前序 P2 任务的过渡路径),对照前要把参照也做一次 `reverse` 换算,或者采集参照时就带 `--map --reverse-map`;否则前序任务搬过的每个文件都会在对照里成对出现。
