@@ -1,7 +1,7 @@
 #pragma once
 
 #include "config/config.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <memory>
 #include <optional>

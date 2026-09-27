@@ -14,8 +14,8 @@
 #include "session/turn_net_diff.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/tool_executor.hpp"
-#include "tool/diff_utils.hpp"
-#include "provider/llm_provider.hpp"
+#include "utils/diff_utils.hpp"
+#include "llm/llm_provider.hpp"
 #include "tui/tool_row_format.hpp"
 #include "tui_state.hpp"
 

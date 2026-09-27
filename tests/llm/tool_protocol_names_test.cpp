@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "tool/builtin_tool_registry.hpp"
 #include "tool/tool_executor.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utils/tool_errors.hpp"
 
 #include <atomic>

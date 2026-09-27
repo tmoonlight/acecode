@@ -15,7 +15,7 @@
 // thread while the test main thread queues responses before submit(): we lock
 // a mutex on every access.
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <atomic>
 #include <chrono>

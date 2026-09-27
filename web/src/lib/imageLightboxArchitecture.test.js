@@ -71,7 +71,7 @@ run('ready Mermaid images are native preview buttons backed by sanitized SVG det
   assert.match(renderer, /theme,/);
   assert.match(renderer, /target\.replaceChildren\(previewTrigger\)/);
   assert.match(styles, /\.ace-mermaid-preview-trigger/);
-  assert.match(styles, /width: max-content/);
+  assert.match(styles, /\.ace-mermaid-preview-trigger\s*\{[^}]*width: max-content/);
   assert.match(styles, /cursor: zoom-in/);
 });
 

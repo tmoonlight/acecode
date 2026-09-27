@@ -19,7 +19,7 @@
 #include "loop/loop_store.hpp"
 #include "provider/auth/github_auth.hpp"
 #include "provider/auth/xai_auth.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "provider/model_pool_status.hpp"
 #include "session/ask_user_question_prompter.hpp"
 #include "session/attachment_store.hpp"

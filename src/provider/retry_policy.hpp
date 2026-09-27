@@ -1,5 +1,9 @@
 #pragma once
 
+// ProviderRetryWaiter 已下沉到 llm/retry_waiter.hpp(P2-02):LlmProvider 的成员类型不能
+// 依赖 adapters 层的 provider 模块;这里保留 include 让既有使用方不变。
+#include "llm/retry_waiter.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -36,22 +40,5 @@ std::int64_t provider_retry_delay_ms(
 
 int saturating_retry_attempt(std::uint64_t retry_number);
 
-// A retry wait that sleeps on a condition variable rather than polling. wake()
-// is used by AgentLoop::abort()/shutdown() and can also trigger an immediate
-// retry when no abort has been requested.
-class ProviderRetryWaiter {
-public:
-    bool wait_for(std::chrono::milliseconds delay,
-                  const std::atomic<bool>* abort_flag);
-    void wake();
-    // Notify request-owned abort flags without shortening another request's
-    // retry delay on a shared provider.
-    void notify_cancelled_request();
-
-private:
-    std::mutex mu_;
-    std::condition_variable cv_;
-    std::uint64_t wake_generation_ = 0;
-};
 
 } // namespace acecode

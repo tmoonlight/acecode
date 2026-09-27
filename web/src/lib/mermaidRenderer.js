@@ -411,6 +411,9 @@ export function installMermaidRenderer(
     });
     image.className = 'ace-mermaid-svg';
     image.alt = 'Mermaid diagram';
+    // Use the SVG viewBox dimensions at 1:1, independent of the container size.
+    image.style.width = `${result.width}px`;
+    image.style.height = `${result.height}px`;
     image.width = Math.ceil(result.width);
     image.height = Math.ceil(result.height);
     image.decoding = 'async';

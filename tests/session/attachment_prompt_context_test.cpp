@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "session/attachment_prompt_context.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include <string>
 

@@ -1,7 +1,7 @@
 #include "text_tool_call_recovery.hpp"
 
 #include "markdown_fence_tracker.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/sha1.hpp"

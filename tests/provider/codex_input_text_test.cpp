@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "provider/codex_provider.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include <string>
 #include <vector>

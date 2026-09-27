@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tool/model_family.hpp"
+#include "llm/model_family.hpp"
 #include "tool/tool_executor.hpp"
 #include <cstddef>
 #include <set>

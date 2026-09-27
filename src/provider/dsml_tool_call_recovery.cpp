@@ -1,6 +1,6 @@
 #include "dsml_tool_call_recovery.hpp"
 
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utils/sha1.hpp"
 #include "utils/uuid.hpp"
 

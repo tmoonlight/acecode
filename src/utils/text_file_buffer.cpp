@@ -3,7 +3,7 @@
 
 #include "sha256.hpp"
 #include "tool_errors.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utf8_path.hpp"
 
 #include <algorithm>

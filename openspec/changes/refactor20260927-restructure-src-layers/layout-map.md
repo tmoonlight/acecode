@@ -78,6 +78,8 @@
 | `commands/compact.hpp` 的上下文阈值与告警 | `src/domain/llm/context_thresholds.*` | P2-02 | |
 | `prompt/context_usage_breakdown` 的 JSON codec | `src/domain/llm/context_usage.*` | P2-02 | 切断 `session_storage.cpp:7 → prompt` |
 | `tool_preamble/tool_preamble` 的 `strip_text_preamble_tags` / `TextPreambleScanner` | `src/domain/llm/text_preamble_tags.*` | P2-02 | 如果有非纯依赖,就放 utils |
+| `provider/retry_policy` 的 `ProviderRetryWaiter` | `src/domain/llm/retry_waiter.*` | P2-02 | 执行中发现:`LlmProvider` 有成员 `ProviderRetryWaiter retry_waiter_`,删掉 `retry_policy.hpp` 的 include 前必须先把等待器下沉;`retry_policy.hpp` 保留 include 让既有使用方不变 |
+| `commands/compact_prompt` 的 `get_compact_summary_prefix` | `src/domain/llm/message_predicates.*` | P2-02 | 执行中发现:`is_compact_summary_message` 依赖它,谓词下沉时随行,`compact_prompt.hpp` 保留 include |
 | `src/headless/headless_mode.*` | `src/domain/permissions/interaction_mode.*` | P2-05 | 零依赖,消费方都在更高层 |
 | main.cpp:3272-3294 的 7 条 TUI 专属 Deny 规则 | `src/domain/permissions/default_rules.*` | B-03 | 函数名要带 tui,只作用于 TUI 主会话 |
 | `src/security/` | `src/domain/security/` | P3 | |

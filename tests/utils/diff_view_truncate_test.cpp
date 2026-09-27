@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "tool/diff_view_truncate.hpp"
+#include "utils/diff_view_truncate.hpp"
 
 using acecode::compute_line_no_width;
 using acecode::DiffHunk;

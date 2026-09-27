@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "tool/word_diff.hpp"
+#include "utils/word_diff.hpp"
 
 #include <string>
 

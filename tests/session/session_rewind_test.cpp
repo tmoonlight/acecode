@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "session/session_rewind.hpp"
 #include "session/turn_net_diff.hpp"
 #include "session/turn_timing.hpp"

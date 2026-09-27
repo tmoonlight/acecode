@@ -3212,6 +3212,7 @@ body {
   width: auto;
   height: auto;
   max-width: none;
+  max-height: none;
   margin: 0 auto;
   pointer-events: none;
 }

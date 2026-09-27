@@ -206,7 +206,7 @@ cmake/version.hpp.in  生成的头名 generated/version.hpp 不变
 2. **P1 include 规范化**:把 1124 行 `../` 与子目录相对写法改成 `"<模块>/…"`。相对路径以包含者所在目录为基准,文件一搬就会指错;改成模块根形式后,整目录改名不再影响 include 字符串。同目录裸名暂时保留:同一模块内的文件是一起搬的,只有 P2 把某个文件移到别的模块时,那个文件的裸名 include 才需要改,而且编译会大声失败。
 3. **P2 冻结前重定位**(约 12–15 个小 PR,不冻结):文件换模块、拆头、切反向依赖边。
    - 新模块先以 `src/<模块>/` 的形式建立,include 写法和冻结后完全相同;
-   - 旧路径留 2 行转发头,登记进 `layers.tsv` exceptions,冻结当天到期;
+   - 旧路径不留转发头(D24:与映射校验的目标碰撞检查冲突;include 改写由 normalize_includes / migrate_branch --apply-map 按映射表完成);
    - 对应的测试一起 `git mv`。
    - **所有改内容的动作都在冻结前分散做完。**
 4. **P3 冻结窗口**(半天):约 44 个模块目录 `git mv` 到 6 个分组下(M1,全部 R100,改动 0 行),再机械修正 CMake 与文档(M2)。
@@ -319,7 +319,7 @@ cmake/version.hpp.in  生成的头名 generated/version.hpp 不变
 |---|---|
 | P0 | D1/D2/D15/D21/D22 已写进 `layers.tsv` 初版;正式规则下的违规数已记录;test.yml 全绿;refactor-matrix 基线已采集;cmake_target_snapshot(含冒烟目标)等于 G0;故意改坏路径时 configure 报 FATAL;TUI 源集合非空;gtest 清单与 SKIP 清单已归档;四类 lint 基线已接入 PR |
 | P1 | numstat 满足每个文件「增加 = 删除 = 改动的 include 行数」;第二次运行 0 diff;src 下不再有 `../`;Win/Linux/mac/arm/Deepin 全新目录构建通过;用例清单与 SKIP 清单等于 G0 |
-| P2(每个 PR) | lint 违规数下降;转发头已登记;按映射换算后每个文件所属的 target 不变;测试已随源文件移动;三平台构建通过;用例清单不变;P2-08 完成时违规数为 0,冒烟目标都能构建 |
+| P2(每个 PR) | lint 违规数下降;旧路径不留文件且 `validate_map --strict` 通过(D24);按映射换算后每个文件所属的 target 不变;测试已随源文件移动;三平台构建通过;用例清单不变;P2-08 完成时违规数为 0,冒烟目标都能构建 |
 | P3 | M1 全部 R100;M2 之后,target 快照按映射换算回旧路径后与 G0 逐元组相同(四个平台,含冒烟目标);include / known-roots / doc-paths 三个 lint 为 0;用例清单与 SKIP 清单相同;package.yml 全平台通过,Deepin 产物的 `current_target()` 为 linux-deepin;`pnpm test` 通过;Windows 全新目录全量构建 + verify-package;冒烟:TUI 一轮对话、`acecode -p`、daemon + Web 打开会话、acecode-desktop 打开 workspace、ConPTY 与 winpty 控制台 |
 | P4 | strict 模式下 exceptions 为空;check_doc_paths 为 0;help 站点重新生成后 diff 只涉及路径;tests/README 镜像表已更新 |
 
@@ -507,6 +507,7 @@ P0-01 → P0-03 → P0-04 → P1-01 → P2-02 → P2-05 → P2-06 → P2-07 → 
 | D20 | openspec 组织 | 一期 4 个 change,统一带 `refactor20260927-` 前缀;二期按需另开 | **已定(用户 2026-09-27 确认)** | P0-01 |
 | D21 | src/web 例外范围 | 见上文 D21 | 已定(按推荐,用户无异议) | P2、O-08 |
 | D22 | 本期范围 | 一期 = P0–P4 + P6A/B + P7-O(含 D6–D9);其余放二期 | 已定(按推荐;D6–D9 由用户确认纳入一期) | 全部 |
+| D24 | P2 转发头 | **P2 不在旧路径留转发头,也不登记 exception**。原因:映射表里「旧路径 → 最终路径」的精确行既描述已搬走的真文件,又会命中留在旧路径的转发头,`validate_map --strict` 与 `migrate_branch --check` 都报 destination collision,P3 M1 也会把两者搬到同一处;而 include 改写本树由 `normalize_includes` 按映射表完成,遗留分支由 `migrate_branch --apply-map` 完成,转发头没有独立价值。§7.2「P2」行的「转发头已登记」改为「旧路径不留文件,`validate_map --strict` 通过」;R13 的 exceptions 段仍保留给其它类型的例外 | **已定(2026-09-27,P2-02 执行时登记)** | P2 全部 PR、P3-02 |
 | D23 | P0 授权增删的编译单元与 G0 的对照规则 | 原始 G0 固定在 `3ddb7d43`(P0-07 采集,存 `baseline/g0/original/`)。P0 之后的目标快照与原始 G0 逐元组比较时只允许两类差异:移除的元组其 source 必须是 `src_layout_map.tsv` 的 `delete` 行(P0-08)或其生成对象;新增的元组必须是 P2-01 新增的原语文件(`src/utils/abandonable_call.{hpp,cpp}`、`abort_signal.hpp`、`joining_thread.hpp`、`lifetime_token.hpp`、`scope_exit.hpp`,File API 会把显式登记的头文件也列进 target 源清单)或 `acecode_unit_tests` 下新增的 `tests/` 源文件;target 集合不得增减。判定工具 `scripts/refactor/compare_snapshots.py`。P0 验收完成时的快照另存为 `baseline/g0/post-p0/`,P1 起的逐元组比较以它为对照,原始 G0 只用于追溯 | **已定(2026-09-27,P0 验收时登记)** | P0-07、P0-08、P1、P3 |
 
 「按推荐执行」的决策可以在对应任务开工前推翻;推翻后需同步修改本表和受影响任务的描述。
