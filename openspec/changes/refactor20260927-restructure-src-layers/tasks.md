@@ -122,7 +122,7 @@
     - Windows 本地全新目录构建;手动 dispatch package.yml,覆盖 mac/arm/Deepin;
     - 用例清单与 SKIP 清单等于 G0;
     - 公告 9 个遗留分支:先在自己的分支上跑同一个脚本,再 rebase。
-- [ ] 2.2 【P1-02】【子】lint 阻断 `../`,并把 2.1 的机械提交写进 `.git-blame-ignore-revs`。〔认领: Claude-phase1 2026-09-27〕
+- [x] 2.2 【P1-02】【子】lint 阻断 `../`,并把 2.1 的机械提交写进 `.git-blame-ignore-revs`。〔认领: Claude-phase1 2026-09-27〕〔验收: Claude-phase1 2026-09-27,见 verification/P1-02-lint-gate.md〕
   - 验证:在 CI 上故意新增一行 `../` include,layer-lint job 失败。
 
 ## 3. Phase 2:冻结前的模块重定位与拆头(约 12–15 个小 PR,不冻结)
