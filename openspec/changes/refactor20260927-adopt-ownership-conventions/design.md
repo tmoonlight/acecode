@@ -74,7 +74,7 @@
 |---|---|---|
 | `JoiningThread` + `StopToken` | C++17 版 jthread。析构时 `request_stop()` 再 join。**如果在线程自身上析构或 join,改为 detach 并记日志**,而不是抛出 resource_deadlock(LR-15)。捕获列表必须显式。 | `worker.cpp` 的 watcher 与 owner_monitor;TUI 的动画、更新检查、auth 线程;themes 与 data_dir_migration 捕获 this 的线程 |
 | `JoiningThreadGroup` / `ReapingThreadSet` | 前者由 `worker.cpp:109-120` 原样提升。后者每次 spawn 前先回收已结束的线程:保留「每个任务一个线程」的并发语义,但数量不再无限增长。 | `title_threads_`、`lifecycle_threads_`、side question 线程表 |
-| `LifetimeToken` / `LifetimeRef<T>` | owner 持有 move-only 的 token,回调捕获可复制的 ref。`ref.with(fn)` 在共享锁下检查 owner 仍然存活才执行;`revoke()` 或析构时取独占锁,从而天然等待正在执行的回调结束。在回调内部 revoke 属于编程错误,由 debug 断言拦截。 | on_turn_finished `[this]`、SubagentHost listener `[this]`、on_spawn `[&server]`、TUI model_pool 回调的引用捕获 |
+| `LifetimeToken` / `LifetimeRef<T>` | owner 持有 move-only 的 token,回调捕获可复制的 ref。`ref.with(fn)` 在叶子锁内检查存活并增加在途计数,释放锁后才执行业务回调,异常也由 RAII 减少计数;`revoke()` 或析构先关闭准入,再用 cv 等待全部在途回调结束,等待时释放锁。这样保留撤销等待语义,并满足 C14 的锁内不回调要求。在自身回调内部 revoke 属于编程错误,由 debug 断言拦截,release 也 fail-fast,不得静默跳过等待。 | on_turn_finished `[this]`、SubagentHost listener `[this]`、on_spawn `[&server]`、TUI model_pool 回调的引用捕获 |
 | `ScopeExit` | 函数内一次性收尾,可 `release()`,不跨对象持有。 | headless 为保证 MCP/LSP 收尾而写的 IIFE;回填指针清理 |
 | `AbandonableCall` | `run_abandonable<R>(fn, abort, poll=100ms)`、`spawn_owned_detached(name, fn)`、`wait_for_abandoned_work(deadline)`。闭包自带全部状态,在进程级计数器里登记;组合根在静态析构前做有界等待。 | MCP invoke 与 image_generate 的两份「detached + ResultBox」;models.dev 刷新与区域探测的 detach |
 | `AbortSignal` | `request()`、`clear()`、`wait_for(ms)`、const `raw()`,以及非 const 的 `flag_for_legacy_api()`。内部锁是叶子锁。 | AgentLoop 的 `abort_requested_` 与 PA 等待的 50ms 轮询(改造由 split-agent-loop 的 A-05 完成) |
@@ -146,11 +146,13 @@
 | 指标 | 基线 | 一期结束目标 |
 |---|---|---|
 | 裸 `delete` / `new`(不含 make_unique、make_shared) | P0 实测 | `delete` 为 0;`new` 只允许出现在白名单中(FTXUI Make 等第三方惯用法、私有构造工厂) |
-| `.detach()` | P0 实测 | 只剩 `abandonable_call.cpp` 与登记过的 waitpid 收尸线程 |
-| `std::thread` 成员或局部变量 | P0 实测 | 只剩 joining_thread 内部 |
+| `.detach()` | P0 实测 | 只剩 `abandonable_call.cpp` 的自有工作启动点、`joining_thread.hpp` 的自线程 join 保护,以及登记过的 waitpid 收尸线程 |
+| `std::thread` 成员或局部变量 | P0 实测 | 只剩 joining_thread 内部与 `abandonable_call.cpp` 的自有工作启动点 |
 | 存进长寿对象或跨线程回调里的 `[&]` / `[this]` | P0 实测 | engine/agent、apps/tui/app、host/session_host 下为 0 |
 | `set_*(T*)` 延迟注入 | P0 实测 | AgentLoop 中为 0,只保留两个 start 前的 prompter setter |
 | 裸句柄(`void*` 句柄、`sqlite3*` 成员) | P0 实测 | 0 |
+
+P2-01 的两处原语级 detach 例外均集中封装并写 stderr 诊断,不依赖可能已静态析构的 Logger。`start_owned_work` 的注册计数在闭包及捕获对象销毁后才减少,每个 worker 持有计数器的 shared_ptr 租约;有界等待超时后,迟到工作不再访问进程级计数器入口或借用的 abort 标记。`run_abandonable<R>` 以 `optional<R>`(void 时为 bool)表示完成/放弃,无 abort 指针时保留同步调用;原始 atomic 的轮询间隔不超过 25ms,以满足 100ms 内返回的验收余量。
 
 ## Risks / Trade-offs
 

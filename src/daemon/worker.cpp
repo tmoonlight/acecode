@@ -63,6 +63,7 @@
 #include "../network/proxy_resolver.hpp"
 #include "../remote_control/session_channel_binder.hpp"
 #include "../utils/logger.hpp"
+#include "utils/joining_thread.hpp"
 #include "../utils/paths.hpp"
 #include "../utils/power_inhibitor.hpp"
 #include "../utils/token.hpp"
@@ -105,19 +106,6 @@ namespace {
 std::mutex              g_term_mu;
 std::condition_variable g_term_cv;
 std::atomic<bool>       g_term_requested{false};
-
-struct JoiningThreadGroup {
-    ~JoiningThreadGroup() { join_all(); }
-
-    void join_all() {
-        for (auto& thread : threads) {
-            if (thread.joinable()) thread.join();
-        }
-        threads.clear();
-    }
-
-    std::vector<std::thread> threads;
-};
 
 std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
     const std::string& projects_dir,
