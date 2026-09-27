@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## src 分层搬迁窗口预告
+
+2026-09-28 公告:按 [重构设计 D3 / §8.3](openspec/changes/refactor20260927-restructure-src-layers/design.md),P3-02 候选冻结窗口为 **2026-09-29 06:00–18:00(Asia/Taipei,UTC+08:00)**。最早开始时间保留至少一天的公告期;只有 P2 全部验收、P3-01 演练通过后才进入窗口,未满足时顺延并更新本公告。
+
+当前尚未冻结。正式开始后仅暂停其它任务向 master 合入 src/、tests/ 和 CMake 变更;P3 从当时最新 master 重新生成机械搬迁提交,通过约定闸门、合入并打 post-src-layout 标签后解除冻结。原有工作区和未合入分支继续保留,按映射表迁移;不得提前勾选 P3-02。
+
 src 分层重构进行中,新文件放置规则见 [restructure-src-layers/design.md](openspec/changes/refactor20260927-restructure-src-layers/design.md);本系列另含 [split-agent-loop](openspec/changes/refactor20260927-split-agent-loop/proposal.md)、[split-tui-main](openspec/changes/refactor20260927-split-tui-main/proposal.md) 与 [adopt-ownership-conventions](openspec/changes/refactor20260927-adopt-ownership-conventions/proposal.md),按总设计 §8.3 的依赖顺序执行。P1-01(2026-09-27)起 src / tests 的项目头一律写模块根形式(`"utils/paths.hpp"`),不再允许 `../`;测试 helper 头在 `tests/test_support/<area>/` 下并带完整前缀;遗留分支合并前先跑 `python scripts/refactor/normalize_includes.py --scope src` / `--scope tests`。
 
 Implementation m emory for coding agents working in this repository. For user-facing setup and run modes, use [README.md](README.md). For stable structure, use[ARCHITECTURE.md](ARCHITECTURE.md). For contributor rules, use [AGENTS.md](AGENTS.md).
