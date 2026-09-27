@@ -1,8 +1,8 @@
 #include "task_suggestion_tools.hpp"
 
-#include "../session/session_manager.hpp"
-#include "../session/task_suggestion_service.hpp"
-#include "../utils/tool_args_parser.hpp"
+#include "session/session_manager.hpp"
+#include "session/task_suggestion_service.hpp"
+#include "utils/tool_args_parser.hpp"
 
 namespace acecode {
 namespace {

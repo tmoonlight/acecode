@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../desktop/open_request.hpp"
+#include "desktop/open_request.hpp"
 
 #include <filesystem>
 #include <functional>

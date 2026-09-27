@@ -30,8 +30,8 @@
 #include "rc_session_navigation.hpp"
 #include "remote_control_service.hpp"
 
-#include "../config/config.hpp"
-#include "../session/session_client.hpp"
+#include "config/config.hpp"
+#include "session/session_client.hpp"
 
 #include <nlohmann/json.hpp>
 

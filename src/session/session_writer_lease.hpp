@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../daemon/platform.hpp"
+#include "daemon/platform.hpp"
 
 #include <cstdint>
 #include <optional>

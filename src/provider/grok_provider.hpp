@@ -1,6 +1,6 @@
 #pragma once
 
-#include "auth/xai_auth.hpp"
+#include "provider/auth/xai_auth.hpp"
 #include "openai_provider.hpp"
 
 #include <string>

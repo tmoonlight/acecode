@@ -1,6 +1,6 @@
 #include "ask_user_question_prompter.hpp"
 
-#include "../utils/uuid.hpp"
+#include "utils/uuid.hpp"
 
 #include <algorithm>
 

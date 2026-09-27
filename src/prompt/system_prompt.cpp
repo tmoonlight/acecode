@@ -1,15 +1,15 @@
 #include "system_prompt.hpp"
 
-#include "../experts/expert_registry.hpp"
-#include "../commands/compact.hpp"
-#include "../config/config.hpp"
-#include "../gitinfo/git_context_collector.hpp"
-#include "../memory/memory_registry.hpp"
-#include "../project_instructions/instructions_loader.hpp"
-#include "../skills/skill_registry.hpp"
-#include "../tool/tool_protocol_names.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/utf8_path.hpp"
+#include "experts/expert_registry.hpp"
+#include "commands/compact.hpp"
+#include "config/config.hpp"
+#include "gitinfo/git_context_collector.hpp"
+#include "memory/memory_registry.hpp"
+#include "project_instructions/instructions_loader.hpp"
+#include "skills/skill_registry.hpp"
+#include "tool/tool_protocol_names.hpp"
+#include "utils/encoding.hpp"
+#include "utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>

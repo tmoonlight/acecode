@@ -1,7 +1,7 @@
 #include "server_impl.hpp"
 
-#include "../config/config_mutation.hpp"
-#include "../config/saved_models_revision.hpp"
+#include "config/config_mutation.hpp"
+#include "config/saved_models_revision.hpp"
 
 namespace acecode::web {
 

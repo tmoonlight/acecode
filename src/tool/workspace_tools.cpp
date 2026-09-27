@@ -1,8 +1,8 @@
 #include "workspace_tools.hpp"
 
-#include "../desktop/workspace_registry.hpp"
-#include "../utils/tool_args_parser.hpp"
-#include "../utils/utf8_path.hpp"
+#include "desktop/workspace_registry.hpp"
+#include "utils/tool_args_parser.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <filesystem>
 #include <system_error>

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../tool/tool_executor.hpp"
-#include "../../tool/tool_rewrites.hpp"
+#include "tool/tool_executor.hpp"
+#include "tool/tool_rewrites.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -1,6 +1,6 @@
 #include "models_dev_catalog.hpp"
 
-#include "../provider/models_dev_registry.hpp"
+#include "provider/models_dev_registry.hpp"
 
 #include <algorithm>
 #include <cmath>

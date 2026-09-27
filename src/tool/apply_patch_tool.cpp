@@ -1,5 +1,5 @@
 #include "apply_patch_tool.hpp"
-#include "../config/mcp_config.hpp"
+#include "config/mcp_config.hpp"
 
 #include "apply_patch_format.hpp"
 #include "diff_utils.hpp"

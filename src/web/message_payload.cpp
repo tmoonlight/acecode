@@ -1,7 +1,7 @@
 #include "message_payload.hpp"
 
-#include "../session/session_serializer.hpp"
-#include "../utils/sha1.hpp"
+#include "session/session_serializer.hpp"
+#include "utils/sha1.hpp"
 
 namespace acecode::web {
 

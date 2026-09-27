@@ -1,7 +1,7 @@
 // routes_lsp.cpp — /api/lsp/* 路由(每会话 LSP 指示器,聊天头部显示)。
 // 只读状态查询,直接从进程级 LSP 单例取廉价快照,不触发 spawn。
-#include "../server_impl.hpp"
-#include "../../lsp/lsp_service.hpp"
+#include "web/server_impl.hpp"
+#include "lsp/lsp_service.hpp"
 
 namespace acecode::web {
 

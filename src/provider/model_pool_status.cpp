@@ -1,7 +1,7 @@
 #include "model_pool_status.hpp"
 
-#include "../network/proxy_resolver.hpp"
-#include "../utils/logger.hpp"
+#include "network/proxy_resolver.hpp"
+#include "utils/logger.hpp"
 
 #include <nlohmann/json.hpp>
 

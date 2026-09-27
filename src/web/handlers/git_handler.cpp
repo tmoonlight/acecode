@@ -1,7 +1,7 @@
 #include "git_handler.hpp"
 
-#include "../../gitinfo/git_context_collector.hpp"
-#include "../../gitinfo/git_context_core.hpp"
+#include "gitinfo/git_context_collector.hpp"
+#include "gitinfo/git_context_core.hpp"
 #include "files_handler.hpp"
 
 #include <filesystem>

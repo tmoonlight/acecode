@@ -2,8 +2,8 @@
 
 #include "webview2_runtime_probe.hpp"
 
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <array>
 #include <cstdint>

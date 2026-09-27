@@ -1,10 +1,10 @@
 #include "tui_ask_channel.hpp"
 
-#include "../tool/ask_user_question_types.hpp"
-#include "../tool/ask_user_question_tool.hpp"
-#include "../tui_state.hpp"
+#include "tool/ask_user_question_types.hpp"
+#include "tool/ask_user_question_tool.hpp"
+#include "tui_state.hpp"
 #include "ask_question_session.hpp"
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <ftxui/component/screen_interactive.hpp>
 

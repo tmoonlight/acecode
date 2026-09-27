@@ -1,7 +1,7 @@
 #include "image_generation_client.hpp"
 
-#include "../../network/proxy_resolver.hpp"
-#include "../../utils/logger.hpp"
+#include "network/proxy_resolver.hpp"
+#include "utils/logger.hpp"
 
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>

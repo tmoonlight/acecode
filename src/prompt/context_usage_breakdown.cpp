@@ -1,7 +1,7 @@
 #include "context_usage_breakdown.hpp"
 
 #include "system_prompt.hpp"
-#include "../commands/compact.hpp"
+#include "commands/compact.hpp"
 
 #include <algorithm>
 #include <array>

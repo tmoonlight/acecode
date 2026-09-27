@@ -2,10 +2,10 @@
 
 #include "skill_activation.hpp"
 #include "skill_registry.hpp"
-#include "../agent_loop.hpp"
-#include "../commands/command_registry.hpp"
-#include "../tui_state.hpp"
-#include "../utils/logger.hpp"
+#include "agent_loop.hpp"
+#include "commands/command_registry.hpp"
+#include "tui_state.hpp"
+#include "utils/logger.hpp"
 
 #include <mutex>
 

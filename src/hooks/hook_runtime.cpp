@@ -1,7 +1,7 @@
 #include "hook_runtime.hpp"
 
-#include "../tool/tool_protocol_names.hpp"
-#include "../utils/encoding.hpp"
+#include "tool/tool_protocol_names.hpp"
+#include "utils/encoding.hpp"
 
 #include <algorithm>
 #include <cctype>

@@ -2,7 +2,7 @@
 
 #include "llm_provider.hpp"
 #include "provider_request_options.hpp"
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 #include <algorithm>
 #include <cctype>

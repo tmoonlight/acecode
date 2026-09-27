@@ -1,7 +1,7 @@
 #include "deepin_window_effects.hpp"
 
 #include "linux_webview_scale_policy.hpp"
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <DApplication>
 #include <DPlatformHandle>

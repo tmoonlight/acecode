@@ -1,9 +1,9 @@
 #include "context_items.hpp"
 
-#include "../utils/utf8_path.hpp"
-#include "../utils/base64.hpp"
-#include "../utils/clipboard.hpp"
-#include "../utils/uuid.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/base64.hpp"
+#include "utils/clipboard.hpp"
+#include "utils/uuid.hpp"
 
 #include <algorithm>
 #include <cctype>

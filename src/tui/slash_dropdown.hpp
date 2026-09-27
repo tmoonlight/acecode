@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../tui_state.hpp"
+#include "tui_state.hpp"
 
 #include <ftxui/dom/elements.hpp>
 

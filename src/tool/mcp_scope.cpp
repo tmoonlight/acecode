@@ -1,5 +1,5 @@
 #include "mcp_scope.hpp"
-#include "../config/mcp_config.hpp"
+#include "config/mcp_config.hpp"
 
 namespace acecode {
 ToolCapabilityPolicy mcp_scope_policy(

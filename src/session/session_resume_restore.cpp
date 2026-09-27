@@ -5,12 +5,12 @@
 #include "session_rewind.hpp"
 #include "tool_result_storage.hpp"
 #include "turn_timing.hpp"
-#include "../agent_loop.hpp"
-#include "../tool/apply_patch_format.hpp"
-#include "../tool/mtime_tracker.hpp"
-#include "../tool/tool_executor.hpp"
-#include "../tui_state.hpp"
-#include "../utils/text_file_buffer.hpp"
+#include "agent_loop.hpp"
+#include "tool/apply_patch_format.hpp"
+#include "tool/mtime_tracker.hpp"
+#include "tool/tool_executor.hpp"
+#include "tui_state.hpp"
+#include "utils/text_file_buffer.hpp"
 
 #include <map>
 #include <optional>

@@ -1,10 +1,10 @@
 // routes_models.cpp — Route registrations extracted from server.cpp
-#include "../server_impl.hpp"
-#include "../handlers/model_catalog_handler.hpp"
-#include "../handlers/model_connection_test_handler.hpp"
-#include "../../config/settings_mutations.hpp"
-#include "../../provider/models_dev_registry.hpp"
-#include "../../utils/models_dev_catalog.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/model_catalog_handler.hpp"
+#include "web/handlers/model_connection_test_handler.hpp"
+#include "config/settings_mutations.hpp"
+#include "provider/models_dev_registry.hpp"
+#include "utils/models_dev_catalog.hpp"
 
 #include <cstdlib>
 

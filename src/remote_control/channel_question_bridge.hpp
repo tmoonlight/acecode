@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../session/ask_user_question_prompter.hpp"
-#include "../session/session_client.hpp"
+#include "session/ask_user_question_prompter.hpp"
+#include "session/session_client.hpp"
 
 #include <chrono>
 #include <cstddef>

@@ -1,6 +1,6 @@
-#include "../server_impl.hpp"
-#include "../handlers/tool_rewrites_handler.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/tool_rewrites_handler.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <filesystem>
 

@@ -1,8 +1,8 @@
 #include "skill_activation.hpp"
 
 #include "skill_registry.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

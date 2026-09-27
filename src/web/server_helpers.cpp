@@ -4,14 +4,14 @@
 // multiple route TUs.
 
 #include "server_impl.hpp"
-#include "../computer_use/runtime.hpp"
+#include "computer_use/runtime.hpp"
 #include "remote_control_session_event.hpp"
 #include "session_status_routing.hpp"
-#include "../config/saved_models_revision.hpp"
-#include "../prompt/context_usage_breakdown.hpp"
-#include "../session/session_user_message_search.hpp"
-#include "../session/composer_content.hpp"
-#include "../utils/encoding.hpp"
+#include "config/saved_models_revision.hpp"
+#include "prompt/context_usage_breakdown.hpp"
+#include "session/session_user_message_search.hpp"
+#include "session/composer_content.hpp"
+#include "utils/encoding.hpp"
 
 namespace acecode::web {
 

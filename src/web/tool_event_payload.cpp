@@ -1,6 +1,6 @@
 #include "tool_event_payload.hpp"
-#include "../session/output_attachments.hpp"
-#include "../session/tool_metadata_codec.hpp"
+#include "session/output_attachments.hpp"
+#include "session/tool_metadata_codec.hpp"
 
 namespace acecode::web {
 

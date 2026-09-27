@@ -1,7 +1,7 @@
 #include "startup_diagnostics.hpp"
 
-#include "../config/config.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <chrono>
 #include <cstdint>

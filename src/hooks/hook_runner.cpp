@@ -1,7 +1,7 @@
 #include "hook_runner.hpp"
 
-#include "../utils/encoding.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/encoding.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <array>

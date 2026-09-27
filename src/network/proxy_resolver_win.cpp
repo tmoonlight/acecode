@@ -9,8 +9,8 @@
 #if _WIN32
 
 #include "proxy_resolver.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

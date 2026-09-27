@@ -9,7 +9,7 @@
 #if !_WIN32
 
 #include "proxy_resolver.hpp"
-#include "../utils/encoding.hpp"
+#include "utils/encoding.hpp"
 
 #include <cstdlib>
 #include <cstring>

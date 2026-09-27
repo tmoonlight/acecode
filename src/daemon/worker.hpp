@@ -13,7 +13,7 @@
 // supervised 模式: launcher 通过 --supervised --guid=<G> 派 GUID 进来。
 // standalone 模式: 自己生成 GUID。两种模式都会校验"是否已有别的 daemon 在跑"。
 
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 #include <cstdint>
 #include <string>

@@ -1,13 +1,13 @@
 #include "gateway.hpp"
-#include "../remote_control/channel_question_bridge.hpp"
-#include "../remote_control/remote_control_hub.hpp"
-#include "../remote_control/remote_control_service.hpp"
-#include "../remote_control/rc_session_navigation.hpp"
-#include "../remote_control/session_channel_binder.hpp"
-#include "../session/attachment_store.hpp"
-#include "../session/output_attachments.hpp"
-#include "../session/session_storage.hpp"
-#include "../utils/utf8_path.hpp"
+#include "remote_control/channel_question_bridge.hpp"
+#include "remote_control/remote_control_hub.hpp"
+#include "remote_control/remote_control_service.hpp"
+#include "remote_control/rc_session_navigation.hpp"
+#include "remote_control/session_channel_binder.hpp"
+#include "session/attachment_store.hpp"
+#include "session/output_attachments.hpp"
+#include "session/session_storage.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <atomic>
 #include <deque>

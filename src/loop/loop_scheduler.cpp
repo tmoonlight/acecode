@@ -1,12 +1,12 @@
 #include "loop_scheduler.hpp"
 
-#include "../config/config.hpp"
-#include "../session/session_registry.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
-#include "../worktree/worktree_core.hpp"
-#include "../worktree/worktree_manager.hpp"
+#include "config/config.hpp"
+#include "session/session_registry.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
+#include "worktree/worktree_core.hpp"
+#include "worktree/worktree_manager.hpp"
 
 #include <algorithm>
 #include <filesystem>

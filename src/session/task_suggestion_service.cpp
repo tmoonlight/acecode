@@ -6,12 +6,12 @@
 #include "task_suggestion_store.hpp"
 #include "thread_goal_store.hpp"
 #include "todo_state.hpp"
-#include "../utils/encoding.hpp"
-#include "../environment/data_dir_migration.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../worktree/worktree_manager.hpp"
-#include "../web/message_payload.hpp"
+#include "utils/encoding.hpp"
+#include "environment/data_dir_migration.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
+#include "worktree/worktree_manager.hpp"
+#include "web/message_payload.hpp"
 
 #include <algorithm>
 #include <chrono>

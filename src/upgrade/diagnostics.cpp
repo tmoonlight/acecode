@@ -1,9 +1,9 @@
 #include "diagnostics.hpp"
 
 #include "apply.hpp"
-#include "../config/config.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <atomic>
 #include <cctype>

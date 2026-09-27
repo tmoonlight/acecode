@@ -1,7 +1,7 @@
 #include "pty_session_registry.hpp"
 
-#include "../../utils/encoding.hpp"
-#include "../../utils/logger.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
 
 #include <nlohmann/json.hpp>
 

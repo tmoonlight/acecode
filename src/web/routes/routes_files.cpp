@@ -1,9 +1,9 @@
 // routes_files.cpp — Route registrations extracted from server.cpp
-#include "../server_impl.hpp"
-#include "../../skills/skill_init.hpp"
-#include "../../config/config.hpp"
-#include "../../tool/mtime_tracker.hpp"
-#include "../../utils/text_file_buffer.hpp"
+#include "web/server_impl.hpp"
+#include "skills/skill_init.hpp"
+#include "config/config.hpp"
+#include "tool/mtime_tracker.hpp"
+#include "utils/text_file_buffer.hpp"
 
 namespace acecode::web {
 

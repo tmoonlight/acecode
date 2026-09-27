@@ -1,9 +1,9 @@
 #include "skill_loader.hpp"
 
 #include "frontmatter.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

@@ -1,12 +1,12 @@
 #include "mcp_config.hpp"
 
 #include "config_recovery.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/cwd_hash.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/paths.hpp"
-#include "../utils/sha256.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/cwd_hash.hpp"
+#include "utils/logger.hpp"
+#include "utils/paths.hpp"
+#include "utils/sha256.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cmath>

@@ -1,7 +1,7 @@
 #include "goal_tool.hpp"
 
-#include "../session/session_manager.hpp"
-#include "../session/thread_goal_store.hpp"
+#include "session/session_manager.hpp"
+#include "session/thread_goal_store.hpp"
 
 #include <nlohmann/json.hpp>
 

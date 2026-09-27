@@ -1,12 +1,12 @@
 #include "hook_registry.hpp"
 
-#include "../config/config.hpp"
-#include "../skills/default_skill_seeder.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/paths.hpp"
-#include "../utils/sha256.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "skills/default_skill_seeder.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/encoding.hpp"
+#include "utils/paths.hpp"
+#include "utils/sha256.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

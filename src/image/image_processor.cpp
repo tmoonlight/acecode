@@ -1,6 +1,6 @@
 #include "image_processor.hpp"
 
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -14,14 +14,14 @@
 #define STBI_NO_HDR
 #define STBI_NO_LINEAR
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
+#include "image/stb/stb_image.h"
 
 #define STBI_WRITE_NO_STDIO
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb/stb_image_write.h"
+#include "image/stb/stb_image_write.h"
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include "stb/stb_image_resize2.h"
+#include "image/stb/stb_image_resize2.h"
 
 namespace acecode::image {
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../config/config.hpp"
-#include "../provider/llm_provider.hpp"
+#include "config/config.hpp"
+#include "provider/llm_provider.hpp"
 #include "tool_executor.hpp"
 
 #include <cstddef>

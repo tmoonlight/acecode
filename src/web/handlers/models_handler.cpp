@@ -1,11 +1,11 @@
 #include "models_handler.hpp"
 
-#include "../../config/model_provider_registry.hpp"
-#include "../../config/request_headers.hpp"
-#include "../../provider/builtin_model_catalog.hpp"
-#include "../../provider/model_context_metadata.hpp"
-#include "../../utils/sha256.hpp"
-#include "../../network/proxy_resolver.hpp"
+#include "config/model_provider_registry.hpp"
+#include "config/request_headers.hpp"
+#include "provider/builtin_model_catalog.hpp"
+#include "provider/model_context_metadata.hpp"
+#include "utils/sha256.hpp"
+#include "network/proxy_resolver.hpp"
 
 #include <cpr/cpr.h>
 

@@ -19,10 +19,10 @@
 #include "winpty_agent_embedded.hpp"
 #include "winpty_agent_location.hpp"
 
-#include "../../utils/encoding.hpp"
-#include "../../utils/logger.hpp"
-#include "../../utils/paths.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <windows.h>
 #include <winpty.h>

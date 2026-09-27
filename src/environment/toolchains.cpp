@@ -1,9 +1,9 @@
 #include "toolchains.hpp"
 
-#include "../lsp/lsp_which.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "lsp/lsp_which.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

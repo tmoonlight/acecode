@@ -1,7 +1,7 @@
 #include "session_writer_lease.hpp"
 
-#include "../utils/atomic_file.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>
 

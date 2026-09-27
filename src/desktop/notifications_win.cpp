@@ -4,7 +4,7 @@
 
 #include "custom_toast.hpp"
 
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN

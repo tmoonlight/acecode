@@ -1,10 +1,10 @@
 #include "theme_create_tool.hpp"
 
-#include "../config/config.hpp"
-#include "../headless/headless_mode.hpp"
-#include "../session/session_manager.hpp"
-#include "../themes/theme_drafts.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "headless/headless_mode.hpp"
+#include "session/session_manager.hpp"
+#include "themes/theme_drafts.hpp"
+#include "utils/utf8_path.hpp"
 
 namespace acecode {
 using nlohmann::json;

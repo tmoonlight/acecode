@@ -1,8 +1,8 @@
 // model_resolver 实现。见 design.md D2。
 #include "model_resolver.hpp"
 
-#include "../config/model_provider_registry.hpp"
-#include "../utils/logger.hpp"
+#include "config/model_provider_registry.hpp"
+#include "utils/logger.hpp"
 
 namespace acecode {
 

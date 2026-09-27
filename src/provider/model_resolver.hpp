@@ -2,9 +2,9 @@
 // 对应 openspec/changes/model-profiles 的 Section 2。
 #pragma once
 
-#include "../config/config.hpp"
-#include "../config/saved_models.hpp"
-#include "../session/session_storage.hpp"
+#include "config/config.hpp"
+#include "config/saved_models.hpp"
+#include "session/session_storage.hpp"
 
 #include <optional>
 #include <string>

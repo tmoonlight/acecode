@@ -16,8 +16,8 @@
 //      决策并继续」,等于把选择权交还给模型,而模型不知道账户余额。所以这
 //      些路径必须在提问**之前**就把档位钉死,不能依赖第 1 条。
 
-#include "../../config/config.hpp"
-#include "../question_policy.hpp"
+#include "config/config.hpp"
+#include "tool/question_policy.hpp"
 
 #include <nlohmann/json.hpp>
 

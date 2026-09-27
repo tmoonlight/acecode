@@ -1,6 +1,6 @@
 #include "http.hpp"
 
-#include "../network/proxy_resolver.hpp"
+#include "network/proxy_resolver.hpp"
 
 #include <cpr/cpr.h>
 #include <atomic>

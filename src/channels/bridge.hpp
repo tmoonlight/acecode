@@ -1,7 +1,7 @@
 #pragma once
 
 #include "state.hpp"
-#include "../lsp/lsp_process.hpp"
+#include "lsp/lsp_process.hpp"
 #include <chrono>
 #include <functional>
 #include <memory>

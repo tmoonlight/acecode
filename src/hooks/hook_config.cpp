@@ -1,9 +1,9 @@
 #include "hook_config.hpp"
 
-#include "../config/config.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/encoding.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

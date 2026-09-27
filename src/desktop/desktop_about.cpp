@@ -1,7 +1,7 @@
 #include "desktop_about.hpp"
 #include "strings.hpp"
 
-#include "../utils/encoding.hpp"
+#include "utils/encoding.hpp"
 
 #include <iomanip>
 #include <sstream>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "llm_provider.hpp"
-#include "../config/saved_models.hpp"
+#include "config/saved_models.hpp"
 #include <memory>
 #include <optional>
 #include <string>

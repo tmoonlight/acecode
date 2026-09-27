@@ -11,7 +11,7 @@
 //   auto opts = network::proxy_options_for(url);  // 每次请求
 //   cpr::Post(cpr::Url{url}, opts.proxies, opts.auth, build_ssl_options(opts), ...)
 
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 #include <cpr/cprtypes.h>
 #include <cpr/proxies.h>

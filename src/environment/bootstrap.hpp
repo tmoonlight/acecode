@@ -11,7 +11,7 @@
 // state 标记用 try_claim_state_flag,Desktop 多 workspace 同时拉起多个 daemon 时
 // 只有一个真的做探测与落盘。
 
-#include "../config/config.hpp"
+#include "config/config.hpp"
 #include "terminal_resolver.hpp"
 #include "toolchains.hpp"
 

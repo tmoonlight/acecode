@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../config/config.hpp"
+#include "config/config.hpp"
 #include "tool_executor.hpp"
-#include "../provider/llm_provider.hpp"
+#include "provider/llm_provider.hpp"
 
 #include <chrono>
 #include <condition_variable>

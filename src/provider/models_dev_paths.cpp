@@ -1,6 +1,6 @@
 #include "models_dev_paths.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <cstdlib>
 #include <filesystem>

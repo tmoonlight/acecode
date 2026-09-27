@@ -2,9 +2,9 @@
 
 #include "ask_user_question_types.hpp"
 
-#include "../headless/headless_mode.hpp"
-#include "../session/session_manager.hpp"
-#include "../utils/logger.hpp"
+#include "headless/headless_mode.hpp"
+#include "session/session_manager.hpp"
+#include "utils/logger.hpp"
 
 #include <nlohmann/json.hpp>
 

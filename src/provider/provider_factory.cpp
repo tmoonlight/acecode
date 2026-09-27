@@ -5,10 +5,10 @@
 #include "grok_provider.hpp"
 #include "openai_provider.hpp"
 #include "vision_capability.hpp"
-#include "../config/config.hpp"
-#include "../config/model_provider_registry.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/sha256.hpp"
+#include "config/config.hpp"
+#include "config/model_provider_registry.hpp"
+#include "utils/logger.hpp"
+#include "utils/sha256.hpp"
 
 #include <algorithm>
 #include <cctype>

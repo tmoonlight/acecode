@@ -1,6 +1,6 @@
 #include "state.hpp"
 #include "owner_lock.hpp"
-#include "../utils/atomic_file.hpp"
+#include "utils/atomic_file.hpp"
 
 #include <algorithm>
 #include <chrono>

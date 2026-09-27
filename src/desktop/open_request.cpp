@@ -1,9 +1,9 @@
 #include "open_request.hpp"
 
-#include "../config/config.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "config/config.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
 

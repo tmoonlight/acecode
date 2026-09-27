@@ -1,7 +1,7 @@
 #include "history_handler.hpp"
 
-#include "../../history/input_history_store.hpp"
-#include "../../session/session_storage.hpp"
+#include "history/input_history_store.hpp"
+#include "session/session_storage.hpp"
 
 namespace acecode::web {
 

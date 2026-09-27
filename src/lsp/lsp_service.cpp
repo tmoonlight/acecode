@@ -1,8 +1,8 @@
 #include "lsp_service.hpp"
 
 #include "lsp_uri.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <filesystem>

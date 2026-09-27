@@ -8,9 +8,9 @@
 #include "application_icon.hpp"
 #include "tray_menu_layout.hpp"
 #include "tray_menu_popup_model.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN

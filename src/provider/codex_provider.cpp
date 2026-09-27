@@ -1,10 +1,10 @@
 #include "codex_provider.hpp"
 
-#include "codex/codex_app_server_client.hpp"
-#include "../session/attachment_prompt_context.hpp"
-#include "../session/attachment_store.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "provider/codex/codex_app_server_client.hpp"
+#include "session/attachment_prompt_context.hpp"
+#include "session/attachment_store.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <condition_variable>
 #include <filesystem>

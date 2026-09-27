@@ -1,5 +1,5 @@
 #include "builtin_model_catalog.hpp"
-#include "../utils/constants.hpp"
+#include "utils/constants.hpp"
 
 #include <algorithm>
 #include <cctype>

@@ -1,10 +1,10 @@
 #include "default_skill_seeder.hpp"
 
-#include "../utils/atomic_file.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/sha256.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/sha256.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>
 

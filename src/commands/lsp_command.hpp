@@ -10,7 +10,7 @@
 
 #include "command_registry.hpp"
 
-#include "../lsp/lsp_service.hpp"
+#include "lsp/lsp_service.hpp"
 
 #include <string>
 

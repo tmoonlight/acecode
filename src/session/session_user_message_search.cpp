@@ -2,8 +2,8 @@
 
 #include "session_serializer.hpp"
 #include "session_storage.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <sqlite3.h>
 

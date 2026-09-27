@@ -4,9 +4,9 @@
 #include "memory_index.hpp"
 #include "memory_paths.hpp"
 
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <fstream>

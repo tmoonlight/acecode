@@ -1,6 +1,6 @@
 #include "manifest.hpp"
 
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 #include <algorithm>
 #include <cctype>

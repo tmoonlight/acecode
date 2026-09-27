@@ -1,6 +1,6 @@
 #include "grok_responses.hpp"
 
-#include "auth/xai_auth.hpp"
+#include "provider/auth/xai_auth.hpp"
 
 #include <algorithm>
 #include <limits>

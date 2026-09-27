@@ -9,7 +9,7 @@
 
 #include "lsp_process.hpp"
 #include "lsp_which.hpp"
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 #include <map>
 #include <optional>

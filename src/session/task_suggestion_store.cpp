@@ -2,7 +2,7 @@
 
 #include "compact_checkpoint.hpp"
 #include "session_storage.hpp"
-#include "../utils/uuid.hpp"
+#include "utils/uuid.hpp"
 
 #include <sqlite3.h>
 

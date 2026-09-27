@@ -1,9 +1,9 @@
 #include "worktree_tool.hpp"
 
-#include "../session/session_manager.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../worktree/worktree_core.hpp"
-#include "../worktree/worktree_manager.hpp"
+#include "session/session_manager.hpp"
+#include "utils/utf8_path.hpp"
+#include "worktree/worktree_core.hpp"
+#include "worktree/worktree_manager.hpp"
 
 #include <nlohmann/json.hpp>
 

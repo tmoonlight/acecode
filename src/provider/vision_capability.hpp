@@ -5,8 +5,8 @@
 // 对应 route-attachments-by-capability design.md D5 与 tasks 1.8。
 #pragma once
 
-#include "../config/config.hpp"
-#include "../config/saved_models.hpp"
+#include "config/config.hpp"
+#include "config/saved_models.hpp"
 
 #include <string>
 #include <vector>

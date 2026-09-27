@@ -1,12 +1,12 @@
 #pragma once
 
-#include "../tui_state.hpp"
-#include "../agent_loop.hpp"
-#include "../provider/llm_provider.hpp"
-#include "../config/config.hpp"
-#include "../utils/token_tracker.hpp"
-#include "../session/session_manager.hpp"
-#include "../provider/session_model_binding.hpp"
+#include "tui_state.hpp"
+#include "agent_loop.hpp"
+#include "provider/llm_provider.hpp"
+#include "config/config.hpp"
+#include "utils/token_tracker.hpp"
+#include "session/session_manager.hpp"
+#include "provider/session_model_binding.hpp"
 
 #include <memory>
 #include <mutex>

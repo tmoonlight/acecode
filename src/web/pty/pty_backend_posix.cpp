@@ -5,7 +5,7 @@
 
 #include "pty_backend.hpp"
 
-#include "../../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #if defined(__APPLE__)
 #include <util.h>

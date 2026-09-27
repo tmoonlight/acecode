@@ -1,7 +1,7 @@
 // routes_loops.cpp — daemon-owned LOOP CRUD and run-history routes.
-#include "../server_impl.hpp"
+#include "web/server_impl.hpp"
 
-#include "../../loop/loop_schedule.hpp"
+#include "loop/loop_schedule.hpp"
 
 #include <algorithm>
 #include <chrono>

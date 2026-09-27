@@ -1,9 +1,9 @@
 #pragma once
 
 #include "provider_factory.hpp"
-#include "../config/config.hpp"
-#include "../config/saved_models_revision.hpp"
-#include "../session/session_client.hpp"
+#include "config/config.hpp"
+#include "config/saved_models_revision.hpp"
+#include "session/session_client.hpp"
 
 #include <atomic>
 #include <cstdint>

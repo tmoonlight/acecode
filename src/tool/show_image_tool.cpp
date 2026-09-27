@@ -1,9 +1,9 @@
 #include "show_image_tool.hpp"
 
 #include "tool_icons.hpp"
-#include "../utils/tool_args_parser.hpp"
-#include "../utils/tool_errors.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/tool_args_parser.hpp"
+#include "utils/tool_errors.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

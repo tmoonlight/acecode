@@ -1,7 +1,7 @@
 #include "skill_command_expander.hpp"
 
-#include "../../skills/skill_activation.hpp"
-#include "../../skills/skill_registry.hpp"
+#include "skills/skill_activation.hpp"
+#include "skills/skill_registry.hpp"
 
 #include <cctype>
 

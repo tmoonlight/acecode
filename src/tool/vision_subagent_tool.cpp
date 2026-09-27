@@ -1,15 +1,15 @@
 #include "vision_subagent_tool.hpp"
 
-#include "../config/model_provider_registry.hpp"
-#include "../provider/copilot_provider.hpp"
-#include "../provider/provider_factory.hpp"
-#include "../provider/vision_capability.hpp"
-#include "../session/attachment_store.hpp"
-#include "../session/session_manager.hpp"
-#include "../session/session_storage.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/model_provider_registry.hpp"
+#include "provider/copilot_provider.hpp"
+#include "provider/provider_factory.hpp"
+#include "provider/vision_capability.hpp"
+#include "session/attachment_store.hpp"
+#include "session/session_manager.hpp"
+#include "session/session_storage.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <atomic>

@@ -12,9 +12,9 @@
 #ifdef __APPLE__
 #include "macos_app_installer.hpp"
 #endif
-#include "../network/proxy_resolver.hpp"
-#include "../utils/sha256.hpp"
-#include "../utils/utf8_path.hpp"
+#include "network/proxy_resolver.hpp"
+#include "utils/sha256.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <chrono>

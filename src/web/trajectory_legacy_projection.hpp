@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../provider/llm_provider.hpp"
-#include "../session/session_trajectory.hpp"
+#include "provider/llm_provider.hpp"
+#include "session/session_trajectory.hpp"
 
 #include <cstddef>
 #include <string>

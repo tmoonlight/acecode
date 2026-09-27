@@ -5,7 +5,7 @@
 
 #include "platform.hpp"
 
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <chrono>
 #include <sstream>

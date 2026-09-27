@@ -1,6 +1,6 @@
 #include "retry_policy.hpp"
 
-#include "../pa/pa_quirks.hpp"
+#include "pa/pa_quirks.hpp"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>

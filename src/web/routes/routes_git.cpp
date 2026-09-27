@@ -1,7 +1,7 @@
 // routes_git.cpp — /api/git/* 路由注册(openspec add-git-context)。
 // 业务逻辑在 handlers/git_handler.cpp(纯函数),这里只做 HTTP 壳。
-#include "../server_impl.hpp"
-#include "../handlers/git_handler.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/git_handler.hpp"
 
 namespace acecode::web {
 

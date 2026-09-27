@@ -1,6 +1,6 @@
 #include "git_context_collector.hpp"
 
-#include "../worktree/worktree_manager.hpp"
+#include "worktree/worktree_manager.hpp"
 #include "git_context_core.hpp"
 
 #include <map>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../config/saved_models.hpp"
+#include "config/saved_models.hpp"
 
 #include <optional>
 #include <string>

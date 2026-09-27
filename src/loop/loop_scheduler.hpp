@@ -2,7 +2,7 @@
 
 #include "loop_store.hpp"
 
-#include "../session/session_client.hpp"
+#include "session/session_client.hpp"
 
 #include <atomic>
 #include <chrono>

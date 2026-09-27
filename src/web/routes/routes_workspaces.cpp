@@ -4,8 +4,8 @@
 #ifdef DELETE
 #undef DELETE
 #endif
-#include "../server_impl.hpp"
-#include "../project_creation.hpp"
+#include "web/server_impl.hpp"
+#include "web/project_creation.hpp"
 #include "session/composer_content.hpp"
 #include "session/pasted_text_attachment.hpp"
 

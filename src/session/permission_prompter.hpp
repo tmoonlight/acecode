@@ -15,7 +15,7 @@
 // (兼容现有 main.cpp 路径);daemon 模式由 SessionRegistry 在创建 AgentLoop
 // 后调 set_permission_prompter() 注入 AsyncPrompter。
 
-#include "../permissions.hpp"
+#include "permissions.hpp"
 #include "event_dispatcher.hpp"
 #include "session_client.hpp"
 

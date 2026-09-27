@@ -1,8 +1,8 @@
 #include "lsp_tool.hpp"
 
-#include "../lsp/lsp_service.hpp"
-#include "../lsp/lsp_uri.hpp"
-#include "../utils/utf8_path.hpp"
+#include "lsp/lsp_service.hpp"
+#include "lsp/lsp_uri.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <chrono>

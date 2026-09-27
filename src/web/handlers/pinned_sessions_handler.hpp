@@ -3,7 +3,7 @@
 // Compatibility facade for Web/Desktop callers. Persistence is owned by the
 // session domain so model-facing thread tools and Web use one file contract.
 
-#include "../../session/session_pin_store.hpp"
+#include "session/session_pin_store.hpp"
 
 namespace acecode::web {
 

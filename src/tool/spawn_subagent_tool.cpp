@@ -1,15 +1,15 @@
 #include "spawn_subagent_tool.hpp"
 
-#include "../config/config.hpp"
-#include "../session/session_client.hpp"
-#include "../session/session_registry.hpp"
-#include "../skills/skill_init.hpp"
-#include "../skills/skill_registry.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../web/handlers/skill_command_expander.hpp"
-#include "../worktree/worktree_core.hpp"
-#include "../worktree/worktree_manager.hpp"
+#include "config/config.hpp"
+#include "session/session_client.hpp"
+#include "session/session_registry.hpp"
+#include "skills/skill_init.hpp"
+#include "skills/skill_registry.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "web/handlers/skill_command_expander.hpp"
+#include "worktree/worktree_core.hpp"
+#include "worktree/worktree_manager.hpp"
 
 #include <chrono>
 #include <sstream>

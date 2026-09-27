@@ -1,8 +1,8 @@
 #include "opencode_command.hpp"
 
-#include "../utils/encoding.hpp"
-#include "../utils/paths.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/encoding.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>
 

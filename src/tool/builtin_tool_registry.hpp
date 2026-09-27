@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../config/config.hpp"
-#include "agent_browser/browser_tools.hpp"
+#include "config/config.hpp"
+#include "tool/agent_browser/browser_tools.hpp"
 #include "apply_patch_tool.hpp"
 #include "bash_tool.hpp"
 #include "computer_use_tool.hpp"
@@ -10,7 +10,7 @@
 #include "file_write_tool.hpp"
 #include "glob_tool.hpp"
 #include "goal_tool.hpp"
-#include "image_generate/image_generate_tool.hpp"
+#include "tool/image_generate/image_generate_tool.hpp"
 #include "grep_tool.hpp"
 #include "lsp_tool.hpp"
 #include "plan_mode_tool.hpp"
@@ -20,8 +20,8 @@
 #include "todo_write_tool.hpp"
 #include "tool_executor.hpp"
 #include "vision_subagent_tool.hpp"
-#include "web_search/runtime.hpp"
-#include "web_search/web_search_tool.hpp"
+#include "tool/web_search/runtime.hpp"
+#include "tool/web_search/web_search_tool.hpp"
 #include "worktree_tool.hpp"
 
 namespace acecode {

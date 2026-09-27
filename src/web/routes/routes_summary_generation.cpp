@@ -1,7 +1,7 @@
-#include "../server_impl.hpp"
-#include "../handlers/summary_generation_handler.hpp"
-#include "../../config/config_mutation.hpp"
-#include "../../config/saved_models_revision.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/summary_generation_handler.hpp"
+#include "config/config_mutation.hpp"
+#include "config/saved_models_revision.hpp"
 
 namespace acecode::web {
 using nlohmann::json;

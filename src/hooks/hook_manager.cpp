@@ -1,8 +1,8 @@
 #include "hook_manager.hpp"
 
 #include "hook_payload.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
 
 #include <chrono>
 #include <optional>

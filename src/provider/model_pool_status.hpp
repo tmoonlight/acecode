@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../config/saved_models.hpp"
+#include "config/saved_models.hpp"
 
 // 模型池负载监控(model-pool load monitor)。
 //

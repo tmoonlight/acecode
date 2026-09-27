@@ -3,9 +3,9 @@
 // TUI 的 /model 命令都调用这个函数,确保两端语义一致。
 #pragma once
 
-#include "../config/config.hpp"
-#include "../config/saved_models.hpp"
-#include "../session/session_client.hpp"  // for SessionModelState
+#include "config/config.hpp"
+#include "config/saved_models.hpp"
+#include "session/session_client.hpp"  // for SessionModelState
 #include "session_model_binding.hpp"
 
 #include <stdexcept>

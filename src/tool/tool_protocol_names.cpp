@@ -1,6 +1,6 @@
 #include "tool_protocol_names.hpp"
 
-#include "../provider/llm_provider.hpp"
+#include "provider/llm_provider.hpp"
 
 #include <memory>
 #include <mutex>

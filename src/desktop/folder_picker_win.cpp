@@ -3,8 +3,8 @@
 
 #ifdef _WIN32
 
-#include "../utils/logger.hpp"
-#include "../utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/encoding.hpp"
 
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -343,7 +343,7 @@ std::optional<std::string> pick_save_file(
 
 #elif !defined(__APPLE__)
 
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <array>
 #include <atomic>

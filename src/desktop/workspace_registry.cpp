@@ -1,9 +1,9 @@
 #include "workspace_registry.hpp"
 
-#include "../utils/atomic_file.hpp"
-#include "../utils/cwd_hash.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/cwd_hash.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>
 

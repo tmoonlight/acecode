@@ -1,5 +1,5 @@
 #include "image_generation_policy.hpp"
-#include "../../utils/http_url_validation.hpp"
+#include "utils/http_url_validation.hpp"
 
 #include <algorithm>
 

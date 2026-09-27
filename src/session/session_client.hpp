@@ -14,7 +14,7 @@
 //   - SessionEvent 是事件流的最小公共表示;AgentLoop 内部产物经 adapter 转过来
 //   - SessionClient 方法可阻塞(create/list);事件订阅是 push 模式(回调)
 
-#include "../config/saved_models.hpp"
+#include "config/saved_models.hpp"
 
 #include <cstdint>
 #include <chrono>
@@ -25,7 +25,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "../provider/llm_provider.hpp"
+#include "provider/llm_provider.hpp"
 #include "session_storage.hpp"
 
 namespace acecode {

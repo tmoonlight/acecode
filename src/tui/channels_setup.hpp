@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../channels/setup.hpp"
+#include "channels/setup.hpp"
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <memory>
