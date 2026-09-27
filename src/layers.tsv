@@ -102,13 +102,6 @@ allow	src/engine/agent/compaction/compact.cpp				R11:provider_chat				Single out
 allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/progress/*				R3:tool_preamble				-
 allow	src/adapters/tool/theme_create_tool.*				R3:themes				-
-exception	src/adapters/provider/llm_provider.hpp				R1,R2	llm	layers/P2-02	2026-10-15	P2-02 forwarding header for src/provider/llm_provider.hpp; delete on freeze day (P3-02)
-exception	src/adapters/tool/tool_protocol_names.hpp				R1,R2	llm	layers/P2-02	2026-10-15	P2-02 forwarding header for src/tool/tool_protocol_names.hpp; delete on freeze day (P3-02)
-exception	src/adapters/tool/model_family.hpp				R1,R2	llm	layers/P2-02	2026-10-15	P2-02 forwarding header for src/tool/model_family.hpp; delete on freeze day (P3-02)
-exception	src/adapters/tool/tool_icons.hpp				R1,R2	llm	layers/P2-02	2026-10-15	P2-02 forwarding header for src/tool/tool_icons.hpp; delete on freeze day (P3-02)
-exception	src/adapters/tool/diff_utils.hpp				R1,R2	utils	layers/P2-02	2026-10-15	P2-02 forwarding header for src/tool/diff_utils.hpp; delete on freeze day (P3-02)
-exception	src/adapters/tool/word_diff.hpp				R1,R2	utils	layers/P2-02	2026-10-15	P2-02 forwarding header for src/tool/word_diff.hpp; delete on freeze day (P3-02)
-exception	src/adapters/tool/diff_view_truncate.hpp				R1,R2	utils	layers/P2-02	2026-10-15	P2-02 forwarding header for src/tool/diff_view_truncate.hpp; delete on freeze day (P3-02)
 exempt	src/apps/web/*				R12,R15				D21 user constraint; includes old src/web through mapping
 exempt	external/stb/*				R12,R15				Third-party vendored code
 exempt	src/image/stb/*				R12,R15				Third-party pre-move location
