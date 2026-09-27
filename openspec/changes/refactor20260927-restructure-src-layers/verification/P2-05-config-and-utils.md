@@ -92,6 +92,24 @@ Deepin 的 provenance 中 `source_revision` 为空,原因与 P2-03 / P2-04 相�
 - 正常退出后核对 `state.json` 同时保留 `last_active_workspace_hash` 与 `last_home_workspace_hash`。再次启动,原生桥读取到同一活跃工作区与首页选择,文件预览仍可用。
 - 两次 Desktop / daemon 均正常退出,用户原 Desktop 进程保持运行,全程无屏幕截图。仓库外证据为 `p2-05-integrated-desktop-smoke.json`。
 
-[四平台 CI 36336950956](https://github.com/tmoonlight/acecode/actions/runs/36336950956) 的 Linux 已完成(5028 项执行、16 项跳过、0 失败);macOS 保留原有 10 项失败及已登记的 SSE 时序抖动,Deepin 配置与构建完成,三个平台的目标清单均已对照通过。Windows 构建已完成,正在执行完整测试。
+[四平台 CI 36336950956](https://github.com/tmoonlight/acecode/actions/runs/36336950956) 的 Linux 已完成(5028 项执行、16 项跳过、0 失败);macOS 保留原有 10 项失败及已登记的 SSE 时序抖动,Deepin 配置与构建完成,三个平台的目标清单均已对照通过。Windows 构建与完整测试均已完成。
 
 P2-04 已由 PR #80 合入 master `4db4d6e0a5b474b43dd4376a7b072c3169c4b3ae`,本分支随后同步该合并点,并在 tasks.md 勾选 P2-04。唯一冲突为 blame-ignore 里相同的前序登记;保留双方记录。相对已验证的 `4a3366e6`,src / tests / CMake / web / scripts / workflow 均无差异,同步只增加验收文档和任务完成标记。
+
+
+### 集成版本最终四平台验收
+
+[CI 36336950956](https://github.com/tmoonlight/acecode/actions/runs/36336950956) 固定源码为 `4a3366e68b48cfd9dd1b9d2653925d9ef01f0e0c`,全平台构建完成:
+
+| 平台 | target / 编译元组 | 列出 / 执行 / SKIP / 失败 |
+|---|---|---|
+| Windows x64 | 59 / 3623 | 5117 / 5110 / 10 / 3 |
+| Linux x64 | 50 / 3537 | 5037 / 5028 / 16 / 0 |
+| macOS arm64 | 57 / 3682 | 5042 / 5035 / 14 / 11 |
+| Deepin x64 | 13 / 1394 | 不配置测试 |
+
+四平台目标集合、既有编译元组和编译属性保持。相对 post-p0 的正常平台新增 94 个元组(P2-02 的 43 + P2-03 的 1 + P2-05 的 50),Deepin 新增 41 个(19 + 1 + 21),全部由明确的拆出物或其生成对象解释。三个测试平台仅新增两项工具错误适配回归,无用例删除或 SKIP 变化。
+
+Windows 的三个失败均为既有基线项(HookRunner 的环境覆盖用例及两个 Python 脚本测试);此前的抢占 250ms 时序用例本次通过,MCP 基线失败本次也未出现。Linux 完整测试 0 失败。macOS 保留 10 项基线失败及 P1 / P2-02 已登记的 SSE 时序抖动,没有新增未解释的失败。不将构建采集工作流的 success 描述成断言全绿。
+
+Deepin 的 provenance 空源码字段已由 build job 108669512748 的 checkout 日志独立核对为完整 `4a3366e6` SHA。最新 master 的集成只涉及验收文档和任务标记,已用 `git diff --quiet 4a3366e6 -- src tests CMakeLists.txt cmake web scripts .github` 确认代码与验证版本一致。
