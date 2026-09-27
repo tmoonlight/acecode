@@ -171,7 +171,7 @@
     - desktop 冒烟:启动、打开 workspace;
     - lint 显示指向 desktop、web 的反向边消失;
     - files_handler 相关测试通过。
-- [ ] 3.4 【P2-05】【主】config 与 utils 的反向边,对应 layout-map.md 中标 P2-05 的行。〔认领: Claude-phase2 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕
+- [x] 3.4 【P2-05】【主】config 与 utils 的反向边,对应 layout-map.md 中标 P2-05 的行。〔认领: Claude-phase2 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕〔验收: Codex-root 2026-09-28,PR #81 已合入;五组状态逻辑全部归位,四平台及本机完整测试、桌面重启记录见 verification/P2-05-config-and-utils.md〕
   - `permissions.hpp` 拆出 `config/vocab/permission_mode.hpp`;theme_id、pointer_appearance 移到 vocab;
   - builtin_model_catalog 与 models_dev_catalog 的纯部分移到 config,依赖 registry 的部分移到 `provider/models_dev_catalog_cache`;
   - state_file 的五组专用函数全部搬回各自使用方(用户 2026-09-28 再次确认):模型探测缓存、搜索地区缓存、桌面活跃工作区、桌面首页工作区、TUI 斜杠命令用量;底层只保留通用文件读写、锁与原子更新,不延期;
@@ -185,10 +185,11 @@
     - 构建通过;
     - permissions_test 与 MCP 配置拦截测试通过;
     - lint 显示 config 环与 themes→upgrade 边消失。
-- [ ] 3.5 【P2-06】【子】hooks 与 skills 的横向边。
+- [ ] 3.5 【P2-06】【子】hooks 与 skills 的横向边。〔认领: Codex-root 2026-09-28〕
   - hook_payload 的三个 provider 构造器 → `src/agent/hook_bridge/hook_events`;
   - hook 种子拆出 `hooks/hook_seeds`;
   - `skill_commands` → `src/tui/commands/`,同步 testable 子集;
+  - 清除 `environment/terminal_resolver.cpp` 遗留的无用 hooks 配置 include,终端探测依赖已下沉的 platform 进程原语;
   - frontmatter → utils;
   - `web/handlers/skill_command_expander` 与 `commands/opencode_command` → `skills/`;
   - `tests/skill_registry_test.cpp` 移到 `tests/skills/`。
