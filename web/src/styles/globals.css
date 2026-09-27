@@ -3175,15 +3175,15 @@ body {
   position: relative;
 }
 .ace-mermaid-diagram {
+  max-width: 100%;
   overflow: hidden;
-  border: 1px solid var(--ace-border);
-  border-radius: 7px;
-  background: var(--ace-surface-alt);
+}
+.ace-mermaid-diagram[data-mermaid-diagram="ready"] {
+  width: max-content;
 }
 .ace-mermaid-render-target {
   display: none;
   max-width: 100%;
-  padding: 18px 16px;
   overflow: auto;
 }
 .ace-mermaid-diagram[data-mermaid-diagram="ready"] .ace-mermaid-render-target {
@@ -3195,7 +3195,6 @@ body {
 .ace-mermaid-preview-trigger {
   display: block;
   width: max-content;
-  min-width: 100%;
   padding: 0;
   border: 0;
   outline: 0;
@@ -3205,7 +3204,7 @@ body {
 }
 .ace-mermaid-preview-trigger:focus-visible {
   outline: 2px solid var(--ace-accent);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 .ace-mermaid-svg {
   display: block;
