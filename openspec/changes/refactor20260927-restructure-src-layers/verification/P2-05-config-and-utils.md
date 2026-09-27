@@ -59,4 +59,27 @@ GoogleTest 的 HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP 都指�
 
 按设计中的文档安排,seed 中权限头路径与其版本 / 哈希将在 P3 M2b 一起更新;不单独修改 seed 的生成契约。P2-05 的九个遗留 ref 迁移提示登记在 branch-inventory.md。
 
-源码提交 `8b182f184e57d139e703ceb794ffd3d1f2eaf558` 已触发 [四平台 CI](https://github.com/tmoonlight/acecode/actions/runs/36334375820),启用完整测试及 Deepin 构建。Deepin 构建已通过;Linux 列出 5037 / 执行 5028 / 跳过 16 / 失败 0,只增加本次两项回归。Windows / macOS 仍在执行,本任务暂不勾选验收。完整构建日志、定向 XML、完整清单、目标对照与各检查 JSON 保存在仓库外 `N:/Users/shao/AppData/Local/Temp/codex-refactor20260928/`。
+源码提交 `8b182f184e57d139e703ceb794ffd3d1f2eaf558` 已触发 [四平台 CI](https://github.com/tmoonlight/acecode/actions/runs/36334375820),启用完整测试及 Deepin 构建。四平台构建现均通过,测试结果见下表;本任务仍不提前勾选验收。完整构建日志、定向 XML、完整清单、目标对照与各检查 JSON 保存在仓库外 `N:/Users/shao/AppData/Local/Temp/codex-refactor20260928/`。
+
+## 四平台原始交付复核与集成版本
+
+源码 `8b182f18` 的四平台结果:
+
+| 平台 | target / 编译元组 | 列出 / 执行 / SKIP / 失败 |
+|---|---|---|
+| Windows x64 | 59 / 3622 | 5117 / 5110 / 10 / 5 |
+| Linux x64 | 50 / 3536 | 5037 / 5028 / 16 / 0 |
+| macOS arm64 | 57 / 3681 | 5042 / 5035 / 14 / 11 |
+| Deepin x64 | 13 / 1393 | 不启用测试 |
+
+目标和既有编译元组无删除。相对 post-p0,三个测试平台各增加 93 个元组(前序 P2-02 的 43 + 本任务的 50);Deepin 增加 40(前序 19 + 本任务 21)。新增实现、头、拆分测试和生成对象均逐项登记,编译属性沿用所属目标。
+
+三个测试平台均只增加本任务的两项回归用例,没有删除用例或增加 SKIP。macOS 的 10 项原基线失败与 P1 / P2-02 已登记的 SSE 时序抖动仍保留。Windows 的 4 项原基线失败之外,多一项 `AgentLoopTurnSteering.InterruptStartsStructuredTurnBeforeOrdinaryQueue`:等待第二次 provider 调用的 250ms 断言失败。该用例正文未改动(本任务只改 permissions 头路径),在同一源码的本机全量及 Linux / macOS CI 中通过;本机原二进制追加 20 次运行全部通过(`p2-05-steering-repeat.log`)。保留该次 CI 失败,继续用集成版本核对,不删除断言或扩充跳过条件。
+
+Deepin 的 provenance 中 `source_revision` 为空,原因与 P2-03 / P2-04 相同:容器 Git 报 dubious ownership。已从 build job 108662299627 的 checkout 日志核对完整的 `8b182f184e57d139e703ceb794ffd3d1f2eaf558`,与 source_ref 相同;没有用空字段证明来源。
+
+集成提交 `4a3366e68b48cfd9dd1b9d2653925d9ef01f0e0c` 接入 P2-04 `aa6872f9`(含已合入 master 的 P2-03),六处冲突只合并两边的模块路径与 include 责任,五组状态逻辑和工具错误适配保持。补齐 P2-02 / P2-03 / P2-04 六个纯搬迁、纯 include 提交在 `.git-blame-ignore-revs` 的登记。
+
+集成后 src / tests include、映射、分层阻断项、行数、所有权、OpenSpec strict、前端完整测试均通过。全新本机构建 `build/p2-05-integrated-4a3366e6` 已完成 CLI / Desktop / GoogleTest / 五个冒烟目标共 1058 步,退出码 0。File API 为 59 target / 3623 元组,相对原始交付只多前序 P2-03 的别名头,无目标变更或既有元组删除、编译属性变化;等价报告为仓库外 `p2-05-integrated-target-equivalence.json`。
+
+集成版本完整本机测试正在独立短路径 `N:/a05i/` 执行;[四平台 CI 36336950956](https://github.com/tmoonlight/acecode/actions/runs/36336950956) 正在执行,Deepin 配置与构建已完成。P2-04 验收并合入后再合入本任务。
