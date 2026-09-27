@@ -8,6 +8,49 @@ on:
       - master
 
 jobs:
+  # P0-07(refactor20260927-restructure-src-layers):分层护栏的报告模式检查,
+  # 排在 C++ 构建之前。分层 / doc-paths / include 规范化只报告不阻断;
+  # 行数与所有权两个棘轮按已提交基线做 non-increasing 比较,映射表做结构校验,
+  # 这三项和工具自测是阻断项。报告以 artifact `layer-lint-reports` 发布。
+  layer-lint:
+    name: layer-lint (report mode)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Layer, size, ownership, doc-path and map checks
+        shell: bash
+        run: |
+          mkdir -p lint-reports
+          python scripts/layers/check_layers.py --output lint-reports/layers.json
+          python scripts/refactor/check_doc_paths.py --output lint-reports/doc-paths.json
+          python scripts/refactor/normalize_includes.py --check --scope src --output lint-reports/includes-src.json \
+            || echo "::notice::src includes still use parent-relative paths; normalization is scheduled for P1"
+          python scripts/refactor/normalize_includes.py --check --scope tests --output lint-reports/includes-tests.json \
+            || echo "::notice::tests includes still use parent-relative paths; normalization is scheduled for P1"
+          python scripts/layers/check_file_size.py --strict --output lint-reports/size.json
+          python scripts/layers/check_ownership.py --strict --output lint-reports/ownership.json
+          python scripts/refactor/validate_map.py --strict --output lint-reports/map.json
+
+      - name: Refactor tool self-tests
+        shell: bash
+        run: python -m unittest discover -s scripts/refactor/tests -p 'test_*.py'
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layer-lint-reports
+          path: lint-reports
+          if-no-files-found: error
+
   macos-installer-tests:
     name: macos-installer-tests
     runs-on: macos-15
@@ -69,6 +112,7 @@ jobs:
 
   unit-tests:
     name: unit-tests (linux-x64)
+    needs: layer-lint
     runs-on: ubuntu-22.04
     env:
       VCPKG_BINARY_SOURCES: clear;default,readwrite

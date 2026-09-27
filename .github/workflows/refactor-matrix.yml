@@ -1,0 +1,411 @@
+name: refactor-matrix
+
+# P0-07(refactor20260927-restructure-src-layers):只能手动触发的四平台基线采集。
+#
+# - 工具一律取自本工作流所在的提交(scripts/refactor、scripts/layers);
+#   源码可以指向更早的基线提交(input source_ref),用于采集原始 G0。
+# - 每个平台都在全新目录 configure,先写 CMake File API query,再采集
+#   目标快照(含 EXCLUDE_FROM_ALL 冒烟目标),然后构建 acecode /
+#   acecode-desktop / acecode_unit_tests 并运行全量单测,记录 gtest 清单、
+#   实际 SKIP、失败与 ctest 注册名。原本就失败的用例只记入清单,不作为
+#   阻断条件(design.md §7.1)。
+# - Linux 另外采集分层 / 行数 / 所有权 / doc-paths 四类 lint 报告。
+# - Deepin 走 package.yml 同款 buildpack-deps:buster 容器,只做 configure
+#   与构建;容器里的 Python 太旧,File API reply 原样上传,由后续作业
+#   在 ubuntu 上转成快照。
+#
+# 采集结果以 artifact `refactor-matrix-<label>-<platform>` 发布,
+# 归档到 openspec/changes/refactor20260927-restructure-src-layers/baseline/。
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Source ref to configure, build and test (default: the ref this workflow runs from)'
+        required: false
+        default: ''
+        type: string
+      label:
+        description: 'Artifact label, e.g. g0-original or g0-post-p0'
+        required: false
+        default: 'snapshot'
+        type: string
+      run_tests:
+        description: 'Build acecode_unit_tests and run the full gtest inventory'
+        required: false
+        default: true
+        type: boolean
+      include_deepin:
+        description: 'Also configure and build inside the Deepin (buildpack-deps:buster) container'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: ${{ matrix.id }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    env:
+      VCPKG_BINARY_SOURCES: clear;default,readwrite
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            os: windows-2022
+            triplet: x64-windows-static
+            msvc_arch: amd64
+            cache_prefix: vcpkg-v2-windows-2022-x64-windows-static-
+            cmake_extra_args: -DACECODE_BUILD_DESKTOP=ON
+            test_binary: source/build/tests/acecode_unit_tests.exe
+          - id: macos-arm64
+            os: macos-15
+            triplet: arm64-osx
+            msvc_arch: ''
+            cache_prefix: vcpkg-v2-macos-15-arm64-osx-
+            cmake_extra_args: -DCMAKE_OSX_ARCHITECTURES=arm64 -DACECODE_BUILD_DESKTOP=ON
+            test_binary: source/build/tests/acecode_unit_tests
+          - id: linux-x64
+            os: ubuntu-22.04
+            triplet: x64-linux
+            msvc_arch: ''
+            cache_prefix: vcpkg-v2-test-ubuntu-22.04-x64-linux-
+            cmake_extra_args: -DACECODE_BUILD_DESKTOP=ON
+            test_binary: source/build/tests/acecode_unit_tests
+
+    steps:
+      - name: Checkout refactor tools (workflow ref)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          path: source
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configure MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libwebkit2gtk-4.1-dev
+
+      - name: Run vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: 'source/vcpkg.json'
+          vcpkgConfigurationJsonGlob: 'source/vcpkg-configuration.json'
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: ${{ matrix.cache_prefix }}${{ hashFiles('source/vcpkg.json', 'source/vcpkg-configuration.json', 'source/ports/**') }}
+          restore-keys: |
+            ${{ matrix.cache_prefix }}
+
+      - name: Record provenance
+        shell: bash
+        run: |
+          mkdir -p out
+          source_sha="$(git -C source rev-parse HEAD)"
+          cat > out/provenance.json <<EOF
+          {
+            "schema": 1,
+            "platform": "${{ matrix.id }}",
+            "runner_os": "${{ runner.os }}",
+            "runner_image": "${{ matrix.os }}",
+            "label": "${{ inputs.label }}",
+            "source_ref_input": "${{ inputs.source_ref }}",
+            "source_revision": "${source_sha}",
+            "tools_revision": "${{ github.sha }}",
+            "workflow_run_id": "${{ github.run_id }}",
+            "run_tests": ${{ inputs.run_tests }},
+            "cmake_version": "$(cmake --version | head -n 1)",
+            "generator": "Ninja",
+            "build_type": "Release",
+            "triplet": "${{ matrix.triplet }}",
+            "cmake_extra_args": "${{ matrix.cmake_extra_args }}",
+            "build_testing": true,
+            "vcpkg_manifest_features": "tests"
+          }
+          EOF
+          cat out/provenance.json
+
+      - name: Write CMake File API query
+        shell: bash
+        run: python scripts/refactor/cmake_target_snapshot.py --build-dir source/build --query
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S source -B source/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
+            -DVCPKG_MANIFEST_FEATURES=tests \
+            -DBUILD_TESTING=ON \
+            ${{ matrix.cmake_extra_args }}
+
+      - name: Capture target snapshot
+        shell: bash
+        run: |
+          python scripts/refactor/cmake_target_snapshot.py --build-dir source/build --output out/targets.json
+          mkdir -p out/fileapi
+          cp -R source/build/.cmake/api/v1/reply out/fileapi/reply
+          python - <<'EOF'
+          import json
+          report = json.load(open("out/targets.json", encoding="utf-8"))
+          print("targets", len(report["targets"]), "tuples", len(report["tuples"]))
+          EOF
+
+      - name: Build CLI, desktop and test binary
+        if: ${{ inputs.run_tests }}
+        shell: bash
+        run: cmake --build source/build --target acecode acecode-desktop acecode_unit_tests
+
+      - name: Build CLI and desktop
+        if: ${{ !inputs.run_tests }}
+        shell: bash
+        run: cmake --build source/build --target acecode acecode-desktop
+
+      - name: Validate bundled models.dev registry
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ./source/build/acecode.exe --validate-models-registry
+          else
+            ./source/build/acecode --validate-models-registry
+          fi
+
+      - name: Run full gtest inventory
+        if: ${{ inputs.run_tests }}
+        shell: bash
+        run: |
+          python scripts/refactor/gtest_inventory.py \
+            --binary "${{ matrix.test_binary }}" \
+            --run \
+            --ctest-dir source/build \
+            --timeout 5400 \
+            --output out/gtest.json
+          python - <<'EOF'
+          import json
+          report = json.load(open("out/gtest.json", encoding="utf-8"))
+          actual = report.get("actual_results") or {}
+          print("listed", len(report["tests"]),
+                "executed", len(actual.get("executed", [])),
+                "skipped", len(actual.get("skipped", [])),
+                "failures", len(actual.get("failures", [])),
+                "ctest", len(report.get("ctest_names") or []),
+                "exit", report.get("run_exit_code"))
+          for failure in actual.get("failures", []):
+              print("FAIL", failure["name"])
+          EOF
+
+      - name: Capture lint baselines
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p out/lint
+          python scripts/layers/check_layers.py --repo source --output out/lint/layers.json
+          python scripts/layers/check_file_size.py --repo source --output out/lint/size.json
+          python scripts/layers/check_ownership.py --repo source --output out/lint/ownership.json
+          python scripts/refactor/check_doc_paths.py --repo source --output out/lint/doc-paths.json
+          python scripts/refactor/normalize_includes.py --repo source --check --scope src --output out/lint/includes-src.json || true
+          python scripts/refactor/normalize_includes.py --repo source --check --scope tests --output out/lint/includes-tests.json || true
+
+      - name: Upload snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refactor-matrix-${{ inputs.label }}-${{ matrix.id }}
+          path: out
+          if-no-files-found: error
+
+  deepin-configure:
+    name: linux-deepin-x64 (configure + build)
+    if: ${{ inputs.include_deepin }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    container:
+      image: buildpack-deps:buster
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      VCPKG_BINARY_SOURCES: clear;default,readwrite
+      VCPKG_FORCE_SYSTEM_BINARIES: 1
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          submodules: recursive
+
+      - name: Install Deepin build dependencies
+        shell: bash
+        run: |
+          sed -i \
+            -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+            -e 's|http://security.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
+            -e 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
+            /etc/apt/sources.list
+          printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99no-check-valid-until
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            binutils build-essential ca-certificates curl file git ninja-build perl \
+            pkg-config python3 python3-pip tar unzip zip \
+            libgtk-3-dev libwebkit2gtk-4.0-dev libx11-dev \
+            qtbase5-dev qtbase5-private-dev qttools5-dev-tools qtmultimedia5-dev \
+            libqt5x11extras5-dev libqt5svg5-dev libgsettings-qt-dev \
+            libstartup-notification0-dev libxcb-util0-dev libmtdev-dev \
+            libegl1-mesa-dev libudev-dev libxi-dev libcups2-dev librsvg2-dev
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.29.x'
+
+      - name: Build pinned DTK 5 SDK
+        shell: bash
+        run: |
+          sdk_prefix="$RUNNER_TEMP/acecode-dtk-sdk"
+          bash scripts/build_deepin_dtk_sdk.sh "$sdk_prefix" "$RUNNER_TEMP/acecode-dtk-build"
+          printf 'CMAKE_PREFIX_PATH=%s\n' "$sdk_prefix" >> "$GITHUB_ENV"
+          printf 'PKG_CONFIG_PATH=%s/lib/pkgconfig\n' "$sdk_prefix" >> "$GITHUB_ENV"
+          printf 'LD_LIBRARY_PATH=%s/lib\n' "$sdk_prefix" >> "$GITHUB_ENV"
+
+      - name: Run vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-v3-deepin-buster-ubuntu-22.04-x64-linux-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
+          restore-keys: |
+            vcpkg-v3-deepin-buster-ubuntu-22.04-x64-linux-
+
+      - name: Write CMake File API query
+        shell: bash
+        run: |
+          mkdir -p build/.cmake/api/v1/query
+          : > build/.cmake/api/v1/query/codemodel-v2
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_SKIP_BUILD_RPATH=ON \
+            -DACECODE_BUILD_DESKTOP=ON \
+            -DACECODE_DEEPIN=ON \
+            -DWEBVIEW_WEBKITGTK_API=4.0
+
+      - name: Build CLI and desktop
+        shell: bash
+        run: cmake --build build --config MinSizeRel --target acecode acecode-desktop
+
+      - name: Collect File API reply and provenance
+        shell: bash
+        run: |
+          mkdir -p out/fileapi
+          cp -R build/.cmake/api/v1/reply out/fileapi/reply
+          cat > out/provenance.json <<EOF
+          {
+            "schema": 1,
+            "platform": "linux-deepin-x64",
+            "runner_os": "Linux",
+            "runner_image": "ubuntu-22.04 / buildpack-deps:buster",
+            "label": "${{ inputs.label }}",
+            "source_ref_input": "${{ inputs.source_ref }}",
+            "source_revision": "$(git rev-parse HEAD)",
+            "tools_revision": "${{ github.sha }}",
+            "workflow_run_id": "${{ github.run_id }}",
+            "run_tests": false,
+            "cmake_version": "$(cmake --version | head -n 1)",
+            "generator": "Ninja",
+            "build_type": "MinSizeRel",
+            "triplet": "x64-linux",
+            "cmake_extra_args": "-DCMAKE_SKIP_BUILD_RPATH=ON -DACECODE_BUILD_DESKTOP=ON -DACECODE_DEEPIN=ON -DWEBVIEW_WEBKITGTK_API=4.0",
+            "build_testing": false,
+            "vcpkg_manifest_features": ""
+          }
+          EOF
+
+      - name: Upload File API reply
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refactor-matrix-${{ inputs.label }}-linux-deepin-x64-fileapi
+          path: out
+          if-no-files-found: error
+
+  deepin-snapshot:
+    name: linux-deepin-x64 (snapshot)
+    needs: deepin-configure
+    if: ${{ inputs.include_deepin }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout refactor tools (workflow ref)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download File API reply
+        uses: actions/download-artifact@v4
+        with:
+          name: refactor-matrix-${{ inputs.label }}-linux-deepin-x64-fileapi
+          path: deepin
+
+      - name: Convert reply into target snapshot
+        shell: bash
+        run: |
+          mkdir -p deepin-build/.cmake/api/v1 out
+          cp -R deepin/fileapi/reply deepin-build/.cmake/api/v1/reply
+          python scripts/refactor/cmake_target_snapshot.py --build-dir deepin-build --output out/targets.json
+          cp deepin/provenance.json out/provenance.json
+          cp -R deepin/fileapi out/fileapi
+          python - <<'EOF'
+          import json
+          report = json.load(open("out/targets.json", encoding="utf-8"))
+          print("targets", len(report["targets"]), "tuples", len(report["tuples"]))
+          EOF
+
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: refactor-matrix-${{ inputs.label }}-linux-deepin-x64
+          path: out
+          if-no-files-found: error
