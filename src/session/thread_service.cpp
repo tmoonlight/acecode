@@ -9,9 +9,9 @@
 #include "thread_repair.hpp"
 #include "llm/message_predicates.hpp"
 #include "llm/token_estimate.hpp"
-#include "config/config.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>

@@ -186,7 +186,7 @@
 #include "session/session_storage.hpp"
 #include "session/compact_notice.hpp"
 #include "history/input_history_store.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 
 #include <cstdio>
 #include <limits>

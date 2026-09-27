@@ -1,7 +1,7 @@
 #include "cdp_client.hpp"
 
 #include "platform/process/os_process.hpp"
-#include "desktop/agent_browser_runtime.hpp"
+#include "ipc/agent_browser_runtime.hpp"
 #include "utils/encoding.hpp"
 
 #include <algorithm>

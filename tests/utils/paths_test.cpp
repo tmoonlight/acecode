@@ -11,7 +11,6 @@
 
 #include <gtest/gtest.h>
 
-#include "config/config.hpp"
 #include "utils/paths.hpp"
 
 #include <string>

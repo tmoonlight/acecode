@@ -9,7 +9,7 @@
 #include "permissions.hpp"
 #include "config/request_headers.hpp"
 #include "config/settings_mutations.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "network/proxy_resolver.hpp"
 #include "provider/auth/github_auth.hpp"
 #include "session/session_storage.hpp"

@@ -1,6 +1,6 @@
 #include "global_session_catalog.hpp"
 
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "utils/cwd_hash.hpp"
 #include "utils/utf8_path.hpp"
 

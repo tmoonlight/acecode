@@ -225,22 +225,22 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/provider/builtin_model_catalog.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/process/os_process_posix.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/process/os_process_windows.cpp
-    ${CMAKE_SOURCE_DIR}/src/daemon/runtime_files.cpp
+    ${CMAKE_SOURCE_DIR}/src/ipc/runtime_files.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/native_ui/custom_toast.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/native_ui/custom_toast_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_navigation_state.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_page_directory.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_runtime.cpp
+    ${CMAKE_SOURCE_DIR}/src/ipc/agent_browser_runtime.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/context_items.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/native_ui/context_picker.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/native_ui/folder_picker_win.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/locale.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/native_ui/notifications.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/open_request.cpp
+    ${CMAKE_SOURCE_DIR}/src/ipc/open_request.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/native_ui/open_in_explorer.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/startup_progress.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/native_ui/strings.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/workspace_registry.cpp
+    ${CMAKE_SOURCE_DIR}/src/workspace/workspace_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/append_file.cpp
     ${CMAKE_SOURCE_DIR}/src/platform/clipboard.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/cwd_hash.cpp
@@ -393,7 +393,7 @@ if(APPLE)
     )
 elseif(WIN32)
     # advapi32: restrictive ACL writes in utils/atomic_file.hpp.
-    # ws2_32: daemon/runtime_files.cpp port probes.
+    # ws2_32: ipc/runtime_files.cpp port probes.
     # ole32/shell32/user32: native folder picker and clipboard integration.
     # gdi32/msimg32: the self-drawn toast renderer (layered window + GDI).
     # winmm: PlaySound for the self-drawn toast.

@@ -24,7 +24,7 @@
 //
 // 纯逻辑(校验、排除规则、阈值)不依赖 web 层,进 acecode_testable 单测。
 
-#include "daemon/runtime_files.hpp"
+#include "ipc/runtime_files.hpp"
 #include "utils/paths.hpp"
 
 #include <atomic>

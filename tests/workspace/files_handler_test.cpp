@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "web/handlers/files_handler.hpp"
+#include "workspace/files_handler.hpp"
 #include "utils/encoding.hpp"
 
 #include <algorithm>

@@ -2,7 +2,7 @@
 #include "cli.hpp"
 
 #include "platform/process/os_process.hpp"
-#include "runtime_files.hpp"
+#include "ipc/runtime_files.hpp"
 #include "startup_diagnostics.hpp"
 #include "worker.hpp"
 #include "cli/interactive_options.hpp"

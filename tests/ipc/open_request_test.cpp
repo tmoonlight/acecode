@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "desktop/open_request.hpp"
+#include "ipc/open_request.hpp"
 
 #include <cstdint>
 #include <filesystem>

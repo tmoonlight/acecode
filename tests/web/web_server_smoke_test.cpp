@@ -32,7 +32,7 @@
 #include "config/saved_models_revision.hpp"
 #include "permissions.hpp"
 #include "desktop/daemon_supervisor.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_manager.hpp"
 #include "loop/loop_store.hpp"

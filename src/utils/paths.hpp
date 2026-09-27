@@ -103,7 +103,7 @@ void log_deferred_data_dir_resolution_warning();
 // 的解析告警,避免跨测试污染。
 void reset_data_dir_cache_for_test();
 
-// 进程级 run/ 目录覆盖。非空时 config::get_run_dir() 直接返回这个,而不再
+// 进程级 run/ 目录覆盖。非空时 get_run_dir() 直接返回这个,而不再
 // 用 <data_dir>/run/ 默认。
 //
 // 用途: desktop 多 workspace 模式下,每个 workspace 的 daemon 必须有独立的
@@ -118,6 +118,17 @@ void reset_data_dir_cache_for_test();
 // 空字符串 = 清除 override。线程安全(内部加锁)。
 void set_run_dir_override(const std::string& path);
 std::string get_run_dir_override();
+
+// ── 数据目录快捷函数(原 config.hpp,refactor20260927 P2-04 移到这里;运行期行为不变)
+// Get the path to ~/.acecode/ directory
+std::string get_acecode_dir();
+
+// Get the path to ~/.acecode/run/ (creates it if missing on first call site —
+// callers are responsible for filesystem::create_directories when needed).
+std::string get_run_dir();
+
+// Get the path to ~/.acecode/logs/ (callers handle create_directories).
+std::string get_logs_dir();
 
 // === 测试专用 helper(只在测试代码用,生产路径不应调) ===
 

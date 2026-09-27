@@ -1,9 +1,9 @@
 #include "runtime.hpp"
-#include "config/config.hpp"
 #include "platform/process/os_process.hpp"
 #include "remote_control/remote_control_service.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <crow.h>

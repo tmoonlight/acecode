@@ -152,7 +152,7 @@
     - lint 显示 provider↔session、provider↔tool、provider↔pa 三个环消失;
     - `system_prompt.cpp` 对 compact.hpp 的无用 include 已删除;
     - byte-stable 用例与 tool_preamble 测试通过。
-- [ ] 3.2 【P2-03】【子】【并】平台件下沉到 `platform/` 与 `pty/`,对应 layout-map.md §2 中标 P2-03 的行。〔认领: Claude-p2-03 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕
+- [x] 3.2 【P2-03】【子】【并】平台件下沉到 `platform/` 与 `pty/`,对应 layout-map.md §2 中标 P2-03 的行。〔认领: Claude-p2-03 2026-09-27〕〔接手: Codex-root 2026-09-28,用户确认原 Claude 任务及子任务已停止〕〔验收: Codex-root 2026-09-28,PR #79 已合入;四平台复核见 verification/P2-03-platform-and-pty.md §8〕
   - `hooks/hook_runner` → `platform/process/process_runner`(ProcessSpec,hooks 保留别名);
   - `lsp_process` → `piped_process`,`lsp_which` → `which`;
   - `daemon/platform*` → `os_process*`;

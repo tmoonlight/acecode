@@ -1,7 +1,7 @@
 #include "agent_browser_host.hpp"
 
 #include "agent_browser_navigation_state.hpp"
-#include "agent_browser_runtime.hpp"
+#include "ipc/agent_browser_runtime.hpp"
 #include "window_chrome.hpp"
 
 #include "platform/process/os_process.hpp"

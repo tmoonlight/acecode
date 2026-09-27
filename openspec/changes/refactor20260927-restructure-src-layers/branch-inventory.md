@@ -40,6 +40,23 @@ python scripts/refactor/normalize_includes.py --scope tests
 
 脚本只改引号内的路径,分支上新增的文件同样会被改写;分支里引用 7 个 helper 头的 include 会随 `src_layout_map.tsv` 的 P1-01 行自动改到新位置。P1-02 起 `layer-lint` 作业阻断 `../` include,没跑脚本的分支 CI 会直接失败。P2-09 的 `migrate_branch.py --apply-map` 内置同一套 include 解析,走 patch 迁移路线的分支不需要单独处理。
 
+## P2-04 公告(2026-09-27)
+
+master 合入 P2-04 后,下列文件已从 daemon / desktop / web 移到冻结前的过渡模块目录(P3 再整体挂到 `src/base/` 下)。按 D24(2026-09-27),旧路径**不留转发头**,`.hpp` / `.cpp` 都直接不存在了,分支里对旧路径的 include 只能靠下面的脚本改写:
+
+| 旧路径 | 新路径 | include 写法 |
+|---|---|---|
+| `src/daemon/runtime_files.{hpp,cpp}`、`src/daemon/guid.hpp` | `src/ipc/` | `"ipc/runtime_files.hpp"`、`"ipc/guid.hpp"` |
+| `src/desktop/{open_request,agent_browser_runtime}.{hpp,cpp}`、`src/desktop/daemon_protocol.hpp` | `src/ipc/` | `"ipc/open_request.hpp"` 等 |
+| `src/desktop/workspace_registry.{hpp,cpp}` | `src/workspace/` | `"workspace/workspace_registry.hpp"` |
+| `src/web/handlers/files_handler.{hpp,cpp}` | `src/workspace/` | `"workspace/files_handler.hpp"` |
+| `tests/daemon/runtime_files_test.cpp`、`tests/desktop/{agent_browser_runtime,open_request}_test.cpp` | `tests/ipc/` | — |
+| `tests/desktop/workspace_registry_test.cpp`、`tests/web/files_handler_test.cpp` | `tests/workspace/` | — |
+
+另外 `get_acecode_dir()` / `get_run_dir()` / `get_logs_dir()` 的声明从 `config/config.hpp` 移到 `utils/paths.hpp`(namespace 仍是 `acecode`,`config.hpp` 透传 include,老写法照常编译);只为这三个函数 include `config/config.hpp` 的文件请改为 include `utils/paths.hpp`。`ACECODE_NATIVE_BRIDGE_SOURCES` 里四行路径已改。
+
+分支在 rebase 之前先运行 P1-01 公告里的同一个脚本(`normalize_includes.py --scope src` / `--scope tests`),它会按 `src_layout_map.tsv` 的 P2-04 行把旧模块根写法与旧目录里的同目录裸名一并改到新位置;分支里新增的、引用这些头的文件同样会被改写。走 patch 迁移路线的分支由 `migrate_branch.py --apply-map` 内置同一套解析处理。
+
 ## 复现与验收
 
 在包含 P0-03 工具的 checkout 中运行：

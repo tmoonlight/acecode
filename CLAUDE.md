@@ -259,7 +259,7 @@ Rewind support uses per-user-turn checkpoints. `SessionManager::track_file_write
 - **父目录 mtime 不能替代子目录 mtime。** 在已有 hash 目录里新建 `workspace.json` 不会改 `projects_dir` 的 mtime,只会改那个 hash 目录的。所以缓存键必须是每个 hash 目录自己的时间戳。
 - **写路径主动失效。** `register_new` / `set_name` / `hide` 都 `dir_probes_.erase(hash)`。写盘走 atomic_file 的 tmp+rename、rename 本就会推进目录 mtime,这层只是不把可见性正确性押在文件系统的时间戳行为上。
 
-回归测试:`tests/desktop/workspace_registry_test.cpp` 的 `WorkspaceRegistryProbeCache.*`(其中 `MarkerAddedLaterIsStillPickedUp` 就是负缓存不能挡住后补 marker 的哨兵)+ `web/src/lib/sidebarAuxiliaryFetch.test.js`。
+回归测试:`tests/workspace/workspace_registry_test.cpp` 的 `WorkspaceRegistryProbeCache.*`(其中 `MarkerAddedLaterIsStillPickedUp` 就是负缓存不能挡住后补 marker 的哨兵)+ `web/src/lib/sidebarAuxiliaryFetch.test.js`。
 
 Daemon session multiplexing uses `SessionRegistry`. Each session entry owns its own `SessionManager`, `PermissionManager`, `AgentLoop`, async permission prompter, and question prompter. `EventDispatcher` gives each emitted event a monotonic sequence number and keeps a bounded replay ring.
 
@@ -307,7 +307,7 @@ The desktop shell runs a webview against workspace-local daemon processes. It do
 
 Key modules:
 
-- `workspace_registry`: persisted workspace list and names.
+- `workspace_registry` (lives in `src/workspace/workspace_registry.{hpp,cpp}` since refactor20260927 P2-04; shared with daemon, TUI and headless): persisted workspace list and names.
 - `daemon_pool`: per-workspace daemon process management.
 - `web_host`: native webview wrapper and bridge binding.
 - `tray_icon_win` and `notifications_win`: Windows tray and notification integration (`notifications*` and `custom_toast*` now live in `src/platform/native_ui/`, refactor20260927 P2-03).
@@ -554,7 +554,7 @@ SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-pane
 | `GET /api/history?cwd=&max=` / `POST /api/history` | per-cwd 输入历史,与 TUI 共享同一份 `<cwd_hash>/input_history.jsonl`,经 `InputHistoryStore::append` atomic rename |
 | `PUT /api/skills/:name` body `{enabled}` / `GET /api/skills/:name/body` | 启停切换 + 查看 SKILL.md;PUT 写 `cfg.skills.disabled` 数组并 `save_config` + `SkillRegistry::reload` |
 | `GET /api/files?cwd=&path=&show_hidden=` → `[{name,path,kind,size?,modified_ms?}]` | SidePanel 文件 tab 的 lazy 文件树。`cwd` 必须 ∈ `{deps.cwd}` 白名单;`path` 走 `weakly_canonical(cwd/path)` + prefix 检查防越权。硬编码 noise 黑名单(.git/node_modules/dist/build/__pycache__/.venv/venv/target/.next/.cache)始终过滤。隐藏文件(dot 开头)默认过滤,`show_hidden=1` 透出 |
-| `GET /api/files/content?cwd=&path=` → `text/plain; charset=utf-8` body | SidePanel 预览 tab 读文件原文。> 5MB → 415 `{error:"file too large",size:N}`;前 512 字节出现 `\0` → 415 `{error:"binary"}`;不存在 → 404。实现:`src/web/handlers/files_handler.{hpp,cpp}`(纯函数,17 个 unit test 覆盖路径越权 / 噪音过滤 / 排序 / 二进制嗅探) |
+| `GET /api/files/content?cwd=&path=` → `text/plain; charset=utf-8` body | SidePanel 预览 tab 读文件原文。> 5MB → 415 `{error:"file too large",size:N}`;前 512 字节出现 `\0` → 415 `{error:"binary"}`;不存在 → 404。实现:`src/workspace/files_handler.{hpp,cpp}`(D21 从 web 移出,纯函数,17 个 unit test 覆盖路径越权 / 噪音过滤 / 排序 / 二进制嗅探) |
 | `GET /api/commands?workspace=<hash>` → `{builtins:[{name,description}][, skills:[{name,description}]]}` | InputBar 斜杠下拉的命令清单。builtins **硬编码白名单 = init + compact**(描述与 TUI `register_builtin_commands` / `register_init_command` 对齐)。**`workspace` 参数(由 `expand-webui-skill-commands` 引入)**:缺省 → 不返回 `skills` 字段(向后兼容旧客户端);提供 → handler 用 `acecode::initialize_skill_registry(tmp, *cfg, workspace_cwd)` 临时构造一个 SkillRegistry 扫该 workspace 的项目链(`.agent/skills`、`.acecode/skills` + 全局 + external_dirs),与 daemon 全局 SkillRegistry 合并(workspace local 优先,first-wins by name),按字典序输出 skills 字段。`/init` `/compact` 在 web 端选中后只插入输入框 + chip 高亮,daemon 端**不**做特殊执行(原 add-webui-slash-commands 决策);`/<skill-name> args` 由下面新加的 expander 真展开。实现:`src/web/handlers/commands_handler.{hpp,cpp}`(纯函数 `build_commands_payload` + gtest case)|
 | `POST /api/sessions/:id/messages`(行为扩展) | `expand-webui-skill-commands` 引入:在 `send_input` 之前调 `try_expand_skill_command(text, registry)`(`src/web/handlers/skill_command_expander.{hpp,cpp}`)。命中已知 skill 名(按 session 的 workspace cwd 临时 scan)→ text 被替换为 `build_skill_invocation_hint(meta, args)` 的**轻量提示**:`[SYSTEM: User invoked /<name> skill] + Description + Use skill_view(name=...) to load full SKILL.md + User's request: <args>`。**不**注入 SKILL.md body / supporting_files,LLM 第一次看到提示后主动 invoke `skill_view` tool 把 SKILL.md 拉一次进 context,后续重复同名 `/skill` 调用不再注入(避免 context 膨胀)。TUI `src/skills/skill_commands.cpp::cmd.execute` 也走同一个 `build_skill_invocation_hint`,跨端行为统一。Builtin (`/init`/`/compact`) 不在 SkillRegistry 中 → 透传走普通 user message;未知命令 (`/foobar`) 同样透传。**不**新增执行端点,**不**改 AgentLoop API |
 | `POST /api/open-in-explorer` body `{path}` → `{ok:true}` / 400 `{ok:false,error}` / 501 | webapp 兼容模式(Edge --app,无 webview bridge)右键菜单「在资源管理器中打开」的 REST 通路。门控 = `WebServerDeps.open_in_explorer` 回调是否注入(worker.cpp 仅在 `native_folder_picker_enabled` 时填,复用 `desktop::open_path_in_file_manager`:接受任意现存本地绝对普通文件或目录,不做 workspace/managed-root 边界判断)。Windows 文件用 Explorer `/select` 选中,目录保持直接打开。前端 `DesktopContextMenu::openTargetInExplorer` bridge 优先、REST 兜底 |
@@ -562,7 +562,7 @@ SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-pane
 
 `SessionMeta` 增加 `forked_from` / `fork_message_id` 字段(空时省略,老 meta 文件向后兼容)。Web 上每条消息 hover 浮出 `[复制] [分叉]` actions(codex 风格);分叉成功后立刻切到新 session(同 sidebar)。
 
-handler 实现在 `src/web/handlers/{fork,models,history,skills,files}_handler.{hpp,cpp}`(纯函数,有 unit test),路由注册在 `src/web/server.cpp`。`/static/<...>` + `/` + SPA fallback 用 `CROW_CATCHALL_ROUTE` 一举处理(Crow 1.3.2 的 `<path>` 模板路由有兼容性问题)。
+handler 实现在 `src/web/handlers/{fork,models,history,skills}_handler.{hpp,cpp}` 与 `src/workspace/files_handler.{hpp,cpp}`(纯函数,有 unit test),路由注册在 `src/web/server.cpp`。`/static/<...>` + `/` + SPA fallback 用 `CROW_CATCHALL_ROUTE` 一举处理(Crow 1.3.2 的 `<path>` 模板路由有兼容性问题)。
 
 **SidePanel 「变更」tab**(redesign-sidepanel-git-changes):会话 cwd 是 git 仓库时整体切换为 **git 级视图**——`GET /api/git/changes`(numstat + name-status 按路径 join,200 条 cap + truncated 标记)列文件,单文件 diff 点击才拉(`GET /api/git/diff`,1MB cap,untracked 用 `--no-index` 合成新增 patch,diff2html 行内渲染),头部 `<branch> → <base ▾>` 只切比较基线不做 checkout(候选 = origin/<默认分支>(默认)+ HEAD)。前端缓存收口在 `web/src/lib/gitChanges.js`((cwd,base) 键 + 单文件 patch LRU 20;失效 = 回合结束 / `acecode:git-state-changed` 事件(GitSessionPill checkout 成功后广播)/ 手动刷新 / 可见且 30s 过期;面板隐藏只标脏不请求)。bash/sed/外部 IDE 的改动在 git 视图天然可见——旧「hunks 聚合抓不到 bash 改动」的 limitation 只剩**非 git 项目**(该场景保留原会话级 `lib/sessionChanges.js` 聚合视图,不变)。
 
@@ -575,7 +575,7 @@ handler 实现在 `src/web/handlers/{fork,models,history,skills,files}_handler.{
 `acecode-desktop.exe`(`-DACECODE_BUILD_DESKTOP=ON` 编出)是个 webview/webview 壳,默认管 N 个 daemon 子进程 — 每 workspace 一个独立 daemon(独立 loopback 端口 + 独立 token + 独立 Job Object)。daemon 内部代码零改动:每个 daemon 进程仍只服务自己的 `current_path()`,通过 `lpCurrentDirectory` 在 `CreateProcess` 时落地。
 
 关键模块(除注明外全在 `src/desktop/`;refactor20260927 P2-03 起 locale、folder_picker / context_picker / open_in_explorer / notifications* / custom_toast* / strings 下沉到 `src/platform/` 与 `src/platform/native_ui/`):
-- `workspace_registry.{hpp,cpp}` — 扫 `.acecode/projects/<hash>/workspace.json`(`{cwd, name}`),默认命名 = `fs::path(cwd).filename()`,行内重命名走 `set_name` 原子写。
+- `workspace_registry.{hpp,cpp}`(已移到 `src/workspace/`,refactor20260927 P2-04)— 扫 `.acecode/projects/<hash>/workspace.json`(`{cwd, name}`),默认命名 = `fs::path(cwd).filename()`,行内重命名走 `set_name` 原子写。
 - `daemon_pool.{hpp,cpp}` — `unordered_map<hash, Slot>`,per-key condvar 串行化同 hash 并发 activate;`stop_all` best-effort。`IDaemonSupervisor` 虚基类便于单测 mock。
 - `pick_active.{hpp,cpp}` — 启动选 active workspace 的纯函数:`state.json::last_active_workspace_hash` → process cwd 的 hash → registry 第一项 → 空。
 - `platform/native_ui/folder_picker_win.cpp` — `IFileOpenDialog` + `FOS_PICKFOLDERS`,COM STA。

@@ -1,9 +1,9 @@
 #include "runtime_files.hpp"
 
-#include "config/config.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/constants.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 #include "platform/process/os_process.hpp"
 

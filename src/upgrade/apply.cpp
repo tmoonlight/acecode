@@ -4,7 +4,7 @@
 #include "platform/terminal/console.hpp"
 #include "diagnostics.hpp"
 #include "package.hpp"
-#include "config/config.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <chrono>

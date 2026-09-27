@@ -9,7 +9,7 @@
 // 注意: 第 1/2 步选中的 hash 必须**仍存在于 registry**;不在 registry 的 hash
 // 视为无效(目录被删 / scan 没扫到),进入下一优先级。
 
-#include "workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 
 #include <string>
 

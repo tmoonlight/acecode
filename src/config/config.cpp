@@ -482,24 +482,6 @@ ModelProfile legacy_model_profile_from_config(const AppConfig& cfg) {
     return profile;
 }
 
-std::string get_acecode_dir() {
-    // 数据目录路径解析全部委托给 paths.cpp,RunMode 决定 User vs Service 根目录
-    // (Decision 8)。User 模式行为与历史一致 — TUI / standalone daemon 不受影响。
-    return resolve_data_dir(get_run_mode());
-}
-
-std::string get_run_dir() {
-    // desktop 多 workspace 模式下 daemon 启动时会调 set_run_dir_override,
-    // 把 run/ 切到 per-workspace 路径(避免共享 ~/.acecode/run/ 互相覆盖锁文件)。
-    auto override_path = get_run_dir_override();
-    if (!override_path.empty()) return override_path;
-    return path_to_utf8(path_from_utf8(get_acecode_dir()) / constants::SUBDIR_RUN);
-}
-
-std::string get_logs_dir() {
-    return path_to_utf8(path_from_utf8(get_acecode_dir()) / constants::SUBDIR_LOGS);
-}
-
 std::vector<std::string> validate_config(const AppConfig& cfg) {
     std::vector<std::string> errors;
     if (cfg.web.port < 1 || cfg.web.port > 65535) {

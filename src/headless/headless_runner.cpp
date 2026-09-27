@@ -10,7 +10,7 @@
 
 #include "config/config.hpp"
 #include "daemon/mcp_runtime.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
 #include "lsp/lsp_service.hpp"

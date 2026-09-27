@@ -63,7 +63,7 @@ daemon slot 已启动,并向 daemon `POST /api/workspaces` 注册 cwd,返回同�
 
 | 路径 | 作用 |
 |---|---|
-| `src/desktop/workspace_registry.{hpp,cpp}` | 扫盘 / 读写 `workspace.json` / 默认命名 |
+| `src/workspace/workspace_registry.{hpp,cpp}` | 扫盘 / 读写 `workspace.json` / 默认命名 |
 | `src/desktop/daemon_pool.{hpp,cpp}` | 通用进程池;Desktop 当前只使用 `__shared_daemon__/default` slot |
 | `src/desktop/daemon_supervisor.{hpp,cpp}` | 单 daemon 子进程托管(spawn / probe / stop / Job Object)。提了 `IDaemonSupervisor` 虚基类便于单测 mock |
 | `src/platform/native_ui/folder_picker_win.cpp` | `IFileOpenDialog` 包装 |

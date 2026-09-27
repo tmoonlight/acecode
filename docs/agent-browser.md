@@ -223,7 +223,7 @@ macOS 的交互工具（click/fill/type/press/hover/drag/scroll）额外暴露
 - 公共 native host API：`src/desktop/agent_browser_host.hpp`
 - Windows WebView2 host：`src/desktop/agent_browser_host.cpp`
 - macOS WKWebView host：`src/desktop/agent_browser_host_mac.mm`
-- runtime manifest 与 URL policy：`src/desktop/agent_browser_runtime.{hpp,cpp}`
+- runtime manifest 与 URL policy：`src/ipc/agent_browser_runtime.{hpp,cpp}`
 - 鉴权代理 client：`src/tool/agent_browser/cdp_client.{hpp,cpp}`
 - 工具 schema/动作：`src/tool/agent_browser/browser_tools.{hpp,cpp}`
 
