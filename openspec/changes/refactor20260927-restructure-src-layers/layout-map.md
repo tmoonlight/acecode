@@ -17,7 +17,7 @@
 | `src/agent_loop.{hpp,cpp}` | `src/engine/agent/agent_loop.{hpp,cpp}` | P2-08 先 R100 移到 `src/agent/`;P3 挂到 engine/ | 之后由 split-agent-loop 拆分 |
 | `src/agent_loop_doom_guard.{hpp,cpp}` | `src/engine/agent/guards/doom_guard.{hpp,cpp}` | P2-08 | |
 | `src/agent_loop_shell_guard.hpp` | `src/domain/permissions/shell_write_guard.hpp` | P2-05 | 与 `sandbox/command_classifier.cpp:919` 分词器的合并放二期 |
-| `src/permissions.hpp` | `src/domain/permissions/permissions.hpp` + `src/base/config/vocab/permission_mode.hpp` | P2-05 | 28-54 行的枚举与 304-350 行的模式名规范化拆到 vocab;`config.cpp:3`、`settings_mutations.cpp:2`、`exec_decision.hpp:12` 改用 vocab;tests 中 38 处裸 include 改为 `permissions/permissions.hpp` |
+| `src/permissions.hpp` | `src/domain/permissions/permissions.hpp` + `src/base/config/vocab/permission_mode.hpp` | P2-05 | 28-54 行的枚举与 304-350 行的模式名规范化拆到 vocab(自由函数 `permission_mode_name` / `parse_permission_mode_name` / `canonical_permission_mode_name`,`PermissionManager` 的三个静态入口改为转发);`config.cpp:3`、`settings_mutations.cpp:2`、`exec_decision.hpp:12` 改用 vocab;tests 中 38 处裸 include 改为 `permissions/permissions.hpp` |
 | `src/tui_state.hpp` | `src/apps/tui/tui_state.hpp` | P2-08 | tests 中 7 处裸 include 同步改 |
 | `src/main.cpp` | `src/apps/cli/main.cpp` | P2-08 先 R100 移到 `src/cli/main.cpp`;P3 挂到 apps/ | 之后由 split-tui-main 拆分 |
 | `src/version.hpp.in` | `cmake/version.hpp.in` | P2-08 | 生成名 `generated/version.hpp` 不变;`upgrade/version` 同时改名为 `utils/semver`,消除同名遮蔽 |
@@ -28,14 +28,14 @@
 |---|---|---|---|
 | `src/utils/` | `src/base/utils/` | P3 | 例外见下面几行 |
 | `src/utils/{file_operations,tool_errors,tool_args_parser}.hpp` | `src/adapters/tool/` | P2-05 | 切断 utils→tool(`file_operations.hpp:4-5`、`tool_errors.hpp:3`) |
-| `src/utils/text_file_buffer.{hpp,cpp}` | `base/utils/text_file_buffer.*`(只留纯编解码)+ `adapters/tool/safe_text_write.*` | P2-05 | `safe_write_text_file`、MCP 配置拦截(cpp:847-852)、带工具名的文案(631/684/707/779)上移;`web/routes/routes_files.cpp:325` 只改调用点(D21) |
+| `src/utils/text_file_buffer.{hpp,cpp}` | `base/utils/text_file_buffer.*`(只留纯编解码)+ `adapters/tool/{safe_text_write,text_file_errors}.*` | P2-05 | `safe_write_text_file`、MCP 配置拦截与带工具名的四处报错文案上移;底层返回结构化编码错误,工具层统一补充原有报错提示并使用当前工具名映射。Web 路由只调整 include 与调用点(D21),保留原有报错行为;通用原始字节 IO 供安全写复用 |
 | `src/utils/token_tracker.{hpp,cpp}` | `src/domain/session/` | P2-05 | |
-| `src/utils/{models_dev_catalog.*,model_capabilities.cpp}` | `src/base/config/` + `src/adapters/provider/models_dev_catalog_cache.*` | P2-05 | cpp 212-277、343 行依赖 registry 的部分上移,断开 config→provider→utils→provider→config 的环 |
+| `src/utils/{models_dev_catalog.*,model_capabilities.cpp}` | `src/base/config/` + `src/adapters/provider/models_dev_catalog_cache.*` | P2-05 | cpp 212-277、343 行依赖 registry 的部分上移,断开 config→provider→utils→provider→config 的环。执行中发现头里声明的 `provider_catalog_snapshot` 从未定义也无人调用,随拆分删除 |
 | `src/utils/path_validator.hpp` | `src/domain/permissions/path_validator.hpp` | P2-05 | |
 | `src/utils/{clipboard,open_url,power_inhibitor}.*` | `src/base/platform/` | P2-03 | |
 | `src/utils/{terminal_capability.*,terminal_theme_detect*,terminal_title.*,terminal_input.hpp}` | `src/base/platform/terminal/` | P2-03 | `terminal_title` 的 `sanitize_title` 在 P2-07 拆到 `domain/session/session_title_text` |
 | `src/utils/{drag_scroll,text_input_ops}.*` | `src/apps/tui/` | P2-08 | 登记进 `ACECODE_TUI_TESTABLE_SUBSETS` |
-| `src/utils/state_file.*` | `src/base/utils/`(只留通用部分) | P2-05 | 5 组专用函数搬回各自使用方,切断 `state_file.hpp:3 → config/saved_models` |
+| `src/utils/state_file.*` | `src/base/utils/`(只留通用部分) | P2-05 | 五组专用函数全部归位(用户 2026-09-28 确认):模型探测缓存 → `provider/model_probe_cache`;搜索地区缓存 → `tool/web_search/region_cache`;两个桌面 workspace hash → `desktop/workspace_state`;TUI 斜杠命令用量 → `tui/slash_command_usage`。底层只提供通用读写、锁与同步原子更新;沿用现有 JSON 字段、容错和写失败语义,不延期 |
 | (新增)`joining_thread`、`lifetime_token`、`scope_exit`、`abandonable_call`、`abort_signal` | `src/base/utils/` | P2-01(属 adopt-ownership-conventions) | 必须在 P3 之前合入 |
 | `src/tool/{diff_utils,word_diff,diff_view_truncate}.*` | `src/base/utils/` | P2-02 | |
 | `src/skills/frontmatter.*` | `src/base/utils/` | P2-06 | memory→skills 边随之消失 |

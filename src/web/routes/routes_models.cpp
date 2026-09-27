@@ -5,6 +5,7 @@
 #include "config/settings_mutations.hpp"
 #include "provider/models_dev_registry.hpp"
 #include "config/models_dev_catalog.hpp"
+#include "provider/models_dev_catalog_cache.hpp"
 
 #include <cstdlib>
 

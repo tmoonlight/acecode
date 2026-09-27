@@ -6,6 +6,7 @@
 #include "config/builtin_model_catalog.hpp"
 #include "tool/mcp_manager.hpp"  // /api/mcp/toggle 运行时 enable/disable
 #include "utils/state_file.hpp"
+#include "provider/model_probe_cache.hpp"
 #include "upgrade/diagnostics.hpp"
 
 #include <algorithm>

@@ -148,6 +148,7 @@
 #include "utils/terminal_capability.hpp"
 #include "utils/open_url.hpp"
 #include "utils/state_file.hpp"
+#include "tui/slash_command_usage.hpp"
 #include "tui/slash_dropdown.hpp"
 #include "tui/path_reference_dropdown.hpp"
 #include "tui/path_reference_input.hpp"

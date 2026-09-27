@@ -6,7 +6,8 @@
 #include "utils/logger.hpp"
 #include "tool/tool_args_parser.hpp"
 #include "tool/tool_errors.hpp"
-#include "utils/text_file_buffer.hpp"
+#include "tool/text_file_errors.hpp"
+#include "tool/safe_text_write.hpp"
 #include "utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>
 #include <exception>
@@ -43,7 +44,7 @@ static ToolResult execute_file_write(const std::string& arguments_json, const To
     std::string old_content;
     TextFileMetadata write_metadata = default_new_file_text_metadata();
     if (file_exists) {
-        auto read_result = read_text_file_buffer(file_path);
+        auto read_result = with_text_file_tool_errors(read_text_file_buffer(file_path, false));
         if (!read_result.success) {
             auto metadata = MtimeTracker::instance().read_metadata(file_path);
             if (metadata && metadata->lossy) {

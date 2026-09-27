@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -44,23 +43,27 @@ struct TextFileBuffer {
     TextFileMetadata metadata;
 };
 
+// Encoding failures that callers can supplement with recovery instructions.
+enum class TextFileError {
+    None,
+    AmbiguousUtf8Bom,
+    DamagedUtf8,
+    UnknownEncoding,
+    LossyWrite
+};
+
 struct TextBufferResult {
     bool success = false;
     TextFileBuffer buffer;
     std::string error;
+    TextFileError error_kind = TextFileError::None;
 };
 
 struct TextEncodeResult {
     bool success = false;
     std::string bytes;
     std::string error;
-};
-
-struct TextSafeWriteResult {
-    bool success = false;
-    std::string error;
-    bool rolled_back = false;
-    bool rollback_failed = false;
+    TextFileError error_kind = TextFileError::None;
 };
 
 std::string text_encoding_label(TextEncoding encoding);
@@ -83,11 +86,9 @@ TextEncodeResult encode_text_for_write(const std::string& lf_text,
                                        const TextFileMetadata& metadata);
 
 TextFileMetadata default_new_file_text_metadata();
-TextSafeWriteResult safe_write_text_file(
-    const std::string& path,
-    const std::string& lf_text,
-    const TextFileMetadata& metadata,
-    const std::function<void(const std::string& path)>& before_write = {});
+// Raw byte IO; failures report the affected path in error.
+bool read_file_bytes(const std::string& path, std::string& out, std::string& error);
+bool write_file_bytes(const std::string& path, const std::string& bytes, std::string& error);
 
 std::vector<std::string> split_lf_lines_preserve_empty(const std::string& lf_text);
 std::string line_range_content(const std::string& lf_text,

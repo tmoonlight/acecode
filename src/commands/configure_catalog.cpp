@@ -1,4 +1,5 @@
 #include "configure_catalog.hpp"
+#include "provider/models_dev_catalog_cache.hpp"
 
 #include "configure_picker.hpp"
 #include "config/builtin_model_catalog.hpp"

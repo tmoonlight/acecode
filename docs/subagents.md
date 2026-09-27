@@ -44,7 +44,7 @@
   的系统提示写明 worktree 归父会话所有;`EnterWorktree` / `ExitWorktree` 对继承者一律拒绝。
 - **写边界**:`AgentLoop::write_root()` 非空(会话 worktree > LOOP 策略 > 继承的根)时,Yolo
   不再免除路径校验 —— 写工具指向边界之外报 `Write boundary blocked`,bash 里可证明的写
-  目标同样被拦(`agent_loop_shell_guard.hpp`);file_read 与只读工具仍可读任何位置;
+  目标同样被拦(`permissions/shell_write_guard.hpp`);file_read 与只读工具仍可读任何位置;
   dangerous 模式整体放行。曾经这条边界只挂在 LOOP 主会话上,子会话继承了 Yolo 却不继承
   LOOP 身份,于是"起了 worktree 但子代理在主 checkout 里改东西"。
 - **主 checkout 监视**(事后兜底):父会话在 worktree 里时,spawn 记下主 checkout 的

@@ -157,7 +157,7 @@ On Linux desktop builds, install the WebKitGTK development package before config
 
 `src/lsp/` is a process-local LSP client pool. Queries and post-edit diagnostics must use the session cwd from `ToolContext`, not the daemon process cwd, and must `weakly_canonical` paths before workspace-boundary or slot-key compares. Servers are detected from PATH / the project; ACECode never downloads language servers.
 
-Permission modes live in `src/permissions.hpp`: `Default` (prompt writes/exec), `AcceptEdits` (auto-allow file writes, still prompt shell), `Yolo` (auto-allow tools), and `Plan` (explore / write only the active plan file). Memory writes stay path-locked even under broader modes. Non-loopback `--dangerous` is rejected.
+Permission modes live in `src/permissions/permissions.hpp`: `Default` (prompt writes/exec), `AcceptEdits` (auto-allow file writes, still prompt shell), `Yolo` (auto-allow tools), and `Plan` (explore / write only the active plan file). Memory writes stay path-locked even under broader modes. Non-loopback `--dangerous` is rejected.
 
 Other shared subsystems that are easy to miss: `src/gitinfo/` (prompt + REST git snapshots), `src/hooks/` (Codex-compatible lifecycle hooks), `src/web/pty/` (console dock; `/api/pty` and `/ws/pty` are loopback-only), `src/loop/` (scheduled loop tasks), `src/experts/`, and `src/remote_control/`.
 

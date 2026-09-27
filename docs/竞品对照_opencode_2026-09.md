@@ -241,5 +241,5 @@ E1 OpenAPI ──→ E2 ACP / E4 VS Code / SDK
 ## 7. 核实方法
 
 - opencode：读 `AGENTS.md`、`CONTEXT.md`、`packages/web/src/content/docs/*.mdx`（36 页）建立功能清单，再逐项进 `packages/opencode/src`、`packages/core/src`、`packages/plugin/src`、`packages/tui/src`、`packages/app/src`、`packages/llm/src` 核对实现存在且非 stub。
-- ACECode：对 `src/tool/builtin_tool_registry.hpp`、`src/commands/*.cpp` 的注册点、`src/permissions.hpp`、`src/config/config.hpp`、`src/prompt/system_prompt.cpp`、`docs/hooks.md` 做 grep 级核实；"无"的结论均来自 grep 零命中 + 目录结构确认。
+- ACECode：对 `src/tool/builtin_tool_registry.hpp`、`src/commands/*.cpp` 的注册点、`src/permissions/permissions.hpp`、`src/config/config.hpp`、`src/prompt/system_prompt.cpp`、`docs/hooks.md` 做 grep 级核实；"无"的结论均来自 grep 零命中 + 目录结构确认。
 - 未核实、只依据文档的项已在表中用"docs"或"需核对"标出。

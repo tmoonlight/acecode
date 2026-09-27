@@ -272,6 +272,7 @@ tests/utils/terminal_theme_detect_test.cpp	tests/platform/terminal_theme_detect_
 tests/utils/terminal_title_test.cpp	tests/platform/terminal_title_test.cpp	P2-03	move	Mirror the corresponding relocated source
 tests/utils/text_input_ops_test.cpp	tests/tui/text_input_ops_test.cpp	P2-08	move	Mirror the corresponding relocated source
 tests/utils/token_tracker_test.cpp	tests/session/token_tracker_test.cpp	P2-05	move	Mirror the corresponding relocated source
+tests/utils/state_json_web_search_test.cpp	tests/tool/state_json_web_search_test.cpp	P2-05	move	Mirror the extracted search region cache
 tests/web/files_handler_test.cpp	tests/workspace/files_handler_test.cpp	P2-04	move	Mirror the corresponding relocated source
 tests/web/message_payload_test.cpp	tests/agent/event_payload/message_payload_test.cpp	P2-08	move	Mirror the corresponding relocated source
 tests/web/skill_command_expander_test.cpp	tests/skills/skill_command_expander_test.cpp	P2-06	move	Mirror the corresponding relocated source
@@ -296,6 +297,12 @@ tests/computer_use/helpers/native_control_checks.hpp	tests/test_support/computer
 tests/computer_use/helpers/native_smoke_backend.hpp	tests/test_support/computer_use/native_smoke_backend.hpp	P1-01	move	-
 tests/computer_use/helpers/ole_drag_fixture.hpp	tests/test_support/computer_use/ole_drag_fixture.hpp	P1-01	move	-
 src/utils/text_file_buffer.cpp	src/adapters/tool/safe_text_write.cpp	P2-05	extract	Extract policy-dependent writes; pure codec remains
+src/utils/text_file_buffer.cpp	src/adapters/tool/text_file_errors.cpp	P2-05	extract	Extract model-facing recovery guidance; codec returns structured errors
+src/permissions.hpp	src/base/config/vocab/permission_mode.hpp	P2-05	extract	Extract permission mode enum and name conversion
+src/utils/state_file.cpp	src/adapters/provider/model_probe_cache.cpp	P2-05	extract	Extract model probe schema and cache policy
+src/utils/state_file.cpp	src/adapters/tool/web_search/region_cache.cpp	P2-05	extract	Extract search region state
+src/utils/state_file.cpp	src/apps/desktop/workspace_state.cpp	P2-05	extract	Extract active and home workspace state
+src/utils/state_file.cpp	src/apps/tui/slash_command_usage.cpp	P2-05	extract	Extract TUI command usage state
 src/utils/models_dev_catalog.cpp	src/adapters/provider/models_dev_catalog_cache.cpp	P2-05	extract	Extract registry-dependent cache
 src/config/config.cpp	src/base/utils/paths.cpp	P2-04	extract	Extract get_acecode_dir/get_run_dir/get_logs_dir
 src/tool/tool_executor.hpp	src/domain/llm/tool_result.hpp	P2-02	extract	Extract ToolResult and ToolSummary

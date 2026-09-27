@@ -125,7 +125,7 @@ flowchart TB
 | [src/agent_loop.cpp](src/agent_loop.cpp) and [src/agent_loop.hpp](src/agent_loop.hpp) | Multi-turn agent state machine, streaming callbacks, tool-call loop, cancellation, max-iteration handling, and completion semantics. |
 | [src/provider/](src/provider) | `LlmProvider` implementations, provider factory/swap logic, Copilot auth integration, OpenAI-compatible streaming, model profiles, and context-window resolution. |
 | [src/tool/](src/tool) | Tool registry, built-in tools, tool result metadata, summaries, MCP bridge, skills tools, memory tools, and optional web-search tool. |
-| [src/permissions.hpp](src/permissions.hpp) | Permission modes and glob-style tool/path allow rules. |
+| [src/permissions/permissions.hpp](src/permissions/permissions.hpp) | Permission modes and glob-style tool/path allow rules. |
 | [src/session/](src/session) | Session JSONL persistence, metadata sidecars, replay, resume restore, rewind checkpoints, daemon session registry, and event dispatch. |
 | [src/commands/](src/commands) | Slash command registry and built-in command implementations. |
 | [src/config/](src/config) | Config load/save/validation, saved model profiles, and default schema behavior. |
@@ -198,7 +198,7 @@ Context-window resolution uses saved profile data, bundled models.dev metadata, 
 
 `ToolExecutor` owns the authoritative tool registry. Built-ins include shell execution, file read/write/edit, grep, glob, task completion, structured user questions, skills, memory, optional web search, and MCP-provided tools.
 
-Permission behavior is centralized in [src/permissions.hpp](src/permissions.hpp):
+Permission behavior is centralized in [src/permissions/permissions.hpp](src/permissions/permissions.hpp):
 
 - `Default`: auto-allow read-only tools, prompt for writes and exec.
 - `AcceptEdits`: auto-allow file writes/edits, still prompt for shell commands.

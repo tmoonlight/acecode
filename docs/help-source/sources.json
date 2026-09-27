@@ -142,7 +142,7 @@
     "article": "ACEModel",
     "file": "acemodel.html",
     "sources": [
-      "src/provider/builtin_model_catalog.cpp",
+      "src/config/builtin_model_catalog.cpp",
       "src/config/saved_models.cpp",
       "web/src/components/model-settings/ModelProfileDialog.jsx",
       "web/src/components/model-settings/ProviderCatalogPicker.jsx"
@@ -197,7 +197,7 @@
     "sources": [
       "web/src/lib/permissionMode.js",
       "web/src/components/SettingsPage.jsx",
-      "src/permissions.hpp",
+      "src/permissions/permissions.hpp",
       "src/headless/headless_options.cpp",
       "docs/user-manual.md"
     ]

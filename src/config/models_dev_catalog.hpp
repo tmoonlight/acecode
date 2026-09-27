@@ -1,6 +1,5 @@
 #pragma once
 
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -43,20 +42,10 @@ struct ProviderEntry {
 // blob other than the global registry.
 std::vector<ProviderEntry> build_catalog(const nlohmann::json& registry);
 
-// Stable cached value view for callers that retain providers across a registry
-// refresh. The returned shared_ptr owns the exact parsed generation.
-std::shared_ptr<const std::vector<ProviderEntry>> provider_catalog_snapshot(
-    const std::shared_ptr<const nlohmann::json>& registry);
+// 全局 registry 的缓存视图(all_providers / find_provider / catalog_version …)在
+// provider/models_dev_catalog_cache.hpp(P2-05):它依赖 provider 的 models_dev_registry,
+// 这里只留纯函数。
 
-// Cached view over the global registry (current_registry()). The cache is keyed
-// off the shared_ptr identity, so calling this after refresh_registry_*() picks
-// up the new data automatically.
-const std::vector<ProviderEntry>& all_providers();
-
-// Same as all_providers(), filtered to providers whose base_url is set.
-std::vector<const ProviderEntry*> openai_compat_providers();
-
-const ProviderEntry* find_provider(const std::string& id);
 const ModelEntry* find_model(const ProviderEntry& provider, const std::string& model_id);
 
 // Display helpers (safe to call with empty entries).
@@ -66,9 +55,5 @@ std::string format_cost(const std::optional<double>& input,
 // Canonical saved-profile capability ids derived from catalog metadata.
 std::vector<std::string> model_capability_tags(const ModelEntry& model);
 std::string format_capabilities(const ModelEntry& model);
-
-// Version of the catalog cache. Increments whenever the cache is rebuilt — used
-// by tests and by long-lived UI components that want to invalidate state.
-unsigned long long catalog_version();
 
 } // namespace acecode

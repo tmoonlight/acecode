@@ -8,7 +8,8 @@
 #include "llm/tool_icons.hpp"
 #include "tool/file_operations.hpp"
 #include "utils/logger.hpp"
-#include "utils/text_file_buffer.hpp"
+#include "tool/text_file_errors.hpp"
+#include "tool/safe_text_write.hpp"
 #include "tool/tool_errors.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -180,7 +181,7 @@ ToolResult execute_apply_patch(const std::string& arguments_json, const ToolCont
             if (error) *error = size_check.output;
             return std::nullopt;
         }
-        auto read = read_text_file_buffer(path);
+        auto read = with_text_file_tool_errors(read_text_file_buffer(path, false));
         if (!read.success) {
             if (for_delete) {
                 entry.decodable = false;

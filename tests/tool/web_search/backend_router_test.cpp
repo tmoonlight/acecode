@@ -13,6 +13,7 @@
 
 #include "tool/web_search/backend_router.hpp"
 #include "config/config.hpp"
+#include "tool/web_search/region_cache.hpp"
 #include "utils/state_file.hpp"
 
 #include <atomic>

@@ -18,7 +18,7 @@ Test files live at `tests/<same path as under src>/<unit>_test.cpp`:
 |--------------------------------------|------------------------------------------------|
 | `src/utils/terminal_title.cpp`       | `tests/utils/terminal_title_test.cpp`          |
 | `src/session/session_storage.cpp`    | `tests/session/session_storage_test.cpp`       |
-| `src/permissions.hpp`                | `tests/permissions_test.cpp`                   |
+| `src/permissions/permissions.hpp`   | `tests/permissions/permissions_test.cpp`        |
 
 Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
 `*_test.cpp` (note: singular `_test`, not `_tests`).

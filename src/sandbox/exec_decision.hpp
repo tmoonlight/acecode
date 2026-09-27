@@ -9,7 +9,7 @@
 
 #include "command_classifier.hpp"
 #include "exec_rules.hpp"
-#include "permissions/permissions.hpp"
+#include "config/vocab/permission_mode.hpp"
 #include "sandbox_types.hpp"
 
 #include <string>

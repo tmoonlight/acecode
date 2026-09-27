@@ -1,22 +1,18 @@
 #pragma once
 
-#include "config/saved_models.hpp"
-
-#include <optional>
-
 // 跨会话进程状态(once-only 提示标记等),持久化到 ~/.acecode/state.json。
 // 跟 config.json 区分:config.json 是用户编辑面,state.json 是 ACECode 自己
 // 写的运行时状态(同一个数据目录下,通过 paths::resolve_data_dir(RunMode)
 // 得到)。
 //
 // 设计取舍见 openspec/changes/add-legacy-terminal-fallback/design.md
-// Decision 4。对外只暴露按用途划分的 typed helper，避免调用方直接耦合
-// state.json 的整体 schema。
+// Decision 4。各模块的专用 helper 管理自己的字段与校验规则;本层只提供
+// 通用读写、跨进程互斥和原子更新,业务调用方不直接操作 state.json。
 
-#include <cstdint>
-#include <map>
+#include <functional>
 #include <string>
-#include <vector>
+
+#include <nlohmann/json_fwd.hpp>
 
 namespace acecode {
 
@@ -54,73 +50,12 @@ void set_state_file_path_for_test(const std::string& path);
 // 用法:write_state_flag("legacy_terminal_hint_shown", true);
 void write_state_flag(const std::string& key, bool value);
 
-// 联网搜索 region 缓存(参见 add-web-search-tool 的 RegionDetector)。
-// state.json 中的存储格式:
-//   { "web_search": { "region_detected": "global"|"cn",
-//                       "region_detected_at_ms": <epoch ms> } }
-struct WebSearchRegionCache {
-    std::string region;          // "global" / "cn"
-    long long detected_at_ms = 0;
-};
-
-// 读取缓存的 region。文件不存在 / 字段缺失 / region 不是 global|cn → nullopt。
-// detected_at_ms 即使为 0 / 缺失也接受(只表示来源未知,region 仍可信)。
-std::optional<WebSearchRegionCache> read_web_search_region_cache();
-
-// 写缓存的 region。原子写,保留其他 key。region 不在 {global, cn} 时静默不写。
-void write_web_search_region_cache(const WebSearchRegionCache& cache);
-
-// 删除 web_search 缓存(/websearch refresh 用)。其它 key 保留。
-void clear_web_search_region_cache();
-
-// Successful Provider model probes are cached by an opaque SHA-256 connection
-// fingerprint. The state file stores only the fingerprint and probe output;
-// provider URLs, API keys, and request headers never reach this helper.
-struct ModelProbeCacheEntry {
-    std::vector<std::string> models;
-    std::map<std::string, int> context_windows;
-    std::int64_t probed_at_ms = 0;
-    std::map<std::string, std::optional<ModelReasoningOptions>> reasoning;
-};
-
-// Missing/malformed entries return nullopt. The fingerprint must be exactly a
-// 64-character hexadecimal SHA-256 digest.
-std::optional<ModelProbeCacheEntry> read_model_probe_cache(
-    const std::string& connection_fingerprint);
-
-// Atomically upserts one cache entry while preserving unrelated state and
-// other connection fingerprints. Returns false for an invalid fingerprint or
-// durable write failure.
-bool write_model_probe_cache(
-    const std::string& connection_fingerprint,
-    const ModelProbeCacheEntry& entry);
-
-// desktop multi-workspace: 上次活跃 workspace 的 cwd_hash。
-// 读: 文件不存在 / 字段缺失 / 类型不符 → 空字符串。永不抛异常。
-// 写: 原子写,保留其他 key;失败只 LOG_WARN 不阻断。
-std::string read_last_active_workspace_hash();
-void write_last_active_workspace_hash(const std::string& hash);
-
-// desktop home page: 首页新建会话选择器上次选中的 workspace cwd_hash。
-// 空字符串是有效值,表示"不使用工作区"。
-std::string read_last_home_workspace_hash();
-void write_last_home_workspace_hash(const std::string& hash);
-
-// TUI slash-command adaptive ordering. The persisted shape is:
-//   { "tui_slash_command_usage": { "help": 3, "model": 7 } }
-// Reads are tolerant: missing/malformed containers and invalid individual
-// entries are ignored. Only aggregate command names/counts are stored.
-std::map<std::string, std::uint64_t> read_tui_slash_command_usage();
-
-struct SlashCommandUsageWriteResult {
-    // Updated count for the current process even when persistence failed.
-    std::uint64_t count = 0;
-    bool persisted = false;
-};
-
-// Atomically increment one command's durable count while preserving unrelated
-// state.json keys. Counts saturate at uint64_t max rather than overflowing.
-SlashCommandUsageWriteResult record_tui_slash_command_use(
-    const std::string& command_name);
+// 各模块共用的状态存储入口:
+// read_state_json:进程内锁下读取整份 state.json,缺失 / 损坏视为空对象。
+nlohmann::json read_state_json();
+// update_state_json:进程内锁 + 跨进程文件锁下「读-改-写」;mutate 在本次调用内同步执行,
+// 不保存回调,回调中不得重入 state_file API。mutate 返回 false 表示放弃写入
+// (仍视为成功)。损坏的 state.json 在此整体重写并记 LOG_WARN;拿不到锁或写失败返回 false。
+bool update_state_json(const std::function<bool(nlohmann::json& state)>& mutate);
 
 } // namespace acecode

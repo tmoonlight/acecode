@@ -11,7 +11,7 @@
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/stream_processing.hpp"
-#include "utils/text_file_buffer.hpp"
+#include "tool/text_file_errors.hpp"
 #include "tool/tool_errors.hpp"
 #include "utils/uuid.hpp"
 #include "commands/compact.hpp"
@@ -5602,7 +5602,7 @@ bool AgentLoop::execute_tool_calls(
                     for (const auto& [failed_path, when] : recent_safe_edit_failures_) {
                         (void)when;
                         if (!command_mentions_path(ctx_command, failed_path)) continue;
-                        auto check = read_text_file_buffer(failed_path);
+                        auto check = with_text_file_tool_errors(read_text_file_buffer(failed_path, false));
                         if (!check.success) {
                             tool_result.success = false;
                             if (!tool_result.output.empty() && tool_result.output.back() != '\n') {

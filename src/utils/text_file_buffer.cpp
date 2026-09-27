@@ -1,9 +1,6 @@
 #include "text_file_buffer.hpp"
-#include "config/mcp_config.hpp"
 
 #include "sha256.hpp"
-#include "tool/tool_errors.hpp"
-#include "llm/tool_protocol_names.hpp"
 #include "utf8_path.hpp"
 
 #include <algorithm>
@@ -55,41 +52,6 @@ bool starts_with_bom(const std::string& bytes,
     if (static_cast<unsigned char>(bytes[0]) != a) return false;
     if (static_cast<unsigned char>(bytes[1]) != b) return false;
     return len == 2 || static_cast<unsigned char>(bytes[2]) == c;
-}
-
-bool read_raw_file(const std::string& path, std::string& out, std::string& error) {
-    std::ifstream ifs(path_from_utf8(path), std::ios::binary);
-    if (!ifs.is_open()) {
-        error = ToolErrors::cannot_open_file(path);
-        return false;
-    }
-    out.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
-    return true;
-}
-
-bool write_raw_file(const std::string& path, const std::string& bytes, std::string& error) {
-    auto fs_path = path_from_utf8(path);
-    auto parent = fs_path.parent_path();
-    if (!parent.empty() && !std::filesystem::exists(parent)) {
-        try {
-            std::filesystem::create_directories(parent);
-        } catch (const std::filesystem::filesystem_error& e) {
-            error = "[Error] Cannot create parent directory: " + std::string(e.what());
-            return false;
-        }
-    }
-
-    std::ofstream ofs(fs_path, std::ios::binary | std::ios::trunc);
-    if (!ofs.is_open()) {
-        error = ToolErrors::cannot_write_file(path);
-        return false;
-    }
-    ofs.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    if (!ofs.good()) {
-        error = ToolErrors::cannot_write_file(path);
-        return false;
-    }
-    return true;
 }
 
 void append_utf8(std::string& out, unsigned int cp) {
@@ -507,7 +469,8 @@ TextBufferResult fail_decode(const std::string& path,
                              const std::string& raw,
                              TextEncoding encoding,
                              const std::string& error,
-                             bool binary = false) {
+                             bool binary = false,
+                             TextFileError error_kind = TextFileError::None) {
     TextFileMetadata metadata;
     metadata.encoding = encoding;
     metadata.binary = binary;
@@ -518,7 +481,7 @@ TextBufferResult fail_decode(const std::string& path,
     buffer.path = path;
     buffer.raw_bytes = raw;
     buffer.metadata = metadata;
-    return {false, std::move(buffer), error};
+    return {false, std::move(buffer), error, error_kind};
 }
 
 LineEndingStyle write_style_for(LineEndingStyle style) {
@@ -527,6 +490,41 @@ LineEndingStyle write_style_for(LineEndingStyle style) {
 }
 
 } // namespace
+
+bool read_file_bytes(const std::string& path, std::string& out, std::string& error) {
+    std::ifstream ifs(path_from_utf8(path), std::ios::binary);
+    if (!ifs.is_open()) {
+        error = "[Error] Cannot open file: " + path;
+        return false;
+    }
+    out.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+    return true;
+}
+
+bool write_file_bytes(const std::string& path, const std::string& bytes, std::string& error) {
+    auto fs_path = path_from_utf8(path);
+    auto parent = fs_path.parent_path();
+    if (!parent.empty() && !std::filesystem::exists(parent)) {
+        try {
+            std::filesystem::create_directories(parent);
+        } catch (const std::filesystem::filesystem_error& e) {
+            error = "[Error] Cannot create parent directory: " + std::string(e.what());
+            return false;
+        }
+    }
+
+    std::ofstream ofs(fs_path, std::ios::binary | std::ios::trunc);
+    if (!ofs.is_open()) {
+        error = "[Error] Cannot write to file: " + path;
+        return false;
+    }
+    ofs.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!ofs.good()) {
+        error = "[Error] Cannot write to file: " + path;
+        return false;
+    }
+    return true;
+}
 
 std::string text_encoding_label(TextEncoding encoding) {
     switch (encoding) {
@@ -628,7 +626,8 @@ TextBufferResult decode_text_file_bytes(const std::string& bytes,
                                            lossy.replacement_count);
             }
             return fail_decode(path, bytes, TextEncoding::Unsupported,
-                "[Error] UTF-8 BOM file can be read with " + model_tool_name_for_native("file_read") + " using lossy decoding, but its bytes are too ambiguous to edit safely.");
+                "[Error] UTF-8 BOM file bytes are too ambiguous to edit safely.",
+                false, TextFileError::AmbiguousUtf8Bom);
         }
         return make_decoded_result(path, bytes, body, TextEncoding::Utf8Bom, true);
     }
@@ -681,7 +680,8 @@ TextBufferResult decode_text_file_bytes(const std::string& bytes,
                                        lossy.replacement_count);
         }
         return fail_decode(path, bytes, TextEncoding::Unsupported,
-            "[Error] File can be read with " + model_tool_name_for_native("file_read") + " using lossy UTF-8 decoding, but its encoding is too ambiguous to edit safely.");
+            "[Error] Damaged UTF-8 is too ambiguous to edit safely.",
+            false, TextFileError::DamagedUtf8);
     }
 
 #ifdef _WIN32
@@ -704,7 +704,8 @@ TextBufferResult decode_text_file_bytes(const std::string& bytes,
     }
 
     return fail_decode(path, bytes, TextEncoding::Unsupported,
-        "[Error] File can be read with " + model_tool_name_for_native("file_read") + " using lossy decoding, but its encoding is too ambiguous to edit safely.");
+        "[Error] File encoding is too ambiguous to edit safely.",
+        false, TextFileError::UnknownEncoding);
 }
 
 TextBufferResult decode_text_file_bytes_with_metadata(const std::string& bytes,
@@ -766,7 +767,7 @@ TextBufferResult decode_text_file_bytes_with_metadata(const std::string& bytes,
 TextBufferResult read_text_file_buffer(const std::string& path, bool allow_lossy) {
     std::string raw;
     std::string error;
-    if (!read_raw_file(path, raw, error)) {
+    if (!read_file_bytes(path, raw, error)) {
         return fail_decode(path, raw, TextEncoding::Unsupported, error);
     }
     return decode_text_file_bytes(raw, path, allow_lossy);
@@ -776,7 +777,8 @@ TextEncodeResult encode_text_for_write(const std::string& lf_text,
                                        const TextFileMetadata& metadata) {
     if (metadata.lossy) {
         return {false, {},
-            "[Error] Target file cannot be safely written as text because it was decoded lossily. Use " + model_tool_name_for_native("file_read") + " for inspection and convert the file to a confirmed encoding before editing."};
+            "[Error] Target file cannot be safely written as text because it was decoded lossily.",
+            TextFileError::LossyWrite};
     }
     if (metadata.binary || metadata.unsupported ||
         metadata.encoding == TextEncoding::Binary ||
@@ -836,94 +838,6 @@ TextFileMetadata default_new_file_text_metadata() {
     metadata.line_ending = LineEndingStyle::Lf;
     metadata.has_bom = false;
     return metadata;
-}
-
-TextSafeWriteResult safe_write_text_file(
-    const std::string& path,
-    const std::string& lf_text,
-    const TextFileMetadata& metadata,
-    const std::function<void(const std::string& path)>& before_write) {
-    try {
-        if (const auto servers = validate_mcp_file_edit(path, lf_text)) {
-            if (before_write) before_write(path);
-            // Configuration JSON is persisted as UTF-8, independently of an
-            // external editor's previous encoding. Snapshot and active-file
-            // publication share the same transaction as the settings APIs.
-            write_validated_config_file(path, normalize_text_to_lf(lf_text), *servers);
-            return {true, {}, false, false};
-        }
-    } catch (const std::exception& error) {
-        return {false, error.what(), false, false};
-    }
-    auto encoded = encode_text_for_write(lf_text, metadata);
-    if (!encoded.success) {
-        return {false, encoded.error, false, false};
-    }
-
-    std::string pre_write_bytes;
-    std::string error;
-    const bool existed = std::filesystem::exists(path_from_utf8(path));
-    if (existed && !read_raw_file(path, pre_write_bytes, error)) {
-        return {false, error, false, false};
-    }
-
-    if (before_write) {
-        before_write(path);
-    }
-
-    if (!write_raw_file(path, encoded.bytes, error)) {
-        return {false, error, false, false};
-    }
-
-    std::string written_bytes;
-    if (!read_raw_file(path, written_bytes, error)) {
-        if (existed && !write_raw_file(path, pre_write_bytes, error)) {
-            return {false,
-                "[Error] Post-write verification could not read " + path +
-                " and rollback failed: " + error,
-                false,
-                true};
-        }
-        return {false,
-            "[Error] Post-write verification could not read " + path +
-            "; edit was rolled back.",
-            true,
-            false};
-    }
-
-    auto round_trip = decode_text_file_bytes_with_metadata(written_bytes, metadata, path);
-    if (round_trip.success && round_trip.buffer.text == normalize_text_to_lf(lf_text)) {
-        return {true, {}, false, false};
-    }
-
-    std::string rollback_error;
-    if (existed) {
-        if (!write_raw_file(path, pre_write_bytes, rollback_error)) {
-            return {false,
-                "[Error] Post-write round-trip verification failed for " + path +
-                " and rollback failed: " + rollback_error,
-                false,
-                true};
-        }
-    } else {
-        std::error_code ec;
-        std::filesystem::remove(path_from_utf8(path), ec);
-        if (ec) {
-            return {false,
-                "[Error] Post-write round-trip verification failed for " + path +
-                " and rollback failed: " + ec.message(),
-                false,
-                true};
-        }
-    }
-
-    std::string reason = round_trip.success
-        ? "[Error] Post-write round-trip verification changed the intended text"
-        : round_trip.error;
-    return {false,
-        reason + "; edit was rolled back for " + path + ".",
-        true,
-        false};
 }
 
 std::vector<std::string> split_lf_lines_preserve_empty(const std::string& lf_text) {

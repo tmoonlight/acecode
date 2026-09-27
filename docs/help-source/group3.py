@@ -23,7 +23,7 @@ PAGES = {
         figure("MD-02", "ACEModel 的模型选择", "展示 ACEModel Provider 和三个内置 Model ID，以及保存后的预设。API Key 必须隐藏，避免截入账号信息。")),
     section("verify", "验证能力与连接状态",
         '''<p>检查已保存模型的视觉、工具等能力标识，然后用真实的小任务验证所需功能。</p><p>认证失败时检查密钥和实际地址；模型不存在时核对 Model ID；有回答但不能完成工具任务时检查工具能力与权限。排查步骤见<a href="troubleshoot-models.html">模型连接与认证问题</a>。</p>''')
-], ["src/provider/builtin_model_catalog.cpp", "src/config/saved_models.cpp", "web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ProviderCatalogPicker.jsx"]),
+], ["src/config/builtin_model_catalog.cpp", "src/config/saved_models.cpp", "web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ProviderCatalogPicker.jsx"]),
 
 "providers": page("按实际接口协议选择 Provider，再填写服务给出的连接信息。不同服务商的认证方式和可选参数分别配置。", [
     section("openai", "OpenAI 兼容接口",

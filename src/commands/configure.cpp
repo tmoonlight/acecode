@@ -10,6 +10,7 @@
 #include "config/builtin_model_catalog.hpp"
 #include "utils/logger.hpp"
 #include "config/models_dev_catalog.hpp"
+#include "provider/models_dev_catalog_cache.hpp"
 #include "utils/terminal_input.hpp"
 
 #include <iostream>
