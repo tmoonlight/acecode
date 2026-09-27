@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "desktop/open_in_explorer.hpp"
+#include "platform/native_ui/open_in_explorer.hpp"
 
 #include <filesystem>
 #include <fstream>

@@ -27,7 +27,7 @@
 #include "worktree/worktree_manager.hpp"
 #include "utils/logger.hpp"
 #include "utils/cwd_hash.hpp"
-#include "utils/power_inhibitor.hpp"
+#include "platform/power_inhibitor.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>

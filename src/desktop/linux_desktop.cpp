@@ -1,6 +1,6 @@
 #include "linux_desktop.hpp"
 
-#include "strings.hpp"
+#include "platform/native_ui/strings.hpp"
 
 #include <gtk/gtk.h>
 

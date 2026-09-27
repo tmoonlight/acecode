@@ -14,7 +14,7 @@
 
 #include <gtest/gtest.h>
 
-#include "lsp/lsp_which.hpp"
+#include "platform/process/which.hpp"
 
 #include <algorithm>
 #include <cctype>

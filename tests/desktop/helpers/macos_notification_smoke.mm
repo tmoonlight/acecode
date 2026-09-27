@@ -1,6 +1,6 @@
 #import <AppKit/AppKit.h>
 
-#include "desktop/notifications.hpp"
+#include "platform/native_ui/notifications.hpp"
 
 #include <atomic>
 #include <iostream>

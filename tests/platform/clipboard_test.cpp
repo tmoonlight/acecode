@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "utils/clipboard.hpp"
+#include "platform/clipboard.hpp"
 
 #include <string>
 

@@ -1,7 +1,7 @@
 #include "environment/bootstrap.hpp"
 #include "cli.hpp"
 
-#include "platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "runtime_files.hpp"
 #include "startup_diagnostics.hpp"
 #include "worker.hpp"

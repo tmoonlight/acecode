@@ -37,7 +37,7 @@
 #include "session/todo_state.hpp"
 #include "session/session_usage_ledger.hpp"
 #include "session/session_writer_lease.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "skills/skill_registry.hpp"
 #include "experts/expert_registry.hpp"
 #include "skills/skill_metadata.hpp"
@@ -48,7 +48,7 @@
 #include "utils/logger.hpp"
 #include "utils/base64.hpp"
 #include "utils/cwd_hash.hpp"
-#include "utils/terminal_title.hpp"
+#include "platform/terminal/terminal_title.hpp"
 #include "web/handlers/files_handler.hpp"
 #include "web/handlers/fork_handler.hpp"
 #include "web/handlers/history_handler.hpp"
@@ -65,7 +65,7 @@
 #include "web/handlers/skills_handler.hpp"
 #include "skills/skill_init.hpp"
 #include "message_payload.hpp"
-#include "web/pty/pty_session_registry.hpp"
+#include "pty/pty_session_registry.hpp"
 #include "version.hpp"
 
 // Crow 头一定在 ASIO_STANDALONE PUBLIC 定义之后才 include。CMakeLists.txt 已

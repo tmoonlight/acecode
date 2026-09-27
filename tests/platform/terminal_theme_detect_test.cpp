@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/terminal_theme_detect.hpp"
+#include "platform/terminal/terminal_theme_detect.hpp"
 
 #include <optional>
 #include <string>

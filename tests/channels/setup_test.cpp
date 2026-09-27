@@ -1,7 +1,7 @@
 #include "channels/setup.hpp"
 #include "channels/bridge.hpp"
 #include "channels/runtime.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "test_support/channels/test_support.hpp"
 #include <algorithm>
 #include <fstream>

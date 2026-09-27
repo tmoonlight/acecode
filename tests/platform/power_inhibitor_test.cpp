@@ -1,4 +1,4 @@
-#include "utils/power_inhibitor.hpp"
+#include "platform/power_inhibitor.hpp"
 
 #include <gtest/gtest.h>
 

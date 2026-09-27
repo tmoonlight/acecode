@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "web/pty/pty_backend.hpp"
+#include "pty/pty_backend.hpp"
 #include "utils/encoding.hpp"
 
 #include <atomic>

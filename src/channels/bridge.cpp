@@ -1,8 +1,8 @@
 #include "bridge.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/atomic_file.hpp"
-#include "lsp/lsp_which.hpp"
+#include "platform/process/which.hpp"
 
 #include <atomic>
 #include <condition_variable>

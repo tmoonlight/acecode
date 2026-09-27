@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/terminal_title.hpp"
+#include "platform/terminal/terminal_title.hpp"
 #include "utils/encoding.hpp"
 
 #include <string>

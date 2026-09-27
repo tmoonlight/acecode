@@ -1,7 +1,7 @@
 #include "daemon_pool.hpp"
 
 #include "daemon/guid.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "daemon/runtime_files.hpp"
 #include "daemon_protocol.hpp"
 #include "utils/constants.hpp"

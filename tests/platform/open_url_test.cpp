@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/open_url.hpp"
+#include "platform/open_url.hpp"
 
 #include <string>
 

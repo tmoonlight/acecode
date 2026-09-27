@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "desktop/notifications.hpp"
+#include "platform/native_ui/notifications.hpp"
 
 using namespace acecode::desktop;
 

@@ -6,7 +6,7 @@
 // condvar 等应答;server→client 请求在 reader 线程内同步应答(全部是
 // 轻量纯计算)。所有可变状态由 state_mu_ 保护;stdin 写由 write_mu_ 串行。
 
-#include "lsp_process.hpp"
+#include "platform/process/piped_process.hpp"
 
 #include <atomic>
 #include <chrono>

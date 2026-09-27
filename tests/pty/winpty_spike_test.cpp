@@ -22,7 +22,7 @@
 #include <string>
 #include <thread>
 
-#include "web/pty/winpty_agent_location.hpp"
+#include "pty/winpty_agent_location.hpp"
 
 namespace {
 

@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "desktop/custom_toast.hpp"
+#include "platform/native_ui/custom_toast.hpp"
 
 #include <vector>
 

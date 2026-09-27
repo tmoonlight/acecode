@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "hooks/hook_manager.hpp"
-#include "hooks/hook_runner.hpp"
+#include "platform/process/process_runner.hpp"
 
 #include <algorithm>
 #include <atomic>

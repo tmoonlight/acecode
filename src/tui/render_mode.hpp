@@ -16,7 +16,7 @@
 //   alt_screen_mode == "auto"    → AltScreen(默认一开始撑满全屏)
 
 #include "config/config.hpp"
-#include "utils/terminal_capability.hpp"
+#include "platform/terminal/terminal_capability.hpp"
 
 namespace acecode::tui {
 

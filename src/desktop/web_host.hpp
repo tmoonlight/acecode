@@ -15,7 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include "utils/clipboard.hpp"
+#include "platform/clipboard.hpp"
 
 namespace acecode::desktop {
 

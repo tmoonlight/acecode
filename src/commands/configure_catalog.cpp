@@ -3,7 +3,7 @@
 #include "configure_picker.hpp"
 #include "provider/builtin_model_catalog.hpp"
 #include "utils/encoding.hpp"
-#include "utils/terminal_input.hpp"
+#include "platform/terminal/terminal_input.hpp"
 
 #include <algorithm>
 #include <cctype>

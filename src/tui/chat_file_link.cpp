@@ -1,6 +1,6 @@
 #include "chat_file_link.hpp"
 
-#include "utils/open_url.hpp"
+#include "platform/open_url.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>

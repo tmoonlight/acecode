@@ -1,7 +1,7 @@
 #pragma once
 
 #include "hooks/hook_config.hpp"
-#include "hooks/hook_runner.hpp"
+#include "platform/process/process_runner.hpp"
 
 #include <functional>
 #include <optional>

@@ -1,4 +1,4 @@
-#include "desktop/notifications.hpp"
+#include "platform/native_ui/notifications.hpp"
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>

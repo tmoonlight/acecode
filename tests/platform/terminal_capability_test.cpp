@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/terminal_capability.hpp"
+#include "platform/terminal/terminal_capability.hpp"
 
 #include <optional>
 #include <string>

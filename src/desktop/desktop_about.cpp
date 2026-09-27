@@ -1,5 +1,5 @@
 #include "desktop_about.hpp"
-#include "strings.hpp"
+#include "platform/native_ui/strings.hpp"
 
 #include "utils/encoding.hpp"
 

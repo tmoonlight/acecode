@@ -1,4 +1,4 @@
-#include "desktop/strings.hpp"
+#include "platform/native_ui/strings.hpp"
 
 #include <gtest/gtest.h>
 

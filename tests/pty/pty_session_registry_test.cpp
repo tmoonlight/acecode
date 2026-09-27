@@ -9,8 +9,8 @@
 
 #include <gtest/gtest.h>
 
-#include "web/pty/pty_backend.hpp"
-#include "web/pty/pty_session_registry.hpp"
+#include "pty/pty_backend.hpp"
+#include "pty/pty_session_registry.hpp"
 
 #include <nlohmann/json.hpp>
 

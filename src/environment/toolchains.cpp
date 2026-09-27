@@ -1,6 +1,6 @@
 #include "toolchains.hpp"
 
-#include "lsp/lsp_which.hpp"
+#include "platform/process/which.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
