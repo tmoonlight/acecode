@@ -119,12 +119,14 @@ TEST(AbandonableCallTest, WaitIsBoundedAndEmptyRegistryReturnsImmediately) {
     EXPECT_TRUE(entered->wait());
     const auto start = std::chrono::steady_clock::now();
     EXPECT_FALSE(wait_for_abandoned_work(start + 20ms));
-    EXPECT_LT(std::chrono::steady_clock::now() - start, 100ms);
+    // 上限只需远小于工作线程持有的 2s;CI runner 负载下 wait_until 到期后的调度延迟
+    // 实测可达 120ms+(macos-15,2026-09-27),100ms 会误报。
+    EXPECT_LT(std::chrono::steady_clock::now() - start, 1s);
     release->open();
     EXPECT_TRUE(wait_for_abandoned_work(2s));
     const auto empty_start = std::chrono::steady_clock::now();
     EXPECT_TRUE(wait_for_abandoned_work(2s));
-    EXPECT_LT(std::chrono::steady_clock::now() - empty_start, 100ms);
+    EXPECT_LT(std::chrono::steady_clock::now() - empty_start, 1s);
 }
 
 TEST(AbandonableCallTest, DrainsCapturesEvenWhenOwnedWorkThrows) {
