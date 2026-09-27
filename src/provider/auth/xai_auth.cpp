@@ -1,9 +1,9 @@
 #include "xai_auth.hpp"
 
-#include "../../config/config.hpp"
-#include "../../network/proxy_resolver.hpp"
-#include "../../utils/atomic_file.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "network/proxy_resolver.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>

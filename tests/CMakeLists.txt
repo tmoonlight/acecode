@@ -149,6 +149,8 @@ if(WIN32)
     add_executable(computer_use_native_smoke EXCLUDE_FROM_ALL
         ${ACECODE_COMPUTER_USE_NATIVE_SMOKE_SOURCES})
     target_link_libraries(computer_use_native_smoke PRIVATE acecode_computer_use_native)
+    # P1-01:冒烟源以 test_support/computer_use/ 前缀引用共享的 helper 头,需要 tests 根。
+    target_include_directories(computer_use_native_smoke PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     add_dependencies(computer_use_native_smoke acecode-computer-use)
     add_custom_command(TARGET computer_use_native_smoke POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

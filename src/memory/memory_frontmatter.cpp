@@ -1,9 +1,9 @@
 #include "memory_frontmatter.hpp"
 
-#include "../skills/frontmatter.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "skills/frontmatter.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <fstream>
 #include <sstream>

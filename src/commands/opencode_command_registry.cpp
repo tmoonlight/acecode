@@ -2,9 +2,9 @@
 
 #include "command_registry.hpp"
 #include "opencode_command.hpp"
-#include "../agent_loop.hpp"
-#include "../tui_state.hpp"
-#include "../utils/logger.hpp"
+#include "agent_loop.hpp"
+#include "tui_state.hpp"
+#include "utils/logger.hpp"
 
 #include <chrono>
 #include <mutex>

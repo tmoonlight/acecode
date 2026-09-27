@@ -1,6 +1,6 @@
 #include "pick_active.hpp"
 
-#include "../utils/cwd_hash.hpp"
+#include "utils/cwd_hash.hpp"
 
 namespace acecode::desktop {
 

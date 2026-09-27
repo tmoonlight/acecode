@@ -3,7 +3,7 @@
 #include "copilot_provider.hpp"
 #include "model_context_resolver.hpp"
 #include "model_pool_status.hpp"
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <algorithm>
 #include <exception>

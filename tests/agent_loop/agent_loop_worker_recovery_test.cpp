@@ -2,7 +2,7 @@
 
 #include "agent_loop.hpp"
 #include "permissions.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/tool_executor.hpp"
 
 #include <chrono>

@@ -1,11 +1,11 @@
 #include "data_dir_migration.hpp"
 
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
-#include "../utils/state_file.hpp"
-#include "../daemon/platform.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
+#include "utils/state_file.hpp"
+#include "daemon/platform.hpp"
 #include <sqlite3.h>
 
 #include <algorithm>

@@ -2,8 +2,8 @@
 
 #include "desktop_close_behavior.hpp"
 #include "saved_models.hpp"
-#include "../computer_use/pointer_appearance.hpp"
-#include "../utils/constants.hpp"
+#include "computer_use/pointer_appearance.hpp"
+#include "utils/constants.hpp"
 
 #include <cstddef>
 #include <map>

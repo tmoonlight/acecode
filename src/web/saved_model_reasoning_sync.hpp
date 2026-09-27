@@ -1,6 +1,6 @@
 #pragma once
 
-#include "handlers/models_handler.hpp"
+#include "web/handlers/models_handler.hpp"
 
 #include <atomic>
 #include <condition_variable>

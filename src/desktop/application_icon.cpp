@@ -1,7 +1,7 @@
 #include "application_icon.hpp"
 
 #include "desktop_restart.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <array>
 #include <system_error>

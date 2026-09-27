@@ -7,7 +7,7 @@
 
 #include "pty_backend.hpp"
 
-#include "../../utils/encoding.hpp"
+#include "utils/encoding.hpp"
 
 #include <algorithm>
 #include <cctype>

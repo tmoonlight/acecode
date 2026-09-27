@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../utils/models_dev_catalog.hpp"
+#include "utils/models_dev_catalog.hpp"
 
 #include <string>
 

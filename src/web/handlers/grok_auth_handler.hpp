@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../provider/auth/xai_auth.hpp"
+#include "provider/auth/xai_auth.hpp"
 
 #include <nlohmann/json.hpp>
 

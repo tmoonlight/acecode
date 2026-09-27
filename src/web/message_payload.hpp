@@ -10,7 +10,7 @@
 //   - 其它角色(assistant / tool / system):lazy 算 sha1(role + " " + content + " " + timestamp)
 //     不回写 JSONL,只在序列化时计算
 
-#include "../provider/llm_provider.hpp"
+#include "provider/llm_provider.hpp"
 
 #include <nlohmann/json.hpp>
 #include <string>

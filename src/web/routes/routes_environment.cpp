@@ -10,15 +10,15 @@
 //   GET      /api/config/data-dir/migration    迁移进度
 //   POST     /api/config/data-dir/cleanup      删除 / 保留旧目录
 //   POST     /api/dialog/pick-folder|pick-file 原生选择对话框(无副作用)
-#include "../server_impl.hpp"
+#include "web/server_impl.hpp"
 
-#include "../../environment/bootstrap.hpp"
-#include "../../environment/data_dir_migration.hpp"
-#include "../../environment/shell_command_line.hpp"
-#include "../../environment/terminal_runtime.hpp"
-#include "../../environment/toolchains.hpp"
-#include "../../utils/paths.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "environment/bootstrap.hpp"
+#include "environment/data_dir_migration.hpp"
+#include "environment/shell_command_line.hpp"
+#include "environment/terminal_runtime.hpp"
+#include "environment/toolchains.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <filesystem>
 

@@ -4,7 +4,7 @@
 // add-tool-preamble)的 REST 纯函数层:GET 快照与 PUT 解析。IO / 锁 / 下发在
 // routes_tool_preamble.cpp。
 
-#include "../../config/config.hpp"
+#include "config/config.hpp"
 
 #include <nlohmann/json.hpp>
 

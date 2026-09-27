@@ -2,7 +2,7 @@
 #include "environment/terminal_runtime.hpp"
 #include "tool/bash_tool.hpp"
 #include <nlohmann/json.hpp>
-#include "../sandbox/test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 
 namespace {
 class BashToolShellTest : public testing::Test {

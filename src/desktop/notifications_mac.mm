@@ -2,7 +2,7 @@
 
 #ifdef __APPLE__
 
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #import <AppKit/AppKit.h>
 #import <UserNotifications/UserNotifications.h>

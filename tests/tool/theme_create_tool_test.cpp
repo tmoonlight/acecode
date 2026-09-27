@@ -4,7 +4,7 @@
 #include "headless/headless_mode.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
-#include "../themes/theme_test_resources.hpp"
+#include "test_support/themes/theme_test_resources.hpp"
 
 namespace {
 using nlohmann::json;

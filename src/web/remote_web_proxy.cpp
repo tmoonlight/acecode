@@ -1,10 +1,10 @@
 #include "remote_web_proxy.hpp"
 
-#include "../daemon/platform.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "daemon/platform.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/encoding.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #include <asio.hpp>
 #include <nlohmann/json.hpp>

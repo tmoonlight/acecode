@@ -1,8 +1,8 @@
 #include "thread_repair.hpp"
 
 #include "session_manager.hpp"
-#include "../commands/compact.hpp"
-#include "../utils/uuid.hpp"
+#include "commands/compact.hpp"
+#include "utils/uuid.hpp"
 
 #include <algorithm>
 #include <cstddef>

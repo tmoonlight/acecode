@@ -1,10 +1,10 @@
 #pragma once
 
-#include "../config/config.hpp"
-#include "../session/session_client.hpp"
-#include "../session/session_storage.hpp"
-#include "../tui_state.hpp"
-#include "../utils/token_tracker.hpp"
+#include "config/config.hpp"
+#include "session/session_client.hpp"
+#include "session/session_storage.hpp"
+#include "tui_state.hpp"
+#include "utils/token_tracker.hpp"
 
 #include <optional>
 

@@ -1,11 +1,11 @@
 #include "daemon_pool.hpp"
 
-#include "../daemon/guid.hpp"
-#include "../daemon/platform.hpp"
-#include "../daemon/runtime_files.hpp"
+#include "daemon/guid.hpp"
+#include "daemon/platform.hpp"
+#include "daemon/runtime_files.hpp"
 #include "daemon_protocol.hpp"
-#include "../utils/constants.hpp"
-#include "../utils/logger.hpp"
+#include "utils/constants.hpp"
+#include "utils/logger.hpp"
 #include "version.hpp"
 
 #include <cpr/cpr.h>

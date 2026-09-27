@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "web/handlers/security_handler.hpp"
-#include "../sandbox/test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 
 #include <fstream>
 #include <map>

@@ -1,4 +1,4 @@
-#include "test_support.hpp"
+#include "test_support/channels/test_support.hpp"
 #include "channels/bridge.hpp"
 #include "session/attachment_store.hpp"
 #include "session/local_session_client.hpp"

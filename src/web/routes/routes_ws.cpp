@@ -1,6 +1,6 @@
 // routes_ws.cpp — Route registrations extracted from server.cpp
-#include "../server_impl.hpp"
-#include "../handlers/side_chat_handler.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/side_chat_handler.hpp"
 
 namespace acecode::web {
 

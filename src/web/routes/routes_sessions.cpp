@@ -1,15 +1,15 @@
 // routes_sessions.cpp — Route registrations extracted from server.cpp
-#include "../server_impl.hpp"
-#include "../session_reference_context.hpp"
-#include "../trajectory_legacy_projection.hpp"
-#include "../../session/compact_checkpoint.hpp"
-#include "../../session/composer_content.hpp"
-#include "../../session/fork_attachment_context.hpp"
-#include "../../session/pasted_text_attachment.hpp"
-#include "../../session/global_session_catalog.hpp"
-#include "../../session/session_rewind.hpp"
-#include "../../session/session_trajectory.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "web/server_impl.hpp"
+#include "web/session_reference_context.hpp"
+#include "web/trajectory_legacy_projection.hpp"
+#include "session/compact_checkpoint.hpp"
+#include "session/composer_content.hpp"
+#include "session/fork_attachment_context.hpp"
+#include "session/pasted_text_attachment.hpp"
+#include "session/global_session_catalog.hpp"
+#include "session/session_rewind.hpp"
+#include "session/session_trajectory.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

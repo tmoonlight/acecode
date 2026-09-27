@@ -2,10 +2,10 @@
 // (openspec add-web-path-picker)。与 /api/files 的语义差别见
 // handlers/fs_browser_handler.hpp 头注释:已鉴权即可浏览任意绝对目录,只读,不做
 // workspace 白名单;每次列举记一条带路径的日志。
-#include "../server_impl.hpp"
-#include "../handlers/fs_browser_handler.hpp"
-#include "../project_creation.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/fs_browser_handler.hpp"
+#include "web/project_creation.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <filesystem>
 #include <string>

@@ -1,9 +1,9 @@
 #include "models_dev_registry.hpp"
 #include "models_dev_paths.hpp"
 
-#include "../network/proxy_resolver.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "network/proxy_resolver.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

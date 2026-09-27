@@ -5,7 +5,7 @@
 // AppConfig 整个穿进 AgentLoop。两个来源都只在配置变化时变,满足 prompt cache
 // 前缀不变量。
 
-#include "../prompt/system_prompt.hpp"
+#include "prompt/system_prompt.hpp"
 
 namespace acecode::environment {
 

@@ -14,7 +14,7 @@
 
 #include "lsp_client.hpp"
 #include "lsp_server_registry.hpp"
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 #include <atomic>
 #include <chrono>

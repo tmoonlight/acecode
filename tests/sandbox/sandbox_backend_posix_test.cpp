@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "sandbox/sandbox_backend.hpp"
-#include "test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iterator>

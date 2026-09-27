@@ -1,10 +1,10 @@
-#include "../server_impl.hpp"
-#include "../handlers/image_generation_handler.hpp"
-#include "../../config/config_mutation.hpp"
-#include "../../config/saved_models_revision.hpp"
-#include "../../tool/image_generate/image_generate_tool.hpp"
-#include "../../tool/image_generate/image_generation_client.hpp"
-#include "../../tool/image_generate/image_generation_policy.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/image_generation_handler.hpp"
+#include "config/config_mutation.hpp"
+#include "config/saved_models_revision.hpp"
+#include "tool/image_generate/image_generate_tool.hpp"
+#include "tool/image_generate/image_generation_client.hpp"
+#include "tool/image_generate/image_generation_policy.hpp"
 
 namespace acecode::web {
 using nlohmann::json;

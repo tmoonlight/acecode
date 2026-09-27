@@ -9,7 +9,7 @@
 // "WebSocket 双向消息协议" Requirement 的 MODIFIED 节(tool_start/tool_update/
 // tool_end 字段表)。
 
-#include "../tool/tool_executor.hpp"
+#include "tool/tool_executor.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -46,17 +46,17 @@
 #include "deepin_window_effects.hpp"
 #endif
 
-#include "../config/config.hpp"
-#include "../daemon/platform.hpp"
-#include "../daemon/runtime_files.hpp"
-#include "../utils/clipboard.hpp"
-#include "../utils/base64.hpp"
-#include "../utils/cwd_hash.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/state_file.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "config/config.hpp"
+#include "daemon/platform.hpp"
+#include "daemon/runtime_files.hpp"
+#include "utils/clipboard.hpp"
+#include "utils/base64.hpp"
+#include "utils/cwd_hash.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/state_file.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 #include "version.hpp"
 
 #include <nlohmann/json.hpp>

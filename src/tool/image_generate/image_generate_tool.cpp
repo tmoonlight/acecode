@@ -2,15 +2,15 @@
 
 #include "image_generation_client.hpp"
 #include "image_generation_policy.hpp"
-#include "../tool_icons.hpp"
-#include "../../headless/headless_mode.hpp"
-#include "../../session/output_attachments.hpp"
-#include "../../session/session_manager.hpp"
-#include "../../session/session_storage.hpp"
-#include "../../utils/encoding.hpp"
-#include "../../utils/logger.hpp"
-#include "../../utils/tool_errors.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "tool/tool_icons.hpp"
+#include "headless/headless_mode.hpp"
+#include "session/output_attachments.hpp"
+#include "session/session_manager.hpp"
+#include "session/session_storage.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/tool_errors.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <filesystem>

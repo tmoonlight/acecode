@@ -1,6 +1,6 @@
 #include "session_trajectory.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <filesystem>

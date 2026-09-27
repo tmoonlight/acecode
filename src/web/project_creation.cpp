@@ -1,6 +1,6 @@
 #include "project_creation.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

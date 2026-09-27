@@ -1,6 +1,6 @@
 #include "path_reference_dropdown.hpp"
 
-#include "../tui_state.hpp"
+#include "tui_state.hpp"
 #include "path_reference_input.hpp"
 #include "text_style.hpp"
 #include "theme_palette.hpp"

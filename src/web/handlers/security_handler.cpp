@@ -1,7 +1,7 @@
 #include "security_handler.hpp"
 
-#include "../../sandbox/sandbox_policy.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "sandbox/sandbox_policy.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

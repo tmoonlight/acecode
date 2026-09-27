@@ -3,7 +3,7 @@
 #include "agent_loop.hpp"
 #include "permissions.hpp"
 #include "session/session_manager.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/todo_write_tool.hpp"
 
 #include <chrono>

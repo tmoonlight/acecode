@@ -1,6 +1,6 @@
 #include "sidebar_model.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

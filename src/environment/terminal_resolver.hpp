@@ -13,8 +13,8 @@
 // 启动探测通过 LaunchProbe 注入,单测用假探测覆盖回退链;生产用 run_hook_process。
 
 #include "shell_command_line.hpp"
-#include "../config/config.hpp"
-#include "../web/pty/pty_backend.hpp"
+#include "config/config.hpp"
+#include "web/pty/pty_backend.hpp"
 
 #include <functional>
 #include <string>

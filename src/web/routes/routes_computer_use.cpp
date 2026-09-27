@@ -1,10 +1,10 @@
-#include "../server_impl.hpp"
-#include "../handlers/computer_use_handler.hpp"
-#include "../../computer_use/runtime.hpp"
-#include "../../computer_use/availability.hpp"
-#include "../../config/config_mutation.hpp"
-#include "../../config/saved_models_revision.hpp"
-#include "../../tool/computer_use_tool.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/computer_use_handler.hpp"
+#include "computer_use/runtime.hpp"
+#include "computer_use/availability.hpp"
+#include "config/config_mutation.hpp"
+#include "config/saved_models_revision.hpp"
+#include "tool/computer_use_tool.hpp"
 
 namespace acecode::web {
 using nlohmann::json;

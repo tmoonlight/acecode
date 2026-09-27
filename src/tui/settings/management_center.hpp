@@ -2,8 +2,8 @@
 
 #include "settings_state.hpp"
 
-#include "../../config/config.hpp"
-#include "../../skills/skill_usage_store.hpp"
+#include "config/config.hpp"
+#include "skills/skill_usage_store.hpp"
 
 #include <ftxui/component/component_base.hpp>
 

@@ -1,5 +1,5 @@
 #include "computer_use_tool.hpp"
-#include "../computer_use/runtime.hpp"
+#include "computer_use/runtime.hpp"
 
 #include <utility>
 

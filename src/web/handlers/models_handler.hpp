@@ -9,10 +9,10 @@
 // find_model_by_name:线性查找(saved_models 通常 < 20 条),命中返回
 // ModelProfile;未命中返回 nullopt。Caller 决定 404 / 400 文案。
 
-#include "../../config/config.hpp"
-#include "../../config/saved_models.hpp"
-#include "../../config/saved_models_editor.hpp"
-#include "../../session/session_client.hpp"
+#include "config/config.hpp"
+#include "config/saved_models.hpp"
+#include "config/saved_models_editor.hpp"
+#include "session/session_client.hpp"
 
 #include <nlohmann/json.hpp>
 

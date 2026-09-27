@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../provider/llm_provider.hpp"
-#include "../tool/tool_executor.hpp"
+#include "provider/llm_provider.hpp"
+#include "tool/tool_executor.hpp"
 
 #include <cstddef>
 #include <map>

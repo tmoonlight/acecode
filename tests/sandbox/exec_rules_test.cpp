@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "sandbox/exec_rules.hpp"
-#include "test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 #include <fstream>
 #include <iterator>
 

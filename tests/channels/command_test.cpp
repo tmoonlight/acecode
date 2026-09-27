@@ -3,7 +3,7 @@
 #include "commands/command_registry.hpp"
 #include "commands/builtin_commands.hpp"
 #include "channels/runtime.hpp"
-#include "test_support.hpp"
+#include "test_support/channels/test_support.hpp"
 #include "tool/tool_executor.hpp"
 #include <sstream>
 

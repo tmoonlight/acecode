@@ -15,7 +15,7 @@
 //     被拒之后回合还继续了(纠正成功,后面有新的 assistant)时,被拒消息
 //     只是中途插曲,跳过它照常往前找。
 
-#include "../provider/llm_provider.hpp"
+#include "provider/llm_provider.hpp"
 
 #include <cstddef>
 #include <string>

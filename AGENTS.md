@@ -39,6 +39,8 @@ The Superpowers plugin is disabled for this repository. Do not invoke or follow 
 
 Follow [.editorconfig](.editorconfig): UTF-8, LF line endings, final newline, 4-space indentation for C++ and CMake, and 2-space indentation for JSON/YAML. Use C++17. Keep headers in `src/**/*.hpp` and implementations in matching `.cpp` files where practical. Name test files with the singular suffix `_test.cpp`; `tests/CMakeLists.txt` discovers that pattern automatically.
 
+Project headers are included in module-root form relative to `src/` (`#include "utils/paths.hpp"`, `#include "tui/tui_state.hpp"`); parent-relative paths (`../`) are rejected by the `layer-lint` job (refactor20260927 P1). A bare name is only for a header in the same directory. Shared test helpers live under `tests/test_support/<area>/` and are always included with that full prefix (`#include "test_support/agent/stub_provider.hpp"`). Before rebasing an older branch, run `python scripts/refactor/normalize_includes.py --scope src` and `--scope tests` on it; the tool rewrites only the quoted path.
+
 Prefer existing helpers such as `ToolArgsParser`, `ToolErrors`, path/session utilities, provider/model helpers, and web handler pure functions instead of duplicating parsing or validation logic.
 
 This is a terminal UI project. Avoid emoji or ambiguous-width glyphs in C++ source, rendered UI, logs, and console output. Prefer ASCII or width-stable symbols already used in the codebase.

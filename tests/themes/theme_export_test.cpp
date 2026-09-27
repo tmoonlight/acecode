@@ -3,7 +3,7 @@
 #include "themes/theme_package.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
-#include "theme_test_resources.hpp"
+#include "test_support/themes/theme_test_resources.hpp"
 
 #include <fstream>
 #include <future>

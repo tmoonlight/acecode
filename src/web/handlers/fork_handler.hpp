@@ -10,8 +10,8 @@
 //   - source_title 取 source_meta.title;空时降级到 source_meta.summary
 //   - 长度超 50 codepoints(UTF-8 字符)截断 + `…`
 
-#include "../../session/session_storage.hpp"
-#include "../../provider/llm_provider.hpp"
+#include "session/session_storage.hpp"
+#include "provider/llm_provider.hpp"
 
 #include <optional>
 #include <string>

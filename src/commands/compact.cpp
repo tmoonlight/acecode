@@ -1,11 +1,11 @@
 #include "compact.hpp"
 #include "compact_prompt.hpp"
-#include "../session/compact_checkpoint.hpp"
-#include "../session/session_history_recovery.hpp"
-#include "../pa/pa_quirks.hpp"
-#include "../provider/text_tool_call_recovery.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
+#include "session/compact_checkpoint.hpp"
+#include "session/session_history_recovery.hpp"
+#include "pa/pa_quirks.hpp"
+#include "provider/text_tool_call_recovery.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
 
 #include <algorithm>
 #include <chrono>

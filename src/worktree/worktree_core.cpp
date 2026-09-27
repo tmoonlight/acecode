@@ -1,6 +1,6 @@
 #include "worktree_core.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cstddef>

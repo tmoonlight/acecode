@@ -1,4 +1,4 @@
-#include "../../config/mcp_config.hpp"
+#include "config/mcp_config.hpp"
 #ifdef _WIN32
 #  ifndef NOMINMAX
 #    define NOMINMAX
@@ -7,18 +7,18 @@
 
 #include "management_center.hpp"
 
-#include "../../commands/command_registry.hpp"
-#include "../../config/config_mutation.hpp"
-#include "../../hooks/hook_manager.hpp"
-#include "../../hooks/hook_registry.hpp"
-#include "../../skills/skill_commands.hpp"
-#include "../../skills/skill_init.hpp"
-#include "../../skills/skill_registry.hpp"
-#include "../../tool/mcp_manager.hpp"
-#include "../../tool/tool_executor.hpp"
-#include "../../utils/utf8_path.hpp"
-#include "../theme_palette.hpp"
-#include "../terminal_key_event.hpp"
+#include "commands/command_registry.hpp"
+#include "config/config_mutation.hpp"
+#include "hooks/hook_manager.hpp"
+#include "hooks/hook_registry.hpp"
+#include "skills/skill_commands.hpp"
+#include "skills/skill_init.hpp"
+#include "skills/skill_registry.hpp"
+#include "tool/mcp_manager.hpp"
+#include "tool/tool_executor.hpp"
+#include "utils/utf8_path.hpp"
+#include "tui/theme_palette.hpp"
+#include "tui/terminal_key_event.hpp"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_options.hpp>

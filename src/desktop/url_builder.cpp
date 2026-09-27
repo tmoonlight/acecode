@@ -1,6 +1,6 @@
 #include "url_builder.hpp"
 
-#include "../utils/url_encoding.hpp"
+#include "utils/url_encoding.hpp"
 
 #include <sstream>
 

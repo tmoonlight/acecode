@@ -2,9 +2,9 @@
 #include "mcp_config.hpp"
 
 #include "config_recovery.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <cerrno>
 #include <filesystem>

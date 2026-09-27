@@ -22,7 +22,7 @@
 #include "memory/memory_registry.hpp"
 #include "memory/memory_types.hpp"
 #include "project_instructions/instructions_loader.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/task_complete_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "tool/tool_protocol_names.hpp"

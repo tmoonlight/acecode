@@ -1,9 +1,9 @@
 #include "session_reference_context.hpp"
 
 #include "message_payload.hpp"
-#include "../session/compact_checkpoint.hpp"
-#include "../session/session_rewind.hpp"
-#include "../utils/encoding.hpp"
+#include "session/compact_checkpoint.hpp"
+#include "session/session_rewind.hpp"
+#include "utils/encoding.hpp"
 
 #include <algorithm>
 #include <cctype>

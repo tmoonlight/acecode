@@ -6,8 +6,8 @@
 // 知道端点差异。注册由 config.image_generation 门控 —— 端点解析不出来时
 // 不注册,而不是注册一个必然失败的工具(那会让模型反复调用反复失败)。
 
-#include "../tool_executor.hpp"
-#include "../../config/config.hpp"
+#include "tool/tool_executor.hpp"
+#include "config/config.hpp"
 
 namespace acecode {
 

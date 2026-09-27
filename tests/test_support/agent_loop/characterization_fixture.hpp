@@ -1,7 +1,7 @@
 #pragma once
 
 #include "agent_loop.hpp"
-#include "agent_loop/stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "headless/headless_mode.hpp"
 #include "hooks/hook_manager.hpp"
 #include "session/session_manager.hpp"

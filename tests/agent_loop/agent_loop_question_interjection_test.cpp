@@ -26,7 +26,7 @@
 #include "provider/llm_provider.hpp"
 #include "session/ask_user_question_prompter.hpp"
 #include "session/event_dispatcher.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/tool_executor.hpp"
 

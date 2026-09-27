@@ -10,7 +10,7 @@
 // 探测走 lsp::which(PATHEXT 感知),排除 Windows 商店的 app-execution alias 占位
 // 程序(WindowsApps\python.exe 只是个打开商店的桩,退出码 9009)。
 
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 #include <functional>
 #include <map>

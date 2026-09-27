@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../provider/llm_provider.hpp"
+#include "provider/llm_provider.hpp"
 #include "session_history_recovery.hpp"
 
 #include <cstdint>

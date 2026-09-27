@@ -1,7 +1,7 @@
 #include "grep_tool.hpp"
 
-#include "../hooks/hook_runner.hpp"
-#include "../worktree/worktree_manager.hpp"
+#include "hooks/hook_runner.hpp"
+#include "worktree/worktree_manager.hpp"
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"
 

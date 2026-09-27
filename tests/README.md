@@ -47,3 +47,8 @@ Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
   on the failing state (e.g. `ASSERT_EQ(vec.size(), 1u)` before `vec[0]`).
 - Use `testing::TempDir()` or `std::filesystem::temp_directory_path()` for any
   file I/O — never write to the repo tree.
+- Shared helpers (`StubLlmProvider`, the sandbox / channels `test_support`,
+  theme resources, computer-use smoke helpers) live under
+  `tests/test_support/<area>/` and are included with the full prefix, e.g.
+  `#include "test_support/agent/stub_provider.hpp"`. Project headers use the
+  module-root form (`"session/session_storage.hpp"`), never `../`.

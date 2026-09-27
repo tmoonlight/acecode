@@ -1,12 +1,12 @@
 #include "session_auto_title.hpp"
 
 #include "session_title_generator.hpp"
-#include "../desktop/locale.hpp"
-#include "../provider/copilot_provider.hpp"
-#include "../provider/cwd_model_override.hpp"
-#include "../provider/model_resolver.hpp"
-#include "../provider/provider_factory.hpp"
-#include "../utils/logger.hpp"
+#include "desktop/locale.hpp"
+#include "provider/copilot_provider.hpp"
+#include "provider/cwd_model_override.hpp"
+#include "provider/model_resolver.hpp"
+#include "provider/provider_factory.hpp"
+#include "utils/logger.hpp"
 
 #include <cctype>
 #include <sstream>

@@ -15,8 +15,8 @@
 //   - SessionClient::subscribe 注册的 listener 由 AgentLoop worker 线程触发,
 //     通过 conn->send_text 发送(send 内部加锁,Crow 保证安全)
 
-#include "../config/config.hpp"
-#include "../upgrade/upgrade.hpp"
+#include "config/config.hpp"
+#include "upgrade/upgrade.hpp"
 
 #include <atomic>
 #include <cstdint>

@@ -1,7 +1,7 @@
 #include "ask_question_editor.hpp"
 
 #include "ask_question_text.hpp"
-#include "../utils/text_input_ops.hpp"
+#include "utils/text_input_ops.hpp"
 
 #include <algorithm>
 #include <utility>

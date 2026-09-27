@@ -1,8 +1,8 @@
 #include "loop_store.hpp"
 
-#include "../config/config.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "config/config.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #include <sqlite3.h>
 

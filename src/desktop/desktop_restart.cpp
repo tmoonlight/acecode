@@ -1,6 +1,6 @@
 #include "desktop_restart.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <filesystem>
 #include <cstdint>

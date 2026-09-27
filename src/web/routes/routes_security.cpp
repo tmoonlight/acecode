@@ -10,13 +10,13 @@
 // 沙盒配置写 config.json(app_config_mu 独占)后经 SessionRegistry 下发到活跃
 // 会话;托管规则文件由 exec_rules_mu 串行化,写完让活跃会话重载规则。审计存储
 // 是进程级单例,未配置(测试 fixture / 数据目录不可写)时相关端点返回 503。
-#include "../server_impl.hpp"
-#include "../handlers/security_handler.hpp"
-#include "../../sandbox/exec_rules.hpp"
-#include "../../sandbox/sandbox_backend.hpp"
-#include "../../security/audit_log.hpp"
-#include "../../session/session_registry.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "web/server_impl.hpp"
+#include "web/handlers/security_handler.hpp"
+#include "sandbox/exec_rules.hpp"
+#include "sandbox/sandbox_backend.hpp"
+#include "security/audit_log.hpp"
+#include "session/session_registry.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <filesystem>
 #include <map>

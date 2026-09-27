@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "agent_loop.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/task_complete_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "tool/diff_utils.hpp"

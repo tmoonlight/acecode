@@ -6,7 +6,7 @@
 // TUI 共享。daemon 与 TUI 同时跑同一 cwd 时,两边读写都走同一个文件,
 // `InputHistoryStore::append` 已经做 atomic rename 不会撞。
 
-#include "../../config/config.hpp"
+#include "config/config.hpp"
 
 #include <nlohmann/json.hpp>
 

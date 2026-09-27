@@ -29,6 +29,17 @@ P2-09 使用上述固定 HEAD 演练 patch 迁移；P3-03 保留原 ref 并在�
 - `origin/codex/add-self-session-control`：保留该独有提交，选择 P2-09/P3-03 的 patch 迁移路线，避免在结构重构准备期引入另一项功能变更。
 - 历史审计的 `review-ai-image-sharing-tool` ref 在本机及 origin 当前跟踪列表均不存在；对应功能源分支 `origin/claude/ai-image-sharing-tool-8ewihy` 仍存在且只有一个独有提交，已列入上表，采用相同的 patch 迁移路线。没有把不存在的别名标记为已迁移或弃用。
 
+## P1-01 公告(2026-09-27)
+
+master 已合入 P1-01:src 下 1150 行 `../` 与子目录相对 include 改为模块根形式,tests 中 7 个 helper 头移到 `tests/test_support/<area>/` 并以完整前缀引用(机械提交 `5524a352`、`7a90db6d`,P1-02 会把它们写进 `.git-blame-ignore-revs`)。上表 9 个待迁移 ref(以及其它含 src / tests 改动的分支)在 rebase 到 P1-01 之后的 master 之前,先在自己的分支上运行同一个脚本,再 rebase,避免 include 行逐行冲突:
+
+```text
+python scripts/refactor/normalize_includes.py --scope src
+python scripts/refactor/normalize_includes.py --scope tests
+```
+
+脚本只改引号内的路径,分支上新增的文件同样会被改写;分支里引用 7 个 helper 头的 include 会随 `src_layout_map.tsv` 的 P1-01 行自动改到新位置。P1-02 起 `layer-lint` 作业阻断 `../` include,没跑脚本的分支 CI 会直接失败。P2-09 的 `migrate_branch.py --apply-map` 内置同一套 include 解析,走 patch 迁移路线的分支不需要单独处理。
+
 ## 复现与验收
 
 在包含 P0-03 工具的 checkout 中运行：

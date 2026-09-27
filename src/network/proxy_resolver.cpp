@@ -6,8 +6,8 @@
 #include "proxy_resolver.hpp"
 
 #include "tcp_probe.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

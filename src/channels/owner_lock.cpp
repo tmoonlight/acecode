@@ -1,5 +1,5 @@
 #include "owner_lock.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX

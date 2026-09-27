@@ -2,7 +2,7 @@
 #include "channels/bridge.hpp"
 #include "channels/runtime.hpp"
 #include "daemon/platform.hpp"
-#include "test_support.hpp"
+#include "test_support/channels/test_support.hpp"
 #include <algorithm>
 #include <fstream>
 #include <stdexcept>

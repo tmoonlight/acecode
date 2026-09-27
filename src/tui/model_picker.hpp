@@ -9,8 +9,8 @@
 // build_model_picker_options 是纯函数,无 IO / 无 FTXUI 依赖,可单测。
 #pragma once
 
-#include "../config/config.hpp"
-#include "../config/saved_models.hpp"
+#include "config/config.hpp"
+#include "config/saved_models.hpp"
 
 #include <string>
 #include <vector>

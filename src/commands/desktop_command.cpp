@@ -1,8 +1,8 @@
 #include "desktop_command.hpp"
 
 #include "command_registry.hpp"
-#include "../daemon/platform.hpp"
-#include "../utils/utf8_path.hpp"
+#include "daemon/platform.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <cctype>
 #include <exception>

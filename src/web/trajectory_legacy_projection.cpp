@@ -1,11 +1,11 @@
 #include "trajectory_legacy_projection.hpp"
 
 #include "message_payload.hpp"
-#include "../session/compact_checkpoint.hpp"
-#include "../session/session_rewind.hpp"
-#include "../session/tool_result_storage.hpp"
-#include "../session/turn_net_diff.hpp"
-#include "../session/turn_timing.hpp"
+#include "session/compact_checkpoint.hpp"
+#include "session/session_rewind.hpp"
+#include "session/tool_result_storage.hpp"
+#include "session/turn_net_diff.hpp"
+#include "session/turn_timing.hpp"
 
 #include <algorithm>
 #include <unordered_map>

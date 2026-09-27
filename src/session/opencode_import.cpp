@@ -1,11 +1,11 @@
 #include "opencode_import.hpp"
 
 #include "session_serializer.hpp"
-#include "../config/config.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/paths.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/encoding.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <sqlite3.h>
 

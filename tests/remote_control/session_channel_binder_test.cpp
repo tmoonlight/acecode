@@ -283,7 +283,7 @@ TEST(KeepaliveDecider, HealthProbeDueAfterInterval) {
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/tool_executor.hpp"
 
-#include "../agent_loop/stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 
 #include <atomic>
 #include <condition_variable>

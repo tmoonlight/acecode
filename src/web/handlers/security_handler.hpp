@@ -4,10 +4,10 @@
 // 托管规则文件快照 / PUT 解析、审计查询解析与序列化。不碰 Crow、不碰锁,
 // routes_security.cpp 只做鉴权、加锁、落盘与下发。
 
-#include "../../config/config.hpp"
-#include "../../sandbox/exec_rules.hpp"
-#include "../../sandbox/sandbox_backend.hpp"
-#include "../../security/audit_log.hpp"
+#include "config/config.hpp"
+#include "sandbox/exec_rules.hpp"
+#include "sandbox/sandbox_backend.hpp"
+#include "security/audit_log.hpp"
 
 #include <nlohmann/json.hpp>
 

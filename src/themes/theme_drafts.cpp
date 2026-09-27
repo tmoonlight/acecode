@@ -1,10 +1,10 @@
 #include "theme_drafts.hpp"
 
-#include "../image/image_processor.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/sha256.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "image/image_processor.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/sha256.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #include <fstream>
 #include <iterator>

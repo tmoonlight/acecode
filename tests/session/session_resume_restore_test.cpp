@@ -11,7 +11,7 @@
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
 #include "tui_state.hpp"
-#include "../agent_loop/stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 
 #include <atomic>
 #include <filesystem>

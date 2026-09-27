@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../provider/models_dev_registry.hpp"
-#include "../../utils/models_dev_catalog.hpp"
+#include "provider/models_dev_registry.hpp"
+#include "utils/models_dev_catalog.hpp"
 
 #include <optional>
 #include <string>

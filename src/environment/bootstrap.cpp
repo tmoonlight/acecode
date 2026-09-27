@@ -1,9 +1,9 @@
 #include "bootstrap.hpp"
 
 #include "terminal_runtime.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/state_file.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/logger.hpp"
+#include "utils/state_file.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <exception>
 #include <filesystem>

@@ -1,6 +1,6 @@
 #include "plan_mode_tool.hpp"
 
-#include "../session/session_manager.hpp"
+#include "session/session_manager.hpp"
 
 #include <nlohmann/json.hpp>
 

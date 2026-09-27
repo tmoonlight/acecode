@@ -4,7 +4,7 @@
 // main.cpp 的 inline overlay 渲染层 + 事件层用。
 #include "model_picker.hpp"
 
-#include "../config/model_provider_registry.hpp"
+#include "config/model_provider_registry.hpp"
 
 #include <utility>
 

@@ -1,7 +1,7 @@
 #include "command.hpp"
 #include "runtime.hpp"
-#include "../tui/channels_setup.hpp"
-#include "../utils/utf8_path.hpp"
+#include "tui/channels_setup.hpp"
+#include "utils/utf8_path.hpp"
 #include <iomanip>
 #include <set>
 #include <sstream>

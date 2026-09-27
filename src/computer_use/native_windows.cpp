@@ -8,7 +8,7 @@
 #include "pointer_overlay.hpp"
 #include "pointer_capture.hpp"
 #include "pointer_appearance.hpp"
-#include "../utils/base64.hpp"
+#include "utils/base64.hpp"
 
 #include <algorithm>
 #include <chrono>

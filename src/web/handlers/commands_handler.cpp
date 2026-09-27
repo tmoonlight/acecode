@@ -1,12 +1,12 @@
 #include "commands_handler.hpp"
 
-#include "../../commands/opencode_command.hpp"
-#include "../../config/config.hpp"
-#include "../../skills/skill_init.hpp"
-#include "../../skills/skill_activation.hpp"
-#include "../../utils/utf8_path.hpp"
-#include "../../skills/skill_registry.hpp"
-#include "../../utils/encoding.hpp"
+#include "commands/opencode_command.hpp"
+#include "config/config.hpp"
+#include "skills/skill_init.hpp"
+#include "skills/skill_activation.hpp"
+#include "utils/utf8_path.hpp"
+#include "skills/skill_registry.hpp"
+#include "utils/encoding.hpp"
 
 #include <algorithm>
 #include <unordered_set>

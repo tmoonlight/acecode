@@ -1,8 +1,8 @@
 #include "tool_rewrites.hpp"
 
-#include "../utils/atomic_file.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>
 

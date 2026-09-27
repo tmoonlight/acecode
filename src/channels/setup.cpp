@@ -1,10 +1,10 @@
 #include "setup.hpp"
 #include "runtime.hpp"
-#include "../hooks/hook_runner.hpp"
-#include "../lsp/lsp_which.hpp"
-#include "../remote_control/rc_session_navigation.hpp"
-#include "../remote_control/remote_control_service.hpp"
-#include "../utils/utf8_path.hpp"
+#include "hooks/hook_runner.hpp"
+#include "lsp/lsp_which.hpp"
+#include "remote_control/rc_session_navigation.hpp"
+#include "remote_control/remote_control_service.hpp"
+#include "utils/utf8_path.hpp"
 #include <algorithm>
 #include <cctype>
 #include <fstream>

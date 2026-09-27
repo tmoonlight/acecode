@@ -1,7 +1,7 @@
 // src/provider/vision_capability.cpp
 #include "vision_capability.hpp"
 
-#include "../config/model_provider_registry.hpp"
+#include "config/model_provider_registry.hpp"
 
 #include <algorithm>
 #include <utility>

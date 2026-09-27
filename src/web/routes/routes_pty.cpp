@@ -1,9 +1,9 @@
 // routes_pty.cpp — Route registrations extracted from server.cpp
-#include "../server_impl.hpp"
+#include "web/server_impl.hpp"
 
-#include "../../environment/shell_command_line.hpp"
-#include "../../environment/terminal_resolver.hpp"
-#include "../../environment/terminal_runtime.hpp"
+#include "environment/shell_command_line.hpp"
+#include "environment/terminal_resolver.hpp"
+#include "environment/terminal_runtime.hpp"
 
 #include <filesystem>
 

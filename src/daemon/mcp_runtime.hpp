@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../config/config.hpp"
-#include "../tool/mcp_manager.hpp"
-#include "../tool/tool_executor.hpp"
+#include "config/config.hpp"
+#include "tool/mcp_manager.hpp"
+#include "tool/tool_executor.hpp"
 
 namespace acecode::daemon {
 

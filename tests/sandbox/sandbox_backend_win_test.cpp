@@ -6,8 +6,8 @@
 #include "tool/tool_protocol_names.hpp"
 #include "environment/terminal_runtime.hpp"
 #include "agent_loop.hpp"
-#include "../agent_loop/stub_provider.hpp"
-#include "test_support.hpp"
+#include "test_support/agent/stub_provider.hpp"
+#include "test_support/sandbox/test_support.hpp"
 #include <windows.h>
 #include <aclapi.h>
 #include <sddl.h>

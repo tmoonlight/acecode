@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../upgrade/http.hpp"
+#include "upgrade/http.hpp"
 #include "theme_id.hpp"
 
 #include <atomic>

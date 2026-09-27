@@ -1,6 +1,6 @@
 #include "theme_package.hpp"
 #include "theme_store.hpp"
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <memory>

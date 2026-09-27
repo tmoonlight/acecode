@@ -1,14 +1,14 @@
 #include "model_command.hpp"
 
-#include "../config/config.hpp"
-#include "../config/model_provider_registry.hpp"
-#include "../config/saved_models.hpp"
-#include "../config/saved_models_editor.hpp"
-#include "../config/settings_mutations.hpp"
-#include "../provider/apply_model_to_session.hpp"
-#include "../provider/cwd_model_override.hpp"
-#include "../provider/model_context_resolver.hpp"
-#include "../tui/model_picker.hpp"
+#include "config/config.hpp"
+#include "config/model_provider_registry.hpp"
+#include "config/saved_models.hpp"
+#include "config/saved_models_editor.hpp"
+#include "config/settings_mutations.hpp"
+#include "provider/apply_model_to_session.hpp"
+#include "provider/cwd_model_override.hpp"
+#include "provider/model_context_resolver.hpp"
+#include "tui/model_picker.hpp"
 
 #include <cctype>
 #include <limits>

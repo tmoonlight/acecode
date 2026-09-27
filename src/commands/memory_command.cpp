@@ -1,10 +1,10 @@
 #include "memory_command.hpp"
 
-#include "../memory/memory_paths.hpp"
-#include "../memory/memory_registry.hpp"
-#include "../memory/memory_types.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "memory/memory_paths.hpp"
+#include "memory/memory_registry.hpp"
+#include "memory/memory_types.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cstdlib>

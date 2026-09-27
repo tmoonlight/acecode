@@ -1,6 +1,6 @@
 #include "open_in_explorer.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <system_error>
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "tool_executor.hpp"
-#include "../config/config.hpp"
+#include "config/config.hpp"
 
 namespace acecode {
 // Keep the control identity ahead of potentially large accessibility output so

@@ -1,7 +1,7 @@
 #include "init_command.hpp"
 
-#include "../config/config.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <filesystem>
 #include <fstream>

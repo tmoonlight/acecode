@@ -1,6 +1,6 @@
 #include "channels/runtime.hpp"
 #include "channels/setup.hpp"
-#include "test_support.hpp"
+#include "test_support/channels/test_support.hpp"
 #include "daemon/cli.hpp"
 #include "utils/paths.hpp"
 #include <cpr/cpr.h>

@@ -17,7 +17,7 @@
 #include "environment/terminal_runtime.hpp"
 #include "tool/bash_tool.hpp"
 #include "utils/utf8_path.hpp"
-#include "../sandbox/test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 
 #include <nlohmann/json.hpp>
 

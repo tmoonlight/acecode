@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../session/side_chat.hpp"
+#include "session/side_chat.hpp"
 
 namespace acecode::web {
 

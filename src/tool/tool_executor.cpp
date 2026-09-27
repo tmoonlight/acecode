@@ -1,7 +1,7 @@
 #include "tool_executor.hpp"
 #include "apply_patch_format.hpp"
 #include "tool_protocol_names.hpp"
-#include "../session/output_attachments.hpp"
+#include "session/output_attachments.hpp"
 #include "utils/logger.hpp"
 #include "utils/encoding.hpp"
 #include "utils/tool_errors.hpp"

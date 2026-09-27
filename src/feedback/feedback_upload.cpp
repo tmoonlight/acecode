@@ -1,11 +1,11 @@
 #include "feedback_upload.hpp"
 
-#include "../config/config.hpp"
-#include "../network/proxy_resolver.hpp"
-#include "../session/session_storage.hpp"
-#include "../upgrade/manifest.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/utf8_path.hpp"
+#include "config/config.hpp"
+#include "network/proxy_resolver.hpp"
+#include "session/session_storage.hpp"
+#include "upgrade/manifest.hpp"
+#include "utils/encoding.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <chrono>

@@ -4,7 +4,7 @@
 // The projector is pure stateful translation: it never writes files/stdout.
 // JsonlStreamWriter owns the checked, line-atomic, flush-per-record sink.
 
-#include "../session/session_client.hpp"
+#include "session/session_client.hpp"
 
 #include <nlohmann/json.hpp>
 

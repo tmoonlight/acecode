@@ -6,18 +6,18 @@
 
 #include "settings_center.hpp"
 
-#include "../../permissions.hpp"
-#include "../../config/request_headers.hpp"
-#include "../../config/settings_mutations.hpp"
-#include "../../desktop/workspace_registry.hpp"
-#include "../../network/proxy_resolver.hpp"
-#include "../../provider/auth/github_auth.hpp"
-#include "../../session/session_storage.hpp"
-#include "../../session/session_usage_ledger.hpp"
-#include "../../utils/clipboard.hpp"
-#include "../../utils/utf8_path.hpp"
-#include "../theme_palette.hpp"
-#include "../terminal_key_event.hpp"
+#include "permissions.hpp"
+#include "config/request_headers.hpp"
+#include "config/settings_mutations.hpp"
+#include "desktop/workspace_registry.hpp"
+#include "network/proxy_resolver.hpp"
+#include "provider/auth/github_auth.hpp"
+#include "session/session_storage.hpp"
+#include "session/session_usage_ledger.hpp"
+#include "utils/clipboard.hpp"
+#include "utils/utf8_path.hpp"
+#include "tui/theme_palette.hpp"
+#include "tui/terminal_key_event.hpp"
 
 #include <cpr/cpr.h>
 #include <cpr/ssl_options.h>

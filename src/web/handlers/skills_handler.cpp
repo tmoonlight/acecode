@@ -1,11 +1,11 @@
 #include "skills_handler.hpp"
 
-#include "../../skills/skill_init.hpp"
-#include "../../skills/skill_activation.hpp"
-#include "../../skills/skill_registry.hpp"
-#include "../../skills/skill_usage_store.hpp"
-#include "../../utils/utf8_path.hpp"
-#include "../../utils/logger.hpp"
+#include "skills/skill_init.hpp"
+#include "skills/skill_activation.hpp"
+#include "skills/skill_registry.hpp"
+#include "skills/skill_usage_store.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/logger.hpp"
 
 #include <algorithm>
 #include <chrono>

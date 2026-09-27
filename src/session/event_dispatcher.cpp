@@ -1,6 +1,6 @@
 #include "event_dispatcher.hpp"
 
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <chrono>
 #include <utility>

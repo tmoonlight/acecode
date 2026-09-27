@@ -1,6 +1,6 @@
 #include "connector_first_start_auth.hpp"
 
-#include "../utils/state_file.hpp"
+#include "utils/state_file.hpp"
 
 namespace acecode {
 

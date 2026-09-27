@@ -1,12 +1,12 @@
 // routes_misc.cpp — Route registrations extracted from server.cpp
-#include "../server_impl.hpp"
-#include "../../config/config_recovery.hpp"
-#include "../../config/settings_mutations.hpp"
-#include "../../feedback/feedback_upload.hpp"
-#include "../../provider/builtin_model_catalog.hpp"
-#include "../../tool/mcp_manager.hpp"  // /api/mcp/toggle 运行时 enable/disable
-#include "../../utils/state_file.hpp"
-#include "../../upgrade/diagnostics.hpp"
+#include "web/server_impl.hpp"
+#include "config/config_recovery.hpp"
+#include "config/settings_mutations.hpp"
+#include "feedback/feedback_upload.hpp"
+#include "provider/builtin_model_catalog.hpp"
+#include "tool/mcp_manager.hpp"  // /api/mcp/toggle 运行时 enable/disable
+#include "utils/state_file.hpp"
+#include "upgrade/diagnostics.hpp"
 
 #include <algorithm>
 #include <fstream>

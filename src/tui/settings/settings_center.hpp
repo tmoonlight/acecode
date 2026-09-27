@@ -2,7 +2,7 @@
 
 #include "settings_state.hpp"
 
-#include "../../config/config.hpp"
+#include "config/config.hpp"
 
 #include <ftxui/component/component_base.hpp>
 

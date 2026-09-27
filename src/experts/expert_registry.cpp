@@ -1,11 +1,11 @@
 #include "expert_registry.hpp"
 
-#include "../config/config.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/encoding.hpp"
-#include "../utils/paths.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "config/config.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/encoding.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #include <algorithm>
 #include <cctype>

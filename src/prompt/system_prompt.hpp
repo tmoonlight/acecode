@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../tool/model_family.hpp"
-#include "../tool/tool_executor.hpp"
+#include "tool/model_family.hpp"
+#include "tool/tool_executor.hpp"
 #include <cstddef>
 #include <set>
 #include <string>

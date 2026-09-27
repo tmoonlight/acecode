@@ -1,10 +1,10 @@
 #include "skill_view_tool.hpp"
 
-#include "../config/config.hpp"
-#include "../skills/skill_init.hpp"
-#include "../skills/skill_registry.hpp"
+#include "config/config.hpp"
+#include "skills/skill_init.hpp"
+#include "skills/skill_registry.hpp"
 #include "tool_icons.hpp"
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <nlohmann/json.hpp>
 

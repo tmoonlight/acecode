@@ -1,7 +1,7 @@
 #include "shell_command_line.hpp"
 
-#include "../utils/base64.hpp"
-#include "../web/pty/pty_backend.hpp"
+#include "utils/base64.hpp"
+#include "web/pty/pty_backend.hpp"
 
 #include <cstdint>
 

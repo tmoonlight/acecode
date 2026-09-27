@@ -15,8 +15,8 @@
 #include "deepin_window_effects.hpp"
 #endif
 
-#include "../utils/encoding.hpp"
-#include "../utils/logger.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
 
 #include <functional>
 #include <limits>

@@ -2,9 +2,9 @@
 
 #include "agent_loop.hpp"
 #include "permissions.hpp"
-#include "stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 #include "tool/computer_use_tool.hpp"
-#include "../sandbox/test_support.hpp"
+#include "test_support/sandbox/test_support.hpp"
 
 #include <chrono>
 #include <condition_variable>

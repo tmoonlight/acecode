@@ -6,13 +6,13 @@
 #include "mcp_config.hpp"
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
-#include "../themes/theme_id.hpp"
-#include "../utils/constants.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/http_url_validation.hpp"
-#include "../utils/paths.hpp"
-#include "../utils/utf8_path.hpp"
+#include "themes/theme_id.hpp"
+#include "utils/constants.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/logger.hpp"
+#include "utils/http_url_validation.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <atomic>

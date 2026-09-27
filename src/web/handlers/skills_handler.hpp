@@ -10,7 +10,7 @@
 //     —— 否则 404,避免随便发个名字就写入 disabled 数组
 //   - 操作完调用 save_config + 同步 registry.set_disabled + reload
 
-#include "../../config/config.hpp"
+#include "config/config.hpp"
 
 #include <nlohmann/json.hpp>
 

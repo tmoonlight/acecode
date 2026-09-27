@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../config/config.hpp"
+#include "config/config.hpp"
 #include "tool_executor.hpp"
 
 namespace acecode {

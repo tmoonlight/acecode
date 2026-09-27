@@ -1,7 +1,7 @@
 #include "compact_checkpoint.hpp"
 #include "session_history_recovery.hpp"
 #include "session_serializer.hpp"
-#include "../utils/uuid.hpp"
+#include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
 

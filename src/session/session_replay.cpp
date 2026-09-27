@@ -10,10 +10,10 @@
 #include "output_attachments.hpp"
 #include "turn_net_diff.hpp"
 #include "turn_timing.hpp"
-#include "../tool/ask_user_question_tool.hpp"
-#include "../tool/tool_executor.hpp"
-#include "../tool_preamble/tool_preamble.hpp"
-#include "../tui/compact_notice_row.hpp"
+#include "tool/ask_user_question_tool.hpp"
+#include "tool/tool_executor.hpp"
+#include "tool_preamble/tool_preamble.hpp"
+#include "tui/compact_notice_row.hpp"
 
 #include <nlohmann/json.hpp>
 

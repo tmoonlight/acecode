@@ -4,7 +4,7 @@
 // active session's PermissionManager mode so the Web UI permission selector is
 // backed by daemon state instead of local-only UI state.
 
-#include "../../permissions.hpp"
+#include "permissions.hpp"
 
 #include <nlohmann/json.hpp>
 

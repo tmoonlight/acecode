@@ -1,6 +1,6 @@
 #include "apply_patch_format.hpp"
 
-#include "../utils/utf8_path.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>
 

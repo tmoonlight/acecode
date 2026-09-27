@@ -1,9 +1,9 @@
 #include "command_registry.hpp"
 #include "opencode_command_registry.hpp"
-#include "../skills/skill_activation.hpp"
-#include "../skills/skill_commands.hpp"
-#include "../skills/skill_registry.hpp"
-#include "../utils/logger.hpp"
+#include "skills/skill_activation.hpp"
+#include "skills/skill_commands.hpp"
+#include "skills/skill_registry.hpp"
+#include "utils/logger.hpp"
 
 #include <chrono>
 #include <exception>

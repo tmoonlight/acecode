@@ -1,7 +1,7 @@
 #include "daemon_supervisor.hpp"
 
-#include "../utils/encoding.hpp"
-#include "../utils/token.hpp"
+#include "utils/encoding.hpp"
+#include "utils/token.hpp"
 
 #include <chrono>
 #include <cerrno>

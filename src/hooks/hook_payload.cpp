@@ -1,9 +1,9 @@
 #include "hook_payload.hpp"
 
 #include "hook_config.hpp"
-#include "../config/config.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "config/config.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN

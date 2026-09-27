@@ -1,13 +1,13 @@
 #include "theme_store.hpp"
-#include "../utils/base64.hpp"
+#include "utils/base64.hpp"
 #include "theme_package.hpp"
 
-#include "../upgrade/version.hpp"
-#include "../image/image_processor.hpp"
-#include "../utils/atomic_file.hpp"
-#include "../utils/sha256.hpp"
-#include "../utils/utf8_path.hpp"
-#include "../utils/uuid.hpp"
+#include "upgrade/version.hpp"
+#include "image/image_processor.hpp"
+#include "utils/atomic_file.hpp"
+#include "utils/sha256.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #include <algorithm>
 #include <array>

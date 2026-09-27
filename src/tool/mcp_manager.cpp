@@ -1,6 +1,6 @@
 #include "mcp_manager.hpp"
-#include "../config/mcp_config.hpp"
-#include "../utils/sha256.hpp"
+#include "config/mcp_config.hpp"
+#include "utils/sha256.hpp"
 
 // cpp-mcp's mcp_logger.h unconditionally defines LOG_DEBUG/LOG_INFO/LOG_ERROR
 // macros that collide with our own acecode logger. Pull in mcp headers first,
@@ -22,7 +22,7 @@
 #undef LOG_WARNING
 #undef LOG_ERROR
 
-#include "../utils/logger.hpp"
+#include "utils/logger.hpp"
 
 #include <algorithm>
 #include <cctype>

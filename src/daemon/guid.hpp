@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../utils/uuid.hpp"
+#include "utils/uuid.hpp"
 
 #include <string>
 

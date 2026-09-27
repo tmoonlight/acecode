@@ -1,9 +1,9 @@
 // src/provider/apply_model_to_session.cpp
 #include "apply_model_to_session.hpp"
 
-#include "../config/saved_models_revision.hpp"
-#include "../agent_loop.hpp"
-#include "../session/session_manager.hpp"
+#include "config/saved_models_revision.hpp"
+#include "agent_loop.hpp"
+#include "session/session_manager.hpp"
 
 #include <memory>
 #include <stdexcept>

@@ -7,7 +7,7 @@
 #include "hooks/hook_runtime.hpp"
 #include "permissions.hpp"
 #include "tool/tool_executor.hpp"
-#include "../agent_loop/stub_provider.hpp"
+#include "test_support/agent/stub_provider.hpp"
 
 #include <algorithm>
 #include <chrono>

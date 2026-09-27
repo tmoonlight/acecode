@@ -1,7 +1,7 @@
 #include "opencode_command_expander.hpp"
 
-#include "../../commands/opencode_command.hpp"
-#include "../../config/config.hpp"
+#include "commands/opencode_command.hpp"
+#include "config/config.hpp"
 
 namespace acecode::web {
 

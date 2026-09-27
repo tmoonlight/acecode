@@ -1,7 +1,7 @@
-#include "../../config/mcp_config.hpp"
+#include "config/mcp_config.hpp"
 // routes_experts.cpp — local expert component discovery and managed CRUD.
-#include "../server_impl.hpp"
-#include "../../tool/mcp_manager.hpp"
+#include "web/server_impl.hpp"
+#include "tool/mcp_manager.hpp"
 
 namespace acecode::web {
 

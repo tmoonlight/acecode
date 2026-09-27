@@ -3,12 +3,12 @@
 #ifdef _WIN32
 
 #include "worker.hpp"
-#include "../environment/bootstrap.hpp"
-#include "../config/config.hpp"
-#include "../hooks/hook_manager.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/paths.hpp"
-#include "../utils/utf8_path.hpp"
+#include "environment/bootstrap.hpp"
+#include "config/config.hpp"
+#include "hooks/hook_manager.hpp"
+#include "utils/logger.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN

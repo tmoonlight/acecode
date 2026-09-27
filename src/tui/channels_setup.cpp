@@ -1,9 +1,9 @@
 #include "channels_setup.hpp"
 #include "theme_palette.hpp"
 #include "terminal_key_event.hpp"
-#include "../config/config.hpp"
-#include "../desktop/locale.hpp"
-#include "../utils/open_url.hpp"
+#include "config/config.hpp"
+#include "desktop/locale.hpp"
+#include "utils/open_url.hpp"
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/component/screen_interactive.hpp>

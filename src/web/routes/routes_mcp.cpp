@@ -1,7 +1,7 @@
-#include "../server_impl.hpp"
-#include "../../config/mcp_config.hpp"
-#include "../../tool/mcp_manager.hpp"
-#include "../../utils/utf8_path.hpp"
+#include "web/server_impl.hpp"
+#include "config/mcp_config.hpp"
+#include "tool/mcp_manager.hpp"
+#include "utils/utf8_path.hpp"
 
 namespace acecode::web {
 using nlohmann::json;

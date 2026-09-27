@@ -1,6 +1,6 @@
 #include "permission_prompter.hpp"
 
-#include "../utils/uuid.hpp"
+#include "utils/uuid.hpp"
 
 #include <memory>
 #include <utility>

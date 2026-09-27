@@ -1,6 +1,6 @@
 #include "external_url.hpp"
 
-#include "../utils/encoding.hpp"
+#include "utils/encoding.hpp"
 
 #include <algorithm>
 #include <cctype>

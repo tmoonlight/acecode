@@ -1,9 +1,9 @@
 #include "output_attachments.hpp"
 
-#include "../image/image_processor.hpp"
-#include "../utils/base64.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "image/image_processor.hpp"
+#include "utils/base64.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

@@ -1,7 +1,7 @@
 #include "goal_command.hpp"
 
-#include "../session/thread_goal_store.hpp"
-#include "../utils/token_tracker.hpp"
+#include "session/thread_goal_store.hpp"
+#include "utils/token_tracker.hpp"
 
 #include <algorithm>
 #include <cctype>

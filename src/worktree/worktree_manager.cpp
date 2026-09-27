@@ -1,9 +1,9 @@
 #include "worktree_manager.hpp"
 
-#include "../hooks/hook_config.hpp"
-#include "../hooks/hook_runner.hpp"
-#include "../utils/logger.hpp"
-#include "../utils/utf8_path.hpp"
+#include "hooks/hook_config.hpp"
+#include "hooks/hook_runner.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <cctype>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../tool/tool_protocol_names.hpp"
+#include "tool/tool_protocol_names.hpp"
 
 #include <string>
 #include <vector>

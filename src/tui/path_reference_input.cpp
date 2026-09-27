@@ -1,6 +1,6 @@
 #include "path_reference_input.hpp"
 
-#include "../tui_state.hpp"
+#include "tui_state.hpp"
 #include "picker_scroll.hpp"
 
 #include <algorithm>
