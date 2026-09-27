@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "master_base": "3ddb7d433f280181292e5cd2eede612b17cc8b42",
+  "validation_ref": "2d3af9f0f970cdd74f6f1122ea6031421c4ccc72",
+  "source_tree": "496d7b36cf07f38ccdae31cec04e17e7957096f0",
+  "tests_tree": "bd25d5c71301b89d52f3b02a2bc8e90d19e5a32c",
+  "commands": [
+    {
+      "report": "layers.json",
+      "command": "python scripts/layers/check_layers.py",
+      "exit_code": 0
+    },
+    {
+      "report": "size.json",
+      "command": "python scripts/layers/check_file_size.py --strict",
+      "exit_code": 0
+    },
+    {
+      "report": "ownership.json",
+      "command": "python scripts/layers/check_ownership.py --strict",
+      "exit_code": 0
+    },
+    {
+      "report": "doc-paths.json",
+      "command": "python scripts/refactor/check_doc_paths.py",
+      "exit_code": 0
+    },
+    {
+      "report": "map.json",
+      "command": "python scripts/refactor/validate_map.py --strict",
+      "exit_code": 0
+    },
+    {
+      "report": "includes-src.json",
+      "command": "python scripts/refactor/normalize_includes.py --check --scope src",
+      "exit_code": 1
+    },
+    {
+      "report": "includes-tests.json",
+      "command": "python scripts/refactor/normalize_includes.py --check --scope tests",
+      "exit_code": 1
+    }
+  ],
+  "tests": {
+    "command": "python -m unittest discover -s scripts/refactor/tests -p test_*.py -v",
+    "count": 28,
+    "exit_code": 0
+  },
+  "scope": "P0-03 source-only baseline. Four-platform ACECode target/gtest/actual-SKIP G0 belongs to P0-07."
+}

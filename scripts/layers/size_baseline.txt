@@ -1,0 +1,33 @@
+# R12 baseline: canonical_path	maximum_lines. Lower limits when files shrink.
+# src/apps/web/**: user constraint exemption (D21). external/stb/**: third-party exemption.
+src/adapters/computer_use/native_windows.cpp	1545
+src/adapters/provider/anthropic_provider.cpp	1326
+src/adapters/provider/openai_provider.cpp	2025
+src/adapters/provider/text_tool_call_recovery.cpp	1387
+src/adapters/themes/theme_store.cpp	1022
+src/adapters/tool/agent_browser/browser_tools.cpp	1422
+src/adapters/tool/file_read_tool.cpp	1083
+src/adapters/tool/mcp_manager.cpp	1024
+src/apps/cli/main.cpp	8827
+src/apps/desktop/agent_browser_host.cpp	2832
+src/apps/desktop/agent_browser_host_mac.mm	3157
+src/apps/desktop/main.cpp	2860
+src/apps/desktop/tray_icon_win.cpp	2261
+src/apps/desktop/web_host.cpp	2889
+src/apps/tui/commands/builtin_commands.cpp	2060
+src/apps/tui/markdown/mermaid_renderer.cpp	2484
+src/apps/tui/settings/management_center.cpp	2146
+src/apps/tui/settings/settings_center.cpp	2842
+src/apps/tui/tui_helpers.cpp	1386
+src/base/config/config.cpp	2875
+src/base/platform/native_ui/custom_toast_win.cpp	1230
+src/domain/experts/expert_registry.cpp	1882
+src/domain/sandbox/command_classifier.cpp	1013
+src/domain/session/session_manager.cpp	1866
+src/domain/skills/default_skill_seeder.cpp	1577
+src/engine/agent/agent_loop.cpp	6952
+src/engine/agent/agent_loop.hpp	1010
+src/engine/prompt/system_prompt.cpp	1383
+src/host/remote_control/session_channel_binder.cpp	1236
+src/host/session_host/session_registry.cpp	2466
+src/host/session_host/thread_service.cpp	1211

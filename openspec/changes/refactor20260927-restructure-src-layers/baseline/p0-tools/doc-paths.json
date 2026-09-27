@@ -1,0 +1,491 @@
+{
+  "checked": 1109,
+  "excluded": [
+    "openspec/** (historical paths are retained by the migration design)",
+    "external/** (third-party)"
+  ],
+  "findings": [
+    {
+      "file": "CLAUDE.md",
+      "line": 17,
+      "message": "documentation path is not tracked",
+      "path": "src/headless/headless_mode"
+    },
+    {
+      "file": "CLAUDE.md",
+      "line": 71,
+      "message": "documentation path is not tracked",
+      "path": "src/sandbox/exec_permission"
+    },
+    {
+      "file": "CLAUDE.md",
+      "line": 106,
+      "message": "documentation path is not tracked",
+      "path": "src/security/audit_log"
+    },
+    {
+      "file": "CLAUDE.md",
+      "line": 680,
+      "message": "documentation path is not tracked",
+      "path": "src/network/tcp_probe._posix.cpp"
+    },
+    {
+      "file": "CLAUDE.md",
+      "line": 680,
+      "message": "documentation path is not tracked",
+      "path": "src/network/tcp_probe._win.cpp"
+    },
+    {
+      "file": "docs/daemon-api.md",
+      "line": 2383,
+      "message": "documentation path is not tracked",
+      "path": "src/a.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 6,
+      "message": "documentation path is not tracked",
+      "path": "src/cli.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 227,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/tray.hpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 227,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/tray.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 246,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/notify.hpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 291,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/tray_"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 292,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/notify_"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 293,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/single_instance_"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 391,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/runtime_files.hpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 391,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/runtime_files.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 394,
+      "message": "documentation path is not tracked",
+      "path": "tests/desktop/runtime_files_test.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 395,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/runtime_json_parser.hpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 395,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/runtime_json_parser.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "line": 397,
+      "message": "documentation path is not tracked",
+      "path": "tests/desktop/runtime_json_parser_test.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/macos-file-drop-handoff.md",
+      "line": 138,
+      "message": "documentation path is not tracked",
+      "path": "tests/build"
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "line": 53,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/runtime_json_parser.hpp"
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "line": 53,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/runtime_json_parser.cpp"
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "line": 88,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/tray.hpp"
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "line": 91,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/notify.hpp"
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "line": 92,
+      "message": "documentation path is not tracked",
+      "path": "src/desktop/file_picker.hpp"
+    },
+    {
+      "file": "docs/help-source/captures.json",
+      "line": 232,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help-source/image-plan.md",
+      "line": 12,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help-source/images.json",
+      "line": 150,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help-source/images.json",
+      "line": 332,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help-source/screenshot-map.json",
+      "line": 25,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help/assets/search-index.js",
+      "line": 65,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help/assets/search-index.js",
+      "line": 89,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help/conversation.html",
+      "line": 46,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help/conversation.html",
+      "line": 46,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/help/quick-start.html",
+      "line": 59,
+      "message": "documentation path is not tracked",
+      "path": "src/welcome.js"
+    },
+    {
+      "file": "docs/plan/analysis/agent-loop-decomposition.md",
+      "line": 13,
+      "message": "documentation path is not tracked",
+      "path": "src/agent/*.cpp"
+    },
+    {
+      "file": "docs/plan/analysis/agent-loop-decomposition.md",
+      "line": 19,
+      "message": "documentation path is not tracked",
+      "path": "src/agent"
+    },
+    {
+      "file": "docs/plan/analysis/agent-loop-decomposition.md",
+      "line": 38,
+      "message": "documentation path is not tracked",
+      "path": "src/agent/agent_loop.hpp"
+    },
+    {
+      "file": "docs/plan/analysis/agent-loop-decomposition.md",
+      "line": 162,
+      "message": "documentation path is not tracked",
+      "path": "src/agent/*.cpp"
+    },
+    {
+      "file": "docs/plan/reviews/theme-management-001-web.md",
+      "line": 58,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/themeExports.test.js"
+    },
+    {
+      "file": "docs/plan/reviews/theme-management-001-web.md",
+      "line": 59,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/appearancePreferences.test.js"
+    },
+    {
+      "file": "docs/plan/reviews/theme-management-001-web.md",
+      "line": 60,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/themePackages.test.js"
+    },
+    {
+      "file": "docs/plan/reviews/theme-management-001-web.md",
+      "line": 61,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/themeManagementUi.test.js"
+    },
+    {
+      "file": "docs/plan/reviews/theme-surfaces-001.md",
+      "line": 49,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/themeSurfaces.test.js"
+    },
+    {
+      "file": "docs/plan/reviews/theme-surfaces-001.md",
+      "line": 50,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/themePackages.test.js"
+    },
+    {
+      "file": "docs/plan/reviews/theme-surfaces-001.md",
+      "line": 51,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/topBarWindowDrag.test.js"
+    },
+    {
+      "file": "docs/plan/tasks/model-settings-redesign-001.md",
+      "line": 32,
+      "message": "documentation path is not tracked",
+      "path": "src/models_dev*.hpp"
+    },
+    {
+      "file": "docs/plan/tasks/model-settings-redesign-001.md",
+      "line": 32,
+      "message": "documentation path is not tracked",
+      "path": "src/models_dev*.cpp"
+    },
+    {
+      "file": "docs/plan/tasks/rc-session-navigation.md",
+      "line": 18,
+      "message": "documentation path is not tracked",
+      "path": "tests/build"
+    },
+    {
+      "file": "docs/string-utilities-refactor.md",
+      "line": 74,
+      "message": "documentation path is not tracked",
+      "path": "src/utils/str"
+    },
+    {
+      "file": "docs/string-utilities-refactor.md",
+      "line": 129,
+      "message": "documentation path is not tracked",
+      "path": "src/utils/str/str_encoding.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 23,
+      "message": "documentation path is not tracked",
+      "path": "src/CMakeLists.txt"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 1314,
+      "message": "documentation path is not tracked",
+      "path": "src/provider/provider_swap.hpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 1315,
+      "message": "documentation path is not tracked",
+      "path": "src/provider/provider_swap.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 1386,
+      "message": "documentation path is not tracked",
+      "path": "src/provider/provider_swap.hpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 1386,
+      "message": "documentation path is not tracked",
+      "path": "src/provider/provider_swap.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 1389,
+      "message": "documentation path is not tracked",
+      "path": "src/CMakeLists.txt"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 1421,
+      "message": "documentation path is not tracked",
+      "path": "src/tui/skills_picker.hpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 1421,
+      "message": "documentation path is not tracked",
+      "path": "src/tui/skills_picker.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "line": 2160,
+      "message": "documentation path is not tracked",
+      "path": "src/lib/__tests__"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-18-skill-dormancy-plan.md",
+      "line": 118,
+      "message": "documentation path is not tracked",
+      "path": "src/CMakeLists.txt"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 33,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/incremental_lexer_test.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 34,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/streaming_layout_benchmark.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 411,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/incremental_lexer_test.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 427,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/incremental_lexer_test.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 533,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/incremental_lexer_test.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 598,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/streaming_layout_benchmark.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 604,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/streaming_layout_benchmark.cpp"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "line": 667,
+      "message": "documentation path is not tracked",
+      "path": "tests/markdown/streaming_layout_benchmark.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 304,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_apply_model_to_session.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 312,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_saved_models_editor.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 322,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_models_handlers.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 334,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_model_command.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 381,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_apply_model_to_session.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 382,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_saved_models_editor.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 395,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_models_handlers.cpp"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "line": 395,
+      "message": "documentation path is not tracked",
+      "path": "tests/test_model_command.cpp"
+    },
+    {
+      "file": "docs/user-manual.md",
+      "line": 217,
+      "message": "documentation path is not tracked",
+      "path": "src/ma"
+    },
+    {
+      "file": "docs/竞品对照_opencode_2026-09.md",
+      "line": 36,
+      "message": "documentation path is not tracked",
+      "path": "src/session/prompt.ts"
+    },
+    {
+      "file": "docs/竞品调研报告_完整版_2026-08.md",
+      "line": 128,
+      "message": "documentation path is not tracked",
+      "path": "tests/e2e/live-acp"
+    }
+  ],
+  "placeholders": [],
+  "schema": 1
+}
