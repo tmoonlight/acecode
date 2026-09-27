@@ -42,6 +42,26 @@ def normalize_source_path(value: str, source_root: str, build_root: str) -> str:
     return normalize_root_paths(value, source_root, build_root)
 
 
+def translate_for_comparison(mapping: LayoutMap | None, value: str, reverse: bool) -> str:
+    """Map one snapshot path (or define/option text) for a G0 comparison.
+
+    Forward mode applies the layout map as written. Reverse mode first maps the
+    value forward so a P2 transition path such as ``src/platform/x.cpp`` (only
+    the P3 directory row ``src/platform/ -> src/base/platform/`` knows it) lands
+    on its final path, then maps that final path back to the original G0 path
+    through the exact P2 row. Old paths round-trip unchanged, deleted rows and
+    unmapped values stay as they are.
+    """
+    if not mapping:
+        return value
+    if reverse:
+        forward = mapping.translate(value)
+        if forward is not None:
+            value = forward
+    translated = mapping.translate(value, reverse)
+    return value if translated is None else translated
+
+
 def snapshot(build: Path, configuration: str | None = None, mapping: LayoutMap | None = None, reverse: bool = False) -> dict:
     reply = build / ".cmake/api/v1/reply"
     # Only the explicit CMake generated reply directory is enumerated. Repository
@@ -58,12 +78,7 @@ def snapshot(build: Path, configuration: str | None = None, mapping: LayoutMap |
     build_root = model["paths"]["build"].replace("\\", "/").rstrip("/")
 
     def normalize(value: str) -> str:
-        value = normalize_root_paths(value, source_root, build_root)
-        if mapping:
-            translated = mapping.translate(value, reverse)
-            if translated is not None:
-                value = translated
-        return value
+        return translate_for_comparison(mapping, normalize_root_paths(value, source_root, build_root), reverse)
 
     def normalize_source(value: str) -> str:
         return normalize(normalize_source_path(value, source_root, build_root))
