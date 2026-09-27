@@ -9,9 +9,9 @@
 #include "session_user_message_search.hpp"
 #include "thread_repair.hpp"
 #include "commands/compact.hpp"
-#include "config/config.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>

@@ -1,8 +1,8 @@
 #include "diagnostics.hpp"
 
 #include "apply.hpp"
-#include "config/config.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <atomic>

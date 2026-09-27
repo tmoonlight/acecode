@@ -1,7 +1,7 @@
 #include "agent_browser_runtime.hpp"
 
-#include "config/config.hpp"
 #include "utils/atomic_file.hpp"
+#include "utils/paths.hpp"
 #include "utils/url_encoding.hpp"
 #include "utils/utf8_path.hpp"
 

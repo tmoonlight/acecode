@@ -1,6 +1,5 @@
 #include "hook_registry.hpp"
 
-#include "config/config.hpp"
 #include "skills/default_skill_seeder.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/encoding.hpp"
