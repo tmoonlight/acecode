@@ -179,3 +179,29 @@ HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP 均为仓库外 `N:/ac-
 检查摘要为仓库外 `p2-04-desktop-smoke.json`;构建与启动日志为 `p2-04-native-build.log` / `p2-04-desktop-launch.log`。测试文件仅写入隔离工作区,没有修改项目源码。
 
 P2-03 合入后仍须同步最新 master,解决 CMake 相邻改动并复验;本节不提前勾选 P2-04。
+
+## 10. 同步 P2-03 后的集成复验(2026-09-28)
+
+P2-03 已由 PR #79 合入 master(`b7be0dcb`)。本分支的合并提交为 `aa6872f961b6f4e73210bac0e5de1cb8db9594c9`。14 个文件的冲突均为相邻 include / CMake 路径或文档路径,保留 P2-04 的 ipc / workspace 路径及 utils/paths 分离,同时采用 P2-03 的 platform / pty 路径。P2-03 完成标记已在 tasks.md 更新。
+
+- src / tests include 规范化、映射、分层阻断项、行数、所有权检查和 `git diff --cached --check` 全部通过;OpenSpec strict 校验及前端完整 `pnpm test` 通过。
+- 全新目录 `build/p2-04-integrated-aa6872f9` 配置并构建 CLI / Desktop / GoogleTest / 五个冒烟目标,1046 步完成,退出码 0。
+- File API 目标对照:59 target / 3573 元组。相对 P2-02 后的同机 master 快照,目标差异 0、既有元组删除 0,唯一新增为 P2-03 的 `lsp_platform_aliases.hpp`;P2-04 搬迁文件的归属和编译属性全部保持。
+- 完整本机 GoogleTest 在独立短路径 `N:/a04i/` 完成:5115 项列出、5114 项执行、9 项跳过、0 失败、退出码 0;结果见仓库外 `p2-04-integrated-gtest.json`。
+- 用官方开发启动器启动本次集成目录的 Desktop,再次验证原生桥激活工作区与 UI 文件预览。Desktop PID 56752 / daemon PID 47836 均为该目录产物,正常退出后两个进程均结束,用户原 Desktop PID 13680 保持运行;无屏幕截图。证据为仓库外 `p2-04-integrated-desktop-smoke.json`。
+- [集成版本四平台 CI 36336644249](https://github.com/tmoonlight/acecode/actions/runs/36336644249) 全部构建完成,源码固定为 `aa6872f961b6f4e73210bac0e5de1cb8db9594c9`。逐项结果如下;任务完成标记在 PR 合入后更新。
+
+| 平台 | target / 编译元组 | 列出 / 执行 / SKIP / 失败 |
+|---|---|---|
+| Windows x64 | 59 / 3573 | 5115 / 5108 / 10 / 4 |
+| Linux x64 | 50 / 3487 | 5035 / 5026 / 16 / 0 |
+| macOS arm64 | 57 / 3632 | 5040 / 5033 / 14 / 10 |
+| Deepin x64 | 13 / 1373 | 不配置测试 |
+
+四平台目标、既有元组和编译属性均保持;相对 post-p0 的新增仅为已验收的 P2-02 抽出物和 P2-03 别名头(正常平台 44、Deepin 20)。用例与 SKIP 集合保持。Deepin provenance 的源码字段仍受容器 Git safe.directory 问题影响为空,已独立核对 build job 108668654269 的 checkout 日志为完整 `aa6872f9` SHA,不把空字段作为来源证明。
+
+Windows 保留基线中的 HookRunner / 两个 Python 脚本失败,原有 MCP 失败本次未出现;另有 `AgentLoopTurnSteering.InterruptStartsStructuredTurnBeforeOrdinaryQueue` 在等待第二次 provider 调用的 250ms 断言失败。该项在未集成 P2-04 的原始 P2-05 CI 36334375820 同样失败,两次失败位置完全一致(测试总时长分别 747ms / 884ms)。源码核对确认本 P2-04 对 AgentLoop 仅把 workspace_registry 的 include 改成新模块路径,测试与 stub provider 完全未变;本机完整测试以及本次额外 20 次原断言重复运行全部通过。原始 P2-05 本机也有独立的 20 次通过记录。现有证据指向原有时间窗对 Windows CI 调度速度敏感;保留这项失败及推断依据,未修改、跳过或放宽断言。它不能被记成单测全绿。完整日志与重复记录保存在仓库外 `p2-04-integrated-steering-repeat.log` / `ci/p2-04-integrated/windows-x64/gtest-run.log`。
+
+macOS 的 10 项失败均与 post-p0 基线相同,之前记录的 SSE 时序抖动本次未出现。Linux 完整测试为 0 失败。分层违规降至 152 项;P2-04 要消除的 IPC / workspace 反向依赖已消除,后续 P2 任务负责剩余项。
+
+补齐 P2-02 / P2-03 / P2-04 六个纯搬迁和 include 提交的 blame-ignore 登记。上述验收补录和登记不改变已验证源码、测试或 CMake。
