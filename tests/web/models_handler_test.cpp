@@ -9,6 +9,7 @@
 
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
+#include "test_support/repo_root.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -305,7 +306,8 @@ TEST(ModelsHandler, ParseDraftRejectsWrongCredentialTypes) {
 }
 
 std::filesystem::path repo_root() {
-    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    // fixture 路径不随测试目录深度变化；仓库定位错误时明确失败。
+    return acecode::test_support::find_repo_root(__FILE__);
 }
 
 nlohmann::json model_mutation_fixture() {

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "provider/builtin_model_catalog.hpp"
+#include "test_support/repo_root.hpp"
 #include "utils/constants.hpp"
 #include "web/handlers/model_catalog_handler.hpp"
 
@@ -77,7 +78,8 @@ nlohmann::json catalog_fixture() {
 }
 
 std::filesystem::path repo_root() {
-    return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    // fixture 路径不随测试目录深度变化；仓库定位错误时明确失败。
+    return acecode::test_support::find_repo_root(__FILE__);
 }
 
 nlohmann::json contract_fixture() {

@@ -55,6 +55,7 @@
 #include "session/task_suggestion_service.hpp"
 #include "session/session_usage_ledger.hpp"
 #include "skills/skill_registry.hpp"
+#include "test_support/repo_root.hpp"
 #include "themes/theme_store.hpp"
 #include "../themes/theme_test_resources.hpp"
 #include "tool/ask_user_question_tool.hpp"
@@ -10125,8 +10126,9 @@ TEST(WebServerHttp, CreateSessionWithBadJsonReturns400) {
 // fixture 的 tmp_dir,绝不会污染真实 ~/.acecode/config.json。
 
 TEST(WebServerHttp, ModelCatalogRoutesReturnBoundedCanonicalLocalData) {
-    const auto assets = std::filesystem::path(__FILE__).parent_path()
-        .parent_path().parent_path() / "assets" / "models_dev";
+    // 目录搬迁不能让模型目录回退到别处；根定位失败应直接暴露。
+    const auto assets = acecode::test_support::find_repo_root(__FILE__) /
+        "assets" / "models_dev";
     ScopedEnvOverride models_dir("ACECODE_MODELS_DEV_DIR", assets.string());
     WebServerFixture fx;
     acecode::initialize_registry(fx.cfg, "");

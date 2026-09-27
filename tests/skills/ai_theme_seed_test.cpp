@@ -1,6 +1,7 @@
 #include "image/image_processor.hpp"
 #include "skills/default_skill_seeder.hpp"
 #include "skills/skill_registry.hpp"
+#include "test_support/repo_root.hpp"
 #include "themes/theme_store.hpp"
 #include "utils/sha256.hpp"
 
@@ -28,8 +29,8 @@ std::string read_bytes(const fs::path& path) {
 class AiThemeSeedTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        const fs::path source = fs::absolute(fs::path(__FILE__));
-        repository_ = source.parent_path().parent_path().parent_path();
+        // 用例加深目录后仍定位真实种子，避免把错误路径当成缺少资源。
+        repository_ = acecode::test_support::find_repo_root(__FILE__);
         packaged_ = repository_ / "assets" / "seed";
         root_ = fs::temp_directory_path() /
             ("acecode-ai-theme-seed-" + std::to_string(
