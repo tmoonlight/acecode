@@ -8,10 +8,11 @@ on:
       - master
 
 jobs:
-  # P0-07(refactor20260927-restructure-src-layers):分层护栏的报告模式检查,
-  # 排在 C++ 构建之前。分层 / doc-paths / include 规范化只报告不阻断;
-  # 行数与所有权两个棘轮按已提交基线做 non-increasing 比较,映射表做结构校验,
-  # 这三项和工具自测是阻断项。报告以 artifact `layer-lint-reports` 发布。
+  # P0-07(refactor20260927-restructure-src-layers):分层护栏检查,排在 C++ 构建之前。
+  # 分层与 doc-paths 只报告不阻断;P1-02 起 `../` include(check_layers
+  # --enforce-parent-includes)与 include 规范化(normalize_includes --check,src 与 tests
+  # 两个范围)是阻断项;行数与所有权两个棘轮按已提交基线做 non-increasing 比较,映射表做
+  # 结构校验,这三项和工具自测同样阻断。报告以 artifact `layer-lint-reports` 发布。
   layer-lint:
     name: layer-lint (report mode)
     runs-on: ubuntu-22.04
@@ -31,10 +32,8 @@ jobs:
           mkdir -p lint-reports
           python scripts/layers/check_layers.py --output lint-reports/layers.json
           python scripts/refactor/check_doc_paths.py --output lint-reports/doc-paths.json
-          python scripts/refactor/normalize_includes.py --check --scope src --output lint-reports/includes-src.json \
-            || echo "::notice::src includes still use parent-relative paths; normalization is scheduled for P1"
-          python scripts/refactor/normalize_includes.py --check --scope tests --output lint-reports/includes-tests.json \
-            || echo "::notice::tests includes still use parent-relative paths; normalization is scheduled for P1"
+          python scripts/refactor/normalize_includes.py --check --scope src --output lint-reports/includes-src.json
+          python scripts/refactor/normalize_includes.py --check --scope tests --output lint-reports/includes-tests.json
           python scripts/layers/check_file_size.py --strict --output lint-reports/size.json
           python scripts/layers/check_ownership.py --strict --output lint-reports/ownership.json
           python scripts/refactor/validate_map.py --strict --output lint-reports/map.json

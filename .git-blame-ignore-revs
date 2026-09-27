@@ -1,0 +1,7 @@
+# refactor20260927 系列的机械提交(纯 include 改写、纯搬迁),git blame 跳过它们:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# 每个提交一行,只登记 [mechanical] / [no-build] 标记的提交。
+
+# P1-01 include 规范化(2026-09-27)
+5524a35241ba67ba061aa1a279fd943213601a2f
+7a90db6d94bf70e4e200cb39c0122bdb1fc7fa66
