@@ -46,6 +46,21 @@ class TranslateForComparisonTest(unittest.TestCase):
         self.assertEqual(translate_for_comparison(self.mapping, "src/commands/compact.hpp", True), "src/commands/compact.hpp")
         self.assertEqual(translate_for_comparison(self.mapping, "ACECODE_FOO=1", True), "ACECODE_FOO=1")
 
+    def test_generated_object_paths_follow_their_source(self):
+        # 触发场景:acecode 等目标直接链接 acecode_testable 的对象文件,快照里的 source 是
+        # @build/CMakeFiles/acecode_testable.dir/src/platform/clipboard.cpp.obj。
+        # 期望:嵌在对象路径里的源路径按同样规则反查回旧路径,搬迁文件与它的 .obj 只算一个元组。
+        # 回归表现:改动前对象路径原样保留,P2-02 的 5 个搬迁 .cpp 在 5 个目标里各报「一减一增」(25 对)。
+        self.assertEqual(
+            translate_for_comparison(self.mapping, "@build/CMakeFiles/acecode_testable.dir/src/platform/clipboard.cpp.obj", True),
+            "@build/CMakeFiles/acecode_testable.dir/src/utils/clipboard.cpp.obj")
+        self.assertEqual(
+            translate_for_comparison(self.mapping, "@build/CMakeFiles/x.dir/src/utils/paths.cpp.o", True),
+            "@build/CMakeFiles/x.dir/src/utils/paths.cpp.o")
+        self.assertEqual(
+            translate_for_comparison(self.mapping, "@build/CMakeFiles/x.dir/src/utils/clipboard.cpp.obj", False),
+            "@build/CMakeFiles/x.dir/src/base/platform/clipboard.cpp.obj")
+
     def test_forward_mode_and_no_mapping_are_unchanged(self):
         # 正向模式只做一次映射(P3 之后拿旧基线正向换算用);没有映射表时原样返回。
         self.assertEqual(translate_for_comparison(self.mapping, "src/utils/clipboard.cpp", False), "src/base/platform/clipboard.cpp")
