@@ -90,12 +90,11 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 add_dependencies(acecode_unit_tests acecode_upgrade_version_fixture)
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/upgrade/executable_version_test.cpp
-    PROPERTIES COMPILE_DEFINITIONS
+acecode_set_source_define(${CMAKE_CURRENT_SOURCE_DIR}/upgrade/executable_version_test.cpp
     "ACECODE_UPGRADE_VERSION_FIXTURE=\"$<TARGET_FILE:acecode_upgrade_version_fixture>\"")
 
 add_executable(acecode_upgrade_restart_smoke EXCLUDE_FROM_ALL
-    ${CMAKE_CURRENT_SOURCE_DIR}/desktop/helpers/upgrade_restart_smoke.cpp)
+    ${ACECODE_UPGRADE_RESTART_SMOKE_SOURCES})
 target_link_libraries(acecode_upgrade_restart_smoke PRIVATE
     acecode_desktop_support acecode_native_bridge_support cpr::cpr nlohmann_json::nlohmann_json)
 if(MSVC)
@@ -133,17 +132,14 @@ if(WIN32 OR APPLE)
     # Keep its executable directory separate from the real helper and tests.
     set(_computer_broker_dir "${CMAKE_CURRENT_BINARY_DIR}/computer-use-broker/$<CONFIG>")
     add_executable(computer_use_broker_fixture EXCLUDE_FROM_ALL
-        computer_use/helpers/broker_fixture.cpp)
+        ${ACECODE_COMPUTER_USE_BROKER_FIXTURE_SOURCES})
     target_link_libraries(computer_use_broker_fixture PRIVATE nlohmann_json::nlohmann_json)
     set_target_properties(computer_use_broker_fixture PROPERTIES
         OUTPUT_NAME acecode-computer-use RUNTIME_OUTPUT_DIRECTORY "${_computer_broker_dir}")
     add_executable(computer_use_broker_smoke EXCLUDE_FROM_ALL
-        computer_use/helpers/broker_smoke.cpp ${CMAKE_SOURCE_DIR}/src/computer_use/runtime.cpp)
+        ${ACECODE_COMPUTER_USE_BROKER_SMOKE_SOURCES})
     target_include_directories(computer_use_broker_smoke PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(computer_use_broker_smoke PRIVATE nlohmann_json::nlohmann_json)
-    if(APPLE)
-        target_sources(computer_use_broker_smoke PRIVATE ${CMAKE_SOURCE_DIR}/src/computer_use/helper_process_posix.cpp)
-    endif()
     set_target_properties(computer_use_broker_smoke PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${_computer_broker_dir}")
     add_dependencies(computer_use_broker_smoke computer_use_broker_fixture)
@@ -151,9 +147,7 @@ endif()
 if(WIN32)
     # Opt-in native fixture: operates only on its own disposable test window.
     add_executable(computer_use_native_smoke EXCLUDE_FROM_ALL
-        computer_use/helpers/native_smoke.cpp
-        computer_use/helpers/ole_drag_fixture.cpp
-        ${CMAKE_SOURCE_DIR}/src/computer_use/runtime.cpp)
+        ${ACECODE_COMPUTER_USE_NATIVE_SMOKE_SOURCES})
     target_link_libraries(computer_use_native_smoke PRIVATE acecode_computer_use_native)
     add_dependencies(computer_use_native_smoke acecode-computer-use)
     add_custom_command(TARGET computer_use_native_smoke POST_BUILD
@@ -168,9 +162,7 @@ endif()
 # page without an external debug port or ACECode host bindings in web content.
 if(WIN32 AND ACECODE_BUILD_DESKTOP)
     add_executable(agent_browser_host_smoke EXCLUDE_FROM_ALL
-        ${CMAKE_CURRENT_SOURCE_DIR}/desktop/helpers/agent_browser_host_smoke.cpp
-        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
-        ${CMAKE_SOURCE_DIR}/src/tool/agent_browser/cdp_client.cpp
+        ${ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES}
     )
     target_include_directories(agent_browser_host_smoke PRIVATE
         ${CMAKE_SOURCE_DIR}/src
@@ -195,10 +187,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
     # isolated native WebView2 host so it never takes over the user's active
     # Browser tab.
     add_executable(agent_browser_pointer_demo EXCLUDE_FROM_ALL
-        ${CMAKE_CURRENT_SOURCE_DIR}/desktop/helpers/agent_browser_pointer_demo.cpp
-        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp
-        ${CMAKE_SOURCE_DIR}/src/tool/agent_browser/cdp_client.cpp
-        ${CMAKE_SOURCE_DIR}/src/tool/agent_browser/pointer_overlay.cpp
+        ${ACECODE_AGENT_BROWSER_POINTER_DEMO_SOURCES}
     )
     target_include_directories(agent_browser_pointer_demo PRIVATE
         ${CMAKE_SOURCE_DIR}/src
@@ -221,10 +210,7 @@ endif()
 
 if(APPLE)
     add_executable(computer_use_native_mac_smoke MACOSX_BUNDLE EXCLUDE_FROM_ALL
-        computer_use/helpers/native_macos_smoke.mm
-        ${CMAKE_SOURCE_DIR}/src/computer_use/runtime.cpp
-        ${CMAKE_SOURCE_DIR}/src/computer_use/availability.cpp
-        ${CMAKE_SOURCE_DIR}/src/computer_use/helper_process_posix.cpp)
+        ${ACECODE_COMPUTER_USE_NATIVE_MAC_SMOKE_SOURCES})
     target_include_directories(computer_use_native_mac_smoke PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(computer_use_native_mac_smoke PRIVATE nlohmann_json::nlohmann_json
         "-framework AppKit" "-framework ApplicationServices")
@@ -250,9 +236,7 @@ if(APPLE)
     endif()
     add_executable(agent_browser_host_mac_smoke
         MACOSX_BUNDLE EXCLUDE_FROM_ALL
-        ${CMAKE_CURRENT_SOURCE_DIR}/desktop/helpers/agent_browser_host_mac_smoke.mm
-        ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host_mac.mm
-        ${CMAKE_SOURCE_DIR}/src/tool/agent_browser/cdp_client.cpp
+        ${ACECODE_AGENT_BROWSER_HOST_MAC_SMOKE_SOURCES}
     )
     target_link_libraries(agent_browser_host_mac_smoke PRIVATE
         acecode_desktop_support
@@ -281,7 +265,7 @@ if(APPLE)
     # authorization state and click callback remain visible in the terminal.
     add_executable(acecode_macos_notification_smoke
         MACOSX_BUNDLE EXCLUDE_FROM_ALL
-        ${CMAKE_CURRENT_SOURCE_DIR}/desktop/helpers/macos_notification_smoke.mm
+        ${ACECODE_MACOS_NOTIFICATION_SMOKE_SOURCES}
     )
     target_link_libraries(acecode_macos_notification_smoke PRIVATE
         acecode_native_bridge_support
