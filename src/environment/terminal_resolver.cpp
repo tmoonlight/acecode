@@ -26,7 +26,7 @@ LaunchProbe default_launch_probe(int timeout_ms) {
     return [timeout_ms](const std::string& program,
                         const std::vector<std::string>& args) {
         LaunchProbeResult out;
-        HookCommandSpec spec;
+        platform::ProcessSpec spec;
         spec.command = program;
         spec.args = args;
         HookProcessOptions options;

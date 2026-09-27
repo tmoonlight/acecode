@@ -223,26 +223,26 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/config/request_headers.cpp
     ${CMAKE_SOURCE_DIR}/src/config/saved_models.cpp
     ${CMAKE_SOURCE_DIR}/src/provider/builtin_model_catalog.cpp
-    ${CMAKE_SOURCE_DIR}/src/daemon/platform_posix.cpp
-    ${CMAKE_SOURCE_DIR}/src/daemon/platform_windows.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/process/os_process_posix.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/process/os_process_windows.cpp
     ${CMAKE_SOURCE_DIR}/src/daemon/runtime_files.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/custom_toast.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/custom_toast_win.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/custom_toast.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/custom_toast_win.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_navigation_state.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_page_directory.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_runtime.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/context_items.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/context_picker.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/folder_picker_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/locale.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/notifications.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/context_picker.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/folder_picker_win.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/locale.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/notifications.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/open_request.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/open_in_explorer.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/open_in_explorer.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/startup_progress.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/strings.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/strings.cpp
     ${CMAKE_SOURCE_DIR}/src/desktop/workspace_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/append_file.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/clipboard.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/clipboard.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/cwd_hash.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/encoding.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/model_capabilities.cpp
@@ -285,8 +285,8 @@ set(ACECODE_DESKTOP_BINARY_ONLY_SOURCES
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
 )
 set(ACECODE_NOTIFICATION_BACKEND_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/desktop/notifications_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/desktop/notifications_stub.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/notifications_win.cpp
+    ${CMAKE_SOURCE_DIR}/src/platform/native_ui/notifications_stub.cpp
 )
 foreach(_source_list IN ITEMS
         ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES ACECODE_DESKTOP_SUPPORT_SOURCES
@@ -402,11 +402,11 @@ elseif(WIN32)
     )
     # Windows notifications use the self-drawn layered toast (Win32 + GDI only).
     target_sources(acecode_native_bridge_support PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/desktop/notifications_win.cpp
+        ${CMAKE_SOURCE_DIR}/src/platform/native_ui/notifications_win.cpp
     )
 else()
     target_sources(acecode_native_bridge_support PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/desktop/notifications_stub.cpp
+        ${CMAKE_SOURCE_DIR}/src/platform/native_ui/notifications_stub.cpp
     )
 endif()
 
@@ -491,13 +491,13 @@ endif()
 if(WIN32)
     # ws2_32: src/desktop/daemon_supervisor.cpp 用 winsock 探测端口连通性。
     # mswsock: standalone Asio IOCP uses AcceptEx/GetAcceptExSockaddrs.
-    # ole32/shell32/user32: src/desktop/folder_picker_win.cpp 的 COM + IFileOpenDialog + owner/foreground handling。
+    # ole32/shell32/user32: src/platform/native_ui/folder_picker_win.cpp 的 COM + IFileOpenDialog + owner/foreground handling。
     target_link_libraries(acecode_testable PUBLIC bcrypt advapi32 winhttp ws2_32 mswsock iphlpapi ole32 shell32 user32)
     # winpty 客户端库(< 1809 的 PTY 兜底,cmake/acecode_winpty.cmake)。
     target_link_libraries(acecode_testable PUBLIC winpty_static)
 endif()
 if(UNIX AND NOT APPLE)
-    # forkpty(src/web/pty/pty_backend_posix.cpp)。glibc 2.34+ 已并入 libc,
+    # forkpty(src/pty/pty_backend_posix.cpp)。glibc 2.34+ 已并入 libc,
     # 老 glibc / musl 仍需显式链 util;find_library 找不到就交给 libc。
     find_library(ACECODE_LIBUTIL util)
     if(ACECODE_LIBUTIL)

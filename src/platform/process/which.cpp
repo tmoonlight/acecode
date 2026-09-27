@@ -1,4 +1,4 @@
-#include "lsp_which.hpp"
+#include "which.hpp"
 
 #include "utils/utf8_path.hpp"
 
@@ -19,7 +19,7 @@
 #include <unistd.h>
 #endif
 
-namespace acecode::lsp {
+namespace acecode::platform {
 namespace {
 
 namespace fs = std::filesystem;
@@ -153,4 +153,4 @@ std::optional<std::string> which(const std::string& command) {
     return which_in(command, path_dirs, pathext, real_file_exists_executable);
 }
 
-} // namespace acecode::lsp
+} // namespace acecode::platform

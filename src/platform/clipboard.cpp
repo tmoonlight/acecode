@@ -1,7 +1,7 @@
 #include "clipboard.hpp"
 
-#include "base64.hpp"
-#include "encoding.hpp"
+#include "utils/base64.hpp"
+#include "utils/encoding.hpp"
 
 #include <array>
 #include <algorithm>

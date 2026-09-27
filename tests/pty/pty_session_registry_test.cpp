@@ -1,4 +1,4 @@
-// 覆盖 src/web/pty/pty_session_registry.{hpp,cpp}
+// 覆盖 src/pty/pty_session_registry.{hpp,cpp}
 // (openspec/changes/add-console-dock 任务 3.5,specs/console-pty-backend):
 // - 控制帧编码(0x00 前缀,前端按首字节分流,编错即前端把 JSON 当 VT 渲染)
 // - 缓冲游标续传:cursor=N 重连补发 N 之后的字节、溢出丢最旧、cursor 控制帧

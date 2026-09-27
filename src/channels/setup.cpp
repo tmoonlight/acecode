@@ -46,7 +46,7 @@ bool supported_node_version(const std::string& version) {
 void install_whatsapp_dependencies(const std::filesystem::path& directory,
                                   const std::atomic<bool>& cancelled,
                                   const SetupProgress& progress) {
-    const auto node = lsp::which("node");
+    const auto node = platform::which("node");
     if (!node) throw std::runtime_error("Node.js 22+ was not found. Install Node.js, then retry.");
     HookProcessOptions options;
     options.timeout_ms = 5000; options.abort_flag = &cancelled;
@@ -57,12 +57,12 @@ void install_whatsapp_dependencies(const std::filesystem::path& directory,
         throw std::runtime_error("Node.js 22+ is required. Update Node.js, then retry.");
     const auto installed = prepare_whatsapp_bridge(directory);
     if (whatsapp_dependencies_ready(installed)) return;
-    const auto npm = lsp::which("npm");
+    const auto npm = platform::which("npm");
     if (!npm) throw std::runtime_error("npm was not found. Install Node.js with npm, then retry.");
     if (progress) progress({SetupPhase::Installing});
     options.timeout_ms = 300000;
     options.max_stdout_bytes = 8192; options.max_stderr_bytes = 8192;
-    HookCommandSpec install{*npm, {"ci", "--omit=dev", "--no-fund", "--no-audit", "--progress=false"}};
+    platform::ProcessSpec install{*npm, {"ci", "--omit=dev", "--no-fund", "--no-audit", "--progress=false"}};
 #ifdef _WIN32
     const auto cli = path_from_utf8(*npm).parent_path() / "node_modules/npm/bin/npm-cli.js";
     if (!std::filesystem::is_regular_file(cli))

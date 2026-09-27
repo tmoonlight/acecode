@@ -101,7 +101,7 @@ GitResult run_git(const std::vector<std::string>& args,
                   int timeout_ms,
                   bool no_prompt,
                   bool preserve_stdout_nuls) {
-    HookCommandSpec spec;
+    platform::ProcessSpec spec;
     spec.command = "git";
     spec.args = args;
 

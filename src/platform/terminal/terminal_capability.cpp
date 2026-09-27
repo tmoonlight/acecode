@@ -1,6 +1,6 @@
 #include "terminal_capability.hpp"
 
-#include "logger.hpp"
+#include "utils/logger.hpp"
 
 #include <cstdlib>
 

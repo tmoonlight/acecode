@@ -1,4 +1,4 @@
-// 覆盖 src/utils/terminal_capability.cpp 中
+// 覆盖 src/platform/terminal/terminal_capability.cpp 中
 // detect_terminal_capabilities_with() 的纯函数行为。所有 case 走依赖注入,
 // 不依赖真实 getenv 或 RtlGetVersion,跨平台稳定。
 //

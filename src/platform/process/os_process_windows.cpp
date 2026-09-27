@@ -1,9 +1,9 @@
 // Windows implementation of the daemon process abstraction. Symmetric with
-// src/daemon/platform_posix.cpp; the entire file is guarded so it compiles
+// src/platform/process/os_process_posix.cpp; the entire file is guarded so it compiles
 // to nothing on POSIX.
 #ifdef _WIN32
 
-#include "platform.hpp"
+#include "os_process.hpp"
 
 #include "utils/logger.hpp"
 

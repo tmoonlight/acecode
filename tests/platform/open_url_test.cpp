@@ -1,4 +1,4 @@
-// 覆盖 src/utils/open_url.cpp 的 URL 打开(add-tui-hyperlinks 5.1/5.4)。
+// 覆盖 src/platform/open_url.cpp 的 URL 打开(add-tui-hyperlinks 5.1/5.4)。
 //
 // 关键保证:
 //   - 仅 http/https 放行;控制字符(ESC 注入)/前导空白/其它 scheme 拒绝;

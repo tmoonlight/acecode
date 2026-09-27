@@ -8,7 +8,7 @@
 //   - 默认 launcher 不经 shell(POSIX fork+execlp / Windows ShellExecuteW),
 //     URL 原样作参数传递,无 shell 注入面;POSIX 子进程由专用 waiter 回收。
 //
-// 可注入 launcher 便于单测(见 tests/utils/open_url_test.cpp)。
+// 可注入 launcher 便于单测(见 tests/platform/open_url_test.cpp)。
 
 #include <functional>
 #include <string>

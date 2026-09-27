@@ -1,6 +1,8 @@
 #pragma once
 
-// PATH 上探测可执行文件。LSP server 只在探测命中时才会被启用,探测不到
+// PATH 上探测可执行文件(原 lsp/lsp_which,refactor20260927 P2-03 下沉到
+// platform/process;lsp 侧经 lsp/lsp_platform_aliases.hpp 保留 lsp:: 别名)。
+// LSP server / node / npm / 工具链都只在探测命中时才会被启用,探测不到
 // 静默跳过 —— 所以这里的语义必须和真实 spawn 一致:Windows 按 PATHEXT
 // 尝试 .exe/.cmd/.bat 等扩展(npm 全局命令是 .cmd shim),POSIX 检查
 // 可执行位。核心逻辑抽成可注入探针的纯函数,便于单测不依赖真实 PATH。
@@ -10,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace acecode::lsp {
+namespace acecode::platform {
 
 // 文件存在性探针(true = 存在且是常规文件)。测试注入假文件系统。
 using FileExistsFn = std::function<bool(const std::string& path)>;
@@ -27,4 +29,4 @@ std::optional<std::string> which_in(const std::string& command,
 // 生产入口:读取真实 PATH / PATHEXT / 文件系统。找不到返回 nullopt。
 std::optional<std::string> which(const std::string& command);
 
-} // namespace acecode::lsp
+} // namespace acecode::platform

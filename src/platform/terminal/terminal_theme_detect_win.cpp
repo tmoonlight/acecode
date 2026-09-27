@@ -1,7 +1,7 @@
 #ifdef _WIN32
 
 #include "terminal_theme_detect.hpp"
-#include "logger.hpp"
+#include "utils/logger.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX

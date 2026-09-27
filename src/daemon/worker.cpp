@@ -803,7 +803,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         const std::string connector_id = connector.id;
         connector_first_start_threads.threads.emplace_back(
             [hook, connector_id, &server]() {
-                acecode::HookCommandSpec cmd;
+                acecode::platform::ProcessSpec cmd;
                 cmd.command = hook.command;
                 cmd.args = hook.args;
                 const acecode::HookProcessResult result =

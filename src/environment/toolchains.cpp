@@ -88,7 +88,7 @@ ToolchainDetection detect_toolchains() {
     const std::vector<std::string> extensions;
 #endif
     return detect_toolchains([&](const std::string& command) {
-        return lsp::which_in(command, directories, extensions, [](const std::string& file) {
+        return platform::which_in(command, directories, extensions, [](const std::string& file) {
             if (is_windows_app_execution_alias(file)) return false;
             std::error_code ec;
             if (!std::filesystem::is_regular_file(path_from_utf8(file), ec) || ec) return false;
@@ -113,7 +113,7 @@ std::string find_toolchain_anchor_in_dir(const std::string& id, const std::strin
         return std::filesystem::is_regular_file(path_from_utf8(path), ec) && !ec;
     };
     for (const auto& anchor : toolchain_anchor_commands(id)) {
-        if (auto hit = lsp::which_in(anchor, {dir}, pathext, exists)) return *hit;
+        if (auto hit = platform::which_in(anchor, {dir}, pathext, exists)) return *hit;
     }
     return {};
 }

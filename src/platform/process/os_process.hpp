@@ -1,5 +1,10 @@
 #pragma once
 
+// 操作系统进程原语(原 daemon/platform.hpp,refactor20260927 P2-03 下沉到
+// platform/process):当前 pid、脱离式 spawn、存活探测、终止、可执行文件路径。
+// 命名空间暂保留 acecode::daemon,约 20 个调用点(daemon / desktop / session /
+// web / channels)逐步改名,本次只搬文件位置与 include。
+
 #include <cstdint>
 #include <string>
 #include <vector>

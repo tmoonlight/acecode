@@ -9,7 +9,7 @@ namespace acecode::channels {
 
 class Runtime {
 public:
-    using SpawnOptions = std::function<lsp::LspSpawnOptions(const std::filesystem::path&)>;
+    using SpawnOptions = std::function<platform::SpawnOptions(const std::filesystem::path&)>;
     explicit Runtime(GatewayDeps deps, std::filesystem::path directory = {}, SpawnOptions spawn = {});
     ~Runtime();
     void start();

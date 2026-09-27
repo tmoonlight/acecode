@@ -1,4 +1,4 @@
-#include "hook_runner.hpp"
+#include "process_runner.hpp"
 
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"
@@ -116,7 +116,7 @@ bool append_capped(std::string& out,
     return true;
 }
 
-std::vector<std::string> make_argv(const HookCommandSpec& command) {
+std::vector<std::string> make_argv(const platform::ProcessSpec& command) {
     std::vector<std::string> argv;
     argv.reserve(command.args.size() + 1);
     argv.push_back(command.command);
@@ -270,7 +270,7 @@ std::string resolve_hook_command_path(const std::string& command) {
 }
 
 static HookProcessResult run_hook_process_impl(
-    const HookCommandSpec& command,
+    const platform::ProcessSpec& command,
     const std::string& stdin_text,
     const std::string& cwd,
     const HookProcessOptions& options,
@@ -773,7 +773,7 @@ static HookProcessResult run_hook_process_impl(
 #endif
 }
 
-HookProcessResult run_hook_process(const HookCommandSpec& command,
+HookProcessResult run_hook_process(const platform::ProcessSpec& command,
                                    const std::string& stdin_text,
                                    int timeout_ms,
                                    const std::string& cwd) {
@@ -783,7 +783,7 @@ HookProcessResult run_hook_process(const HookCommandSpec& command,
         command, stdin_text, cwd, options, HookEnvironment{}, nullptr);
 }
 
-HookProcessResult run_hook_process(const HookCommandSpec& command,
+HookProcessResult run_hook_process(const platform::ProcessSpec& command,
                                    const std::string& stdin_text,
                                    const std::string& cwd,
                                    const HookProcessOptions& options) {
@@ -796,7 +796,7 @@ HookProcessResult run_hook_shell_command(const std::string& command,
                                          int timeout_ms,
                                          const std::string& cwd,
                                          const HookEnvironment& environment) {
-    HookCommandSpec spec;
+    platform::ProcessSpec spec;
 #ifdef _WIN32
     const char* comspec = std::getenv("COMSPEC");
     spec.command = (comspec && *comspec) ? std::string(comspec) : std::string("cmd.exe");

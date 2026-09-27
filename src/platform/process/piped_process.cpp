@@ -1,4 +1,4 @@
-#include "lsp_process.hpp"
+#include "piped_process.hpp"
 
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
@@ -27,7 +27,7 @@
 #include <unistd.h>
 #endif
 
-namespace acecode::lsp {
+namespace acecode::platform {
 namespace {
 
 #ifdef _WIN32
@@ -150,11 +150,11 @@ std::string quote_windows_arg(const std::string& arg) {
     return out;
 }
 
-LspProcess::~LspProcess() {
+PipedProcess::~PipedProcess() {
     terminate();
 }
 
-bool LspProcess::start(const LspSpawnOptions& opts, std::string* error) {
+bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
     if (opts.argv.empty()) {
         if (error) *error = "empty argv";
         return false;
@@ -331,7 +331,7 @@ bool LspProcess::start(const LspSpawnOptions& opts, std::string* error) {
 #endif
 }
 
-long LspProcess::read_stdout(char* buf, std::size_t len) {
+long PipedProcess::read_stdout(char* buf, std::size_t len) {
 #ifdef _WIN32
     if (!stdout_read_) return 0;
     DWORD bytes_read = 0;
@@ -354,7 +354,7 @@ long LspProcess::read_stdout(char* buf, std::size_t len) {
 #endif
 }
 
-bool LspProcess::write_stdin(const char* data, std::size_t len, std::string* error) {
+bool PipedProcess::write_stdin(const char* data, std::size_t len, std::string* error) {
 #ifdef _WIN32
     if (!stdin_write_) {
         if (error) *error = "stdin closed";
@@ -390,7 +390,7 @@ bool LspProcess::write_stdin(const char* data, std::size_t len, std::string* err
 #endif
 }
 
-void LspProcess::close_stdin() {
+void PipedProcess::close_stdin() {
 #ifdef _WIN32
     close_handle(stdin_write_);
 #else
@@ -398,7 +398,7 @@ void LspProcess::close_stdin() {
 #endif
 }
 
-bool LspProcess::wait_exit(int timeout_ms) {
+bool PipedProcess::wait_exit(int timeout_ms) {
 #ifdef _WIN32
     if (!process_handle_) return true;
     return WaitForSingleObject(static_cast<HANDLE>(process_handle_),
@@ -420,7 +420,7 @@ bool LspProcess::wait_exit(int timeout_ms) {
 #endif
 }
 
-void LspProcess::kill_child() {
+void PipedProcess::kill_child() {
 #ifdef _WIN32
     if (process_handle_) TerminateProcess(static_cast<HANDLE>(process_handle_), 0);
 #else
@@ -428,7 +428,7 @@ void LspProcess::kill_child() {
 #endif
 }
 
-void LspProcess::terminate() {
+void PipedProcess::terminate() {
 #ifdef _WIN32
     if (process_handle_) {
         TerminateProcess(static_cast<HANDLE>(process_handle_), 0);
@@ -453,4 +453,4 @@ void LspProcess::terminate() {
     started_ = false;
 }
 
-} // namespace acecode::lsp
+} // namespace acecode::platform

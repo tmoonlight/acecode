@@ -1,4 +1,4 @@
-// 覆盖 src/utils/terminal_title.cpp 的 sanitize_title:
+// 覆盖 src/platform/terminal/terminal_title.cpp 的 sanitize_title:
 //   - 合法 ASCII / UTF-8 必须原样通过
 //   - 任何 C0 控制字符(含换行/制表)必须被拒绝
 //   - 超长输入必须按 UTF-8 边界安全截断,不留半字符

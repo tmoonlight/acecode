@@ -130,3 +130,23 @@ ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThre
 ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThreadGroup	ownership/P2-01		C8 legacy worker group owner; P2-01
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:std_thread	abandonable_detail::start_owned_work	ownership/P2-01		C8 owned abandonable worker; P2-01
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:detach	abandonable_detail::start_owned_work	ownership/P2-01		C8 detached worker owns captured lifetime; P2-01
+exception	src/base/utils/clipboard.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/clipboard.hpp; delete with the P3-02 freeze move
+exception	src/base/utils/open_url.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/open_url.hpp; delete with the P3-02 freeze move
+exception	src/base/utils/power_inhibitor.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/power_inhibitor.hpp; delete with the P3-02 freeze move
+exception	src/base/utils/terminal_capability.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/terminal/terminal_capability.hpp; delete with the P3-02 freeze move
+exception	src/base/utils/terminal_theme_detect.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/terminal/terminal_theme_detect.hpp; delete with the P3-02 freeze move
+exception	src/base/utils/terminal_title.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/terminal/terminal_title.hpp; delete with the P3-02 freeze move
+exception	src/base/utils/terminal_input.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/terminal/terminal_input.hpp; delete with the P3-02 freeze move
+exception	src/adapters/upgrade/console.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/terminal/console.hpp; delete with the P3-02 freeze move
+exception	src/domain/hooks/hook_runner.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/process/process_runner.hpp; delete with the P3-02 freeze move
+exception	src/adapters/lsp/lsp_process.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/process/piped_process.hpp; delete with the P3-02 freeze move
+exception	src/adapters/lsp/lsp_which.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/process/which.hpp; delete with the P3-02 freeze move
+exception	src/apps/daemon/platform.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/process/os_process.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/locale.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/locale.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/folder_picker.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/native_ui/folder_picker.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/context_picker.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/native_ui/context_picker.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/open_in_explorer.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/native_ui/open_in_explorer.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/notifications.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/native_ui/notifications.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/notifications_backend.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/native_ui/notifications_backend.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/custom_toast.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/native_ui/custom_toast.hpp; delete with the P3-02 freeze move
+exception	src/apps/desktop/strings.hpp				R1,R2	platform	Claude-p2-03	2026-10-15	P2-03 forwarding header -> src/platform/native_ui/strings.hpp; delete with the P3-02 freeze move

@@ -1,6 +1,6 @@
 #include "strings.hpp"
 
-#include "locale.hpp"
+#include "platform/locale.hpp"
 
 #include <array>
 #include <mutex>

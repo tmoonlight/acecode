@@ -1,6 +1,6 @@
 #include "terminal_theme_detect.hpp"
 
-#include "logger.hpp"
+#include "utils/logger.hpp"
 
 #include <charconv>
 #include <cmath>

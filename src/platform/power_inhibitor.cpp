@@ -1,6 +1,6 @@
 #include "power_inhibitor.hpp"
 
-#include "logger.hpp"
+#include "utils/logger.hpp"
 
 #include <cstdlib>
 #include <filesystem>

@@ -16,7 +16,7 @@ Test files live at `tests/<same path as under src>/<unit>_test.cpp`:
 
 | Production source                    | Test file                                      |
 |--------------------------------------|------------------------------------------------|
-| `src/utils/terminal_title.cpp`       | `tests/utils/terminal_title_test.cpp`          |
+| `src/platform/terminal/terminal_title.cpp` | `tests/platform/terminal_title_test.cpp`  |
 | `src/session/session_storage.cpp`    | `tests/session/session_storage_test.cpp`       |
 | `src/permissions.hpp`                | `tests/permissions_test.cpp`                   |
 

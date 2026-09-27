@@ -12,7 +12,7 @@
 #include <vector>
 
 TEST(HookRunner, SendsPayloadOnStdinWithZeroTimeoutAsInfinite) {
-    acecode::HookCommandSpec cmd;
+    acecode::platform::ProcessSpec cmd;
 #ifdef _WIN32
     cmd.command = "cmd.exe";
     cmd.args = {"/c", "more"};
@@ -61,7 +61,7 @@ TEST(HookRunner, ShellCommandReceivesExactEnvironmentOverride) {
 }
 
 TEST(HookRunner, PositiveTimeoutTerminatesLongRunningHook) {
-    acecode::HookCommandSpec cmd;
+    acecode::platform::ProcessSpec cmd;
 #ifdef _WIN32
     cmd.command = "cmd.exe";
     cmd.args = {"/c", "ping -n 3 127.0.0.1 > nul"};
@@ -76,7 +76,7 @@ TEST(HookRunner, PositiveTimeoutTerminatesLongRunningHook) {
 }
 
 TEST(HookRunner, BoundedOptionsAbortLongRunningProcess) {
-    acecode::HookCommandSpec cmd;
+    acecode::platform::ProcessSpec cmd;
 #ifdef _WIN32
     cmd.command = "cmd.exe";
     cmd.args = {"/d", "/s", "/c", "ping -n 6 127.0.0.1 > nul"};
@@ -108,7 +108,7 @@ TEST(HookRunner, BoundedOptionsAbortLongRunningProcess) {
 }
 
 TEST(HookRunner, BoundedOptionsStopAtStdoutLineLimit) {
-    acecode::HookCommandSpec cmd;
+    acecode::platform::ProcessSpec cmd;
 #ifdef _WIN32
     cmd.command = "powershell.exe";
     cmd.args = {"-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
@@ -143,7 +143,7 @@ TEST(HookRunner, BoundedOptionsStopAtStdoutLineLimit) {
 }
 
 TEST(HookRunner, BoundedOptionsCapStdoutWithoutProtocolMarker) {
-    acecode::HookCommandSpec cmd;
+    acecode::platform::ProcessSpec cmd;
 #ifdef _WIN32
     cmd.command = "cmd.exe";
     cmd.args = {"/d", "/s", "/c", "<nul set /p =abcdefghijklmnopqrstuvwxyz"};
@@ -204,7 +204,7 @@ TEST(HookRunner, LegacyDispatchPreservesDirectRunnerAndDiagnosticOnlyOutput) {
     std::vector<std::string> events_seen;
     std::vector<std::string> cwd_seen;
     acecode::HookManager manager(std::move(cfg),
-        [&](const acecode::HookCommandSpec& command,
+        [&](const acecode::platform::ProcessSpec& command,
             const std::string& stdin_text,
             int timeout_ms,
             const std::string& cwd) -> acecode::HookProcessResult {

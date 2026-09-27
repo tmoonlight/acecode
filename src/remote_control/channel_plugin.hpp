@@ -71,7 +71,7 @@ bool parse_channel_plugin_status_json(const nlohmann::json& j,
 
 class ChannelPluginHost {
 public:
-    using Runner = std::function<HookProcessResult(const HookCommandSpec& command,
+    using Runner = std::function<HookProcessResult(const platform::ProcessSpec& command,
                                                    const std::string& stdin_text,
                                                    int timeout_ms,
                                                    const std::string& cwd)>;

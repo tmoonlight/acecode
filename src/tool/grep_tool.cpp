@@ -180,7 +180,7 @@ IgnoreProbeResult probe_explicit_ignored_directory(
     const std::string relative_text = path_to_utf8_generic(relative);
     if (relative_text.rfind("../", 0) == 0 || relative_text == "..") return probe;
 
-    HookCommandSpec command;
+    platform::ProcessSpec command;
     command.command = "git";
     command.args = {
         "--no-pager", "check-ignore", "--no-index", "-q", "--",
@@ -200,13 +200,13 @@ IgnoreProbeResult probe_explicit_ignored_directory(
     return probe;
 }
 
-HookCommandSpec make_git_grep_command(
+platform::ProcessSpec make_git_grep_command(
     const std::string& pattern,
     const std::string& include_pattern,
     const std::filesystem::path& search_root,
     bool path_is_file,
     bool explicit_directory_is_ignored) {
-    HookCommandSpec command;
+    platform::ProcessSpec command;
     command.command = "git";
     command.args = {"--no-pager", "grep", "--no-index"};
     if (path_is_file || explicit_directory_is_ignored) {
@@ -392,7 +392,7 @@ ToolResult execute_grep(const std::string& arguments_json, const ToolContext& ct
         explicit_directory_is_ignored = probe.ignored;
     }
 
-    const HookCommandSpec command = make_git_grep_command(
+    const platform::ProcessSpec command = make_git_grep_command(
         pattern, include_pattern, search_root, path_is_file,
         explicit_directory_is_ignored);
     const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(

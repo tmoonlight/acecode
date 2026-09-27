@@ -1,4 +1,4 @@
-// 覆盖 src/web/pty/ 的后端抽象(openspec/changes/add-console-dock 任务 2.x):
+// 覆盖 src/pty/ 的后端抽象(openspec/changes/add-console-dock 任务 2.x):
 // - resolve_console_shell 纯函数(配置覆盖 / 平台默认)
 // - pty_backend_kind_name 协议字符串稳定性(进 /api/health 与 session info,
 //   前端依赖这些字面量做降级提示判断,改名即破坏协议)

@@ -1,4 +1,4 @@
-// 覆盖 src/lsp/lsp_which.{hpp,cpp}:PATH 可执行探测的纯逻辑核心 which_in()。
+// 覆盖 src/platform/process/which.{hpp,cpp}(原 src/lsp/lsp_which):PATH 可执行探测的纯逻辑核心 which_in()。
 //
 // LSP server 只在探测命中时启用,探测语义必须与真实 spawn 一致 ——
 // 尤其 Windows 上 npm 全局命令是 .cmd shim,漏掉 PATHEXT 拼接会导致
@@ -21,14 +21,14 @@
 #include <set>
 #include <string>
 
-using acecode::lsp::which_in;
+using acecode::platform::which_in;
 
 namespace {
 
 // 真实文件系统在 Windows 上大小写不敏感、'/'与'\\'等价;fake 探针把两者
 // 都归一(全小写 + '/'),否则 PATHEXT 大写扩展(.CMD)拼出的候选永远
 // 匹配不上小写测试数据 —— 这不是产线语义,是测试替身该抹平的差异。
-acecode::lsp::FileExistsFn fake_fs(std::set<std::string> files) {
+acecode::platform::FileExistsFn fake_fs(std::set<std::string> files) {
     auto canon = [](std::string p) {
         std::replace(p.begin(), p.end(), '\\', '/');
         std::transform(p.begin(), p.end(), p.begin(), [](unsigned char c) {
