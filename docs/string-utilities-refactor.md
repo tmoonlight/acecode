@@ -35,10 +35,10 @@
 | 各自直接调 Win32 转换 API(`MultiByteToWideChar` / `WideCharToMultiByte`)的文件 | 9 个 |
 | 绕过入口、直接把 `.string()` 交给 C 接口的残留 | 本次修掉 2 处,apply/main 仍有少量 |
 
-9 个直接调 Win32 转换的文件:`daemon/service_win.cpp`、`desktop/context_picker.cpp`、
-`desktop/folder_picker_win.cpp`、`desktop/splash_screen.cpp`、
+9 个直接调 Win32 转换的文件:`daemon/service_win.cpp`、`platform/native_ui/context_picker.cpp`、
+`platform/native_ui/folder_picker_win.cpp`、`desktop/splash_screen.cpp`、
 `network/proxy_resolver_win.cpp`、`utils/cwd_hash.cpp`、`utils/encoding.cpp`、
-`utils/terminal_title.cpp`、`utils/text_file_buffer.cpp`。
+`platform/terminal/terminal_title.cpp`、`utils/text_file_buffer.cpp`。
 
 ### 第二层:基础字符串处理
 
@@ -150,7 +150,7 @@ code review 规则,而不是假装正则能全覆盖。
   业务特例,强行收敛只会让它更难读。
 - **不做 `string_view` 全面改造** —— 改动面大、收益小,不在本次范围内。
 - **不做文案集中 / i18n** —— 那是另一条线:C++ 侧有 750 处硬编码中文,而
-  `src/desktop/strings.cpp` 已有成熟机制(enum ID + zh-CN/en-US 双目录 +
+  `src/platform/native_ui/strings.cpp` 已有成熟机制(enum ID + zh-CN/en-US 双目录 +
   `static_assert` 等长 + locale 解析与运行时切换),覆盖 52 条。若要做,方向是把
   desktop 那套提升为全局 `acecode::strings`,而不是新造。参见
   [localization.md](localization.md)。

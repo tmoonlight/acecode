@@ -28,7 +28,7 @@
 #include "tool/goal_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/cwd_hash.hpp"
-#include "utils/power_inhibitor.hpp"
+#include "platform/power_inhibitor.hpp"
 
 #include <atomic>
 #include <algorithm>

@@ -10,7 +10,7 @@
 
 #include "config/config.hpp"
 #include "daemon/mcp_runtime.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
 #include "lsp/lsp_service.hpp"
@@ -36,7 +36,7 @@
 #include "tool/web_search/runtime.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
-#include "utils/power_inhibitor.hpp"
+#include "platform/power_inhibitor.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/handlers/skill_command_expander.hpp"
 

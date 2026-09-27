@@ -4,6 +4,7 @@
 #include "saved_models.hpp"
 #include "config/vocab/pointer_appearance.hpp"
 #include "utils/constants.hpp"
+#include "utils/paths.hpp"
 
 #include <cstddef>
 #include <map>
@@ -667,16 +668,6 @@ bool refresh_default_session_preferences_from_config(
     AppConfig& cfg,
     const std::string& explicit_path = {},
     std::string* error = nullptr);
-
-// Get the path to ~/.acecode/ directory
-std::string get_acecode_dir();
-
-// Get the path to ~/.acecode/run/ (creates it if missing on first call site —
-// callers are responsible for filesystem::create_directories when needed).
-std::string get_run_dir();
-
-// Get the path to ~/.acecode/logs/ (callers handle create_directories).
-std::string get_logs_dir();
 
 // Validate runtime-affecting config values. Returns an empty vector on success;
 // otherwise each entry is a human-readable error message. Daemon mode callers

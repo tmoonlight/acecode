@@ -9,8 +9,8 @@
 
 #ifndef _WIN32
 
-#include "config/config.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <cerrno>

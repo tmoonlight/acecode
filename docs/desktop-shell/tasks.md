@@ -21,7 +21,7 @@
 - [ ] **T1.5** Extend `src/web/auth.cpp::require_auth` to honor
       `cfg.web.require_token_on_loopback`. Default `false` preserves current
       behavior.
-- [ ] **T1.6** Update `daemon/runtime_files.cpp` to write the same payload
+- [ ] **T1.6** Update `src/ipc/runtime_files.cpp` to write the same payload
       that `--emit-runtime-json` emits (no behavior change for service mode).
 - [ ] **T1.7** Tests for `--port 0`, `--emit-runtime-json`, and the new
       `require_auth` branch in `tests/daemon/`.

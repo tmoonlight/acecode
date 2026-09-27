@@ -5,7 +5,7 @@
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
 #include "utils/state_file.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include <sqlite3.h>
 
 #include <algorithm>

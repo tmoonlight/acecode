@@ -3,9 +3,9 @@
 #ifdef __APPLE__
 
 #include "agent_browser_navigation_state.hpp"
-#include "agent_browser_runtime.hpp"
+#include "ipc/agent_browser_runtime.hpp"
 
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/base64.hpp"
 #include "utils/logger.hpp"

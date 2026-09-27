@@ -1,7 +1,7 @@
 #include "global_session_search.hpp"
 
 #include "session_user_message_search.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>

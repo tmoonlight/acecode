@@ -11,7 +11,7 @@
 #include "utils/logger.hpp"
 #include "config/models_dev_catalog.hpp"
 #include "provider/models_dev_catalog_cache.hpp"
-#include "utils/terminal_input.hpp"
+#include "platform/terminal/terminal_input.hpp"
 
 #include <iostream>
 #include <string>

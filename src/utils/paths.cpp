@@ -1,6 +1,7 @@
 #include "paths.hpp"
 
 #include "atomic_file.hpp"
+#include "constants.hpp"
 #include "encoding.hpp"
 #include "logger.hpp"
 #include "utf8_path.hpp"
@@ -350,6 +351,24 @@ void set_run_dir_override(const std::string& path) {
 std::string get_run_dir_override() {
     std::lock_guard<std::mutex> lk(g_run_dir_mu);
     return g_run_dir_override;
+}
+
+std::string get_acecode_dir() {
+    // 数据目录路径解析全部委托给 paths.cpp,RunMode 决定 User vs Service 根目录
+    // (Decision 8)。User 模式行为与历史一致 — TUI / standalone daemon 不受影响。
+    return resolve_data_dir(get_run_mode());
+}
+
+std::string get_run_dir() {
+    // desktop 多 workspace 模式下 daemon 启动时会调 set_run_dir_override,
+    // 把 run/ 切到 per-workspace 路径(避免共享 ~/.acecode/run/ 互相覆盖锁文件)。
+    auto override_path = get_run_dir_override();
+    if (!override_path.empty()) return override_path;
+    return path_to_utf8(path_from_utf8(get_acecode_dir()) / constants::SUBDIR_RUN);
+}
+
+std::string get_logs_dir() {
+    return path_to_utf8(path_from_utf8(get_acecode_dir()) / constants::SUBDIR_LOGS);
 }
 
 RunMode override_run_mode_for_test(RunMode mode) {

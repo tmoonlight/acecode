@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "desktop/pick_active.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "utils/cwd_hash.hpp"
 
 #include <filesystem>

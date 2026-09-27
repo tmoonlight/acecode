@@ -7,7 +7,7 @@
 // 生成点(bash 工具、MCP stdio、hooks、LSP、控制台 PTY、worktree git)的办法 ——
 // 它们都直接继承 daemon 的环境,而 cpp-mcp 的 stdio transport 根本不暴露 env。
 //
-// 探测走 lsp::which(PATHEXT 感知),排除 Windows 商店的 app-execution alias 占位
+// 探测走 platform::which(PATHEXT 感知),排除 Windows 商店的 app-execution alias 占位
 // 程序(WindowsApps\python.exe 只是个打开商店的桩,退出码 9009)。
 
 #include "config/config.hpp"
@@ -38,7 +38,7 @@ struct ToolchainDetection {
 };
 
 ToolchainDetection detect_toolchains(const WhichFn& which);
-ToolchainDetection detect_toolchains();  // lsp::which
+ToolchainDetection detect_toolchains();  // platform::which
 
 // 在指定目录里找该工具链的锚点可执行文件(设置页状态显示用);找不到返回空串。
 std::string find_toolchain_anchor_in_dir(const std::string& id, const std::string& dir);

@@ -33,7 +33,7 @@ struct SetupDependencies {
     std::chrono::milliseconds pairing_timeout{std::chrono::minutes(5)};
 };
 SetupDependencies default_setup_dependencies(std::filesystem::path directory = {},
-    std::function<lsp::LspSpawnOptions(const std::filesystem::path&)> spawn = {});
+    std::function<platform::SpawnOptions(const std::filesystem::path&)> spawn = {});
 // Runs off the UI thread. Existing configuration survives cancellation/failure.
 void run_setup(const std::vector<std::string>& contacts, SetupDependencies deps,
                const std::atomic<bool>& cancelled, const SetupProgress& progress);

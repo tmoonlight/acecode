@@ -3,10 +3,10 @@
 #include "session_serializer.hpp"
 #include "session_title_generator.hpp"
 #include "task_suggestion_store.hpp"
-#include "config/config.hpp"
 #include "llm/context_usage.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/cwd_hash.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <nlohmann/json.hpp>

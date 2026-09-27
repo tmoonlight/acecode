@@ -1,6 +1,6 @@
 #include "memory_paths.hpp"
 
-#include "config/config.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>

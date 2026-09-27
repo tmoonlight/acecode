@@ -5,8 +5,8 @@
 
 #include <gtest/gtest.h>
 
-#include "daemon/platform.hpp"
-#include "daemon/runtime_files.hpp"
+#include "platform/process/os_process.hpp"
+#include "ipc/runtime_files.hpp"
 #include "desktop/daemon_pool.hpp"
 #include "desktop/daemon_supervisor.hpp"
 

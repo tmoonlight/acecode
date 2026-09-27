@@ -2,7 +2,7 @@
 
 #include "gitinfo/git_context_collector.hpp"
 #include "gitinfo/git_context_core.hpp"
-#include "files_handler.hpp"
+#include "workspace/files_handler.hpp"
 
 #include <filesystem>
 #include <variant>

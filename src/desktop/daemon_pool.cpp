@@ -1,9 +1,9 @@
 #include "daemon_pool.hpp"
 
-#include "daemon/guid.hpp"
-#include "daemon/platform.hpp"
-#include "daemon/runtime_files.hpp"
-#include "daemon_protocol.hpp"
+#include "ipc/guid.hpp"
+#include "platform/process/os_process.hpp"
+#include "ipc/runtime_files.hpp"
+#include "ipc/daemon_protocol.hpp"
 #include "utils/constants.hpp"
 #include "utils/logger.hpp"
 #include "version.hpp"

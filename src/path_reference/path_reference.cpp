@@ -1,6 +1,6 @@
 #include "path_reference.hpp"
 
-#include "web/handlers/files_handler.hpp"
+#include "workspace/files_handler.hpp"
 
 #include <algorithm>
 #include <cctype>

@@ -388,10 +388,10 @@ The components themselves (`ace-app`, `ace-chat`, …) are untouched.
 
 Unit-testable in `acecode_testable` (no FTXUI, no WebView):
 
-- `src/desktop/runtime_files.{hpp,cpp}` — wrappers around
+- `src/ipc/runtime_files.{hpp,cpp}` — wrappers around
   `<data_dir>/run/` reads. Already exists for the daemon side; add a
   symmetric `read_runtime_state()` returning a parsed struct.
-  → `tests/desktop/runtime_files_test.cpp`
+  → `tests/ipc/runtime_files_test.cpp`
 - `src/desktop/runtime_json_parser.{hpp,cpp}` — parses a single
   `{"port":…,"token":…}` line. Pure function.
   → `tests/desktop/runtime_json_parser_test.cpp`

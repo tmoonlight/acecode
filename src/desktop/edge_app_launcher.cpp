@@ -1,8 +1,8 @@
 #include "edge_app_launcher.hpp"
 
-#include "config/config.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <sstream>

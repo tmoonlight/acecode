@@ -141,7 +141,7 @@ TEST(RemoteControlCommand,
     manifest.command = "chat-channel.exe";
     const std::string token = "binding-secret-for-ui";
     acecode::rc::ChannelPluginHost host(
-        [&](const acecode::HookCommandSpec&, const std::string&, int,
+        [&](const acecode::platform::ProcessSpec&, const std::string&, int,
             const std::string&) {
             acecode::HookProcessResult result;
             result.started = true;

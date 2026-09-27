@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "desktop/locale.hpp"
+#include "platform/locale.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_auto_title.hpp"
 #include "session/session_storage.hpp"

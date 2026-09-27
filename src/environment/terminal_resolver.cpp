@@ -1,7 +1,7 @@
 #include "terminal_resolver.hpp"
 
 #include "hooks/hook_config.hpp"
-#include "hooks/hook_runner.hpp"
+#include "platform/process/process_runner.hpp"
 #include "utils/logger.hpp"
 
 #include <algorithm>
@@ -26,7 +26,7 @@ LaunchProbe default_launch_probe(int timeout_ms) {
     return [timeout_ms](const std::string& program,
                         const std::vector<std::string>& args) {
         LaunchProbeResult out;
-        HookCommandSpec spec;
+        platform::ProcessSpec spec;
         spec.command = program;
         spec.args = args;
         HookProcessOptions options;

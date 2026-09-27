@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-using acecode::HookCommandSpec;
+using acecode::platform::ProcessSpec;
 using acecode::HookProcessResult;
 using acecode::rc::ChannelActivationRequest;
 using acecode::rc::ChannelPluginHost;
@@ -165,10 +165,10 @@ TEST(ChannelPluginHost, ActivatesAndAcceptsAlreadyRunningRuntime) {
     manifest.cwd = "C:/plugins/chat";
 
     std::string seen_stdin;
-    HookCommandSpec seen_command;
+    ProcessSpec seen_command;
     int seen_timeout = 0;
     std::string seen_cwd;
-    ChannelPluginHost host([&](const HookCommandSpec& command,
+    ChannelPluginHost host([&](const ProcessSpec& command,
                                const std::string& stdin_text,
                                int timeout_ms,
                                const std::string& cwd) {
@@ -214,7 +214,7 @@ TEST(ChannelPluginHost, ReportsPluginFailure) {
     manifest.name = "chat";
     manifest.command = "chat-channel.exe";
 
-    ChannelPluginHost host([](const HookCommandSpec&,
+    ChannelPluginHost host([](const ProcessSpec&,
                               const std::string&,
                               int,
                               const std::string&) {
@@ -243,7 +243,7 @@ TEST(ChannelPluginHost, DeactivationEchoesCurrentBindingToken) {
     manifest.command = "chat-channel.exe";
 
     std::vector<nlohmann::json> requests;
-    ChannelPluginHost host([&](const HookCommandSpec&,
+    ChannelPluginHost host([&](const ProcessSpec&,
                                const std::string& stdin_text,
                                int,
                                const std::string&) {
@@ -296,7 +296,7 @@ TEST(ChannelPluginHost, RedactsBindingTokenFromDeactivationFailures) {
         };
 
     expect_redacted(
-        [&](const HookCommandSpec&, const std::string&, int,
+        [&](const ProcessSpec&, const std::string&, int,
             const std::string&) {
             HookProcessResult result;
             result.error = "runner launch rejected token " + token;
@@ -305,7 +305,7 @@ TEST(ChannelPluginHost, RedactsBindingTokenFromDeactivationFailures) {
         "runner launch rejected");
 
     expect_redacted(
-        [&](const HookCommandSpec&, const std::string&, int,
+        [&](const ProcessSpec&, const std::string&, int,
             const std::string&) {
             HookProcessResult result;
             result.started = true;
@@ -316,7 +316,7 @@ TEST(ChannelPluginHost, RedactsBindingTokenFromDeactivationFailures) {
         "stderr rejected");
 
     expect_redacted(
-        [](const HookCommandSpec&, const std::string& stdin_text, int,
+        [](const ProcessSpec&, const std::string& stdin_text, int,
            const std::string&) {
             HookProcessResult result;
             result.started = true;
@@ -327,7 +327,7 @@ TEST(ChannelPluginHost, RedactsBindingTokenFromDeactivationFailures) {
         "channel.deactivate");
 
     expect_redacted(
-        [&](const HookCommandSpec&, const std::string&, int,
+        [&](const ProcessSpec&, const std::string&, int,
             const std::string&) {
             HookProcessResult result;
             result.started = true;
@@ -343,7 +343,7 @@ TEST(ChannelPluginHost, RedactsBindingTokenFromDeactivationFailures) {
         "status rejected");
 
     expect_redacted(
-        [&](const HookCommandSpec&, const std::string&, int,
+        [&](const ProcessSpec&, const std::string&, int,
             const std::string&) -> HookProcessResult {
             throw std::runtime_error(
                 "runner exception echoed token " + token);
@@ -351,7 +351,7 @@ TEST(ChannelPluginHost, RedactsBindingTokenFromDeactivationFailures) {
         "runner exception echoed");
 
     expect_redacted(
-        [&](const HookCommandSpec&, const std::string&, int,
+        [&](const ProcessSpec&, const std::string&, int,
             const std::string&) {
             HookProcessResult result;
             result.started = true;
@@ -372,7 +372,7 @@ TEST(ChannelPluginHost, PreservesLegacyDeactivationDiagnostic) {
     manifest.command = "chat-channel.exe";
 
     ChannelPluginHost host(
-        [](const HookCommandSpec&, const std::string&, int,
+        [](const ProcessSpec&, const std::string&, int,
            const std::string&) {
             HookProcessResult result;
             result.error = "legacy detach rejected: retry manually";

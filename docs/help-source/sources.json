@@ -380,7 +380,7 @@
       "src/daemon/cli.cpp",
       "docs/daemon-api.md",
       "docs/user-manual.md",
-      "src/desktop/strings.cpp"
+      "src/platform/native_ui/strings.cpp"
     ]
   },
   {

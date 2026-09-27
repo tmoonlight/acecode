@@ -1,7 +1,7 @@
 #include "worktree_manager.hpp"
 
 #include "hooks/hook_config.hpp"
-#include "hooks/hook_runner.hpp"
+#include "platform/process/process_runner.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -101,7 +101,7 @@ GitResult run_git(const std::vector<std::string>& args,
                   int timeout_ms,
                   bool no_prompt,
                   bool preserve_stdout_nuls) {
-    HookCommandSpec spec;
+    platform::ProcessSpec spec;
     spec.command = "git";
     spec.args = args;
 

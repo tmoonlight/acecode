@@ -1,8 +1,8 @@
 #include "xai_auth.hpp"
 
-#include "config/config.hpp"
 #include "network/proxy_resolver.hpp"
 #include "utils/atomic_file.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <cpr/cpr.h>

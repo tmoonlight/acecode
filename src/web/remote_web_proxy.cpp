@@ -1,6 +1,6 @@
 #include "remote_web_proxy.hpp"
 
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"

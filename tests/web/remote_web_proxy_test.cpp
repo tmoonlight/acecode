@@ -1,4 +1,4 @@
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "utils/encoding.hpp"
 #include "web/remote_web_proxy.hpp"
 

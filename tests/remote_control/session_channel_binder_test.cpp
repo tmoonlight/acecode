@@ -571,7 +571,7 @@ struct RunnerLog {
 acecode::rc::ChannelPluginHost::Runner make_fake_runner(
     std::shared_ptr<RunnerLog> log, std::string outbound_url) {
     return [log = std::move(log), outbound_url = std::move(outbound_url)](
-               const acecode::HookCommandSpec&, const std::string& stdin_text,
+               const acecode::platform::ProcessSpec&, const std::string& stdin_text,
                int, const std::string&) {
         acecode::HookProcessResult result;
         result.started = true;

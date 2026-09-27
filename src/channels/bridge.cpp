@@ -1,8 +1,8 @@
 #include "bridge.hpp"
-#include "daemon/platform.hpp"
+#include "platform/process/os_process.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/atomic_file.hpp"
-#include "lsp/lsp_which.hpp"
+#include "platform/process/which.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -19,7 +19,7 @@
 
 namespace acecode::channels {
 struct Bridge::Impl {
-    lsp::LspProcess process;
+    platform::PipedProcess process;
     mutable std::mutex mu;
     std::condition_variable cv;
     std::thread reader, writer;
@@ -92,7 +92,7 @@ struct Bridge::Impl {
 };
 Bridge::Bridge() : impl_(std::make_unique<Impl>()) {}
 Bridge::~Bridge() { stop(); }
-void Bridge::start(const lsp::LspSpawnOptions& options) {
+void Bridge::start(const platform::SpawnOptions& options) {
     stop();
     auto& b = *impl_;
     std::string error;
@@ -109,7 +109,7 @@ void Bridge::stop() {
     }
     b.fail("WhatsApp bridge stopped");
     // Kill first, join readers/writers, then close handles. Never race a pipe
-    // handle mutation against an in-flight LspProcess read/write.
+    // handle mutation against an in-flight PipedProcess read/write.
     b.process.kill_child();
     if (b.writer.joinable()) b.writer.join();
     if (b.reader.joinable()) b.reader.join();
@@ -188,11 +188,11 @@ bool whatsapp_dependencies_ready(const std::filesystem::path& installed) {
         return !required.empty();
     } catch (...) { return false; }
 }
-lsp::LspSpawnOptions whatsapp_bridge_options(const std::filesystem::path& directory) {
+platform::SpawnOptions whatsapp_bridge_options(const std::filesystem::path& directory) {
     const auto installed = prepare_whatsapp_bridge(directory);
     if (!whatsapp_dependencies_ready(installed))
         throw std::runtime_error("WhatsApp dependencies missing or outdated. Run acecode channels to install them automatically.");
-    const auto node = lsp::which("node");
+    const auto node = platform::which("node");
     if (!node) throw std::runtime_error("Node.js 22+ is required on PATH for WhatsApp");
     return {{*node, path_to_utf8(installed / "bridge.mjs"), "--state-dir", path_to_utf8(directory)}, path_to_utf8(installed), {}};
 }

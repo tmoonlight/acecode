@@ -310,7 +310,7 @@ ChannelPluginHost::ChannelPluginHost(Runner runner)
 }
 
 ChannelPluginHost::Runner ChannelPluginHost::default_runner() {
-    return [](const HookCommandSpec& command,
+    return [](const platform::ProcessSpec& command,
               const std::string& stdin_text,
               int timeout_ms,
               const std::string& cwd) {
@@ -327,7 +327,7 @@ ChannelPluginActivationResult ChannelPluginHost::activate(
     ChannelPluginActivationResult activation;
     if (!validate_stdio_manifest(manifest, error)) return activation;
 
-    HookCommandSpec command{manifest.command, manifest.args};
+    platform::ProcessSpec command{manifest.command, manifest.args};
     const std::string stdin_text = channel_activation_request_to_json(request).dump() + "\n";
     HookProcessResult result =
         runner_(command, stdin_text, effective_timeout_ms(manifest, timeout_ms), manifest.cwd);
@@ -395,7 +395,7 @@ bool ChannelPluginHost::deactivate(const ChannelPluginManifest& manifest,
         return fail(std::move(internal_error));
     }
 
-    HookCommandSpec command{manifest.command, manifest.args};
+    platform::ProcessSpec command{manifest.command, manifest.args};
     const std::string stdin_text =
         channel_deactivation_request_to_json(session_id, binding_token).dump() + "\n";
     HookProcessResult result;

@@ -2,23 +2,23 @@
 #include "channels/runtime.hpp"
 #include "session/session_serializer.hpp"
 
-#include "desktop/folder_picker.hpp"
-#include "desktop/context_picker.hpp"
+#include "platform/native_ui/folder_picker.hpp"
+#include "platform/native_ui/context_picker.hpp"
 #include "environment/terminal_runtime.hpp"
-#include "desktop/daemon_protocol.hpp"
-#include "desktop/open_in_explorer.hpp"
+#include "ipc/daemon_protocol.hpp"
+#include "platform/native_ui/open_in_explorer.hpp"
 #include "version.hpp"
 #include "tool/spawn_subagent_tool.hpp"
 #include "tool/thread_tools.hpp"
 #include "tool/workspace_tools.hpp"
-#include "desktop/workspace_registry.hpp"
+#include "workspace/workspace_registry.hpp"
 #include "experts/expert_registry.hpp"
 #include "connectors/connector_first_start_auth.hpp"
-#include "guid.hpp"
+#include "ipc/guid.hpp"
 #include "heartbeat.hpp"
 #include "mcp_runtime.hpp"
-#include "platform.hpp"
-#include "runtime_files.hpp"
+#include "platform/process/os_process.hpp"
+#include "ipc/runtime_files.hpp"
 #include "provider/cwd_model_override.hpp"
 #include "provider/copilot_provider.hpp"
 #include "provider/model_pool_status.hpp"
@@ -28,7 +28,7 @@
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_payload.hpp"
-#include "hooks/hook_runner.hpp"
+#include "platform/process/process_runner.hpp"
 #include "loop/loop_scheduler.hpp"
 #include "loop/loop_store.hpp"
 #include "session/local_session_client.hpp"
@@ -65,11 +65,11 @@
 #include "utils/logger.hpp"
 #include "utils/joining_thread.hpp"
 #include "utils/paths.hpp"
-#include "utils/power_inhibitor.hpp"
+#include "platform/power_inhibitor.hpp"
 #include "utils/token.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/auth.hpp"
-#include "web/pty/pty_session_registry.hpp"
+#include "pty/pty_session_registry.hpp"
 #include "web/remote_web.hpp"
 #include "web/remote_web_proxy.hpp"
 #include "web/server.hpp"
@@ -803,7 +803,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         const std::string connector_id = connector.id;
         connector_first_start_threads.threads.emplace_back(
             [hook, connector_id, &server]() {
-                acecode::HookCommandSpec cmd;
+                acecode::platform::ProcessSpec cmd;
                 cmd.command = hook.command;
                 cmd.args = hook.args;
                 const acecode::HookProcessResult result =

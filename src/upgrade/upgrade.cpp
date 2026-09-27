@@ -2,7 +2,7 @@
 
 #include "apply.hpp"
 #include "check.hpp"
-#include "console.hpp"
+#include "platform/terminal/console.hpp"
 #include "diagnostics.hpp"
 #include "executable_version.hpp"
 #include "network/http.hpp"

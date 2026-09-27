@@ -19,7 +19,7 @@ src/apps/tui/markdown/mermaid_renderer.cpp	2484
 src/apps/tui/settings/management_center.cpp	2146
 src/apps/tui/settings/settings_center.cpp	2842
 src/apps/tui/tui_helpers.cpp	1386
-src/base/config/config.cpp	2875
+src/base/config/config.cpp	2857
 src/base/platform/native_ui/custom_toast_win.cpp	1230
 src/domain/experts/expert_registry.cpp	1882
 src/domain/sandbox/command_classifier.cpp	1013
