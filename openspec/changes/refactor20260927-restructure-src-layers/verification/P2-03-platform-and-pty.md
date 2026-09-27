@@ -120,3 +120,24 @@ Ninja + MSVC 2022 Release,`BUILD_TESTING=ON`,`ACECODE_BUILD_DESKTOP=ON`,x64-wind
 主代理决定的记录:命名空间与 `run_hook_*` 函数名保持现状,后续任务统一;`src/lsp/lsp_platform_aliases.hpp` 作为 P2-03 新增文件登记于此,不进 D23 名单;`ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES` 与 P2-04 的交错由后合入的 P2-04 处理;mac / Linux 由主代理在合入后 dispatch refactor-matrix;搬走文件里裸名 include 的回查已由 `fd8668e5` 修好(本分支的 14 行是在它之前手工改的,新工具复核 0 diff)。
 
 给后续 P2 任务的提示:参照快照若是原样采集(含前序 P2 任务的过渡路径),对照前要把参照也做一次 `reverse` 换算,或者采集参照时就带 `--map --reverse-map`;否则前序任务搬过的每个文件都会在对照里成对出现。
+
+## 8. Codex 接手复核(2026-09-28)
+
+已将最新 master `0c0e37cb` 合入分支为 `2001f210300bb840b3656eebeb84cd04bbfb8d3a`。与此前已验证的 `5f33ff6f` 比较,`src/`、`tests/`、`CMakeLists.txt`、`cmake/` 均无差异。原本机全量测试和 ConPTY / winpty 实际进程验证仍对应相同 C++ 源码。
+
+[refactor-matrix 36332585400](https://github.com/tmoonlight/acecode/actions/runs/36332585400) 对该完整提交号进行全新配置、构建和清单采集,四个平台构建均通过。产物下载到仓库外 `N:/Users/shao/AppData/Local/Temp/codex-refactor20260928/ci/p2-03/`,逐平台复核如下:
+
+| 平台 | target / 编译元组 | 列出 / 执行 / SKIP / 失败 |
+|---|---|---|
+| Windows x64 | 59 / 3573 | 5115 / 5108 / 10 / 4 |
+| Linux x64 | 50 / 3487 | 5035 / 5026 / 16 / 0 |
+| macOS arm64 | 57 / 3632 | 5040 / 5033 / 14 / 11 |
+| Deepin x64 | 13 / 1373 | 不启用测试 |
+
+相对 post-p0,目标增减与既有元组删除均为 0;三个测试平台各增加 44 个元组,Deepin 增加 20 个,其中前序 P2-02 分别占 43 / 19,本任务只有已登记的 `lsp_platform_aliases.hpp` 1 条。新增元组沿用所属目标的既有编译属性。P2-03 没有新 GoogleTest 用例或新增 SKIP。
+
+原始 CTest 参数化名称含运行时指针 / 对象字节,不作逐字节等值声明;本次核对 GoogleTest suite / case 集合、CTest 注册数量和 SKIP 用例集合,均无增删。快照比较在两侧统一使用 `translate_for_comparison(reverse=True)`,所有既有目标依赖和编译属性保持。
+
+Deepin artifact 的 `source_revision` 因容器 Git 的 `dubious ownership` 报错为空。已从同一 build job 的 checkout 日志核对完整提交号,与传入的不可变 `source_ref` 一致;没有把空字段当作来源验证通过。Deepin 按原矩阵约定只构建 CLI / Desktop,不运行单测。
+
+矩阵是基线采集工作流,其成功状态不代表所有断言通过。Windows 的失败未超出 post-p0 基线;macOS 的 10 项既有失败仍在,另有 `OpenAiProviderErrorRecovery.SseKeepaliveCommentsDoNotTriggerRetry`,这项已在 P1 验收及 P2-02 记录为既有时序抖动。本次保留其失败,没有删除用例、增加 SKIP 或修改断言。Linux 完整测试为 0 失败。
