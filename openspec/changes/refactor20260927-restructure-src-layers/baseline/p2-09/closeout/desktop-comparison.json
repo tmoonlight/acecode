@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "configuration": "Windows x64 Release, Desktop ON, BUILD_TESTING ON",
+  "before_build_read_only": "C:/Users/shaoh/.codex/worktrees/refactor-cmake-guards/acecode/build-p0-04-before",
+  "after_build": "C:/Users/shaoh/.codex/worktrees/refactor-tools/acecode/build-p2-09-desktop-final",
+  "before_snapshot": "C:/Users/shaoh/.codex/worktrees/refactor-tools/acecode/build-p2-09-desktop-final/before-snapshot.json",
+  "after_snapshot": "C:/Users/shaoh/.codex/worktrees/refactor-tools/acecode/build-p2-09-desktop-final/after-snapshot.json",
+  "before_file_sha256": "cfbfe0d50b833872251a28d55f733ec9da49206180ebb66b7f0933cc9c8e45c6",
+  "after_file_sha256": "8ccd44a30a05add073458f303fda1262b035aac88a7b15aa708b61e6b8faa168",
+  "before_payload_sha256": "5409e6c9601e2c98848d3ceb7ec97adb5e5e932b081a6ac986bab4bb1692755f",
+  "after_payload_sha256": "5409e6c9601e2c98848d3ceb7ec97adb5e5e932b081a6ac986bab4bb1692755f",
+  "payload_hash_format": "schema/targets/tuples as UTF-8 JSON with sort_keys=True, ensure_ascii=False, separators=(comma,colon); excludes the appended comparison result",
+  "counts": {
+    "targets": {
+      "before": 59,
+      "after": 59,
+      "missing": 0,
+      "added": 0
+    },
+    "tuples": {
+      "before": 3535,
+      "after": 3535,
+      "missing": 0,
+      "added": 0
+    }
+  },
+  "payloads_equal": true,
+  "comparison_exit_code": 0,
+  "comparison": {
+    "targets": {
+      "added": [],
+      "removed": []
+    },
+    "tuples": {
+      "added": [],
+      "removed": []
+    }
+  },
+  "query_command": "python scripts/refactor/cmake_target_snapshot.py --build-dir build-p2-09-desktop-final --query",
+  "capture_before_command": "python scripts/refactor/cmake_target_snapshot.py --build-dir C:/Users/shaoh/.codex/worktrees/refactor-cmake-guards/acecode/build-p0-04-before --configuration Release --output build-p2-09-desktop-final/before-snapshot.json",
+  "capture_compare_command": "python scripts/refactor/cmake_target_snapshot.py --build-dir build-p2-09-desktop-final --configuration Release --compare build-p2-09-desktop-final/before-snapshot.json --output build-p2-09-desktop-final/after-snapshot.json",
+  "application_build_executed": false,
+  "notes": [
+    "The configure-time compiler checks ran normally; cmake --build was not invoked.",
+    "web/dist is absent in this checkout, so CMake generated its fallback embedded page. This check verifies the CMake target graph, not packaged UI or runtime behavior.",
+    "Original P0-04 build was read only. Full normalized snapshots are retained in the local build directory."
+  ]
+}

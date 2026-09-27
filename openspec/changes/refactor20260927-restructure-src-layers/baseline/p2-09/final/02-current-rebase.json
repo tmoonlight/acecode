@@ -1,0 +1,48 @@
+{
+  "base_sha": "06aca9526557c38cf5fd0ad4f78b3f01836fcb48",
+  "build_validation": "not run",
+  "changed_paths": [
+    "main.cpp",
+    "src/tool/builtin_tool_registry.hpp",
+    "src/tool/show_image_tool.cpp",
+    "src/tool/show_image_tool.hpp",
+    "src/tool/tool_icons.hpp",
+    "src/tui_state.hpp",
+    "src/utils/open_file.hpp"
+  ],
+  "cherry": [
+    "+ 3dd26983bc04bbcf451a1c5e000fb6abcbf52991"
+  ],
+  "conflicts": [
+    "main.cpp",
+    "src/tool/builtin_tool_registry.hpp",
+    "src/tool/show_image_tool.cpp",
+    "src/tui_state.hpp"
+  ],
+  "destination": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\02-current-rebase",
+  "git_rebase": {
+    "returncode": 1,
+    "stderr": "Rebasing (1/3)\rRebasing (2/3)\rRebasing (3/3)\rerror: could not apply 3dd26983... Add show_image tool for AI image sharing (desktop → TUI)\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nCould not apply 3dd26983... Add show_image tool for AI image sharing (desktop → TUI)\n",
+    "stdout": "CONFLICT (modify/delete): main.cpp deleted in HEAD and modified in 3dd26983 (Add show_image tool for AI image sharing (desktop → TUI)).  Version 3dd26983 (Add show_image tool for AI image sharing (desktop → TUI)) of main.cpp left in tree.\nAuto-merging src/tool/builtin_tool_registry.hpp\nCONFLICT (content): Merge conflict in src/tool/builtin_tool_registry.hpp\nAuto-merging src/tool/show_image_tool.cpp\nCONFLICT (add/add): Merge conflict in src/tool/show_image_tool.cpp\nAuto-merging src/tool/tool_icons.hpp\nAuto-merging src/tui_state.hpp\nCONFLICT (content): Merge conflict in src/tui_state.hpp\n"
+  },
+  "head_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "integration_ready": false,
+  "inventory_ref": "refs/remotes/origin/claude/ai-image-sharing-tool-8ewihy",
+  "issues": [],
+  "layout": "current",
+  "map_sha256": "379dab9f88d102df860934c4d635d990285a88906196e3b5ce53fef804e11c78",
+  "mode": "rebase",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "onto_ref": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "onto_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "original_refs_untouched": true,
+  "projection": false,
+  "reason": "CONFLICT (modify/delete): main.cpp deleted in HEAD and modified in 3dd26983 (Add show_image tool for AI image sharing (desktop → TUI)).  Version 3dd26983 (Add show_image tool for AI image sharing (desktop → TUI)) of main.cpp left in tree.\nCONFLICT (content): Merge conflict in src/tool/builtin_tool_registry.hpp\nCONFLICT (add/add): Merge conflict in src/tool/show_image_tool.cpp\nCONFLICT (content): Merge conflict in src/tui_state.hpp\nerror: could not apply 3dd26983... Add show_image tool for AI image sharing (desktop → TUI)",
+  "report_file": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\02-current-rebase\\.git\\refactor-migration\\report.json",
+  "schema": 1,
+  "source_ref": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+  "source_sha": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+  "status": "DU main.cpp\nUU src/tool/builtin_tool_registry.hpp\nAA src/tool/show_image_tool.cpp\nM  src/tool/tool_icons.hpp\nUU src/tui_state.hpp\nA  src/utils/open_file.hpp\n",
+  "success": false,
+  "target_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a"
+}

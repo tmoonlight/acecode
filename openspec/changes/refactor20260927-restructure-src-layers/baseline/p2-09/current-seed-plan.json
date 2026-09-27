@@ -1,0 +1,30 @@
+{
+  "changed_skills": [
+    {
+      "file": "assets/seed/skills/acecode/acecode-tui-usage/SKILL.md",
+      "new_sha256": "8dc11abf0224872ffa3d98f6d218aac623e5b3bbd383639673fd9cc45f488468",
+      "old_sha256": "9062802195d440153a0f0d22f6853fa1b1adea05886c7e6d59b577bcfd7c5407"
+    },
+    {
+      "file": "assets/seed/skills/acecode/acecode-desktop-usage/SKILL.md",
+      "new_sha256": "5ace6b52f76f9fa95ccc2ec3c72231f9a4b159a5380d10aa2f638bca5a2b4d59",
+      "old_sha256": "da95e73dbae63d7785e259d0ea59c9b429ad4a49702f4b248e660188e5046c67"
+    }
+  ],
+  "dry_run": true,
+  "files": [
+    "assets/seed/MANIFEST.json",
+    "assets/seed/seed.version",
+    "assets/seed/skills/acecode/acecode-desktop-usage/SKILL.md",
+    "assets/seed/skills/acecode/acecode-tui-usage/SKILL.md"
+  ],
+  "hardcoded_test_literals": 0,
+  "map_sha256": "379dab9f88d102df860934c4d635d990285a88906196e3b5ce53fef804e11c78",
+  "mode": "docs",
+  "new_version": "2026-09-27.1",
+  "note": "Only the exact prior bundle version literal is replaced; older upgrade fixtures stay unchanged. The current repository uses a dynamic packaged-version assertion.",
+  "old_version": "2026-09-17.1",
+  "schema": 1,
+  "scope": "seed-only",
+  "success": true
+}

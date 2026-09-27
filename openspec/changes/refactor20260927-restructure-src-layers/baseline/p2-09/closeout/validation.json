@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "tool_commit": "54f4c26ad26022716cc34211ae310f79a2232bd9",
+  "sync_merge": "aee34ff741c5b66e2a7e259ba32cb93386a46a0b",
+  "synced_master": "92eb910b4807301ed94384b6d9e8167509fb9ad8",
+  "preserved_rehearsal_base": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "master_changes_since_rehearsal": [
+    "M\topenspec/changes/refactor20260927-split-agent-loop/tasks.md"
+  ],
+  "production_and_map_git_object_identity": {
+    "7621b4f6fac524740296147aed4eaeeacd0cdd8a": {
+      "src": "08248d5b5d14693726994eb2ccec177a6082ebe0",
+      "tests": "bd25d5c71301b89d52f3b02a2bc8e90d19e5a32c",
+      "scripts/refactor/src_layout_map.tsv": "1588bab3b6050e2171a2c78e70a25f9a41727b21"
+    },
+    "92eb910b4807301ed94384b6d9e8167509fb9ad8": {
+      "src": "08248d5b5d14693726994eb2ccec177a6082ebe0",
+      "tests": "bd25d5c71301b89d52f3b02a2bc8e90d19e5a32c",
+      "scripts/refactor/src_layout_map.tsv": "1588bab3b6050e2171a2c78e70a25f9a41727b21"
+    },
+    "54f4c26ad26022716cc34211ae310f79a2232bd9": {
+      "src": "08248d5b5d14693726994eb2ccec177a6082ebe0",
+      "tests": "bd25d5c71301b89d52f3b02a2bc8e90d19e5a32c",
+      "scripts/refactor/src_layout_map.tsv": "1588bab3b6050e2171a2c78e70a25f9a41727b21"
+    }
+  },
+  "map_sha256": "379dab9f88d102df860934c4d635d990285a88906196e3b5ce53fef804e11c78",
+  "rehearsal_policy": "Preserve the existing 27 real-ref reports at fixed 7621b4f6; the master update changes only the P0-11 claim. The follow-up help regeneration fix does not change rebase, patch, path mapping, or source/ref SHAs.",
+  "tests": {
+    "command": "python -m unittest discover -s scripts/refactor/tests -p test_*.py -v",
+    "passed": 51,
+    "exit_code": 0,
+    "duration_seconds": 74.489,
+    "pre_fix_post_sync": {
+      "passed": 50,
+      "exit_code": 0,
+      "duration_seconds": 99.131
+    }
+  },
+  "json_only_regression": {
+    "command": "python -m unittest discover -s scripts/refactor/tests -p test_migrate_branch.py -k json_only -v",
+    "before_fix": {
+      "exit_code": 1,
+      "duration_seconds": 0.796,
+      "failure": "sources.json remained stale generated src/old/file.cpp after getting-started.json was rewritten"
+    },
+    "after_fix": {
+      "exit_code": 0,
+      "duration_seconds": 0.755
+    },
+    "checks": [
+      "Only authored getting-started.json has a mapped path; group1.py loads it without a mapped literal and remains byte-identical.",
+      "The tracked builder regenerates sources.json, HTML and search-index.js, while authored JSON preserves CRLF.",
+      "A second invocation has no file updates."
+    ]
+  },
+  "desktop": {
+    "configure_report": "configure.json",
+    "comparison": "desktop-comparison.json",
+    "fresh_configure_exit_code": 0,
+    "fresh_configure_seconds": 43.978,
+    "targets": 59,
+    "tuples": 3535,
+    "differences": 0,
+    "first_attempt": {
+      "exit_code": 1,
+      "directory": "C:/Users/shaoh/.codex/worktrees/refactor-tools/acecode/build-p2-09-desktop",
+      "reason": "Raw Windows backslashes in explicitly supplied CMAKE_C_COMPILER caused a CMake invalid escape error. The command was corrected to forward slashes and rerun in a different fresh directory."
+    }
+  },
+  "real_help_builder_post_fix": {
+    "report": "projection-doc-plan.json",
+    "dry_run": true,
+    "success": true,
+    "fixture_base": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+    "synthetic_projection_only": true,
+    "planned_document_files": 195,
+    "articles": 49,
+    "search_entries": 205,
+    "captured_figures": 44,
+    "image_placeholders": 10,
+    "generated_outputs": 4
+  },
+  "scope": "No production source or CMake changes, no P2/P3 migration acceptance, no actual application build, no original ref rewrite, no task checkbox, no push/PR. Only the assigned tools worktree and existing isolated rehearsal fixture were used for writes/read-only dry runs."
+}

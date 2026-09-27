@@ -1,0 +1,58 @@
+{
+  "base_sha": "3007f4832f31183e45f8023363c3da4e40c0e58e",
+  "build_validation": "not run",
+  "changed_paths": [
+    "src/agent_loop.cpp",
+    "src/agent_loop.hpp",
+    "src/session/session_control_service.cpp",
+    "src/session/session_control_service.hpp",
+    "src/session/session_pin_store.cpp",
+    "src/session/session_pin_store.hpp",
+    "src/tool/session_control_tool.cpp",
+    "src/tool/session_control_tool.hpp",
+    "src/tool/tool_executor.cpp",
+    "src/tool/tool_executor.hpp",
+    "src/web/handlers/pinned_sessions_handler.cpp",
+    "src/web/handlers/pinned_sessions_handler.hpp",
+    "tests/agent_loop/agent_loop_deferred_tools_test.cpp",
+    "tests/tool/tool_capability_policy_test.cpp"
+  ],
+  "cherry": [
+    "+ 1ce71fe01bfb54a546d23cbc0ed108423659dcf4"
+  ],
+  "conflicts": [
+    "src/agent_loop.cpp",
+    "src/agent_loop.hpp",
+    "src/session/session_pin_store.cpp",
+    "src/session/session_pin_store.hpp",
+    "src/tool/tool_executor.cpp",
+    "src/web/handlers/pinned_sessions_handler.cpp",
+    "src/web/handlers/pinned_sessions_handler.hpp"
+  ],
+  "destination": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\07-current-rebase",
+  "git_rebase": {
+    "returncode": 1,
+    "stderr": "Rebasing (1/3)\rRebasing (2/3)\rRebasing (3/3)\rerror: could not apply 1ce71fe0... WIP: preserve self session control implementation\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nCould not apply 1ce71fe0... WIP: preserve self session control implementation\n",
+    "stdout": "Auto-merging src/agent_loop.cpp\nCONFLICT (content): Merge conflict in src/agent_loop.cpp\nAuto-merging src/agent_loop.hpp\nCONFLICT (content): Merge conflict in src/agent_loop.hpp\nAuto-merging src/session/session_pin_store.cpp\nCONFLICT (add/add): Merge conflict in src/session/session_pin_store.cpp\nAuto-merging src/session/session_pin_store.hpp\nCONFLICT (add/add): Merge conflict in src/session/session_pin_store.hpp\nAuto-merging src/tool/tool_executor.cpp\nCONFLICT (content): Merge conflict in src/tool/tool_executor.cpp\nAuto-merging src/tool/tool_executor.hpp\nAuto-merging src/web/handlers/pinned_sessions_handler.cpp\nCONFLICT (content): Merge conflict in src/web/handlers/pinned_sessions_handler.cpp\nAuto-merging src/web/handlers/pinned_sessions_handler.hpp\nCONFLICT (content): Merge conflict in src/web/handlers/pinned_sessions_handler.hpp\n"
+  },
+  "head_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "integration_ready": false,
+  "inventory_ref": "refs/remotes/origin/codex/add-self-session-control",
+  "issues": [],
+  "layout": "current",
+  "map_sha256": "379dab9f88d102df860934c4d635d990285a88906196e3b5ce53fef804e11c78",
+  "mode": "rebase",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "onto_ref": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "onto_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a",
+  "original_refs_untouched": true,
+  "projection": false,
+  "reason": "CONFLICT (content): Merge conflict in src/agent_loop.cpp\nCONFLICT (content): Merge conflict in src/agent_loop.hpp\nCONFLICT (add/add): Merge conflict in src/session/session_pin_store.cpp\nCONFLICT (add/add): Merge conflict in src/session/session_pin_store.hpp\nCONFLICT (content): Merge conflict in src/tool/tool_executor.cpp\nCONFLICT (content): Merge conflict in src/web/handlers/pinned_sessions_handler.cpp\nCONFLICT (content): Merge conflict in src/web/handlers/pinned_sessions_handler.hpp\nerror: could not apply 1ce71fe0... WIP: preserve self session control implementation",
+  "report_file": "C:\\Users\\shaoh\\AppData\\Local\\Temp\\acecode-p209-rehearsal-prqizkny\\07-current-rebase\\.git\\refactor-migration\\report.json",
+  "schema": 1,
+  "source_ref": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+  "source_sha": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+  "status": "UU src/agent_loop.cpp\nUU src/agent_loop.hpp\nA  src/session/session_control_service.cpp\nA  src/session/session_control_service.hpp\nAA src/session/session_pin_store.cpp\nAA src/session/session_pin_store.hpp\nA  src/tool/session_control_tool.cpp\nA  src/tool/session_control_tool.hpp\nUU src/tool/tool_executor.cpp\nM  src/tool/tool_executor.hpp\nUU src/web/handlers/pinned_sessions_handler.cpp\nUU src/web/handlers/pinned_sessions_handler.hpp\nA  tests/agent_loop/agent_loop_deferred_tools_test.cpp\nM  tests/tool/tool_capability_policy_test.cpp\n",
+  "success": false,
+  "target_sha": "7621b4f6fac524740296147aed4eaeeacd0cdd8a"
+}
