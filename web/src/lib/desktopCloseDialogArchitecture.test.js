@@ -1,3 +1,4 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -78,10 +79,7 @@ run('General settings exposes every Desktop close behavior', () => {
 
 run('native close request and Web event use the same stable name', () => {
   const helper = source('lib/desktopCloseBehavior.js');
-  const nativeMain = fs.readFileSync(
-    path.resolve(srcRoot, '..', '..', 'src', 'desktop', 'main.cpp'),
-    'utf8',
-  );
+  const nativeMain = readCppSource('desktop/main.cpp');
 
   assert.match(helper, /acecode:desktop-close-requested/);
   assert.match(nativeMain, /acecode:desktop-close-requested/);

@@ -22,7 +22,7 @@
   - 在 AGENTS.md 增加「所有权与生命周期」一节,约定摘自 adopt-ownership-conventions design.md,每条附一个仓库中的真实反例;
   - CLAUDE.md 顶部加一行,指向本系列 4 个 change,并写明「src 分层重构进行中,新文件放置规则见 restructure-src-layers/design.md」。
   - 验证:4 个 change 都通过 `openspec validate --strict`;AGENTS.md / CLAUDE.md 的 diff 只含上述段落。
-- [ ] 1.2 【P0-02】【子】【并】分支盘点。
+- [ ] 1.2 【P0-02】【子】【并】分支盘点。〔认领: Codex-root 2026-09-27〕
   - 用 `scripts/refactor/branch_inventory.sh` 输出每个 worktree / 分支的领先提交数、`git cherry` 结果、src 与 tests 改动数、是否有脏文件,存档到本 change 目录的 `branch-inventory.md`;
   - 28 个补丁等价的旧 worktree 列出清单,**交给用户确认后由用户自行删除**,本任务不删除任何东西;
   - `codex/add-self-session-control` 与 `review-ai-image-sharing-tool` 两个单提交例外,记录处理建议:先合入,或走 patch 迁移。

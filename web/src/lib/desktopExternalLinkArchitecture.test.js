@@ -1,3 +1,4 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,7 +32,7 @@ run('App installs the Desktop-wide external link router with visible failure fee
 });
 
 run('main WebView2 marks HTTP new windows handled before native launch', () => {
-  const host = source('src/desktop/web_host.cpp');
+  const host = readCppSource('desktop/web_host.cpp');
   const start = host.indexOf('core->add_NewWindowRequested');
   const end = host.indexOf('&win_token', start);
   const handler = host.slice(start, end);
@@ -52,8 +53,8 @@ run('main WebView2 marks HTTP new windows handled before native launch', () => {
 });
 
 run('the Agent Browser keeps its separate new-window implementation', () => {
-  const host = source('src/desktop/web_host.cpp');
-  const agentHost = source('src/desktop/agent_browser_host.cpp');
+  const host = readCppSource('desktop/web_host.cpp');
+  const agentHost = readCppSource('desktop/agent_browser_host.cpp');
 
   assert.match(host, /install_win_webview_navigation_handlers/);
   assert.match(agentHost, /page->webview->add_NewWindowRequested/);

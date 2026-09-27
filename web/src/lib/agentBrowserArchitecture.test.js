@@ -1,3 +1,4 @@
+import { readCppSource, cppSourcePath } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,8 +22,8 @@ function run(name, fn) {
 }
 
 run('Agent Browser keeps the native webpage context menu enabled', () => {
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
   assert.match(host, /put_AreDefaultContextMenusEnabled\(TRUE\)/);
   assert.doesNotMatch(host, /put_AreDefaultContextMenusEnabled\(FALSE\)/);
   assert.match(macHost, /addEventListener\('contextmenu', suppress, true\)/);
@@ -30,9 +31,9 @@ run('Agent Browser keeps the native webpage context menu enabled', () => {
 });
 
 run('Agent Browser grants local file navigation on macOS and Windows', () => {
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
-  const runtime = source('src/desktop/agent_browser_runtime.cpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
+  const runtime = readCppSource('desktop/agent_browser_runtime.cpp');
 
   assert.match(host, /--allow-file-access-from-files/);
   assert.match(macHost, /\[scheme_value isEqualToString:@"file"\]/);
@@ -43,9 +44,9 @@ run('Agent Browser grants local file navigation on macOS and Windows', () => {
 });
 
 run('native document titles and favicons reach tabs through the page registry, never gated by Agent activity', () => {
-  const header = source('src/desktop/agent_browser_host.hpp');
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const desktop = source('src/desktop/main.cpp');
+  const header = readCppSource('desktop/agent_browser_host.hpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const desktop = readCppSource('desktop/main.cpp');
   const chatView = source('web/src/components/ChatView.jsx');
   const preview = source('web/src/components/PreviewDetailsPanel.jsx');
   const previewTabs = source('web/src/lib/previewTabs.js');
@@ -75,16 +76,16 @@ run('native document titles and favicons reach tabs through the page registry, n
 // 但页签从未出现;以及后台会话建页会挤掉用户正在看的页面、省略 page_id 的工具
 // 落到别的会话的页面。
 run('Agent Browser pages are owned by sessions across daemon, desktop host and Web UI', () => {
-  const directory = source('src/desktop/agent_browser_page_directory.hpp');
-  const header = source('src/desktop/agent_browser_host.hpp');
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
-  const desktop = source('src/desktop/main.cpp');
-  const runtime = source('src/desktop/agent_browser_runtime.hpp');
-  const cdpClient = source('src/tool/agent_browser/cdp_client.cpp');
-  const tools = source('src/tool/agent_browser/browser_tools.cpp');
-  const toolContext = source('src/tool/tool_executor.hpp');
-  const agentLoop = source('src/agent_loop.cpp');
+  const directory = readCppSource('desktop/agent_browser_page_directory.hpp');
+  const header = readCppSource('desktop/agent_browser_host.hpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
+  const desktop = readCppSource('desktop/main.cpp');
+  const runtime = readCppSource('desktop/agent_browser_runtime.hpp');
+  const cdpClient = readCppSource('tool/agent_browser/cdp_client.cpp');
+  const tools = readCppSource('tool/agent_browser/browser_tools.cpp');
+  const toolContext = readCppSource('tool/tool_executor.hpp');
+  const agentLoop = readCppSource('agent_loop.cpp');
   const chatView = source('web/src/components/ChatView.jsx');
   const app = source('web/src/App.jsx');
   const bridge = source('web/src/lib/agentBrowser.js');
@@ -135,8 +136,8 @@ run('Agent Browser pages are owned by sessions across daemon, desktop host and W
 run('Agent Browser collaboration chrome mirrors the VS Code page actions', () => {
   const panel = source('web/src/components/AgentBrowserPanel.jsx');
   const styles = source('web/src/styles/globals.css');
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const desktop = source('src/desktop/main.cpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const desktop = readCppSource('desktop/main.cpp');
 
   assert.match(panel, /ace-agent-browser-share-toggle/);
   assert.match(panel, /正在与智能体共享/);
@@ -158,9 +159,9 @@ run('Agent Browser collaboration chrome mirrors the VS Code page actions', () =>
 });
 
 run('Agent Browser mouse-producing tools show one non-blocking AI pointer at exact input coordinates', () => {
-  const header = source('src/tool/agent_browser/browser_tools.hpp');
-  const tools = source('src/tool/agent_browser/browser_tools.cpp');
-  const pointerOverlay = source('src/tool/agent_browser/pointer_overlay.cpp');
+  const header = readCppSource('tool/agent_browser/browser_tools.hpp');
+  const tools = readCppSource('tool/agent_browser/browser_tools.cpp');
+  const pointerOverlay = readCppSource('tool/agent_browser/pointer_overlay.cpp');
   const click = tools.slice(
     tools.indexOf('ToolImpl click_tool()'),
     tools.indexOf('ToolImpl fill_tool()'),
@@ -238,9 +239,9 @@ run('Browser chat contexts share the composer reference row with Pin and annotat
 });
 
 run('Agent Browser hides WebView2 blank and failure documents behind React surfaces', () => {
-  const header = source('src/desktop/agent_browser_host.hpp');
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const desktop = source('src/desktop/main.cpp');
+  const header = readCppSource('desktop/agent_browser_host.hpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const desktop = readCppSource('desktop/main.cpp');
   const panel = source('web/src/components/AgentBrowserPanel.jsx');
   const icons = source('web/src/components/Icon.jsx');
   const browserGlobe = source('web/public/vs-icons/BrowserGlobe.svg');
@@ -274,9 +275,9 @@ run('Agent Browser hides WebView2 blank and failure documents behind React surfa
 });
 
 run('macOS Agent Browser exposes NSError diagnostics and keeps system authentication handling', () => {
-  const header = source('src/desktop/agent_browser_host.hpp');
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
-  const desktop = source('src/desktop/main.cpp');
+  const header = readCppSource('desktop/agent_browser_host.hpp');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
+  const desktop = readCppSource('desktop/main.cpp');
   const surface = source('web/src/lib/agentBrowserSurface.js');
   const panel = source('web/src/components/AgentBrowserPanel.jsx');
   const styles = source('web/src/styles/globals.css');
@@ -343,7 +344,7 @@ run('macOS Agent Browser exposes NSError diagnostics and keeps system authentica
 });
 
 run('macOS Agent Browser is permanently development-permissive', () => {
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
   const plist = source('cmake/macos/ACECodeDesktopInfo.plist.in');
   const authStart = macHost.indexOf('didReceiveAuthenticationChallenge:');
   const authEnd = macHost.indexOf('webViewWebContentProcessDidTerminate:', authStart);
@@ -374,10 +375,10 @@ run('macOS Agent Browser is permanently development-permissive', () => {
 });
 
 run('Agent Browser derives navigation state from the final unhandled result', () => {
-  const header = source('src/desktop/agent_browser_navigation_state.hpp');
-  const state = source('src/desktop/agent_browser_navigation_state.cpp');
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+  const header = readCppSource('desktop/agent_browser_navigation_state.hpp');
+  const state = readCppSource('desktop/agent_browser_navigation_state.cpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
 
   // 中间回调的判定收敛在无平台依赖的纯逻辑层,两端共用同一套规则。
   assert.match(header, /class AgentBrowserNavigationTracker/);
@@ -408,7 +409,7 @@ run('Agent Browser derives navigation state from the final unhandled result', ()
 });
 
 run('Windows Agent Browser disables WebView2 barriers before the first navigation', () => {
-  const host = source('src/desktop/agent_browser_host.cpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
   const installStart = host.indexOf('void install_events(');
   const navigationStarting = host.indexOf('add_NavigationStarting', installStart);
   const preNavigation = host.slice(installStart, navigationStarting);
@@ -474,8 +475,8 @@ run('no Agent Browser security mode, badge or certificate exception UI exists', 
 });
 
 run('permissive browsing stays inside the Agent Browser native boundary', () => {
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
 
   // 服务器返回的 401/403 正文与登录重定向是真实网页,不能被折算成传输失败。
   // 两端都只从引擎的导航结果判定成败,不看 HTTP 状态码。
@@ -497,8 +498,8 @@ run('permissive browsing stays inside the Agent Browser native boundary', () => 
   // 放宽只发生在这两个原生 Browser 宿主里。任何一处泄漏到共享 HTTP/TLS 栈、
   // Provider、MCP、daemon 或升级器,都会让「只影响 Agent Browser」的合同失效。
   const allowed = new Set([
-    'src/desktop/agent_browser_host.cpp',
-    'src/desktop/agent_browser_host_mac.mm',
+    cppSourcePath('desktop/agent_browser_host.cpp'),
+    cppSourcePath('desktop/agent_browser_host_mac.mm'),
   ]);
   const permissiveMarkers = [
     /credentialForTrust/,
@@ -647,11 +648,11 @@ run('every current floating-surface owner participates in the native overlay con
 });
 
 run('native Agent Browser layouts reject stale revisions and unsafe windows', () => {
-  const header = source('src/desktop/agent_browser_host.hpp');
-  const host = source('src/desktop/agent_browser_host.cpp');
-  const macHost = source('src/desktop/agent_browser_host_mac.mm');
-  const desktop = source('src/desktop/main.cpp');
-  const webHost = source('src/desktop/web_host.cpp');
+  const header = readCppSource('desktop/agent_browser_host.hpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const macHost = readCppSource('desktop/agent_browser_host_mac.mm');
+  const desktop = readCppSource('desktop/main.cpp');
+  const webHost = readCppSource('desktop/web_host.cpp');
   const panel = source('web/src/components/AgentBrowserPanel.jsx');
   const desktopCmake = source('cmake/acecode_desktop.cmake');
   const testCmake = source('tests/CMakeLists.txt');

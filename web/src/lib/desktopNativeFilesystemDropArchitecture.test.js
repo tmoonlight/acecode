@@ -1,3 +1,4 @@
+import { readCppSource } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +9,7 @@ function source(relativeUrl) {
 
 const inputBar = source('../components/InputBar.jsx');
 const consoleDock = source('../components/ConsoleDock.jsx');
-const webHost = source('../../../src/desktop/web_host.cpp');
+const webHost = readCppSource('desktop/web_host.cpp');
 const desktopCmake = source('../../../cmake/acecode_desktop.cmake');
 
 assert.match(inputBar, /postWindowsNativeFilesystemDrop\(event\.dataTransfer\)/);
