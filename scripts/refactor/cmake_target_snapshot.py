@@ -42,6 +42,9 @@ def normalize_source_path(value: str, source_root: str, build_root: str) -> str:
     return normalize_root_paths(value, source_root, build_root)
 
 
+OBJECT_PATH = re.compile(r"^(@build/CMakeFiles/[^/]+[.]dir/)(.+?)([.](?:obj|o))$")
+
+
 def translate_for_comparison(mapping: LayoutMap | None, value: str, reverse: bool) -> str:
     """Map one snapshot path (or define/option text) for a G0 comparison.
 
@@ -54,6 +57,11 @@ def translate_for_comparison(mapping: LayoutMap | None, value: str, reverse: boo
     """
     if not mapping:
         return value
+    generated = OBJECT_PATH.match(value)
+    if generated:
+        # Object files embed their source path; map that part the same way so a
+        # moved source and its .obj/.o compare as one tuple.
+        return generated.group(1) + translate_for_comparison(mapping, generated.group(2), reverse) + generated.group(3)
     if reverse:
         forward = mapping.translate(value)
         if forward is not None:
