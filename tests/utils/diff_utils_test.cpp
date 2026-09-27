@@ -15,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "tool/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 
 using acecode::DiffLineKind;
 using acecode::DiffStats;

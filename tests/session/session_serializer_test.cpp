@@ -8,7 +8,7 @@
 
 #include "session/session_serializer.hpp"
 #include "session/session_storage.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <nlohmann/json.hpp>
 

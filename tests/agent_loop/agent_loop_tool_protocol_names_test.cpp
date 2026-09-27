@@ -6,7 +6,7 @@
 #include "provider/text_tool_call_recovery.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/tool_executor.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include <algorithm>
 #include <atomic>

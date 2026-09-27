@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "tool/tool_executor.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utils/tool_errors.hpp"
 
 #include <string>

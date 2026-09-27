@@ -17,7 +17,7 @@
 
 #include "agent_loop.hpp"
 #include "permissions.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "session/event_dispatcher.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"

@@ -2,7 +2,7 @@
 
 #include "image_generation_client.hpp"
 #include "image_generation_policy.hpp"
-#include "tool/tool_icons.hpp"
+#include "llm/tool_icons.hpp"
 #include "headless/headless_mode.hpp"
 #include "session/output_attachments.hpp"
 #include "session/session_manager.hpp"

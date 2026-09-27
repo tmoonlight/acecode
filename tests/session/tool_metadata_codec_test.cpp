@@ -9,7 +9,7 @@
 
 #include "session/tool_metadata_codec.hpp"
 #include "tool/tool_executor.hpp"
-#include "tool/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 
 #include <nlohmann/json.hpp>
 

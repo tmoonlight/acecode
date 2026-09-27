@@ -19,7 +19,7 @@
 //     返回 std::nullopt 而**不抛异常**,这样老 session 或人工手改的 JSONL
 //     不会让整次 resume 崩溃 —— 只是该字段降级到空,渲染走 fold 路径。
 
-#include "tool/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 #include "tool/tool_executor.hpp"
 
 #include <nlohmann/json.hpp>

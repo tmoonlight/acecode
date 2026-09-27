@@ -23,7 +23,7 @@
 
 #include "agent_loop.hpp"
 #include "permissions.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "session/ask_user_question_prompter.hpp"
 #include "session/event_dispatcher.hpp"
 #include "test_support/agent/stub_provider.hpp"

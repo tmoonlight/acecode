@@ -1,6 +1,6 @@
 #pragma once
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "tui_state.hpp"
 
 #include <vector>

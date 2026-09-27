@@ -1,5 +1,5 @@
 #include "bash_tool.hpp"
-#include "tool_icons.hpp"
+#include "llm/tool_icons.hpp"
 #include "environment/shell_command_line.hpp"
 #include "environment/terminal_runtime.hpp"
 #include "utils/logger.hpp"

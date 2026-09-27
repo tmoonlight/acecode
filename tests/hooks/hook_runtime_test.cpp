@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"

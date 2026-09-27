@@ -25,7 +25,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "session_storage.hpp"
 
 namespace acecode {

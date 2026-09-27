@@ -1,6 +1,6 @@
 #include "attachment_prompt_context.hpp"
 #include "pasted_text_attachment.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include "utils/utf8_path.hpp"
 

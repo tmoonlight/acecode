@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "provider/openai_provider.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <httplib.h>
 

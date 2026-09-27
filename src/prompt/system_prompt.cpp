@@ -7,7 +7,7 @@
 #include "memory/memory_registry.hpp"
 #include "project_instructions/instructions_loader.hpp"
 #include "skills/skill_registry.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"
 #include <nlohmann/json.hpp>

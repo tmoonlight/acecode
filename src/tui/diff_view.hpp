@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tool/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 
 #include <ftxui/dom/elements.hpp>
 

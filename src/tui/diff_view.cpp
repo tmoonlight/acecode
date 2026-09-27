@@ -1,7 +1,7 @@
 #include "diff_view.hpp"
 
-#include "tool/diff_view_truncate.hpp"
-#include "tool/word_diff.hpp"
+#include "utils/diff_view_truncate.hpp"
+#include "utils/word_diff.hpp"
 #include "tui/diff_line_wrap.hpp"
 #include "tui/theme_palette.hpp"
 

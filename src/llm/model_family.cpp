@@ -1,6 +1,6 @@
 #include "model_family.hpp"
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "tool_protocol_names.hpp"
 
 #include <algorithm>

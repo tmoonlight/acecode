@@ -11,8 +11,8 @@
 #include "session/session_serializer.hpp"
 #include "session/tool_metadata_codec.hpp"
 #include "tool/tool_executor.hpp"
-#include "tool/diff_utils.hpp"
-#include "provider/llm_provider.hpp"
+#include "utils/diff_utils.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <nlohmann/json.hpp>
 
