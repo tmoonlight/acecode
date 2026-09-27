@@ -117,13 +117,9 @@ class GuardTest(unittest.TestCase):
             {"old_path": "src/tool/diff_utils.hpp", "new_path": "src/base/utils/diff_utils.hpp", "kind": "move", "phase": "P2-02"},
             {"old_path": "src/utils/", "new_path": "src/base/utils/", "kind": "move", "phase": "P3"},
         ])
-        before = b'#include "diff_utils.hpp"
-#include "tool/diff_utils.hpp"
-'
+        before = b'#include "diff_utils.hpp"\n#include "tool/diff_utils.hpp"\n'
         after, changes, errors = normalize(before, path, IncludeIndex(files, aliases=aliases))
-        self.assertEqual(b'#include "utils/diff_utils.hpp"
-#include "utils/diff_utils.hpp"
-', after)
+        self.assertEqual(b'#include "utils/diff_utils.hpp"\n#include "utils/diff_utils.hpp"\n', after)
         self.assertEqual(2, len(changes))
         self.assertFalse(errors)
 
