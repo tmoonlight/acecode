@@ -144,3 +144,38 @@ HEAD 上 `git grep` 旧物理路径(`desktop/workspace_registry.hpp`、`daemon/r
 8. `layout-map.md` 的 P2-04 行「19 个文件」实测为 20 个(多出 `runtime_files.cpp`),表内数字未改;按顶部规则由主代理决定是否回写。
 9. **参照快照的口径**:主代理 21:2x 换上的 `master-windows-targets.json` 是 P2-02 之后 master 的**原样**物理路径快照(含 `src/llm/…`),不是 `--reverse-map` 之后的;直接拿本侧 `--reverse-map` 的输出去比,P2-02 搬走的 42 条元组会被报成假差异(第 4 节 (b))。本记录改为两侧都换算回旧路径再比(用工具自己的 `translate_for_comparison(reverse=True)`),并附一份原样路径对照证明差异只剩本任务的 17 个文件。后续 P2 任务对照时建议参照也用 `--reverse-map` 采集,或统一用原样路径 + 只允许本任务搬走文件的一一对应差异。
 10. 主检出 `N:/Users/shao/acecode` reflog 里 19:15 的 checkout / merge 不是本会话做的:本会话所有 git / cmake / python 命令都带 `cd /n/Users/shao/acecode-p2-04 &&` 或 `git -C N:/Users/shao/acecode-p2-04`,构建脚本内 `cd /d N:\Users\shao\acecode-p2-04`;本会话在 17:41(首轮构建结束)到 21:13(用量限制重置)之间没有执行过任何命令。
+
+## 9. Codex 接手复核(2026-09-28,合入 P2-03 前)
+
+已合入最新 master `0c0e37cb`,当前源码提交 `f3483845d986230f848dbe75ad5c623b5e769ff4`。[refactor-matrix 36332588494](https://github.com/tmoonlight/acecode/actions/runs/36332588494) 的四平台全新构建均通过:
+
+| 平台 | target / 编译元组 | 列出 / 执行 / SKIP / 失败 |
+|---|---|---|
+| Windows x64 | 59 / 3572 | 5115 / 5108 / 10 / 3 |
+| Linux x64 | 50 / 3486 | 5035 / 5026 / 16 / 0 |
+| macOS arm64 | 57 / 3631 | 5040 / 5033 / 14 / 11 |
+| Deepin x64 | 13 / 1372 | 不启用测试 |
+
+相对 post-p0,目标增减和既有元组删除均为 0,新增元组只有前序 P2-02 的 43 / 19 条。本任务全部搬迁文件保持原目标与编译属性。产物与对照 JSON 在仓库外 `N:/Users/shao/AppData/Local/Temp/codex-refactor20260928/ci/p2-04/` 及 `ci-audit-p2-04-*.json`。
+
+原始 CTest 参数化名称含运行时指针 / 对象字节,不作逐字节等值声明;本次核对 GoogleTest suite / case 集合、CTest 注册数量和 SKIP 用例集合,均无增删。快照比较在两侧统一使用 `translate_for_comparison(reverse=True)`,所有既有目标依赖和编译属性保持。
+
+Deepin artifact 的 `source_revision` 因容器 Git 的 `dubious ownership` 报错为空。已从同一 build job 的 checkout 日志核对完整提交号,与传入的不可变 `source_ref` 一致;没有把空字段当作来源验证通过。Deepin 按原矩阵约定只构建 CLI / Desktop,不运行单测。
+
+矩阵是基线采集工作流,其成功状态不代表所有断言通过。Windows 的失败未超出 post-p0 基线;macOS 的 10 项既有失败仍在,另有 `OpenAiProviderErrorRecovery.SseKeepaliveCommentsDoNotTriggerRetry`,这项已在 P1 验收及 P2-02 记录为既有时序抖动。本次保留其失败,没有删除用例、增加 SKIP 或修改断言。Linux 完整测试为 0 失败。
+
+### 9.1 实际 Desktop 工作区与文件预览验证
+
+补齐第 3.1 节当时未执行的真机链路。先在本工作区运行 `pnpm install --frozen-lockfile` / `pnpm build`,再用全新、可被共享启动器识别的 `build/windows-x64-desktop-release` 配置并构建 CLI / Desktop。MSVC x64 + Ninja Release,只读复用主检出的 vcpkg 依赖,519 步构建成功。通过 `python scripts/dev_environment.py desktop --yes` 启动,启动器确认复用本工作区产物并完成增量检查。
+
+HOME / USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / TMP 均为仓库外 `N:/ac-p204-0928/` 的独立目录,WebView2 profile 也独立。通过该实例的 WebView2 CDP 操作 DOM,未使用屏幕截图:
+
+1. Desktop 窗口启动,页面标识 `__ACECODE_DESKTOP_SHELL__` 为 true,原生 bridge 可调用。
+2. 在隔离 daemon 中注册 `N:/ac-p204-0928/workspace-one`,HTTP 201;原生 `aceDesktop_listWorkspaces` 能读到该工作区。
+3. `aceDesktop_activateWorkspace` 成功,返回相同 cwd / hash,daemon 保持 running。
+4. 在实际页面选择该工作区,展开文件面板,点击 `p2-04-smoke.txt`,文件预览中显示 `P2-04 workspace file handler smoke`。同时原生工作区状态为 active / available / running。
+5. 通过 `aceDesktop_quitApp` 正常退出,本次 Desktop PID 48772 和 daemon PID 40576 均已结束;原有用户 Desktop PID 13680 仍在运行。
+
+检查摘要为仓库外 `p2-04-desktop-smoke.json`;构建与启动日志为 `p2-04-native-build.log` / `p2-04-desktop-launch.log`。测试文件仅写入隔离工作区,没有修改项目源码。
+
+P2-03 合入后仍须同步最新 master,解决 CMake 相邻改动并复验;本节不提前勾选 P2-04。
