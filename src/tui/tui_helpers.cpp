@@ -494,8 +494,8 @@ Color status_line_color(const std::string& status_line) {
         : theme().ui.text_primary;
 }
 
-// Keep in sync with the file-static twin in main.cpp, which is the copy the
-// TUI actually renders.
+// The only implementation of the status chips: main.cpp used to carry
+// file-static twins of these helpers until P0-09 deleted those copies.
 Element render_cache_hit_chip(const TuiState& state) {
     const std::string label =
         TokenTracker::format_cache_status_for(state.cache_hit_percent);

@@ -202,15 +202,6 @@ static void set_transient_status_line_locked(TuiState& state,
 
 namespace {
 
-constexpr auto kTerminalCtrl =
-    acecode::tui::terminal_modifier(
-        acecode::tui::TerminalKeyModifier::Ctrl);
-constexpr auto kTerminalShift =
-    acecode::tui::terminal_modifier(
-        acecode::tui::TerminalKeyModifier::Shift);
-constexpr auto kTerminalAlt =
-    acecode::tui::terminal_modifier(
-        acecode::tui::TerminalKeyModifier::Alt);
 // Semantic theme colors for the question panel. The panel resolves its own
 // colors instead of inheriting a decorator from the composing container: a
 // container-wide `color(...)` was what turned the whole chat area blue.
@@ -303,10 +294,6 @@ static bool dispatch_ask_session_mouse_locked(
     auto& ask_scrollbar_box = ask_question_frame.scrollbar_box;
     auto& ask_overlay_box = ask_question_frame.overlay_box;
     const auto& ask_row_boxes = ask_question_frame.row_boxes;
-    auto contains_box = [](const Box& box, int x, int y) {
-        return box.x_min <= box.x_max && box.y_min <= box.y_max &&
-               box.Contain(x, y);
-    };
     const bool wheel = mouse.button == Mouse::WheelUp ||
                        mouse.button == Mouse::WheelDown;
     const bool in_ask = tui::ask_question_box_contains(
@@ -509,16 +496,6 @@ static bool dispatch_ask_session_mouse_locked(
     return true;
 }
 
-static bool is_terminal_key(
-    const Event& event,
-    acecode::tui::TerminalKey key,
-    acecode::tui::TerminalKeyModifiers modifiers = 0);
-
-static bool is_terminal_codepoint(
-    const Event& event,
-    std::uint32_t codepoint,
-    acecode::tui::TerminalKeyModifiers modifiers = 0);
-
 static bool dispatch_ask_session_event_locked(
     TuiState& state,
     const Event& event,
@@ -530,7 +507,7 @@ static bool dispatch_ask_session_event_locked(
     }
 
     if (ask_question_frame.terminal_too_narrow) {
-        if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
             const auto effects = state.ask_session->escape();
             dispatch_ask_session_effects_locked(state, effects);
         }
@@ -554,68 +531,68 @@ static bool dispatch_ask_session_event_locked(
         dispatch_ask_session_effects_locked(state, effects);
     };
 
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         const auto effects = state.ask_session->escape();
         dispatch_ask_session_effects_locked(state, effects);
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Enter, kTerminalCtrl)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Enter, tui::kTerminalCtrl)) {
         dispatch({tui::AskQuestionEventKind::InsertNewline});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::ArrowUp, kTerminalShift)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowUp, tui::kTerminalShift)) {
         dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorUp
                                  : tui::AskQuestionEventKind::MoveUp});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::ArrowDown, kTerminalShift)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowDown, tui::kTerminalShift)) {
         dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorDown
                                  : tui::AskQuestionEventKind::MoveDown});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::ArrowLeft, kTerminalShift)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowLeft, tui::kTerminalShift)) {
         dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorLeft
                                  : tui::AskQuestionEventKind::MoveLeft});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::ArrowRight, kTerminalShift)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowRight, tui::kTerminalShift)) {
         dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorRight
                                  : tui::AskQuestionEventKind::MoveRight});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::PageUp)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::PageUp)) {
         const int page_step = std::max(
             1, ask_question_frame.layout.visible_rows - 1);
         dispatch({tui::AskQuestionEventKind::ScrollLines, -1, -page_step});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::PageDown)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::PageDown)) {
         const int page_step = std::max(
             1, ask_question_frame.layout.visible_rows - 1);
         dispatch({tui::AskQuestionEventKind::ScrollLines, -1, page_step});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Tab, kTerminalShift)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
         dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
                                  : tui::AskQuestionEventKind::PreviousPage,
                   -1, 0, editing_custom ? "\t" : ""});
         return true;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Tab)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Tab)) {
         dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
                                  : tui::AskQuestionEventKind::NextPage,
                   -1, 0, editing_custom ? "\t" : ""});
         return true;
     }
-    if (is_terminal_codepoint(event, 'x', kTerminalShift)) {
+    if (tui::matches_terminal_codepoint(event, 'x', tui::kTerminalShift)) {
         dispatch({tui::AskQuestionEventKind::GlobalCancel});
         return true;
     }
-    if (is_terminal_codepoint(event, 'x', kTerminalCtrl)) {
+    if (tui::matches_terminal_codepoint(event, 'x', tui::kTerminalCtrl)) {
         dispatch({tui::AskQuestionEventKind::CutSelection});
         return true;
     }
-    if (is_terminal_codepoint(event, 'y')) {
+    if (tui::matches_terminal_codepoint(event, 'y')) {
         if (editing_custom || custom_focused) {
             dispatch({tui::AskQuestionEventKind::InsertText, -1, 0, "y"});
         } else {
@@ -691,462 +668,10 @@ static bool dispatch_ask_session_event_locked(
     return false;
 }
 
-static bool is_terminal_key(
-    const Event& event,
-    acecode::tui::TerminalKey key,
-    acecode::tui::TerminalKeyModifiers modifiers) {
-    return acecode::tui::matches_terminal_key(event, key, modifiers);
-}
-
-static bool is_terminal_codepoint(
-    const Event& event,
-    std::uint32_t codepoint,
-    acecode::tui::TerminalKeyModifiers modifiers) {
-    return acecode::tui::matches_terminal_codepoint(
-        event, codepoint, modifiers);
-}
-
 static std::int64_t monotonic_milliseconds() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-
-static const std::string EN_THINKING_PHRASES[50] = {
-    "Analyzing", "Pondering", "Investigating", "Synthesizing", "Reviewing",
-    "Processing", "Compiling", "Evaluating", "Formulating", "Brainstorming",
-    "Searching", "Deciphering", "Gathering", "Debugging", "Inspecting",
-    "Generating", "Organizing", "Mapping", "Exploring", "Tracing",
-    "Validating", "Considering", "Reflecting", "Simulating", "Calculating",
-    "Abstracting", "Diving", "Looking", "Troubleshooting", "Crafting",
-    "Polishing", "Assembling", "Connecting", "Building", "Parsing",
-    "Extracting", "Tuning", "Optimizing", "Designing", "Theorizing",
-    "Hypothesizing", "Seeking", "Interpreting", "Measuring", "Weighing",
-    "Reading", "Preparing", "Reasoning", "Constructing", "Finalizing"
-};
-
-static const std::string ZH_THINKING_PHRASES[50] = {
-    "分析中", "思考中", "研究中", "探索中", "综合中",
-    "审查中", "处理中", "编译中", "评估中", "规划中",
-    "构思中", "搜索中", "解码中", "收集中", "调试中",
-    "检查中", "生成中", "组织中", "映射中", "推理中",
-    "验证中", "考虑中", "反思中", "模拟中", "计算中",
-    "抽象中", "深挖中", "寻找中", "排查中", "打磨中",
-    "完善中", "组装中", "连接中", "构建中", "解析中",
-    "提取中", "微调中", "优化中", "设计中", "推论中",
-    "假设中", "路线中", "解读中", "测量中", "权衡中",
-    "阅读中", "准备中", "追溯中", "构造中", "总结中"
-};
-
-static bool is_user_chinese(const acecode::TuiState& state) {
-    if (state.conversation.empty()) return false;
-    for (auto it = state.conversation.rbegin(); it != state.conversation.rend(); ++it) {
-        if (it->role == "user") {
-            for (unsigned char c : it->content) {
-                if (c >= 0xE0) return true;
-            }
-            return false;
-        }
-    }
-    return false;
-}
-
-static std::string get_random_thinking_phrase(bool is_zh) {
-    static thread_local std::random_device rd;
-    static thread_local std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, 49);
-    return is_zh ? ZH_THINKING_PHRASES[dis(gen)] : EN_THINKING_PHRASES[dis(gen)];
-}
-
-// A ToolSummary whose metrics contain `exit`, `aborted`, or `timeout` indicates
-// a failure; used by the tool_result renderer to pick colour and decide whether
-// to show the inline error tail.
-static bool is_success_summary(const acecode::ToolSummary& s) {
-    for (const auto& kv : s.metrics) {
-        if (kv.first == "exit" && kv.second != "0") return false;
-        if (kv.first == "aborted" && kv.second == "true") return false;
-        if (kv.first == "timeout" && kv.second == "true") return false;
-    }
-    return true;
-}
-
-static std::string renderable_tool_summary_line(const acecode::ToolSummary& s,
-                                                const std::string& metric_str,
-                                                int max_visual_width) {
-    // 不带图标(与 tui_helpers.cpp 的同名实现保持一致):工具名已在上方的
-    // `● ToolName(args)` 行加粗展示,这里的图标只是噪音。
-    const std::string prefix = s.verb + " \xC2\xB7 ";
-    const std::string suffix = metric_str.empty()
-        ? std::string()
-        : " \xC2\xB7 " + metric_str;
-    return acecode::tui::truncate_middle_segment(
-        prefix, s.object, suffix, max_visual_width);
-}
-
-static std::string collapse_sidebar_title_whitespace(std::string_view text) {
-    std::string out;
-    bool in_space = false;
-    for (unsigned char c : text) {
-        if (std::isspace(c)) {
-            if (!out.empty() && !in_space) {
-                out.push_back(' ');
-            }
-            in_space = true;
-        } else {
-            out.push_back(static_cast<char>(c));
-            in_space = false;
-        }
-    }
-    if (!out.empty() && out.back() == ' ') {
-        out.pop_back();
-    }
-    return out;
-}
-
-static std::string truncate_cells_prefix(std::string_view text, int max_cells) {
-    if (max_cells <= 0) {
-        return {};
-    }
-    std::string out;
-    int used = 0;
-    for (const auto& glyph : ftxui::Utf8ToGlyphs(std::string(text))) {
-        if (glyph.empty()) {
-            continue;
-        }
-        const int width = std::max(0, ftxui::string_width(glyph));
-        if (used + width > max_cells) {
-            break;
-        }
-        out += glyph;
-        used += width;
-    }
-    return out;
-}
-
-static std::string truncate_cells_middle_ascii(std::string_view text, int max_cells) {
-    if (max_cells <= 0) {
-        return {};
-    }
-    const std::string input(text);
-    if (ftxui::string_width(input) <= max_cells) {
-        return input;
-    }
-    if (max_cells <= 3) {
-        return truncate_cells_prefix(input, max_cells);
-    }
-
-    const int body_cells = max_cells - 3;
-    const int head_cells = std::max(1, body_cells / 2);
-    const int tail_cells = std::max(0, body_cells - head_cells);
-    const auto glyphs = ftxui::Utf8ToGlyphs(input);
-
-    std::string head;
-    int used_head = 0;
-    for (const auto& glyph : glyphs) {
-        const int width = std::max(0, ftxui::string_width(glyph));
-        if (used_head + width > head_cells) {
-            break;
-        }
-        head += glyph;
-        used_head += width;
-    }
-
-    std::vector<std::string> tail_glyphs;
-    int used_tail = 0;
-    for (std::size_t i = glyphs.size(); i > 0; --i) {
-        const auto& glyph = glyphs[i - 1];
-        const int width = std::max(0, ftxui::string_width(glyph));
-        if (used_tail + width > tail_cells) {
-            break;
-        }
-        tail_glyphs.push_back(glyph);
-        used_tail += width;
-    }
-    std::reverse(tail_glyphs.begin(), tail_glyphs.end());
-
-    std::string out = head + "...";
-    for (const auto& glyph : tail_glyphs) {
-        out += glyph;
-    }
-    return out;
-}
-
-static std::string mcp_state_label(McpServerState state) {
-    switch (state) {
-        case McpServerState::Starting:  return "starting";
-        case McpServerState::Connected: return "connected";
-        case McpServerState::Disabled:  return "disabled";
-        case McpServerState::Failed:    return "failed";
-        case McpServerState::Cancelled: return "cancelled";
-        case McpServerState::TimedOut:  return "timed_out";
-    }
-    return "unknown";
-}
-
-static bool mcp_sidebar_has_loading(
-    const std::vector<acecode::TuiState::McpSidebarServer>& servers) {
-    for (const auto& server : servers) {
-        if (server.state == "starting") return true;
-    }
-    return false;
-}
-
-static bool mcp_sidebar_has_loading(const acecode::TuiState& state) {
-    return mcp_sidebar_has_loading(state.mcp_sidebar_servers);
-}
-
-static Element render_white_shimmer_text(const std::string& label,
-                                         int anim_tick,
-                                         bool with_dots = true) {
-    std::vector<std::string> glyphs = ftxui::Utf8ToGlyphs(label);
-    const int total = static_cast<int>(glyphs.size());
-    const int wave_pos = std::max(0, anim_tick) % (total > 0 ? total + 2 : 8);
-
-    Elements parts;
-    for (int i = 0; i < total; ++i) {
-        int dist = i - wave_pos;
-        if (dist < 0) dist = -dist;
-        Color c;
-        if (dist == 0) {
-            c = Color::White;
-        } else if (dist == 1) {
-            c = Color::GrayLight;
-        } else if (dist == 2) {
-            c = Color::GrayDark;
-        } else {
-            c = tui::theme().ui.text_dim;
-        }
-        parts.push_back(text(glyphs[static_cast<std::size_t>(i)]) | color(c));
-    }
-
-    if (with_dots) {
-        const int dot_count = (std::max(0, anim_tick) % 3) + 1;
-        for (int i = 0; i < 3; ++i) {
-            parts.push_back(
-                text(".") |
-                color(i < dot_count ? Color::White : tui::theme().ui.text_dim));
-        }
-    }
-
-    return hbox(std::move(parts));
-}
-
-static std::vector<acecode::TuiState::McpSidebarServer>
-build_mcp_sidebar_servers(const McpManager& manager) {
-    auto server_infos = manager.list_servers();
-    std::vector<acecode::TuiState::McpSidebarServer> out;
-    out.reserve(server_infos.size());
-    for (const auto& info : server_infos) {
-        acecode::TuiState::McpSidebarServer server;
-        server.name = info.name;
-        server.state = mcp_state_label(info.state);
-        server.transport = info.transport;
-        server.error = info.error;
-        server.tool_count = info.tool_count;
-        out.push_back(std::move(server));
-    }
-    return out;
-}
-
-static void set_mcp_sidebar_servers_locked(
-    acecode::TuiState& state,
-    std::vector<acecode::TuiState::McpSidebarServer> servers) {
-    state.mcp_sidebar_servers = std::move(servers);
-}
-
-static Element queued_badge() {
-    return text(" QUEUED ") | bold | color(tui::theme().ui.text_primary) |
-           bgcolor(tui::theme().ui.queued_bg);
-}
-
-static std::string repeat_utf8_glyph(const char* glyph, int count) {
-    std::string out;
-    if (count <= 0) {
-        return out;
-    }
-    const std::string g(glyph);
-    out.reserve(g.size() * static_cast<std::size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        out += g;
-    }
-    return out;
-}
-
-static Color token_progress_color(int percent) {
-    const auto& s = tui::theme().semantic;
-    if (percent <= 0) return tui::theme().ui.text_dim;
-    if (percent > 90) return s.error;
-    if (percent >= 60) return s.warning;
-    return s.success;
-}
-
-// 当前活动模型的池负载百分比(-1 = 未知/未命中 modelPoolName,不渲染)。由
-// model-pool 监控的后台轮询回调写入(atomic,UI 线程 render 读),配套 PostEvent
-// 触发重绘。
-static std::atomic<int> g_model_load_percent{-1};
-
-// 模型池负载色阶(与 web / 后端 model_load_tier 一致):<70 绿 / 70..90 黄 / >90 红。
-static Color model_load_color(int percent) {
-    const auto& s = tui::theme().semantic;
-    if (percent < 0) return tui::theme().ui.text_dim;
-    if (percent > 90) return s.error;
-    if (percent >= 70) return s.warning;
-    return s.success;
-}
-
-// 底部状态栏的模型池负载 chip:递增信号格 + 百分比,按负载档染色。负载未知
-// (g_model_load_percent < 0,即未命中 modelPoolName 或监控无数据)时不渲染。
-static Element render_model_load_chip() {
-    const int percent = g_model_load_percent.load();
-    if (percent < 0) return text("");
-    const Color c = model_load_color(percent);
-    return hbox({
-        text("\xE2\x96\x81\xE2\x96\x83\xE2\x96\x85\xE2\x96\x87") | color(c),  // ▁▃▅▇ 递增信号格
-        text(" " + std::to_string(percent) + "%  ") | color(c),
-    });
-}
-
-static Color status_line_color(const std::string& status_line) {
-    return status_line.find("(deleted)") != std::string::npos
-        ? tui::theme().semantic.error
-        : tui::theme().ui.text_primary;
-}
-
-// Prompt-cache hit rate for the session. Rendered next to the context meter so
-// a cache regression (a prompt prefix that stopped being stable, or a provider
-// wired up without cache breakpoints) shows up as a number the user can watch
-// rather than an invisible cost increase.
-static Element render_cache_hit_chip(const acecode::TuiState& state) {
-    const std::string label =
-        acecode::TokenTracker::format_cache_status_for(state.cache_hit_percent);
-    if (label.empty()) {
-        return text("");
-    }
-    return text(label + "  ") | dim | color(tui::theme().ui.text_dim);
-}
-
-static Element render_token_usage_chip(const acecode::TuiState& state) {
-    if (state.token_status.empty()) {
-        return text("");
-    }
-
-    constexpr int kBarCells = 10;
-    constexpr const char* kFilled = "\xE2\x96\x88";
-    constexpr const char* kEmpty = "\xE2\x96\x91";
-
-    const int percent = std::clamp(state.token_percent, 0, 100);
-    const int filled = percent <= 0 ? 0 : std::clamp((percent + 9) / 10, 1, kBarCells);
-    const int empty = kBarCells - filled;
-    const Color progress_color = token_progress_color(percent);
-
-    return hbox({
-        text("  " + state.token_status + " ") | dim | color(tui::theme().ui.accent_alt),
-        text("[") | dim | color(tui::theme().ui.text_dim),
-        text(repeat_utf8_glyph(kFilled, filled)) | color(progress_color),
-        text(repeat_utf8_glyph(kEmpty, empty)) | dim | color(tui::theme().ui.text_dim),
-        text("] ") | dim | color(tui::theme().ui.text_dim),
-        text(std::to_string(percent) + "%  ") | dim | color(progress_color),
-        render_cache_hit_chip(state),
-    });
-}
-
-static Element render_pending_queue_block(const acecode::TuiState& state,
-                                          int available_width) {
-    if (state.pending_queue.empty()) {
-        return emptyElement();
-    }
-
-    constexpr std::size_t kMaxVisibleQueuedPrompts = 3;
-    constexpr int kBadgeCells = 8;
-    const int prompt_width =
-        std::max(10, available_width - kBadgeCells - 5);
-    const std::size_t visible =
-        std::min(kMaxVisibleQueuedPrompts, state.pending_queue.size());
-
-    Elements rows;
-    const std::size_t hidden =
-        state.pending_queue.size() > visible
-            ? state.pending_queue.size() - visible
-            : 0;
-    if (hidden > 0) {
-        rows.push_back(
-            text("  +" + std::to_string(hidden) + " more queued") |
-            tui::readable_secondary());
-    }
-
-    const std::size_t start = state.pending_queue.size() - visible;
-    for (std::size_t i = start; i < state.pending_queue.size(); ++i) {
-        const std::string preview = collapse_sidebar_title_whitespace(
-            state.pending_queue[i]);
-        rows.push_back(hbox({
-            text(" "),
-            queued_badge(),
-            text(" "),
-            text(truncate_cells_middle_ascii(preview, prompt_width)) |
-                color(tui::theme().ui.text_primary),
-        }));
-    }
-
-    return vbox(std::move(rows));
-}
-
-static Element render_pending_attachment_block(const acecode::TuiState& state,
-                                               int available_width) {
-    if (state.pending_attachments.empty()) {
-        return emptyElement();
-    }
-
-    Elements rows;
-    const int label_width = std::max(12, available_width - 18);
-    const bool attachment_focus = acecode::tui::has_pending_attachment_focus(
-        state.pending_attachment_focus,
-        state.pending_attachments.size());
-    for (std::size_t i = 0; i < state.pending_attachments.size(); ++i) {
-        const auto& attachment = state.pending_attachments[i];
-        const bool focused = attachment_focus &&
-            state.pending_attachment_focus == static_cast<int>(i);
-        const std::string kind = attachment.value("kind", std::string{"file"});
-        const std::string name = attachment.value("name", std::string{"attachment"});
-        const std::string prefix = kind == "image" ? " image " : " file ";
-        Element row = hbox({
-            text(focused ? ">" : " "),
-            text(prefix) | bold |
-                color(focused ? tui::theme().ui.selection_fg : tui::theme().ui.badge_fg) |
-                bgcolor(focused ? tui::theme().ui.selection_bg : tui::theme().ui.badge_bg),
-            text(" "),
-            text(truncate_cells_middle_ascii(name, label_width)) |
-                color(focused ? tui::theme().ui.selection_fg : tui::theme().ui.text_primary),
-        });
-        if (focused) {
-            row = row | bgcolor(tui::theme().ui.selection_bg);
-        }
-        rows.push_back(std::move(row));
-    }
-    const std::string hint = attachment_focus
-        ? "  Up/Down: select  Delete/Backspace: remove  Esc/Alt+A: input"
-        : "  Alt+A: select attachments";
-    rows.push_back(
-        text(truncate_cells_middle_ascii(hint, std::max(12, available_width - 2))) |
-        tui::readable_secondary());
-    return vbox(std::move(rows));
-}
-
-static Element render_tool_result_lines_preserving_breaks(
-    const std::string& display_content) {
-    Elements lines;
-    size_t pos = 0;
-    while (pos <= display_content.size()) {
-        const size_t nl = display_content.find('\n', pos);
-        const std::string line = (nl == std::string::npos)
-            ? display_content.substr(pos)
-            : display_content.substr(pos, nl - pos);
-        Element line_el = line.empty() ? text(" ") : paragraph(line);
-        lines.push_back(line_el | color(tui::theme().ui.text_muted) | dim);
-        if (nl == std::string::npos) break;
-        pos = nl + 1;
-    }
-    return vbox(std::move(lines));
-}
-
 
 }  // namespace
 
@@ -1391,8 +916,7 @@ static void signal_handler(int /*sig*/) {
 #endif
 
 // ---- Shared TUI state ----
-// TuiState is defined in src/tui_state.hpp
-#include "tui_state.hpp"
+// TuiState is defined in src/tui_state.hpp, reached through tui/tui_helpers.hpp.
 using acecode::TuiState;
 
 static void set_transient_status_line_locked(TuiState& state,
@@ -1451,32 +975,6 @@ static std::string clipboard_image_status_message(
         default:
             return "";
     }
-}
-
-static bool is_alt_v_event(const Event& event) {
-    constexpr auto alt =
-        acecode::tui::terminal_modifier(
-            acecode::tui::TerminalKeyModifier::Alt);
-    constexpr auto ignored =
-        acecode::tui::terminal_modifier(
-            acecode::tui::TerminalKeyModifier::Shift) |
-        acecode::tui::TerminalKeyModifier::CapsLock |
-        acecode::tui::TerminalKeyModifier::NumLock;
-    return acecode::tui::matches_terminal_codepoint(
-        event, 'v', alt, ignored);
-}
-
-static bool is_alt_a_event(const Event& event) {
-    constexpr auto alt =
-        acecode::tui::terminal_modifier(
-            acecode::tui::TerminalKeyModifier::Alt);
-    constexpr auto ignored =
-        acecode::tui::terminal_modifier(
-            acecode::tui::TerminalKeyModifier::Shift) |
-        acecode::tui::TerminalKeyModifier::CapsLock |
-        acecode::tui::TerminalKeyModifier::NumLock;
-    return acecode::tui::matches_terminal_codepoint(
-        event, 'a', alt, ignored);
 }
 
 static std::string attachment_name_from_json(const nlohmann::json& attachment) {
@@ -1990,7 +1488,7 @@ static bool handle_pending_attachment_focus_event(TuiState& state,
         state.model_picker_open ||
         state.mode_picker_open;
 
-    if (is_alt_a_event(event)) {
+    if (tui::is_alt_a_event(event)) {
         if (unavailable) {
             return true;
         }
@@ -2014,7 +1512,7 @@ static bool handle_pending_attachment_focus_event(TuiState& state,
         return false;
     }
 
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         state.pending_attachment_focus =
             acecode::tui::kNoPendingAttachmentFocus;
         screen.PostEvent(Event::Custom);
@@ -2105,7 +1603,7 @@ static bool handle_confirm_overlay_event(
         for (const auto& option : options) if (option.result == r) return true;
         return false;
     };
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         submit(PermissionResult::Deny);
         return true;
     }
@@ -2119,8 +1617,8 @@ static bool handle_confirm_overlay_event(
         screen.PostEvent(Event::Custom);
         return true;
     }
-    if (is_terminal_key(
-            event, acecode::tui::TerminalKey::Tab, kTerminalShift)) {
+    if (tui::matches_terminal_key(
+            event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
         if (has_result(PermissionResult::AlwaysAllow)) submit(PermissionResult::AlwaysAllow);
         return true;
     }
@@ -2253,7 +1751,7 @@ static bool handle_rewind_picker_event(
         }
     };
 
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         if (state.rewind_mode_active) {
             state.rewind_mode_active = false;
             state.rewind_modes.clear();
@@ -2394,7 +1892,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
     };
 
     if (event == Event::ArrowUp ||
-        is_terminal_codepoint(event, 'p', kTerminalCtrl)) {
+        tui::matches_terminal_codepoint(event, 'p', tui::kTerminalCtrl)) {
         state.slash_dropdown_selected =
             (state.slash_dropdown_selected - 1 + n) % n;
         follow_view();
@@ -2402,7 +1900,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
         return true;
     }
     if (event == Event::ArrowDown ||
-        is_terminal_codepoint(event, 'n', kTerminalCtrl)) {
+        tui::matches_terminal_codepoint(event, 'n', tui::kTerminalCtrl)) {
         state.slash_dropdown_selected =
             (state.slash_dropdown_selected + 1) % n;
         follow_view();
@@ -2436,7 +1934,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
         commit_selection();
         return false;
     }
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         state.slash_dropdown_active = false;
         state.slash_dropdown_items.clear();
         state.slash_dropdown_selected = 0;
@@ -2471,7 +1969,7 @@ static bool handle_path_reference_event(
         return true;
     };
 
-    if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         acecode::tui::dismiss_path_reference_state(state);
         screen.PostEvent(Event::Custom);
         return true;
@@ -3006,11 +2504,11 @@ static void start_mcp_servers_async(McpManager& mcp_manager,
     }
 
     mcp_manager.set_status_callback([&mcp_manager, &state, &screen](const McpServerInfo& info) {
-        auto sidebar_servers = build_mcp_sidebar_servers(mcp_manager);
+        auto sidebar_servers = tui::build_mcp_sidebar_servers(mcp_manager);
         auto message = acecode::mcp_status_message(info);
         {
             std::lock_guard<std::mutex> lk(state.mu);
-            set_mcp_sidebar_servers_locked(state, std::move(sidebar_servers));
+            tui::set_mcp_sidebar_servers_locked(state, std::move(sidebar_servers));
             if (message.has_value()) {
                 state.conversation.push_back({"system", *message, false});
             }
@@ -3446,7 +2944,7 @@ static void initialize_tui_state_before_screen(
     bool dangerous_mode,
     const McpManager& mcp_manager,
     const std::shared_ptr<LlmProvider>& provider) {
-    set_mcp_sidebar_servers_locked(state, build_mcp_sidebar_servers(mcp_manager));
+    tui::set_mcp_sidebar_servers_locked(state, tui::build_mcp_sidebar_servers(mcp_manager));
     state.status_line = provider
         ? "[" + provider->name() + "] model: " + provider->model()
         : "No model configured";
@@ -3538,7 +3036,7 @@ static Element render_link_hover_tooltip(const TuiState& state) {
     // 按 cell 而不是 UTF-8 字节截断;宽/高预算含 2 格 border 边框,确保
     // x + bubble_w <= dimx 恒成立,不会撑大 dbox 需求。
     const int max_url_cells = term.dimx - 2;
-    const std::string url = truncate_cells_middle_ascii(
+    const std::string url = tui::truncate_cells_middle_ascii(
         state.hover_link_href, max_url_cells);
     const int bubble_w = std::min(
         term.dimx, std::max(2, ftxui::string_width(url) + 2));
@@ -3711,7 +3209,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             state.update_notice.empty()
                 ? emptyElement()
                 : paragraph(state.update_notice) | color(tui::theme().semantic.warning),
-            text(state.status_line) | color(status_line_color(state.status_line)),
+            text(state.status_line) | color(tui::status_line_color(state.status_line)),
             text(cwd_display) | color(tui::theme().ui.accent_alt) | dim,
         }) | bgcolor(is_light ? Color::RGB(225, 235, 245) : Color::RGB(0, 30, 45));
     } else {
@@ -3741,7 +3239,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
                     state.update_notice.empty()
                         ? emptyElement()
                         : paragraph(state.update_notice) | color(tui::theme().semantic.warning),
-                    text(state.status_line) | color(status_line_color(state.status_line)),
+                    text(state.status_line) | color(tui::status_line_color(state.status_line)),
                     text(cwd_display) | color(tui::theme().ui.accent_alt) | dim,
                 }),
                 text("  "),
@@ -3948,7 +3446,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             // 工具结果走摘要/diff/fold 三优先级,有 Ctrl+E/Ctrl+O 展开机制。
             auto line = hbox({
                 text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
-                render_tool_result_lines_preserving_breaks(msg.content) | flex,
+                tui::render_tool_result_lines_preserving_breaks(msg.content) | flex,
             });
             if (focused_message) {
                 line = line | focus;
@@ -3982,7 +3480,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             auto line = hbox({
                 text("  \xE2\x94\x94 ") |
                     color(tui::theme().ui.text_dim), // "└"
-                render_tool_result_lines_preserving_breaks(msg.content) | flex,
+                tui::render_tool_result_lines_preserving_breaks(msg.content) | flex,
             });
             if (focused_message) {
                 line = line | focus;
@@ -4014,7 +3512,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
                     }
                     const int summary_width = std::max(
                         20, chat_box.x_max - chat_box.x_min - 4);
-                    std::string summary_line = renderable_tool_summary_line(
+                    std::string summary_line = tui::renderable_tool_summary_line(
                         s, metric_str, summary_width);
                     rows.push_back(hbox({
                         text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
@@ -4030,7 +3528,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
                 }
 
                 // 失败态:把前 3 行 stderr dim 显示在 summary 之下(保留既有行为)。
-                if (msg.summary.has_value() && !is_success_summary(*msg.summary) &&
+                if (msg.summary.has_value() && !tui::is_success_summary(*msg.summary) &&
                     !msg.content.empty()) {
                     int shown = 0;
                     size_t pos = 0;
@@ -4104,7 +3602,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
 
                 const int summary_width = std::max(
                     20, chat_box.x_max - chat_box.x_min - 4);
-                std::string summary_line = renderable_tool_summary_line(
+                std::string summary_line = tui::renderable_tool_summary_line(
                     s, metric_str, summary_width);
 
                 Elements rows;
@@ -4115,7 +3613,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
 
                 // Failed tool: render the first 3 lines of output dimmed
                 // below the summary so the error is visible without expand.
-                if (!is_success_summary(s) && !msg.content.empty()) {
+                if (!tui::is_success_summary(s) && !msg.content.empty()) {
                     int shown = 0;
                     size_t pos = 0;
                     while (pos < msg.content.size() && shown < 3) {
@@ -4187,7 +3685,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
 
                 auto line = hbox({
                     text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
-                    render_tool_result_lines_preserving_breaks(display_content) | flex,
+                    tui::render_tool_result_lines_preserving_breaks(display_content) | flex,
                 });
                 if (focused_message) {
                     line = line | focus;
@@ -4380,10 +3878,10 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     }
 
     Element mcp_loading_element = emptyElement();
-    if (!show_regular_sidebar && mcp_sidebar_has_loading(state)) {
+    if (!show_regular_sidebar && tui::mcp_sidebar_has_loading(state)) {
         mcp_loading_element = hbox({
             text(" i ") | bold | color(Color::White),
-            render_white_shimmer_text("MCP loading", anim_tick.load()),
+            tui::render_white_shimmer_text("MCP loading", anim_tick.load()),
         });
     }
 
@@ -4813,8 +4311,8 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
 
     // -- Bottom status bar --
     std::string perm_mode_str = std::string("mode: ") + PermissionManager::mode_name(permissions.mode());
-    Element token_el = render_token_usage_chip(state);
-    Element load_el = render_model_load_chip();
+    Element token_el = tui::render_token_usage_chip(state);
+    Element load_el = tui::render_model_load_chip();
     Element goal_el = state.goal_status.empty()
         ? text("")
         : text("  " + state.goal_status + "  ") | dim | color(tui::theme().semantic.success);
@@ -4934,9 +4432,9 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         : std::max(20, terminal_width -
             (show_regular_sidebar ? kRegularSidebarWidthCols + 6 : 4));
     Element pending_queue_element =
-        render_pending_queue_block(state, pending_queue_width);
+        tui::render_pending_queue_block(state, pending_queue_width);
     Element pending_attachment_element =
-        render_pending_attachment_block(state, pending_queue_width);
+        tui::render_pending_attachment_block(state, pending_queue_width);
     Element todo_checklist_element =
         acecode::tui::todo_checklist_uses_sidebar(show_regular_sidebar)
             ? emptyElement()
@@ -5270,7 +4768,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             const std::string copilot_model = copilot->model();
             {
                 std::lock_guard<std::mutex> lk(state.mu);
-                state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
+                state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
                 // 新一轮等待：计时/计数字段必须和 is_waiting 一起重置，否则
                 // on_busy_changed 的 `busy && !is_waiting` 护栏会把这段跳过，
                 // thinking_start_time 会停在 time_point{} 原点，底部秒数会巨大。
@@ -5411,7 +4909,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         acecode::note_process_session_busy("tui-main", busy);
         std::lock_guard<std::mutex> lk(state.mu);
         if (busy && !state.is_waiting) {
-            state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
+            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
             state.thinking_start_time = std::chrono::steady_clock::now();
             state.streaming_output_chars = 0;
             state.turn_completion_tokens_confirmed = 0;
@@ -5579,13 +5077,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         std::lock_guard<std::mutex> lk(state.mu);
         state.current_thinking_phrase =
             acecode::tui::model_retry_wait_phrase(
-                is_user_chinese(state), info.retry_delay_ms);
+                tui::is_user_chinese(state), info.retry_delay_ms);
         screen.PostEvent(Event::Custom);
     };
     callbacks.on_model_retry_resume = [&state, &screen]() {
         std::lock_guard<std::mutex> lk(state.mu);
         state.current_thinking_phrase =
-            acecode::tui::model_retry_resume_phrase(is_user_chinese(state));
+            acecode::tui::model_retry_resume_phrase(tui::is_user_chinese(state));
         screen.PostEvent(Event::Custom);
     };
     callbacks.on_turn_finished = [&state, &tui_turn_outcome](
@@ -5632,7 +5130,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     // ---- Model-pool load monitor ----
     // 只为 base_url 包含 wizard-ai 的配置启动轮询,避免普通用户访问企业接口。
-    // 负载实时写 g_model_load_percent 供底栏 chip 展示;maxWindowTokens 稳定,故只需在
+    // 负载实时写 acecode::tui::g_model_load_percent 供底栏 chip 展示;maxWindowTokens 稳定,故只需在
     // 每次成功轮询时把 0.8x 有效窗口回灌到 config + agent_loop(UI 线程 Post,改的是 int,
     // 安全),token% 下个回合自然重算。service 在 run_tui_loop 返回后 stop(),保证回调
     // 不晚于这些局部变量析构。
@@ -5649,7 +5147,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     pct = st->usage_rate;
                     eff = acecode::effective_context_window(st->max_window_tokens);
                 }
-                g_model_load_percent.store(pct);
+                acecode::tui::g_model_load_percent.store(pct);
                 auto* scr = g_active_screen.load(std::memory_order_acquire);
                 if (!scr) return;
                 if (eff > 0) {
@@ -6260,7 +5758,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (busy && !state.is_waiting) {
             tui_turn_assistant_text.clear();
             tui_turn_outcome.clear();
-            state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
+            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
             state.thinking_start_time = std::chrono::steady_clock::now();
             state.streaming_output_chars = 0;
             state.turn_completion_tokens_confirmed = 0;
@@ -6355,7 +5853,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.chat_follow_tail = true;
             }
             clamp_chat_focus();
-            state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
+            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
             state.thinking_start_time = std::chrono::steady_clock::now();
             state.streaming_output_chars = 0;
             state.turn_completion_tokens_confirmed = 0;
@@ -6394,7 +5892,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.chat_follow_tail = true;
                 clamp_chat_focus();
                 state.current_thinking_phrase =
-                    get_random_thinking_phrase(is_user_chinese(state));
+                    tui::get_random_thinking_phrase(tui::is_user_chinese(state));
                 state.thinking_start_time = std::chrono::steady_clock::now();
                 state.streaming_output_chars = 0;
                 state.turn_completion_tokens_confirmed = 0;
@@ -6503,7 +6001,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         requires_immediate_post = true;
                     }
                 }
-                background_animation_visible = mcp_sidebar_has_loading(state);
+                background_animation_visible = tui::mcp_sidebar_has_loading(state);
 
                 // drag-autoscroll: 时间门到点就滚一行, 把 ShiftSelection 的补偿请求
                 // 累加到 pending_shift_dy, 由事件线程 CatchEvent 的入口消费 — 避免
@@ -6672,7 +6170,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
         }
         const bool ctrl_c_event =
-            is_terminal_codepoint(event, 'c', kTerminalCtrl);
+            tui::matches_terminal_codepoint(event, 'c', tui::kTerminalCtrl);
         if (!ctrl_c_event &&
             event != Event::Custom &&
             !event.is_mouse() &&
@@ -6717,10 +6215,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
         }
-        if (is_terminal_codepoint(event, 'v', kTerminalCtrl)) {
+        if (tui::matches_terminal_codepoint(event, 'v', tui::kTerminalCtrl)) {
             return paste_system_clipboard_text();
         }
-        if (is_alt_v_event(event)) {
+        if (tui::is_alt_v_event(event)) {
             return paste_system_clipboard_image();
         }
         if (ctrl_c_event) {
@@ -7097,7 +6595,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.conversation.push_back({"user", display_prompt, false});
                 state.chat_follow_tail = true;
                 clamp_chat_focus();
-                state.current_thinking_phrase = get_random_thinking_phrase(is_user_chinese(state));
+                state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
                 state.thinking_start_time = std::chrono::steady_clock::now();
                 state.streaming_output_chars = 0;
                 state.turn_completion_tokens_confirmed = 0;
@@ -7248,8 +6746,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // kitty / Konsole / GNOME Terminal 都走这一编码. 上面 overlay 守卫会
         // 提前 return, 这里不再重复 ask/confirm/rewind/slash 检查; 仅 resume
         // picker 没有"全局吞键"逻辑, 单独让位.
-        if (is_terminal_key(
-                event, acecode::tui::TerminalKey::ArrowUp, kTerminalAlt)) {
+        if (tui::matches_terminal_key(
+                event, acecode::tui::TerminalKey::ArrowUp, tui::kTerminalAlt)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
@@ -7260,8 +6758,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             return true;
         }
-        if (is_terminal_key(
-                event, acecode::tui::TerminalKey::ArrowDown, kTerminalAlt)) {
+        if (tui::matches_terminal_key(
+                event, acecode::tui::TerminalKey::ArrowDown, tui::kTerminalAlt)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
@@ -7292,7 +6790,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             return true;
         }
-        if (is_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
             std::lock_guard<std::mutex> lk(state.mu);
             // link-hover-tooltip (add-tui-hyperlinks 5.3): Esc 隐藏悬停气泡,
             // 与 "移开指针隐藏" 语义一致。
@@ -7383,8 +6881,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (state.mode_picker_open) return true;
         }
         // Shift+Tab: cycle permission mode
-        if (is_terminal_key(
-                event, acecode::tui::TerminalKey::Tab, kTerminalShift)) {
+        if (tui::matches_terminal_key(
+                event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.mode_picker_open) return true;
             if (!state.is_waiting && !state.confirm_pending) {
@@ -8157,15 +7655,15 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // Ctrl+E is also honoured as the readline-style End fallback. Ctrl+A
         // follows conventional text fields and selects the complete buffer.
         auto is_home_event = [](const Event& e) {
-            return is_terminal_key(
+            return tui::matches_terminal_key(
                 e, acecode::tui::TerminalKey::Home);
         };
         auto is_end_event = [](const Event& e) {
-            return is_terminal_key(
+            return tui::matches_terminal_key(
                        e, acecode::tui::TerminalKey::End) ||
-                   is_terminal_codepoint(e, 'e', kTerminalCtrl);
+                   tui::matches_terminal_codepoint(e, 'e', tui::kTerminalCtrl);
         };
-        if (is_terminal_codepoint(event, 'a', kTerminalCtrl)) {
+        if (tui::matches_terminal_codepoint(event, 'a', tui::kTerminalCtrl)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active || state.model_picker_open ||
                 state.mode_picker_open) {
@@ -8192,7 +7690,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // Ctrl+O:全局展开/收起所有工具输出(Claude Code 风格 verbose 开关)。
         // 与 Ctrl+E 的逐行展开正交:render 侧取二者之或。开关位掺在
         // message_render_revision 里,翻转后所有行高自动重新测量。
-        if (is_terminal_codepoint(event, 'o', kTerminalCtrl)) {
+        if (tui::matches_terminal_codepoint(event, 'o', tui::kTerminalCtrl)) {
             std::lock_guard<std::mutex> lk(state.mu);
             state.transcript_expanded = !state.transcript_expanded;
             state.sidebar_scroll_top_row = 0;
@@ -8204,7 +7702,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // Ctrl+E contextual expand: when a summarized tool_result is focused
         // in the chat view, toggle its expanded state. Falls through to the
         // readline-style "move to end of line" when no chat message is focused.
-        if (is_terminal_codepoint(event, 'e', kTerminalCtrl)) {
+        if (tui::matches_terminal_codepoint(event, 'e', tui::kTerminalCtrl)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.chat_focus_index >= 0 &&
                 state.chat_focus_index < static_cast<int>(state.conversation.size())) {

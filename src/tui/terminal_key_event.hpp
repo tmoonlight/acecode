@@ -107,4 +107,33 @@ bool matches_terminal_codepoint(
         terminal_modifier(TerminalKeyModifier::CapsLock) |
         TerminalKeyModifier::NumLock);
 
+// Modifier shorthands shared by the TUI event handlers. They used to be
+// file-static constants in main.cpp (P0-09 moved them here); keeping them next
+// to the matcher means every handler spells the same modifier the same way.
+inline constexpr TerminalKeyModifiers kTerminalCtrl =
+    terminal_modifier(TerminalKeyModifier::Ctrl);
+inline constexpr TerminalKeyModifiers kTerminalShift =
+    terminal_modifier(TerminalKeyModifier::Shift);
+inline constexpr TerminalKeyModifiers kTerminalAlt =
+    terminal_modifier(TerminalKeyModifier::Alt);
+
+// Alt+V (paste) and Alt+A (attachment) shortcuts. Shift is ignored together
+// with the lock modifiers because legacy ESC-prefixed encodings cannot tell
+// Alt+v from Alt+Shift+v.
+inline bool is_alt_v_event(const ftxui::Event& event) {
+    constexpr TerminalKeyModifiers ignored =
+        terminal_modifier(TerminalKeyModifier::Shift) |
+        TerminalKeyModifier::CapsLock |
+        TerminalKeyModifier::NumLock;
+    return matches_terminal_codepoint(event, 'v', kTerminalAlt, ignored);
+}
+
+inline bool is_alt_a_event(const ftxui::Event& event) {
+    constexpr TerminalKeyModifiers ignored =
+        terminal_modifier(TerminalKeyModifier::Shift) |
+        TerminalKeyModifier::CapsLock |
+        TerminalKeyModifier::NumLock;
+    return matches_terminal_codepoint(event, 'a', kTerminalAlt, ignored);
+}
+
 }} // namespace acecode::tui
