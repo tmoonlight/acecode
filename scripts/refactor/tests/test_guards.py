@@ -264,6 +264,30 @@ queue.enqueue(escapes);
         self.assertTrue(any("collision" in f["message"] for f in report["findings"]))
         self.assertEqual("src/tool_preamble/a.cpp", mapping.translate("src/tool_preamble/a.cpp"))
 
+    def test_p2_forwarding_header_is_not_a_destination_collision(self):
+        # 触发场景:P2 把 src/utils/clipboard.hpp 搬到过渡目录 src/platform/,旧路径按设计留 2 行转发头。
+        # 两个文件经映射表都落到 src/base/platform/clipboard.hpp,旧的碰撞检查会把转发头当成
+        # 「大小写折叠后写到同一目标」的第二个源,validate_map --strict 直接报错。
+        # 期望:内容恰为 `#pragma once` + 一行 include、且 include 解析到的文件与自己同目标的旧头
+        # 被识别为转发头,列进 forwarding_headers 而不是 findings;旧路径上若是一份真实内容的
+        # 重复文件(不是转发头),仍然报碰撞,搬迁时不能静默覆盖。
+        mapping = LayoutMap([
+            {"old_path": "src/utils/clipboard.hpp", "new_path": "src/base/platform/clipboard.hpp", "kind": "move", "phase": "P2-03"},
+            {"old_path": "src/utils/", "new_path": "src/base/utils/", "kind": "move", "phase": "P3"},
+            {"old_path": "src/platform/", "new_path": "src/base/platform/", "kind": "move", "phase": "P3"},
+        ])
+        self.write("src/platform/clipboard.hpp", b"#pragma once\r\nnamespace acecode::platform { bool copy(); }\r\n")
+        self.write("src/utils/clipboard.hpp", b'#pragma once\n#include "platform/clipboard.hpp"\n')
+        report = validate_map(self.files, mapping, root=self.root)
+        self.assertFalse([f for f in report["findings"] if "collision" in f["message"]], report["findings"])
+        self.assertEqual([{"path": "src/utils/clipboard.hpp", "target": "src/platform/clipboard.hpp", "destination": "src/base/platform/clipboard.hpp"}], report["forwarding_headers"])
+        # 没有仓库根(migrate_branch 的纯清单调用)时不读文件内容,行为与改动前相同:仍按碰撞报告。
+        self.assertTrue(any("collision" in f["message"] for f in validate_map(self.files, mapping)["findings"]))
+        self.write("src/utils/clipboard.hpp", b"#pragma once\n#include \"platform/clipboard.hpp\"\nnamespace acecode { int extra; }\n")
+        report = validate_map(self.files, mapping, root=self.root)
+        self.assertTrue(any("collision" in f["message"] for f in report["findings"]))
+        self.assertEqual([], report["forwarding_headers"])
+
     def test_line_partition_detects_loss_duplication_and_wrong_destination(self):
         # 拆分后丢行、重叠映射或目标内容不符都不能用“已映射”蒙混通过。
         self.write("src/original.cpp", b"one\r\ntwo\nthree\n")
