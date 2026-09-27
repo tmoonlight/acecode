@@ -171,7 +171,7 @@
     - desktop 冒烟:启动、打开 workspace;
     - lint 显示指向 desktop、web 的反向边消失;
     - files_handler 相关测试通过。
-- [ ] 3.4 【P2-05】【主】config 与 utils 的反向边,对应 layout-map.md 中标 P2-05 的行。
+- [ ] 3.4 【P2-05】【主】config 与 utils 的反向边,对应 layout-map.md 中标 P2-05 的行。〔认领: Claude-phase2 2026-09-27〕
   - `permissions.hpp` 拆出 `config/vocab/permission_mode.hpp`;theme_id、pointer_appearance 移到 vocab;
   - builtin_model_catalog 与 models_dev_catalog 的纯部分移到 config,依赖 registry 的部分移到 `provider/models_dev_catalog_cache`;
   - state_file 的专用函数搬回各自使用方;
