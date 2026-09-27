@@ -1,0 +1,1301 @@
+{
+  "base": "master",
+  "base_sha": "e15df9eadfaf05a170fd8b83fb26939452e2d3e9",
+  "branches": [
+    {
+      "ahead": 3,
+      "behind": 65,
+      "cherry": [
+        "+ 6f49c00ef274b7cbbd1f0da50cb9950e0ee3512b",
+        "+ 90f1ebd5fec4c9937de5f6b90d5a67e4f126074f",
+        "+ fd895862840e6557e205fa5e37bd7aa72ead10c9"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+      "ref": "refs/heads/jb",
+      "src_paths": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp",
+        "src/config/config.cpp",
+        "src/config/config.hpp",
+        "src/prompt/jb_slot.cpp",
+        "src/prompt/jb_slot.hpp",
+        "src/prompt/jb_slot_table.inc",
+        "src/prompt/system_prompt.cpp",
+        "src/prompt/system_prompt.hpp",
+        "src/session/session_registry.cpp",
+        "src/session/session_registry.hpp",
+        "src/web/routes/routes_misc.cpp"
+      ],
+      "test_paths": [
+        "tests/prompt/system_prompt_jb_mode_test.cpp"
+      ],
+      "unique_commits": 3
+    },
+    {
+      "ahead": 0,
+      "behind": 0,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "e15df9eadfaf05a170fd8b83fb26939452e2d3e9",
+      "ref": "refs/heads/master",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 6,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b49f122b1144b606175a2f72bf6e3c0985d4b1e8",
+      "ref": "refs/heads/refactor20260927/P0-01",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 0,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "e15df9eadfaf05a170fd8b83fb26939452e2d3e9",
+      "ref": "refs/heads/refactor20260927/P0-02",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 2,
+      "behind": 1,
+      "cherry": [
+        "+ 657e0f9e8b379bf8cfbe77671cece86edfb28a51",
+        "+ 24fc5199e9653894544e8bc051757517bdab6e39"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "24fc5199e9653894544e8bc051757517bdab6e39",
+      "ref": "refs/heads/refactor20260927/P0-03",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 2
+    },
+    {
+      "ahead": 0,
+      "behind": 1,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "2637bc9851368db4010a3e0d1a0fd9c9551824f7",
+      "ref": "refs/heads/refactor20260927/P0-05",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 1,
+      "cherry": [
+        "+ b4db043d1e40f5a4ad3ee634ee5362e8887c7abe"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b4db043d1e40f5a4ad3ee634ee5362e8887c7abe",
+      "ref": "refs/heads/refactor20260927/P0-06",
+      "src_paths": [],
+      "test_paths": [
+        "tests/cpp_source_paths.json"
+      ],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 1,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "2637bc9851368db4010a3e0d1a0fd9c9551824f7",
+      "ref": "refs/heads/refactor20260927/P2-01",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 217,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "732629aacced657d5ce5fb50da4d4f6a1cd3c172",
+      "ref": "refs/remotes/origin/add-dev-web-prototypes",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 4,
+      "behind": 1118,
+      "cherry": [
+        "- 7d7bd8364199e3ae365b87d57f5e23784cb95496",
+        "- ef4333983e24e70772ffb9dfc7bc3c5ee8768db3",
+        "- 27e6cacd5b9f4b2132696c9f66f1e6ae6a4f9f11",
+        "- b2392fc98c5dfc37402011fad58d7fc64833a48c"
+      ],
+      "equivalent_commits": 4,
+      "error": null,
+      "head": "b2392fc98c5dfc37402011fad58d7fc64833a48c",
+      "ref": "refs/remotes/origin/archon/thread-60a47498",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 196,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "610dba400b7cbb705ac41063a7b7b2d50d8350cc",
+      "ref": "refs/remotes/origin/askuserquestion-v2",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 1012,
+      "cherry": [
+        "+ 3e5bbb440ba7be3420b0844d6c62a9eeea0a5bca"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "3e5bbb440ba7be3420b0844d6c62a9eeea0a5bca",
+      "ref": "refs/remotes/origin/chatview_optimize",
+      "src_paths": [
+        "src/agent_loop.cpp",
+        "src/commands/builtin_commands.cpp",
+        "src/tool/ask_overlay_input.hpp",
+        "src/tui/chat_viewport.cpp",
+        "src/tui/chat_viewport.hpp",
+        "src/tui/chat_viewport_cache.cpp",
+        "src/tui/chat_viewport_cache.hpp",
+        "src/tui/chat_viewport_model.hpp",
+        "src/tui/diff_view.hpp",
+        "src/tui_state.hpp"
+      ],
+      "test_paths": [
+        "tests/CMakeLists.txt",
+        "tests/scripts/__init__.py",
+        "tests/scripts/__pycache__/__init__.cpython-314.pyc",
+        "tests/scripts/__pycache__/tui_chat_viewport_scripts_test.cpython-314.pyc",
+        "tests/scripts/tui_chat_viewport_scripts_test.py",
+        "tests/tui/chat_viewport_cache_test.cpp",
+        "tests/tui/chat_viewport_model_test.cpp",
+        "tests/tui/chat_viewport_test.cpp"
+      ],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 661,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "6b96c4d450900f92ccee55a8c74bb81abd25ea4b",
+      "ref": "refs/remotes/origin/claude/acecode-cache-hit-optimization-lx9hxc",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 452,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "e589f65a126b40ce1e1fb5044e1896dcf989696c",
+      "ref": "refs/remotes/origin/claude/acecode-session-rename-bug-n1ndkn",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 929,
+      "cherry": [
+        "+ 3dd26983bc04bbcf451a1c5e000fb6abcbf52991"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+      "ref": "refs/remotes/origin/claude/ai-image-sharing-tool-8ewihy",
+      "src_paths": [
+        "src/tool/builtin_tool_registry.hpp",
+        "src/tool/show_image_tool.cpp",
+        "src/tool/show_image_tool.hpp",
+        "src/tool/tool_icons.hpp",
+        "src/tui_state.hpp",
+        "src/utils/open_file.hpp"
+      ],
+      "test_paths": [],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 1,
+      "behind": 177,
+      "cherry": [
+        "+ dbb2216752eced82138418e2fe07374d1189cc51"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "dbb2216752eced82138418e2fe07374d1189cc51",
+      "ref": "refs/remotes/origin/claude/browser-improvement-ideas-ibzwcr",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 7,
+      "behind": 1074,
+      "cherry": [
+        "+ 2f971d12c7cac24e91c941e068f050c246bf8b49",
+        "+ 732c4b9c4f1936bf538d58f9b832cf7ea42b5bc9",
+        "+ 22bb7a0300f5e4da3f9201053c2cfe02f0657f0c",
+        "+ b826950186ae3f1fe5650a94ec897b4c0104ba5d",
+        "+ 3252e02c0bb10b8b516e69cf7154d0285df1d321",
+        "+ 73a8d258d206dd67b30a3a70c4efe9de41166851"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "405a71ec63c4d929f51f212e40f748046c909d00",
+      "ref": "refs/remotes/origin/claude/debug-acecode-crash-XNWgr",
+      "src_paths": [
+        "src/desktop/chromium_app_launcher.cpp",
+        "src/desktop/chromium_app_launcher.hpp",
+        "src/desktop/main.cpp",
+        "src/desktop/web_host.cpp",
+        "src/desktop/webview2_runtime_probe.cpp",
+        "src/desktop/webview2_runtime_probe.hpp",
+        "src/web/server.cpp"
+      ],
+      "test_paths": [
+        "tests/desktop/chromium_app_launcher_test.cpp",
+        "tests/desktop/webview2_runtime_probe_test.cpp",
+        "tests/web/web_server_smoke_test.cpp"
+      ],
+      "unique_commits": 6
+    },
+    {
+      "ahead": 1,
+      "behind": 330,
+      "cherry": [
+        "+ 241304a8f0fbbea1899360c77c4e74d1e811b001"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "241304a8f0fbbea1899360c77c4e74d1e811b001",
+      "ref": "refs/remotes/origin/claude/desktop-skill-error-handling-r3j2h8",
+      "src_paths": [
+        "src/skills/frontmatter.cpp",
+        "src/skills/frontmatter.hpp",
+        "src/skills/skill_loader.cpp",
+        "src/skills/skill_loader.hpp",
+        "src/skills/skill_metadata.hpp",
+        "src/skills/skill_registry.cpp",
+        "src/skills/skill_registry.hpp",
+        "src/web/handlers/skills_handler.cpp",
+        "src/web/json_dump.hpp",
+        "src/web/routes/routes_experts.cpp",
+        "src/web/routes/routes_files.cpp"
+      ],
+      "test_paths": [
+        "tests/skills/skill_load_resilience_test.cpp"
+      ],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 1136,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "7e3ac3640a62977097ee0c3b0d8ce8c33872886c",
+      "ref": "refs/remotes/origin/claude/desktop-webview-design-GttVa",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 641,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "508be54fbd388cd4edea28e8e861574a2121e544",
+      "ref": "refs/remotes/origin/claude/feedback-daemon-logs-8nzu5p",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 1064,
+      "cherry": [
+        "+ b893da6d8da696df2dbb92bc4f0cdeb967791411"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b893da6d8da696df2dbb92bc4f0cdeb967791411",
+      "ref": "refs/remotes/origin/claude/fix-desktop-context-compression-tkOxK",
+      "src_paths": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp"
+      ],
+      "test_paths": [],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 80,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "40940c0ecb63accf1254782e87e97c6e933956ca",
+      "ref": "refs/remotes/origin/claude/github-version-tag-release-l2h68z",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 1119,
+      "cherry": [
+        "+ 3f6a2fe274cff6becfc3e132ede23736c9bc369d"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+      "ref": "refs/remotes/origin/claude/multi-model-config-design-wWhDX",
+      "src_paths": [
+        "src/commands/builtin_commands.cpp",
+        "src/tui/picker_scroll.hpp",
+        "src/tui/slash_dropdown.cpp",
+        "src/tui_state.hpp"
+      ],
+      "test_paths": [],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 411,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "cad7e1f5ba4b705f20a41372a46a76f46f733a72",
+      "ref": "refs/remotes/origin/claude/remove-copilot-claude-attribution-r8fhym",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 422,
+      "cherry": [
+        "+ 86657a5aabf87223135f0f5a654dfb9701dca6e1"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "86657a5aabf87223135f0f5a654dfb9701dca6e1",
+      "ref": "refs/remotes/origin/claude/ui-tars-computer-use-integration-nwl4fo",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 688,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "ef41130dcc9cc290ef9a838f8e69c1ec631b5d46",
+      "ref": "refs/remotes/origin/claude/wintoast-compatibility-issue-5wzara",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 551,
+      "cherry": [
+        "+ 1ce71fe01bfb54a546d23cbc0ed108423659dcf4"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+      "ref": "refs/remotes/origin/codex/add-self-session-control",
+      "src_paths": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp",
+        "src/session/session_control_service.cpp",
+        "src/session/session_control_service.hpp",
+        "src/session/session_pin_store.cpp",
+        "src/session/session_pin_store.hpp",
+        "src/tool/session_control_tool.cpp",
+        "src/tool/session_control_tool.hpp",
+        "src/tool/tool_executor.cpp",
+        "src/tool/tool_executor.hpp",
+        "src/web/handlers/pinned_sessions_handler.cpp",
+        "src/web/handlers/pinned_sessions_handler.hpp"
+      ],
+      "test_paths": [
+        "tests/agent_loop/agent_loop_deferred_tools_test.cpp",
+        "tests/tool/tool_capability_policy_test.cpp"
+      ],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 3,
+      "behind": 893,
+      "cherry": [
+        "+ d24c6b7cc679dcee0e16fcd23d0f92f8e9fa07a1",
+        "+ d6567ba81dfc48e3498ebf1e348aaa5b27695726",
+        "+ c40e36361f555bbb3543f6ad082b72e3db30712c"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "c40e36361f555bbb3543f6ad082b72e3db30712c",
+      "ref": "refs/remotes/origin/codex/desktop-package-size-test",
+      "src_paths": [],
+      "test_paths": [
+        "tests/CMakeLists.txt"
+      ],
+      "unique_commits": 3
+    },
+    {
+      "ahead": 0,
+      "behind": 316,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "53beba1f7938c4d543286649cd31717fdaef97d9",
+      "ref": "refs/remotes/origin/codex/fix-chat-workspace-switch-delay",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 177,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "052c99230769de489029989382e449bc099de543",
+      "ref": "refs/remotes/origin/codex/mcp-core",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 867,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "70a353a885afa2b9cfe5740c1c186ad459acf8a8",
+      "ref": "refs/remotes/origin/codex/package-size-regression-fix",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 323,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "3d9a66f22602028b1f9984629c2653de3f945621",
+      "ref": "refs/remotes/origin/codex/release-v0.9.11",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 321,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "1a6fd86fc82db8623ab2cfec6344eea7baee49d9",
+      "ref": "refs/remotes/origin/codex/release-v0.9.11-version",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 11,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "85fca9a73b84cd86913abd816d98c90a680ae733",
+      "ref": "refs/remotes/origin/codex/release-v0.9.27",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 700,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "70cacca65555c1f0525e9972bfc81905d9f516d9",
+      "ref": "refs/remotes/origin/codex/speed-up-release-packaging",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 311,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "cc5956e4ef3fe7bde099bbade3c262dc5ec89fca",
+      "ref": "refs/remotes/origin/codex/whatsapp-channels",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 1192,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "35c5a19b97115b1b6415bfb22f59f56f2392f1f2",
+      "ref": "refs/remotes/origin/copilot/add-github-actions-for-multi-platform",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 1031,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "69cdc4828ff735be29de74642a2e8cb32dc468ed",
+      "ref": "refs/remotes/origin/copilot/assess-frontend-maintainability",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 1189,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "3a04a2f3e76baaee9da11b7a55c8089e05035d22",
+      "ref": "refs/remotes/origin/copilot/fix-submodule-pull-issues",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 424,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "7c750621798b1bcc6dcd553897c885a45a05f943",
+      "ref": "refs/remotes/origin/copilot/gitaction-pro-vs-non-pro",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 1119,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "5c05129c275d748b0640651dedeca5df391bc427",
+      "ref": "refs/remotes/origin/copilot/refactor-code-for-better-readability",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 1183,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b675c52dcc01566801d587bd6b1bb25042194e8b",
+      "ref": "refs/remotes/origin/copilot/stabilize-github-actions-workflow",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 7,
+      "behind": 317,
+      "cherry": [
+        "+ 5ca5cceee956f8046f19223bd8c7b3477f0c71d7",
+        "+ 93654dabd7892abefdd211b3022f8880f318beab",
+        "+ 4eb3bbe2f8f9a038092d7d785877f015b147f62a",
+        "+ 85550d69703fe97e68fb54ac2530c12d1296f452",
+        "+ 1a3e45a3d80318d7e8a52ace74c56bf75d88452d",
+        "+ 5b1a3597a0f8529419ab822b8244aa2b3f2f76ea",
+        "+ de8f8c986ff6ff338a04d7aedafc0028ad84bd56"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "de8f8c986ff6ff338a04d7aedafc0028ad84bd56",
+      "ref": "refs/remotes/origin/docs/askuserquestion-dual-entry-design",
+      "src_paths": [
+        "src/agent_loop.cpp",
+        "src/main.cpp",
+        "src/remote_control/channel_question_bridge.cpp",
+        "src/session/ask_user_question_prompter.hpp",
+        "src/tool/ask_overlay_input.hpp",
+        "src/tool/ask_user_question_tool.cpp",
+        "src/tool/ask_user_question_tool.hpp",
+        "src/tool/tool_executor.hpp",
+        "src/tui/ask_question_overlay.cpp",
+        "src/tui/ask_question_overlay.hpp",
+        "src/tui/tui_ask_channel.cpp",
+        "src/tui/tui_ask_channel.hpp",
+        "src/tui/tui_helpers.cpp",
+        "src/tui/tui_init.cpp",
+        "src/tui_state.hpp",
+        "src/web/routes/routes_ws.cpp"
+      ],
+      "test_paths": [
+        "tests/remote_control/channel_question_bridge_test.cpp",
+        "tests/remote_control/session_channel_binder_test.cpp",
+        "tests/tool/ask_overlay_input_test.cpp",
+        "tests/tool/ask_user_question_tool_test.cpp",
+        "tests/tui/ask_question_overlay_test.cpp",
+        "tests/tui/tui_input_wrapping_test.cpp"
+      ],
+      "unique_commits": 7
+    },
+    {
+      "ahead": 0,
+      "behind": 130,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "7e801e49264b265fa52f1a1b2d412074d058f1bf",
+      "ref": "refs/remotes/origin/feat/acemodel-turn-usage-api",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 214,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "8c0d95cad51715641246c74411e0ae9b008466be",
+      "ref": "refs/remotes/origin/feat/ask-configurable-option-limit",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 351,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "d7ef11ec9ad1f0c089130c716790c41f32797b2b",
+      "ref": "refs/remotes/origin/feat/brainstorming-grilling-handoff",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 155,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "566b7695893169c2e4751e5012868f202a704329",
+      "ref": "refs/remotes/origin/feat/development-environment-launcher",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 294,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "0bb56e05b402126bc28f1d86b23c5e60335dfb94",
+      "ref": "refs/remotes/origin/feat/fork-user-prompt-to-composer",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 606,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "5784f24003db4a9c83b61851140058a11cd8e871",
+      "ref": "refs/remotes/origin/feat/herdr-custom-agent",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 171,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "ee7fe02d5d8967559c94342eee5804fd61ef624a",
+      "ref": "refs/remotes/origin/feat/macos-custom-installer-updates",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 3,
+      "behind": 351,
+      "cherry": [
+        "+ 52c259324dbe7acbfe0c4962659b0cbfafb8b715",
+        "+ 97e6e351111c0a3ccea51f9fcda3d6cde0e08455"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "97e6e351111c0a3ccea51f9fcda3d6cde0e08455",
+      "ref": "refs/remotes/origin/feat/middle-click-close-preview-tab",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 2
+    },
+    {
+      "ahead": 0,
+      "behind": 603,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "670e1fa7cd4b9e68a21e9956c30de69f8e528d18",
+      "ref": "refs/remotes/origin/feat/rss-search-service",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 351,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "0db2e25082330352b982047cb78c9d44f4e78b40",
+      "ref": "refs/remotes/origin/feat/session-context-menu-copy",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 403,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "e07c7a72f9cbae778ddda2e3526797af1cfc8cee",
+      "ref": "refs/remotes/origin/feat/streaming-incremental-layout",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 3,
+      "behind": 333,
+      "cherry": [
+        "- ae67486c9fce68ec834120b34b6c36fcf60db0de",
+        "+ 3b01afffc4593ea24851a7d72af9e017fc6c4a0a"
+      ],
+      "equivalent_commits": 1,
+      "error": null,
+      "head": "3b01afffc4593ea24851a7d72af9e017fc6c4a0a",
+      "ref": "refs/remotes/origin/feat/tui-hyperlinks",
+      "src_paths": [],
+      "test_paths": [
+        "tests/scripts/verify_package_test.sh"
+      ],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 340,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "5932b2c709bd5aebb20ae0b2304c2c5db28f5ed1",
+      "ref": "refs/remotes/origin/feat/verify-package-skill",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 227,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "bbbb0251e97346c0e94a0471f8e4fb2e1474efb6",
+      "ref": "refs/remotes/origin/feat/web-ask-user-question-reland",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 208,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b1c61758222be69cf387c469b4bad2f47039740f",
+      "ref": "refs/remotes/origin/fix-askuserquestion-i18n",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 217,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "63c5112e099e120fb1b9ade156c678278dc2018a",
+      "ref": "refs/remotes/origin/fix-pnpm-patch-format",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 177,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "f67c68e3b7744de6efe7751de1a30e72d844d4b8",
+      "ref": "refs/remotes/origin/fix/centralize-tui-logs",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 129,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "5752ab5ed43533a7d20fc9cd0dc0dde0934950df",
+      "ref": "refs/remotes/origin/fix/dev-launcher-runtime-identity",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 328,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "77f682114726cf744521255325cd25ae77c7b50b",
+      "ref": "refs/remotes/origin/fix/ftxui-vcpkg-bump-openspec-wrapup",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 17,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "84caeeb2fc305219fe0f5fd0e158075c70c14fa3",
+      "ref": "refs/remotes/origin/fix/question-picker-answer-reset",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 338,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b1872b0e03014702e117d2f286e6d6ba55497d76",
+      "ref": "refs/remotes/origin/fix/settings-modal-stuck-and-dev-script",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 84,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "e82e2fb77ebe6d9e00485710b7c8c2d18614129e",
+      "ref": "refs/remotes/origin/fix/sidebar-alignment-rhythm",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 176,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "00be0363c6c0c3ed64c7c677d5bfa2c8670b314d",
+      "ref": "refs/remotes/origin/fix/sidebar-icon-alignment",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 156,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "6f2963cc6a63534d988ae7378f6d186591381b82",
+      "ref": "refs/remotes/origin/fix/sidebar-session-load-race",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 347,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "32d1d8f02c24cc2639ab392dcffe1760ff0176d9",
+      "ref": "refs/remotes/origin/fix/skill-loader-utf8-truncation",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 331,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "bbe7320231d23444665c2796f2ecf96884fc8b7b",
+      "ref": "refs/remotes/origin/fix/verify-package-desktop-probe",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 249,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "e0a321b23b066bd808662f75489909a728ac8c2d",
+      "ref": "refs/remotes/origin/fix/web-ask-feedback-persistence",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 255,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "f346a0a734e4844579375ca09dbf62c09ff7d6db",
+      "ref": "refs/remotes/origin/improve/build-dry-run",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 3,
+      "behind": 65,
+      "cherry": [
+        "+ 6f49c00ef274b7cbbd1f0da50cb9950e0ee3512b",
+        "+ 90f1ebd5fec4c9937de5f6b90d5a67e4f126074f",
+        "+ fd895862840e6557e205fa5e37bd7aa72ead10c9"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+      "ref": "refs/remotes/origin/jb",
+      "src_paths": [
+        "src/agent_loop.cpp",
+        "src/agent_loop.hpp",
+        "src/config/config.cpp",
+        "src/config/config.hpp",
+        "src/prompt/jb_slot.cpp",
+        "src/prompt/jb_slot.hpp",
+        "src/prompt/jb_slot_table.inc",
+        "src/prompt/system_prompt.cpp",
+        "src/prompt/system_prompt.hpp",
+        "src/session/session_registry.cpp",
+        "src/session/session_registry.hpp",
+        "src/web/routes/routes_misc.cpp"
+      ],
+      "test_paths": [
+        "tests/prompt/system_prompt_jb_mode_test.cpp"
+      ],
+      "unique_commits": 3
+    },
+    {
+      "ahead": 0,
+      "behind": 1,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "2637bc9851368db4010a3e0d1a0fd9c9551824f7",
+      "ref": "refs/remotes/origin/master",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 1,
+      "cherry": [
+        "+ b4db043d1e40f5a4ad3ee634ee5362e8887c7abe"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b4db043d1e40f5a4ad3ee634ee5362e8887c7abe",
+      "ref": "refs/remotes/origin/refactor20260927/P0-06",
+      "src_paths": [],
+      "test_paths": [
+        "tests/cpp_source_paths.json"
+      ],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 212,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "5624579a8ec14b9b59630b34348e6fec5e573ca1",
+      "ref": "refs/remotes/origin/restore-askuserquestion-ui",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 635,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "31df5cd2f47bc8415510ddcb46413d763987d4c3",
+      "ref": "refs/remotes/origin/session_profile",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 831,
+      "cherry": [
+        "+ eed155ed6e4b352a9a9dfbcd7ac69cd8a3f810f8"
+      ],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "eed155ed6e4b352a9a9dfbcd7ac69cd8a3f810f8",
+      "ref": "refs/remotes/origin/shz_vide/confirmation-window-ui-1d5588",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 1
+    },
+    {
+      "ahead": 0,
+      "behind": 828,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "bd2da4d4c460e53e61b6f2c9e7236dad9ce0b402",
+      "ref": "refs/remotes/origin/shz_vide/interface-design-fixes-28c216",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 1,
+      "behind": 831,
+      "cherry": [
+        "- 5028f277e315af16bc9ccd612038834693acdab3"
+      ],
+      "equivalent_commits": 1,
+      "error": null,
+      "head": "5028f277e315af16bc9ccd612038834693acdab3",
+      "ref": "refs/remotes/origin/shz_vide/permission-denial-queue-bug-13d424",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 128,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "dfc74a9e9468fef4241293861facc3a95eaf6a70",
+      "ref": "refs/remotes/origin/sidebar-optimization",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 420,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "a298370a393ec88fb54daeb75512a9bdb565fca3",
+      "ref": "refs/remotes/origin/support/agents-md",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 554,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "1e816a9e8dd0866502459640145c21874576618d",
+      "ref": "refs/remotes/origin/task/redesign-model-settings-with-presets",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 827,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "13a0c444aee26d6a89d51c4c35281543b1940c2e",
+      "ref": "refs/remotes/origin/webui-worktree-badge-and-ui-polish",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 862,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "faccf5f3fbc87f3da3e9c1500a4be17738d2ce30",
+      "ref": "refs/remotes/origin/worktree-ask-question-policy",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    },
+    {
+      "ahead": 0,
+      "behind": 216,
+      "cherry": [],
+      "equivalent_commits": 0,
+      "error": null,
+      "head": "b5130026f821df01fde995176f8f0cccb5e132ff",
+      "ref": "refs/remotes/origin/worktree-dialog-status",
+      "src_paths": [],
+      "test_paths": [],
+      "unique_commits": 0
+    }
+  ],
+  "schema": 1,
+  "worktrees": [
+    {
+      "HEAD": "e15df9eadfaf05a170fd8b83fb26939452e2d3e9",
+      "branch": "refs/heads/master",
+      "dirty": true,
+      "status_error": null,
+      "status_records": [
+        "?? scripts/__pycache__/"
+      ],
+      "worktree": "C:/Users/shaoh/acecode"
+    },
+    {
+      "HEAD": "e15df9eadfaf05a170fd8b83fb26939452e2d3e9",
+      "branch": "refs/heads/refactor20260927/P0-02",
+      "dirty": false,
+      "status_error": null,
+      "status_records": [],
+      "worktree": "C:/Users/shaoh/.codex/worktrees/refactor-p0-01/acecode"
+    },
+    {
+      "HEAD": "2637bc9851368db4010a3e0d1a0fd9c9551824f7",
+      "branch": "refs/heads/refactor20260927/P2-01",
+      "dirty": true,
+      "status_error": null,
+      "status_records": [
+        " M openspec/changes/refactor20260927-adopt-ownership-conventions/design.md",
+        " M src/daemon/worker.cpp",
+        "?? src/utils/abandonable_call.cpp",
+        "?? src/utils/abandonable_call.hpp",
+        "?? src/utils/abort_signal.hpp",
+        "?? src/utils/joining_thread.hpp",
+        "?? src/utils/lifetime_token.hpp",
+        "?? src/utils/scope_exit.hpp"
+      ],
+      "worktree": "C:/Users/shaoh/.codex/worktrees/refactor-raii/acecode"
+    },
+    {
+      "HEAD": "2637bc9851368db4010a3e0d1a0fd9c9551824f7",
+      "branch": "refs/heads/refactor20260927/P0-05",
+      "dirty": true,
+      "status_error": null,
+      "status_records": [
+        " M tests/CMakeLists.txt",
+        " M tests/channels/bridge_test.cpp",
+        " M tests/hooks/hook_registry_test.cpp",
+        " M tests/remote_control/channel_boundary_guard_test.cpp",
+        " M tests/skills/ai_theme_seed_test.cpp",
+        " M tests/skills/default_skill_seeder_test.cpp",
+        " M tests/web/model_catalog_handler_test.cpp",
+        " M tests/web/models_handler_test.cpp",
+        " M tests/web/web_server_smoke_test.cpp",
+        "?? tests/test_support/"
+      ],
+      "worktree": "C:/Users/shaoh/.codex/worktrees/refactor-testpaths/acecode"
+    },
+    {
+      "HEAD": "24fc5199e9653894544e8bc051757517bdab6e39",
+      "branch": "refs/heads/refactor20260927/P0-03",
+      "dirty": true,
+      "status_error": null,
+      "status_records": [
+        "?? scripts/refactor/__pycache__/",
+        "?? scripts/refactor/layout.py",
+        "?? scripts/refactor/normalize_includes.py",
+        "?? scripts/refactor/tests/__pycache__/",
+        "?? src/layers.tsv"
+      ],
+      "worktree": "C:/Users/shaoh/.codex/worktrees/refactor-tools/acecode"
+    }
+  ]
+}

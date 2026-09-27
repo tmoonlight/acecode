@@ -79,7 +79,7 @@
     - 用例清单不变;
     - 把测试源复制到加深一层的目录后,仍能找到仓库根;
     - `bridge_test` 在缺 node_modules 时 SKIP,路径错误时 FAIL。
-- [ ] 1.6 【P0-06】【子】【并】前端架构测试路径表与脚本(D4)。〔认领: Codex-root 2026-09-27〕
+- [x] 1.6 【P0-06】【子】【并】前端架构测试路径表与脚本(D4)。〔认领: Codex-root 2026-09-27〕
   - 9 个 `*Architecture*.test.js` 读取的 C++ 路径收敛到 `tests/cpp_source_paths.json`;`desktopCloseDialogArchitecture.test.js:82` 的分段拼接要人工核对;
   - `scripts/code_quality_check.{sh,bat}` 去掉写死的 `src/tool/*.cpp`。
   - 不改任何 React 代码。
