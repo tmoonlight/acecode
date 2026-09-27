@@ -1086,8 +1086,19 @@ void AgentLoop::dispatch_session_title_changed_hook(
 
 void AgentLoop::abort() {
     abort_requested_ = true;
-    if (session_manager_) computer_use::release_session(session_manager_->current_session_id());
+    if (session_manager_) release_computer_use_session(session_manager_->current_session_id());
     wake_active_provider_retry();
+}
+
+// computer-use 会话租约的唯一释放出口(abort / 回合收尾 / DesktopTurnLease 析构都走
+// 这里)。默认原样调用 computer_use::release_session;P0-11 的表征测试注入 fake
+// 记录 owner 与释放次数,不启动真实桌面 helper。
+void AgentLoop::release_computer_use_session(const std::string& session_id) const {
+    if (computer_use_release_) {
+        computer_use_release_(session_id);
+        return;
+    }
+    computer_use::release_session(session_id);
 }
 
 void AgentLoop::clear_stale_abort_request() {
@@ -4746,9 +4757,11 @@ bool AgentLoop::execute_tool_calls(
         std::string tool_call_id_copy = tc.id;
         const std::string update_coalesce_key = "tool_update:" +
             (!tc.id.empty() ? tc.id : (tc.function_name + ":" + std::to_string(tool_index_int)));
+        // P0-11:500ms 工具输出帧的取时走本回合捕获的时钟快照(默认 steady_clock)。
+        const SteadyClockFn stream_clock = turn_progress_clock_;
         tool_ctx.stream = [prog, stream_update_cb, events_ptr, tool_start_tp,
                             tool_name_copy, tool_call_id_copy, tool_index_int,
-                            update_coalesce_key](const std::string& chunk) {
+                            update_coalesce_key, stream_clock](const std::string& chunk) {
             std::vector<std::string> snapshot;
             std::string current_partial;
             int total_lines = 0;
@@ -4762,7 +4775,7 @@ bool AgentLoop::execute_tool_calls(
                 current_partial = prog->current_line;
                 total_lines = prog->total_lines;
                 total_bytes = prog->total_bytes;
-                const auto now = std::chrono::steady_clock::now();
+                const auto now = stream_clock ? stream_clock() : std::chrono::steady_clock::now();
                 should_emit = prog->last_emit_at.time_since_epoch().count() == 0 ||
                     std::chrono::duration_cast<std::chrono::milliseconds>(now - prog->last_emit_at) >=
                         std::chrono::milliseconds(500);
@@ -5788,9 +5801,12 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     // Capture the owner before callbacks can switch/delete the active session.
     // RAII also releases on exceptions and early hook returns.
     struct DesktopTurnLease {
+        const AgentLoop* loop;
         std::string owner;
-        ~DesktopTurnLease() { computer_use::release_session(owner); }
-    } desktop_turn_lease{session_manager_ ? session_manager_->current_session_id() : std::string{}};
+        ~DesktopTurnLease() { loop->release_computer_use_session(owner); }
+    } desktop_turn_lease{this, session_manager_ ? session_manager_->current_session_id() : std::string{}};
+    // P0-11:进度节流的取时函数在回合开始时按值捕获,回合内不再读取可配置成员。
+    turn_progress_clock_ = progress_clock_;
     {
         std::lock_guard<std::mutex> lock(sandbox_prompt_mutex_);
         sandbox_prompt_snapshot_.reset();
@@ -5938,7 +5954,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                                    const std::string& tool_call_id = std::string{},
                                    int tool_index = -1,
                                    bool force = false) {
-        const auto now = std::chrono::steady_clock::now();
+        const auto now = progress_now();
         const std::string key = phase + "\0" + tool + "\0" + tool_call_id + "\0" + std::to_string(tool_index);
         // 具体进度提示(add-tool-preamble,「适合日常工作」):开启时 loading 只说正在
         // 做什么、不带参数 —— 等待 / 推理 / 准备调用 / 执行 / 撰写回复这几类 phase 的
@@ -6635,7 +6651,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
 
     // 回合结束:阶段前言不留到下一回合。
     reset_activity_for_turn();
-    computer_use::release_session(desktop_turn_lease.owner);
+    release_computer_use_session(desktop_turn_lease.owner);
     if (callbacks_.on_turn_finished) {
         callbacks_.on_turn_finished(turn_timing_status);
     }

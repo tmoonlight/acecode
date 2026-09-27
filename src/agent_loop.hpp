@@ -385,6 +385,19 @@ public:
     // 只应在会话未运行时设置。
     void set_audit_sink(security::AuditSink sink) { audit_sink_ = std::move(sink); }
 
+    // 测试用(split-agent-loop P0-11):750ms 进度帧 / 500ms 工具输出帧两处节流的
+    // 取时函数,以及 computer-use 会话租约的释放函数,都可以注入。默认与原实现逐字
+    // 相同(steady_clock::now / computer_use::release_session);只应在会话未运行时
+    // 设置 —— 回合开始时按值捕获快照,回合内不再读取这两个成员。
+    using SteadyClockFn = std::function<std::chrono::steady_clock::time_point()>;
+    using ComputerUseReleaseFn = std::function<void(const std::string& session_id)>;
+    void set_progress_clock_for_tests(SteadyClockFn clock) {
+        progress_clock_ = std::move(clock);
+    }
+    void set_computer_use_release_for_tests(ComputerUseReleaseFn release) {
+        computer_use_release_ = std::move(release);
+    }
+
     void set_context_window(int cw) {
         context_window_.store(cw, std::memory_order_relaxed);
     }
@@ -821,6 +834,17 @@ private:
                       const std::string& sandbox = {},
                       nlohmann::json detail = nlohmann::json::object());
     security::AuditSink audit_sink_;
+    // P0-11 注入点(见 set_progress_clock_for_tests / set_computer_use_release_for_tests)。
+    SteadyClockFn progress_clock_;
+    ComputerUseReleaseFn computer_use_release_;
+    // 本回合捕获的节流时钟快照(空 = steady_clock::now);只在 worker 线程上读写。
+    SteadyClockFn turn_progress_clock_;
+    std::chrono::steady_clock::time_point progress_now() const {
+        return turn_progress_clock_ ? turn_progress_clock_()
+                                    : std::chrono::steady_clock::now();
+    }
+    // computer-use 会话租约的唯一释放出口:abort / 回合收尾 / DesktopTurnLease 析构。
+    void release_computer_use_session(const std::string& session_id) const;
     std::string sandbox_prompt_description() const;
     mutable std::mutex sandbox_prompt_mutex_;
     mutable std::optional<std::pair<PermissionMode, std::string>> sandbox_prompt_snapshot_;
