@@ -10,7 +10,7 @@
 
 #include "session/session_replay.hpp"
 #include "tool/tool_executor.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "tui_state.hpp"
 
 #include <nlohmann/json.hpp>

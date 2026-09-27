@@ -1,8 +1,8 @@
 #include "file_read_tool.hpp"
 
 #include "mtime_tracker.hpp"
-#include "tool_icons.hpp"
-#include "tool_protocol_names.hpp"
+#include "llm/tool_icons.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utils/encoding.hpp"
 #include "utils/file_operations.hpp"
 #include "utils/logger.hpp"

@@ -10,7 +10,7 @@
 #include "web/handlers/fork_handler.hpp"
 #include "web/message_payload.hpp"
 #include "session/session_storage.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <string>
 #include <vector>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include <string>
 #include <vector>

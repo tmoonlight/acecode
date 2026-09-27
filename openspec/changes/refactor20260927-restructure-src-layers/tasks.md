@@ -129,7 +129,7 @@
 
 > **每个 PR 的通用要求**:
 > - lint 违规数单调下降;
-> - 旧路径留 2 行转发头,登记进 `layers.tsv` exceptions,冻结当天到期;
+> - 旧路径不留转发头(D24,2026-09-27:转发头与映射校验的目标碰撞检查冲突;include 改写已由 normalize_includes 与 migrate_branch --apply-map 按映射表完成);
 > - 新模块以 `src/<模块>/` 的形式建立,include 写法与冻结后一致;
 > - 对应测试一起 `git mv` 到 `tests/<新模块>/`;
 > - 凡是移进 `src/tui/` 的文件,同一个 PR 更新 `ACECODE_TUI_TESTABLE_SUBSETS`;

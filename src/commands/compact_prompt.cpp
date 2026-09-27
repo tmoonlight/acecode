@@ -25,9 +25,6 @@ const std::string kInvalidSummaryReminder =
     "Your previous reply was not a valid summary (it contained a tool call or was empty). "
     "Tools are disabled for this request. Write the handoff summary now as plain text.";
 
-const std::string kSummaryPrefix =
-    "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
-
 } // namespace
 
 const std::string& get_compact_prompt() {
@@ -38,12 +35,8 @@ const std::string& get_compact_invalid_summary_reminder() {
     return kInvalidSummaryReminder;
 }
 
-const std::string& get_compact_summary_prefix() {
-    return kSummaryPrefix;
-}
-
 std::string get_compact_user_summary_message(const std::string& summary_text) {
-    return kSummaryPrefix + "\n" + summary_text;
+    return get_compact_summary_prefix() + "\n" + summary_text;
 }
 
 } // namespace acecode

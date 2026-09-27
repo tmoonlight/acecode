@@ -2,10 +2,10 @@
 #include "config/mcp_config.hpp"
 
 #include "apply_patch_format.hpp"
-#include "diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 #include "lsp/lsp_diagnostics.hpp"
 #include "mtime_tracker.hpp"
-#include "tool_icons.hpp"
+#include "llm/tool_icons.hpp"
 #include "utils/file_operations.hpp"
 #include "utils/logger.hpp"
 #include "utils/text_file_buffer.hpp"

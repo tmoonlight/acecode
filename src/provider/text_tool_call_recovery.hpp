@@ -21,7 +21,7 @@
 // - 解析是增量的:扣住期间记下扫描位置,只在新数据里找结束标签,复杂度随输入
 //   线性增长(文本形式的 file_write 参数可能有几百 KB,且跑在 cpr 写回调线程上)。
 
-#include "llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <cstddef>
 #include <memory>

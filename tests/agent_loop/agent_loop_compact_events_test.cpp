@@ -3,7 +3,7 @@
 #include "agent_loop.hpp"
 #include "commands/compact_prompt.hpp"
 #include "permissions.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/compact_notice.hpp"
 #include "session/session_manager.hpp"

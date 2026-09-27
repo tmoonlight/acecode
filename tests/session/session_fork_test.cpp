@@ -18,7 +18,7 @@
 #include "session/tool_metadata_codec.hpp"
 #include "session/turn_net_diff.hpp"
 #include "session/turn_timing.hpp"
-#include "tool/diff_utils.hpp"
+#include "utils/diff_utils.hpp"
 
 #include <nlohmann/json.hpp>
 

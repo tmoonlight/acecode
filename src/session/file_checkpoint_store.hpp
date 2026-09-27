@@ -1,7 +1,7 @@
 #pragma once
 
 #include "turn_net_diff.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <map>
 #include <optional>

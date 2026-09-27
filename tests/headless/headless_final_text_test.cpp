@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "headless/headless_final_text.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -7,7 +7,7 @@
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_trajectory.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 

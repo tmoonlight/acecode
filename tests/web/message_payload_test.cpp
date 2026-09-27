@@ -9,7 +9,7 @@
 
 #include "web/message_payload.hpp"
 #include "utils/sha1.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <nlohmann/json.hpp>
 

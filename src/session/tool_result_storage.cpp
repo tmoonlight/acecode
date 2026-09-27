@@ -1,6 +1,6 @@
 #include "tool_result_storage.hpp"
 
-#include "tool/tool_icons.hpp"
+#include "llm/tool_icons.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"

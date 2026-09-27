@@ -1,7 +1,7 @@
 #include "anthropic_provider.hpp"
+#include "retry_policy.hpp"
 #include "openai_provider.hpp"
 #include "stream_diagnostic_capture.hpp"
-
 #include "config/request_headers.hpp"
 #include "network/proxy_resolver.hpp"
 #include "session/attachment_prompt_context.hpp"

@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "provider/text_tool_call_recovery.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -3,7 +3,7 @@
 #include "backend.hpp"
 #include "backend_router.hpp"
 #include "html_utils.hpp"
-#include "tool/tool_icons.hpp"
+#include "llm/tool_icons.hpp"
 #include "utils/logger.hpp"
 
 #include <nlohmann/json.hpp>

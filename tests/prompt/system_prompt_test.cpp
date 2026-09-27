@@ -10,7 +10,7 @@
 #include "memory/memory_registry.hpp"
 #include "memory/memory_types.hpp"
 #include "prompt/system_prompt.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "tool/tool_executor.hpp"
 
 #include <cstdlib>

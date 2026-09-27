@@ -6,9 +6,9 @@
 
 #include <gtest/gtest.h>
 
-#include "provider/llm_provider.hpp"
-#include "tool/model_family.hpp"
-#include "tool/tool_protocol_names.hpp"
+#include "llm/llm_provider.hpp"
+#include "llm/model_family.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include <string>
 #include <vector>

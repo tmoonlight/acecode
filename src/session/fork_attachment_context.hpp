@@ -2,7 +2,7 @@
 
 #include "attachment_store.hpp"
 #include "composer_content.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include <unordered_map>
 
 namespace acecode {

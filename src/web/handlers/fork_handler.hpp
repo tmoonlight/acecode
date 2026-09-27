@@ -11,7 +11,7 @@
 //   - 长度超 50 codepoints(UTF-8 字符)截断 + `…`
 
 #include "session/session_storage.hpp"
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <optional>
 #include <string>

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "provider/llm_provider.hpp"
+#include "llm/llm_provider.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_usage_ledger.hpp"
