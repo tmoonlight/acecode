@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "platform": "macos-arm64",
+  "runner_os": "macOS",
+  "runner_image": "macos-15",
+  "label": "g0-post-p0-v4",
+  "source_ref_input": "5596fc8e314d5f1b189547ba4161ac3cceaabe6d",
+  "source_revision": "5596fc8e314d5f1b189547ba4161ac3cceaabe6d",
+  "tools_revision": "5596fc8e314d5f1b189547ba4161ac3cceaabe6d",
+  "workflow_run_id": "36297269665",
+  "run_tests": true,
+  "test_discovery_timeout_patched": false,
+  "cmake_version": "cmake version 4.4.3",
+  "generator": "Ninja",
+  "build_type": "Release",
+  "triplet": "arm64-osx",
+  "cmake_extra_args": "-DCMAKE_OSX_ARCHITECTURES=arm64 -DACECODE_BUILD_DESKTOP=ON",
+  "build_testing": true,
+  "vcpkg_manifest_features": "tests"
+}

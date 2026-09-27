@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "platform": "windows-x64",
+  "runner_os": "Windows",
+  "runner_image": "windows-2022",
+  "label": "g0-original-v3",
+  "source_ref_input": "3ddb7d433f280181292e5cd2eede612b17cc8b42",
+  "source_revision": "3ddb7d433f280181292e5cd2eede612b17cc8b42",
+  "tools_revision": "c6bc398ff0e3cbb358677c4f438a1ca9fecc7e29",
+  "workflow_run_id": "36295754425",
+  "run_tests": true,
+  "test_discovery_timeout_patched": true,
+  "cmake_version": "cmake version 3.31.6",
+  "generator": "Ninja",
+  "build_type": "Release",
+  "triplet": "x64-windows-static",
+  "cmake_extra_args": "-DACECODE_BUILD_DESKTOP=ON",
+  "build_testing": true,
+  "vcpkg_manifest_features": "tests"
+}

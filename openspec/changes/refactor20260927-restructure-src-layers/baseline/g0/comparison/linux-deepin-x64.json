@@ -1,0 +1,45 @@
+{
+  "after_targets": 13,
+  "after_tuples": 1353,
+  "before_targets": 13,
+  "before_tuples": 1367,
+  "schema": 1,
+  "targets": {
+    "authorized_added": [
+      "src/utils/abandonable_call.cpp",
+      "src/utils/abandonable_call.hpp",
+      "src/utils/abort_signal.hpp",
+      "src/utils/joining_thread.hpp",
+      "src/utils/lifetime_token.hpp",
+      "src/utils/scope_exit.hpp"
+    ],
+    "authorized_added_tuples": 7,
+    "authorized_removed": [
+      "src/daemon/supervisor.cpp",
+      "src/daemon/supervisor.hpp",
+      "src/tui/agent_callbacks_builder.cpp",
+      "src/tui/agent_callbacks_builder.hpp",
+      "src/tui/cli_dispatch.cpp",
+      "src/tui/cli_dispatch.hpp",
+      "src/tui/clipboard_helpers.cpp",
+      "src/tui/clipboard_helpers.hpp",
+      "src/tui/ime_windows.cpp",
+      "src/tui/ime_windows.hpp",
+      "src/tui/input_event_handler.hpp",
+      "src/tui/message_render_cache.cpp",
+      "src/tui/terminal_utils.cpp",
+      "src/tui/terminal_utils.hpp",
+      "src/tui/tui_context.cpp",
+      "src/tui/tui_context.hpp",
+      "src/tui/tui_init.cpp",
+      "src/tui/tui_init.hpp",
+      "src/web/handlers/pinned_sessions_handler.cpp"
+    ],
+    "authorized_removed_tuples": 21,
+    "targets_added": [],
+    "targets_removed": [],
+    "unexpected_added": [],
+    "unexpected_removed": []
+  },
+  "unexpected": false
+}

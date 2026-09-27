@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "platform": "linux-deepin-x64",
+  "runner_os": "Linux",
+  "runner_image": "ubuntu-22.04 / buildpack-deps:buster",
+  "label": "g0-post-p0-v4",
+  "source_ref_input": "5596fc8e314d5f1b189547ba4161ac3cceaabe6d",
+  "source_revision": "",
+  "tools_revision": "5596fc8e314d5f1b189547ba4161ac3cceaabe6d",
+  "workflow_run_id": "36297269665",
+  "run_tests": false,
+  "cmake_version": "cmake version 3.29.9",
+  "generator": "Ninja",
+  "build_type": "MinSizeRel",
+  "triplet": "x64-linux",
+  "cmake_extra_args": "-DCMAKE_SKIP_BUILD_RPATH=ON -DACECODE_BUILD_DESKTOP=ON -DACECODE_DEEPIN=ON -DWEBVIEW_WEBKITGTK_API=4.0",
+  "build_testing": false,
+  "vcpkg_manifest_features": ""
+}
