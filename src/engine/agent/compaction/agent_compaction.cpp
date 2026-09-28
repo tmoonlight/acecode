@@ -1,3 +1,4 @@
+#include "agent/turn/turn_context.hpp"
 #include "agent/agent_loop.hpp"
 #include "compaction_controller.hpp"
 #include "agent/transcript/trajectory_recorder.hpp"
@@ -8,7 +9,7 @@ agent::CompactionInputs AgentLoop::compaction_inputs() const {
     inputs.session = session_manager_;
     inputs.hooks = hook_manager_;
     inputs.provider = provider_accessor_ ? provider_accessor_() : nullptr;
-    inputs.request = request_context_options(inputs.provider);
+    inputs.request = request_context_options(inputs.provider, turn_context_ && turn_context_->swarm_mode);
     inputs.suggestion_threshold = task_suggestion_compact_threshold_.load(std::memory_order_relaxed);
     if (trajectory_) inputs.terminal = trajectory_->ref();
     return inputs;

@@ -167,7 +167,7 @@
     - `agent_loop_tool_lifecycle_events_test`、`agent_loop_auto_mode_test`、`agent_loop_goal_test`(`UnattendedGoalAutoApprovesDangerousBashInsideSandbox` 等)、`agent_loop_plan_mode_test`、termination(`TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult`、`TerminalSessionActionRunsAfterDoneAndStopsLaterWrites`、`UnknownToolErrorListsModelFacingNames`)、`agent_loop_tool_result_storage_test`、`agent_loop_metadata_injection_test`、`agent_loop_ask_user_question_parallel_test`、`agent_loop_computer_use_scheduling_test`、`agent_loop_doom_guard_test`、`hook_agent_loop_test`、`spawn_subagent_tool_test`、`permissions_test`、`worktree_tool_test` 通过;
     - 新增 `path_access_policy`、`permission_audit`、`ask_question_binding` 单测;
     - R11 检查显示审批决策与审计只出现在登记的文件里。
-- [ ] 3.8 【A-13】【主】回合编排。
+- [ ] 3.8 【A-13】【主】回合编排。〔实现完成: Codex-root 2026-09-28;TurnRunner 与 ModelStepSink 已接线,worker 独占 TurnContext,正常/Hook/异常终态使用同一有序步骤表;ResponseRecovery、AssistantOutput、UserShellTask 已外提,新增空上下文恢复/观察者异常/非对话终态/文本纠正边界用例;全部待统一验收,门面行数与旧接口清理随 A-14/A-17 收尾〕
   - `TurnRunner` 骨架不超过 450 行;`ModelStepSink` 与 `PaRescueHost` 由 TurnRunner 或 adapter 实现;
   - `TurnContext` 由 `worker_main` 在任务结束时统一 reset,recover 对空指针兜底;
   - `TurnFinalizer` 把三份终态序列合成一张有序步骤表,差异点逐项保留;

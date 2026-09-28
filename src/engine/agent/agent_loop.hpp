@@ -1,5 +1,7 @@
 #pragma once
 
+#include "agent/request/request_context_source.hpp"
+
 #include "utils/abort_signal.hpp"
 #include "utils/joining_thread.hpp"
 
@@ -38,10 +40,7 @@
 
 namespace acecode {
 
-struct LoopExecutionPolicy {
-    bool active = false;
-    std::string system_context;
-};
+
 
 
 class SessionManager;
@@ -64,7 +63,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolCallOutcome; struct ToolBatchOutcome; struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
+namespace agent { class TurnFinalizer; struct TurnContext; struct ToolCallOutcome; struct ToolBatchOutcome; struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -297,7 +296,7 @@ public:
     // final branch/path context.
     void set_loop_execution_policy(LoopExecutionPolicy policy);
     const LoopExecutionPolicy& loop_execution_policy() const {
-        return loop_execution_policy_;
+        return request_source_.loop;
     }
 
     // 写边界根目录。非空 = 写工具(以及 bash 中可证明的写目标)必须落在该
@@ -341,33 +340,33 @@ public:
     // 带新 objective)。
     void notify_goal_objective_updated();
 
-    void set_skill_registry(const SkillRegistry* sr) { skill_registry_ = sr; }
-    void set_skill_usage_store(SkillUsageStore* store) { skill_usage_store_ = store; }
-    void set_skill_idle_days(int days) { skill_idle_days_ = days; }
+    void set_skill_registry(const SkillRegistry* sr) { request_source_.skills = sr; }
+    void set_skill_usage_store(SkillUsageStore* store) { request_source_.skill_usage = store; }
+    void set_skill_idle_days(int days) { request_source_.skill_idle_days = days; }
     // Names of skills that are dormant (idle past the threshold, not pinned).
     // Returns an empty set when dormancy is disabled or the store is unset.
     std::set<std::string> dormant_skill_names() const;
-    void set_memory_registry(const MemoryRegistry* mr) { memory_registry_ = mr; }
-    void set_memory_config(const MemoryConfig* cfg) { memory_cfg_ = cfg; }
+    void set_memory_registry(const MemoryRegistry* mr) { request_source_.memory = mr; }
+    void set_memory_config(const MemoryConfig* cfg) { request_source_.memory_config = cfg; }
     void set_project_instructions_config(const ProjectInstructionsConfig* cfg) {
-        project_instructions_cfg_ = cfg;
+        request_source_.project_config = cfg;
     }
     void set_custom_instructions_config(const CustomInstructionsConfig* cfg) {
-        custom_instructions_cfg_ = cfg;
+        request_source_.custom_config = cfg;
     }
     void set_expert_context(const ExpertDefinition* expert,
                             std::string member_id = {}) {
-        expert_ = expert;
-        expert_member_id_ = std::move(member_id);
+        request_source_.expert = expert;
+        request_source_.expert_member = std::move(member_id);
     }
     void set_tool_capability_policy(ToolCapabilityPolicy policy) {
-        tool_capability_policy_ = std::move(policy);
+        request_source_.tool_policy = std::move(policy);
     }
     const ToolCapabilityPolicy& tool_capability_policy() const {
-        return tool_capability_policy_;
+        return request_source_.tool_policy;
     }
     void set_git_context_config(const GitContextConfig* cfg) {
-        git_context_cfg_ = cfg;
+        request_source_.git_config = cfg;
     }
     // 外部 git 状态变更(如 Web UI checkout 分支)后标记快照过期。线程安全:
     // 任意线程可调;worker 在下一次模型请求前消费标记并重采。正在跑的 turn
@@ -411,6 +410,7 @@ public:
 private:
     void worker_main();
     void recover_worker_task_error(const char* detail, bool chat_task);
+    std::unique_ptr<agent::TurnFinalizer> make_turn_finalizer();
     void run_agent_with_input(const UserInput& input,
                               bool hidden_goal_context = false,
                               const ChatMessage* retry_message = nullptr);
@@ -480,55 +480,25 @@ private:
     // Phase 1: Build user message from input, persist, emit events.
     // Returns turn timing metadata for the orchestrator.
     using UserTurnInfo = agent::UserTurnInfo;
-    UserTurnInfo prepare_user_turn(const UserInput& input, bool hidden_goal_context);
-    UserTurnInfo prepare_retry_user_turn(const ChatMessage& message);
-    void append_user_turn_message(UserTurnInfo& info, bool hidden_goal_context);
     // 用户消息落盘后把新的会话摘要(无标题时的显示标题)以 session_updated
     // {summary} 推给界面:侧栏与顶部标题栏同源于这一个字段,前端不再各自从
     // 消息正文现推标题(那正是两处标题不一致、且长度不受限的根因)。
     void emit_session_summary_updated();
-    void start_user_turn(const UserTurnInfo& info);
 
     // Phase 2: Build the full message list for the LLM provider.
     using ApiRequestBundle = agent::ApiRequestBundle;
-    agent::RequestContextOptions request_context_options(const std::shared_ptr<LlmProvider>& provider) const;
+    agent::RequestContextOptions request_context_options(const std::shared_ptr<LlmProvider>& provider, bool swarm_mode = false) const;
     ApiRequestBundle build_api_request_messages(const std::shared_ptr<LlmProvider>& provider,
-                                                bool emergency_profile = false);
+                                                bool emergency_profile = false, bool swarm_mode = false);
     void publish_side_question_context(
         const std::vector<ChatMessage>& messages_with_system);
 
     // 具体进度提示(add-tool-preamble)的一条 loading 文案。
     using ToolPreambleTitle = agent::ToolPreambleTitle;
 
-    // Phase 3: Stream provider response and accumulate.
-    using ProviderCallResult = agent::ProviderCallResult;
-    ProviderCallResult call_provider_and_collect(
-        const std::shared_ptr<LlmProvider>& provider,
-        const ApiRequestBundle& bundle,
-        const ProgressEmitter& emit_progress,
-        int model_step_index);
     void record_terminal_trajectory_events(
         nlohmann::json busy_payload,
         nlohmann::json done_payload);
-
-    // Phase 4: Classify terminal provider errors.
-    using HandleErrorResult = agent::HandleErrorResult;
-    using ContextRecoveryStage = agent::ContextRecoveryStage;
-    HandleErrorResult handle_provider_error(
-        ProviderCallResult& result, const std::vector<ChatMessage>& messages,
-        std::string& turn_timing_status);
-
-    // Phase 5: Execute tool calls (parallel read + serial write).
-    // Returns true if task_complete terminator fired.
-    agent::ToolBatchOutcome execute_tool_calls(
-        const ChatResponse& accumulated,
-        const std::shared_ptr<LlmProvider>& provider_snapshot,
-        const ProgressEmitter& emit_progress,
-        // Mutable state from the orchestrator:
-        agent::SynchronizedDoomGuard& doom_guard,
-        ToolPreambleTitle& pending_preamble);
-
-    // Helper: construct a ToolContext with all callbacks wired up.
 
     using WorkerTask = agent::WorkerTask;
 
@@ -554,7 +524,6 @@ private:
     SteadyClockFn progress_clock_;
     ComputerUseReleaseFn computer_use_release_;
     // 本回合捕获的节流时钟快照(空 = steady_clock::now);只在 worker 线程上读写。
-    SteadyClockFn turn_progress_clock_;
     // computer-use 会话租约的唯一释放出口:abort / 回合收尾 / DesktopTurnLease 析构。
     void release_computer_use_session(const std::string& session_id) const;
     std::string sandbox_prompt_description() const;
@@ -568,14 +537,12 @@ private:
     // agent_loop termination policy. Fresh defaults come from AgentLoopConfig
     // until set_agent_loop_config is called from main.cpp.
     AgentLoopConfig loop_cfg_;
+    agent::RequestContextSource request_source_;
     // 本模型步给工具批次的前言:run_agent_with_input 在 Phase 5 之前填,
     // execute_tool_calls 开头消费(挂 metadata、随 tool_start 下发)后清空。
-    ToolPreambleTitle current_step_preamble_;
     // 本次模型请求实际发出的模型侧工具名(bundle.tool_defs[i].name,已经过
     // 「工具重写」映射)。主循环每次组装请求后刷新;只在 worker 线程的工具批次
     // 之间写入,并行工具线程只读。Unknown tool 错误文本据此列出可用名。
-    std::vector<std::string> current_request_model_tool_names_;
-    LoopExecutionPolicy loop_execution_policy_;
     // spawn_subagent 透传的父会话写边界根;见 write_root()。
     void record_turn_outcome(const std::string& turn_timing_status);
     // Latest server-reported total active-context usage. For providers that do
@@ -585,30 +552,15 @@ private:
     // Kept as worker state (rather than a stack local) so the outer worker
     // recovery boundary can still publish an accurate terminal summary after
     // an exception unwinds run_agent_with_input().
-    std::unique_ptr<agent::TurnUsageRecord> turn_usage_;
-    std::unique_ptr<agent::RequestRecoveryState> recovery_state_;
+    std::unique_ptr<agent::TurnContext> turn_context_; // Worker-owned task lifetime.
     std::atomic<int> task_suggestion_compact_threshold_{3};
     SessionManager* session_manager_ = nullptr;
     HookManager* hook_manager_ = nullptr;
-    const SkillRegistry* skill_registry_ = nullptr;
-    SkillUsageStore* skill_usage_store_ = nullptr;
-    int skill_idle_days_ = 30;
-    const MemoryRegistry* memory_registry_ = nullptr;
-    const MemoryConfig* memory_cfg_ = nullptr;
-    const ProjectInstructionsConfig* project_instructions_cfg_ = nullptr;
-    const CustomInstructionsConfig* custom_instructions_cfg_ = nullptr;
-    const ExpertDefinition* expert_ = nullptr;
-    std::string expert_member_id_;
-    ToolCapabilityPolicy tool_capability_policy_;
-    const GitContextConfig* git_context_cfg_ = nullptr;
     // Worker-thread-only flag derived from the current root UserInput. It
     // remains active across all provider iterations in that turn.
-    bool active_turn_swarm_mode_ = false;
     // Worker-only control populated by terminal tool results. Actions run only
     // after canonical tool results, turn timing, BusyChanged and Done have all
     // been emitted/persisted.
-    bool terminate_session_after_turn_ = false;
-    std::vector<std::function<void()>> post_turn_actions_;
     // Dependency order: queue -> input gate -> cross-loop handoff.
     std::unique_ptr<agent::AgentTaskQueue> task_queue_;
     std::unique_ptr<agent::ActiveTurnGate> active_turn_gate_;

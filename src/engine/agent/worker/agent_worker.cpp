@@ -1,3 +1,6 @@
+#include "agent/turn/turn_finalizer.hpp"
+#include "agent/transcript/trajectory_recorder.hpp"
+#include "agent/turn/turn_context.hpp"
 #include "agent/agent_loop.hpp"
 #include "agent/model_step/turn_usage_accountant.hpp"
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
@@ -17,10 +20,10 @@ void AgentLoop::worker_main() {
     while (true) {
         WorkerTask task;
         if (!task_queue_->wait_pop(task)) return;
-        if (task.kind == WorkerTask::Kind::Chat) {
-            *turn_usage_ = agent::TurnUsageRecord{};
-        }
         try {
+            if (task.kind == WorkerTask::Kind::Chat) {
+                turn_context_ = std::make_unique<agent::TurnContext>(callbacks_);
+            }
             switch (task.kind) {
             case WorkerTask::Kind::Chat:
                 if (!task.retry_user_message_id.empty()) {
@@ -55,57 +58,22 @@ void AgentLoop::worker_main() {
                 break;
             }
         } catch (const std::exception& error) {
+            if (turn_context_) turn_context_->desktop_lease.reset();
             recover_worker_task_error(error.what(), task.kind == WorkerTask::Kind::Chat);
         } catch (...) {
+            if (turn_context_) turn_context_->desktop_lease.reset();
             recover_worker_task_error("unknown exception", task.kind == WorkerTask::Kind::Chat);
         }
+        turn_context_.reset();
         task_queue_->finish_task();
     }
 }
 
 void AgentLoop::recover_worker_task_error(const char* detail, bool chat_task) {
-    const std::string message = "[Error] Task failed: " + ensure_utf8(detail);
-    LOG_ERROR(message);
-    const std::string turn_id = active_turn_id();
-    close_active_turn_and_discard();
-    turn_interrupt_requested_ = false;
-    active_turn_swarm_mode_ = false;
-    hooks_->clear_context();
-    turn_outcome_->set_error(message);
-    record_turn_outcome("error");
-    busy_ = false;
+    make_turn_finalizer()->recover(
+        turn_context_.get(), detail, chat_task,
+        trajectory_ ? trajectory_->ref() : LifetimeRef<agent::TrajectoryRecorder>{});
 
-    // Reporting may itself call the callback that threw. Isolate each step so
-    // a broken consumer cannot suppress terminal events or kill the worker.
-    auto attempt = [](const auto& report) {
-        try {
-            report();
-        } catch (const std::exception& error) {
-            LOG_ERROR(std::string("Task error reporting failed: ") + error.what());
-        } catch (...) {
-            LOG_ERROR("Task error reporting failed with unknown exception");
-        }
-    };
-    attempt([&] { stop_active_goal_after_turn_error(ProviderErrorInfo{}); });
-    attempt([&] { dispatch_message("error", message, false); });
-    attempt([&] {
-        if (chat_task && callbacks_.on_turn_finished) callbacks_.on_turn_finished("error");
-    });
-    nlohmann::json idle = {
-        {"busy", false}, {"outcome", "error"}, {"turn_id", turn_id}};
-    nlohmann::json done = {{"outcome", "error"}};
-    if (chat_task) {
-        const auto usage = model_step_usage_to_json(turn_usage_->aggregate);
-        idle["usage"] = usage;
-        done["turn_id"] = turn_id;
-        done["usage"] = usage;
-    }
-    attempt([&] { record_terminal_trajectory_events(idle, done); });
-    attempt([&] {
-        if (callbacks_.on_busy_changed) callbacks_.on_busy_changed(false);
-    });
-    attempt([&] { events_.emit(SessionEventKind::BusyChanged, idle); });
-    attempt([&] { events_.emit(SessionEventKind::Done, done); });
 }
 
 } // namespace acecode

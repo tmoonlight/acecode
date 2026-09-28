@@ -1,44 +1,23 @@
+#include "user_shell_task.hpp"
+#include "busy_cycle.hpp"
+#include "agent/agent_callbacks.hpp"
 #include "agent/tool_exec/tool_context_factory.hpp"
-#include "agent/agent_loop.hpp"
-#include "agent/boundary/workspace_boundary.hpp"
-#include "agent/transcript/conversation_history.hpp"
-#include "agent/turn/busy_cycle.hpp"
 #include "agent/tool_exec/tool_stream_progress.hpp"
-#include "agent/detail/agent_payloads.hpp"
-#include "agent/tool_exec/tool_batch_types.hpp"
-#include "computer_use/runtime.hpp"
-#include "hooks/hook_manager.hpp"
+#include "agent/transcript/transcript_writer.hpp"
+#include "agent/transcript/trajectory_recorder.hpp"
+#include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "hooks/hook_runtime.hpp"
-#include "llm/tool_protocol_names.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "session/ask_user_question_prompter.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/session_client.hpp"
 #include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
-#include "session/task_suggestion_store.hpp"
-#include "session/token_tracker.hpp"
-#include "session/turn_timing.hpp"
-#include "tool/ask_user_question_tool.hpp"
+#include "session/event_dispatcher.hpp"
+#include "tool/tool_executor.hpp"
+#include "utils/abort_signal.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/text.hpp"
-#include "workspace/workspace_registry.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
-#include <utility>
+namespace acecode::agent {
 
-namespace acecode {
-
-using agent::detail::build_session_scratch_dir;
-
-void AgentLoop::run_shell(std::string command) {
+void UserShellTask::run(std::string command, SessionManager* session_manager_,
+    HookManager* hook_manager_, LifetimeRef<TrajectoryRecorder> terminal) {
     abort_signal_.clear();
     busy_ = true;
 
@@ -52,15 +31,8 @@ void AgentLoop::run_shell(std::string command) {
         callbacks_.on_busy_changed(true);
     }
 
-    agent::BusyCycleScope finish([this] {
-        record_terminal_trajectory_events(
-            {{"busy", false}}, nlohmann::json::object());
-        if (callbacks_.on_busy_changed) {
-            callbacks_.on_busy_changed(false);
-        }
-        busy_ = false;
-        events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", false}});
-        events_.emit(SessionEventKind::Done, nlohmann::json::object());
+    BusyCycleScope finish([ref = lifetime_.ref(*this), terminal] {
+        ref.with([&](UserShellTask& task) { task.finish_busy(terminal); });
     });
 
     // Surface the invocation in the TUI using the usual tool_call styling so
@@ -69,10 +41,10 @@ void AgentLoop::run_shell(std::string command) {
     std::string args_json = args.dump();
     bool hook_denied_shell = false;
     if (hook_manager_) {
-        auto fields = build_hook_common_fields(kCodexHookEventPreToolUse);
+        auto fields = hooks_.common_fields(kCodexHookEventPreToolUse, session_manager_);
         auto payload = build_tool_hook_payload(fields, "bash", args);
-        auto outcome = dispatch_codex_hook(kCodexHookEventPreToolUse, "bash", payload);
-        apply_hook_side_effects(outcome);
+        auto outcome = hooks_.dispatch(hook_manager_, kCodexHookEventPreToolUse, "bash", payload);
+        hooks_.apply(outcome);
         if (outcome.updated_input.has_value()) {
             const auto& updated = *outcome.updated_input;
             if (updated.is_object() && updated.contains("command") &&
@@ -86,7 +58,7 @@ void AgentLoop::run_shell(std::string command) {
             hook_denied_shell = true;
         }
     }
-    dispatch_message("tool_call", "[Tool: bash] " + args_json, true);
+    transcript_.dispatch_message("tool_call", "[Tool: bash] " + args_json, true, nlohmann::json::object(), nlohmann::json::array());
 
     ToolResult result{"[Error] bash tool not registered", false};
     if (hook_denied_shell) {
@@ -99,7 +71,7 @@ void AgentLoop::run_shell(std::string command) {
         auto prog = std::make_shared<agent::ToolStreamProgress>();
 
         ToolContext tool_ctx = agent::ToolContextFactory::for_user_shell(
-            *boundary_, abort_signal_, session_manager_);
+            boundary_, abort_signal_, session_manager_);
         if (callbacks_.on_tool_progress_update) {
             auto update_cb = callbacks_.on_tool_progress_update;
             tool_ctx.stream = [prog, update_cb](const std::string& chunk) {
@@ -133,10 +105,10 @@ void AgentLoop::run_shell(std::string command) {
             {"success", result.success},
             {"output", result.output},
         };
-        auto fields = build_hook_common_fields(kCodexHookEventPostToolUse);
+        auto fields = hooks_.common_fields(kCodexHookEventPostToolUse, session_manager_);
         auto payload = build_tool_hook_payload(fields, "bash", args, response);
-        auto outcome = dispatch_codex_hook(kCodexHookEventPostToolUse, "bash", payload);
-        apply_hook_side_effects(outcome);
+        auto outcome = hooks_.dispatch(hook_manager_, kCodexHookEventPostToolUse, "bash", payload);
+        hooks_.apply(outcome);
         if (outcome.replacement_output.has_value()) {
             result.output = *outcome.replacement_output;
             if (outcome.blocked || outcome.continue_false) result.success = false;
@@ -152,7 +124,7 @@ void AgentLoop::run_shell(std::string command) {
     // 走全量路径,与 `tool_result`(LLM 工具结果)区分开。
     // 同样不调 callbacks_.on_tool_result —— 它会把 ToolResult.summary 回填到
     // TuiState::Message,导致渲染走 summary 单行;这正是要避免的。
-    dispatch_message("user_shell_output", result.output, true);
+    transcript_.dispatch_message("user_shell_output", result.output, true, nlohmann::json::object(), nlohmann::json::array());
 
     // Persist the two display-side messages so --resume can rehydrate both the
     // chat view and (via the recovery pass in main.cpp) the LLM history.
@@ -175,9 +147,19 @@ void AgentLoop::run_shell(std::string command) {
     // Inject into LLM context for subsequent turns. BashTool currently merges
     // stdout+stderr into `result.output`, so we report it as stdout and leave
     // stderr empty; exit code derives from `success`.
-    inject_shell_turn(command, result.output, "", result.success ? 0 : 1);
+    transcript_.inject_shell_turn(command, result.output, "", result.success ? 0 : 1);
 
     finish.finish();
 }
 
-} // namespace acecode
+
+void UserShellTask::finish_busy(LifetimeRef<TrajectoryRecorder> terminal) {
+    terminal.with([](TrajectoryRecorder& recorder) {
+        recorder.record_terminal({{"busy", false}}, nlohmann::json::object());
+    });
+    if (callbacks_.on_busy_changed) callbacks_.on_busy_changed(false);
+    busy_ = false;
+    events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", false}});
+    events_.emit(SessionEventKind::Done, nlohmann::json::object());
+}
+} // namespace acecode::agent

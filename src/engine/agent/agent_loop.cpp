@@ -1,3 +1,4 @@
+#include "agent/turn/turn_context.hpp"
 #include "agent/tool_exec/tool_context_factory.hpp"
 #include "agent/agent_loop.hpp"
 #include "agent/recovery/context_overflow_recovery.hpp"
@@ -62,8 +63,6 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , exec_security_(std::make_unique<agent::SessionExecSecurity>(*boundary_, permissions, busy_))
     , permissions_(permissions)
     , no_model_config_prompt_(kDefaultNoModelConfiguredPrompt)
-    , turn_usage_(std::make_unique<agent::TurnUsageRecord>())
-    , recovery_state_(std::make_unique<agent::RequestRecoveryState>())
     , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
     , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
           busy_, abort_signal_, turn_interrupt_requested_))
@@ -82,7 +81,7 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , model_steps_(std::make_unique<agent::ModelStepRecorder>(tools_, events_))
     , stream_collector_(std::make_unique<agent::ProviderStreamCollector>(
           tools_, callbacks_, events_, *history_, *active_provider_slot_, abort_signal_,
-          *activity_, *retry_progress_, *usage_accountant_, *model_steps_))
+          *activity_, *retry_progress_))
     , compaction_(std::make_unique<agent::CompactionController>(
           *history_, *transcript_, *boundary_, *hooks_, *request_builder_, *active_provider_slot_,
           *retry_progress_, callbacks_, events_, abort_signal_, busy_, last_api_total_tokens_))

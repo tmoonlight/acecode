@@ -1,7 +1,6 @@
 #include "provider_stream_collector.hpp"
 #include "active_provider_slot.hpp"
-#include "model_step_recorder.hpp"
-#include "turn_usage_accountant.hpp"
+#include "model_step_sink.hpp"
 #include "agent/agent_callbacks.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/progress/activity_narrator.hpp"
@@ -28,10 +27,10 @@ using detail::build_transcript_replace_payload;
 // revocation waits for admitted calls and suppresses callbacks retained by a
 // provider after chat_stream returns. No reference into this call can escape.
 struct ProviderStreamCollector::Call {
-    Call(ProviderStreamCollector& owner, SessionManager* session,
+    Call(ProviderStreamCollector& owner, ModelStepSink& sink, SessionManager* session,
          ApiRequestBundle request, ProgressEmitter progress, int step,
          std::shared_ptr<LlmProvider> provider)
-        : owner_(owner), session_manager_(session), bundle(std::move(request)),
+        : owner_(owner), sink_(sink), session_manager_(session), bundle(std::move(request)),
           emit_progress(std::move(progress)), model_step_index(step),
           callbacks_(owner.callbacks_), concrete(owner.activity_.enabled()) {
         result.accumulated.finish_reason = "stop";
@@ -61,7 +60,7 @@ struct ProviderStreamCollector::Call {
         case StreamEventType::Delta:
             if (!evt.content.empty() && !first_output_recorded) {
                 first_output_recorded = true;
-                owner_.recorder_.first_output(session_manager_, model_step_index,
+                sink_.first_output(model_step_index,
                                                provider_attempt, "content");
             }
             {
@@ -75,7 +74,7 @@ struct ProviderStreamCollector::Call {
         case StreamEventType::ReasoningDelta:
             if (!evt.content.empty() && !first_output_recorded) {
                 first_output_recorded = true;
-                owner_.recorder_.first_output(session_manager_, model_step_index,
+                sink_.first_output(model_step_index,
                                                provider_attempt, "reasoning");
             }
             {
@@ -116,7 +115,7 @@ struct ProviderStreamCollector::Call {
             }
             if (!first_output_recorded) {
                 first_output_recorded = true;
-                owner_.recorder_.first_output(session_manager_, model_step_index,
+                sink_.first_output(model_step_index,
                                                provider_attempt, "tool_call");
             }
             {
@@ -136,7 +135,7 @@ struct ProviderStreamCollector::Call {
         case StreamEventType::ToolCall:
             if (!first_output_recorded) {
                 first_output_recorded = true;
-                owner_.recorder_.first_output(session_manager_, model_step_index,
+                sink_.first_output(model_step_index,
                                                provider_attempt, "tool_call");
             }
             {
@@ -238,6 +237,7 @@ struct ProviderStreamCollector::Call {
     }
 
     ProviderStreamCollector& owner_;
+    ModelStepSink& sink_;
     SessionManager* const session_manager_; // nullable, borrowed for this call
     ApiRequestBundle bundle;
     ProgressEmitter emit_progress;
@@ -259,8 +259,8 @@ struct ProviderStreamCollector::Call {
 ProviderCallResult ProviderStreamCollector::collect(
     const std::shared_ptr<LlmProvider>& provider, const ApiRequestBundle& bundle,
     const ProgressEmitter& emit_progress, int model_step_index,
-    TurnUsageRecord& record, SessionManager* session) {
-    Call call(*this, session, bundle, emit_progress, model_step_index, provider);
+    ModelStepSink& sink, SessionManager* session) {
+    Call call(*this, sink, session, bundle, emit_progress, model_step_index, provider);
     auto& result = call.result;
     auto& resp_mu = call.resp_mu;
     auto& provider_attempt = call.provider_attempt;
@@ -306,7 +306,7 @@ ProviderCallResult ProviderStreamCollector::collect(
     if (!result.provider_error_seen &&
         !abort_.raw().load() &&
         final_usage.has_data) {
-        usage_.accept(record, final_usage, session);
+        sink.accept_usage(final_usage);
     }
 
     return result;

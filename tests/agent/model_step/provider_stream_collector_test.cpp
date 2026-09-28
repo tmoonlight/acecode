@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "agent/agent_callbacks.hpp"
+#include "agent/turn/turn_context.hpp"
+#include "agent/turn/turn_model_step_sink.hpp"
 #include "agent/model_step/provider_stream_collector.hpp"
 #include "agent/model_step/active_provider_slot.hpp"
 #include "agent/model_step/model_step_recorder.hpp"
@@ -51,8 +53,9 @@ protected:
     acecode::agent::TurnUsageAccountant usage{goal, callbacks, events, context_tokens};
     acecode::agent::ModelStepRecorder recorder{tools, events};
     acecode::agent::ProviderStreamCollector collector{tools, callbacks, events, history,
-        active_provider, abort, activity, retry, usage, recorder};
-    acecode::agent::TurnUsageRecord record;
+        active_provider, abort, activity, retry};
+    acecode::agent::TurnContext turn{callbacks};
+    acecode::agent::TurnModelStepSink sink{turn, usage, recorder, nullptr};
     acecode::agent::ProgressEmitter progress = [](const auto&...) {};
 };
 }
@@ -63,7 +66,7 @@ TEST_F(StreamCollectorTest, RetainedCallbackCannotAccessCompletedRequest) {
     auto deltas = std::make_shared<std::string>();
     callbacks.on_delta = [deltas](const std::string& text) { *deltas += text; };
     provider->push_text("first");
-    const auto result = collector.collect(provider, {}, progress, 1, record, nullptr);
+    const auto result = collector.collect(provider, {}, progress, 1, sink, nullptr);
     EXPECT_EQ(result.accumulated.content, "first");
     acecode::StreamEvent late;
     late.type = acecode::StreamEventType::Delta;
@@ -84,8 +87,8 @@ TEST_F(StreamCollectorTest, UsageIsRetainedBeforeAConsumerThrows) {
     event.usage.total_tokens = 11;
     provider->push_events({event});
     callbacks.on_usage = [](const auto&) { throw std::runtime_error("consumer"); };
-    EXPECT_THROW(collector.collect(provider, {}, progress, 1, record, nullptr), std::runtime_error);
-    EXPECT_TRUE(record.initialized);
-    EXPECT_EQ(record.aggregate.total_tokens, 11);
+    EXPECT_THROW(collector.collect(provider, {}, progress, 1, sink, nullptr), std::runtime_error);
+    EXPECT_TRUE(turn.usage.initialized);
+    EXPECT_EQ(turn.usage.aggregate.total_tokens, 11);
     EXPECT_EQ(context_tokens.load(), 11);
 }

@@ -13,8 +13,8 @@ void AgentLoop::account_goal_usage(std::int64_t delta, bool allow_complete) {
 }
 void AgentLoop::maybe_continue_goal() {
     goal_->maybe_continue(session_manager_, {
-        tools_.is_allowed("update_goal", &tool_capability_policy_),
-        tools_.is_allowed("AskUserQuestion", &tool_capability_policy_)});
+        tools_.is_allowed("update_goal", &request_source_.tool_policy),
+        tools_.is_allowed("AskUserQuestion", &request_source_.tool_policy)});
 }
 bool AgentLoop::goal_unattended_active() { return goal_->unattended_active(session_manager_); }
 void AgentLoop::notify_goal_objective_updated() { goal_->notify_objective_updated(); }
@@ -23,26 +23,26 @@ void AgentLoop::stop_active_goal_after_turn_error(const ProviderErrorInfo& info)
 }
 void AgentLoop::maybe_inject_goal_steering() {
     goal_->inject_steering(session_manager_, {
-        tools_.is_allowed("update_goal", &tool_capability_policy_),
-        tools_.is_allowed("AskUserQuestion", &tool_capability_policy_)});
+        tools_.is_allowed("update_goal", &request_source_.tool_policy),
+        tools_.is_allowed("AskUserQuestion", &request_source_.tool_policy)});
 }
 
 std::string AgentLoop::build_goal_context_prompt(const ThreadGoal& goal) const {
     return agent::detail::build_goal_context_prompt(goal, {
-        tools_.is_allowed("update_goal", &tool_capability_policy_),
-        tools_.is_allowed("AskUserQuestion", &tool_capability_policy_)});
+        tools_.is_allowed("update_goal", &request_source_.tool_policy),
+        tools_.is_allowed("AskUserQuestion", &request_source_.tool_policy)});
 }
 
 std::string AgentLoop::build_goal_budget_limit_prompt(const ThreadGoal& goal) const {
     return agent::detail::build_goal_budget_limit_prompt(goal, {
-        tools_.is_allowed("update_goal", &tool_capability_policy_),
-        tools_.is_allowed("AskUserQuestion", &tool_capability_policy_)});
+        tools_.is_allowed("update_goal", &request_source_.tool_policy),
+        tools_.is_allowed("AskUserQuestion", &request_source_.tool_policy)});
 }
 
 std::string AgentLoop::build_goal_objective_updated_prompt(const ThreadGoal& goal) const {
     return agent::detail::build_goal_objective_updated_prompt(goal, {
-        tools_.is_allowed("update_goal", &tool_capability_policy_),
-        tools_.is_allowed("AskUserQuestion", &tool_capability_policy_)});
+        tools_.is_allowed("update_goal", &request_source_.tool_policy),
+        tools_.is_allowed("AskUserQuestion", &request_source_.tool_policy)});
 }
 
 } // namespace acecode

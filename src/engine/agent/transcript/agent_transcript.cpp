@@ -11,6 +11,9 @@
 
 namespace acecode {
 
+void AgentLoop::emit_session_summary_updated() {
+    transcript_->emit_session_summary_updated(session_manager_);
+}
 void AgentLoop::dispatch_message(const std::string& role, const std::string& content,
                                  bool is_tool, nlohmann::json metadata, nlohmann::json content_parts) {
     transcript_->dispatch_message(role, content, is_tool, std::move(metadata), std::move(content_parts));

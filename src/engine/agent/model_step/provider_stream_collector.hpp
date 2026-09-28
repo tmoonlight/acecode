@@ -14,22 +14,18 @@ class ConversationHistory;
 class ActiveProviderSlot;
 class ActivityNarrator;
 class RetryProgressReporter;
-class TurnUsageAccountant;
-struct TurnUsageRecord;
-class ModelStepRecorder;
+class ModelStepSink;
 
 class ProviderStreamCollector {
 public:
     ProviderStreamCollector(ToolExecutor& tools, AgentCallbacks& callbacks,
         EventDispatcher& events, ConversationHistory& history, ActiveProviderSlot& provider,
-        AbortSignal& abort, ActivityNarrator& activity, RetryProgressReporter& retry,
-        TurnUsageAccountant& usage, ModelStepRecorder& recorder)
+        AbortSignal& abort, ActivityNarrator& activity, RetryProgressReporter& retry)
         : tools_(tools), callbacks_(callbacks), events_(events), history_(history),
-          active_provider_(provider), abort_(abort), activity_(activity), retry_(retry),
-          usage_(usage), recorder_(recorder) {}
+          active_provider_(provider), abort_(abort), activity_(activity), retry_(retry) {}
     ProviderCallResult collect(const std::shared_ptr<LlmProvider>& provider,
         const ApiRequestBundle& bundle, const ProgressEmitter& emit_progress,
-        int model_step_index, TurnUsageRecord& usage, SessionManager* session);
+        int model_step_index, ModelStepSink& sink, SessionManager* session);
 private:
     struct Call;
     ToolExecutor& tools_;
@@ -40,7 +36,5 @@ private:
     AbortSignal& abort_;
     ActivityNarrator& activity_;
     RetryProgressReporter& retry_;
-    TurnUsageAccountant& usage_;
-    ModelStepRecorder& recorder_;
 };
 } // namespace acecode::agent

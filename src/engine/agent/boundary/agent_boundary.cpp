@@ -9,8 +9,8 @@ namespace acecode {
 
 std::string AgentLoop::cwd() const { return boundary_->cwd(); }
 void AgentLoop::set_loop_execution_policy(LoopExecutionPolicy policy) {
-    loop_execution_policy_ = std::move(policy);
-    boundary_->set_loop_active(loop_execution_policy_.active);
+    request_source_.loop = std::move(policy);
+    boundary_->set_loop_active(request_source_.loop.active);
 }
 void AgentLoop::set_inherited_write_root(std::string root) {
     boundary_->set_inherited_write_root(std::move(root));

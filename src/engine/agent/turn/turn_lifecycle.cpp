@@ -1,4 +1,7 @@
-#include "agent/agent_loop.hpp"
+#include "turn_lifecycle.hpp"
+#include "active_turn_gate.hpp"
+#include "agent/agent_callbacks.hpp"
+#include "session/event_dispatcher.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_queries.hpp"
@@ -33,12 +36,12 @@
 #include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
 using agent::detail::trailing_transcript_message;
 using utils::now_epoch_ms;
 
-AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
+UserTurnInfo TurnLifecycle::prepare_user_turn(const UserInput& input,
                                                       bool hidden_goal_context) {
     UserTurnInfo info;
     info.turn_started_at_ms = now_epoch_ms();
@@ -124,19 +127,15 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
     return info;
 }
 
-void AgentLoop::emit_session_summary_updated() {
-    transcript_->emit_session_summary_updated(session_manager_);
+void TurnLifecycle::append_user_turn_message(UserTurnInfo& info, bool hidden_goal_context) {
+    transcript_.append_user_turn_message(session_manager_, info, hidden_goal_context);
 }
 
-void AgentLoop::append_user_turn_message(UserTurnInfo& info, bool hidden_goal_context) {
-    transcript_->append_user_turn_message(session_manager_, info, hidden_goal_context);
-}
-
-AgentLoop::UserTurnInfo AgentLoop::prepare_retry_user_turn(const ChatMessage& message) {
+UserTurnInfo TurnLifecycle::prepare_retry_user_turn(const ChatMessage& message) {
     UserTurnInfo info;
     info.user_msg = message;
     info.turn_started_at_ms = now_epoch_ms();
-    const auto* tail = trailing_transcript_message(history_->view());
+    const auto* tail = trailing_transcript_message(history_.view());
     if (tail && tail->role != "user") {
         // An aborted turn may already contain assistant/tool output. Preserve
         // it and append the original input with a fresh identity, without
@@ -162,7 +161,7 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_retry_user_turn(const ChatMessage& me
     return info;
 }
 
-void AgentLoop::start_user_turn(const UserTurnInfo& info) {
+void TurnLifecycle::start_user_turn(const UserTurnInfo& info) {
     if (session_manager_) {
         if (info.visible_timed_turn) {
             session_manager_->record_trajectory_event(
@@ -176,7 +175,7 @@ void AgentLoop::start_user_turn(const UserTurnInfo& info) {
             "busy_changed",
             {{"busy", true}, {"turn_id", info.active_turn_id}});
     }
-    begin_active_turn(info.active_turn_id);
+    gate_.begin(info.active_turn_id);
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(true);
     }
@@ -186,4 +185,4 @@ void AgentLoop::start_user_turn(const UserTurnInfo& info) {
     });
 }
 
-} // namespace acecode
+} // namespace acecode::agent

@@ -43,3 +43,9 @@ A-12 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次
 | ToolResultCommitter | worker | 先 budget、再按原调用顺序落 tool/post-user-prompt、最后 replacement metadata;task_complete 的 End 使用实际落盘 ID,terminal actions 只作为返回值交给回合。 |
 
 A-12 的工具链由组合根独占的批次作用域管理,成员按依赖顺序声明,不会保存 ToolExecutionServices 参数包,也不回指 AgentLoop。批次期间绑定的可空服务指针均为构造借用,FutureJoinGuard 与 LifetimeToken 在作用域销毁前完成等待;A-13/A-14 继续把装配入口交给回合执行器与显式 services。
+
+| TurnContext | worker 独占 | Chat 任务建立后持有,正常或恢复结束统一 reset;已计费用量跨异常展开保留。computer-use 租约在异常报告前释放;正常显式释放与析构释放两次调用保持原样。 |
+| TurnRunner / RequestContextFactory | worker | 构造参数包立即拆成固定协作引用,没有门面回指;请求按步捕获同一 provider。临时配置借用在 O-10 按既定方案替换。 |
+| ModelStepSink / TurnModelStepSink | 当前 provider 调用 | adapter 借用 worker 回合状态;collector 在返回前关闭并等待 Call 的 LifetimeToken,之后不会再访问 sink;用量先写回合记录再通知。 |
+| TurnFinalizer | worker 收尾与恢复 | 正常、prompt hook 阻止和异常恢复共用有序步骤表,逐项保留回调、转录、busy、Done 差异;恢复接受空 TurnContext,各报告步骤分别隔离异常。 |
+| UserShellTask / TurnLifecycle / AssistantOutput / ResponseRecovery | worker 同步调用 | 各对象固定构造依赖;Shell BusyCycle 不增加 BusyChanged(true),部分中断输出仍只入转录,文本拒绝判定优先于空回复重试。 |
