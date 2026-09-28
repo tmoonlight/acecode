@@ -131,3 +131,7 @@
 2026-09-28:入口的原位置仍依次调用进程环境、非 TUI 分派、CLI 解析、预命令和交互启动。环境准备迁入 app/startup_environment,运行时初始化迁入 app/tui_runtime_init;原后台任务的启动位置尚未改变,由 B-12 接续对象化。model/initial_state 负责输入历史、模型状态和启动提示。终端控制函数归 term/terminal_control,终端恢复注册仍在 ensure_interactive_terminal 的原位置,由 B-13 接续改为幂等注册。
 
 TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_default_permissions 提供,没有增加其它宿主的调用。app/startup_worktree 的退出函数只读 SessionManager::active_worktree,仍在工作线程与后台任务结束后、session.finalize 之前执行;无变更先切回 original_cwd 再删除,变更统计失败保留。以上是实现位置登记,尚未执行本轮启动快照与 Windows 运行验证。
+
+## B-04 至 B-05 实现登记
+
+附件构造与输入历史分别归 domain/session、domain/history,纯 TUI 叶子归 model/chat/render/overlays。ChatViewport 持有 chat_box、布局宽高/版本与渲染缓存,FrameGeometry 持有其它反射 box、输入命中与链接区域;原 ChatScrollRuntime 引用包和六个视口 lambda 已删除。帧准备仍先同步上一帧布局、再 clamp 焦点,其它帧内顺序由 B-06/B-07 继续迁移。main 的局部引用只借用这两个对象,由 B-13 继续成员化。所有 TUI 生产接口仍置于 acecode::tui,未增加按目录划分的命名空间。新增用例尚待一期统一验证。

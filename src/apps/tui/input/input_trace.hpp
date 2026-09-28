@@ -8,7 +8,7 @@
 #include <ftxui/screen/box.hpp>
 #include <string>
 
-namespace acecode::tui::input {
+namespace acecode::tui {
 std::string box_for_log(const ftxui::Box& box);
 std::string event_for_log(const ftxui::Event& event);
 std::string drag_phase_for_log(acecode::drag_scroll::Phase phase);

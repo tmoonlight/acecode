@@ -13,7 +13,7 @@
 #include <cstdlib>
 #include <iostream>
 
-namespace acecode::tui::term {
+namespace acecode::tui {
 
 void write_terminal_control_sequence(std::string_view seq) {
 #ifdef _WIN32
@@ -72,4 +72,4 @@ void flush_terminal_input_buffer() {
 }
 
 
-} // namespace acecode::tui::term
+} // namespace acecode::tui

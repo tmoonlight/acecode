@@ -36,7 +36,7 @@ static std::string get_cwd() {
 }
 
 static bool ensure_interactive_terminal() {
-    std::atexit(term::reset_cursor);
+    std::atexit(reset_cursor);
 
 #ifdef _WIN32
     bool stdin_is_tty = _isatty(_fileno(stdin));

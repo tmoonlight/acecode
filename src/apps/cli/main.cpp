@@ -147,6 +147,8 @@
 #include "tui/chat_file_link.hpp"
 #include "tui/chat_message_spacing.hpp"
 #include "tui/chat_scroll.hpp"
+#include "tui/chat/chat_viewport.hpp"
+#include "tui/render/frame_geometry.hpp"
 #include "tui/chat_render_window.hpp"
 #include "tui/diff_view.hpp"
 #include "tui/unclipped_reflect.hpp"
@@ -790,211 +792,6 @@ using acecode::TuiState;
 
 
 
-struct ChatScrollRuntime {
-    Box& chat_box;
-    std::vector<Box>& message_layout_boxes;
-    std::vector<char>& message_layout_valid;
-    std::vector<std::size_t>& message_layout_revisions;
-    std::vector<int>& message_layout_widths;
-    std::vector<acecode::tui::ChatLineMeasure>& message_line_measures;
-    std::vector<int>& message_line_counts;
-    std::vector<int>& message_spacer_rows_after;
-    int& message_line_count_width;
-    acecode::tui::MessageRenderCache message_render_cache;
-};
-
-// 聊天视口高度来自上一帧布局；还没布局时按 0 行处理。
-static int chat_viewport_rows_for_box(const Box& chat_box) {
-    return chat_box.y_max >= chat_box.y_min
-        ? chat_box.y_max - chat_box.y_min + 1
-        : 0;
-}
-
-// 合并哈希值，用来判断消息渲染内容有没有变化。
-
-// 给消息生成渲染版本号；影响高度的字段变了就会重新测量。
-// transcript_expanded(Ctrl+O 全局展开)也参与哈希:开关翻转时所有消息的
-// revision 一起失配,自动触发整批重测量,不需要单独的失效通道。
-
-// 从测量缓存重建行数数组，滚动数学只看这个轻量数组。
-static void rebuild_message_line_counts_runtime(ChatScrollRuntime& scroll,
-                                                 const TuiState& state) {
-    scroll.message_line_counts = acecode::tui::chat_line_counts_from_measures(
-        scroll.message_line_measures,
-        static_cast<int>(state.conversation.size()));
-    scroll.message_spacer_rows_after =
-        acecode::tui::chat_message_spacer_rows_after(state.conversation);
-}
-
-// transcript 被整体替换时，清掉所有旧布局测量。
-static void reset_chat_line_measure_state_runtime(ChatScrollRuntime& scroll,
-                                                  const TuiState& state) {
-    const auto n_msgs = state.conversation.size();
-    scroll.message_layout_boxes.assign(n_msgs, Box{});
-    scroll.message_layout_valid.assign(n_msgs, 0);
-    scroll.message_layout_revisions.assign(n_msgs, 0);
-    scroll.message_layout_widths.assign(n_msgs, 0);
-    acecode::tui::resize_chat_line_measures(
-        scroll.message_line_measures, static_cast<int>(n_msgs));
-    acecode::tui::invalidate_chat_line_measures(scroll.message_line_measures);
-    rebuild_message_line_counts_runtime(scroll, state);
-    scroll.message_render_cache.resize(n_msgs);
-    scroll.message_render_cache.invalidate_all();
-}
-
-// 某一条消息样式变化时，只废掉这一条的高度缓存。
-static void invalidate_chat_line_measure_at_runtime(ChatScrollRuntime& scroll,
-                                                    int index) {
-    acecode::tui::invalidate_chat_line_measure(
-        scroll.message_line_measures, index);
-    if (index >= 0 &&
-        index < static_cast<int>(scroll.message_line_counts.size())) {
-        scroll.message_line_counts[static_cast<std::size_t>(index)] = 1;
-    }
-    if (index >= 0 &&
-        index < static_cast<int>(scroll.message_layout_valid.size())) {
-        scroll.message_layout_valid[static_cast<std::size_t>(index)] = 0;
-    }
-    scroll.message_render_cache.invalidate(static_cast<std::size_t>(index));
-}
-
-// 把上一帧 FTXUI 布局结果同步到聊天行数缓存。
-static void sync_chat_line_counts_from_layout_runtime(ChatScrollRuntime& scroll,
-                                                      const TuiState& state) {
-    const size_t n_msgs = state.conversation.size();
-    const int current_message_width = scroll.chat_box.x_max >= scroll.chat_box.x_min
-        ? scroll.chat_box.x_max - scroll.chat_box.x_min + 1
-        : 0;
-    const bool line_count_width_changed =
-        current_message_width > 0 &&
-        current_message_width != scroll.message_line_count_width;
-    acecode::tui::resize_chat_line_measures(
-        scroll.message_line_measures, static_cast<int>(n_msgs));
-    scroll.message_render_cache.ensure_size(n_msgs);
-    if (line_count_width_changed) {
-        acecode::tui::invalidate_chat_line_measures(
-            scroll.message_line_measures);
-        scroll.message_line_count_width = current_message_width;
-    }
-    for (size_t i = 0; i < n_msgs; ++i) {
-        const std::size_t revision = tui::message_render_revision(
-            state.conversation[i], state.transcript_expanded);
-        const bool has_valid_layout =
-            !line_count_width_changed &&
-            i < scroll.message_layout_boxes.size() &&
-            i < scroll.message_layout_valid.size() &&
-            i < scroll.message_layout_revisions.size() &&
-            i < scroll.message_layout_widths.size() &&
-            scroll.message_layout_valid[i] != 0 &&
-            scroll.message_layout_revisions[i] == revision &&
-            scroll.message_layout_widths[i] == current_message_width &&
-            scroll.message_layout_boxes[i].y_max >=
-                scroll.message_layout_boxes[i].y_min;
-        const int measured_rows = has_valid_layout
-            ? scroll.message_layout_boxes[i].y_max -
-                  scroll.message_layout_boxes[i].y_min + 1
-            : 0;
-        acecode::tui::sync_chat_line_measure(
-            scroll.message_line_measures[i],
-            has_valid_layout,
-            measured_rows,
-            current_message_width,
-            revision);
-    }
-    rebuild_message_line_counts_runtime(scroll, state);
-}
-
-// 修正聊天焦点，确保焦点、顶部行和 tail-follow 状态一致。
-static void clamp_chat_focus_runtime(TuiState& state,
-                                     const std::vector<int>& message_line_counts,
-                                     const std::vector<int>& message_spacer_rows_after,
-                                     int viewport_rows) {
-    if (state.conversation.empty()) {
-        state.chat_focus_index = -1;
-        state.chat_line_offset = 0;
-        state.chat_scroll_top_row = 0;
-        state.chat_follow_tail = true;
-        return;
-    }
-
-    int message_count = static_cast<int>(state.conversation.size());
-    int last = message_count - 1;
-    const int max_scroll_top =
-        acecode::tui::chat_max_scroll_top_row(message_line_counts,
-                                              message_count,
-                                              viewport_rows,
-                                              message_spacer_rows_after);
-    if (state.chat_follow_tail) {
-        state.chat_focus_index = last;
-        state.chat_line_offset =
-            acecode::tui::chat_tail_line_offset(message_line_counts, last);
-        state.chat_scroll_top_row = max_scroll_top;
-        return;
-    }
-
-    state.chat_scroll_top_row =
-        acecode::tui::clamp_chat_scroll_top_row(state.chat_scroll_top_row,
-                                                message_line_counts,
-                                                message_count,
-                                                viewport_rows,
-                                                message_spacer_rows_after);
-    auto [idx, off] = acecode::tui::chat_focus_from_display_row(
-        message_line_counts, message_count, state.chat_scroll_top_row,
-        message_spacer_rows_after);
-    state.chat_focus_index = idx;
-    state.chat_line_offset = off;
-    state.chat_follow_tail = state.chat_scroll_top_row >= max_scroll_top;
-}
-
-// 按显示行滚动聊天区，返回实际移动的行数。
-static int scroll_chat_by_lines_runtime(TuiState& state,
-                                         const std::vector<int>& message_line_counts,
-                                         const std::vector<int>& message_spacer_rows_after,
-                                         int viewport_rows,
-                                        int delta_lines) {
-    if (state.conversation.empty()) return 0;
-    const int message_count = static_cast<int>(state.conversation.size());
-    int last_msg = message_count - 1;
-    const int max_scroll_top =
-        acecode::tui::chat_max_scroll_top_row(message_line_counts,
-                                              message_count,
-                                              viewport_rows,
-                                              message_spacer_rows_after);
-    if (state.chat_follow_tail) {
-        state.chat_focus_index = last_msg;
-        state.chat_line_offset =
-            acecode::tui::chat_tail_line_offset(message_line_counts,
-                                                last_msg);
-        state.chat_scroll_top_row = max_scroll_top;
-    }
-
-    const int before = acecode::tui::clamp_chat_scroll_top_row(
-        state.chat_scroll_top_row, message_line_counts, message_count,
-        viewport_rows, message_spacer_rows_after);
-    const int after = acecode::tui::clamp_chat_scroll_top_row(
-        before + delta_lines, message_line_counts, message_count,
-        viewport_rows, message_spacer_rows_after);
-    state.chat_scroll_top_row = after;
-    const int actual = after - before;
-
-    if (after >= max_scroll_top) {
-        state.chat_focus_index = last_msg;
-        state.chat_line_offset =
-            acecode::tui::chat_tail_line_offset(message_line_counts,
-                                                last_msg);
-        state.chat_follow_tail = true;
-    } else {
-        auto [idx, off] = acecode::tui::chat_focus_from_display_row(
-            message_line_counts, message_count, after,
-            message_spacer_rows_after);
-        state.chat_focus_index = idx;
-        state.chat_line_offset = off;
-        state.chat_follow_tail = false;
-    }
-    return actual;
-}
-
-// 取消二次 Ctrl+C 退出提示，输入变化时都要收回。
 static void cancel_ctrl_c_exit_locked(TuiState& state) {
     acecode::tui::clear_ctrl_c_exit_state(
         state.ctrl_c_armed, state.last_ctrl_c_time);
@@ -1359,7 +1156,7 @@ static void clear_rewind_picker_locked(TuiState& state) {
 static void commit_rewind_mode_locked(
     TuiState& state,
     ScreenInteractive& screen,
-    const std::function<void()>& clamp_chat_focus,
+    tui::ChatViewport& viewport,
     TuiState::RewindRestoreMode mode) {
     if (state.rewind_selected < 0 ||
         state.rewind_selected >= static_cast<int>(state.rewind_items.size())) {
@@ -1375,7 +1172,7 @@ static void commit_rewind_mode_locked(
     state.input_cursor = 0;
     state.clear_input_selection();
     if (cb) cb(std::move(item), mode);
-    clamp_chat_focus();
+    viewport.clamp_focus(state);
     screen.PostEvent(Event::Custom);
 }
 
@@ -1384,7 +1181,7 @@ static bool handle_rewind_picker_event(
     TuiState& state,
     ScreenInteractive& screen,
     const Event& event,
-    const std::function<void()>& clamp_chat_focus) {
+    tui::ChatViewport& viewport) {
     std::unique_lock<std::mutex> lk(state.mu);
     if (!state.rewind_picker_active) {
         return false;
@@ -1402,7 +1199,7 @@ static bool handle_rewind_picker_event(
             state.rewind_mode_active = true;
         } else {
             commit_rewind_mode_locked(
-                state, screen, clamp_chat_focus,
+                state, screen, viewport,
                 TuiState::RewindRestoreMode::ConversationOnly);
         }
     };
@@ -1422,7 +1219,7 @@ static bool handle_rewind_picker_event(
                 is_fork ? "Fork cancelled." : "Rewind cancelled.",
                 false});
             state.chat_follow_tail = true;
-            clamp_chat_focus();
+            viewport.clamp_focus(state);
         }
         screen.PostEvent(Event::Custom);
         return true;
@@ -1484,7 +1281,7 @@ static bool handle_rewind_picker_event(
                     static_cast<int>(state.rewind_modes.size())) {
                 auto mode = state.rewind_modes[state.rewind_mode_selected].mode;
                 commit_rewind_mode_locked(
-                    state, screen, clamp_chat_focus, mode);
+                    state, screen, viewport, mode);
             }
         } else {
             activate_current_target();
@@ -1502,7 +1299,7 @@ static bool handle_rewind_picker_event(
                     state.rewind_mode_selected = idx;
                     auto mode = state.rewind_modes[idx].mode;
                     commit_rewind_mode_locked(
-                        state, screen, clamp_chat_focus, mode);
+                        state, screen, viewport, mode);
                 }
             } else if (idx < static_cast<int>(state.rewind_items.size())) {
                 state.rewind_selected = idx;
@@ -1759,11 +1556,11 @@ static void run_tui_loop(ftxui::ScreenInteractive& screen,
     // the paste accumulator in the CatchEvent body intercepts them before
     // normal Return / character handlers run — preventing pasted newlines
     // from accidentally submitting partial prompts.
-    tui::term::flush_terminal_input_buffer();
-    tui::term::write_terminal_control_sequence(acecode::tui::kBracketedPasteEnableSeq);
+    tui::flush_terminal_input_buffer();
+    tui::write_terminal_control_sequence(acecode::tui::kBracketedPasteEnableSeq);
     screen.Loop(renderer);
-    tui::term::write_terminal_control_sequence(acecode::tui::kBracketedPasteDisableSeq);
-    tui::term::flush_terminal_input_buffer();
+    tui::write_terminal_control_sequence(acecode::tui::kBracketedPasteDisableSeq);
+    tui::flush_terminal_input_buffer();
 }
 
 static void shutdown_after_tui_loop(TuiState& state,
@@ -1886,23 +1683,8 @@ struct TuiRendererContext {
     ScreenInteractive& screen;
     const std::string& version_str;
     const std::string& cwd_display;
-    Box& chat_box;
-    Box& scrollbar_box;
-    tui::AskQuestionFrame& ask_question_frame;
-    Box& sidebar_content_box;
-    Box& sidebar_viewport_box;
-    Box& sidebar_scrollbar_box;
-    acecode::tui::InputTextHitLayout& input_hit_layout;
-    std::vector<Box>& message_boxes;
-    std::vector<Box>& path_reference_boxes;
-    acecode::markdown::MarkdownLinkRegionCollector& chat_link_regions;
-    acecode::tui::MessageRenderCache& message_render_cache;
-    std::vector<Box>& message_layout_boxes;
-    std::vector<char>& message_layout_valid;
-    std::vector<std::size_t>& message_layout_revisions;
-    std::vector<int>& message_layout_widths;
-    std::vector<int>& message_line_counts;
-    std::vector<int>& message_spacer_rows_after;
+    tui::ChatViewport& viewport;
+    tui::FrameGeometry& geometry;
     std::atomic<int>& anim_tick;
     Component& input_with_esc;
     PermissionManager& permissions;
@@ -1911,9 +1693,6 @@ struct TuiRendererContext {
     // link-hover-tooltip (add-tui-hyperlinks 5.3): 悬停移动能力探测结果。
     // false(conhost 家族/Apple Terminal.app 等)时恒不渲染气泡。
     bool hover_supported = false;
-    std::function<void()> clamp_chat_focus;
-    std::function<int()> chat_viewport_rows;
-    std::function<void()> sync_chat_line_counts_from_layout;
 };
 
 // link-hover-tooltip (add-tui-hyperlinks 5.3): 构造悬停气泡 Element。
@@ -1976,32 +1755,30 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& screen = ctx.screen;
     const auto& version_str = ctx.version_str;
     const auto& cwd_display = ctx.cwd_display;
-    auto& chat_box = ctx.chat_box;
-    auto& scrollbar_box = ctx.scrollbar_box;
-    auto& ask_question_frame = ctx.ask_question_frame;
-    auto& sidebar_content_box = ctx.sidebar_content_box;
-    auto& sidebar_viewport_box = ctx.sidebar_viewport_box;
-    auto& sidebar_scrollbar_box = ctx.sidebar_scrollbar_box;
-    auto& input_hit_layout = ctx.input_hit_layout;
-    auto& message_boxes = ctx.message_boxes;
-    auto& path_reference_boxes = ctx.path_reference_boxes;
-    auto& chat_link_regions = ctx.chat_link_regions;
-    auto& message_render_cache = ctx.message_render_cache;
-    auto& message_layout_boxes = ctx.message_layout_boxes;
-    auto& message_layout_valid = ctx.message_layout_valid;
-    auto& message_layout_revisions = ctx.message_layout_revisions;
-    auto& message_layout_widths = ctx.message_layout_widths;
-    auto& message_line_counts = ctx.message_line_counts;
-    auto& message_spacer_rows_after = ctx.message_spacer_rows_after;
+    auto& chat_box = ctx.viewport.chat_box;
+    auto& scrollbar_box = ctx.geometry.scrollbar_box;
+    auto& ask_question_frame = ctx.geometry.ask_question_frame;
+    auto& sidebar_content_box = ctx.geometry.sidebar_content_box;
+    auto& sidebar_viewport_box = ctx.geometry.sidebar_viewport_box;
+    auto& sidebar_scrollbar_box = ctx.geometry.sidebar_scrollbar_box;
+    auto& input_hit_layout = ctx.geometry.input_hit_layout;
+    auto& message_boxes = ctx.geometry.message_boxes;
+    auto& path_reference_boxes = ctx.geometry.path_reference_boxes;
+    auto& chat_link_regions = ctx.geometry.chat_link_regions;
+    auto& message_render_cache = ctx.viewport.message_render_cache;
+    auto& message_layout_boxes = ctx.viewport.message_layout_boxes;
+    auto& message_layout_valid = ctx.viewport.message_layout_valid;
+    auto& message_layout_revisions = ctx.viewport.message_layout_revisions;
+    auto& message_layout_widths = ctx.viewport.message_layout_widths;
+    auto& message_line_counts = ctx.viewport.message_line_counts;
+    auto& message_spacer_rows_after = ctx.viewport.message_spacer_rows_after;
     auto& anim_tick = ctx.anim_tick;
     auto& input_with_esc = ctx.input_with_esc;
     auto& permissions = ctx.permissions;
     const bool dangerous_mode = ctx.dangerous_mode;
     const bool conhost_compat_layout = ctx.conhost_compat_layout;
     const bool hover_supported = ctx.hover_supported;
-    auto& clamp_chat_focus = ctx.clamp_chat_focus;
-    auto& chat_viewport_rows = ctx.chat_viewport_rows;
-    auto& sync_chat_line_counts_from_layout = ctx.sync_chat_line_counts_from_layout;
+    auto& viewport = ctx.viewport;
 
     std::lock_guard<std::mutex> lk(state.mu);
     input_hit_layout.box = Box{0, -1, 0, -1};
@@ -2042,8 +1819,8 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     // 否则长消息会被误判为只剩当前可见的几行,导致底部滚动范围过短.
     size_t n_msgs = state.conversation.size();
     const int markdown_render_width = frame_layout.markdown_render_width;
-    sync_chat_line_counts_from_layout();
-    clamp_chat_focus();
+    viewport.sync_from_layout(state);
+    viewport.clamp_focus(state);
 
     // selection-anchor-compensation: 在清空 boxes 之前,先用上一帧 reflect 的
     // box.y_min 检测 anchor 漂移。focus_index 和 line_offset 都没变(用户没动
@@ -2651,7 +2428,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     } else {
         const int frame_focus_y =
             acecode::tui::chat_frame_focus_y_for_scroll_top(
-                state.chat_scroll_top_row, chat_viewport_rows());
+                state.chat_scroll_top_row, viewport.rows());
         message_body = message_body | focusPosition(0, frame_focus_y);
     }
 
@@ -3020,7 +2797,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
                 show_regular_sidebar,
                 kRegularSidebarWidthCols);
         const int max_visible_rows =
-            std::max(1, chat_viewport_rows() - 2);
+            std::max(1, viewport.rows() - 2);
 
         if (state.ask_session) {
             const auto snapshot = state.ask_session->snapshot();
@@ -3505,42 +3282,26 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     // Animation tick for Thinking... indicator
     std::atomic<int> anim_tick{0};
-    Box chat_box;
-    // draggable-thick-scrollbar: track box for the thick scroll indicator —
-    // populated by acecode::tui::thick_vscroll_bar each Render so the mouse
-    // handler can hit-test "click on scrollbar" vs "click in chat content".
-    Box scrollbar_box;
-    // AskUserQuestion overlay owns a separate frame-local layout and
-    // reflected geometry while active.
-    tui::AskQuestionFrame ask_question_frame;
-    // Ctrl+O expanded sidebar owns an independent document, viewport, and
-    // scrollbar track. These boxes are refreshed by the sidebar renderer and
-    // consumed only by sidebar mouse routing.
-    Box sidebar_content_box;
-    Box sidebar_viewport_box;
-    Box sidebar_scrollbar_box;
-    // The active prompt and its rendered UTF-8 fragments are reflected each
-    // frame so mouse presses follow the exact flexbox wrapping on screen.
-    acecode::tui::InputTextHitLayout input_hit_layout;
-
-    // drag-autoscroll: 每帧渲染时由 reflect 回填每条消息的屏幕 box,
-    // 下一帧 (事件线程 / anim_thread) 读这里算每条消息的行数,供
-    // scroll_chat_by_lines 做按行粒度的平滑滚动. Renderer 重新构建 element
-    // 树时先把上一帧的高度同步到 message_line_counts, 再把 boxes 清零.
-    // 读写发生在 (a) 事件线程 Renderer callback (b) anim_thread 通过
-    // state.mu 保护下的 scroll_chat_by_lines, 不显式加锁 — 与现有 state
-    // 读取路径保持一致的 "PostEvent happens-before" 模型.
-    std::vector<Box> message_boxes;
-    std::vector<Box> path_reference_boxes;
-    acecode::markdown::MarkdownLinkRegionCollector chat_link_regions;
-    std::vector<Box> message_layout_boxes;
-    std::vector<char> message_layout_valid;
-    std::vector<std::size_t> message_layout_revisions;
-    std::vector<int> message_layout_widths;
-    std::vector<acecode::tui::ChatLineMeasure> message_line_measures;
-    std::vector<int> message_line_counts;
-    std::vector<int> message_spacer_rows_after;
-    int message_line_count_width = 0;
+    tui::ChatViewport viewport;
+    tui::FrameGeometry geometry;
+    auto& chat_box = viewport.chat_box;
+    auto& message_layout_boxes = viewport.message_layout_boxes;
+    auto& message_layout_valid = viewport.message_layout_valid;
+    auto& message_layout_revisions = viewport.message_layout_revisions;
+    auto& message_layout_widths = viewport.message_layout_widths;
+    auto& message_line_measures = viewport.message_line_measures;
+    auto& message_line_counts = viewport.message_line_counts;
+    auto& message_spacer_rows_after = viewport.message_spacer_rows_after;
+    auto& message_line_count_width = viewport.message_line_count_width;
+    auto& scrollbar_box = geometry.scrollbar_box;
+    auto& ask_question_frame = geometry.ask_question_frame;
+    auto& sidebar_content_box = geometry.sidebar_content_box;
+    auto& sidebar_viewport_box = geometry.sidebar_viewport_box;
+    auto& sidebar_scrollbar_box = geometry.sidebar_scrollbar_box;
+    auto& input_hit_layout = geometry.input_hit_layout;
+    auto& message_boxes = geometry.message_boxes;
+    auto& path_reference_boxes = geometry.path_reference_boxes;
+    auto& chat_link_regions = geometry.chat_link_regions;
 
     acecode::TerminalCapabilities term_caps;
     bool conhost_compat_layout = false;
@@ -3608,43 +3369,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             screen.PostEvent(Event::Custom);
         }
     };
-
-    ChatScrollRuntime chat_scroll{
-        chat_box,
-        message_layout_boxes,
-        message_layout_valid,
-        message_layout_revisions,
-        message_layout_widths,
-        message_line_measures,
-        message_line_counts,
-        message_spacer_rows_after,
-        message_line_count_width,
-    };
-    auto chat_viewport_rows = [&chat_box]() -> int {
-        return chat_viewport_rows_for_box(chat_box);
-    };
-    auto sync_chat_line_counts_from_layout = [&chat_scroll, &state]() {
-        sync_chat_line_counts_from_layout_runtime(chat_scroll, state);
-    };
-    auto reset_chat_line_measure_state = [&chat_scroll, &state]() {
-        reset_chat_line_measure_state_runtime(chat_scroll, state);
-    };
-    auto invalidate_chat_line_measure_at = [&chat_scroll](int index) {
-        invalidate_chat_line_measure_at_runtime(chat_scroll, index);
-    };
-    auto clamp_chat_focus = [&state, &message_line_counts,
-                             &message_spacer_rows_after, &chat_viewport_rows]() {
-        clamp_chat_focus_runtime(state, message_line_counts,
-                                 message_spacer_rows_after,
-                                 chat_viewport_rows());
-    };
-    auto scroll_chat_by_lines =
-        [&state, &message_line_counts, &message_spacer_rows_after,
-         &chat_viewport_rows](int delta_lines) -> int {
-            return scroll_chat_by_lines_runtime(
-                state, message_line_counts, message_spacer_rows_after,
-                chat_viewport_rows(), delta_lines);
-        };
 
     // ---- Copilot auth flow (background thread) ----
     std::atomic<bool> auth_done{false};
@@ -3732,7 +3456,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     std::string tui_turn_assistant_text;
     std::string tui_turn_outcome;
     AgentCallbacks callbacks;
-    callbacks.on_message = [&state, &clamp_chat_focus, &screen,
+    callbacks.on_message = [&state, &viewport, &screen,
                             &tui_turn_assistant_text](const std::string& role,
                                                      const std::string& raw_content,
                                                      bool is_tool) {
@@ -3767,12 +3491,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             state.conversation.push_back(std::move(m));
         }
-        clamp_chat_focus();
+        viewport.clamp_focus(state);
         screen.PostEvent(Event::Custom);
     };
     callbacks.on_transcript_message =
-        [&state, &clamp_chat_focus, &screen,
-         &reset_chat_line_measure_state](const ChatMessage& message) {
+        [&state, &viewport, &screen](const ChatMessage& message) {
             std::lock_guard<std::mutex> lk(state.mu);
             const auto notice = decode_compact_notice(message);
             if (notice.has_value() && notice->stage == "progress") {
@@ -3790,9 +3513,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.is_compacting = false;
             }
 
-            reset_chat_line_measure_state();
+            viewport.reset(state);
             state.chat_follow_tail = true;
-            clamp_chat_focus();
+            viewport.clamp_focus(state);
             screen.PostEvent(Event::Custom);
         };
     callbacks.on_busy_changed = [&state, &screen](bool busy) {
@@ -3839,7 +3562,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (agent_aborting.load()) return PermissionResult::Deny;
         return state.confirm_result;
     };
-    callbacks.on_delta = [&state, &clamp_chat_focus,
+    callbacks.on_delta = [&state, &viewport,
                           &last_keyboard_input_at_ms, redraw_pacer,
                           &request_scheduled_redraw](
                              const std::string& token) {
@@ -3853,7 +3576,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             state.conversation.back().content += token;
             state.streaming_output_chars += token.size();
-            clamp_chat_focus();
+            viewport.clamp_focus(state);
         }
         const std::int64_t now_ms = tui::monotonic_milliseconds();
         const bool keyboard_input_recent =
@@ -3868,7 +3591,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // Attach summary/display_override to the two most-recent TUI messages
     // (the trailing tool_call row and tool_result row that on_message just
     // appended) so the renderer can switch to the single-line summary mode.
-    callbacks.on_tool_result = [&state, &screen, &invalidate_chat_line_measure_at](
+    callbacks.on_tool_result = [&state, &screen, &viewport](
                                                  const ChatMessage& call_msg,
                                                  const std::string& tool_name,
                                                  const ToolResult& result) {
@@ -3886,7 +3609,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.conversation.size() - 1 -
                     static_cast<std::size_t>(
                         it - state.conversation.rbegin()));
-                invalidate_chat_line_measure_at(index);
+                viewport.invalidate(index);
                 break;
             }
         }
@@ -3934,8 +3657,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         state.current_thinking_phrase = title;
         screen.PostEvent(Event::Custom);
     };
-    callbacks.on_transcript_replace = [&state, &clamp_chat_focus, &screen,
-                                       &reset_chat_line_measure_state](
+    callbacks.on_transcript_replace = [&state, &viewport, &screen](
         const std::vector<ChatMessage>& /*messages*/,
         const CompactResult& result) {
         if (!result.performed || result.summary_text.empty()) {
@@ -3944,12 +3666,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         std::lock_guard<std::mutex> lk(state.mu);
         state.conversation.push_back({"system", "--- [Compact Checkpoint] ---", false});
         state.conversation.push_back({"system", "[Conversation summary]\n" + result.summary_text, false});
-        reset_chat_line_measure_state();
+        viewport.reset(state);
         state.chat_follow_tail = true;
-        clamp_chat_focus();
+        viewport.clamp_focus(state);
         screen.PostEvent(Event::Custom);
     };
-    callbacks.on_stream_retry_reset = [&state, &clamp_chat_focus, &screen,
+    callbacks.on_stream_retry_reset = [&state, &viewport, &screen,
                                        &tui_turn_assistant_text]() {
         std::lock_guard<std::mutex> lk(state.mu);
         if (!state.conversation.empty() &&
@@ -3959,7 +3681,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
         tui_turn_assistant_text.clear();
         state.streaming_output_chars = 0;
-        clamp_chat_focus();
+        viewport.clamp_focus(state);
         screen.PostEvent(Event::Custom);
     };
     callbacks.on_model_retry = [&state, &screen](
@@ -4555,9 +4277,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         }
                         {
                             std::lock_guard<std::mutex> lk(state.mu);
-                            reset_chat_line_measure_state();
+                            viewport.reset(state);
                             state.chat_follow_tail = true;
-                            clamp_chat_focus();
+                            viewport.clamp_focus(state);
                         }
                         screen.PostEvent(Event::Custom);
                     });
@@ -4636,7 +4358,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     };
 
     // Now that agent_loop exists, update on_busy_changed to drain pending queue
-    callbacks.on_busy_changed = [&state, &clamp_chat_focus, &screen,
+    callbacks.on_busy_changed = [&state, &viewport, &screen,
                                  &coordinate_mcp_before_first_turn,
                                  &submit_tui_input, &submit_tui_text,
                                  &tui_turn_assistant_text, &tui_turn_outcome,
@@ -4696,7 +4418,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         TuiState::DragScrollbarPhase::Idle) {
                         state.chat_follow_tail = true;
                     }
-                    clamp_chat_focus();
+                    viewport.clamp_focus(state);
                 }
             }
         }
@@ -4739,7 +4461,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 TuiState::DragScrollbarPhase::Idle) {
                 state.chat_follow_tail = true;
             }
-            clamp_chat_focus();
+            viewport.clamp_focus(state);
             state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
             state.thinking_start_time = std::chrono::steady_clock::now();
             state.streaming_output_chars = 0;
@@ -4769,7 +4491,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // 该回调由 RC listener 的 Crow worker 线程调用,锁内逻辑与 Enter 提交分支
     // 保持一字不差。
     acecode::rc::remote_control_service().hub().set_inbound_submit(
-        [&state, &screen, &clamp_chat_focus, &submit_tui_text,
+        [&state, &screen, &viewport, &submit_tui_text,
          &coordinate_mcp_before_first_turn](const std::string& text) {
             std::unique_lock<std::mutex> lk(state.mu);
             if (state.is_waiting) {
@@ -4777,7 +4499,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             } else {
                 state.conversation.push_back({"user", text, false});
                 state.chat_follow_tail = true;
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 state.current_thinking_phrase =
                     tui::get_random_thinking_phrase(tui::is_user_chinese(state));
                 state.thinking_start_time = std::chrono::steady_clock::now();
@@ -4799,7 +4521,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         &anim_tick,
         &state,
         &screen,
-        &scroll_chat_by_lines,
+        &viewport,
         &last_keyboard_input_at_ms,
         &request_scheduled_redraw,
         redraw_pacer,
@@ -4898,15 +4620,15 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     if (drag_scroll::should_tick(now, state.last_drag_scroll_at,
                                                   std::chrono::milliseconds(60))) {
                         int dy = (state.drag_phase == drag_scroll::Phase::ScrollingUp) ? -1 : 1;
-                        int actual = scroll_chat_by_lines(dy);
+                        int actual = viewport.scroll_by_lines(state, dy);
                         if (actual != 0) {
-                            // scroll_chat_by_lines(+1) 让视口顶部下移一行 → 屏幕
+                            // viewport.scroll_by_lines(state, +1) 让视口顶部下移一行 → 屏幕
                             // 内容相对上移 actual 行 → 原 anchor 文本屏幕坐标应
                             // -actual.
                             state.pending_shift_dy += -actual;
                             ACECODE_INPUT_TRACE(
                             LOG_DEBUG("[drag-select] autoscroll tick phase=" +
-                                      tui::input::drag_phase_for_log(state.drag_phase) +
+                                      tui::drag_phase_for_log(state.drag_phase) +
                                       " requested_dy=" + std::to_string(dy) +
                                       " actual=" + std::to_string(actual) +
                                       " pending_shift_dy=" +
@@ -5001,7 +4723,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_question_frame, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &viewport, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &chat_box, &scrollbar_box, &ask_question_frame, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
         if (event != Event::Custom &&
             !event.is_mouse() &&
             !event.is_cursor_position() &&
@@ -5029,11 +4751,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     " line_offset=" + std::to_string(state.chat_line_offset) +
                     " follow_tail=" + std::string(state.chat_follow_tail ? "1" : "0");
             }
-            LOG_DEBUG("[input] received " + tui::input::event_for_log(event) +
-                      " chat_box=" + tui::input::box_for_log(chat_box) +
-                      " scrollbar_box=" + tui::input::box_for_log(scrollbar_box) +
-                      " ask_scrollbar_box=" + tui::input::box_for_log(ask_question_frame.scrollbar_box) +
-                      " ask_overlay_box=" + tui::input::box_for_log(ask_question_frame.overlay_box) +
+            LOG_DEBUG("[input] received " + tui::event_for_log(event) +
+                      " chat_box=" + tui::box_for_log(chat_box) +
+                      " scrollbar_box=" + tui::box_for_log(scrollbar_box) +
+                      " ask_scrollbar_box=" + tui::box_for_log(ask_question_frame.scrollbar_box) +
+                      " ask_overlay_box=" + tui::box_for_log(ask_question_frame.overlay_box) +
                       state_snapshot);
         }
         );
@@ -5119,7 +4841,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.compact_abort_requested.store(true);
                     state.conversation.push_back({"system", "Cancelling compaction...", false});
                     state.chat_follow_tail = true;
-                    clamp_chat_focus();
+                    viewport.clamp_focus(state);
                     screen.PostEvent(Event::Custom);
                     return true;
                 }
@@ -5247,7 +4969,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             return true;
         }
 
-        if (handle_rewind_picker_event(state, screen, event, clamp_chat_focus)) {
+        if (handle_rewind_picker_event(state, screen, event, viewport)) {
             return true;
         }
 
@@ -5281,9 +5003,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.conversation.size();
                     if (cb) cb(sid);
                     if (state.conversation.size() != before_resume_messages) {
-                        reset_chat_line_measure_state();
+                        viewport.reset(state);
                     }
-                    clamp_chat_focus();
+                    viewport.clamp_focus(state);
                 }
                 screen.PostEvent(Event::Custom);
                 return true;
@@ -5303,7 +5025,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.model_picker_view_offset = 0;
                     state.model_picker_callback = nullptr;
                     if (cb) cb(name);
-                    clamp_chat_focus();
+                    viewport.clamp_focus(state);
                 }
                 screen.PostEvent(Event::Custom);
                 return true;
@@ -5321,7 +5043,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     state.mode_picker_selected = 0;
                     state.mode_picker_callback = nullptr;
                     if (callback) callback(mode);
-                    clamp_chat_focus();
+                    viewport.clamp_focus(state);
                 }
                 screen.PostEvent(Event::Custom);
                 return true;
@@ -5385,7 +5107,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 // 提交后对话气泡显示展开后的原文（用户反馈：上屏不要看到 [] 占位符）。
                 state.conversation.push_back({"user", "!" + shell_cmd, false});
                 state.chat_follow_tail = true;
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 state.current_thinking_phrase = "Running shell";
                 state.thinking_start_time = std::chrono::steady_clock::now();
                 state.streaming_output_chars = 0;
@@ -5440,9 +5162,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 if (handled) {
                     lk.lock();
                     if (state.conversation.size() != before_command_messages) {
-                        reset_chat_line_measure_state();
+                        viewport.reset(state);
                     }
-                    clamp_chat_focus();
+                    viewport.clamp_focus(state);
                     screen.PostEvent(Event::Custom);
                     return true;
                 }
@@ -5465,7 +5187,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 lk.lock();
                 state.conversation.push_back({"user", display_prompt, false});
                 state.chat_follow_tail = true;
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
                 state.thinking_start_time = std::chrono::steady_clock::now();
                 state.streaming_output_chars = 0;
@@ -5542,7 +5264,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
         if (event == Event::PageUp) {
             std::lock_guard<std::mutex> lk(state.mu);
-            sync_chat_line_counts_from_layout();
+            viewport.sync_from_layout(state);
             // page_keys_single_line 默认开启:把 PgUp 当作单行滚动,等同 Alt+↑.
             // 适用于吞掉 Alt+方向键序列的终端 (老 conhost / Cmder / 部分 SSH 客户端).
             int step = config.tui.page_keys_single_line
@@ -5552,12 +5274,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             const int before_focus = state.chat_focus_index;
             const int before_offset = state.chat_line_offset;
             const bool before_follow_tail = state.chat_follow_tail;
-            const int actual = scroll_chat_by_lines(-step);
+            const int actual = viewport.scroll_by_lines(state, -step);
             ACECODE_INPUT_TRACE(
             const int max_top = acecode::tui::chat_max_scroll_top_row(
                 message_line_counts,
                 static_cast<int>(state.conversation.size()),
-                chat_viewport_rows(), message_spacer_rows_after);
+                viewport.rows(), message_spacer_rows_after);
             LOG_DEBUG("[input] chat page up step=" + std::to_string(step) +
                       " actual=" + std::to_string(actual) +
                       " top=" + std::to_string(before_top) + "->" +
@@ -5578,7 +5300,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
         if (event == Event::PageDown) {
             std::lock_guard<std::mutex> lk(state.mu);
-            sync_chat_line_counts_from_layout();
+            viewport.sync_from_layout(state);
             int step = config.tui.page_keys_single_line
                 ? 1
                 : std::max(1, (chat_box.y_max - chat_box.y_min + 1) - 2);
@@ -5586,12 +5308,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             const int before_focus = state.chat_focus_index;
             const int before_offset = state.chat_line_offset;
             const bool before_follow_tail = state.chat_follow_tail;
-            const int actual = scroll_chat_by_lines(step);
+            const int actual = viewport.scroll_by_lines(state, step);
             ACECODE_INPUT_TRACE(
             const int max_top = acecode::tui::chat_max_scroll_top_row(
                 message_line_counts,
                 static_cast<int>(state.conversation.size()),
-                chat_viewport_rows(), message_spacer_rows_after);
+                viewport.rows(), message_spacer_rows_after);
             LOG_DEBUG("[input] chat page down step=" + std::to_string(step) +
                       " actual=" + std::to_string(actual) +
                       " top=" + std::to_string(before_top) + "->" +
@@ -5611,7 +5333,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             return true;
         }
         // Alt+Up / Alt+Down: 按单行滚动聊天视图. 与 ArrowUp/Down 的"按消息历史
-        // 导航"区分开 —— 这里走 scroll_chat_by_lines(±1), 跨消息边界时由 lambda
+        // 导航"区分开 —— 这里走 viewport.scroll_by_lines(state, ±1), 跨消息边界时由 lambda
         // 自行进位 chat_focus_index + chat_line_offset. 序列 `\x1B[1;3A`/`B` 是
         // xterm modifyOtherKeys 标准, Windows Terminal / Alacritty / iTerm2 /
         // kitty / Konsole / GNOME Terminal 都走这一编码. 上面 overlay 守卫会
@@ -5623,8 +5345,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
             if (state.mode_picker_open) return true;
-            sync_chat_line_counts_from_layout();
-            if (scroll_chat_by_lines(-1) != 0) {
+            viewport.sync_from_layout(state);
+            if (viewport.scroll_by_lines(state, -1) != 0) {
                 screen.PostEvent(Event::Custom);
             }
             return true;
@@ -5635,8 +5357,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (state.resume_picker_active) return true;
             if (state.model_picker_open) return true;
             if (state.mode_picker_open) return true;
-            sync_chat_line_counts_from_layout();
-            if (scroll_chat_by_lines(1) != 0) {
+            viewport.sync_from_layout(state);
+            if (viewport.scroll_by_lines(state, 1) != 0) {
                 screen.PostEvent(Event::Custom);
             }
             return true;
@@ -5656,7 +5378,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             std::lock_guard<std::mutex> lk(state.mu);
             if (!state.conversation.empty()) {
                 state.chat_follow_tail = true;
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 screen.PostEvent(Event::Custom);
             }
             return true;
@@ -5690,7 +5412,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.clear_input_selection();
                 state.conversation.push_back({"system", "Resume cancelled.", false});
                 state.chat_follow_tail = true;
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 screen.PostEvent(Event::Custom);
                 return true;
             }
@@ -5702,7 +5424,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.model_picker_selected = 0;
                 state.model_picker_view_offset = 0;
                 state.model_picker_callback = nullptr;
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 screen.PostEvent(Event::Custom);
                 return true;
             }
@@ -5711,7 +5433,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.mode_picker_options.clear();
                 state.mode_picker_selected = 0;
                 state.mode_picker_callback = nullptr;
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 screen.PostEvent(Event::Custom);
                 return true;
             }
@@ -5771,7 +5493,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.conversation.push_back({"system",
                     std::string("Permission mode: ") + PermissionManager::mode_name(new_mode) +
                     " - " + PermissionManager::mode_description(new_mode), false});
-                clamp_chat_focus();
+                viewport.clamp_focus(state);
                 screen.PostEvent(Event::Custom);
             }
             return true;
@@ -5922,7 +5644,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (mouse.button == Mouse::Left && mouse.motion == Mouse::Pressed &&
                 scrollbar_box.Contain(mouse.x, mouse.y)) {
                 std::lock_guard<std::mutex> lk(state.mu);
-                sync_chat_line_counts_from_layout();
+                viewport.sync_from_layout(state);
                 // 快照 message_line_counts —— 流式输出追加新行时,拖动期间的
                 // y → line 映射继续按按下瞬间的几何走,不被指针下扯走。
                 state.drag_scrollbar_snapshot = message_line_counts;
@@ -5933,7 +5655,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 int track_height = scrollbar_box.y_max - scrollbar_box.y_min + 1;
                 const int snapshot_count =
                     static_cast<int>(state.drag_scrollbar_snapshot.size());
-                const int viewport_rows = chat_viewport_rows();
+                const int viewport_rows = viewport.rows();
                 const int max_top = acecode::tui::chat_max_scroll_top_row(
                     state.drag_scrollbar_snapshot, snapshot_count,
                     viewport_rows, message_spacer_rows_after);
@@ -5968,7 +5690,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 LOG_DEBUG("[scrollbar] pressed mouse=(" +
                           std::to_string(mouse.x) + "," +
                           std::to_string(mouse.y) + ") track=" +
-                          tui::input::box_for_log(scrollbar_box) +
+                          tui::box_for_log(scrollbar_box) +
                           " track_height=" + std::to_string(track_height) +
                           " viewport_rows=" + std::to_string(viewport_rows) +
                           " messages=" + std::to_string(snapshot_count) +
@@ -5983,7 +5705,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                           std::to_string(
                               state.drag_scrollbar_grab_offset_2x) +
                           " geometry=" +
-                          tui::input::scrollbar_geometry_for_log(geometry) +
+                          tui::scrollbar_geometry_for_log(geometry) +
                           " focus=" + std::to_string(state.chat_focus_index) +
                           " offset=" +
                           std::to_string(state.chat_line_offset) +
@@ -6010,13 +5732,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         LOG_DEBUG("[drag-select] pressed start mouse=(" +
                                   std::to_string(mouse.x) + "," +
                                   std::to_string(mouse.y) + ") chat_box=" +
-                                  tui::input::box_for_log(chat_box) + " scrollbar_box=" +
-                                  tui::input::box_for_log(scrollbar_box) + " focus=" +
+                                  tui::box_for_log(chat_box) + " scrollbar_box=" +
+                                  tui::box_for_log(scrollbar_box) + " focus=" +
                                   std::to_string(state.chat_focus_index) +
                                   " offset=" +
                                   std::to_string(state.chat_line_offset) +
                                   " previous_phase=" +
-                                  tui::input::drag_phase_for_log(state.drag_phase));
+                                  tui::drag_phase_for_log(state.drag_phase));
                         );
                         state.drag_left_pressed = true;
                         state.last_mouse_x = mouse.x;
@@ -6032,7 +5754,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         LOG_DEBUG("[scrollbar] released mouse=(" +
                                   std::to_string(mouse.x) + "," +
                                   std::to_string(mouse.y) + ") track=" +
-                                  tui::input::box_for_log(scrollbar_box) + " top=" +
+                                  tui::box_for_log(scrollbar_box) + " top=" +
                                   std::to_string(state.chat_scroll_top_row) +
                                   " grab2x=" +
                                   std::to_string(
@@ -6048,7 +5770,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     LOG_DEBUG("[drag-select] released mouse=(" +
                               std::to_string(mouse.x) + "," +
                               std::to_string(mouse.y) + ") phase=" +
-                              tui::input::drag_phase_for_log(state.drag_phase) +
+                              tui::drag_phase_for_log(state.drag_phase) +
                               " left_pressed=" +
                               std::to_string(state.drag_left_pressed ? 1 : 0) +
                               " focus=" +
@@ -6113,7 +5835,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         scrollbar_box.y_max - scrollbar_box.y_min + 1;
                     const int snapshot_count =
                         static_cast<int>(state.drag_scrollbar_snapshot.size());
-                    const int viewport_rows = chat_viewport_rows();
+                    const int viewport_rows = viewport.rows();
                     const int previous_top = state.chat_scroll_top_row;
                     const auto geometry =
                         acecode::tui::chat_scrollbar_thumb_geometry(
@@ -6139,7 +5861,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     LOG_DEBUG("[scrollbar] moved mouse=(" +
                               std::to_string(mouse.x) + "," +
                               std::to_string(mouse.y) + ") track=" +
-                              tui::input::box_for_log(scrollbar_box) +
+                              tui::box_for_log(scrollbar_box) +
                               " track_height=" +
                               std::to_string(track_height) +
                               " viewport_rows=" +
@@ -6155,7 +5877,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                               std::to_string(
                                   state.drag_scrollbar_grab_offset_2x) +
                               " geometry=" +
-                              tui::input::scrollbar_geometry_for_log(geometry) +
+                              tui::scrollbar_geometry_for_log(geometry) +
                               " focus=" +
                               std::to_string(state.chat_focus_index) +
                               " offset=" +
@@ -6181,9 +5903,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     LOG_DEBUG("[drag-select] moved mouse=(" +
                               std::to_string(mouse.x) + "," +
                               std::to_string(mouse.y) + ") chat_box=" +
-                              tui::input::box_for_log(chat_box) + " phase=" +
-                              tui::input::drag_phase_for_log(previous_phase) + "->" +
-                              tui::input::drag_phase_for_log(new_phase) +
+                              tui::box_for_log(chat_box) + " phase=" +
+                              tui::drag_phase_for_log(previous_phase) + "->" +
+                              tui::drag_phase_for_log(new_phase) +
                               " changed=" +
                               std::to_string(phase_changed ? 1 : 0) +
                               " focus=" +
@@ -6267,8 +5989,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 ACECODE_INPUT_TRACE(
                 if (is_wheel_event) {
                     LOG_DEBUG("[input] chat wheel ignored outside chat_box " +
-                              tui::input::event_for_log(event) +
-                              " chat_box=" + tui::input::box_for_log(chat_box));
+                              tui::event_for_log(event) +
+                              " chat_box=" + tui::box_for_log(chat_box));
                 }
                 );
                 return false;
@@ -6277,20 +5999,20 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (is_wheel_event && !chat_box.Contain(mouse.x, mouse.y)) {
                 LOG_DEBUG("[input] chat wheel accepted above chat_box for "
                           "terminal origin mismatch " +
-                          tui::input::event_for_log(event) +
-                          " chat_box=" + tui::input::box_for_log(chat_box));
+                          tui::event_for_log(event) +
+                          " chat_box=" + tui::box_for_log(chat_box));
             }
             );
 
             // 鼠标滚轮按行滚动 (3 行/notch, Win 默认值), 长消息不再被一格掠过。
             if (mouse.button == Mouse::WheelUp) {
-                sync_chat_line_counts_from_layout();
+                viewport.sync_from_layout(state);
                 ACECODE_INPUT_TRACE(
                 const int before_focus = state.chat_focus_index;
                 const int before_offset = state.chat_line_offset;
                 const bool before_tail = state.chat_follow_tail;
                 );
-                const int actual = scroll_chat_by_lines(-WHEEL_LINES);
+                const int actual = viewport.scroll_by_lines(state, -WHEEL_LINES);
                 ACECODE_INPUT_TRACE(
                 LOG_DEBUG("[input] chat wheel up delta=-" +
                           std::to_string(WHEEL_LINES) +
@@ -6310,13 +6032,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
             if (mouse.button == Mouse::WheelDown) {
-                sync_chat_line_counts_from_layout();
+                viewport.sync_from_layout(state);
                 ACECODE_INPUT_TRACE(
                 const int before_focus = state.chat_focus_index;
                 const int before_offset = state.chat_line_offset;
                 const bool before_tail = state.chat_follow_tail;
                 );
-                const int actual = scroll_chat_by_lines(WHEEL_LINES);
+                const int actual = viewport.scroll_by_lines(state, WHEEL_LINES);
                 ACECODE_INPUT_TRACE(
                 LOG_DEBUG("[input] chat wheel down delta=" +
                           std::to_string(WHEEL_LINES) +
@@ -6588,7 +6310,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         static_cast<std::size_t>(state.chat_focus_index)]
                     : std::string();
                 if (acecode::tui::toggle_completed_compact_notice_row(msg)) {
-                    invalidate_chat_line_measure_at(state.chat_focus_index);
+                    viewport.invalidate(state.chat_focus_index);
                     screen.PostEvent(Event::Custom);
                     return true;
                 }
@@ -6597,7 +6319,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     !acecode::tui::is_task_complete_result(
                         msg, paired_tool_name)) {
                     msg.expanded = !msg.expanded;
-                    invalidate_chat_line_measure_at(state.chat_focus_index);
+                    viewport.invalidate(state.chat_focus_index);
                     screen.PostEvent(Event::Custom);
                     return true;
                 }
@@ -6715,7 +6437,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.input_cursor = 0;
                         state.clear_input_selection();
                         if (cb) cb(sid);
-                        clamp_chat_focus();
+                        viewport.clamp_focus(state);
                         screen.PostEvent(Event::Custom);
                     }
                 }
@@ -6779,36 +6501,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     });
 
     TuiRendererContext renderer_ctx{
-        state,
-        screen,
-        version_str,
-        cwd_display,
-        chat_box,
-        scrollbar_box,
-         ask_question_frame,
-         sidebar_content_box,
-        sidebar_viewport_box,
-        sidebar_scrollbar_box,
-        input_hit_layout,
-        message_boxes,
-        path_reference_boxes,
-        chat_link_regions,
-        chat_scroll.message_render_cache,
-        message_layout_boxes,
-        message_layout_valid,
-        message_layout_revisions,
-        message_layout_widths,
-        message_line_counts,
-        message_spacer_rows_after,
-        anim_tick,
-        input_with_esc,
-        permissions,
-        dangerous_mode,
-        conhost_compat_layout,
-        hover_supported,
-        clamp_chat_focus,
-        chat_viewport_rows,
-        sync_chat_line_counts_from_layout,
+        state, screen, version_str, cwd_display, viewport, geometry, anim_tick,
+        input_with_esc, permissions, dangerous_mode, conhost_compat_layout, hover_supported,
     };
     auto chat_renderer = Renderer(
         input_with_esc,

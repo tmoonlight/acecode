@@ -77,7 +77,7 @@
   - `populate_rewind_modes`。
   - 前置:2.3。
   - 验证:每个都有中文注释单测;`frame_layout` 覆盖上一帧宽度为 0 与非 0 两种情况。
-- [ ] 3.2 【B-05】【主】ChatViewport / FrameGeometry 独占几何数据。
+- [ ] 3.2 【B-05】【主】ChatViewport / FrameGeometry 独占几何数据。〔实现完成: Codex-root 2026-09-28;两对象持有测量缓存与反射命中数据,ChatScrollRuntime 和六个包装 lambda 删除,TuiRendererContext 改为借用两个宿主;新增按行滚动/尾部跟随/宽度与展开失效/空转录用例,待统一验收〕
   - 删除 `ChatScrollRuntime` 与 `TuiRendererContext` 中对应的引用字段,以及 6 个视口 lambda。
   - 前置:3.1。
   - 验证:

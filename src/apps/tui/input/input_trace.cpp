@@ -1,6 +1,6 @@
 #include "input_trace.hpp"
 #if ACECODE_TUI_INPUT_TRACE
-namespace acecode::tui::input {
+namespace acecode::tui {
 std::string box_for_log(const ftxui::Box& box) {
     return "[" + std::to_string(box.x_min) + "," +
            std::to_string(box.y_min) + "]-[" +
@@ -37,5 +37,5 @@ std::string scrollbar_geometry_for_log(
            " thumb_size2x=" + std::to_string(geometry.thumb_size_2x) +
            " thumb_top2x=" + std::to_string(geometry.thumb_top_2x) + "}";
 }
-} // namespace acecode::tui::input
+} // namespace acecode::tui
 #endif

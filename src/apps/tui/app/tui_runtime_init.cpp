@@ -251,7 +251,7 @@ acecode::tui::ScreenRenderMode initialize_tui_render_mode(
     auto render_mode = acecode::tui::decide_render_mode(config.tui, term_caps);
     conhost_compat_layout =
         acecode::should_use_conhost_compat_layout(term_caps);
-    term::set_ftxui_full_repaint_mode(conhost_compat_layout);
+    set_ftxui_full_repaint_mode(conhost_compat_layout);
     if (conhost_compat_layout) {
         render_mode = acecode::tui::ScreenRenderMode::AltScreen;
     }
