@@ -1,5 +1,5 @@
-#include "command.hpp"
-#include "runtime.hpp"
+#include "channels_cli.hpp"
+#include "channels/runtime.hpp"
 #include "tui/channels_setup.hpp"
 #include "utils/utf8_path.hpp"
 #include <iomanip>

@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-#include "commands/websearch_command.hpp"
+#include "tui/commands/websearch_command.hpp"
 #include "tool/web_search/backend.hpp"
 #include "tool/web_search/backend_router.hpp"
 #include "tool/web_search/region_detector.hpp"

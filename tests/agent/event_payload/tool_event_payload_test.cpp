@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include "web/tool_event_payload.hpp"
+#include "agent/event_payload/tool_event_payload.hpp"
 
 #include <nlohmann/json.hpp>
 

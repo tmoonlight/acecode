@@ -29,7 +29,7 @@
 #include "tui/unclipped_reflect.hpp"
 #include "tui/vertical_scroll.hpp"
 #include "session/token_tracker.hpp"
-#include "utils/text_input_ops.hpp"
+#include "tui/text_input_ops.hpp"
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"
 

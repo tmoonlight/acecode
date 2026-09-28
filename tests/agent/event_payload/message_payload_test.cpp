@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "web/message_payload.hpp"
+#include "agent/event_payload/message_payload.hpp"
 #include "utils/sha1.hpp"
 #include "llm/llm_provider.hpp"
 

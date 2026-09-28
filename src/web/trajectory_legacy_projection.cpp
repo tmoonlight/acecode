@@ -1,6 +1,6 @@
 #include "trajectory_legacy_projection.hpp"
 
-#include "message_payload.hpp"
+#include "agent/event_payload/message_payload.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_rewind.hpp"
 #include "session/tool_result_storage.hpp"

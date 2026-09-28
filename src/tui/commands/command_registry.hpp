@@ -1,7 +1,7 @@
 #pragma once
 
-#include "tui_state.hpp"
-#include "agent_loop.hpp"
+#include "tui/tui_state.hpp"
+#include "agent/agent_loop.hpp"
 #include "llm/llm_provider.hpp"
 #include "config/config.hpp"
 #include "session/token_tracker.hpp"

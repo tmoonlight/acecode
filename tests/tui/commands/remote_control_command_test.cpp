@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "config/config.hpp"
-#include "commands/remote_control_command.hpp"
+#include "tui/commands/remote_control_command.hpp"
 #include "permissions/permissions.hpp"
 #include "remote_control/channel_plugin.hpp"
 #include "remote_control/remote_control_service.hpp"

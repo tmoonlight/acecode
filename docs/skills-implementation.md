@@ -192,7 +192,7 @@ struct SkillMetadata {
 
 ## 8. `/skills reload` 流程
 
-位于 `src/commands/builtin_commands.cpp`，对应 `reload_skill_commands(cmd_registry, skill_registry)`：
+位于 `src/tui/commands/builtin_commands.cpp`，对应 `reload_skill_commands(cmd_registry, skill_registry)`：
 
 1. 取出 `g_tracked_keys` 并清空。
 2. 对每个 key `cmd_registry.unregister_command(k)` — 反注册上一轮的 `/<skill-name>`。

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "daemon/mcp_runtime.hpp"
+#include "tool/mcp_runtime.hpp"
 #include "tool/tool_executor.hpp"
 
 #include <chrono>

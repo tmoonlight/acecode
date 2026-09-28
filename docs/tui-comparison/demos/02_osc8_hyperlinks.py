@@ -33,7 +33,7 @@ def main():
     print()
     print(" " + osc8("https://github.com/charmbracelet/crush", "crush (GitHub)"))
     print(" " + osc8("https://sw.kovidgoyal.net/kitty/keyboard-protocol/", "kitty keyboard 协议文档"))
-    print(" " + osc8(repo_file, "src/main.cpp(点击在编辑器打开)"))
+    print(" " + osc8(repo_file, "src/cli/main.cpp(点击在编辑器打开)"))
     print(" " + osc8("https://example.com/path?q=1", "带查询参数的 URL"))
     print()
     print(DIM + " ↑ 在 Windows Terminal / kitty / WezTerm / iTerm2 里 Ctrl+Click(或 Cmd+Click)可打开" + RESET)
@@ -45,7 +45,7 @@ def main():
           DIM + "    https://github.com/charmbracelet/crush" + RESET)
     print(" " + fg(100, 180, 255) + UNDERLINE + "kitty keyboard 协议文档" + RESET +
           DIM + "    https://sw.kovidgoyal.net/kitty/keyboard-protocol/" + RESET)
-    print(" " + fg(100, 180, 255) + UNDERLINE + "src/main.cpp" + RESET +
+    print(" " + fg(100, 180, 255) + UNDERLINE + "src/cli/main.cpp" + RESET +
           DIM + "    " + repo_file + RESET)
     print()
     print(DIM + " ↑ acecode 的 markdown_formatter 检测到支持 OSC 8 的终端后,"

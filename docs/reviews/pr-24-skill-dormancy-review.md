@@ -38,7 +38,7 @@ daemon 创建了 `SkillUsageStore`，并把它交给 `WebServerDeps`，但没有
 
 而 `AgentLoop::dormant_skill_names()` 在 store 为空时直接返回空集合：
 
-- [`src/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
+- [`src/agent/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
 
 #### 影响
 
@@ -61,7 +61,7 @@ Desktop/Web 会话中：
 
 当前唯一的 `record()` 调用位于显式 Skill 展开之后：
 
-- [`src/agent_loop.cpp` L1758-L1769](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L1758-L1769)
+- [`src/agent/agent_loop.cpp` L1758-L1769](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L1758-L1769)
 
 系统提示词要求模型对匹配任务调用 `skill_view`，但 `skill_view` 的成功路径没有接入 usage store：
 
@@ -218,7 +218,7 @@ TUI 只追加一行只读文本，没有 pin、解除 pin或唤醒操作；无�
 
 `AgentLoop::dormant_skill_names()` 遍历全部 Skill，并对每个 Skill 调用一次 `is_dormant()`；而每次 `is_dormant()` 都重新打开和解析完整 JSON 文件：
 
-- [`src/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
+- [`src/agent/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
 - [`src/skills/skill_usage_store.cpp` L74-L90](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L74-L90)
 
 Skill 数量增加后，这是每次 provider 请求前的同步磁盘 I/O。建议一次读取快照并在内存中完成全部判定，写入成功后更新缓存，必要时通过文件时间检测外部进程更新。
@@ -238,8 +238,8 @@ Skill 数量增加后，这是每次 provider 请求前的同步磁盘 I/O。建
 
 GitHub 报告该 PR 为 `CONFLICTING / DIRTY`。本地 `git merge-tree` 确认冲突涉及：
 
-- `src/agent_loop.cpp`：内容冲突；
-- `src/main.cpp`：内容冲突；
+- `src/agent/agent_loop.cpp`：内容冲突；
+- `src/cli/main.cpp`：内容冲突；
 - `scripts/macos_create_dmg.sh`：`master` 已删除、PR 仍修改。
 
 审核时，该 PR 相对当前 `origin/master`：

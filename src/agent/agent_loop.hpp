@@ -7,7 +7,7 @@
 #include "session/token_tracker.hpp"
 #include "session/session_manager.hpp"
 #include "session/event_dispatcher.hpp"
-#include "session/side_chat.hpp"
+#include "agent/side_question/side_chat.hpp"
 #include "session/permission_prompter.hpp"
 #include "session/ask_user_question_prompter.hpp"
 #include "config/config.hpp"

@@ -27,10 +27,10 @@
 |------|------|:---:|
 | `src/skills/skill_usage_store.hpp` | 数据模型 + 公开接口声明 | 新建 |
 | `src/skills/skill_usage_store.cpp` | store 实现:读/写/判定/并发 | 新建 |
-| `src/agent_loop.cpp` | 注入点记录 + 列表过滤 | 修改 |
+| `src/agent/agent_loop.cpp` | 注入点记录 + 列表过滤 | 修改 |
 | `src/config/config.hpp` | `SkillsConfig` 新增 `idle_days` | 修改 |
-| `src/tui_state.hpp` | 新增 store 引用 | 修改 |
-| `src/main.cpp` | 初始化 store + 传参 | 修改 |
+| `src/tui/tui_state.hpp` | 新增 store 引用 | 修改 |
+| `src/cli/main.cpp` | 初始化 store + 传参 | 修改 |
 | `src/tui/settings/management_center.cpp` | TUI 展示次数/状态/pin | 修改 |
 | `src/web/handlers/skills_handler.cpp` | Web API 返回状态 + pin | 修改 |
 | `tests/skills/skill_usage_store_test.cpp` | store 单元测试 | 新建 |
@@ -423,7 +423,7 @@ git commit -m "feat: add idle_days config to SkillsConfig"
 ### Task 5: 注入点记录 + 列表过滤
 
 **Files:**
-- Modify: `src/agent_loop.cpp`
+- Modify: `src/agent/agent_loop.cpp`
 
 **Interfaces:**
 - Consumes: `SkillUsageStore` from Task 2, `SkillsConfig::idle_days` from Task 4
@@ -486,7 +486,7 @@ Expected: 编译通过
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/agent_loop.cpp
+git add src/agent/agent_loop.cpp
 git commit -m "feat: record skill usage on injection and filter dormant skills"
 ```
 
@@ -495,8 +495,8 @@ git commit -m "feat: record skill usage on injection and filter dormant skills"
 ### Task 6: 初始化与状态传递
 
 **Files:**
-- Modify: `src/tui_state.hpp`
-- Modify: `src/main.cpp`
+- Modify: `src/tui/tui_state.hpp`
+- Modify: `src/cli/main.cpp`
 
 **Interfaces:**
 - Consumes: `SkillUsageStore` from Task 2
@@ -505,7 +505,7 @@ git commit -m "feat: record skill usage on injection and filter dormant skills"
 - [ ] **Step 1: 在 tui_state 添加 store 引用**
 
 ```cpp
-// src/tui_state.hpp, 在 slash_command_usage_counts 附近
+// src/tui/tui_state.hpp, 在 slash_command_usage_counts 附近
 #include "skills/skill_usage_store.hpp"
 // ...
 std::shared_ptr<SkillUsageStore> skill_usage_store;
@@ -514,7 +514,7 @@ std::shared_ptr<SkillUsageStore> skill_usage_store;
 - [ ] **Step 2: 在 main.cpp 初始化 store**
 
 ```cpp
-// src/main.cpp, 在 skill_registry 初始化后
+// src/cli/main.cpp, 在 skill_registry 初始化后
 auto home = /* acecode home dir */;
 auto state_path = home + "/.skill_usage_state.json";
 state.skill_usage_store = std::make_shared<SkillUsageStore>(state_path);
@@ -528,7 +528,7 @@ Expected: 编译通过
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/tui_state.hpp src/main.cpp
+git add src/tui/tui_state.hpp src/cli/main.cpp
 git commit -m "feat: wire SkillUsageStore into tui_state and main"
 ```
 

@@ -29,16 +29,16 @@
 **新建:**
 - `src/tui/message_render_cache.hpp` / `.cpp` — L1 缓存键 + 每消息 Element 缓存 + 链接区域缓存(纯逻辑,可单测)
 - `tests/tui/message_render_cache_test.cpp` — L1 单测
-- `tests/markdown/streaming_formatter_test.cpp` — L2 单测
-- `tests/markdown/incremental_lexer_test.cpp` — L3 单测
-- `tests/markdown/streaming_layout_benchmark.cpp` — C++ 基准
+- `tests/tui/markdown/streaming_formatter_test.cpp` — L2 单测
+- `tests/tui/markdown/incremental_lexer_test.cpp` — L3 单测
+- `tests/tui/markdown/streaming_layout_benchmark.cpp` — C++ 基准
 
 **修改:**
-- `src/markdown/markdown_lexer.hpp` / `.cpp` — 新增 `LexerState`(`lex()` 保持不动)
-- `src/markdown/markdown_formatter.hpp` / `.cpp` — 增强 `StreamingFormatter`
+- `src/tui/markdown/markdown_lexer.hpp` / `.cpp` — 新增 `LexerState`(`lex()` 保持不动)
+- `src/tui/markdown/markdown_formatter.hpp` / `.cpp` — 增强 `StreamingFormatter`
 - `src/tui/theme_palette.hpp` / `.cpp` — 主题版本计数器
-- `src/tui_state.hpp` — 挂 `StreamingFormatter` 跨帧实例
-- `src/main.cpp` — render loop 接入 L1/L2;revision 补 content 哈希
+- `src/tui/tui_state.hpp` — 挂 `StreamingFormatter` 跨帧实例
+- `src/cli/main.cpp` — render loop 接入 L1/L2;revision 补 content 哈希
 
 ---
 
@@ -114,7 +114,7 @@ git commit -m "feat: add per-message render cache module (L1)"
 ### Task 2:revision 补 content 哈希
 
 **Files:**
-- Modify: `src/main.cpp:1309-1379`(message_render_revision)
+- Modify: `src/cli/main.cpp:1309-1379`(message_render_revision)
 
 **Interfaces:**
 - Consumes: `combine_render_hash`(已存在)
@@ -132,14 +132,14 @@ Expected: PASS(若某测试断言"内容变化不改变 revision",更新该断�
 
 - [ ] **Step 3: 提交**
 ```bash
-git add src/main.cpp
+git add src/cli/main.cpp
 git commit -m "feat: include content hash in message render revision (L1)"
 ```
 
 ### Task 3:接入 MessageRenderCache 到 render loop
 
 **Files:**
-- Modify: `src/main.cpp`(`ChatScrollRuntime` ~1283 加字段;`reset_chat_line_measure_state_runtime` ~1368;`invalidate_chat_line_measure_at_runtime` ~1388;render 循环 ~3460)
+- Modify: `src/cli/main.cpp`(`ChatScrollRuntime` ~1283 加字段;`reset_chat_line_measure_state_runtime` ~1368;`invalidate_chat_line_measure_at_runtime` ~1388;render 循环 ~3460)
 - Test: `tests/tui/message_render_cache_test.cpp`(已有)
 
 **Interfaces:**
@@ -163,7 +163,7 @@ Expected: PASS
 
 - [ ] **Step 4: 提交**
 ```bash
-git add src/main.cpp
+git add src/cli/main.cpp
 git commit -m "feat: wire per-message render cache into chat render loop (L1)"
 ```
 
@@ -202,8 +202,8 @@ git commit -m "feat: add theme palette version counter (L2)"
 ### Task 5:StreamingFormatter 行级冻结增强
 
 **Files:**
-- Modify: `src/markdown/markdown_formatter.hpp:38-55`, `src/markdown/markdown_formatter.cpp:788-860`
-- Test: `tests/markdown/streaming_formatter_test.cpp`(新建)
+- Modify: `src/tui/markdown/markdown_formatter.hpp:38-55`, `src/tui/markdown/markdown_formatter.cpp:788-860`
+- Test: `tests/tui/markdown/streaming_formatter_test.cpp`(新建)
 
 **Interfaces:**
 - Consumes: `format_markdown(raw, opts)`, `FormatOptions`(已有)
@@ -214,7 +214,7 @@ git commit -m "feat: add theme palette version counter (L2)"
   - `void set_context(int width, std::uint32_t theme_version);`——宽度/主题变化时清空稳定区(下次 append 全量重建),避免换行/配色错误
   - 私有:`int width_ = -1; std::uint32_t theme_ = 0;`
 
-- [ ] **Step 1: 写失败测试** `tests/markdown/streaming_formatter_test.cpp`:
+- [ ] **Step 1: 写失败测试** `tests/tui/markdown/streaming_formatter_test.cpp`:
 ```cpp
 #include "markdown/markdown_formatter.hpp"
 #include <gtest/gtest.h>
@@ -318,15 +318,15 @@ static bool line_is_safe_to_freeze(const std::string& line) {
 - [ ] **Step 4: 运行通过 + 提交**
 Run: `cmake --build build/macos-x64-debug --target acecode_unit_tests && ./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='StreamingFormatter.*'` → PASS
 ```bash
-git add src/markdown/markdown_formatter.hpp src/markdown/markdown_formatter.cpp tests/markdown/streaming_formatter_test.cpp
+git add src/tui/markdown/markdown_formatter.hpp src/tui/markdown/markdown_formatter.cpp tests/tui/markdown/streaming_formatter_test.cpp
 git commit -m "feat: streaming formatter freezes completed lines safely (L2)"
 ```
 
 ### Task 6:挂 StreamingFormatter 到会话状态并接入流式渲染
 
 **Files:**
-- Modify: `src/tui_state.hpp`(约 85 行附近会话字段区)
-- Modify: `src/main.cpp`(on_delta 约 5063-5085;render 循环约 3476)
+- Modify: `src/tui/tui_state.hpp`(约 85 行附近会话字段区)
+- Modify: `src/cli/main.cpp`(on_delta 约 5063-5085;render 循环约 3476)
 
 **Interfaces:**
 - Consumes: `StreamingFormatter::append_delta/last_element/set_context/reset`、`theme_palette_version()`(Task 4)
@@ -358,7 +358,7 @@ Run: `cmake --build build/macos-x64-debug --target acecode_unit_tests && ./build
 
 - [ ] **Step 5: 提交**
 ```bash
-git add src/tui_state.hpp src/main.cpp
+git add src/tui/tui_state.hpp src/cli/main.cpp
 git commit -m "feat: stream assistant message through incremental formatter (L2)"
 ```
 
@@ -369,13 +369,13 @@ git commit -m "feat: stream assistant message through incremental formatter (L2)
 ### Task 7:抽出"token 块 → Element"渲染器
 
 **Files:**
-- Modify: `src/markdown/markdown_formatter.hpp`, `src/markdown/markdown_formatter.cpp`
-- Test: `tests/markdown/markdown_formatter_test.cpp`(新建)
+- Modify: `src/tui/markdown/markdown_formatter.hpp`, `src/tui/markdown/markdown_formatter.cpp`
+- Test: `tests/tui/markdown/markdown_formatter_test.cpp`(新建)
 
 **Interfaces:**
 - Produces: `ftxui::Element render_token_blocks(const std::vector<Token>& tokens, const FormatOptions& opts);`——把一组块级 token 渲染成 Element(`format_markdown` 内部改为 `lex` + 调用本函数,行为不变)。
 
-- [ ] **Step 1: 写测试** `tests/markdown/markdown_formatter_test.cpp`:
+- [ ] **Step 1: 写测试** `tests/tui/markdown/markdown_formatter_test.cpp`:
 ```cpp
 #include "markdown/markdown_formatter.hpp"
 #include <gtest/gtest.h>
@@ -400,15 +400,15 @@ TEST(RenderTokenBlocks, MatchesFormatMarkdownOutput) {
 - [ ] **Step 3: 回归 + 提交**
 Run: `./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='RenderTokenBlocks.*'` → PASS
 ```bash
-git add src/markdown/markdown_formatter.hpp src/markdown/markdown_formatter.cpp tests/markdown/markdown_formatter_test.cpp
+git add src/tui/markdown/markdown_formatter.hpp src/tui/markdown/markdown_formatter.cpp tests/tui/markdown/markdown_formatter_test.cpp
 git commit -m "refactor: extract render_token_blocks from format_markdown (L3)"
 ```
 
 ### Task 8:LexerState 可续 lexer
 
 **Files:**
-- Modify: `src/markdown/markdown_lexer.hpp`, `src/markdown/markdown_lexer.cpp`
-- Test: `tests/markdown/incremental_lexer_test.cpp`(新建)
+- Modify: `src/tui/markdown/markdown_lexer.hpp`, `src/tui/markdown/markdown_lexer.cpp`
+- Test: `tests/tui/markdown/incremental_lexer_test.cpp`(新建)
 
 **Interfaces:**
 - Produces:
@@ -424,7 +424,7 @@ git commit -m "refactor: extract render_token_blocks from format_markdown (L3)"
   2. 且 `line_is_safe_to_freeze(该行)`(无未闭合 `*`/`~`/`[`/`` ` ``/转义);
   3. 满足即推进稳定边界到该行尾。
 
-- [ ] **Step 1: 写失败测试** `tests/markdown/incremental_lexer_test.cpp`:
+- [ ] **Step 1: 写失败测试** `tests/tui/markdown/incremental_lexer_test.cpp`:
 ```cpp
 #include "markdown/markdown_lexer.hpp"
 #include <gtest/gtest.h>
@@ -530,21 +530,21 @@ std::vector<Token> LexerState::tail_tokens() const {
 - [ ] **Step 3: 运行通过 + 提交**
 Run: `cmake --build build/macos-x64-debug --target acecode_unit_tests && ./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='LexerState.*:StreamingFormatter.*'` → PASS
 ```bash
-git add src/markdown/markdown_lexer.hpp src/markdown/markdown_lexer.cpp tests/markdown/incremental_lexer_test.cpp src/markdown/markdown_formatter.cpp src/markdown/markdown_formatter.hpp
+git add src/tui/markdown/markdown_lexer.hpp src/tui/markdown/markdown_lexer.cpp tests/tui/markdown/incremental_lexer_test.cpp src/tui/markdown/markdown_formatter.cpp src/tui/markdown/markdown_formatter.hpp
 git commit -m "feat: add resumable LexerState (L3)"
 ```
 
 ### Task 9:StreamingFormatter 改用 LexerState(稳定区按 token 增量构建)
 
 **Files:**
-- Modify: `src/markdown/markdown_formatter.cpp`(StreamingFormatter 内部)
-- Test: `tests/markdown/streaming_formatter_test.cpp`(扩展)
+- Modify: `src/tui/markdown/markdown_formatter.cpp`(StreamingFormatter 内部)
+- Test: `tests/tui/markdown/streaming_formatter_test.cpp`(扩展)
 
 **Interfaces:**
 - Consumes: `LexerState`、`render_token_blocks`(Task 7)、`line_is_safe_to_freeze`
 - Produces: `StreamingFormatter` 内部改为:`LexerState lexer_; std::vector<ftxui::Element> stable_elements_;`(每个稳定 token 一个 Element,只对 `new_stable_count()` 新增部分调 `render_token_blocks` 构建并 append)
 
-- [ ] **Step 1: 扩展测试**(追加到 `tests/markdown/streaming_formatter_test.cpp`):
+- [ ] **Step 1: 扩展测试**(追加到 `tests/tui/markdown/streaming_formatter_test.cpp`):
 ```cpp
 TEST(StreamingFormatter, StableElementsBuiltOncePerNewToken) {
     StreamingFormatter f; f.set_context(80, 1);
@@ -584,7 +584,7 @@ TEST(StreamingFormatter, StableElementsBuiltOncePerNewToken) {
 - [ ] **Step 3: 回归 + 提交**
 Run: `cmake --build build/macos-x64-debug --target acecode_unit_tests && ./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='StreamingFormatter.*:LexerState.*:RenderTokenBlocks.*'` → PASS
 ```bash
-git add src/markdown/markdown_formatter.cpp tests/markdown/streaming_formatter_test.cpp
+git add src/tui/markdown/markdown_formatter.cpp tests/tui/markdown/streaming_formatter_test.cpp
 git commit -m "feat: stream formatter builds stable region incrementally via LexerState (L3)"
 ```
 
@@ -595,13 +595,13 @@ git commit -m "feat: stream formatter builds stable region incrementally via Lex
 ### Task 10:C++ 流式渲染基准
 
 **Files:**
-- Create: `tests/markdown/streaming_layout_benchmark.cpp`
+- Create: `tests/tui/markdown/streaming_layout_benchmark.cpp`
 
 **Interfaces:**
 - Consumes: `format_markdown`、`LexerState`、`StreamingFormatter::append_delta/last_element`、`render_token_blocks`
 
 - [ ] **Step 1: 写基准(gtest 形式,输出耗时曲线)**
-`tests/markdown/streaming_layout_benchmark.cpp`:
+`tests/tui/markdown/streaming_layout_benchmark.cpp`:
 ```cpp
 #include "markdown/markdown_formatter.hpp"
 #include "markdown/markdown_lexer.hpp"
@@ -664,7 +664,7 @@ Expected: 打印 12 行 CSV(type,lines,full_us,incremental_us)。**验收判据(
 
 - [ ] **Step 3: 提交**
 ```bash
-git add tests/markdown/streaming_layout_benchmark.cpp
+git add tests/tui/markdown/streaming_layout_benchmark.cpp
 git commit -m "test: add streaming layout benchmark harness (acceptance)"
 ```
 

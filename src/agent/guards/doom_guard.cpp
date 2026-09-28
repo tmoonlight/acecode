@@ -1,4 +1,4 @@
-#include "agent_loop_doom_guard.hpp"
+#include "doom_guard.hpp"
 #include "llm/tool_protocol_names.hpp"
 
 #include <nlohmann/json.hpp>

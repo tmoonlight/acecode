@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "markdown/markdown_formatter.hpp"
-#include "markdown/mermaid_renderer.hpp"
+#include "tui/markdown/markdown_formatter.hpp"
+#include "tui/markdown/mermaid_renderer.hpp"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>

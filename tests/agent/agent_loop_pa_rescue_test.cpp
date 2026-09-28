@@ -4,7 +4,7 @@
 // 与效果,不验证真实时长。
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "pa/pa_context_budget.hpp"
 #include "pa/pa_overflow_rescue.hpp"
 #include "permissions/permissions.hpp"

@@ -1,6 +1,6 @@
 // /history 命令实现：list / clear 两种子动作。
 // 文件路径解析沿用 SessionStorage::get_project_dir(cwd)，与启动加载路径一致。
-#include "commands/history_command.hpp"
+#include "tui/commands/history_command.hpp"
 
 #include "history/input_history_store.hpp"
 #include "session/session_storage.hpp"

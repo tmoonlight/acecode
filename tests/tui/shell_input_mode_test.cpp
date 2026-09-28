@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "tui_state.hpp"
+#include "tui/tui_state.hpp"
 
 using acecode::is_shell_mode_trigger_character;
 

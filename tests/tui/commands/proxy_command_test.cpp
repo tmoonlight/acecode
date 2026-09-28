@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "commands/proxy_command.hpp"
+#include "tui/commands/proxy_command.hpp"
 
 using acecode::ProxyDisplaySnapshot;
 using acecode::format_proxy_display;

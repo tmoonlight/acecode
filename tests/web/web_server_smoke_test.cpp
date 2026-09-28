@@ -72,7 +72,7 @@
 #include "utils/utf8_path.hpp"
 #include "web/handlers/fs_browser_handler.hpp"
 #include "web/remote_web_proxy.hpp"
-#include "web/message_payload.hpp"
+#include "agent/event_payload/message_payload.hpp"
 #include "web/server.hpp"
 #include "web/handlers/models_handler.hpp"
 #include "worktree/worktree_manager.hpp"

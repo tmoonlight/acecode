@@ -4,13 +4,13 @@
 
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "permissions/permissions.hpp"
 #include "session/compact_checkpoint.hpp"
-#include "session/session_resume_restore.hpp"
+#include "tui/resume/session_resume_restore.hpp"
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
-#include "tui_state.hpp"
+#include "tui/tui_state.hpp"
 #include "test_support/agent/stub_provider.hpp"
 
 #include <atomic>

@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "markdown/link_safety.hpp"
+#include "tui/markdown/link_safety.hpp"
 
 #include <optional>
 #include <string>

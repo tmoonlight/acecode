@@ -2,8 +2,8 @@
 
 #include "command_registry.hpp"
 #include "skills/opencode_command.hpp"
-#include "agent_loop.hpp"
-#include "tui_state.hpp"
+#include "agent/agent_loop.hpp"
+#include "tui/tui_state.hpp"
 #include "utils/logger.hpp"
 
 #include <chrono>

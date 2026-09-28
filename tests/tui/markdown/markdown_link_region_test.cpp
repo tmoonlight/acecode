@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "markdown/markdown_formatter.hpp"
+#include "tui/markdown/markdown_formatter.hpp"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/screen.hpp>

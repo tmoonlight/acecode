@@ -1,7 +1,7 @@
 // /websearch 命令实现:UI 副作用通过 emit() 推回 TuiState,核心逻辑(状态
 // 文本、子命令分发)抽到纯函数以便单测。
 
-#include "commands/websearch_command.hpp"
+#include "tui/commands/websearch_command.hpp"
 
 #include "tool/web_search/backend_router.hpp"
 #include "tool/web_search/region_detector.hpp"

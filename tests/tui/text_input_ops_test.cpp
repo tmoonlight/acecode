@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/text_input_ops.hpp"
+#include "tui/text_input_ops.hpp"
 
 #include <cstddef>
 #include <string>

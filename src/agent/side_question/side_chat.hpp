@@ -1,6 +1,6 @@
 #pragma once
 
-#include "session_client.hpp"
+#include "session/session_client.hpp"
 
 #include <atomic>
 #include <memory>

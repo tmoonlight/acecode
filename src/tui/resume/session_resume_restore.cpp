@@ -1,15 +1,15 @@
 #include "session_resume_restore.hpp"
 
-#include "compact_checkpoint.hpp"
+#include "session/compact_checkpoint.hpp"
 #include "session_replay.hpp"
-#include "session_rewind.hpp"
-#include "tool_result_storage.hpp"
-#include "turn_timing.hpp"
-#include "agent_loop.hpp"
+#include "session/session_rewind.hpp"
+#include "session/tool_result_storage.hpp"
+#include "session/turn_timing.hpp"
+#include "agent/agent_loop.hpp"
 #include "tool/apply_patch_format.hpp"
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
-#include "tui_state.hpp"
+#include "tui/tui_state.hpp"
 #include "utils/text_file_buffer.hpp"
 
 #include <map>

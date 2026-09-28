@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/ask_user_question_prompter.hpp"

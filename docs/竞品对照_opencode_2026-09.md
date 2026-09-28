@@ -234,12 +234,12 @@ E1 OpenAPI ──→ E2 ACP / E4 VS Code / SDK
 
 ## 6. 与 2026-08 报告 Phase 1 的衔接
 
-8 月报告 Phase 1 的五项（`/thinking`、Ctrl+G 外部编辑器、会话元命令、离线开关、`/hotkeys`）截至本次核实 **均未落地**（`src/commands/` 无 thinking/effort/hotkeys 命令，`src/tui` 无 keybind 机制，`$EDITOR` 仍只用于 `/memory edit`）。本报告的 M1、U1、U3 与之重叠，建议直接合并到 P0/P1 排期，不再单独立项。
+8 月报告 Phase 1 的五项（`/thinking`、Ctrl+G 外部编辑器、会话元命令、离线开关、`/hotkeys`）截至本次核实 **均未落地**（`src/tui/commands/` 无 thinking/effort/hotkeys 命令，`src/tui` 无 keybind 机制，`$EDITOR` 仍只用于 `/memory edit`）。本报告的 M1、U1、U3 与之重叠，建议直接合并到 P0/P1 排期，不再单独立项。
 
 ---
 
 ## 7. 核实方法
 
 - opencode：读 `AGENTS.md`、`CONTEXT.md`、`packages/web/src/content/docs/*.mdx`（36 页）建立功能清单，再逐项进 `packages/opencode/src`、`packages/core/src`、`packages/plugin/src`、`packages/tui/src`、`packages/app/src`、`packages/llm/src` 核对实现存在且非 stub。
-- ACECode：对 `src/tool/builtin_tool_registry.hpp`、`src/commands/*.cpp` 的注册点、`src/permissions/permissions.hpp`、`src/config/config.hpp`、`src/prompt/system_prompt.cpp`、`docs/hooks.md` 做 grep 级核实；"无"的结论均来自 grep 零命中 + 目录结构确认。
+- ACECode：对 `src/tool/builtin_tool_registry.hpp`、`src/tui/commands/*.cpp` 的注册点、`src/permissions/permissions.hpp`、`src/config/config.hpp`、`src/prompt/system_prompt.cpp`、`docs/hooks.md` 做 grep 级核实；"无"的结论均来自 grep 零命中 + 目录结构确认。
 - 未核实、只依据文档的项已在表中用"docs"或"需核对"标出。

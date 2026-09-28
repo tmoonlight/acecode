@@ -15,5 +15,5 @@ PAGES = {
         '''<p>下面的路径相对于个人数据目录 <code>~/.acecode/</code>；Windows 为 <code>%USERPROFILE%/.acecode/</code>。Windows 服务另用 <code>%PROGRAMDATA%/acecode/</code>，远端进程使用远端身份的目录。</p>''',
         table(["路径", "内容"], [["<code>config.json</code>", "全局配置、模型连接与扩展定义，可能包含凭据。"], ["<code>config-backups/</code>", "有效配置快照和损坏配置备份，也可能含凭据。"], ["<code>projects/</code>", "按项目范围保存的会话、元数据和输入历史等记录。"], ["<code>skills/</code>", "用户技能；还可读取其他已启用根目录。"], ["<code>memory/</code>", "MEMORY.md 索引与记忆条目。"], ["<code>hooks.json</code>", "用户级 Hooks 定义。"], ["<code>logs/</code>", "按运行方式与日期保存的日志。"], ["<code>run/</code>", "独立后台的 PID、端口、GUID、心跳和 Token。"], ["<code>run/desktop-shared/</code>", "桌面托管后台的独立运行身份。"]]),
         '''<p>项目规则和项目技能可能保存在仓库本身。TUI 的 acecode.log 位于启动工作目录，不在上述 logs 目录。Git 工作树路径以任务实际记录为准。</p><p>备份前先结束相关写入，并同时考虑会话数据与实际项目文件。不要只备份 Markdown 导出就假定能够完整恢复，也不要在运行时随意删除身份文件或数据库。卸载与保留数据见<a href="update-uninstall.html">更新与卸载</a>。</p>''')
-], ["docs/user-manual.md", "src/commands/builtin_commands.cpp", "src/headless/headless_options.cpp", "src/utils/paths.cpp", "docs/daemon-api.md", "src/memory/memory_paths.cpp"]),
+], ["docs/user-manual.md", "src/tui/commands/builtin_commands.cpp", "src/headless/headless_options.cpp", "src/utils/paths.cpp", "docs/daemon-api.md", "src/memory/memory_paths.cpp"]),
 }

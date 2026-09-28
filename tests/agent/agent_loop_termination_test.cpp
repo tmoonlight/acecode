@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "config/config.hpp"
 #include "memory/memory_paths.hpp"
 #include "memory/memory_registry.hpp"
@@ -34,7 +34,7 @@
 #include "session/tool_result_storage.hpp"
 #include "session/turn_net_diff.hpp"
 #include "session/turn_timing.hpp"
-#include "web/message_payload.hpp"
+#include "agent/event_payload/message_payload.hpp"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>

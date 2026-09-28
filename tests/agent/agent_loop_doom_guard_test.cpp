@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
-#include "agent_loop_doom_guard.hpp"
+#include "agent/agent_loop.hpp"
+#include "agent/guards/doom_guard.hpp"
 #include "permissions/permissions.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/tool_executor.hpp"

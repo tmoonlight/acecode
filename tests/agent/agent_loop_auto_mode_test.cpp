@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/bash_tool.hpp"
 #include "test_support/sandbox/test_support.hpp"

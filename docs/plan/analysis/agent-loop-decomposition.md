@@ -2,21 +2,21 @@
 
 ## 目标
 
-将 `src/agent_loop.cpp` 的多回合运行时职责拆为可定位、可独立验证的实现单元，降低单文件耦合；不改变 `AgentLoop` 的公开 API、会话 JSONL、事件协议、工具权限语义或 provider 请求语义。
+将 `src/agent/agent_loop.cpp` 的多回合运行时职责拆为可定位、可独立验证的实现单元，降低单文件耦合；不改变 `AgentLoop` 的公开 API、会话 JSONL、事件协议、工具权限语义或 provider 请求语义。
 
 本分析的范围是代码组织和运行时内部边界，不引入产品行为。任何行为变更必须另建 OpenSpec change。
 
 ## 已核实的现状
 
-- `src/agent_loop.cpp` 目前约 6.7k 行，`src/agent_loop.hpp` 约 1k 行。
+- `src/agent/agent_loop.cpp` 目前约 6.7k 行，`src/agent/agent_loop.hpp` 约 1k 行。
 - `AgentLoop` 同时拥有：worker 队列、canonical transcript、turn steering、工作区/安全边界、请求构建、压缩、provider streaming/recovery、工具生命周期、目标运行时、hooks、事件和 side-chat。
 - `CMakeLists.txt` 通过 `file(GLOB_RECURSE ... src/*.cpp)` 收录生产和 `acecode_testable` 源码；新增 `src/agent/*.cpp` 不需要手工修改 source list。
 - `src/loop/` 已是 scheduled-loop 子系统，不能承载 agent turn runtime。
-- 关键回归套件已按职责分布在 `tests/agent_loop/`；拆分应保留测试路径和测试名，避免将「文件移动」伪装为行为变化。
+- 关键回归套件已按职责分布在 `tests/agent/`；拆分应保留测试路径和测试名，避免将「文件移动」伪装为行为变化。
 
 ## 目录决策
 
-新增 `src/agent/`，但**第一阶段不移动** `src/agent_loop.hpp`：
+新增 `src/agent/`，但**第一阶段不移动** `src/agent/agent_loop.hpp`：
 
 ```text
 src/
@@ -35,7 +35,7 @@ src/
 
 第一阶段的 `.cpp` 均直接包含 `../agent_loop.hpp`，以 `AgentLoop::method` 形式迁移定义。这样仍可访问私有成员，避免为了「拆文件」而引入一个暴露所有状态的 `AgentLoop&` 服务定位器。
 
-当至少三个职责已稳定迁移后，才评估将头文件移动为 `src/agent/agent_loop.hpp` 并在 `src/agent_loop.hpp` 留兼容 forwarding header。该动作会波及大量 include，应是单独任务，不与行为迁移混做。
+当至少三个职责已稳定迁移后，才评估将头文件移动为 `src/agent/agent_loop.hpp` 并在 `src/agent/agent_loop.hpp` 留兼容 forwarding header。该动作会波及大量 include，应是单独任务，不与行为迁移混做。
 
 ## 不可破坏的契约
 
@@ -139,7 +139,7 @@ prepare turn
 
 ## 任务顺序与并行性
 
-所有实现任务都修改 `src/agent_loop.cpp` 或 `src/agent_loop.hpp`，路径重叠且有严格状态依赖，因此必须串行。禁止为了并行创建会产生冲突的 worktree 分支。
+所有实现任务都修改 `src/agent/agent_loop.cpp` 或 `src/agent/agent_loop.hpp`，路径重叠且有严格状态依赖，因此必须串行。禁止为了并行创建会产生冲突的 worktree 分支。
 
 | 顺序 | 任务 | 前置 |
 |---|---|---|

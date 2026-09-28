@@ -56,7 +56,7 @@ PAGES = {
         '''<p><strong>设置 &gt; 常规 &gt; 远程 Web 模式</strong>用于其他设备访问当前 ACECode。开启后出现连接地址和复制连接入口，本机后台仍监听回环地址。它与上面的模型出站代理是两套配置。</p><p>连接失败时依次检查后台服务、远程模式状态、实际代理端口、主机名解析和防火墙。复制连接包含 Token，服务重启后旧连接可能失效，需要重新复制。</p>''',
         figure("CF-02", "远程 Web 连接设置", "展示远程 Web 开关、主机或网卡选择、实际端口和复制连接按钮；将 Token 完整遮挡。"),
         '''<p>完整连接流程见<a href="web.html#remote">从其他设备连接</a>。跨公网访问使用可信 VPN 或 HTTPS 入口，不直接公开包含 Token 的地址。</p>''')
-], ["src/config/config.hpp", "src/config/config.cpp", "src/commands/proxy_command.cpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
+], ["src/config/config.hpp", "src/config/config.cpp", "src/tui/commands/proxy_command.cpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
 
 "appearance": page("根据阅读习惯调整界面外观，选择语言，并设置任务完成后是否接收系统通知。", [
     section("visual", "外观与工作模式",
@@ -79,7 +79,7 @@ PAGES = {
     section("example", "一份小而明确的规则",
         code("项目使用 Python，业务代码放在 src/，测试放在 tests/。\n修改前先阅读相关模块与测试；不要修改 generated/ 下的生成文件。\n保持现有公开接口，新增行为需要相应测试。\n完成后运行项目 README 中记录的验证命令，并报告未执行的检查。", "AGENT.md 内容示例"),
         '''<p>把示例中的语言、路径和验证命令替换成自己的项目约定。稳定的个人偏好放在个性化或记忆中，可复用的操作流程整理为<a href="skills.html">技能</a>；本项目特有的约束留在项目规则里。</p>''')
-], ["src/project_instructions/instructions_loader.cpp", "src/config/config.hpp", "src/commands/builtin_commands.cpp", "docs/user-manual.md"]),
+], ["src/project_instructions/instructions_loader.cpp", "src/config/config.hpp", "src/tui/commands/builtin_commands.cpp", "docs/user-manual.md"]),
 
 "memory": page("个性化指令用于持续表达偏好，记忆用于保存可复用的信息。让保存的内容简短、明确，并随实际情况更新。", [
     section("instructions", "设置个性化指令",
@@ -90,7 +90,7 @@ PAGES = {
         '''<p>需要记住长期信息时，可以在任务中明确提出要求，例如“记住：我希望解释结果时先给结论，再给验证依据”。阅读执行结果，确认实际保存了什么，避免把一次聊天中出现的信息都当作已经持久化。</p><p>默认记忆目录是 <code>~/.acecode/memory/</code>，其中 <code>MEMORY.md</code> 为索引，具体条目分别保存为 Markdown 文件。TUI 的 <code>/memory</code> 用于列出记忆，更多操作可查看 <code>/memory help</code>。</p><p>记忆与聊天记录不同：恢复任务读取该任务的上下文，持久记忆用于后续工作重用信息。不要把整个项目源码或完整对话复制为一条记忆。</p>'''),
     section("maintenance", "更新与删除过时信息",
         '''<p>当工作习惯或项目信息变化时，明确告诉 ACECode 要更新哪条记忆以及新内容。删除时同样指定对象，先查看内容再操作；TUI 的记忆命令提供查看、编辑、忘记和重新加载入口。</p><p>适合长期保存的是稳定偏好、反复需要的项目说明和可复用经验。账号密钥、临时验证码、大段日志和未经确认的推测不适合作为普通记忆保存。分享备份前检查记忆与配置中的私密内容。</p><p>如果某条旧信息反复影响回答，先检查个性化指令、项目规则和记忆三个来源，修正对应来源后再开始新任务验证。</p>''')
-], ["web/src/components/SettingsPage.jsx", "src/memory/memory_paths.cpp", "src/commands/memory_command.cpp", "src/tool/memory_read_tool.cpp", "src/tool/memory_write_tool.cpp"])
+], ["web/src/components/SettingsPage.jsx", "src/memory/memory_paths.cpp", "src/tui/commands/memory_command.cpp", "src/tool/memory_read_tool.cpp", "src/tool/memory_write_tool.cpp"])
 }
 
 from group4_extensions import PAGES as EXTENSIONS

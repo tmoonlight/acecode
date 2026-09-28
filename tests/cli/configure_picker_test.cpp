@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-#include "commands/configure_picker.hpp"
+#include "cli/configure/configure_picker.hpp"
 
 #include <string>
 

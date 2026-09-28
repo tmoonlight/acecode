@@ -50,7 +50,7 @@ ACECode 当前的模型选择实现处在"半成品"状态:
        ┌───────────────────┘                   └────────────────────┐
        ▼                                                            ▼
 ┌──────────────┐                                       ┌─────────────────────┐
-│ src/main.cpp │                                       │ src/web/handlers/   │
+│ src/cli/main.cpp │                                       │ src/web/handlers/   │
 │ ctx.provider_slot ◀── 升级版                         │   models_handler    │
 │ /model 调 apply_model_to_session                     │   POST /api/models  │
 │ /model add|edit|rm|set-default                       │   PUT/DELETE        │
@@ -383,9 +383,9 @@ CI 不跑,实现完成时手过:
 
 修改:
 
-- `src/main.cpp` — `ProviderSlot slot;` + 调整 ProviderAccessor 闭包。
-- `src/commands/command_registry.hpp` — `CommandContext` 字段从 `provider_handle/provider_mu/provider` 改为 `provider_slot`。
-- `src/commands/model_command.cpp` — picker 改 FTXUI;新增 add/edit/rm/set-default 子命令;切换调 apply_model_to_session。
+- `src/cli/main.cpp` — `ProviderSlot slot;` + 调整 ProviderAccessor 闭包。
+- `src/tui/commands/command_registry.hpp` — `CommandContext` 字段从 `provider_handle/provider_mu/provider` 改为 `provider_slot`。
+- `src/tui/commands/model_command.cpp` — picker 改 FTXUI;新增 add/edit/rm/set-default 子命令;切换调 apply_model_to_session。
 - `src/session/session_registry.cpp` — `switch_model` 改成调 helper 的壳子,删重复实现。
 - `src/web/server.cpp` — 注册 POST/PUT/DELETE `/api/models`、`POST /api/config/default-model`。
 - `src/web/handlers/models_handler.{hpp,cpp}` — 加 add/update/remove handler 纯逻辑。

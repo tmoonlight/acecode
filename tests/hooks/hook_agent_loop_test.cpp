@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "permissions/interaction_mode.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"

@@ -5,7 +5,7 @@
 #include "tool/bash_tool.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "environment/terminal_runtime.hpp"
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "test_support/sandbox/test_support.hpp"
 #include <windows.h>

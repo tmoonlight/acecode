@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "path_reference/path_reference.hpp"
+#include "tui/path_reference/path_reference.hpp"
 #include "utils/encoding.hpp"
 
 #include <algorithm>

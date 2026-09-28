@@ -1,6 +1,6 @@
 #include "subagent_host.hpp"
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_user_message_search.hpp"

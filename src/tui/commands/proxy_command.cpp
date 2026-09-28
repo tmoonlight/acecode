@@ -1,7 +1,7 @@
 // /proxy 命令实现。所有运行时操作都委托给 network::proxy_resolver();
 // 文案构造抽到 format_proxy_display() 以便单测覆盖。
 
-#include "commands/proxy_command.hpp"
+#include "tui/commands/proxy_command.hpp"
 
 #include "network/proxy_resolver.hpp"
 

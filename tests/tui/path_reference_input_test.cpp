@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "tui/path_reference_input.hpp"
-#include "tui_state.hpp"
+#include "tui/tui_state.hpp"
 #include "utils/encoding.hpp"
 
 #include <cstdint>

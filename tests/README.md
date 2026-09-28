@@ -31,10 +31,10 @@ Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
 
 ## What's exempt
 
-- The TUI entry point `src/main.cpp` and the full terminal loop are validated
+- The TUI entry point `src/cli/main.cpp` and the full terminal loop are validated
   manually. Pure TUI helpers listed in `ACECODE_TESTABLE_TUI_SOURCES` in the root
   `CMakeLists.txt` are part of `acecode_testable` and covered by unit tests; the
-  remaining `src/tui/` and `src/markdown/` sources stay outside that target.
+  remaining `src/tui/` and `src/tui/markdown/` sources stay outside that target.
 - LLM provider HTTP paths (`CopilotProvider`, `OpenAiCompatProvider`) — need
   mock HTTP server; left to a future integration-tests change.
 - Agent loop end-to-end behavior — same reason.

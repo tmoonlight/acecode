@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "session/session_replay.hpp"
+#include "tui/resume/session_replay.hpp"
 #include "session/compact_notice.hpp"
 #include "session/file_checkpoint_store.hpp"
 #include "session/tool_metadata_codec.hpp"
@@ -17,7 +17,7 @@
 #include "utils/diff_utils.hpp"
 #include "llm/llm_provider.hpp"
 #include "tui/tool_row_format.hpp"
-#include "tui_state.hpp"
+#include "tui/tui_state.hpp"
 
 #include <nlohmann/json.hpp>
 

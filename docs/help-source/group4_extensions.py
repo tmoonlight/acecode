@@ -38,7 +38,7 @@ PAGES = {
         '''<p>在<strong>启用服务器</strong>列表开关目标服务器。支持运行时应用时会立即切换；出现“重启 daemon 后生效”提示时，按提示重启后台。关闭某个服务器会影响依赖它的后续调用。</p><p><strong>重新加载</strong>重新读取配置文本，<strong>Reload</strong>用于提交并重新加载 MCP 运行状态。保存配置与建立连接是两个步骤：JSON 合法并不代表进程已经启动或远端已经完成初始化。</p>''',
         code("/mcp\n/mcp list\n/mcp enable local-tools\n/mcp disable local-tools\n/mcp reconnect local-tools\n/mcp help", "TUI · 使用自己的服务器名称"),
         '''<p>先检查服务器连接状态，再查看它实际暴露的工具。工具通常以带服务器前缀的名称注册，模型才能在合适的任务中调用。修改配置后仍看到旧工具时，重连并再次检查清单。</p><p>stdio 连接失败先验证可执行文件、参数、工作环境和依赖；网络连接失败再检查 URL、协议、认证与代理。无界面 CLI 默认不启用 MCP，需要通过 <code>--enable-mcp</code> 选择服务器。更多处理方法见<a href="troubleshoot-tools.html#mcp">MCP 连接或工具加载失败</a>。</p>''')
-], ["web/src/components/SettingsPage.jsx", "src/commands/builtin_commands.cpp", "src/config/config.hpp", "docs/user-manual.md"]),
+], ["web/src/components/SettingsPage.jsx", "src/tui/commands/builtin_commands.cpp", "src/config/config.hpp", "docs/user-manual.md"]),
 
 "lsp": page("LSP 为编辑过程补充语言服务器信息。它依赖项目本身的语言环境，帮助尽早发现代码问题。", [
     section("prepare", "准备语言服务器",

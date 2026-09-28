@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "commands/slash_command_ranking.hpp"
+#include "tui/commands/slash_command_ranking.hpp"
 
 #include <cstdint>
 #include <string>

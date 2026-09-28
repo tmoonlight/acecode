@@ -1,6 +1,6 @@
 #include "slash_dropdown.hpp"
-#include "commands/command_registry.hpp"
-#include "commands/slash_command_ranking.hpp"
+#include "tui/commands/command_registry.hpp"
+#include "tui/commands/slash_command_ranking.hpp"
 #include "picker_scroll.hpp"
 #include "tui/text_style.hpp"
 #include "tui/theme_palette.hpp"

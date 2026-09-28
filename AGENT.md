@@ -131,7 +131,7 @@ On Linux desktop builds, install the WebKitGTK development package before config
 
 `main.cpp` owns the terminal TUI entry point: CLI parsing for interactive mode, provider/tool/command setup, FTXUI event loop wiring, and worker callbacks back into the UI thread. Keep reusable behavior out of `main.cpp` and place it in the relevant `src/<subsystem>/` area or an existing focused helper.
 
-`src/agent_loop.cpp` is the multi-turn state machine. A text-only assistant reply ends the loop; `task_complete` is an optional explicit terminator. `AskUserQuestion` returns to the loop through an async prompter and is not a terminator. TUI and daemon turns should share this behavior.
+`src/agent/agent_loop.cpp` is the multi-turn state machine. A text-only assistant reply ends the loop; `task_complete` is an optional explicit terminator. `AskUserQuestion` returns to the loop through an async prompter and is not a terminator. TUI and daemon turns should share this behavior.
 
 `src/tool/` owns the tool registry and built-ins, including shell, file read/write/edit, grep/glob, task completion, skills, memory, MCP, structured user questions, and optional web search. Tool result summaries, metadata, and hunks are consumed by both TUI and web rendering, so keep structured result data centralized instead of formatting separately per surface.
 
@@ -163,7 +163,7 @@ Other shared subsystems that are easy to miss: `src/gitinfo/` (prompt + REST git
 
 ## Test And Build Structure
 
-`acecode_testable` is the shared object library for headless logic used by production binaries and tests. Most of `src/tui/` and `src/markdown/` stay out of it; a few pure TUI helpers are compiled into `acecode_testable` so unit tests can cover them. `acecode` links `acecode_testable`, `acecode_native_bridge_support`, and the remaining TUI/markdown sources. `acecode-desktop` must not link `acecode_testable`; desktop-only sources stay in `acecode_desktop_support` / the desktop binary. The `acecode_unit_tests` target is discovered from `tests/**/*_test.cpp` and uses GoogleTest. Keep TUI-heavy and desktop-webview-only behavior isolated unless logic can be moved into a pure helper covered through `acecode_testable`.
+`acecode_testable` is the shared object library for headless logic used by production binaries and tests. Most of `src/tui/` and `src/tui/markdown/` stay out of it; a few pure TUI helpers are compiled into `acecode_testable` so unit tests can cover them. `acecode` links `acecode_testable`, `acecode_native_bridge_support`, and the remaining TUI/markdown sources. `acecode-desktop` must not link `acecode_testable`; desktop-only sources stay in `acecode_desktop_support` / the desktop binary. The `acecode_unit_tests` target is discovered from `tests/**/*_test.cpp` and uses GoogleTest. Keep TUI-heavy and desktop-webview-only behavior isolated unless logic can be moved into a pure helper covered through `acecode_testable`.
 
 Tests live under `tests/` and usually mirror source paths. Use focused tests for serializers, parsers, validators, handler helpers, provider/model helpers, permission logic, and headless state machines. Web-only changes should at minimum run `pnpm test` and `pnpm build` from `web/`.
 
@@ -193,7 +193,7 @@ For non-trivial behavior changes, create or continue an OpenSpec change under `o
 
 The Superpowers plugin is disabled for this repository. Do not invoke or follow `superpowers:*` skills unless the user explicitly re-enables Superpowers for a specific turn.
 
-Keep TUI-specific code in `main.cpp`, `src/tui/`, and `src/markdown/`. Keep daemon/API work in `src/daemon/`, `src/web/`, and shared session/provider/tool helpers as appropriate. Keep frontend work under `web/src/`. Avoid modifying vendored or submodule trees such as `external/`, `hermes-agent/`, or `claudecodehaha/` unless the task explicitly targets them.
+Keep TUI-specific code in `main.cpp`, `src/tui/`, and `src/tui/markdown/`. Keep daemon/API work in `src/daemon/`, `src/web/`, and shared session/provider/tool helpers as appropriate. Keep frontend work under `web/src/`. Avoid modifying vendored or submodule trees such as `external/`, `hermes-agent/`, or `claudecodehaha/` unless the task explicitly targets them.
 
 Follow `.editorconfig`: UTF-8, LF endings, final newline, 4-space indentation for C++/CMake, and 2-space indentation for JSON/YAML. Use C++17. Headers should generally live in `src/**/*.hpp` with matching `.cpp` files. Test files use the singular `_test.cpp` suffix.
 

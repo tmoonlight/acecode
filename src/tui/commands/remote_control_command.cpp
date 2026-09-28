@@ -1,4 +1,4 @@
-#include "commands/remote_control_command.hpp"
+#include "tui/commands/remote_control_command.hpp"
 
 #include "remote_control/channel_plugin.hpp"
 #include "remote_control/remote_control_service.hpp"

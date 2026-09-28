@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "commands/compact.hpp"
-#include "commands/compact_prompt.hpp"
+#include "agent/compaction/compact.hpp"
+#include "agent/compaction/compact_prompt.hpp"
 
 #include <deque>
 #include <stdexcept>

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "commands/compact.hpp"
+#include "agent/compaction/compact.hpp"
 #include "provider/retry_policy.hpp"
 #include "pa/pa_quirks.hpp"
 

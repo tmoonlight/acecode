@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "commands/builtin_commands.hpp"
-#include "commands/command_registry.hpp"
-#include "commands/desktop_command.hpp"
+#include "tui/commands/builtin_commands.hpp"
+#include "tui/commands/command_registry.hpp"
+#include "tui/commands/desktop_command.hpp"
 #include "config/config.hpp"
 #include "config/saved_models_revision.hpp"
 #include "hooks/hook_manager.hpp"

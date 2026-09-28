@@ -268,7 +268,7 @@ inactivityMs = nowMs - lastActivityMs(skill, record, nowMs)
 
 | ACECode 现状 | 缺口 | 建议(对齐 Qwen) |
 |--------------|------|------------------|
-| `src/tui_state.hpp` 只有 `slash_command_usage_counts`(slash 命令次数,用于排序) | 无 skill 级统计 | 新增 `SkillUsageStats{totalCalls,totalSuccess,totalFail, byName{count,success,fail}}` 挂在会话状态;slash 命令次数与其并存不混用 |
+| `src/tui/tui_state.hpp` 只有 `slash_command_usage_counts`(slash 命令次数,用于排序) | 无 skill 级统计 | 新增 `SkillUsageStats{totalCalls,totalSuccess,totalFail, byName{count,success,fail}}` 挂在会话状态;slash 命令次数与其并存不混用 |
 | `src/skills/skill_activation.cpp` 负责激活判定 | 加载点无计数钩子 | 在 skill 成功注入上下文处 `recordSkillUsage(success=true)`;解析/禁用/异常处 `success=false`;复用 `ToolErrors`/`ToolArgsParser` 等既有 helper |
 | 无 per-session 持久化 usage | 无历史聚合 | 仿 `usage_record.jsonl`:会话结束/清理时追加 JSONL,按 sessionId 去重;聚合按 today/week/month/all 过滤并取 topN |
 | TUI 无 skill 统计命令 | 无展示入口 | 在 `/stats` 或独立 `/skills-stats` 增加 skill 调用统计(文本 + 可选表格);遵循仓库 ASCII/无 emoji 规范 |

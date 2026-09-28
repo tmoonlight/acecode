@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "commands/desktop_command.hpp"
+#include "tui/commands/desktop_command.hpp"
 
 #include <filesystem>
 #include <fstream>

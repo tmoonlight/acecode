@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "config/config.hpp"
 #include "permissions/permissions.hpp"
 #include "test_support/agent/stub_provider.hpp"

@@ -15,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/event_dispatcher.hpp"

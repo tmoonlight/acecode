@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "session/side_chat.hpp"
+#include "agent/side_question/side_chat.hpp"
 #include "web/handlers/side_chat_handler.hpp"
 
 #include <future>

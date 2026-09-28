@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "permissions/permissions.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/computer_use_tool.hpp"

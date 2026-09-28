@@ -1,6 +1,6 @@
 #include "skills/skill_registry.hpp"
-#include "agent_loop.hpp"
-#include "commands/command_registry.hpp"
+#include "agent/agent_loop.hpp"
+#include "tui/commands/command_registry.hpp"
 #include "config/config.hpp"
 #include "permissions/permissions.hpp"
 #include "tool/tool_executor.hpp"

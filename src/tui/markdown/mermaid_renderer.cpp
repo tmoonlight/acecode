@@ -7,7 +7,7 @@
  * Licensed under the Apache License, Version 2.0. See THIRD-PARTY-NOTICES.
  */
 
-#include "markdown/mermaid_renderer.hpp"
+#include "tui/markdown/mermaid_renderer.hpp"
 
 #include <ftxui/screen/string.hpp>
 

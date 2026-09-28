@@ -1,5 +1,5 @@
 #include "test_support/agent_loop/characterization_fixture.hpp"
-#include "commands/compact_prompt.hpp"
+#include "agent/compaction/compact_prompt.hpp"
 
 #include <algorithm>
 

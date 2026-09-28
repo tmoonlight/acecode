@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "permissions/permissions.hpp"
 #include "provider/dsml_tool_call_recovery.hpp"
 #include "provider/text_tool_call_recovery.hpp"

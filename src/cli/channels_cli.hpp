@@ -1,5 +1,5 @@
 #pragma once
-#include "state.hpp"
+#include "channels/state.hpp"
 #include <iosfwd>
 #include <vector>
 namespace acecode::channels {

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
-#include "commands/compact_prompt.hpp"
+#include "agent/agent_loop.hpp"
+#include "agent/compaction/compact_prompt.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/compact_checkpoint.hpp"

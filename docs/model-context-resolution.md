@@ -123,5 +123,5 @@ Prefer provider-aware metadata first.
 
 - `src/provider/model_context_resolver.cpp`
 - `src/provider/model_context_resolver.hpp`
-- `src/commands/builtin_commands.cpp`
+- `src/tui/commands/builtin_commands.cpp`
 - `main.cpp`

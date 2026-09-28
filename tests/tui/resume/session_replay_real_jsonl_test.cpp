@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "session/session_serializer.hpp"
-#include "session/session_replay.hpp"
+#include "tui/resume/session_replay.hpp"
 #include "tool/tool_executor.hpp"
 #include "llm/llm_provider.hpp"
 

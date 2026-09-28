@@ -15,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "commands/command_registry.hpp"
+#include "tui/commands/command_registry.hpp"
 #include "config/config.hpp"
 #include "tui/commands/skill_commands.hpp"
 #include "skills/skill_init.hpp"

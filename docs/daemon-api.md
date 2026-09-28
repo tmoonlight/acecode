@@ -1353,7 +1353,7 @@ of text and references:
   {"type":"text","text":" with "},
   {"type":"attachment","key":"local-1","id":"att-...","name":"notes.txt","kind":"file"},
   {"type":"text","text":" and "},
-  {"type":"path","path":"src/main.cpp","token":"@src/main.cpp","directory":false}
+  {"type":"path","path":"src/cli/main.cpp","token":"@src/cli/main.cpp","directory":false}
 ]}
 ```
 

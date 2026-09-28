@@ -1,7 +1,7 @@
 #include "prompt_environment.hpp"
 
-#include "terminal_runtime.hpp"
-#include "toolchains.hpp"
+#include "environment/terminal_runtime.hpp"
+#include "environment/toolchains.hpp"
 
 namespace acecode::environment {
 

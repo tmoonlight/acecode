@@ -11,7 +11,7 @@
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 #include "worktree/worktree_manager.hpp"
-#include "web/message_payload.hpp"
+#include "agent/event_payload/message_payload.hpp"
 
 #include <algorithm>
 #include <chrono>

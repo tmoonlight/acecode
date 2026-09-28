@@ -4,7 +4,7 @@
 // (openspec add-remote-control)。运行时操作委托给 rc::remote_control_service();
 // 文案构造抽到 format_remote_control_display() 以便单测覆盖。
 
-#include "commands/command_registry.hpp"
+#include "tui/commands/command_registry.hpp"
 
 #include <cstdint>
 #include <string>

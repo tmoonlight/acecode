@@ -1148,16 +1148,16 @@ POST/PUT/DELETE /api/models 与 POST /api/config/default-model;失败时
 把 `main.cpp` 的 `std::shared_ptr<LlmProvider> provider + std::mutex provider_mu` 改成 `SessionEntry::ProviderSlot`,把 `CommandContext` 的 `provider_handle/provider_mu` 替换为 `provider_slot`。**只改字段类型,不改业务行为** — model_command 与 builtin_commands 仍走旧的 `swap_provider_if_needed`,留在下一任务换成 helper。
 
 **Files:**
-- Modify: `src/commands/command_registry.hpp:33-37`(CommandContext 字段)
+- Modify: `src/tui/commands/command_registry.hpp:33-37`(CommandContext 字段)
 - Modify: `main.cpp:1269-1274`(provider/provider_mu 定义 → ProviderSlot)
 - Modify: `main.cpp:1743`(swap_provider_if_needed 调用,适配新签名 — 见 step 3 的临时桥)
 - Modify: `main.cpp:1948+2607`(CommandContext 构造)
-- Modify: `src/commands/model_command.cpp:158-166`(swap_provider_if_needed 调用)
-- Modify: `src/commands/builtin_commands.cpp:570-577`(swap_provider_if_needed + set_active_provider)
+- Modify: `src/tui/commands/model_command.cpp:158-166`(swap_provider_if_needed 调用)
+- Modify: `src/tui/commands/builtin_commands.cpp:570-577`(swap_provider_if_needed + set_active_provider)
 
 - [ ] **Step 1: 改 CommandContext 字段定义**
 
-`src/commands/command_registry.hpp`,把 32-36 行的:
+`src/tui/commands/command_registry.hpp`,把 32-36 行的:
 
 ```cpp
     LlmProvider& provider;
@@ -1240,7 +1240,7 @@ void swap_provider_if_needed(std::shared_ptr<LlmProvider>& handle,
                                          resumed_entry, config);
 ```
 
-`src/commands/model_command.cpp:160`:
+`src/tui/commands/model_command.cpp:160`:
 
 ```cpp
     if (ctx.provider_slot) {
@@ -1254,7 +1254,7 @@ void swap_provider_if_needed(std::shared_ptr<LlmProvider>& handle,
     }
 ```
 
-`src/commands/builtin_commands.cpp:570-577`:
+`src/tui/commands/builtin_commands.cpp:570-577`:
 
 ```cpp
     if (target && ctx.provider_slot &&
@@ -1277,7 +1277,7 @@ void swap_provider_if_needed(std::shared_ptr<LlmProvider>& handle,
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
-Expected: 全 PASS。如果 CommandContext 测试桩(`tests/commands/`)失败,把它们的构造也加 `provider_slot` 字段(传 nullptr,旧代码路径走 `else` 分支)。
+Expected: 全 PASS。如果 CommandContext 测试桩(`tests/tui/commands/`)失败,把它们的构造也加 `provider_slot` 字段(传 nullptr,旧代码路径走 `else` 分支)。
 
 - [ ] **Step 6: 手动 TUI smoke**
 
@@ -1291,10 +1291,10 @@ Expected: TUI 正常启动,/info 显示当前 provider/model。
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/commands/command_registry.hpp \
+git add src/tui/commands/command_registry.hpp \
         main.cpp \
-        src/commands/model_command.cpp \
-        src/commands/builtin_commands.cpp
+        src/tui/commands/model_command.cpp \
+        src/tui/commands/builtin_commands.cpp
 git commit -m "refactor(tui): replace provider_handle/provider_mu with ProviderSlot
 
 CommandContext 与 main.cpp 升级到 SessionEntry::ProviderSlot。本提交不改
@@ -1309,15 +1309,15 @@ apply_model_to_session。"
 把 model_command.cpp 与 builtin_commands.cpp 的 `swap_provider_if_needed` 调用换成 `apply_model_to_session`。这样 TUI 与 daemon 共用同一份切换逻辑;`provider_swap.{hpp,cpp}` 可以删除。
 
 **Files:**
-- Modify: `src/commands/model_command.cpp`
-- Modify: `src/commands/builtin_commands.cpp`
+- Modify: `src/tui/commands/model_command.cpp`
+- Modify: `src/tui/commands/builtin_commands.cpp`
 - Delete: `src/provider/provider_swap.hpp`
 - Delete: `src/provider/provider_swap.cpp`
-- Modify: `tests/commands/`(若有)的 model_command 测试
+- Modify: `tests/tui/commands/`(若有)的 model_command 测试
 
 - [ ] **Step 1: 改 model_command.cpp 调 helper**
 
-`src/commands/model_command.cpp` 的 `cmd_model` 函数,把 `swap_provider_if_needed` 调用替换为:
+`src/tui/commands/model_command.cpp` 的 `cmd_model` 函数,把 `swap_provider_if_needed` 调用替换为:
 
 ```cpp
     if (ctx.provider_slot) {
@@ -1357,7 +1357,7 @@ apply_model_to_session。"
 
 - [ ] **Step 2: 改 builtin_commands.cpp resume 路径**
 
-打开 `src/commands/builtin_commands.cpp`,找到 568-577 行的 resume swap 段,替换为:
+打开 `src/tui/commands/builtin_commands.cpp`,找到 568-577 行的 resume swap 段,替换为:
 
 ```cpp
     if (target && ctx.provider_slot &&
@@ -1423,14 +1423,14 @@ TUI 与 daemon 现在共用同一份切换 helper,provider_swap 模块删除。"
 **Files:**
 - Create: `src/tui/model_picker.hpp`
 - Create: `src/tui/model_picker.cpp`
-- Modify: `src/commands/model_command.cpp`(`render_model_picker` 改成 open modal)
-- Modify: `src/tui_state.hpp` 或类似(加 `model_picker_open` flag + 选项数据)
+- Modify: `src/tui/commands/model_command.cpp`(`render_model_picker` 改成 open modal)
+- Modify: `src/tui/tui_state.hpp` 或类似(加 `model_picker_open` flag + 选项数据)
 - Modify: `main.cpp`(渲染主循环挂 modal)
 
 - [ ] **Step 1: 找现有 picker 参考实现**
 
 ```bash
-grep -rn "Modal\|picker_open" src/tui/ src/commands/ | head -30
+grep -rn "Modal\|picker_open" src/tui/ src/tui/commands/ | head -30
 ```
 
 记录一个相似的现有 picker(skills 或 configure)的:① state 结构、② Modal 渲染挂载点、③ 选中回调路径。新 model picker 照抄结构。
@@ -1548,7 +1548,7 @@ ftxui::Component make_model_picker_component(
 
 - [ ] **Step 3: TuiState 加 picker open flag + 选项**
 
-`src/tui_state.hpp` 加(在合适分组):
+`src/tui/tui_state.hpp` 加(在合适分组):
 
 ```cpp
     // /model picker 状态
@@ -1560,7 +1560,7 @@ include `tui/model_picker.hpp`。
 
 - [ ] **Step 4: 改 render_model_picker 改成 open modal**
 
-`src/commands/model_command.cpp:render_model_picker` 替换为:
+`src/tui/commands/model_command.cpp:render_model_picker` 替换为:
 
 ```cpp
 void render_model_picker(CommandContext& ctx) {
@@ -1611,7 +1611,7 @@ cmake --build build
 
 ```bash
 git add src/tui/model_picker.hpp src/tui/model_picker.cpp \
-        src/tui_state.hpp src/commands/model_command.cpp main.cpp
+        src/tui/tui_state.hpp src/tui/commands/model_command.cpp main.cpp
 git commit -m "feat(tui): replace /model text list with FTXUI picker
 
 /model 无参时弹出 modal 选择器,↑↓ + Enter 切换,Esc 关闭。当前模型行
@@ -1625,15 +1625,15 @@ git commit -m "feat(tui): replace /model text list with FTXUI picker
 扩 `cmd_model` 的 args 解析,加四个子命令。`add` / `edit` 走最简文本输入(`/model add name=local-lm provider=openai model=llama-3 base_url=http://localhost:1234/v1 api_key=sk-x` 这种 key=val 风格,避免 FTXUI 多步表单的复杂度);`rm` / `set-default` 直接执行。
 
 **Files:**
-- Modify: `src/commands/model_command.cpp`
-- Modify: `tests/commands/`(新增 `tests/commands/model_command_test.cpp` 如果没有)
+- Modify: `src/tui/commands/model_command.cpp`
+- Modify: `tests/tui/commands/`(新增 `tests/tui/commands/model_command_test.cpp` 如果没有)
 
 - [ ] **Step 1: 写 args 解析单测(失败)**
 
-`tests/commands/model_command_test.cpp`(新建):
+`tests/tui/commands/model_command_test.cpp`(新建):
 
 ```cpp
-// 覆盖 src/commands/model_command.cpp 的 args 解析子命令分支。
+// 覆盖 src/tui/commands/model_command.cpp 的 args 解析子命令分支。
 // 新加的 add / edit / rm / set-default 每个都有独立的写盘副作用,解析失
 // 败应当不动 cfg。
 
@@ -1702,7 +1702,7 @@ TEST(ModelCommandParse, ParsesCwdFlag) {
 }
 ```
 
-forward declare 放 `src/commands/model_command.hpp`:
+forward declare 放 `src/tui/commands/model_command.hpp`:
 
 ```cpp
 // 暴露给单测的纯解析函数。raw 是 /model 后面的字符串(已 trim)。
@@ -1726,7 +1726,7 @@ Expected: 编译失败(parse_model_subcommand 未实现)。
 
 - [ ] **Step 3: 实现 parse_model_subcommand**
 
-`src/commands/model_command.cpp` 在 unnamed namespace **外**(让 hpp 声明能 link)实现:
+`src/tui/commands/model_command.cpp` 在 unnamed namespace **外**(让 hpp 声明能 link)实现:
 
 ```cpp
 bool parse_model_subcommand(const std::string& raw, ParsedModelSub& out) {
@@ -1967,8 +1967,8 @@ Expected: 全 PASS。
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/commands/model_command.hpp src/commands/model_command.cpp \
-        tests/commands/model_command_test.cpp
+git add src/tui/commands/model_command.hpp src/tui/commands/model_command.cpp \
+        tests/tui/commands/model_command_test.cpp
 git commit -m "feat(tui): /model add|edit|rm|set-default subcommands
 
 支持在 TUI 内增删改 saved_models 与设置全局默认。失败时 cfg 内存与磁盘

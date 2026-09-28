@@ -57,7 +57,7 @@ Provider 的非 2xx 错误正文还用于额度和重试分类，因此继续保
 - `web/src/lib/markdown.js`、`markdownHighlightCache.js`
 - `src/utils/stream_processing.hpp`
 - `src/session/event_dispatcher.cpp`
-- `src/agent_loop.cpp`、`src/session/tool_result_storage.cpp`
+- `src/agent/agent_loop.cpp`、`src/session/tool_result_storage.cpp`
 - `src/provider/stream_diagnostic_capture.hpp` 及三个 Provider 的 streaming 路径
 - 待接入组件：`src/tool/bash_output_capture.cpp`
 

@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "workspace/workspace_registry.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"

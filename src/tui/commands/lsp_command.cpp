@@ -1,6 +1,6 @@
 // /lsp 命令实现:状态文本组装是纯函数,TUI 与 daemon builtin 共用。
 
-#include "commands/lsp_command.hpp"
+#include "tui/commands/lsp_command.hpp"
 #include "lsp/lsp_status_text.hpp"
 
 #include <cctype>

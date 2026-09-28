@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/drag_scroll.hpp"
+#include "tui/drag_scroll.hpp"
 
 #include <chrono>
 

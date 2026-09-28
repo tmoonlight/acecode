@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-#include "commands/model_command.hpp"
+#include "tui/commands/model_command.hpp"
 
 // 场景:/model add 完整 kv 列表 → 解析后 kvs 字段就绪。
 TEST(ModelCommandParse, ParsesAddSubcommand) {

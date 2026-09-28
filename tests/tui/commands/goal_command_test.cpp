@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "agent_loop.hpp"
-#include "commands/command_registry.hpp"
-#include "commands/goal_command.hpp"
+#include "agent/agent_loop.hpp"
+#include "tui/commands/command_registry.hpp"
+#include "tui/commands/goal_command.hpp"
 #include "config/config.hpp"
 #include "permissions/permissions.hpp"
 #include "session/session_manager.hpp"

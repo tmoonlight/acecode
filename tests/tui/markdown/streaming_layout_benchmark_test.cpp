@@ -1,5 +1,5 @@
-#include "markdown/markdown_formatter.hpp"
-#include "markdown/markdown_lexer.hpp"
+#include "tui/markdown/markdown_formatter.hpp"
+#include "tui/markdown/markdown_lexer.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
 #include <string>
