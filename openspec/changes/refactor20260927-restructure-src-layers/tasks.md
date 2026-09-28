@@ -7,6 +7,7 @@
 >   - agent_loop.* 与 main.cpp 同一时刻只允许一个任务修改;
 >   - CMakeLists.txt、tests/CMakeLists.txt 可以并行开发,但合入 master 要串行,后合入的一方先 rebase,再重跑 cmake_target_snapshot 比对。
 > - 各任务的执行波次与可并行关系见 design.md §8.3。
+> - **2026-09-28 起(design.md D26 / §7.4)**:逐任务验收只做 Windows 本机 —— 静态闸门 + 复用目录增量构建 + 用例清单 / target 快照对照,内容改动再跑 `python scripts/refactor/run_fast_tests.py --profile fast`;不 dispatch refactor-matrix,不等 test.yml;多平台项统一推迟到 5.4「多平台补验」。
 >
 > 其它 change 的任务:
 > - P0-09、P0-12 在 split-tui-main;
@@ -237,6 +238,7 @@
   - 演练分支不推到 master。
   - 前置:Phase 2 全部完成;adopt-ownership-conventions 的 P2-01 已合入。
   - 验证:全部闸门通过,耗时已记录。
+  - 工具:`scripts/refactor/apply_layout.py`(2026-09-28 新增,`plan / move / rewrite / seed / blame` 五步,只复用 migrate_branch 的改写函数)。预演(2026-09-28,P2-07/P2-08 未完成的 master,临时 worktree,不推送):M1 搬 935 个文件全部 R100、23 秒;M2 改 6 个构建文件 + 54 份文档并重生成 help 站点、18 秒,src/tests 只改 3 行 include(image/stb → external/stb)+ tests/CMakeLists.txt 3 行 + cpp_source_paths.json 18 行,blob 保持 LF;`normalize_includes --check` 0、`validate_map --strict` 0。未做:CMake 的 6 个分组 include 根(`${CMAKE_SOURCE_DIR}/src` 共 18 处 + glob 根 + TUI 目录变量)与构建,留给正式演练。
 - [ ] 4.2 【P3-02】【主】正式搬迁。
   - 提前 1–2 天在 AGENTS.md / CLAUDE.md 公告窗口;打 tag `pre-src-layout`;在**最新 master 上重新生成**以下提交,不 rebase 演练结果:
     - **M1** `[no-build]`:约 44 个模块目录(含 tests 镜像)`git mv` 到 6 个分组下,stb 移到 `external/stb`,全部 R100,include 改动 0 行;
@@ -275,3 +277,9 @@
   - 验证:`check_doc_paths.py` 为 0;help 站点重新生成后,diff 只涉及路径。
 - [ ] 5.3 【P4-03】【子】行数、分层、所有权三个棘轮在 CI 中转为阻断。
   - 验证:CI 上故意新增一个超过 1000 行的文件、一条向上依赖、一处 `.detach()`,三个 lint 分别失败。
+- [ ] 5.4 【P4-04】【主】多平台补验(D26 推迟项)。
+  - Windows 侧的一期任务全部合入后,在最新 master 上用完整 SHA dispatch 一次 refactor-matrix(`run_tests=true`,`include_deepin=true`)和一次 package.yml;
+  - 逐平台核对 target 快照、用例与 SKIP 清单,对照最近一份多平台记录(P2-06,refactor-matrix 36341836305);§7.2「P3」一行里的 Deepin `current_target()`、verify-package、`pnpm test` 与冒烟五项也在这里做;
+  - 平台专属的 include / 编译错误集中在这里修,单独提交 `refactor20260927(layers/P4-04): …`。
+  - 前置:P2-08、P3-02、5.1–5.3,以及 P6A / P6B / P7-O 的 Windows 验收全部完成。
+  - 验证:四平台构建通过;三个测试平台的用例与 SKIP 集合相对 P2-06 记录只含已登记差异;记录写入 `verification/P4-04-multi-platform.md`。

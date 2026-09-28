@@ -152,6 +152,41 @@ exercise nested-worktree isolation and deliberate rule violations, and configure
 a real CMake C++ project with an excluded executable and source-specific defines.
 A working CMake C++ compiler is required for that integration test.
 
+## Applying map phases (P2-08 / P3-01 / P3-02)
+
+`apply_layout.py` executes `src_layout_map.tsv` one phase at a time and splits
+the work into the commits P3 expects. It reuses the migration rewrite functions
+and never invents a second path rule set.
+
+```sh
+python scripts/refactor/apply_layout.py plan    --phase P3                       # report moves and unfinished earlier rows
+python scripts/refactor/apply_layout.py move    --phase P3 --commit              # M1: git mv only, staged diff must be all R100
+python scripts/refactor/apply_layout.py rewrite --phase P3 --commit              # M2: CMake lists, cpp_source_paths, docs, help site, includes
+python scripts/refactor/apply_layout.py seed    --seed-version 2026-09-29.1 --commit   # M2b: seed SKILL paths, version, hashes, test literal
+python scripts/refactor/apply_layout.py blame   --revs M1_SHA M2_SHA --title "P3 M1/M2" --commit   # M3
+python scripts/refactor/apply_layout.py move    --phase P2-08 --commit           # P2 phases land in the transition directories src/<module>/
+```
+
+- `move` selects only `move` rows of the given phase(s). Earlier phases with an
+  `old_path` still present are refused; `--allow-unfinished` is for rehearsals
+  only. A P2 phase lands `src/<group>/<module>/` rows in `src/<module>/`
+  (`transition_path`); P3 uses the final `new_path`. The tree must have no
+  uncommitted tracked changes (`--allow-dirty` overrides), destinations must not
+  exist, tracked symlinks are refused, emptied directories are removed and the
+  staged diff is verified to contain only `R100` renames.
+- `rewrite` runs after `move`. Module-relative CMake paths are resolved against
+  the pre-move inventory (the phase map reversed) and translated forward; P3
+  uses the whole map for build files and documents, a P2 phase only its own
+  rows. Documents go through `documents_plan` (help build when
+  `docs/help-source` changes; `--no-design-note` skips the openspec fingerprint
+  note). `normalize_includes` runs last; P3 must report 0 changed include lines
+  because module-root includes do not change under the group move.
+- `--commit` uses the series subject prefix and tags `move` with `[no-build]`
+  (P3) or `[mechanical]` (P2) and `rewrite` with `[mechanical]`.
+- `seed` and `blame` wrap the seed-only `--docs --seed-version` transaction and
+  the `.git-blame-ignore-revs` registration (full SHAs, duplicates skipped,
+  untagged subjects reported as warnings).
+
 ## Legacy branch migration (P2-09)
 
 `migrate_branch.py` has five modes. `rebase` and `patch` always create a **new
