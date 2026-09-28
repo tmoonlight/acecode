@@ -186,6 +186,12 @@ python scripts/refactor/apply_layout.py move    --phase P2-08 --commit          
 - `seed` and `blame` wrap the seed-only `--docs --seed-version` transaction and
   the `.git-blame-ignore-revs` registration (full SHAs, duplicates skipped,
   untagged subjects reported as warnings).
+- `apply_include_roots.py` is the structural half of P3 M2 that no path
+  mapping can express: it defines `ACECODE_INCLUDE_ROOTS` (the six group
+  roots plus `external` and `generated`), replaces every bare
+  `${CMAKE_SOURCE_DIR}/src` include root in the three build files and drops
+  `ALLOW_LEGACY` from `acecode_assert_known_roots`. It is idempotent; run it
+  right after `rewrite --phase P3` and fold it into the M2 commit.
 
 ## Legacy branch migration (P2-09)
 

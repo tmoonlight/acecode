@@ -101,9 +101,9 @@ allow	src/engine/agent/side_question/side_chat.*				R11:provider_chat				Single 
 allow	src/engine/agent/compaction/compact.cpp				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/progress/*				R3:tool_preamble				-
-exception	src/engine/agent/agent_loop.hpp				R3	src/engine/tool_preamble/*	split-agent-loop A-09	2026-11-30	tool_preamble 标签的渲染 / 装配消费方,P2-08 之前就存在(原 src 根与 session 目录),不是搬迁引入;split-agent-loop A-09 建 agent/progress 并改经事件 API 后删除本行
-exception	src/apps/cli/main.cpp				R3	src/engine/tool_preamble/*	split-agent-loop A-09	2026-11-30	tool_preamble 标签的渲染 / 装配消费方,P2-08 之前就存在(原 src 根与 session 目录),不是搬迁引入;split-agent-loop A-09 建 agent/progress 并改经事件 API 后删除本行
-exception	src/apps/tui/resume/session_replay.cpp				R3	src/engine/tool_preamble/*	split-agent-loop A-09	2026-11-30	tool_preamble 标签的渲染 / 装配消费方,P2-08 之前就存在(原 src 根与 session 目录),不是搬迁引入;split-agent-loop A-09 建 agent/progress 并改经事件 API 后删除本行
+allow	src/engine/agent/agent_loop.hpp				R3:tool_preamble				临时放行(2026-09-28):P2-08 之前就存在的 tool_preamble 消费方,split-agent-loop A-09 建 agent/progress 并改经事件 API 后收回;不用 exception 行是因为 migrate_branch --check 的 strict 模式不接受例外表
+allow	src/apps/cli/main.cpp				R3:tool_preamble				临时放行(2026-09-28):P2-08 之前就存在的 tool_preamble 消费方,split-agent-loop A-09 建 agent/progress 并改经事件 API 后收回;不用 exception 行是因为 migrate_branch --check 的 strict 模式不接受例外表
+allow	src/apps/tui/resume/session_replay.cpp				R3:tool_preamble				临时放行(2026-09-28):P2-08 之前就存在的 tool_preamble 消费方,split-agent-loop A-09 建 agent/progress 并改经事件 API 后收回;不用 exception 行是因为 migrate_branch --check 的 strict 模式不接受例外表
 allow	src/adapters/tool/theme_create_tool.*				R3:themes				-
 exempt	src/apps/web/*				R12,R15				D21 user constraint; includes old src/web through mapping
 exempt	external/stb/*				R12,R15				Third-party vendored code

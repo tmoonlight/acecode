@@ -36,3 +36,7 @@ target 快照:对 P2-07 的本机快照与本分支的快照都按映射表反�
 - §7.3 第 1 条守护测试 `AgentLoopTermination.RequestPrefixIsByteStableAcrossIterationsInATurn` 与 `SystemPromptTest.*ByteStable*` 在快速档里强制补跑通过。
 - 两处拆分只搬函数体,不改签名与行为;`parse_question_policy_value` 与 `restore_file_tool_state_from_messages` 的既有覆盖(`tests/cli/interactive_options_test.cpp`、`tests/tui/resume/session_resume_restore_test.cpp`、`tests/tool/question_policy_test.cpp`)随镜像目录一起运行。
 - 合入前已把 master 合进本分支;多平台验证按 D26 留 tasks.md 5.4。
+
+## 补记(2026-09-28,合入后)
+
+三条 R3 例外行改为带注记的临时 `allow` 行(同样在 A-09 收回):`migrate_branch --check` 与 `check_layers --strict` 不接受例外表(每条例外在 strict 模式下报一条 R13),P3-03 的分支迁移检查会因此永远非零。改后 `check_layers` 报告模式与 `--strict` 都为 0,工具自测 88 条通过。
