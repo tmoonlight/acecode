@@ -468,7 +468,7 @@
       "CMakeLists.txt",
       "src/main.cpp",
       "src/agent_loop.cpp",
-      "src/session/session_registry.cpp",
+      "src/session_host/session_registry.cpp",
       "src/tool/tool_executor.hpp",
       "src/provider/session_model_binding.hpp"
     ]

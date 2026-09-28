@@ -32,7 +32,7 @@ PAGES = {
         '''<ol><li>入口接收用户输入与上下文，并定位目标会话和工作目录。</li><li>保存用户消息，按当前模型绑定构造请求。</li><li>Provider 将统一消息转换为对应服务协议，并返回文本、推理或工具调用。</li><li>工具经过权限与运行条件检查后执行，结果追加到会话。</li><li>智能体根据结果继续下一次模型调用，或生成最终回复。</li><li>终态、用量与消息通过事件更新前端，持久记录用于后续恢复。</li></ol><p>用户界面中的“排队成功”只是输入被接受，任务完成还需要观察对应回合的终态。模型重试和上下文压缩也会产生状态变化，不能把每一次 busy 变化都视为成功完成。</p>'''),
     section("boundaries", "修改时保持的边界",
         '''<p>可复用的解析、校验和状态机放在对应共享模块，不把终端渲染对象带入后台接口。HTTP 处理应复用路由解析与错误响应辅助函数，模型变更应经过当前会话模型绑定路径。</p><p>Web 源码在 web/src，构建结果由工具生成。后台会话状态与前端临时草稿分开维护；文件修改又有独立的磁盘副作用，不能只更新界面就视作状态持久化。</p><p>新增行为需要检查 TUI、CLI、Web 和桌面是否使用了不同入口。协议变化同步维护 API 说明，关键持久字段补兼容性验证。</p>''')
-], ["ARCHITECTURE.md", "CMakeLists.txt", "src/main.cpp", "src/agent_loop.cpp", "src/session/session_registry.cpp", "src/tool/tool_executor.hpp", "src/provider/session_model_binding.hpp"]),
+], ["ARCHITECTURE.md", "CMakeLists.txt", "src/main.cpp", "src/agent_loop.cpp", "src/session_host/session_registry.cpp", "src/tool/tool_executor.hpp", "src/provider/session_model_binding.hpp"]),
 
 "daemon": page("独立 daemon 提供 HTTP 与 WebSocket 服务。根据个人后台、调试或系统服务场景选择生命周期。", [
     section("lifecycle", "启动、查看与停止",

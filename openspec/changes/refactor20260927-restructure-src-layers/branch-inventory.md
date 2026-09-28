@@ -470,3 +470,9 @@ P2-05 不保留旧路径转发头。合并本阶段主线前,先在各自的迁�
 本任务把 frontmatter 移到 utils,把可复用的 opencode / skill 命令展开器归到 skills,把技能斜杠命令注册归到 tui/commands,对应五个测试文件同步归位。旧路径不保留转发头。上表九个遗留 ref 继续按映射运行 `migrate_branch.py --apply-map` 或 include 规范化脚本,原 ref 的功能内容与去留仍按 P3-03 逐项处理。
 
 hook 模型事件构造器与只读种子表属于 extract 行,不能用整文件路径替换代替职责拆分:模型事件调用方引用 `agent/hook_bridge/hook_events.hpp`,种子消费者引用 `hooks/hook_seeds.hpp`。原 `hooks/hook_payload.hpp` 只提供无模型依赖的启动事件,种子安装事务仍由 skills 的统一安装器协调。
+
+## P2-07 迁移提示(2026-09-28)
+
+本阶段把 SessionRegistry、LocalSessionClient、ThreadService、任务建议和标题生成的编排职责归到 session_host,模型切换适配器及三个依赖宿主的工具组一并上移,相关测试同步归位。九个遗留 ref 的原文件与提交继续保留,迁移时按映射运行 include 规范化与 `migrate_branch.py --apply-map`,旧路径没有转发头。
+
+拆出的纯逻辑需要按调用内容选择头文件:`prompt/init_prompt.hpp` 提供 /init 提示词与骨架,`lsp/lsp_status_text.hpp` 提供 LSP 状态文本与子命令分派,`session/session_title_text.hpp` 提供标题校验和终端标题净化。终端 OS 设置/清除操作仍在 `platform/terminal/terminal_title.hpp`;旧命令、标题生成器头不再间接暴露这些接口。`tests/commands/init_command_test.cpp` 与经 P2-03 搬到 platform 的标题净化测试分别归入 `tests/prompt/init_prompt_test.cpp`、`tests/session/session_title_text_test.cpp`。
