@@ -2,7 +2,7 @@
 
 > **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
 
-> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;用户已取消等待原定 06:00 窗口,提交与 push 尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
+> **本次 Windows 验收与主线交付(2026-09-29):** 已通过 [PR #87](https://github.com/tmoonlight/acecode/pull/87) 合入 master,pre/post-src-layout 标签已推送。C++ 5294 通过、9 SKIP、0 失败,Windows ASan 489 条通过,严格闸门与实测证据见母 change 的 verification/windows-phase1-validation.md。以下完成勾选按用户确认的 Windows 范围;人工专项及九个旧 ref 的迁移后补,云端 CI/CD 依最新指令启动后次日查看结果。
 
 > 执行前必读 `refactor20260927-restructure-src-layers/design.md` §6「提交与协作约定」,以及本变更 design.md 的 §7「不变量清单」。
 >
@@ -41,12 +41,12 @@
 
 ## 2. 结构拆分(restructure 的 P3 之后开始;函数体不改)
 
-- [ ] 2.1 【A-01】【主】头文件切分与 include 瘦身,分两个提交。〔认领: Codex-root 2026-09-28;按 D27 在 master 连续实施,统一验收提交〕〔实现完成: 类型已分头,6 个重头改为前置声明,调用方补直接 include;待统一验收提交〕
+- [x] 2.1 【A-01】【主】头文件切分与 include 瘦身,分两个提交。〔认领: Codex-root 2026-09-28;按 D27 在 master 连续实施,统一验收提交〕〔实现完成: 类型已分头,6 个重头改为前置声明,调用方补直接 include;待统一验收提交〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - (a) 拆出 `agent_callbacks.hpp`(hpp 102-187)、`control/control_receipt.hpp`(hpp 43-89)、`turn/turn_types.hpp`(hpp 541-811)。AgentLoop 内用 using 别名保留嵌套名,`agent_loop.hpp` 转 include 这三个新头。
   - (b) 逐个 TU 补齐 IWYU include。门面必须保留的 include 按 design.md §4 列出,其余改为前置声明。
   - 前置:restructure 4.2(P3-02)、1.1。
   - 验证:全新构建目录编译 acecode、acecode_testable、acecode_unit_tests 三个目标加 tests;`AgentLoop::ProviderAccessor` 别名不变。
-- [ ] 2.2 【A-02】【子】抽出纯函数。〔实现完成: Codex-root 2026-09-28;辅助函数、GoalPromptTools、提问策略统一及 6 组回归测试已落地,待统一验收提交〕
+- [x] 2.2 【A-02】【子】抽出纯函数。〔实现完成: Codex-root 2026-09-28;辅助函数、GoalPromptTools、提问策略统一及 6 组回归测试已落地,待统一验收提交〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 函数体逐字搬迁到以下文件:
     - `detail/agent_payloads`;
     - `request/provider_history`、`request/request_context`;
@@ -61,7 +61,7 @@
   - 验证:
     - 新增 `tests/agent/{goal,request,turn,recovery,approval,transcript}/*_test.cpp` 纯函数单测,写中文注释;
     - `RequestPrefixIsByteStableAcrossIterationsInATurn`、`agent_loop_goal_test`、`AgentLoopSkillContext.*`、`system_prompt_test` 全部通过。
-- [ ] 2.3 【A-03】【主】把同一个类拆到多个 TU。〔实现完成: Codex-root 2026-09-28;成员定义已按职责搬迁,权限门单列,原函数体保留,待统一验收提交〕
+- [x] 2.3 【A-03】【主】把同一个类拆到多个 TU。〔实现完成: Codex-root 2026-09-28;成员定义已按职责搬迁,权限门单列,原函数体保留,待统一验收提交〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 成员函数定义按簇整块搬到 design.md §5 表中的文件,函数体不改;
   - 权限门那一段(约 5070-5630)直接落到 `approval/tool_permission_gate.cpp`(LR-22);
   - PA 相关成员 TU 放在 `recovery/pa_rescue_host.cpp`,不放进 pa 目录(LR-9);
@@ -73,7 +73,7 @@
     - `git diff --stat` 显示 agent_loop.cpp 只减不增;
     - `git blame -C` 抽查可追溯;
     - 所有新文件不超过 1000 行(`turn/turn_runner.cpp` 过渡期容纳约 905 行)。
-- [ ] 2.4 【A-04】【主】把 `execute_tool_calls` 里的 lambda 提升为成员函数。〔实现完成: Codex-root 2026-09-28;10 个 lambda 已提升,ToolBatchState 显式携带短期引用,前言由参数传入,待统一验收提交〕
+- [x] 2.4 【A-04】【主】把 `execute_tool_calls` 里的 lambda 提升为成员函数。〔实现完成: Codex-root 2026-09-28;10 个 lambda 已提升,ToolBatchState 显式携带短期引用,前言由参数传入,待统一验收提交〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `run_tool_with_lifecycle`、`execute_single_tool`、`maybe_guard_tool` 与写路径 runner 原样提升为私有成员;
   - `[&]` 捕获的局部改成显式参数结构 `ToolBatchState`(引用传递,暂不改数据流);
   - `current_step_preamble_` 改为显式参数。
@@ -86,7 +86,7 @@
       - `agent_loop_ask_user_question_parallel_test`、`agent_loop_computer_use_scheduling_test`;
       - `agent_loop_tool_result_storage_test`、`agent_loop_termination_test`;
     - `audit_sandbox` 早绑定与 daemon ask 分支晚求值两处时机,经 code review 逐条确认。
-- [ ] 2.5 【A-05】【主】RAII 原语落地,依赖 ownership 的 P2-01。〔实现完成: Codex-root 2026-09-28;取消信号、provider/忙碌/桌面租约作用域、同步保护器与共享进度已迁入,新增取消/异常/析构用例,待统一验收〕
+- [x] 2.5 【A-05】【主】RAII 原语落地,依赖 ownership 的 P2-01。〔实现完成: Codex-root 2026-09-28;取消信号、provider/忙碌/桌面租约作用域、同步保护器与共享进度已迁入,新增取消/异常/析构用例,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `ActiveProviderScope` 替换四处手工 set/clear,删除 recover 中 `active_provider_.reset()` 这个兜底;
   - `BusyCycleScope`:析构时检查 `std::uncaught_exceptions()`,异常路径跳过终态;
   - `SessionLease` 替换 `DesktopTurnLease` 与 6663 行的手工释放;
@@ -102,7 +102,7 @@
 
 ## 3. 协作类(按依赖从下往上)
 
-- [ ] 3.1 【A-06】【主】队列与回合门(LR-4:排在其它协作类之前)。〔实现完成: Codex-root 2026-09-28;独立 AgentTaskQueue/ActiveTurnGate/TaskHandoff 已接入,队列扫描使用 deque 迭代器,优先级/容量/并发确认/交接锁序用例待统一验收;关停暂不清队列〕
+- [x] 3.1 【A-06】【主】队列与回合门(LR-4:排在其它协作类之前)。〔实现完成: Codex-root 2026-09-28;独立 AgentTaskQueue/ActiveTurnGate/TaskHandoff 已接入,队列扫描使用 deque 迭代器,优先级/容量/并发确认/交接锁序用例待统一验收;关停暂不清队列〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `AgentTaskQueue`:deque 双 FIFO、priority 优先、迭代器扫描,不再整队拷贝;
   - `ActiveTurnGate`:`interrupt(expected, input, queue&)` 这类「gate 锁内再取队列锁」的原子操作,是唯一允许的方向;
   - `TaskHandoff`:跨 loop 锁序 `source.queue → target.queue`;
@@ -112,7 +112,7 @@
     - `agent_loop_turn_steering_test`(`InterruptAcceptanceCommitsExactlyOnce`、`EveryAcceptedFinalBoundaryRaceInputIsCommitted`)、`agent_loop_question_interjection_test`、`AgentLoopTaskHandoff.*`、`session_registry_test`、`web_server_smoke_test::QuestionInterjectResolvesPendingQuestionInSameTurn` 通过;
     - 新增 `tests/agent/worker/agent_task_queue_test.cpp` 与 `tests/agent/turn/active_turn_gate_test.cpp`,覆盖优先级 FIFO、128 上限、exactly-once、锁序;
     - Linux 下用 TSan 跑一遍 agent 相关用例。
-- [ ] 3.2 【A-07】【主】历史与转录。〔实现完成: Codex-root 2026-09-28;ConversationHistory 收口模型历史写入,TranscriptWriter/TrajectoryRecorder/TurnOutcomeRecord 已接入,可变数组出口改为 history_on_worker,空闲写入先告警,单槽订阅由 LifetimeToken 等待在途回调,待统一验收〕
+- [x] 3.2 【A-07】【主】历史与转录。〔实现完成: Codex-root 2026-09-28;ConversationHistory 收口模型历史写入,TranscriptWriter/TrajectoryRecorder/TurnOutcomeRecord 已接入,可变数组出口改为 history_on_worker,空闲写入先告警,单槽订阅由 LifetimeToken 等待在途回调,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `ConversationHistory` 成为 `messages_` 的单写者,收口约 30 个写入点;
   - `TranscriptWriter` 收纳 `dispatch_message` 等;
   - `TrajectoryRecorder` 做成 RAII 卸载的单槽 observer,注释写明只有一个槽位;
@@ -124,7 +124,7 @@
     - `agent_loop_trajectory_test`、`agent_loop_session_summary_event_test`、turn_steering 中的重试用例、`session_resume_restore_test`、`builtin_commands_test`(/clear)、termination(消息 id 与 JSONL 重读一致)、thread_service 相关测试通过;
     - 新增 `conversation_history` 单测;
     - R11 检查显示 `messages_` 的写入只出现在 `transcript/conversation_history.cpp`。
-- [ ] 3.3 【A-08】【主】低耦合协作类。〔实现完成: Codex-root 2026-09-28;GoalRuntime/AgentHookBridge/ToolHookBridge/WorkspaceBoundary/SessionExecSecurity 已接入,游标与请求上下文使用叶子锁,审批作用域保留异常语义,线程归属表与并发/重入/析构用例待统一验收〕
+- [x] 3.3 【A-08】【主】低耦合协作类。〔实现完成: Codex-root 2026-09-28;GoalRuntime/AgentHookBridge/ToolHookBridge/WorkspaceBoundary/SessionExecSecurity 已接入,游标与请求上下文使用叶子锁,审批作用域保留异常语义,线程归属表与并发/重入/析构用例待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `GoalRuntime`:叶子锁,只保护游标;`maybe_continue` 在锁外读取;线程归属表登记从并行只读线程进入的入口;
   - `AgentHookBridge`:request context 队列加锁 swap-drain,`stop_hook_active_` 保持跨回合;
   - `ToolHookBridge`:`PermissionHookSession` 做成 RAII;
@@ -133,14 +133,14 @@
   - `set_cwd` 的扇出顺序原样保留在门面里。
   - 前置:3.2。
   - 验证:`agent_loop_goal_test`、`goal_command_test`、`hook_agent_loop_test`、`agent_loop_workspace_folders_test`、`agent_loop_auto_mode_test`、`audit_log_test`、`spawn_subagent_tool_test`、`session_registry_test`(sandbox 命令、刷新)通过;黄金序列一致。
-- [ ] 3.4 【A-09】【主】旁路问答与进度(D11)。〔实现完成: Codex-root 2026-09-28;SideQuestionService/ActivityNarrator/AgentProgressEmitter/RetryProgressReporter 已接入,回收请求线程、叶子锁外回调和三路重试出口已统一,三处 tool_preamble 临时豁免已收回;待 A-13 将 shared emitter 纳入 TurnContext,用例待统一验收〕
+- [x] 3.4 【A-09】【主】旁路问答与进度(D11)。〔实现完成: Codex-root 2026-09-28;SideQuestionService/ActivityNarrator/AgentProgressEmitter/RetryProgressReporter 已接入,回收请求线程、叶子锁外回调和三路重试出口已统一,三处 tool_preamble 临时豁免已收回;待 A-13 将 shared emitter 纳入 TurnContext,用例待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `SideQuestionService`:保持一个请求一个线程,线程容器换成可回收的 JoiningThread 表,shutdown 后抑制回调;`side_chat` 的 `chat_stream` 调用点登记进 R11;
   - `ActivityNarrator`:叶子锁,修掉重入陷阱但不改变输出;
   - `AgentProgressEmitter`:由 TurnContext 以 shared_ptr 持有;
   - `RetryProgressReporter`:三处共用。
   - 前置:3.3。
   - 验证:`SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMutation`、`side_chat_test`、`PostSideQuestionWorksBeforeFirstMainRequest`、`agent_loop_tool_preamble_test` 六条、`model_retry_status_test` 通过。
-- [ ] 3.5 【A-10】【主】请求组装与模型步。〔实现完成: Codex-root 2026-09-28;请求值快照、统一静态前缀、PromptContextCache、每步 ActiveModelView、受寿命保护的 ProviderStreamCollector、用量与轨迹协作类已接入;缓存边界/晚到回调/异常记账用例待统一验收〕
+- [x] 3.5 【A-10】【主】请求组装与模型步。〔实现完成: Codex-root 2026-09-28;请求值快照、统一静态前缀、PromptContextCache、每步 ActiveModelView、受寿命保护的 ProviderStreamCollector、用量与轨迹协作类已接入;缓存边界/晚到回调/异常记账用例待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `ApiRequestBuilder` 接收 `RequestBuildInputs` 值快照,`drain_hook_request_context` 挪到调用方;
   - 合并静态 system prompt 的重复构造,输出必须逐字节一致;
   - `PromptContextCache::reset_on_cwd_change` 只清 git 快照;
@@ -152,7 +152,7 @@
     - termination 中的 `TransientRetryResetsProvisionalStateAndReportsProgress`、`RecoveryPreservesAccountedUsageWhenConsumerThrows`、空回复与文本调用纠正;
     - `agent_loop_apply_patch_test`、`agent_loop_tool_protocol_names_test`、`agent_loop_plan_mode_test`、`system_prompt_test`、`trajectory_legacy_projection_test`;
     - P0-11 的静态 system prompt 一致性用例。
-- [ ] 3.6 【A-11】【主】恢复链与 PA 接触点。〔实现完成: Codex-root 2026-09-28;CompactionController/窗口链、ContextOverflowRecovery 和 adapters/pa/PaRescueDriver 已接入,受限接触点已登记,手动压缩保持无机械兜底;取消/顺序用例与 PA 移除演练待统一验收〕
+- [x] 3.6 【A-11】【主】恢复链与 PA 接触点。〔实现完成: Codex-root 2026-09-28;CompactionController/窗口链、ContextOverflowRecovery 和 adapters/pa/PaRescueDriver 已接入,受限接触点已登记,手动压缩保持无机械兜底;取消/顺序用例与 PA 移除演练待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `ContextOverflowRecovery` 返回 {决策, timing_status};
   - PA 兜底的纯逻辑移到 `src/adapters/pa/pa_rescue_driver`,经 `PaRescueHost` 接口取副作用;
   - `CompactionController` 持有窗口链与 `compact_generation`,手动压缩路径保持没有机械兜底;
@@ -161,7 +161,7 @@
   - 验证:
     - `agent_loop_pa_rescue_test` 六条、`tests/pa/*`、`agent_loop_compact_events_test`(溢出恢复、`FailedAutoCompactIsAtomicAndRetriesOnNextTurn`、手动 /compact)、`agent_loop_goal_test`、hook 的 PreCompact/PostCompact 通过;
     - **演练删除 `src/adapters/pa/`,确认只需要改表中列出的位置。**
-- [ ] 3.7 【A-12】【主】工具执行与权限门,分两个提交:先改数据流,再抽类。〔实现完成: Codex-root 2026-09-28;数据流与协作类分别保存阶段快照;ToolCallOutcome/ToolCallSlot/FutureJoinGuard、独立工具链、单一 PermissionVerdict 审批门、早绑定沙盒审计/晚读取详情与提问时机已接入;新增边界/审计/提问/晚到回调用例,待统一验收〕
+- [x] 3.7 【A-12】【主】工具执行与权限门,分两个提交:先改数据流,再抽类。〔实现完成: Codex-root 2026-09-28;数据流与协作类分别保存阶段快照;ToolCallOutcome/ToolCallSlot/FutureJoinGuard、独立工具链、单一 PermissionVerdict 审批门、早绑定沙盒审计/晚读取详情与提问时机已接入;新增边界/审计/提问/晚到回调用例,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 数据流:`ToolBatchState` / `ToolCallSlot` / `ToolCallOutcome` 取代原来的四个平行数组;并行线程只返回值,用 `FutureJoinGuard` 显式 join;`ToolBatchOutcome` 作为返回值交出 terminate 与 post_turn_actions。
   - 抽类:`ToolInvoker`、`ToolCallLifecycle`、`ToolLifecycleEvents`、`AskQuestionBinding`、`ToolResultPresenter`、`ToolResultCommitter`、`ToolCallMessage`、`ToolContextFactory`。其中 ToolContextFactory 组合 WorkspaceBoundary 与 SessionExecSecurity 来实现 `ToolSessionHost`,并提供 `for_user_shell` 变体。
   - 权限门:`ToolPermissionGate::decide` 返回 `PermissionVerdict`,仍是唯一审批入口;另有 `ExecPermissionGate`、`PathAccessPolicy`、`PermissionAuditScope`、`PermissionConfirmation`。
@@ -171,7 +171,7 @@
     - `agent_loop_tool_lifecycle_events_test`、`agent_loop_auto_mode_test`、`agent_loop_goal_test`(`UnattendedGoalAutoApprovesDangerousBashInsideSandbox` 等)、`agent_loop_plan_mode_test`、termination(`TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult`、`TerminalSessionActionRunsAfterDoneAndStopsLaterWrites`、`UnknownToolErrorListsModelFacingNames`)、`agent_loop_tool_result_storage_test`、`agent_loop_metadata_injection_test`、`agent_loop_ask_user_question_parallel_test`、`agent_loop_computer_use_scheduling_test`、`agent_loop_doom_guard_test`、`hook_agent_loop_test`、`spawn_subagent_tool_test`、`permissions_test`、`worktree_tool_test` 通过;
     - 新增 `path_access_policy`、`permission_audit`、`ask_question_binding` 单测;
     - R11 检查显示审批决策与审计只出现在登记的文件里。
-- [ ] 3.8 【A-13】【主】回合编排。〔实现完成: Codex-root 2026-09-28;TurnRunner 与 ModelStepSink 已接线,worker 独占 TurnContext,正常/Hook/异常终态使用同一有序步骤表;ResponseRecovery、AssistantOutput、UserShellTask 已外提,新增空上下文恢复/观察者异常/非对话终态/文本纠正边界用例;全部待统一验收,门面行数与旧接口清理随 A-14/A-17 收尾〕
+- [x] 3.8 【A-13】【主】回合编排。〔实现完成: Codex-root 2026-09-28;TurnRunner 与 ModelStepSink 已接线,worker 独占 TurnContext,正常/Hook/异常终态使用同一有序步骤表;ResponseRecovery、AssistantOutput、UserShellTask 已外提,新增空上下文恢复/观察者异常/非对话终态/文本纠正边界用例;全部待统一验收,门面行数与旧接口清理随 A-14/A-17 收尾〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `TurnRunner` 骨架不超过 450 行;`ModelStepSink` 与 `PaRescueHost` 由 TurnRunner 或 adapter 实现;
   - `TurnContext` 由 `worker_main` 在任务结束时统一 reset,recover 对空指针兜底;
   - `TurnFinalizer` 把三份终态序列合成一张有序步骤表,差异点逐项保留;
@@ -183,7 +183,7 @@
 
 ## 4. 注入与收尾
 
-- [ ] 4.1 【A-14】【主】构造注入与装配。〔实现完成: Codex-root 2026-09-28;构造/启动分离,两个 prompter 归 loop 独占,成员按依赖排序;CallbacksSlot 与运行期 loop 配置原子发布,TUI/SessionRegistry(含子代理)已接新构造;进程服务可注入,夹具和装配用例已补;旧测试及接口随 A-17 删除,待统一验收〕
+- [x] 4.1 【A-14】【主】构造注入与装配。〔实现完成: Codex-root 2026-09-28;构造/启动分离,两个 prompter 归 loop 独占,成员按依赖排序;CallbacksSlot 与运行期 loop 配置原子发布,TUI/SessionRegistry(含子代理)已接新构造;进程服务可注入,夹具和装配用例已补;旧测试及接口随 A-17 删除,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 新增 `AgentLoop(AgentLoopServices, AgentLoopOptions)` 与 `start()`;
   - 两个 prompter 保留「只能在 `start()` 之前调用」的 setter(D13);AskUserQuestionPrompter 由 AgentLoop 独占,SessionEntry 只持借用别名(D14);
   - 成员声明顺序与装配 DAG 按 design.md §3 执行,写进 hpp 注释;
@@ -196,7 +196,7 @@
     - acecode、acecode_testable、acecode_unit_tests、desktop 四个目标都能构建;
     - `session_registry_test`、subagent 相关、`web_server_smoke_test`、`headless_ask_result_test` 通过;
     - 手工冒烟:TUI 一轮对话 + `/btw` + `/compact` + `!cmd`;daemon 下 Web 一轮对话 + 权限弹窗 + 提问插话。
-- [ ] 4.2 【A-17】【子】删除过渡接口,测试迁到 fixture,更新文档。〔实现完成: Codex-root 2026-09-28;64 处测试构造切换公共 fixture 依赖装配,旧五参构造与会话/Hook/记忆服务回填 setter 已删除;删除 A-13 遗留的无调用门面委托,更新 CLAUDE/架构入口说明;四个配置及动态 skill/expert 接口随 O-10 收口,行数/行覆盖/全量测试待统一验收〕
+- [x] 4.2 【A-17】【子】删除过渡接口,测试迁到 fixture,更新文档。〔实现完成: Codex-root 2026-09-28;64 处测试构造切换公共 fixture 依赖装配,旧五参构造与会话/Hook/记忆服务回填 setter 已删除;删除 A-13 遗留的无调用门面委托,更新 CLAUDE/架构入口说明;四个配置及动态 skill/expert 接口随 O-10 收口,行数/行覆盖/全量测试待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 17 个以上的用例改用 `agent_loop_fixture.hpp`;
   - 直接删除旧构造,以及已被 `AgentLoopServices` 取代的 setter(`set_session_manager`、`set_hook_manager`、`set_skill_usage_store`、`set_skill_idle_days`、`set_memory_registry` 等),不留 deprecation 周期;
   - 四个 `set_*_config` 由 ownership 的 O-10 删除;
@@ -206,7 +206,7 @@
 
 ## 5. 验收
 
-- [ ] 5.1 【P6A 完成】按 design.md §8 逐条核对:
+- [x] 5.1 【P6A 完成】按 design.md §8 逐条核对:〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 行数:agent_loop.cpp ≤ 900、hpp ≤ 450、engine/agent 下所有文件 ≤ 1000;
   - 行号覆盖率 100%;
   - R11 白名单;

@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-## src 分层搬迁窗口预告
+## src 分层搬迁交付记录
 
 2026-09-29 用户最新决定:取消等待 06:00 候选窗口,一期现已完成约定的 Windows 验收,立即提交并 push。原公告中的最早开始时间由本条覆盖;通过受保护 master 所需的 PR 完成交付,九个旧 ref/worktree 与已批准的补验安排保持。
 
 2026-09-28 公告:按 [重构设计 D3 / §8.3](openspec/changes/refactor20260927-restructure-src-layers/design.md),P3-02 候选冻结窗口为 **2026-09-29 06:00–18:00(Asia/Taipei,UTC+08:00)**。最早开始时间保留至少一天的公告期;只有 P2 全部验收、P3-01 演练通过后才进入窗口,未满足时顺延并更新本公告。
 
-现按用户最新指令进入交付窗口,仅暂停其它任务向 master 合入 src/、tests/ 和 CMake 变更;P3 从当时最新 master 重新生成机械搬迁提交,通过约定闸门、合入并打 post-src-layout 标签后解除冻结。原有工作区和未合入分支继续保留,按映射表迁移;不得提前勾选 P3-02。
+2026-09-29 已完成主线搬迁并解除冻结:[PR #87](https://github.com/tmoonlight/acecode/pull/87) 已合入 master,post-src-layout 指向 1483069f2b97cde11953da1e5e15c8601e71f464。pre-src-layout、机械提交 blame 登记和 Windows 验收记录均已完成。九个旧 ref/worktree 保留原状,迁移另行安排;不得将保留误记为弃用。
 
 2026-09-28 D27(用户最新指令,优先于 D26 和旧的逐任务流程):剩余一期全部在当前 master 检出实施,先完成全部实现,最后集中做 Windows 本机全量验收,完成后一起提交并 push;中途不新建任务分支/worktree、不逐任务提交/推送、不跑跨端 CI。过程中只做必要的编辑/迁移一致性核对;实施状态与验收状态分别记录。跨端补验暂留后续安排,一期实现范围与 D6–D9 行为约定保持。详情见 restructure-src-layers/design.md D27。
 

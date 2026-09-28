@@ -2,7 +2,7 @@
 
 > **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
 
-> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;用户已取消等待原定 06:00 窗口,提交与 push 尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
+> **本次 Windows 验收与主线交付(2026-09-29):** 已通过 [PR #87](https://github.com/tmoonlight/acecode/pull/87) 合入 master,pre/post-src-layout 标签已推送。C++ 5294 通过、9 SKIP、0 失败,Windows ASan 489 条通过,严格闸门与实测证据见母 change 的 verification/windows-phase1-validation.md。以下完成勾选按用户确认的 Windows 范围;人工专项及九个旧 ref 的迁移后补,云端 CI/CD 依最新指令启动后次日查看结果。
 
 > **开工前必读**:
 > - `refactor20260927-restructure-src-layers/design.md` §6「提交与协作约定」;
@@ -47,14 +47,14 @@
 
 ## 2. 入口与启动(restructure 的 P3 之后开始)
 
-- [ ] 2.1 【B-01】【子】基础设施。〔实现完成: Codex-root 2026-09-28;屏幕接口与 fake、统一 trace 配置头/调用宏、单调时钟和 testable 同名实现登记闸门已落地;待一期末尾验证 trace 双配置和缺项失败场景〕
+- [x] 2.1 【B-01】【子】基础设施。〔实现完成: Codex-root 2026-09-28;屏幕接口与 fake、统一 trace 配置头/调用宏、单调时钟和 testable 同名实现登记闸门已落地;待一期末尾验证 trace 双配置和缺项失败场景〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 新增 `screen_port.hpp`(IScreenPort,含 `dimx()`)与 `fake_screen_port`;
   - 新增 `input/input_trace.hpp`:trace 函数只在 `#if` 内声明,调用点用宏包裹;`ACECODE_TUI_INPUT_TRACE` 对所有编译 TUI 源的目标生效,或改用 configure_file 生成的配置头;
   - `monotonic_milliseconds` 迁到 `redraw_pacer.hpp` 或 utils;
   - CMake 断言:凡是被 tests include 的 `apps/tui/**/*.hpp`,如果有对应 `.cpp`,该 `.cpp` 必须在 testable 中。
   - 前置:restructure 4.2(P3-02)。
   - 验证:trace 开和关两种配置都能构建;故意漏登记一个 `.cpp`,configure 报错。
-- [ ] 2.2 【B-02】【子】CLI 入口外提。〔实现完成: Codex-root 2026-09-28;进程环境、CLI 分派/预命令、升级参数和 UTF-8 argv 已迁入目标模块,默认资源对账回归 skills;新增参数错误/分派优先级/中文宽字符用例,待统一验收〕
+- [x] 2.2 【B-02】【子】CLI 入口外提。〔实现完成: Codex-root 2026-09-28;进程环境、CLI 分派/预命令、升级参数和 UTF-8 argv 已迁入目标模块,默认资源对账回归 skills;新增参数错误/分派优先级/中文宽字符用例,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `apps/cli/{process_environment,command_dispatch,pre_tui_commands}`、`adapters/upgrade/upgrade_cli_args`、`base/platform/utf8_command_line`,函数体逐字搬迁;
   - `reconcile_default_skills_on_startup` 移到 `domain/skills/default_skill_startup`(MR-2)。
   - 前置:2.1。
@@ -62,7 +62,7 @@
     - 新增 `upgrade_cli_args`、`command_dispatch`、`utf8_argv` 单测;
     - `test.yml:118` 的 `--validate-models-registry` 步骤通过;`tests/scripts/verify_package_test.sh` 通过;
     - 手工验证 `--version`、`help`、`-p --help`、退出码 64 / 65、中文 `-p` 参数、Windows 双击启动。
-- [ ] 2.3 【B-03】【主】启动引导外提。〔实现完成: Codex-root 2026-09-28;环境、终端控制、运行时初始化、worktree 收尾、初始 UI 状态和命令注册已外提,TUI 七条默认规则归 permissions;调用顺序原位保留,新增默认规则/初始状态/工具进入后退出清理用例;待统一验收〕
+- [x] 2.3 【B-03】【主】启动引导外提。〔实现完成: Codex-root 2026-09-28;环境、终端控制、运行时初始化、worktree 收尾、初始 UI 状态和命令注册已外提,TUI 七条默认规则归 permissions;调用顺序原位保留,新增默认规则/初始状态/工具进入后退出清理用例;待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 外提 `app/startup_environment`、`app/tui_runtime_init`;
   - `app/startup_worktree`:提供 `bootstrap_startup_worktree` 与 `finalize_session_worktree_on_exit(SessionManager&)` 两个 API,退出收尾只以 `SessionManager::active_worktree()` 为数据源;domain/worktree 只保留纯 git 操作;
   - 外提 `model/initial_state`、`domain/permissions/default_rules`(函数名带 tui)、`commands/command_bootstrap`;
@@ -75,19 +75,19 @@
 
 ## 3. 视口、渲染与输入
 
-- [ ] 3.1 【B-04】【子】纯逻辑叶子。〔实现完成: Codex-root 2026-09-28;附件和输入历史归 session/history,状态提示、渲染版本、回合判定、含上一帧宽度的布局和 rewind 模式已外提;旧前置声明删除,新增边界用例并登记 testable,待统一验收〕
+- [x] 3.1 【B-04】【子】纯逻辑叶子。〔实现完成: Codex-root 2026-09-28;附件和输入历史归 session/history,状态提示、渲染版本、回合判定、含上一帧宽度的布局和 rewind 模式已外提;旧前置声明删除,新增边界用例并登记 testable,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - `domain/session/composer_attachments`、`domain/history/input_history_recorder`、`model/status_line`(完成后删掉 200-203 的前置声明)、`chat/message_render_revision`、`model/turn_lifecycle_rules`;
   - `render/frame_layout`:签名带上一帧 chat_box 的宽度(MR-15);
   - `populate_rewind_modes`。
   - 前置:2.3。
   - 验证:每个都有中文注释单测;`frame_layout` 覆盖上一帧宽度为 0 与非 0 两种情况。
-- [ ] 3.2 【B-05】【主】ChatViewport / FrameGeometry 独占几何数据。〔实现完成: Codex-root 2026-09-28;两对象持有测量缓存与反射命中数据,ChatScrollRuntime 和六个包装 lambda 删除,TuiRendererContext 改为借用两个宿主;新增按行滚动/尾部跟随/宽度与展开失效/空转录用例,待统一验收〕
+- [x] 3.2 【B-05】【主】ChatViewport / FrameGeometry 独占几何数据。〔实现完成: Codex-root 2026-09-28;两对象持有测量缓存与反射命中数据,ChatScrollRuntime 和六个包装 lambda 删除,TuiRendererContext 改为借用两个宿主;新增按行滚动/尾部跟随/宽度与展开失效/空转录用例,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 删除 `ChatScrollRuntime` 与 `TuiRendererContext` 中对应的引用字段,以及 6 个视口 lambda。
   - 前置:3.1。
   - 验证:
     - 新增 `chat_viewport` 单测;
     - 手工验证:滚动、拖动滚动条、Ctrl+O、调整终端宽度、resume 后停在尾部、流式跟随(清单第 2、6 小节)。
-- [ ] 3.3 【B-06】【主】只读视图。〔实现完成: Codex-root 2026-09-28;横幅/进度/四类 picker/提示状态/链接气泡已外提,tui_helpers 按职责拆分且旧头和实现删除,调用者直引所属模块;补充气泡位置、屏幕文本和 ask/confirm 命中清空用例,待统一验收〕
+- [x] 3.3 【B-06】【主】只读视图。〔实现完成: Codex-root 2026-09-28;横幅/进度/四类 picker/提示状态/链接气泡已外提,tui_helpers 按职责拆分且旧头和实现删除,调用者直引所属模块;补充气泡位置、屏幕文本和 ask/confirm 命中清空用例,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - header、activity、picker、prompt_status、link_hover;
   - 拆分 `tui_helpers.cpp`:status_chips、regular_sidebar_view、text_cells、thinking_phrases、input_wrap_view;依用户决定不留转发头,所有调用者迁移后删除 `tui_helpers.hpp`;
   - `prompt_status_view` 接收 `render_composer` 回调,只在常规分支调用(MR-6);
@@ -97,7 +97,7 @@
     - Screen 快照测试;tooltip 位置的表驱动测试;
     - ask / confirm 状态下 `input_hit_layout` 保持清空的断言;
     - 清单第 2、4 小节。
-- [ ] 3.4 【B-07】【主】transcript、工具行、浮层与 frame_renderer。〔实现完成: Codex-root 2026-09-28;主入口中的渲染函数/引用袋删除,prepare/消息/工具/浮层/整帧分离;屏幕宿主原位探测并注入 hover,缓存/双重反射/选区补偿顺序保留;新增三布局/摘要展开/补偿/浮层用例,待统一验收〕
+- [x] 3.4 【B-07】【主】transcript、工具行、浮层与 frame_renderer。〔实现完成: Codex-root 2026-09-28;主入口中的渲染函数/引用袋删除,prepare/消息/工具/浮层/整帧分离;屏幕宿主原位探测并注入 hover,缓存/双重反射/选区补偿顺序保留;新增三布局/摘要展开/补偿/浮层用例,待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - prepare_frame_locked 加只读视图;
   - `hover_supported` 由 TuiScreenHost 探测后注入(MR-14);
   - `render_tui_frame` 与 `TuiRendererContext` 从 main.cpp 中消失。
@@ -105,7 +105,7 @@
   - 验证:
     - overlay 与 tool_row 的快照测试,覆盖三种根布局;
     - 手工验证:调用行与结果行成对、diff、长 JSON 折叠、OSC8 链接、选区不漂移(清单第 3、6 小节)。
-- [ ] 3.5 【B-08】【主】浮层输入。〔实现完成: Codex-root 2026-09-28;先编写六状态吞键矩阵与 Ctrl+E/ask Custom 特征用例,随后迁移五类浮层输入和逐键列表入口;三态在原路由位置立即分流,handler 依赖屏幕接口;末尾统一验证,B-10 再覆盖完整路由表〕
+- [x] 3.5 【B-08】【主】浮层输入。〔实现完成: Codex-root 2026-09-28;先编写六状态吞键矩阵与 Ctrl+E/ask Custom 特征用例,随后迁移五类浮层输入和逐键列表入口;三态在原路由位置立即分流,handler 依赖屏幕接口;末尾统一验证,B-10 再覆盖完整路由表〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - **先**落地表驱动的吞键特征测试:所有键 × {无 picker / resume / model / mode / rewind / confirm},另外单列「Ctrl+E 在 picker 打开时仍会切换 tool_result」(MR-8);
   - handler 返回三态 `InputDisposition`(MR-1),只依赖 `input/ports.hpp`(MR-2);
   - 外提 5 个浮层 handler:ask_question_input、confirm_overlay_input、rewind_picker_input、completion_dropdown_input、list_picker_input;slash 与 @路径下拉进 testable。
@@ -114,12 +114,12 @@
     - 特征测试在改造前后都通过;
     - 新增单测:「ask 挂起时 Custom 事件返回 Declined,且不触达后续 handler」,用计数型 fake 断言;
     - 清单第 4 小节。
-- [ ] 3.6 【B-09】【主】composer。〔实现完成: Codex-root 2026-09-28;粘贴/建议/附件/逐键编辑/提交/输入组件/剪贴板键均外提,锁区间原样保留,系统剪贴板经接口注入;FakeScreen/剪贴板/turn 用例已补,待统一验收;临时装配绑定在 B-11 删除〕
+- [x] 3.6 【B-09】【主】composer。〔实现完成: Codex-root 2026-09-28;粘贴/建议/附件/逐键编辑/提交/输入组件/剪贴板键均外提,锁区间原样保留,系统剪贴板经接口注入;FakeScreen/剪贴板/turn 用例已补,待统一验收;临时装配绑定在 B-11 删除〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - paste、suggestions、pending_attachment、edit_keys、submit、input_component、clipboard_keys;
   - unlock / lock 的区间逐行保持原样。
   - 前置:3.5。
   - 验证:FakeScreenPort 加注入剪贴板的单测;清单第 5 小节。
-- [ ] 3.7 【B-10】【主】鼠标、按键与 TuiEventRouter。〔实现完成: Codex-root 2026-09-28;38 个逐键入口按原行号接入三态路由,鼠标/Ctrl+C/全屏事件所有权保持;已补完整六状态矩阵及交互用例,待末尾统一验证〕
+- [x] 3.7 【B-10】【主】鼠标、按键与 TuiEventRouter。〔实现完成: Codex-root 2026-09-28;38 个逐键入口按原行号接入三态路由,鼠标/Ctrl+C/全屏事件所有权保持;已补完整六状态矩阵及交互用例,待末尾统一验证〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 每个模块导出逐键的 handler,路由表逐行列出,带「原行号」列(MR-9);
   - 右键只由 mouse_router 在原位置调用;Ctrl+C 仍用 `post_event(Escape)` 回灌;
   - 事件所有权表加一行「全屏界面激活时 router 不运行」(MR-21);
@@ -129,7 +129,7 @@
 
 ## 4. 装配、生命周期与收尾
 
-- [ ] 4.1 【B-11】【主】提交管线与 agent 桥。〔实现完成: Codex-root 2026-09-28;提交器/命令工厂/回调桥/确认门/回合生命周期已外提,三处命令构造统一且过渡适配器删除;七处重置有逐字段证明,三次回调更新时点保留;标题/通知/全屏的剩余宿主接线随 B-12 对象化,测试待末尾统一执行〕
+- [x] 4.1 【B-11】【主】提交管线与 agent 桥。〔实现完成: Codex-root 2026-09-28;提交器/命令工厂/回调桥/确认门/回合生命周期已外提,三处命令构造统一且过渡适配器删除;七处重置有逐字段证明,三次回调更新时点保留;标题/通知/全屏的剩余宿主接线随 B-12 对象化,测试待末尾统一执行〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - TuiSubmitter、TuiCommandContextFactory(统一 6371 / 6410 / 7263 三处构造)、TuiAgentBridge、TuiOverlayGate、TuiTurnLifecycle;
   - 两阶段装配:先持有 accessor,之后 `attach(AgentLoop&)`,未 attach 时断言;通知窗口信息在调用时查询(MR-4);
   - `set_callbacks` 仍然分三次调用,保持原时序(MR-20);
@@ -138,7 +138,7 @@
   - 验证:
     - 工厂字段集合的断言测试;
     - 手工验证:一轮对话、重试、todo、goal、排队、通知、IM 远程、`/model`、revision 守卫(清单第 2、9 小节)。
-- [ ] 4.2 【B-12】【主】启动任务与外部注册对象化。〔实现完成: Codex-root 2026-09-28;九类任务/注册均有宿主,按原步骤创建,标题/通知/全屏临时接线已删除;动画 tick 和标题生成/重试/会话切换用例已补,待统一验证;Copilot 的借用修复按 O-07 单列〕
+- [x] 4.2 【B-12】【主】启动任务与外部注册对象化。〔实现完成: Codex-root 2026-09-28;九类任务/注册均有宿主,按原步骤创建,标题/通知/全屏临时接线已删除;动画 tick 和标题生成/重试/会话切换用例已补,待统一验证;Copilot 的借用修复按 O-07 单列〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 对象化 UpdateCheckTask、CopilotAuthTask、McpStatusBinding、ModelPoolMonitorSubscription、TuiNotificationBinding、InboundSubmitRegistration、AnimationTicker、FullScreenSurfaces、`host/session_host/auto_title_runner`;
   - 全部用 `optional` / `unique_ptr`,**在原步骤位置 emplace**;
   - AskUserQuestion 工具的注册(原 5431)仍在首回合之前(MR-3)。
@@ -147,7 +147,7 @@
     - 新增 `auto_title_runner`、`animation_tick` 单测;
     - 四种启动场景下,`state.conversation` 的前 N 条与 P0-12 快照逐条一致;
     - 清单第 1、9 小节。
-- [ ] 4.3 【B-13】【主】TuiApp 成员化与关停序列。〔实现完成: Codex-root 2026-09-28;主入口收为进程配置/CLI 分派/TuiApp.run,22 个命名启动阶段与初始 21 步幂等退出序列(O-05/O-07 后为 23 步)共用异常收尾;进程注册原位创建,会话早于 AgentLoop 声明,依赖成员表与逐阶段异常用例已补;待一期末尾统一验收〕
+- [x] 4.3 【B-13】【主】TuiApp 成员化与关停序列。〔实现完成: Codex-root 2026-09-28;主入口收为进程配置/CLI 分派/TuiApp.run,22 个命名启动阶段与初始 21 步幂等退出序列(O-05/O-07 后为 23 步)共用异常收尾;进程注册原位创建,会话早于 AgentLoop 声明,依赖成员表与逐阶段异常用例已补;待一期末尾统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 构造函数只做平凡初始化;`init()` 分阶段执行,异常时 scope guard 走同一个 TuiShutdownSequence(MR-5);
   - 按 design.md §2 补齐成员表(MR-18);
   - 主会话建立(5896-5921)与 AgentLoop 装配(5826-5857)作为命名步骤;SessionManager 的声明移到 AgentLoop 之前;
@@ -164,7 +164,7 @@
 
 ## 5. 验收
 
-- [ ] 5.1 【P6B 完成】按 design.md §10 逐条核对:
+- [x] 5.1 【P6B 完成】按 design.md §10 逐条核对:〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 行数:main.cpp 不超过 80,新文件都不超过 1000;
   - 行号覆盖率 100%;
   - 所有权指标;
