@@ -233,7 +233,7 @@
 
 ## 4. Phase 3:冻结窗口(半天,外加约 1 天验证)
 
-- [ ] 4.1 【P3-01】【主】演练。
+- [ ] 4.1 【P3-01】【主】演练。〔认领: Claude-D26 2026-09-28,临时 worktree N:/Users/shao/acecode-p3-rehearsal,按 D26 只做 Windows 闸门〕
   - 在临时 worktree 里用 `apply_layout.py` 从固定 base 生成 M1 / M2 / M2b / M3,跑完 design.md §7.2「P3」一行的全部闸门,记录耗时,用来估算冻结窗口;
   - 演练分支不推到 master。
   - 前置:Phase 2 全部完成;adopt-ownership-conventions 的 P2-01 已合入。
